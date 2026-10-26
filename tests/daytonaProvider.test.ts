@@ -2,7 +2,7 @@
 // makes (labels, lifecycle settings, snapshot shapes, session commands), the state mapping, the refusal of a
 // stopped sandbox, and the shell scripts it sends (run through a real shell where there is one).
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -359,7 +359,7 @@ describe('Daytona provider', () => {
     expect(sid).toMatch(/^foreman-cmd-[0-9a-f]{16}$/)
     expect(cmd.cmdId).toBe(`${sid}:c1`)
     expect(req.command).toContain(sh(eofMarker(sid)))
-    expect(req.command).toContain(`'node' 'host.js' <"$__f"`)
+    expect(req.command).toContain(sh(`'node' 'host.js'`))
     const input = sb.process.sendSessionCommandInput
     expect(input).toHaveBeenLastCalledWith(sid, 'c1', envLine({ K: 'v' }))
     await cmd.write('par')
@@ -531,35 +531,103 @@ describe('verifyDaytona', () => {
   })
 })
 
-// The scripts as the daemon runs them, in a real POSIX shell (not on Windows, where `bash` may be WSL's).
-const BASH = process.env.FOREMAN_TEST_BASH ?? (process.platform === 'win32' ? null : 'bash')
-const usable = Boolean(BASH && spawnSync(BASH, ['-c', 'command -v mkfifo base64 mktemp node >/dev/null']).status === 0)
+// The scripts as the daemon runs them, in real POSIX shells (not on Windows, where `bash` may be WSL's). The sandbox
+// is Ubuntu (GNU tools), but the scripts keep to POSIX tools and options, so macOS (BSD base64, its own pipes and
+// fifos) runs them the same way and checks them too.
+const SHELLS = (process.platform === 'win32' ? [process.env.FOREMAN_TEST_BASH] : [process.env.FOREMAN_TEST_BASH ?? 'bash', 'sh']).filter(
+  (s): s is string => Boolean(s && spawnSync(s, ['-c', 'command -v base64 mktemp tr node >/dev/null']).status === 0)
+)
 
-describe.skipIf(!usable)('Daytona scripts in a real shell', () => {
+describe.skipIf(!SHELLS.length)('Daytona scripts in a real shell', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'foreman-daytona-'))
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  const posix = (p: string) => p.replace(/\\/g, '/')
+  const node = (code: string, ...args: string[]) => ['node', '-e', code, ...args].map(sh).join(' ')
+  let scripts = 0
 
-  it('execScript returns both streams exactly and the exit code, with stdin closed', () => {
-    const cmdline = ['node', '-e', 'process.stdout.write("no newline");process.stderr.write("e\\u0000rr");process.stdin.on("data",()=>process.exit(9)).on("end",()=>process.exit(4))'].map(sh).join(' ')
-    const r = spawnSync(BASH!, [], { input: execScript(cmdline), encoding: 'utf8' })
-    const parsed = parseExec(r.stdout, r.status ?? undefined)
-    expect(parsed).toEqual({ stdout: 'no newline', stderr: 'e\0rr', code: 4 })
-  })
-
-  it('sessionScript reads env from stdin, runs in cwd, and ends stdin at the marker though the pipe stays open', async () => {
-    const file = path.join(dir, 'cmd.sh')
-    const cmdline = ['node', '-e', 'require("readline").createInterface({input:process.stdin}).on("line",(l)=>console.log("got:"+l+":"+process.env.K)).on("close",()=>{console.log(process.cwd());process.exit(5)})'].map(sh).join(' ')
-    writeFileSync(file, sessionScript(cmdline, { cwd: os.tmpdir(), env: true, stdin: 'EOF_MARK' }))
-    // Like the daemon: the script sourced by a shell whose stdin stays open after the input.
-    const child = spawn(BASH!, ['-c', `. ${sh(file.replace(/\\/g, '/'))}`], { stdio: ['pipe', 'pipe', 'pipe'] })
+  // Like the daemon: the script sourced by a shell whose stdin stays open after the input unless `end`. A script that
+  // hasn't ended in 10 s fails with what it printed, instead of waiting out the test's timeout.
+  async function session(shell: string, script: string, input: string, o: { end?: boolean; env?: NodeJS.ProcessEnv } = {}) {
+    const file = path.join(dir, `cmd${++scripts}.sh`)
+    writeFileSync(file, script)
+    const child = spawn(shell, ['-c', `. ${sh(posix(file))}`], { stdio: ['pipe', 'pipe', 'pipe'], env: o.env ?? process.env })
     let out = ''
+    let err = ''
     child.stdout.on('data', (d: Buffer) => (out += d.toString()))
-    child.stdin.write(envLine({ K: "it's" }))
-    child.stdin.write('one\ntwo\nEOF_MARK\n')
-    const code = await new Promise<number | null>((resolve) => child.on('exit', resolve))
-    child.stdin.destroy()
-    expect(code).toBe(5)
-    expect(out.split('\n').slice(0, 2)).toEqual(["got:one:it's", "got:two:it's"])
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()))
+    child.stdin.on('error', () => undefined)
+    child.stdin.write(input)
+    if (o.end) child.stdin.end()
+    try {
+      const code = await new Promise<number | null>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`the script didn’t end; stdout ${JSON.stringify(out)}, stderr ${JSON.stringify(err)}`)), 10_000)
+        child.on('close', (c) => {
+          clearTimeout(timer)
+          resolve(c)
+        })
+      })
+      return { code, out, err }
+    } finally {
+      child.kill('SIGKILL')
+      child.stdin.destroy()
+    }
+  }
+
+  // What the command saw: its stdin (to EOF), K and its working directory.
+  const report = node('let s="";process.stdin.setEncoding("utf8").on("data",(d)=>s+=d).on("end",()=>{process.stdout.write(JSON.stringify({s,k:process.env.K,cwd:process.cwd()}));process.exit(5)})')
+
+  describe.each(SHELLS)('%s', (shell) => {
+    it('execScript returns both streams exactly and the exit code, with stdin closed', () => {
+      const cmdline = node('process.stdout.write("no newline");process.stderr.write("e\\u0000rr");process.stdin.on("data",()=>process.exit(9)).on("end",()=>process.exit(4))')
+      const r = spawnSync(shell, [], { input: execScript(cmdline), encoding: 'utf8' })
+      expect(parseExec(r.stdout, r.status ?? undefined), r.stderr).toEqual({ stdout: 'no newline', stderr: 'e\0rr', code: 4 })
+    })
+
+    it('execScript keeps output longer than a base64 line exact, and an empty stream empty', () => {
+      const big = Array.from({ length: 2000 }, (_, i) => `${i}\tü\0\n`).join('')
+      const cmdline = node('process.stdout.write(Array.from({length:2000},(_,i)=>i+"\\tü\\u0000\\n").join(""))')
+      const r = spawnSync(shell, [], { input: execScript(cmdline), encoding: 'utf8' })
+      expect(parseExec(r.stdout, r.status ?? undefined), r.stderr).toEqual({ stdout: big, stderr: '', code: 0 })
+    })
+
+    it('needs only the base64 options BSD base64 has: no -w, no file operand', async () => {
+      // A base64 that refuses what macOS's never had, in front of the real one.
+      const real = spawnSync(shell, ['-c', 'command -v base64'], { encoding: 'utf8' }).stdout.trim()
+      const bin = path.join(dir, `bsd-${shell.replace(/\W/g, '')}`)
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(path.join(bin, 'base64'), `#!/bin/sh\nfor a in "$@"; do case $a in -d|-D|--decode) ;; *) echo "base64: invalid option $a" >&2; exit 64 ;; esac; done\nexec ${sh(real)} "$@"\n`, { mode: 0o755 })
+      const env = { ...process.env, PATH: `${posix(bin)}${path.delimiter}${process.env.PATH ?? ''}` }
+      const r = spawnSync(shell, [], { input: execScript(node('process.stdout.write("o");process.stderr.write("e")')), encoding: 'utf8', env })
+      expect(parseExec(r.stdout, r.status ?? undefined), r.stderr).toEqual({ stdout: 'o', stderr: 'e', code: 0 })
+      const s = await session(shell, sessionScript(report, { env: true, stdin: 'EOF_MARK' }), `${envLine({ K: 'v' })}x\nEOF_MARK\n`, { env })
+      expect(JSON.parse(s.out), s.err).toMatchObject({ s: 'x\n', k: 'v' })
+    })
+
+    it('sessionScript reads env from stdin, runs in cwd, and ends stdin at the marker though the pipe stays open', async () => {
+      const cwd = path.join(dir, "it's a dir")
+      mkdirSync(cwd, { recursive: true })
+      const value = "it's $HOME `x`\n\"é\" \\"
+      const r = await session(shell, sessionScript(report, { cwd: posix(cwd), env: true, stdin: 'EOF_MARK' }), `${envLine({ K: value })}one\ntwo\nEOF_MARK\nafter\n`)
+      expect(r.code, r.err).toBe(5)
+      // Only the lines before the marker; the command's own output byte for byte.
+      expect(JSON.parse(r.out)).toEqual({ s: 'one\ntwo\n', k: value, cwd: realpathSync(cwd) })
+    })
+
+    it('sessionScript passes a last line without a newline when its stdin ends before any marker', async () => {
+      const r = await session(shell, sessionScript(report, { stdin: 'EOF_MARK' }), 'a\nb', { end: true })
+      expect(r.code, r.err).toBe(5)
+      expect(JSON.parse(r.out)).toMatchObject({ s: 'a\nb' })
+    })
+
+    it('sessionScript ends with the command’s exit code, or 128+n for a signal, before any marker arrives', async () => {
+      const exits = await session(shell, sessionScript(node('process.stdout.write("bye");process.exit(7)'), { stdin: 'EOF_MARK' }), 'unread\n')
+      expect(exits).toMatchObject({ code: 7, out: 'bye' })
+      const killed = await session(shell, sessionScript(['sh', '-c', 'kill -TERM $$'].map(sh).join(' '), { stdin: 'EOF_MARK' }), '')
+      expect(killed.code, killed.err).toBe(143)
+      // Without stdin, the command gets /dev/null and the env line is still read first.
+      const plain = await session(shell, sessionScript(report, { env: true }), `${envLine({ K: 'k' })}never read\n`)
+      expect(JSON.parse(plain.out)).toMatchObject({ s: '', k: 'k' })
+    })
   })
 })
 

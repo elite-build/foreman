@@ -117,7 +117,8 @@ const EXEC_MARK = 'FOREMAN-EXEC'
 /**
  * A command run through `process.executeCommand`, which merges stdout and stderr into one text: the command's two
  * streams go to files and come back base64 after its exit code, byte for byte. Its stdin is /dev/null (the daemon's
- * shell reads this script from its own stdin).
+ * shell reads this script from its own stdin). Only POSIX tools and options: base64 wraps its lines on some systems and
+ * takes no file operand or -w on others, so it reads stdin and tr drops the line breaks.
  */
 export function execScript(cmdline: string): string {
   return [
@@ -125,8 +126,8 @@ export function execScript(cmdline: string): string {
     `${cmdline} </dev/null >"$__d/o" 2>"$__d/e"`,
     '__c=$?',
     `printf '${EXEC_MARK} %s\\n' "$__c"`,
-    'base64 -w0 "$__d/o"; echo',
-    'base64 -w0 "$__d/e"; echo',
+    `base64 <"$__d/o" | tr -d '\\n'; echo`,
+    `base64 <"$__d/e" | tr -d '\\n'; echo`,
     'rm -rf "$__d"'
   ].join('\n')
 }
@@ -141,38 +142,28 @@ export function parseExec(result: string, exitCode: number | undefined): Runtime
 /** The line closeStdin sends; the spawn's filter ends the command's stdin on it. Derived from the session id, so a re-attach knows it. */
 export const eofMarker = (sessionId: string) => `FOREMAN_EOF_${sessionId}`
 
-// Passes stdin through line by line until the EOF marker, then exits, which closes the command's stdin. Node pipes
-// are synchronous on Linux, so nothing written before process.exit is lost.
+// Runs the command (argv[2], through /bin/sh) with its own stdin pipe and passes stdin to it line by line until the
+// EOF marker (argv[1]), then ends that pipe; lines after the marker are dropped. Exits as the command does (128+n for
+// a signal), so nothing is left behind. A pipe, not a fifo: macOS may never report a fifo's end to its reader.
 const STDIN_FILTER =
-  'const m=process.argv[1];let b="";process.stdin.setEncoding("utf8");' +
-  'process.stdin.on("data",(d)=>{b+=d;let i;while((i=b.indexOf("\\n"))>=0){const l=b.slice(0,i);b=b.slice(i+1);if(l===m)process.exit(0);process.stdout.write(l+"\\n")}});' +
-  'process.stdin.on("end",()=>{if(b)process.stdout.write(b);process.exit(0)})'
+  'const[m,c]=process.argv.slice(1);let b="",open=true;' +
+  'const p=require("child_process").spawn("/bin/sh",["-c","exec "+c],{stdio:["pipe","inherit","inherit"]});' +
+  'p.stdin.on("error",()=>{});p.on("error",()=>process.exit(127));' +
+  'p.on("exit",(code,sig)=>process.exit(code??128+(require("os").constants.signals[sig]||0)));' +
+  'const end=()=>{open=false;process.stdin.pause();p.stdin.end()};process.stdin.setEncoding("utf8");' +
+  'process.stdin.on("data",(d)=>{if(!open)return;b+=d;let i;while((i=b.indexOf("\\n"))>=0){const l=b.slice(0,i);b=b.slice(i+1);if(l===m)return end();p.stdin.write(l+"\\n")}});' +
+  'process.stdin.on("end",()=>{if(!open)return;if(b)p.stdin.write(b);end()})'
 
 /**
  * A session command's script (run by the session's shell, so all of it in a subshell). With `env`, the first stdin
- * line is envLine's. With `stdin`, the command reads the rest of stdin through a fifo fed by STDIN_FILTER (the daemon
- * keeps a session command's stdin open and has no way to close it); otherwise its stdin is /dev/null.
+ * line is envLine's. With `stdin`, STDIN_FILTER runs the command and ends its stdin at that marker (the daemon keeps a
+ * session command's stdin open and has no way to close it); otherwise its stdin is /dev/null.
  */
 export function sessionScript(cmdline: string, o: { cwd?: string; env?: boolean; stdin?: string }): string {
   const lines = ['(']
   if (o.env) lines.push(`IFS= read -r __e && eval "$(printf '%s' "$__e" | base64 -d)"; unset __e`)
   if (o.cwd) lines.push(`cd -- ${sh(o.cwd)} || exit 1`)
-  if (!o.stdin) lines.push(`exec ${cmdline} </dev/null`)
-  else {
-    lines.push(
-      '__f=$(mktemp -u /tmp/foreman-stdin.XXXXXX) && mkfifo -m 600 "$__f" || exit 1',
-      // fd 3: a background job's stdin would otherwise be /dev/null.
-      'exec 3<&0',
-      `node -e ${sh(STDIN_FILTER)} ${sh(o.stdin)} <&3 >"$__f" 3<&- &`,
-      '__p=$!',
-      'exec 3<&-',
-      `${cmdline} <"$__f"`,
-      '__c=$?',
-      'kill "$__p" 2>/dev/null',
-      'rm -f "$__f"',
-      'exit "$__c"'
-    )
-  }
+  lines.push(o.stdin ? `exec node -e ${sh(STDIN_FILTER)} ${sh(o.stdin)} ${sh(cmdline)}` : `exec ${cmdline} </dev/null`)
   lines.push(')')
   return lines.join('\n')
 }
