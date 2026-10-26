@@ -39,7 +39,7 @@ export function workflowErrors(workflow) {
   assert(Object.keys(workflow.jobs ?? {}).sort().join() === [...jobs, 'summary'].sort().join(), 'CI job inventory changed')
   const names = { types: 'Types', platform: 'Validate / ${{ matrix.platform }} / Node ${{ matrix.node }}', design: 'Design system', mcp: 'MCP coverage', security: 'Security', publication: 'Publication policy', summary: 'CI result' }
   const expectedSteps = {
-    types: ['npm run typecheck'], platform: ['npm test -- --maxWorkers=4', 'npm run build'],
+    types: ['npm run typecheck'], platform: ['node scripts/postinstall.mjs', 'npm test -- --maxWorkers=4', 'npm run build'],
     design: ['npm run check:ui', 'node scripts/check-new-components.mjs "$BASE_SHA"'],
     mcp: ['npm run check:mcp'], security: ['npm run check:security', 'npm audit --audit-level=high'],
     publication: ['npm run check:repository', 'npm run check:licenses']
