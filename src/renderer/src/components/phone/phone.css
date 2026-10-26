@@ -1,0 +1,132 @@
+/* Phone pill, pairing panel and setup dialog. Theme tokens only. */
+
+.phone-pill-wrap {
+  position: relative;
+  min-width: 0;
+  margin-right: 6px;
+  -webkit-app-region: no-drag;
+}
+/* The pill is a ui/ChipButton in a ui/Popover; its state is a ui/Status inside it. */
+.phone-pill {
+  max-width: 180px;
+}
+.phone-pill-label .ui-status__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phone-pop {
+  width: 320px;
+  padding: 12px;
+  overflow-y: auto;
+}
+.phone-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.phone-pop-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+/* ---- pairing panel ---- */
+
+.phone-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.phone-qr-box {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.phone-pair.compact .phone-qr-box {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px;
+}
+.phone-pair.compact .phone-qr-box > img,
+.phone-pair.compact .phone-qr-placeholder {
+  align-self: center;
+}
+.phone-qr-box img {
+  flex: none;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  background: var(--qr-bg);
+}
+.phone-qr-placeholder {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-faint);
+}
+.phone-qr-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.phone-qr-side p {
+  margin: 0;
+}
+.phone-code {
+  font-family: var(--mono);
+  font-size: var(--text-display-phone-code);
+  letter-spacing: 0.15em;
+}
+.phone-actions {
+  display: flex;
+  gap: 8px;
+}
+.phone-devices {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.phone-device {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 12px;
+}
+.phone-device + .phone-device {
+  border-top: 1px solid var(--border);
+}
+.phone-device-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.phone-device .ui-link-btn {
+  margin-left: auto;
+}
+
+/* ---- setup dialog ---- */
+
+.phone-setup-intro {
+  margin: -4px 0 14px;
+}
+.phone-setup-modal .set-section {
+  margin-top: 20px;
+}
+/* The dialog is a standard width now (640): the old 260px floor under a row's text pushed the Wi-Fi and publish controls
+   under their help text. A lower floor lets those two sit beside it again; the long Tailscale row still stacks. */
+.phone-setup-modal .set-row-text {
+  flex-basis: 220px;
+}

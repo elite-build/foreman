@@ -1,0 +1,26 @@
+/* ---- layout ---- */
+
+.app {
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  height: 100%;
+}
+.drag {
+  -webkit-app-region: drag;
+}
+.drag button,
+.drag select,
+.drag input {
+  -webkit-app-region: no-drag;
+}
+.titlebar {
+  height: var(--titlebar);
+  flex: none;
+}
+.main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}

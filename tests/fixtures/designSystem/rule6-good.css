@@ -1,0 +1,5 @@
+/* expect 6=0 */
+/* Layout on ui/ markup, appearance on the feature's own elements, :not(.ui-class). */
+.sidebar .btn { margin: 4px; display: flex; }
+.btn .label { color: var(--text); }
+.row:not(.tag) { background: var(--bg); }

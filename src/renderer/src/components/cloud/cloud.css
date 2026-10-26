@@ -1,0 +1,254 @@
+/* Cloud workspaces: the sidebar and Home glyph, the header pill and banner,
+   the terminal notice, the repository Cloud tab, the Cloud workspaces page and the New workspace dialog's
+   Runs on block. Layout only: the pill, banners, callouts, tags, status and provider cards are ui/ components.
+   Theme tokens only. */
+
+/* ---- glyph, sub-line ---- */
+
+.cloud-glyph {
+  flex: none;
+  color: var(--text-muted);
+}
+.ws-cloud {
+  margin-right: 5px;
+}
+.home-row-title .cloud-glyph,
+.bcard-top .cloud-glyph {
+  margin-right: -2px;
+}
+
+/* ---- terminal notice ---- */
+
+/* Over a cloud terminal while its sandbox sleeps (read-only), with Wake. */
+.cloud-term-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+}
+.terminal.asleep {
+  padding-bottom: 44px;
+}
+/* The cloud glyph on a cloud workspace's terminal tab. */
+.term-cloud {
+  margin-left: 4px;
+  color: var(--text-faint);
+  vertical-align: -1px;
+}
+
+/* ---- Vercel card ---- */
+
+.int-mark.vercel svg {
+  margin-top: -1px;
+}
+
+/* ---- repository Cloud tab ---- */
+
+.cloud-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cloud-num input {
+  width: 72px;
+  text-align: right;
+}
+.cloud-num span {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.cloud-seg-pro {
+  margin-left: 5px;
+}
+.cloud-build {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 16px;
+}
+.cloud-build-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+}
+.cloud-build-icon.ok {
+  color: var(--green);
+  background: var(--add-bg);
+}
+.cloud-build-icon.bad {
+  color: var(--red);
+  background: var(--del-bg);
+}
+.cloud-build-main {
+  flex: 1;
+  min-width: 0;
+}
+.cloud-build-title {
+  font-weight: 500;
+}
+.cloud-build-sub {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.cloud-build-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+.cloud-log-wrap {
+  padding: 0 16px 13px;
+}
+.cloud-log {
+  max-height: 260px;
+  margin: 0;
+  padding: 9px 11px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cloud-log.tail {
+  max-height: 120px;
+}
+textarea.cloud-script {
+  min-height: 120px;
+}
+.cloud-commands code {
+  font-family: var(--mono);
+}
+.cloud-running {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.cloud-run-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  font-size: var(--text-md);
+}
+.cloud-run-row + .cloud-run-row {
+  border-top: 1px solid var(--border);
+}
+.cloud-run-name {
+  font-weight: 600;
+}
+.cloud-run-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cloud-empty {
+  margin: 0;
+  padding: 11px 14px;
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+/* ---- Cloud workspaces page ---- */
+
+.cloud-title-tag {
+  margin-left: 10px;
+  vertical-align: 3px;
+}
+/* The cards are a size container, so they need a width from their parent: fill the row. */
+.cloud-claude {
+  flex: 1;
+  min-width: 0;
+}
+.cloud-paste {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cloud-paste .set-secret-input {
+  flex: 1;
+}
+.cloud-terminal {
+  margin-top: 10px;
+}
+.cloud-usage {
+  display: grid;
+  grid-template-columns: max-content minmax(80px, 160px) 1fr;
+  align-items: center;
+  gap: 9px 16px;
+  padding: 13px 16px;
+  font-size: var(--text-md);
+}
+.cloud-usage-label {
+  color: var(--text-muted);
+}
+.cloud-usage-foot {
+  border-top: 1px solid var(--border);
+  padding: 11px 16px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* ---- New workspace: Runs on ---- */
+
+.nw-cloud {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nw-cloud-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 5px 14px;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.nw-cloud-facts dt {
+  color: var(--text-muted);
+}
+.nw-cloud-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.nw-cloud-facts .ui-link-btn {
+  margin-left: 4px;
+}
+.nw-runs-tag {
+  margin-left: 6px;
+}
+.nw-footnote {
+  margin-right: auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+/* The why-not line under Runs on wraps as text, with its link inline. */
+.nw-cloud .nw-hint {
+  display: block;
+  line-height: 1.5;
+}
+.nw-cloud .nw-hint .ui-link-btn {
+  display: inline;
+}
+
+/* ---- repository Remote tab: the provider picker (RadioCards) ---- */
+
+.cloud-provider-sub {
+  display: block;
+}

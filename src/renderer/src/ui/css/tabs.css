@@ -1,0 +1,138 @@
+/* Tabs: underline (settings pages), pill (filters in a track) and chat (closable, browser-style).
+   A tab keeps its size (flex: none): when the list is too narrow (a narrow window, 200% zoom) the tabs wrap onto another
+   row instead of shrinking onto each other. Wrapping rather than scrolling because the list may hold more than tabs (a
+   menu button, a refresh button) whose menus and focus rings a scrolling box would clip, and because every tab stays
+   visible. The chat variant is the exception: browser-style tabs that close and pile up scroll in one row instead. */
+.ui-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ui-tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  max-width: 100%;
+}
+.ui-tab__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--target-min);
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-md);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-tab__button[hidden] {
+  display: none;
+}
+.ui-tab__button:hover:not(:disabled) {
+  color: var(--text);
+}
+.ui-tab__button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ui-tab__button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-tab__actions {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.ui-tabpanel[hidden] {
+  display: none;
+}
+
+/* underline */
+.ui-tabs--underline > .ui-tablist {
+  border-bottom: 1px solid var(--border);
+}
+.ui-tabs--underline .ui-tab__button {
+  margin-bottom: -1px;
+  padding: 7px 10px;
+  border-bottom: 2px solid transparent;
+}
+.ui-tabs--underline .ui-tab__button[aria-selected='true'] {
+  border-bottom-color: var(--selected-mark);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* pill: a bordered track, the selected tab filled */
+.ui-tabs--pill > .ui-tablist {
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.ui-tabs--pill .ui-tab {
+  flex: 1 0 auto;
+}
+.ui-tabs--pill .ui-tab__button {
+  flex: 1 1 auto;
+  justify-content: center;
+  padding: 3px 4px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.ui-tabs--pill .ui-tab__button[aria-selected='true'] {
+  background: var(--bg-selected);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* chat: the tab and its close button share one rounded surface */
+.ui-tabs--chat > .ui-tablist {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ui-tabs--chat .ui-tab {
+  flex: none;
+  max-width: 220px;
+  gap: 2px;
+  padding: 0 4px 0 9px;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+}
+.ui-tabs--chat .ui-tab:hover {
+  background: var(--bg-hover);
+}
+.ui-tabs--chat .ui-tab[data-selected] {
+  background: var(--bg-raised);
+}
+.ui-tabs--chat .ui-tab__button {
+  flex: 1 1 auto;
+  padding: 0;
+  overflow: hidden;
+  font-size: inherit;
+}
+.ui-tabs--chat .ui-tab[data-selected] .ui-tab__button {
+  color: var(--text);
+}
+.ui-tabs--chat .ui-tab:hover .ui-tab__button:not(:disabled) {
+  color: var(--text-soft);
+}
+/* Close and other actions appear on hover, on the selected tab and whenever focus is inside. */
+.ui-tabs--chat .ui-tab__actions {
+  opacity: 0;
+}
+.ui-tabs--chat .ui-tab:hover .ui-tab__actions,
+.ui-tabs--chat .ui-tab[data-selected] .ui-tab__actions,
+.ui-tabs--chat .ui-tab:focus-within .ui-tab__actions {
+  opacity: 1;
+}

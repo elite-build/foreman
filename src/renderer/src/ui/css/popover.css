@@ -1,0 +1,42 @@
+/* Popover: a non-modal panel beside its trigger. */
+.ui-popover {
+  position: relative;
+}
+/* The size is a default in :where(), so a feature's panelClassName rule sets its own width and height whatever the load order. */
+:where(.ui-popover__panel) {
+  width: 360px;
+  max-height: min(560px, 70vh);
+}
+.ui-popover__panel {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px var(--shadow);
+  color: var(--text);
+  overflow: hidden;
+}
+.ui-popover__panel[data-side='top']:not([data-portal]) {
+  bottom: calc(100% + 8px);
+}
+.ui-popover__panel[data-side='bottom']:not([data-portal]) {
+  top: calc(100% + 8px);
+}
+.ui-popover__panel[data-align='start']:not([data-portal]) {
+  left: 0;
+}
+.ui-popover__panel[data-align='end']:not([data-portal]) {
+  right: 0;
+}
+/* Portalled: drawn in <body>, placed by the component's inline left and top; above a dialog's layer (50). */
+.ui-popover__panel[data-portal] {
+  position: fixed;
+  z-index: 60;
+}
+/* Focus lands on the panel when it holds nothing focusable; it isn't an operable control. */
+.ui-popover__panel:focus {
+  outline: none;
+}

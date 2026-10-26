@@ -1,0 +1,43 @@
+/* ---- layout toggles ---- */
+
+.app.no-sidebar {
+  grid-template-columns: 1fr;
+}
+
+/* Sidebar on the right: it mirrors, so the repository rail stays on the window's edge. */
+.app.sidebar-right > .sidebar {
+  order: 1;
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+.app.sidebar-right .sidebar-body {
+  flex-direction: row-reverse;
+}
+.app.sidebar-right .repo-rail {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+.app.sidebar-right .sidebar-titlebar {
+  flex-direction: row-reverse;
+}
+
+/* Side panel on the left of the chat. */
+.workspace.panel-left > .side-panel {
+  order: -1;
+  border-left: none;
+  border-right: 1px solid var(--border);
+}
+.sidebar-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+}
+/* Room for the traffic lights in whichever header reaches the window's left edge. */
+.app.platform-darwin:not(.main-first) .sidebar-titlebar {
+  padding-left: 76px;
+}
+.app.main-first.platform-darwin .workspace:not(.panel-left.with-panel) .center-header,
+.app.main-first.platform-darwin .workspace.panel-left.with-panel .panel-header {
+  padding-left: 80px;
+}

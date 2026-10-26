@@ -1,0 +1,45 @@
+/* Disclosure: a button that shows or hides a panel. */
+.ui-disclosure__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--target-min);
+  padding: 2px 4px 2px 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-disclosure__button--quiet {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+.ui-disclosure__button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-disclosure__chevron {
+  flex: none;
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+.ui-disclosure__button[aria-expanded='true'] .ui-disclosure__chevron {
+  transform: rotate(90deg);
+}
+.ui-disclosure__panel {
+  padding: 4px 0 0 20px;
+}
+.ui-disclosure__panel[hidden] {
+  display: none;
+}
+/* Reduce Motion: the chevron turns at once. (tokens.css also shortens every transition globally.) */
+html[data-reduce-motion='on'] .ui-disclosure__chevron {
+  transition: none;
+}

@@ -1,0 +1,8 @@
+{
+  "name": "approval-keys",
+  "steps": [
+    { "key": "mod+alt+.", "expect": { "focus": { "role": "group", "name": "^Run this command\\?$", "tag": "^div$" } } },
+    { "key": "Tab", "expect": { "focus": { "role": "button", "name": "^No\\b", "tag": "^button$" } } },
+    { "key": "Enter", "expect": { "absent": [".approval-panel"] } }
+  ]
+}

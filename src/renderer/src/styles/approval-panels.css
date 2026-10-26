@@ -1,0 +1,54 @@
+/* ---- approval and question panels (take the composer's place) ---- */
+
+.approval-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid var(--selected-border);
+  border-radius: var(--radius-lg);
+  background: var(--approval-bg);
+  outline: none;
+}
+.approval-panel:focus-within,
+.approval-panel:focus {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.approval-panel .approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.approval-panel .approval-reason {
+  flex: 1;
+  min-width: 120px;
+}
+.question-tabs {
+  align-self: flex-start;
+}
+.question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* A small CardButton (ui/: outline, hover, selected): the doubled class beats .ui-pressable's display and padding, which
+   load later. */
+.question-options .question-option {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+}
+.option-label {
+  font-weight: 500;
+}
+.question-other {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 0 10px;
+}
+.question-other-input {
+  flex: 1;
+  min-height: 32px;
+}

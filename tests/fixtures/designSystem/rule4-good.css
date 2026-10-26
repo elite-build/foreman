@@ -1,0 +1,8 @@
+/* expect 4=0 */
+/* Tokens, color-mix of tokens, currentColor and transparent; words that only contain a colour name; strings. */
+.a { color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
+.b { border-color: currentColor; white-space: nowrap; }
+.c { animation: blue-pulse 1s ease-in-out; }
+.d::before { content: "#fff white"; }
+.e { font-family: "Red Hat Mono", monospace; }
+.f { background: url("data:image/svg+xml,%23fff"); }

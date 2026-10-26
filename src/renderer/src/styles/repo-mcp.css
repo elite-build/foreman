@@ -1,0 +1,20 @@
+/* Repo MCP servers (R-4) */
+.mcp-consent-list { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+/* Two classes: a ui/ Checkbox centres its row, and ui/ loads after this file. */
+.mcp-consent-list .mcp-consent-row { align-items: flex-start; }
+.mcp-consent-text, .mcp-consent-detail { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mcp-consent-cmd { word-break: break-all; }
+.mcp-changed { color: var(--amber); font-size: var(--text-sm); }
+.mcp-section-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
+.mcp-origin { margin-left: 6px; }
+/* #20: which agents a server reaches: the consent dialog's line, the side panel's chips */
+.mcp-reach { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: var(--text-sm); }
+.mcp-reach-label { color: var(--text-muted); }
+.mcp-reach-yes { display: inline-flex; align-items: center; gap: 10px; }
+.mcp-agent { display: inline-flex; align-items: center; gap: 4px; color: var(--text-soft); }
+.mcp-reach-no { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--border); color: var(--text-faint); }
+.mcp-reach-no .agent-icon.cursor, .mcp-chip-off .agent-icon.cursor { color: var(--text-faint) !important; }
+.mcp-reach-box { margin: 0 6px 6px 20px; }
+.mcp-reach-row { display: flex; flex-wrap: wrap; gap: 4px; font-size: var(--text-xs); }
+.mcp-reach-row.faint { color: var(--text-faint); padding: 1px 0; }
+.mcp-agent-reach { display: flex; align-items: baseline; gap: 6px; line-height: 1.5; }

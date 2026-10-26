@@ -1,0 +1,280 @@
+/* ---- new workspace dialog ---- */
+
+/* Two columns: where the work happens on the left, the first message on the right. The dialog's own padding goes: the
+   columns draw to its edges. Two classes, because ui/'s width and body rules load after this file. */
+.ui-dialog.nw-modal {
+  width: min(960px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 64px));
+}
+.nw-modal .ui-dialog__body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+/* The hairline under the header, and a little more room above it (the standard header only pads 8px below). */
+.nw-modal .ui-dialog__head {
+  padding-bottom: 14px;
+}
+.nw-body {
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+.nw-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 16px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.nw-settings > .field,
+.nw-settings > .nw-note {
+  margin: 0;
+}
+.nw-message {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 20px 18px;
+}
+.nw-repo {
+  max-width: 260px;
+}
+.nw-repo .repo-icon {
+  flex: none;
+}
+.ui-menu.nw-repo-menu {
+  min-width: 200px;
+  max-height: 280px;
+}
+
+/* The source choices stack in the narrow column (a row of three long labels wouldn't fit). */
+.nw-settings .nw-mode {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.nw-mode .ui-segmented__option {
+  justify-content: flex-start;
+}
+
+.nw-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-sm);
+}
+.nw-optional {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+/* Branch choice: the field under "New branch" and the list under "Check out an existing branch". */
+/* RadioList already indents what it holds under its option, so no margin of our own. The help text goes under the
+   field, as before (Field puts its description first). */
+.nw-indent {
+  margin: 0 0 4px;
+}
+.nw-indent .ui-field__description {
+  order: 1;
+}
+.nw-combo {
+  width: 100%;
+}
+/* A little more room between a heading, its control and the hint under it. */
+.nw-settings .dlg-group {
+  gap: 6px;
+}
+
+/* The branch list's rows and the issue menu's rows. */
+.ui-menu.nw-issues-menu {
+  width: 420px;
+  max-height: 320px;
+}
+.linear-issue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Existing worktrees: stacked RadioCards, scrolling when there are many. */
+.nw-trees {
+  max-height: 232px;
+  overflow-y: auto;
+}
+.nw-tree-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nw-tree-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.nw-tree-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+}
+.nw-tree-branch svg {
+  flex: none;
+}
+.nw-dirty {
+  color: var(--amber);
+}
+.nw-trees-empty {
+  padding: 14px 12px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.nw-trees-empty svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+.nw-trees-empty code {
+  font-size: var(--text-sm);
+}
+.nw-browse {
+  margin-top: 2px;
+}
+.intake-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* The signed-out line under the Model field: on its own line. */
+.nw-signin {
+  display: block;
+  margin-top: 4px;
+}
+
+.nw-note {
+  margin: 0 0 14px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.nw-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.nw-prompt-head > label {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.nw-prompt {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+/* The box draws the border and shows focus for the bare TextArea in it. */
+.nw-composer {
+  flex: 1;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-input);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-lg);
+  cursor: text;
+}
+.nw-composer:focus-within {
+  border-color: var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.nw-composer.dragging {
+  border-style: dashed;
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+}
+.nw-composer.disabled {
+  cursor: default;
+}
+.nw-composer .ui-control.ui-textarea {
+  flex: 1;
+  min-height: 60px;
+  padding: 12px 14px;
+}
+.nw-files {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 0 14px 10px;
+}
+.nw-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+}
+.nw-composer-hint {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+.nw-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+/* Too narrow for two columns: one, scrolling as a whole. */
+@media (max-width: 860px) {
+  .ui-dialog.nw-modal {
+    height: auto;
+  }
+  .nw-modal .ui-dialog__body {
+    overflow-y: auto;
+  }
+  .nw-body {
+    display: block;
+  }
+  .nw-settings {
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .nw-settings .nw-mode {
+    flex-direction: row;
+  }
+  .nw-mode .ui-segmented__option {
+    flex: 1;
+    justify-content: center;
+  }
+  .nw-composer {
+    min-height: 220px;
+  }
+}

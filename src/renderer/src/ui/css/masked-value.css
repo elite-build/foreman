@@ -1,0 +1,32 @@
+/* MaskedValue: a secret in a bordered row with its buttons (the buttons are ui-icon-btn, from icon-button.css). */
+.ui-masked {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+}
+.ui-masked__value {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--target-min);
+  padding: 4px 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: copy;
+}
+.ui-masked__value:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}

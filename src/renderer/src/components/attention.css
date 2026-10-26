@@ -1,0 +1,155 @@
+/* #3 Attention history, tray and row glyphs: the PR glyph and its hover card, and Home → Recent. */
+
+/* The glyph is a Pressable (the hover card's trigger) inside this span, which carries its state colour. */
+.pr-glyph {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  flex: none;
+}
+.pr-glyph .ui-pressable {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: var(--target-min);
+}
+.pr-glyph.open {
+  color: var(--green);
+}
+.pr-glyph.merged {
+  color: var(--blue);
+}
+.pr-glyph.ci-failing {
+  color: var(--red);
+}
+/* The last look failed: the colour is kept (it still says open, merged or failing), the stroke goes dashed. */
+.pr-glyph.stale svg {
+  stroke-dasharray: 2.5 1.5;
+}
+.pr-glyph.stale .pr-glyph-num {
+  font-style: italic;
+}
+.home-row-title .pr-glyph {
+  align-self: center;
+}
+
+/* The card itself is ui/HoverCard; this is its content. */
+.pr-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.pr-card-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pr-card-line.ci-failing {
+  color: var(--red);
+}
+.pr-card-foot {
+  display: flex;
+  align-items: center;
+  margin-top: 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+.pr-card-foot .ui-link-btn {
+  gap: 4px;
+}
+.pr-card-note {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.recent-count {
+  align-self: center;
+}
+/* A row is an ActionRow; its main button holds the grid. */
+.home-card .recent-row {
+  padding: 4px 16px;
+}
+.recent-row .recent-flow {
+  display: grid;
+  grid-template-columns: 76px 16px 110px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+.recent-row.seen .recent-text strong {
+  font-weight: 500;
+}
+.recent-row .red {
+  color: var(--red);
+}
+.recent-row .green {
+  color: var(--green);
+}
+.recent-row .amber {
+  color: var(--amber);
+}
+.recent-row .blue {
+  color: var(--blue);
+}
+.recent-time {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.recent-ws {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-text {
+  min-width: 0;
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+}
+.recent-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.recent-text .ui-tag {
+  margin-left: 6px;
+}
+.recent-repeats {
+  margin-left: 8px;
+}
+.recent-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+/* In a narrow Home card the time and the icon stay on the first line with the workspace; the text goes under them. */
+@container (max-width: 520px) {
+  .recent-row .recent-flow {
+    grid-template-columns: auto 16px minmax(0, 1fr) 14px;
+    gap: 2px 10px;
+  }
+  .recent-row .recent-text {
+    grid-column: 3 / -1;
+    grid-row: 2;
+  }
+  .recent-row .recent-flow > svg:last-child {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}

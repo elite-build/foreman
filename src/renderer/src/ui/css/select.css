@@ -1,0 +1,9 @@
+/* Select: the shared `.ui-control` look (field.css). The native arrow stays: it is the control's signifier. */
+:where(.ui-select) {
+  max-width: 100%;
+}
+.ui-control.ui-select {
+  /* The height of a Button and a TextInput, so the three line up side by side. */
+  height: 32px;
+  padding: 0 8px;
+}

@@ -1,0 +1,7 @@
+[
+  { "id": 99105, "name": "review-app", "stage": "deploy", "status": "manual", "allow_failure": true, "duration": null, "web_url": "https://gitlab.acme.dev/acme/ledger-api/-/jobs/99105" },
+  { "id": 99104, "name": "docker-image", "stage": "build", "status": "success", "allow_failure": false, "duration": 125.3, "web_url": "https://gitlab.acme.dev/acme/ledger-api/-/jobs/99104" },
+  { "id": 99103, "name": "unit", "stage": "test", "status": "success", "allow_failure": false, "duration": 91.0, "web_url": "https://gitlab.acme.dev/acme/ledger-api/-/jobs/99103" },
+  { "id": 99102, "name": "eslint", "stage": "lint", "status": "failed", "allow_failure": false, "duration": 48.2, "web_url": "https://gitlab.acme.dev/acme/ledger-api/-/jobs/99102" },
+  { "id": 99101, "name": "integration", "stage": "test", "status": "failed", "allow_failure": false, "duration": 372.4, "web_url": "https://gitlab.acme.dev/acme/ledger-api/-/jobs/99101" }
+]

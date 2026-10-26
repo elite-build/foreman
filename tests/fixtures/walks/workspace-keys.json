@@ -1,0 +1,7 @@
+{
+  "name": "workspace-keys",
+  "steps": [
+    { "key": "mod+alt+PageUp", "expect": { "announced": "^Switched to " } },
+    { "key": "mod+alt+PageDown", "expect": { "announced": "^Switched to " } }
+  ]
+}

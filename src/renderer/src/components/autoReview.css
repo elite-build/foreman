@@ -1,0 +1,31 @@
+/* #17 Auto review: the consent dialog, the reviewer tab's bar, receipt and findings, and Home's stale tag. Tokens only. */
+.ar-budget { display: flex; flex-wrap: wrap; gap: 6px; }
+.ar-prompt { font-size: var(--text-sm); }
+.ar-prompt summary { cursor: pointer; color: var(--text-soft); }
+.ar-prompt pre, .ar-message { max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: normal; }
+.ar-paused { color: var(--amber); }
+
+.ar-tab-lock { flex-shrink: 0; }
+
+/* Where the note bar sits: above the reviewer's chat. */
+.ar-bar { display: flex; align-items: center; gap: 8px; white-space: nowrap; padding: 6px 16px; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.ar-bar .spacer { flex: 1; }
+.ar-bar.running { color: var(--text-soft); }
+.ar-bar.stale, .ar-bar.stopped { background: color-mix(in srgb, var(--amber) 7%, transparent); color: var(--amber); }
+.ar-bar .muted { color: var(--text-muted); }
+
+.ar-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+
+/* Findings: Reviews.tsx's thread markup, in one bordered block. */
+.ar-findings { margin: 8px 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.ar-findings .review-actions { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+.ar-findings .ar-count { margin-right: auto; margin-left: 4px; }
+.ar-findings .review-thread { margin: 0; border: none; border-radius: 0; }
+.ar-findings .review-thread + .review-thread { border-top: 1px solid var(--border); }
+.ar-findings .review-thread-head { background: none; padding: 8px 10px 2px; }
+.ar-findings .review-thread-head .spacer { flex: 1; }
+.ar-findings .review-comment { padding: 0 10px 9px 34px; font-size: var(--text-sm); color: var(--text-soft); }
+.ar-findings .review-comment b { color: var(--text); font-weight: 500; }
+.ar-sent { flex-shrink: 0; font-size: var(--text-xs); color: var(--text-faint); }
+
+.ar-stale { align-self: center; }

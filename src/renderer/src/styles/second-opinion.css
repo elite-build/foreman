@@ -1,0 +1,54 @@
+/* ---- second opinion / continue dialog ---- */
+
+/* A checkbox with what goes with it on the same line (the task picker, the sizes). */
+.handoff-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 3px 0;
+}
+.handoff-task-select {
+  max-width: 320px;
+}
+.handoff-dest {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+}
+.handoff-limit {
+  color: var(--amber);
+}
+.sensitive-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--red);
+}
+.sensitive-files {
+  margin: 6px 0 2px;
+  padding-left: 18px;
+  font-size: var(--text-sm);
+}
+.changes-viewed {
+  padding: 0 8px 4px;
+}
+.change-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* A file marked as viewed reads quieter: muted text (the checkbox says it too). */
+.change-item.viewed .change-name {
+  color: var(--text-muted);
+}
+.change-viewed {
+  flex: none;
+  margin: 0 0 0 4px;
+}

@@ -1,0 +1,80 @@
+/* Segmented: a radio group in one row. Bordered by default, plain (borderless) for pickers and panel headers. */
+.ui-segmented {
+  --ui-seg-track: var(--bg-input);
+  --ui-seg-active: var(--bg-selected);
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--ui-seg-track);
+}
+@media (prefers-color-scheme: light) {
+  .ui-segmented {
+    --ui-seg-track: var(--bg-raised);
+    --ui-seg-active: var(--bg-input);
+  }
+}
+.ui-segmented--plain {
+  --ui-seg-track: var(--bg-raised);
+  --ui-seg-active: var(--bg);
+  border-color: transparent;
+}
+.ui-segmented__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--target-min);
+  padding: 2px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-segmented--plain .ui-segmented__option {
+  padding: 2px 9px;
+}
+.ui-segmented--small .ui-segmented__option {
+  padding: 2px 7px;
+  font-size: var(--text-xs);
+}
+.ui-segmented__option:hover:not(:disabled) {
+  color: var(--text);
+}
+/* The picked option differs by weight and surface, not by colour alone. */
+.ui-segmented__option[aria-checked='true'] {
+  background: var(--ui-seg-active);
+  border-color: var(--border-strong);
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+.ui-segmented--plain .ui-segmented__option[aria-checked='true'] {
+  border-color: transparent;
+}
+.ui-segmented__option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ui-segmented__option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+/* Windows High Contrast drops backgrounds and shadows: the picked option keeps an outline marker inside its edge. */
+@media (forced-colors: active) {
+  .ui-segmented__option[aria-checked='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+    box-shadow: none;
+  }
+  .ui-segmented__option:disabled {
+    color: GrayText;
+    opacity: 1;
+  }
+}

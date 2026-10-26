@@ -1,0 +1,44 @@
+/* ---- Report a problem (O20) ---- */
+.rp-lede { margin: 0; font-size: var(--text-md); line-height: 1.5; }
+.rp-desc { resize: none; }
+.rp-label-line { display: flex; align-items: center; gap: 8px; }
+
+/* The diagnostics editor: a bare TextArea over a copy of its text that marks what will be replaced. The box draws the
+   border and shows focus; both layers share every metric so the marks sit under the right characters. */
+.rp-diag-wrap {
+  position: relative;
+  border: 1px solid var(--border-control); border-radius: var(--radius-md); background: var(--bg-input);
+}
+.rp-diag-wrap:focus-within {
+  border-color: var(--focus-ring);
+  outline: 2px solid var(--focus-ring); outline-offset: 2px; box-shadow: 0 0 0 2px var(--bg);
+}
+.rp-diag-wrap :is(pre, textarea).rp-diag {
+  display: block; box-sizing: border-box; width: 100%; height: 230px; margin: 0;
+  padding: 8px 10px; line-height: 1.55; letter-spacing: normal; tab-size: 4;
+  white-space: pre; overflow: auto;
+}
+/* The copy behind the textarea draws what the TextArea (mono, bare) draws. */
+.rp-diag-wrap pre.rp-diag-copy { border: 0; font-family: var(--mono); font-size: var(--text-sm); }
+.rp-diag-wrap textarea.rp-diag-input { position: relative; }
+.rp-diag-marks { position: absolute; inset: 0; overflow: hidden; color: transparent; pointer-events: none; }
+.report-modal .redact { padding: 0 2px; border-radius: var(--radius-sm); background: var(--selected-tint); color: var(--text); }
+/* Under the editor: no padding, so the marks stay under their characters; the textarea shows the text. */
+.report-modal .rp-diag-marks .redact { padding: 0; border-radius: var(--radius-sm); color: transparent; }
+
+/* Preview issue: exactly what will be posted. */
+.rp-preview {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-input);
+}
+.rp-preview-title { font-weight: 600; font-size: var(--text-md); overflow-wrap: anywhere; }
+.rp-preview-body {
+  margin: 0; max-height: 300px; overflow: auto;
+  font-family: var(--mono); font-size: var(--text-sm); line-height: 1.55; color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+.rp-row { display: flex; align-items: center; gap: 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-panel); }
+.rp-row-text { flex: 1; min-width: 0; }
+.rp-dest { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.rp-dest-label { font-weight: 500; }
+.rp-dest-help { line-height: 1.5; }

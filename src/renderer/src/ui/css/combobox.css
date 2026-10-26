@@ -1,0 +1,75 @@
+/* Combobox: a text field with a list under it. */
+.ui-combobox {
+  position: relative;
+}
+.ui-combobox__field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 9px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: text;
+}
+.ui-combobox__field:has(.ui-combobox__input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-combobox__field[data-disabled] {
+  cursor: default;
+}
+.ui-combobox__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: var(--target-min);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+}
+.ui-combobox__input--mono {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+.ui-combobox__input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+/* With a choice the placeholder is the choice: full text colour. */
+.ui-combobox__input[data-chosen]::placeholder {
+  color: var(--text);
+}
+/* Floating: fixed to the viewport (left, width, top or bottom come from the component). */
+.ui-combobox__popup {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px var(--shadow);
+}
+.ui-combobox[data-inline] .ui-combobox__popup {
+  position: static;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.ui-combobox__empty,
+.ui-combobox__footer {
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}

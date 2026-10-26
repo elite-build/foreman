@@ -1,0 +1,9 @@
+{
+  "name": "chat-turns",
+  "steps": [
+    { "key": "mod+alt+]", "expect": { "focus": { "role": "heading", "level": 3, "name": "^Turn 2, " } } },
+    { "key": "mod+alt+[", "expect": { "focus": { "role": "heading", "level": 3, "name": "^Turn 1, " } } },
+    { "key": "mod+alt+[", "expect": { "focus": { "role": "heading", "name": "^Turn 1, " }, "announced": "^This is the first turn\\.$" } },
+    { "key": "mod+alt+.", "expect": { "announced": "^Nothing needs you\\.$" } }
+  ]
+}

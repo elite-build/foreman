@@ -1,0 +1,59 @@
+/* Tiles layout: a grid of workspace chats. Layout only; each tile is a ui Card. */
+
+.tiles {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tiles-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+/* Room for the traffic lights when the tiles reach the window's left edge. */
+.app.main-first.platform-darwin .tiles-head {
+  padding-left: 80px;
+}
+/* Rows share the height, but never below a height that leaves room for the chat above its composer: past that (more
+   rows than fit, a short window, a large zoom) the grid scrolls. */
+.tiles-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-auto-rows: minmax(340px, 1fr);
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+}
+.tile {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The workspace's name gives way last. */
+.tile-head .header-name {
+  flex-shrink: 0;
+  max-width: 60%;
+}
+.tile-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.tile-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

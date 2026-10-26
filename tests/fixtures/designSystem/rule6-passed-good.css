@@ -1,0 +1,9 @@
+/* expect 6=0 */
+/* Layout on passed classes; appearance on plain elements, on a word that only touches ${…}, and on a locally defined component. */
+.card-pick { display: grid; gap: 8px; padding: 10px; }
+.pick-b, .menu-panel, .row { width: 100%; margin: 0 0 8px; }
+button.menu-trigger { position: relative; }
+.row-main { flex: 1; }
+.plain-div { color: var(--text); border: 1px solid var(--border); }
+.tpl-true { color: var(--text); }
+.shadowed { background: var(--bg-raised); }

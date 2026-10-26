@@ -1,0 +1,12 @@
+/* expect 9=9 */
+/* A look of its own on the feature's own classes: fill, border, radius, shadow, outline, and a divider that isn't plain. */
+.panel { background: var(--bg-raised); }
+.panel { border: 1px solid var(--border-strong); }
+.panel { border-radius: var(--radius); }
+.panel { box-shadow: 0 2px 8px var(--shadow); }
+.panel:focus { outline: 2px solid var(--focus-ring); }
+.panel { border-top: 2px solid var(--border); }
+.panel { border-bottom: 1px solid var(--border-strong); }
+.panel { background-image: linear-gradient(var(--bg), var(--bg-raised)); }
+/* One selector of a list is not generated, so the rule counts. */
+.hljs-keyword, .mine { background: var(--bg-panel); }

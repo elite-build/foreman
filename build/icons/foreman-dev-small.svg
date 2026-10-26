@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="200" fill="#1E1B19"/>
+  <path d="M170 650 C170 380 320 236 512 236 C704 236 854 380 854 650 Z" fill="#59D6E8"/>
+  <rect x="96" y="636" width="832" height="128" rx="64" fill="#59D6E8"/>
+  <path d="M352 400 L484 498 L352 596" fill="none" stroke="#1E1B19" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="520" y="530" width="184" height="88" rx="44" fill="#1E1B19"/>
+  <rect x="644" y="772" width="270" height="168" rx="74" fill="#F5B83D"/>
+  <text x="779" y="898" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="132" font-weight="900" fill="#1E1B19">D</text>
+</svg>

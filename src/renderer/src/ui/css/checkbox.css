@@ -1,0 +1,27 @@
+/* Checkbox: the native box in the neutral selected-mark colour, with its label. The whole row is the click target. */
+.ui-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--target-min);
+  font-size: var(--text-md);
+  color: var(--text);
+  cursor: pointer;
+}
+.ui-check__input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--selected-mark);
+  cursor: inherit;
+}
+.ui-check__input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-check[data-disabled] {
+  cursor: default;
+  opacity: 0.6;
+}

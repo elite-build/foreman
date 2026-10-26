@@ -1,0 +1,91 @@
+/* #2 Agent reports: the "agent says" tag, quiet chat markers and the needs-input card. */
+.home-row-title .says {
+  align-self: center;
+}
+
+/* checkpoint / done (and blockers once answered): one quiet line between rules. */
+.report-marker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.report-marker::before,
+.report-marker::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.report-marker .report-text {
+  color: var(--text-muted);
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-time {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+/* needs-input: stays until the user replies in this tab or dismisses it. */
+.report-card {
+  border: 1px solid color-mix(in srgb, var(--amber) 38%, transparent);
+  background: color-mix(in srgb, var(--amber) 6%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 9px 12px;
+  font-size: var(--text-md);
+}
+.report-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--amber);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.report-card-head .report-time {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+.report-card-body {
+  margin-top: 4px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.report-card-foot {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+.report-card-foot .spacer {
+  flex: 1;
+}
+
+/* Repository → Actions: the instructions preview. */
+.instr-box {
+  flex: 1;
+  min-width: 0;
+}
+.instr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.instr-head .spacer {
+  flex: 1;
+}
+.instr-pre {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

@@ -1,0 +1,122 @@
+/* #14 Open in detected apps: app monograms, the Open menu's rows, the ⌘O switcher's footer, Settings' app list. */
+
+.app-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-selected);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.app-icon-glyph {
+  flex: none;
+  color: var(--text-muted);
+}
+.app-icon-glyph.files {
+  color: var(--amber);
+}
+/* G4: the app's own icon from the OS (app.getFileIcon), drawn at 32px and shown at 16. */
+.app-icon-img {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+/* The Open menus are ui/ Menus: two classes, so these beat .ui-menu, which loads after this file. */
+.ui-menu.open-in-menu {
+  min-width: 260px;
+}
+.open-in-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.open-in-missing {
+  max-width: 280px;
+  margin: 2px 4px 4px;
+}
+
+/* The ⌘O switcher (a ui/ Dialog): the search row above the list. */
+.open-in-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.open-in-query {
+  flex: 1;
+  min-width: 0;
+}
+.open-in-foot {
+  display: flex;
+  gap: 14px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* Settings → General → Open in apps */
+.open-in-apps {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.open-in-app {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+}
+.open-in-app + .open-in-app {
+  border-top: 1px solid var(--border);
+}
+.open-in-app > .app-icon,
+.open-in-app > .app-icon-img,
+.open-in-app > .app-icon-glyph {
+  margin-top: 2px;
+}
+.open-in-app-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.open-in-app-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.open-in-app.missing .open-in-app-title {
+  color: var(--text-muted);
+}
+.open-in-app-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.open-in-app-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.open-in-app-edit input {
+  flex: 1;
+  min-width: 0;
+}
+.open-in-app-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}

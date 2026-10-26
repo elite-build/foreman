@@ -1,0 +1,80 @@
+/* Field: a label, help, a control and an error, stacked. Also holds `.ui-control`, the one look shared by the
+   text-like controls (TextInput, TextArea, Select), so they can't drift apart. Layout defaults sit in :where() so
+   a feature's own width or margin rule wins regardless of load order. */
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ui-field__label {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.ui-field__label[data-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ui-field__description {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.ui-field__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--red);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.ui-field__error .ui-glyph {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+}
+
+.ui-control {
+  box-sizing: border-box;
+  min-height: var(--target-min);
+  /* 5px, so a one-line input is as tall as a Button (13px text, 1.55 line, 1px border: 32px) and they line up in a row. */
+  padding: 5px 9px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+.ui-control::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+.ui-control:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+  border-color: var(--focus-ring);
+}
+.ui-control[aria-invalid='true'] {
+  border-color: var(--red);
+}
+.ui-control:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ui-control:read-only:not(select) {
+  background: var(--bg-raised);
+}

@@ -1,0 +1,478 @@
+/* ---- chat ---- */
+
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+.chat-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chat-search input {
+  flex: 1;
+  min-width: 60px;
+}
+.search-count { min-width: 65px; text-align: right; font-variant-numeric: tabular-nums; }
+.shell-snippet { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; margin: 10px 0; }
+.snippet-toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+.shell-snippet > pre { margin: 0; border: 0; border-radius: 0; }
+.snippet-output { height: 200px; border-top: 1px solid var(--border); }
+.snippet-output .terminal { height: 100%; min-height: 0; }
+/* Mermaid diagrams in Markdown (MermaidBlock.tsx): diagram or source under the snippet toolbar. */
+.mmd { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; margin: 10px 0; }
+.mmd > pre { margin: 0; border: 0; border-radius: 0; }
+.mmd-view { padding: 14px 12px 10px; background: var(--code-bg); overflow-x: auto; }
+.mmd-view svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+/* A picture of the text: nothing in it is a link or a button. */
+.mmd-view svg * { pointer-events: none; }
+.mmd-pending { min-height: 64px; display: flex; align-items: center; justify-content: center; color: var(--text-faint); font-size: var(--text-sm); }
+.mmd-wait { color: var(--text-faint); }
+.mmd-fail { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--amber) 7%, var(--bg-panel)); }
+.mmd-fail-title { display: flex; align-items: center; gap: 6px; color: var(--amber); font-size: var(--text-sm); }
+.mmd-fail-detail { margin: 0; color: var(--text-muted); font-family: var(--mono); font-size: var(--text-xs); padding-left: 19px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-inner {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 18px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-greeting {
+  padding: 8px 0;
+  color: var(--text-soft);
+}
+.chat-greeting p {
+  margin: 0 0 8px;
+}
+.user-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0;
+}
+.user-msg {
+  max-width: 78%;
+  background: var(--user-bg);
+  border-radius: var(--radius-lg);
+  padding: 8px 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* Shown on hover and while focus is in the row, so the buttons stay reachable by keyboard. */
+.restore-wrap {
+  display: inline-flex;
+  margin-top: 6px;
+  opacity: 0;
+}
+.user-row:hover .restore-wrap,
+.user-row:focus-within .restore-wrap {
+  opacity: 1;
+}
+/* #16: the … beside a sent message (Edit and resend, Copy message), shown on hover like Restore. */
+.user-menu {
+  margin-top: 4px;
+  opacity: 0;
+}
+.user-row:hover .user-menu,
+.user-menu:focus-within,
+.user-menu:has([aria-expanded='true']) {
+  opacity: 1;
+}
+.user-menu-hint {
+  display: block;
+  max-width: 250px;
+  padding-bottom: 5px;
+  line-height: 1.45;
+  white-space: normal;
+}
+.read-only-receipt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.assistant {
+  color: var(--text-soft);
+}
+.assistant.streaming .markdown > :last-child::after {
+  content: '▍';
+  color: var(--text-muted);
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+.markdown {
+  word-break: break-word;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p,
+.markdown ul,
+.markdown ol {
+  margin: 0.55em 0;
+}
+.markdown li + li {
+  margin-top: 2px;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-size: var(--text-lg);
+  color: var(--text);
+  margin: 1em 0 0.4em;
+}
+.markdown strong {
+  color: var(--text);
+}
+.markdown pre {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-variant-ligatures: var(--code-ligatures);
+}
+.markdown :not(pre) > code {
+  color: var(--text);
+  background: var(--bg-raised);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+.markdown table {
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+}
+/* Code highlighting (highlight.js classes), coloured by the --code-* tokens. */
+.hljs-keyword,
+.hljs-doctag,
+.hljs-selector-pseudo,
+.hljs-bullet {
+  color: var(--code-keyword);
+}
+.hljs-built_in,
+.hljs-variable.language_ {
+  color: var(--code-builtin);
+}
+.hljs-literal,
+.hljs-symbol,
+.hljs-variable.constant_ {
+  color: var(--code-literal);
+}
+.hljs-number {
+  color: var(--code-number);
+}
+.hljs-string,
+.hljs-code {
+  color: var(--code-string);
+}
+.hljs-regexp,
+.hljs-char.escape_,
+.hljs-subst {
+  color: var(--code-regexp);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--code-comment);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-function,
+.hljs-section,
+.hljs-link,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--code-title);
+}
+.hljs-type,
+.hljs-class,
+.hljs-title.class_,
+.hljs-title.class_.inherited__ {
+  color: var(--code-type);
+}
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: var(--code-variable);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-selector-attr {
+  color: var(--code-property);
+}
+.hljs-name,
+.hljs-selector-tag {
+  color: var(--code-tag);
+}
+.hljs-meta {
+  color: var(--code-meta);
+}
+.hljs-addition {
+  color: var(--green);
+  background: var(--add-bg);
+}
+.hljs-deletion {
+  color: var(--red);
+  background: var(--del-bg);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+.thinking-text {
+  white-space: pre-wrap;
+  color: var(--text-muted);
+  border-left: 2px solid var(--border-strong);
+  padding-left: 10px;
+  margin-top: 4px;
+  font-size: var(--text-sm);
+}
+/* button.tool-row is a Pressable: the element selector beats .ui-pressable, which loads later. */
+.tool-row,
+button.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+}
+.tool-row:not(.static):hover .tool-label {
+  color: var(--text);
+}
+.tool-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.tool.error .tool-icon {
+  color: var(--red);
+}
+/* The row's own text takes the soft colour here, on the label, since the Pressable's look is ui/'s. */
+.tool-label {
+  flex: none;
+  max-width: 55%;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-code {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tool-meta {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+/* A path looks like code: the inline-code look of .markdown code (it also carries .mono). */
+.file-chip {
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tool-body {
+  margin: 6px 0 4px 23px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool-body pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow: auto;
+}
+.tool-output {
+  color: var(--text-muted);
+}
+.task-activity {
+  margin-left: 23px;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-summary {
+  white-space: pre-wrap;
+  color: var(--text-soft);
+}
+.bg-tasks {
+  max-width: 828px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 24px 6px;
+}
+.bg-tasks-box {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  padding: 6px 12px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.bg-tasks-head {
+  padding-bottom: 2px;
+}
+.bg-task-activity {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edit-preview {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  max-height: 360px;
+  overflow: auto;
+  font-variant-ligatures: var(--code-ligatures);
+}
+.edit-preview .add {
+  background: var(--add-bg);
+}
+.edit-preview .del {
+  background: var(--del-bg);
+}
+.todo-card {
+  padding: 2px 0;
+}
+.todos {
+  list-style: none;
+  margin: 4px 0 0 23px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+}
+.todos li {
+  display: flex;
+  gap: 9px;
+  color: var(--text-soft);
+}
+.todos li + li {
+  margin-top: 3px;
+}
+.todos .box {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  line-height: 12px;
+  text-align: center;
+}
+.todos li.completed {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+.todos li.completed .box {
+  background: var(--green);
+  border-color: var(--green);
+  color: var(--bg);
+}
+.todos li.in_progress .box {
+  border-color: var(--selected-border);
+  border-width: 2px;
+}
+.result,
+.live-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+.result.error {
+  color: var(--red);
+}
+.turn-result .turn-changes {
+  margin-left: auto;
+}
+.turn-result .add {
+  color: var(--green);
+}
+.turn-result .del {
+  color: var(--red);
+}
+.turn-result.error svg {
+  color: var(--red);
+}
+.recovery-detail {
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.approval-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.approval-title svg {
+  color: var(--text-soft);
+}
+.approval-summary {
+  display: block;
+  padding: 6px 9px;
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}

@@ -1,0 +1,21 @@
+/* HoverCard: detail about its trigger, portalled to <body> and placed with fixed coordinates. */
+.ui-hovercard {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: calc(100vw - 16px);
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 14px 36px var(--shadow);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  cursor: default;
+}
+.ui-hovercard:focus {
+  outline: none;
+}

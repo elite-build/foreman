@@ -1,0 +1,242 @@
+/* ---- home ---- */
+
+.home {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.home-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.home-inner {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 4px 32px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.home-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 4px;
+}
+/* The title block takes the room the buttons leave and, when there is less than ~14rem, the buttons drop below it
+   instead of squeezing the subtitle into a word-per-line column. */
+.home-head-text {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.home-head-sub {
+  overflow-wrap: anywhere;
+}
+/* Repository filter, List/Board, Import and New workspace: one height and one centre line (32px, as every md control). */
+.home-head .header-actions {
+  display: flex;
+  flex: 0 1 auto; /* the shared rule's `flex: none` would keep the row one line wide */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.home-head .board-switch {
+  height: 32px;
+}
+.home h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* The status line is a boxed Callout whose button sits at the end of the line, not under the text. */
+.home .home-banner {
+  align-items: center;
+  padding: 9px 12px 9px 16px;
+}
+.home .home-banner > .ui-callout__glyph {
+  margin-top: 0;
+}
+.home .home-banner .ui-callout__body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.home .home-banner .ui-callout__text {
+  flex: 1;
+  min-width: 0;
+}
+.home .home-banner .ui-callout__body > .ui-callout__actions {
+  flex: none;
+  margin-top: 0;
+}
+.home-card {
+  /* Its rows reflow by the card's own width (the @container rules below), not the window's: Home sits beside a sidebar
+     that is sometimes open, and at 200% zoom the card is only ~330px wide. */
+  container-type: inline-size;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.home-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+.home-card-title {
+  font-weight: 600;
+}
+.home-card-hint {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.home-row {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  cursor: pointer;
+  outline: none;
+}
+/* Home's own rows are ActionRows: the main button holds the columns. */
+.home-card .home-line {
+  padding: 10px 16px;
+}
+.home-line .home-row-flow {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 28px;
+}
+.home-line .home-row-main,
+.home-line .home-row-title,
+.home-line .home-row-sub {
+  display: block;
+}
+.home-line .home-row-title {
+  display: flex;
+}
+.home-row + .home-row {
+  border-top: 1px solid var(--border);
+}
+.home-row:hover {
+  background: var(--bg-hover);
+}
+.home-row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--focus-border);
+}
+.home-pill {
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-row-main {
+  min-width: 0;
+}
+.home-row-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.home-row-name {
+  flex: 0 1 auto;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-row-branch {
+  /* The branch gives way first, so the workspace's name keeps its width. */
+  flex: 0 4 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-row-sub {
+  margin-top: 1px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-row-age {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.home-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.home-hint {
+  margin: 4px 0 0;
+  text-align: center;
+}
+.home-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 0;
+  text-align: center;
+}
+.home-empty p {
+  margin: 0;
+  max-width: 440px;
+}
+
+/* A narrow card (a small window, a wide sidebar, 200% zoom): the state tag moves above the name and the name column
+   takes what is left, instead of the fixed 148px tag column squeezing the name to a letter. */
+@container (max-width: 520px) {
+  .home-line .home-row-flow {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 4px 10px;
+  }
+  /* First line: the state tag, and the time waited (after "+N more" when there is one) at the end. Second line: the name. */
+  .home-line .home-pill {
+    grid-area: 1 / 1;
+  }
+  .home-line .home-row-age {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .home-line .home-row-age:last-child {
+    grid-column: 3;
+  }
+  .home-line .home-row-main {
+    grid-area: 2 / 1 / 3 / -1;
+  }
+  /* The hand-off rows: tag, then name and time, then the actions. */
+  .home-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+  }
+  .home-row > .card-row-tag {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .home-row > .home-row-actions {
+    grid-column: 1 / -1;
+  }
+}

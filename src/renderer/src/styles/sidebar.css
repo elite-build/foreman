@@ -1,0 +1,390 @@
+/* ---- sidebar ---- */
+
+.sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* The rail: All, one tile per repository, Add. */
+.repo-rail {
+  flex: none;
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 12px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+/* Pinned to the bottom of the rail, below however many repositories. */
+.rail-tools {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0 0;
+  background: var(--bg-sidebar);
+}
+/* A tile is a CardButton (ui/: the interactive Card outline, hover and selected); the second class makes these rules beat
+   .ui-pressable's display and padding, which load later. The wrapper draws the ring for the repository Home is showing. */
+.rail-tile-wrap {
+  flex: none;
+  display: inline-flex;
+  border-radius: var(--radius-lg);
+}
+.rail-tile-wrap.on-home {
+  box-shadow: 0 0 0 2px var(--bg-sidebar), 0 0 0 3.5px var(--selected-border);
+}
+.repo-rail .rail-tile {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  transition: transform 120ms ease-out;
+}
+.repo-rail .rail-tile:active {
+  transform: scale(0.95);
+}
+/* Add: a dashed IconButton (ui/) of the same size. */
+.repo-rail .rail-add {
+  width: 34px;
+  height: 34px;
+}
+.rail-text {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  letter-spacing: -0.02em;
+}
+.rail-tile .repo-icon {
+  color: inherit;
+}
+.rail-badge {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 2px solid var(--bg-sidebar);
+  border-radius: var(--radius-lg);
+  background: var(--amber);
+  color: var(--on-primary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
+}
+
+/* The panel: header, new, search, summary, filters, groups. */
+.sidebar-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* The top block (Automations, Assistant, New workspace, search) is four rows of one size: the same height, the same
+     inset from the edge to the icon (one icon column), the same gap from the icon to the label (one label column). */
+  --sb-row-h: 34px;
+  --sb-row-inset: 11px; /* border + padding: the row's edge to its icon */
+  --sb-row-gap: 8px; /* the icon to the label */
+}
+.sidebar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+.sidebar-head-text {
+  min-width: 0;
+}
+.sidebar-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The New workspace button (ui/Button): full width, its label at the start and the shortcut at the end. */
+.sidebar-panel .sidebar-new {
+  display: flex;
+  justify-content: flex-start;
+  flex: none; /* a short window (200% zoom) shrinks the list, not these rows */
+  gap: var(--sb-row-gap);
+  height: var(--sb-row-h);
+  margin: 0 12px;
+  padding: 0 calc(var(--sb-row-inset) - 1px);
+}
+.sidebar-new-hint {
+  margin-left: auto;
+}
+/* The magnifier and the clear button sit inside the field (a ui/TextInput); the doubled selectors beat .ui-control. */
+.sidebar-search {
+  flex: none;
+  position: relative;
+  margin: 8px 12px 0;
+  color: var(--text-muted);
+}
+.sidebar-search .sidebar-search-input {
+  display: block;
+  width: 100%;
+  height: var(--sb-row-h);
+  /* The text starts where the label of the rows above starts: inset + 14px icon + gap, less the field's own border. */
+  padding: 0 28px 0 calc(var(--sb-row-inset) + 14px + var(--sb-row-gap) - 1px);
+}
+/* The room kept for the clear button is only needed while there is a query (and so a button). */
+.sidebar-search:not(:has(.ui-icon-btn)) .sidebar-search-input {
+  padding-right: 10px;
+}
+.sidebar-search > svg {
+  position: absolute;
+  top: 50%;
+  left: var(--sb-row-inset);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.sidebar-search .ui-icon-btn {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  transform: translateY(-50%);
+}
+.sidebar-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+  margin: 12px 12px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.sidebar-summary .running {
+  color: var(--text-soft);
+}
+/* The filters are ui/Tabs (pill); only their place in the panel is ours. */
+.sidebar-filters {
+  margin: 10px 12px 0;
+}
+.sidebar-actions {
+  margin: 8px 12px 0;
+}
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding: 0 6px 12px;
+}
+.ws-group {
+  margin-top: 10px;
+}
+.ws-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-soft);
+}
+.ws-group-count {
+  font-weight: 400;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* A workspace row is an ActionRow: its main button holds the icon, name, state and sub-line; the PR glyph, diff,
+   shortcut and archive button sit beside it. */
+/* The row is a grid of icon | text | end. The main button spans all three and takes them as a subgrid, so its title stops
+   before the end column while the label and sub-line run on under it, as they always did. */
+.sidebar-scroll .ws-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: start;
+}
+.ws-row .ws-flow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  grid-template-columns: subgrid;
+  grid-template-rows: minmax(var(--target-min), auto);
+  row-gap: 1px;
+  align-items: center;
+}
+.ws-row > .ui-action-row__actions {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: start;
+}
+.ws-row > .ui-action-row__editor {
+  grid-column: 1 / 3;
+  grid-row: 1;
+}
+.ws-row.finished .ws-title {
+  color: var(--text-muted);
+}
+.ws-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+.ws-spin.blue {
+  color: var(--blue);
+}
+.ws-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.ws-edit .ws-rename {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.ws-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--target-min);
+}
+.ws-label,
+.ws-sub {
+  grid-column: 2 / 4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-label {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.ws-label.accent {
+  color: var(--blue);
+}
+.ws-label.amber {
+  color: var(--amber);
+}
+.ws-label.red {
+  color: var(--red);
+}
+.ws-label.blue {
+  color: var(--blue);
+}
+.ws-label.green {
+  color: var(--green);
+}
+.ws-detail {
+  color: var(--text-faint);
+}
+.ws-sub {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.ws-shortcut {
+  display: none;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+/* The archive button is out of sight until the row is hovered or has focus inside it, but still reachable by keyboard. */
+.ws-row .ws-archive {
+  position: absolute;
+  clip-path: inset(50%);
+}
+.ws-row:hover .ws-archive,
+.ws-row:focus-within .ws-archive {
+  position: static;
+  clip-path: none;
+}
+.ws-row:hover .ws-shortcut,
+.ws-row:focus-within .ws-shortcut {
+  display: inline;
+}
+.ws-row:hover .diff-badge,
+.ws-row:focus-within .diff-badge {
+  display: none;
+}
+.sidebar-empty {
+  padding: 28px 8px;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.sidebar-more {
+  margin: 10px 8px 0;
+}
+.diff-badge {
+  display: inline-flex;
+  gap: 5px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 16px;
+}
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+/* O17: keep-awake chip above the footer, only while agents work. */
+.awake-strip {
+  flex: none;
+  margin: 0 12px 6px;
+}
+/* The chip is a ui/ChipButton: full width, its text cut off at the end. */
+.awake-chip {
+  display: flex;
+  width: 100%;
+  height: 26px;
+  overflow: hidden;
+}
+.awake-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.awake-chip svg {
+  flex: none;
+  color: var(--amber);
+}
+.awake-chip.allowed svg {
+  color: var(--text-faint);
+}

@@ -1,0 +1,51 @@
+/* The design system's component appearance: the look of each ui/ component, keyed by
+   its own ui- classes. main.tsx loads it after every feature stylesheet, so it wins where old and new rules overlap
+   during the migration. Order matters where one sheet builds on another: field before the form controls,
+   the buttons before masked-value and split-button, menu before split-button, pressable and action-row before card. */
+
+/* Actions and display */
+@import './css/glyph.css';
+@import './css/button.css';
+@import './css/icon-button.css';
+@import './css/link-button.css';
+@import './css/chip-button.css';
+@import './css/pressable.css';
+@import './css/action-row.css';
+@import './css/card.css';
+@import './css/tag.css';
+@import './css/status.css';
+@import './css/spinner.css';
+@import './css/meter.css';
+@import './css/callout.css';
+@import './css/kbd.css';
+@import './css/media-thumb.css';
+
+/* Forms */
+@import './css/field.css';
+@import './css/text-input.css';
+@import './css/textarea.css';
+@import './css/range.css';
+@import './css/file-input.css';
+@import './css/checkbox.css';
+@import './css/select.css';
+@import './css/masked-value.css';
+@import './css/switch.css';
+@import './css/radio-list.css';
+@import './css/radio-cards.css';
+
+/* Composite navigation */
+@import './css/segmented.css';
+@import './css/tabs.css';
+@import './css/menu.css';
+@import './css/split-button.css';
+@import './css/disclosure.css';
+
+/* Overlays and structures */
+@import './css/popover.css';
+@import './css/hovercard.css';
+@import './css/listbox.css';
+@import './css/combobox.css';
+@import './css/dialog.css';
+@import './css/tree.css';
+@import './css/resizer.css';
+@import './css/flash.css';

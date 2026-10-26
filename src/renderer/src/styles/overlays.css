@@ -1,0 +1,44 @@
+/* ---- overlays: palette, quick open, search, shortcuts, archive (each is a ui/Dialog) ---- */
+
+/* The dialog sits near the top, like a palette, instead of centred. */
+.ui-layer.overlay-backdrop {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.overlay-backdrop .overlay {
+  max-height: 64vh;
+}
+/* The field stays put while the results scroll under it. */
+.overlay-combo .ui-combobox__field {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.line-no {
+  width: 36px;
+  text-align: right;
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px 24px;
+}
+.shortcut-grid h3 {
+  margin: 0 0 6px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+.archived-name {
+  font-weight: 500;
+}

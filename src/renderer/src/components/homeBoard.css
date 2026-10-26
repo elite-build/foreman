@@ -1,0 +1,344 @@
+/* #21 Board view on Home: five lanes worked out from live facts, cards, drops and the "why" hover card. */
+
+.home.board-mode .home-scroll {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.home.board-mode .home-inner {
+  flex: 1;
+  min-height: 0;
+  max-width: none;
+  width: 100%;
+  padding: 4px 20px 14px;
+  gap: 12px;
+}
+.home.board-mode .home-head {
+  margin-bottom: 0;
+}
+.board-switch .ui-segmented__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.board {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.blane {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.blane-head .blane-dot {
+  flex: none;
+}
+.blane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px 9px 11px;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--bg-sidebar);
+  white-space: nowrap;
+}
+.blane-title {
+  font-weight: 600;
+}
+.blane-count {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.blane-hint {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+/* A lane is ~185px wide beside a sidebar: the hint (a third of a line) was cut to "fro…". Under 230px it takes a second line,
+   under the title, in every lane alike, so the lanes' heads stay one height. */
+@container (max-width: 230px) {
+  .blane-head {
+    flex-wrap: wrap;
+    row-gap: 1px;
+  }
+  .blane-hint {
+    flex: 1 0 100%;
+    margin-left: 0;
+    padding-left: 18px;
+  }
+}
+.blane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+.blane-empty {
+  padding: 10px 4px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* While dragging: lanes from live facts dim and refuse; the status lanes invite. */
+.blane.drop-no .blane-body > .bcard {
+  opacity: 0.42;
+}
+.blane.drop-no .blane-head {
+  color: var(--text-muted);
+}
+.blane-nodrop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+.blane-nodrop svg {
+  flex: none;
+  color: var(--text-faint);
+}
+.blane.drop-maybe {
+  border-style: dashed;
+  border-color: var(--border-control);
+}
+.blane.drop-ok {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  box-shadow: 0 0 0 1px var(--selected-border) inset;
+}
+.blane.drop-ok .blane-head {
+  background: var(--selected-bg);
+}
+/* Where the dragged card would land: an empty Card that is the drop target (ui/). */
+.drop-slot {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 9px 6px;
+}
+.drop-slot-text {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+
+/* A card is an ActionRow card (ui/: the interactive card outline and hover): its main button holds the column, and the
+   PR glyph (a button of its own) sits at the foot, in the space the foot leaves for it. */
+.board .bcard {
+  align-items: stretch;
+  padding: 9px 10px 8px;
+  cursor: pointer;
+}
+.board .bcard:active {
+  cursor: grabbing;
+}
+.bcard .bcard-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.board .bcard .ui-action-row__actions {
+  position: absolute;
+  left: 10px;
+  bottom: 5px;
+}
+.bcard.has-pr .bcard-foot {
+  min-height: var(--target-min);
+  padding-left: 62px;
+}
+.bcard-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.bcard-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.bcard .diff-badge {
+  flex: none;
+  gap: 4px;
+  padding: 0 5px;
+  font-size: var(--text-xs);
+  line-height: 15px;
+}
+.bcard-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.bcard-branch {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.bcard-reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-soft);
+}
+.bcard-reason .ui-status,
+.bcard-reason .ui-spinner {
+  flex: none;
+}
+.bcard-reason svg {
+  flex: none;
+}
+.bcard-reason-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bcard-reason.amber .bcard-reason-text { color: var(--amber); }
+.bcard-reason.red .bcard-reason-text { color: var(--red); }
+.bcard-reason.green .bcard-reason-text { color: var(--green); }
+.bcard-reason.blue .bcard-reason-text { color: var(--blue); }
+.bcard-reason.blue svg { color: var(--blue); }
+.bcard-detail {
+  color: var(--text-muted);
+}
+.bcard-more {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.bcard-basis {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+.bcard-basis svg {
+  flex: none;
+  margin-top: 1px;
+}
+.bcard-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  font-size: var(--text-xs);
+}
+.bcard-pr,
+.bcard-ci,
+.bcard-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.bcard-pr {
+  font-variant-numeric: tabular-nums;
+}
+.bcard-pr.faint,
+.bcard-nopr {
+  color: var(--text-faint);
+}
+.bcard-ci {
+  font-size: var(--text-xs);
+}
+.bcard-model {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+}
+.bcard-age {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.board-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding: 0 2px;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.board-foot svg {
+  flex: none;
+  align-self: center;
+}
+
+.bhover-title {
+  margin-bottom: 7px;
+  color: var(--text);
+  font-weight: 600;
+}
+.bhover-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bhover-facts li {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 6px;
+  align-items: start;
+}
+.bhover-facts li svg {
+  margin-top: 2px;
+}
+.bhover-src {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.bhover-sep {
+  height: 1px;
+  margin: 8px 0;
+  background: var(--border);
+}
+.bhover-note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.bhover-foot {
+  margin-top: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}

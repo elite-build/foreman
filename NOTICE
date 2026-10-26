@@ -1,0 +1,53 @@
+Foreman
+Copyright 2026 Yatin Chaubal
+
+Except for separately identified third-party material, Foreman is licensed
+under the Apache License, Version 2.0. See LICENSE for the full terms.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this work except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Third-party material
+
+ACP integration portions
+
+Portions of the ACP catalogue, launch settings, program discovery, startup
+handling and credential probing were adapted from Apache-2.0-licensed sources:
+Copyright 2026 Untrivial
+Upstream revision: 5525713f686b31c885f6afcdfd3aad31eb49d03e
+
+These portions are in src/shared/agentCatalog.ts and
+src/main/agents/{catalogDrivers,catalogDetect,signInProbes,acp}.ts.
+They were modified for Foreman's TypeScript runtime, per-turn state,
+credential reporting and permission policies. The original license and
+copyright notice are retained in docs/licenses/acp-integration.txt.
+
+Workspace names catalogue
+
+The workspace names catalogue in src/shared/workspacePeople.json includes
+excerpts and adaptations from English Wikipedia. That Wikipedia-derived
+text remains available under Creative Commons Attribution-ShareAlike 4.0:
+https://creativecommons.org/licenses/by-sa/4.0/
+Individual entries link to their source articles and revision histories,
+which identify their contributors. Changes and attribution details are
+documented in docs/workspace-names.md.
+
+The candidate discovery list used to build the catalogue draws on
+AgeDataset by Issa Annamoradnejad and Rahimberdi Annamoradnejad (2022),
+"Age dataset: A structured general-purpose dataset on life, work, and death
+of 1.22 million distinguished people", https://doi.org/10.36190/2022.82,
+https://github.com/Moradnejad/AgeDataset, under Creative Commons
+Attribution 4.0: https://creativecommons.org/licenses/by/4.0/
+
+Third-party dependencies and other separately identified material retain
+their respective licenses, copyright notices and attribution. The project
+license does not replace those terms. This notice does not modify LICENSE.

@@ -1,0 +1,56 @@
+/* LinkButton: text-coloured action that reads as a link; an icon and its text sit a gap apart. */
+.ui-link-btn {
+  display: inline-flex;
+  align-items: center;
+  /* An icon beside the text ("+ New template") would otherwise run into it: flex drops the space between them. */
+  gap: 5px;
+  min-height: var(--target-min);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.ui-link-btn:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ui-link-btn--danger {
+  color: var(--red);
+}
+.ui-link-btn--danger:hover:not(:disabled) {
+  color: var(--red);
+}
+.ui-link-btn--sm {
+  font-size: var(--text-sm);
+}
+.ui-link-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-link-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+/* Underline: a link inside running text. Blue (the one link colour, as in Markdown) with an underline that is always drawn (a soft one that firms up on hover), so colour is never the only cue. */
+.ui-link-btn--underline {
+  min-height: 0;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--blue) 60%, transparent);
+  text-underline-offset: 2px;
+}
+.ui-link-btn--underline:not(.ui-link-btn--danger) {
+  color: var(--blue);
+}
+.ui-link-btn--underline:hover:not(:disabled) {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+/* Mono: the code font (the size stays the surrounding text's, or 12px with `sm`). */
+.ui-link-btn--mono {
+  font-family: var(--mono);
+}

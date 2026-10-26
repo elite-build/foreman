@@ -1,0 +1,279 @@
+/* ---- composer extras ---- */
+
+.composer-box.plan {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+}
+.composer-box.dragging {
+  border-style: dashed;
+  border-color: var(--selected-border);
+}
+.composer-toolbar {
+  flex-wrap: wrap;
+}
+.attachment-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+.user-msg .attachment-row {
+  margin: 7px 0 0;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  padding: 0 0 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  font-size: var(--text-sm);
+}
+.attachment-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A terminal selection waiting in the composer (TerminalDraft.tsx): one collapsed line, the text when opened. */
+.term-draft {
+  margin-bottom: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  font-size: var(--text-sm);
+  cursor: default;
+}
+.term-draft-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 6px 5px 4px;
+}
+.term-draft-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.term-draft-label {
+  flex: none;
+  color: var(--text);
+  font-weight: 500;
+}
+.term-draft-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+.term-draft .ui-icon-btn {
+  flex: none;
+}
+.term-draft-body {
+  max-height: 180px;
+  margin: 0;
+  padding: 6px 10px 8px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  white-space: pre;
+  user-select: text;
+}
+/* G4 #10: the opened block is editable (trim it before sending), and sent messages draw their blocks the same way. */
+.term-draft-edit {
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+.term-draft-edit .ui-textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+}
+/* The bare TextArea draws no focus ring: the block does. */
+.term-draft-edit:has(.ui-textarea:focus-visible) {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+.term-draft-hint {
+  flex: none;
+}
+.term-sent {
+  margin: 0 0 8px;
+  text-align: left;
+}
+.user-msg .term-sent + .term-sent {
+  margin-top: -2px;
+}
+.terminal-menu {
+  min-width: 250px;
+}
+.terminal-menu svg {
+  flex: none;
+  color: var(--text-muted);
+}
+/* G4 #10: a chat's name in the Send-to list. */
+.terminal-menu-chat {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The suggestions for @ and /: a surface above the box, holding a Listbox (focus stays in the textarea). */
+.mention-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 15;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 30px var(--shadow);
+}
+.context-wheel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+.context-wheel .track {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 2.5;
+}
+.context-wheel .fill {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.context-wheel.amber .fill {
+  stroke: var(--amber);
+}
+.context-wheel.red .fill {
+  stroke: var(--red);
+}
+.context-wheel.red {
+  color: var(--red);
+}
+/* The queue: a surface above the box holding a labelled list of ActionRows. */
+.queued {
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 4px;
+  background: var(--bg-sidebar);
+}
+.queued-head {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px 4px;
+}
+.queued-keys {
+  margin-left: auto;
+}
+.queued-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.queued-list .queued-row {
+  padding: 3px 4px 3px 8px;
+}
+.queued-row .ui-action-row__main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.queued-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queued-row .pos {
+  flex: none;
+  width: 14px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+/* A row opened for editing where it sits (the ActionRow draws its surface). */
+.queued-row[data-editing] {
+  margin: 2px 0;
+  padding: 7px 8px 8px;
+}
+.queued-row .ui-action-row__editor {
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+.queued-edit-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.queued-edit-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+.queued-edit-foot .keep {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+}
+.queued-edit-foot .keep svg {
+  flex: none;
+  color: var(--green);
+}
+.queued-edit-foot code {
+  font-size: var(--text-sm);
+}
+.plan-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--selected-border);
+  border-radius: var(--radius-lg);
+  background: var(--selected-bg);
+  color: var(--text);
+}
+.plan-card {
+  border: 1px solid var(--selected-border);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  background: var(--approval-bg);
+}
+.plan-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--text);
+  font-weight: 500;
+}
+.steered {
+  margin-bottom: 3px;
+}
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}

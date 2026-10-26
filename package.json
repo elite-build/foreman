@@ -1,0 +1,188 @@
+{
+  "name": "foreman",
+  "version": "0.1.0",
+  "description": "Run coding agents in parallel, each in its own git worktree.",
+  "license": "Apache-2.0",
+  "private": true,
+  "repository": "github:elite-build/foreman",
+  "main": "./out/main/index.js",
+  "bin": {
+    "foreman": "./bin/foreman.mjs"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:repository": "node --test tests/repositoryPolicy.test.mjs && node scripts/check-repository.mjs",
+    "check:security": "node scripts/check-security.mjs",
+    "check:licenses": "node --test tests/dependencyLicenses.test.mjs && node scripts/check-licenses.mjs",
+    "check:licenses:distribution": "node scripts/check-licenses.mjs --distribution",
+    "check:mcp": "vitest run tests/cliSchema.test.ts tests/mcpSettingsCoverage.test.ts tests/foremanCli.test.ts tests/foremanDelegation.test.ts tests/foremanMcp.test.ts",
+    "screens": "node scripts/screenshots.mjs",
+    "test": "vitest run",
+    "check:ui": "vitest run tests/designSystem.test.ts tests/contrast.test.ts tests/i18nCatalogue.test.ts tests/i18n.test.ts tests/ui tests/contentA11y.test.tsx tests/newComponents.test.ts",
+    "cloud:smoke": "vitest run tests/cloudVercel.integration.test.ts",
+    "docs:cli": "node scripts/cliDocs.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never",
+    "dist:win": "electron-vite build && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.8.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.301",
+    "@anthropic-ai/sdk": "^0.135.0",
+    "@cursor/sdk": "^1.0.37",
+    "@daytonaio/sdk": "^0.226.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@openai/codex-sdk": "^0.163.0",
+    "@vercel/sandbox": "^3.9.0",
+    "@xterm/addon-search": "^0.16.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "e2b": "^2.59.0",
+    "node-pty": "^1.1.0",
+    "qrcode": "^1.5.4",
+    "sherpa-onnx-node": "^2.0.0",
+    "smol-toml": "1.9.1",
+    "web-push": "^3.6.7",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@babel/parser": "7.29.9",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/node": "^22.20.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/web-push": "^3.6.4",
+    "@vitejs/plugin-react": "^6.1.2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0",
+    "jsdom": "29.1.1",
+    "lucide-react": "^1.57.0",
+    "mdast-util-from-markdown": "^2.1.0",
+    "mdast-util-gfm": "^3.1.0",
+    "mermaid": "^12.2.0",
+    "micromark-extension-gfm": "^3.0.0",
+    "postcss": "8.5.30",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5",
+    "yaml": "2.9.1"
+  },
+  "type": "module",
+  "build": {
+    "appId": "dev.foreman.app",
+    "publish": null,
+    "productName": "Foreman",
+    "protocols": [
+      {
+        "name": "Foreman link",
+        "schemes": [
+          "foreman"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "resources/mobile/**/*",
+      "build/icon.png",
+      "LICENSE",
+      "NOTICE",
+      "docs/licenses/**/*",
+      "docs/dependency-licenses.md",
+      "docs/workspace-names.md",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk-*/**",
+      "node_modules/@openai/codex*/**",
+      "node_modules/@cursor/sdk*/**",
+      "node_modules/sherpa-onnx-*/**"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "extraResources": [
+        {
+          "from": "resources/cli",
+          "to": "cli",
+          "filter": [
+            "foreman"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Foreman listens to your microphone only while you are dictating, to turn what you say into text.",
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Folder",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "None",
+            "LSItemContentTypes": [
+              "public.folder"
+            ]
+          }
+        ]
+      }
+    },
+    "win": {
+      "extraResources": [
+        {
+          "from": "resources/cli",
+          "to": "cli",
+          "filter": [
+            "foreman.cmd"
+          ]
+        }
+      ],
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "mimeTypes": [
+        "inode/directory"
+      ],
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development",
+      "extraResources": [
+        {
+          "from": "resources/cli",
+          "to": "cli",
+          "filter": [
+            "foreman"
+          ]
+        }
+      ]
+    }
+  }
+}

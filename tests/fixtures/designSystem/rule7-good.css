@@ -1,0 +1,9 @@
+/* expect 7=0 */
+.btn:disabled { opacity: 0.5; }
+.row.disabled .help { opacity: 0.6; }
+.card.dragging { opacity: 0.4; }
+.hidden { opacity: 0; }
+.shown { opacity: 1; }
+@keyframes pulse {
+  50% { opacity: 0.5; }
+}

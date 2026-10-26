@@ -1,0 +1,27 @@
+/* TextArea: the shared `.ui-control` look (field.css), resizable up and down only. */
+:where(.ui-textarea) {
+  width: 100%;
+}
+.ui-textarea {
+  min-height: 44px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.ui-textarea--mono {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  font-variant-ligatures: var(--code-ligatures);
+}
+/* Bare: the surrounding box draws the border, background and focus; the text just fills it. */
+.ui-control.ui-textarea--bare {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  resize: none;
+}
+.ui-control.ui-textarea--bare:focus-visible {
+  outline: none;
+  box-shadow: none;
+}

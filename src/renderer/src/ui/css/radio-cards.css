@@ -1,0 +1,209 @@
+/* RadioCards: native radios drawn as cards. The wrapper is the size container, so the grid collapses to one column
+   below 560px of its own width wherever it sits. The label's ::after stretches over the card, making all of it
+   clickable; the actions row sits above that layer so its buttons stay separate controls. */
+:where(.ui-radio-cards) {
+  width: 100%;
+}
+.ui-radio-cards {
+  container-type: inline-size;
+  /* A size container has no content width of its own; without this a shrink-to-fit parent (a wrapping flex row) would
+     measure the cards at zero width and make them as tall as their text is long. The figure is the narrowest width that
+     keeps the columns (the query below is `width < 560px`, strictly): a parent that sizes the control from its intrinsic
+     width (a flex item in a column, such as a stacked settings row) then measures the same layout the control gets once
+     it is stretched. Make it equal to the breakpoint's own `<=` and the control is measured stacked and keeps that
+     height after it has been laid out in columns. Keep the two numbers in step. */
+  contain-intrinsic-inline-size: 560px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ui-radio-cards__set {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ui-radio-cards__legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+.ui-radio-cards__legend[data-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ui-radio-cards__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--ui-radio-cards-columns, 2), minmax(0, 1fr));
+  gap: 10px;
+}
+@container (width < 560px) {
+  .ui-radio-cards__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ui-radio-cards--stack .ui-radio-cards__grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.ui-radio-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 40px 12px 14px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: var(--text-md);
+}
+.ui-radio-cards--stack .ui-radio-card {
+  padding: 7px 40px 7px 10px;
+  border-radius: var(--radius-md);
+}
+.ui-radio-card:hover:not([data-selected], [data-disabled]) {
+  background: var(--bg-hover);
+}
+/* The chosen card: the neutral selected edge, fill and mark (tokens.css). A second 1px of edge (a shadow, so the card
+   keeps its size) makes it read as chosen without colour. */
+.ui-radio-card[data-selected] {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  box-shadow: 0 0 0 1px var(--selected-border);
+}
+.ui-radio-card[data-selected][data-invalid] {
+  border-color: var(--red);
+  box-shadow: 0 0 0 1px var(--red);
+}
+.ui-radio-card:has(.ui-radio-card__input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.ui-radio-card__label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+.ui-radio-cards--stack .ui-radio-card__label {
+  align-items: center;
+}
+.ui-radio-card__label::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+/* Visually hidden but still focusable, so keys, labels and the form all work. */
+.ui-radio-card__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+.ui-radio-card__icon {
+  display: inline-flex;
+  flex: none;
+  padding-top: 1px;
+  color: var(--text-muted);
+}
+.ui-radio-card[data-selected] .ui-radio-card__icon {
+  color: var(--text);
+}
+.ui-radio-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ui-radio-card__title {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ui-radio-card__description,
+.ui-radio-card__reason {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+/* The reason stays at full strength: it is the one thing on a disabled card that must be read. */
+.ui-radio-card__reason {
+  color: var(--text-soft);
+}
+.ui-radio-card[data-invalid] .ui-radio-card__description {
+  color: var(--text-soft);
+}
+
+.ui-radio-card__check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--border-control);
+  border-radius: var(--radius-full);
+}
+.ui-radio-cards--stack .ui-radio-card__check {
+  top: 50%;
+  margin-top: -9px;
+}
+.ui-radio-card__check svg {
+  display: none;
+  width: 10px;
+  height: 10px;
+}
+.ui-radio-card[data-selected] .ui-radio-card__check {
+  border-color: var(--selected-mark);
+  background: var(--selected-mark);
+  color: var(--on-selected-mark);
+}
+.ui-radio-card[data-selected] .ui-radio-card__check svg {
+  display: block;
+}
+
+.ui-radio-card__actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-radio-card[data-disabled] .ui-radio-card__label {
+  cursor: default;
+}
+.ui-radio-card[data-disabled] .ui-radio-card__icon,
+.ui-radio-card[data-disabled] .ui-radio-card__title,
+.ui-radio-card[data-disabled] .ui-radio-card__check {
+  opacity: 0.6;
+}
+
+/* Forced colours drop backgrounds: the chosen card gets an outline, and its tick a system-colour fill. */
+@media (forced-colors: active) {
+  .ui-radio-card[data-selected] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .ui-radio-card[data-selected] .ui-radio-card__check {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}

@@ -1,0 +1,78 @@
+/* Listbox: a single-select list of options; also the list inside a Combobox. */
+.ui-listbox {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* Inset: lists sit in clipped panels, where an outside ring would be cut off. */
+.ui-listbox:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.ui-listbox__heading {
+  padding: 6px 8px 2px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+.ui-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--target-min);
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+.ui-option[data-active] {
+  background: var(--bg-selected);
+}
+.ui-option[aria-disabled='true'] {
+  color: var(--text-muted);
+  cursor: default;
+}
+.ui-option__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.ui-option__label,
+.ui-option__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-option__desc {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.ui-option__check {
+  display: inline-flex;
+  flex: none;
+  width: 13px;
+  color: var(--selected-mark);
+}
+/* Matched letters in a search result's label. */
+.ui-option__label mark {
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+}
+/* The keyboard cursor stays visible when forced colours drop the background. */
+@media (forced-colors: active) {
+  .ui-option[data-active] {
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+  }
+}
+.ui-listbox--mono .ui-option__label {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}

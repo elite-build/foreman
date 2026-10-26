@@ -1,0 +1,24 @@
+/* ---- O1 · Switch agent mid-conversation: the picker's choice, the chat's divider, the result line's model ---- */
+
+.switch-choice { display: flex; flex-direction: column; gap: 5px; padding: 8px; }
+.switch-choice-head { padding: 0 4px 3px; font-size: var(--text-sm); color: var(--text-muted); }
+.switch-choice-head b { color: var(--text); font-weight: 500; }
+/* The two ways to continue: ActionRows, whose main button lays out an icon, two lines of text and a key. */
+.switch-opt { align-items: stretch; padding: 4px; }
+.switch-opt-main { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 4px 6px; }
+.switch-opt-icon { flex: none; display: inline-flex; padding-top: 2px; color: var(--text-muted); }
+.switch-opt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.switch-opt-title { font-weight: 500; color: var(--text); }
+.switch-opt-sub { font-size: var(--text-sm); line-height: 1.4; color: var(--text-muted); }
+.switch-opt-main .ui-kbd { flex: none; margin-top: 1px; }
+.switch-choice-note { padding: 2px 4px 0; line-height: 1.45; }
+
+.agent-switch { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; padding: 4px 0; font-size: var(--text-sm); color: var(--text-muted); }
+.agent-switch::before,
+.agent-switch::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.agent-switch-text { display: inline-flex; align-items: center; gap: 6px; max-width: 86%; text-align: center; }
+.agent-switch-text b { color: var(--text); font-weight: 500; }
+.agent-switch-text .agent-icon,
+.agent-switch-text .agent-mono { flex: none; }
+
+.turn-result .turn-by { color: var(--text-faint); }

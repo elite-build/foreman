@@ -1,0 +1,6 @@
+/* expect 5=0 */
+/* Tokens, zero, inherit; unitless weights and line heights in the font shorthand; other properties. */
+.a { font-size: var(--text-sm); border-radius: var(--radius-sm); }
+.b { border-radius: 0; font: inherit; }
+.c { font: 600 var(--text-md) / 1.4 var(--font); font-variant: small-caps; }
+.d { padding: 4px; --text-sm: 12px; }

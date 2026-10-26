@@ -1,0 +1,138 @@
+/* Dialog and Sheet: the modal layers. The layer is the dimmed backdrop; the dialog is the panel on it. */
+.ui-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--backdrop);
+  -webkit-app-region: no-drag;
+}
+/* Rendered into a container (a sheet over one view) or as a preview: fills it instead of the window. */
+.ui-layer[data-contained] {
+  position: absolute;
+}
+.ui-layer--sheet {
+  align-items: stretch;
+  justify-content: flex-end;
+  animation: ui-layer-fade 150ms ease-out;
+}
+.ui-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  min-height: 0;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px var(--shadow);
+  color: var(--text);
+  overflow: hidden;
+}
+.ui-dialog--lg {
+  width: min(640px, calc(100vw - 32px));
+}
+.ui-dialog--xl {
+  width: min(820px, calc(100vw - 32px));
+}
+/* Focus lands on the panel itself so Escape and the name are read; it isn't an operable control. */
+.ui-dialog:focus {
+  outline: none;
+}
+.ui-dialog__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 16px 8px 20px;
+}
+.ui-dialog__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.ui-dialog__title[data-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.ui-dialog__desc {
+  padding: 0 20px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.ui-dialog__toolbar {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.ui-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 20px 16px;
+}
+.ui-dialog__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px 10px 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* Sheet: full height, on the right. */
+.ui-dialog--sheet {
+  width: min(520px, 100%);
+  max-height: none;
+  height: 100%;
+  background: var(--bg);
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+  box-shadow: -16px 0 40px var(--shadow);
+  animation: ui-sheet-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ui-dialog--sheet .ui-dialog__head {
+  align-items: flex-start;
+  padding: 18px 16px 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.ui-dialog__titles {
+  flex: 1;
+  min-width: 0;
+}
+.ui-dialog__titles .ui-dialog__title {
+  flex: none;
+}
+.ui-dialog__titles .ui-dialog__desc {
+  margin: 4px 0 0;
+  padding: 0;
+  line-height: 1.5;
+}
+.ui-dialog--sheet .ui-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 20px;
+}
+.ui-dialog--sheet .ui-dialog__foot {
+  padding: 12px 20px;
+  background: var(--bg-panel);
+}
+@keyframes ui-layer-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ui-sheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}

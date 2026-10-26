@@ -1,0 +1,164 @@
+/* ---- workspace: center + side panel ---- */
+
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+}
+.workspace.with-panel {
+  grid-template-columns: minmax(420px, 1fr) minmax(320px, 400px);
+}
+.center {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.center-header,
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.header-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-branch {
+  /* The branch gives way before the workspace's name does (the name was cut to "lisb…" while the branch had room). */
+  flex: 0 8 auto;
+  min-width: 0;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.center-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.center-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.center-empty p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+.panel-header {
+  font-weight: 500;
+}
+/* The side panel's tab strip and its panels: the strip stays put, the panels scroll. */
+.panel-tabs-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 45%;
+  min-width: 0;
+  min-height: 130px;
+}
+/* One line: the tabs keep their size (ui/Tabs), and the source menu and the refresh button are what give way, in a
+   narrow panel, rather than wrapping onto a second row. */
+.panel-tabs-root > .ui-tablist {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  padding: 0 6px;
+}
+.panel-tabs-root > .ui-tablist .ui-tab__button {
+  padding-right: 8px;
+  padding-left: 8px;
+}
+.panel-tabs-root > .ui-tablist .diff-source {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.panel-tabs-root > .ui-tablist .diff-source > .ui-btn {
+  min-width: 0;
+  padding-right: 4px;
+  padding-left: 6px;
+}
+.panel-changes {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.panel-empty {
+  padding: 18px 16px;
+  font-size: var(--text-sm);
+}
+.changes {
+  padding: 6px 8px;
+}
+/* A changed file is an ActionRow (ui/: hover, selected, focus); its main button holds this grid. The element in the
+   selector outranks .ui-pressable's display, which loads later. */
+.change-item .change-entry,
+.commit-files .change-entry {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+}
+button.change-row {
+  display: grid;
+  grid-template-columns: 18px auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.change-name {
+  white-space: nowrap;
+}
+.change-dir {
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.changes-base {
+  padding: 10px 8px 4px;
+}
+.st.added {
+  color: var(--green);
+}
+.st.deleted {
+  color: var(--red);
+}
+.st.modified {
+  color: var(--amber);
+}
+.st.renamed {
+  color: var(--blue);
+}

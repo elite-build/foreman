@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 1,
+  "reviews": [
+    {
+      "id": "busboy",
+      "license": "MIT",
+      "notice": "docs/licenses/busboy.txt",
+      "noticeSha256": "d06b5d27bbbbe22c36b1fd88406b1208876e2d37d795f5b8eaed951a459a3111",
+      "source": "https://github.com/mscdex/busboy/tree/v1.6.0",
+      "distribution": "allowed",
+      "reason": "The published tarball includes the MIT grant despite missing lockfile license metadata.",
+      "packages": [
+        {
+          "path": "node_modules/busboy",
+          "version": "1.6.0",
+          "integrity": "sha512-8SFQbg/0hQ9xy3UNTB0YEnsNBbWfhf7RtnzpL7TkBiTBRfrQ9Fxcnz7VJsleJpyp6rVLvXiuORqjlHi5q+PYuA==",
+          "declaredLicense": null
+        }
+      ]
+    },
+    {
+      "id": "streamsearch",
+      "license": "MIT",
+      "notice": "docs/licenses/streamsearch.txt",
+      "noticeSha256": "d06b5d27bbbbe22c36b1fd88406b1208876e2d37d795f5b8eaed951a459a3111",
+      "source": "https://github.com/mscdex/streamsearch/tree/v1.1.0",
+      "distribution": "allowed",
+      "reason": "The published tarball includes the MIT grant despite missing lockfile license metadata.",
+      "packages": [
+        {
+          "path": "node_modules/streamsearch",
+          "version": "1.1.0",
+          "integrity": "sha512-Mcc5wHehp9aXz1ax6bZUyY5afg9u2rv5cqQI3mRrYkGC8rW2hM02jWuwjtL++LS5qinSyhj2QfLyNsuc+VsExg==",
+          "declaredLicense": null
+        }
+      ]
+    },
+    {
+      "id": "xmlhttprequest-ssl",
+      "license": "MIT",
+      "notice": "docs/licenses/xmlhttprequest-ssl.txt",
+      "noticeSha256": "a5f35901ee8b2039a7431144c23dd10bd47c1d07bcee0cd3a536421d86412214",
+      "source": "https://github.com/mjwwit/node-XMLHttpRequest/tree/bfa05a48d89da1b13b570de4cc114a6bf0fab3ba",
+      "distribution": "allowed",
+      "reason": "The published tarball includes the MIT grant despite missing lockfile license metadata.",
+      "packages": [
+        {
+          "path": "node_modules/xmlhttprequest-ssl",
+          "version": "2.1.2",
+          "integrity": "sha512-TEU+nJVUUnA4CYJFLvK5X9AOeH4KvDvhIfm0vV1GaQRtchnG0hgK5p8hw/xjv8cunWYCsiPCSDzObPyhEwq3KQ==",
+          "declaredLicense": null
+        }
+      ]
+    },
+    {
+      "id": "khroma",
+      "license": "MIT",
+      "notice": "docs/licenses/khroma.txt",
+      "noticeSha256": "66b333b0f66759a0b710459e03f7029abe17f4358114a128d2c972e642961b49",
+      "source": "https://github.com/fabiospampinato/khroma/tree/4968165afb0d3d09be66497e7985a34f7bfe6d42",
+      "distribution": "allowed",
+      "reason": "The npm gitHead identifies the release source. That revision carries the MIT license, omitted from the npm tarball; its notice is supplied here.",
+      "packages": [
+        {
+          "path": "node_modules/khroma",
+          "version": "2.1.0",
+          "integrity": "sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw==",
+          "declaredLicense": null
+        }
+      ]
+    },
+    {
+      "id": "web-push",
+      "license": "MPL-2.0",
+      "notice": "docs/licenses/web-push.txt",
+      "noticeSha256": "1fe5dbc03ffe518da23f1297de78ab5612532eddca93cca287a8dfaf4ad7ddce",
+      "source": "https://github.com/web-push-libs/web-push/tree/8d9ba1b33bfe0d73ccf3606c59ead4287f50e3b8",
+      "distribution": "source-required",
+      "reason": "Unmodified library. Preserve its notice and provide the corresponding source under MPL-2.0 when distributing it.",
+      "packages": [
+        {
+          "path": "node_modules/web-push",
+          "version": "3.6.7",
+          "integrity": "sha512-OpiIUe8cuGjrj3mMBFWY+e4MMIkW3SVT+7vEIjvD9kejGUypv8GPDf84JdPWskK8zMRIJ6xYGm+Kxr8YkPyA0A==",
+          "declaredLicense": "MPL-2.0"
+        }
+      ]
+    },
+    {
+      "id": "lightningcss",
+      "license": "MPL-2.0",
+      "notice": "docs/licenses/lightningcss.txt",
+      "noticeSha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+      "source": "https://github.com/parcel-bundler/lightningcss/tree/1d680fa14e9a089c92dc0929f869d6757ae91c30",
+      "distribution": "source-required",
+      "reason": "Unmodified build dependency, including platform binaries. If redistributed, preserve MPL notices and provide corresponding source.",
+      "packages": [
+        {
+          "path": "node_modules/lightningcss",
+          "version": "1.33.0",
+          "integrity": "sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-android-arm64",
+          "version": "1.33.0",
+          "integrity": "sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-darwin-arm64",
+          "version": "1.33.0",
+          "integrity": "sha512-Sciaz8eenNTKn9b3t7+xr0ipTp9YxKQY4npwQ3mrRuL0BAVHBLyZxofhaKBAVtzmtRZ/zTyo0/to4B1uWG/Djg==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-darwin-x64",
+          "version": "1.33.0",
+          "integrity": "sha512-Z5UPAxzrjlWNNyGy6i65cJzzvgJ5D3T6wMvs+gWpY9d7qRhANrxqAp6LhxIgZhWEw18RfJTGcRxjuLIBr+m8XQ==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-freebsd-x64",
+          "version": "1.33.0",
+          "integrity": "sha512-QQM/Ti/hQajJwCY+RiWuCZ9sdtI/XQk7nDK5vC8kkdwixezOlDgvDx7+RT+QjK6FcFT4MpsuoBnHIo/O3StRRg==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-linux-arm-gnueabihf",
+          "version": "1.33.0",
+          "integrity": "sha512-N7FVBe6iS24MlM6R/4RBTxGhQheZGs7tiQ9U32UtF75NzP5Q7xWPRqLBCKxlRQRk3rY1jCIPLzx7WzOhuUIRLQ==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-linux-arm64-gnu",
+          "version": "1.33.0",
+          "integrity": "sha512-j2v/itmy4HlNxlc6voKXYgBqNi0Ng2LShg4z7GufpEgs05P+2suBVyi9I6YHq5uoVFx9ETin3eCEhLVyXGQnKg==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-linux-arm64-musl",
+          "version": "1.33.0",
+          "integrity": "sha512-yiO5ROMuYQgXbC60yjZU5CYSFZGKXL0HFATXt9mHJn1+zW55oCtMI9NfcVhYLMFDL7gV7oBPon/EmMMGg2OvtQ==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-linux-x64-gnu",
+          "version": "1.33.0",
+          "integrity": "sha512-ar+Ju7LmcN0Jo4FpL4hpFybwNG9/3A/Br5KW2n2jyODg3MEZXaDYADdemoNS+BDNfMgKvylJLj4S5tyRActuAg==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-linux-x64-musl",
+          "version": "1.33.0",
+          "integrity": "sha512-RYiYbkokw0trfKqqzfF55lginwEPrD3OJDfTuJzFs1MK6iFnDenaz1fqLLtX4ITG3OktJQXOeTaw1awrBAlZPw==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-win32-arm64-msvc",
+          "version": "1.33.0",
+          "integrity": "sha512-1K+MPfLSFVpphzpdbfkhlWk6wBrTObBzS2T6db10PNOZgR9GoVsAWzwNyuhUYYbTp23j+4RrncfujZ4uAzXvwA==",
+          "declaredLicense": "MPL-2.0"
+        },
+        {
+          "path": "node_modules/lightningcss-win32-x64-msvc",
+          "version": "1.33.0",
+          "integrity": "sha512-OlEICDx/Xl0FqSp4bry8zFnCvGpig3Gl4gCquvYwHuqJKEC1+n9NgDniFvqHGmMv1ZkqDJrDqKKSykTDX+ehuA==",
+          "declaredLicense": "MPL-2.0"
+        }
+      ]
+    },
+    {
+      "id": "elkjs",
+      "license": "EPL-2.0",
+      "notice": "docs/licenses/elkjs.txt",
+      "noticeSha256": "89591d4578fb1ebd91501312a3d25f021bd865a2e436641c1cf7b1bc7e3c1617",
+      "source": "https://github.com/kieler/elkjs/tree/a8304cf79fde75bc2ab1a89d28320f53f8637436",
+      "distribution": "source-required",
+      "reason": "Unmodified layout library bundled by Mermaid. Preserve EPL notices and provide corresponding source, including its ELK build dependencies, when distributing renderer bundles.",
+      "packages": [
+        {
+          "path": "node_modules/elkjs",
+          "version": "0.9.3",
+          "integrity": "sha512-f/ZeWvW/BCXbhGEf1Ujp29EASo/lk1FDnETgNKwJrsVvGZhUWCZyg3xLJjAsxfOmt8KjswHmI5EwCQcPMpOYhQ==",
+          "declaredLicense": "EPL-2.0"
+        }
+      ]
+    },
+    {
+      "id": "claude-agent-sdk",
+      "license": "LicenseRef-Anthropic-Commercial",
+      "notice": "docs/licenses/claude-agent-sdk.txt",
+      "noticeSha256": "8ce94b9478bb9868f9641f818e06cd722fbe55d4c22e2d2ed11971b20146173a",
+      "source": "https://code.claude.com/docs/en/legal-and-compliance",
+      "distribution": "review-required",
+      "reason": "Vendor-licensed SDK and unmodified native binaries; not Apache-licensed. Source references do not redistribute these packages. Installer distribution requires a review of the commercial terms, authentication model and unmodified-binary conditions.",
+      "packages": [
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk",
+          "version": "0.3.301",
+          "integrity": "sha512-mAe4zIFRL9BejcFHQVc+D0gxrMR/7mDt5GgdekfWB2DNWZebHoeGhgP2R3rZ/BcEZnW10nSGV2IwWyywwZw83Q==",
+          "declaredLicense": "SEE LICENSE IN README.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64",
+          "version": "0.3.301",
+          "integrity": "sha512-Hva/QZr94pm9mN6Trz59XGLgRPn8zLPrghRK8/MsvLCTrCzD1CNd9Pe1pUV1woTX29qPOGP3xRU3Mgm2LhIL7A==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-darwin-x64",
+          "version": "0.3.301",
+          "integrity": "sha512-k6jNdu9eEhkPLTPTwHTn3rbIpKHm0mcndkS4wAZtQehCIFc69tmZZ4yeEtQ4eZ2jR0+6ttLtRy+5Q82Q6Ohm0Q==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64",
+          "version": "0.3.301",
+          "integrity": "sha512-Uqjy+YD6ImvelrFs7WHRMboT3BqknGLrDSdiejDqzFk62TZZOqIH9OFHyiyvHexoO31CpDEcn+d7LB+SgpNurA==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64-musl",
+          "version": "0.3.301",
+          "integrity": "sha512-C1+q1cYZY2bYxDYCfHHaq9ToGMTO/6FdbB0JShyPCyAt0lrRC+myNgsvPq/0ZsrtPWbcbrpX6QgbsFn2QzEWcw==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-linux-x64",
+          "version": "0.3.301",
+          "integrity": "sha512-V0zrxg59pBSp6PXPD70m/nRwUApKM/q5SJdeHq2ZAn7mcAr/GIBRoBEAIrA2kOAK9EkIyjKNKkrwuOVeyId/lA==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl",
+          "version": "0.3.301",
+          "integrity": "sha512-qmHolcb+CgzYc4rfZrJd5iEIzOPRPz2edJBH+8V4W4R+bswsNaqf59NBkrDt3GdfmGr42touHYJ/4dV+g/b5eQ==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-win32-arm64",
+          "version": "0.3.301",
+          "integrity": "sha512-V/iwQ3/wcxeQaycw2Daym9CzxssjYXIWtQJEFoU+Zrck3++2lD24KxFK0pwB3f258/uwdKoAM0x5p7+FEMRzwQ==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@anthropic-ai/claude-agent-sdk-win32-x64",
+          "version": "0.3.301",
+          "integrity": "sha512-FJe1o2nt+K7mQ7KG5VdEoCEo3HtUmEeITCn6ZswKGEHmgmZDogDnExQ649+IYuRXpW5dAQlYqdWaEA6cvtmoXA==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        }
+      ]
+    },
+    {
+      "id": "cursor-sdk",
+      "license": "LicenseRef-Cursor-Terms",
+      "notice": "docs/licenses/cursor-sdk.txt",
+      "noticeSha256": "8d17330e28e36f8fef39ccc6facd4b7ddc2855313b679b394f0547dde44408c4",
+      "source": "https://cursor.com/terms-of-service",
+      "distribution": "review-required",
+      "reason": "Vendor-licensed SDK and native binaries; not Apache-licensed. Source references do not redistribute these packages. No installer redistribution grant has been established from the published license.",
+      "packages": [
+        {
+          "path": "node_modules/@cursor/sdk",
+          "version": "1.0.40",
+          "integrity": "sha512-IaI59014gXLUTiWnVS2LlagOdSgWfMma0Sl4MwzsOh79UQf+CrKj+jj/AeX4vVPTlJ81X/Ca3dGytwPf/hWAQA==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@cursor/sdk-darwin-arm64",
+          "version": "1.0.40",
+          "integrity": "sha512-DHrygiLFP5VjJWT6b6yturkn8iy513Te9QN0UcU0OaWSwjgeQ5r99e5SgFY1/CSFjcDPOMJVKeODl6oOo7DXqA==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@cursor/sdk-darwin-x64",
+          "version": "1.0.40",
+          "integrity": "sha512-1B5bj/GSMfdkTtsC1tzPQ8zfosOI19mHBqweYGZpy1AaQoU4fCDxZqoOLPot6+QpuADYCbmKG9Cce8A29IOTiw==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@cursor/sdk-linux-arm64",
+          "version": "1.0.40",
+          "integrity": "sha512-shSOtG/hxTuuUOY7ydxZIAqhAKCU6ETPLI5BPDDTS9OXoZAGrtm3CQWR5VG7DvX0xzszOdCjGCN+fIEIHtbmCg==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@cursor/sdk-linux-x64",
+          "version": "1.0.40",
+          "integrity": "sha512-d/mQePD01EgE3wqHR+iZecgOilHEXh6arftciQN8eT3cGx4bY5ikqTvZpuHJgfnIj/pbf1Sfh0ruQC5RHKWZqA==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        },
+        {
+          "path": "node_modules/@cursor/sdk-win32-x64",
+          "version": "1.0.40",
+          "integrity": "sha512-iNWgHtttq8tWLQGM5KhfUphUzxOClBsqZSa/Gy2LIKPQakCMuBGXpQXYRLrX+CiYiAbCmeLL3sxBrjZfn7v/NA==",
+          "declaredLicense": "SEE LICENSE IN LICENSE.md"
+        }
+      ]
+    }
+  ]
+}

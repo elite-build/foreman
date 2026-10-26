@@ -1,0 +1,18 @@
+/* Content text size (Settings → Accessibility): the places that show what people and agents wrote or what a file holds
+   follow --text-content (ui/tokens.css), which theme.ts sets from the contentFontSize setting. Chrome keeps its own scale.
+   Loaded from theme.ts, so it comes after the feature stylesheets it adjusts. */
+.user-msg,
+.markdown {
+  font-size: var(--text-content);
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-size: var(--text-content-heading);
+}
+.markdown pre,
+.markdown code,
+.hunk,
+.file-lines {
+  font-size: var(--text-content-code);
+}

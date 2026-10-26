@@ -1,0 +1,135 @@
+/* O19: setup as ordered steps. The Setup tab's step panel and the steps editor in Repository → Scripts & checks. */
+
+/* ---- Setup tab ---- */
+
+.setup-head-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+.setup-steps {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 40%;
+  overflow-y: auto;
+}
+/* The steps sit in a Card frame (ui/). Each step is an ActionRow: its primary button carries this grid; the row owns
+   hover, selected and focus. */
+.setup-steps .setup-step {
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.setup-step-name {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.setup-step.pending .setup-step-name,
+.setup-step.skipped .setup-step-name {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.setup-step-command {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+.setup-step-time {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.setup-step.failed .setup-step-time,
+.setup-step.timed-out .setup-step-time {
+  color: var(--red);
+}
+.setup-step-icon.green {
+  color: var(--green);
+}
+.setup-step-icon.blue {
+  color: var(--blue);
+}
+.setup-step-icon.red {
+  color: var(--red);
+}
+.setup-step-icon.faint {
+  color: var(--text-faint);
+}
+.setup-step-log-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-soft);
+}
+
+/* ---- Repository → Scripts & checks ---- */
+
+.steps-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.step-card {
+  display: grid;
+  grid-template-columns: 16px 18px minmax(110px, 150px) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 6px;
+}
+.step-grip {
+  display: inline-flex;
+  color: var(--text-faint);
+  cursor: grab;
+}
+.step-num {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.step-card input {
+  min-width: 0;
+  height: 28px;
+}
+.step-card .step-command {
+  min-width: 0;
+  min-height: 28px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  resize: vertical;
+  line-height: 16px;
+}
+.step-timeout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-faint);
+}
+.steps-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+}
+
+/* G3 · O19: consecutive steps that run in parallel share a rail on the left (the Card's info stripe). */
+.step-card.parallel .step-num {
+  background: var(--blue-bg);
+  color: var(--text);
+}

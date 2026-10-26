@@ -1,0 +1,89 @@
+/* ---- add repository (the menu is ui/Menu, the dialogs ui/Dialog) ---- */
+
+.add-repo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.add-repo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.add-repo-label {
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+.add-repo-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The list of recent repositories scrolls inside the dialog's own scrolling body. */
+.add-repo-list,
+.add-repo-combo .ui-combobox__popup {
+  max-height: 180px;
+}
+.add-repo-url {
+  width: 100%;
+}
+.add-repo-location {
+  display: flex;
+  gap: 8px;
+}
+.add-repo-location .ui-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.add-repo-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.add-repo-progress > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.add-repo-log {
+  margin: 0;
+  max-height: 140px;
+  overflow: hidden;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.add-repo-error {
+  white-space: pre-wrap;
+  user-select: text;
+}
+.add-repo-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 560px;
+  width: 100%;
+}
+/* A CardButton (ui/: outline, hover, focus): the doubled class beats .ui-pressable's display and padding, which load later. */
+.add-repo-cards .add-repo-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  height: 112px;
+  padding: 14px;
+}
+.add-repo-card > span {
+  font-size: var(--text-md);
+}
+
+.intake-line ~ .nw-note {
+  margin: 4px 0 0;
+}

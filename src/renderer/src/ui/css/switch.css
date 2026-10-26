@@ -1,0 +1,73 @@
+/* Switch: a 24px-tall button (the target) with a 30x18 track and a knob drawn inside it. On is the neutral selected-mark track with
+   the knob moved right, so state shows by position as well as colour. */
+.ui-switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-height: var(--target-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  --ui-switch-knob: var(--text);
+}
+@media (prefers-color-scheme: light) {
+  .ui-switch {
+    --ui-switch-knob: var(--bg);
+  }
+}
+.ui-switch__track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--border-control);
+  transition: background 0.15s;
+}
+.ui-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--ui-switch-knob);
+  box-shadow: 0 1px 2px var(--shadow);
+  transition: transform 0.15s;
+}
+.ui-switch[aria-checked='true'] .ui-switch__track {
+  background: var(--selected-mark);
+}
+.ui-switch[aria-checked='true'] .ui-switch__knob {
+  background: var(--on-selected-mark);
+  transform: translateX(12px);
+}
+.ui-switch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-switch:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+/* Forced colours drop backgrounds: draw the track as an outline and the knob in a system colour. */
+@media (forced-colors: active) {
+  .ui-switch__track {
+    box-sizing: border-box;
+    border: 1px solid ButtonText;
+    background: Canvas;
+  }
+  .ui-switch__knob {
+    background: ButtonText;
+    forced-color-adjust: none;
+  }
+  .ui-switch[aria-checked='true'] .ui-switch__track {
+    background: Highlight;
+  }
+  .ui-switch[aria-checked='true'] .ui-switch__knob {
+    background: HighlightText;
+  }
+}

@@ -1,0 +1,14 @@
+/* ---- hand off to another Mac (P-4) ---- */
+.pair-modal { max-width: min(440px, 92vw); }
+.pair-code { font-family: var(--mono); font-size: var(--text-display-pair-code); letter-spacing: 6px; text-align: center; padding: 12px 0; }
+.steps-v { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 8px; }
+.steps-v .s { display: flex; align-items: center; gap: 8px; font-size: var(--text-md); color: var(--text-muted); }
+.steps-v .s.done, .steps-v .s.current { color: var(--text); }
+.steps-v .s.failed { color: var(--red); }
+.steps-v .ic { width: 16px; height: 16px; border-radius: var(--radius-full); border: 1px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.steps-v .s.done .ic { background: var(--add-bg); border-color: var(--green); color: var(--green); }
+.steps-v .s.failed .ic { border-color: currentColor; }
+.error-text { color: var(--red); }
+.reconcile-options { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+/* Each choice is a small CardButton (ui/: outline, hover, disabled, focus); this is its layout. */
+button.reconcile-option { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; }

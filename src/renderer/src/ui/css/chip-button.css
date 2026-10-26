@@ -1,0 +1,55 @@
+/* ChipButton: a small bordered button for modes, filters and pickers. --pill (shape) and the tones are independent. */
+.ui-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: var(--target-min);
+  padding: 3px 8px;
+  background: none;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-chip-btn:hover:not(:disabled),
+.ui-chip-btn[aria-pressed='true'],
+.ui-chip-btn[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+/* Shape (--pill) and tone (--warn) are independent. The pill's neutral surface is declared before
+   the tones, at the same specificity, so a tone always wins over it whatever order the classes appear in. */
+.ui-chip-btn--pill {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg);
+  color: var(--text-soft);
+}
+/* warn: an amber tint, for something waiting on the user ("Needs you", a pairing to confirm). */
+.ui-chip-btn--warn {
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+.ui-chip-btn--warn:hover:not(:disabled),
+.ui-chip-btn--warn[aria-pressed='true'],
+.ui-chip-btn--warn[aria-expanded='true'] {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+/* A Status inside a chip (the phone pill) takes the chip's text colour; its glyph keeps the state colour. */
+.ui-chip-btn .ui-status {
+  color: inherit;
+}
+.ui-chip-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-chip-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}

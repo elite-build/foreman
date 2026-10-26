@@ -1,0 +1,8 @@
+# Hooks run under sh, which chokes on CRLF; keep them LF whatever core.autocrlf says.
+.githooks/* text eol=lf
+docs/licenses/* text eol=lf
+.publication-private/** export-ignore
+design/** export-ignore
+docs/*-spec/** export-ignore
+FEATURES.md export-ignore
+PUBLICATION-*.md export-ignore

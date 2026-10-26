@@ -1,0 +1,342 @@
+/* #22: the agent catalog, Sign-in and Provider keys pages, the picker's agent
+   groups and Terminal agent tabs. Layout and content only: buttons, inputs, tags and notices come from ui/.
+   Colors come only from the theme tokens. */
+
+/* ---- monogram ---- */
+
+.agent-mono {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: -0.06em;
+  line-height: 1;
+}
+.agent-mono.large {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+
+/* ---- shared page pieces ---- */
+
+.cat-checked {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+.cat-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.cat-legend-item {
+  padding: 10px 14px;
+}
+.cat-legend-item + .cat-legend-item {
+  border-left: 1px solid var(--border);
+}
+.cat-legend-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+.cat-legend-item p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+/* A search box (SearchField): the magnifier sits inside the TextInput's left padding. */
+.search-field {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.search-field > svg {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.search-field .ui-input {
+  width: 100%;
+  padding-left: 30px;
+}
+.cat-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 14px;
+}
+.cat-search {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+/* The filter is as tall as the search field beside it (32px), and wraps its options rather than push the page wider than
+   the window (it was 334px in a 184px page at 200% zoom). */
+.cat-toolbar .ui-segmented {
+  flex-wrap: wrap;
+  min-height: 32px;
+  max-width: 100%;
+}
+.cat-group {
+  margin-bottom: 18px;
+}
+.cat-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--text-md);
+}
+.cat-rows {
+  overflow: hidden;
+}
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+}
+.cat-row + .cat-row,
+.pk-row + .pk-row,
+.pk-agent + .pk-agent,
+.si-row + .si-row {
+  border-top: 1px solid var(--border);
+}
+.cat-row-main {
+  flex: 1;
+  min-width: 0;
+}
+/* A Pressable: the element in the selector outranks .ui-pressable's display, which loads after this file. */
+button.cat-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.cat-row-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.cat-row-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+.cat-error {
+  max-height: 160px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.cat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 330px;
+}
+/* A capability the agent lacks: struck through, on the tag's own text. */
+.cat-chip-off {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+/* "Show more": an ActionRow (ui/) that ends the list; this is its padding and its main button's layout. */
+.cat-rows > .cat-more {
+  padding: 8px 14px;
+}
+button.cat-more-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cat-more-line > span:not(.cat-more-names) {
+  flex: none;
+}
+.cat-more-names {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-agent-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.cat-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cat-method {
+  gap: 3px;
+}
+
+/* ---- Sign-in ---- */
+
+.si-head,
+.si-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.1fr) minmax(130px, 1fr) minmax(120px, 0.9fr) minmax(170px, 1.4fr);
+  align-items: center;
+  gap: 10px;
+}
+.si-head {
+  margin: 4px 0 6px;
+  padding: 0 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.si-row {
+  padding: 8px 14px;
+}
+button.si-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.si-agent-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.si-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---- Provider keys ---- */
+
+.cat-keys-banner {
+  margin-bottom: 12px;
+}
+.pk-row {
+  padding: 10px 14px;
+}
+.pk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-md);
+}
+.pk-allowed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 8px;
+}
+/* The label text inside a Checkbox. */
+.pk-check-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pk-check-text.locked {
+  color: var(--text-muted);
+}
+/* G1: an agent that isn't enabled: still tickable, dimmed. */
+.pk-check-text.off {
+  color: var(--text-faint);
+}
+.pk-empty {
+  margin: 0;
+  padding: 12px 14px;
+}
+.pk-agent {
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+}
+.pk-agent-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.pk-agent-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* ---- picker ---- */
+
+.picker-agent-groups {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.picker-agent-group .picker-label {
+  padding: 4px 10px 0;
+}
+.picker-agent-group .picker-agents {
+  border-bottom: none;
+}
+
+/* ---- Terminal agent tab ---- */
+
+.agent-tab .agent-mono {
+  margin-right: 2px;
+}
+.agent-term {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.agent-term-banner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+.agent-term-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.agent-term-foot {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+}
+.ws-label.agent-run .agent-run-state {
+  color: var(--blue);
+}

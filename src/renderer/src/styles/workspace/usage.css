@@ -1,0 +1,15 @@
+/* Settings → Usage */
+.usage-range { margin: 6px 0 14px; }
+.usage-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.usage-stat { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.usage-stat b { font-size: var(--text-xl); font-weight: 600; }
+.usage-stat span { font-size: var(--text-sm); color: var(--text-muted); }
+.usage-workspaces { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; width: 100%; }
+.usage-card { padding: 4px 12px; }
+.usage-row { display: grid; grid-template-columns: 150px 1fr 90px auto auto; gap: 10px; align-items: center; padding: 8px 0; }
+.usage-row + .usage-row { border-top: 1px solid var(--border); }
+.usage-row .usage-workspaces { grid-column: 1 / -1; margin: 0; }
+.usage-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-bar { display: flex; height: 9px; }
+.usage-bar-known { background: var(--text-muted); border-radius: var(--radius-sm) 0 0 var(--radius-sm); min-width: 0; }
+.usage-bar-unknown { background: repeating-linear-gradient(45deg, var(--border-control), var(--border-control) 3px, transparent 3px, transparent 6px); border: 1px solid var(--border-control); min-width: 0; }

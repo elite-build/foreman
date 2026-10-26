@@ -1,0 +1,9 @@
+/* ---- scheduled templates (R-5) ---- */
+.schedule-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.schedule-row .schedule-grow { flex: 1; min-width: 150px; }
+.schedule-cadence-hint { margin: -5px 0 0; }
+.schedule-pair { display: flex; gap: 6px; }
+.schedule-pair > .ui-select { flex: 1; min-width: 0; }
+.schedule-pair > .ui-input { width: 90px; }
+.weekday-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.cron-preview { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: var(--text-sm); }

@@ -1,0 +1,8 @@
+/* #5 Auto-fix CI: the Git panel line, the stopped note under the toggle, the consent dialog's prompt and budget, and the chat receipt. Tokens only. */
+.autofix-line { display: flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: var(--text-sm); color: var(--text-soft); }
+.autofix-line.stopped { color: var(--amber); }
+.autofix-toggle { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; }
+.autofix-stopped { padding-left: 22px; color: var(--amber); }
+.autofix-prompt { max-height: 180px; word-break: normal; }
+.autofix-budget { display: flex; flex-wrap: wrap; gap: 6px; }
+.autofix-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }

@@ -1,0 +1,28 @@
+/* The renderer's shared stylesheet, split by area. main.tsx imports it once, after xterm's CSS; the parts load in
+   this order, which is the cascade's order. */
+@import './ui/tokens.css';
+@import './styles/base.css';
+@import './styles/layout.css';
+@import './styles/sidebar.css';
+@import './styles/home.css';
+@import './styles/workspace-center.css';
+@import './styles/bottom-panel.css';
+@import './styles/terminal.css';
+@import './styles/chat.css';
+@import './styles/composer.css';
+@import './styles/file-diff.css';
+@import './styles/modals.css';
+@import './styles/layout-toggles.css';
+@import './styles/chat-tabs.css';
+@import './styles/agent-picker.css';
+@import './styles/composer-extras.css';
+@import './styles/approval-panels.css';
+@import './styles/git-panel.css';
+@import './styles/overlays.css';
+@import './styles/file-viewer.css';
+@import './styles/second-opinion.css';
+@import './styles/compare.css';
+@import './styles/repo-mcp.css';
+@import './styles/follow-ups.css';
+@import './styles/schedules.css';
+@import './styles/hand-off.css';

@@ -1,0 +1,158 @@
+{
+  "src/renderer/src/components/agentReports.css": {
+    "9": 4
+  },
+  "src/renderer/src/components/agents/catalog.css": {
+    "9": 11
+  },
+  "src/renderer/src/components/assistant/assistant.css": {
+    "9": 15
+  },
+  "src/renderer/src/components/autoReview.css": {
+    "9": 7
+  },
+  "src/renderer/src/components/automations/AutomationsView.tsx": {
+    "9": 1
+  },
+  "src/renderer/src/components/automations/automations.css": {
+    "9": 14
+  },
+  "src/renderer/src/components/cloud/cloud.css": {
+    "9": 10
+  },
+  "src/renderer/src/components/diffSelection.css": {
+    "9": 16
+  },
+  "src/renderer/src/components/diffSource.css": {
+    "9": 1
+  },
+  "src/renderer/src/components/dropFolder.css": {
+    "9": 10
+  },
+  "src/renderer/src/components/files.css": {
+    "9": 13
+  },
+  "src/renderer/src/components/gitlab.css": {
+    "9": 5
+  },
+  "src/renderer/src/components/homeBoard.css": {
+    "9": 14
+  },
+  "src/renderer/src/components/keepRunning.css": {
+    "9": 1
+  },
+  "src/renderer/src/components/openIn.css": {
+    "9": 5
+  },
+  "src/renderer/src/components/phone/phone.css": {
+    "9": 9
+  },
+  "src/renderer/src/components/reportProblem.css": {
+    "9": 17
+  },
+  "src/renderer/src/components/settings/agents.css": {
+    "9": 15
+  },
+  "src/renderer/src/components/settings/environment.css": {
+    "9": 11
+  },
+  "src/renderer/src/components/settings/integrations/integrations.css": {
+    "9": 34
+  },
+  "src/renderer/src/components/settings/repo.css": {
+    "9": 33
+  },
+  "src/renderer/src/components/settings/settings.css": {
+    "9": 43
+  },
+  "src/renderer/src/components/setupSteps.css": {
+    "9": 4
+  },
+  "src/renderer/src/components/stopSafely.css": {
+    "9": 17
+  },
+  "src/renderer/src/components/switchAgent.css": {
+    "9": 1
+  },
+  "src/renderer/src/styles/agent-picker.css": {
+    "9": 4
+  },
+  "src/renderer/src/styles/approval-panels.css": {
+    "9": 5
+  },
+  "src/renderer/src/styles/base.css": {
+    "9": 4
+  },
+  "src/renderer/src/styles/bottom-panel.css": {
+    "9": 2
+  },
+  "src/renderer/src/styles/chat-tabs.css": {
+    "9": 2
+  },
+  "src/renderer/src/styles/chat.css": {
+    "9": 41
+  },
+  "src/renderer/src/styles/composer-extras.css": {
+    "9": 25
+  },
+  "src/renderer/src/styles/composer.css": {
+    "9": 4
+  },
+  "src/renderer/src/styles/file-diff.css": {
+    "9": 7
+  },
+  "src/renderer/src/styles/file-viewer.css": {
+    "9": 7
+  },
+  "src/renderer/src/styles/git-panel.css": {
+    "9": 13
+  },
+  "src/renderer/src/styles/hand-off.css": {
+    "9": 5
+  },
+  "src/renderer/src/styles/home.css": {
+    "9": 7
+  },
+  "src/renderer/src/styles/layout-toggles.css": {
+    "9": 3
+  },
+  "src/renderer/src/styles/modals.css": {
+    "9": 16
+  },
+  "src/renderer/src/styles/repo-mcp.css": {
+    "9": 2
+  },
+  "src/renderer/src/styles/second-opinion.css": {
+    "9": 2
+  },
+  "src/renderer/src/styles/sidebar.css": {
+    "9": 9
+  },
+  "src/renderer/src/styles/terminal.css": {
+    "9": 8
+  },
+  "src/renderer/src/styles/workspace-center.css": {
+    "9": 1
+  },
+  "src/renderer/src/styles/workspace/add-repo.css": {
+    "9": 3
+  },
+  "src/renderer/src/styles/workspace/export-import.css": {
+    "9": 2
+  },
+  "src/renderer/src/styles/workspace/new-workspace.css": {
+    "9": 12
+  },
+  "src/renderer/src/styles/workspace/note.css": {
+    "9": 1
+  },
+  "src/renderer/src/styles/workspace/search-chats.css": {
+    "9": 2
+  },
+  "src/renderer/src/styles/workspace/sidebar.css": {
+    "9": 1
+  },
+  "src/renderer/src/styles/workspace/usage.css": {
+    "9": 6
+  }
+}

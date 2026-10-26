@@ -1,0 +1,98 @@
+/* ActionRow: the surface of a list row. The primary button stretches over it; actions and the editor sit on top. */
+.ui-action-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+}
+.ui-action-row[data-divided]:not(:first-child) {
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+.ui-action-row:hover:not([data-disabled]):not([data-editing]) {
+  background: var(--bg-hover);
+}
+.ui-action-row[data-selected] {
+  background: var(--selected-bg);
+}
+.ui-action-row__main {
+  flex: 1;
+  min-width: 0;
+}
+/* The primary button has no ring of its own: the row shows it (below). */
+.ui-action-row .ui-action-row__main:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+/* Make the whole row the click target. Actions and the editor sit above it. */
+button.ui-action-row__main::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.ui-action-row[data-disabled] .ui-action-row__main {
+  opacity: 0.45;
+}
+.ui-action-row[data-disabled] button.ui-action-row__main {
+  cursor: default;
+}
+.ui-action-row__actions,
+.ui-action-row__editor {
+  position: relative;
+  z-index: 1;
+}
+.ui-action-row__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.ui-action-row__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ui-action-row[data-reveal-actions] .ui-action-row__actions {
+  opacity: 0;
+}
+.ui-action-row[data-reveal-actions]:hover .ui-action-row__actions,
+.ui-action-row[data-reveal-actions]:focus-within .ui-action-row__actions {
+  opacity: 1;
+}
+/* Inset, so the ring isn't clipped by a card or list that hides overflow. */
+.ui-action-row:has(> button.ui-action-row__main:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px var(--bg);
+}
+@media (forced-colors: active) {
+  .ui-action-row[data-selected] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  /* The row carries the marker, not the button inside it. */
+  .ui-action-row .ui-action-row__main[aria-current] {
+    outline: none;
+  }
+}
+/* Editing: the row holds an inline editor, so it reads as open. */
+.ui-action-row[data-editing] {
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--selected-border);
+}
+/* Pending: a choice waiting for confirmation. */
+.ui-action-row[data-pending] {
+  background: var(--selected-bg);
+  box-shadow: inset 0 0 0 1px var(--selected-border);
+}
+@media (forced-colors: active) {
+  .ui-action-row[data-pending],
+  .ui-action-row[data-editing] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}

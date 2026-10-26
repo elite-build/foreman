@@ -1,0 +1,172 @@
+/* ---- git panel ---- */
+
+.panel-status.red {
+  color: var(--red);
+}
+.panel-status.green {
+  color: var(--green);
+}
+.panel-status.amber {
+  color: var(--amber);
+}
+.panel-status.purple {
+  color: var(--blue);
+}
+.git-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Merged: the state, then which PR, into what, and when; the words give way first when the panel is narrow. */
+.merged-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.merged-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.changes-filter {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.comment-count {
+  direction: ltr;
+}
+.checks {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius-md);
+  min-height: 30px;
+}
+.check-row:hover {
+  background: var(--bg-hover);
+}
+.check-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.checks-evidence {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.checks-evidence .evidence-icon.ok { color: var(--green); }
+.checks-evidence .evidence-icon.bad { color: var(--red); }
+.checks-evidence .evidence-icon.warn { color: var(--amber); }
+.checks-evidence .evidence-icon.idle { color: var(--text-faint, var(--text-soft)); }
+.checks-evidence .check-row > .check-label { white-space: nowrap; }
+.checks-evidence .chev { transition: transform 0.12s; }
+.checks-evidence .chev.open { transform: rotate(90deg); }
+.check-details { display: flex; flex-direction: column; gap: 8px; padding: 4px 6px 4px 30px; }
+.check-auto { padding: 2px 6px 2px 30px; }
+.check-detail { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); }
+.check-detail-head { display: flex; align-items: center; gap: 8px; }
+.check-detail-name { font-weight: 500; }
+.check-detail-status.bad { color: var(--red); }
+.check-detail-evidence { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.check-detail-command { color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consent-item { margin: 10px 0; }
+.consent-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.consent-diff { margin: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); font-size: var(--text-sm); max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+.consent-diff .diff-add { color: var(--green); }
+.consent-diff .diff-del { color: var(--red); }
+.consent-list { margin: 8px 0; padding-left: 18px; font-size: var(--text-md); }
+.checks-group {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.checks-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 4px;
+  font-weight: 500;
+  font-size: var(--text-sm);
+}
+.review-summary { padding: 4px 6px; }
+.pr-description { margin: 6px; font-size: var(--text-sm); }
+.pr-description summary { cursor: pointer; padding: 4px 0; color: var(--text-soft); }
+.pr-description .markdown { margin-top: 8px; }
+.review-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px; }
+.review-select { display: flex; align-items: center; gap: 6px; }
+.pr-watch { display: flex; flex-direction: column; gap: 4px; padding: 4px 12px; color: var(--text-muted); }
+.review-thread { margin: 8px 4px; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.review-thread-head { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--bg-hover); }
+.review-thread-head .ui-link-btn { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.review-comment { padding: 8px 10px; min-width: 0; overflow-wrap: anywhere; }
+.review-reply { margin-left: 14px; border-left: 2px solid var(--border); border-top: 1px solid var(--border); }
+.review-comment-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+.review-comment .markdown, .pr-description .markdown { font-size: var(--text-sm); }
+.review-comment .markdown pre { max-width: 100%; overflow-x: auto; }
+.ok {
+  color: var(--green);
+}
+.bad {
+  color: var(--red);
+}
+.warn {
+  color: var(--amber);
+}
+.merged {
+  color: var(--blue);
+}
+.comment-row,
+.inline-comment {
+  margin: 4px 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.inline-comment.agent {
+  border-color: var(--border-control);
+}
+.comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.comment-body {
+  white-space: pre-wrap;
+  font-family: var(--font);
+  font-size: var(--text-md);
+  word-break: break-word;
+}
+.comment-tr td {
+  padding: 4px 12px 8px 60px;
+  background: var(--bg-panel);
+}
+.comment-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 640px;
+}
+.comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.hunk .ln.clickable {
+  cursor: pointer;
+}
+.hunk .ln.clickable:hover {
+  color: var(--text);
+}

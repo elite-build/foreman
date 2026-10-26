@@ -1,0 +1,72 @@
+/* #19: the side panel's Files tab and image previews in the file viewer. */
+
+.files-tab { display: flex; flex-direction: column; min-height: 0; }
+.tree-tools { display: flex; align-items: center; gap: 8px; padding: 8px 14px 6px; }
+.tree-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-soft); cursor: pointer; }
+.tree-foot { padding: 8px 14px 14px; }
+
+/* Previews in the file viewer: the picture on a checkerboard, fitted to the window. */
+.preview-meta { color: var(--text-faint); font-size: var(--text-sm); white-space: nowrap; }
+.preview-safe { flex: none; display: flex; align-items: center; gap: 7px; padding: 7px 16px; border-bottom: 1px solid var(--border); background: var(--bg-panel); color: var(--text-muted); font-size: var(--text-sm); }
+.preview-safe svg { color: var(--green); }
+.preview-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: hidden; }
+.preview-checker {
+  display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;
+  background: repeating-conic-gradient(var(--bg-raised) 0 25%, var(--bg-panel) 0 50%) 0 0 / 16px 16px;
+}
+.preview-checker img { display: block; max-width: 100%; }
+.preview-foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--border); color: var(--text-faint); font-size: var(--text-sm); }
+
+/* O15: Rich Markdown editing. Each block is its own contenteditable inside .markdown; blocks kept as written show their source. */
+.md-toolbar { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.md-toolbar .sep { flex: none; width: 1px; height: 16px; margin: 0 6px; background: var(--border); }
+.md-toolbar .hint { margin-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--text-faint); }
+.md-link-input { flex: 1; max-width: 360px; }
+.md-rich { max-width: none; padding: 18px 28px 24px; cursor: text; }
+/* G4 O15: the Rich editor in a short field (a prompt template, the workspace note). */
+.rich-field { display: flex; flex-direction: column; min-height: 96px; max-height: 320px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-raised); }
+.rich-field .md-toolbar { padding: 2px 6px; }
+.rich-field .md-rich { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px 10px; }
+.field-mode-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.md-rich .markdown { max-width: 720px; }
+.md-rich .markdown > :first-child > :first-child { margin-top: 0; }
+.md-rich .markdown h1 { font-size: var(--text-display-heading); }
+.md-rich .markdown h2 { font-size: var(--text-display-subheading); }
+.md-block { position: relative; outline: none; }
+.md-block[data-code] pre { white-space: pre-wrap; }
+.md-tail { min-height: 1.6em; margin-top: 0.55em; }
+.md-tail:empty::before { content: attr(data-placeholder); color: var(--text-faint); pointer-events: none; }
+.md-edited { position: relative; }
+.md-edited::before { content: ''; position: absolute; left: -14px; top: 1px; bottom: 1px; width: 2px; border-radius: var(--radius-sm); background: var(--selected-mark); }
+.md-check { display: inline-block; width: 13px; height: 13px; margin-right: 6px; vertical-align: -2px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); cursor: pointer; user-select: none; }
+.md-check[data-checked='true'] { border-color: var(--selected-mark); background: var(--selected-mark); }
+.md-rich li:has(> .md-check) { list-style: none; margin-left: -1.1em; }
+.md-source { display: flex; flex-direction: column; gap: 4px; margin: 0.55em 0; padding: 7px 10px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--bg-panel); }
+.md-source-tag { flex: none; font-size: var(--text-xs); color: var(--text-faint); user-select: none; }
+.md-rich .markdown .md-source pre { margin: 0; padding: 0; border: none; background: none; color: var(--text-muted); font-size: var(--text-xs); white-space: pre-wrap; outline: none; }
+.md-foot { flex: none; display: flex; align-items: center; gap: 7px; padding: 7px 16px; border-top: 1px solid var(--border); font-size: var(--text-sm); color: var(--text-faint); }
+.md-foot .spacer { flex: 1; }
+.md-check[data-checked='true']::after { content: '✓'; display: block; color: var(--bg); font-size: var(--text-xs); line-height: 12px; text-align: center; }
+
+/* G3 · #19: a sandboxed HTML page or PDF from the worktree (foreman-preview://). A page gets a browser's white canvas. */
+.preview-frame { flex: 1; min-height: 0; width: 100%; border: 0; display: block; }
+.preview-frame.page { background: var(--preview-canvas); }
+
+/* G3 · #19: a changed picture in the diff, side by side or as a swipe. */
+.image-diff { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.image-diff-tools { display: flex; align-items: center; gap: 12px; }
+.image-diff-side { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.image-diff-pane { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.image-diff-label { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: var(--text-sm); }
+.image-diff-label .faint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.image-diff-tag { flex: none; font-weight: 500; }
+.image-diff-tag.before { color: var(--red); }
+.image-diff-tag.after { color: var(--green); }
+.image-diff-frame { display: flex; align-items: center; justify-content: center; min-height: 120px; max-height: 360px; padding: 8px; }
+.image-diff-frame img { display: block; max-width: 100%; max-height: 340px; object-fit: contain; }
+.image-diff-swipe { display: flex; flex-direction: column; gap: 6px; }
+.image-diff-swipe-labels { display: flex; justify-content: space-between; gap: 12px; }
+.image-diff-stage { position: relative; display: grid; align-self: center; max-width: 100%; }
+.image-diff-stage img { grid-area: 1 / 1; display: block; max-width: 100%; max-height: 360px; object-fit: contain; width: 100%; height: 100%; }
+.image-diff-stage .swipe-handle { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--blue); pointer-events: none; }
+.image-diff-range { width: 100%; }

@@ -1,0 +1,51 @@
+/* Tag: a small label with a 4px corner. Status tones add a glyph and tint. */
+.ui-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+  vertical-align: 1px;
+}
+/* The tone's text colour carries the glyph too. */
+.ui-tag .ui-glyph[data-glyph] {
+  width: 9px;
+  height: 9px;
+  color: currentColor;
+}
+.ui-tag--accent {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.ui-tag--outline {
+  background: none;
+  border-color: var(--border-control);
+}
+.ui-tag--ok {
+  background: var(--add-bg);
+  color: var(--green);
+}
+.ui-tag--warn {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+.ui-tag--error {
+  background: var(--del-bg);
+  color: var(--red);
+}
+.ui-tag--info {
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+/* Mono: the code font at the tag's size. */
+.ui-tag--mono {
+  font-family: var(--mono);
+}

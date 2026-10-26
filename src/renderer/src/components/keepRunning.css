@@ -1,0 +1,23 @@
+/* ---- Keep agents running (O10): the Quit sheet's choice, Home's reconnected line, the chat's gap line ---- */
+/* A CardButton (ui/), selected: the recommended choice wears the neutral selected edge and fill. The doubled class beats
+   .ui-pressable's display and padding, which load later. */
+.keep-choice.keep-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 13px;
+}
+.keep-choice-icon { flex: none; display: inline-flex; padding-top: 1px; color: var(--text-soft); }
+.keep-choice-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.keep-choice-title { font-weight: 600; color: var(--text); }
+.keep-choice-sub { color: var(--text-soft); font-size: var(--text-sm); }
+.keep-choice-limits { margin-top: 3px; color: var(--text-faint); font-size: var(--text-xs); line-height: 1.45; }
+
+.closed-gap { display: flex; align-items: center; gap: 10px; margin: 4px 0; font-size: var(--text-sm); color: var(--text-muted); }
+.closed-gap::before,
+.closed-gap::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.closed-gap-text { display: inline-flex; align-items: center; gap: 6px; }
+.closed-gap-text svg { flex: none; color: var(--blue); }
+.closed-gap-text b { color: var(--text); font-weight: 500; }

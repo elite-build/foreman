@@ -1,0 +1,52 @@
+/* Flash (ui/flash.ts): the jump-to highlight. A neutral wash (--selected-tint, never the accent, which reads as an error)
+   drawn a little outside the target, so nothing inside touches its edge, rounded to the target's corners (flash.ts sets
+   --ui-flash-radius) and with no outline. It fades in and out over 1.4 seconds. The wash is a pseudo-element behind
+   the target's content, so it adds no layout and the content keeps its own colours.
+   [data-ui-flash='hold'] keeps the wash on with no animation (the screenshot tool freezes a flash this way). */
+:where([data-ui-flash]) {
+  /* The wash is positioned against the target; a target that already positions itself keeps that (zero specificity). */
+  position: relative;
+}
+[data-ui-flash] {
+  /* Own stacking context, so the wash can sit behind the target's content without dropping behind its parents' fills. */
+  isolation: isolate;
+  --ui-flash-gap: 6px;
+}
+[data-ui-flash]::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--ui-flash-gap) * -1);
+  z-index: -1;
+  border-radius: max(calc(var(--ui-flash-radius, 0px) + var(--ui-flash-gap)), var(--radius-md));
+  background: var(--selected-tint);
+  pointer-events: none;
+  animation: ui-flash 1.4s ease-out forwards;
+}
+@keyframes ui-flash {
+  0% {
+    opacity: 0;
+  }
+  12%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+[data-ui-flash='hold']::after {
+  animation: none;
+  opacity: 1;
+}
+/* Reduce Motion: no fade. The wash is simply on for a moment, then off (flash.ts removes the attribute). */
+html[data-reduce-motion='on'] [data-ui-flash]::after {
+  animation: none;
+  opacity: 1;
+}
+/* Forced colours drop backgrounds: mark the place with a system-colour outline instead. */
+@media (forced-colors: active) {
+  [data-ui-flash]::after {
+    background: none;
+    outline: 2px solid Highlight;
+  }
+}

@@ -1,0 +1,13 @@
+/* Workspace note */
+.note-bar { flex: none; display: flex; align-items: flex-start; gap: 8px; padding: 5px 16px; border-bottom: 1px solid var(--border); background: var(--bg-panel); font-size: var(--text-sm); }
+.note-bar .lbl { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; padding-top: 1px; }
+/* The 24px label button and the text's first line share a centre line: 3px above and below an 18px line is 24px. */
+.note-bar .txt { flex: 1; min-width: 0; padding: 3px 0; color: var(--text-soft); white-space: pre-wrap; line-height: 1.5; cursor: text; }
+.note-bar.collapsed .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+.note-edit { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.note-edit-text { width: 100%; }
+.note-bar .note-send { white-space: nowrap; }
+.note-actions { display: flex; align-items: center; gap: 8px; }
+.include-note { display: flex; align-items: center; gap: 6px; padding: 4px 16px; }
+.include-note-text { font-size: var(--text-sm); color: var(--text-muted); }
+.note-tag { margin-top: 4px; }

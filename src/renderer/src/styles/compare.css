@@ -1,0 +1,11 @@
+/* Compare models (N-4) */
+.compare-models { display: flex; flex-direction: column; gap: 6px; }
+.compare-model { display: inline-flex; align-items: center; gap: 8px; }
+/* Home's row for a comparison: its content sits in the row's primary button, in the same columns as the other rows. */
+.home-card .compare-row { padding: 10px 16px; }
+.compare-row-flow { display: grid; grid-template-columns: 148px minmax(0, 1fr); align-items: center; gap: 14px; }
+.compare-row-flow .home-row-main, .compare-row-flow .home-row-sub { display: block; min-width: 0; }
+/* A narrow Home card: the state tag above the title, as the other rows (home.css). */
+@container (max-width: 520px) {
+  .compare-row-flow { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

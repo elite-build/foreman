@@ -1,0 +1,110 @@
+/* O5: the Changes panel's source menu, the Commits tab and a commit's read-only diff. Theme tokens only. */
+
+.diff-source-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-source-menu {
+  min-width: 290px;
+}
+.diff-source-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* A note above the file list on sources other than All changes. */
+.changes-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 4px;
+}
+
+/* ---- Commits tab ---- */
+
+.commits {
+  padding: 6px 8px;
+}
+.commits-head {
+  padding: 0 8px 6px;
+}
+.commit-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+.commit-pick {
+  flex: none;
+  margin: 3px 0 0 4px;
+}
+/* A commit is an ActionRow (ui/: hover, selected, focus); its main button holds this grid. The element in the selector
+   outranks .ui-pressable's display, which loads later. */
+.commits .commit-entry {
+  padding: 6px 8px;
+}
+.commit-item .commit-entry {
+  flex: 1;
+  min-width: 0;
+}
+button.commit-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: start;
+  gap: 2px 8px;
+  width: 100%;
+}
+.commit-row .commit-dot {
+  padding-top: 2px;
+  color: var(--text-faint);
+}
+.commit-row .commit-dot.uncommitted {
+  color: var(--amber);
+}
+.commit-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.commit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  grid-column: 2 / 4;
+  min-width: 0;
+}
+.commit-files {
+  margin: 0 0 6px 18px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+.commit-files .change-entry.change-entry {
+  padding: 4px 8px;
+}
+.commits-foot {
+  padding: 10px 8px 4px;
+}
+.commits-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+/* A commit's file opened in the center: which commit, read only. */
+.commit-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: var(--text-sm);
+}
+.commit-banner .commit-subject {
+  font-weight: 600;
+}

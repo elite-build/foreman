@@ -1,0 +1,77 @@
+/* Button: default, primary, danger and ghost, at md and sm. */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--target-min);
+  padding: 5px 11px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  /* Its own colour, not the surrounding text's (a faint notice, a red card). */
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease-out;
+}
+.ui-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.ui-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.ui-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-btn--sm {
+  padding: 3px 9px;
+  font-size: var(--text-sm);
+}
+.ui-btn--primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+  font-weight: 500;
+}
+.ui-btn--primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+.ui-btn--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-danger);
+}
+.ui-btn--danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
+}
+/* A shortcut hint inside a filled button: muted text would sink into the fill, so it follows the button's text colour. */
+.ui-btn--primary .ui-kbd,
+.ui-btn--danger .ui-kbd {
+  color: inherit;
+}
+/* No chrome until hovered: secondary actions in toolbars and rows. */
+.ui-btn--ghost {
+  background: none;
+  border-color: transparent;
+}
+.ui-btn--ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.ui-btn__icon {
+  display: inline-flex;
+  flex: none;
+}

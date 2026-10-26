@@ -1,0 +1,9 @@
+{
+  "name": "diff-rows",
+  "steps": [
+    { "key": "Tab", "expect": { "focus": { "role": "heading", "name": "^Hunk 1 of \\d+" } } },
+    { "key": "ArrowDown", "expect": { "focus": { "role": "row", "tag": "^tr$" } } },
+    { "key": "shift+ArrowDown", "expect": { "focus": { "role": "row", "tag": "^tr$" }, "announced": "^Selected 2 lines, (new|old) \\d+ to \\d+\\.$" } },
+    { "key": "Escape", "expect": { "focus": { "role": "row", "tag": "^tr$" }, "announced": "^$" } }
+  ]
+}

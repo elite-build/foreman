@@ -1,0 +1,29 @@
+/* ---- bottom panel: run and preview menus ---- */
+
+/* Keeps xterm's own z-indexes from covering the menus above it. */
+.bottom-body {
+  isolation: isolate;
+}
+.preview-btns {
+  display: inline-flex;
+  align-items: center;
+}
+.preview-more {
+  margin-left: -3px;
+}
+/* The menus are ui/ Menus: a single class would lose to .ui-menu, which loads after this file. */
+.ui-menu.bottom-menu {
+  z-index: 20;
+  min-width: 240px;
+  max-width: 380px;
+}
+/* O4: the shells next to + open under it, toward the tabs, not off the panel's left edge (placement bottom-start). */
+.new-term-more {
+  margin-left: -3px;
+}
+.run-others {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}

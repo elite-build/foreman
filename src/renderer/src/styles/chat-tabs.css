@@ -1,0 +1,27 @@
+/* ---- chat tabs (the strip, its look and its close buttons are ui/Tabs; this is the content of a tab) ---- */
+
+.chat-tabs {
+  flex: none;
+}
+.chat-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* #16: marks a forked tab in place of its "(fork)" suffix. */
+.tab-fork {
+  flex-shrink: 0;
+}
+.tab-model {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+.tab-rename,
+.ws-rename {
+  width: 140px;
+}
+.new-tab {
+  margin-left: 2px;
+}

@@ -1,0 +1,583 @@
+/* Repository settings pages and their dialogs. Layout and content only: buttons, inputs, tags, dialogs, popovers and
+   lists come from ui/. Colors come only from the theme tokens in styles.css. */
+
+/* ---- header ---- */
+
+.repo-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.repo-eyebrow-icon {
+  display: inline-flex;
+  color: var(--text-soft);
+}
+.repo-eyebrow-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-footnote {
+  margin: 12px 2px 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.repo-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--red);
+}
+.repo-warning {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--amber);
+}
+.repo-warning > svg {
+  flex: none;
+  margin-top: 3px;
+}
+.repo-warning-text {
+  color: var(--amber);
+}
+/* The shortcut after a button's label (a Kbd). */
+.repo-kbd {
+  margin-left: 2px;
+}
+
+/* ---- dialogs ---- */
+
+.repo-dialog .ui-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.repo-dialog .ui-dialog__desc {
+  line-height: 1.55;
+}
+.repo-dialog .ui-dialog__desc code {
+  font-size: var(--text-xs);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+}
+.repo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.repo-field-label {
+  font-weight: 500;
+}
+.repo-field-input {
+  width: 100%;
+}
+.repo-field-help {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.repo-field-help code {
+  font-size: var(--text-xs);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+}
+.repo-check {
+  margin: 0;
+}
+
+/* ---- base branch picker (a Combobox with a fetch button beside it) ---- */
+
+.repo-combo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.repo-combo-field {
+  width: 300px;
+  max-width: 100%;
+}
+.repo-combo-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- scripts ---- */
+
+.ui-textarea.repo-script {
+  line-height: 1.55;
+  resize: vertical;
+  tab-size: 2;
+}
+.repo-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -4px;
+  padding: 0 16px 14px;
+}
+.repo-empty {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  text-align: center;
+  color: var(--text-muted);
+}
+.repo-run-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.repo-run-card.hidden {
+  background: var(--bg-raised);
+}
+/* A hidden script reads quieter by colour, not by opacity (which would drop its text below contrast). */
+.repo-run-card.hidden .repo-run-icon,
+.repo-run-card.hidden .repo-run-name,
+.repo-run-card.hidden .repo-run-command {
+  color: var(--text-muted);
+}
+.repo-run-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+}
+.repo-run-text {
+  flex: 1;
+  min-width: 0;
+}
+.repo-run-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+}
+.repo-run-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.repo-run-command {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.ui-segmented.repo-run-icons {
+  flex-wrap: wrap;
+}
+
+/* ---- prompts ---- */
+
+/* A Pressable: the element in the selector outranks .ui-pressable, which loads after this file. */
+button.repo-prompt-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.repo-prompt-title {
+  font-weight: 500;
+}
+.repo-chevron {
+  flex: none;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+.repo-chevron.open {
+  transform: rotate(90deg);
+}
+.set-row:has(> .set-row-text .repo-prompt-toggle) .set-help {
+  padding-left: 19px;
+}
+.repo-prompt-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 19px;
+}
+.ui-textarea.repo-prompt-text {
+  min-height: 120px;
+}
+.repo-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.repo-prompt-preview {
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- misc ---- */
+
+.repo-path {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+}
+.repo-path-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-soft);
+  word-break: break-all;
+  user-select: text;
+}
+.repo-urls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.repo-url-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.repo-url-name {
+  flex: 0 1 128px;
+  min-width: 0;
+}
+.repo-url-url {
+  flex: 1;
+  min-width: 0;
+}
+.repo-copy {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.repo-copy-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+}
+.repo-copy-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.repo-copy-status {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.repo-copy-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+.repo-copy-list li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  line-height: 1.65;
+  color: var(--text-soft);
+}
+.repo-copy-list li.repo-copy-more {
+  font-family: var(--font);
+  color: var(--text-muted);
+}
+
+/* ---- icons ---- */
+
+.repo-icon-glyph,
+.repo-icon-image {
+  flex: none;
+}
+.repo-icon-image {
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+.repo-icon-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.repo-icon-letter {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-selected);
+  color: var(--text-soft);
+  font-weight: 600;
+  line-height: 1;
+}
+/* The picker's trigger is a framed IconButton (ui/) showing the current icon. */
+button.repo-icon-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.repo-icon-popover {
+  width: 360px;
+  height: 320px;
+  max-width: calc(100vw - 48px);
+  padding: 8px;
+}
+.repo-icon-tabs {
+  flex: none;
+  margin-bottom: 8px;
+}
+.repo-icon-tabs .ui-segmented {
+  display: flex;
+}
+.repo-icon-tabs .ui-segmented__option {
+  flex: 1;
+  justify-content: center;
+}
+.repo-icon-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.repo-icon-search {
+  flex: none;
+  width: 100%;
+}
+.repo-icon-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(32px, 1fr));
+  align-content: start;
+  gap: 2px;
+}
+.repo-icon-cell {
+  width: 30px;
+  height: 30px;
+}
+.repo-icon-grid .repo-icon-cell {
+  width: 100%;
+  height: 32px;
+}
+.repo-emoji-cell {
+  font-size: var(--text-display-emoji-cell);
+  line-height: 1;
+}
+.repo-icon-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.repo-icon-hint code {
+  font-size: var(--text-xs);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-soft);
+}
+.repo-icon-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 2px;
+}
+.repo-icon-message-title {
+  font-weight: 500;
+}
+.repo-favicon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.repo-favicon img {
+  object-fit: contain;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.repo-emoji-literal {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 2px;
+}
+.repo-emoji-big {
+  font-size: var(--text-display-emoji);
+  line-height: 1;
+}
+.repo-icon-foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+@container (max-width: 540px) {
+  .repo-run-list {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .repo-url-row {
+    flex-wrap: wrap;
+  }
+  .repo-url-name {
+    flex-basis: 100%;
+  }
+}
+
+/* ---- GitHub account ---- */
+
+.gh-account-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+button.gh-account-button {
+  gap: 7px;
+  padding-left: 6px;
+}
+.gh-avatar {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  background: var(--bg-raised);
+}
+.gh-avatar.letter,
+.gh-avatar.default {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+.gh-account-popover {
+  width: 300px;
+}
+/* "Sign in another account": an ActionRow (ui/) under the list; this is its main button's layout. */
+button.gh-account-signin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- O18 Docker cleanup on archive ---- */
+.docker-cleanup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.docker-label {
+  margin-bottom: 5px;
+  font-size: var(--text-sm);
+  color: var(--text-soft);
+}
+.docker-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.docker-code-wrap {
+  position: relative;
+}
+.docker-code {
+  white-space: pre;
+  font-family: var(--mono);
+}
+.docker-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+.docker-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.docker-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+.docker-row > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.docker-name {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+.docker-image {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.docker-status {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.docker-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}

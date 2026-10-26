@@ -1,0 +1,8 @@
+/* expect 4=6 */
+/* Hex, rgb(), hsl() and named colours, in any declaration (custom properties included). */
+.a { color: #fff; }
+.b { background: rgba(0, 0, 0, 0.5); }
+.c { border: 1px solid white; }
+.d { box-shadow: 0 0 0 1px hsl(0 0% 0%); }
+:root { --accent: #123456; }
+.e { background: var(--bg, red); }

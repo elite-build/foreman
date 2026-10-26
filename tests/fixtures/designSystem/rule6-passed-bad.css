@@ -1,0 +1,7 @@
+/* expect 6=6 */
+/* Appearance on a class that feature code passes to a ui/ component (see passed/Feature.tsx): the component draws it. */
+.card-pick { border: 1px solid var(--border); }
+.list > .pick-a:hover { background: var(--bg-hover); }
+button.menu-trigger { color: var(--text); font-weight: 600; }
+.sidebar .row-main { text-decoration: underline; }
+.fixed-word { border-radius: var(--radius-sm); }

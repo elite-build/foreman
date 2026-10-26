@@ -1,0 +1,317 @@
+/* The Foreman assistant: sidebar entry and the view. Tokens only (see docs/design-system.md). */
+
+/* ---- sidebar entry (shares .automations-entry's frame) ---- */
+
+.assistant-entry-dot {
+  margin-left: auto;
+}
+.assistant-entry .ui-kbd {
+  margin-left: auto;
+}
+
+/* ---- frame ---- */
+
+.assistant-view {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.assistant-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.app.main-first.platform-darwin .assistant-head {
+  padding-left: 84px;
+}
+.assistant-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+.assistant-title svg {
+  color: var(--accent);
+}
+.assistant-runs-on {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.assistant-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+}
+
+/* ---- threads ---- */
+
+.assistant-threads {
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.assistant-new {
+  justify-content: center;
+  margin: 0 2px 8px;
+}
+.assistant-threads-empty {
+  padding: 8px 10px;
+}
+.assistant-thread-heading {
+  padding: 10px 10px 4px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.assistant-thread-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ui-action-row__main.assistant-thread-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.assistant-thread-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+.assistant-thread-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* ---- conversation ---- */
+
+.assistant-conv {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.assistant-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 26px 24px;
+}
+.assistant-col {
+  max-width: 680px;
+  margin: 0 auto;
+}
+.assistant-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.assistant-user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  background: var(--user-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-answer {
+  color: var(--text-soft);
+  min-width: 0;
+}
+.assistant-tool {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.assistant-tool.done svg {
+  color: var(--green);
+}
+.assistant-tool.error svg {
+  color: var(--red);
+}
+.assistant-show {
+  align-self: flex-start;
+}
+.assistant-note {
+  align-self: flex-start;
+}
+/* ---- empty thread and gate ---- */
+
+.assistant-welcome,
+.assistant-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding-top: 8vh;
+}
+.assistant-welcome h2,
+.assistant-gate h2 {
+  margin: 4px 0 0;
+  font-size: var(--text-display-subheading);
+  font-weight: 600;
+}
+.assistant-welcome p,
+.assistant-gate p {
+  margin: 0;
+  max-width: 420px;
+}
+.assistant-welcome-icon,
+.assistant-gate-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--accent);
+}
+.assistant-gate-icon {
+  color: var(--text-muted);
+}
+.assistant-gate-icon.warn {
+  color: var(--amber);
+}
+.assistant-starters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  margin-top: 14px;
+}
+/* A CardButton (ui/): the interactive card outline and hover are its own; the doubled selector beats .ui-pressable's
+   padding, which loads later. */
+.assistant-starters .assistant-starter {
+  padding: 10px 12px;
+}
+.assistant-starter-text {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+.assistant-starter:hover .assistant-starter-text {
+  color: var(--text);
+}
+.assistant-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.assistant-gate-line {
+  margin-bottom: 8px;
+}
+
+/* ---- composer ---- */
+
+.assistant-foot {
+  padding: 10px 24px 18px;
+}
+.assistant-composer {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  padding: 8px 10px;
+}
+.assistant-composer:focus-within {
+  border-color: var(--focus-border);
+}
+.assistant-composer.disabled {
+  opacity: 0.55;
+}
+.assistant-composer textarea {
+  width: 100%;
+  resize: none;
+  max-height: 200px;
+  field-sizing: content;
+}
+.assistant-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ---- foreman commands: the Copy chip and a proposed run ---- */
+
+.assistant-command {
+  margin: 8px 0;
+}
+/* A ui/ Card frames the run; the command and its output are monospace text in it, the output under a divider. */
+.assistant-run {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+.assistant-run-command,
+.assistant-run-output pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-run-actions {
+  display: flex;
+  gap: 6px;
+}
+.assistant-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.assistant-run-status.bad,
+.assistant-run-status.bad svg {
+  color: var(--red);
+}
+.assistant-run-output {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.assistant-run-output pre {
+  align-self: stretch;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--text-soft);
+}

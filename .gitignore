@@ -1,0 +1,15 @@
+node_modules/
+out/
+dist/
+*.log
+.DS_Store
+build/icon.iconset/
+release/
+.workspace-people-cache/
+.publication-private/
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key

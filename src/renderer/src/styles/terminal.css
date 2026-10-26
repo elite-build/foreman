@@ -1,0 +1,126 @@
+/* ---- terminal upgrades (O3): find, rename, restored tabs, fullscreen ---- */
+/* Find in terminal: the chat's find bar, floating at the terminal's top right. */
+.chat-search.term-find {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  z-index: 3;
+  width: min(372px, calc(100% - 24px));
+  gap: 2px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  box-shadow: 0 6px 18px var(--shadow);
+}
+/* The input is bare: the bar shows focus for it. */
+.chat-search.term-find:has(.ui-input:focus-visible) {
+  border-color: var(--focus-ring);
+}
+.term-find input {
+  min-width: 0;
+  margin-left: 6px;
+}
+.term-find .search-count {
+  min-width: 0;
+  margin: 0 4px 0 6px;
+  white-space: nowrap;
+}
+.term-find-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  flex: none;
+  background: var(--border);
+}
+/* Inline rename in a terminal tab. */
+.bottom-tab .tab-rename {
+  width: 110px;
+  margin: 1px 2px 1px 4px;
+}
+.bottom-tab .term-name {
+  display: inline-block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+/* Restored after a restart: a history mark on the tab, the old output dimmed, and Start shell below it. */
+.term-restored-icon {
+  margin-left: 5px;
+  color: var(--text-faint);
+  vertical-align: -1px;
+}
+.terminal.restored {
+  padding-bottom: 76px;
+}
+.term-restored {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 12px 0 10px;
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+.term-restored-band {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+.term-restored-band::before,
+.term-restored-band::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-strong);
+}
+.term-restored-band svg {
+  color: var(--text-faint);
+}
+.term-restored-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+.term-restored-actions .mono {
+  font-size: var(--text-xs);
+}
+/* Fullscreen: the panel's slot covers the workspace below its title bar, until Esc or ⌘⇧J. */
+.workspace.terminal-full {
+  position: relative;
+}
+.bottom-slot.terminal-fullscreen {
+  position: absolute;
+  inset: var(--titlebar) 0 0 0;
+  z-index: 6;
+  background: var(--bg-panel);
+}
+.setup-log {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 12px 10px;
+  gap: 6px;
+}
+.setup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.setup-log pre {
+  flex: 1;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}

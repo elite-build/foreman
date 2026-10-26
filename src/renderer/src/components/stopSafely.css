@@ -1,0 +1,129 @@
+/* ---- Stop safely (#1): the Quit sheet, the archive dialog, the waiting bar and the review after a restart ---- */
+/* A footer button pushed to the start of the row (Archive anyway, Dismiss all). */
+.stop-left { margin-right: auto; }
+.stop-lede { margin: -4px 0 14px; font-size: var(--text-md); line-height: 1.5; }
+.stop-note { margin: 12px 0 4px; line-height: 1.5; }
+
+.stop-group {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.stop-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-raised);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.stop-group-hint { margin-left: auto; color: var(--text-faint); font-size: var(--text-sm); font-weight: 400; }
+.stop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-md);
+}
+.stop-row-icon { display: inline-flex; flex: none; color: var(--text-faint); }
+.stop-row-icon.waiting { color: var(--amber); }
+.stop-row-ws { flex: none; font-weight: 600; }
+.stop-row-text { flex: 1; min-width: 0; overflow: hidden; color: var(--text-soft); text-overflow: ellipsis; white-space: nowrap; }
+.stop-row-text code { font-family: var(--mono); font-size: var(--text-sm); }
+.stop-row-time { flex: none; min-width: 44px; color: var(--text-faint); font-size: var(--text-sm); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* The bar while "Quit when turns finish" waits: over the app, under any dialog. */
+.stop-bar {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 8px 6px 14px;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border-strong));
+  border-radius: var(--radius-lg);
+  background: var(--bg-sidebar);
+  box-shadow: 0 10px 30px var(--shadow);
+  font-size: var(--text-md);
+}
+.stop-bar-text { min-width: 0; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-bar-text strong { color: var(--text); font-weight: 600; }
+
+/* Archive: kept and deleted side by side, then the steps in order. */
+.stop-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.stop-column { padding: 8px 12px 10px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-panel); }
+.stop-column-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: var(--text-sm); font-weight: 600; }
+.stop-column-head.kept { color: var(--green); }
+.stop-column-head.deleted { color: var(--red); }
+.stop-item { margin: 6px 0; font-size: var(--text-md); }
+.stop-item-hint { color: var(--text-faint); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.stop-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 4px; color: var(--text-muted); font-size: var(--text-sm); }
+.stop-step { display: inline-flex; align-items: center; gap: 5px; }
+.stop-step-n { font-weight: 600; color: var(--text-soft); }
+.stop-step.failed { color: var(--red); }
+.stop-step.failed .stop-step-n { color: var(--red); }
+/* G3 · #1: steps as they go. */
+.stop-step.running { color: var(--text); }
+.stop-step.done { color: var(--text-soft); }
+.stop-step.skipped { color: var(--text-faint); }
+.stop-step-mark { flex: none; }
+.stop-step-mark.done { color: var(--green); }
+.stop-step-mark.failed { color: var(--red); }
+.stop-steps.sub { margin: 0 0 4px 14px; font-size: var(--text-xs); }
+.stop-failure { margin: 8px 0; align-items: flex-start; }
+.stop-failure .recovery-detail { font-family: var(--mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
+
+/* The review sheet: one row per stopped tab. */
+.stop-review-list { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-panel); overflow: hidden; }
+.stop-review-row { display: flex; gap: 12px; padding: 10px 12px; }
+.stop-review-row + .stop-review-row { border-top: 1px solid var(--border); }
+.stop-review-main { flex: 1; min-width: 0; }
+.stop-review-head { display: flex; align-items: center; gap: 8px; font-size: var(--text-md); }
+.stop-review-head strong { font-weight: 600; }
+.stop-review-msg { margin-top: 3px; overflow: hidden; color: var(--text-soft); font-size: var(--text-md); text-overflow: ellipsis; white-space: nowrap; }
+.stop-review-facts { margin-top: 3px; color: var(--text-faint); font-size: var(--text-sm); }
+.stop-review-facts .add { color: var(--green); }
+.stop-review-facts .del { color: var(--red); }
+.stop-review-facts .waiting { color: var(--amber); }
+.stop-review-actions { display: flex; flex: none; align-items: flex-start; gap: 6px; }
+.stop-confirm { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-input); font-size: var(--text-sm); }
+.stop-confirm p { margin: 0 0 6px; }
+.stop-confirm-msg {
+  max-height: 140px;
+  margin: 0 0 6px;
+  overflow: auto;
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.background-archives {
+  position: fixed;
+  bottom: 56px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: min(420px, calc(100vw - 32px));
+  max-height: 30vh;
+  overflow: auto;
+}
+.background-archives .ui-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

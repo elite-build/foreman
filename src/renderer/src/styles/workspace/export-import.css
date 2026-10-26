@@ -1,0 +1,23 @@
+/* Export / import */
+.port-seg { align-self: flex-start; }
+.port-chats { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; }
+.port-chat-title { font-weight: 500; }
+.port-bundle { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.port-tabs { width: 100%; border-collapse: collapse; margin: 6px 0; }
+.port-tabs th { text-align: left; font-weight: 500; font-size: var(--text-sm); color: var(--text-muted); padding: 4px 6px; }
+.port-tabs td { padding: 4px 6px; border-top: 1px solid var(--border); vertical-align: middle; }
+/* #13: an archived workspace read-only. The side panel's facts, the Archived list and search. */
+.archived-facts { margin: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--text-sm); overflow-y: auto; }
+.archived-facts dl { display: grid; grid-template-columns: 92px 1fr; gap: 8px 10px; margin: 0 0 10px; }
+.archived-facts dt { color: var(--text-muted); }
+.archived-facts dd { margin: 0; min-width: 0; color: var(--text-soft); overflow-wrap: anywhere; }
+.archived-facts dd svg { vertical-align: -2px; margin-right: 3px; }
+.archived-facts p { margin: 0; line-height: 1.5; }
+.archived-hint { margin: -6px 0 8px; padding: 2px 4px; }
+/* G3 · #13: the diff kept at archive time, read-only under the facts. */
+.archived-diff { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.archived-diff-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.archived-diff .file-diff { margin: 10px -14px 0; }
+.archived-diff-none { margin-top: 12px !important; }
+.open-ro { gap: 4px; margin-left: 6px; }
+.overlay-foot { display: flex; align-items: center; gap: 16px; padding: 8px 14px; border-top: 1px solid var(--border); }

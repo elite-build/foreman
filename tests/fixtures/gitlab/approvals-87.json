@@ -1,0 +1,18 @@
+{
+  "id": 30412,
+  "iid": 87,
+  "project_id": 512,
+  "title": "Move invoices to ledger_entries",
+  "state": "opened",
+  "merge_status": "can_be_merged",
+  "approved": false,
+  "approvals_required": 2,
+  "approvals_left": 1,
+  "require_password_to_approve": false,
+  "approved_by": [{ "user": { "id": 11, "username": "mkagame", "name": "M. Kagame" } }],
+  "suggested_approvers": [],
+  "approvers": [],
+  "approver_groups": [],
+  "user_has_approved": false,
+  "user_can_approve": false
+}

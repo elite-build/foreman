@@ -1,0 +1,163 @@
+/* ---- file diff ---- */
+
+.file-diff {
+  flex: 1;
+  overflow: auto;
+  padding: 0 0 24px;
+}
+.file-diff-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.hunk {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  font-variant-ligatures: var(--code-ligatures);
+}
+.hunk td {
+  padding: 0 10px;
+  vertical-align: top;
+}
+.hunk .ln {
+  width: 1%;
+  color: var(--text-faint);
+  text-align: right;
+  user-select: none;
+  white-space: nowrap;
+}
+.hunk .code {
+  color: var(--code-fg);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.hunk .sign {
+  user-select: none;
+  color: var(--text-faint);
+  margin-right: 8px;
+}
+.hunk tr.add {
+  background: var(--add-bg);
+}
+.hunk tr.add .sign {
+  color: var(--green);
+}
+.hunk tr.del {
+  background: var(--del-bg);
+}
+.hunk tr.del .sign {
+  color: var(--red);
+}
+.hunk-header td {
+  color: var(--text-faint);
+  padding: 8px 16px 4px;
+}
+.show-all {
+  margin: 12px 16px;
+}
+/* O6: Unified / Split, Wrap lines and the unchanged context between hunks. */
+.file-diff-head {
+  left: 0;
+}
+.file-diff-head > .mono {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+.diff-tools .review-select {
+  white-space: nowrap;
+}
+.split-fallback {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.split-fallback .lucide {
+  flex: none;
+  color: var(--text-faint);
+}
+.split-fallback .split-link {
+  gap: 6px;
+}
+/* A Button in the hunk's header row: the table's code font would reach it, so its wrapper names the UI font again. */
+.hunk-expand {
+  margin-right: 10px;
+  vertical-align: 1px;
+  font-family: var(--font);
+}
+/* Split: old | new in one table, the same row height on both sides. */
+.hunk.split {
+  table-layout: fixed;
+}
+.hunk.split .ln {
+  width: auto;
+}
+.hunk.split .code {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.hunk.split td.code.old {
+  border-right: 1px solid var(--border);
+}
+.hunk.split td.del {
+  background: var(--del-bg);
+}
+.hunk.split td.add {
+  background: var(--add-bg);
+}
+.hunk.split td.del .sign {
+  color: var(--red);
+}
+.hunk.split td.add .sign {
+  color: var(--green);
+}
+/* No line on this side: hatched, from the border token so it follows the theme. */
+.hunk.split td.empty {
+  background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--border-strong) 70%, transparent) 5px 6px);
+}
+/* Wrap off: lines keep their length and the whole diff scrolls sideways, both sides together. */
+.hunk.nowrap {
+  width: max-content;
+  min-width: 100%;
+}
+.hunk.split.nowrap {
+  table-layout: auto;
+}
+.hunk.nowrap .code {
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+/* Accessible diff: the column headers are visually hidden text in real cells, so the row takes no height and the table keeps its
+   columns. A hunk's heading and a keyboard-focused row stay clear of the sticky file head when they scroll into view. */
+.hunk th {
+  padding: 0;
+  line-height: 0;
+}
+.hunk .hunk-title,
+.hunk tr[data-row] {
+  scroll-margin-top: 48px;
+}

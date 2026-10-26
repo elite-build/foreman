@@ -1,0 +1,67 @@
+/* Home's Get started card: layout only. The frame, the state shapes, the buttons and the disclosure come from ui/. */
+.get-started {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+}
+.get-started-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.get-started-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.get-started-progress {
+  flex: 1 1 auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.get-started-intro {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.get-started-list,
+.get-started-more-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.get-started-item {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 0;
+}
+.get-started-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.get-started-name {
+  font-weight: 500;
+}
+.get-started-body {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.get-started-more-list {
+  gap: 2px;
+  padding: 2px 0;
+}
+/* At the card's own narrow width (a sidebar open, 200% zoom) the state sits above the text and the button below it. */
+@container (max-width: 520px) {
+  .get-started-item {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+}

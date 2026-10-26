@@ -1,0 +1,30 @@
+/* Tree: rows indented by depth (--d is set per item). */
+.ui-tree {
+  display: flex;
+  flex-direction: column;
+}
+.ui-tree__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 27px;
+  padding: 0 8px 0 calc(6px + var(--d, 0) * 16px);
+  border-radius: var(--radius-md);
+  color: var(--text-soft);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+.ui-tree__item:hover,
+.ui-tree__item[data-selected] {
+  background: var(--bg-hover);
+}
+.ui-tree__item[data-dir] {
+  color: var(--text);
+}
+/* Inset: the tree scrolls in its panel, which would cut an outside ring. */
+.ui-tree__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}

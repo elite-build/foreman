@@ -1,0 +1,26 @@
+/* SplitButton: the primary button and the arrow's MenuButton share one outline. The buttons' own look is ui-btn (button.css). */
+.ui-split {
+  display: inline-flex;
+}
+.ui-split > .ui-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.ui-split > .ui-split__menu {
+  display: inline-flex;
+}
+.ui-split__menu > .ui-btn {
+  height: 100%;
+  padding: 3px 6px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+/* A filled primary button needs a seam, or the two halves read as one target. */
+.ui-split[data-variant='primary'] .ui-split__menu > .ui-btn {
+  border-left: 1px solid var(--on-primary);
+}
+/* A ghost has no edge to share: the seam is a hairline. */
+.ui-split[data-variant='ghost'] .ui-split__menu > .ui-btn {
+  border-left: 1px solid var(--border);
+}

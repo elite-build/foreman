@@ -1,0 +1,32 @@
+/* ---- Drop a folder to add it as a repository (O21) ---- */
+/* Over everything while a folder is dragged in; pointer-events: none so the drop still lands on what's under it. */
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 84%, transparent); backdrop-filter: blur(4px);
+}
+.drop-zone {
+  position: absolute; inset: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  border: 2px dashed var(--selected-border); border-radius: var(--radius-lg); background: var(--selected-tint);
+}
+.drop-icon {
+  display: flex; align-items: center; justify-content: center; width: 68px; height: 68px; margin-bottom: 6px;
+  border-radius: var(--radius-lg); background: var(--selected-bg); color: var(--text); border: 1px solid var(--selected-border);
+}
+.drop-title { font-size: var(--text-xl); font-weight: 500; color: var(--text); letter-spacing: -0.01em; }
+.drop-note { margin-top: 4px; font-size: var(--text-sm); color: var(--text-faint); }
+
+.ad-list { display: flex; flex-direction: column; gap: 14px; }
+.ad-folder { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-panel); }
+.ad-folder-icon { flex: none; color: var(--amber); }
+.ad-folder-text { min-width: 0; }
+.ad-name { font-weight: 600; color: var(--text); }
+.ad-path { font-size: var(--text-sm); color: var(--text-muted); overflow-wrap: anywhere; }
+.ad-facts { display: flex; flex-direction: column; gap: 7px; margin: 12px 2px 0; font-size: var(--text-sm); color: var(--text-soft); }
+.ad-fact { display: flex; align-items: flex-start; gap: 8px; line-height: 1.45; }
+.ad-fact > svg { flex: none; margin-top: 2px; }
+.ad-fact .ok { color: var(--green); }
+.ad-fact .warn { color: var(--amber); }
+.ad-fact b { font-weight: 500; color: var(--text); }
+.ad-fact .mono { font-size: var(--text-xs); overflow-wrap: anywhere; }
+.ad-note { margin: 12px 2px 4px; }

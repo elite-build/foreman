@@ -1,0 +1,242 @@
+/* ---- modals & toast ---- */
+
+/* The dialogs that sit on ui/Dialog (ChecksDialogs … SecondOpinionDialog): Dialog owns the surface, the heading and the
+   footer; these are only the spacing between what a dialog holds. */
+.dlg .ui-dialog__body,
+.dlg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dlg .ui-dialog__body > p,
+.dlg-stack > p {
+  margin: 0;
+}
+/* A list inside a group: the group's gap spaces it. */
+.dlg-group .consent-list {
+  margin: 0;
+}
+/* A heading and the controls it names, where a Field can't wrap them. */
+.dlg-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dlg-label {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.dlg-hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.dlg-fill {
+  width: 100%;
+}
+/* In a footer: pushes the items after it to the end, this one stays at the start. */
+.dlg-start {
+  margin-right: auto;
+}
+/* A state tag leading a Home card row (its grid column is as wide as the old pill's). */
+.card-row-tag {
+  justify-self: start;
+  max-width: 100%;
+}
+
+/* A labelled form row (the Add connection dialog, People, the cloud picker). */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+.field > span {
+  font-weight: 500;
+}
+.field small {
+  color: var(--text-faint);
+}
+
+/* /mcp-status: the list is inside the dialog body, which scrolls. */
+.mcp-subtitle {
+  margin: 0;
+}
+.mcp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mcp-row {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.mcp-row.open {
+  background: var(--bg-raised);
+}
+/* The whole header line is the Disclosure's button. */
+.mcp-row .ui-disclosure__button {
+  width: 100%;
+  padding: 5px 10px;
+}
+.mcp-row .ui-disclosure__panel {
+  padding: 0;
+}
+.mcp-name {
+  font-family: var(--mono);
+  font-size: var(--text-md);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-state {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.mcp-icon {
+  flex-shrink: 0;
+}
+.mcp-icon.connected {
+  color: var(--green);
+}
+.mcp-icon.failed {
+  color: var(--red);
+}
+.mcp-icon.pending {
+  color: var(--blue);
+}
+.mcp-icon.needs-auth {
+  color: var(--amber);
+}
+.mcp-icon.disabled {
+  color: var(--text-faint);
+}
+/* G1: handed to an agent that can't report whether it connected. */
+.mcp-icon.passed {
+  color: var(--text-muted);
+}
+.mcp-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 12px 10px 32px;
+}
+.mcp-detail p {
+  margin: 0;
+}
+.mcp-detail-error {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--del-bg);
+  color: var(--red);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.mcp-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  margin: 0;
+}
+.mcp-facts dt {
+  color: var(--text-faint);
+}
+.mcp-facts dd {
+  margin: 0;
+  color: var(--text-soft);
+  word-break: break-all;
+}
+.mcp-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.mcp-tool {
+  font-size: var(--text-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+.mcp-actions {
+  display: flex;
+  gap: 6px;
+}
+.mcp-terminal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+.mcp-terminal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.mcp-terminal-body {
+  display: flex;
+  flex-direction: column;
+  height: 300px;
+}
+.mcp-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The always-present live regions the toast is put in: no size and out of the grid, so they take no room. */
+.toast-host {
+  position: fixed;
+  width: 0;
+  height: 0;
+  /* A fixed box is its own stacking context: this is the toast's own level. */
+  z-index: 20;
+}
+.toast {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(640px, calc(100vw - 32px));
+  background: var(--toast-bg);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-lg);
+  padding: 8px 14px;
+  z-index: 20;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+.toast.info {
+  background: var(--bg-panel);
+  border-color: var(--border-strong);
+  color: var(--text);
+  box-shadow: 0 6px 20px var(--shadow);
+}
+/* A toast button (Undo): an underlined LinkButton (ui/), so the toast stays one line. */
+.toast-action {
+  margin-left: 12px;
+}
+
+/* Windows draws its own title bar above the content. */
+.app:not(.platform-darwin) {
+  --titlebar: 40px;
+}

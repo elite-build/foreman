@@ -1,0 +1,18 @@
+/* Phase G2: the dictation chip above the sidebar footer. Layout only; the state and the button are ui/ components. */
+.stt-chip {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 12px 6px;
+  min-width: 0;
+}
+.stt-chip-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stt-chip-partial {
+  overflow-wrap: anywhere;
+}

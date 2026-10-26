@@ -1,0 +1,28 @@
+/* Meter: the fill is a status colour on the raised surface, 3:1 or better in every theme and colour mode. */
+.ui-meter {
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+.ui-meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--green);
+}
+.ui-meter--warn > .ui-meter__fill {
+  background: var(--amber);
+}
+.ui-meter--error > .ui-meter__fill {
+  background: var(--red);
+}
+@media (forced-colors: active) {
+  .ui-meter {
+    border: 1px solid CanvasText;
+  }
+  .ui-meter__fill {
+    background: Highlight;
+    forced-color-adjust: none;
+  }
+}

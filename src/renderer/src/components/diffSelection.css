@@ -1,0 +1,158 @@
+/* #15 Diff selection actions: selected lines, the floating bar and its tab menu, and comments that quote lines. */
+
+/* Selected lines: one side's cells (both columns in unified). */
+.hunk td.sel {
+  background: var(--selected-tint);
+}
+.hunk td.sel.ln {
+  color: var(--text);
+}
+.hunk td.sel.sel-edge {
+  box-shadow: inset 2px 0 0 var(--selected-border);
+}
+.hunk.selectable .code {
+  cursor: text;
+}
+
+/* The bar floats under the last selected line, over the lines below it. */
+.hunk tr.sel-anchor-tr td {
+  height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.sel-float {
+  position: relative;
+  height: 0;
+}
+.sel-bar {
+  position: absolute;
+  top: 7px;
+  left: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px var(--shadow);
+  font-family: var(--font);
+  font-size: var(--text-md);
+  white-space: nowrap;
+  word-break: normal;
+}
+.sel-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border-strong);
+}
+.sel-count {
+  padding: 0 6px 0 4px;
+}
+.sel-dest-wrap b {
+  font-weight: 500;
+  color: var(--text);
+}
+.sel-dest-menu {
+  min-width: 300px;
+}
+.sel-dest-num {
+  display: inline-block;
+  width: 12px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+/* Comments that carry a quote. */
+.inline-comment .comment-quote {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--code-bg);
+}
+.comment-quote-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-family: var(--font);
+  font-size: var(--text-xs);
+}
+.comment-quote table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+.comment-quote td {
+  padding: 0 9px;
+  white-space: pre;
+  color: var(--code-fg);
+}
+.comment-quote td.ln {
+  width: 1%;
+  text-align: right;
+  color: var(--text-faint);
+}
+.comment-quote tr.add {
+  background: var(--add-bg);
+}
+.comment-quote tr.del {
+  background: var(--del-bg);
+}
+.comment-quote.dim td {
+  color: var(--text-muted);
+}
+.comment-prefix {
+  font-weight: 600;
+  color: var(--text);
+}
+.inline-comment.stale {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--border));
+}
+.stale-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+  color: var(--amber);
+  font-family: var(--font);
+  font-size: var(--text-sm);
+}
+.stale-review {
+  margin-top: 8px;
+}
+.stale-review > .faint.small {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font);
+}
+.comment-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  font-family: var(--font);
+}
+.sel-open-link {
+  gap: 4px;
+}
+.file-diff-head .sel-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* G2: a selection comment waiting for its tab, listed in that tab's composer queue (no place, no moves). */
+.queued-row.selection .pos { color: var(--text-faint); }
+.queued-row.selection .queued-text .ui-tag { margin-right: 4px; }
+.queued-selection-note { flex-shrink: 0; white-space: nowrap; }

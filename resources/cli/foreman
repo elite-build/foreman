@@ -1,0 +1,21 @@
+#!/bin/sh
+# The `foreman` command in an installed Foreman (Settings → Advanced links it onto
+# your PATH). Runs the CLI with the app's own binary in Node mode, so Node.js
+# needn't be installed.
+self="$0"
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case "$link" in
+    /*) self="$link" ;;
+    *) self="$(dirname "$self")/$link" ;;
+  esac
+done
+resources="$(cd "$(dirname "$self")/.." && pwd)"
+# macOS: Foreman.app/Contents/{Resources,MacOS}. Linux: <install>/{resources,foreman}.
+for app in "$resources/../MacOS/Foreman" "$resources/../foreman"; do
+  if [ -x "$app" ]; then
+    ELECTRON_RUN_AS_NODE=1 exec "$app" "$resources/app.asar/out/main/cli.js" "$@"
+  fi
+done
+echo "foreman: can't find the Foreman app next to $self" >&2
+exit 1

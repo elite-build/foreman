@@ -1,0 +1,99 @@
+/* ---- bottom panel: run, setup, terminals ---- */
+
+/* The slot the layout puts the panel in; the panel itself lives in .bottom-host, which moves between slots. */
+.bottom-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+  border-top: 1px solid var(--border);
+}
+.bottom-slot.panel-bottom {
+  flex: 1 1 55%;
+}
+.bottom-slot.panel-top {
+  flex: 1 1 55%;
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+.bottom-slot.below-chat {
+  flex: 0 0 38%;
+}
+.bottom-host,
+.bottom-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bottom-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  container-type: inline-size;
+}
+/* The tab strip is a ui/ Tabs (chat look): its tabs shrink, with the name ellipsised, before the toolbar wraps. */
+.bottom-tabs > .bottom-tablist {
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* Run and Setup carry no close button, so the chat tab's padding for one is trimmed. */
+.bottom-tabs .bottom-tablist .ui-tab {
+  padding: 0 2px 0 8px;
+}
+.bottom-tabs .bottom-tablist .bottom-tab {
+  flex: 0 1 auto;
+  min-width: 64px;
+}
+/* A compact side panel keeps the Run button's icon and drops its shortcut. */
+.side-panel.compact .bottom-tabs .ui-btn .ui-kbd {
+  display: none;
+}
+/* Whatever the panel's slot, a narrow bar (the side panel at its default width) makes room for the tabs: no shortcut
+   hint, the Commands menu as an icon, and a terminal tab as its icon and number. Without it the selected tab shrank to nothing. */
+@container (max-width: 460px) {
+  .bottom-tabs .ui-btn .ui-kbd {
+    display: none;
+  }
+  .bottom-tabs .ui-menu-wrap .btn-label {
+    display: none;
+  }
+  .bottom-tabs .term-icon {
+    display: inline-block;
+  }
+  .bottom-tabs .term-word {
+    display: none;
+  }
+}
+.bottom-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.run-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+.run-empty .run-big {
+  padding: 8px;
+}
+.terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0 0 10px;
+  background: var(--bg-panel);
+}
+.terminal .xterm,
+.terminal .xterm-viewport {
+  background-color: var(--bg-panel) !important;
+}

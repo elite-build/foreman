@@ -1,0 +1,34 @@
+/* ---- resizable panes (the drag handle is ui/Resizer) ---- */
+
+.sidebar,
+.side-panel {
+  position: relative;
+}
+
+/* Narrow side panel: icon-only buttons, no shortcut hints, truncated labels. */
+.panel-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-header .header-actions {
+  flex: none;
+}
+.side-panel.compact .btn-label {
+  display: none;
+}
+.term-icon {
+  display: none;
+}
+.side-panel.compact .term-icon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+.side-panel.compact .term-word {
+  display: none;
+}
+.side-panel.compact .bottom-tabs {
+  padding: 5px 6px;
+}

@@ -1,0 +1,136 @@
+/* ---- file viewer ---- */
+
+.file-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.file-lines {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0 24px;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  font-variant-ligatures: var(--code-ligatures);
+}
+.file-line {
+  display: flex;
+}
+.file-line .ln {
+  flex: none;
+  width: 52px;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--text-faint);
+  user-select: none;
+}
+.file-line .code {
+  color: var(--code-fg);
+  white-space: pre;
+}
+.file-line.target {
+  background: var(--selected-tint);
+}
+/* The editor is the document: a bare TextArea in a box that fills the pane and shows focus. */
+.file-editor-box {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  padding: 10px 16px;
+  background: var(--bg);
+}
+.file-editor-box:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.file-editor-box > .file-editor {
+  flex: 1;
+  height: 100%;
+  line-height: 1.6;
+}
+.file-preview {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 24px;
+  max-width: 860px;
+}
+
+.picker-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--del-bg);
+  color: var(--text-muted);
+}
+.picker-error span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-msg.held {
+  border: 1px dashed var(--border-strong);
+}
+
+/* The Files tab's tree (FilesTree.tsx): the Tree component draws the rows; this is what goes in them. */
+.files-tree {
+  padding: 2px 8px 8px;
+}
+.file-node-chev {
+  flex: none;
+  width: 12px;
+  color: var(--text-muted);
+}
+.file-node-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.file-node-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+.file-node.changed .file-node-name {
+  color: var(--text);
+}
+.file-node-end {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.file-node-count {
+  min-width: 14px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  text-align: right;
+}
+.file-node .diff-badge.bin {
+  color: var(--text-muted);
+}
+/* A folder that is loading, empty, cut off or unreadable, under the tree (they aren't rows of it). */
+.files-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.files-line .error-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

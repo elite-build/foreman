@@ -1,0 +1,25 @@
+#!/bin/sh
+# Pre-commit: the design-system check (tests/designSystem.test.ts, tests/contrast.test.ts).
+# Runs only when the commit touches the renderer, the i18n catalogues or those tests; anything else commits at once.
+# Enabled by `npm install` (scripts/postinstall.mjs sets core.hooksPath to .githooks). POSIX sh: Git Bash and macOS.
+# It checks the working tree, which is what CI checks too.
+
+staged=$(git diff --cached --name-only)
+
+if ! printf '%s\n' "$staged" | grep -Eq '^(src/renderer/|src/shared/i18n/|tests/designSystem|tests/contrast)'; then
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo "pre-commit: design-system check (npx vitest run tests/designSystem.test.ts tests/contrast.test.ts)"
+if output=$(npx --no-install vitest run tests/designSystem.test.ts tests/contrast.test.ts 2>&1); then
+  exit 0
+fi
+
+printf '%s\n' "$output"
+echo ""
+echo "Commit blocked: the design-system check failed (output above)."
+echo "Reuse a component from src/renderer/src/ui/, or add one there first. See AGENTS.md."
+echo "CI runs the same check on every pull request ('npm run check:ui'), so fix it rather than skip it."
+exit 1

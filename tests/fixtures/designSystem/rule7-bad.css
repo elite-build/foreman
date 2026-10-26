@@ -1,0 +1,5 @@
+/* expect 7=3 */
+.hint { opacity: 0.6; }
+.faded { opacity: 50%; }
+/* Every selector in the list needs its reason. */
+.a:disabled, .b { opacity: 0.5; }

@@ -1,0 +1,13 @@
+/* expect 9=0 */
+/* Layout, a plain divider, table layout, and the classes highlight.js and xterm.js generate. */
+.panel { display: flex; gap: var(--space-2); margin: 4px; padding: 8px; position: relative; width: 100%; }
+.panel { border-top: 1px solid var(--border); }
+.panel { border-bottom: 1px  solid  var(--border); }
+.panel { border-left: 1px solid var(--border); }
+.panel { border-right: 1px solid var(--border); }
+table.grid { border-collapse: collapse; border-spacing: 0; }
+.hljs-keyword { background: var(--bg-panel); }
+.markdown pre code.hljs { border-radius: var(--radius); }
+.xterm .xterm-viewport { background: var(--bg); }
+.xterm-screen { outline: none; }
+.hljs-a, .hljs-b { box-shadow: none; }

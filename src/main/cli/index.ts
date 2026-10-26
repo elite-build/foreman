@@ -1,0 +1,10 @@
+// The command-line server: what the app imports (through cliServer.ts) and what the tests reach.
+export type { CliHost } from './host'
+export { CliCodedError } from './host'
+export { findTab, findWorkspace, resolveRepo, resolveWorkspace } from './resolve'
+export { isV2, paramsOf, startRefusal, tierCheck, type Refusal, type Tier } from './policy'
+export { METHODS, type CliContext, type CliMethod } from './methods'
+export { exportCommand, importCommand } from './portability'
+export { cancel, checks, report, resumeAt, run, send, status, waitForTurn } from './work'
+export { handleRequest, startCliServer } from './server'
+export { ensureCliToken, readCliToken } from './token'

@@ -1,0 +1,16 @@
+/* G4 O9: the last command's exit status on a command tab (✓ / ✗). */
+.term-exit {
+  display: inline-flex;
+  margin-left: 5px;
+  vertical-align: -1px;
+}
+.term-exit.ok {
+  color: var(--green);
+}
+.term-exit.fail {
+  color: var(--red);
+}
+/* O9: ▶ Commands in the terminal panel, and its menu (name, command, "from repo"). */
+.ui-menu.bottom-menu.commands-menu {
+  max-width: 440px;
+}

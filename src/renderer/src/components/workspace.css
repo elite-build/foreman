@@ -1,0 +1,15 @@
+/* New workspace dialog, sidebar extras, run/preview menus and panel resizing.
+   Colors come only from the theme tokens in ui/tokens.css. The parts load in this order. */
+
+@import '../styles/workspace/new-workspace.css';
+@import '../styles/workspace/sidebar.css';
+@import '../styles/workspace/chat-tab-menu.css';
+@import '../styles/workspace/bottom-menus.css';
+@import '../styles/workspace/resize.css';
+@import '../styles/workspace/add-repo.css';
+@import '../styles/workspace/export-import.css';
+@import '../styles/workspace/search-chats.css';
+@import '../styles/workspace/usage.css';
+@import '../styles/workspace/note.css';
+@import '../styles/workspace/receipt.css';
+@import '../styles/workspace/commands.css';

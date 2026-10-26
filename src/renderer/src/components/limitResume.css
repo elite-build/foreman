@@ -1,0 +1,51 @@
+/* #11 Usage-limit resume: the limit part of a failed turn's card, and its row on Home's Scheduled card. */
+.resume {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.resume-check {
+  margin: 0;
+}
+.resume-check-text {
+  font-weight: 500;
+}
+.resume-source {
+  margin: 3px 0 0 24px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.resume-source q {
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  quotes: '“' '”' '“' '”';
+}
+.resume-preview {
+  margin: 3px 0 0 24px;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.resume-unknown {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+}
+.resume-unknown svg {
+  color: var(--text-muted);
+}
+.resume-unknown + .resume-preview,
+.resume-flat .resume-source,
+.resume-flat .resume-preview {
+  margin-left: 21px;
+}
+.resume .notice-actions {
+  margin-top: 8px;
+}
+.resume-row .resume-src {
+  margin-top: 1px;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}

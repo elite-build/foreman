@@ -1,0 +1,21 @@
+/* Glyph: the status shapes. Colour follows the state; Tag and Callout set currentColor where the text carries it. */
+.ui-glyph {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.ui-glyph[data-glyph='ok'] {
+  color: var(--green);
+}
+.ui-glyph[data-glyph='warn'] {
+  color: var(--amber);
+}
+.ui-glyph[data-glyph='error'] {
+  color: var(--red);
+}
+.ui-glyph[data-glyph='info'] {
+  color: var(--blue);
+}
+.ui-glyph[data-glyph='off'] {
+  color: var(--text-faint);
+}

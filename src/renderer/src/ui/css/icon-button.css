@@ -1,0 +1,104 @@
+/* IconButton: a bare icon with a 24px target; highlighted while pressed or while it has its menu open. */
+.ui-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: 4px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.ui-icon-btn:hover:not(:disabled),
+.ui-icon-btn[aria-pressed='true'],
+.ui-icon-btn[aria-expanded='true'] {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.ui-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-icon-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-icon-btn__icon {
+  display: inline-flex;
+}
+/* Danger: reddens on hover and keyboard focus (delete). After the base hover rule: same specificity, so order decides. */
+.ui-icon-btn--danger:hover:not(:disabled),
+.ui-icon-btn--danger:focus-visible:not(:disabled) {
+  color: var(--red);
+  background: var(--del-bg);
+}
+/* Primary: a round filled button for a bar's one action (send, stop). */
+.ui-icon-btn--primary {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.ui-icon-btn--primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  color: var(--on-primary);
+}
+.ui-icon-btn--primary:disabled {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  opacity: 1;
+}
+@media (forced-colors: active) {
+  .ui-icon-btn--primary {
+    border: 1px solid ButtonText;
+  }
+}
+/* Badge: a small round button over the corner of another surface (the card's remove ×). Its own edge and raised fill,
+   and a ring in the page colour that cuts it out of the edge beneath, so it sits on the corner without muddying it.
+   The target stays 24px. */
+.ui-icon-btn--badge {
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 2px 6px var(--shadow);
+}
+.ui-icon-btn--badge:hover:not(:disabled) {
+  background: var(--bg-selected);
+}
+/* Keyboard focus keeps the cut-out ring inside the focus ring. */
+.ui-icon-btn--badge:focus-visible {
+  box-shadow: 0 0 0 2px var(--bg);
+}
+/* Framed: a bordered square that shows the current value and opens its picker. The caller sets its size. */
+.ui-icon-btn--framed {
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  color: var(--text);
+}
+/* Dashed: a placeholder tile that adds something. It firms up on hover, and is solid while its menu is open. */
+.ui-icon-btn--dashed {
+  border: 1px dashed var(--border-control);
+  border-radius: var(--radius-lg);
+}
+.ui-icon-btn--dashed:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+.ui-icon-btn--dashed[aria-expanded='true'] {
+  border-style: solid;
+}

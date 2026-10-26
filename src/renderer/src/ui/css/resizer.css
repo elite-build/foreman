@@ -1,0 +1,85 @@
+/* Resizer: a 6px strip on a panel's edge with a 2px line that shows on hover, focus and drag. */
+.ui-resizer {
+  position: absolute;
+  z-index: 8;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+.ui-resizer[data-edge='left'],
+.ui-resizer[data-edge='right'] {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+.ui-resizer[data-edge='left'] {
+  left: -3px;
+}
+.ui-resizer[data-edge='right'] {
+  right: -3px;
+}
+.ui-resizer[data-edge='top'],
+.ui-resizer[data-edge='bottom'] {
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+}
+.ui-resizer[data-edge='top'] {
+  top: -3px;
+}
+.ui-resizer[data-edge='bottom'] {
+  bottom: -3px;
+}
+.ui-resizer::after {
+  content: '';
+  position: absolute;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+.ui-resizer[data-edge='left']::after,
+.ui-resizer[data-edge='right']::after {
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+}
+.ui-resizer[data-edge='top']::after,
+.ui-resizer[data-edge='bottom']::after {
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 2px;
+}
+.ui-resizer:hover::after {
+  background: var(--focus-ring);
+  transition-delay: 150ms;
+}
+.ui-resizer[data-dragging]::after,
+.ui-resizer:focus-visible::after {
+  background: var(--focus-ring);
+  transition-delay: 0s;
+}
+.ui-resizer:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+/* While dragging, the cursor and text selection stay put wherever the pointer goes. */
+body.ui-resizing-x,
+body.ui-resizing-x * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.ui-resizing-y,
+body.ui-resizing-y * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+@media (forced-colors: active) {
+  .ui-resizer:hover::after,
+  .ui-resizer[data-dragging]::after,
+  .ui-resizer:focus-visible::after {
+    background: Highlight;
+  }
+}

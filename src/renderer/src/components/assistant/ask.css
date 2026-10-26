@@ -1,0 +1,38 @@
+/* Ask Foreman overlay (phase F3): layout only. Colour, border, radius and focus come from Dialog, Field, Button and Card. */
+
+.ask-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ask-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ask-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.ask-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ask-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ask-waiting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

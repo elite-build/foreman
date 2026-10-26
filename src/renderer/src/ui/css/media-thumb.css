@@ -1,0 +1,65 @@
+/* MediaThumb: picture, name and remove button. Over a picture the colours come from the media tokens. */
+.ui-media-thumb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 96px;
+  height: 68px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+}
+.ui-media-thumb__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ui-media-thumb__name {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 2px 5px;
+  overflow: hidden;
+  background: var(--media-scrim);
+  color: var(--on-media);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ui-media-thumb__remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--media-scrim);
+  color: var(--on-media);
+  cursor: pointer;
+  opacity: 0;
+}
+.ui-media-thumb:hover .ui-media-thumb__remove,
+.ui-media-thumb:focus-within .ui-media-thumb__remove {
+  opacity: 1;
+}
+/* Inset: the thumbnail clips anything outside it. */
+.ui-media-thumb__remove:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px var(--media-scrim);
+}
+/* Keep the overlay colours over the picture, which forced colours would otherwise replace. */
+@media (forced-colors: active) {
+  .ui-media-thumb__name,
+  .ui-media-thumb__remove {
+    forced-color-adjust: none;
+  }
+}

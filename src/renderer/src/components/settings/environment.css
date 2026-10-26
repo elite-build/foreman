@@ -1,0 +1,256 @@
+/* Settings → Environment. Colors come only from the theme tokens in styles.css. */
+
+.env-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.env-head-text {
+  min-width: 0;
+}
+.env-head > .env-add {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* ---- variables table ---- */
+
+.env-block {
+  border-radius: var(--radius-lg);
+}
+.env-table {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.env-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1.3fr) minmax(0, 1fr) 60px;
+  grid-template-areas: 'icon name value actions';
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 46px;
+  padding: 7px 10px 7px 14px;
+}
+.env-row + .env-row {
+  border-top: 1px solid var(--border);
+}
+.env-row.clickable {
+  cursor: pointer;
+}
+.env-row.clickable:hover {
+  background: var(--bg-hover);
+}
+/* A value this repository overrides: the row says so in words, and the name is muted. */
+.env-row.overridden .env-key {
+  color: var(--text-muted);
+}
+.env-origin {
+  grid-area: icon;
+  display: inline-flex;
+  color: var(--text-faint);
+}
+.env-origin-unset {
+  opacity: 0;
+}
+.env-name {
+  grid-area: name;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.env-key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.env-desc {
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.env-row.unset .env-key {
+  color: var(--text-muted);
+}
+.env-row.unset .env-desc {
+  color: var(--text-faint);
+}
+.env-value {
+  grid-area: value;
+  display: flex;
+  min-width: 0;
+}
+.env-value .ui-masked {
+  flex: 1;
+}
+.env-actions {
+  grid-area: actions;
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.env-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 26px 16px;
+  text-align: center;
+}
+.env-empty.compact {
+  padding: 14px 16px;
+}
+.env-empty-title {
+  font-weight: 500;
+}
+.env-empty-sub {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.env-empty .env-retry {
+  margin-top: 6px;
+}
+.env-doc-toggle {
+  margin-top: 8px;
+}
+.env-documented {
+  margin-top: 8px;
+}
+
+@container (max-width: 540px) {
+  .env-row {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'icon name actions'
+      '. value value';
+  }
+}
+
+/* ---- env files ---- */
+
+.env-files {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.env-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+}
+.env-file-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.env-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.env-file-count {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.env-file.error .env-file-count,
+.env-file.error .env-file-icon {
+  color: var(--red);
+}
+.env-file-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.env-file-input {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.env-file-input input {
+  flex: 1;
+  min-width: 0;
+  padding-right: 32px;
+}
+.env-file-input .env-file-browse {
+  position: absolute;
+  right: 4px;
+}
+
+/* ---- sheet ---- */
+
+/* The Sheet fills the settings view; keep the title bar uncovered. Doubled: .ui-layer loads later. */
+.ui-layer.env-sheet-layer {
+  inset: var(--titlebar) 0 0 0;
+  z-index: 40;
+}
+.env-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.env-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 500;
+}
+.env-field input,
+.env-field textarea {
+  width: 100%;
+}
+textarea.env-value-input {
+  min-height: 220px;
+}
+.env-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.env-pasted {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+.env-pasted-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 4px 5px 10px;
+}
+.env-pasted-row + .env-pasted-row {
+  border-top: 1px solid var(--border);
+}
+.env-pasted-key,
+.env-pasted-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.env-pasted-value {
+  color: var(--text-muted);
+}
+.env-pasted-row.taken .env-pasted-key {
+  color: var(--red);
+}

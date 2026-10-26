@@ -1,0 +1,75 @@
+title = "Source and history secret checks"
+minVersion = "v8.30.1"
+[extend]
+useDefault = true
+
+# Narrow synthetic values used to test credential migration and redaction.
+# A different value in the same file must still fail the scanner.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Synthetic migration fixture"
+condition = "AND"
+paths = ['''(?:^|/)tests/agentKeys\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^(?:cur-1234567890|sk-codex-1234567890|sk-ant-1234567890)$''']
+
+[[rules.allowlists]]
+description = "Synthetic CLI environment fixture"
+condition = "AND"
+paths = ['''(?:^|/)tests/cliEnv\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^sk-live-9f8e7d6c5b4a3210$''']
+
+[[rules.allowlists]]
+description = "Synthetic hosted driver fixture"
+condition = "AND"
+paths = ['''(?:^|/)tests/g1Hosted\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^key_123456789$''']
+
+[[rules.allowlists]]
+description = "Synthetic CLI authentication fixture"
+condition = "AND"
+paths = ['''(?:^|/)tests/gitlab\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^glpat-abcdef123456$''']
+
+[[rules.allowlists]]
+description = "Constructed redaction example, never a real credential"
+condition = "AND"
+paths = ['''(?:^|/)tests/reportProblem\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^abcd1234efgh$''']
+
+[[rules.allowlists]]
+description = "Keyboard chord, not an API key"
+condition = "AND"
+paths = ['''(?:^|/)src/main/walks\.ts$''', '''(?:^|/)tests/fixtures/walks/diff-rows\.json$''']
+regexTarget = "secret"
+regexes = ['''^shift\+ArrowDown$''']
+
+[[rules.allowlists]]
+description = "Keyboard chord, not an API key"
+condition = "AND"
+paths = ['''(?:^|/)src/renderer/src/shortcuts\.ts$''']
+regexTarget = "secret"
+regexes = ['''^ctrl\+shift\+KeyO$''']
+
+[[rules]]
+id = "aws-access-token"
+[[rules.allowlists]]
+description = "Constructed redaction example"
+condition = "AND"
+paths = ['''(?:^|/)tests/reportProblem\.test\.ts$''', '''(?:^|/)scanner-metadata/scan-config\.txt$''']
+regexTarget = "secret"
+regexes = ['''^AKIAABCDEFGHIJKLMNOP$''']
+
+[[rules]]
+id = "jwt"
+[[rules.allowlists]]
+description = "Constructed redaction example"
+condition = "AND"
+paths = ['''(?:^|/)tests/reportProblem\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U$''']

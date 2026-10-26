@@ -1,0 +1,231 @@
+/* Design tokens (docs/design-system.md, "Tokens"). styles.css loads this first. One theme, in light and dark, plus the
+   colour-vision overrides. tests/contrast.test.ts checks every text, border and fill pair below on every surface. */
+:root {
+  --bg: #0f0d0c;
+  --bg-sidebar: #171412;
+  --bg-panel: #131110;
+  --bg-raised: #1d1917;
+  --bg-hover: #241f1c;
+  --bg-selected: #2a2421;
+  --bg-input: #161311;
+  --border: #272220;
+  --border-strong: #37302c;
+  /* The edge that shows where a control is (inputs, buttons, checkboxes): 3:1 on every surface. */
+  --border-control: #756e6a;
+  --text: #ede8e4;
+  --text-soft: #cfc7c2;
+  --text-muted: #948a85;
+  /* One dim text colour that passes 4.5:1 everywhere; show hierarchy with size and weight instead. */
+  --text-faint: var(--text-muted);
+  --accent: #f08b74;
+  /* Tints follow their colour, at this theme's opacity. */
+  --accent-bg: color-mix(in srgb, var(--accent) 12%, transparent);
+  /* Selected, chosen, current, checked: neutral and warm (the palette's own inks and surfaces), never the accent, which
+     sits within ~10 delta-E of --red and made "you're here" read as an error. A selected edge is 3:1 on every surface,
+     a mark (check, switch track, underline) 3:1 on every surface and under its glyph, and text 4.5:1 on the fill.
+     --selected-tint is the same idea as a see-through wash for things drawn over content (diff lines, a drop zone, the flash). */
+  --selected-bg: var(--bg-selected);
+  --selected-border: var(--text-soft);
+  --selected-mark: var(--text);
+  --on-selected-mark: var(--on-primary);
+  --selected-tint: color-mix(in srgb, var(--text) 8%, transparent);
+  --user-bg: #2b211d;
+  --green: #6bcf93;
+  --red: #ee7a72;
+  --amber: #e5b55d;
+  --blue: #7fa9e8;
+  --add-bg: color-mix(in srgb, var(--green) 9%, transparent);
+  --del-bg: color-mix(in srgb, var(--red) 9%, transparent);
+  --amber-bg: color-mix(in srgb, var(--amber) 9%, transparent);
+  --blue-bg: color-mix(in srgb, var(--blue) 9%, transparent);
+  --font: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Geist Mono Variable', ui-monospace, Menlo, Consolas, monospace;
+  /* A primary button is filled with the text colour. */
+  --primary: var(--text);
+  --on-primary: #171311;
+  --primary-hover: #ffffff;
+  --danger: #a3332b;
+  --danger-hover: #b83b32;
+  --on-danger: #ffffff;
+  --focus-border: #4a413c;
+  /* Keyboard focus outline on every control (see "focus" in styles/base.css): blue, so focus is never mistaken for
+     selection or error. 3:1 or better on every surface. */
+  --focus-ring: var(--blue);
+  --backdrop: rgba(0, 0, 0, 0.55);
+  --backdrop-soft: rgba(0, 0, 0, 0.35);
+  --toast-bg: #3a1d19;
+  --approval-bg: color-mix(in srgb, var(--text) 4%, transparent);
+  --shadow: rgba(0, 0, 0, 0.45);
+  /* Over a picture (attachment thumbnails), the same in both themes. */
+  --media-scrim: rgba(0, 0, 0, 0.6);
+  --on-media: #ffffff;
+  /* Behind the pairing QR code: scanners need dark on white. */
+  --qr-bg: #ffffff;
+  /* Code colours: highlighted code blocks; fg also colours diff and file text. Each is 4.5:1 on --code-bg. */
+  --code-fg: var(--text);
+  --code-bg: var(--bg-input);
+  --code-keyword: #d8a6e6;
+  --code-builtin: #74cbc0;
+  --code-literal: #e5b55d;
+  --code-string: #8fcf8a;
+  --code-regexp: #8fcf8a;
+  --code-number: #e5b55d;
+  --code-comment: #847d79;
+  --code-title: #8ab7e8;
+  --code-type: #74cbc0;
+  --code-variable: var(--code-fg);
+  --code-property: #8ab7e8;
+  --code-tag: #8ab7e8;
+  --code-meta: #d8a6e6;
+  /* normal | none, set from Settings → Code ligatures. */
+  --code-ligatures: normal;
+  --term-bg: #131110;
+  --term-fg: #e7e1dd;
+  --term-selection: #3d3531;
+  /* G3 · #19: a previewed web page's canvas, white in both themes as a browser draws it. */
+  --preview-canvas: #ffffff;
+  /* Type: the chrome scale (11 only for short metadata), then sizes for content and display, named by use. */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 20px;
+  /* Content (chat Markdown, diff code, the file viewer) follows Settings → Accessibility → Content text size, which
+     theme.ts writes to --content-font-size on <html>; the interface scale above does not move. 13px is the default. */
+  --text-content: var(--content-font-size, 13px);
+  --text-content-code: calc(var(--text-content) - 1px);
+  --text-content-heading: calc(var(--text-content) + 2px);
+  --text-display-subheading: 16px;
+  --text-display-emoji-cell: 17px;
+  --text-display-title: 18px;
+  --text-display-heading: 22px;
+  --text-display-phone-code: 26px;
+  --text-display-emoji: 32px;
+  --text-display-pair-code: 38px;
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+  /* The smallest pointer target for a control (WCAG 2.5.8). */
+  --target-min: 24px;
+  --titlebar: 44px;
+  color-scheme: dark;
+}
+
+/* Light theme: follows the OS, or the app's Theme setting (main process sets
+   nativeTheme.themeSource, which drives prefers-color-scheme). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --bg-sidebar: #f7f5f3;
+    --bg-panel: #fbfaf9;
+    --bg-raised: #f2efec;
+    --bg-hover: #eeeae6;
+    --bg-selected: #e8e3de;
+    --bg-input: #ffffff;
+    --border: #ebe6e2;
+    --border-strong: #dcd5cf;
+    --border-control: #86817e;
+    --text: #1d1916;
+    --text-soft: #39322e;
+    --text-muted: #6d6460;
+    --accent: #a0402b;
+    --accent-bg: color-mix(in srgb, var(--accent) 8%, transparent);
+    --user-bg: #f4ece8;
+    --green: #146d3c;
+    --red: #ac332b;
+    --amber: #83550e;
+    --blue: #2a5dac;
+    --add-bg: color-mix(in srgb, var(--green) 8%, transparent);
+    --del-bg: color-mix(in srgb, var(--red) 8%, transparent);
+    --amber-bg: color-mix(in srgb, var(--amber) 8%, transparent);
+    --blue-bg: color-mix(in srgb, var(--blue) 8%, transparent);
+    --on-primary: #ffffff;
+    --primary-hover: #3a332f;
+    --danger: #c0392b;
+    --danger-hover: #a93226;
+    --focus-border: #c9c0b9;
+    --backdrop: rgba(40, 30, 25, 0.32);
+    --backdrop-soft: rgba(40, 30, 25, 0.18);
+    --toast-bg: #fdecea;
+    --approval-bg: color-mix(in srgb, var(--text) 3%, transparent);
+    --shadow: rgba(40, 30, 25, 0.12);
+    --code-keyword: #8a3fa8;
+    --code-builtin: #0d6b64;
+    --code-literal: #9a6400;
+    --code-string: #2f7d32;
+    --code-regexp: #2f7d32;
+    --code-number: #9a6400;
+    --code-comment: #7d746f;
+    --code-title: #2d5fa8;
+    --code-type: #0d6b64;
+    --code-property: #2d5fa8;
+    --code-tag: #2d5fa8;
+    --code-meta: #8a3fa8;
+    --term-bg: #fbfaf9;
+    --term-fg: #2a2421;
+    --term-selection: #e3dcd6;
+    color-scheme: light;
+  }
+}
+
+/* ---- colour vision ----
+   appearance.ts sets data-color-vision on <html> from Settings → Appearance. Dark
+   overrides sit in a dark media query so they never leak into light mode.
+   Protanopia / deuteranopia: blue for added / passing, orange for removed / failing.
+   Tritanopia: blue and red. The tints above follow these colours. */
+@media (prefers-color-scheme: dark) {
+  [data-color-vision='protanopia-deuteranopia'] {
+    --green: #61a8f2;
+    --red: #ec8a43;
+    --amber: #e2c35f;
+    --add-bg: color-mix(in srgb, var(--green) 10%, transparent);
+    --del-bg: color-mix(in srgb, var(--red) 10%, transparent);
+    --danger: #ad5419;
+    --danger-hover: #b75e23;
+  }
+  [data-color-vision='tritanopia'] {
+    --green: #5aa7f0;
+    --red: #f0716a;
+    --add-bg: color-mix(in srgb, var(--green) 10%, transparent);
+    --del-bg: color-mix(in srgb, var(--red) 10%, transparent);
+  }
+}
+@media (prefers-color-scheme: light) {
+  [data-color-vision='protanopia-deuteranopia'] {
+    --green: #075bbe;
+    --red: #a14100;
+    --amber: #755b00;
+    --danger: #bc4c00;
+    --danger-hover: #a34200;
+  }
+  [data-color-vision='tritanopia'] {
+    --green: #075bbe;
+    --red: #b61e28;
+  }
+}
+
+/* ---- forced colours and reduced motion ---- */
+
+/* Windows High Contrast and other forced colours replace backgrounds, so a selected or checked item shows an outline. */
+@media (forced-colors: active) {
+  [aria-checked='true'],
+  [aria-selected='true'],
+  [aria-current]:not([aria-current='false']),
+  .selected,
+  .active {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+
+/* Reduce Motion: no spinning, pulsing, sliding or fading; things just appear in their end state. The attribute is the
+   resolved setting (theme.ts): 'on', or 'auto' while the OS asks for reduced motion; 'off' keeps motion whatever the OS says. */
+html[data-reduce-motion='on'] *,
+html[data-reduce-motion='on'] *::before,
+html[data-reduce-motion='on'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

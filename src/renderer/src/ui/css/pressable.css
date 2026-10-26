@@ -1,0 +1,22 @@
+/* Pressable: a button with no look of its own. Layout (grid, gap, width) comes from the caller. */
+.ui-pressable {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ui-pressable:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-pressable:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}

@@ -1,0 +1,71 @@
+/* ---- composer ---- */
+
+.composer {
+  padding: 4px 24px 16px;
+  max-width: 828px;
+  width: 100%;
+  margin: 0 auto;
+}
+.composer-box {
+  position: relative;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  padding: 10px 10px 8px 14px;
+  cursor: text;
+}
+.composer-box.focused {
+  border-color: var(--focus-border);
+}
+/* The box draws the border and shows focus; the TextArea is bare. */
+.composer-box > .ui-textarea {
+  display: block;
+  width: 100%;
+}
+.composer-focus-hint {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+/* Keep the placeholder clear of the hint, and drop the hint when there's no room. */
+.composer-box {
+  container-type: inline-size;
+}
+.composer-box:has(.composer-focus-hint) > .ui-textarea {
+  padding-right: 96px;
+}
+@container (max-width: 520px) {
+  .composer-focus-hint {
+    display: none;
+  }
+  .composer-box:has(.composer-focus-hint) > .ui-textarea {
+    padding-right: 0;
+  }
+}
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  cursor: default;
+}
+/* The "start a new chat with this template's model" line above the box. */
+.composer-newchat {
+  display: flex;
+  padding: 0 4px 6px;
+}
+.composer .ui-link-btn {
+  margin-right: 4px;
+}
+/* A notice above the box (a held first message, an edit kept as a draft, an edit being resent). */
+.composer-notice {
+  margin-bottom: 6px;
+}
+.composer-notice-icon {
+  margin-right: 6px;
+  vertical-align: -2px;
+}

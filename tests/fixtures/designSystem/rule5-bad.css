@@ -1,0 +1,6 @@
+/* expect 5=5 */
+.a { font-size: 12px; }
+.b { font: 600 13px/1.4 var(--font); }
+.c { border-radius: 50%; }
+.d { border-top-left-radius: 4px; }
+.e { font-size: small; }

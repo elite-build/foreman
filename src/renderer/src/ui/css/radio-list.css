@@ -1,0 +1,79 @@
+/* RadioList: native radios in a fieldset. The label row is the target (24px tall); extra content sits under its option. */
+.ui-radio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ui-radio-list--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.ui-radio-list__legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+.ui-radio-list__legend[data-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ui-radio-list__option {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: var(--target-min);
+  width: fit-content;
+  font-size: var(--text-md);
+  color: var(--text);
+  cursor: pointer;
+}
+.ui-radio-list__input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 4px 0 0;
+  accent-color: var(--selected-mark);
+  cursor: inherit;
+}
+.ui-radio-list__input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.ui-radio-list__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 1px;
+  overflow-wrap: anywhere;
+}
+.ui-radio-list__description,
+.ui-radio-list__reason {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.ui-radio-list__option[data-disabled] {
+  cursor: default;
+}
+.ui-radio-list__option[data-disabled] .ui-radio-list__input,
+.ui-radio-list__option[data-disabled] .ui-radio-list__text > span {
+  opacity: 0.6;
+}
+.ui-radio-list__extra {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 2px 23px;
+}

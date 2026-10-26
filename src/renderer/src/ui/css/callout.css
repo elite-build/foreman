@@ -1,0 +1,82 @@
+/* Callout: a boxed notice, or a full-width banner. The tint follows the tone's colour. */
+.ui-callout {
+  --callout-border: var(--border);
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 9px 12px;
+  border: 1px solid var(--callout-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ui-callout--info {
+  --callout-border: color-mix(in srgb, var(--blue) 35%, transparent);
+  background: var(--blue-bg);
+}
+.ui-callout--ok {
+  --callout-border: color-mix(in srgb, var(--green) 35%, transparent);
+  background: var(--add-bg);
+}
+.ui-callout--warn {
+  --callout-border: color-mix(in srgb, var(--amber) 35%, transparent);
+  background: var(--amber-bg);
+}
+.ui-callout--error {
+  --callout-border: color-mix(in srgb, var(--red) 35%, transparent);
+  background: var(--del-bg);
+}
+.ui-callout__glyph {
+  margin-top: 4px;
+}
+.ui-callout__body {
+  flex: 1;
+  min-width: 0;
+}
+.ui-callout__title {
+  color: var(--text);
+  font-weight: 500;
+}
+.ui-callout__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ui-callout__body > .ui-callout__actions {
+  margin-top: 7px;
+}
+/* Banner: spans the pane, hairline below, no corners. */
+.ui-callout--banner {
+  align-items: center;
+  padding: 8px 14px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: var(--bg-hover);
+}
+.ui-callout--banner.ui-callout--info {
+  background: var(--blue-bg);
+}
+.ui-callout--banner.ui-callout--ok {
+  background: var(--add-bg);
+}
+.ui-callout--banner.ui-callout--warn {
+  background: var(--amber-bg);
+}
+.ui-callout--banner.ui-callout--error {
+  background: var(--del-bg);
+}
+.ui-callout--banner > .ui-callout__glyph {
+  margin-top: 0;
+}
+.ui-callout--banner > .ui-callout__actions {
+  flex: none;
+}
+@media (forced-colors: active) {
+  .ui-callout {
+    border-color: CanvasText;
+  }
+}

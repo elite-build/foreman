@@ -1,0 +1,116 @@
+/* Card: a bordered surface. A quiet frame by default; interactive cards (draggable, selectable, clickable) take the
+   control outline so the edge meets 3:1 (WCAG 1.4.11). Layout (size, padding, grid) comes from the caller. A CardButton
+   is a Pressable, so these rules load after pressable.css and win its `border: none; background: none` on order. */
+.ui-card {
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  color: var(--text);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.ui-card--sm {
+  border-radius: var(--radius-md);
+}
+.ui-card--interactive {
+  border-color: var(--border-control);
+}
+/* Hover: only a card that can be pressed, and not while it is being dragged. :where() keeps the specificity at one
+   class, so every state below wins by being a data attribute. */
+.ui-card--interactive:where(:hover:not(:disabled, [data-lifted], [data-ghost], [data-empty])) {
+  background: var(--bg-hover);
+}
+.ui-card--interactive:where(:disabled) {
+  cursor: default;
+}
+
+/* Chosen or open: the neutral selected edge and fill (tokens.css), never the accent. A second 1px of edge (a shadow, so
+   the card keeps its size) gives it weight without colour; the drop indicators below replace it. */
+.ui-card[data-selected] {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  box-shadow: 0 0 0 1px var(--selected-border);
+}
+/* Something being dragged would land here. */
+.ui-card[data-target] {
+  border-color: var(--selected-border);
+  box-shadow: 0 0 0 1px var(--selected-border);
+}
+/* A placeholder slot: dashed, no fill. It lights up as a drop target. */
+.ui-card[data-empty] {
+  border: 1.5px dashed var(--border-control);
+  background: none;
+}
+.ui-card[data-empty][data-target] {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  box-shadow: none;
+}
+/* The original while its copy is dragged: an outline where it was, its content faint. */
+.ui-card[data-lifted] {
+  border-style: dashed;
+  background: none;
+}
+.ui-card[data-lifted] > * {
+  opacity: 0.35;
+}
+/* The copy that follows the pointer. The caller positions it (fixed) and sizes it. */
+.ui-card[data-ghost] {
+  background: var(--bg-raised);
+  box-shadow: 0 14px 34px var(--shadow);
+  transform: rotate(-2deg) scale(1.03);
+  pointer-events: none;
+}
+.ui-card[data-tone='danger'] {
+  border-color: var(--red);
+}
+.ui-card[data-ghost][data-tone='danger'] > * {
+  opacity: 0.7;
+}
+/* Drop indicators for reordering. */
+.ui-card[data-drop='before'] {
+  box-shadow: 0 -2px 0 var(--selected-mark);
+}
+.ui-card[data-drop='after'] {
+  box-shadow: 0 2px 0 var(--selected-mark);
+}
+/* A status edge on the left. */
+.ui-card[data-stripe] {
+  border-left-width: 3px;
+}
+.ui-card[data-stripe='neutral'] {
+  border-left-color: var(--border-control);
+}
+.ui-card[data-stripe='ok'] {
+  border-left-color: var(--green);
+}
+.ui-card[data-stripe='warn'] {
+  border-left-color: var(--amber);
+}
+.ui-card[data-stripe='info'] {
+  border-left-color: var(--blue);
+}
+.ui-card[data-stripe='muted'] {
+  border-left-color: var(--text-muted);
+}
+
+/* An ActionRow wearing the card look: the card's fills replace the row's hover and selected surfaces. */
+.ui-action-row.ui-card[data-selected],
+.ui-action-row.ui-card[data-selected]:hover:not([data-disabled]):not([data-editing]) {
+  background: var(--selected-bg);
+}
+
+/* Reduce Motion: the ghost is not tilted or scaled. */
+html[data-reduce-motion='on'] .ui-card[data-ghost] {
+  transform: none;
+}
+@media (forced-colors: active) {
+  .ui-card[data-selected],
+  .ui-card[data-target] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}

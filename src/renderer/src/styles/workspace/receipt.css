@@ -1,0 +1,14 @@
+/* Foreman-added context receipt */
+.user-row { flex-wrap: wrap; }
+.receipt { flex-basis: 100%; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-top: 2px; }
+.receipt-ctx { display: inline-flex; gap: 6px; align-items: center; }
+.ctx-open { max-width: 560px; font-size: var(--text-xs); color: var(--text-soft); line-height: 1.55; text-align: right; }
+.pending-comments { display: flex; align-items: center; gap: 6px; padding: 4px 4px 6px; font-size: var(--text-sm); color: var(--text-muted); }
+.setup-hint { flex: none; }
+.run-probe { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.run-probe-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clone-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

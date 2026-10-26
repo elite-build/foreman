@@ -1,0 +1,4 @@
+/* expect 6=3 */
+/* Appearance on the element a ui/ class styles (see ui/ui.css). */
+.sidebar .btn:hover { color: var(--text); }
+.list > .tag { background: var(--bg); border-radius: var(--radius-sm); }

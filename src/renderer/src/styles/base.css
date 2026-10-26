@@ -1,0 +1,105 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--text-md)/1.55 var(--font);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Form elements take the surrounding type and colour; each ui/ control sets its own look on top. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+
+/* One keyboard focus ring for every control; mouse clicks don't show it. Zero specificity, so a ui/ component's own
+   :focus-visible rule wins. */
+:where(button, a[href], summary, [role='button'], [role='tab'], [role='radio'], [role='switch'], [role='option']):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* A link (an <a href>: Markdown, a report's link, help text) is blue and underlined. The underline is the cue that is not
+   colour; the blue (not the coral, which reads as an error) is the one every link wears, visited or not. A button that
+   acts like a link inside a sentence is a LinkButton `underline`, which draws the same. */
+a[href],
+a[href]:visited {
+  color: var(--blue);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--blue) 60%, transparent);
+  text-underline-offset: 2px;
+}
+a[href]:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Text for assistive technology only: message headings, announcements, view titles. Still in the accessibility tree. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+
+/* Text and layout helpers the features share. */
+.muted {
+  color: var(--text-muted);
+}
+.faint {
+  color: var(--text-faint);
+}
+.small {
+  font-size: var(--text-sm);
+}
+.spacer {
+  flex: 1;
+}
+.fill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.error-text {
+  color: var(--red);
+  white-space: pre-wrap;
+}
+.add {
+  color: var(--green);
+}
+.del {
+  color: var(--red);
+}
