@@ -223,6 +223,17 @@ export function Composer({
     el.style.height = `${Math.min(Math.max(el.scrollHeight, 44), 280)}px`
   }, [text])
 
+  // The caret after an accepted suggestion, placed as its text is committed. A frame later, keys typed in between
+  // would already be in the box, and moving the caret back would put the next ones in front of them.
+  const caretAfterCommit = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const position = caretAfterCommit.current
+    if (position === null) return
+    caretAfterCommit.current = null
+    input.current?.setSelectionRange(position, position)
+    input.current?.focus()
+  })
+
   // Fill the @ / / menu.
   useEffect(() => {
     if (!menu) return
@@ -284,8 +295,7 @@ export function Composer({
 
   const applyMenuItem = (value: string) => {
     if (!menu) return
-    const el = input.current
-    const cursor = el?.selectionStart ?? text.length
+    const cursor = input.current?.selectionStart ?? text.length
     if (menu.kind === '/' && value === '/mcp-status ' && !text.slice(cursor).trim()) {
       // A UI command: open it straight away.
       setText('')
@@ -297,11 +307,7 @@ export function Composer({
     const next = text.slice(0, menu.start) + value + text.slice(cursor)
     setText(next)
     setMenu(null)
-    requestAnimationFrame(() => {
-      const position = menu.start + value.length
-      el?.setSelectionRange(position, position)
-      el?.focus()
-    })
+    caretAfterCommit.current = menu.start + value.length
   }
 
   /** Insert a template at the cursor, selecting its first {{placeholder}}. */
@@ -812,9 +818,12 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
   const waiting = allComments.filter((c) => c.state === 'queued' && c.sessionId === session.id && c.selection)
 
   // Focus goes back to a button of the row (a re-ordered row can lose it, and a closed editor takes its own with it).
+  // Only if it was lost or is still in the row: focus that moved on before this frame stays where it went.
   const focusRow = (id: string, prefer: QueueAction[]) =>
     requestAnimationFrame(() => {
       const row = rows.current.get(id)
+      const current = document.activeElement
+      if (current && current !== document.body && !row?.contains(current)) return
       for (const action of prefer) {
         const button = row?.querySelector<HTMLButtonElement>(`[data-queue-action="${action}"]`)
         if (button && !button.disabled) return button.focus()
