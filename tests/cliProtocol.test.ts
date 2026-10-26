@@ -100,6 +100,30 @@ describe('protocol version 2 over the socket', () => {
     expect(JSON.parse((await ask({ v: 2, method: 'repos' }))[0])).toMatchObject({ ok: true })
   })
 
+  it('serves a version 1 request without a token only the admin methods version 1 had', async () => {
+    const reached: string[] = []
+    METHODS['test-admin'] = { tier: 'admin', handle: async () => void reached.push('test-admin') }
+    try {
+      const { ask } = await serve()
+      // Leaving `v` out (or saying 1) isn't a way round the launch token for anything newer than export and import.
+      for (const request of [
+        { method: 'test-admin' },
+        { v: 1, method: 'test-admin' },
+        { v: 1, method: 'test-admin', token: 'test-token' },
+        { method: 'settings-set', params: { key: 'theme', value: 'dark' } },
+        { method: 'keys-reveal', params: { name: 'x' } },
+        { method: 'approve', params: { id: 'x' } }
+      ]) {
+        expect(JSON.parse((await ask(request))[0]), JSON.stringify(request)).toEqual({ ok: false, error: expect.stringMatching(/out of date/) })
+      }
+      expect(reached).toEqual([])
+      expect(JSON.parse((await ask({ v: 2, method: 'test-admin', token: 'test-token' }))[0])).toEqual({ ok: true })
+      expect(reached).toEqual(['test-admin'])
+    } finally {
+      delete METHODS['test-admin']
+    }
+  })
+
   it('writes progress frames to a version 2 request only', async () => {
     METHODS['test-progress'] = {
       tier: 'read',
@@ -137,6 +161,22 @@ describe('protocol version 2 over the socket', () => {
       { params: { grant: 'g', service: 'linear' }, rest },
       { params: { grant: 'g2', service: 'slack' }, rest: '' }
     ])
+  })
+
+  it('answers a malformed bridge request itself, without the bridge, and keeps serving', async () => {
+    const seen: unknown[] = []
+    const { ask, lines } = await serve({
+      bridge: (conn, params) => {
+        seen.push(params.grant)
+        conn.end('bridged\n')
+      }
+    })
+    for (const params of [undefined, null, 'g', ['g'], { grant: 'g' }, { service: 'linear' }, { grant: 1, service: 'linear' }, { grant: 'g', service: ['linear'] }]) {
+      const reply = await lines(`${JSON.stringify({ method: 'mcp-bridge', params })}\n`)
+      expect(JSON.parse(reply[0]), JSON.stringify(params)).toEqual({ bridgeError: expect.any(String) })
+    }
+    expect(seen).toEqual([])
+    expect(JSON.parse((await ask({ method: 'repos' }))[0])).toEqual({ ok: true, result: [] })
   })
 
   it('says so when the host has no bridge', async () => {

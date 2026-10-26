@@ -20,6 +20,9 @@ export interface Refusal {
 
 export type AnyCliRequest = CliRequest | CliRequestV2
 
+// The admin methods in version 1's vocabulary (CliRequest), from before the launch token.
+const V1_ADMIN: ReadonlySet<string> = new Set<CliRequest['method']>(['export', 'import'])
+
 /** The parameters a request carried; the methods without any (status, repos) have none. */
 export function paramsOf(request: AnyCliRequest): unknown {
   return (request as { params?: unknown }).params
@@ -67,8 +70,9 @@ export function tierCheck(method: string, tier: Tier, request: AnyCliRequest, ho
     return null
   }
   if (request.caller?.token) return { code: 'refused', error: 'Settings can’t be changed from inside an agent turn.' }
-  // A version 1 client has no token to give; the command that ships with this app sends version 2.
-  if (isV2(request) && !sameToken(request.token, host.cliToken())) {
+  // A version 1 client has no token to give, so the admin methods it knew stay served to it; every one added since
+  // wants the token, whatever version the request says. The command that ships with this app sends version 2.
+  if (isV2(request) ? !sameToken(request.token, host.cliToken()) : !V1_ADMIN.has(method)) {
     return { code: 'refused', error: 'This foreman command is out of date or isn’t the one installed with this app, so Foreman won’t let it change settings or export data.', hint: 'Reinstall it from Settings → Advanced.' }
   }
   return null
