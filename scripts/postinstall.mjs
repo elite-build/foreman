@@ -1,6 +1,6 @@
 // node-pty's prebuilt macOS/Linux packages ship spawn-helper without the
 // execute bit, which makes every terminal fail with "posix_spawnp failed".
-// CI installs with --ignore-scripts and runs this file explicitly after `npm rebuild node-pty`: keep it offline and rerunnable.
+// Installs with --ignore-scripts can run this file explicitly after `npm rebuild node-pty`: keep it offline and rerunnable.
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'

@@ -1,0 +1,52 @@
+name: Installers
+
+# Manual only: someone with write access starts it from the Actions tab (or `gh workflow run installers.yml --ref <branch>`).
+# Builds unsigned installers and keeps them as short-lived run artifacts. Nothing is published or released.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    name: Package / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, platform: macOS, script: 'dist:mac', artifact: Foreman-macOS-arm64, files: dist/*.dmg }
+          - { os: windows-2022, platform: Windows, script: 'dist:win', artifact: Foreman-Windows-x64, files: dist/*Setup*.exe }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          package-manager-cache: false
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      # Lifecycle scripts stay off for the install; only node-pty's native setup and the repository's own postinstall run.
+      - run: npm rebuild node-pty
+      # Without this the packaged macOS app ships node-pty's spawn-helper without its execute bit and every terminal fails.
+      - name: Restore node-pty spawn-helper execute permission
+        run: node scripts/postinstall.mjs
+      # The dist scripts pass --publish never. No signing identity exists here, so the installers are unsigned.
+      - name: Build installer
+        env:
+          DIST_SCRIPT: ${{ matrix.script }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run "$DIST_SCRIPT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

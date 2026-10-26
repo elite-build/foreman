@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { exportsOf, LABEL, newComponentProblems } from '../scripts/check-new-components.mjs'
 
-// The pull-request check (scripts/check-new-components.mjs, run by .github/workflows/design-system.yml): a new
+// The pull-request check (scripts/check-new-components.mjs): a new
 // design-system export comes labelled, tested, in a gallery, and in a pull request of its own.
 
 const BASE = `export { Button, type ButtonProps } from './Button'\nexport { flash, flashTargets, type FlashOptions } from './flash'\n`

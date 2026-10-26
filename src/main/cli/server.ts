@@ -75,7 +75,10 @@ export function startCliServer(socket: string, host: CliHost): Promise<net.Serve
       // followed its first line go to it as they arrived.
       if (request.method === 'mcp-bridge') {
         if (!host.bridge) return void conn.end(`${JSON.stringify({ bridgeError: 'This version of Foreman has no integration bridge.' })}\n`)
-        return host.bridge(conn, request.params as { grant: string; service: string }, buffer.slice(end + 1))
+        // The grant is what the bridge checks, so a request without one in the right shape never reaches it.
+        const params = request.params as { grant?: unknown; service?: unknown } | null | undefined
+        if (typeof params?.grant !== 'string' || typeof params.service !== 'string') return void conn.end(`${JSON.stringify({ bridgeError: 'Malformed bridge request.' })}\n`)
+        return host.bridge(conn, { grant: params.grant, service: params.service }, buffer.slice(end + 1))
       }
       // A waiting command that goes away stops its wait; the turn is unaffected.
       const gone = new AbortController()

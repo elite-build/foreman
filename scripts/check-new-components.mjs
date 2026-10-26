@@ -8,8 +8,8 @@
 //     (its doc section is rule 8 of the guard);
 //   - leave feature code (src/renderer/src outside ui/) alone: use the component in a later pull request.
 //
-//   node scripts/check-new-components.mjs [<base ref>]    (default origin/main; CI passes the PR's base SHA)
-// PR_LABELS (a JSON array of label names) is set by the workflow; without it the label is not checked.
+//   node scripts/check-new-components.mjs [<base ref>]    (default origin/main)
+// PR_LABELS (a JSON array of label names) supplies the pull request's labels; without it the label is not checked.
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'

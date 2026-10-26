@@ -26,7 +26,7 @@ Never hand-build a control in feature code: no raw `<button>`, `<input>`, `<sele
 
 `tests/designSystem.test.ts` enforces this and fails the test run on a hand-built control, a raw colour or size, or a `ui/` export without a doc section. Its named exceptions (content such as the Markdown editor and read-only `<details>`, the welcome tour's spotlight card) each carry their reason; don't add one without a reason as good. `tests/contrast.test.ts` keeps every token pair at WCAG AA in light and dark and in every colour-vision mode.
 
-**Checks that enforce this.** Guard rule 9 ("new look outside `ui/`") counts every `background*`, `border*` (bar a plain `1px solid var(--border)` divider), radius, shadow and outline in feature CSS and inline `style={{…}}`, and fails when a file's count goes above `tests/designSystem.baseline.json`; the answer is a component from `ui/`, never a new baseline entry. `npm run check:ui` runs the guard, contrast, i18n, accessibility and `ui/` tests without an Electron or native build. `.githooks/pre-commit` runs the guard and contrast tests when a commit touches `src/renderer/`, `src/shared/i18n/` or those tests. `scripts/postinstall.mjs` enables the hook outside CI if no hooks path is already configured. Fix failures rather than bypassing the hook. `tests/ui/componentKit.test.ts` fails on any `.tsx` in `ui/` that isn't exported, tested and in a gallery. See CI below for the separate new-component gate.
+**Checks that enforce this.** Guard rule 9 ("new look outside `ui/`") counts every `background*`, `border*` (bar a plain `1px solid var(--border)` divider), radius, shadow and outline in feature CSS and inline `style={{…}}`, and fails when a file's count goes above `tests/designSystem.baseline.json`; the answer is a component from `ui/`, never a new baseline entry. `npm run check:ui` runs the guard, contrast, i18n, accessibility and `ui/` tests without an Electron or native build. `.githooks/pre-commit` runs the guard and contrast tests when a commit touches `src/renderer/`, `src/shared/i18n/` or those tests. `scripts/postinstall.mjs` enables the hook outside CI if no hooks path is already configured. Fix failures rather than bypassing the hook. `tests/ui/componentKit.test.ts` fails on any `.tsx` in `ui/` that isn't exported, tested and in a gallery. See "CI and automation" below for the separate new-component check.
 
 Coral (`--accent`) is brand only (logo and brand icons, the Automations bolt, the Assistant sparkle, agent icons, the DEFAULT tag and label, the tour spotlight), never a state, link, path, search match, panel edge, chart, syntax colour or a tag other than DEFAULT: selection is neutral (`--selected-*`), focus and links are blue (links underlined), and `tests/ui/coralBrandOnly.test.ts` fails on a new use outside its allowlist.
 
@@ -99,7 +99,7 @@ Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if
 
 | Command | Purpose |
 | --- | --- |
-| `npm install` / `npm ci` | Install dependencies (CI/clean reproducible installs use `ci`). Postinstall fixes Unix PTY helper permissions and configures hooks when appropriate. |
+| `npm install` / `npm ci` | Install dependencies (clean reproducible installs use `ci`). Postinstall fixes Unix PTY helper permissions and configures hooks when appropriate. |
 | `npm run dev` | Run the Electron app with electron-vite development builds. |
 | `npm run typecheck` | Strict TypeScript check over source, tests and build/test configs. |
 | `npm test` | Full Vitest suite. A focused run is `npm test -- tests/<name>.test.ts`. |
@@ -111,7 +111,7 @@ Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if
 | `npm run cloud:smoke` | Live Vercel integration test; requires the three variables above and a build first. Run only when live sandbox use is within the task's scope. |
 | `npm run dist:mac` / `npm run dist:win` | Build and package DMG/NSIS into `dist/`, with publishing disabled. |
 
-There is no configured lint/formatter script; do not invent `npm run lint`. `electron-builder` settings are in `package.json` (including a Linux AppImage target, but no Linux dist script). README targets macOS and Windows and records Windows validation gaps; configuration alone does not establish platform support. There is no checked-in release/deployment workflow; packaging is not publication.
+There is no configured lint/formatter script; do not invent `npm run lint`. `electron-builder` settings are in `package.json` (including a Linux AppImage target, but no Linux dist script). README targets macOS and Windows and records Windows validation gaps; configuration alone does not establish platform support. There is no checked-in release/deployment workflow. `.github/workflows/installers.yml` builds unsigned macOS (DMG) and Windows (NSIS) installers only when started manually, keeping them as 7-day run artifacts; packaging is not publication (see `docs/maintenance.md`).
 
 `out/`, `dist/`, `node_modules/`, `release/` and logs are ignored artifacts. Do not edit built output. `build/` contains checked-in packaging assets, not just disposable output. Icon sources are in `build/icons/`; README documents `npx electron scripts/render-icons.mjs` on macOS to regenerate assets. `src/shared/workspacePeople.json` is maintained by `scripts/buildWorkspacePeople.py` (see `docs/workspace-names.md`).
 
@@ -123,9 +123,9 @@ Add regression coverage for changed behaviour, including error paths and cleanup
 
 ### CI and automation
 
-`.github/workflows/ci.yml` reports checks on every pull request and pushes to `main` and release branches. It runs typechecking, UI and MCP checks, full tests and builds on Windows/macOS with Node 22/24, secret/workflow/dependency scans, repository policy and dependency-license checks. Installs disable lifecycle scripts; platform jobs explicitly rebuild `node-pty` on disposable runners, then run `scripts/postinstall.mjs` to restore the execute bit on node-pty's macOS `spawn-helper`. `CI result` rejects missing, failed, skipped or cancelled jobs. Merge restrictions are deferred until the open-source phase; no CODEOWNERS or ruleset payloads are supplied. See `docs/maintenance.md` for the CI and live-protection boundary.
+There is no CI workflow and no Dependabot configuration; both were removed to start again from scratch. The only workflow, `.github/workflows/installers.yml`, packages installers when someone starts it manually and checks nothing. Nothing runs automatically on pull requests or pushes, so run the checks in this file locally (`npm run check:security`, `check:repository` and `check:licenses` remain available as local scripts). `main` is protected by a GitHub ruleset (PR with one approval; admins may bypass only when merging a PR); no CODEOWNERS or ruleset payloads are supplied. Do not merge or use that bypass unless the user asks. See `docs/maintenance.md` for the live-protection boundary.
 
-On pull requests, `scripts/check-new-components.mjs` compares UI value exports with the base commit. A new export requires the `new-component` label, test and gallery coverage, and no simultaneous feature-renderer changes. Its local invocation is `node scripts/check-new-components.mjs <base-ref>`; label validation only happens when `PR_LABELS` is supplied. CI failures remain visible; a workflow result alone does not enforce a GitHub merge restriction.
+`scripts/check-new-components.mjs` compares UI value exports with a base commit. A new export requires the `new-component` label, test and gallery coverage, and no simultaneous feature-renderer changes. Run it as `node scripts/check-new-components.mjs <base-ref>`; label validation only happens when `PR_LABELS` is supplied.
 
 ### Documentation authority
 
