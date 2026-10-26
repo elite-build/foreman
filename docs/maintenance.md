@@ -1,6 +1,6 @@
 # Maintenance controls
 
-Merge restrictions are deferred until the open-source phase at the owner's request. The proposed CODEOWNERS and branch/tag ruleset files have been removed from this change. CI continues to run and report failures, but this source configuration does not make checks or a specific review mandatory for merging. GitHub repository permissions and any separately configured remote rules remain independent of these files.
+Merge restrictions are deferred until the open-source phase at the owner's request. The proposed CODEOWNERS and branch/tag ruleset files are not included in this repository. CI continues to run and report failures, but this source configuration does not make checks or a specific review mandatory for merging. GitHub repository permissions and any separately configured remote rules remain independent of these files.
 
 Keep the source private until the owner approves publication and the outstanding provenance, dependency licensing, security and platform checks are complete. The project's original code uses Apache License 2.0; third-party material retains its separate terms. See [LICENSE](../LICENSE), [NOTICE](../NOTICE) and the [workspace names attribution](workspace-names.md). Selecting a project license does not complete the dependency/source-rights review.
 
@@ -29,8 +29,29 @@ Do not mask a failing check to obtain a green result. Investigate installation, 
 
 Before publication, separately verify: the private vulnerability-reporting channel works; Actions defaults are read-only and fork runs require approval for all external contributors; allowed actions match the pins; Actions cannot create/approve PRs; no self-hosted runner, release credential or privileged workflow runs untrusted code; log/artifact retention and spending limits are approved. Security add-ons and settings are not enabled by committing these files.
 
+### GitHub settings observed on 2026-10-26
+
+Read through the GitHub REST API by an organization admin while `elite-build/foreman` was private, on the organization's free plan. The token lacked `admin:org`, so organization-level Actions policy, runners, runner groups and secrets could not be read. Settings can change; read them again immediately before and after any visibility change.
+
+| Setting | Observed | Before or after publication |
+| --- | --- | --- |
+| Default workflow token | Read only; `ci.yml` also sets `contents: read` | Keep |
+| Actions can create or approve PRs | Not allowed | Keep |
+| Allowed actions | All actions and reusable workflows; SHA pinning not required by the setting | Owner decision: restrict to the two pinned actions and require SHA pinning, then confirm CI and Dependabot updates still run. Until then only the source guard enforces the pins |
+| Fork PR workflows (private-repository setting) | Not run; no write tokens, secrets or variables sent; forking disabled | Superseded by the public-repository approval setting |
+| Approval for fork PR workflows from outside contributors | Unavailable while private (API: not allowed for private repositories) | After the visibility change and before any outside PR, set and confirm **Require approval for all external contributors** |
+| Self-hosted runners | None registered to the repository; organization runners and runner groups not readable | Owner confirms none can reach this repository. CI uses GitHub-hosted labels only and the guard rejects `self-hosted` |
+| Secrets, variables, environments | None in the repository (Actions or Dependabot); organization secrets not readable | Owner confirms organization secrets are not shared with this repository |
+| Log and artifact retention | 90 days (maximum 90) | Owner approves; CI uploads no artifacts |
+| Actions spending limit | Not checked | Owner decision |
+| Private vulnerability reporting | API returned 404 while private, so its state is unknown, not shown as disabled. GitHub documents the setting for public repositories | After the visibility change, enable it, confirm the API reports it enabled and that **Report a vulnerability** appears to a non-maintainer |
+| Dependabot | Version updates configured and running; alerts and automated security fixes disabled | Owner decision |
+| Secret scanning, push protection | Not reported for this private repository | Owner decision after the visibility change |
+| Rulesets | Unavailable: API requires GitHub Pro or a public repository | Deferred with merge restrictions |
+| Access | One organization member (admin); no outside collaborators, teams, invitations, deploy keys or webhooks; organization two-factor requirement off | Owner decision on requiring two-factor authentication |
+
 Revisit merge restrictions as a separate step during open-source preparation. Confirm the intended approver, owner-authored PR process, supported GitHub plan, actual CI context names and writer access before proposing new rules. GitHub prohibits authors from approving their own PRs, so an exclusive-owner policy needs an explicit decision about that workflow. Install any future ownership file on the base branch, apply the reviewed rules remotely and test their effective behavior before claiming enforcement. See [review restrictions](https://docs.github.com/en/pull-requests/how-tos/review-pull-requests/approving-a-pull-request-with-required-reviews), [CODEOWNERS behavior](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners) and [ruleset availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets).
 
-New repositories start from a reviewed source snapshot with fresh history. Do not mirror or push this private repository's old branches, tags, PR refs, logs or internal review material into the public destination. Local file deletion does not delete Git history or historical Actions runs. A new destination needs its own inventory and controls before any visibility change. Existing linked worktrees keep pointing at the private source.
+This repository started from a reviewed source snapshot with fresh history: on 2026-10-26 every branch, pull-request ref and Dependabot branch descended from the single root commit `bbef7f3`, and there were no tags. Do not push the earlier repository's branches, tags, PR refs, logs or internal review material into it. Local file deletion does not delete Git history or historical Actions runs.
 
 GitHub references: [rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets), [secure use of Actions](https://docs.github.com/en/actions/reference/security/secure-use), and [private vulnerability reporting](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
