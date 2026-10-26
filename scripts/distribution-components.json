@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "packageNotices": [
+    {
+      "packages": ["@openai/codex@0.163.0", "@openai/codex@0.163.0-*"],
+      "license": "Apache-2.0",
+      "notices": ["LICENSE"],
+      "source": "https://github.com/openai/codex/tree/rust-v0.163.0",
+      "reason": "The launcher and platform packages (installed under @openai/codex-<platform>) declare Apache-2.0 but ship no license file; Foreman's LICENSE is the Apache-2.0 text."
+    },
+    {
+      "packages": ["sherpa-onnx-node@2.0.0", "sherpa-onnx-*@2.0.0"],
+      "license": "Apache-2.0",
+      "notices": ["docs/licenses/sherpa-onnx.txt"],
+      "source": "https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.0",
+      "reason": "The packages declare Apache-2.0 but ship no license file; the text is the sherpa-onnx v2.0.0 LICENSE."
+    },
+    {
+      "packages": ["web-push@3.6.7"],
+      "license": "MPL-2.0",
+      "notices": ["docs/licenses/mpl-2.0.txt"],
+      "source": "https://github.com/web-push-libs/web-push/tree/8d9ba1b33bfe0d73ccf3606c59ead4287f50e3b8",
+      "reason": "The package ships the MPL Exhibit A header only; the full license text accompanies it here."
+    },
+    {
+      "packages": ["@aws-sdk/credential-provider-http@3.972.78", "@aws-sdk/credential-provider-login@3.972.83", "@aws-sdk/nested-clients@3.997.50"],
+      "license": "Apache-2.0",
+      "notices": ["LICENSE"],
+      "source": "https://github.com/aws/aws-sdk-js-v3",
+      "reason": "The packages declare Apache-2.0 but ship no license file and publish no gitHead; the repository LICENSE is the unmodified Apache-2.0 text, which is Foreman's LICENSE."
+    },
+    {
+      "packages": ["@bufbuild/protobuf@1.10.0"],
+      "license": "(Apache-2.0 AND BSD-3-Clause)",
+      "notices": ["docs/licenses/bufbuild-protobuf-1.10.0.txt"],
+      "source": "https://github.com/bufbuild/protobuf-es/tree/a4eb2e82e38a8e5a16c0cd789932007b12c7120c",
+      "reason": "LICENSE at the release gitHead. The BSD-3-Clause notice for code derived from Google's protobuf ships inside the package (dist/*/google/varint.js)."
+    },
+    {
+      "packages": ["@bufbuild/protobuf@2.16.0"],
+      "license": "(Apache-2.0 AND BSD-3-Clause)",
+      "notices": ["docs/licenses/bufbuild-protobuf-2.16.0.txt"],
+      "source": "https://github.com/bufbuild/protobuf-es/tree/b3b232f7f466eda27c66e8f63c82f930578b6cc6",
+      "reason": "LICENSE at the release gitHead. The BSD-3-Clause notice for code derived from Google's protobuf ships inside the package (dist/*/wire/varint.js)."
+    },
+    {
+      "packages": ["@connectrpc/connect@1.7.0", "@connectrpc/connect-web@1.7.0"],
+      "license": "Apache-2.0",
+      "notices": ["docs/licenses/connect-es-1.7.0.txt"],
+      "source": "https://github.com/connectrpc/connect-es/tree/9e34d24373bb666c427510d774d4b8b13fd9aff3",
+      "reason": "LICENSE at the release gitHead; the packages ship none."
+    },
+    {
+      "packages": ["@connectrpc/connect@2.2.0", "@connectrpc/connect-web@2.2.0"],
+      "license": "Apache-2.0",
+      "notices": ["docs/licenses/connect-es-2.2.0.txt"],
+      "source": "https://github.com/connectrpc/connect-es/tree/378bb8fde1209afc3ab6a9b0aa97c00d0db58c24",
+      "reason": "LICENSE at the release gitHead; the packages ship none."
+    },
+    {
+      "packages": ["@daytona/analytics-api-client@0.226.1", "@daytona/api-client@0.226.1", "@daytona/toolbox-api-client@0.226.1"],
+      "license": "Apache-2.0",
+      "notices": ["docs/licenses/daytona-clients.txt"],
+      "source": "https://github.com/daytona/clients/tree/81c9f87b3233f050250a835b913ce828df9cb049",
+      "reason": "LICENSE at the release gitHead. Only the repository's cli/ directory is AGPL-3.0; these generated API clients are outside it and Apache-2.0."
+    },
+    {
+      "packages": ["@statsig/client-core@3.31.0"],
+      "license": "ISC",
+      "notices": ["docs/licenses/statsig-client-core.txt"],
+      "source": "https://github.com/statsig-io/js-client-monorepo/tree/8b68b26c4da461cbd69cb16ed1183148389a1a96",
+      "reason": "LICENSE at the release gitHead; the package ships none."
+    },
+    {
+      "packages": ["@xterm/addon-serialize@0.14.0"],
+      "license": "MIT",
+      "notices": ["docs/licenses/xterm.txt"],
+      "source": "https://github.com/xtermjs/xterm.js/tree/f447274f430fd22513f6adbf9862d19524471c04",
+      "reason": "LICENSE at the release gitHead; the package ships none."
+    },
+    {
+      "packages": ["agent-base@6.0.2"],
+      "license": "MIT",
+      "notices": ["docs/licenses/agent-base-6.0.2.txt"],
+      "source": "https://github.com/TooTallNate/node-agent-base/tree/6.0.2",
+      "reason": "The license section of the package's own README.md; the package ships no license file."
+    },
+    {
+      "packages": ["https-proxy-agent@5.0.1"],
+      "license": "MIT",
+      "notices": ["docs/licenses/https-proxy-agent-5.0.1.txt"],
+      "source": "https://github.com/TooTallNate/node-https-proxy-agent/tree/5.0.1",
+      "reason": "The license section of the package's own README.md; the package ships no license file."
+    },
+    {
+      "packages": ["http_ece@1.2.0"],
+      "license": "MIT",
+      "notices": ["docs/licenses/http-ece.txt"],
+      "source": "https://github.com/martinthomson/encrypted-content-encoding/tree/0562510a30819f52424724a6fd5504becacd98a1",
+      "reason": "LICENSE at the release gitHead (nodejs/LICENSE links to it); the package ships none."
+    },
+    {
+      "packages": ["standardwebhooks@1.1.1"],
+      "license": "MIT",
+      "notices": ["docs/licenses/standardwebhooks.txt"],
+      "source": "https://github.com/standard-webhooks/standard-webhooks/tree/b4d2c14fc5b4ccff3ff271e3b087dff812254c59",
+      "reason": "The package declares MIT and ships no license file; the only license file at its release gitHead is the repository's Apache-2.0 LICENSE, supplied here. Both permit redistribution."
+    },
+    {
+      "packages": ["jsonlines@0.1.1"],
+      "license": "MIT",
+      "notices": ["docs/licenses/jsonlines.txt"],
+      "source": "https://github.com/LinusU/node-jsonlines/tree/61eb1a0eb68c59e1fd705985a43401c2fe8d7660",
+      "reason": "Declared MIT with no license text in the package or its release source; the notice supplies the standard MIT text for the declared author and says so."
+    }
+  ],
+  "components": [
+    {
+      "id": "claude-code-binary",
+      "name": "Claude Code native binary (@anthropic-ai/claude-agent-sdk platform package)",
+      "version": "0.3.301",
+      "license": "LicenseRef-Anthropic-Commercial",
+      "review": "claude-agent-sdk",
+      "files": ["node_modules/@anthropic-ai/claude-agent-sdk-*/claude", "node_modules/@anthropic-ai/claude-agent-sdk-*/claude.exe"],
+      "notices": ["docs/licenses/claude-agent-sdk.txt"],
+      "source": "https://code.claude.com/docs/en/legal-and-compliance"
+    },
+    {
+      "id": "cursor-sandbox",
+      "name": "cursorsandbox (@cursor/sdk platform package)",
+      "version": "1.0.40",
+      "license": "LicenseRef-Cursor-Terms",
+      "review": "cursor-sdk",
+      "files": ["node_modules/@cursor/sdk-*/bin/cursorsandbox", "node_modules/@cursor/sdk-*/bin/cursorsandbox.exe"],
+      "notices": ["docs/licenses/cursor-sdk.txt"],
+      "source": "https://cursor.com/terms-of-service"
+    },
+    {
+      "id": "ripgrep-cursor",
+      "name": "ripgrep, as built by Cursor (reports 14.1.1-cursor3, rev d1e1c655dc)",
+      "version": "14.1.1-cursor3",
+      "license": "Unlicense OR MIT",
+      "files": ["node_modules/@cursor/sdk-*/bin/rg", "node_modules/@cursor/sdk-*/bin/rg.exe"],
+      "notices": ["docs/licenses/ripgrep.txt"],
+      "source": "https://github.com/BurntSushi/ripgrep/tree/14.1.1"
+    },
+    {
+      "id": "tree-sitter-cursor",
+      "name": "node-tree-sitter 0.21.1 native binding, with the tree-sitter library it vendors",
+      "version": "0.21.1",
+      "license": "MIT",
+      "files": ["node_modules/@cursor/sdk-*/vendor/tree-sitter/**"],
+      "notices": ["docs/licenses/tree-sitter.txt"],
+      "source": "https://github.com/tree-sitter/node-tree-sitter/tree/bbdba663dc0b8487f1212524a83a7c39e8a5c3ca"
+    },
+    {
+      "id": "tree-sitter-bash-cursor",
+      "name": "tree-sitter-bash 0.21.0 native binding",
+      "version": "0.21.0",
+      "license": "MIT",
+      "files": ["node_modules/@cursor/sdk-*/vendor/tree-sitter-bash/**"],
+      "notices": ["docs/licenses/tree-sitter-bash.txt"],
+      "source": "https://github.com/tree-sitter/tree-sitter-bash/tree/f3f26f47a126797c011c311cec9d449d855c3eab"
+    },
+    {
+      "id": "codex-binaries",
+      "name": "Codex CLI 0.163.0 executables (@openai/codex platform package)",
+      "version": "0.163.0",
+      "license": "Apache-2.0",
+      "files": ["node_modules/@openai/codex-*/vendor/*/bin/*", "node_modules/@openai/codex-*/vendor/*/codex-resources/*"],
+      "notices": ["LICENSE"],
+      "source": "https://github.com/openai/codex/tree/rust-v0.163.0"
+    },
+    {
+      "id": "ripgrep-codex",
+      "name": "ripgrep, as shipped with Codex (reports 15.2.0, rev e89fff89ac)",
+      "version": "15.2.0",
+      "license": "Unlicense OR MIT",
+      "files": ["node_modules/@openai/codex-*/vendor/*/codex-path/rg", "node_modules/@openai/codex-*/vendor/*/codex-path/rg.exe"],
+      "notices": ["docs/licenses/ripgrep.txt"],
+      "source": "https://github.com/BurntSushi/ripgrep/tree/15.2.0"
+    },
+    {
+      "id": "node-pty",
+      "name": "node-pty 1.1.0 prebuilt bindings",
+      "version": "1.1.0",
+      "license": "MIT",
+      "files": ["node_modules/node-pty/prebuilds/*/pty.node", "node_modules/node-pty/prebuilds/*/conpty.node", "node_modules/node-pty/prebuilds/*/conpty_console_list.node", "node_modules/node-pty/prebuilds/*/spawn-helper", "node_modules/node-pty/build/Release/*.node", "node_modules/node-pty/build/Release/spawn-helper"],
+      "notices": [],
+      "packageLicense": true,
+      "source": "https://github.com/microsoft/node-pty/tree/v1.1.0"
+    },
+    {
+      "id": "winpty",
+      "name": "winpty 0.4.4-dev, as built by node-pty",
+      "version": "0.4.4-dev",
+      "license": "MIT",
+      "files": ["node_modules/node-pty/prebuilds/*/winpty.dll", "node_modules/node-pty/prebuilds/*/winpty-agent.exe", "node_modules/node-pty/build/Release/winpty*"],
+      "notices": ["docs/licenses/winpty.txt"],
+      "source": "https://github.com/microsoft/node-pty/tree/v1.1.0/deps/winpty"
+    },
+    {
+      "id": "conpty",
+      "name": "Microsoft ConPTY (conpty.dll, OpenConsole.exe) 1.23.251008001, as vendored by node-pty",
+      "version": "1.23.251008001",
+      "license": "MIT",
+      "files": ["node_modules/node-pty/prebuilds/*/conpty/*", "node_modules/node-pty/third_party/conpty/**"],
+      "notices": ["docs/licenses/microsoft-terminal.txt"],
+      "source": "https://github.com/microsoft/terminal/tree/v1.23.20211.0"
+    },
+    {
+      "id": "sherpa-onnx",
+      "name": "sherpa-onnx 2.0.0 native libraries",
+      "version": "2.0.0",
+      "license": "Apache-2.0",
+      "files": ["node_modules/sherpa-onnx-*/sherpa-onnx.node", "node_modules/sherpa-onnx-*/sherpa-onnx-c*-api.dll", "node_modules/sherpa-onnx-*/libsherpa-onnx-c*-api.dylib", "node_modules/sherpa-onnx-*/libsherpa-onnx-c*-api.so"],
+      "notices": ["docs/licenses/sherpa-onnx.txt"],
+      "source": "https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.0"
+    },
+    {
+      "id": "onnxruntime",
+      "name": "ONNX Runtime 1.28.2, as shipped with sherpa-onnx",
+      "version": "1.28.2",
+      "license": "MIT",
+      "files": ["node_modules/sherpa-onnx-*/onnxruntime.dll", "node_modules/sherpa-onnx-*/onnxruntime_providers_shared.dll", "node_modules/sherpa-onnx-*/libonnxruntime*.dylib", "node_modules/sherpa-onnx-*/libonnxruntime*.so*"],
+      "notices": ["docs/licenses/onnxruntime.txt", "docs/licenses/onnxruntime-third-party-notices.txt"],
+      "source": "https://github.com/microsoft/onnxruntime/tree/v1.28.2"
+    }
+  ],
+  "excluded": [
+    {
+      "files": ["node_modules/@openai/codex-*/vendor/*/codex-resources/voice/**"],
+      "reason": "Codex's voice runtime (LGPL-2.1 GStreamer/GLib and, on Windows, the Microsoft Visual C++ runtime) is not used by Foreman. package.json build.files leaves it out of the installer so its source and redistribution terms do not apply."
+    }
+  ]
+}

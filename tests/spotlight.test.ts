@@ -9,7 +9,13 @@ import { commit, makeRepo, tempDir } from './helpers'
 
 const read = (dir: string, file: string) => readFile(path.join(dir, file), 'utf8')
 
-async function waitFor(check: () => Promise<boolean>, ms = 5000): Promise<void> {
+// Each spotlight step runs dozens of git processes one after another (checkpoint, snapshot, restore). On a
+// loaded Windows runner a git process costs several times what it does on a desktop, so the whole test took
+// over 20 s there while doing the right thing. Waits are bounded by the test's own budget, not a guess at
+// one step's speed; a sync that never lands still fails here.
+const BUDGET = 60_000
+
+async function waitFor(check: () => Promise<boolean>, ms = BUDGET / 2): Promise<void> {
   const until = Date.now() + ms
   while (Date.now() < until) {
     if (await check()) return
@@ -19,7 +25,7 @@ async function waitFor(check: () => Promise<boolean>, ms = 5000): Promise<void> 
 }
 
 // Real git work plus a file watcher; give it room on a busy machine.
-describe('spotlight', { timeout: 20_000 }, () => {
+describe('spotlight', { timeout: BUDGET }, () => {
   it('mirrors a workspace into the repo root and restores the root exactly on stop', async () => {
     const root = await makeRepo({ 'app.txt': 'v1\n', 'keep.txt': 'root\n' })
     const mainBefore = await gitOut(root, ['rev-parse', 'main'])

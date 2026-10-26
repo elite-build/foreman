@@ -30,7 +30,9 @@ const limitThenOk = (): Script => {
   }
 }
 
-async function until(check: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
+// Every turn takes git checkpoints, so setup's turn takes 3–8 s on a loaded Windows runner (2–3 s on a desktop).
+// Wait up to the suite's 30 s test budget less a margin, so a turn that never ends still fails here, with this stack.
+async function until(check: () => boolean | Promise<boolean>, ms = 25_000): Promise<void> {
   const deadline = Date.now() + ms
   while (!(await check())) {
     if (Date.now() > deadline) throw new Error('timed out')
