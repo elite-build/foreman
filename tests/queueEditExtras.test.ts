@@ -90,36 +90,71 @@ describe('attachments while editing a queued message', () => {
 })
 
 describe('"Sent as it was before your edit"', () => {
-  it('dispatch wins: the message that ran is tagged; queuing the kept draft is a new message', async () => {
-    const { sessions, session, ws, store } = await setupSessions()
+  /** A session whose first turn is held, with a message queued behind it and every chat item it emits recorded. */
+  async function raced(text: string) {
+    const emitted: ChatItem[] = []
+    let onItem: (item: ChatItem) => void = () => {}
+    const { sessions, session, ws, store } = await setupSessions({ events: { item: (_id, item) => { emitted.push(item); onItem(item) } } })
     const agent = firstTurnHeld(ws)
     await sessions.deliver(session.id, 'first')
-    const queued = await sessions.deliver(session.id, 'open a draft PR', { mode: 'queue' })
+    const { turnId } = await sessions.deliver(session.id, text, { mode: 'queue' })
     const { id } = session.queue[0]
     const opened = session.queueRevision!
-    agent.release()
-    await vi.waitFor(() => expect(session.queue).toEqual([]), SLOW)
-    await vi.waitFor(async () => expect(await userItem(store, session.id, queued.turnId!)).toBeTruthy(), SLOW)
-    expect(sessions.editQueued(session.id, id, 'open a draft PR, skip search', opened)).toMatchObject({ ok: false, reason: 'started' })
-    await vi.waitFor(async () => expect((await userItem(store, session.id, queued.turnId!))?.editRaced).toBe(true), SLOW)
-    expect((await userItem(store, session.id, queued.turnId!))?.text).toBe('open a draft PR')
-    // The message is written again as its turn starts (its checkpoint, what Foreman added): the tag stays to the end.
-    await vi.waitFor(async () => expect((await store.readChat(session.id)).some((i) => i.kind === 'turn-end' && i.turnId === queued.turnId)).toBe(true), SLOW)
-    expect(await userItem(store, session.id, queued.turnId!)).toMatchObject({ editRaced: true, checkpoint: expect.any(String) })
+    const edit = (to: string) => sessions.editQueued(session.id, id, to, opened)
+    return {
+      edit,
+      release: agent.release,
+      saved: () => userItem(store, session.id, turnId!),
+      // Every write of the queued turn's message the renderer was sent, in order.
+      shown: () => emitted.filter((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === turnId),
+      /** Release the first turn and edit to `to` the moment dispatch first shows the queued message (it is still starting). */
+      editWhileStarting(to: string) {
+        const results: ReturnType<typeof edit>[] = []
+        // Once only: the edit's own tagging writes the message again, from inside this event.
+        let edited = false
+        onItem = (item) => {
+          if (item.kind !== 'user' || item.turnId !== turnId || edited) return
+          edited = true
+          results.push(edit(to))
+        }
+        agent.release()
+        return results
+      },
+      // The queued turn's request reached the agent: the turn writes its message (checkpoint, context) only before that.
+      started: () => vi.waitFor(() => expect(agent.requests).toHaveLength(2), SLOW)
+    }
+  }
+
+  it('dispatch wins: the message that ran is tagged; queuing the kept draft is a new message', async () => {
+    const chat = await raced('open a draft PR')
+    chat.release()
+    await chat.started()
+    expect(chat.edit('open a draft PR, skip search')).toMatchObject({ ok: false, reason: 'started' })
+    await vi.waitFor(async () => expect((await chat.saved())?.editRaced).toBe(true), SLOW)
+    expect(await chat.saved()).toMatchObject({ text: 'open a draft PR', editRaced: true })
+    expect(chat.shown().at(-1)).toMatchObject({ text: 'open a draft PR', editRaced: true })
+  }, 20_000)
+
+  it('an edit that lands while the message is still starting keeps its tag through the turn’s later writes', async () => {
+    const chat = await raced('open a draft PR')
+    const results = chat.editWhileStarting('open a draft PR, skip search')
+    await chat.started()
+    expect(results).toEqual([expect.objectContaining({ ok: false, reason: 'started' })])
+    // The turn wrote its message again after the edit (with its checkpoint); that write carries the tag too.
+    const saved = await chat.saved()
+    expect(saved).toMatchObject({ text: 'open a draft PR', editRaced: true, checkpoint: expect.any(String) })
+    expect(chat.shown().at(-1)).toMatchObject({ text: 'open a draft PR', editRaced: true, checkpoint: saved!.checkpoint })
   }, 20_000)
 
   it('an unchanged save after the race says nothing', async () => {
-    const { sessions, session, ws, store } = await setupSessions()
-    const agent = firstTurnHeld(ws)
-    await sessions.deliver(session.id, 'first')
-    const queued = await sessions.deliver(session.id, 'same', { mode: 'queue' })
-    const { id } = session.queue[0]
-    const opened = session.queueRevision!
-    agent.release()
-    await vi.waitFor(async () => expect(await userItem(store, session.id, queued.turnId!)).toBeTruthy(), SLOW)
-    sessions.editQueued(session.id, id, 'same', opened)
+    const chat = await raced('same')
+    const results = chat.editWhileStarting('same')
+    await chat.started()
+    expect(results).toEqual([expect.objectContaining({ ok: false, reason: 'started' })])
+    expect(chat.edit('same')).toMatchObject({ ok: false, reason: 'started' })
     await new Promise((r) => setTimeout(r, 50))
-    expect((await userItem(store, session.id, queued.turnId!))?.editRaced).toBeUndefined()
+    expect((await chat.saved())?.editRaced).toBeUndefined()
+    expect(chat.shown().some((i) => i.editRaced)).toBe(false)
   }, 20_000)
 
   it('a deleted message is "removed", not tagged', async () => {
