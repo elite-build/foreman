@@ -6,6 +6,8 @@ The owner made the repository public on 2026-10-26. Publication did not complete
 
 No CI workflow is configured: the GitHub Actions workflow and Dependabot configuration were removed on 2026-10-26 to start again from scratch. Nothing runs automatically on pull requests or pushes, so run the checks locally before asking for review.
 
+The one workflow, **Installers** (`.github/workflows/installers.yml`), runs only when someone with write access starts it from the Actions tab or with `gh workflow run installers.yml --ref <branch>`. It checks nothing; it packages the chosen ref with the existing `dist:mac` and `dist:win` scripts: an Apple Silicon DMG on `macos-15` and an x64 NSIS installer on `windows-2022`. It uses a read-only token, SHA-pinned actions (checkout, setup-node, upload-artifact), a checkout without persisted credentials and a lifecycle-disabled install. It then rebuilds node-pty and runs `scripts/postinstall.mjs`, which restores the execute bit node-pty's macOS prebuilds omit from `spawn-helper` (without it every terminal in the packaged app fails with `posix_spawnp failed`). Each installer is uploaded as a run artifact that expires after 7 days. It is not a release: there is no signing identity, notarization or publishing step, so macOS Gatekeeper and Windows SmartScreen warn about the installers. On this public repository, anyone signed in to GitHub can download a run's artifacts until they expire. Installer redistribution has not been cleared (see [dependency licenses](dependency-licenses.md#installer-and-bundle-distribution)), so treat these builds as internal test builds.
+
 | Local check | What it validates |
 | --- | --- |
 | `npm run typecheck` | Strict TypeScript checking |
@@ -34,12 +36,12 @@ Read through the GitHub REST API by an organization admin, first while `elite-bu
 | --- | --- | --- |
 | Default workflow token | Read only | Keep |
 | Actions can create or approve PRs | Not allowed | Keep |
-| Allowed actions | All actions and reusable workflows; SHA pinning not required by the setting | Owner decision: restrict allowed actions and require SHA pinning when a new workflow is added |
+| Allowed actions | All actions and reusable workflows; SHA pinning not required by the setting | Owner decision: restrict allowed actions to the three the Installers workflow pins (checkout, setup-node, upload-artifact) and require SHA pinning |
 | Visibility, forking | Public; forking allowed (always possible for public repositories) | Keep |
 | Approval for fork PR workflows from outside contributors | **Require approval for all external contributors**, set and read back after the visibility change | Keep |
 | Self-hosted runners | None registered to the repository; organization runners and runner groups not readable | Owner confirms none can reach this repository |
 | Secrets, variables, environments | None in the repository (Actions or Dependabot); organization secrets not readable | Owner confirms organization secrets are not shared with this repository |
-| Log and artifact retention | 90 days (maximum 90) | Owner approves |
+| Log and artifact retention | 90 days (maximum 90) | Owner approves; the Installers workflow sets 7 days on its installers |
 | Actions spending limit | Not checked. While private, every Actions job was refused to start because of failed payments or the spending limit | Owner decision. Standard GitHub-hosted runners are free for public repositories |
 | Private vulnerability reporting | Enabled after the visibility change; the API reports it enabled | Confirm **Report a vulnerability** appears to a non-maintainer |
 | Dependabot | Version updates were running; their configuration has since been removed. Alerts and automated security fixes disabled | Owner decision |
