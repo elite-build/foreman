@@ -22,9 +22,15 @@ function renderComposer(overrides: Record<string, unknown> = {}) {
 
 const box = () => screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
 
-// The composer puts the caret, and the queue its focus, back in the next animation frame. A person's next key comes
-// after that frame; user-event's can come before it on a fast machine, so the tests wait for it as a person would.
-const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+/** Animation frames held by the test until `run()`, so it decides what happens before the next frame instead of racing it. */
+function holdFrames() {
+  const waiting: FrameRequestCallback[] = []
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => waiting.push(callback))
+  return {
+    pending: () => waiting.length,
+    run: () => act(() => waiting.splice(0).forEach((callback) => callback(performance.now())))
+  }
+}
 
 beforeEach(() => {
   resetFake()
@@ -32,7 +38,10 @@ beforeEach(() => {
   fakeApi.sendMessage = vi.fn(async () => 'sent')
   fakeApi.slashCommands = vi.fn(async () => [])
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe('sending', () => {
   it('Enter sends the message and clears the box', async () => {
@@ -116,7 +125,6 @@ describe('suggestions', () => {
     await user.keyboard('{ArrowDown}{Tab}')
     expect(box().value).toBe('see @src/alpha.ts ')
     expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
-    await nextFrame()
     // Enter accepted a suggestion rather than sending.
     await user.type(box(), '@read')
     await screen.findByRole('listbox', { name: 'Suggestions' })
@@ -131,11 +139,29 @@ describe('suggestions', () => {
     await user.type(box(), '@src')
     await user.click(await screen.findByRole('option', { name: 'src/alpha.ts' }))
     expect(box().value).toBe('@src/alpha.ts ')
-    await nextFrame()
     await user.type(box(), '@r')
     await screen.findByRole('listbox', { name: 'Suggestions' })
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
+  })
+
+  it.each(['{Tab}', '{Enter}'])('after %s accepts a suggestion, keys typed before the next frame go after it', async (accept) => {
+    const frames = holdFrames()
+    const user = userEvent.setup()
+    renderComposer()
+    await user.type(box(), '@src')
+    await screen.findByRole('listbox', { name: 'Suggestions' })
+    await user.keyboard(accept)
+    expect(box().value).toBe('@src/beta.ts ')
+    expect(box().selectionStart).toBe('@src/beta.ts '.length)
+    // A frame lands between two keys: the caret stays at the end of what was typed.
+    await user.keyboard('@')
+    frames.run()
+    await user.keyboard('r')
+    expect(box().value).toBe('@src/beta.ts @r')
+    expect(box().selectionStart).toBe(box().value.length)
+    await screen.findByRole('listbox', { name: 'Suggestions' })
+    expect(fakeApi.sendMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -206,6 +232,7 @@ describe('the queue', () => {
 
   it('Alt+↑ and Alt+↓ with focus anywhere in a row move that row', async () => {
     fakeApi.moveQueued = vi.fn(async () => ({ ok: true }))
+    const frames = holdFrames()
     const user = userEvent.setup()
     renderComposer({ queue })
     const items = screen.getAllByRole('listitem')
@@ -213,14 +240,34 @@ describe('the queue', () => {
     edit.focus()
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
     expect(fakeApi.moveQueued).toHaveBeenLastCalledWith('s1', 'q2', 'up', 3)
-    // Focus is put back on the button it was on, once the move is done.
-    await nextFrame()
-    await waitFor(() => expect(document.activeElement).toBe(edit))
+    // Focus is put back on the button it was on, once the move is done, in case the reordered row lost it.
+    await waitFor(() => expect(frames.pending()).toBe(1))
+    edit.blur()
+    frames.run()
+    expect(document.activeElement).toBe(edit)
     // The first row can't go up: no call.
     fakeApi.moveQueued.mockClear()
     within(items[0]).getByRole('button', { name: 'Edit' }).focus()
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
     expect(fakeApi.moveQueued).not.toHaveBeenCalled()
+    await user.keyboard('{Alt>}{ArrowDown}{/Alt}')
+    expect(fakeApi.moveQueued).toHaveBeenLastCalledWith('s1', 'q1', 'down', 3)
+  })
+
+  it('a finished move leaves focus where it went in the meantime', async () => {
+    fakeApi.moveQueued = vi.fn(async () => ({ ok: true }))
+    const frames = holdFrames()
+    const user = userEvent.setup()
+    renderComposer({ queue })
+    const items = screen.getAllByRole('listitem')
+    within(items[1]).getByRole('button', { name: 'Edit' }).focus()
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
+    await waitFor(() => expect(frames.pending()).toBe(1))
+    // Focus moves to the first row before the move's frame: it stays there, and the next keys move that row.
+    const first = within(items[0]).getByRole('button', { name: 'Edit' })
+    first.focus()
+    frames.run()
+    expect(document.activeElement).toBe(first)
     await user.keyboard('{Alt>}{ArrowDown}{/Alt}')
     expect(fakeApi.moveQueued).toHaveBeenLastCalledWith('s1', 'q1', 'down', 3)
   })
