@@ -63,8 +63,12 @@ and 2 still need owner decisions.
 ### Generated installer notices
 
 electron-builder runs `scripts/third-party-notices.mjs` as its `afterPack` hook
-on every package, including `--dir` builds, before signing. It reads the
-packaged `app.asar` rather than the lockfile:
+on every package, including `--dir` builds and the manual Installers workflow,
+before signing. On macOS electron-builder deletes Electron's `LICENSE` and
+`LICENSES.chromium.html` while it builds the `.app`, so earlier macOS packages
+shipped no Electron or Chromium notices; the same module's `afterExtract` hook
+now copies both into `Foreman.app/Contents/Resources` first. The `afterPack`
+hook reads the packaged `app.asar` rather than the lockfile:
 
 - every package root in `app.asar`. electron-builder re-hoists `node_modules`
   (the packaged `node_modules/agent-base` is the lockfile's
@@ -114,7 +118,7 @@ the macOS rows below come from listing the published darwin-arm64 npm tarballs.
 | Excluded | Codex's voice runtime: LGPL-2.1 GStreamer/GLib/libintl, libffi, PCRE2, Opus, zlib and, on Windows, Microsoft's `vcruntime140.dll`, whose notice says Microsoft's runtime terms alone do not grant redistribution. Foreman does not use Codex voice. `build.files` leaves out `codex-resources/voice/**`; the hook fails if it reappears. A copy of `codex.exe` without it printed its version and ran `codex exec` through startup to the expected 401 without credentials (Windows only; no authenticated turn). |
 | Downloaded models | The speech model is not in the installer. It is downloaded on the user's consent from Hugging Face `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26`, pinned to `672fbf1b30579d6585301139bb363f42a0ad4a24`, which is tagged Apache-2.0. |
 | Signing | With no certificate configured, electron-builder's signtool pass left the vendor executables byte-identical; `claude.exe` keeps Anthropic's valid signature. A real Windows certificate or macOS signing was not tested and may re-sign nested binaries. |
-| Electron | `LICENSE.electron.txt` and `LICENSES.chromium.html` ship beside the app. Electron's own `ffmpeg.dll` (LGPL build) and Microsoft DirectX compiler DLLs come with Electron and were not reviewed separately. |
+| Electron | `LICENSE.electron.txt` and `LICENSES.chromium.html` ship beside the app on Windows and, with this change, in the app bundle's `Resources` on macOS. Electron's own `ffmpeg.dll` (LGPL build) and Microsoft DirectX compiler DLLs come with Electron and were not reviewed separately. |
 
 ### Owner decisions and remaining work
 

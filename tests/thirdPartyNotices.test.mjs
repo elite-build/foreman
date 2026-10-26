@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { test } from 'node:test'
 import { packagePathOf } from '../scripts/third-party-packages.mjs'
-import { buildNotices, globRegExp, isNativeCode, packageRootOf } from '../scripts/third-party-notices.mjs'
+import { afterExtract, buildNotices, globRegExp, isNativeCode, packageRootOf } from '../scripts/third-party-notices.mjs'
 
 const MZ = Buffer.from([0x4d, 0x5a, 0x90, 0x00])
 const SCRIPT = Buffer.from('#!/u')
@@ -95,6 +97,22 @@ test('bundle lists that disagree with the build tree require a rebuild', () => {
   assert.match(errors.join(), /rebuild before packaging/)
 })
 
+test('a macOS app keeps Electron\'s license files, which electron-builder deletes beside the bundle', async () => {
+  const out = mkdtempSync(path.join(os.tmpdir(), 'notices-extract-'))
+  try {
+    const resources = path.join(out, 'Electron.app', 'Contents', 'Resources')
+    mkdirSync(resources, { recursive: true })
+    await afterExtract({ appOutDir: out, electronPlatformName: 'win32' })
+    assert.ok(!existsSync(path.join(resources, 'LICENSE.electron.txt')))
+    await assert.rejects(afterExtract({ appOutDir: out, electronPlatformName: 'darwin' }), /LICENSE: not in the extracted Electron distribution/)
+    writeFileSync(path.join(out, 'LICENSE'), 'Electron MIT\n')
+    writeFileSync(path.join(out, 'LICENSES.chromium.html'), '<p>Chromium credits</p>\n')
+    await afterExtract({ appOutDir: out, electronPlatformName: 'darwin' })
+    assert.equal(readFileSync(path.join(resources, 'LICENSE.electron.txt'), 'utf8'), 'Electron MIT\n')
+    assert.equal(readFileSync(path.join(resources, 'LICENSES.chromium.html'), 'utf8'), '<p>Chromium credits</p>\n')
+  } finally { rmSync(out, { recursive: true, force: true }) }
+})
+
 test('path helpers', () => {
   assert.equal(packageRootOf('node_modules/a/node_modules/@s/b/package.json'), 'node_modules/a/node_modules/@s/b')
   assert.equal(packageRootOf('node_modules/a/dist/package.json'), null)
@@ -120,5 +138,6 @@ test('every configured notice exists and installer packaging runs the notices ho
   }
   const build = JSON.parse(readFileSync('package.json', 'utf8')).build
   assert.equal(build.afterPack, './scripts/third-party-notices.mjs')
+  assert.equal(build.afterExtract, './scripts/third-party-notices.mjs')
   for (const excluded of config.excluded.flatMap((x) => x.files)) assert.ok(build.files.includes(`!**/${excluded}`), excluded)
 })

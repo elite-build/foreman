@@ -2,8 +2,9 @@
 // in app.asar, every package the bundles inlined (third-party-packages.mjs), and every native executable or
 // library, each matched to license text. Packaging fails when one has none. This writes notices; it does not
 // clear redistribution: `npm run check:licenses:distribution` and docs/dependency-licenses.md cover that.
-// Runs as electron-builder's afterPack hook (before signing), or `node scripts/third-party-notices.mjs <resources dir>`.
-import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from 'node:fs'
+// Runs as electron-builder's afterExtract and afterPack hooks (before signing), or
+// `node scripts/third-party-notices.mjs <resources dir>` for an already packaged app.
+import { closeSync, copyFileSync, existsSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -230,7 +231,25 @@ export function writeNotices({ resourcesDir, appOutDir, projectDir, platform, ar
 
 const ARCH = ['ia32', 'x64', 'armv7l', 'arm64', 'universal']
 
-export default async function afterPack(context) {
+/**
+ * electron-builder's afterExtract hook. Electron's zip keeps its license files beside the app; on Windows
+ * electron-builder keeps them in the application folder, but on macOS it deletes them while it builds the .app.
+ * Copy them into the bundle's Resources first, where they ship and are sealed by signing.
+ */
+export async function afterExtract(context) {
+  if (!['darwin', 'mas'].includes(context.electronPlatformName)) return
+  const { appOutDir } = context
+  const apps = readdirSync(appOutDir).filter((n) => n.endsWith('.app'))
+  if (apps.length !== 1) throw new Error(`Expected one extracted Electron app in ${appOutDir}, found ${apps.length}`)
+  const resources = path.join(appOutDir, apps[0], 'Contents', 'Resources')
+  for (const [from, to] of [['LICENSE', ELECTRON_NOTICES[0]], ['LICENSES.chromium.html', ELECTRON_NOTICES[1]]]) {
+    const source = path.join(appOutDir, from)
+    if (!existsSync(source)) throw new Error(`${from}: not in the extracted Electron distribution at ${appOutDir}`)
+    copyFileSync(source, path.join(resources, to))
+  }
+}
+
+export async function afterPack(context) {
   const { packager, appOutDir } = context
   writeNotices({
     resourcesDir: packager.getResourcesDir(appOutDir),

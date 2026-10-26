@@ -115,6 +115,7 @@
       "package.json",
       "!**/node_modules/@openai/codex-*/vendor/*/codex-resources/voice/**"
     ],
+    "afterExtract": "./scripts/third-party-notices.mjs",
     "afterPack": "./scripts/third-party-notices.mjs",
     "asarUnpack": [
       "node_modules/node-pty/**",
