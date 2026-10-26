@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:repository": "node --test tests/repositoryPolicy.test.mjs && node scripts/check-repository.mjs",
     "check:security": "node scripts/check-security.mjs",
-    "check:licenses": "node --test tests/dependencyLicenses.test.mjs && node scripts/check-licenses.mjs",
+    "check:licenses": "node --test tests/dependencyLicenses.test.mjs tests/thirdPartyNotices.test.mjs && node scripts/check-licenses.mjs",
     "check:licenses:distribution": "node scripts/check-licenses.mjs --distribution",
     "check:mcp": "vitest run tests/cliSchema.test.ts tests/mcpSettingsCoverage.test.ts tests/foremanCli.test.ts tests/foremanDelegation.test.ts tests/foremanMcp.test.ts",
     "screens": "node scripts/screenshots.mjs",
@@ -108,8 +108,10 @@
       "docs/licenses/**/*",
       "docs/dependency-licenses.md",
       "docs/workspace-names.md",
-      "package.json"
+      "package.json",
+      "!**/node_modules/@openai/codex-*/vendor/*/codex-resources/voice/**"
     ],
+    "afterPack": "./scripts/third-party-notices.mjs",
     "asarUnpack": [
       "node_modules/node-pty/**",
       "node_modules/@anthropic-ai/claude-agent-sdk-*/**",
