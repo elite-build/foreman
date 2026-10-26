@@ -82,6 +82,11 @@
     "vitest": "^5.0.5",
     "yaml": "2.9.1"
   },
+  "overrides": {
+    "@vercel/sandbox": {
+      "@vercel/oidc": "3.2.0"
+    }
+  },
   "type": "module",
   "build": {
     "appId": "dev.foreman.app",
