@@ -47,6 +47,11 @@
     "web-push": "^3.6.7",
     "zod": "^4.6.7"
   },
+  "overrides": {
+    "@vercel/cli-config": {
+      "zod": "$zod"
+    }
+  },
   "devDependencies": {
     "@babel/parser": "7.29.9",
     "@fontsource-variable/geist": "^5.3.0",
