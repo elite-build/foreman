@@ -16,7 +16,7 @@ const emptyIgnore = path.join(work, 'empty-ignore')
 writeFileSync(emptyIgnore, '')
 
 async function tool(name) {
-  if (process.arch !== 'x64') throw new Error('This scanner manifest supports x64 Linux and Windows; use the hosted Security job on other platforms')
+  if (process.arch !== 'x64') throw new Error('This scanner manifest supports x64 Linux and Windows')
   const entry = catalog[name][process.platform]
   if (!entry) throw new Error(`Unsupported scanner platform: ${process.platform}`)
   const response = await fetch(entry.url, { signal: AbortSignal.timeout(120_000) })
@@ -34,12 +34,6 @@ async function tool(name) {
 }
 
 const leaks = await tool('gitleaks')
-const lint = await tool('actionlint')
-const linted = spawnSync(lint, ['-shellcheck=', '.github/workflows/ci.yml'], { encoding: 'utf8', timeout: 60_000 })
-if (linted.status !== 0) {
-  console.error(linted.stdout || linted.stderr || 'Workflow validation failed')
-  process.exit(1)
-}
 
 function scan(label, mode, source, extra = []) {
   const report = path.join(work, `${label}.json`)
@@ -79,4 +73,4 @@ for (const [label, mode, source, extra] of [['source', 'dir', snapshot, []], ['m
   if (result.status || result.findings.length) failed = true
 }
 if (failed) process.exitCode = 1
-else console.log('Secret detection self-test, source/history scans and workflow lint passed')
+else console.log('Secret detection self-test and source/history scans passed')

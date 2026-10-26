@@ -6,4 +6,4 @@ Include the affected version or commit, operating system, a minimal reproduction
 
 Foreman executes repository scripts and coding tools with the permissions of the signed-in operating-system user. Review repositories, setup commands, integrations and tool approvals before execution. Agent plan mode is not a general operating-system sandbox. Remote sandboxes and model providers use your accounts and their security boundaries.
 
-The current development branch has no established supported release series or binary-signing policy. CI passing does not constitute a complete application security review. Release support and reporting availability must be verified before distribution.
+The current development branch has no established supported release series or binary-signing policy. Passing the repository's checks does not constitute a complete application security review. Release support and reporting availability must be verified before distribution.

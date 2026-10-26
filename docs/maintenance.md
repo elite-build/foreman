@@ -4,30 +4,27 @@
 
 The owner made the repository public on 2026-10-26. Publication did not complete the outstanding provenance, dependency licensing, security and platform checks. The project's original code uses Apache License 2.0; third-party material retains its separate terms. See [LICENSE](../LICENSE), [NOTICE](../NOTICE) and the [workspace names attribution](workspace-names.md). Selecting a project license does not complete the dependency/source-rights review.
 
-The single CI workflow runs on every PR, including drafts, base-branch edits and label changes, and `main`/release branch pushes. Its `CI result` aggregate reports success only when every dependency job succeeds; missing, failed, skipped or cancelled jobs produce a failed result. This aggregate reports CI health, not merge authorization. The ruleset does not require it yet: the first run after publication failed one test on both macOS jobs (`tests/repoMcpAgents.test.ts`, the read-only Codex chat case), so requiring it would block every merge. Add `CI result` from GitHub Actions as a required status check once it passes on `main`.
+No CI workflow is configured: the GitHub Actions workflow and Dependabot configuration were removed on 2026-10-26 to start again from scratch. Nothing runs automatically on pull requests or pushes, so run the checks locally before asking for review.
 
-| CI check | What it validates |
+| Local check | What it validates |
 | --- | --- |
-| Types | Strict TypeScript checking |
-| Validate / Windows / Node 22 | Full ordinary test suite and build |
-| Validate / Windows / Node 24 | Full ordinary test suite and build |
-| Validate / macOS / Node 22 | Full ordinary test suite and build |
-| Validate / macOS / Node 24 | Full ordinary test suite and build |
-| Design system | UI, accessibility, contrast, i18n and new-component rules |
-| MCP coverage | MCP and settings checks |
-| Security | Secret scans, workflow validation and dependency audit rejecting high/critical advisories |
-| Publication policy | Repository/CI policy regression tests, source policy and dependency license review |
-| CI result | Every CI job completed successfully |
+| `npm run typecheck` | Strict TypeScript checking |
+| `npm test` | Full ordinary test suite |
+| `npm run build` | Production build |
+| `npm run check:ui` | UI, accessibility, contrast, i18n and new-component rules |
+| `npm run check:mcp` | MCP and settings checks |
+| `npm run check:security` | Secret scans of source and history (x64 Linux and Windows) |
+| `npm audit --audit-level=high` | Dependency audit rejecting high/critical advisories |
+| `npm run check:repository` | Repository policy regression tests and source policy |
+| `npm run check:licenses` | Dependency license review |
 
-These jobs use disposable hosted runners, read-only tokens, immutable action revisions, no persisted checkout credentials and no cache or artifact handoff. Installs disable lifecycle scripts; only the platform jobs explicitly rebuild the PTY dependency and then run the repository's own `scripts/postinstall.mjs`, which restores the execute bit node-pty's macOS prebuilds omit from `spawn-helper` (without it every terminal fails with `posix_spawnp failed`). Live cloud tests remain opt-in and must never receive credentials in fork jobs.
-
-Gitleaks scans the checked-out source and reachable Git history with redacted output. Its exceptions match only specific synthetic fixture secrets, never an entire test directory. Actionlint validates workflow syntax, the repository guard checks workflow policy, npm audit rejects high/critical dependency advisories, and license checks reject unreviewed licenses or changed package evidence. The source dependency inventory uses exact-version, integrity-bound reviews and retained notices; it does not clear installer redistribution. Run `npm run check:licenses:distribution` for the separate distribution findings, documented in [dependency licenses](dependency-licenses.md). These tools do not certify IPC, local CLI permissions, authentication, webviews, mobile access, sandbox execution or source provenance.
+Gitleaks scans the checked-out source and reachable Git history with redacted output. Its exceptions match only specific synthetic fixture secrets, never an entire test directory. npm audit rejects high/critical dependency advisories, and license checks reject unreviewed licenses or changed package evidence. The source dependency inventory uses exact-version, integrity-bound reviews and retained notices; it does not clear installer redistribution. Run `npm run check:licenses:distribution` for the separate distribution findings, documented in [dependency licenses](dependency-licenses.md). These tools do not certify IPC, local CLI permissions, authentication, webviews, mobile access, sandbox execution or source provenance.
 
 One dependency override answers an audit finding: `package.json` pins `@vercel/oidc` to 3.2.0 for `@vercel/sandbox` only. Every `@vercel/oidc` from 3.6.0 depends on `@vercel/cli-config`, and every `@vercel/cli-config` release through 0.3.3 pins `zod` 4.1.11 and bundles it into its entry point, which is affected by [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5) (fixed in 4.6.6). Because the copy is bundled, overriding `zod` would only hide it from `npm audit`. `@vercel/sandbox` 3.6.1, the downgrade `npm audit fix --force` suggests, would avoid the chain but predates the command stdin API that `vercelProvider.ts` uses (3.7.0). `@vercel/sandbox` 3.9.0 imports only `getVercelOidcToken({ team, project, expirationBufferMs })` from `@vercel/oidc`, the same calls 3.6.1 made against 3.2.0. Foreman passes an access token with team and project explicitly, so the SDK never asks `@vercel/oidc` for credentials. The tradeoff: if an OIDC token (a JWT) is passed and it expires, 3.2.0 refreshes only from the Vercel CLI's file-stored login, not a keychain-stored one, and the SDK then keeps the expired token. `tests/vercelSdk.test.ts` checks the SDK still finds every OIDC function it imports and still sends Foreman's token. Remove the override once a `@vercel/sandbox` release resolves to a `@vercel/cli-config` built with zod 4.6.6 or later ([vercel/vercel#17678](https://github.com/vercel/vercel/issues/17678)), and check it again whenever `@vercel/sandbox` changes.
 
-Do not mask a failing check to obtain a green result. Investigate installation, network and tool errors as failures. Human review remains necessary: a PR can change the workflow, guard or tests that produce its own check results. The repository guard checks CI and source policy; it does not require a code owner or branch-protection rules.
+Do not mask a failing check to obtain a green result. Investigate installation, network and tool errors as failures. Human review remains necessary: a PR can change the guard or tests that produce its own check results. The repository guard checks source policy; it does not require a code owner or branch-protection rules.
 
-Still to verify now that the repository is public: **Report a vulnerability** appears to a non-maintainer; allowed actions match the pins; no self-hosted runner, release credential or privileged workflow runs untrusted code; log/artifact retention and spending limits are approved. Security add-ons and settings are not enabled by committing these files.
+Still to verify now that the repository is public: **Report a vulnerability** appears to a non-maintainer; no self-hosted runner, release credential or privileged workflow can run untrusted code; log/artifact retention and spending limits are approved before a new workflow is added. Security add-ons and settings are not enabled by committing these files.
 
 ### GitHub settings observed on 2026-10-26
 
@@ -35,17 +32,17 @@ Read through the GitHub REST API by an organization admin, first while `elite-bu
 
 | Setting | Observed | Follow-up |
 | --- | --- | --- |
-| Default workflow token | Read only; `ci.yml` also sets `contents: read` | Keep |
+| Default workflow token | Read only | Keep |
 | Actions can create or approve PRs | Not allowed | Keep |
-| Allowed actions | All actions and reusable workflows; SHA pinning not required by the setting | Owner decision: restrict to the two pinned actions and require SHA pinning, then confirm CI and Dependabot updates still run. Until then only the source guard enforces the pins |
+| Allowed actions | All actions and reusable workflows; SHA pinning not required by the setting | Owner decision: restrict allowed actions and require SHA pinning when a new workflow is added |
 | Visibility, forking | Public; forking allowed (always possible for public repositories) | Keep |
 | Approval for fork PR workflows from outside contributors | **Require approval for all external contributors**, set and read back after the visibility change | Keep |
-| Self-hosted runners | None registered to the repository; organization runners and runner groups not readable | Owner confirms none can reach this repository. CI uses GitHub-hosted labels only and the guard rejects `self-hosted` |
+| Self-hosted runners | None registered to the repository; organization runners and runner groups not readable | Owner confirms none can reach this repository |
 | Secrets, variables, environments | None in the repository (Actions or Dependabot); organization secrets not readable | Owner confirms organization secrets are not shared with this repository |
-| Log and artifact retention | 90 days (maximum 90) | Owner approves; CI uploads no artifacts |
-| Actions spending limit | Not checked. While private, every CI job was refused to start because of failed payments or the spending limit | Owner decision. Standard GitHub-hosted runners are free for public repositories |
+| Log and artifact retention | 90 days (maximum 90) | Owner approves |
+| Actions spending limit | Not checked. While private, every Actions job was refused to start because of failed payments or the spending limit | Owner decision. Standard GitHub-hosted runners are free for public repositories |
 | Private vulnerability reporting | Enabled after the visibility change; the API reports it enabled | Confirm **Report a vulnerability** appears to a non-maintainer |
-| Dependabot | Version updates configured and running; alerts and automated security fixes disabled | Owner decision |
+| Dependabot | Version updates were running; their configuration has since been removed. Alerts and automated security fixes disabled | Owner decision |
 | Secret scanning, push protection | Disabled | Owner decision; free for public repositories |
 | Rulesets | **Protect main** active on the default branch, as described at the top of this page; no branch protection rules | Keep. Test changes against a PR before relying on them |
 | Access | One organization member (admin); no outside collaborators, teams, invitations, deploy keys or webhooks; organization two-factor requirement off | Owner decision on requiring two-factor authentication |
