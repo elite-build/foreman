@@ -4,7 +4,7 @@
 //   stdout: JSON lines { type: 'ready' | 'partial' | 'final' | 'error', ... }
 // A frame that starts with four 0xff bytes crashes the process (exit code 1, a line on stderr). FAKE_STT_MODE=hang
 // ignores `stop`. FAKE_STT_LOG names a file that gets what the helper saw, written when it stops.
-import { writeFileSync } from 'node:fs'
+import { renameSync, writeFileSync } from 'node:fs'
 
 const WORDS = ['HELLO', 'I', 'AM', 'FOREMAN']
 let start = null
@@ -14,8 +14,12 @@ let pending = Buffer.alloc(0)
 
 const say = (reply, then) => process.stdout.write(`${JSON.stringify(reply)}\n`, then)
 const phrase = () => WORDS.slice(0, Math.min(frames, WORDS.length)).join(' ')
+// Written beside it and renamed into place: a test waits for the file to exist, then reads it whole.
 const log = () => {
-  if (process.env.FAKE_STT_LOG) writeFileSync(process.env.FAKE_STT_LOG, JSON.stringify({ start, bytes, frames }))
+  const file = process.env.FAKE_STT_LOG
+  if (!file) return
+  writeFileSync(`${file}.tmp`, JSON.stringify({ start, bytes, frames }))
+  renameSync(`${file}.tmp`, file)
 }
 
 function control(message) {

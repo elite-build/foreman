@@ -302,7 +302,8 @@ describe('new workspace options', () => {
     await expect(service.createWorkspace(repo.id, { branch: { kind: 'existing', name: 'hotfix' } })).rejects.toThrow(/already checked out/)
     const branches = await service.listBranches(repo.id)
     expect(branches[0]).toMatchObject({ name: 'main', isDefault: true })
-    expect(realpathSync(branches.find((b) => b.name === 'hotfix')!.checkedOutAt!)).toBe(realpathSync(wsPath(ws)))
+    // native: git reports a long name where the temporary folder may have a Windows short (8.3) one.
+    expect(realpathSync.native(branches.find((b) => b.name === 'hotfix')!.checkedOutAt!)).toBe(realpathSync.native(wsPath(ws)))
   })
 
   it('adopts an existing worktree and leaves it on disk when archived', async () => {

@@ -205,6 +205,8 @@ export class SessionService {
   private claimed = new Map<string, string | undefined>()
   // G4 #12: turns whose queued message was edited after dispatch took it; their chat message says it went as it was.
   private racedEdits = new Set<string>()
+  // The chat message of each turn being run, by turn id: it is written again as its checkpoint and context arrive.
+  private runningMessages = new Map<string, Extract<ChatItem, { kind: 'user' }>>()
   // #1: why new turns can't start right now ("Quit when turns finish"), or null.
   private frozen: string | null = null
   // Tabs whose queued turn was held back by the freeze (and only those start when it lifts).
@@ -805,6 +807,7 @@ export class SessionService {
           ? { sessionId: session.agentSessionId, messageUuid: session.lastAssistantUuid }
           : undefined
     }
+    this.runningMessages.set(turnId, message)
     this.emit(sessionId, message)
     session.status = 'running'
     session.turnId = turnId
@@ -821,6 +824,8 @@ export class SessionService {
       this.emit(sessionId, { kind: 'notice', id: `${turnId}:error`, turnId, level: 'error', text: error })
       await this.endTurn(session, ws, turnId, 'error', error)
       void this.drainQueue(sessionId)
+    } finally {
+      this.runningMessages.delete(turnId)
     }
   }
 
@@ -1356,7 +1361,11 @@ export class SessionService {
       return
     }
     if (item.text === edited || item.editRaced) return
-    this.emit(sessionId, { ...item, editRaced: true })
+    // A turn still being run writes its message again (its checkpoint, what Foreman added): tag that copy, so the
+    // tag stays and those writes aren't lost to this one.
+    const running = this.runningMessages.get(turnId)
+    if (running) running.editRaced = true
+    this.emit(sessionId, running ?? { ...item, editRaced: true })
   }
 
   /** Why a queued message is no longer there to edit or move. */

@@ -2,7 +2,7 @@
 // separate ACP programs) and ACP session modes (an agent's declared plan mode drives the Plan chip). Every agent here
 // is a fake: no real Droid, pi-acp or agy_acp_server ran, so these prove Foreman's side only.
 import * as acp from '@agentclientprotocol/sdk'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -229,7 +229,9 @@ describe('G1 · separate ACP programs (Pi, Antigravity)', () => {
     await writeFile(server, '')
     expect(antigravityEnv(server, {})).toBeUndefined()
     await writeFile(helper, '')
-    expect(antigravityEnv(server, {})).toEqual({ ANTIGRAVITY_HARNESS_PATH: await realpath(helper) })
+    // The same file, however the path spells it (a Windows temporary folder may have a short 8.3 name).
+    expect(Object.keys(antigravityEnv(server, {}) ?? {})).toEqual(['ANTIGRAVITY_HARNESS_PATH'])
+    expect(realpathSync.native(antigravityEnv(server, {})!.ANTIGRAVITY_HARNESS_PATH)).toBe(await realpath(helper))
     expect(antigravityEnv(server, { ANTIGRAVITY_HARNESS_PATH: '/mine' })).toBeUndefined()
     expect(JSON.stringify(antigravityEnv(server, {}))).not.toContain('WORKSPACE_TRUST')
   })

@@ -2,7 +2,7 @@
 // The composer's riskiest surfaces: sending with Enter next to IME composition, the @ and / suggestions, and the queue
 // (a labelled list of rows with an inline editor and reordering).
 import './domShims'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from '../src/renderer/src/components/composer/Composer'
@@ -21,6 +21,10 @@ function renderComposer(overrides: Record<string, unknown> = {}) {
 }
 
 const box = () => screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
+
+// The composer puts the caret, and the queue its focus, back in the next animation frame. A person's next key comes
+// after that frame; user-event's can come before it on a fast machine, so the tests wait for it as a person would.
+const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
 
 beforeEach(() => {
   resetFake()
@@ -112,6 +116,7 @@ describe('suggestions', () => {
     await user.keyboard('{ArrowDown}{Tab}')
     expect(box().value).toBe('see @src/alpha.ts ')
     expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
+    await nextFrame()
     // Enter accepted a suggestion rather than sending.
     await user.type(box(), '@read')
     await screen.findByRole('listbox', { name: 'Suggestions' })
@@ -126,6 +131,7 @@ describe('suggestions', () => {
     await user.type(box(), '@src')
     await user.click(await screen.findByRole('option', { name: 'src/alpha.ts' }))
     expect(box().value).toBe('@src/alpha.ts ')
+    await nextFrame()
     await user.type(box(), '@r')
     await screen.findByRole('listbox', { name: 'Suggestions' })
     await user.keyboard('{Escape}')
@@ -208,6 +214,7 @@ describe('the queue', () => {
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
     expect(fakeApi.moveQueued).toHaveBeenLastCalledWith('s1', 'q2', 'up', 3)
     // Focus is put back on the button it was on, once the move is done.
+    await nextFrame()
     await waitFor(() => expect(document.activeElement).toBe(edit))
     // The first row can't go up: no call.
     fakeApi.moveQueued.mockClear()

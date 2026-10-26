@@ -103,6 +103,9 @@ describe('"Sent as it was before your edit"', () => {
     expect(sessions.editQueued(session.id, id, 'open a draft PR, skip search', opened)).toMatchObject({ ok: false, reason: 'started' })
     await vi.waitFor(async () => expect((await userItem(store, session.id, queued.turnId!))?.editRaced).toBe(true), SLOW)
     expect((await userItem(store, session.id, queued.turnId!))?.text).toBe('open a draft PR')
+    // The message is written again as its turn starts (its checkpoint, what Foreman added): the tag stays to the end.
+    await vi.waitFor(async () => expect((await store.readChat(session.id)).some((i) => i.kind === 'turn-end' && i.turnId === queued.turnId)).toBe(true), SLOW)
+    expect(await userItem(store, session.id, queued.turnId!)).toMatchObject({ editRaced: true, checkpoint: expect.any(String) })
   }, 20_000)
 
   it('an unchanged save after the race says nothing', async () => {

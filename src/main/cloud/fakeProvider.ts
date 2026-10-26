@@ -7,7 +7,7 @@
 // Its id and capabilities are a test's to set too (Vercel's by default), so it can stand in for a provider
 // without a base, a fork or a session cap.
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { chmod, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { CLOUD_PROVIDERS, planLimits, type CloudProviderId, type PlanLimits, type ProviderCapabilities, type ProviderStatus } from '../../shared/cloud'
@@ -43,6 +43,15 @@ export interface FakeCall {
 export type FakeStub = (args: string[], ctx: { sandbox: FakeSandbox; cwd: string; env: Record<string, string> }) => RuntimeExecResult | Promise<RuntimeExecResult>
 
 const REAL = new Set(['git', 'bash', 'node'])
+
+/** A folder's real path (symlinks and short names resolved), or the path itself when it can't be resolved. */
+function canonical(dir: string): string {
+  try {
+    return realpathSync.native(dir)
+  } catch {
+    return dir
+  }
+}
 
 let bashPath: string | null | undefined
 /** Git for Windows' bash (never WSL's), or bash on the PATH elsewhere. */
@@ -178,6 +187,8 @@ export class FakeSandbox implements SandboxHandle {
   private commands = new Map<string, FakeCommand>()
   private ptys: FakePty[] = []
   private posixDir: string
+  // Every way this computer may spell the folder in output, longest first.
+  private hostDirs: string[]
 
   constructor(
     private provider: FakeProvider,
@@ -190,6 +201,9 @@ export class FakeSandbox implements SandboxHandle {
     this.started = provider.now()
     this.expires = this.started + timeoutMs
     this.posixDir = dir.replace(/\\/g, '/')
+    // Programs here report the real path: /private/var for macOS's /var, a long name for a Windows 8.3 one (RUNNER~1).
+    const real = path.join(canonical(path.dirname(dir)), path.basename(dir))
+    this.hostDirs = [...new Set([dir, real].flatMap((d) => [d, d.replace(/\\/g, '/')]))].sort((a, b) => b.length - a.length)
   }
 
   /** The folder here for a path in the sandbox. */
@@ -204,7 +218,7 @@ export class FakeSandbox implements SandboxHandle {
 
   /** Real paths in output turned back into sandbox paths. */
   private unmap(text: string): string {
-    return text.split(this.posixDir).join('').split(this.dir).join('')
+    return this.hostDirs.reduce((t, d) => t.split(d).join(''), text)
   }
 
   /** A sandbox's own environment: enough of this computer's to run programs, none of its variables or tokens. */

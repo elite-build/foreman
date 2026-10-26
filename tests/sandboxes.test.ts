@@ -580,7 +580,8 @@ describe('repository and personal cloud settings', () => {
     const r = await rig()
     await built(r)
     r.service.updateRepo(r.repo.id, { cloud: { enabled: false } })
-    for (let i = 0; i < 100 && r.fake.sandboxes.has(`foreman-base-${r.repo.id}`); i++) await new Promise((res) => setTimeout(res, 20))
+    // The record goes once the delete has finished, which is after the sandbox leaves the list (its files go in between).
+    for (let i = 0; i < 100 && (r.fake.sandboxes.has(`foreman-base-${r.repo.id}`) || r.repo.cloud?.build); i++) await new Promise((res) => setTimeout(res, 20))
     expect(r.fake.sandboxes.has(`foreman-base-${r.repo.id}`)).toBe(false)
     expect(r.repo.cloud?.build).toBeUndefined()
   })
