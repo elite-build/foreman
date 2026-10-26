@@ -63,6 +63,7 @@ async function copyIndex(from: string, to: string): Promise<boolean> {
 }
 
 // The temporary index as above, in a shell function: a copy of the real one backdated a second, else HEAD's tree.
+// GNU stat and touch first (the sandboxes' own), then BSD's, so the script runs the same in a macOS shell.
 const SNAPSHOT_FN = `snapshot() (
   set -e
   mkdir -p /tmp
@@ -71,7 +72,8 @@ const SNAPSHOT_FN = `snapshot() (
   real="$(git rev-parse --git-path index)"
   export GIT_INDEX_FILE="$tmp/index"
   if [ -f "$real" ] && cp "$real" "$GIT_INDEX_FILE" 2>/dev/null; then
-    touch -d "@$(( $(stat -c %Y "$real") - 1 ))" "$GIT_INDEX_FILE"
+    before=$(( $(stat -c %Y "$real" 2>/dev/null || stat -f %m "$real") - 1 ))
+    touch -d "@$before" "$GIT_INDEX_FILE" 2>/dev/null || touch -t "$(date -r "$before" +%Y%m%d%H%M.%S)" "$GIT_INDEX_FILE"
   elif git rev-parse -q --verify 'HEAD^{commit}' >/dev/null; then
     git read-tree HEAD
   fi
