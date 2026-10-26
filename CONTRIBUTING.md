@@ -6,7 +6,7 @@ Run `npm run typecheck`, `npm test`, `npm run build`, `npm run check:repository`
 
 Do not commit credentials, local application data, internal planning records, mockups or generated build output. Use synthetic test data. Keep third-party copyright notices, license texts and attribution intact; identify the source and license of new external material in your PR.
 
-Merge restrictions are deferred until the open-source phase. CI continues to report test, build and security results; this repository does not currently supply CODEOWNERS or ruleset configuration to make those results or a specific approval mandatory for merging. Workflow, dependency and security-boundary changes still need careful human inspection. See [maintenance controls](docs/maintenance.md).
+Changes reach `main` only through a pull request approved by a maintainer with write access; the GitHub ruleset that enforces this is described in [maintenance controls](docs/maintenance.md). This repository does not supply CODEOWNERS or ruleset files. Workflow, dependency and security-boundary changes still need careful human inspection.
 
 Unless explicitly stated otherwise, contributions intentionally submitted for inclusion in Foreman are provided under the [Apache License 2.0](LICENSE), as described in section 5 of that license. Submit only material you have the right to contribute, and preserve the separate terms and attribution of third-party material described in [NOTICE](NOTICE).
 
