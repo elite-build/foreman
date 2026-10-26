@@ -38,7 +38,7 @@ Other scripts:
 | `npm run docs:cli` | Regenerate [docs/cli.md](docs/cli.md) from the command table (a test fails while it is stale) |
 | `npm run build` | Build the main process, preload, renderer and CLI into `out/` |
 | `npm start` | Preview the built app |
-| `npm run dist:mac` / `npm run dist:win` | Build a DMG / NSIS installer into `dist/` |
+| `npm run dist:mac` / `npm run dist:win` | Build a DMG / NSIS installer into `dist/`. To build both on GitHub instead, start the manual **Installers** workflow (`gh workflow run installers.yml --ref <branch>`), which keeps unsigned installers as run artifacts for 7 days |
 
 The development app uses a cyan hard-hat icon with a DEV badge so it can be distinguished from an installed Foreman app in the Dock or taskbar. After editing the SVGs in `build/icons/`, regenerate the checked-in icon files with `npx electron scripts/render-icons.mjs` on macOS.
 
@@ -199,4 +199,4 @@ What still needs checking on a Windows machine:
 4. **Archiving with a running dev server.** Windows locks open files, so `git worktree remove` can fail while something in the worktree is still running. Foreman kills its own terminals first and shows git's error if removal still fails.
 5. **Long paths.** Worktrees are created with `core.longpaths=true`. Keep the workspaces folder short (Settings); the default is `%USERPROFILE%\foreman\workspaces`.
 6. **Editor command.** Verify that `code`, `cursor` and other editor launchers open the workspace; Windows installations may use `.cmd` shims.
-7. **Installer.** Run `npm run dist:win` on Windows. Code signing isn't configured yet (and isn't configured for macOS either).
+7. **Installer.** Run `npm run dist:win` on Windows, or download the Windows artifact from a manual **Installers** workflow run. Code signing isn't configured yet (and isn't configured for macOS either).

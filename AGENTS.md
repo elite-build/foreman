@@ -111,7 +111,7 @@ Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if
 | `npm run cloud:smoke` | Live Vercel integration test; requires the three variables above and a build first. Run only when live sandbox use is within the task's scope. |
 | `npm run dist:mac` / `npm run dist:win` | Build and package DMG/NSIS into `dist/`, with publishing disabled. |
 
-There is no configured lint/formatter script; do not invent `npm run lint`. `electron-builder` settings are in `package.json` (including a Linux AppImage target, but no Linux dist script). README targets macOS and Windows and records Windows validation gaps; configuration alone does not establish platform support. There is no checked-in release/deployment workflow; packaging is not publication.
+There is no configured lint/formatter script; do not invent `npm run lint`. `electron-builder` settings are in `package.json` (including a Linux AppImage target, but no Linux dist script). README targets macOS and Windows and records Windows validation gaps; configuration alone does not establish platform support. There is no checked-in release/deployment workflow. `.github/workflows/installers.yml` builds unsigned macOS (DMG) and Windows (NSIS) installers only when started manually, keeping them as 7-day run artifacts; packaging is not publication (see `docs/maintenance.md`).
 
 `out/`, `dist/`, `node_modules/`, `release/` and logs are ignored artifacts. Do not edit built output. `build/` contains checked-in packaging assets, not just disposable output. Icon sources are in `build/icons/`; README documents `npx electron scripts/render-icons.mjs` on macOS to regenerate assets. `src/shared/workspacePeople.json` is maintained by `scripts/buildWorkspacePeople.py` (see `docs/workspace-names.md`).
 
@@ -123,7 +123,7 @@ Add regression coverage for changed behaviour, including error paths and cleanup
 
 ### CI and automation
 
-There is no CI workflow and no Dependabot configuration; both were removed to start again from scratch. Nothing runs automatically on pull requests or pushes, so run the checks in this file locally (`npm run check:security`, `check:repository` and `check:licenses` remain available as local scripts). `main` is protected by a GitHub ruleset (PR with one approval; admins may bypass only when merging a PR); no CODEOWNERS or ruleset payloads are supplied. Do not merge or use that bypass unless the user asks. See `docs/maintenance.md` for the live-protection boundary.
+There is no CI workflow and no Dependabot configuration; both were removed to start again from scratch. The only workflow, `.github/workflows/installers.yml`, packages installers when someone starts it manually and checks nothing. Nothing runs automatically on pull requests or pushes, so run the checks in this file locally (`npm run check:security`, `check:repository` and `check:licenses` remain available as local scripts). `main` is protected by a GitHub ruleset (PR with one approval; admins may bypass only when merging a PR); no CODEOWNERS or ruleset payloads are supplied. Do not merge or use that bypass unless the user asks. See `docs/maintenance.md` for the live-protection boundary.
 
 `scripts/check-new-components.mjs` compares UI value exports with a base commit. A new export requires the `new-component` label, test and gallery coverage, and no simultaneous feature-renderer changes. Run it as `node scripts/check-new-components.mjs <base-ref>`; label validation only happens when `PR_LABELS` is supplied.
 
