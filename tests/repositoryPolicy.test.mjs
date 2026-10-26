@@ -67,7 +67,9 @@ test('reject unsafe workflow changes', () => {
     w => { w.jobs.platform.steps.find(s => s.run === 'npm test -- --maxWorkers=4').run = 'npm test -- tests/helpers.test.ts' },
     w => { w.jobs.platform.steps.find(s => s.run === 'npm test -- --maxWorkers=4').if = 'false' },
     w => { w.jobs.platform.steps.find(s => s.run === 'npm test -- --maxWorkers=4')['continue-on-error'] = true },
-    w => { w.jobs.platform.steps.find(s => s.run === 'npm run build').run = 'echo passed' }
+    w => { w.jobs.platform.steps.find(s => s.run === 'npm run build').run = 'echo passed' },
+    w => { w.jobs.platform.steps = w.jobs.platform.steps.filter(s => s.run !== 'node scripts/postinstall.mjs') },
+    w => { w.jobs.platform.steps.find(s => s.run === 'node scripts/postinstall.mjs').if = "runner.os == 'macOS'" }
   ]
   for (const mutate of mutations) { const w = workflow(); mutate(w); assert.ok(workflowErrors(w).length, mutate.toString()) }
 })

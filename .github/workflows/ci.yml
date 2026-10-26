@@ -56,6 +56,10 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       # Reviewed native setup only, on disposable hosted runners with no provider credentials.
       - run: npm rebuild node-pty
+      # The repository's own postinstall, skipped by --ignore-scripts: node-pty's macOS prebuilds publish spawn-helper
+      # without the execute bit, so every terminal fails with "posix_spawnp failed". No-op on Windows and, in CI, for hooks.
+      - name: Restore node-pty spawn-helper execute permission
+        run: node scripts/postinstall.mjs
       - run: git config --global user.name 'CI'; git config --global user.email 'ci@example.invalid'
       - run: npm test -- --maxWorkers=4
         env:
