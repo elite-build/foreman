@@ -132,6 +132,8 @@ describe('speech: the window may use the microphone and nothing else under media
     expect(allowPermission('media', { isMainFrame: true }, true)).toBe(false)
     expect(allowPermission('media', { mediaTypes: ['audio'], isMainFrame: true }, false)).toBe(false)
     expect(allowPermission('media', { mediaTypes: ['audio'], isMainFrame: false }, true)).toBe(false)
+    // Electron 45 and later ask for screen capture under its own name.
+    expect(allowPermission('display-capture', { mediaTypes: ['video'], isMainFrame: true }, true)).toBe(false)
   })
   it('leaves every other permission as it was', () => {
     expect(allowPermission('clipboard-read', {}, true)).toBe(true)
