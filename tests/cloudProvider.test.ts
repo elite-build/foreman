@@ -1,9 +1,14 @@
 // The fake sandbox provider (src/main/cloud/fakeProvider.ts) behaves the way the cloud design
 // depends on Vercel Sandbox behaving: real files and git, stop and resume keeping the files,
 // sessions that time out, fork as a copy, tags, delete, plan limits and detached commands.
+import { symlink } from 'node:fs/promises'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { CHECKPOINT_REF_PREFIX, restoreCheckpoint, saveCheckpoint } from '../src/main/checkpoints'
 import { FakeProvider, type FakeSandbox } from '../src/main/cloud/fakeProvider'
 import { SandboxNotRunningError } from '../src/main/cloud/provider'
+import { git, gitOut } from '../src/main/git'
+import { cloudRuntime } from '../src/main/runtime'
 import { planLimits } from '../src/shared/cloud'
 import { makeRepo, tempDir } from './helpers'
 import { describeProviderConformance } from './providerConformance'
@@ -123,6 +128,49 @@ describe('fake sandbox provider', () => {
     let out = ''
     for await (const line of again.logs()) out += line.data
     expect(out).toBe('got:one\n')
+  })
+
+  it('speaks of sandbox paths when its folder is reached through a link (macOS’s /var is /private/var), so checkpoints restore', async () => {
+    const upstream = await makeRepo({ 'README.md': 'hello\n' })
+    const real = await tempDir('foreman-fake-real-')
+    const root = path.join(await tempDir('foreman-fake-link-'), 'root')
+    // A junction on Windows (no privilege needed); the type is ignored elsewhere.
+    await symlink(real, root, 'junction')
+    const sb = await new FakeProvider(root).create(base('ws', upstream))
+    // git prints the real path; it maps back all the same.
+    expect((await sb.exec('git', ['rev-parse', '--show-toplevel'])).stdout.trim()).toBe('/vercel/sandbox')
+    const rt = cloudRuntime(async () => sb, '/vercel/sandbox')
+    await rt.writeFile('README.md', 'changed\n')
+    expect(await saveCheckpoint(rt, 'cp')).toMatchObject({ ok: true })
+    await rt.writeFile('README.md', 'later\n')
+    await restoreCheckpoint(rt, 'cp')
+    expect((await rt.readFile('README.md'))?.toString()).toBe('changed\n')
+  })
+
+  // Real sandboxes run Linux; checkpoints.ts backdates a copied index with GNU's stat and touch.
+  it.each([
+    ['this computer’s tools where they are GNU’s, else the emulation', undefined],
+    ['the emulation a BSD host (macOS) gets', true]
+  ])('answers the GNU forms of stat and touch the sandbox scripts use: %s', async (_name, emulateGnu) => {
+    const upstream = await makeRepo({ 'README.md': 'hello\n' })
+    const sb = await new FakeProvider(await tempDir('foreman-fake-gnu-'), { emulateGnu }).create(base('ws', upstream))
+    const r = await sb.exec('bash', ['-c', 'set -euo pipefail\necho x > f\ntouch -d @1700000000 f\nstat -c %Y f\ntouch -d @1600000000 new\nstat -c %Y new\nstat f > /dev/null\ntouch f\necho plain'])
+    expect(r).toMatchObject({ code: 0, stderr: '' })
+    // Other forms still reach this computer's own commands.
+    expect(r.stdout.trim().split('\n')).toEqual(['1700000000', '1600000000', 'plain'])
+    // Asked for, the emulation answers (on a GNU host too), in scripts' child shells as well.
+    if (emulateGnu) expect((await sb.exec('bash', ['-c', 'bash -c "type -t stat touch"'])).stdout.split('\n')).toEqual(['function', 'function', ''])
+
+    // A checkpoint snapshots through a private copy of the index: the real one, and what is staged, stay as they were.
+    const rt = cloudRuntime(async () => sb, '/vercel/sandbox')
+    await rt.writeFile('README.md', 'edited\n')
+    const status = (await git(rt, ['status', '--porcelain'])).stdout
+    const index = await rt.readFile('.git/index')
+    const saved = await saveCheckpoint(rt, 'cp')
+    expect(saved).toMatchObject({ ok: true })
+    expect(await rt.readFile('.git/index')).toEqual(index)
+    expect((await git(rt, ['status', '--porcelain'])).stdout).toBe(status)
+    expect(await gitOut(rt, ['show', `${CHECKPOINT_REF_PREFIX}cp:README.md`])).toBe('edited')
   })
 })
 

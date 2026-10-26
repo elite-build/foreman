@@ -8,7 +8,8 @@
 // without a base, a fork or a session cap.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { chmod, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { CLOUD_PROVIDERS, planLimits, type CloudProviderId, type PlanLimits, type ProviderCapabilities, type ProviderStatus } from '../../shared/cloud'
 import { findOnPath, isWindows, killProcessTree, treeSpawnOptions } from '../platform'
@@ -59,6 +60,45 @@ function bash(): string {
   return bashPath
 }
 
+// Real sandboxes run Linux, and Foreman's scripts there use GNU's forms of stat and touch (checkpoints.ts backdates
+// a copied index with `stat -c %Y` and `touch -d @SECONDS`). Where this computer's are BSD's (macOS), the sandbox's
+// bash gets those two forms as functions, done in node; any other form goes to this computer's own command.
+let hostGnu: Promise<boolean> | undefined
+/** Whether this computer's stat and touch take GNU's forms: asked once, without holding up the event loop. */
+function hostHasGnuForms(): Promise<boolean> {
+  hostGnu ??= Promise.resolve()
+    .then(() => run(bash(), ['--noprofile', '--norc', '-c', 'stat -c %Y / && touch -c -d @0 "$1"', 'probe', path.join(os.tmpdir(), `foreman-fake-probe-${process.pid}-missing`)], { cwd: os.tmpdir(), env: process.env as Record<string, string> }))
+    .then((r) => r.code === 0)
+    // No bash: nothing to emulate for (a bash command says why it can't run).
+    .catch(() => true)
+  return hostGnu
+}
+
+let gnuFormsPath: Promise<string> | undefined
+/** The functions, in a file for BASH_ENV: every bash the sandbox starts, scripts' own children too, reads it. */
+function gnuForms(): Promise<string> {
+  gnuFormsPath ??= (async () => {
+    const node = `'${process.execPath.replace(/\\/g, '/').replace(/'/g, `'\\''`)}'`
+    const file = path.join(await mkdtemp(path.join(os.tmpdir(), 'foreman-fake-gnu-')), 'gnu-forms.sh')
+    await writeFile(
+      file,
+      `stat() {
+  if [ "$#" = 3 ] && [ "$1" = -c ] && [ "$2" = %Y ]; then
+    ${node} -e 'process.stdout.write(Math.floor(require("fs").statSync(process.argv[1]).mtimeMs / 1000) + "\\n")' "$3"
+  else command stat "$@"; fi
+}
+touch() {
+  if [ "$#" = 3 ] && [ "$1" = -d ] && [[ "$2" =~ ^@-?[0-9]+$ ]]; then
+    ${node} -e 'const fs = require("fs"), [s, f] = process.argv.slice(1); fs.closeSync(fs.openSync(f, "a")); fs.utimesSync(f, Number(s), Number(s))' "\${2#@}" "$3"
+  else command touch "$@"; fi
+}
+`
+    )
+    return file.replace(/\\/g, '/')
+  })()
+  return gnuFormsPath
+}
+
 export class FakeProvider implements SandboxProvider {
   readonly sandboxes = new Map<string, FakeSandbox>()
   readonly calls: FakeCall[] = []
@@ -72,15 +112,20 @@ export class FakeProvider implements SandboxProvider {
   // A PTY script (bash -c) prints its text and exits at once; off, it keeps running until killed or stopped.
   ptyScriptsExit = true
   private failures = new Map<string, Error>()
+  // GNU's forms of stat and touch done for bash: by default only where this computer's own aren't GNU's.
+  private emulateGnu?: boolean
+  // The BASH_ENV a sandbox's bash runs with, settled before the first sandbox is made.
+  bashEnv: Record<string, string> = {}
 
   constructor(
     readonly root: string,
-    opts: { limits?: PlanLimits; clock?: () => number; id?: CloudProviderId; capabilities?: Partial<ProviderCapabilities> } = {}
+    opts: { limits?: PlanLimits; clock?: () => number; id?: CloudProviderId; capabilities?: Partial<ProviderCapabilities>; emulateGnu?: boolean } = {}
   ) {
     this.planLimits = opts.limits ?? planLimits('hobby')
     this.now = opts.clock ?? Date.now
     this.id = opts.id ?? 'vercel'
     this.caps = { ...CLOUD_PROVIDERS.vercel.capabilities, ...opts.capabilities }
+    this.emulateGnu = opts.emulateGnu
   }
 
   capabilities(): ProviderCapabilities {
@@ -110,10 +155,25 @@ export class FakeProvider implements SandboxProvider {
     return this.planLimits
   }
 
+  /**
+   * Where a sandbox's files go: under the root by its real path, as git and `pwd -P` print it (macOS's temporary
+   * folder /var is /private/var; a junction or 8.3 name on Windows), so their output maps back to sandbox paths.
+   */
+  private async folder(name: string): Promise<string> {
+    await mkdir(this.root, { recursive: true })
+    return path.join(await realpath(this.root), name)
+  }
+
+  /** The sandboxes' bash gets GNU's forms done for it where this computer lacks them (or a test asks). */
+  private async prepareBash(): Promise<void> {
+    if (this.emulateGnu ?? !(await hostHasGnuForms())) this.bashEnv = { BASH_ENV: await gnuForms() }
+  }
+
   async create(o: CreateSandboxOptions): Promise<SandboxHandle> {
     this.check('create', { sandbox: o.name, detail: o })
     if (this.sandboxes.has(o.name)) throw new Error(`A sandbox named ${o.name} already exists`)
-    const sb = new FakeSandbox(this, o.name, path.join(this.root, o.name), o.timeoutMs, o.tags, o.vcpus)
+    await this.prepareBash()
+    const sb = new FakeSandbox(this, o.name, await this.folder(o.name), o.timeoutMs, o.tags, o.vcpus)
     await mkdir(sb.real('/vercel/sandbox'), { recursive: true })
     if (o.source) {
       const args = ['clone', '-q', ...(o.source.revision ? ['--branch', o.source.revision] : []), o.source.url, sb.real('/vercel/sandbox')]
@@ -143,7 +203,8 @@ export class FakeProvider implements SandboxProvider {
     const source = this.sandboxes.get(sourceName)
     if (!source) throw new Error(`No sandbox named ${sourceName}`)
     if (this.sandboxes.has(o.name)) throw new Error(`A sandbox named ${o.name} already exists`)
-    const sb = new FakeSandbox(this, o.name, path.join(this.root, o.name), o.timeoutMs, o.tags, o.vcpus ?? source.vcpus)
+    await this.prepareBash()
+    const sb = new FakeSandbox(this, o.name, await this.folder(o.name), o.timeoutMs, o.tags, o.vcpus ?? source.vcpus)
     await cp(source.dir, sb.dir, { recursive: true })
     this.sandboxes.set(o.name, sb)
     return sb
@@ -269,7 +330,7 @@ export class FakeSandbox implements SandboxHandle {
     const mappedArgs = args.map((a) => this.mapText(a))
     if (cmd === 'bash') {
       // A login shell would read the host's profile (and may cd away); the sandbox has none.
-      return { file: bash(), args: ['--noprofile', '--norc', ...mappedArgs.map((a) => (a === '-lc' ? '-c' : a))], cwd: this.real(cwd), env: mappedEnv }
+      return { file: bash(), args: ['--noprofile', '--norc', ...mappedArgs.map((a) => (a === '-lc' ? '-c' : a))], cwd: this.real(cwd), env: { ...mappedEnv, ...this.provider.bashEnv } }
     }
     return { file: cmd === 'node' ? process.execPath : cmd, args: mappedArgs, cwd: this.real(cwd), env: mappedEnv }
   }
