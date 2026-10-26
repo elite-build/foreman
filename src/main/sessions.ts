@@ -201,8 +201,8 @@ export class SessionService {
   private cancelOnStart = new Set<string>()
   // Follow-up chips a running Claude turn offered, until the turn ends.
   private followups = new Map<string, string[]>()
-  // Queued message ids that left the queue to be sent (dispatch or Send now), newest last.
-  private claimed = new Map<string, string | undefined>()
+  // Queued message ids that left the queue to be sent (dispatch or Send now), with the turn and text they went as, newest last.
+  private claimed = new Map<string, { turnId?: string; text: string }>()
   // G4 #12: turns whose queued message was edited after dispatch took it; their chat message says it went as it was.
   private racedEdits = new Set<string>()
   // The chat message of each turn being run, by turn id: it is written again as its checkpoint and context arrive.
@@ -1309,7 +1309,7 @@ export class SessionService {
     const next = session.queue.shift()
     if (next) {
       this.queueChanged(session)
-      this.claim(next.id, next.turnId)
+      this.claim(next.id, next.turnId, next.text)
     }
     if (!next || session.closedAt) return this.events.settled?.(session.workspaceId)
     this.changed()
@@ -1344,28 +1344,32 @@ export class SessionService {
   }
 
   /** A queued message left the queue to be sent: a late edit of it is told it already started. */
-  private claim(messageId: string, turnId?: string): void {
-    this.claimed.set(messageId, turnId)
+  private claim(messageId: string, turnId: string | undefined, text: string): void {
+    this.claimed.set(messageId, { turnId, text })
     if (this.claimed.size > CLAIMED_KEPT) this.claimed.delete(this.claimed.keys().next().value!)
   }
 
   /**
    * G4 #12: an edit arrived after its message started, so the original text ran. The chat's message says so
    * ("sent as it was before your edit"), now if it's already shown, else when it is. Unchanged text: nothing to say.
+   * A turn still starting writes its message again, so the tag goes on that message: a saved copy would be overwritten.
    */
-  private async markRacedEdit(sessionId: string, turnId: string, edited: string): Promise<void> {
-    const item = (await this.store.readChat(sessionId)).find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === turnId)
-    if (!item) {
-      this.racedEdits.add(turnId)
-      if (this.racedEdits.size > CLAIMED_KEPT) this.racedEdits.delete(this.racedEdits.values().next().value!)
-      return
+  private async markRacedEdit(sessionId: string, turnId: string, sent: string, edited: string): Promise<void> {
+    if (edited === sent) return
+    const tag = (message: Extract<ChatItem, { kind: 'user' }>) => {
+      if (message.editRaced) return
+      message.editRaced = true
+      this.emit(sessionId, message)
     }
-    if (item.text === edited || item.editRaced) return
-    // A turn still being run writes its message again (its checkpoint, what Foreman added): tag that copy, so the
-    // tag stays and those writes aren't lost to this one.
     const running = this.runningMessages.get(turnId)
-    if (running) running.editRaced = true
-    this.emit(sessionId, running ?? { ...item, editRaced: true })
+    if (running) return tag(running)
+    const item = (await this.store.readChat(sessionId)).find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === turnId)
+    // The turn may have shown its message while the chat was read.
+    const started = this.runningMessages.get(turnId)
+    if (started) return tag(started)
+    if (item) return tag(item)
+    this.racedEdits.add(turnId)
+    if (this.racedEdits.size > CLAIMED_KEPT) this.racedEdits.delete(this.racedEdits.values().next().value!)
   }
 
   /** Why a queued message is no longer there to edit or move. */
@@ -1385,8 +1389,8 @@ export class SessionService {
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) {
       const gone = this.gone(session, messageId)
-      const turnId = this.claimed.get(messageId)
-      if (!gone.ok && gone.reason === 'started' && turnId) void this.markRacedEdit(sessionId, turnId, text).catch(() => undefined)
+      const claim = this.claimed.get(messageId)
+      if (!gone.ok && gone.reason === 'started' && claim?.turnId) void this.markRacedEdit(sessionId, claim.turnId, claim.text, text).catch(() => undefined)
       return gone
     }
     const current = session.queueRevision ?? 0
@@ -1427,7 +1431,7 @@ export class SessionService {
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) return
     // It is being sent right now, so the workspace doesn't go quiet in between.
-    this.claim(messageId, message.turnId)
+    this.claim(messageId, message.turnId, message.text)
     this.dropQueued(sessionId, messageId)
     await this.send(sessionId, message.text, { attachments: message.attachments, mode: 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via })
   }
