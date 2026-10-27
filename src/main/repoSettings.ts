@@ -246,9 +246,28 @@ export function fromToml(doc: Doc): Omit<SharedLayer, 'file' | 'error'> {
 }
 
 const cache = new Map<string, { mtimeMs: number; layer: SharedLayer }>()
+// Each repo's last answer and when its files were looked at, for readers that accept one a few seconds old (the snapshot).
+const checked = new Map<string, { at: number; layer: SharedLayer }>()
 
-/** The repo's committed settings, re-read when the file changes. */
-export function readSharedLayer(rootPath: string): SharedLayer {
+/** Look at every repo's settings files again on the next read, whatever `maxAgeMs` says. */
+export function revalidateSharedLayers(): void {
+  checked.clear()
+}
+
+/**
+ * The repo's committed settings, re-read when the file changes. With `maxAgeMs`, an answer from less than that long
+ * ago is reused without touching the disk; anything that acts on the settings reads them fresh (the default).
+ */
+export function readSharedLayer(rootPath: string, options: { maxAgeMs?: number } = {}): SharedLayer {
+  const now = Date.now()
+  const last = checked.get(rootPath)
+  if (last && options.maxAgeMs && now - last.at >= 0 && now - last.at < options.maxAgeMs) return last.layer
+  const layer = statSharedLayer(rootPath)
+  checked.set(rootPath, { at: now, layer })
+  return layer
+}
+
+function statSharedLayer(rootPath: string): SharedLayer {
   for (const rel of SHARED_SETTINGS_FILES) {
     const file = path.join(rootPath, rel)
     let mtimeMs: number
@@ -301,8 +320,8 @@ function layerArchiveSteps(layer: RepoLocalSettings): SetupStep[] | undefined {
   return layer.archiveScript !== undefined ? scriptAsSteps(layer.archiveScript, 'archive') : undefined
 }
 
-export function resolveRepoSettings(repo: Repo, user: Settings): ResolvedRepoSettings {
-  const shared = readSharedLayer(repo.rootPath)
+export function resolveRepoSettings(repo: Repo, user: Settings, options: { maxAgeMs?: number } = {}): ResolvedRepoSettings {
+  const shared = readSharedLayer(repo.rootPath, options)
   const defaults = defaultRepoSettings()
   const values = { ...defaults, prompts: { ...defaults.prompts } }
   const sources: Partial<Record<RepoSettingKey, SettingSource>> = {}

@@ -2,6 +2,7 @@
 // workspace runtime.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { killProcessTree, scriptShell, treeSpawnOptions, windowsScriptLaunch } from './platform'
+import { trackChild } from './processRoots'
 import type { WorkspaceRuntime } from './runtime/types'
 
 export interface RunningScript {
@@ -32,6 +33,7 @@ ${(err as Error).message}
   const child = launch
     ? spawn(launch.file, launch.args, { cwd, env: { ...env, ...launch.env }, stdio: ['ignore', 'pipe', 'pipe'], ...treeSpawnOptions })
     : spawn(script, { cwd, env, shell: scriptShell(), stdio: ['ignore', 'pipe', 'pipe'], ...treeSpawnOptions })
+  trackChild(child, env, 'script')
   child.stdout?.setEncoding('utf8').on('data', onOutput)
   child.stderr?.setEncoding('utf8').on('data', onOutput)
   const done = new Promise<number>((resolve) => {

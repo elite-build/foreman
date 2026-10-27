@@ -176,6 +176,9 @@ export function defaultSettings(): Settings {
     restoreTerminals: true,
     // O10: off until the owner turns it on; the Quit sheet points here.
     keepAgentsRunning: false,
+    // No limit and no cutoff: turns start at once and wait for their background work, as they always did.
+    maxRunningAgents: 0,
+    backgroundWaitMinutes: 0,
     // O4: Automatic is the shell Foreman always started (pwsh, then Windows PowerShell); scripts stay on cmd.exe.
     terminalShell: 'auto',
     terminalShellCustom: '',
@@ -289,6 +292,8 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
     session.queue ??= []
     // A scheduled run is only unattended while it runs; after a restart the chat is the human's.
     delete session.unattended
+    // Waiting for an agent slot isn't remembered across a restart: the message stays in the tab's queue, held.
+    delete session.waitingForSlot
     // O10: a turn handed to the background host may still be running there; it is adopted (or ended) after load.
     if (session.turnId && hosted.has(session.turnId)) continue
     // Nothing can be running after a restart. A turn that was is recorded as interrupted (see Store.load).

@@ -162,7 +162,13 @@ export class ForemanDelegation {
           seen = next
           return next
         } }
-        return waitForTurn(guardedHost, { turn: p.turnId, timeoutSec: p.timeoutSeconds ?? 10 }, { signal: scope.signal })
+        // The coordinator's agent slot is lent while it waits, so the turn it waits on can start (Sessions.lendSlot).
+        const release = current.sessionId ? this.host.lendSlot?.(current.sessionId) : undefined
+        try {
+          return await waitForTurn(guardedHost, { turn: p.turnId, timeoutSec: p.timeoutSeconds ?? 10 }, { signal: scope.signal })
+        } finally {
+          release?.()
+        }
       }
       case 'cancel_turn': {
         const p = DELEGATION_TOOLS.cancel_turn.schema.parse(args)

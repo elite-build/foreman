@@ -12,7 +12,7 @@ import { normalizeRemoteUrl } from '../shared/portable'
 import { parseHiddenModels } from '../shared/modelVisibility'
 import type { PromptTemplate, Repo, Settings } from '../shared/types'
 import { git, gitOut, hasRemote, isInsideWorkTree, repoEvidence, revParse, toplevel } from './git'
-import { credentialHelperEnv, gh, githubAccounts, githubEnv, githubSlug } from './github'
+import { credentialHelperEnv, gh, githubAccounts, githubEnvAsync, githubSlug } from './github'
 import { exportIntegrationChoices, importIntegrationChoices } from '../shared/integrations'
 import { defaultSettings, type Store } from './store'
 import { defaultRepoSettings } from './repoSettings'
@@ -186,7 +186,7 @@ export class GitBackupService {
     const remoteUrl = checkedRemote(config.remoteUrl)
     const previous = this.status()
     if (previous.config?.remoteUrl !== remoteUrl || previous.config?.account !== config.account) {
-      const out = await git(process.cwd(), ['ls-remote', '--symref', '--', remoteUrl, 'HEAD'], { env: this.env(remoteUrl, config.account), timeoutMs: 30_000 })
+      const out = await git(process.cwd(), ['ls-remote', '--symref', '--', remoteUrl, 'HEAD'], { env: await this.env(remoteUrl, config.account), timeoutMs: 30_000 })
       if (!out.stdout.includes('HEAD')) throw new Error('The destination has no default branch. Initialize it with a README first.')
     }
     this.deps.store.state.gitBackup = {
@@ -203,9 +203,9 @@ export class GitBackupService {
     return this.configure({ remoteUrl, account, daily: false })
   }
 
-  private env(remoteUrl: string, account?: string): Record<string, string> {
+  private async env(remoteUrl: string, account?: string): Promise<Record<string, string>> {
     if (!githubSlug(remoteUrl)) return {}
-    const env = githubEnv(account)
+    const env = await githubEnvAsync(account)
     return env.GH_TOKEN ? { ...env, ...credentialHelperEnv() } : env
   }
 
@@ -213,7 +213,7 @@ export class GitBackupService {
     const root = await mkdtemp(path.join(os.tmpdir(), 'foreman-git-backup-'))
     const dir = path.join(root, 'repo')
     try {
-      await git(root, ['clone', '--quiet', '--single-branch', '--depth=1', '--', checkedRemote(remoteUrl), dir], { env: this.env(remoteUrl, account), timeoutMs: 120_000 })
+      await git(root, ['clone', '--quiet', '--single-branch', '--depth=1', '--', checkedRemote(remoteUrl), dir], { env: await this.env(remoteUrl, account), timeoutMs: 120_000 })
       return await work(dir)
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -251,7 +251,7 @@ export class GitBackupService {
         await git(dir, ['-c', 'user.name=Foreman Backup', '-c', 'user.email=backup@foreman.local', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Back up Foreman configuration'])
         const branch = await gitOut(dir, ['symbolic-ref', '--short', 'HEAD'])
         await this.deps.beforePush?.()
-        await git(dir, ['push', 'origin', `HEAD:refs/heads/${branch}`], { env: this.env(config.remoteUrl, config.account), timeoutMs: 120_000 })
+        await git(dir, ['push', 'origin', `HEAD:refs/heads/${branch}`], { env: await this.env(config.remoteUrl, config.account), timeoutMs: 120_000 })
         return true
       })
       this.deps.store.state.gitBackup = { ...this.status(), lastSuccessAt: at.toISOString(), lastError: undefined }

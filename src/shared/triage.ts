@@ -380,6 +380,9 @@ function triageOne(ws: Workspace, sessions: Session[], input: TriageInput): Tria
     const facts = [runningFact(running, now, t)].filter((f): f is string => Boolean(f))
     return { ws, bucket: 'working', tone: 'blue', label, detail: title(running[0].id), since: last, sessionId: running[0].id, spinning: true, facts }
   }
+  // A turn waiting for an agent slot ("Maximum agents running at once"): on its way, so with the working ones, but not spinning.
+  const queued = sessions.find((s) => !s.closedAt && s.waitingForSlot)
+  if (queued) return { ws, bucket: 'working', label: t('triage.queued'), detail: title(queued.id), since: queued.waitingForSlot!, sessionId: queued.id }
   if (ws.state === 'setup-failed') return { ws, bucket: 'attention', tone: 'red', label: t('triage.setupFailed'), since: last }
   if (input.unread[ws.id]) {
     const sessionId = sessions.find((s) => input.unreadSessions[s.id])?.id

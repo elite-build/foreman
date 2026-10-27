@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import type { Attachment, CheckResult, GitActionKind, GitStatus, MessageOrigin, PrCheck, SendReceipt, Session, Workspace } from '../shared/types'
 import { attachFromData, attachFromPath } from './files'
 import { git, gitOut } from './git'
-import { credentialHelperEnv, githubEnv, GithubUnavailable, gitStatus, remoteGitEnv } from './github'
+import { credentialHelperEnv, githubEnvAsync, GithubUnavailable, gitStatus, remoteGitEnv } from './github'
 import type { PrCache } from './prCache'
 import { cloudSandboxes, workspaceTarget } from './runtime'
 import { githubProvider, type ScmProvider } from './scm'
@@ -122,17 +122,18 @@ export class GitActions {
     const repoSettings = this.workspaces.settingsFor(repo.id)
     const prompts = repoSettings.prompts
     const remote = repo.remote || 'origin'
-    // GitHub work runs as the repository's connection (gh's active account when unset).
-    const account = this.workspaces.accountFor(repo.id)
+    // GitHub work runs as the repository's connection (gh's active account when unset). Here gh is asked afresh who
+    // that is, so a gh auth switch run outside Foreman counts for this push; the provider below then reads the same answer.
+    const account = ws.cloud ? this.workspaces.accountFor(repo.id) : await this.workspaces.accountForFresh(repo.id)
     // GitHub off here: git's own credentials, as without Foreman. A connection that can't be used refuses.
     // A cloud workspace's git pushes as the repository's connection, the token only in that command's environment.
-    const pushEnv = () => {
+    const pushEnv = async () => {
       if (ws.cloud) {
         const env = cloudSandboxes().githubEnv(ws)
         return env.GH_TOKEN ? { ...env, ...credentialHelperEnv() } : undefined
       }
       try {
-        return account ? githubEnv(account) : undefined
+        return account ? await githubEnvAsync(account) : undefined
       } catch (err) {
         if (err instanceof GithubUnavailable && !err.blocked) return undefined
         throw err
@@ -161,7 +162,7 @@ export class GitActions {
 
       case 'create-pr-web': {
         // Open GitHub's compare page (GitLab's new merge request page); it offers to create the PR from there.
-        await git(workspaceTarget(ws, { wake: true }), ['push', '-u', remote, 'HEAD'], { env: gitlab ? undefined : pushEnv() })
+        await git(workspaceTarget(ws, { wake: true }), ['push', '-u', remote, 'HEAD'], { env: gitlab ? undefined : await pushEnv() })
         await this.openExternal(await provider.newPullRequestUrl(ws))
         return
       }
@@ -169,13 +170,13 @@ export class GitActions {
       case 'push': {
         const at = workspaceTarget(ws, { wake: true })
         const hasUpstream = (await git(at, ['rev-parse', '--abbrev-ref', '@{upstream}'], { allowFail: true })).code === 0
-        await git(at, hasUpstream ? ['push'] : ['push', '-u', remote, 'HEAD'], { timeoutMs: 120_000, env: gitlab ? undefined : pushEnv() })
+        await git(at, hasUpstream ? ['push'] : ['push', '-u', remote, 'HEAD'], { timeoutMs: 120_000, env: gitlab ? undefined : await pushEnv() })
         return
       }
 
       case 'pull': {
         const at = workspaceTarget(ws, { wake: true })
-        if (repo.hasOrigin) await git(at, ['fetch', remote], { allowFail: true, timeoutMs: 120_000, env: ws.cloud ? cloudSandboxes().githubEnv(ws) : remoteGitEnv(account) })
+        if (repo.hasOrigin) await git(at, ['fetch', remote], { allowFail: true, timeoutMs: 120_000, env: ws.cloud ? cloudSandboxes().githubEnv(ws) : await remoteGitEnv(account) })
         const status = await this.status(workspaceId)
         const diverged = (status.ahead > 0 && status.behind > 0) || (status.aheadBase > 0 && status.behindBase > 0)
         if (status.uncommitted > 0 || diverged) {

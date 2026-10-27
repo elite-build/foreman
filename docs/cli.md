@@ -6109,6 +6109,8 @@ Advanced
   advanced.terminal-copy-on-select  on | off                                   Copy on select
   advanced.terminal-restore         on | off                                   Restore terminals after a restart
   advanced.keep-agents-running      on | off                                   Keep agents running after Quit
+  advanced.max-running-agents       integer 0-64                               Maximum agents running at once
+  advanced.background-wait-minutes  integer 0-1440                             Stop waiting for background tasks
 
 Data
   data.keep-cleared-history  on | off                 Keep cleared history

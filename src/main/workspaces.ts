@@ -107,6 +107,8 @@ export class WorkspaceService {
   // Integrations (Core sets these): the GitHub identity key a repository runs as, a repository linked to a
   // gh account by detection (or a guess that no longer holds), and a repository added.
   githubKey: (repoId: string) => string | undefined = () => undefined
+  // The same after asking gh afresh for its active account when the connection follows it (Integrations.githubKeyFresh).
+  githubKeyFresh: (repoId: string) => Promise<string | undefined> = async (repoId) => this.githubKey(repoId)
   githubDetected: (repoId: string, login: string | null, explicit?: boolean) => void = () => undefined
   repoAdded: (repoId: string) => void = () => undefined
   // Cloud workspaces' sandboxes (Core sets it); without it, cloud workspaces can't be made or reached.
@@ -209,6 +211,12 @@ export class WorkspaceService {
   accountFor(repoId: string): string | undefined {
     if (!this.state.repos.some((r) => r.id === repoId)) return undefined
     return this.githubKey(repoId)
+  }
+
+  /** accountFor for callers that can wait, after gh is asked afresh who its active account is (git actions). */
+  async accountForFresh(repoId: string): Promise<string | undefined> {
+    if (!this.state.repos.some((r) => r.id === repoId)) return undefined
+    return this.githubKeyFresh(repoId)
   }
 
   /** The URL the repo pushes to, or null without a remote. */
@@ -410,7 +418,7 @@ export class WorkspaceService {
   async listBranches(repoId: string, options: { fetch?: boolean } = {}): Promise<BranchInfo[]> {
     const repo = this.repo(repoId)
     const remote = repo.remote || 'origin'
-    if (options.fetch && repo.hasOrigin) await git(repo.rootPath, ['fetch', remote, '--prune'], { allowFail: true, timeoutMs: 60_000, env: remoteGitEnv(this.accountFor(repo.id)) })
+    if (options.fetch && repo.hasOrigin) await git(repo.rootPath, ['fetch', remote, '--prune'], { allowFail: true, timeoutMs: 60_000, env: await remoteGitEnv(this.accountFor(repo.id)) })
     const refs = await git(repo.rootPath, ['for-each-ref', '--format=%(refname)', 'refs/heads', `refs/remotes/${remote}`], { allowFail: true })
     const branches = new Map<string, BranchInfo>()
     for (const ref of refs.stdout.split('\n').map((r) => r.trim()).filter(Boolean)) {
@@ -661,7 +669,7 @@ export class WorkspaceService {
       if (await revParse(main.path, `refs/heads/${branch}`)) args = ['checkout', branch]
       else {
         // Only on the remote: make a local branch that tracks it.
-        if (repo.hasOrigin) await git(main.path, ['fetch', remote, branch], { allowFail: true, timeoutMs: 120_000, env: remoteGitEnv(this.accountFor(repo.id)) })
+        if (repo.hasOrigin) await git(main.path, ['fetch', remote, branch], { allowFail: true, timeoutMs: 120_000, env: await remoteGitEnv(this.accountFor(repo.id)) })
         args = ['checkout', '--track', '-b', branch, `${remote}/${branch}`]
       }
       const out = await git(main.path, args, { allowFail: true })
@@ -782,12 +790,12 @@ export class WorkspaceService {
       const remote = prRemote ?? (repo.remote || 'origin')
       if (repo.hasOrigin || prRemote) {
         this.log(ws, `$ git fetch ${remote} ${ws.baseBranch}\n`)
-        const fetched = await git(repo.rootPath, ['fetch', remote, ws.baseBranch], { allowFail: true, timeoutMs: 120_000, env: remoteGitEnv(this.accountFor(repo.id)) })
+        const fetched = await git(repo.rootPath, ['fetch', remote, ws.baseBranch], { allowFail: true, timeoutMs: 120_000, env: await remoteGitEnv(this.accountFor(repo.id)) })
         if (fetched.code !== 0) this.log(ws, `${fetched.stderr.trim()}\nContinuing with the local copy of ${ws.baseBranch}.\n`)
       }
       const startPoint = await baseStartPoint(repo.rootPath, ws.baseBranch, remote)
       if (ws.pullRequest && prRemote) {
-        const fetched = await fetchPullHead(repo.rootPath, prRemote, ws.pullRequest.number, ws.branch, ws.pullRequest.gitlabHost ? {} : remoteGitEnv(this.accountFor(repo.id)), Boolean(ws.pullRequest.gitlabHost))
+        const fetched = await fetchPullHead(repo.rootPath, prRemote, ws.pullRequest.number, ws.branch, ws.pullRequest.gitlabHost ? {} : await remoteGitEnv(this.accountFor(repo.id)), Boolean(ws.pullRequest.gitlabHost))
         this.log(ws, `$ ${fetched.command}\n${fetched.output}`)
         existingBranch = true
       }
@@ -808,7 +816,7 @@ export class WorkspaceService {
         args = [...config, 'worktree', 'add', wsPath(ws), ws.branch]
       } else {
         // Only on the remote: make a local branch that tracks it.
-        if (repo.hasOrigin) await git(repo.rootPath, ['fetch', remote, ws.branch], { allowFail: true, timeoutMs: 120_000, env: remoteGitEnv(this.accountFor(repo.id)) })
+        if (repo.hasOrigin) await git(repo.rootPath, ['fetch', remote, ws.branch], { allowFail: true, timeoutMs: 120_000, env: await remoteGitEnv(this.accountFor(repo.id)) })
         args = [...config, 'worktree', 'add', '--track', '-b', ws.branch, wsPath(ws), `${remote}/${ws.branch}`]
       }
       this.log(ws, `$ git ${args.join(' ')}\n`)

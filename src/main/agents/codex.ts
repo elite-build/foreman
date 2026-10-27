@@ -30,6 +30,7 @@ import {
   type TurnRequest,
   type TurnResult
 } from './types'
+import { PreviewThrottle } from './previewThrottle'
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 type TextItem = Extract<ChatItem, { kind: 'assistant' | 'thinking' }>
@@ -215,6 +216,8 @@ export class CodexEventMapper {
   done = false
   private previews = new Map<string, TextItem>()
   private tools = new Map<string, ToolItem>()
+  // Text previews and progress on running calls (shown, not saved) go out at most every 50 ms, each as it then stands.
+  private live = new PreviewThrottle((id) => this.sendPreview(id))
   private errors = new Set<string>()
   private noticeCount = 0
   private startedAt = Date.now()
@@ -336,7 +339,7 @@ export class CodexEventMapper {
       if (!text) return
       const preview: TextItem = { kind, id, turnId: this.turnId, text, streaming: true }
       this.previews.set(id, preview)
-      this.cb.item(preview, true)
+      this.live.mark(id)
       return
     }
     const preview = this.previews.get(id)
@@ -348,7 +351,16 @@ export class CodexEventMapper {
     const item: ToolItem = { kind: 'tool', turnId: this.turnId, ...fields }
     this.tools.set(item.id, item)
     // Progress on a running call (e.g. command output) is shown but not persisted.
-    this.cb.item({ ...item }, phase === 'updated' && item.status === 'running')
+    if (phase === 'updated' && item.status === 'running') this.live.mark(item.id)
+    else this.cb.item({ ...item })
+  }
+
+  /** An item's preview as it stands, unless it has been saved since (finished text, or a call no longer running). */
+  private sendPreview(id: string): void {
+    const preview = this.previews.get(id)
+    if (preview) return this.cb.item(preview, true)
+    const tool = this.tools.get(id)
+    if (tool?.status === 'running') this.cb.item({ ...tool }, true)
   }
 
   private error(message: string, id?: string): void {
@@ -367,6 +379,7 @@ export class CodexEventMapper {
   private complete(result: TurnResult): void {
     if (this.done) return
     this.done = true
+    this.live.cancel()
     this.cb.finished(result)
   }
 }

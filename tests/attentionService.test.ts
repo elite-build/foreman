@@ -116,6 +116,27 @@ describe('AttentionService', () => {
     }
   })
 
+  it('redraws the tray and badge only when the view or what they are drawn with changed', async () => {
+    const file = path.join(await tempDir('foreman-attention-'), 'foreman.db')
+    const state: AttentionState = { repos: [], workspaces: [ws('w1')], sessions: [session('s1', 'w1')] }
+    let approvals: ApprovalRequest[] = []
+    let context = { language: 'en' }
+    const show = vi.fn()
+    const service = new AttentionService({ db: new ForemanDb(file), state: () => state, approvals: () => approvals, now: () => Date.parse('2026-10-22T14:00:00Z'), newId: () => 'e', show, showContext: () => context, logChanged() {} })
+    service.observe()
+    service.observe()
+    expect(show).toHaveBeenCalledTimes(1)
+    approvals = [approval]
+    service.observe()
+    service.observe()
+    expect(show).toHaveBeenCalledTimes(2)
+    expect(show.mock.calls[1][0]).toMatchObject({ count: 1 })
+    // Same view, new settings (a language or badge switch): shown again.
+    context = { language: 'fr' }
+    service.observe()
+    expect(show).toHaveBeenCalledTimes(3)
+  })
+
   it('an answered approval is history with what was asked and whether it was allowed', () => {
     expect(approvalDraft(approval, { kind: 'tool', allow: true }, 'w1')).toMatchObject({ kind: 'approval-answered', workspaceId: 'w1', sessionId: 's1', label: 'Bash', allowed: true })
     expect(approvalDraft({ ...approval, kind: 'plan', plan: 'p' } as ApprovalRequest, { kind: 'plan', approve: false }, 'w1')).toMatchObject({ label: 'plan', allowed: false })

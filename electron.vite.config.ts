@@ -14,6 +14,8 @@ export default defineConfig({
         input: {
           index: 'src/main/index.ts',
           cli: 'src/cli/index.ts',
+          // The MCP bridge alone (src/cli/bridgeMain.ts): the app starts one per agent turn, so it leaves out the rest of the CLI.
+          bridge: 'src/cli/bridgeMain.ts',
           cursorWorker: 'src/main/cursorWorker.ts',
           sttHelper: 'src/main/speech/sttHelper.ts',
           sandboxHost: 'src/main/agentHost/sandboxHost.ts',

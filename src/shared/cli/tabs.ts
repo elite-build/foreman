@@ -23,7 +23,8 @@ export interface TabRow {
   fast: boolean
   plan: boolean
   autoAcceptEdits?: boolean
-  status: 'idle' | 'running'
+  // 'queued': its next turn waits for an agent slot (Settings → Advanced → Maximum agents running at once).
+  status: 'idle' | 'running' | 'queued'
   queued: number
   lastTurn?: { outcome: TurnOutcome; turn?: string; endedAt: string }
   closed?: boolean

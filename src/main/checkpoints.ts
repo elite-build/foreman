@@ -11,7 +11,7 @@
 import { copyFile, mkdtemp, realpath, rm, stat, utimes } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { busyOperation, git, gitOut, hasUnmergedPaths, revParse, type GitTarget } from './git'
+import { busyOperation, git, gitOut, hasUnmergedPaths, revParse, worktreeGeneration, worktreeKey, type GitTarget } from './git'
 import type { WorkspaceRuntime } from './runtime/types'
 
 export const CHECKPOINT_REF_PREFIX = 'refs/switchyard-checkpoints/'
@@ -90,9 +90,42 @@ async function runScript(rt: WorkspaceRuntime, script: string, args: string[], w
   return r.stdout.trim().split('\n').pop() ?? ''
 }
 
-/** Tree object for the whole working tree, honoring .gitignore. Touches nothing. */
-export async function snapshotWorkingTree(dir: GitTarget): Promise<string> {
+/** How long a snapshot serves other readers (sharedWorkingTree), counted from when it started. */
+export const SNAPSHOT_REUSE_MS = 2000
+/**
+ * What's on screen (the diff, the checks) may share only a snapshot this recent: the renderer reads again a second
+ * after an agent's edit, so one started within half a second of that already saw the edit.
+ */
+export const VIEW_REUSE_MS = 500
+
+// The latest snapshot of each local folder, finished or still running, for readers that can share it.
+const taken = new Map<string, { tree: Promise<string>; startedAt: number; generation: number }>()
+
+/** Tree object for the whole working tree, honoring .gitignore. Touches nothing. Always a new scan. */
+export function snapshotWorkingTree(dir: GitTarget): Promise<string> {
   if (typeof dir !== 'string') return runScript(dir, 'snapshot', [], 'Couldn’t snapshot the working tree')
+  const key = worktreeKey(dir)
+  const entry = { startedAt: Date.now(), generation: worktreeGeneration(dir), tree: scanWorkingTree(dir) }
+  taken.set(key, entry)
+  entry.tree.catch(() => taken.get(key) === entry && taken.delete(key))
+  if (taken.size > 64) for (const [k, e] of taken) if (entry.startedAt - e.startedAt > SNAPSHOT_REUSE_MS) taken.delete(k)
+  return entry.tree
+}
+
+/**
+ * The working tree's tree for a reader that can share one (a diff stat, whether checks or a review are stale): the
+ * latest snapshot of this folder, finished or still running, if it started at or after `since` (by default, a
+ * moment ago; after a turn, when its agent stopped) and Foreman changed no file there since it started (see
+ * worktreeGeneration); else a new one. Never for a checkpoint or anything recorded as evidence.
+ */
+export function sharedWorkingTree(dir: GitTarget, since = Date.now() - SNAPSHOT_REUSE_MS): Promise<string> {
+  if (typeof dir !== 'string') return snapshotWorkingTree(dir)
+  const last = taken.get(worktreeKey(dir))
+  if (last && last.generation === worktreeGeneration(dir) && last.startedAt >= since) return last.tree
+  return snapshotWorkingTree(dir)
+}
+
+async function scanWorkingTree(dir: string): Promise<string> {
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'switchyard-index-'))
   const env = { GIT_INDEX_FILE: path.join(tmp, 'index') }
   try {

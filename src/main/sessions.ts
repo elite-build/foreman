@@ -15,6 +15,7 @@ import { hasNote, noteBlock, noteMessage, savedNote } from '../shared/note'
 import { workspaceUsage } from '../shared/usage'
 import { editIsStale, isAppCommand, moveQueuedMessage } from '../shared/queueEdit'
 import { usageLimitOf } from '../shared/usageLimit'
+import { PreviewEncoder, RESYNC_MS, type ChatAppend } from '../shared/chatAppend'
 import type { DiffComment, NotifyKind, QueueChangeResult, QueueMove, SendReceipt, TurnDelta, TurnInterruption, TurnStatus, UsageLimit, WorkspaceUsage } from '../shared/types'
 import type {
   ApprovalRequest,
@@ -76,11 +77,14 @@ interface TurnExtras {
 export interface SessionEvents {
   changed(): void
   item(sessionId: string, item: ChatItem): void
+  // A streaming preview grew (shared/chatAppend.ts). Without it, every preview goes to `item` whole.
+  append?(sessionId: string, append: ChatAppend): void
   reset(sessionId: string, items: ChatItem[]): void
   approval(request: ApprovalRequest): void
   approvalResolved(id: string): void
   notify(workspaceId: string, sessionId: string, title: string, body: string, kind?: NotifyKind): void
-  turnEnded(sessionId: string, outcome: TurnOutcome): void
+  // `stoppedAt`: when the agent stopped, so a snapshot of the working tree taken since (the end checkpoint's) still holds.
+  turnEnded(sessionId: string, outcome: TurnOutcome, stoppedAt?: number): void
   // A human send, or a queued turn about to start, in this workspace (called before anything else happens, so a check can be stopped first).
   workStarting?(workspaceId: string): void
   // A queue or tab change that may leave the workspace quiet: a queued message removed, a tab closed or cleared.
@@ -211,6 +215,12 @@ export class SessionService {
   private frozen: string | null = null
   // Tabs whose queued turn was held back by the freeze (and only those start when it lifts).
   private deferred = new Set<string>()
+  // Tabs whose next turn waits for an agent slot ("Maximum agents running at once"), first come first served.
+  // Each has `waitingForSlot` set and its turn's message first in its queue.
+  private slotQueue: string[] = []
+  // Tabs whose running turn waits on another turn (a coordinator in wait_for_turn or `foreman wait`), with each wait
+  // going: their slots are lent meanwhile (lendSlot). The turn's end ends its loans.
+  private lending = new Map<string, Set<object>>()
 
   // Integrations (Core sets it): each turn's bridge servers, the user's own servers to switch off, and the accounts it uses.
   integrations?: IntegrationBridge
@@ -542,13 +552,68 @@ export class SessionService {
     return workspaceUsage(tabs)
   }
 
-  getChat(sessionId: string): Promise<ChatItem[]> {
-    return this.store.readChat(sessionId)
+  // Per chat: the previews shown but not saved (for `getChat(id, true)`), and what the windows were sent of them.
+  private previews = new Map<string, Map<string, ChatItem>>()
+  private encoders = new Map<string, PreviewEncoder>()
+  // Per chat: when previews sent as appends next go whole again, though their text may not grow by then (resyncPreviews).
+  private resyncTimers = new Map<string, NodeJS.Timeout>()
+
+  async getChat(sessionId: string, live = false): Promise<ChatItem[]> {
+    const items = await this.store.readChat(sessionId)
+    const previews = live ? this.previews.get(sessionId) : undefined
+    if (!previews?.size) return items
+    const merged = items.slice()
+    for (const preview of previews.values()) {
+      const index = merged.findIndex((i) => i.id === preview.id)
+      if (index === -1) merged.push(preview)
+      else merged[index] = preview
+    }
+    return merged
   }
 
   private emit(sessionId: string, item: ChatItem, transient = false): void {
     if (!transient) void this.store.appendChat(sessionId, item)
-    this.events.item(sessionId, item)
+    let previews = this.previews.get(sessionId)
+    if (transient) {
+      if (!previews) this.previews.set(sessionId, (previews = new Map()))
+      previews.set(item.id, item)
+    } else previews?.delete(item.id)
+    if (!this.events.append) this.events.item(sessionId, item)
+    else {
+      let encoder = this.encoders.get(sessionId)
+      if (!encoder) this.encoders.set(sessionId, (encoder = new PreviewEncoder()))
+      // After the first preview of a block, only its new text goes to the windows.
+      const out = encoder.encode(item, transient)
+      if (out && 'append' in out) {
+        this.events.append(sessionId, out.append)
+        this.resyncPreviews(sessionId)
+      } else if (out) this.events.item(sessionId, out.item)
+    }
+    // A preview the turn never finished is dropped with it (the window keeps showing what it had, as before).
+    if (item.kind === 'turn-end') {
+      this.previews.delete(sessionId)
+      this.encoders.delete(sessionId)
+      clearTimeout(this.resyncTimers.get(sessionId))
+      this.resyncTimers.delete(sessionId)
+    }
+  }
+
+  /**
+   * A window that missed an append waits for the preview whole: the encoder sends it whole when its text next grows
+   * RESYNC_MS on, and this timer when it doesn't (the agent pauses mid-block), so a gap shows for RESYNC_MS or so, not
+   * until the block is finished. Runs while previews of the chat go out as appends; the turn's end stops it.
+   */
+  private resyncPreviews(sessionId: string): void {
+    if (this.resyncTimers.has(sessionId)) return
+    const timer = setTimeout(() => {
+      this.resyncTimers.delete(sessionId)
+      const encoder = this.encoders.get(sessionId)
+      if (!encoder) return
+      for (const item of encoder.resync()) this.events.item(sessionId, item)
+      if (encoder.appending()) this.resyncPreviews(sessionId)
+    }, RESYNC_MS)
+    timer.unref?.()
+    this.resyncTimers.set(sessionId, timer)
   }
 
   // ---- messages ----
@@ -618,6 +683,17 @@ export class SessionService {
     // Let a wrapping-up agent process exit before continuing its conversation.
     if (active) await active.done
     const turnId = options.turnId ?? randomUUID()
+    // Every agent slot is taken: the turn waits first in the tab's queue (ahead of anything held there; behind a turn
+    // of this tab already waiting) and starts when its turn for a slot comes. Its turn id is known now, so
+    // `foreman wait` and cancelTurn find it as queued.
+    if (!this.slotFree(session, ws)) {
+      const revision = this.queueChanged(session)
+      const queued = { id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin }
+      if (session.waitingForSlot) session.queue.push(queued)
+      else session.queue.unshift(queued)
+      this.waitForSlot(session)
+      return { disposition: 'queued', turnId }
+    }
     await this.startTurn(session, ws, text, attachments, followUp, turnId, { noteRevision: options.noteRevision, skipComments: options.skipComments, repoTemplate, origin: options.origin })
     return { disposition: 'started', turnId }
   }
@@ -770,10 +846,107 @@ export class SessionService {
   private async startTurn(session: Session, ws: Workspace, text: string, attachments: Attachment[], followUp?: MessageFollowUp, turnId?: string, extras: TurnExtras = {}): Promise<void> {
     const sessionId = session.id
     this.starting.add(sessionId)
+    if (session.waitingForSlot) this.unwait(sessionId)
     try {
       await this.beginTurn(session, ws, text, attachments, followUp, turnId, extras)
     } finally {
       this.starting.delete(sessionId)
+      // A turn that failed before its agent started gives its slot back here.
+      this.admitWaiting()
+    }
+  }
+
+  // ---- agent slots ("Maximum agents running at once") ----
+
+  /**
+   * Turns that hold an agent slot, other than `except`'s: starting or running here, including turns in the background
+   * host ("Keep agents running"), whose agents still run on this computer, and turns whose agent is winding down or
+   * held open by background work. A cloud workspace's turns run in its sandbox, not here, so they never count, and
+   * nor does a turn that lent its slot while it waits on another turn (lendSlot).
+   */
+  private slotsTaken(except: string): number {
+    let n = 0
+    for (const id of new Set([...this.turns.keys(), ...this.starting])) if (id !== except && !this.isCloudSession(id) && !this.lending.has(id)) n++
+    return n
+  }
+
+  /**
+   * Whether a new turn in this tab may start now. Always, with no limit (the default) or in a cloud workspace. Otherwise
+   * a slot must be free and no tab may be waiting ahead of this one (`admitted`: this tab was just let out of the queue).
+   * Tabs left waiting while a slot is free start first, so a free slot never sits idle behind them.
+   */
+  private slotFree(session: Session, ws: Workspace, admitted = false): boolean {
+    const max = this.store.state.settings.maxRunningAgents
+    if (!max || ws.cloud) return true
+    // Only for a tab not waiting itself: admitWaiting could otherwise start this tab's turn under its caller.
+    if (!admitted && this.slotQueue.length && !this.slotQueue.includes(session.id) && this.slotsTaken(session.id) < max) this.admitWaiting()
+    const ahead = this.slotQueue.indexOf(session.id)
+    if (!admitted && (ahead === -1 ? this.slotQueue.length : ahead) > 0) return false
+    return this.slotsTaken(session.id) < max
+  }
+
+  /** The tab's next turn (first in its queue) waits for a slot; a tab already waiting keeps its place, one just let out goes back first. */
+  private waitForSlot(session: Session, front = false): void {
+    if (!this.slotQueue.includes(session.id)) {
+      if (front) this.slotQueue.unshift(session.id)
+      else this.slotQueue.push(session.id)
+    }
+    session.waitingForSlot ??= new Date().toISOString()
+    this.changed()
+  }
+
+  /** The tab no longer waits for a slot (it started, or its queued turn was cancelled or removed). */
+  private unwait(sessionId: string): void {
+    this.slotQueue = this.slotQueue.filter((id) => id !== sessionId)
+    const session = this.store.state.sessions.find((s) => s.id === sessionId)
+    if (session?.waitingForSlot) {
+      delete session.waitingForSlot
+      this.changed()
+    }
+  }
+
+  /**
+   * Start waiting turns, oldest first, while slots are free: after a turn ends (completed, failed or stopped), after one
+   * fails to start, and when the limit goes up or away. A tab whose queued message went, or that was closed, just leaves.
+   */
+  admitWaiting(): void {
+    const max = this.store.state.settings.maxRunningAgents
+    while (this.slotQueue.length) {
+      const id = this.slotQueue[0]
+      const session = this.store.state.sessions.find((s) => s.id === id)
+      if (!session || session.closedAt || !session.queue.length || this.turns.has(id) || this.starting.has(id)) {
+        this.unwait(id)
+        continue
+      }
+      if (max && this.slotsTaken(id) >= max) return
+      this.unwait(id)
+      // Takes the slot at once: drainQueue reaches startTurn without waiting for a local tab.
+      void this.drainQueue(id, true).catch(() => undefined)
+    }
+  }
+
+  /** Tabs waiting for an agent slot, oldest first. */
+  waitingForSlot(): string[] {
+    return [...this.slotQueue]
+  }
+
+  /**
+   * A running turn waits on another turn (a coordinator's wait_for_turn, or `foreman wait` from inside a turn): its slot
+   * is lent meanwhile, so the turn it delegated to can start. Without this, with the limit at N, N coordinators each
+   * waiting on a delegate that waits for a slot would wait forever. The coordinator goes on when its wait returns, even
+   * if more agents than the limit then run for a while; new turns wait until the count is back under it. Returns the
+   * end of the loan. A tab with no turn running here has no slot to lend.
+   */
+  lendSlot(sessionId: string): () => void {
+    if (!this.turns.has(sessionId) || this.isCloudSession(sessionId)) return () => undefined
+    const loan = {}
+    const loans = this.lending.get(sessionId) ?? new Set<object>()
+    loans.add(loan)
+    this.lending.set(sessionId, loans)
+    this.admitWaiting()
+    return () => {
+      const now = this.lending.get(sessionId)
+      if (now?.delete(loan) && !now.size) this.lending.delete(sessionId)
     }
   }
 
@@ -849,6 +1022,8 @@ export class SessionService {
       // Missing credentials fail the turn here, before the start checkpoint wakes the sandbox (and starts a session).
       this.cloudHost.checkTurn?.(session.agent, ws)
     }
+    // Asked now, answered while the checkpoint is saved (awaited before the environment is built below). Bounded; never throws.
+    const githubReady = ws.cloud ? undefined : this.environment.githubReady?.(ws.repoId)
     const saved = await saveCheckpoint(this.checkpointTarget(ws, true), checkpointId).catch((err: Error) => ({ ok: false as const, reason: err.message }))
     if (saved.ok) {
       message.checkpoint = checkpointId
@@ -861,6 +1036,8 @@ export class SessionService {
 
     // #2: every turn says which tab and turn it is, so `foreman report` from its shell lands on this tab (the token is attribution only).
     // A cloud turn gets only the workspace's variables here: this computer's environment means nothing in the sandbox, and the cloud host adds the rest.
+    // Right after startup or a sign-in, gh's first answers (a few seconds at most) come before the environment, so the turn gets GitHub credentials.
+    await githubReady
     const env = ws.cloud
       ? { ...this.workspaces.env(ws), ...this.reports?.turnEnv(sessionId, turnId) }
       : this.environment.forAgent(session.agent, ws.repoId, { ...this.workspaces.env(ws), ...this.reports?.turnEnv(sessionId, turnId) })
@@ -915,9 +1092,16 @@ export class SessionService {
       this.emit(sessionId, message)
     }
 
-    const appServers = AGENTS[session.agent]?.supportsRepoMcp
-      ? this.foremanMcp?.forTurn(session, Boolean(ws.cloud)) ?? {}
-      : {}
+    // O10: Claude Code, Codex, Cursor and OpenCode turns (G1) run in the background host when that's on, so they can outlive the app.
+    // A cloud workspace's turns always run in its sandbox's host (checked above), whatever that setting says.
+    const host = this.hostFor(ws)
+    const hosted = Boolean(host?.keeps(session.agent, ws))
+    // Foreman's own tools (`foreman-app`): a Claude turn in the app gets them in-process; any other turn that takes MCP
+    // servers gets the stdio bridge, a process of its own that reaches the app over the CLI socket.
+    const appTools = Boolean(AGENTS[session.agent]?.supportsRepoMcp)
+    const inProcess = session.agent === 'claude' && !hosted && !ws.cloud
+    const appServers = appTools && !inProcess ? this.foremanMcp?.forTurn(session, Boolean(ws.cloud)) ?? {} : {}
+    const inProcessMcp = appTools && inProcess ? this.foremanMcp?.inProcessForTurn(session) : undefined
     const request: TurnRequest = {
         turnId,
         prompt: historyText + catchUp.text + text + attachmentText + noteText + commentsText,
@@ -938,20 +1122,26 @@ export class SessionService {
         chrome: this.store.state.settings.chromeMode,
         extraWritableDirs: gitDir ? [gitDir] : undefined,
         mcpServers: { ...repoMcp.servers, ...integ.servers, ...appServers },
+        inProcessMcp,
         disabledMcp: integ.disabled.length ? integ.disabled : undefined,
         sessionStore: this.mirrorFor(session, ws),
-        forkOnResume: session.forkOnResume && session.agentSessionId ? true : undefined
+        forkOnResume: session.forkOnResume && session.agentSessionId ? true : undefined,
+        backgroundWait: this.backgroundWait()
       }
     const state: TurnState = { mirrorNoticed: false }
     const callbacks = this.turnCallbacks(session, turnId, state)
-    // O10: Claude Code, Codex, Cursor and OpenCode turns (G1) run in the background host when that's on, so they can outlive the app.
-    // A cloud workspace's turns always run in its sandbox's host (checked above), whatever that setting says.
-    const host = this.hostFor(ws)
-    const turn = host?.keeps(session.agent, ws)
+    const turn = hosted && host
       ? host.createTurn(session, ws, request, callbacks, endCheckpointId(sessionId, turnId))
       : driverFor(session.agent).createTurn(request, callbacks)
     this.track(session, ws, turnId, turn, state)
     if (this.cancelOnStart.delete(turnId)) void this.cancel(sessionId)
+  }
+
+  /** "Stop waiting for background tasks" for a new turn: off (0, the default) waits as long as the work runs. */
+  private backgroundWait(): TurnRequest['backgroundWait'] {
+    const minutes = this.store.state.settings.backgroundWaitMinutes
+    if (!minutes || minutes <= 0) return undefined
+    return { ms: minutes * 60_000, notice: this.t()('chat.backgroundWait.cutoff', { count: minutes }) }
   }
 
   /**
@@ -1075,10 +1265,14 @@ export class SessionService {
       .finally(async () => {
         this.integrations?.endSession(sessionId)
         this.foremanMcp?.endSession(sessionId)
-        if (this.turns.get(sessionId) === entry) this.turns.delete(sessionId)
+        if (this.turns.get(sessionId) === entry) {
+          this.turns.delete(sessionId)
+          this.lending.delete(sessionId)
+        }
         this.rejectApprovals(sessionId)
         // O10: a turn that ended while Foreman was closed had its end checkpoint taken by the host, at the time.
         // A cloud turn's is taken from here, only when Foreman saw it end (the sandbox's host keeps none).
+        const stoppedAt = Date.now()
         if (!turn.endCheckpointSaved && !(ws.cloud && turn.endedWhileClosed)) await saveCheckpoint(this.checkpointTarget(ws), endCheckpointId(sessionId, turnId)).catch(() => undefined)
         const { result } = state
         let outcome: TurnOutcome
@@ -1104,7 +1298,7 @@ export class SessionService {
             : !result && crash
               ? usageLimitOf(session.agent, crash, Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
               : undefined
-        await this.endTurn(session, ws, turnId, outcome, error, turn.endedAt, limit, interruption)
+        await this.endTurn(session, ws, turnId, outcome, error, turn.endedAt, limit, interruption, stoppedAt)
         // A cloud host may queue a continuation here, which the drain below starts.
         if (turn.hosted) this.hostFor(ws)?.ended(sessionId, turnId)
         // The host already notified for a turn that ended while Foreman was closed.
@@ -1120,6 +1314,9 @@ export class SessionService {
         }
         if (!entry.cancelled) void this.drainQueue(sessionId)
       })
+      // However it ended, its agent slot is free: the tab waiting longest starts (this tab's own queue waits its turn).
+      // Also when recording the end above failed, or waiting tabs would stay stuck.
+      .finally(() => this.admitWaiting())
     this.turns.set(sessionId, entry)
   }
 
@@ -1183,7 +1380,7 @@ export class SessionService {
   }
 
   /** Records how a turn ended (one internal item; earlier items are never touched) and frees the session. */
-  private async endTurn(session: Session, ws: Workspace, turnId: string, outcome: TurnOutcome, error?: string, endedAt?: string, limit?: UsageLimit, interrupted?: TurnInterruption): Promise<void> {
+  private async endTurn(session: Session, ws: Workspace, turnId: string, outcome: TurnOutcome, error?: string, endedAt?: string, limit?: UsageLimit, interrupted?: TurnInterruption, stoppedAt?: number): Promise<void> {
     const sessionId = session.id
     const startedAt = session.turnId === turnId ? session.turnStartedAt : undefined
     // O10: a turn that ended while Foreman was closed lasted until then, not until now.
@@ -1223,7 +1420,7 @@ export class SessionService {
       deletions: delta === 'unavailable' ? undefined : delta.deletions
     }
     this.changed()
-    this.events.turnEnded(sessionId, outcome)
+    this.events.turnEnded(sessionId, outcome, stoppedAt)
   }
 
   /** Persists an alert when the turn changed files under the repo's sensitive paths (or couldn't be compared). */
@@ -1290,7 +1487,8 @@ export class SessionService {
     return session.title ? `${ws.name} · ${session.title}` : ws.name
   }
 
-  private async drainQueue(sessionId: string): Promise<void> {
+  /** Start the tab's next queued turn. `admitted`: the slot queue just let this tab out (admitWaiting). */
+  private async drainQueue(sessionId: string, admitted = false): Promise<void> {
     const session = this.session(sessionId)
     // #1: queued turns wait while Foreman quits once the running ones finish; freezeAdmissions(null) starts them.
     if (this.frozen) return void this.deferred.add(sessionId)
@@ -1306,6 +1504,9 @@ export class SessionService {
         this.draining.delete(sessionId)
       }
     }
+    // Every agent slot is taken (or a tab waits ahead of this one): the turn stays first in the queue and waits its turn.
+    const target = this.workspaces.workspace(session.workspaceId)
+    if (session.queue.length && !session.closedAt && CAN_CHAT.has(target.state) && !this.slotFree(session, target, admitted)) return this.waitForSlot(session, admitted)
     const next = session.queue.shift()
     if (next) {
       this.queueChanged(session)
@@ -1334,6 +1535,8 @@ export class SessionService {
     const session = this.session(sessionId)
     session.queue = session.queue.filter((m) => m.id !== messageId)
     this.queueChanged(session)
+    // Nothing left to start: the tab stops waiting for a slot.
+    if (!session.queue.length && session.waitingForSlot) this.unwait(sessionId)
     this.changed()
   }
 
@@ -1430,19 +1633,41 @@ export class SessionService {
     const session = this.session(sessionId)
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) return
+    // A tab waiting for an agent slot has no turn to steer and can't start one yet: the message goes first in its queue,
+    // keeping the tab's place in the slot queue, and starts when a slot is free (rather than going behind held messages).
+    if (session.waitingForSlot && !this.turns.has(sessionId) && !this.starting.has(sessionId)) {
+      if (session.queue[0] !== message) {
+        session.queue = [message, ...session.queue.filter((m) => m !== message)]
+        this.queueChanged(session)
+        this.changed()
+      }
+      return
+    }
     // It is being sent right now, so the workspace doesn't go quiet in between.
     this.claim(messageId, message.turnId, message.text)
     this.dropQueued(sessionId, messageId)
-    await this.send(sessionId, message.text, { attachments: message.attachments, mode: 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via })
+    await this.send(sessionId, message.text, { attachments: message.attachments, mode: 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via, origin: message.origin })
   }
 
   async cancel(sessionId: string): Promise<void> {
     const active = this.turns.get(sessionId)
-    if (!active) return
+    if (!active) return this.cancelWaiting(sessionId)
     active.cancelled = true
     this.rejectApprovals(sessionId)
     await active.turn.stop()
     await active.done
+  }
+
+  /**
+   * A turn waiting for an agent slot never started: cancelling it (Stop, closing the tab, archiving, a rewind or /clear)
+   * takes it out of the slot queue and drops its message, as cancelTurn drops a queued one. The rest of the queue stays, held.
+   */
+  private cancelWaiting(sessionId: string): void {
+    const session = this.store.state.sessions.find((s) => s.id === sessionId)
+    if (!session?.waitingForSlot) return
+    const head = session.queue[0]
+    this.unwait(sessionId)
+    if (head) this.removeQueued(sessionId, head.id)
   }
 
   /**
@@ -1924,6 +2149,8 @@ export class SessionService {
    */
   async shutdown(options: { keepHosted?: boolean } = {}): Promise<void> {
     for (const id of [...this.mcpProbes.keys()]) this.closeMcpProbe(id)
+    // Turns waiting for an agent slot don't start now; their messages stay in their tabs' queues, held, for the next launch.
+    for (const id of [...this.slotQueue]) this.unwait(id)
     const ids = [...this.turns.keys()].filter((id) => !(options.keepHosted && this.isHosted(id)) && !(this.isHosted(id) && this.isCloudSession(id)))
     await Promise.all(ids.map((id) => this.cancel(id)))
   }

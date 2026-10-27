@@ -12,6 +12,7 @@ import type { Triage } from '../triage'
 import { useT, type RendererT } from '../i18n'
 import { formatClock } from '../../../shared/i18n/time'
 import { api, attempt, availableAgents, openHandOffDialog, openSessions, requestOpenFile, selectWorkspace, showToast, useStore } from '../store'
+import { useClock } from '../clock'
 import { Button, Callout, Checkbox, Dialog, Field, LinkButton, Select, Spinner, Switch, Tag, TextInput, type TagTone } from '../ui'
 import { Row } from './settings/controls'
 import './autoReview.css'
@@ -39,14 +40,8 @@ function stateText(t: RendererT, review: AutoReview): string {
   }
 }
 
-function useNow(everyMs = 30_000): number {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), everyMs)
-    return () => clearInterval(timer)
-  }, [everyMs])
-  return now
-}
+// Stopped while the window is minimized or hidden (clock.ts).
+const useNow = (everyMs = 30_000): number => useClock(everyMs)
 
 /** "Review again…": the Code review dialog from the worker's tab, read-only ticked; nothing runs until Start. */
 export function reviewAgain(snapshot: AppSnapshot, review: AutoReview): void {

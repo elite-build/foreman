@@ -68,3 +68,14 @@ export function formatDate(at: Exclude<When, undefined | null>, locale: Locale, 
 export function formatNumber(n: number, locale: Locale): string {
   return n.toLocaleString(locale)
 }
+
+const sizes = new Map<string, Intl.NumberFormat>()
+/** A memory size in the language's own units and digits: "512 MB", "1.2 GB" (en); "1,2 Go" (fr). */
+export function formatMemory(bytes: number, locale: Locale): string {
+  const mb = Math.max(0, bytes) / (1024 * 1024)
+  const unit = mb >= 1024 ? 'gigabyte' : 'megabyte'
+  const id = `${locale}|${unit}`
+  let f = sizes.get(id)
+  if (!f) sizes.set(id, (f = new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'short', maximumFractionDigits: unit === 'gigabyte' ? 1 : 0 })))
+  return f.format(unit === 'gigabyte' ? mb / 1024 : mb)
+}

@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { ReportKind } from '../../shared/agentReports'
 import { cursorDriver } from './cursor'
+import { trackChild } from '../processRoots'
 import type { AgentDriver, AgentTurn, TurnCallbacks, TurnRequest } from './types'
 
 export type CursorEvent =
@@ -36,6 +37,7 @@ class CursorProcessTurn implements AgentTurn {
         execArgv: [], stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true
       })
       this.child = child
+      trackChild(child, this.req.env, 'agent')
       let stderr = ''
       child.stderr?.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-4000) })
       child.on('message', (message: CursorEvent) => {

@@ -189,7 +189,8 @@ export function App() {
   const windowWidth = useWindowWidth()
   // Leave the chat column 420px, plus the side panel's narrowest width when it's open.
   const sidebar = usePanelSize('sidebar', 312, 260, Math.min(480, windowWidth - 420 - (rightPanelOpen ? 280 : 0)))
-  // Workspaces stay mounted once opened so terminals and scroll positions survive switching.
+  // Workspaces stay mounted once opened so terminals and scroll positions survive switching. A hidden one holds what it
+  // read and skips these renders, so it costs nothing per store event (WorkspaceView); its terminals still run.
   const [opened, setOpened] = useState<string[]>([])
   if (selectedId && !opened.includes(selectedId)) setOpened([...opened, selectedId])
   useShortcuts()

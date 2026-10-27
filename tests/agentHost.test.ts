@@ -12,6 +12,7 @@ import { HostClient } from '../src/main/agentHost/client'
 import { readHostInfo, readLog } from '../src/main/agentHost/protocol'
 import { HostServer, type HostUi } from '../src/main/agentHost/server'
 import { AgentHostService } from '../src/main/agentHost/service'
+import { trackProcess } from '../src/main/processRoots'
 import { SessionService } from '../src/main/sessions'
 import { Store } from '../src/main/store'
 import { fakeDriver, fakeRequest } from './agentHostFake'
@@ -166,6 +167,21 @@ describe('background agent host: one owner', () => {
     const host = await inProcessHost()
     writeFileSync(path.join(host.dir, 'host.json'), JSON.stringify({ token: 'wrong', version: 1 }))
     await expect(host.client().connect({ spawn: false })).rejects.toThrow()
+  })
+})
+
+describe('background agent host: resource usage', () => {
+  it('tells the app which processes its turns started, by workspace', async () => {
+    const host = await inProcessHost()
+    const client = host.client()
+    await client.connect({ spawn: false })
+    // The host's drivers track what they start in the host's own list (claudeSpawn.ts, processRoots.ts).
+    const untrack = trackProcess(7171, 'w1', 'agent')
+    try {
+      expect((await client.request('processRoots', {})).roots).toContainEqual({ pid: 7171, workspaceId: 'w1', kind: 'agent' })
+    } finally {
+      untrack()
+    }
   })
 })
 

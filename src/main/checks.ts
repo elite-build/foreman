@@ -10,7 +10,7 @@ import path from 'node:path'
 import { DEFAULT_CHECK_TIMEOUT_MS, isFailure, isStale } from '../shared/checks'
 import type { CheckCommand, CheckConsentItem, CheckFingerprint, CheckResult, CheckRow, ChecksStatus, Workspace } from '../shared/types'
 import type { ChecksCliResult } from '../cli/protocol'
-import { snapshotWorkingTree } from './checkpoints'
+import { sharedWorkingTree, snapshotWorkingTree } from './checkpoints'
 import { workspaceTarget } from './runtime'
 import { runScript, type RunningScript } from './scripts'
 import type { Store } from './store'
@@ -99,14 +99,19 @@ export class ChecksService {
     return { tree, command: commandHash(check.command), source: sourceOf(check) }
   }
 
-  /** Configured checks with their recorded results, each marked stale if the tree, command or layer differs now. */
-  async status(workspaceId: string): Promise<ChecksStatus> {
+  /**
+   * Configured checks with their recorded results, each marked stale if the tree, command or layer differs now.
+   * The tree now is a new snapshot, unless the caller just took one (`tree`) or a snapshot started at or after
+   * `since` will do (see sharedWorkingTree).
+   */
+  async status(workspaceId: string, now: { tree?: string; since?: number } = {}): Promise<ChecksStatus> {
     const ws = this.deps.workspace(workspaceId)
     const checks = this.configured(ws)
     const running = this.isRunning(workspaceId)
     if (!checks.length) return { configured: false, running, rows: [] }
     // A cloud workspace's tree is read in its sandbox, without waking it.
-    const tree = await snapshotWorkingTree(workspaceTarget(ws))
+    const at = workspaceTarget(ws)
+    const tree = now.tree ?? (await (now.since === undefined ? snapshotWorkingTree(at) : sharedWorkingTree(at, now.since)))
     const rows: CheckRow[] = checks.map((c) => {
       const result = ws.checks?.results.find((r) => r.name === c.name)
       return {
@@ -129,9 +134,9 @@ export class ChecksService {
   }
 
   /** Keep the "stale" flag current (it feeds the Needs-you list) after the tree may have changed. */
-  async refreshStale(workspaceId: string): Promise<void> {
+  async refreshStale(workspaceId: string, tree?: string): Promise<void> {
     if (!this.deps.workspace(workspaceId).checks) return
-    await this.status(workspaceId).catch(() => undefined)
+    await this.status(workspaceId, { tree }).catch(() => undefined)
   }
 
   /**

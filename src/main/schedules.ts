@@ -4,7 +4,7 @@
 //  - a run that is late is missed and skipped, never replayed;
 //  - one run at a time per schedule, and a global cap;
 //  - the run is unattended: any approval or question stops it for the human, and unanswered approvals deny;
-//  - a duration limit cancels it; two failures in a row pause the schedule;
+//  - a duration limit cancels it (time spent waiting for an agent slot doesn't count); two failures in a row pause the schedule;
 //  - the schedule is tied to a fingerprint (template text and revision, repo setup, checks, repo MCP config) and pauses when it changes;
 //  - after a crash, runs that were in flight are marked uncertain and are never retried.
 import { createHash, randomUUID } from 'node:crypto'
@@ -91,11 +91,18 @@ export interface ScheduleDeps {
   launch(schedule: Schedule, occurrence: Occurrence, handle: LaunchHandle): Promise<void>
   /** Stop the run's turn (it ends as cancelled). */
   stop(occurrence: Occurrence): Promise<void>
+  /**
+   * Where the run's turn is for its duration limit: 'waiting' while it waits for an agent slot ("Maximum agents running
+   * at once"), when it started once it has (ISO), undefined before either (the workspace is still being made).
+   */
+  turnStart?(occurrence: Occurrence): 'waiting' | string | undefined
   /** The workspace that carries this occurrence id, if one was created before a crash. */
   workspaceFor?(occurrenceId: string): { workspaceId: string; sessionId?: string } | undefined
   changed(): void
   // #1: true while Foreman quits once the running turns finish; nothing new launches (a run due meanwhile is missed, never replayed).
   paused?(): boolean
+  // Settles once the inputs can be told (gh's active account is known), so a fingerprint isn't read as changed before then.
+  ready?(): Promise<unknown>
   maxActive?: number
   graceMs?: number
 }
@@ -282,6 +289,7 @@ export class ScheduleService {
     if (this.ticking) return
     this.ticking = true
     try {
+      if (this.deps.ready) await this.deps.ready().catch(() => undefined)
       const now = this.deps.now()
       await this.enforceDurations(now)
       if (now - this.lastFingerprintCheck >= FINGERPRINT_EVERY_MS) {
@@ -368,7 +376,11 @@ export class ScheduleService {
       if (!ACTIVE.includes(o.state) || !o.startedAt) continue
       const s = this.schedules.find((x) => x.id === o.scheduleId)
       const limit = (s?.maxMinutes ?? 30) * 60_000
-      if (now - Date.parse(o.startedAt) < limit) continue
+      // Counted from launch while the workspace is made, and from the turn's start once it has one: a run waiting for an
+      // agent slot hasn't started, so it isn't stopped for the wait.
+      const turn = this.deps.turnStart?.(o)
+      if (turn === 'waiting') continue
+      if (now - Date.parse(turn ?? o.startedAt) < limit) continue
       this.finish(o, 'timed-out', `Stopped after the maximum of ${s?.maxMinutes ?? 30} minutes.`)
       await this.deps.stop(o).catch(() => undefined)
     }

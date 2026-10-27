@@ -94,7 +94,7 @@ export class BaseWatcher {
       const key = `${ws.repoId}\0${ws.baseBranch}`
       if (repo.hasOrigin && !fetched.has(key)) {
         fetched.add(key)
-        await git(cwd, ['fetch', '--quiet', remote, ws.baseBranch], { allowFail: true, timeoutMs: 60_000, env: remoteGitEnv(this.deps.githubKey ? this.deps.githubKey(ws.repoId) : repo.githubAccount) })
+        await git(cwd, ['fetch', '--quiet', remote, ws.baseBranch], { allowFail: true, timeoutMs: 60_000, env: await remoteGitEnv(this.deps.githubKey ? this.deps.githubKey(ws.repoId) : repo.githubAccount) })
       }
       const baseRef = await baseStartPoint(cwd, ws.baseBranch, remote)
       const [base, head] = await Promise.all([revParse(cwd, baseRef), revParse(cwd, 'HEAD')])

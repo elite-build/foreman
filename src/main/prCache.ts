@@ -9,6 +9,8 @@ export interface PrCacheOptions {
   fetch?: (ws: Workspace) => Promise<PrResult>
   // Who a lookup runs as (a gh account, or '' for the default); failures pause only that identity.
   identity?: (ws: Workspace) => string
+  // Settles once identities can be told (gh's active account is known): a lookup waits for it first.
+  ready?: () => Promise<unknown>
   now?: () => number
   ttlMs?: number
   authBackoffMs?: number
@@ -28,7 +30,7 @@ export class PrCache {
   private inflight = new Map<string, Promise<PrResult>>()
   // The failure that paused lookups, and until when, per identity.
   private paused = new Map<string, { until: number; result: PrResult }>()
-  private opts: Required<Omit<PrCacheOptions, 'onResult'>> & Pick<PrCacheOptions, 'onResult'>
+  private opts: Required<Omit<PrCacheOptions, 'onResult' | 'ready'>> & Pick<PrCacheOptions, 'onResult' | 'ready'>
 
   constructor(options: PrCacheOptions = {}) {
     this.opts = {
@@ -38,6 +40,7 @@ export class PrCache {
       ttlMs: options.ttlMs ?? 15_000,
       authBackoffMs: options.authBackoffMs ?? 5 * 60_000,
       rateBackoffMs: options.rateBackoffMs ?? 5 * 60_000,
+      ready: options.ready,
       onResult: options.onResult
     }
   }
@@ -48,6 +51,11 @@ export class PrCache {
 
   /** The PR for a workspace: a recent answer if there is one, else a fresh lookup (unless paused by a failure). */
   get(ws: Workspace, options: { fresh?: boolean } = {}): Promise<PrResult> {
+    const ready = this.opts.ready?.()
+    return ready ? ready.then(() => this.lookup(ws, options), () => this.lookup(ws, options)) : this.lookup(ws, options)
+  }
+
+  private lookup(ws: Workspace, options: { fresh?: boolean }): Promise<PrResult> {
     const key = this.key(ws)
     const entry = this.entries.get(ws.id)
     if (!options.fresh && entry && entry.key === key && this.opts.now() - entry.at < this.opts.ttlMs) return Promise.resolve(entry.result)

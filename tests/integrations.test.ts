@@ -1,4 +1,4 @@
-import { stubGh } from './ghHarness'
+import { stubGh, takeGhCalls } from './ghHarness'
 // Integrations: the resolver, owner suggestions, Slack message
 // safety, Linear links, the connection service (verification, migration, removal) and how each
 // repository's GitHub identity reaches gh, git, agents and terminals.
@@ -9,7 +9,7 @@ import { disabledMcpTools } from '../src/main/agents/claude'
 import { codexOptions } from '../src/main/agents/codex'
 import type { TurnRequest } from '../src/main/agents/types'
 import { Environment } from '../src/main/environment'
-import { githubEnv, githubEnvOrNone, GithubUnavailable, setGithubIdentities } from '../src/main/github'
+import { accountTokenAsync, forgetAccountTokens, ghActiveAccount, ghActiveAccountAsync, githubEnv, githubEnvOrNone, GithubUnavailable, setGithubIdentities } from '../src/main/github'
 import { Integrations, secretKey } from '../src/main/integrations'
 import { SecretStore, type Encryptor } from '../src/main/secrets'
 import { Store } from '../src/main/store'
@@ -240,7 +240,7 @@ afterEach(() => {
   identitiesSet = false
 })
 
-async function rig(options: { pat?: string; githubAuth?: 'cli' | 'token'; repos?: Partial<Repo>[]; home?: string; activeAccount?: () => string | undefined } = {}) {
+async function rig(options: { pat?: string; githubAuth?: 'cli' | 'token'; repos?: Partial<Repo>[]; home?: string; activeAccount?: () => string | undefined; activeLogin?: () => Promise<string | undefined>; accountToken?: (login: string) => string | Promise<string> } = {}) {
   const dir = await tempDir('foreman-integrations-')
   const store = new Store(dir)
   await store.load()
@@ -265,8 +265,8 @@ async function rig(options: { pat?: string; githubAuth?: 'cli' | 'token'; repos?
     repoGithubToken: (id) => environment.repoGithubToken(id),
     remoteUrl: async () => null,
     githubAccounts: async () => [{ login: 'work', active: false }],
-    accountToken: (login) => `gho_${login}`,
-    activeLogin: async () => 'yatin-c',
+    accountToken: options.accountToken ?? ((login) => `gho_${login}`),
+    activeLogin: options.activeLogin ?? (async () => 'yatin-c'),
     activeAccount: options.activeAccount,
     changed: () => changes++,
     fetch: fakeFetch(services),
@@ -384,6 +384,16 @@ describe('connections', () => {
     expect(checked.problem).toMatch(/refused/)
     expect(integrations.resolve('r0', 'linear')).toMatchObject({ state: 'broken', reason: 'problem' })
     expect(integrations.brokenText('r0', 'linear')).toMatch(/won’t use another account/)
+  })
+
+  it('says which gh accounts to have ready, and marks a gh account gh no longer holds when its token arrives late', async () => {
+    const { integrations } = await rig({ repos: [{ githubAccount: 'work' }, { githubAccount: 'work' }], accountToken: async (login) => Promise.reject(new Error(`GitHub account ${login} isn’t signed in to gh.`)) })
+    integrations.migrate()
+    expect(integrations.ghAccountsInUse()).toEqual({ accounts: ['work'], active: true })
+    const work = integrations.state().connections.find((c) => c.auth.kind === 'gh-account')!
+    const checked = await integrations.checkConnection(work.id)
+    expect(checked.problem).toMatch(/isn’t signed in/)
+    expect(integrations.githubKey('r0')).toBe('blocked:r0')
   })
 
   it('lists what a removal affects, and leaves repositories that chose it without the service', async () => {
@@ -508,6 +518,43 @@ describe('GitHub identity for gh, git, agents and terminals', () => {
     secrets.set({ kind: 'user' }, 'GH_TOKEN', 'personal-token')
     environment.githubKey = (id) => integrations.githubKey(id)
     expect(integrations.githubKey('r0')).toBe('integration-work')
+    // Before gh has given the token (it's never waited for here): no credentials, not the personal token.
+    forgetAccountTokens()
+    expect(environment.forAgent('claude', 'r0')).toMatchObject({ GH_TOKEN: '', GH_CONFIG_DIR: expect.stringMatching(/foreman-no-github/) })
+    await accountTokenAsync('integration-work')
     expect(environment.forAgent('claude', 'r0').GH_TOKEN).toBe('gho_integration_work')
+  })
+
+  it('picks up gh auth switch run outside Foreman at the next turn, without blocking, and never another account when gh fails', async () => {
+    const fake = { active: 'work', fails: false }
+    forgetAccountTokens()
+    stubGh((args) => {
+      if (args[0] === 'auth' && args[1] === 'status') return fake.fails ? { code: 1, stderr: 'gh: timed out' } : { stdout: JSON.stringify({ hosts: { 'github.com': [{ login: fake.active, active: true, state: 'success' }] } }) }
+      if (args[0] === 'auth' && args[1] === 'token') return { stdout: `gho_${args[args.indexOf('--user') + 1]}
+` }
+      throw new Error(`unexpected gh ${args.join(' ')}`)
+    })
+    const { integrations, environment } = await rig({ repos: [{}], activeAccount: () => ghActiveAccount(), activeLogin: () => ghActiveAccountAsync(true), accountToken: (login) => accountTokenAsync(login) })
+    integrations.migrate()
+    expect(integrations.state().connections.find((c) => c.id === integrations.state().defaults.github)?.auth).toEqual({ kind: 'gh-active' })
+    setGithubIdentities((key) => integrations.githubIdentity(key))
+    identitiesSet = true
+    environment.githubKey = (id) => integrations.githubKey(id)
+    environment.githubKeyFresh = (id) => integrations.githubKeyFresh(id)
+    takeGhCalls()
+    await environment.githubReady('r0')
+    expect(environment.forAgent('claude', 'r0').GH_TOKEN).toBe('gho_work')
+    // gh auth switch in a terminal, seconds later: well within the cache's life, the next turn still runs as `me`.
+    fake.active = 'me'
+    await environment.githubReady('r0')
+    expect(environment.forAgent('claude', 'r0').GH_TOKEN).toBe('gho_me')
+    // gh can't say who is active: no GitHub credentials, not the last account's.
+    fake.fails = true
+    await environment.githubReady('r0')
+    expect(environment.forAgent('claude', 'r0')).toMatchObject({ GH_TOKEN: '', GH_CONFIG_DIR: expect.stringMatching(/foreman-no-github/) })
+    const calls = takeGhCalls()
+    expect(calls.filter((c) => c.args[1] === 'status')).toHaveLength(3)
+    expect(calls.some((c) => c.sync)).toBe(false)
+    forgetAccountTokens()
   })
 })

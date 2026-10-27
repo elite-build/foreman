@@ -7,6 +7,7 @@ import net from 'node:net'
 import { Duplex, type Readable, type Writable } from 'node:stream'
 import type { HostTurnInfo } from '../../shared/agentHost'
 import type { ApprovalResponse } from '../../shared/types'
+import { PreviewDecoder } from '../../shared/chatAppend'
 import type { AgentTurn, HostTools, TurnCallbacks } from '../agents/types'
 import {
   hostSocketPath,
@@ -326,6 +327,8 @@ export class RemoteTurn implements AgentTurn {
   // Answers that couldn't be sent because the transport had dropped; sent again on resume.
   private unsent = new Map<string, ApprovalResponse>()
   private running = false
+  // The streaming previews' text so far: the host sends a block's new text, the chat gets the whole preview.
+  private previews = new PreviewDecoder()
   // When the agent process ended, and whether the host already saved the end checkpoint.
   endedAt?: string
   endCheckpointSaved?: boolean
@@ -409,7 +412,13 @@ export class RemoteTurn implements AgentTurn {
       case 'event':
         return this.apply(push.event)
       case 'transient':
+        this.previews.item(push.item, true)
         return this.cb.item(push.item, true)
+      case 'transient-append': {
+        // One that doesn't continue the preview held is skipped; the host sends it whole again soon.
+        const item = this.previews.append(push.append)
+        return item ? this.cb.item(item, true) : undefined
+      }
       case 'approval':
         return this.approval(push.approval)
       case 'approval-gone':
@@ -427,6 +436,7 @@ export class RemoteTurn implements AgentTurn {
     this.seq = event.seq
     switch (event.type) {
       case 'item':
+        this.previews.item(event.item, false)
         this.cb.item(event.item)
         break
       case 'session-started':

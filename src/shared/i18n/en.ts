@@ -863,6 +863,7 @@ export const en = {
 
   // ---- Queue editing: the queued messages above the composer, edited in place and reordered ----
   'queue.label': 'Queued messages',
+  'queue.head.slot': 'Queued — starts when a running agent finishes (at most {max} at once)',
   'queue.head': 'Queued — sent when the agent finishes',
   // {up} and {down} are key hints (⌥↑ ⌥↓ on macOS, Alt+↑ Alt+↓ elsewhere).
   'queue.moveKeys': '{up} {down} to move',
@@ -2050,6 +2051,13 @@ export const en = {
   'settings.advanced.scrollback.help': 'Approximate terminal output to keep.',
   // Megabytes, after the number field.
   'settings.advanced.scrollback.unit': 'MB',
+  'settings.advanced.maxAgents.label': 'Maximum agents running at once',
+  'settings.advanced.maxAgents.help': 'Each running turn has its own agent processes and memory. At the limit, new turns wait as Queued and start, oldest first, as running ones finish. Turns in remote workspaces run in their sandboxes and don’t count.',
+  'settings.advanced.maxAgents.none': 'No limit',
+  'settings.advanced.backgroundWait.label': 'Stop waiting for background tasks',
+  'settings.advanced.backgroundWait.help': 'When Claude Code has answered but its background shells or subagents are still running, the turn and its agent stay open for them. After this long, the turn ends and that background work stops.',
+  'settings.advanced.backgroundWait.never': 'Never',
+  'settings.advanced.backgroundWait.after': { one: 'After {count} minute', other: 'After {count} minutes' },
   // "foreman" is the command's name; keep it as written.
   'settings.advanced.cli.label': 'foreman command',
   // {example} is a command, shown as code.
@@ -2639,6 +2647,7 @@ export const en = {
   'triage.failedToCreate': 'Failed to create',
   'triage.reviewing': 'Reviewing',
   'triage.reviewing.detail': 'auto review · read-only',
+  'triage.queued': 'Queued',
   'triage.working': 'Working',
   'triage.agentsWorking': { one: '{count} agent working', other: '{count} agents working' },
   'triage.setupFailed': 'Setup failed',
@@ -2667,9 +2676,20 @@ export const en = {
   'sidebar.row.archive': 'Archive workspace',
   // A group of workspaces started together by Compare; {prompt} is the start of the prompt they were given.
   'sidebar.compare': 'Compare · “{prompt}”',
-  'sidebar.usage.title': 'Foreman\'s processes, including its agents',
+  'sidebar.usage.title': 'Foreman’s own processes',
   // {memory} is e.g. "1.2 GB".
   'sidebar.usage': 'CPU {cpu}% · {memory}',
+  // After the line above when workspaces run something: memory used by their agents, terminals and scripts and what those started.
+  'sidebar.usage.workspaces': '{memory} in workspaces',
+  'sidebar.usage.panel': 'Resource usage by workspace',
+  'sidebar.usage.note': 'What each workspace’s agents, terminals and scripts run, including the MCP servers, hooks and shells they start.',
+  // One workspace's total; {count} is how many processes.
+  'sidebar.usage.workspace': { one: '{memory} · CPU {cpu}% · {count} process', other: '{memory} · CPU {cpu}% · {count} processes' },
+  'sidebar.usage.kind.agent': 'Agents {memory}',
+  'sidebar.usage.kind.terminal': 'Terminals {memory}',
+  'sidebar.usage.kind.script': 'Scripts {memory}',
+  // {name} is a program's name as the system reports it ("node", "claude"); {count} how many of it run.
+  'sidebar.usage.group': '{name} ×{count} ({memory})',
   'sidebar.rail.label': 'Repositories',
   // {label} is a repository's name.
   'sidebar.rail.needYou': { one: '{label} · {count} need you', other: '{label} · {count} need you' },
@@ -3564,6 +3584,7 @@ export const en = {
   'chat.greeting.namesake': "It's named after {name}. {contribution}",
   'chat.greeting.namesakeSource': 'Read about {name} on Wikipedia',
   'chat.held': 'Not sent · held because setup failed',
+  'chat.backgroundWait.cutoff': { one: 'Stopped waiting for background tasks after {count} minute (Settings → Advanced). The turn ended, and its background shells and subagents were stopped.', other: 'Stopped waiting for background tasks after {count} minutes (Settings → Advanced). The turn ended, and its background shells and subagents were stopped.' },
   // Noun: the plan the agent proposes.
   'chat.plan.title': 'Plan',
   // {revision} is a tag like "r3", the note's revision.
@@ -5612,6 +5633,7 @@ export const en = {
   'workspaceView.panel.tabs': 'Side panel',
   'workspaceView.tab.running': 'Running',
   'workspaceView.tab.unread': 'New activity',
+  'workspaceView.tab.queued': 'Queued',
   'workspaceView.tab.waiting': 'Waiting for you',
   'workspaceView.tabMenu.label': 'Chat tab actions',
   'workspaceView.tabs.label': 'Chats',

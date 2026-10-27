@@ -42,7 +42,7 @@ export function tabRow(s: Session, tab?: number): TabRow {
     fast: s.fastMode,
     plan: s.planMode,
     ...(s.autoAcceptEdits ? { autoAcceptEdits: true } : {}),
-    status: s.status === 'running' ? 'running' : 'idle',
+    status: s.status === 'running' ? 'running' : s.waitingForSlot ? 'queued' : 'idle',
     queued: s.queue.length,
     ...(last ? { lastTurn: { outcome: last.outcome, ...(last.turnId ? { turn: last.turnId } : {}), endedAt: last.endedAt } } : {}),
     ...(s.closedAt ? { closed: true } : {})

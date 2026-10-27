@@ -1,6 +1,7 @@
 // The interface every coding agent (Claude Code, Codex, Cursor, OpenCode)
 // implements. Sessions talk only to this, never to a specific SDK.
 import type { SessionStore } from '@anthropic-ai/claude-agent-sdk'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { AgentKind, EffortLevel, ModelInfo } from '../../shared/agents'
 import type { AgentStatus, ApprovalRequest, ApprovalResponse, ChatItem, ContextUsage, McpServerInfo, Question } from '../../shared/types'
 import type { ApprovalPolicy } from '../../shared/permissions'
@@ -85,10 +86,16 @@ export interface TurnRequest {
   // Repo-proposed MCP servers this Mac approved (#20: agents with supportsRepoMcp), and Integrations' bridge
   // servers (`foreman-linear`). Never contains an unapproved one.
   mcpServers?: Record<string, McpLaunch>
+  // MCP servers the app answers in its own process (Foreman's `foreman-app`), by name. Claude only, and only for
+  // a turn running in the app: they replace the bridge process a stdio server would need. Never sent to a host.
+  inProcessMcp?: Record<string, McpServer>
   // Integrations: the user's own MCP servers (names from their Claude Code or Codex config, or claude.ai
   // connectors) for a service this repository gets through Foreman, switched off for this turn so the
   // agent can't reach another account. Claude denies their tools; Codex turns them off. Others ignore it.
   disabledMcp?: string[]
+  // Claude only ("Stop waiting for background tasks"): a turn that has answered but still has background shells or
+  // subagents ends after `ms`, saying `notice` (already in the app's language), and that background work stops with it.
+  backgroundWait?: { ms: number; notice: string }
   // The Foreman assistant: replaces the prompt, tools and settings of the turn (see AssistantProfile).
   assistant?: AssistantProfile
 }

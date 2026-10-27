@@ -28,7 +28,7 @@ import { AskOverlay } from '../../src/renderer/src/components/assistant/AskOverl
 import { Overlays } from '../../src/renderer/src/components/Overlays'
 import { announce } from '../../src/renderer/src/announce'
 import { matchShortcut, shortcutHint, SHORTCUTS, type ShortcutContext } from '../../src/renderer/src/shortcuts'
-import { closeAsk, deleteAssistantThread, getState, initStore, loadAssistant, openOverlay, useStore } from '../../src/renderer/src/store'
+import { closeAsk, deleteAssistantThread, flushStore, getState, initStore, loadAssistant, openOverlay, useStore } from '../../src/renderer/src/store'
 
 vi.mock('../../src/renderer/src/announce', () => ({ announce: vi.fn() }))
 
@@ -53,7 +53,12 @@ function snapshot(over: Record<string, unknown> = {}) {
 
 const ready = { state: 'ready', agent: 'claude', model: 'm' }
 const thread = (running: boolean) => ({ id: 'ask-1', title: 'ask', updatedAt: done, agent: 'claude', model: 'm', running })
-const emit = (event: unknown) => act(() => void bridge.events.handler?.(event))
+// Events from main reach components on the next frame; flushing stands in for it.
+const emit = (event: unknown) =>
+  act(() => {
+    bridge.events.handler?.(event)
+    flushStore()
+  })
 const item = (threadId: string, it: Record<string, unknown>) => emit({ type: 'assistant-item', threadId, item: it })
 const running = (on: boolean) => emit({ type: 'assistant-threads', threads: [thread(on)] })
 const assistantItem = (id: string, text: string, streaming = false) => ({ kind: 'assistant', id, turnId: 't1', text, streaming })

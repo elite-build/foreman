@@ -9,7 +9,8 @@ import { AGENTS } from '../../../shared/agents'
 import { autoFixLine, type AutoFixLine } from '../../../shared/autoFix'
 import { openCiFailure } from '../../../shared/prWatch'
 import type { AppSnapshot, AutoFixPreview, AutoFixStop, MessageOrigin, Workspace } from '../../../shared/types'
-import { activeSessionId, api, attempt, openSessions, useStore } from '../store'
+import { api, attempt, openSessions, useStore } from '../store'
+import { useActiveSessionId } from '../storeMemo'
 import { useT, type RendererT } from '../i18n'
 import { formatClock } from '../../../shared/i18n/time'
 import { Button, Checkbox, Dialog, Field, LinkButton, Select, Tag } from '../ui'
@@ -112,7 +113,7 @@ export function AutoFixDialog({ workspaceId, onClose }: { workspaceId: string; o
   const snapshot = useStore((s) => s.snapshot!)
   const ws = snapshot.workspaces.find((w) => w.id === workspaceId)
   const tabs = openSessions(snapshot, workspaceId)
-  const active = useStore((s) => activeSessionId(s, workspaceId))
+  const active = useActiveSessionId(workspaceId)
   const [target, setTarget] = useState<string | undefined>(ws?.autoFix?.consent.sessionId ?? active ?? tabs[0]?.id)
   const [preview, setPreview] = useState<AutoFixPreview | null>(null)
   const [busy, setBusy] = useState(false)

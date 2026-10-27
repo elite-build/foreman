@@ -1,6 +1,6 @@
-import { stubGh } from './ghHarness'
-import { describe, expect, it } from 'vitest'
-import { accountToken, detectAccount, forgetAccountTokens, ghActiveAccount, gh, githubAccounts, githubEnv, githubSlug, isSshRemote, remoteGitEnv } from '../src/main/github'
+import { stubGh, takeGhCalls } from './ghHarness'
+import { describe, expect, it, vi } from 'vitest'
+import { accountToken, accountTokenAsync, detectAccount, forgetAccountTokens, ghActiveAccount, ghActiveAccountAsync, ghActiveAccountReady, gh, githubAccounts, githubEnv, githubEnvAsync, githubSlug, isSshRemote, refreshGhActiveAccount, remoteGitEnv, warmGithub } from '../src/main/github'
 import { PrCache } from '../src/main/prCache'
 import type { PrResult } from '../src/main/github'
 import type { Workspace } from '../src/shared/types'
@@ -63,8 +63,9 @@ describe('acting as a linked account', () => {
   it('resolves the active keyring identity independently of inherited tokens', async () => {
     await fakeGh()
     forgetAccountTokens()
+    expect(await ghActiveAccountAsync()).toBe('work')
     expect(ghActiveAccount()).toBe('work')
-    expect(githubEnv(ghActiveAccount()).GH_TOKEN).toBe('tok-work')
+    expect((await githubEnvAsync(ghActiveAccount())).GH_TOKEN).toBe('tok-work')
   })
   it('lists the signed-in accounts', async () => {
     await fakeGh()
@@ -76,7 +77,7 @@ describe('acting as a linked account', () => {
 
   it('gives gh and git that account’s token and gh’s credential helper', async () => {
     await fakeGh()
-    expect(accountToken('alice')).toBe('tok-alice')
+    expect(await accountTokenAsync('alice')).toBe('tok-alice')
     const env = githubEnv('alice')
     expect(env).toMatchObject({
       GH_TOKEN: 'tok-alice',
@@ -89,16 +90,197 @@ describe('acting as a linked account', () => {
     expect((await gh(process.cwd(), ['api', 'user'], 5000, 'alice')).trim()).toBe('token=tok-alice')
   })
 
-  it('without an account, leaves git and gh to their defaults', () => {
+  it('without an account, leaves git and gh to their defaults', async () => {
     expect(githubEnv()).toEqual({})
-    expect(remoteGitEnv(undefined)).toEqual({})
+    expect(await remoteGitEnv(undefined)).toEqual({})
   })
 
   it('says how to fix a signed-out account and prevents fetches from using another account', async () => {
     await fakeGh()
+    await expect(githubEnvAsync('gone')).rejects.toThrow(/gone isn’t signed in to gh/)
     expect(() => githubEnv('gone')).toThrow(/gone isn’t signed in to gh/)
     await expect(gh(process.cwd(), ['api', 'user'], 5000, 'gone')).rejects.toThrow(/Settings → Account/)
-    expect(remoteGitEnv('gone')).toMatchObject({ GH_TOKEN: '', GITHUB_TOKEN: '', GIT_CONFIG_VALUE_0: '' })
+    expect(await remoteGitEnv('gone')).toMatchObject({ GH_TOKEN: '', GITHUB_TOKEN: '', GIT_CONFIG_VALUE_0: '' })
+  })
+})
+
+// gh can take over a second to answer: the main process must never wait for it (no execFileSync),
+// ask it once for many readers, and keep its answers a while (gh's active account for a minute, tokens for minutes).
+describe('asking gh without blocking the main process', () => {
+  type Fake = { active: string; version: number; statusFails?: boolean; reject?: boolean; signedOut?: string[] }
+  function countingGh(fake: Fake): void {
+    forgetAccountTokens()
+    stubGh((args) => {
+      if (args[0] === 'auth' && args[1] === 'status') {
+        return fake.statusFails ? { code: 1, stderr: 'gh: timed out' } : { stdout: JSON.stringify({ hosts: { 'github.com': [{ login: fake.active, active: true, state: 'success' }] } }) }
+      }
+      if (args[0] === 'auth' && args[1] === 'token') {
+        const user = args[args.indexOf('--user') + 1]
+        return fake.signedOut?.includes(user) ? { code: 1, stderr: `no account found for ${user}` } : { stdout: `tok-${user}-${fake.version}\n` }
+      }
+      return fake.reject ? { code: 1, stderr: 'HTTP 401: Bad credentials (https://api.github.com/user)' } : { stdout: 'ok' }
+    })
+    takeGhCalls()
+  }
+  const asked = (calls: { args: string[] }[], what: 'status' | 'token') => calls.filter((c) => c.args[0] === 'auth' && c.args[1] === what).length
+
+  function clock(): { advance: (ms: number) => void; restore: () => void } {
+    let t = Date.now()
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => t)
+    return { advance: (ms) => void (t += ms), restore: () => spy.mockRestore() }
+  }
+
+  it('answers readers that can’t wait from the cache, and asks gh once for many readers', async () => {
+    countingGh({ active: 'work', version: 1 })
+    // Not known yet: nobody (so no credentials), never another account.
+    expect(ghActiveAccount()).toBeUndefined()
+    expect(() => accountToken('carol')).toThrow(/still loading/)
+    await Promise.all([ghActiveAccountAsync(), ghActiveAccountAsync(), ghActiveAccountReady(), accountTokenAsync('carol'), accountTokenAsync('carol')])
+    for (let i = 0; i < 50; i++) {
+      expect(ghActiveAccount()).toBe('work')
+      expect(githubEnv('carol').GH_TOKEN).toBe('tok-carol-1')
+    }
+    for (let i = 0; i < 3; i++) await gh(process.cwd(), ['api', 'user'], 5000, 'carol')
+    expect(await ghActiveAccountAsync()).toBe('work')
+    const calls = takeGhCalls()
+    expect(asked(calls, 'status')).toBe(1)
+    expect(asked(calls, 'token')).toBe(1)
+    expect(calls.some((c) => c.sync)).toBe(false)
+  })
+
+  it('keeps answers a while, then serves the old one while gh is asked again in the background', async () => {
+    const fake: Fake = { active: 'work', version: 1 }
+    countingGh(fake)
+    const time = clock()
+    try {
+      expect(await ghActiveAccountAsync()).toBe('work')
+      expect(await accountTokenAsync('dana')).toBe('tok-dana-1')
+      fake.active = 'me'
+      fake.version = 2
+      time.advance(40_000)
+      expect(ghActiveAccount()).toBe('work')
+      expect(asked(takeGhCalls(), 'status')).toBe(1)
+      // gh's active account is kept for a minute (gh auth switch happens outside Foreman), then asked again.
+      time.advance(30_000)
+      expect(ghActiveAccount()).toBe('work')
+      await vi.waitUntil(() => ghActiveAccount() === 'me')
+      fake.active = 'work'
+      expect(await ghActiveAccountAsync(true)).toBe('work')
+      expect(ghActiveAccount()).toBe('work')
+      time.advance(10 * 60_000)
+      expect(accountToken('dana')).toBe('tok-dana-1')
+      expect(await accountTokenAsync('dana')).toBe('tok-dana-1')
+      await vi.waitUntil(() => accountToken('dana') === 'tok-dana-2')
+      const calls = takeGhCalls()
+      expect(asked(calls, 'status')).toBe(2)
+      expect(asked(calls, 'token')).toBe(1)
+      expect(calls.some((c) => c.sync)).toBe(false)
+    } finally {
+      time.restore()
+    }
+  })
+
+  it('asks gh again when a window gains focus, at most once in a while, without waiting for it', async () => {
+    const fake: Fake = { active: 'work', version: 1 }
+    countingGh(fake)
+    const time = clock()
+    try {
+      expect(await ghActiveAccountAsync()).toBe('work')
+      takeGhCalls()
+      // gh auth switch in another terminal, then back to Foreman.
+      fake.active = 'me'
+      refreshGhActiveAccount(5000)
+      expect(asked(takeGhCalls(), 'status')).toBe(0)
+      time.advance(6000)
+      refreshGhActiveAccount(5000)
+      refreshGhActiveAccount(5000)
+      // The old answer until gh's comes back: never nobody, never a third account.
+      expect(ghActiveAccount()).toBe('work')
+      await vi.waitUntil(() => ghActiveAccount() === 'me')
+      const calls = takeGhCalls()
+      expect(asked(calls, 'status')).toBe(1)
+      expect(calls.some((c) => c.sync)).toBe(false)
+    } finally {
+      time.restore()
+    }
+  })
+
+  it('asks again after a sign-in or sign-out, without lending the old active account meanwhile', async () => {
+    const fake: Fake = { active: 'work', version: 1 }
+    countingGh(fake)
+    expect(await ghActiveAccountAsync()).toBe('work')
+    expect(await accountTokenAsync('erin')).toBe('tok-erin-1')
+    fake.active = 'me'
+    fake.version = 2
+    forgetAccountTokens()
+    expect(ghActiveAccount()).toBeUndefined()
+    // The same account's last token is still its own while it reloads; callers that can wait get the new one.
+    expect(accountToken('erin')).toBe('tok-erin-1')
+    expect(await accountTokenAsync('erin')).toBe('tok-erin-2')
+    expect(await ghActiveAccountAsync()).toBe('me')
+    // Listing the accounts tells gh's active one too.
+    fake.active = 'work'
+    forgetAccountTokens()
+    takeGhCalls()
+    await githubAccounts()
+    expect(ghActiveAccount()).toBe('work')
+    expect(asked(takeGhCalls(), 'status')).toBe(1)
+  })
+
+  it('asks again after gh or GitHub refuses the credentials', async () => {
+    const fake: Fake = { active: 'work', version: 1 }
+    countingGh(fake)
+    expect(await ghActiveAccountAsync()).toBe('work')
+    expect(await accountTokenAsync('fay')).toBe('tok-fay-1')
+    fake.reject = true
+    fake.version = 2
+    await expect(gh(process.cwd(), ['api', 'user'], 5000, 'fay')).rejects.toThrow(/401/)
+    await expect(gh(process.cwd(), ['api', 'user'], 5000)).rejects.toThrow(/401/)
+    takeGhCalls()
+    expect(await accountTokenAsync('fay')).toBe('tok-fay-2')
+    expect(await ghActiveAccountAsync()).toBe('work')
+    const calls = takeGhCalls()
+    expect(asked(calls, 'token')).toBe(1)
+    expect(asked(calls, 'status')).toBe(1)
+  })
+
+  it('treats a failed or signed-out answer as no account, briefly, and never throws for it', async () => {
+    const fake: Fake = { active: 'work', version: 1, statusFails: true, signedOut: ['gabe'] }
+    countingGh(fake)
+    const time = clock()
+    try {
+      expect(await ghActiveAccountAsync()).toBeUndefined()
+      await expect(accountTokenAsync('gabe')).rejects.toThrow(/gabe isn’t signed in to gh/)
+      for (let i = 0; i < 10; i++) {
+        expect(ghActiveAccount()).toBeUndefined()
+        expect(() => accountToken('gabe')).toThrow(/gabe isn’t signed in to gh/)
+      }
+      await expect(gh(process.cwd(), ['api', 'user'], 5000, 'gabe')).rejects.toThrow(/Settings → Account/)
+      expect(await remoteGitEnv('gabe')).toMatchObject({ GH_TOKEN: '', GITHUB_TOKEN: '' })
+      let calls = takeGhCalls()
+      expect(asked(calls, 'status')).toBe(1)
+      expect(asked(calls, 'token')).toBe(1)
+      // Then gh is asked again.
+      fake.statusFails = false
+      time.advance(31_000)
+      expect(await ghActiveAccountAsync()).toBe('work')
+      calls = takeGhCalls()
+      expect(asked(calls, 'status')).toBe(1)
+      expect(calls.some((c) => c.sync)).toBe(false)
+    } finally {
+      time.restore()
+    }
+  })
+
+  it('warms the active account and linked accounts’ tokens for readers that can’t wait', async () => {
+    countingGh({ active: 'hal', version: 1 })
+    await warmGithub(['ivy', 'ivy'], true)
+    expect(ghActiveAccount()).toBe('hal')
+    expect(accountToken('hal')).toBe('tok-hal-1')
+    expect(accountToken('ivy')).toBe('tok-ivy-1')
+    const calls = takeGhCalls()
+    expect(asked(calls, 'status')).toBe(1)
+    expect(asked(calls, 'token')).toBe(2)
   })
 })
 

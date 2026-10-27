@@ -17,6 +17,11 @@
 html[data-reduce-motion='on'] .ui-spinner__icon {
   animation: none;
 }
+/* A minimized or hidden window still draws its frames (backgroundThrottling is off): no turning that nobody sees.
+   html[data-window-hidden] is set by the store from main's window-visibility. */
+html[data-window-hidden] .ui-spinner__icon {
+  animation-play-state: paused;
+}
 .ui-spinner__label {
   position: absolute;
   width: 1px;

@@ -2,8 +2,9 @@
 // sidebar's rail), what's running, and what was active lately.
 import { IntegrationsHome } from './IntegrationsHome'
 import { Plus } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { api, attempt, markWorkspaceUnread, modKey, openFixCi, openHandOffDialog, openImportDialog, openResolveBase, openNewWorkspace, selectWorkspace, sendUnseenReviews, timeWaited, useStore } from '../store'
+import { useClock } from '../clock'
 import { BUCKET_LABEL, liveRepo, oldestFirst, triageAll, type Triage } from '../triage'
 import type { PlainKey } from '../../../shared/i18n'
 import { compareGroups } from '../../../shared/compare'
@@ -183,12 +184,8 @@ function HomeCard({ title, hint, items, repoNames }: { title: string; hint?: str
 export function Home() {
   const base = useTriageInput()
   const [allClearIndex] = useState(() => Math.floor(Math.random() * ALL_CLEAR_MESSAGES.length))
-  // Elapsed times on running rows move with the clock.
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(timer)
-  }, [])
+  // Elapsed times on running rows move with the clock (stopped while the window is minimized or hidden).
+  const now = useClock(30_000)
   const input = { ...base, now }
   const { snapshot } = input
   const repoId = useStore((s) => liveRepo(s.snapshot!, s.sidebarView.repo))

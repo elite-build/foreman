@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -12,7 +13,13 @@ import { stubHost } from './cliHost'
 import { tempDir } from './helpers'
 import { setupSessions, fakeDriver, gate } from './sessionHarness'
 import { registerDriver } from '../src/main/agents/registry'
-import { claudeDriver } from '../src/main/agents/claude'
+import { claudeDriver, inProcessMcpConfig } from '../src/main/agents/claude'
+import { codexDriver } from '../src/main/agents/codex'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { AgentTurn, TurnCallbacks } from '../src/main/agents/types'
+import type { TurnHost } from '../src/main/sessions'
 import type { TurnRequest } from '../src/main/agents/types'
 import type { ForemanDelegation } from '../src/main/foremanDelegation'
 import { delegationRig } from './foremanDelegationHarness'
@@ -20,7 +27,7 @@ import { ForemanCli } from '../src/main/foremanCli'
 
 const cleanup: (() => Promise<unknown> | void)[] = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
-afterEach(() => { registerDriver(claudeDriver); vi.restoreAllMocks() })
+afterEach(() => { registerDriver(claudeDriver); registerDriver(codexDriver); vi.restoreAllMocks() })
 
 function rig() {
   const ws: Workspace = { id: 'w', repoId: 'r', name: 'Work', branch: 'task', baseBranch: 'main', portBase: 50030, createdAt: '', state: 'ready', setupRun: {
@@ -75,6 +82,16 @@ async function setup(delegation?: ForemanDelegation, cli?: ForemanCli) {
   const call = agent(config.env)
   await call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } })
   return { ...r, bridge, config, call, socket }
+}
+
+/** An MCP client on an in-process server, as Claude's SDK connects to one. */
+async function inProcessClient(server: McpServer) {
+  const [mine, theirs] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: 'test', version: '1' })
+  await server.connect(theirs)
+  await client.connect(mine)
+  cleanup.push(() => client.close())
+  return client
 }
 
 describe('Foreman actions', () => {
@@ -190,6 +207,54 @@ describe('Foreman MCP over the local CLI socket', () => {
   })
 })
 
+describe('Foreman MCP in-process (Claude turns in the app)', () => {
+  it('serves the same tools under the same server name as the bridge, and refuses them once the turn ends', async () => {
+    const d = delegationRig()
+    const { call, actions, state, session, bridge } = await setup(d.service, new ForemanCli(d.host))
+    const bridged = (await call('tools/list')).result?.tools as unknown as { name: string; description?: string; inputSchema: unknown; annotations?: unknown }[]
+    // Needs no bridge process, launch command or CLI socket.
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null })
+    local.delegation = d.service
+    local.cli = new ForemanCli(d.host)
+    cleanup.push(() => local.close())
+    const servers = local.inProcessForTurn(session)
+    expect(Object.keys(servers)).toEqual(['foreman-app'])
+    // Claude's SDK registers it as an sdk server under that name, so its tools stay mcp__foreman-app__...
+    expect(inProcessMcpConfig(servers)).toEqual({ 'foreman-app': { type: 'sdk', name: 'foreman-app', instance: servers['foreman-app'] } })
+    const client = await inProcessClient(servers['foreman-app'])
+    const tools = (await client.listTools()).tools
+    const shape = (list: typeof bridged) => list.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations }))
+    expect(shape(tools as typeof bridged)).toEqual(shape(bridged))
+    const status = await client.callTool({ name: 'get_workspace_status', arguments: {} })
+    expect(status.isError).not.toBe(true)
+    expect(JSON.stringify(status.content)).toContain('Work')
+    expect((await client.callTool({ name: 'run_foreman', arguments: { args: ['settings', 'get', 'appearance.theme'] } })).isError).not.toBe(true)
+    // Read-only is checked when a tool is called, as over the bridge.
+    session.planMode = true
+    expect((await client.callTool({ name: 'run_checks', arguments: {} })).isError).toBe(true)
+    session.planMode = false
+    local.endSession(session.id)
+    const ended = await client.callTool({ name: 'get_workspace_status', arguments: {} })
+    expect(ended.isError).toBe(true)
+    expect(JSON.stringify(ended.content)).toContain('turn has ended')
+    expect((await client.callTool({ name: 'run_foreman', arguments: { args: ['settings', 'list'] } })).isError).toBe(true)
+    // A new turn's server does not revive the old one, and the bridge's own grant is separate.
+    const next = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await next.callTool({ name: 'get_workspace_status', arguments: {} })).isError).not.toBe(true)
+    expect((await client.callTool({ name: 'get_workspace_status', arguments: {} })).isError).toBe(true)
+    expect((await call('tools/call', { name: 'get_workspace_status' })).result?.isError).not.toBe(true)
+    bridge.endSession(session.id)
+  })
+
+  it('offers only read-only tools to a read-only turn', async () => {
+    const { actions, state, session } = rig()
+    session.planMode = true
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null })
+    const client = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['get_workspace_status', 'get_check_results'])
+  })
+})
+
 describe('workspace turn lifecycle', () => {
   it('injects the bridge into agent requests and revokes it on completion and failed startup', async () => {
     let finish!: () => void
@@ -204,7 +269,9 @@ describe('workspace turn lifecycle', () => {
     let request: TurnRequest | undefined
     registerDriver(fakeDriver(async (req, cb, signal) => { request = req; await held.script(req, cb, signal) }))
     await sessions.send(session.id, 'Inspect my workspace')
-    expect(request?.mcpServers?.['foreman-app'].env.FOREMAN_BRIDGE_GRANT).toBeTruthy()
+    // A Claude turn in the app answers Foreman's tools in-process: no bridge process.
+    expect(request?.mcpServers?.['foreman-app']).toBeUndefined()
+    expect(request?.inProcessMcp?.['foreman-app']).toBeTruthy()
     revoke.mockClear()
     held.release()
     await finished
@@ -215,5 +282,72 @@ describe('workspace turn lifecycle', () => {
     expect((await sessions.getChat(session.id)).some((item) => item.kind === 'turn-end' && item.error === 'startup failed')).toBe(true)
     // forTurn revokes the preceding grant, and the startup catch revokes the newly minted one.
     expect(revoke).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives the stdio bridge to turns outside the app process and to other agents', async () => {
+    const hosted: TurnRequest[] = []
+    const host: TurnHost = {
+      keeps: (agent) => agent === 'claude',
+      createTurn: (_session, _ws, req: TurnRequest, callbacks: TurnCallbacks) => {
+        hosted.push(req)
+        const turn: AgentTurn = { run: async () => callbacks.finished({ ok: true }), stop: async () => {}, steer: () => false, setPlanMode: async () => {}, setModel: async () => {} }
+        return Object.assign(turn, { hosted: true })
+      },
+      ended: () => {}
+    }
+    let finish!: () => void
+    let finished = new Promise<void>((resolve) => { finish = resolve })
+    const { sessions, session, store } = await setupSessions({ turnHost: host, events: { turnEnded: () => finish() } })
+    const bridge = new ForemanMcp({ actions: rig().actions, session: (id) => store.state.sessions.find((s) => s.id === id),
+      launch: () => ({ command: 'foreman-test', args: ['bridge.js'], env: {} }), socket: () => 'test-socket' })
+    cleanup.push(() => bridge.close())
+    sessions.foremanMcp = bridge
+    // Claude kept running in the background host: the host can't take an in-process server.
+    await sessions.send(session.id, 'Kept turn')
+    await finished
+    expect(hosted[0].mcpServers?.['foreman-app']).toMatchObject({ command: 'foreman-test', args: ['bridge.js', 'mcp-bridge', 'app'] })
+    expect(hosted[0].mcpServers?.['foreman-app'].env.FOREMAN_BRIDGE_GRANT).toBeTruthy()
+    expect(hosted[0].inProcessMcp).toBeUndefined()
+    // Codex in the app: its own process, so the bridge too.
+    finished = new Promise<void>((resolve) => { finish = resolve })
+    let request: TurnRequest | undefined
+    registerDriver({ ...fakeDriver(async (req, cb) => { request = req; cb.finished({ ok: true }) }), kind: 'codex' })
+    await sessions.updateSession(session.id, { agent: 'codex' })
+    await sessions.send(session.id, 'Codex turn')
+    await finished
+    expect(request?.mcpServers?.['foreman-app'].env.FOREMAN_BRIDGE_GRANT).toBeTruthy()
+    expect(request?.inProcessMcp).toBeUndefined()
+    expect(hosted).toHaveLength(1)
+  })
+})
+
+/** The files a module loads at run time (type-only imports aside), following relative imports. */
+function runtimeImports(entry: string): { files: string[]; packages: string[] } {
+  const files = new Set<string>()
+  const packages = new Set<string>()
+  const visit = (file: string) => {
+    if (files.has(file)) return
+    files.add(file)
+    const source = readFileSync(file, 'utf8')
+    for (const m of source.matchAll(/^\s*(?:import|export)\s+(?!type\s)(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]/gm)) {
+      const spec = m[1]
+      if (spec.startsWith('.')) visit(path.resolve(path.dirname(file), spec.endsWith('.ts') || spec.endsWith('.json') ? spec : `${spec}.ts`))
+      else packages.add(spec)
+    }
+    for (const m of source.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)) packages.add(`dynamic:${m[1]}`)
+  }
+  visit(path.resolve(entry))
+  return { files: [...files].map((f) => path.relative(process.cwd(), f).split(path.sep).join('/')).sort(), packages: [...packages].sort() }
+}
+
+describe('the bridge process', () => {
+  it('loads only the bridge, never the CLI command registry', () => {
+    expect(runtimeImports('src/cli/bridgeMain.ts')).toEqual({ files: ['src/cli/bridge.ts', 'src/cli/bridgeMain.ts'], packages: ['node:net'] })
+  })
+
+  it('leaves the commands out of `foreman mcp-bridge` too: the registry is loaded only for a command', () => {
+    const cli = runtimeImports('src/cli/index.ts')
+    expect(cli.files).not.toContain('src/cli/registry.ts')
+    expect(cli.packages).toContain('dynamic:./registry')
   })
 })

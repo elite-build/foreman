@@ -34,6 +34,8 @@ import {
   type StartParams,
   type WireRequest
 } from './protocol'
+import { PreviewEncoder } from '../../shared/chatAppend'
+import { processRoots } from '../processRoots'
 
 /** The parts of the host the OS draws: the menu-bar extra (tray on Windows) and notifications. */
 export interface HostUi {
@@ -80,6 +82,8 @@ interface HostedTurn {
   // The attached app asked for this turn's events; live ones go to it from now on.
   subscribed: boolean
   ended: boolean
+  // What the app was sent of the streaming previews: after a block's first, only its new text goes.
+  previews: PreviewEncoder
 }
 
 const CLOSED_TOOL_TEXT = 'Foreman is closed right now, so this tool is unavailable. Continue without it; the user can ask again once Foreman is open.'
@@ -240,6 +244,8 @@ export class HostServer {
         const { turnId, afterSeq } = p as Parameters<HostMethods['subscribe']>[0]
         const turn = this.turn(turnId)
         turn.subscribed = true
+        // A new app (or the same one again) holds no previews yet: the next of each goes whole.
+        turn.previews.clear()
         // In one go, so no live event can slip between the replay and the stream.
         return { events: turn.events.filter((e) => e.seq > afterSeq), approvals: [...turn.approvals.values()].map((a) => a.approval) }
       }
@@ -313,6 +319,8 @@ export class HostServer {
         return { turns: this.infos() }
       case 'ping':
         return { ok: true }
+      case 'processRoots':
+        return { roots: processRoots() }
       default:
         throw new Error(`Unknown method ${method}`)
     }
@@ -345,14 +353,17 @@ export class HostServer {
       approvals: new Map(),
       // The app that started it streams it from the start.
       subscribed: true,
-      ended: false
+      ended: false,
+      previews: new PreviewEncoder()
     }
     this.turns.set(turn.turnId, turn)
     const record = (body: HostEventBody) => this.record(turn, body)
     const callbacks: TurnCallbacks = {
       item: (item, transient) => {
+        const out = turn.previews.encode(item, Boolean(transient))
         if (!transient) return record({ type: 'item', item })
-        if (turn.subscribed) this.push({ type: 'transient', turnId: turn.turnId, item })
+        if (!turn.subscribed || !out) return
+        this.push('append' in out ? { type: 'transient-append', turnId: turn.turnId, append: out.append } : { type: 'transient', turnId: turn.turnId, item: out.item })
       },
       sessionStarted: (agentSessionId) => record({ type: 'session-started', agentSessionId }),
       assistantMessage: (uuid) => record({ type: 'assistant-message', uuid }),

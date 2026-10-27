@@ -1,7 +1,7 @@
 // Git and pull-request status for a workspace, via git and the GitHub CLI.
 // A cloud workspace's git and gh run in its sandbox; gh there runs as the
 // repository's GitHub connection (GH_TOKEN per command), never this computer's login.
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,75 +26,181 @@ export function useGithubToken(value: string | undefined): boolean {
 
 // ---- accounts linked to repositories ----
 
+type GhHost = { login: string; active: boolean; state: string }
+
 /** Every github.com account signed in to gh (gh 2.40+ can hold several). */
 export async function githubAccounts(): Promise<GithubAccount[]> {
   const out = await runGh(process.cwd(), ['auth', 'status', '--hostname', 'github.com', '--json', 'hosts'], 10_000, {}, true)
-  const hosts = (JSON.parse(out) as { hosts?: Record<string, { login: string; active: boolean; state: string }[]> }).hosts ?? {}
-  return (hosts['github.com'] ?? []).filter((a) => a.state === 'success').map((a) => ({ login: a.login, active: a.active }))
+  const hosts = ((JSON.parse(out) as { hosts?: Record<string, GhHost[]> }).hosts ?? {})['github.com'] ?? []
+  // The same answer gh's active account comes from: keep it.
+  activeGen++
+  activeLookup = null
+  setActive(hosts.find((a) => a.active && a.state === 'success')?.login)
+  return hosts.filter((a) => a.state === 'success').map((a) => ({ login: a.login, active: a.active }))
 }
 
+// gh takes over a second to answer on some machines, and the main process must never wait for it: every
+// lookup below runs gh asynchronously, once at a time, and readers that can't wait get the last answer.
+// An entry whose `at` is 0 was invalidated (a sign-in or sign-out, an auth failure): readers that can't
+// wait still get it while it reloads, async ones wait for the new answer. `gen` drops answers to lookups
+// started before an invalidation.
 const TOKEN_TTL = 10 * 60_000
+// gh's active account changes outside Foreman (gh auth switch), so its answer is kept briefly: readers that can't wait
+// get it for this long, then the old answer while gh is asked again. Turns, git actions and a window gaining focus ask
+// gh afresh (ghActiveAccountAsync(true), refreshGhActiveAccount) rather than wait for this.
+const ACTIVE_TTL = 60_000
+// How long "gh has no answer" (signed out, or gh failed) is kept before asking again.
+const FAILED_TTL = 30_000
 const tokens = new Map<string, { value: string; at: number }>()
-const refreshing = new Set<string>()
+const tokenLoads = new Map<string, Promise<string>>()
+// Accounts gh had no token for, and when it said so.
+const signedOut = new Map<string, number>()
+let tokenGen = 0
 
-function readAccountToken(account: string): string {
-  return execFileSync('gh', ['auth', 'token', '--hostname', 'github.com', '--user', account], {
-    timeout: 10_000,
-    windowsHide: true,
-    env: { ...ownEnv(true), GH_PROMPT_DISABLED: '1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    encoding: 'utf8'
-  }).trim()
+function notSignedIn(account: string): Error {
+  return new Error(`GitHub account ${account} isn’t signed in to gh. Sign in as ${account} in Settings → Account, or pick another account in this repo’s Git settings.`)
+}
+
+/** Reads an account's token from gh's keyring, one lookup at a time per account. */
+function loadAccountToken(account: string): Promise<string> {
+  const pending = tokenLoads.get(account)
+  if (pending) return pending
+  const gen = tokenGen
+  const load = runGh(process.cwd(), ['auth', 'token', '--hostname', 'github.com', '--user', account], 10_000, {}, true)
+    .then((out) => out.trim(), () => '')
+    .then((value) => {
+      if (gen === tokenGen && value) {
+        tokens.set(account, { value, at: Date.now() })
+        signedOut.delete(account)
+      } else if (gen === tokenGen) {
+        tokens.delete(account)
+        signedOut.set(account, Date.now())
+      }
+      if (!value) throw notSignedIn(account)
+      return value
+    })
+  tokenLoads.set(account, load)
+  void load.catch(() => undefined).finally(() => tokenLoads.get(account) === load && tokenLoads.delete(account))
+  return load
+}
+
+const recentlySignedOut = (account: string) => Date.now() - (signedOut.get(account) ?? -Infinity) < FAILED_TTL
+
+/**
+ * The token gh holds for an account, from its keyring. Cached; a stale entry is still used
+ * while it refreshes in the background, so this waits for gh only when nothing usable is cached.
+ */
+export async function accountTokenAsync(account: string): Promise<string> {
+  const hit = tokens.get(account)
+  if (hit?.at) {
+    if (Date.now() - hit.at >= TOKEN_TTL) void loadAccountToken(account).catch(() => undefined)
+    return hit.value
+  }
+  if (!hit && recentlySignedOut(account)) throw notSignedIn(account)
+  return loadAccountToken(account)
 }
 
 /**
- * The token gh holds for an account, from its keyring. Cached; a stale entry is
- * still used while it refreshes in the background, so only the first use blocks.
+ * The same for callers that can't wait (agents' and terminals' environments): never runs gh while
+ * they wait. A stale or invalidated token is still used while it reloads; with none cached yet this
+ * throws, having started the lookup, and callers give no GitHub credentials rather than another account's.
  */
 export function accountToken(account: string): string {
   const hit = tokens.get(account)
-  if (hit && Date.now() - hit.at < TOKEN_TTL) return hit.value
-  if (hit) {
-    if (!refreshing.has(account)) {
-      refreshing.add(account)
-      void runGh(process.cwd(), ['auth', 'token', '--hostname', 'github.com', '--user', account], 10_000, {}, true)
-        .then((out) => out.trim() && tokens.set(account, { value: out.trim(), at: Date.now() }))
-        .catch(() => tokens.delete(account))
-        .finally(() => refreshing.delete(account))
-    }
-    return hit.value
-  }
-  let value: string
-  try {
-    value = readAccountToken(account)
-  } catch {
-    throw new Error(`GitHub account ${account} isn’t signed in to gh. Sign in as ${account} in Settings → Account, or pick another account in this repo’s Git settings.`)
-  }
-  tokens.set(account, { value, at: Date.now() })
-  return value
+  const signedOutNow = !hit && recentlySignedOut(account)
+  if (!signedOutNow && (!hit?.at || Date.now() - hit.at >= TOKEN_TTL)) void loadAccountToken(account).catch(() => undefined)
+  if (hit) return hit.value
+  if (signedOutNow) throw notSignedIn(account)
+  throw new Error(`GitHub account ${account}’s token is still loading from gh. Try again in a moment.`)
 }
 
-/** Forget cached tokens (after a sign-in or sign-out). */
+/** Forget cached answers (after a sign-in or sign-out). */
 export function forgetAccountTokens(): void {
-  tokens.clear()
+  tokenGen++
+  tokenLoads.clear()
+  signedOut.clear()
+  for (const hit of tokens.values()) hit.at = 0
+  // gh's active account may now be someone else: nobody, until gh says who, rather than the last one.
+  activeGen++
+  activeLookup = null
   activeAccount = undefined
 }
 
-let activeAccount: { login?: string; at: number } | undefined
+let activeAccount: { login?: string; at: number; ttl: number } | undefined
+let activeLookup: Promise<string | undefined> | null = null
+let activeGen = 0
 
-/** Resolve gh's active keyring account, independently of shell or repository tokens. */
+function setActive(login: string | undefined): void {
+  activeAccount = { login, at: Date.now(), ttl: login ? ACTIVE_TTL : FAILED_TTL }
+}
+
+const activeFresh = () => Boolean(activeAccount?.at) && Date.now() - activeAccount!.at < activeAccount!.ttl
+
+/** Asks gh for its active keyring account, independently of shell or repository tokens; one lookup at a time. */
+function lookUpActiveAccount(): Promise<string | undefined> {
+  if (activeLookup) return activeLookup
+  const gen = activeGen
+  const lookup = runGh(process.cwd(), ['auth', 'status', '--hostname', 'github.com', '--json', 'hosts'], 10_000, {}, true)
+    .then((raw) => ((JSON.parse(raw) as { hosts?: Record<string, GhHost[]> }).hosts?.['github.com'] ?? []).find((a) => a.active && a.state === 'success')?.login)
+    .catch(() => undefined)
+    .then((login) => {
+      if (gen === activeGen) setActive(login)
+      return login
+    })
+  activeLookup = lookup
+  void lookup.finally(() => activeLookup === lookup && (activeLookup = null))
+  return lookup
+}
+
+/**
+ * gh's active account, for callers that can't wait: never runs gh while they wait. The last answer,
+ * refreshed in the background when it's old; undefined until gh has first answered (and after a
+ * sign-in or sign-out until it answers again), which callers treat as no account, never another.
+ */
 export function ghActiveAccount(): string | undefined {
-  if (activeAccount && Date.now() - activeAccount.at < 5000) return activeAccount.login
-  try {
-    const raw = execFileSync('gh', ['auth', 'status', '--hostname', 'github.com', '--json', 'hosts'], { env: ownEnv(true), encoding: 'utf8', timeout: 10_000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    const hosts = JSON.parse(raw).hosts?.['github.com'] as { login: string; active: boolean; state: string }[] | undefined
-    const login = hosts?.find((a) => a.active && a.state === 'success')?.login
-    activeAccount = { login, at: Date.now() }
-    return login
-  } catch {
-    activeAccount = { at: Date.now() }
-    return undefined
+  if (!activeFresh()) void lookUpActiveAccount()
+  return activeAccount?.login
+}
+
+/** gh's active account: the cached answer while it's usable, else gh's. `fresh` always asks gh. */
+export async function ghActiveAccountAsync(fresh = false): Promise<string | undefined> {
+  // An old answer is used while gh is asked again in the background; an old "nobody" isn't.
+  if (!fresh && activeAccount?.at && (activeFresh() || activeAccount.login)) return ghActiveAccount()
+  return lookUpActiveAccount()
+}
+
+/**
+ * Asks gh again for its active account in the background (a window gaining focus: the user may have run gh auth switch
+ * elsewhere), unless its last answer is younger than `minAgeMs`. Never waits, and never runs gh twice at once.
+ */
+export function refreshGhActiveAccount(minAgeMs = 0): void {
+  if (activeAccount?.at && Date.now() - activeAccount.at < minAgeMs) return
+  void lookUpActiveAccount()
+}
+
+/** Settles once gh's active account is known at all (at once if it is), for readers that can wait for a first answer. */
+export function ghActiveAccountReady(): Promise<void> {
+  return activeAccount ? Promise.resolve() : lookUpActiveAccount().then(() => undefined)
+}
+
+/** gh or GitHub refused the credentials `account` runs as: ask gh again on the next use. */
+function authFailed(account: string | undefined): void {
+  const hit = account && !SPECIAL.test(account) ? tokens.get(account) : undefined
+  if (hit) hit.at = 0
+  if (activeAccount && (!account || account === activeAccount.login)) activeAccount.at = 0
+}
+
+/**
+ * Asks gh, in the background, for what readers that can't wait will need: gh's active account
+ * when a connection follows it, and the tokens of the accounts connections run as.
+ */
+export async function warmGithub(accounts: string[], active: boolean): Promise<void> {
+  const logins = new Set(accounts)
+  if (active) {
+    const login = await ghActiveAccountAsync()
+    if (login) logins.add(login)
   }
+  await Promise.all([...logins].map((login) => accountTokenAsync(login).catch(() => undefined)))
 }
 
 /**
@@ -187,10 +293,16 @@ export function githubEnv(account?: string): Record<string, string> {
   return token ? { GH_TOKEN: token } : {}
 }
 
+/** githubEnv for callers that can wait: a gh account's token is read from gh when it isn't cached yet. */
+export async function githubEnvAsync(account?: string): Promise<Record<string, string>> {
+  if (account && !SPECIAL.test(account)) return { GH_TOKEN: await accountTokenAsync(account), ...credentialHelperEnv() }
+  return githubEnv(account)
+}
+
 /**
  * The same for agents, terminals and checks, which must start whatever happens: a broken
  * connection gives no GitHub credentials at all, GitHub off adds nothing, and a signed-out
- * gh account gives none rather than gh's active one.
+ * gh account (or one whose token gh hasn't given yet) gives none rather than gh's active one.
  */
 export function githubEnvOrNone(account?: string): Record<string, string> {
   try {
@@ -212,10 +324,10 @@ function ownEnv(keyring = false): NodeJS.ProcessEnv {
  * Environment for git talking to a repo's remote (fetch): as the linked account
  * when it's signed in, otherwise git's own credentials. Never throws.
  */
-export function remoteGitEnv(account: string | undefined): Record<string, string> {
+export async function remoteGitEnv(account: string | undefined): Promise<Record<string, string>> {
   if (!account) return {}
   try {
-    return githubEnv(account)
+    return await githubEnvAsync(account)
   } catch (err) {
     if (err instanceof GithubUnavailable && !err.blocked) return {}
     return noGithubEnv()
@@ -233,7 +345,11 @@ function runGh(cwd: string, args: string[], timeoutMs: number, env: Record<strin
 
 /** Runs gh, as `account` when given. */
 export async function gh(cwd: string, args: string[], timeoutMs = 20_000, account?: string): Promise<string> {
-  return runGh(cwd, args, timeoutMs, githubEnv(account))
+  const env = await githubEnvAsync(account)
+  return runGh(cwd, args, timeoutMs, env).catch((err: Error) => {
+    if (classifyGhError(err.message) === 'auth-error') authFailed(account)
+    throw err
+  })
 }
 
 /**

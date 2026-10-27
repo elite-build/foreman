@@ -854,6 +854,9 @@ export interface Session {
   // Set after a rewind: the next turn forks the conversation at this message.
   resumeAt?: string
   status: 'idle' | 'running'
+  // Queued (Settings → Advanced → Maximum agents running at once): the tab's next turn, the first message in
+  // `queue`, waits for a running agent to finish; since when (ISO). The tab is idle meanwhile. Never kept over a restart.
+  waitingForSlot?: string
   // The turn in flight (while running) and when it began. After a restart a
   // session that still has a turnId was cut off mid-turn.
   turnId?: string
@@ -1083,6 +1086,11 @@ export interface Settings {
   restoreTerminals: boolean
   // O10: Claude Code and Codex turns run in a background host, so Quit can leave them running (off until turned on).
   keepAgentsRunning: boolean
+  // How many turns may run on this computer at once (each is its own agent process tree); 0 is no limit. Over it,
+  // new turns queue and start oldest first. Cloud workspaces' turns run in their sandboxes and don't count.
+  maxRunningAgents: number
+  // Claude Code: minutes a turn that has answered stays open for its background shells and subagents; 0 waits as long as they run.
+  backgroundWaitMinutes: number
   // O4, Windows only: the shell new terminal tabs start (Custom… uses terminalShellCustom, a path and
   // arguments), and the shell that runs Run scripts, setup, archive and checks.
   terminalShell: ShellChoice
@@ -1996,6 +2004,9 @@ export type MainEvent =
   | { type: 'browser-shortcut'; workspaceId: string; action: 'address' | 'close' }
   | { type: 'state'; snapshot: AppSnapshot }
   | { type: 'chat-item'; sessionId: string; item: ChatItem }
+  // A streaming preview grew: its text from `from` on is now `text` (see shared/chatAppend.ts). A window that doesn't hold
+  // exactly `from` characters of it ignores this; the preview is sent whole again every few seconds and when it's done.
+  | { type: 'chat-append'; sessionId: string; itemId: string; from: number; text: string }
   | { type: 'chat-reset'; sessionId: string; items: ChatItem[] }
   | { type: 'approval'; request: ApprovalRequest }
   | { type: 'approval-resolved'; id: string }
@@ -2043,6 +2054,8 @@ export type MainEvent =
   | { type: 'stt-partial'; sessionId: string; text: string }
   | { type: 'stt-error'; sessionId?: string; message: string }
   | { type: 'stt-model'; state: 'missing' | 'downloading' | 'ready'; bytes?: number; total?: number }
+  // The window was minimized or hidden, or shown again (main/windowVisibility.ts); sent to that window only, and on load.
+  | { type: 'window-visibility'; visible: boolean }
 
 // `cloud` patches the repository's cloud settings (null puts them back to the defaults); the build is Foreman's own.
 export type RepoPatch = Partial<Pick<Repo, 'name' | 'defaultBranch' | 'remote' | 'setupHintDismissed'>> & { icon?: RepoIcon | null; cloud?: Partial<Omit<RepoCloud, 'build'>> | null }
@@ -2257,6 +2270,37 @@ export interface EnvChange {
   previousKey?: string
 }
 
+/** What started a workspace's process tree: an agent (Claude Code, an ACP agent, Cursor), a terminal tab, or a setup or check script. */
+export type ProcessRootKind = 'agent' | 'terminal' | 'script'
+
+/** Processes under one executable name ("claude", "node", "bash") in a workspace's process trees. */
+export interface ProcessGroupUsage {
+  name: string
+  count: number
+  memoryBytes: number
+}
+
+/** Everything a workspace's agents, terminals and scripts are running, with what they started (MCP servers, hooks, shells). */
+export interface WorkspaceResourceUsage {
+  workspaceId: string
+  processes: number
+  memoryBytes: number
+  cpuPercent: number
+  // The heaviest executable names first (a few at most).
+  top: ProcessGroupUsage[]
+  // Memory by what started the trees, heaviest first.
+  kinds: { kind: ProcessRootKind; processes: number; memoryBytes: number }[]
+}
+
+/** Settings → Experimental → Show resource usage: Foreman's own processes, and per workspace what it started. */
+export interface ResourceUsage {
+  // Foreman's own processes (Electron's app metrics), as before.
+  cpuPercent: number
+  memoryMb: number
+  // Per workspace, from the last look at the system's processes (empty until the first one, or when nothing runs).
+  workspaces?: WorkspaceResourceUsage[]
+}
+
 // Request/response methods, invoked from the renderer.
 /** Whether the `foreman` command is on the user's PATH (Settings → Advanced). */
 export interface CliInstallStatus {
@@ -2362,7 +2406,7 @@ export interface Api {
   // null when the platform has no such permission (not macOS).
   fullDiskAccess(): Promise<boolean | null>
   openFullDiskAccessSettings(): Promise<void>
-  resourceUsage(): Promise<{ cpuPercent: number; memoryMb: number }>
+  resourceUsage(): Promise<ResourceUsage>
   // The `foreman` command: whether it's on the PATH, and putting it there.
   cliStatus(): Promise<CliInstallStatus>
   installCli(): Promise<CliInstallStatus>
@@ -2448,7 +2492,8 @@ export interface Api {
   updateSession(sessionId: string, patch: SessionPatch): Promise<void>
   closeSession(sessionId: string): Promise<void>
   reopenSession(workspaceId: string, sessionId?: string): Promise<Session | null>
-  getChat(sessionId: string): Promise<ChatItem[]>
+  // `live`: with the previews still streaming (shown, not saved yet), as a window opening the chat mid-turn shows it.
+  getChat(sessionId: string, live?: boolean): Promise<ChatItem[]>
   sendMessage(sessionId: string, text: string, options?: SendOptions): Promise<SendDisposition>
   removeQueued(sessionId: string, messageId: string): Promise<void>
   steerQueued(sessionId: string, messageId: string): Promise<void>

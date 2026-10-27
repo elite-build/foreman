@@ -9,8 +9,10 @@ import path from 'node:path'
 import type { AgentKind } from '../../shared/agents'
 import type { HostTurnInfo, HostWaiting } from '../../shared/agentHost'
 import type { ApprovalRequest, ChatItem, ContextUsage } from '../../shared/types'
+import type { ChatAppend } from '../../shared/chatAppend'
 import type { TurnRequest, TurnResult } from '../agents/types'
 import type { ReportKind } from '../../shared/agentReports'
+import type { ProcessRoot } from '../processRoots'
 
 /**
  * Bumped when the wire format changes; an app and a host of different versions don't talk.
@@ -69,6 +71,9 @@ export type HostPush =
   | { type: 'event'; event: HostEvent }
   // A streaming preview: shown, never logged.
   | { type: 'transient'; turnId: string; item: ChatItem }
+  // More text for a streaming preview sent above (shared/chatAppend.ts). An older app ignores it and shows the preview
+  // as each whole resend comes, so this doesn't bump PROTOCOL_VERSION; an older host only ever sends whole previews.
+  | { type: 'transient-append'; turnId: string; append: ChatAppend }
   | { type: 'approval'; approval: HostApproval }
   | { type: 'approval-gone'; turnId: string; id: string }
   // The agent called one of Foreman's tools (or the transcript mirror); answered with callResult.
@@ -79,7 +84,7 @@ export type HostPush =
 // ---- requests (app → host) ----
 
 /** A turn request without the in-process parts; the host proxies those back to the app. */
-export type WireTurnRequest = Omit<TurnRequest, 'hostTools' | 'sessionStore'>
+export type WireTurnRequest = Omit<TurnRequest, 'hostTools' | 'sessionStore' | 'inProcessMcp'>
 
 export interface StartParams {
   sessionId: string
@@ -119,6 +124,8 @@ export interface HostMethods {
   status(p: Record<string, never>): { turns: HostTurnInfo[] }
   // A cheap round trip: are the host and the transport to it still answering?
   ping(p: Record<string, never>): { ok: true }
+  // The processes its turns started, by workspace (Show resource usage). An older host answers "Unknown method".
+  processRoots(p: Record<string, never>): { roots: ProcessRoot[] }
 }
 
 export type HostMethod = keyof HostMethods

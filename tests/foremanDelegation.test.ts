@@ -91,6 +91,38 @@ describe('CLI-backed Foreman delegation', () => {
     await expect(r.service.call('wait_for_turn', { turnId: 'child', timeoutSeconds: 31 }, r.scope)).rejects.toThrow()
   })
 
+  it('lends the coordinator’s agent slot while it waits, and takes it back however the wait ends', async () => {
+    const r = delegationRig()
+    const loans: string[] = []
+    let open = 0
+    r.host.lendSlot = (sessionId) => {
+      loans.push(sessionId)
+      open++
+      return () => void open--
+    }
+    const child = { workspaceId: 'w', sessionId: 'child-chat', turnId: 'child', state: 'queued' as const }
+    let reads = 0
+    const originalStatus = r.host.turnStatus
+    r.host.turnStatus = async (id) => {
+      if (id !== 'child') return originalStatus(id)
+      // Two reads check the turn; then it is polled, lent meanwhile, while the delegate waits for a slot, starts and ends.
+      if (++reads >= 3) expect(open).toBe(1)
+      else expect(open).toBe(0)
+      return reads < 4 ? child : { ...child, state: 'ended', outcome: 'completed' }
+    }
+    expect(await r.service.call('wait_for_turn', { turnId: 'child' }, r.scope)).toMatchObject({ outcome: 'completed' })
+    expect(loans).toEqual(['s'])
+    expect(open).toBe(0)
+    reads = 0
+    r.host.turnStatus = async (id) => {
+      if (id === 'child' && ++reads === 3) throw new Error('gone')
+      return id === 'child' ? child : originalStatus(id)
+    }
+    await expect(r.service.call('wait_for_turn', { turnId: 'child' }, r.scope)).rejects.toThrow('gone')
+    expect(loans).toEqual(['s', 's'])
+    expect(open).toBe(0)
+  })
+
   it('reports cancellation when a queued turn disappears while waiting', async () => {
     const r = delegationRig()
     const child = { workspaceId: 'w', sessionId: 'child-chat', turnId: 'child', state: 'queued' as const }
