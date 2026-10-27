@@ -10,7 +10,7 @@ The **Components** sections below are the authoritative catalogue of purposes, v
 
 | Requirement | Catalogue entries to inspect | Runnable example source |
 | --- | --- | --- |
-| Actions, cards and feedback | Button, IconButton, LinkButton, ChipButton, Pressable, ActionRow, Card/CardButton, Tag, Status, Glyph, Spinner, Meter, Callout, Kbd, MediaThumb | `ui/gallery/2a.tsx` |
+| Actions, cards and feedback | Button, IconButton, LinkButton, ChipButton, Pressable, ActionRow, Card/CardButton, Tag, Status, Glyph, Spinner, Meter, Stepper, Callout, Kbd, MediaThumb | `ui/gallery/2a.tsx` |
 | Labelled inputs and choices | Field/useField, TextInput, TextArea, Range, FileInput, Checkbox, Select, MaskedValue, Switch, RadioList, RadioCards | `ui/gallery/2b.tsx` |
 | Navigation and action menus | Segmented, Tabs and parts, Menu and parts, ContextMenu, SplitButton, Disclosure | `ui/gallery/2c.tsx` |
 | Overlays, pickers and structure | Dialog/Sheet, Popover, HoverCard, Listbox, Combobox, Tree/TreeItem, Resizer | `ui/gallery/2d.tsx` |
@@ -227,6 +227,27 @@ Replaces `.cloud-bar`.
 
 ```tsx
 <Meter label={t('cloud.usage')} value={used} max={limit} valueText={t('cloud.usage.text', { used, limit })} tone={used / limit > 0.9 ? 'error' : 'ok'} />
+```
+
+### Stepper
+
+Read-only progress through a few fixed stages, such as a pull request going from committed to merged: a row of marks joined by a line, each with its label beneath. Added for the side panel's merged state, where a lone `Tag` was too easy to miss.
+
+- Why nothing existing fit: `Meter` is one amount in a range, with no named stages. `Tabs` and `Segmented` are controls, so each stage would become a tab stop and claim to be pickable. A row of `Status` or `Tag`s has no order or line between stages, and no "you are here". Extending any of them would change what it means.
+- Props: `label` (required name of the list), `steps` (`{ id, label, status, tone?, icon? }[]`), `statusText` (required `{ done, upcoming }` words read after those steps' labels), plus native `<ol>` props.
+- `status`: `done` (a tick, toned `ok` green by default), `current` (a larger mark with a heavier edge and a bold label, neutral `--selected-*` by default, `aria-current="step"`), `upcoming` (a hollow ring, never toned). `tone` (`ok` / `warn` / `error` / `info`) colours a reached step's mark, tint and the line into it; `icon` replaces the tick or dot (12px or smaller).
+- An `<ol>` of `<li>`s; the marks are `aria-hidden`, so state is read from the label, the status words and `aria-current`, never from colour. Labels truncate with an ellipsis in narrow space. In forced colours the marks and line are `CanvasText`, and the current step gets the global `Highlight` outline.
+- It isn't a wizard and its steps aren't controls. For a task that is running, use a `Spinner` or text.
+
+```tsx
+<Stepper
+  label={t('gitPanel.merged.progress')}
+  statusText={{ done: t('gitPanel.merged.step.done'), upcoming: t('gitPanel.merged.step.upcoming') }}
+  steps={[
+    { id: 'commit', label: t('gitPanel.merged.step.committed'), status: 'done' },
+    { id: 'merged', label: t('attention.pr.state.merged'), status: 'current', tone: 'info', icon: <GitMerge size={12} /> }
+  ]}
+/>
 ```
 
 ### Callout

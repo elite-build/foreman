@@ -15,6 +15,7 @@ import { Meter } from '../Meter'
 import { Pressable } from '../Pressable'
 import { Spinner } from '../Spinner'
 import { Status } from '../Status'
+import { Stepper } from '../Stepper'
 import { Tag } from '../Tag'
 
 // Dev-only page of every actions-and-display component and variant, states included. Plain strings: it never ships.
@@ -40,6 +41,11 @@ const CopyIcon = (
   <svg viewBox="0 0 12 12" width="12" height="12" focusable="false">
     <rect x="3.8" y="3.8" width="6.4" height="6.4" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.2" />
     <path d="M2.2 8V2.8c0-.3.3-.6.6-.6H8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+)
+const CloseIcon = (
+  <svg viewBox="0 0 12 12" width="10" height="10" focusable="false">
+    <path d="M3 3l6 6M9 3l-6 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
   </svg>
 )
 
@@ -220,6 +226,41 @@ export function Gallery2a() {
           <Meter label="Usage, high" value={78} tone="warn" valueText="78% of 20 hours" />
           <Meter label="Usage, full" value={100} tone="error" valueText="Limit reached" />
           <Meter label="Usage, empty" value={0} />
+        </div>
+      </Section>
+
+      <Section title="Stepper">
+        <div style={{ ...stack, width: 380 }}>
+          <Stepper
+            label="Pull request, merged"
+            statusText={{ done: 'done', upcoming: 'not yet' }}
+            steps={[
+              { id: 'commit', label: 'Committed', status: 'done' },
+              { id: 'pr', label: 'PR #41', status: 'done' },
+              { id: 'checks', label: 'Checks 4/4', status: 'done' },
+              { id: 'merged', label: 'Merged', status: 'current', tone: 'info' }
+            ]}
+          />
+          <Stepper
+            label="Pull request, checks running"
+            statusText={{ done: 'done', upcoming: 'not yet' }}
+            steps={[
+              { id: 'commit', label: 'Committed', status: 'done' },
+              { id: 'pr', label: 'PR #41', status: 'done' },
+              { id: 'checks', label: 'Checks', status: 'current' },
+              { id: 'merged', label: 'Merged', status: 'upcoming' }
+            ]}
+          />
+          <Stepper
+            label="Pull request, a check failed"
+            statusText={{ done: 'done', upcoming: 'not yet' }}
+            steps={[
+              { id: 'commit', label: 'Committed', status: 'done' },
+              { id: 'pr', label: 'PR #41', status: 'done' },
+              { id: 'checks', label: 'Checks 3/4 with a long label', status: 'done', tone: 'error', icon: CloseIcon },
+              { id: 'merged', label: 'Merged', status: 'current', tone: 'info' }
+            ]}
+          />
         </div>
       </Section>
 
