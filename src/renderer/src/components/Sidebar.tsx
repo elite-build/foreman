@@ -60,6 +60,7 @@ import { PhonePill } from './phone/PhonePill'
 import { KeepAwakeChip } from './KeepAwakeChip'
 import { ResourceUsage } from './ResourceUsage'
 import { SttChip } from './SttChip'
+import { UpdateNotice } from './UpdateNotice'
 import { TerminalAgentLabel, useHasTerminalAgent } from './agents/TerminalAgents'
 import { leadGlyph } from '../../../shared/attention'
 import { clockTime } from '../../../shared/usageLimit'
@@ -570,6 +571,7 @@ export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: 
               </LinkButton>
             )}
           </div>
+          <UpdateNotice />
           <SttChip />
           <KeepAwakeChip />
           <footer className="sidebar-footer">

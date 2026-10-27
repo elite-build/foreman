@@ -562,6 +562,9 @@ async function main(): Promise<void> {
   // Integrations: check each connection soon after launch and then every six hours, so a revoked key shows up.
   setTimeout(() => void started.integrations.checkAll(), 8_000).unref()
   setInterval(() => void started.integrations.checkAll(), 6 * 60 * 60_000).unref()
+  // A newer Foreman: asked once per start of an installed build, while Settings → General allows it. A development
+  // build's version says nothing about the releases, so only Settings' "Check now" asks there.
+  if (app.isPackaged) setTimeout(() => void started.updates.atStartup(), 5_000).unref()
   // Cloud workspaces: idle sleep every minute (nothing to do without one), and orphans stopped once if Settings say so.
   started.sandboxes.startIdleTicker()
   setTimeout(() => void started.sandboxes.stopOrphans().catch(() => undefined), 10_000).unref()

@@ -130,7 +130,7 @@ export const MAX_ASSISTANT_MESSAGE = 8000
 export const READABLE_SETTINGS = [
   'language', 'messageSendKey', 'followUpMode', 'notifications', 'sound', 'dockBadge', 'trayIcon', 'autoConvertLongText',
   'notAbsolutelyRight', 'alwaysShowContextUsage', 'keepAwake', 'keepAwakeBatteryCutoff', 'keepAwakeBatteryPercent',
-  'keepAwakeThermalCutoff', 'keepAwakeOnlyOnPower', 'expandToolCalls', 'privacyMode', 'requireToolApprovals', 'codexApprovals',
+  'keepAwakeThermalCutoff', 'keepAwakeOnlyOnPower', 'checkForUpdates', 'expandToolCalls', 'privacyMode', 'requireToolApprovals', 'codexApprovals',
   'theme', 'zoom', 'coloredSidebarDiffs', 'colorVision', 'codeLigatures', 'terminalFontSize', 'contentFontSize', 'reduceMotion', 'announce', 'announceSummary', 'earcons', 'speechOutput', 'speechVoice', 'speechRate', 'speechVolume', 'sttProvider', 'sttLanguage', 'pushToTalk',
   'windowLayout', 'sidebarSide', 'sidePanelSide', 'terminalPlacement', 'homeBoard', 'homeLayout', 'homeDoneDays', 'loadouts', 'reviewModel',
   'claudeOutputStyle', 'defaultPlanMode', 'branchPrefixType', 'autoRenameBranches', 'renameWorkspaceWithBranch',

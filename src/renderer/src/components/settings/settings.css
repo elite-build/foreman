@@ -371,6 +371,14 @@ label.set-label {
   flex: 1 1 100%;
   min-width: 0;
 }
+/* The running version, Check now and what the check found. */
+.update-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
 /* O17: keep-awake cutoffs and their "Now:" line. */
 .awake-subs {
   margin-top: 2px;
