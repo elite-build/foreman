@@ -39,6 +39,7 @@ Other scripts:
 | `npm run build` | Build the main process, preload, renderer and CLI into `out/` |
 | `npm start` | Preview the built app |
 | `npm run dist:mac` / `npm run dist:win` | Build a DMG / NSIS installer into `dist/`. To build both on GitHub instead, start the manual **Installers** workflow (`gh workflow run installers.yml --ref <branch>`), which keeps unsigned installers as run artifacts for 7 days |
+| `npm run release -- prepare <patch\|minor\|major\|x.y.z>` / `npm run release -- tag --push` | Bump the version for a release, then tag the merged version on `main`. The manual **Release** workflow turns the tag into a draft GitHub release; see [Releases](docs/maintenance.md#releases) |
 
 The development app uses a cyan hard-hat icon with a DEV badge so it can be distinguished from an installed Foreman app in the Dock or taskbar. After editing the SVGs in `build/icons/`, regenerate the checked-in icon files with `npx electron scripts/render-icons.mjs` on macOS.
 

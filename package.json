@@ -25,6 +25,7 @@
     "cloud:smoke": "vitest run tests/cloudVercel.integration.test.ts",
     "docs:cli": "node scripts/cliDocs.mjs",
     "postinstall": "node scripts/postinstall.mjs",
+    "release": "node scripts/release.mjs",
     "dist:mac": "electron-vite build && electron-builder --mac --publish never",
     "dist:win": "electron-vite build && electron-builder --win --publish never"
   },
