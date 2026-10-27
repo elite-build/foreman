@@ -19,7 +19,8 @@ import {
   RotateCw,
   ScanSearch,
   Trash2,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { durationText, fingerprintText, isFailure, STATUS_TEXT, summarizeChecks, type ChecksTone } from '../../../shared/checks'
@@ -32,7 +33,7 @@ import { useT } from '../i18n'
 import type { PlainKey } from '../../../shared/i18n'
 import { formatClock, formatDateTime } from '../../../shared/i18n/time'
 import { cloudStatusWord } from '../cloudView'
-import { Button, Checkbox, IconButton, Kbd, LinkButton, MenuItem, MenuSeparator, Spinner, SplitButton, Tag } from '../ui'
+import { Button, Checkbox, IconButton, Kbd, LinkButton, MenuItem, MenuSeparator, Spinner, SplitButton, Stepper, Tag, type StepperStep } from '../ui'
 import { statusText } from './cloud/CloudBits'
 import { GitlabMark } from './GitlabMark'
 import { AutoFixStatus, AutoFixToggle } from './AutoFix'
@@ -258,6 +259,34 @@ export function MergedStatus({ pr }: { pr: PullRequestInfo }) {
   )
 }
 
+/**
+ * Under the header once the pull request merged: committed, opened, its checks (when it had any), merged. Every step
+ * is behind it, and Merged is where the work is now, so the panel reads as finished rather than in progress.
+ */
+export function MergedProgress({ pr }: { pr: PullRequestInfo }) {
+  const t = useT()
+  const gitlab = pr.provider === 'gitlab'
+  const passed = pr.checks.filter((c) => c.state === 'success').length
+  const failed = pr.checks.some((c) => c.state === 'failure')
+  const steps: StepperStep[] = [
+    { id: 'committed', label: t('gitPanel.merged.step.committed'), status: 'done' },
+    { id: 'pr', label: gitlab ? t('gitPanel.merged.step.mr', { number: pr.number }) : t('gitPanel.merged.step.pr', { number: pr.number }), status: 'done' },
+    ...(pr.checks.length
+      ? [{ id: 'checks', label: t('gitPanel.merged.step.checks', { passed, total: pr.checks.length }), status: 'done' as const, ...(failed ? { tone: 'error' as const, icon: <X size={11} strokeWidth={3} /> } : {}) }]
+      : []),
+    { id: 'merged', label: t('attention.pr.state.merged'), status: 'current', tone: 'info', icon: <GitMerge size={12} /> }
+  ]
+  return (
+    <div className="merged-progress">
+      <Stepper
+        label={gitlab ? t('gitPanel.merged.progressMr') : t('gitPanel.merged.progress')}
+        statusText={{ done: t('gitPanel.merged.step.done'), upcoming: t('gitPanel.merged.step.upcoming') }}
+        steps={steps}
+      />
+    </div>
+  )
+}
+
 /** The header's "next step" button, with the Create PR and merged Archive split menus, and Review. */
 export function GitHeaderActions({ workspaceId, status, refresh, running }: { workspaceId: string; status: GitStatus | null; refresh: () => void; running: boolean }) {
   const platform = useStore((s) => s.snapshot!.platform)
@@ -286,6 +315,11 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
   // An adopted checkout's branch isn't Foreman's to delete.
   const adopted = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId)?.adopted)
   const pr = status?.pr
+  // The merged Archive button runs whichever archive was used last; the dialog still confirms it.
+  const archiveChoice = useStore((s) => s.archiveChoice)
+  const deleteNext = archiveChoice === 'delete-branch' && !adopted
+  const archiveDeleteBranch = () => openArchiveDialog(workspaceId, { deleteBranch: true })
+  const lastUsed = t('gitPanel.merged.lastUsed')
 
   return (
     <div className="git-actions">
@@ -325,12 +359,28 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
         </SplitButton>
       )}
       {action && Icon && action === 'archive' && (
-        <SplitButton size="sm" variant="primary" label={primary} menuLabel={t('gitPanel.merged.moreOptions')} onClick={() => void run(action)} disabled={primaryDisabled} title={status?.primary.label}>
-          <MenuItem icon={<Archive size={14} />} onSelect={() => void run('archive')}>
+        <SplitButton
+          size="sm"
+          variant="primary"
+          label={
+            deleteNext ? (
+              <>
+                <Trash2 size={13} /> {t('gitPanel.merged.archiveDeleteBranch')}
+              </>
+            ) : (
+              primary
+            )
+          }
+          menuLabel={t('gitPanel.merged.moreOptions')}
+          onClick={() => (deleteNext ? archiveDeleteBranch() : void run(action))}
+          disabled={primaryDisabled}
+          title={deleteNext ? t('gitPanel.merged.archiveDeleteBranch') : status?.primary.label}
+        >
+          <MenuItem icon={<Archive size={14} />} hint={archiveChoice && !deleteNext ? lastUsed : undefined} onSelect={() => void run('archive')}>
             {t('gitPanel.action.archive')}
           </MenuItem>
           {!adopted && (
-            <MenuItem icon={<Trash2 size={14} />} onSelect={() => openArchiveDialog(workspaceId, { deleteBranch: true })}>
+            <MenuItem icon={<Trash2 size={14} />} hint={deleteNext ? lastUsed : undefined} onSelect={archiveDeleteBranch}>
               {t('gitPanel.merged.archiveDeleteBranch')}
             </MenuItem>
           )}

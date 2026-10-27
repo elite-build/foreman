@@ -340,8 +340,10 @@ export const en = {
   'stop.archive.uncommittedHint': 'Saved as a checkpoint first; Restore brings them back',
   'stop.archive.folder': 'Worktree folder',
   'stop.archive.terminals': { zero: 'Terminals', one: '{count} terminal and its scrollback', other: '{count} terminals and their scrollback' },
-  // {branch} is the branch name, shown as code.
-  'stop.archive.deleteBranch': 'Also delete the branch {branch}',
+  // The archive dialog's branch row: a Keep / Delete choice, and its accessible name.
+  'stop.archive.branchChoice': 'Keep or delete the branch',
+  'stop.archive.keepBranch': 'Keep',
+  'stop.archive.deleteBranchChoice': 'Delete',
   'stop.archive.order': 'In this order',
   'stop.archive.step.stop': { one: 'Stop {count} tab', other: 'Stop {count} tabs' },
   'stop.archive.step.checkpoint': 'Save checkpoint',
@@ -349,6 +351,7 @@ export const en = {
   'stop.archive.step.remove': 'Remove folder',
   'stop.archive.cancel': 'Cancel',
   'stop.archive.go': 'Archive',
+  'stop.archive.goDeleteBranch': 'Archive and delete branch',
   'stop.archive.goStop': { one: 'Stop {count} tab and archive', other: 'Stop {count} tabs and archive' },
   'stop.archive.hide': 'Continue in background',
   'stop.archive.background': 'Archiving {name} in the background…',
@@ -3964,6 +3967,20 @@ export const en = {
   // {number} is the pull request's number.
   'gitPanel.merged.openPrNumber': 'Open #{number} on GitHub',
   'gitPanel.merged.openMrNumber': 'Open !{number} on GitLab',
+  // The side panel's progress strip once the pull request merged: its name, then each step's label.
+  'gitPanel.merged.progress': 'Pull request progress',
+  'gitPanel.merged.progressMr': 'Merge request progress',
+  'gitPanel.merged.step.committed': 'Committed',
+  // {number} is the pull request's (or GitLab merge request's) number.
+  'gitPanel.merged.step.pr': 'PR #{number}',
+  'gitPanel.merged.step.mr': 'MR !{number}',
+  // {passed} of {total} checks passed.
+  'gitPanel.merged.step.checks': 'Checks {passed}/{total}',
+  // Read by screen readers after a step's label: "Committed, done".
+  'gitPanel.merged.step.done': 'done',
+  'gitPanel.merged.step.upcoming': 'not yet',
+  // Beside the archive choice used last time, which the header button now runs.
+  'gitPanel.merged.lastUsed': 'Last used',
   'gitPanel.createDraftPr': 'Create draft PR',
   'gitPanel.createPrWeb': 'Create PR manually on GitHub',
   'gitPanel.watch.ci': 'Notify me when CI fails on this PR',
