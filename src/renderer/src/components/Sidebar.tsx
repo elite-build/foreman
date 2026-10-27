@@ -582,6 +582,12 @@ export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: 
             <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
               {t('sidebar.import')}
             </Button>
+            {/* The running version, always in sight; Settings → General has it in full with Check now. */}
+            {snapshot.appVersion && (
+              <Button variant="ghost" size="sm" className="sidebar-version" onClick={() => openSettingsPage({ section: 'general', scrollTo: 'check-for-updates' })} title={t('sidebar.version.title', { version: snapshot.appVersion })}>
+                {t('sidebar.version', { version: snapshot.appVersion })}
+              </Button>
+            )}
           </footer>
         </div>
       </div>

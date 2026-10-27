@@ -360,10 +360,15 @@
 }
 .sidebar-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
   padding: 8px 10px;
   border-top: 1px solid var(--border);
+}
+/* The running version, at the footer's far end. */
+.sidebar-version {
+  margin-left: auto;
 }
 /* A newer Foreman is out: the update notice (a ui/Callout) above the chips and footer. */
 .update-notice {

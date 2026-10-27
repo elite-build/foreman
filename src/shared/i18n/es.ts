@@ -2483,6 +2483,8 @@ export const es: Catalogue = {
   'sidebar.archived.title': 'Espacios de trabajo archivados',
   'sidebar.import': 'Importar…',
   'sidebar.import.title': 'Importar un espacio de trabajo desde un archivo .foreman',
+  'sidebar.version': 'v{version}',
+  'sidebar.version.title': 'Foreman {version}. Abre Ajustes para buscar actualizaciones.',
 
   // ---- Home: the header, banner, cards and rows ----
   'home.empty.quip1': 'Todo en orden. Disfruta de esta calma sospechosa.',

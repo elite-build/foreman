@@ -2735,6 +2735,8 @@ export const en = {
   'sidebar.archived.title': 'Archived workspaces',
   'sidebar.import': 'Import…',
   'sidebar.import.title': 'Import a workspace from a .foreman file',
+  'sidebar.version': 'v{version}',
+  'sidebar.version.title': 'Foreman {version}. Open Settings to check for updates.',
   // ---- Home: the header, banner, cards and rows ----
   // Home's banner when nothing needs you; one is picked at random. Playful on purpose: keep the joke, not the words.
   'home.empty.quip1': 'All clear. Enjoy the suspiciously peaceful moment.',
