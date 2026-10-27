@@ -56,7 +56,7 @@ import { NoteBar } from './NoteBar'
 import { AutoReviewBar, AutoReviewTabMark } from './AutoReview'
 import { SetupHint } from './SetupHint'
 import { formatDuration } from './turnResult'
-import { ChecksView, GitHeaderActions, MergedStatus, useGitStatus } from './GitPanel'
+import { ChecksView, GitHeaderActions, MergedProgress, MergedStatus, useGitStatus } from './GitPanel'
 import { FileViewer } from './FileViewer'
 import { FilesTree } from './FilesTree'
 import { ResizeHandle, usePanelSize, useWindowHeight, useWindowWidth, type PanelSize } from './resize'
@@ -900,6 +900,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 {hasWorktree && <GitHeaderActions workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} running={running} />}
               </div>
             </header>
+            {!running && git.status?.primary.action === 'archive' && git.status.pr?.state === 'MERGED' && <MergedProgress pr={git.status.pr} />}
             {placement === 'panel-top' && terminalDocked && terminalSlot(panelTerminal, 'bottom', 'panel-top')}
             <Tabs className="panel-tabs-root" variant="underline" value={panelTab} onChange={(v) => setPanelTab(v as typeof panelTab)}>
               <TabList label={t('workspaceView.panel.tabs')}>

@@ -4,15 +4,15 @@
 // the labelled Docker containers it removes, and after archiving says which couldn't be removed.
 // G3: each step shows as it goes (main streams archive-progress), the archive script's own steps included.
 // A cloud workspace has no checkpoint or folder to remove: its sandbox stops, and its snapshot keeps the work.
-import { Check, CircleStop, Cloud, Minus, Trash2, X } from 'lucide-react'
+import { Check, CircleStop, Cloud, GitBranch, Minus, Trash2, X } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { previewCount, removalNeedsAttention, type DockerPreview, type DockerRemoval } from '../../../shared/docker'
 import { cloudSettings } from '../../../shared/cloud'
 import { turnRunning } from '../../../shared/stopSafely'
 import type { ArchiveOptions, ArchiveOutcome, ArchivePreview, ArchiveProgress, ArchiveProgressStep, SetupStepResult } from '../../../shared/types'
 import { useT } from '../i18n'
-import { api, attempt, backgroundArchive, bridge, finishBackgroundArchive, getState, openArchiveDialog, selectWorkspace, showToast, useStore } from '../store'
-import { Button, Callout, Checkbox, Dialog, Spinner, Tag } from '../ui'
+import { api, attempt, backgroundArchive, bridge, finishBackgroundArchive, getState, openArchiveDialog, rememberArchiveChoice, selectWorkspace, showToast, useStore } from '../store'
+import { Button, Callout, Card, Dialog, Segmented, Spinner, Tag } from '../ui'
 import { toolSummary } from './ToolRow'
 import { formatDuration } from './turnResult'
 import './stopSafely.css'
@@ -65,8 +65,14 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
   if (!ws) return null
   if (docker && !hidden) return <DockerResult workspaceId={workspaceId} name={ws.name} initial={docker} onClose={close} />
 
+  const kind = preview?.kind ?? (ws.direct ? 'direct' : ws.adopted ? 'adopted' : 'worktree')
+  const cloud = Boolean(ws.cloud)
+  // A cloud workspace's branch is in its sandbox, which archiving keeps: only a local worktree offers the choice.
+  const branchChoice = kind === 'worktree' && !cloud
+
   const run = async (options: ArchiveOptions) => {
     if (busy) return
+    if (branchChoice) rememberArchiveChoice(deleteBranch)
     // A retry keeps the steps before the one it retries.
     setProgress((prev) => (options.from === 'script' ? { stop: prev.stop, checkpoint: prev.checkpoint, diff: prev.diff } : options.from ? { stop: prev.stop } : {}))
     if (options.from !== 'script') setScriptSteps(null)
@@ -106,11 +112,9 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
 
   if (hidden) return null
 
-  const kind = preview?.kind ?? (ws.direct ? 'direct' : ws.adopted ? 'adopted' : 'worktree')
   const stopping = preview?.running ?? []
   const dockerPreview: DockerPreview | undefined = preview?.docker?.enabled ? preview.docker : undefined
   const containers = previewCount(dockerPreview)
-  const cloud = Boolean(ws.cloud)
   const steps: { id: ArchiveProgressStep; label: string }[] = [
     ...(stopping.length ? [{ id: 'stop' as const, label: t('stop.archive.step.stop', { count: stopping.length }) }] : []),
     ...(cloud ? [] : [{ id: 'checkpoint' as const, label: t('stop.archive.step.checkpoint') }]),
@@ -142,7 +146,7 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
           <>
             <Button onClick={close}>{t(busy ? 'stop.archive.hide' : 'stop.archive.cancel')}</Button>
             <Button variant="danger" disabled={busy || (!preview && !previewFailed)} onClick={() => void run({ stopTabs: true })}>
-              {busy ? t('stop.archive.busy') : stopping.length ? t('stop.archive.goStop', { count: stopping.length }) : t('stop.archive.go')}
+              {busy ? t('stop.archive.busy') : stopping.length ? t('stop.archive.goStop', { count: stopping.length }) : branchChoice && deleteBranch ? t('stop.archive.goDeleteBranch') : t('stop.archive.go')}
             </Button>
           </>
         )
@@ -198,7 +202,8 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
                 {t('stop.archive.chats')}
                 <div className="stop-item-hint">{t('stop.archive.chatsHint')}</div>
               </div>
-              {!deleteBranch && (
+              {/* With the choice offered, the branch has its own row below, so choosing doesn't move it between columns. */}
+              {!branchChoice && (
                 <div className="stop-item">
                   {t.rich('stop.archive.branch', { branch: code(preview.branch) })}
                   {preview.unpushed && <div className="stop-item-hint">{t('stop.archive.unpushed', { count: preview.unpushed.count, against: preview.unpushed.against })}</div>}
@@ -238,16 +243,27 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
               )}
               {dockerPreview && <DockerLine preview={dockerPreview} />}
               {preview.terminals > 0 && <div className="stop-item">{t('stop.archive.terminals', { count: preview.terminals })}</div>}
-              {deleteBranch && <div className="stop-item">{t.rich('stop.archive.branch', { branch: code(preview.branch) })}</div>}
             </div>
           </div>
         </>
       )}
-      {/* A cloud workspace's branch is in its sandbox, which archiving keeps. */}
-      {kind === 'worktree' && !cloud && !failure && (
-        <Checkbox disabled={busy} checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)}>
-          {t.rich('stop.archive.deleteBranch', { branch: code(ws.branch) })}
-        </Checkbox>
+      {branchChoice && !failure && (
+        <Card className="stop-branch">
+          <GitBranch size={14} className="stop-branch-icon" />
+          <div className="stop-branch-text">
+            {t.rich('stop.archive.branch', { branch: code(preview?.branch ?? ws.branch) })}
+            {preview?.unpushed && <div className="stop-item-hint">{t('stop.archive.unpushed', { count: preview.unpushed.count, against: preview.unpushed.against })}</div>}
+          </div>
+          <Segmented
+            label={t('stop.archive.branchChoice')}
+            value={deleteBranch ? 'delete' : 'keep'}
+            onChange={(v) => setDeleteBranch(v === 'delete')}
+            options={[
+              { value: 'keep', label: t('stop.archive.keepBranch'), disabled: busy },
+              { value: 'delete', label: t('stop.archive.deleteBranchChoice'), disabled: busy }
+            ]}
+          />
+        </Card>
       )}
       {kind === 'worktree' && (
         <div className="stop-steps">

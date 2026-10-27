@@ -39,6 +39,11 @@ export type { PersonalSection, RepoSection }
  */
 export type AgentsSubpage = 'catalog' | 'signin' | 'keys'
 
+/** The merged header's archive button: archive and keep the branch, or archive and delete it. */
+export type ArchiveChoice = 'archive' | 'delete-branch'
+
+const archiveChoiceOf = (value: unknown): ArchiveChoice | null => (value === 'archive' || value === 'delete-branch' ? value : null)
+
 export type SettingsPage = (
   | { section: PersonalSection }
   // #22: `agent` is a catalog id (any level), or one of the Agents pages: 'catalog', 'signin', 'keys'.
@@ -87,8 +92,11 @@ interface State {
   opencodeInstalled: boolean
   backgroundArchives: string[]
   archiveTarget: string | null
-  // The archive dialog opens with "Delete branch" already ticked (the merged header's menu).
+  // The archive dialog opens with "Delete branch" already chosen (the merged header's menu).
   archiveDeleteBranch: boolean
+  // What the archive dialog last did where it offered the choice; the merged header's button runs it next time.
+  // Null until the first such archive.
+  archiveChoice: ArchiveChoice | null
   // The chat whose MCP status dialog is open.
   mcpStatusSession: string | null
   // The Second opinion / Continue dialog, open for this chat.
@@ -210,6 +218,7 @@ let state: State = {
   backgroundArchives: [],
   archiveTarget: null,
   archiveDeleteBranch: false,
+  archiveChoice: archiveChoiceOf(loadPref<unknown>('archiveChoice', null)),
   mcpStatusSession: null,
   handOffDialog: null,
   portDialog: null,
@@ -1014,6 +1023,14 @@ export function finishBackgroundArchive(workspaceId: string): void {
 
 export function openArchiveDialog(workspaceId: string | null, options: { deleteBranch?: boolean } = {}): void {
   setState({ archiveTarget: workspaceId, archiveDeleteBranch: Boolean(options.deleteBranch) })
+}
+
+/** Remembers whether an archive kept or deleted the branch, for the merged header's button. */
+export function rememberArchiveChoice(deleteBranch: boolean): void {
+  const archiveChoice: ArchiveChoice = deleteBranch ? 'delete-branch' : 'archive'
+  if (archiveChoice === state.archiveChoice) return
+  savePref('archiveChoice', archiveChoice)
+  setState({ archiveChoice })
 }
 
 export function openMcpStatus(sessionId: string | null): void {

@@ -107,14 +107,51 @@ describe('archive sheet', () => {
     await waitFor(() => expect(fakeApi.archiveWorkspace).toHaveBeenCalledWith('w1', false, { stopTabs: true }))
   })
 
-  it('the delete-branch checkbox is passed on', async () => {
+  it('choosing Delete for the branch is passed on and remembered, and the button says so', async () => {
     const user = userEvent.setup()
     render(<ArchiveDialog workspaceId="w1" />)
-    await user.click(await screen.findByRole('checkbox'))
-    const go = screen.getByRole('button', { name: /^archive$|archive workspace|archive…/i })
+    const choice = await screen.findByRole('radiogroup', { name: 'Keep or delete the branch' })
+    expect(within(choice).getByRole('radio', { name: 'Keep' }).getAttribute('aria-checked')).toBe('true')
+    await user.click(within(choice).getByRole('radio', { name: 'Delete' }))
+    const go = screen.getByRole('button', { name: 'Archive and delete branch' })
     await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false))
     await user.click(go)
     await waitFor(() => expect(fakeApi.archiveWorkspace).toHaveBeenCalledWith('w1', true, { stopTabs: true }))
+    expect(spy('rememberArchiveChoice')).toHaveBeenLastCalledWith(true)
+  })
+
+  it('keeps the branch in its own row whichever is chosen, never in the Kept or Deleted column', async () => {
+    const user = userEvent.setup()
+    render(<ArchiveDialog workspaceId="w1" />)
+    const choice = await screen.findByRole('radiogroup', { name: 'Keep or delete the branch' })
+    await screen.findByText('Kept')
+    const columns = () => Array.from(document.querySelectorAll('.stop-column')).map((c) => c.textContent)
+    const row = choice.closest('.stop-branch')!
+    expect(row.textContent).toContain('fix-login')
+    expect(columns().some((c) => c?.includes('fix-login'))).toBe(false)
+    await user.click(within(choice).getByRole('radio', { name: 'Delete' }))
+    expect(choice.closest('.stop-branch')).toBe(row)
+    expect(columns().some((c) => c?.includes('fix-login'))).toBe(false)
+  })
+
+  it('opens with Delete chosen when asked to (the merged header’s menu or last choice)', async () => {
+    fakeState.archiveDeleteBranch = true
+    render(<ArchiveDialog workspaceId="w1" />)
+    const choice = await screen.findByRole('radiogroup', { name: 'Keep or delete the branch' })
+    expect(within(choice).getByRole('radio', { name: 'Delete' }).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('a cloud workspace offers no branch choice and remembers nothing', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.workspaces = [ws('w1', 'fix-login', { cloud: { status: 'running' } })]
+    render(<ArchiveDialog workspaceId="w1" />)
+    const go = await screen.findByRole('button', { name: /^archive$/i })
+    await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false))
+    expect(screen.queryByRole('radiogroup')).toBeNull()
+    spy('rememberArchiveChoice').mockClear()
+    await user.click(go)
+    await waitFor(() => expect(fakeApi.archiveWorkspace).toHaveBeenCalled())
+    expect(spy('rememberArchiveChoice')).not.toHaveBeenCalled()
   })
 
   it('a failed step shows an alert with its detail, and "anyway" asks for a second click', async () => {

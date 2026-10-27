@@ -60,6 +60,10 @@
 
 /* Archive: kept and deleted side by side, then the steps in order. */
 .stop-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+/* The branch's own row under the columns: keeping or deleting it changes the choice, not where it's listed. */
+.stop-branch { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 8px 12px; }
+.stop-branch-icon { flex: none; color: var(--text-muted); }
+.stop-branch-text { flex: 1; min-width: 0; font-size: var(--text-md); }
 .stop-column { padding: 8px 12px 10px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-panel); }
 .stop-column-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: var(--text-sm); font-weight: 600; }
 .stop-column-head.kept { color: var(--green); }

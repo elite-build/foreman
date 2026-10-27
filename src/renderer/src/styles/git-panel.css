@@ -30,6 +30,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The merged progress strip, between the header and the tabs. */
+.merged-progress {
+  flex: none;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+}
 .changes-filter {
   width: 100%;
   margin-bottom: 6px;

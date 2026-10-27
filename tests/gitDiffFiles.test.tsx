@@ -11,7 +11,7 @@ import { CommitsView } from '../src/renderer/src/components/CommitsView'
 import { SelectionBar, SelectionDraftBox, TabPicker } from '../src/renderer/src/components/DiffSelection'
 import { DiffSourceMenu } from '../src/renderer/src/components/DiffSourceMenu'
 import { FilesTree } from '../src/renderer/src/components/FilesTree'
-import { GitHeaderActions, MergedStatus } from '../src/renderer/src/components/GitPanel'
+import { GitHeaderActions, MergedProgress, MergedStatus } from '../src/renderer/src/components/GitPanel'
 import { en } from '../src/shared/i18n/en'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -406,6 +406,7 @@ describe('the Git header actions', () => {
     })
     afterEach(() => {
       fakeState.snapshot.workspaces = []
+      delete fakeState.archiveChoice
     })
 
     it('drops Review; Archive is the primary action and its menu archives, archives with the branch, or opens the PR', async () => {
@@ -428,12 +429,66 @@ describe('the Git header actions', () => {
       expect(fakeApi.openExternal).toHaveBeenCalledWith(pr.url)
     })
 
+    it('after an archive that deleted the branch, the button does that next, and the menu marks it as last used', async () => {
+      fakeState.archiveChoice = 'delete-branch'
+      const user = userEvent.setup()
+      render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
+      const primary = screen.getByRole('button', { name: 'Archive and delete branch' })
+      expect(primary.className).toContain('ui-btn--primary')
+      await user.click(primary)
+      expect(archiveDialog).toHaveBeenLastCalledWith('w1', { deleteBranch: true })
+      await user.click(screen.getByRole('button', { name: 'More options after merging' }))
+      expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Archive', 'Archive and delete branchLast used', 'Open #41 on GitHub'])
+      await user.click(screen.getByRole('menuitem', { name: /^Archive$/ }))
+      expect(archiveDialog).toHaveBeenLastCalledWith('w1')
+    })
+
+    it('after an archive that kept the branch, the button archives and the menu marks Archive as last used', async () => {
+      fakeState.archiveChoice = 'archive'
+      const user = userEvent.setup()
+      render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
+      await user.click(screen.getByRole('button', { name: /^Archive$/ }))
+      expect(archiveDialog).toHaveBeenLastCalledWith('w1')
+      await user.click(screen.getByRole('button', { name: 'More options after merging' }))
+      expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['ArchiveLast used', 'Archive and delete branch', 'Open #41 on GitHub'])
+    })
+
+    it('an adopted checkout archives even when the last archive deleted a branch', async () => {
+      fakeState.archiveChoice = 'delete-branch'
+      fakeState.snapshot.workspaces = [{ id: 'w1', adopted: true }]
+      const user = userEvent.setup()
+      render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
+      await user.click(screen.getByRole('button', { name: /^Archive$/ }))
+      expect(archiveDialog).toHaveBeenLastCalledWith('w1')
+    })
+
     it('an adopted checkout is not offered to delete its branch', async () => {
       fakeState.snapshot.workspaces = [{ id: 'w1', adopted: true }]
       const user = userEvent.setup()
       render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
       await user.click(screen.getByRole('button', { name: 'More options after merging' }))
       expect(screen.queryByRole('menuitem', { name: 'Archive and delete branch' })).toBeNull()
+    })
+
+    it('the progress strip shows every step behind it, with Merged as where the work is now', () => {
+      const checks = [{ name: 'a', state: 'success' }, { name: 'b', state: 'success' }]
+      render(<MergedProgress pr={{ ...pr, checks } as never} />)
+      const list = screen.getByRole('list', { name: 'Pull request progress' })
+      const items = within(list).getAllByRole('listitem')
+      expect(items.map((li) => li.textContent)).toEqual(['Committed, done', 'PR #41, done', 'Checks 2/2, done', 'Merged'])
+      expect(items[3].getAttribute('aria-current')).toBe('step')
+      expect(items.map((li) => li.dataset.tone)).toEqual(['ok', 'ok', 'ok', 'info'])
+    })
+
+    it('the strip marks failed checks, leaves out checks when there were none, and uses GitLab’s words', () => {
+      const { unmount } = render(<MergedProgress pr={{ ...pr, checks: [{ name: 'a', state: 'success' }, { name: 'b', state: 'failure' }] } as never} />)
+      const checksStep = screen.getAllByRole('listitem')[2]
+      expect(checksStep.textContent).toBe('Checks 1/2, done')
+      expect(checksStep.dataset.tone).toBe('error')
+      unmount()
+      render(<MergedProgress pr={{ ...pr, provider: 'gitlab' } as never} />)
+      const list = screen.getByRole('list', { name: 'Merge request progress' })
+      expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Committed, done', 'MR !41, done', 'Merged'])
     })
 
     it('the status says which PR merged into what and when, and the number opens it', async () => {
