@@ -7,6 +7,7 @@ import {
   query,
   tool,
   type CanUseTool,
+  type McpSdkServerConfigWithInstance,
   type PermissionMode as SdkPermissionMode,
   type McpServerStatus,
   type ModelInfo as SdkModelInfo,
@@ -26,6 +27,7 @@ import { modelInfo, type EffortLevel, type ModelInfo } from '../../shared/agents
 import type { OperatorTools } from '../../shared/assistant'
 import type { AgentStatus, ChatItem, McpServerInfo, SlashCommandInfo, TaskProgress, UsageLimit } from '../../shared/types'
 import { bundledClaudeExecutable } from '../platform'
+import { trackedClaudeSpawn } from './claudeSpawn'
 import { claudeLimit, type RateLimitEventInfo } from '../../shared/usageLimit'
 import {
   looksLikeAuthError,
@@ -43,6 +45,7 @@ import {
   type TurnRequest,
   type TurnResult
 } from './types'
+import { PreviewThrottle } from './previewThrottle'
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 type LiveBlock = { itemId: string; kind: 'assistant' | 'thinking'; text: string; finalized: boolean }
@@ -304,8 +307,13 @@ class ClaudeTurn implements AgentTurn {
   private tools = new Map<string, ToolItem>()
   private flushTimer: NodeJS.Timeout | null = null
   private dirty = new Set<string>()
+  // Subagent progress ticks (shown, not saved) go out at most every 50 ms, as the text previews do.
+  private taskPreviews = new PreviewThrottle((toolId) => this.sendTaskPreview(toolId))
   private noticeCount = 0
   private stderrTail = ''
+  private onStderr = (data: string) => {
+    this.stderrTail = (this.stderrTail + data).slice(-4000)
+  }
   // G4 #11: the latest rate_limit_event's info, a second source of when a limit resets.
   private rateLimit: RateLimitEventInfo | undefined
   private planMode: boolean
@@ -315,6 +323,8 @@ class ClaudeTurn implements AgentTurn {
   // A result arrived while background work was still running.
   private awaitingBackground = false
   private wakeTimer: NodeJS.Timeout | null = null
+  // "Stop waiting for background tasks" (req.backgroundWait): ends a turn whose background work outlasts the setting.
+  private backgroundCutoff: NodeJS.Timeout | null = null
   // Subagents and shells, keyed by the tool call that started them.
   private taskTools = new Map<string, string>()
   private tasks = new Map<string, TaskProgress>()
@@ -418,9 +428,9 @@ class ClaudeTurn implements AgentTurn {
         canUseTool: this.canUseTool,
         includePartialMessages: true,
         pathToClaudeCodeExecutable: executable(req.executablePath),
-        stderr: (data: string) => {
-          this.stderrTail = (this.stderrTail + data).slice(-4000)
-        }
+        stderr: this.onStderr,
+        // Started as the SDK would, with its pid tracked for Show resource usage; its stderr goes to the same place.
+        spawnClaudeCodeProcess: trackedClaudeSpawn(this.onStderr)
       }
       this.q = query({
         prompt: this.input,
@@ -437,7 +447,7 @@ class ClaudeTurn implements AgentTurn {
               systemPrompt: { type: 'preset', preset: 'claude_code', append: req.systemPromptAppend },
               // Questions go through our own tool so the app can render them. Read-only also drops leaving plan mode and writing.
               disallowedTools: [...(req.readOnly ? ['AskUserQuestion', ...READ_ONLY_DENIED] : ['AskUserQuestion']), ...disabledMcpTools(req.disabledMcp)],
-              mcpServers: { ...repoMcpConfig(req.mcpServers), foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] }) },
+              mcpServers: { ...repoMcpConfig(req.mcpServers), ...inProcessMcpConfig(req.inProcessMcp), foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] }) },
               // A one-line "what it's doing now" for running subagents.
               agentProgressSummaries: true,
               extraArgs: req.chrome ? { chrome: null } : undefined,
@@ -624,6 +634,7 @@ class ClaudeTurn implements AgentTurn {
           if (!this.awaitingBackground) {
             const n = this.background.size
             this.notice('info', `Waiting for ${n} background task${n === 1 ? '' : 's'} to finish.`)
+            this.armBackgroundCutoff()
           }
           this.awaitingBackground = true
           return
@@ -639,6 +650,8 @@ class ClaudeTurn implements AgentTurn {
   /** The turn is over: closing the input ends the query once the agent has wrapped up. */
   private complete(): void {
     this.clearWakeTimer()
+    if (this.backgroundCutoff) clearTimeout(this.backgroundCutoff)
+    this.backgroundCutoff = null
     this.awaitingBackground = false
     if (this.done) return
     this.done = true
@@ -650,6 +663,23 @@ class ClaudeTurn implements AgentTurn {
   private armWakeTimer(): void {
     this.clearWakeTimer()
     this.wakeTimer = setTimeout(() => this.complete(), BACKGROUND_WAKE_MS)
+  }
+
+  /**
+   * From the first result that found background work still running: after the setting's minutes, say so and end the
+   * turn as if that work were done. Closing the input ends Claude's process, and the background shells and subagents
+   * with it, as stopping would (finish() marks them stopped). Measured once per turn; Claude waking in between doesn't reset it.
+   */
+  private armBackgroundCutoff(): void {
+    const wait = this.req.backgroundWait
+    if (!wait || this.backgroundCutoff) return
+    this.backgroundCutoff = setTimeout(() => {
+      this.backgroundCutoff = null
+      if (this.done || this.input.closed || !this.awaitingBackground) return
+      this.notice('info', wait.notice)
+      this.complete()
+    }, wait.ms)
+    this.backgroundCutoff.unref?.()
   }
 
   private clearWakeTimer(): void {
@@ -671,7 +701,14 @@ class ClaudeTurn implements AgentTurn {
     const tool = this.tools.get(toolId)
     if (!tool) return
     tool.task = task
-    this.cb.item({ ...tool }, transient)
+    if (transient) this.taskPreviews.mark(toolId)
+    else this.cb.item({ ...tool })
+  }
+
+  /** A tool call's latest task progress, while its task still runs (a saved end must not be followed by a tick). */
+  private sendTaskPreview(toolId: string): void {
+    const tool = this.tools.get(toolId)
+    if (tool && this.tasks.get(toolId)?.status === 'running') this.cb.item({ ...tool }, true)
   }
 
   private async reportUsage(): Promise<void> {
@@ -772,6 +809,7 @@ class ClaudeTurn implements AgentTurn {
   private finish(): void {
     if (this.flushTimer) clearTimeout(this.flushTimer)
     this.flushTimer = null
+    this.taskPreviews.cancel()
     this.clearWakeTimer()
     for (const live of this.live.values()) {
       if (live.finalized || !live.text) continue
@@ -1024,6 +1062,11 @@ export function repoMcpConfig(servers: Record<string, McpLaunch> | undefined): R
   return Object.fromEntries(Object.entries(servers ?? {}).map(([name, s]) => [name, { type: 'stdio' as const, command: s.command, args: s.args, env: s.env }]))
 }
 
+/** The app's in-process servers (`foreman-app` for a turn in the app), under the same names a stdio bridge had, so tool names stay mcp__<name>__…. */
+export function inProcessMcpConfig(servers: TurnRequest['inProcessMcp']): Record<string, McpSdkServerConfigWithInstance> {
+  return Object.fromEntries(Object.entries(servers ?? {}).map(([name, instance]) => [name, { type: 'sdk' as const, name, instance }]))
+}
+
 /** The user's MCP servers, leaving out the app's own in-process tools. */
 export function toMcpServers(list: McpServerStatus[]): McpServerInfo[] {
   return list
@@ -1054,6 +1097,9 @@ function openMcpProbe(options: OneShotOptions): McpProbe {
     await idle
   }
   let stderrTail = ''
+  const onStderr = (data: string) => {
+    stderrTail = (stderrTail + data).slice(-2000)
+  }
   const q = query({
     prompt: prompt(),
     options: {
@@ -1063,9 +1109,8 @@ function openMcpProbe(options: OneShotOptions): McpProbe {
       persistSession: false,
       mcpServers: repoMcpConfig(options.mcpServers),
       pathToClaudeCodeExecutable: executable(options.executablePath),
-      stderr: (data: string) => {
-        stderrTail = (stderrTail + data).slice(-2000)
-      }
+      stderr: onStderr,
+      spawnClaudeCodeProcess: trackedClaudeSpawn(onStderr)
     }
   })
   let timer: NodeJS.Timeout | undefined

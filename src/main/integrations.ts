@@ -68,10 +68,11 @@ export interface IntegrationDeps {
   repoGithubToken: (repoId: string) => { value: string; from: string } | undefined
   remoteUrl: (repoId: string) => Promise<string | null>
   githubAccounts: () => Promise<GithubAccount[]>
-  // The token gh holds for an account (throws when it's signed out).
-  accountToken: (login: string) => string
-  // gh's active account, as `gh api user` sees it.
+  // The token gh holds for an account (throws, or rejects, when it's signed out).
+  accountToken: (login: string) => string | Promise<string>
+  // gh's active account, asked afresh (checking a connection).
   activeLogin: () => Promise<string | undefined>
+  // The same without waiting: the last answer, undefined until gh has given one.
   activeAccount?: () => string | undefined
   changed: () => void
   fetch?: Fetch
@@ -278,6 +279,24 @@ export class Integrations {
     return `token:${r.connection.id}`
   }
 
+  /**
+   * githubKey for callers that can wait (a turn's environment, a git action): a connection following gh's active
+   * account asks gh afresh first, so gh auth switch run outside Foreman counts now rather than when the cached answer
+   * gets old. gh failing to answer is nobody (`blocked:`), never the last or another account.
+   */
+  async githubKeyFresh(repoId: string): Promise<string | undefined> {
+    const r = this.resolve(repoId, 'github')
+    if (r.state === 'ready' && r.connection.auth.kind === 'gh-active' && this.deps.activeAccount) await this.deps.activeLogin().catch(() => undefined)
+    return this.githubKey(repoId)
+  }
+
+  /** The gh accounts GitHub connections run as, and whether one follows gh's active account: what github.ts should have ready. */
+  ghAccountsInUse(): { accounts: string[]; active: boolean } {
+    const github = this.state().connections.filter((c) => c.service === 'github')
+    const accounts = github.flatMap((c) => (c.auth.kind === 'gh-account' ? [c.auth.login] : []))
+    return { accounts: [...new Set(accounts)], active: github.some((c) => c.auth.kind === 'gh-active') }
+  }
+
   /** The identities and permissions a scheduled run must be approved against. */
   fingerprints(repoId: string): string[] {
     const out = INTEGRATION_SERVICES.flatMap((service) => {
@@ -365,7 +384,7 @@ export class Integrations {
     if (service === 'e2b') return verifyE2b(token!, sandbox.e2b ?? {}, this.fetch)
     if (service === 'daytona') return verifyDaytona(token!, { apiUrl: sandbox.daytona?.apiUrl || DAYTONA_API_URL, target: sandbox.daytona?.target }, this.fetch)
     if (service === 'github') {
-      if (auth.kind === 'gh-account') return { identity: await githubTokenUser(this.deps.accountToken(auth.login), this.fetch) }
+      if (auth.kind === 'gh-account') return { identity: await githubTokenUser(await this.deps.accountToken(auth.login), this.fetch) }
       if (auth.kind === 'gh-active') {
         const login = await this.deps.activeLogin()
         if (!login) throw new Error('gh isn’t signed in to github.com. Run gh auth login, or add a token instead.')

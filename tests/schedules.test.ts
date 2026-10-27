@@ -91,7 +91,7 @@ const input: ScheduleInput = { templateId: 't1', templateName: 'Dependency audit
 const inputs: FingerprintInputs = { templateBody: 'npm outdated', templateRev: undefined, setupScript: 'npm ci', checks: [{ name: 'test', command: 'npm test' }], mcp: [] }
 const MON_9 = iso('2026-10-26T16:00:00Z')
 
-function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; occurrences?: Occurrence[] } } = {}) {
+function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; occurrences?: Occurrence[] }; turnStart?: ScheduleDeps['turnStart'] } = {}) {
   const store = { state: { schedules: options.start?.schedules, occurrences: options.start?.occurrences } as { schedules?: Schedule[]; occurrences?: Occurrence[] }, flush: vi.fn() }
   const clock = { now: iso('2026-10-20T12:00:00Z') }
   let current = inputs as FingerprintInputs | { error: string }
@@ -110,7 +110,8 @@ function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; oc
       }),
     stop: async (o) => void stopped.push(o.id),
     changed: vi.fn(),
-    maxActive: options.maxActive
+    maxActive: options.maxActive,
+    turnStart: options.turnStart
   }
   const service = new ScheduleService(deps)
   return {
@@ -276,6 +277,27 @@ describe('schedule service', () => {
     expect(s.pausedReason).toMatch(/no longer exists/)
   })
 
+  it('reads fingerprints only once their inputs can be told (gh’s active account is known)', async () => {
+    const r = rig()
+    let known!: () => void
+    r.service['deps'].ready = () => new Promise<void>((resolve) => { known = resolve })
+    const s = r.service.create(input, inputs)
+    // Until gh answers, the GitHub identity in the inputs isn't the approved one yet.
+    r.setInputs({ ...inputs, mcp: ['integration:github:c1:1:off:blocked:r1'] })
+    r.clock.now = MON_9 + 1000
+    const tick = r.service.tick()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(s.state).toBe('active')
+    expect(r.launches).toHaveLength(0)
+    r.setInputs(inputs)
+    known()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(s.state).toBe('active')
+    expect(r.launches).toHaveLength(1)
+    r.launches[0].finish()
+    await tick
+  })
+
   it('stops the run when it asks for an approval or a question, and leaves it for the human', async () => {
     const r = rig()
     const s = r.service.create(input, inputs)
@@ -299,6 +321,24 @@ describe('schedule service', () => {
     await r.at(MON_9 + 29 * 60_000)
     expect(l.occurrence.state).toBe('running')
     await r.at(MON_9 + 31 * 60_000)
+    expect(l.occurrence.state).toBe('timed-out')
+    expect(r.stopped).toEqual([l.occurrence.id])
+  })
+
+  it('doesn’t count time spent waiting for an agent slot: the limit runs from the turn’s start', async () => {
+    let turn: 'waiting' | string | undefined
+    const r = rig({ turnStart: () => turn })
+    r.service.create(input, inputs)
+    await r.at(MON_9 + 1000)
+    const l = await running(r)
+    turn = 'waiting'
+    await r.at(MON_9 + 45 * 60_000)
+    expect(l.occurrence.state).toBe('running')
+    turn = new Date(MON_9 + 50 * 60_000).toISOString()
+    await r.at(MON_9 + 79 * 60_000)
+    expect(l.occurrence.state).toBe('running')
+    expect(r.stopped).toEqual([])
+    await r.at(MON_9 + 81 * 60_000)
     expect(l.occurrence.state).toBe('timed-out')
     expect(r.stopped).toEqual([l.occurrence.id])
   })

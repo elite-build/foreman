@@ -1,13 +1,15 @@
 import { AlertTriangle, ArrowRight, ClipboardList, Copy, FolderPlus, GitBranch, Lock, MoreHorizontal, Pencil, Plus, RotateCcw, Settings, Sparkles, Users } from 'lucide-react'
 import { agentControls } from '../../../shared/agentCatalog'
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Activity, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { AGENTS, modelInfo } from '../../../shared/agents'
 import { isMixed, turnAuthors, type AgentSwitch, type ChatDivider, type TurnAuthor } from '../../../shared/switchAgent'
 import { continueEligibility, continueFollowUp, turnAnswer } from '../../../shared/handOff'
 import { partSize, receiptLine } from '../../../shared/context'
 import type { PlainKey } from '../../../shared/i18n'
-import type { ApprovalRequest, ChatItem, ContextPart, Session, TurnDelta, Workspace } from '../../../shared/types'
+import type { AgentKind, ApprovalRequest, ChatItem, ContextPart, Session, TurnDelta, Workspace } from '../../../shared/types'
+import { useClock } from '../clock'
 import { api, attempt, clearChatJump, copyTranscript, editAndResend, fillComposer, forkChat, loadChat, onUiCommand, openHandOffDialog, openNewWorkspace, openSettingsPage, sendUiCommand, showToast, useStore } from '../store'
+import { useHeldStore } from '../heldStore'
 import { editResendBlock } from '../../../shared/fork'
 import { useT } from '../i18n'
 import { announce } from '../announce'
@@ -83,7 +85,7 @@ type TurnGroup = { turnId: string; number: number; user: Extract<ChatItem, { kin
  * The log as turns: a turn starts at a message the user sent (not one steered into a running turn) and holds everything up
  * to the next one. What comes before the first message, and the line where the chat switched agents, stays outside any turn.
  */
-function groupTurns(items: ChatItem[]): (ChatItem | TurnGroup)[] {
+function groupTurns(items: ChatItem[], previous: (ChatItem | TurnGroup)[] = []): (ChatItem | TurnGroup)[] {
   const out: (ChatItem | TurnGroup)[] = []
   let current: TurnGroup | null = null
   let number = 0
@@ -97,24 +99,97 @@ function groupTurns(items: ChatItem[]): (ChatItem | TurnGroup)[] {
     } else if (current) current.items.push(item)
     else out.push(item)
   }
-  return out
+  // A turn that holds the same items as before stays the same object, so its heading isn't worked out again.
+  const was = new Map(previous.filter(isTurn).map((turn) => [turn.user, turn]))
+  return out.map((entry) => {
+    if (!isTurn(entry)) return entry
+    const old = was.get(entry.user)
+    return old && old.number === entry.number && sameItems(old.items, entry.items) ? old : entry
+  })
 }
 const isTurn = (entry: ChatItem | TurnGroup): entry is TurnGroup => 'number' in entry
+const sameItems = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => x === b[i])
+const turnOf = (item: ChatItem): string | undefined => item.turnId
+
+/**
+ * Each turn's items, by turn id, wherever they sit in the log. A turn whose items are all the same objects keeps its
+ * array, so a finished turn's rows get the same props when the running turn adds an item.
+ */
+function itemsByTurn(items: ChatItem[], previous: Map<string, ChatItem[]>): Map<string, ChatItem[]> {
+  const next = new Map<string, ChatItem[]>()
+  for (const item of items) {
+    const id = turnOf(item)
+    if (!id) continue
+    const list = next.get(id)
+    if (list) list.push(item)
+    else next.set(id, [item])
+  }
+  for (const [id, list] of next) {
+    const old = previous.get(id)
+    if (old && sameItems(old, list)) next.set(id, old)
+  }
+  return next
+}
+
+/** `turnAuthors`, keeping the previous object for a turn whose agent and model are the same. */
+function stableAuthors(next: Map<string, TurnAuthor>, previous: Map<string, TurnAuthor>): Map<string, TurnAuthor> {
+  for (const [id, author] of next) {
+    const old = previous.get(id)
+    if (old && old.agent === author.agent && old.model === author.model) next.set(id, old)
+  }
+  return next
+}
+
+// An item settled (shown stopped, see settleItems) stays one object while its original does, so its row isn't drawn again.
+const settledOnce = new WeakMap<ChatItem, ChatItem>()
+function settleStable(logged: ChatItem[], liveTurnId: string | undefined): ChatItem[] {
+  const settled = settleItems(logged, liveTurnId)
+  if (settled === logged) return logged
+  return settled.map((item, n) => {
+    const original = logged[n]
+    if (item === original) return item
+    const kept = settledOnce.get(original)
+    if (kept) return kept
+    settledOnce.set(original, item)
+    return item
+  })
+}
+
+// What chat search looks through in a tool call, written out once per call and only once someone searches.
+const toolText = new WeakMap<ToolItem, string>()
+function toolSearchText(item: ToolItem): string {
+  let text = toolText.get(item)
+  if (text === undefined) toolText.set(item, (text = `${JSON.stringify(item.input, null, 2)}\n${item.output ?? ''}\n${item.task?.summary ?? ''}`))
+  return text
+}
 
 const OUTCOME_WORD = { completed: 'a11y.turn.outcome.finished', error: 'a11y.turn.outcome.failed', cancelled: 'a11y.turn.outcome.stopped', interrupted: 'a11y.turn.outcome.interrupted' } as const satisfies Record<'completed' | 'error' | 'cancelled' | 'interrupted', PlainKey>
 
 /** The article for one turn, headed "Turn 7, Claude, 14:02, finished, 4 tool calls". Its messages are headed one level down. */
-function TurnArticle({ heading, level, children }: { heading: string; level: number; children: ReactNode }) {
+function TurnArticle({ turn, agent, live, level, children }: { turn: TurnGroup; agent: AgentKind; live: boolean; level: number; children: ReactNode }) {
   const id = useId()
   return (
     <article className="chat-turn" style={TURN_LAYOUT} aria-labelledby={id} data-turn>
       <Hidden level={level} id={id} focusable data-turn-heading>
-        {heading}
+        <TurnTitle turn={turn} agent={agent} live={live} />
       </Hidden>
       {children}
     </article>
   )
 }
+
+/** "Turn 7, Claude, 14:02, finished, 4 tool calls": the heading a reader lands on when it jumps to a turn. `live`: still running. */
+const TurnTitle = memo(function TurnTitle({ turn, agent, live }: { turn: TurnGroup; agent: AgentKind; live: boolean }) {
+  const t = useT()
+  const end = turn.items.find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end')
+  const calls = turn.items.filter((i) => i.kind === 'tool' && !isReportCall(i)).length
+  const parts = [
+    t('a11y.turn.title', { n: turn.number, agent: AGENTS[agent]?.label ?? agent, time: formatClock(turn.user.at, t.locale) }),
+    end ? t(OUTCOME_WORD[end.outcome]) : live ? t('a11y.turn.outcome.running') : '',
+    calls > 0 ? t('a11y.turn.toolCalls', { count: calls }) : ''
+  ].filter(Boolean)
+  return parts.reduce((a, b) => t('narration.join', { a, b }))
+})
 
 /** Renders the text at most every STREAM_RENDER_MS while streaming; the final text at once. */
 function useThrottledText(text: string, streaming: boolean): string {
@@ -137,25 +212,57 @@ function useThrottledText(text: string, streaming: boolean): string {
   return streaming ? shown : text
 }
 
+type ChatViewProps = {
+  session: Session
+  workspace: Workspace
+  active: boolean
+  headingLevel?: 2 | 3
+  // Not on screen at all: its workspace is switched away from, or another tab is in front. See `ChatView` below.
+  hidden?: boolean
+}
+
 /**
  * `headingLevel` is the level of the chat's own heading: 2 on its own, 3 inside a tile (whose title is the level 2 above it).
  * Under it: a turn, then its messages, then whatever headings the agent wrote.
+ *
+ * A hidden chat stays mounted (its scroll position, draft and approval panel survive) but stops working: it skips the
+ * renders its parent asks for, stops following the log, and its transcript, background tasks and composer sit in a hidden
+ * `Activity`, which takes their store subscriptions and timers down until it is shown again. The approval panels stay out
+ * of it, because showing an Activity again runs their mount effects, and those move focus.
  */
-export function ChatView({ session, workspace, active, headingLevel = 2 }: { session: Session; workspace: Workspace; active: boolean; headingLevel?: 2 | 3 }) {
+export const ChatView = memo(ChatViewBody, (prev, next) => (prev.hidden && next.hidden) || shallowSame(prev, next))
+
+function shallowSame(a: ChatViewProps, b: ChatViewProps): boolean {
+  const keys = Object.keys(b) as (keyof ChatViewProps)[]
+  return keys.length === Object.keys(a).length && keys.every((k) => Object.is(a[k], b[k]))
+}
+
+function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = false }: ChatViewProps) {
   const t = useT()
-  const logged = useStore((s) => s.chats[session.id]) ?? EMPTY
+  const logged = useHeldStore((s) => s.chats[session.id], hidden) ?? EMPTY
+  const mode = hidden ? 'hidden' : 'visible'
   // Only the turn running now can still be working; anything an earlier turn left running was stopped with it.
-  const items = useMemo(() => settleItems(logged, session.turnId), [logged, session.turnId])
-  const approvals = useStore((s) => s.approvals)
-  const pending = approvals.filter((a) => a.sessionId === session.id)
+  const items = useMemo(() => settleStable(logged, session.turnId), [logged, session.turnId])
+  // This chat's requests, kept as the same array while they are the same ones, so another chat's approval renders nothing
+  // here. Not held while hidden: a request that arrives then is already in place (and has had its mount) when shown.
+  const lastPending = useRef<ApprovalRequest[]>([])
+  const pending = useStore((s) => {
+    const mine = s.approvals.filter((a) => a.sessionId === session.id)
+    const was = lastPending.current
+    if (mine.length === was.length && mine.every((a, i) => a === was[i])) return was
+    return (lastPending.current = mine)
+  })
   const running = session.status === 'running'
   const scroller = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
   const [query, setQuery] = useState('')
-  const hasHistory = items.some((i) => i.kind === 'user') || Boolean(session.agentSessionId)
+  // Everything worked out from the log is worked out once per change to it, not on each render.
+  const asked = useMemo(() => items.some((i) => i.kind === 'user'), [items])
+  const hasHistory = asked || Boolean(session.agentSessionId)
   // O1: who answered each turn, in a chat that switched agents.
-  const mixed = isMixed(items)
-  const authors = useMemo(() => turnAuthors(items, session), [items, session])
+  const mixed = useMemo(() => isMixed(items), [items])
+  const lastAuthors = useRef(new Map<string, TurnAuthor>())
+  const authors = useMemo(() => (lastAuthors.current = stableAuthors(turnAuthors(items, { agent: session.agent }), lastAuthors.current)), [items, session.agent])
   // When each turn's message was sent: a reply says which message it answers.
   const askedAt = useMemo(() => {
     const at = new Map<string, string>()
@@ -167,8 +274,17 @@ export function ChatView({ session, workspace, active, headingLevel = 2 }: { ses
   const logHeading = useRef<HTMLHeadingElement>(null)
   const planHeading = useRef<HTMLDivElement>(null)
   const chatRoot = useRef<HTMLDivElement>(null)
-  const turns = useMemo(() => groupTurns(items), [items])
+  const lastTurns = useRef<(ChatItem | TurnGroup)[]>([])
+  const turns = useMemo(() => (lastTurns.current = groupTurns(items, lastTurns.current)), [items])
+  const lastByTurn = useRef(new Map<string, ChatItem[]>())
+  const byTurn = useMemo(() => (lastByTurn.current = itemsByTurn(items, lastByTurn.current)), [items])
+  // Read here once for every row, rather than by each row from the store.
   const strip = useStore((s) => s.snapshot?.settings.notAbsolutelyRight ?? false)
+  const expandTools = useStore((s) => s.snapshot?.settings.expandToolCalls ?? false)
+  const forkToNewTab = useStore((s) => s.snapshot?.settings.forkToNewTab ?? false)
+  const repoId = useStore((s) => s.snapshot?.workspaces.find((w) => w.id === session.workspaceId)?.repoId)
+  const roots = useMemo(() => toolRoots({ path: workspace.path, provenance: { sourceRoot: workspace.provenance?.sourceRoot } }), [workspace.path, workspace.provenance?.sourceRoot])
+  const readOnly = sessionReadOnly(workspace, session)
   // The person a generated workspace name comes from, introduced in the greeting.
   const namesake = workspacePerson(workspace)
 
@@ -192,35 +308,73 @@ export function ChatView({ session, workspace, active, headingLevel = 2 }: { ses
     }
     streamingIds.current = now
   }, [items])
+  // An answer that finishes while the chat is hidden was not watched finishing: coming back says nothing about it.
+  useEffect(() => {
+    if (hidden) streamingIds.current = new Set()
+  }, [hidden])
 
   useEffect(() => {
     void loadChat(session.id)
   }, [session.id])
 
-  // Stay at the bottom while new output arrives, unless the user scrolled up.
+  // Stay at the bottom while new output arrives, unless the user scrolled up. The log growing (a new item, a reply's next
+  // throttled render, rows drawn for the first time as they scroll near) is heard by a ResizeObserver, after the browser's
+  // own layout: following costs no layout of its own, however many chats are on screen. What changes the room the log has
+  // rather than its content follows here.
+  const following = useRef({ query })
+  following.current.query = query
   useLayoutEffect(() => {
     const el = scroller.current
     if (el && pinned.current && !query) el.scrollTop = el.scrollHeight
-  }, [items, pending.length, running, active, query])
+  }, [pending.length, running, active, query])
+  // A ref callback, since the transcript's Activity detaches it while hidden and attaches it again when shown.
+  const observeLog = useCallback((inner: HTMLDivElement | null) => {
+    // Not `scroller`: on the first mount its ref is attached after this one.
+    const el = inner?.closest<HTMLElement>('.chat-scroll')
+    if (!inner || !el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (pinned.current && !following.current.query && el.clientHeight > 0) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(inner)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
+  // Where the reader had scrolled to, put back when the chat is shown again: a log hidden with display: none can come back
+  // at the top. Scroll events while it has no height (being hidden) say nothing about where the reader was.
+  const scrolledTo = useRef<number | null>(null)
   const onScroll = () => {
     const el = scroller.current
-    if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (!el || el.clientHeight === 0) return
+    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    scrolledTo.current = el.scrollTop
   }
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el || hidden || pinned.current || scrolledTo.current === null) return
+    el.scrollTop = scrolledTo.current
+  }, [hidden])
 
-  const lastUser = [...items].reverse().find((i) => i.kind === 'user')
+  const lastUser = items.findLast((i) => i.kind === 'user')
   const last = items.at(-1)?.kind
   const finished = last === 'result' || last === 'turn-end'
-  const lastTurnEnd = [...items].reverse().find((i) => i.kind === 'turn-end')
+  const lastTurnEnd = items.findLast((i) => i.kind === 'turn-end')
   const toolRequest = pending.find((a): a is Extract<ApprovalRequest, { kind: 'tool' }> => a.kind === 'tool')
   const question = pending.find((a): a is Extract<ApprovalRequest, { kind: 'question' }> => a.kind === 'question')
   const plan = pending.find((a): a is Extract<ApprovalRequest, { kind: 'plan' }> => a.kind === 'plan')
-  const background = items.filter((i): i is ToolItem => i.kind === 'tool' && i.task?.status === 'running' && Boolean(i.task.background))
+  const background = useMemo(() => items.filter((i): i is ToolItem => i.kind === 'tool' && i.task?.status === 'running' && Boolean(i.task.background)), [items])
+  // Continue (on the latest answer's menu): only once the chat is idle, so it isn't worked out while a turn streams.
+  const continuation = useMemo(() => {
+    if (!lastTurnEnd || running || readOnly) return null
+    const eligibility = continueEligibility(session, items)
+    return eligibility.ok ? { suggested: continueFollowUp(items, eligibility.turnId) } : null
+  }, [lastTurnEnd, running, readOnly, session, items])
 
   // From search: scroll to the message once its chat is loaded, and flash it.
   const jump = useStore((s) => (s.chatJump?.sessionId === session.id ? s.chatJump : null))
   useEffect(() => {
-    if (!jump) return
+    // A hidden chat can't scroll; the jump waits until it is shown.
+    if (!jump || hidden) return
     const el = scroller.current?.querySelector(`[data-chat-item="${CSS.escape(jump.itemId)}"]`)
     if (!el) return
     pinned.current = false
@@ -228,7 +382,7 @@ export function ChatView({ session, workspace, active, headingLevel = 2 }: { ses
     // ui/flash: the same neutral wash as a setting reached from search.
     if (el instanceof HTMLElement) flash(el, { duration: 1800 })
     clearChatJump(jump.nonce)
-  }, [jump, items])
+  }, [jump, items, hidden])
 
   const jumpTo = (id: string) => {
     const el = scroller.current?.querySelector(`[data-tool="${CSS.escape(id)}"]`)
@@ -285,52 +439,50 @@ export function ChatView({ session, workspace, active, headingLevel = 2 }: { ses
     [active, workspace.id, t]
   )
 
-  // A throttled render grows the log between renders of this view: keep it pinned to the bottom when it was.
-  const follow = useCallback(() => {
-    const el = scroller.current
-    if (el && pinned.current && !query) el.scrollTop = el.scrollHeight
-  }, [query])
-
-  const row = (item: ChatItem) => (
-    <div key={item.id} data-chat-item={item.id}>
-      {/* #17: an auto review's findings, as review threads, above its result line. */}
-      {item.kind === 'turn-end' && session.autoReview && <AutoReviewFindings workspace={workspace} session={session} turnId={item.turnId} />}
-      <ChatRow
-        item={item}
-        items={items}
-        session={session}
-        workspacePath={toolRoots(workspace)}
-        workspaceId={workspace.id}
-        running={running}
-        query={query}
-        isLatestEnd={item === lastTurnEnd}
-        workspaceChanges={workspace.diffStat}
-        readOnly={sessionReadOnly(workspace, session)}
-        author={'turnId' in item && item.turnId ? authors.get(item.turnId) : undefined}
-        mixed={mixed}
-        askedAt={'turnId' in item && item.turnId ? askedAt.get(item.turnId) : undefined}
-        level={headingLevel + 2}
-        onGrow={follow}
-      />
-      {item.kind === 'user' && session.autoReview && <AutoReviewReceipt workspace={workspace} session={session} item={item} />}
-      {item.kind === 'turn-end' &&
-        (workspace.alerts ?? [])
-          .filter((a) => a.sessionId === session.id && a.turnId === item.turnId)
-          .map((a) => <SensitiveCard key={a.id} alert={a} workspaceId={workspace.id} />)}
-    </div>
-  )
-
-  // "Turn 7, Claude, 14:02, finished, 4 tool calls": the heading a reader lands on when it jumps to a turn.
-  const turnHeading = (turn: TurnGroup, last: boolean) => {
-    const end = turn.items.find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end')
-    const agent = authors.get(turn.turnId)?.agent ?? session.agent
-    const calls = turn.items.filter((i) => i.kind === 'tool' && !isReportCall(i)).length
-    const parts = [
-      t('a11y.turn.title', { n: turn.number, agent: AGENTS[agent]?.label ?? agent, time: formatClock(turn.user.at, t.locale) }),
-      end ? t(OUTCOME_WORD[end.outcome]) : last && running ? t('a11y.turn.outcome.running') : '',
-      calls > 0 ? t('a11y.turn.toolCalls', { count: calls }) : ''
-    ].filter(Boolean)
-    return parts.reduce((a, b) => t('narration.join', { a, b }))
+  // Each row is a memo'd ChatRow, and gets only what it reads: a new item, the next chunk of a reply or a keystroke in
+  // search renders the rows it changes, not the whole log. Props a kind of row doesn't read are left out for it.
+  const row = (item: ChatItem) => {
+    const kind = item.kind
+    const turnId = turnOf(item)
+    const author = turnId ? authors.get(turnId) : undefined
+    const latest = item === lastTurnEnd
+    const signIn = kind === 'notice' && item.action === 'sign-in' && !item.gap && !item.report && !item.switched && !item.divider
+    return (
+      <div key={item.id} data-chat-item={item.id}>
+        {/* #17: an auto review's findings, as review threads, above its result line. */}
+        {kind === 'turn-end' && session.autoReview && <AutoReviewFindings workspace={workspace} session={session} turnId={item.turnId} />}
+        <ChatRow
+          item={item}
+          sessionId={session.id}
+          workspaceId={workspace.id}
+          tabAgent={session.agent}
+          agent={author?.agent ?? session.agent}
+          autoReview={Boolean(session.autoReview)}
+          readOnly={readOnly}
+          level={headingLevel + 2}
+          workspacePath={roots}
+          strip={strip}
+          expandTools={expandTools}
+          running={kind === 'user' || kind === 'turn-end' || signIn ? running : undefined}
+          query={kind === 'tool' || kind === 'thinking' ? query : undefined}
+          askedAt={kind === 'assistant' && turnId ? askedAt.get(turnId) : undefined}
+          turnItems={(kind === 'turn-end' || kind === 'result') && turnId ? byTurn.get(turnId) : undefined}
+          session={kind === 'turn-end' || signIn ? session : undefined}
+          items={signIn ? items : undefined}
+          isLatestEnd={latest}
+          continuation={latest ? continuation : null}
+          workspaceChanges={latest ? workspace.diffStat : undefined}
+          by={kind === 'turn-end' && mixed ? author : undefined}
+          repoId={repoId}
+          forkToNewTab={forkToNewTab}
+        />
+        {kind === 'user' && session.autoReview && <AutoReviewReceipt workspace={workspace} session={session} item={item} />}
+        {kind === 'turn-end' &&
+          (workspace.alerts ?? [])
+            .filter((a) => a.sessionId === session.id && a.turnId === item.turnId)
+            .map((a) => <SensitiveCard key={a.id} alert={a} workspaceId={workspace.id} />)}
+      </div>
+    )
   }
   const lastTurn = turns.findLast(isTurn)
 
@@ -343,57 +495,59 @@ export function ChatView({ session, workspace, active, headingLevel = 2 }: { ses
         <Hidden level={headingLevel} id={headingId} focusable ref={logHeading}>
           {t('chat.log.heading', { title })}
         </Hidden>
-        <div className="chat-inner">
-          {items.length === 0 && (
-            <div className="chat-greeting">
-              <p>
-                {t.rich('chat.greeting.copy', { name: <strong key="name">{workspace.name}</strong>, branch: <code key="branch">{workspace.branch}</code>, base: <code key="base">{workspace.baseBranch}</code> })}
-                {namesake && (
-                  <>
-                    {' '}
-                    {t.rich('chat.greeting.namesake', {
-                      name: (
-                        <LinkButton key="name" underline title={t('chat.greeting.namesakeSource', { name: namesake.fullName })} onClick={() => void attempt(() => api.openExternal(namesake.source))}>
-                          {namesake.fullName}
-                        </LinkButton>
-                      ),
-                      contribution: namesake.contribution
-                    })}
-                  </>
-                )}
-              </p>
-              <p className="muted">{t('chat.greeting.ask', { agent: AGENTS[session.agent].label })}</p>
-            </div>
-          )}
-          {turns.map((entry) =>
-            isTurn(entry) ? (
-              <TurnArticle key={entry.user.id} heading={turnHeading(entry, entry === lastTurn)} level={headingLevel + 1}>
-                {entry.items.map(row)}
-              </TurnArticle>
-            ) : (
-              row(entry)
-            )
-          )}
-          {workspace.state === 'setup-failed' && workspace.heldMessage?.sessionId === session.id && (
-            <div className="user-row">
-              <div className="user-msg held">
-                <div className="steered faint small">{t('chat.held')}</div>
-                {workspace.heldMessage.text}
+        <Activity mode={mode}>
+          <div className="chat-inner" ref={observeLog}>
+            {items.length === 0 && (
+              <div className="chat-greeting">
+                <p>
+                  {t.rich('chat.greeting.copy', { name: <strong key="name">{workspace.name}</strong>, branch: <code key="branch">{workspace.branch}</code>, base: <code key="base">{workspace.baseBranch}</code> })}
+                  {namesake && (
+                    <>
+                      {' '}
+                      {t.rich('chat.greeting.namesake', {
+                        name: (
+                          <LinkButton key="name" underline title={t('chat.greeting.namesakeSource', { name: namesake.fullName })} onClick={() => void attempt(() => api.openExternal(namesake.source))}>
+                            {namesake.fullName}
+                          </LinkButton>
+                        ),
+                        contribution: namesake.contribution
+                      })}
+                    </>
+                  )}
+                </p>
+                <p className="muted">{t('chat.greeting.ask', { agent: AGENTS[session.agent].label })}</p>
               </div>
-            </div>
-          )}
-          {plan && (
-            <div className="plan-card">
-              <div className="plan-card-head" role="heading" aria-level={headingLevel + 1} tabIndex={-1} ref={planHeading}>
-                <ClipboardList size={14} /> {t('chat.plan.title')}
+            )}
+            {turns.map((entry) =>
+              isTurn(entry) ? (
+                <TurnArticle key={entry.user.id} turn={entry} agent={authors.get(entry.turnId)?.agent ?? session.agent} live={entry === lastTurn && running} level={headingLevel + 1}>
+                  {entry.items.map(row)}
+                </TurnArticle>
+              ) : (
+                row(entry)
+              )
+            )}
+            {workspace.state === 'setup-failed' && workspace.heldMessage?.sessionId === session.id && (
+              <div className="user-row">
+                <div className="user-msg held">
+                  <div className="steered faint small">{t('chat.held')}</div>
+                  {workspace.heldMessage.text}
+                </div>
               </div>
-              <Markdown text={plan.plan} headingStart={headingLevel + 2} />
-            </div>
-          )}
-          {running && !finished && pending.length === 0 && lastUser?.kind === 'user' && <LiveTimer since={lastUser.at} />}
-        </div>
+            )}
+            {plan && (
+              <div className="plan-card">
+                <div className="plan-card-head" role="heading" aria-level={headingLevel + 1} tabIndex={-1} ref={planHeading}>
+                  <ClipboardList size={14} /> {t('chat.plan.title')}
+                </div>
+                <Markdown text={plan.plan} headingStart={headingLevel + 2} />
+              </div>
+            )}
+            {running && !finished && pending.length === 0 && lastUser?.kind === 'user' && <LiveTimer since={lastUser.at} />}
+          </div>
+        </Activity>
       </div>
-      {background.length > 0 && <BackgroundTasks tasks={background} workspacePath={toolRoots(workspace)} onJump={jumpTo} />}
+      <Activity mode={mode}>{background.length > 0 && <BackgroundTasks tasks={background} workspacePath={roots} onJump={jumpTo} />}</Activity>
       {workspace.state === 'archived' ? (
         // Read-only (#13): the composer becomes a banner, and Restore is its own step.
         <div className="composer">
@@ -404,14 +558,14 @@ export function ChatView({ session, workspace, active, headingLevel = 2 }: { ses
       ) : question ? (
         <QuestionPanel request={question} />
       ) : (
-        <>
+        <Activity mode={mode}>
           {!hasHistory && session.queue.length === 0 && hasNote(workspace.note) && (
             <Checkbox className="include-note" checked={Boolean(session.includeNote)} onChange={(e) => void attempt(() => api.updateSession(session.id, { includeNote: e.target.checked }))}>
               <span className="include-note-text">{t.rich('chat.includeNote', { revision: <Tag key="r">r{workspace.note.revision}</Tag> })}</span>
             </Checkbox>
           )}
           <Composer session={session} workspace={workspace} active={active} hasHistory={hasHistory} pendingPlan={plan} />
-        </>
+        </Activity>
       )}
     </div>
   )
@@ -440,18 +594,17 @@ function ContextReceipt({ parts }: { parts: ContextPart[] }) {
   )
 }
 
+/**
+ * How long the running turn has taken, in whole seconds (as its result line will say it), so it renders once a second. It
+ * is inside the transcript's Activity: in a hidden chat the interval is cleared, and it catches up when shown.
+ */
 function LiveTimer({ since }: { since: string }) {
-  const t = useT()
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 100)
-    return () => clearInterval(timer)
-  }, [])
-  const seconds = Math.max(0, (now - new Date(since).getTime()) / 1000)
+  const now = useClock(1000)
+  const elapsed = Math.max(0, now - new Date(since).getTime())
   return (
     <div className="live-timer">
       <Spinner size={14} />
-      <span className="mono">{t('chat.seconds', { s: seconds.toFixed(1) })}</span>
+      <span className="mono">{formatDuration(Math.floor(elapsed / 1000) * 1000)}</span>
     </div>
   )
 }
@@ -480,42 +633,66 @@ function BackgroundTasks({ tasks, workspacePath, onJump }: { tasks: ToolItem[]; 
   )
 }
 
-function ChatRow({
-  item,
-  items,
-  session,
-  workspacePath,
-  workspaceId,
-  running,
-  query,
-  isLatestEnd,
-  workspaceChanges,
-  readOnly,
-  author,
-  mixed,
-  askedAt,
-  level,
-  onGrow
-}: {
+type RowProps = {
   item: ChatItem
-  items: ChatItem[]
-  session: Session
-  workspacePath: Root
+  sessionId: string
   workspaceId: string
-  running: boolean
-  query: string
-  isLatestEnd: boolean
-  workspaceChanges?: TurnDelta | { files: number; additions: number; deletions: number }
-  readOnly?: boolean
-  // O1: the agent and model that answered this item's turn, and whether the chat switched agents.
-  author?: TurnAuthor
-  mixed?: boolean
-  // When the message this turn answers was sent.
-  askedAt?: string
+  // The tab's agent, and (O1) the one that answered this item's turn.
+  tabAgent: AgentKind
+  agent: AgentKind
+  autoReview: boolean
+  readOnly: boolean
   // The heading level of a message in this row; what an agent writes inside it starts one level below.
   level: number
-  onGrow: () => void
-}) {
+  workspacePath: Root
+  strip: boolean
+  expandTools: boolean
+  repoId?: string
+  forkToNewTab: boolean
+  // Each of the rest only for the kinds of row that read it (undefined for the others, so they stay equal).
+  running?: boolean
+  query?: string
+  // When the message this turn answers was sent.
+  askedAt?: string
+  // This item's turn: everything in the log with its turn id.
+  turnItems?: ChatItem[]
+  session?: Session
+  items?: ChatItem[]
+  isLatestEnd: boolean
+  continuation: Continuation | null
+  workspaceChanges?: TurnDelta | { files: number; additions: number; deletions: number }
+  // O1: in a chat that switched agents, who wrote this answer.
+  by?: TurnAuthor
+}
+
+type Continuation = { suggested: ReturnType<typeof continueFollowUp> }
+
+/** One item of the log. Memo'd: a finished row isn't drawn again when the running turn adds to the log. */
+const ChatRow = memo(function ChatRow({
+  item,
+  sessionId,
+  workspaceId,
+  tabAgent,
+  agent,
+  autoReview,
+  readOnly,
+  level,
+  workspacePath,
+  strip,
+  expandTools,
+  repoId,
+  forkToNewTab,
+  running = false,
+  query = '',
+  askedAt,
+  turnItems = EMPTY,
+  session,
+  items = EMPTY,
+  isLatestEnd,
+  continuation,
+  workspaceChanges,
+  by
+}: RowProps) {
   const t = useT()
   const headingId = useId()
   switch (item.kind) {
@@ -523,7 +700,7 @@ function ChatRow({
       return (
         <div className="user-row">
           {/* #22: agents that can't rewind (Chat agents over ACP) get no Restore. O1: the agent the message went to decides. */}
-          {item.checkpoint && !item.steered && !readOnly && agentControls(author?.agent ?? session.agent).restore && (
+          {item.checkpoint && !item.steered && !readOnly && agentControls(agent).restore && (
             <span className="restore-wrap">
               <Button
                 size="sm"
@@ -532,7 +709,7 @@ function ChatRow({
                 disabled={running}
                 onClick={() => {
                   if (window.confirm(t('chat.restore.confirm'))) {
-                    void attempt(() => api.restoreCheckpoint(session.id, item.turnId))
+                    void attempt(() => api.restoreCheckpoint(sessionId, item.turnId))
                   }
                 }}
               >
@@ -540,7 +717,7 @@ function ChatRow({
               </Button>
             </span>
           )}
-          {!readOnly && <UserMenu item={item} session={session} running={running} />}
+          {!readOnly && <UserMenu item={item} sessionId={sessionId} workspaceId={workspaceId} running={running} />}
           <article className="user-msg" aria-labelledby={headingId}>
             <Hidden level={level} id={headingId}>
               {t('chat.message.youAt', { time: formatClock(item.at, t.locale) })}
@@ -566,39 +743,40 @@ function ChatRow({
       // #17: a reviewer's findings block shows as cards instead of JSON.
       return (
         <AssistantMessage
-          text={session.autoReview && !item.streaming ? withoutFindingsBlock(item.text) : item.text}
+          text={autoReview && !item.streaming ? withoutFindingsBlock(item.text) : item.text}
           streaming={item.streaming}
           workspaceId={workspaceId}
-          who={AGENTS[author?.agent ?? session.agent]?.label ?? session.agent}
+          who={AGENTS[agent]?.label ?? tabAgent}
           askedAt={askedAt}
           level={level}
-          onGrow={onGrow}
+          strip={strip}
         />
       )
     case 'thinking':
-      return <Thinking text={item.text} streaming={item.streaming} forceOpen={textMatches(item.text, query).length > 0} />
+      return <Thinking text={item.text} streaming={item.streaming} forceOpen={Boolean(query) && textMatches(item.text, query).length > 0} />
     case 'tool':
       // #2: a call that only made a report is folded into the report's own line.
       if (isReportCall(item)) return null
-      return <ToolRow item={item} workspacePath={workspacePath} forceOpen={textMatches(`${JSON.stringify(item.input, null, 2)}\n${item.output ?? ''}\n${item.task?.summary ?? ''}`, query).length > 0} />
+      // The call written out for search only while there is a query.
+      return <ToolRow item={item} workspacePath={workspacePath} expandByDefault={expandTools} forceOpen={Boolean(query) && textMatches(toolSearchText(item), query).length > 0} />
     case 'notice':
       // O10: where Foreman was closed while this turn kept running in the background.
       if (item.gap) return <ClosedGapLine gap={item.gap} />
       // #2: what the agent reported ("agent says: checkpoint — …"); an open needs-input is a card.
-      if (item.report) return <ReportRow marker={item.report} turnId={item.turnId} sessionId={session.id} workspaceId={workspaceId} readOnly={readOnly} />
+      if (item.report) return <ReportRow marker={item.report} turnId={item.turnId} sessionId={sessionId} workspaceId={workspaceId} readOnly={readOnly} />
       // O1: where the chat switched agents, and what the new one was given.
       if (item.switched) return <SwitchDivider switched={item.switched} />
       // O1 (G1): where the conversation was compacted, or moved to another model of the same agent.
       if (item.divider) return <ChatDividerLine divider={item.divider} />
       // The turn failed on sign-in: once the agent is signed in, this card says so and offers Retry.
-      if (item.action === 'sign-in') return <SignInNotice item={item} items={items} session={session} running={running} readOnly={readOnly}>{item.text}</SignInNotice>
+      if (item.action === 'sign-in' && session) return <SignInNotice item={item} items={items} session={session} running={running} readOnly={readOnly}>{item.text}</SignInNotice>
       return (
         <Callout
           tone={item.level === 'error' ? 'error' : 'neutral'}
           className="chat-notice"
           actions={
             item.action && (
-              <Button size="sm" icon={<Settings size={12} />} onClick={() => openSettingsPage({ section: 'agents', agent: session.agent })}>
+              <Button size="sm" icon={<Settings size={12} />} onClick={() => openSettingsPage({ section: 'agents', agent: tabAgent })}>
                 {t('chat.notice.openSettings')}
               </Button>
             )
@@ -608,10 +786,11 @@ function ChatRow({
         </Callout>
       )
     case 'turn-end':
-      return <TurnEnd item={item} items={items} session={session} running={running} isLatestEnd={isLatestEnd} workspaceChanges={workspaceChanges} readOnly={readOnly} by={mixed ? author : undefined} />
+      if (!session) return null
+      return <TurnEnd item={item} turnItems={turnItems} session={session} running={running} isLatestEnd={isLatestEnd} continuation={continuation} workspaceChanges={workspaceChanges} readOnly={readOnly} by={by} repoId={repoId} forkToNewTab={forkToNewTab} />
     case 'result':
       // Superseded by the turn's result line, which carries the cost.
-      if (items.some((i) => i.kind === 'turn-end' && i.turnId === item.turnId)) return null
+      if (turnItems.some((i) => i.kind === 'turn-end' && i.turnId === item.turnId)) return null
       return (
         <div className={`result ${item.ok ? '' : 'error'}`}>
           {item.ok ? <Sparkles size={13} /> : null}
@@ -623,36 +802,43 @@ function ChatRow({
         </div>
       )
   }
-}
+})
 
 const OUTCOME_LABEL: Record<'completed' | 'error' | 'cancelled' | 'interrupted', PlainKey> = { completed: 'chat.outcome.completed', error: 'chat.outcome.error', cancelled: 'chat.outcome.cancelled', interrupted: 'chat.outcome.interrupted' }
 
 /** How a turn ended: a compact result line, plus a recovery card when it failed or was cut off. */
 function TurnEnd({
   item,
-  items,
+  turnItems,
   session,
   running,
   isLatestEnd,
+  continuation,
   workspaceChanges,
   readOnly,
-  by
+  by,
+  repoId,
+  forkToNewTab
 }: {
   item: Extract<ChatItem, { kind: 'turn-end' }>
-  items: ChatItem[]
+  // Everything in the log from this turn.
+  turnItems: ChatItem[]
   session: Session
   running: boolean
   isLatestEnd: boolean
+  // On the latest answer of an idle chat that can be continued (see `continueEligibility`), else null.
+  continuation: Continuation | null
   workspaceChanges?: { additions: number; deletions: number }
   // The tab can't send (history only), so no recovery actions.
   readOnly?: boolean
   // O1: in a chat that switched agents, who wrote this answer.
   by?: TurnAuthor
+  repoId?: string
+  forkToNewTab: boolean
 }) {
   const t = useT()
   const failed = item.outcome === 'error' || item.outcome === 'interrupted'
-  const workspaceRepoId = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === session.workspaceId)?.repoId)
-  const cost = items.find((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId === item.turnId)?.costUsd
+  const cost = turnItems.find((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId === item.turnId)?.costUsd
   // The workspace-wide figure is only honest for the latest turn, and is labelled as such.
   const changes = item.delta
     ? item.delta.additions || item.delta.deletions
@@ -661,12 +847,11 @@ function TurnEnd({
     : isLatestEnd && workspaceChanges && (workspaceChanges.additions || workspaceChanges.deletions)
       ? { label: 'chat.changes.workspace' as PlainKey, ...workspaceChanges }
       : null
-  const message = items.find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === item.turnId && !i.steered)
+  const message = turnItems.find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === item.turnId && !i.steered)
   // On the latest answer only, and only once the chat is idle, queue empty and the turn completed.
-  const eligibility = isLatestEnd && !running && !readOnly ? continueEligibility(session, items) : null
-  const suggested = eligibility?.ok ? continueFollowUp(items, eligibility.turnId) : null
+  const suggested = continuation?.suggested ?? null
+  const forkable = forkToNewTab && !readOnly && Boolean(message)
   // Chips only on the latest completed answer of an idle chat; once it moves on they are gone from view.
-  const forkable = useStore((s) => s.snapshot!.settings.forkToNewTab) && !readOnly && Boolean(message)
   const chips = item.outcome === 'completed' && isLatestEnd && !running && !readOnly && !session.queue.length ? item.suggestions ?? [] : []
   return (
     <>
@@ -687,9 +872,9 @@ function TurnEnd({
           workspaceId={session.workspaceId}
           turnId={item.turnId}
           canFork={forkable}
-          repoId={workspaceRepoId}
-          answer={turnAnswer(items, item.turnId)}
-          continueLabel={eligibility?.ok ? (suggested ? t('chat.continue.to', { title: suggested.title }) : t('chat.continue.another')) : undefined}
+          repoId={repoId}
+          answer={turnAnswer(turnItems, item.turnId)}
+          continueLabel={continuation ? (suggested ? t('chat.continue.to', { title: suggested.title }) : t('chat.continue.another')) : undefined}
           continueTitle={suggested ? t('chat.continue.toTitle') : t('chat.continue.anotherTitle')}
         />
         {changes && (
@@ -785,13 +970,13 @@ type UserItem = Extract<ChatItem, { kind: 'user' }>
  * #16: "…" beside a sent message. Edit and resend forks from just before it (the first message opens a
  * new chat) with its text in the new tab's composer; nothing is sent and this chat stays as it is.
  */
-function UserMenu({ item, session, running }: { item: UserItem; session: Session; running: boolean }) {
+function UserMenu({ item, sessionId, workspaceId, running }: { item: UserItem; sessionId: string; workspaceId: string; running: boolean }) {
   const t = useT()
   const block = editResendBlock(item, running)
   const blockText = block ? t(block === 'steered' ? 'editResend.menu.steered' : 'editResend.menu.running') : undefined
   return (
     <MenuButton className="user-menu" look="icon" label={t('editResend.menu.label')} placement="bottom-start" trigger={<MoreHorizontal size={13} />}>
-      <MenuItem icon={<Pencil size={12} />} disabled={Boolean(block)} title={blockText} onSelect={() => void editAndResend(session.workspaceId, session.id, { turnId: item.turnId, text: item.text })}>
+      <MenuItem icon={<Pencil size={12} />} disabled={Boolean(block)} title={blockText} onSelect={() => void editAndResend(workspaceId, sessionId, { turnId: item.turnId, text: item.text })}>
         {t('editResend.menu.edit')}
       </MenuItem>
       <MenuItem
@@ -911,14 +1096,13 @@ function stripAbsolutelyRight(text: string, streaming?: boolean): string {
   return text
 }
 
-function AssistantMessage({ text, streaming, workspaceId, who, askedAt, level, onGrow }: { text: string; streaming?: boolean; workspaceId: string; who: string; askedAt?: string; level: number; onGrow: () => void }) {
+/** A reply. The log's ResizeObserver keeps it in view as it grows (ChatView), so it reads no layout itself. */
+const AssistantMessage = memo(function AssistantMessage({ text, streaming, workspaceId, who, askedAt, level, strip }: { text: string; streaming?: boolean; workspaceId: string; who: string; askedAt?: string; level: number; strip: boolean }) {
   const t = useT()
   const headingId = useId()
-  const strip = useStore((s) => s.snapshot?.settings.notAbsolutelyRight ?? false)
   // While the reply streams its Markdown is rendered every STREAM_RENDER_MS, not on each flush; the final text at once.
   const rendered = useThrottledText(text, Boolean(streaming))
   const shown = strip ? stripAbsolutelyRight(rendered, streaming) : rendered
-  useLayoutEffect(onGrow, [shown, onGrow])
   if (text && !shown) return null
   return (
     <article className={`assistant ${streaming ? 'streaming' : ''}`} aria-labelledby={headingId} aria-busy={streaming ? true : undefined}>
@@ -928,7 +1112,7 @@ function AssistantMessage({ text, streaming, workspaceId, who, askedAt, level, o
       <Markdown text={shown} workspaceId={workspaceId} streaming={streaming} headingStart={level + 1} />
     </article>
   )
-}
+})
 
 function Thinking({ text, streaming, forceOpen }: { text: string; streaming?: boolean; forceOpen: boolean }) {
   const t = useT()

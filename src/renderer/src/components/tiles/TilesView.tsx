@@ -5,7 +5,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { Triage } from '../../../../shared/triage'
 import { workspaceSurfaces } from '../../archivedView'
 import { useT } from '../../i18n'
-import { activeSessionId, modKey, selectWorkspace, setTileCount, setTiles, toggleLeftPanel, useStore, zoomTile } from '../../store'
+import { modKey, selectWorkspace, setTileCount, setTiles, toggleLeftPanel, useStore, zoomTile } from '../../store'
+import { useActiveSessionId } from '../../storeMemo'
 import { COMPACT_TILE_WIDTH, placeTile, TILE_COUNTS, tileLayout, tilesShown, type TileCount } from '../../tiles'
 import { sidebarOrder, triageAll } from '../../triage'
 import { Card, IconButton, Segmented, Spinner, Status } from '../../ui'
@@ -98,10 +99,8 @@ function Tile({ workspaceId, triage, focused, hidden, compact }: { workspaceId: 
   const t = useT()
   const headingId = useId()
   const ws = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId))
-  const session = useStore((s) => {
-    const id = activeSessionId(s, workspaceId)
-    return s.snapshot!.sessions.find((x) => x.id === id)
-  })
+  const sessionId = useActiveSessionId(workspaceId)
+  const session = useStore((s) => s.snapshot!.sessions.find((x) => x.id === sessionId))
   const running = useStore((s) => s.snapshot!.sessions.some((x) => x.workspaceId === workspaceId && x.status === 'running'))
   if (!ws) return null
   const attention = triage?.bucket === 'attention' && triage.label ? triage : null
@@ -147,7 +146,7 @@ function Tile({ workspaceId, triage, focused, hidden, compact }: { workspaceId: 
       <div className="tile-body">
         {workspaceSurfaces(ws).chats ? (
           session ? (
-            <ChatView session={session} workspace={ws} active={focused && !hidden} headingLevel={3} />
+            <ChatView session={session} workspace={ws} active={focused && !hidden} hidden={hidden} headingLevel={3} />
           ) : (
             <div className="center-empty">
               <p className="muted">{t('tiles.noChat')}</p>

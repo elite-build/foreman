@@ -5,7 +5,6 @@ import { runBridge } from './bridge'
 import { CliError, requestV2 } from './client'
 import { wantsJson } from './output'
 import { defaultDataDir, ERROR_EXIT, socketPath, type AppInfoResult } from './protocol'
-import { execute } from './registry'
 import { CLI_VERSION } from './version'
 
 /** `foreman --version`: this command's version and, when the app answers, the app's. */
@@ -30,11 +29,14 @@ function fail(err: unknown, argv: string[]): void {
 
 async function main(argv: string[]): Promise<void> {
   if (argv[0] === '--version' || argv[0] === '-v' || argv[0] === '-V') return printVersion(argv)
+  // Loaded only here: the commands, their settings schemas and translations are most of the CLI, and the bridge needs none of them.
+  const { execute } = await import('./registry')
   await execute(argv)
 }
 
 // `foreman mcp-bridge <service>`: the stdio MCP server agents start (src/cli/bridge.ts). Its stdout
-// is the MCP channel, so nothing else may print there, and nothing else runs first.
+// is the MCP channel, so nothing else may print there, and nothing else runs first. The app starts
+// out/main/bridge.js (src/cli/bridgeMain.ts) instead; this stays for anything that runs the command.
 const [first, service] = process.argv.slice(2)
 if (first === 'mcp-bridge') {
   void runBridge(service ?? '').then(() => process.exit(0))

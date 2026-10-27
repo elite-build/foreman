@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { ApprovalRequest, Session } from '../../../shared/types'
 import { AGENTS } from '../../../shared/agents'
 import type { TFunction } from '../../../shared/i18n'
 import { announce, announcer, useSpoken } from '../announce'
@@ -6,7 +7,7 @@ import { announcePolicy, earconsFor, filterEvents, sessionStatuses, statusEvents
 import { useLocale, useT } from '../i18n'
 import { playEventEarcon } from '../sound'
 import { speech } from '../speech'
-import { activeSessionId, dismissToast, runToastAction, useStore } from '../store'
+import { activeSessionId, dismissToast, getState, runToastAction, subscribeLive, useStore } from '../store'
 import { LinkButton } from '../ui'
 
 function statusText(kind: StatusKind, name: string, t: TFunction): string {
@@ -30,6 +31,9 @@ function statusText(kind: StatusKind, name: string, t: TFunction): string {
 
 const ENDED: ReadonlySet<StatusKind> = new Set(['finished', 'failed', 'stopped'])
 
+// The chat on screen: the selected workspace's active tab, unless Settings, Automations or the Assistant cover it.
+const openSessionId = (s: ReturnType<typeof getState>): string | undefined => (s.settingsPage || s.automations || s.assistantOpen || !s.selectedWorkspaceId ? undefined : activeSessionId(s, s.selectedWorkspaceId))
+
 /**
  * Says what the agents are doing, as far as the announcement setting allows. A chat that needs the user (an approval, a
  * question, a plan to review) is said wherever it is, in every setting. Started, finished, failed and stopped are said
@@ -41,21 +45,26 @@ function useAgentStatusAnnouncements(): void {
   const t = useT()
   const tRef = useRef(t)
   tRef.current = t
-  const settings = useStore((s) => s.snapshot?.settings)
-  const settingsRef = useRef(settings)
-  settingsRef.current = settings
   const sessions = useStore((s) => s.snapshot?.sessions)
   const workspaces = useStore((s) => s.snapshot?.workspaces)
   const approvals = useStore((s) => s.approvals)
-  // The chat on screen: the selected workspace's active tab, unless Settings, Automations or the Assistant cover it.
-  const openId = useStore((s) => (s.settingsPage || s.automations || s.assistantOpen || !s.selectedWorkspaceId ? undefined : activeSessionId(s, s.selectedWorkspaceId)))
+  const openId = useStore(openSessionId)
   const previous = useRef<StatusMap | null>(null)
+  // The sessions and approvals last looked at: most changes (a streaming chat) touch neither, and cost nothing here.
+  const seen = useRef<{ sessions: Session[]; approvals: ApprovalRequest[] } | null>(null)
 
-  useEffect(() => {
+  // Reads the store as it is now, so the render below and the hidden window's changes agree on what was already said.
+  const check = useRef(() => {
+    const s = getState()
+    const sessions = s.snapshot?.sessions
     if (!sessions) return
-    const next = sessionStatuses(sessions, approvals)
+    if (seen.current?.sessions === sessions && seen.current.approvals === s.approvals) return
+    seen.current = { sessions, approvals: s.approvals }
+    const workspaces = s.snapshot?.workspaces
+    const openId = openSessionId(s)
+    const next = sessionStatuses(sessions, s.approvals)
     const isOpen = (id: string) => id === openId
-    const current = settingsRef.current
+    const current = s.snapshot?.settings
     const policy = announcePolicy(current?.announce)
     const all = statusEvents(previous.current, next, sessions, () => true)
     previous.current = next
@@ -71,7 +80,12 @@ function useAgentStatusAnnouncements(): void {
       // One announcement per chat: a later one (finished) replaces an earlier one (started) that has not been spoken yet.
       announce(summary ?? statusText(event.kind, name, tRef.current), `status:${event.sessionId}`)
     }
-  }, [sessions, workspaces, approvals, openId])
+  }).current
+
+  useEffect(check, [check, sessions, workspaces, approvals, openId])
+  // A minimized or hidden window doesn't re-render (store.ts, `held`), but a chat that finishes or needs you meanwhile
+  // still gets its cue and its words, as it happens: shown again, there is nothing left over to say.
+  useEffect(() => subscribeLive(() => getState().windowVisible || check()), [check])
 }
 
 /**

@@ -6,7 +6,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { GithubRepo } from '../shared/types'
 import { git } from './git'
-import { gh, githubEnv } from './github'
+import { gh, githubEnvAsync } from './github'
 
 /** "https://github.com/acme/web.git" or "git@github.com:acme/web.git" → "web". */
 export function repoNameFromUrl(url: string): string | null {
@@ -36,13 +36,11 @@ export function cloneRepo(url: string, parentDir: string, onLine: (line: string)
   if (!looksLikeCloneUrl(url) || !name) return Promise.reject(new Error("That doesn't look like a git URL"))
   const dest = path.join(parentDir, name)
   if (existsSync(dest) && !isEmptyDir(dest)) return Promise.reject(new Error(`${dest} already exists. Open it with Open project, or choose another location.`))
-  let github: Record<string, string>
-  try {
-    github = githubEnv(account)
-  } catch (err) {
-    return Promise.reject(err)
-  }
-  return mkdir(parentDir, { recursive: true }).then(
+  let github: Record<string, string> = {}
+  return githubEnvAsync(account).then((env) => {
+    github = env
+    return mkdir(parentDir, { recursive: true })
+  }).then(
     () =>
       new Promise<string>((resolve, reject) => {
         const child = spawn('git', ['clone', '--progress', url.trim(), dest], {

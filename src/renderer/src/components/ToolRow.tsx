@@ -14,13 +14,13 @@ import {
   Wrench,
   type LucideIcon
 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { TFunction } from '../../../shared/i18n'
 import { toolSummary as sharedToolSummary } from '../../../shared/toolSummary'
 import type { ChatItem, TaskProgress } from '../../../shared/types'
 import { relativeToRoots } from '../../../shared/portable'
 import { t as storeT, useT } from '../i18n'
-import { useStore } from '../store'
+import { useWindowVisible } from '../store'
 import { Pressable, Spinner } from '../ui'
 import { Markdown } from './Markdown'
 
@@ -185,14 +185,16 @@ function duration(ms: number, t: TFunction): string {
   return t('toolRow.duration.hours', { h: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') })
 }
 
-/** The current time, ticking every second while `live`. */
+/** The current time, ticking every second while `live` and the window is shown. */
 function useNow(live: boolean): number {
+  const visible = useWindowVisible()
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
-    if (!live) return
+    if (!live || !visible) return
+    setNow(Date.now())
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [live])
+  }, [live, visible])
   return now
 }
 
@@ -218,15 +220,17 @@ export function taskActivity(task: TaskProgress, t: TFunction = storeT): string 
   return task.summary || (task.lastTool ? t('toolRow.task.using', { tool: task.lastTool }) : '')
 }
 
-export function ToolRow({ item, workspacePath, forceOpen = false }: { item: ToolItem; workspacePath: Root; forceOpen?: boolean }) {
+/**
+ * One tool call in the log. Memo'd, with what it shows worked out once per change to the call: a long chat has hundreds.
+ * `expandByDefault` is the Expand tool calls setting (⌃O), read once by the chat rather than by every row.
+ */
+export const ToolRow = memo(function ToolRow({ item, workspacePath, forceOpen = false, expandByDefault }: { item: ToolItem; workspacePath: Root; forceOpen?: boolean; expandByDefault: boolean }) {
   const t = useT()
-  const expandByDefault = useStore((s) => s.snapshot?.settings.expandToolCalls ?? false)
   // null until the user opens or closes this row; until then it follows the setting (⌃O).
   const [toggled, setToggled] = useState<boolean | null>(null)
   const open = forceOpen || (toggled ?? expandByDefault)
-  if (item.name === 'TodoWrite') return <Todos input={item.input} />
-
-  const d = describe(item, workspacePath, t)
+  const d = useMemo(() => (item.name === 'TodoWrite' ? null : describe(item, workspacePath, t)), [item, workspacePath, t])
+  if (!d) return <Todos input={item.input} />
   const task = item.task
   // A background task keeps going after its tool call has returned.
   const busy = item.status === 'running' || task?.status === 'running'
@@ -260,4 +264,4 @@ export function ToolRow({ item, workspacePath, forceOpen = false }: { item: Tool
       )}
     </div>
   )
-}
+})

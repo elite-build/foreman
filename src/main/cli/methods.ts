@@ -4,7 +4,7 @@ import type { TurnCaller } from '../../shared/agentReports'
 import { templatePlaceholders, templateSlug } from '../../shared/promptTemplates'
 import { qualifiedName } from '../../shared/repoTemplates'
 import { readRepoTemplates } from '../repoTemplates'
-import type { CancelParams, ChecksParams, ExportParams, ImportParams, ReportParams, RepoSummary, ResumeAtParams, RunParams, SendParams, TemplateSummary, WaitParams } from '../../cli/protocol'
+import type { CancelParams, ChecksParams, ExportParams, ImportParams, ReportParams, RepoSummary, ResumeAtParams, RunParams, SendParams, TemplateSummary, WaitParams, WaitResult } from '../../cli/protocol'
 import { appMethods } from './app'
 import { ASK_METHODS } from './ask'
 import { APPROVAL_METHODS } from './approvals'
@@ -67,7 +67,15 @@ export const METHODS: Record<string, CliMethod> = {
   wait: {
     tier: 'read',
     handle: async (host, params, ctx) => {
-      const waited = await waitForTurn(host, params as WaitParams, { signal: ctx.signal })
+      // From inside a live turn (a coordinator waiting on its delegate): that turn's agent slot is lent meanwhile.
+      const who = host.identifyCaller(ctx.caller)
+      const release = who?.kind === 'turn' && who.live ? host.lendSlot?.(who.session.id) : undefined
+      let waited: WaitResult
+      try {
+        waited = await waitForTurn(host, params as WaitParams, { signal: ctx.signal })
+      } finally {
+        release?.()
+      }
       // --words: the sentence beside the data (the command only asks when it prints text).
       return wantsWords(params) ? { ...waited, words: waitWords(host, waited) } : waited
     }

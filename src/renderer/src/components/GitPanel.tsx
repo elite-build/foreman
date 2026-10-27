@@ -26,7 +26,8 @@ import { durationText, fingerprintText, isFailure, STATUS_TEXT, summarizeChecks,
 import type { CheckRow, ChecksStatus, DiffComment, GitActionKind, GitStatus, PrCheck, PullRequestInfo } from '../../../shared/types'
 import { jobDuration } from '../../../shared/scm'
 import { McpSection } from './McpConsent'
-import { activeSessionId, api, attempt, getState, modKey, openArchiveDialog, openFixChecks, openHandOffDialog, openSettingsPage, runChecks, timeAgo, useStore } from '../store'
+import { activeSessionId, api, attempt, getState, modKey, openArchiveDialog, openFixChecks, openHandOffDialog, openSettingsPage, runChecks, timeAgo, useStore, useWindowVisible } from '../store'
+import { useStoreMemo } from '../storeMemo'
 import { useT } from '../i18n'
 import type { PlainKey } from '../../../shared/i18n'
 import { formatClock, formatDateTime } from '../../../shared/i18n/time'
@@ -37,7 +38,10 @@ import { GitlabMark } from './GitlabMark'
 import { AutoFixStatus, AutoFixToggle } from './AutoFix'
 import { Reviews } from './Reviews'
 
-export function useGitStatus(workspaceId: string, enabled: boolean, running: boolean) {
+export function useGitStatus(workspaceId: string, shown: boolean, running: boolean) {
+  // Nobody sees it while the window is minimized; it reads again when the window comes back.
+  const visible = useWindowVisible()
+  const enabled = shown && visible
   const [status, setStatus] = useState<GitStatus | null>(null)
   const busy = useRef(false)
   const refresh = useCallback(async () => {
@@ -69,13 +73,18 @@ export function useChecksStatus(workspaceId: string): ChecksStatus | null {
     const ws = s.snapshot!.workspaces.find((w) => w.id === workspaceId)
     return (ws ? s.snapshot!.repoSettings[ws.repoId]?.values.checks.length : 0) ?? 0
   })
-  // Anything that changes the record or the files should look again.
-  const key = useStore((s) => {
-    const ws = s.snapshot!.workspaces.find((w) => w.id === workspaceId)
-    return JSON.stringify([ws?.checks, ws?.diffStat, s.snapshot!.repoSettings[ws?.repoId ?? '']?.values.checks])
-  })
+  // Anything that changes the record or the files should look again. Written out only when one of them is a new object.
+  const key = useStoreMemo(
+    (s) => {
+      const ws = s.snapshot!.workspaces.find((w) => w.id === workspaceId)
+      return [ws?.checks, ws?.diffStat, s.snapshot!.repoSettings[ws?.repoId ?? '']?.values.checks]
+    },
+    (parts) => JSON.stringify(parts)
+  )
   const [status, setStatus] = useState<ChecksStatus | null>(null)
+  const visible = useWindowVisible()
   useEffect(() => {
+    if (!visible) return
     if (!configured) {
       setStatus(null)
       return
@@ -92,7 +101,7 @@ export function useChecksStatus(workspaceId: string): ChecksStatus | null {
       live = false
       clearInterval(timer)
     }
-  }, [workspaceId, configured, key])
+  }, [workspaceId, configured, key, visible])
   return configured ? status : null
 }
 

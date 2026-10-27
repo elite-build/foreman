@@ -6,6 +6,7 @@ import type { ShellLaunch } from '../shared/shells'
 import type { Workspace } from '../shared/types'
 import type { CloudLaunch, CloudPtyBackend } from './cloud/terminal'
 import { interactiveShell, scriptInTerminal, shellSnippet } from './platform'
+import { trackProcess } from './processRoots'
 
 export interface PtyEvents {
   data(ptyId: string, data: string): void
@@ -23,13 +24,63 @@ export interface PtyProcess {
 
 type PtyKindTag = 'shell' | 'script' | 'snippet'
 
+// How long a terminal's output waits for more to go out with it (about a frame), and how much of it may wait.
+export const PTY_FLUSH_MS = 16
+export const PTY_FLUSH_CHARS = 64 * 1024
+
+/**
+ * Terminal output on its way out, held per terminal for a moment. A busy terminal (a build's log, `cat` of a big file) gets
+ * hundreds of small chunks a second from node-pty, and each was a message to the window and to every command-line listener,
+ * whether or not its workspace was on screen. Chunks that arrive within PTY_FLUSH_MS go out as one, in order and exactly as
+ * they came; PTY_FLUSH_CHARS waiting goes out at once. `flush` sends a terminal's straight away (before its exit or state).
+ */
+export class PtyOutput {
+  private pending = new Map<string, string>()
+  private timer: ReturnType<typeof setTimeout> | null = null
+
+  constructor(
+    private send: (ptyId: string, data: string) => void,
+    private delayMs = PTY_FLUSH_MS,
+    private maxChars = PTY_FLUSH_CHARS
+  ) {}
+
+  push(ptyId: string, data: string): void {
+    if (!data) return
+    const waiting = (this.pending.get(ptyId) ?? '') + data
+    this.pending.set(ptyId, waiting)
+    if (waiting.length >= this.maxChars) this.flush(ptyId)
+    else this.timer ??= setTimeout(() => this.flushAll(), this.delayMs)
+  }
+
+  flush(ptyId: string): void {
+    const data = this.pending.get(ptyId)
+    if (data === undefined) return
+    this.pending.delete(ptyId)
+    if (this.pending.size === 0 && this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+    this.send(ptyId, data)
+  }
+
+  flushAll(): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    for (const ptyId of [...this.pending.keys()]) this.flush(ptyId)
+  }
+}
+
 export class PtyManager {
-  private ptys = new Map<string, { proc: PtyProcess; workspaceId: string; kind: PtyKindTag; command?: string; startedAt?: string; cloud?: true }>()
+  private ptys = new Map<string, { proc: PtyProcess; workspaceId: string; kind: PtyKindTag; command?: string; startedAt?: string; cloud?: true; untrack?: () => void }>()
+  private output: PtyOutput
 
   constructor(
     private events: PtyEvents,
-    private cloud?: CloudPtyBackend
-  ) {}
+    private cloud?: CloudPtyBackend,
+    batching: { flushMs?: number; maxChars?: number } = {}
+  ) {
+    this.output = new PtyOutput((id, data) => this.events.data(id, data), batching.flushMs, batching.maxChars)
+  }
 
   /**
    * An interactive shell, or `script` run to completion when given. `shell` is the Windows shell a
@@ -55,17 +106,22 @@ export class PtyManager {
       env: { ...env, ...launch.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Foreman' }
     })
     const id = randomUUID()
-    this.ptys.set(id, { proc, workspaceId, kind: snippet ? 'snippet' : script ? 'script' : 'shell', command: script, startedAt: new Date().toISOString() })
+    // Show resource usage counts the tab's shell, and what runs in it, against its workspace.
+    const untrack = trackProcess(proc.pid, workspaceId, script && !snippet ? 'script' : 'terminal')
+    this.ptys.set(id, { proc, workspaceId, kind: snippet ? 'snippet' : script ? 'script' : 'shell', command: script, startedAt: new Date().toISOString(), untrack })
     // The renderer buffers output that arrives before it listens, so this is the tab's first line.
-    if (!script && shell?.notice) this.events.data(id, `[2m${shell.notice}[22m
+    if (!script && shell?.notice) this.output.push(id,`[2m${shell.notice}[22m
 `)
     const typeIn = !script && shell?.input ? typeWhenQuiet(proc, shell.input) : undefined
     proc.onData((data) => {
       typeIn?.()
-      this.events.data(id, data)
+      this.output.push(id, data)
     })
     proc.onExit(({ exitCode }) => {
+      untrack()
       this.ptys.delete(id)
+      // Everything it printed goes out before it ends.
+      this.output.flush(id)
       this.events.exit(id, exitCode)
     })
     return id
@@ -76,12 +132,16 @@ export class PtyManager {
     if (!this.cloud) throw new Error('Cloud terminals aren’t available')
     const id = randomUUID()
     const proc = this.cloud.open(id, ws, Math.max(cols, 2), Math.max(rows, 2), launch, {
-      data: (data) => this.events.data(id, data),
+      data: (data) => this.output.push(id, data),
       exit: (code) => {
         this.ptys.delete(id)
+        this.output.flush(id)
         this.events.exit(id, code)
       },
-      state: (asleep, reason) => this.events.state?.(id, asleep, reason)
+      state: (asleep, reason) => {
+        this.output.flush(id)
+        this.events.state?.(id, asleep, reason)
+      }
     })
     const kind: PtyKindTag = launch.script ? (launch.snippet ? 'snippet' : 'script') : 'shell'
     this.ptys.set(id, { proc, workspaceId: ws.id, kind, command: launch.script, startedAt: new Date().toISOString(), cloud: true })
@@ -109,6 +169,7 @@ export class PtyManager {
     const entry = this.ptys.get(id)
     if (!entry) return
     this.ptys.delete(id)
+    entry.untrack?.()
     try {
       entry.proc.kill()
     } catch {

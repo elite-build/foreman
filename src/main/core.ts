@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AgentKind, Loadout } from '../shared/agents'
 import { DONE_DAYS_OPTIONS, nextPrInfo } from '../shared/board'
+import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from '../shared/agentSlots'
 import { ENV_NAME } from '../shared/envfile'
 import { PROVIDER_KEYS } from '../shared/providers'
 import { tailLines } from '../shared/setupLog'
@@ -21,8 +22,8 @@ import { Environment } from './environment'
 import { makeRepository } from './makeRepo'
 import { cloneRepo, githubRepos, gitProtocol, quickStart } from './repoSources'
 import { cliStatus, installCli, macAdmin } from './cliInstall'
-import { baseStartPoint, git, gitOut, repoEvidence } from './git'
-import { accountToken, branchPrefix, forgetAccountTokens, forgetIdentityLogins, ghActiveAccount, ghAs, githubAccounts, githubEnv, githubEnvOrNone, githubLogin, githubSlug, githubStatus, setGithubIdentities, useGithubToken, type PrResult } from './github'
+import { baseStartPoint, git, gitOut, noteWorktreeChanged, repoEvidence } from './git'
+import { accountToken, accountTokenAsync, branchPrefix, forgetAccountTokens, forgetIdentityLogins, ghActiveAccount, ghActiveAccountAsync, ghActiveAccountReady, ghAs, githubAccounts, githubEnv, githubEnvOrNone, githubLogin, githubSlug, githubStatus, refreshGhActiveAccount, setGithubIdentities, useGithubToken, warmGithub, type PrResult } from './github'
 import { SandboxManager } from './cloud/sandboxes'
 import { CloudPtyBackend, cloudTerminalFolder } from './cloud/terminal'
 import { CloudTurnHost } from './cloud/turnHost'
@@ -31,7 +32,7 @@ import { CLAUDE_SETUP_TOKEN_KEY, CLAUDE_SETUP_TOKEN_SAVED_AT_KEY } from '../shar
 import { PrCache } from './prCache'
 import { probePreview } from './previewProbe'
 import { browserUrl } from '../shared/browser'
-import { readRepoTemplates } from './repoTemplates'
+import { readRepoTemplates, revalidateRepoTemplates } from './repoTemplates'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
 import { commandInputWithStatus, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
@@ -51,7 +52,7 @@ import { chooseStartLoadout } from '../shared/startModel'
 import { randomUUID } from 'node:crypto'
 import { pruneViewed, withMark } from '../shared/viewed'
 import { changedFilesBetween, fileAtRef, refsDiff, revertFile, workspaceDiff, workspaceDiffPatch, workspaceDiffStat } from './diff'
-import { snapshotWorkingTree } from './checkpoints'
+import { sharedWorkingTree, VIEW_REUSE_MS } from './checkpoints'
 import { turnAnswer } from '../shared/handOff'
 import { DEFAULT_MODEL } from '../shared/agents'
 import { branchCommitCount, branchCommits, sourceDiff, sourceInfo, type PrTarget } from './diffSources'
@@ -92,7 +93,7 @@ import { TransferService, type TransferLocal } from './transfers'
 import { frozenReason, type DevicesInfo, type PairedDevice } from '../shared/transfer'
 import { repoReasons } from '../shared/portable'
 import { assertFingerprintShown, fingerprintOf, scheduleProblem, ScheduleService, type FingerprintInputs, type LaunchHandle, type ScheduleInput } from './schedules'
-import { readSharedLayer } from './repoSettings'
+import { readSharedLayer, resolveRepoSettings, revalidateSharedLayers } from './repoSettings'
 import { templatePlaceholders } from '../shared/promptTemplates'
 import { SessionService } from './sessions'
 import { defaultSettings, type Store } from './store'
@@ -120,6 +121,8 @@ import { linearIssue, linearMyIssues } from './linear'
 import { slackChannels, slackManifest, slackManifestUrl, slackPeople, slackUserByEmail, type SlackPerson } from './slack'
 import { findLinearLink, linearBranch, linearIntakeFile, type LinearIssue } from '../shared/linearLink'
 import type { LinearLinkInfo } from '../shared/types'
+import { processRoots } from './processRoots'
+import { ProcessUsageSampler } from './processUsage'
 
 export interface Host {
   broadcast(event: MainEvent): void
@@ -229,6 +232,27 @@ type FirstMessage = Omit<HeldMessage, 'at'>
 // A language code for dictation: `en`, `pt-BR`.
 const STT_LANGUAGE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/
 
+// How old a state broadcast's reads of repository files (templates, settings.toml, recent folders) may be. Edits made
+// outside Foreman show within this, at the next broadcast, or at once when a window gains focus.
+const REPO_FILES_MAX_AGE_MS = 3_000
+
+// A window gaining focus asks gh for its active account again unless its answer is younger than this.
+const GH_ACTIVE_FOCUS_MIN_AGE_MS = 5_000
+
+/** The parts of a snapshot read from repositories' folders. */
+type RepoFiles = Pick<AppSnapshot, 'repoSettings' | 'repoTemplates' | 'repoCommands' | 'recentRepos'>
+
+const repoFilesOf = (s: AppSnapshot): RepoFiles => ({ repoSettings: s.repoSettings, repoTemplates: s.repoTemplates, repoCommands: s.repoCommands, recentRepos: s.recentRepos })
+
+/** A snapshot as text for comparing broadcasts; undefined when it can't be written (it is then always sent). */
+function stateText(snapshot: AppSnapshot): string | undefined {
+  try {
+    return JSON.stringify(snapshot)
+  } catch {
+    return undefined
+  }
+}
+
 export class Core {
   private mobile: MobileService | null = null
   bindMobile(service: MobileService): void { this.mobile = service }
@@ -274,6 +298,8 @@ export class Core {
   readonly agentReports: AgentReportService
   // #2: whether the `foreman` command is installed, as last checked (slow to ask on Windows, so cached).
   private cliInstalled = false
+  // Show resource usage: each workspace's processes (its agents', terminals' and scripts', here and in the agent host).
+  private processUsage = new ProcessUsageSampler(async () => [...processRoots(), ...(await this.agentHost.processRoots())])
   readonly openIn: OpenInService
   // #15: selection comments waiting for their tab, checked again when it's free.
   readonly diffSelections: DiffSelectionService
@@ -302,6 +328,15 @@ export class Core {
   private slackPeopleCache = new Map<string, { at: number; people: SlackPerson[] }>()
   private slackRepoBaselines = new Set<string>()
   private startedAt = Date.now()
+  // State broadcasts are coalesced: changes in one tick share one snapshot, built in a microtask after the last.
+  private statePending = false
+  private stateChecks = false
+  // What the window last heard, for the focus check (screenReaderChanged).
+  private lastState: AppSnapshot | null = null
+  // The last broadcast snapshot as text, so a broadcast that would change nothing isn't sent (flushState).
+  private lastStateText: string | undefined
+  // Whether each recent repository's folder exists, looked at again after REPO_FILES_MAX_AGE_MS.
+  private recentChecks = new Map<string, { at: number; exists: boolean }>()
 
   constructor(
     private store: Store,
@@ -313,18 +348,15 @@ export class Core {
     const watched = Object.create(outer) as Host
     watched.broadcast = (event) => {
       outer.broadcast(event)
-      if (event.type === 'state') this.attention?.schedule()
+      if (event.type === 'state') {
+        this.lastState = event.snapshot
+        this.attention?.schedule()
+      }
     }
     host = watched
     this.host = watched
-    const changed = () => {
-      this.sendFirstMessages()
-      // #1: "Quit when turns finish" quits once the last turn or check run has ended.
-      this.stopSafely?.check()
-      // Before the broadcast, so the snapshot carries the fresh keep-awake status.
-      this.updateKeepAwake()
-      host.broadcast({ type: 'state', snapshot: this.snapshot() })
-    }
+    // Services' changes: the first messages, quit and keep-awake checks run once per coalesced broadcast (flushState).
+    const changed = () => this.broadcastState(true)
     this.environment = new Environment(secrets, () => store.state.settings, (id) => this.workspaces.repo(id))
     // #22: agent keys are per agent; the old user variables move once, before any agent starts.
     this.agentCatalog = new AgentCatalogService({
@@ -335,7 +367,7 @@ export class Core {
       executablePath: (agent) => executablePathFor(store.state.settings, agent),
       shell: () => process.env,
       keysChanged: (agent) => {
-        this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+        this.broadcastState()
         if (agent === 'claude' || agent === 'codex' || agent === 'cursor' || agent === 'opencode') void this.models.refresh(agent)
       }
     })
@@ -370,6 +402,11 @@ export class Core {
     )
     this.repoMcp = new RepoMcp(store, this.workspaces, this.environment)
     // Integrations, before anything runs GitHub work: the old token and linked accounts move into connections once.
+    // gh answers in the background; agents' and terminals' environments then find its answers cached.
+    const warmGithubAccounts = () => {
+      const { accounts, active } = this.integrations.ghAccountsInUse()
+      void warmGithub(accounts, active)
+    }
     this.integrations = new Integrations({
       store,
       secrets,
@@ -377,21 +414,26 @@ export class Core {
       repoGithubToken: (id) => this.environment.repoGithubToken(id),
       remoteUrl: (id) => this.workspaces.remoteUrl(id),
       githubAccounts: () => githubAccounts(),
-      accountToken: (login) => accountToken(login),
-      activeLogin: async () => ghActiveAccount(),
+      accountToken: (login) => accountTokenAsync(login),
+      activeLogin: () => ghActiveAccountAsync(true),
       activeAccount: () => ghActiveAccount(),
       changed: () => {
         // Who GitHub work runs as may have changed: forget logins and lift a pause after an auth failure.
         forgetIdentityLogins()
         this.prs?.resume()
+        warmGithubAccounts()
         changed()
       }
     })
     this.integrations.migrate()
+    warmGithubAccounts()
     setGithubIdentities((key) => this.integrations.githubIdentity(key))
     const githubKey = (repoId: string) => this.integrations.githubKey(repoId)
     this.environment.githubKey = githubKey
     this.workspaces.githubKey = githubKey
+    const githubKeyFresh = (repoId: string) => this.integrations.githubKeyFresh(repoId)
+    this.environment.githubKeyFresh = githubKeyFresh
+    this.workspaces.githubKeyFresh = githubKeyFresh
     this.workspaces.githubDetected = (repoId, login, explicit) => this.integrations.detectedGithubAccount(repoId, login, explicit)
     this.workspaces.repoAdded = (repoId) => this.integrations.repoAdded(repoId)
     this.sandboxes = new SandboxManager({
@@ -479,6 +521,7 @@ export class Core {
     this.sessions = new SessionService(store, this.environment, this.workspaces, {
       changed,
       item: (sessionId, item) => host.broadcast({ type: 'chat-item', sessionId, item }),
+      append: (sessionId, append) => host.broadcast({ type: 'chat-append', sessionId, ...append }),
       reset: (sessionId, items) => host.broadcast({ type: 'chat-reset', sessionId, items }),
       approval: (request) => host.broadcast({ type: 'approval', request }),
       approvalResolved: (id) => host.broadcast({ type: 'approval-resolved', id }),
@@ -487,10 +530,11 @@ export class Core {
         // Slack rules: an agent needs the user, or finished.
         if (kind === 'attention' || kind === 'finished') this.agentSlackEvent(kind, workspaceId, sessionId, body)
       },
-      turnEnded: (sessionId, outcome) => {
+      turnEnded: (sessionId, outcome, stoppedAt) => {
         const session = this.store.state.sessions.find((s) => s.id === sessionId)
         if (!session) return
-        void this.refreshDiffStat(session.workspaceId)
+        // The end checkpoint's snapshot, taken after the agent stopped, serves (one scan per turn end).
+        void this.refreshDiffStat(session.workspaceId, stoppedAt)
         // Slack rules: agents open PRs in turns, so look for a new one when a workspace has none yet.
         const ended = this.store.state.workspaces.find((w) => w.id === session.workspaceId)
         if (ended && !ended.prInfo && this.slack.hasRules() && this.workspaces.repo(ended.repoId).hasOrigin) void this.prs.get(ended, { fresh: true })
@@ -561,12 +605,18 @@ export class Core {
       stop: async (occurrence) => {
         if (occurrence.sessionId) await this.sessions.cancel(occurrence.sessionId)
       },
+      turnStart: (occurrence) => {
+        const session = occurrence.sessionId ? this.store.state.sessions.find((s) => s.id === occurrence.sessionId) : undefined
+        if (session?.waitingForSlot) return 'waiting'
+        return session?.turnId ? session.turnStartedAt : undefined
+      },
       workspaceFor: (occurrenceId) => {
         const ws = this.store.state.workspaces.find((w) => w.scheduled?.occurrenceId === occurrenceId)
         const session = ws && this.store.state.sessions.find((x) => x.workspaceId === ws.id)
         return ws ? { workspaceId: ws.id, sessionId: session?.id } : undefined
       },
       paused: () => Boolean(this.stopSafely?.isDraining),
+      ready: () => ghActiveAccountReady(),
       changed
     })
     this.data = new DataService(store, undefined, this.claudeMirror)
@@ -668,6 +718,7 @@ export class Core {
       fetch: (ws) => this.scm.forRepo(ws.repoId).then((provider) => provider.pullRequest(ws)),
       // A cloud workspace's lookups run in its sandbox with the repository's token: their failures pause only those.
       identity: (ws) => `${ws.cloud ? 'cloud:' : ''}${this.scm.identity(ws.repoId)}`,
+      ready: () => ghActiveAccountReady(),
       onResult: (ws, result) => this.notePullRequest(ws.id, result)
     })
     this.git = new GitActions(store, this.workspaces, this.sessions, (url) => host.openExternal(url), this.prs, (ws) => this.scmFor(ws.repoId))
@@ -722,7 +773,7 @@ export class Core {
       busy: (ws) =>
         ws.state !== 'ready' || this.sessions.isBusy(ws.id) || Boolean(ws.checks?.running) || ws.autoChecks?.state === 'running' || Boolean(ws.setupRun && !ws.setupRun.finishedAt),
       draining: () => Boolean(this.stopSafely?.isDraining),
-      tree: (ws) => snapshotWorkingTree(workspaceTarget(ws)),
+      tree: (ws) => sharedWorkingTree(workspaceTarget(ws)),
       checks: async (ws, tree) => {
         const status = await this.checks.status(ws.id)
         const pending = status.running || ws.autoChecks?.state === 'waiting' || ws.autoChecks?.state === 'running'
@@ -849,6 +900,8 @@ export class Core {
         host.setBadge(store.state.settings.dockBadge ? view.count : 0)
         host.showAttention?.(view)
       },
+      // The badge and tray also follow settings (dock badge, tray icon, language), replaced as a whole on each change.
+      showContext: () => store.state.settings,
       logChanged: () => host.broadcast({ type: 'attention-history', ...this.attention.history() })
     })
     this.prPoll = new PrPoller({
@@ -964,7 +1017,7 @@ export class Core {
       const others = configured.filter((entry) => { try { return normalizeGitlabHost(entry).host !== host.host } catch { return true } })
       this.store.state.settings.gitlabHosts = [...others, host.url]
       this.store.save()
-      this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+      this.broadcastState()
     }
     this.scm.forget()
     this.prs.resume()
@@ -985,7 +1038,7 @@ export class Core {
     if (next) ws.prInfo = next
     else delete ws.prInfo
     this.store.save()
-    this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+    this.broadcastState()
   }
 
   /** Rules watch a repository's PRs even when no workspace or CI/review watch is open. */
@@ -1361,7 +1414,8 @@ export class Core {
     const deadline = Date.now() + timeoutMs
     for (;;) {
       const first = this.store.state.sessions.find((s) => s.workspaceId === workspaceId)
-      const turn = first?.turnId ?? first?.lastTurn?.turnId
+      // A turn waiting for an agent slot counts: its id is known, and `foreman wait` (or a scheduled run) follows it.
+      const turn = first?.turnId ?? first?.lastTurn?.turnId ?? (first?.waitingForSlot ? first.queue[0]?.turnId : undefined)
       if (first && turn) return { session: first.id, turn }
       if (Date.now() >= deadline) return undefined
       await new Promise((r) => setTimeout(r, 100))
@@ -1408,7 +1462,7 @@ export class Core {
       if (onboarding === before) return
       this.store.state.settings = { ...settings, onboarding }
       this.store.save()
-      this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+      this.broadcastState()
     } catch {
       // Not worth a failure: the checklist just doesn't tick.
     }
@@ -1503,12 +1557,98 @@ export class Core {
 
   /** Power source, battery level or thermal state moved: decide again, and tell the window if that changed anything. */
   powerChanged(): void {
-    if (this.updateKeepAwake()) this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+    if (this.updateKeepAwake()) this.broadcastState()
   }
 
-  /** The OS started or stopped reporting a screen reader: tell the window, so terminals set to Automatic follow. */
+  /**
+   * The OS started or stopped reporting a screen reader, or a window gained focus (the flag can be stale then): tell
+   * the window when the flag differs from what it last heard, so terminals set to Automatic follow. Coming back to the
+   * window is also when repository files edited outside Foreman should show, so those are looked at again now, and
+   * when a gh auth switch run elsewhere should: gh is asked again in the background when a connection follows it.
+   */
   screenReaderChanged(): void {
-    this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+    this.revalidateRepoFiles()
+    if (this.integrations.ghAccountsInUse().active) refreshGhActiveAccount(GH_ACTIVE_FOCUS_MIN_AGE_MS)
+    const last = this.lastState
+    if (!last || this.statePending) return this.broadcastState()
+    const screenReader = this.host.screenReader?.() ?? false
+    if (screenReader !== last.screenReader || JSON.stringify(this.repoFiles(REPO_FILES_MAX_AGE_MS)) !== JSON.stringify(repoFilesOf(last))) this.broadcastState()
+  }
+
+  /** Tell the window the state changed. `checks`: a service's change, which runs flushState's checks first. */
+  private broadcastState(checks = false): void {
+    if (checks) this.stateChecks = true
+    if (this.statePending) return
+    this.statePending = true
+    queueMicrotask(() => this.flushState())
+  }
+
+  /** Send a coalesced state broadcast now, if one is waiting (it otherwise goes at the end of the current tick). */
+  flushState(): void {
+    if (!this.statePending) return
+    this.statePending = false
+    const checks = this.stateChecks
+    this.stateChecks = false
+    try {
+      if (checks) {
+        this.sendFirstMessages()
+        // #1: "Quit when turns finish" quits once the last turn or check run has ended.
+        this.stopSafely?.check()
+        // Before the broadcast, so the snapshot carries the fresh keep-awake status.
+        this.updateKeepAwake()
+      }
+      const snapshot = this.snapshot({ maxAgeMs: REPO_FILES_MAX_AGE_MS })
+      // The store's records change in place, so only a copy shows what the window last heard: the snapshot as text
+      // (it is JSON-shaped, and copied whole for the window anyway). The same text again sends nothing.
+      const text = stateText(snapshot)
+      if (text !== undefined && text === this.lastStateText) {
+        this.attention?.schedule()
+        return
+      }
+      this.host.broadcast({ type: 'state', snapshot })
+      this.lastStateText = text
+    } catch (err) {
+      // In a microtask there's no caller to throw to; the next change sends the state again.
+      console.error('Could not send the state to the window:', err)
+    }
+  }
+
+  /** Foreman wrote a repository file, or the window came back: the snapshot's next disk reads go to the disk. */
+  private revalidateRepoFiles(): void {
+    revalidateRepoTemplates()
+    revalidateSharedLayers()
+    this.recentChecks.clear()
+  }
+
+  /** Recent repository folders not added now, up to five, that still exist (an answer reused while under `maxAgeMs` old). */
+  private recentRepos(maxAgeMs: number): string[] {
+    const { repos, recentRepoPaths } = this.store.state
+    const added = new Set(repos.map((r) => path.resolve(r.rootPath)))
+    const now = Date.now()
+    const out: string[] = []
+    for (const p of recentRepoPaths) {
+      if (out.length >= 5) break
+      if (added.has(path.resolve(p))) continue
+      let check = this.recentChecks.get(p)
+      if (!check || now - check.at < 0 || now - check.at >= maxAgeMs) {
+        check = { at: now, exists: existsSync(p) }
+        this.recentChecks.set(p, check)
+      }
+      if (check.exists) out.push(p)
+    }
+    return out
+  }
+
+  /** What the snapshot reads from repositories' folders, reusing answers under `maxAgeMs` old (0: all fresh). */
+  private repoFiles(maxAgeMs: number): RepoFiles {
+    const { repos, settings } = this.store.state
+    const options = { maxAgeMs }
+    return {
+      repoSettings: Object.fromEntries(repos.map((r) => [r.id, resolveRepoSettings(r, settings, options)])),
+      repoTemplates: Object.fromEntries(repos.map((r) => [r.id, readRepoTemplates(r.id, r.rootPath, options)])),
+      repoCommands: Object.fromEntries(repos.map((r) => [r.id, repoCommands(this.store.state, r, options)])),
+      recentRepos: this.recentRepos(maxAgeMs)
+    }
   }
 
   /** Apply settings that live outside the renderer (at startup and on change). */
@@ -1592,7 +1732,7 @@ export class Core {
 
   private changed(): void {
     this.store.save()
-    this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+    this.broadcastState()
   }
 
   /** Recompute a workspace's line totals for the sidebar. Failures leave the old value. */
@@ -1617,17 +1757,24 @@ export class Core {
     )
   }
 
-  async refreshDiffStat(workspaceId: string): Promise<void> {
+  /** `since`: a snapshot of the working tree started then or later still holds (see sharedWorkingTree). */
+  async refreshDiffStat(workspaceId: string, since?: number): Promise<void> {
     const ws = this.store.state.workspaces.find((w) => w.id === workspaceId)
     if (!ws || !['ready', 'setting-up', 'setup-failed'].includes(ws.state)) return
     try {
-      ws.diffStat = await workspaceDiffStat(ws)
-      this.store.save()
-      this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+      // One snapshot of the working tree serves all three (after a turn, the one its end checkpoint just took).
+      const tree = await sharedWorkingTree(workspaceTarget(ws), since)
+      const stat = await workspaceDiffStat(ws, tree)
+      // Only a change is saved and sent: the same totals again would redraw every window for nothing.
+      if (JSON.stringify(stat) !== JSON.stringify(ws.diffStat)) {
+        ws.diffStat = stat
+        this.store.save()
+        this.broadcastState()
+      }
       // The tree may have changed under recorded check results.
-      await this.checks.refreshStale(workspaceId)
+      await this.checks.refreshStale(workspaceId, tree)
       // #17: and under an auto review's findings.
-      await this.autoReview.refreshStale(workspaceId)
+      await this.autoReview.refreshStale(workspaceId, tree)
     } catch {
       // The worktree may be mid-operation; try again next time.
     }
@@ -1647,31 +1794,33 @@ export class Core {
     }
   }
 
-  snapshot(): AppSnapshot {
+  /** The settings as they are now, for the menu and tray, which need nothing else (snapshot() builds far more). */
+  settings(): Settings {
+    return this.store.state.settings
+  }
+
+  /**
+   * The state the window shows. Repository files are read fresh unless `maxAgeMs` accepts answers that old (the
+   * coalesced broadcasts, which come often while agents work, use REPO_FILES_MAX_AGE_MS).
+   */
+  snapshot(options: { maxAgeMs?: number } = {}): AppSnapshot {
     const { repos, workspaces, sessions, comments, settings } = this.store.state
     const spotlight = Object.fromEntries(
       repos.map((r) => [r.id, this.spotlight.workspaceFor(r.id)]).filter((e): e is [string, string] => Boolean(e[1]))
     )
     // #22: the Claude, Codex and Cursor keys are each agent's own now.
     const agentKeys = this.agentCatalog?.legacyKeyHints() ?? {}
-    const repoSettings = Object.fromEntries(repos.map((r) => [r.id, this.workspaces.resolvedSettings(r.id)]))
-    const repoTemplates = Object.fromEntries(repos.map((r) => [r.id, readRepoTemplates(r.id, r.rootPath)]))
     return {
       repos,
       workspaces,
       sessions,
       comments,
       settings,
-      repoSettings,
-      repoTemplates,
-      repoCommands: Object.fromEntries(repos.map((r) => [r.id, repoCommands(this.store.state, r)])),
+      ...this.repoFiles(options.maxAgeMs ?? 0),
       agentKeys,
       agentKeyHints: this.agentCatalog?.keyHints() ?? {},
       spotlight,
       catalog: this.models.state(),
-      recentRepos: this.store.state.recentRepoPaths
-        .filter((p) => !repos.some((r) => path.resolve(r.rootPath) === path.resolve(p)) && existsSync(p))
-        .slice(0, 5),
       transfers: this.transfers.view(),
       pairedDevices: this.devices.list(),
       schedules: this.schedules.schedules,
@@ -1831,6 +1980,8 @@ export class Core {
       if (!existsSync(file)) {
         await mkdir(path.dirname(file), { recursive: true })
         await writeFile(file, SETTINGS_TEMPLATE)
+        this.revalidateRepoFiles()
+        this.broadcastState()
       }
       await this.openInEditor(file)
     },
@@ -1845,7 +1996,7 @@ export class Core {
         writes.push([change.key, change.value])
       }
       this.secrets.setMany(target, writes)
-      this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+      this.broadcastState()
       const keys = new Set(writes.map(([key]) => key))
       const stale = new Set<AgentKind>()
       if (keys.has('ANTHROPIC_API_KEY') || keys.has('ANTHROPIC_AUTH_TOKEN')) stale.add('claude')
@@ -1981,7 +2132,7 @@ export class Core {
       if (next.length !== configured.length) {
         this.store.state.settings.gitlabHosts = next
         this.store.save()
-        this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+        this.broadcastState()
       }
       this.scm.forget()
     },
@@ -2008,7 +2159,7 @@ export class Core {
       if (process.platform !== 'darwin') return
       await this.host.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles')
     },
-    resourceUsage: async () => this.host.metrics(),
+    resourceUsage: async () => ({ ...this.host.metrics(), workspaces: await this.processUsage.usage() }),
     cliStatus: async () => {
       const status = await cliStatus({ shim: this.host.cliShim() })
       this.cliInstalled = status.installed
@@ -2156,7 +2307,7 @@ export class Core {
     updateSession: (sessionId, patch) => this.sessions.updateSession(sessionId, patch),
     closeSession: (sessionId) => this.sessions.closeSession(sessionId),
     reopenSession: async (workspaceId, sessionId) => this.sessions.reopenSession(workspaceId, sessionId),
-    getChat: (sessionId) => this.sessions.getChat(sessionId),
+    getChat: (sessionId, live) => this.sessions.getChat(sessionId, live === true),
     sendMessage: (sessionId, text, options) => {
       const sent = this.sessions.send(sessionId, text, options)
       // Get started: a message that carries a template (recorded when it is sent, not when the template is inserted).
@@ -2207,7 +2358,11 @@ export class Core {
     previewUrl: (workspaceId, path) => this.preview.urlFor(workspaceId, path),
     readImageAt: (workspaceId, path, commit) => readImageAtCommit(localOnly(this.workspaces.workspace(workspaceId), 'Image previews'), path, commit),
     writeFile: async (workspaceId, path, content) => {
-      await writeWorkspaceFile(localOnly(this.workspaces.workspace(workspaceId), 'Editing files'), path, content)
+      const dir = localOnly(this.workspaces.workspace(workspaceId), 'Editing files')
+      await writeWorkspaceFile(dir, path, content)
+      noteWorktreeChanged(dir)
+      // The file may be a repository's settings.toml or template (a workspace in the repo's own folder).
+      this.revalidateRepoFiles()
       void this.refreshDiffStat(workspaceId)
     },
     searchFiles: (workspaceId, query, options) => searchWorkspace(workspaceTarget(this.workspaces.workspace(workspaceId)), query, options),
@@ -2222,7 +2377,7 @@ export class Core {
         if (kept.length !== ws.viewed.length) {
           ws.viewed = kept.length ? kept : undefined
           this.store.save()
-          this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+          this.broadcastState()
         }
       }
       if (scope === 'all' && !diff.truncated) {
@@ -2234,7 +2389,7 @@ export class Core {
         if (JSON.stringify(stat) !== JSON.stringify(ws.diffStat)) {
           ws.diffStat = stat
           this.store.save()
-          this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+          this.broadcastState()
         }
       }
       return diff
@@ -2278,14 +2433,14 @@ export class Core {
       const marks = withMark(ws.viewed, mark, viewed)
       ws.viewed = marks.length ? marks : undefined
       this.store.save()
-      this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+      this.broadcastState()
     },
     dismissAlert: async (workspaceId, alertId) => {
       const ws = this.workspaces.workspace(workspaceId)
       ws.alerts = ws.alerts?.filter((a) => a.id !== alertId)
       if (!ws.alerts?.length) delete ws.alerts
       this.store.save()
-      this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+      this.broadcastState()
     },
     closeAgentReport: async (workspaceId, reportId, how) => this.agentReports.close(workspaceId, reportId, how),
 
@@ -2322,7 +2477,8 @@ export class Core {
     },
 
     gitStatus: (workspaceId) => this.git.status(workspaceId),
-    checksStatus: (workspaceId) => this.checks.status(workspaceId),
+    // The Git panel asks right after the diff it shows changed the totals: that diff's snapshot serves.
+    checksStatus: (workspaceId) => this.checks.status(workspaceId, { since: Date.now() - VIEW_REUSE_MS }),
     runChecks: async (workspaceId, approve) => {
       const start = await this.checks.start(workspaceId, { approve })
       if (start.kind === 'consent') return { started: false, consent: start.items }
@@ -2669,8 +2825,12 @@ export class Core {
       // #21
       if ('homeLayout' in patch && patch.homeLayout !== 'list' && patch.homeLayout !== 'board') throw new Error('Unknown Home layout')
       if ('homeDoneDays' in patch && !(DONE_DAYS_OPTIONS as readonly number[]).includes(patch.homeDoneDays as number)) throw new Error('Unknown Done window')
+      if ('maxRunningAgents' in patch && !isSlotSetting(patch.maxRunningAgents, MAX_RUNNING_AGENTS)) throw new Error(`Maximum agents running at once must be a whole number from 0 (no limit) to ${MAX_RUNNING_AGENTS}`)
+      if ('backgroundWaitMinutes' in patch && !isSlotSetting(patch.backgroundWaitMinutes, MAX_BACKGROUND_WAIT_MINUTES)) throw new Error(`Background task wait must be a whole number of minutes from 0 (never stop) to ${MAX_BACKGROUND_WAIT_MINUTES}`)
       const settings: Settings = { ...this.store.state.settings, ...patch }
       this.store.state.settings = settings
+      // A higher limit (or none) starts the turns queued for an agent slot.
+      if ('maxRunningAgents' in patch) this.sessions.admitWaiting()
       if ('keepClearedHistory' in patch) this.store.keepClearedChanged()
       // Turning terminal restore off deletes the output saved so far.
       if (patch.restoreTerminals === false) this.terminals.clear()
@@ -2680,7 +2840,7 @@ export class Core {
       this.store.save()
       if (patch.theme) this.host.applyTheme(settings.theme)
       if ('language' in patch) this.host.applyLanguage?.()
-      this.host.broadcast({ type: 'state', snapshot: this.snapshot() })
+      this.broadcastState()
       // A different sign-in or binary can offer different models.
       const affects: [keyof Settings, AgentKind][] = [
         ['claudeAuth', 'claude'],

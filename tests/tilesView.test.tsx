@@ -10,7 +10,13 @@ import { fakeState, resetFake } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
 // The chat itself is tested on its own; a tile only has to show the right one.
-vi.mock('../src/renderer/src/components/ChatView', () => ({ ChatView: ({ session }: { session: { id: string } }) => <p>chat {session.id}</p> }))
+vi.mock('../src/renderer/src/components/ChatView', () => ({
+  ChatView: ({ session, active, hidden }: { session: { id: string }; active: boolean; hidden?: boolean }) => (
+    <p data-active={String(active)} data-hidden={String(Boolean(hidden))}>
+      chat {session.id}
+    </p>
+  )
+}))
 
 const spy = (name: string) => (store as unknown as Record<string, ReturnType<typeof vi.fn>>)[name]
 
@@ -65,6 +71,13 @@ describe('tiles', () => {
     // A workspace with no open chat says so rather than showing an empty tile.
     expect(screen.getByText(/no chat open/i)).toBeTruthy()
     expect(spy('setTiles')).toHaveBeenCalledWith(['w1', 'w2'])
+  })
+
+  it('hides the tiles\' chats while another view is in front, so they stop following the store', () => {
+    const { rerender } = render(<TilesView hidden={false} />)
+    expect(screen.getByText('chat s1').dataset).toMatchObject({ active: 'true', hidden: 'false' })
+    rerender(<TilesView hidden />)
+    expect(screen.getByText('chat s1').dataset).toMatchObject({ active: 'false', hidden: 'true' })
   })
 
   it('looking at a tile selects its workspace; the selected one is not selected again', () => {

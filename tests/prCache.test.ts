@@ -83,6 +83,26 @@ describe('shared PR cache', () => {
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 
+  it('waits for identities to be known before the first lookup, then not again', async () => {
+    let identity = 'blocked:r1'
+    let known!: () => void
+    let ready = new Promise<void>((resolve) => { known = resolve })
+    const fetch = vi.fn(async (_w: Workspace) => ok)
+    const seen: string[] = []
+    const cache = new PrCache({ fetch: async (w) => (seen.push(identity), fetch(w)), identity: () => identity, ready: () => ready })
+    const first = cache.get(ws())
+    await Promise.resolve()
+    expect(fetch).not.toHaveBeenCalled()
+    identity = 'work'
+    known()
+    expect(await first).toBe(ok)
+    expect(seen).toEqual(['work'])
+    // A failed readiness check doesn't stop lookups.
+    ready = Promise.reject(new Error('gh missing'))
+    expect(await cache.get(ws(), { fresh: true })).toBe(ok)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   it('looks again after an invalidation or when the branch changes', async () => {
     const fetch = vi.fn(async () => ok)
     const cache = new PrCache({ fetch, now: () => 0 })
@@ -143,7 +163,7 @@ describe('merge and ready for a checked-out PR', () => {
     const prs = new PrCache({ fetch: async () => ({ kind: 'ok', pr: { ...pr, isDraft: false }, headRefOid: 'x', repo: 'acme/web' }) })
     const actions = new GitActions(
       { state: { settings: { optionalChecksBlock: true, automerge: false }, sessions: [] } } as never,
-      { workspace: () => workspace, repo: () => ({ id: 'r', hasOrigin: true, remote: 'origin' }), accountFor: () => undefined, settingsFor: () => ({ prompts: {}, archiveOnMerge: false }) } as never,
+      { workspace: () => workspace, repo: () => ({ id: 'r', hasOrigin: true, remote: 'origin' }), accountFor: () => undefined, accountForFresh: async () => undefined, settingsFor: () => ({ prompts: {}, archiveOnMerge: false }) } as never,
       {} as never,
       async () => undefined,
       prs

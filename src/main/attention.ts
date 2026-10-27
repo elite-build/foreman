@@ -40,8 +40,10 @@ export interface AttentionDeps {
   approvals(): ApprovalRequest[]
   now(): number
   newId(): string
-  // The tray and the dock badge, after every look.
+  // The tray and the dock badge, after a look that changed what they show.
   show(view: TrayView): void
+  // What else the tray and badge are drawn from (the settings object): a different one shows the same view again.
+  showContext?(): unknown
   // The history (or when it was last seen) changed.
   logChanged(): void
   debounceMs?: number
@@ -56,6 +58,8 @@ export class AttentionService {
   private unreadSessions: Record<string, true> = {}
   private timer: NodeJS.Timeout | null = null
   private seen: string | undefined
+  // The view last shown and what it was shown with, so a look that changes nothing doesn't redraw the tray.
+  private shown: { key: string; context: unknown } | null = null
 
   constructor(private deps: AttentionDeps) {
     this.log = boundLog(deps.db.readAttention<AttentionEvent>(), deps.now()).log
@@ -96,7 +100,12 @@ export class AttentionService {
       }
     }
     this.looks = next
-    this.deps.show(trayView(input))
+    const view = trayView(input)
+    const key = JSON.stringify(view)
+    const context = this.deps.showContext?.()
+    if (this.shown?.key === key && this.shown.context === context) return
+    this.shown = { key, context }
+    this.deps.show(view)
   }
 
   /** A transition seen directly rather than in the state (an approval answered). */

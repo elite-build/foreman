@@ -58,6 +58,7 @@ import { AutomationsEntry } from './automations/AutomationsEntry'
 import { AssistantEntry } from './assistant/AssistantEntry'
 import { PhonePill } from './phone/PhonePill'
 import { KeepAwakeChip } from './KeepAwakeChip'
+import { ResourceUsage } from './ResourceUsage'
 import { SttChip } from './SttChip'
 import { TerminalAgentLabel, useHasTerminalAgent } from './agents/TerminalAgents'
 import { leadGlyph } from '../../../shared/attention'
@@ -325,36 +326,6 @@ function CompareGroupView({ section, order, repoId, repoById }: { section: Compa
   )
 }
 
-function formatMemory(mb: number): string {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`
-}
-
-/** CPU and memory of Foreman and everything it runs, polled while shown. */
-function ResourceUsage() {
-  const t = useT()
-  const [usage, setUsage] = useState<{ cpuPercent: number; memoryMb: number } | null>(null)
-  useEffect(() => {
-    let live = true
-    const poll = () =>
-      void api
-        .resourceUsage()
-        .then((next) => live && setUsage(next))
-        .catch(() => undefined)
-    poll()
-    const timer = setInterval(poll, 3000)
-    return () => {
-      live = false
-      clearInterval(timer)
-    }
-  }, [])
-  if (!usage) return null
-  return (
-    <div className="sidebar-usage" title={t('sidebar.usage.title')}>
-      {t('sidebar.usage', { cpu: Math.round(usage.cpuPercent), memory: formatMemory(usage.memoryMb) })}
-    </div>
-  )
-}
-
 /** Two letters for a repository without an icon: "kite" → "ki". */
 function repoInitials(name: string): string {
   return (name.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toLowerCase()
@@ -602,7 +573,7 @@ export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: 
           <SttChip />
           <KeepAwakeChip />
           <footer className="sidebar-footer">
-            {snapshot.settings.showResourceUsage && <ResourceUsage />}
+            <ResourceUsage />
             <Button variant="ghost" size="sm" icon={<Archive size={13} />} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
               {archived ? t('sidebar.archivedCount', { count: archived }) : t('sidebar.archived')}
             </Button>

@@ -26,6 +26,8 @@ import { settingEntry, type AssistantState } from '../../shared/assistant'
 import { tourSteps } from '../../shared/tour'
 import type { OnboardingMilestone } from '../../shared/onboarding'
 import { isNotGitRepoError, type GitIdentity } from '../../shared/types'
+import { shareUnchanged } from '../../shared/reconcile'
+import { appendToItems } from '../../shared/chatAppend'
 
 export type Overlay = 'palette' | 'quick-open' | 'search' | 'shortcuts' | 'archived' | 'open-in' | 'ask'
 
@@ -161,6 +163,8 @@ interface State {
   tour: { steps: string[]; index: number } | null
   // Settings was opened from the assistant: it shows "Back to Assistant".
   assistantReturn: boolean
+  // The window isn't minimized or hidden (main's window-visibility). While it is, components don't re-render: see flushStore.
+  windowVisible: boolean
 }
 
 // Small UI preferences survive restarts; storage can be unavailable.
@@ -245,15 +249,68 @@ let state: State = {
   assistantUnread: false,
   askThreadId: null,
   assistantReturn: false,
-  tour: null
+  tour: null,
+  windowVisible: true
 }
 const listeners = new Set<() => void>()
+// Hear every change at once, whether or not components are told (a batch waiting for its frame, a hidden window).
+const liveListeners = new Set<() => void>()
+
+// What components render from: `state` as of the last notification. getState() reads `state` itself, which
+// events from main update at once; components hear about those changes at most once a frame.
+let published = state
+// Above zero while an event from main is handled: its changes notify on the next frame, not straight away.
+let batching = 0
+let pendingFrame: number | null = null
+let pendingTimer: ReturnType<typeof setTimeout> | null = null
+// A hidden window (or jsdom) may not run animation frames, so a timer flushes too.
+const FLUSH_FALLBACK_MS = 100
 
 function setState(patch: Partial<State>): void {
   const before = state
   state = { ...state, ...patch }
   if (before.unread !== state.unread || before.unreadSessions !== state.unreadSessions) updateDockBadge()
+  for (const listener of liveListeners) listener()
+  // Ten agents streaming send hundreds of events a second; anything the user did shows at once.
+  if (batching > 0) scheduleFlush()
+  else flushStore()
+}
+
+function scheduleFlush(): void {
+  if (pendingTimer !== null || held()) return
+  pendingTimer = setTimeout(flushStore, FLUSH_FALLBACK_MS)
+  if (typeof requestAnimationFrame === 'function') pendingFrame = requestAnimationFrame(flushStore)
+}
+
+/**
+ * A minimized or hidden window draws nothing anyone sees, so components hear nothing while it is: what changes (streaming
+ * chats, every state) waits, and they catch up in one render when it is shown again. Nothing moves or is hidden meanwhile,
+ * so focus, scroll positions and terminals stay as they were. Components hear that it went hidden, then nothing more.
+ */
+const held = () => !state.windowVisible && !published.windowVisible
+
+/** Tell components about every change so far. Events from main wait for the next frame; tests can call this instead. */
+export function flushStore(): void {
+  if (pendingTimer !== null) clearTimeout(pendingTimer)
+  if (pendingFrame !== null) cancelAnimationFrame(pendingFrame)
+  pendingTimer = pendingFrame = null
+  if (published === state || held()) return
+  published = state
   for (const listener of listeners) listener()
+}
+
+/** Main's window-visibility (or the window gaining focus, which it can't while unseen). */
+function setWindowVisible(visible: boolean): void {
+  if (state.windowVisible === visible) return
+  // Endless animations (spinners, the streaming cursor) pause on this: ui/css/spinner.css, styles/chat.css.
+  document.documentElement.toggleAttribute('data-window-hidden', !visible)
+  setState({ windowVisible: visible })
+  flushStore()
+}
+
+/** Whether the window can be seen; components re-render when it changes (to pause their clocks, for instance). */
+export function useWindowVisible(): boolean {
+  return useStore((s) => s.windowVisible)
 }
 
 function subscribe(listener: () => void): () => void {
@@ -261,9 +318,19 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
+/**
+ * Called on every change to the state, straight away, even while components hear nothing (a minimized window): for what
+ * must happen as things change rather than when they are drawn, such as the sound and voice for an agent that finished.
+ * Read the state with getState(). Keep the listener cheap; streaming chats change the state hundreds of times a second.
+ */
+export function subscribeLive(listener: () => void): () => void {
+  liveListeners.add(listener)
+  return () => liveListeners.delete(listener)
+}
+
 /** Selectors must return existing references (state slices), not new objects. */
 export function useStore<T>(selector: (s: State) => T): T {
-  return useSyncExternalStore(subscribe, () => selector(state))
+  return useSyncExternalStore(subscribe, () => selector(published))
 }
 
 export const getState = () => state
@@ -300,13 +367,13 @@ export function activeSessionId(s: State, workspaceId: string): string | undefin
   return open.find((x) => x.id === remembered)?.id ?? open[0]?.id
 }
 
-function isViewing(sessionId: string, workspaceId: string): boolean {
+function isViewing(sessionId: string, workspaceId: string, browserTabs = state.browserTabs): boolean {
   return (
     document.hasFocus() &&
     state.selectedWorkspaceId === workspaceId &&
     activeSessionId(state, workspaceId) === sessionId &&
     !state.settingsPage &&
-    (!state.browserTabs[workspaceId]?.active || state.browserTabs[workspaceId]?.split)
+    (!browserTabs[workspaceId]?.active || browserTabs[workspaceId]?.split)
   )
 }
 
@@ -422,7 +489,9 @@ export function clearChatJump(nonce: number): void {
 // ---- events from the main process ----
 
 function upsert(items: ChatItem[], item: ChatItem): ChatItem[] {
-  const index = items.findIndex((i) => i.id === item.id)
+  // A streaming item is nearly always the last one, so look from the end.
+  let index = items.length - 1
+  while (index >= 0 && items[index].id !== item.id) index--
   if (index === -1) return [...items, item]
   const next = items.slice()
   next[index] = item
@@ -430,13 +499,13 @@ function upsert(items: ChatItem[], item: ChatItem): ChatItem[] {
 }
 
 /** Mark chats (and their workspaces) whose agent just went idle while not on screen. */
-function trackUnread(previous: AppSnapshot | null, next: AppSnapshot): Pick<State, 'unread' | 'unreadSessions'> {
+function trackUnread(previous: AppSnapshot | null, next: AppSnapshot, browserTabs = state.browserTabs): Pick<State, 'unread' | 'unreadSessions'> {
   let { unread, unreadSessions } = state
   if (!previous) return { unread, unreadSessions }
   for (const session of next.sessions) {
     const before = previous.sessions.find((s) => s.id === session.id)
     if (before?.status !== 'running' || session.status !== 'idle') continue
-    if (isViewing(session.id, session.workspaceId)) continue
+    if (isViewing(session.id, session.workspaceId, browserTabs)) continue
     unreadSessions = { ...unreadSessions, [session.id]: true }
     if (state.selectedWorkspaceId !== session.workspaceId || !document.hasFocus()) {
       unread = { ...unread, [session.workspaceId]: true }
@@ -535,6 +604,22 @@ export async function markAttentionSeen(): Promise<void> {
   await attempt(() => api.markAttentionSeen())
 }
 
+/** Browser tabs of workspaces still live; the same object when none went away, so nothing re-renders for it. */
+function liveBrowserTabs(snapshot: AppSnapshot): State['browserTabs'] {
+  const live = Object.entries(state.browserTabs).filter(([id]) => snapshot.workspaces.some((w) => w.id === id && w.state !== 'archived' && w.state !== 'history'))
+  return live.length === Object.keys(state.browserTabs).length ? state.browserTabs : Object.fromEntries(live)
+}
+
+/** An event from main: its changes apply now and reach components on the next frame, with the others that arrive by then. */
+function receiveEvent(event: MainEvent): void {
+  batching++
+  try {
+    handleEvent(event)
+  } finally {
+    batching--
+  }
+}
+
 function handleEvent(event: MainEvent): void {
   switch (event.type) {
     case 'browser-open':
@@ -549,14 +634,27 @@ function handleEvent(event: MainEvent): void {
       if (event.action === 'close') closeBrowserTab(event.workspaceId)
       else focusBrowserAddress(event.workspaceId)
       return
-    case 'state':
-      setState({ browserTabs: Object.fromEntries(Object.entries(state.browserTabs).filter(([id]) => event.snapshot.workspaces.some(w => w.id === id && w.state !== 'archived' && w.state !== 'history'))) })
-      setModelCatalog(catalogModels(event.snapshot))
-      setState({ snapshot: event.snapshot, ...trackUnread(state.snapshot, event.snapshot) })
+    case 'state': {
+      // Unchanged workspaces, sessions, settings… keep their objects, so only what changed re-renders; an identical
+      // snapshot changes nothing at all.
+      const snapshot = shareUnchanged(state.snapshot, event.snapshot)
+      if (snapshot === state.snapshot) return
+      const browserTabs = liveBrowserTabs(snapshot)
+      if (snapshot.catalog !== state.snapshot?.catalog) setModelCatalog(catalogModels(snapshot))
+      setState({ browserTabs, snapshot, ...trackUnread(state.snapshot, snapshot, browserTabs) })
       return
+    }
     case 'chat-item': {
       const items = state.chats[event.sessionId]
       if (items) setState({ chats: { ...state.chats, [event.sessionId]: upsert(items, event.item) } })
+      return
+    }
+    case 'chat-append': {
+      // More text for a streaming preview. One that doesn't continue what is held (missed while the chat loaded)
+      // is skipped: the preview comes whole again within seconds, and the finished item replaces it.
+      const items = state.chats[event.sessionId]
+      const next = items && appendToItems(items, event)
+      if (next) setState({ chats: { ...state.chats, [event.sessionId]: next } })
       return
     }
     case 'chat-reset':
@@ -638,6 +736,9 @@ function handleEvent(event: MainEvent): void {
     case 'cloud-build-log':
       for (const listener of buildLogListeners) listener(event.repoId, event.buildId, event.chunk)
       return
+    case 'window-visibility':
+      setWindowVisible(event.visible)
+      return
   }
 }
 
@@ -650,7 +751,9 @@ export function onCloudBuildLog(listener: (repoId: string, buildId: string, chun
 }
 
 export async function initStore(): Promise<void> {
-  bridge.onEvent(handleEvent)
+  bridge.onEvent(receiveEvent)
+  // A window that has focus is on screen, whatever main last said.
+  window.addEventListener('focus', () => setWindowVisible(true))
   const [snapshot, approvals] = await Promise.all([api.getSnapshot(), api.pendingApprovals()])
   setModelCatalog(catalogModels(snapshot))
   const lastSelected = loadPref<string | null>('selectedWorkspaceId', null)
@@ -1319,9 +1422,12 @@ export async function loadChat(sessionId: string): Promise<void> {
   if (state.chats[sessionId]) return
   // Start collecting live events now so none are lost while the file loads.
   setState({ chats: { ...state.chats, [sessionId]: [] } })
-  const saved = await api.getChat(sessionId)
+  // With the previews still streaming, so the appends that follow continue them.
+  const saved = await api.getChat(sessionId, true)
   const buffered: ChatItem[] = getState().chats[sessionId] ?? []
-  const merged = buffered.reduce(upsert, saved)
+  // A preview that came while loading is older than the one read with the chat.
+  const isPreview = (i: ChatItem) => (i.kind === 'assistant' || i.kind === 'thinking') && i.streaming === true
+  const merged = buffered.reduce((items, item) => (isPreview(item) && saved.some((s) => s.id === item.id && isPreview(s)) ? items : upsert(items, item)), saved)
   setState({ chats: { ...state.chats, [sessionId]: merged } })
 }
 

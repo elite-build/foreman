@@ -1,9 +1,10 @@
 import { FolderOpen } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { BACKGROUND_WAIT_CHOICES, choicesWith, RUNNING_AGENT_CHOICES } from '../../../../shared/agentSlots'
 import type { CliInstallStatus } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api, attempt, showToast, useStore } from '../../store'
-import { Button, Spinner, TextInput } from '../../ui'
+import { Button, Select, Spinner, TextInput } from '../../ui'
 import { Page, resetSettings, Row, saveSettings, Section, TextRow, ToggleRow, useDraft, useSettings } from './controls'
 import { ScriptShellRow } from './ShellSettings'
 
@@ -77,6 +78,8 @@ export function AdvancedPage() {
           onChange={(keepAgentsRunning) => void saveSettings({ keepAgentsRunning })}
           onReset={settings.keepAgentsRunning ? () => void resetSettings(['keepAgentsRunning']) : undefined}
         />
+        <MaxAgentsRow />
+        <BackgroundWaitRow />
       </Section>
 
       <Section title={t('settings.advanced.section.commandLine')}>
@@ -119,6 +122,56 @@ function ScrollbackRow() {
           />
           <span className="muted">{t('settings.advanced.scrollback.unit')}</span>
         </div>
+      )}
+    </Row>
+  )
+}
+
+/** How many turns may run here at once; over it, new turns queue (0: no limit, the default). */
+function MaxAgentsRow() {
+  const t = useT()
+  const settings = useSettings()
+  const value = settings.maxRunningAgents ?? 0
+  return (
+    <Row
+      id="max-running-agents"
+      label={t('settings.advanced.maxAgents.label')}
+      help={t('settings.advanced.maxAgents.help')}
+      onReset={value ? () => void resetSettings(['maxRunningAgents']) : undefined}
+    >
+      {(control) => (
+        <Select<string>
+          {...control}
+          width={140}
+          value={String(value)}
+          options={choicesWith(RUNNING_AGENT_CHOICES, value).map((n) => ({ value: String(n), label: n ? String(n) : t('settings.advanced.maxAgents.none') }))}
+          onChange={(next) => void saveSettings({ maxRunningAgents: Number(next) })}
+        />
+      )}
+    </Row>
+  )
+}
+
+/** How long a Claude Code turn that has answered waits for its background work (0: as long as it runs, the default). */
+function BackgroundWaitRow() {
+  const t = useT()
+  const settings = useSettings()
+  const value = settings.backgroundWaitMinutes ?? 0
+  return (
+    <Row
+      id="background-wait"
+      label={t('settings.advanced.backgroundWait.label')}
+      help={t('settings.advanced.backgroundWait.help')}
+      onReset={value ? () => void resetSettings(['backgroundWaitMinutes']) : undefined}
+    >
+      {(control) => (
+        <Select<string>
+          {...control}
+          width={160}
+          value={String(value)}
+          options={choicesWith(BACKGROUND_WAIT_CHOICES, value).map((n) => ({ value: String(n), label: n ? t('settings.advanced.backgroundWait.after', { count: n }) : t('settings.advanced.backgroundWait.never') }))}
+          onChange={(next) => void saveSettings({ backgroundWaitMinutes: Number(next) })}
+        />
       )}
     </Row>
   )

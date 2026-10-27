@@ -18,9 +18,9 @@ export function isApproved(state: ApprovalState, repoId: string, command: string
   return (state.checkApprovals?.[repoId] ?? []).includes(commandHash(command))
 }
 
-/** The repository's commands from its .foreman/settings.toml, each marked approved or not. */
-export function repoCommands(state: ApprovalState, repo: Pick<Repo, 'id' | 'rootPath'>): SavedCommand[] {
-  return repoCommandList(repo.id, readSharedLayer(repo.rootPath).commands ?? [], (command) => isApproved(state, repo.id, command))
+/** The repository's commands from its .foreman/settings.toml, each marked approved or not. `maxAgeMs` as for readSharedLayer. */
+export function repoCommands(state: ApprovalState, repo: Pick<Repo, 'id' | 'rootPath'>, options: { maxAgeMs?: number } = {}): SavedCommand[] {
+  return repoCommandList(repo.id, readSharedLayer(repo.rootPath, options).commands ?? [], (command) => isApproved(state, repo.id, command))
 }
 
 /** What the approval dialog shows: the command, and the text approved before under this name when it changed. */

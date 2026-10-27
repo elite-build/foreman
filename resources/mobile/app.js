@@ -89,6 +89,8 @@ function statusLine(w, s, approvals) {
   if (approvals.length) return { cls: 'need', text: approvals.length > 1 ? approvals.length + ' requests waiting on you' : 'Waiting on you' }
   if (w.stalled) return { cls: 'stall', text: 'Quiet for ' + mins(w.stalledSince) + ' min' }
   if (s?.status === 'running') return { cls: 'work', text: 'Working' }
+  // Its turn waits for an agent slot (the desktop's "Maximum agents running at once").
+  if (s?.waitingForSlot) return { cls: '', text: 'Queued · starts when a running agent finishes' }
   return { cls: r, text: w.label || 'Ready' }
 }
 
@@ -387,7 +389,7 @@ function sheetHtml() {
     const sessions = w ? sessionsOf(w) : []
     const waiting = new Set(state.model.approvals.map((a) => a.sessionId))
     inner = '<h3>' + safe(w?.name || 'Workspace') + ' <button data-action="close">Done</button></h3><p class="sub mono">' + safe(w?.branch || '') + '</p><div class="menu">' +
-      (sessions.length > 1 ? '<div class="grp">Chats</div>' + sessions.map((s) => '<button data-action="session:' + safe(s.id) + '">' + icon('chat') + '<span>' + safe(s.title || agentName(s.agent) + ' · ' + s.model) + '</span><span class="meta">' + (waiting.has(s.id) ? 'needs you' : s.status === 'running' ? 'working' : '') + '</span>' + (s.id === state.sessionId ? icon('check', 'on') : '') + '</button>').join('') + '<div class="grp">Actions</div>' : '') +
+      (sessions.length > 1 ? '<div class="grp">Chats</div>' + sessions.map((s) => '<button data-action="session:' + safe(s.id) + '">' + icon('chat') + '<span>' + safe(s.title || agentName(s.agent) + ' · ' + s.model) + '</span><span class="meta">' + (waiting.has(s.id) ? 'needs you' : s.status === 'running' ? 'working' : s.waitingForSlot ? 'queued' : '') + '</span>' + (s.id === state.sessionId ? icon('check', 'on') : '') + '</button>').join('') + '<div class="grp">Actions</div>' : '') +
       '<button data-action="new-chat">' + icon('plus') + 'New chat</button><button data-action="refresh">' + icon('refresh') + 'Refresh</button><button class="danger" data-action="archive">' + icon('archive') + 'Archive workspace</button></div>'
   } else if (state.sheet === 'device') {
     const https = location.protocol === 'https:'

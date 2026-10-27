@@ -11,6 +11,7 @@ import { acpPlanMode, type AcpMode } from '../../shared/agentCatalog'
 import type { AgentKind, EffortLevel } from '../../shared/agents'
 import type { AgentStatus, ChatItem } from '../../shared/types'
 import { killProcessTree, treeSpawnOptions } from '../platform'
+import { trackChild } from '../processRoots'
 import { findBinary, launchFor } from './catalogDetect'
 import { looksLikeAuthError, type AgentDriver, type AgentTurn, type OneShotOptions, type TurnCallbacks, type TurnRequest, type TurnResult } from './types'
 
@@ -316,6 +317,7 @@ function absoluteCommand(command: string, cwd: string, env: Record<string, strin
 /** Starts an ACP agent as a child process speaking JSON-RPC over stdio. */
 export const spawnAcpAgent: AcpConnector = ({ file, args, cwd, env }) => {
   const child = spawn(file, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], ...treeSpawnOptions })
+  trackChild(child, env, 'agent')
   let error: Error | undefined
   let stderr = ''
   const exited = new Promise<void>((resolve) => {

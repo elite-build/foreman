@@ -7,6 +7,7 @@ import { addStops } from '../../shared/stopSafely'
 import type { ChatItem, Session, Workspace } from '../../shared/types'
 import type { AgentTurn, TurnCallbacks, TurnRequest } from '../agents/types'
 import type { HostedFacts, SessionService, TurnHost } from '../sessions'
+import type { ProcessRoot } from '../processRoots'
 import type { Store } from '../store'
 import { HostClient, type RemoteTurn, type TurnContext } from './client'
 import type { HostEvent } from './protocol'
@@ -60,7 +61,8 @@ export class AgentHostService implements TurnHost {
   }
 
   createTurn(session: Session, ws: Workspace, request: TurnRequest, callbacks: TurnCallbacks, endCheckpoint: string): AgentTurn & HostedFacts {
-    const { hostTools, sessionStore, ...wire } = request
+    // In-process MCP servers can't cross to the host (and a hosted turn is never given any): its tools come over the bridge.
+    const { hostTools, sessionStore, inProcessMcp: _inProcess, ...wire } = request
     this.records.push({ sessionId: session.id, turnId: request.turnId, agent: session.agent, startedAt: new Date().toISOString(), seq: 0 })
     this.deps.store.save()
     return this.client.start(
@@ -100,6 +102,19 @@ export class AgentHostService implements TurnHost {
   liveCount(): number {
     const { sessions } = this.deps.store.state
     return this.local.filter((r) => sessions.some((s) => s.id === r.sessionId && s.turnId === r.turnId)).length
+  }
+
+  /**
+   * The processes the host's turns started (Show resource usage). Asked only while connected with a turn there: this never
+   * starts or wakes a host. An older host, or one slow to answer, counts as none.
+   */
+  async processRoots(): Promise<ProcessRoot[]> {
+    if (!this.client.connected || !this.local.length) return []
+    try {
+      return (await withTimeout(this.client.request('processRoots', {}), 2_000, 'The background agent host didn’t answer.')).roots
+    } catch {
+      return []
+    }
   }
 
   /** The chat's current turn is one the host runs. */

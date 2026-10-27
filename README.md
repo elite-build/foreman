@@ -184,7 +184,7 @@ resources/cli/           launchers shipped in the packaged app (sh and .cmd)
 src/preload/index.ts     contextBridge: window.foreman
 src/renderer/            React UI
 tests/                   Vitest unit and integration tests
-docs/                    design system, [accessibility guide](docs/accessibility.md) and developer guides
+docs/                    design system, [accessibility guide](docs/accessibility.md), [performance with many agents](docs/performance.md) and developer guides
 ```
 
 ## Porting to Windows

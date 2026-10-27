@@ -9,7 +9,7 @@ import { App } from './App'
 import './ui/ui.css'
 import { AccessibilitySync } from './accessibility'
 import { AppearanceSync } from './appearance'
-import { LocaleSync } from './i18n'
+import { LocaleProvider, LocaleSync } from './i18n'
 import { BatterySync } from './components/KeepAwakeChip'
 import { initStore } from './store'
 
@@ -20,11 +20,14 @@ const screens = new URLSearchParams(location.search).has('screens') ? import('./
 void Promise.resolve(screens).then(initStore).then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <AppearanceSync />
-      <AccessibilitySync />
-      <LocaleSync />
-      <BatterySync />
-      <App />
+      {/* The language for every useT below, followed in this one place rather than by each component. */}
+      <LocaleProvider>
+        <AppearanceSync />
+        <AccessibilitySync />
+        <LocaleSync />
+        <BatterySync />
+        <App />
+      </LocaleProvider>
     </StrictMode>
   )
 })

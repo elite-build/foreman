@@ -12,6 +12,7 @@ import { composeMessage, editSnippet, snippetAttachmentName, snippetAttachmentTe
 import type { ApprovalRequest, Attachment, PromptTemplate, QueueChangeResult, QueuedMessage, QueueMove, Session, SlashCommandInfo, Workspace } from '../../../../shared/types'
 import { api, attempt, bridge, modKey, newChatWithTemplate, onUiCommand, openCompareDialog, openMcpStatus, requestOpenFile, sendUiCommand, showError, showToast, takeComposerFill, toggleRightPanel, useStore, type EditedFrom } from '../../store'
 import { useT } from '../../i18n'
+import { useStoreMemo } from '../../storeMemo'
 import { ActionRow, Button, Callout, ChipButton, IconButton, Kbd, LinkButton, Listbox, Tag, TextArea } from '../../ui'
 import { AgentPicker } from './AgentPicker'
 import { ContextWheel } from './ContextWheel'
@@ -157,7 +158,8 @@ export function Composer({
   const running = session.status === 'running'
   const agent = AGENTS[session.agent]
   // O1: controls follow the tab's agent; in a chat that switched agents, a Plan chip the agent lacks stays greyed.
-  const mixed = useStore((s) => isMixed(s.chats[session.id] ?? []))
+  // Scanned again only when this chat's log changes, not on every store event.
+  const mixed = useStoreMemo((s) => [s.chats[session.id]], ([chat]) => isMixed(chat ?? []))
   // G1: an ACP agent that declared a plan session mode gets the Plan chip.
   const modes = useStore((s) => s.snapshot?.catalog.agents[session.agent]?.modes)
   const plan = planControl(session.agent, { planMode: session.planMode, readOnly: session.readOnly, mixed, modes })
@@ -806,6 +808,8 @@ type QueueAction = 'up' | 'down' | 'send' | 'edit' | 'delete'
 function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: boolean; mod: string; onKept: (edit: KeptEdit) => void }) {
   const t = useT()
   const queue = session.queue
+  // The first message waits for an agent slot ("Maximum agents running at once"), not for this tab's agent.
+  const maxAgents = useStore((s) => s.snapshot?.settings.maxRunningAgents ?? 0)
   // The message being edited as it was when Edit was pressed, the queue revision then, and the text so far.
   const [editing, setEditing] = useState<{ message: QueuedMessage; revision: number; text: string; attachments: Attachment[] } | null>(null)
   const saving = useRef(false)
@@ -881,7 +885,7 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
   return (
     <div className="queued">
       <div className="queued-head faint small">
-        <span>{t('queue.head')}</span>
+        <span>{session.waitingForSlot ? t('queue.head.slot', { max: maxAgents }) : t('queue.head')}</span>
         {queue.length > 1 && (
           <span className="queued-keys">{t.rich('queue.moveKeys', { up: <Kbd key="up">{upKey}</Kbd>, down: <Kbd key="down">{downKey}</Kbd> })}</span>
         )}
@@ -1060,7 +1064,7 @@ function PlanBar({ request, sessionId, mod }: { request: Extract<ApprovalRequest
 /** "Also try with…": the same prompt in sibling workspaces with other models. Needs every tab idle, and says why when it can't. */
 function AlsoTry({ workspace, session, text }: { workspace: Workspace; session: Session; text: string }) {
   const t = useT()
-  const reason = useStore((s) => compareBlockFor(workspace, s.snapshot!.sessions, t))
+  const reason = useStoreMemo((s) => [workspace, s.snapshot!.sessions, t], ([ws, sessions, tr]) => compareBlockFor(ws, sessions, tr))
   return (
     <LinkButton
       size="sm"

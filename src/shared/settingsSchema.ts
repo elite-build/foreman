@@ -5,6 +5,7 @@
 // derived from the registry here and never typed twice. Fields with no row there (the Devices ones, the clone
 // directory) name their page themselves.
 import path from 'node:path'
+import { MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from './agentSlots'
 import { DONE_DAYS_OPTIONS } from './board'
 import { cloudSettings } from './cloud'
 import { LOCALES } from './i18n'
@@ -253,6 +254,9 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   flag('terminal-copy-on-select', 'terminal-copy-on-select', 'terminalCopyOnSelect'),
   flag('terminal-restore', 'terminal-restore', 'restoreTerminals', { note: 'Turning it off deletes the terminal output saved so far; tabs no longer come back after a restart.' }),
   flag('keep-agents-running', 'keep-agents-running', 'keepAgentsRunning'),
+  // 0 is no limit, and never stop waiting.
+  def('max-running-agents', { registryId: 'max-running-agents', field: 'maxRunningAgents', type: 'integer', min: 0, max: MAX_RUNNING_AGENTS }),
+  def('background-wait-minutes', { registryId: 'background-wait', field: 'backgroundWaitMinutes', type: 'integer', min: 0, max: MAX_BACKGROUND_WAIT_MINUTES }),
 
   // Data
   flag('keep-cleared-history', 'keep-cleared-history', 'keepClearedHistory', { note: 'Turning it off scrubs the history that /clear and rewind had kept; turning it on keeps it from now on.' }),

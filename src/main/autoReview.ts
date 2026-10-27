@@ -372,12 +372,12 @@ export class AutoReviewService {
     this.save()
   }
 
-  /** Mark reviews stale once the worktree no longer matches the tree they read. Never reruns anything. */
-  async refreshStale(workspaceId: string): Promise<void> {
+  /** Mark reviews stale once the worktree no longer matches the tree they read (`current`, when the caller has it). Never reruns anything. */
+  async refreshStale(workspaceId: string, current?: string): Promise<void> {
     const ws = this.workspace(workspaceId)
     const fresh = (ws?.autoReviews ?? []).filter((r) => !r.stale && r.state !== 'running')
     if (!ws || !fresh.length) return
-    const tree = await this.deps.tree(ws).catch(() => null)
+    const tree = current ?? (await this.deps.tree(ws).catch(() => null))
     if (!tree) return
     let any = false
     for (const r of fresh) {

@@ -61,6 +61,8 @@ export class AppTray {
   private timer: NodeJS.Timeout | null = null
   // What the image shows now: the badge's text on Windows (redrawn only when it changes); macOS never redraws.
   private drawn: string | null = null
+  // What the menu, tooltip and title show now, so a redraw with the same rows doesn't build the native menu again.
+  private rendered: string | null = null
 
   constructor(private options: AppTrayOptions) {}
 
@@ -110,22 +112,26 @@ export class AppTray {
         )
       : // Phone access alone: the tray it always had.
         trayMenu({ count: 0, attention: [], working: [] }, { header: () => t('attention.tray.phone'), working: '', next: '', home: t('attention.tray.home'), show: t('attention.tray.show'), quit: t('attention.tray.quit') }, age)
+    const count = attention ? view.count : 0
+    const tooltip = count ? `Foreman · ${t('attention.tray.count', { count })}` : 'Foreman'
+    // The rows say how long each has waited.
+    this.timer ??= setInterval(() => this.draw(), 60_000)
+    this.timer.unref?.()
+    const rendered = JSON.stringify([items, count, tooltip])
+    if (rendered === this.rendered) return
+    this.rendered = rendered
     const template: MenuItemConstructorOptions[] = items.map((item) =>
       item.kind === 'separator' ? { type: 'separator' } : item.kind === 'label' ? { label: item.text, enabled: false } : { label: item.text, click: () => this.options.act(item.action) }
     )
     this.tray.setContextMenu(Menu.buildFromTemplate(template))
-    const count = attention ? view.count : 0
     // G2: Windows draws the count into the icon; the image changes only when the badge's text does.
     if (process.platform !== 'darwin' && badgeText(count) !== this.drawn) {
       this.drawn = badgeText(count)
       this.tray.setImage(trayIcon(count))
     }
-    this.tray.setToolTip(count ? `Foreman · ${t('attention.tray.count', { count })}` : 'Foreman')
+    this.tray.setToolTip(tooltip)
     // The menu bar shows the number beside the icon; Windows has it in the icon, the tooltip and the menu's first line.
     if (process.platform === 'darwin') this.tray.setTitle(count ? String(count) : '')
-    // The rows say how long each has waited.
-    this.timer ??= setInterval(() => this.draw(), 60_000)
-    this.timer.unref?.()
   }
 
   destroy(): void {
@@ -134,5 +140,6 @@ export class AppTray {
     this.tray?.destroy()
     this.tray = null
     this.drawn = null
+    this.rendered = null
   }
 }

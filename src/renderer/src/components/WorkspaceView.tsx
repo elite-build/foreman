@@ -1,7 +1,7 @@
 import { TransferBanner } from './HandOffDialogs'
 import { Archive, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, PanelBottom, PanelLeft, PanelRight, Plus, RefreshCw, RotateCcw, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { compactModelLabel, modelTooltip } from '../../../shared/handOff'
 import { forkTabTitle } from '../../../shared/fork'
@@ -9,9 +9,9 @@ import { usageLines } from '../../../shared/usage'
 import type { PlainKey } from '../../../shared/i18n'
 import type { DiffFile, DiffScope, Session, Workspace, WorkspaceDiff, WorkspaceUsage } from '../../../shared/types'
 import {
-  activeSessionId,
   api,
   attempt,
+  bridge,
   closeChat,
   closeBrowserTab,
   selectBrowserTab,
@@ -22,6 +22,7 @@ import {
   copyWorkspaceLink,
   openExportDialog,
   forkChat,
+  getState,
   openHandOffTo,
   openCompareDialog,
   openHandOffDialog,
@@ -36,8 +37,11 @@ import {
   toggleLeftPanel,
   toggleRightPanel,
   useStore,
+  useWindowVisible,
   zoomTile
 } from '../store'
+import { useHeldStore } from '../heldStore'
+import { useActiveSessionId, useStoreMemo } from '../storeMemo'
 import { WorkspaceBrowser } from './WorkspaceBrowser'
 import { BottomPanel } from './BottomPanel'
 import { ChatView } from './ChatView'
@@ -110,34 +114,92 @@ function useCommitCount(workspaceId: string, enabled: boolean, reloadKey: string
   return count
 }
 
-function useWorkspaceDiff(workspaceId: string, running: boolean, enabled: boolean, scope: DiffScope, commits: string[] = []) {
+/** After a tool that may have changed files finishes, the diff is read again this long after (once per burst of edits). */
+export const DIFF_SETTLE_MS = 1000
+/** While an agent works, the diff is also read this often, for changes no event tells of (a script, a terminal). */
+export const DIFF_SAFETY_POLL_MS = 30_000
+// Coming back to the window reads it again soon (an editor may have saved meanwhile).
+const DIFF_FOCUS_MS = 250
+
+// Tools that only read files: their results can't change the diff. Any other (Edit, Write, Bash, a subagent) may have.
+const READ_ONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'ExitPlanMode', 'AskUserQuestion'])
+const mayChangeFiles = (name: string) => !READ_ONLY_TOOLS.has(name) && !name.startsWith('mcp__foreman__')
+
+export function useWorkspaceDiff(workspaceId: string, running: boolean, enabled: boolean, scope: DiffScope, commits: string[] = []) {
   const [diff, setDiff] = useState<WorkspaceDiff | null>(null)
   const [loading, setLoading] = useState(false)
   const busy = useRef(false)
+  const again = useRef(false)
+  // Minimized: nothing reads the diff; it reads again when the window comes back.
+  const visible = useWindowVisible()
+  const commitKey = commits.join(',')
+  // What to read: the selection as it is now, so a read already under way reads the new one next, not its own again.
+  const latest = useRef({ workspaceId, scope, commits, key: '' })
+  latest.current = { workspaceId, scope, commits, key: `${workspaceId}\n${scope}\n${commitKey}` }
 
   const refresh = useCallback(async () => {
-    if (busy.current) return
+    // Asked again while reading: read once more after, so a change made meanwhile isn't missed.
+    if (busy.current) {
+      again.current = true
+      return
+    }
     busy.current = true
     setLoading(true)
     try {
-      setDiff(await api.getDiff(workspaceId, scope, commits.length ? commits : undefined))
+      do {
+        again.current = false
+        const asked = latest.current
+        try {
+          const read = await api.getDiff(asked.workspaceId, asked.scope, asked.commits.length ? asked.commits : undefined)
+          // The scope or commits changed while it was read: it is another selection's diff, so read the new one instead.
+          if (asked.key !== latest.current.key) again.current = true
+          else setDiff(read)
+        } catch (err) {
+          if (asked.key !== latest.current.key) again.current = true
+          else throw err
+        }
+      } while (again.current)
     } catch (err) {
       showError(err)
     } finally {
       busy.current = false
+      again.current = false
       setLoading(false)
     }
+    // A new selection is a new refresh, so the effect below reads it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, scope, commits.join(',')])
+  }, [workspaceId, scope, commitKey])
 
-  // Refresh when shown, when the agent finishes, and every few seconds while it works.
+  // Read when shown and when the agent starts or finishes; while it works, shortly after each of its tools that may
+  // have changed files (the working tree's scopes only), with a slow safety read; and on coming back to the window.
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !visible) return
     void refresh()
-    if (!running) return
-    const timer = setInterval(() => void refresh(), 5000)
-    return () => clearInterval(timer)
-  }, [enabled, running, refresh])
+    let soon: ReturnType<typeof setTimeout> | undefined
+    // Not pushed back by later calls, so a stream of edits still shows every second or so.
+    const readSoon = (ms: number) => {
+      soon ??= setTimeout(() => {
+        soon = undefined
+        void refresh()
+      }, ms)
+    }
+    const workingTree = scope === 'all' || scope === 'uncommitted'
+    const off = bridge.onEvent((event) => {
+      if (!workingTree || event.type !== 'chat-item' || event.item.kind !== 'tool' || event.item.status === 'running' || !mayChangeFiles(event.item.name)) return
+      if (getState().snapshot?.sessions.find((s) => s.id === event.sessionId)?.workspaceId === workspaceId) readSoon(DIFF_SETTLE_MS)
+    })
+    const back = () => document.visibilityState === 'visible' && readSoon(DIFF_FOCUS_MS)
+    window.addEventListener('focus', back)
+    document.addEventListener('visibilitychange', back)
+    const poll = running ? setInterval(() => void refresh(), DIFF_SAFETY_POLL_MS) : undefined
+    return () => {
+      off()
+      clearTimeout(soon)
+      clearInterval(poll)
+      window.removeEventListener('focus', back)
+      document.removeEventListener('visibilitychange', back)
+    }
+  }, [enabled, visible, running, refresh, scope, workspaceId])
 
   return { diff, loading, refresh }
 }
@@ -307,6 +369,9 @@ export function ChatTab({
         <span className="faint"><Spinner size={12} label={t('workspaceView.tab.running')} /></span>
       ) : waiting ? (
         <Status compact tone="warn" label={t('workspaceView.tab.waiting')} />
+      ) : session.waitingForSlot ? (
+        // Its turn waits for an agent slot (Settings → Advanced): a hollow mark and the word, not a colour.
+        <Status compact tone="off" label={t('workspaceView.tab.queued')} />
       ) : unread ? (
         <Status compact tone="info" label={t('workspaceView.tab.unread')} />
       ) : (
@@ -385,12 +450,18 @@ function TabMenu({
   )
 }
 
-export function WorkspaceView({ workspaceId, hidden }: { workspaceId: string; hidden: boolean }) {
+/**
+ * One workspace. Once opened it stays mounted while another is shown (App), so its terminals keep running and its chats
+ * keep their place. While hidden it holds what it read from the snapshot, which every `state` event replaces, so a hidden
+ * workspace doesn't re-render on each one: memo skips App's renders, and its chats hold their logs (ChatView). The terminal
+ * panel is the exception: it reads the workspace live (LiveBottomPanel), so its terminals and scripts follow it while hidden.
+ */
+export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }: { workspaceId: string; hidden: boolean }) {
   // The workspace name heads its view; several views stay mounted, so the id is per instance.
   const headingId = useId()
-  const ws = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId))
-  const allSessions = useStore((s) => s.snapshot!.sessions)
-  const activeId = useStore((s) => activeSessionId(s, workspaceId))
+  const ws = useHeldStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId), hidden)
+  const allSessions = useHeldStore((s) => s.snapshot!.sessions, hidden)
+  const activeId = useActiveSessionId(workspaceId)
   // #22: a Terminal agent tab shown instead of the chat.
   const agentTab = useAgentTabs(workspaceId).active
   const browser = useStore(s => s.browserTabs[workspaceId])
@@ -404,7 +475,7 @@ export function WorkspaceView({ workspaceId, hidden }: { workspaceId: string; hi
   const placement = useStore((s) => s.snapshot!.settings.terminalPlacement ?? 'panel-bottom')
   // Tiles: this workspace was opened full size from its tile.
   const zoomed = useStore((s) => s.snapshot!.settings.windowLayout === 'tiles' && s.tileZoom === workspaceId)
-  const snapshot = useStore((s) => s.snapshot!)
+  const snapshot = useHeldStore((s) => s.snapshot!, hidden)
   const forkToNewTab = useStore((s) => s.snapshot!.settings.forkToNewTab)
   const [openFile, setOpenFile] = useState<string | null>(null)
   const [viewFile, setViewFile] = useState<{ path: string; line?: number } | null>(null)
@@ -757,7 +828,7 @@ export function WorkspaceView({ workspaceId, hidden }: { workspaceId: string; hi
               const visible = (!browserShown || Boolean(browser?.split)) && !openFile && !viewFile && !commitFile && !agentTab && id === activeId
               return (
                 <div key={id} className="fill" style={{ display: visible ? undefined : 'none' }}>
-                  <ChatView session={session} workspace={ws} active={visible && !hidden} />
+                  <ChatView session={session} workspace={ws} active={visible && !hidden} hidden={!visible || hidden} />
                 </div>
               )
             })
@@ -949,7 +1020,7 @@ export function WorkspaceView({ workspaceId, hidden }: { workspaceId: string; hi
         )}
       </aside>
       {terminalFullscreen && surfaces.terminal && <div className="bottom-slot terminal-fullscreen" ref={placeTerminal} />}
-      {surfaces.terminal && createPortal(<BottomPanel workspace={ws} visible={!hidden && terminalShown} />, terminalHost)}
+      {createPortal(<LiveBottomPanel workspaceId={workspaceId} visible={!hidden && terminalShown} />, terminalHost)}
 
       {menu && (
         <TabMenu
@@ -977,13 +1048,23 @@ export function WorkspaceView({ workspaceId, hidden }: { workspaceId: string; hi
       )}
     </div>
   )
+})
+
+/**
+ * The terminal panel, reading its workspace from the store itself rather than from the (possibly hidden, so held) view:
+ * terminals, run scripts and the Setup tab react to the workspace's state whether or not it is on screen.
+ */
+function LiveBottomPanel({ workspaceId, visible }: { workspaceId: string; visible: boolean }) {
+  const ws = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId))
+  if (!ws || !workspaceSurfaces(ws).terminal) return null
+  return <BottomPanel workspace={ws} visible={visible} />
 }
 
 /** "Compare…" in the header: the same prompt with other models, in sibling workspaces. */
 function CompareButton({ ws, sessionId }: { ws: Workspace; sessionId?: string }) {
   // A string, not the filtered tabs: a selector that builds a new array every read never settles.
   const t = useT()
-  const reason = useStore((s) => compareBlockFor(ws, s.snapshot!.sessions, t))
+  const reason = useStoreMemo((s) => [ws, s.snapshot!.sessions, t], ([w, sessions, tr]) => compareBlockFor(w, sessions, tr))
   return (
     <Button size="sm" icon={<Users size={12} />} disabled={Boolean(reason) || !sessionId} title={reason ?? t('workspaceView.compare.title')} onClick={() => openCompareDialog({ workspaceId: ws.id, sessionId })}>
       {t('workspaceView.compare.label')}

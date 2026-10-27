@@ -1,11 +1,11 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Environment } from '../src/main/environment'
 import { compileRules, filesToCopy, matches } from '../src/main/filesToCopy'
 import { git, gitOut } from '../src/main/git'
-import { fromToml, patchLocal, readSharedLayer, resolveRepoSettings, SHARED_SETTINGS_FILES } from '../src/main/repoSettings'
+import { fromToml, patchLocal, readSharedLayer, resolveRepoSettings, revalidateSharedLayers, SHARED_SETTINGS_FILES } from '../src/main/repoSettings'
 import { SecretStore, type Encryptor } from '../src/main/secrets'
 import { defaultSettings, Store } from '../src/main/store'
 import { WorkspaceService } from '../src/main/workspaces'
@@ -92,6 +92,36 @@ describe('layered repo settings', () => {
     await mkdir(path.join(root, '.foreman'))
     await writeFile(path.join(root, '.foreman', 'settings.toml'), '[scripts]\nsetup = "current setup"\n')
     expect(readSharedLayer(root).values.setupScript).toBe('current setup')
+  })
+
+  it('with maxAgeMs, reuses a recent answer without the disk, and looks again once it is older or revalidated', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-10-27T10:00:00Z'))
+      const root = await tempDir('foreman-shared-cache-')
+      const file = path.join(root, '.foreman', 'settings.toml')
+      const setup = (options?: { maxAgeMs?: number }) => readSharedLayer(root, options).values.setupScript
+      // No file yet: that answer is reused too.
+      expect(setup({ maxAgeMs: 3000 })).toBeUndefined()
+      await mkdir(path.dirname(file))
+      await writeFile(file, '[scripts]\nsetup = "one"\n')
+      vi.setSystemTime(new Date('2026-10-27T10:00:01Z'))
+      expect(setup({ maxAgeMs: 3000 })).toBeUndefined()
+      expect(resolveRepoSettings({ id: 'r', rootPath: root, local: {} } as unknown as Repo, defaultSettings(), { maxAgeMs: 3000 }).values.setupScript).toBe('')
+      // Anything that acts on the settings reads them fresh, which also refreshes the reused answer.
+      expect(setup()).toBe('one')
+      expect(setup({ maxAgeMs: 3000 })).toBe('one')
+      await writeFile(file, '[scripts]\nsetup = "two, edited outside"\n')
+      vi.setSystemTime(new Date('2026-10-27T10:00:03Z'))
+      expect(setup({ maxAgeMs: 3000 })).toBe('one')
+      vi.setSystemTime(new Date('2026-10-27T10:00:05Z'))
+      expect(setup({ maxAgeMs: 3000 })).toBe('two, edited outside')
+      await writeFile(file, '[scripts]\nsetup = "three"\n')
+      revalidateSharedLayers()
+      expect(setup({ maxAgeMs: 3000 })).toBe('three')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('maps shared settings.toml keys', () => {

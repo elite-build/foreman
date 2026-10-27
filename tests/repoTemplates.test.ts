@@ -6,7 +6,7 @@ import { registerDriver } from '../src/main/agents/registry'
 import type { TurnRequest } from '../src/main/agents/types'
 import { run } from '../src/main/cliServer'
 import { git } from '../src/main/git'
-import { blobSha, readRepoTemplates } from '../src/main/repoTemplates'
+import { blobSha, readRepoTemplates, revalidateRepoTemplates } from '../src/main/repoTemplates'
 import { defaultSettings } from '../src/main/store'
 import { findLayeredTemplate, layeredTemplates, parseRepoTemplate, parseRepoTemplateId, qualifiedName, templateById } from '../src/shared/repoTemplates'
 import type { Repo, Workspace } from '../src/shared/types'
@@ -69,6 +69,36 @@ describe('repo template files', () => {
     await writeFile(path.join(dir, '.foreman/templates/release-checklist.md'), `${RELEASE}\nMore.`)
     expect(readRepoTemplates('r1', dir)[1].rev).not.toBe(expected)
     expect(readRepoTemplates('r2', path.join(dir, 'nowhere'))).toEqual([])
+  })
+
+  it('with maxAgeMs, reuses a recent listing without the disk, and looks again once it is older or revalidated', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-10-27T10:00:00Z'))
+      const dir = await repoWithTemplates({ 'a.md': 'First.' })
+      const file = path.join(dir, '.foreman/templates/b.md')
+      expect(readRepoTemplates('cached', dir, { maxAgeMs: 3000 }).map((t) => t.body)).toEqual(['First.'])
+      await writeFile(file, 'Second.')
+      // Inside the window the last answer stands: the folder isn't listed again.
+      vi.setSystemTime(new Date('2026-10-27T10:00:02Z'))
+      expect(readRepoTemplates('cached', dir, { maxAgeMs: 3000 }).map((t) => t.body)).toEqual(['First.'])
+      // A fresh read (anything that acts on a template) always looks.
+      expect(readRepoTemplates('cached', dir).map((t) => t.body)).toEqual(['First.', 'Second.'])
+      await writeFile(file, 'Third.')
+      vi.setSystemTime(new Date('2026-10-27T10:00:04Z'))
+      expect(readRepoTemplates('cached', dir, { maxAgeMs: 3000 }).map((t) => t.body)).toEqual(['First.', 'Second.'])
+      // Past the window, the edit made outside Foreman shows.
+      vi.setSystemTime(new Date('2026-10-27T10:00:08Z'))
+      expect(readRepoTemplates('cached', dir, { maxAgeMs: 3000 }).map((t) => t.body)).toEqual(['First.', 'Third.'])
+      await writeFile(file, 'Fourth.')
+      revalidateRepoTemplates()
+      expect(readRepoTemplates('cached', dir, { maxAgeMs: 3000 }).map((t) => t.body)).toEqual(['First.', 'Fourth.'])
+      // A repo without the folder is remembered as empty too, and a moved root is looked at at once.
+      expect(readRepoTemplates('none', path.join(dir, 'nowhere'), { maxAgeMs: 3000 })).toEqual([])
+      expect(readRepoTemplates('none', dir, { maxAgeMs: 3000 })).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

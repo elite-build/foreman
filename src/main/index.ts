@@ -28,6 +28,7 @@ import { LINK_SCHEME, linksIn } from '../shared/deepLink'
 import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
 import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
+import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
 import { runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
 
 // The last few errors go into Report a problem's diagnostics (O20).
@@ -100,15 +101,18 @@ function sendToWindow(event: MainEvent): void {
 const appTray = new AppTray({ act: trayAction, show: () => showWindow() })
 let trayView: TrayView = { count: 0, attention: [], working: [] }
 
+// The tray and menu read only the settings, straight from the store: never a whole snapshot, which reads repository
+// folders and every service's view, and the tray is drawn on every attention pass.
+
 /** Phone access keeps Windows' tray up (and the app running when the window closes), as it always did. */
 function phoneTray(): boolean {
-  const settings = core?.snapshot().settings
+  const settings = core?.settings()
   return process.platform === 'win32' && Boolean(settings?.mobileEnabled || settings?.mobileLanEnabled)
 }
 
 function drawTray(): void {
   if (!core || screensRoot) return
-  const settings = core.snapshot().settings
+  const settings = core.settings()
   const t = mainT(settings)
   appTray.update(trayView, { attention: settings.trayIcon !== false, phone: phoneTray(), t })
 }
@@ -175,7 +179,7 @@ function isExternalUrl(url: string): boolean {
 // Built again when the Language setting changes; roles name themselves.
 function installMenu(): void {
   const isMac = process.platform === 'darwin'
-  const t = mainT(core?.snapshot().settings)
+  const t = mainT(core?.settings())
   // No ⌘W/Ctrl+W accelerators: the app uses them to close chat tabs.
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' as const }] : [{ label: t('menu.file'), submenu: [{ role: 'quit' as const }] }]),
@@ -232,10 +236,20 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      // Agents keep working while the window is in the background; so must timers (autosave, polling).
+      // Agents keep working while the window is in the background; so must timers (autosave, polling). The page hears
+      // when it is minimized or hidden instead (window-visibility below) and stops drawing.
       backgroundThrottling: false
     }
   })
+
+  // A screenshot run captures a window it may never show, so its page always counts as visible.
+  if (!screensRoot) {
+    const visibility = new WindowVisibility(win, (visible) => {
+      if (!win.webContents.isDestroyed()) win.webContents.send('foreman:event', { type: 'window-visibility', visible } satisfies MainEvent)
+    })
+    for (const name of VISIBILITY_EVENTS) win.on(name as 'show', () => visibility.update())
+    win.webContents.on('did-finish-load', () => visibility.loaded())
+  }
 
   workspaceBrowsers.set(win.webContents.id, new WorkspaceBrowser(win))
   const contentsId = win.webContents.id
@@ -419,10 +433,11 @@ async function main(): Promise<void> {
       }
     },
     cliShim: () => shimPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }),
-    // Integrations: `foreman mcp-bridge` is this app's own binary in Node mode running the bundled CLI, by
-    // absolute path, so it needs neither the installed `foreman` command nor anything on the agent's PATH.
+    // Integrations and Foreman's own tools: the MCP bridge is this app's own binary in Node mode running the bundled
+    // bridge (bridge.js: only the bridge, not the whole CLI, as one runs per agent turn), by absolute path, so it needs
+    // neither the installed `foreman` command nor anything on the agent's PATH.
     bridgeLaunch: () => {
-      const script = path.join(app.getAppPath(), 'out', 'main', 'cli.js')
+      const script = path.join(app.getAppPath(), 'out', 'main', 'bridge.js')
       return existsSync(script) || app.isPackaged ? { command: process.execPath, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } } : null
     },
     cliSocket: () => (cliServer ? socketPath(app.getPath('userData')) : null),
@@ -493,7 +508,8 @@ async function main(): Promise<void> {
   }
   const browserSender = (event: Electron.IpcMainInvokeEvent, workspaceId: string) => {
     const browser = desktopSender(event)
-    const ws = core!.snapshot().workspaces.find((w) => w.id === workspaceId)
+    // From the store: a whole snapshot per browser command (bounds, while the panel moves) would read repository folders.
+    const ws = store.state.workspaces.find((w) => w.id === workspaceId)
     if (!ws || ws.state === 'archived' || ws.state === 'history') throw new Error('Workspace is not available')
     return browser
   }
@@ -570,6 +586,7 @@ async function main(): Promise<void> {
     turnStatus: (turnId) => started.sessions.turnStatus(turnId),
     deliver: (sessionId, text, options) => started.sessions.deliver(sessionId, text, options),
     cancelTurn: (turnId) => started.sessions.cancelTurn(turnId),
+    lendSlot: (sessionId) => started.sessions.lendSlot(sessionId),
     armLimitResume: (sessionId, turnId) => started.limitResume.arm(sessionId, turnId),
     cancelLimitResume: (sessionId) => started.limitResume.cancel(sessionId),
     firstTurn: (workspaceId) => started.firstTurn(workspaceId),

@@ -384,7 +384,7 @@ export class CloudTurnHost implements TurnHost {
     if (!cloud) throw new Error(`${ws.name} isn’t a cloud workspace`)
     const env = this.turnEnv(session.agent, ws, request.env)
     // The sandbox's own binaries, its own paths; nothing that only exists on this computer.
-    const { hostTools, sessionStore, mcpServers, executablePath: _local, extraWritableDirs: _dirs, chrome: _chrome, ...rest } = request
+    const { hostTools, sessionStore, mcpServers, inProcessMcp: _inProcess, executablePath: _local, extraWritableDirs: _dirs, chrome: _chrome, ...rest } = request
     // Integration bridges and repo MCP servers are processes on this computer; the sandbox can't reach them yet (PLAN §10).
     const dropped = Object.keys(mcpServers ?? {})
     if (dropped.length) console.log(`[cloud] ${cloud.id}: left out MCP servers that run on this computer: ${dropped.join(', ')}`)

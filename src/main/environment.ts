@@ -9,11 +9,14 @@ import type { AgentKind } from '../shared/agents'
 import { parseDotenv } from '../shared/envfile'
 import type { EnvFileInfo, EnvScope, EnvVarRow, EnvView, Repo, Settings } from '../shared/types'
 import { agentEnv } from './agents/env'
-import { githubEnvOrNone } from './github'
+import { ghActiveAccountReady, githubEnvAsync, githubEnvOrNone } from './github'
 import { readSharedLayer } from './repoSettings'
 import type { SecretStore } from './secrets'
 
 type FileVars = { info: EnvFileInfo; vars: Record<string, string> }
+
+// The longest a turn waits for gh's first answers before it starts without them (gh's own calls give up at 10 s).
+const GITHUB_READY_MS = 3000
 
 const fileCache = new Map<string, { mtimeMs: number; vars: Record<string, string> }>()
 
@@ -74,6 +77,11 @@ function keyHint(value: string | undefined): string | undefined {
 export class Environment {
   /** The GitHub identity key a repository runs as (Integrations.githubKey); set once Integrations exist. */
   githubKey: (repoId: string) => string | undefined = () => undefined
+  /**
+   * The same after asking gh afresh for its active account when the repository's connection follows it
+   * (Integrations.githubKeyFresh), so gh auth switch run outside Foreman reaches the next turn.
+   */
+  githubKeyFresh: (repoId: string) => Promise<string | undefined> = (repoId) => ghActiveAccountReady().then(() => this.githubKey(repoId))
 
   constructor(
     private secrets: SecretStore,
@@ -100,6 +108,27 @@ export class Environment {
    */
   forAgent(agent: AgentKind, repoId?: string, extra: Record<string, string> = {}): Record<string, string> {
     return this.forCatalogAgent(agent, repoId, extra)
+  }
+
+  /**
+   * Waits, `timeoutMs` at most, for what the repository's GitHub credentials need from gh the first time (gh's active
+   * account, the account's token), so the agent environment built next carries them. Right after startup or a sign-in
+   * the cached answers forAgent reads are empty for a moment. A connection following gh's active account asks gh again
+   * each time (the user may have switched accounts outside Foreman). Never throws; gh not answering in time just goes
+   * on, and the turn then runs as the account gh last said was active (what readers that can't wait always get; the
+   * lookup still updates it for the next turn). gh failing to answer is nobody, so no credentials, never another account.
+   */
+  async githubReady(repoId: string, timeoutMs = GITHUB_READY_MS): Promise<void> {
+    const ready = this.githubKeyFresh(repoId)
+      .then((key) => githubEnvAsync(key))
+      .catch(() => undefined)
+    let timer: NodeJS.Timeout | undefined
+    const late = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs)
+      timer.unref?.()
+    })
+    await Promise.race([ready, late])
+    clearTimeout(timer)
   }
 
   /** #22: the same for any catalog agent, including a Terminal agent's terminal tab. Its own key goes only to it. */

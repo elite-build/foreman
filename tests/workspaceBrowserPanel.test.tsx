@@ -50,6 +50,38 @@ it('offers retry on load failure and enables split through the existing workspac
   expect(storeModule.splitBrowserTab).toHaveBeenCalledWith('w1', true)
 })
 
+it('measures its slot every frame only while the window is on screen, and keeps the page where it is meanwhile', () => {
+  const frames = new Map<number, FrameRequestCallback>()
+  let frameId = 0
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => (frames.set(++frameId, cb), frameId))
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+  const runFrame = () => {
+    const due = [...frames.values()]
+    frames.clear()
+    for (const frame of due) frame(0)
+  }
+  try {
+    const view = <WorkspaceBrowser workspaceId="w1" visible sessions={sessions} activeId="s1" />
+    const { rerender } = render(view)
+    runFrame()
+    expect(frames.size).toBe(1)
+    const sent = command.mock.calls.length
+    // Minimized: the store says so, and the loop stops after the frame it is in. Nothing is sent to the native view.
+    fakeState.windowVisible = false
+    rerender(<WorkspaceBrowser workspaceId="w1" visible sessions={sessions} activeId="s1" />)
+    runFrame()
+    expect(frames.size).toBe(0)
+    expect(command.mock.calls.length).toBe(sent)
+    // Shown again: it measures again.
+    fakeState.windowVisible = true
+    rerender(<WorkspaceBrowser workspaceId="w1" visible sessions={sessions} activeId="s1" />)
+    expect(frames.size).toBe(1)
+  } finally {
+    vi.unstubAllGlobals()
+    delete fakeState.windowVisible
+  }
+})
+
 it('adds selected element context to the chosen chat as a draft', async () => {
   const selectElement = vi.fn(async () => ({ url: 'https://example.com/', selector: '#save', text: 'Save' }))
   ;(storeModule.bridge as any).browser.selectElement = selectElement

@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BrowserCommand } from '../../../shared/browser'
 import { browserUrl } from '../../../shared/browser'
 import type { Session } from '../../../shared/types'
-import { api, attempt, bridge, fillComposer, splitBrowserTab, useStore } from '../store'
+import { api, attempt, bridge, fillComposer, getState, splitBrowserTab, useStore, useWindowVisible } from '../store'
 import { useT } from '../i18n'
 import { Button, Callout, IconButton, Select, Spinner, TextInput } from '../ui'
 import './workspaceBrowser.css'
@@ -35,11 +35,16 @@ export function WorkspaceBrowser({ workspaceId, visible, sessions, activeId }: {
     if (addressRequest?.workspaceId === workspaceId && visible) { input.current?.focus(); input.current?.select() }
   }, [addressRequest, workspaceId, visible])
 
+  // The slot is measured every frame while shown. A minimized or hidden window stops that (the native view keeps its place,
+  // unseen with the window) and starts it again once the window is back.
+  const windowVisible = useWindowVisible()
+  const resume = useRef<(() => void) | null>(null)
   useLayoutEffect(() => {
     let last = ''
     let frame = 0
     let stopped = false
     const sync = () => {
+      frame = 0
       if (stopped) return
       const el = slot.current
       const rect = el?.getBoundingClientRect()
@@ -52,15 +57,22 @@ export function WorkspaceBrowser({ workspaceId, visible, sessions, activeId }: {
         last = key
         void bridge.browser.command(workspaceId, { type: 'bounds', bounds }).catch(() => undefined)
       }
-      if (visible) frame = requestAnimationFrame(sync)
+      if (visible && getState().windowVisible !== false) frame = requestAnimationFrame(sync)
+    }
+    resume.current = () => {
+      if (!frame) sync()
     }
     sync()
     return () => {
       stopped = true
+      resume.current = null
       cancelAnimationFrame(frame)
       void bridge.browser.command(workspaceId, { type: 'bounds', bounds: null }).catch(() => undefined)
     }
   }, [workspaceId, visible, ready, state?.error])
+  useEffect(() => {
+    if (windowVisible) resume.current?.()
+  }, [windowVisible])
 
   const navigate = () => void attempt(async () => {
     const url = browserUrl(address)

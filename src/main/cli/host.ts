@@ -27,6 +27,8 @@ export interface CliHost {
   deliver(sessionId: string, text: string, options: SendOptions): Promise<SendReceipt>
   // Cancels a queued, starting or running turn by id. Resolves with where it ended up (null if unknown).
   cancelTurn(turnId: string): Promise<TurnStatus | null>
+  // A chat's running turn waits on another turn: its agent slot is lent until the returned function is called (Sessions.lendSlot).
+  lendSlot?(sessionId: string): () => void
   // G4 #11: tick (or untick) the turn's "Resume at …" from the command line; the same rules as the card.
   armLimitResume?(sessionId: string, turnId: string): Promise<LimitResume>
   cancelLimitResume?(sessionId: string): void

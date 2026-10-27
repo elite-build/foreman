@@ -4,8 +4,8 @@
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { DiffFile, DiffHunk, DiffScope, DiffStat, Workspace, WorkspaceDiff } from '../shared/types'
-import { snapshotWorkingTree } from './checkpoints'
-import { baseStartPoint, git, revParse, type GitTarget } from './git'
+import { sharedWorkingTree, snapshotWorkingTree, VIEW_REUSE_MS } from './checkpoints'
+import { baseStartPoint, git, noteWorktreeChanged, revParse, type GitTarget } from './git'
 import { workspaceTarget } from './runtime'
 
 export const MAX_DIFF_BYTES = 4 * 1024 * 1024
@@ -23,11 +23,14 @@ async function diffEnds(ws: Workspace, at: GitTarget): Promise<{ baseRef: string
   return { ...(await branchPoint(ws, at)), tree: await snapshotWorkingTree(at) }
 }
 
-/** Line totals for the sidebar; much cheaper than the full diff. */
-export async function workspaceDiffStat(ws: Workspace): Promise<DiffStat> {
+/**
+ * Line totals for the sidebar; much cheaper than the full diff. With no `tree`, a snapshot taken a moment ago
+ * (for the diff on screen, or a check's staleness) serves (sharedWorkingTree).
+ */
+export async function workspaceDiffStat(ws: Workspace, tree?: string): Promise<DiffStat> {
   const at = workspaceTarget(ws)
-  const { mergeBase, tree } = await diffEnds(ws, at)
-  const { stdout } = await git(at, ['diff', '--numstat', '--no-ext-diff', '--find-renames', mergeBase, tree])
+  const [{ mergeBase }, workingTree] = await Promise.all([branchPoint(ws, at), tree ?? sharedWorkingTree(at)])
+  const { stdout } = await git(at, ['diff', '--numstat', '--no-ext-diff', '--find-renames', mergeBase, workingTree])
   const stat: DiffStat = { files: 0, additions: 0, deletions: 0 }
   for (const line of stdout.split('\n')) {
     const [added, deleted] = line.split('\t')
@@ -42,10 +45,9 @@ export async function workspaceDiffStat(ws: Workspace): Promise<DiffStat> {
 
 export async function workspaceDiff(ws: Workspace, scope: DiffScope = 'all', tree?: string): Promise<WorkspaceDiff> {
   // A caller that already holds a snapshot of the working tree (like archive's checkpoint) can pass it
-  // in and skip re-scanning every file for the diff.
+  // in and skip re-scanning every file for the diff; otherwise one only just taken serves.
   const at = workspaceTarget(ws)
-  const ends = tree ? { ...(await branchPoint(ws, at)), tree } : await diffEnds(ws, at)
-  const { tree: workingTree } = ends
+  const [ends, workingTree] = await Promise.all([branchPoint(ws, at), tree ?? sharedWorkingTree(at, Date.now() - VIEW_REUSE_MS)])
   let { baseRef, mergeBase } = ends
   // Uncommitted: compare the working tree with HEAD instead of the branch point.
   if (scope === 'uncommitted') {
@@ -233,7 +235,7 @@ export async function revertFile(ws: Workspace, file: string): Promise<void> {
   if (file.startsWith('/') || file.split(/[\\/]/).includes('..')) throw new Error('Invalid path')
   // The user asked for it: a sleeping sandbox wakes.
   const at = workspaceTarget(ws, { wake: true })
-  const { mergeBase } = await diffEnds(ws, at)
+  const { mergeBase } = await branchPoint(ws, at)
   const existed = (await git(at, ['cat-file', '-e', `${mergeBase}:${file}`], { allowFail: true })).code === 0
   if (existed) {
     await git(at, ['checkout', mergeBase, '--', file])
@@ -242,4 +244,6 @@ export async function revertFile(ws: Workspace, file: string): Promise<void> {
     if (typeof at === 'string') await rm(path.join(at, file), { force: true })
     else await at.exec('bash', ['-c', 'rm -f -- "$1"', 'rm', file])
   }
+  // A snapshot taken while the file went must not stand for the tree now.
+  if (typeof at === 'string') noteWorktreeChanged(at)
 }

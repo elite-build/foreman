@@ -48,9 +48,11 @@ const api = new Proxy(fakeApi, {
 
 const known: Record<string, unknown> = {
   api,
-  bridge: { pathForFile: () => '' },
+  bridge: { pathForFile: () => '', onEvent: () => () => undefined },
   getState: () => fakeState,
   useStore: (selector: (s: typeof fakeState) => unknown) => selector(fakeState),
+  // The window is on screen unless a test says otherwise.
+  useWindowVisible: () => fakeState.windowVisible !== false,
   attempt: async (fn: () => unknown) => fn(),
   modKey: () => 'Ctrl',
   availableAgents: () => ({ claude: true, codex: true, cursor: true, opencode: true }),

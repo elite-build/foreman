@@ -351,7 +351,7 @@ export class MobileService {
         const stalledSince = stalledSession?.lastActivityAt ?? stalledSession?.turnStartedAt
         return { id: t.ws.id, repoId: t.ws.repoId, name: t.ws.name, branch: t.ws.branch, state: t.ws.state, bucket: stalled && t.bucket === 'working' ? 'attention' : t.bucket, label: stalled && t.bucket === 'working' ? 'Possible stall' : t.label, detail: stalled && t.bucket === 'working' ? `${stalledSession!.agent} · no activity for ${Math.floor((Date.now() - new Date(stalledSince!).getTime()) / 60_000)} min` : t.detail, sessionId: stalledSession?.id ?? t.sessionId, facts: t.facts, stalled, stalledSince, since: t.since, pr: this.prGlyph(t.ws, snapshot), checks: t.ws.checks ? { running: t.ws.checks.running, stale: t.ws.checks.stale, results: t.ws.checks.results.map((r) => ({ name: r.name, status: r.status })) } : null }
       }),
-      sessions: snapshot.sessions.filter((s) => !s.closedAt).map((s) => ({ id: s.id, workspaceId: s.workspaceId, title: s.title, agent: s.agent, model: s.model, status: s.status, turnStartedAt: s.turnStartedAt, lastActivityAt: s.lastActivityAt, lastTurn: s.lastTurn, queued: s.queue.length, limitResume: s.limitResume })),
+      sessions: snapshot.sessions.filter((s) => !s.closedAt).map((s) => ({ id: s.id, workspaceId: s.workspaceId, title: s.title, agent: s.agent, model: s.model, status: s.status, waitingForSlot: s.waitingForSlot, turnStartedAt: s.turnStartedAt, lastActivityAt: s.lastActivityAt, lastTurn: s.lastTurn, queued: s.queue.length, limitResume: s.limitResume })),
       approvals,
       templates: snapshot.settings.promptTemplates.map((t) => ({ id: t.id, name: t.name, body: t.body }))
     }

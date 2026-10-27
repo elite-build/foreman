@@ -303,6 +303,24 @@ describe('Claude background agents in the chat', () => {
     await run
     expect(toolUpdates(cb, 'call-1').every((u) => !u.task)).toBe(true)
   })
+
+  it('sends progress ticks at most once every 50 ms, the latest each time', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(request, cb).run()
+    claude.push(tasks('task-1'), agentCall('call-1'), started, launched('call-1'), ...Array.from({ length: 30 }, (_, i) => progress(i + 1)))
+    await settle()
+    const ticks = () => toolUpdates(cb, 'call-1').filter((u) => u.transient)
+    // The first at once; the rest wait for the window to end.
+    expect(ticks().map((u) => u.task.toolUses)).toEqual([1])
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(ticks().map((u) => u.task.toolUses)).toEqual([1, 30])
+    // A tick pending when the task reports back never follows its saved end.
+    claude.push(progress(31), notification, tasks(), assistant('done'), result)
+    await run
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(toolUpdates(cb, 'call-1').at(-1)).toMatchObject({ transient: false, task: { status: 'completed', toolUses: 7 } })
+  })
 })
 
 describe('the Foreman assistant turn', () => {
@@ -360,5 +378,30 @@ describe('the Foreman assistant turn', () => {
     expect(names).toEqual(expect.arrayContaining(['search_settings', 'get_settings', 'show_setting', 'agent_status', 'list_workspaces', 'cli_help', 'cli_status', 'run_foreman']))
     const server = (sdk.createSdkMcpServer.mock.calls as unknown as [{ name: string; tools: unknown[] }][]).find(([c]) => c.name === 'foreman_assistant')![0]
     expect(server.tools).toHaveLength(8)
+  })
+})
+
+describe('Foreman app tools in a Claude turn', () => {
+  it('registers the in-process foreman-app server as an sdk server beside stdio ones, and still asks before its tools run', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    cb.approveTool.mockResolvedValue({ kind: 'tool', allow: false })
+    const instance = { name: 'stand-in McpServer' }
+    const run = claudeDriver.createTurn({
+      ...request,
+      approvals: 'ask',
+      mcpServers: { 'foreman-linear': { command: '/app', args: ['bridge.js', 'mcp-bridge', 'linear'], env: { FOREMAN_BRIDGE_GRANT: 'g' } } },
+      inProcessMcp: { 'foreman-app': instance as never }
+    }, cb).run()
+    claude.push(result)
+    await run
+    const { mcpServers, canUseTool } = sdk.query.mock.calls[0][0].options
+    expect(mcpServers['foreman-app']).toEqual({ type: 'sdk', name: 'foreman-app', instance })
+    expect(mcpServers['foreman-linear']).toMatchObject({ type: 'stdio', command: '/app' })
+    expect(Object.keys(mcpServers)).toEqual(['foreman-linear', 'foreman-app', 'foreman'])
+    // Same approval path as the bridge's tools: only Claude's own `foreman` server is allowed without asking.
+    const signal = new AbortController().signal
+    expect(await canUseTool('mcp__foreman-app__run_checks', {}, { signal })).toMatchObject({ behavior: 'deny' })
+    expect(cb.approveTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'mcp__foreman-app__run_checks' }), signal)
   })
 })

@@ -105,10 +105,30 @@
 .assistant {
   color: var(--text-soft);
 }
+/* A long log draws only what is near the screen: replies and tool calls far off it skip style, layout and paint until
+   scrolled to, and hold the room they last took (a size estimate until first drawn). They stay in the DOM and the
+   accessibility tree, so chat search, find, jump keys and screen readers still reach them. Only these two: the
+   containment clips what overflows, and the rows with menus (a sent message, a turn's result line) open them inline.
+   The padding, taken back by the margin, keeps a focus ring inside the clip. ChatView's ResizeObserver keeps the log at
+   the bottom when a row drawn for the first time turns out taller or shorter than its estimate. */
+.chat-inner .assistant,
+.chat-inner .tool {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 120px;
+  padding: 6px;
+  margin: -6px;
+}
+.chat-inner .tool {
+  contain-intrinsic-block-size: auto 24px;
+}
 .assistant.streaming .markdown > :last-child::after {
   content: '▍';
   color: var(--text-muted);
   animation: pulse 1s infinite;
+}
+/* Paused while the window is minimized or hidden (see ui/css/spinner.css). */
+html[data-window-hidden] .assistant.streaming .markdown > :last-child::after {
+  animation-play-state: paused;
 }
 @keyframes pulse {
   50% {

@@ -12,15 +12,33 @@ export function blobSha(content: Buffer): string {
 }
 
 const cache = new Map<string, { key: string; templates: PromptTemplate[] }>()
+// When each repo's folder was last listed, for readers that accept an answer a few seconds old (the snapshot).
+const checked = new Map<string, { rootPath: string; at: number }>()
+
+export interface RepoFileReadOptions {
+  // Reuse the last answer when the folder was looked at less than this long ago, without touching the disk.
+  maxAgeMs?: number
+}
+
+/** Look at every repo's templates folder again on the next read, whatever `maxAgeMs` says. */
+export function revalidateRepoTemplates(): void {
+  checked.clear()
+}
 
 /** The repo's templates, sorted by file name, re-read only when a file changed. */
-export function readRepoTemplates(repoId: string, rootPath: string): PromptTemplate[] {
+export function readRepoTemplates(repoId: string, rootPath: string, options: RepoFileReadOptions = {}): PromptTemplate[] {
+  const now = Date.now()
+  const last = checked.get(repoId)
+  const hit = cache.get(repoId)
+  if (hit && last?.rootPath === rootPath && options.maxAgeMs && now - last.at >= 0 && now - last.at < options.maxAgeMs) return hit.templates
+  checked.set(repoId, { rootPath, at: now })
   const dir = path.join(rootPath, REPO_TEMPLATE_DIR)
   let names: string[]
   try {
     names = readdirSync(dir).filter((n) => /\.md$/i.test(n)).sort()
   } catch {
-    cache.delete(repoId)
+    // Kept as an empty answer, so a repo without the folder isn't listed again on every read.
+    cache.set(repoId, { key: `${rootPath}\0`, templates: [] })
     return []
   }
   const files: { name: string; stamp: string }[] = []
@@ -33,7 +51,6 @@ export function readRepoTemplates(repoId: string, rootPath: string): PromptTempl
     }
   }
   const key = `${rootPath}\0${files.map((f) => f.stamp).join('|')}`
-  const hit = cache.get(repoId)
   if (hit?.key === key) return hit.templates
   const templates: PromptTemplate[] = []
   const seen = new Set<string>()
