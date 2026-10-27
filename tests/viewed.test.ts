@@ -2,7 +2,7 @@ import { rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseRawDiff, workspaceDiff } from '../src/main/diff'
-import { git } from '../src/main/git'
+import { git, noteWorktreeChanged } from '../src/main/git'
 import type { ViewedMark, Workspace } from '../src/shared/types'
 import { isViewed, pruneViewed, viewedCount, withMark } from '../src/shared/viewed'
 import { commit, makeRepo } from './helpers'
@@ -49,8 +49,10 @@ describe('viewed marks', () => {
     // Same content again keeps the mark.
     expect(pruneViewed(marks, (await workspaceDiff(asWorkspace(dir))).files, first.mergeBase!)).toEqual(marks)
 
-    // The file changes.
+    // The file changes. The app reads the diff again a second after an edit, past the snapshot reuse window
+    // (VIEW_REUSE_MS); reading at once would get the snapshot from before, so mark the folder changed instead.
     await writeFile(path.join(dir, 'a.txt'), 'three\n')
+    noteWorktreeChanged(dir)
     const edited = await workspaceDiff(asWorkspace(dir))
     expect(isViewed(marks, edited.files[0], edited.mergeBase)).toBe(false)
     expect(pruneViewed(marks, edited.files, edited.mergeBase!)).toEqual([])
@@ -65,6 +67,7 @@ describe('viewed marks', () => {
     await commit(dir, 'main moves')
     await git(dir, ['checkout', '-q', 'feature'])
     await git(dir, ['-c', 'user.name=T', '-c', 'user.email=t@e.x', 'rebase', '-q', 'main'])
+    noteWorktreeChanged(dir)
     const moved = await workspaceDiff(asWorkspace(dir))
     expect(moved.mergeBase).not.toBe(first.mergeBase)
     expect(moved.files[0].blobId).toBe(file.blobId)
