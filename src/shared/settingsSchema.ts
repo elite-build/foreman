@@ -82,6 +82,9 @@ const FOLLOW_UP_MODES = enumOf<Settings['followUpMode']>({ queue: true, steer: t
 const GITHUB_AUTHS = enumOf<Settings['githubAuth']>({ cli: true, token: true })
 const CODEX_APPROVALS = enumOf<Settings['codexApprovals']>({ sandboxed: true, always: true })
 const PR_TARGETS = enumOf<Settings['openPrIn']>({ github: true, graphite: true })
+const UPDATE_INTERVALS = enumOf<Settings['updateInterval']>({ hourly: true, 'every-4-hours': true, daily: true })
+const UPDATE_MODES = enumOf<Settings['updateMode']>({ notify: true, download: true, quit: true })
+const UPDATE_CHANNELS = enumOf<Settings['updateChannel']>({ stable: true, beta: true })
 const CLOUD_CLAUDE_AUTHS = enumOf<CloudSettings['claudeAuth']>({ 'setup-token': true, 'api-key': true })
 const LANGUAGES: readonly string[] = ['system', ...LOCALES.map((l) => l.code)]
 
@@ -159,6 +162,9 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   flag('keep-awake-thermal-cutoff', 'keep-awake', 'keepAwakeThermalCutoff'),
   flag('keep-awake-only-on-power', 'keep-awake', 'keepAwakeOnlyOnPower'),
   flag('check-for-updates', 'check-for-updates', 'checkForUpdates'),
+  choice('update-interval', 'check-for-updates', 'updateInterval', UPDATE_INTERVALS),
+  choice('update-mode', 'check-for-updates', 'updateMode', UPDATE_MODES),
+  choice('update-channel', 'check-for-updates', 'updateChannel', UPDATE_CHANNELS),
   flag('expand-tool-calls', 'expand-tool-calls', 'expandToolCalls'),
   // Stored '' is Automatic; the command line says `auto`.
   choice('open-in-default', 'open-in-apps', 'openInDefault', ['auto', 'custom', ...OPEN_IN_APP_IDS], { labels: { auto: '' } }),

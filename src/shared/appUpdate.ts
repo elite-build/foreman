@@ -1,12 +1,31 @@
-// Is there a newer Foreman? At each start main asks GitHub for the repository's latest published release (drafts and
-// prereleases are never "latest") and, when it comes after the running version, the window offers the release page.
-// Nothing is downloaded or installed by Foreman itself. Pure and shared: no I/O here (main/updates.ts does the asking).
+// Is there a newer Foreman? Main asks GitHub for the repository's releases at start-up, when the computer wakes and on
+// Settings → General → Updates' schedule. On the Stable channel only the latest published release counts (drafts and
+// prereleases never do); Beta also offers prereleases. Where the build can install updates itself (main/updateInstaller.ts)
+// it downloads the new version and installs it on a restart or at quit; elsewhere the window offers the release page.
+// Pure and shared: no I/O here (main/updates.ts does the asking).
 
 /** Where releases are published (package.json's `repository`). */
 export const RELEASES_REPO = 'elite-build/foreman'
 
 /** GitHub's latest published release: neither a draft nor a prerelease. Answers 404 while there is none. */
 export const LATEST_RELEASE_API = `https://api.github.com/repos/${RELEASES_REPO}/releases/latest`
+
+/** The newest releases, prereleases included (Beta channel). Drafts appear only to people with write access. */
+export const RELEASES_API = `https://api.github.com/repos/${RELEASES_REPO}/releases?per_page=20`
+
+/** One release, by its tag: the notes "What's new" shows after an update. */
+export const releaseApi = (version: string): string => `https://api.github.com/repos/${RELEASES_REPO}/releases/tags/v${version}`
+
+/** Release notes longer than this are cut (the release page has the rest). */
+export const MAX_NOTES = 20_000
+
+/** Settings → General → Updates. */
+export type UpdateChannel = 'stable' | 'beta'
+// Tell me (nothing downloaded) · download, then ask to restart · download and install whenever Foreman quits.
+export type UpdateMode = 'notify' | 'download' | 'quit'
+export type UpdateInterval = 'hourly' | 'every-4-hours' | 'daily'
+
+export const UPDATE_INTERVAL_HOURS: Record<UpdateInterval, number> = { hourly: 1, 'every-4-hours': 4, daily: 24 }
 
 /** A newer release the window offers. */
 export interface AvailableUpdate {
@@ -15,10 +34,59 @@ export interface AvailableUpdate {
   current: string
   // The release's page on GitHub: notes, installers and source.
   url: string
+  // The release's notes (Markdown, as written on GitHub), cut to MAX_NOTES.
+  notes?: string
+  publishedAt?: string
+  prerelease?: boolean
+}
+
+/** A release's notes, for "What's new". */
+export interface ReleaseNotes {
+  version: string
+  url: string
+  notes: string
+  publishedAt?: string
 }
 
 /** A check asked for in Settings. `failed`: GitHub couldn't be reached or answered something unexpected. */
 export type UpdateCheckResult = { state: 'available'; update: AvailableUpdate } | { state: 'current'; current: string } | { state: 'failed'; current: string }
+
+/** Why this copy of Foreman can't download and install an update by itself: the window links to the release page instead. */
+export type InstallUnavailable =
+  // Run from source or an unpacked build.
+  | 'development'
+  // macOS installs only into an app signed with a Developer ID; ad-hoc signed builds can't update themselves.
+  | 'unsigned'
+  // Linux, or a build without the update feed (app-update.yml).
+  | 'unsupported'
+
+/** Where the offered update is. */
+export type UpdatePhase =
+  // Found; nothing downloading (Tell me, a build that can't install, or a download that was stopped or failed).
+  | { state: 'available'; failed?: boolean }
+  | { state: 'downloading'; transferred: number; total: number }
+  // Downloaded. onQuit: it installs when Foreman quits.
+  | { state: 'ready'; onQuit: boolean }
+  // "Restart when agents finish": Foreman restarts once the running turns end.
+  | { state: 'waiting' }
+
+/** What the window shows about updates. */
+export interface UpdateView {
+  // The sidebar card: absent with nothing newer, or once put off (Later, this run) or skipped.
+  notice?: AvailableUpdate & { phase: UpdatePhase }
+  checking: boolean
+  // The last check that finished, and what it found ('available' even when the notice is put off).
+  lastChecked?: string
+  lastResult?: 'available' | 'current' | 'failed'
+  // The newest release the last check found, whether or not it's put off.
+  latest?: AvailableUpdate
+  // The next scheduled check (absent while automatic checks are off).
+  nextCheck?: string
+  // Absent when Foreman can install updates itself.
+  installUnavailable?: InstallUnavailable
+  // Foreman was updated since it last ran: the version it was on, until the window has said so.
+  updatedFrom?: string
+}
 
 // Semver 2.0.0, as scripts/release.mjs reads versions when it bumps and tags them (tests/appUpdate.test.ts keeps the two in step).
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?$/
@@ -64,14 +132,56 @@ export function releaseUrl(version: string): string {
 
 /**
  * The update GitHub's latest-release answer offers over `current`, or null when it offers none: the same or an older
- * version, a draft or prerelease, or a tag that isn't `v<semver>`. Throws when `current` isn't a version.
+ * version, a draft, a prerelease (unless `prerelease`), or a tag that isn't `v<semver>`. Throws when `current` isn't a version.
  */
-export function newerRelease(current: string, release: unknown): AvailableUpdate | null {
+export function newerRelease(current: string, release: unknown, prerelease = false): AvailableUpdate | null {
   if (!isVersion(current)) throw new Error(`Not a version: ${current}`)
   if (!release || typeof release !== 'object') return null
-  const { tag_name: tag, draft, prerelease } = release as { tag_name?: unknown; draft?: unknown; prerelease?: unknown }
-  if (draft === true || prerelease === true || typeof tag !== 'string') return null
-  const version = tag.replace(/^v/, '')
+  const r = release as { tag_name?: unknown; draft?: unknown; prerelease?: unknown; body?: unknown; published_at?: unknown }
+  if (r.draft === true || (r.prerelease === true && !prerelease) || typeof r.tag_name !== 'string') return null
+  const version = r.tag_name.replace(/^v/, '')
   if (!isVersion(version) || compareVersions(version, current) <= 0) return null
-  return { version, current, url: releaseUrl(version) }
+  return {
+    version,
+    current,
+    url: releaseUrl(version),
+    ...(typeof r.body === 'string' && r.body.trim() ? { notes: cutNotes(r.body) } : {}),
+    ...(typeof r.published_at === 'string' ? { publishedAt: r.published_at } : {}),
+    ...(r.prerelease === true ? { prerelease: true } : {})
+  }
+}
+
+/** The newest release in GitHub's list that comes after `current` (Beta: prereleases count), or null. */
+export function newestRelease(current: string, releases: unknown, prerelease: boolean): AvailableUpdate | null {
+  if (!isVersion(current)) throw new Error(`Not a version: ${current}`)
+  if (!Array.isArray(releases)) return null
+  let best: AvailableUpdate | null = null
+  for (const release of releases) {
+    const found = newerRelease(current, release, prerelease)
+    if (found && (!best || compareVersions(found.version, best.version) > 0)) best = found
+  }
+  return best
+}
+
+/** One release's notes from GitHub's answer for its tag, or null when it isn't that published release. */
+export function releaseNotes(version: string, release: unknown): ReleaseNotes | null {
+  if (!isVersion(version) || !release || typeof release !== 'object') return null
+  const r = release as { tag_name?: unknown; draft?: unknown; body?: unknown; published_at?: unknown }
+  if (r.draft === true || r.tag_name !== `v${version}`) return null
+  return {
+    version,
+    url: releaseUrl(version),
+    notes: typeof r.body === 'string' ? cutNotes(r.body) : '',
+    ...(typeof r.published_at === 'string' ? { publishedAt: r.published_at } : {})
+  }
+}
+
+/** Whether `version` comes after `previous`: Foreman was updated between two runs. False when either isn't a version. */
+export function wasUpdated(previous: string | undefined, version: string | undefined): boolean {
+  return Boolean(previous && version && isVersion(previous) && isVersion(version) && compareVersions(version, previous) > 0)
+}
+
+function cutNotes(body: string): string {
+  const text = body.replace(/\r\n/g, '\n').trim()
+  return text.length > MAX_NOTES ? `${text.slice(0, MAX_NOTES).trimEnd()}…` : text
 }

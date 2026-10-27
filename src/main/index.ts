@@ -30,6 +30,7 @@ import { mainT, setSystemLanguages } from './i18n'
 import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
 import { runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
+import { electronUpdateInstaller, type ElectronUpdateInstaller } from './updateInstaller'
 
 // The last few errors go into Report a problem's diagnostics (O20).
 captureConsoleErrors()
@@ -459,6 +460,13 @@ async function main(): Promise<void> {
       quitApproved = true
       app.quit()
     },
+    updateInstaller: (updateInstaller = electronUpdateInstaller()),
+    // The update card's Restart: the usual shutdown, then the installer instead of a plain exit (see before-quit).
+    restartToUpdate: () => {
+      quitApproved = true
+      installUpdate = true
+      app.quit()
+    },
     // O10: start Foreman again as the background agent host (detached, so it outlives this process).
     agentHost: {
       dir: hostDir(app.getPath('userData')),
@@ -562,9 +570,12 @@ async function main(): Promise<void> {
   // Integrations: check each connection soon after launch and then every six hours, so a revoked key shows up.
   setTimeout(() => void started.integrations.checkAll(), 8_000).unref()
   setInterval(() => void started.integrations.checkAll(), 6 * 60 * 60_000).unref()
-  // A newer Foreman: asked once per start of an installed build, while Settings → General allows it. A development
-  // build's version says nothing about the releases, so only Settings' "Check now" asks there.
-  if (app.isPackaged) setTimeout(() => void started.updates.atStartup(), 5_000).unref()
+  // A newer Foreman: an installed build asks soon after start, then on Settings → General → Updates' schedule and when the
+  // computer wakes. A development build's version says nothing about the releases, so only Settings' "Check now" asks there.
+  if (app.isPackaged) {
+    setTimeout(() => void started.updates.start(), 5_000).unref()
+    powerMonitor.on('resume', () => started.updates.woke())
+  }
   // Cloud workspaces: idle sleep every minute (nothing to do without one), and orphans stopped once if Settings say so.
   started.sandboxes.startIdleTicker()
   setTimeout(() => void started.sandboxes.stopOrphans().catch(() => undefined), 10_000).unref()
@@ -659,6 +670,10 @@ async function main(): Promise<void> {
 let quitting = false
 // #1: the Quit sheet already said yes (Quit now, or the wait for turns ended), so quit without asking again.
 let quitApproved = false
+// Downloads and installs updates (main/updates.ts decides when). Made in main(): the background agent host has none.
+let updateInstaller: ElectronUpdateInstaller | undefined
+// The update card's Restart: once shut down, run the installer, which starts Foreman again.
+let installUpdate = false
 
 /** Closing the last window quits the app (not on macOS, nor on Windows while the tray keeps phone access up). */
 function closingQuits(): boolean {
@@ -683,7 +698,18 @@ app.on('before-quit', (event) => {
   core.stopSafely.recordQuit()
   // Stop agents and terminals and flush state before exiting.
   cliServer?.close()
-  void Promise.all([core.shutdown(), mobile?.close(), core.bridge.close()]).finally(() => app.quit())
+  void Promise.all([core.shutdown(), mobile?.close(), core.bridge.close()]).finally(() => {
+    if (!installUpdate || !updateInstaller) return app.quit()
+    // electron-updater quits once the installer is under way. When it can't start one it only reports an error, so
+    // quit anyway rather than leave a stopped app open; the update stays downloaded for the next try.
+    setTimeout(() => app.quit(), 10_000).unref()
+    try {
+      updateInstaller.quitAndInstall()
+    } catch (err) {
+      console.error('Could not install the Foreman update:', err)
+      app.quit()
+    }
+  })
 })
 
 app.on('window-all-closed', () => {

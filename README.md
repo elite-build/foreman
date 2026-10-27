@@ -53,7 +53,11 @@ Foreman targets macOS and Windows, but has been verified on macOS only so far; s
 
 ### Updates
 
-An installed Foreman makes one unauthenticated request to `api.github.com` a few seconds after each start, to see whether a newer release of `elite-build/foreman` is out. GitHub sees your IP address and Foreman's version. Foreman never downloads or installs anything by itself; a notice in the sidebar links to the release page. Turn the check off in **Settings → General → Check for updates when Foreman starts**.
+An installed Foreman asks `api.github.com` whether a newer release of `elite-build/foreman` is out: a few seconds after each start, when your computer wakes, and every 4 hours (hourly or daily if you prefer). Each check is one unauthenticated request; GitHub sees your IP address and Foreman's version. When there is a new version, a card in the sidebar says so, with its release notes under **What's new**.
+
+By default Foreman downloads the new version in the background and asks you to restart. **Restart** waits for running agents to finish first, holding new messages meanwhile; **Restart now** stops them, and they are listed for retry afterwards. You can also have it install whenever you quit, or only tell you. The Beta channel also offers prereleases. All of this is in **Settings → General → Updates**, where automatic checks can be turned off.
+
+Foreman installs updates itself on Windows, and on macOS only when the app is signed with an Apple Developer ID: macOS won't let an ad-hoc signed copy, such as today's builds, replace itself. There, and when a release has no installers attached, the card links to the release page instead.
 
 ## Learn more
 

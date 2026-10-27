@@ -155,6 +155,10 @@ export interface Host {
   appInfo?(): { version: string; packaged: boolean; appPath: string }
   // #1: quit the app without asking again (the Quit sheet already did, or nothing is left running).
   quit?(): void
+  // Updates (main/updateInstaller.ts): downloads and installs a newer Foreman. Absent (tests): the window links to the release page.
+  updateInstaller?: import('./updates').UpdateInstaller
+  // Quit without asking, then install the downloaded update and start Foreman again.
+  restartToUpdate?(): void
   // O10: the background agent host's folder, and how to start it. Absent (tests): turns always run in-process.
   agentHost?: { dir: string; spawn(): void }
   // Integrations: how to start `foreman mcp-bridge` (an absolute executable and the CLI script), and the
@@ -824,11 +828,20 @@ export class Core {
     this.updates = new UpdateCheck({
       currentVersion: () => host.appInfo?.().version,
       enabled: () => store.state.settings.checkForUpdates,
+      interval: () => store.state.settings.updateInterval,
+      mode: () => store.state.settings.updateMode,
+      channel: () => store.state.settings.updateChannel,
       skipped: () => store.state.skippedUpdate,
       setSkipped: (version) => {
         store.state.skippedUpdate = version
         store.save()
       },
+      lastRun: () => store.state.lastRunVersion,
+      setLastRun: (version) => {
+        store.state.lastRunVersion = version
+        store.save()
+      },
+      installer: host.updateInstaller,
       changed
     })
     // G1: an ACP agent's declared session modes (a plan mode lights its Plan chip); per-turn launch files go in Foreman's data folder.
@@ -1847,7 +1860,7 @@ export class Core {
       integrations: this.integrations.view(),
       slackAsks: this.slack.asks(),
       appVersion: this.host.appInfo?.().version,
-      update: this.updates.notice()
+      update: this.updates.view()
     }
   }
 
@@ -2278,6 +2291,15 @@ export class Core {
     dismissReconnected: async () => this.agentHost.dismissReconnected(),
     checkForUpdates: () => this.updates.check(),
     dismissUpdate: async (skip) => this.updates.dismiss(Boolean(skip)),
+    downloadUpdate: () => this.updates.download(),
+    stopUpdateDownload: async () => this.updates.stopDownload(),
+    installUpdateOnQuit: async (on) => this.updates.installOnQuit(Boolean(on)),
+    restartToUpdate: async (whenIdle) => this.restartToUpdate(Boolean(whenIdle)),
+    cancelUpdateRestart: async () => {
+      if (this.updates.view().notice?.phase.state === 'waiting') this.stopSafely.cancelQuit()
+    },
+    releaseNotes: (version) => this.updates.notes(String(version)),
+    dismissUpdated: async () => this.updates.dismissUpdated(),
     stopReview: () => this.stopSafely.review(),
     retryStopped: (turnId) => this.stopSafely.retry(turnId),
     dismissStopped: async (key) => this.stopSafely.dismiss(key),
@@ -2844,6 +2866,9 @@ export class Core {
       if ('homeDoneDays' in patch && !(DONE_DAYS_OPTIONS as readonly number[]).includes(patch.homeDoneDays as number)) throw new Error('Unknown Done window')
       if ('maxRunningAgents' in patch && !isSlotSetting(patch.maxRunningAgents, MAX_RUNNING_AGENTS)) throw new Error(`Maximum agents running at once must be a whole number from 0 (no limit) to ${MAX_RUNNING_AGENTS}`)
       if ('backgroundWaitMinutes' in patch && !isSlotSetting(patch.backgroundWaitMinutes, MAX_BACKGROUND_WAIT_MINUTES)) throw new Error(`Background task wait must be a whole number of minutes from 0 (never stop) to ${MAX_BACKGROUND_WAIT_MINUTES}`)
+      if ('updateInterval' in patch && !['hourly', 'every-4-hours', 'daily'].includes(patch.updateInterval as string)) throw new Error('Unknown update schedule')
+      if ('updateMode' in patch && !['notify', 'download', 'quit'].includes(patch.updateMode as string)) throw new Error('Unknown update setting')
+      if ('updateChannel' in patch && !['stable', 'beta'].includes(patch.updateChannel as string)) throw new Error('Unknown release channel')
       const settings: Settings = { ...this.store.state.settings, ...patch }
       this.store.state.settings = settings
       // A higher limit (or none) starts the turns queued for an agent slot.
@@ -2875,6 +2900,7 @@ export class Core {
         this.prs.resume()
       }
       if ('githubAuth' in patch || 'zoom' in patch || Object.keys(patch).some((key) => key.startsWith('keepAwake'))) this.applySettings()
+      if (['checkForUpdates', 'updateInterval', 'updateMode', 'updateChannel'].some((key) => key in patch)) this.updates.settingsChanged({ channel: 'updateChannel' in patch })
       return settings
     }
   }
@@ -2930,7 +2956,28 @@ export class Core {
     }
   }
 
+  /**
+   * The update card's Restart: install the downloaded update now (running turns stop, as with Quit now, and are listed for
+   * review after the restart), or once the running turns end, holding new ones back meanwhile.
+   */
+  private restartToUpdate(whenIdle: boolean): void {
+    if (!this.updates.ready()) throw new Error(mainT(this.store.state.settings)('update.error.notReady'))
+    const restart = (): boolean => {
+      if (!this.updates.ready() || !this.host.restartToUpdate) return false
+      this.host.restartToUpdate()
+      return true
+    }
+    if (!whenIdle || !this.stopSafely.needsAsking()) return void restart()
+    this.updates.setWaiting(true)
+    this.stopSafely.quitWhenFinished({
+      reason: mainT(this.store.state.settings)('update.frozen'),
+      then: () => restart() || (this.updates.setWaiting(false), false),
+      cancelled: () => this.updates.setWaiting(false)
+    })
+  }
+
   async shutdown(): Promise<void> {
+    this.updates.stop()
     this.sandboxes.stopIdleTicker()
     this.prWatch.stop()
     this.prPoll.stop()

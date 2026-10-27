@@ -41,6 +41,7 @@
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-serialize": "^0.14.0",
     "e2b": "^2.59.0",
+    "electron-updater": "^6.8.11",
     "node-pty": "^1.1.0",
     "qrcode": "^1.5.4",
     "sherpa-onnx-node": "^2.0.0",
@@ -90,7 +91,12 @@
   "type": "module",
   "build": {
     "appId": "dev.foreman.app",
-    "publish": null,
+    "publish": {
+      "provider": "github",
+      "owner": "elite-build",
+      "repo": "foreman",
+      "releaseType": "draft"
+    },
     "productName": "Foreman",
     "protocols": [
       {
@@ -127,8 +133,10 @@
     ],
     "mac": {
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "identity": "-",
       "hardenedRuntime": false,
       "extraResources": [
@@ -172,6 +180,7 @@
       "icon": "build/icon.ico"
     },
     "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },

@@ -246,6 +246,66 @@ describe('quit when turns finish', () => {
     await vi.waitFor(() => expect(quit).toHaveBeenCalledTimes(1), WAIT)
   })
 
+  it('waits to restart for an update instead of quitting: its own reason, then its action; Cancel lets work go again', async () => {
+    const g = gate()
+    registerDriver(fakeDriver(async (req, cb, signal) => g.script(req, cb, signal)))
+    let stop!: StopSafely
+    const h = await setupSessions({ events: { changed: () => stop?.check() } })
+    const quit = vi.fn()
+    stop = stopSafely(h, quit)
+    const idle = h.sessions.createSession(h.ws.id, { agent: 'claude', title: 'idle' })
+    await h.sessions.send(h.session.id, 'first')
+    await vi.waitFor(() => expect(stop.plan().finishing.length).toBe(1), WAIT)
+
+    const then = vi.fn(() => true)
+    const cancelled = vi.fn()
+    stop.quitWhenFinished({ reason: 'Restarting for an update once turns finish.', then, cancelled })
+    // Not a quit: the Quit sheet still offers one.
+    expect(stop.plan().draining).toBeUndefined()
+    await expect(h.sessions.send(idle.id, 'new work')).rejects.toThrow(/Restarting for an update/)
+    stop.cancelQuit()
+    expect(cancelled).toHaveBeenCalledTimes(1)
+    await h.sessions.send(idle.id, 'new work')
+
+    // Wait again; once both turns end, the action runs instead of the quit.
+    stop.quitWhenFinished({ reason: 'Restarting for an update once turns finish.', then, cancelled })
+    g.release()
+    await vi.waitFor(() => expect(then).toHaveBeenCalledTimes(1), WAIT)
+    expect(quit).not.toHaveBeenCalled()
+    expect(cancelled).toHaveBeenCalledTimes(1)
+  })
+
+  it('an action that can no longer run (then answers false) lets held-back work go again', async () => {
+    registerDriver(fakeDriver(async (_req, cb) => cb.finished({ ok: true })))
+    let stop!: StopSafely
+    const h = await setupSessions({ events: { changed: () => stop?.check() } })
+    stop = stopSafely(h, vi.fn())
+    stop.quitWhenFinished({ reason: 'Restarting for an update once turns finish.', then: () => false })
+    expect(stop.isDraining).toBe(false)
+    await h.sessions.send(h.session.id, 'go')
+    await vi.waitFor(() => expect(h.ended).toEqual(['completed']), WAIT)
+  })
+
+  it('choosing Quit when turns finish during an update wait replaces it', async () => {
+    const g = gate()
+    registerDriver(fakeDriver(async (req, cb, signal) => g.script(req, cb, signal)))
+    let stop!: StopSafely
+    const h = await setupSessions({ events: { changed: () => stop?.check() } })
+    const quit = vi.fn()
+    stop = stopSafely(h, quit)
+    await h.sessions.send(h.session.id, 'first')
+    await vi.waitFor(() => expect(stop.plan().finishing.length).toBe(1), WAIT)
+    const then = vi.fn(() => true)
+    const cancelled = vi.fn()
+    stop.quitWhenFinished({ reason: 'Restarting for an update once turns finish.', then, cancelled })
+    stop.quitWhenFinished()
+    expect(cancelled).toHaveBeenCalledTimes(1)
+    expect(stop.plan().draining).toBe(true)
+    g.release()
+    await vi.waitFor(() => expect(quit).toHaveBeenCalledTimes(1), WAIT)
+    expect(then).not.toHaveBeenCalled()
+  })
+
   it('records running turns at quit; they end as Stopped and the review shows message, last step and changes', async () => {
     const g = gate()
     registerDriver(fakeDriver(async (req, cb, signal) => {

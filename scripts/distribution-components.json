@@ -112,6 +112,13 @@
       "notices": ["docs/licenses/jsonlines.txt"],
       "source": "https://github.com/LinusU/node-jsonlines/tree/61eb1a0eb68c59e1fd705985a43401c2fe8d7660",
       "reason": "Declared MIT with no license text in the package or its release source; the notice supplies the standard MIT text for the declared author and says so."
+    },
+    {
+      "packages": ["lazy-val@1.0.5"],
+      "license": "MIT",
+      "notices": ["docs/licenses/lazy-val.txt"],
+      "source": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+      "reason": "Declared MIT with no license text in the package or its release source (an electron-updater dependency); the notice supplies the standard MIT text for the declared author and says so."
     }
   ],
   "components": [

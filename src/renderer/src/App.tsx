@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArchiveDialog } from './components/ArchiveDialog'
 import { StopSafely } from './components/StopSafely'
+import { WhatsNew } from './components/WhatsNew'
 import { McpStatusDialog } from './components/McpStatusDialog'
 import { AlertDiffDialog } from './components/SensitiveAlert'
 import { ChecksConsentDialog, FixChecksDialog, FixCiDialog, ResolveBaseDialog } from './components/ChecksDialogs'
@@ -270,6 +271,7 @@ export function App() {
       <Announcer />
       <Tour />
       <StopSafely />
+      <WhatsNew />
       <DropFolder />
       <ToastHost />
     </div>

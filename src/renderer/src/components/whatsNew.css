@@ -1,0 +1,9 @@
+/* ---- "What's new" (WhatsNew.tsx): a release's notes, and the agents a restart would stop ---- */
+.whats-new { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.whats-new > .markdown { align-self: stretch; }
+/* Skip this version, pushed to the start of the footer. */
+.whats-new-left { margin-right: auto; }
+.whats-new-agents { align-self: stretch; }
+.whats-new-agents h3 { margin: 0 0 4px; font-size: var(--text-md); font-weight: 600; }
+.whats-new-agents ul { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; padding: 0; list-style: none; }
+.whats-new-agents p { margin: 0; line-height: 1.5; }

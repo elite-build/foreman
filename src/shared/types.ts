@@ -972,8 +972,12 @@ export interface Settings {
   keepAwakeBatteryPercent: number
   keepAwakeThermalCutoff: boolean
   keepAwakeOnlyOnPower: boolean
-  // Ask GitHub for a newer release each time Foreman starts, and offer it (shared/appUpdate.ts).
+  // Settings → General → Updates (shared/appUpdate.ts): ask GitHub for a newer release at start, on wake and on this
+  // schedule; what to do with one (tell, download then ask to restart, or install at quit); stable releases or betas too.
   checkForUpdates: boolean
+  updateInterval: import('./appUpdate').UpdateInterval
+  updateMode: import('./appUpdate').UpdateMode
+  updateChannel: import('./appUpdate').UpdateChannel
   // Tool calls start expanded (⌃O toggles).
   expandToolCalls: boolean
   // The custom command (#14: "Custom command…" in the Open menu); before #14 this was the only editor.
@@ -1962,8 +1966,8 @@ export interface AppSnapshot {
   slackAsks: import('./integrations').SlackDelivery[]
   // The running version (absent without a host, as in tests).
   appVersion?: string
-  // A newer release the sidebar offers, until Later (this run) or Skip this version.
-  update?: import('./appUpdate').AvailableUpdate
+  // Updates: the sidebar's card (a newer release and its download), Settings' status line, and "Updated to …".
+  update?: import('./appUpdate').UpdateView
 }
 
 // O21: a folder dropped on the window or named on the command line, as the Add repository confirmation shows it.
@@ -2447,6 +2451,16 @@ export interface Api {
   // Settings' "Check now", and the update notice's Later (skip false) or Skip this version (skip true).
   checkForUpdates(): Promise<import('./appUpdate').UpdateCheckResult>
   dismissUpdate(skip: boolean): Promise<void>
+  // The update card: download the offered release, stop the download, install it at quit (or not), restart to install it
+  // now or once the running turns end (and cancel that wait).
+  downloadUpdate(): Promise<void>
+  stopUpdateDownload(): Promise<void>
+  installUpdateOnQuit(on: boolean): Promise<void>
+  restartToUpdate(whenIdle: boolean): Promise<void>
+  cancelUpdateRestart(): Promise<void>
+  // "What's new": a release's notes (null when GitHub can't say), and the "Updated to …" toast has been shown.
+  releaseNotes(version: string): Promise<import('./appUpdate').ReleaseNotes | null>
+  dismissUpdated(): Promise<void>
   cancelQuit(): Promise<void>
   stopReview(): Promise<StopReviewRow[]>
   // Sends the stopped turn's message again in its tab; only ever called by that row's Retry.
@@ -2780,7 +2794,7 @@ export const API_METHODS = [
   'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',
   'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
   'readFile', 'writeFile', 'searchFiles', 'listDir', 'readImage', 'previewUrl', 'readImageAt', 'alertFile',
-  'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
+  'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
   'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',

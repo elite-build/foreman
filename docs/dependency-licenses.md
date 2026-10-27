@@ -97,10 +97,11 @@ README license sections), from the release `gitHead` (protobuf-es, connect-es,
 Daytona clients, Statsig, xterm.js, http_ece, standard-webhooks), from the
 Apache-2.0 text the package declares (Codex, sherpa-onnx, three AWS SDK
 packages without a `gitHead`), or from the official MPL-2.0 text (web-push ships
-only the Exhibit A header). Two are weaker evidence: jsonlines 0.1.1 publishes
-no license text anywhere, so its notice supplies the standard MIT text for the
-declared author and says so; standardwebhooks 1.1.1 declares MIT, but the only
-license file in its release source is Apache-2.0, which is supplied.
+only the Exhibit A header). Three are weaker evidence: jsonlines 0.1.1 and
+lazy-val 1.0.5 (an electron-updater dependency) publish no license text
+anywhere, so their notices supply the standard MIT text for the declared author
+and say so; standardwebhooks 1.1.1 declares MIT, but the only license file in
+its release source is Apache-2.0, which is supplied.
 
 ### Packaged inventory: Windows x64, 26 October 2026
 
