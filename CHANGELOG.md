@@ -2,6 +2,18 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.2 (2026-10-27)
+
+### Added
+
+- Foreman keeps checking for new releases (at start, on wake and on a schedule; Stable or Beta channel) and, on Windows, downloads them in the background and installs on restart or quit. The sidebar card and **Settings → General → Updates** show progress and choices, and **What's new** shows the release notes. The macOS app is ad-hoc signed, so it still opens the release page instead. Only copies from this version on can update themselves. ([#36](https://github.com/elite-build/foreman/pull/36))
+- A progress strip (Committed → PR → Checks → Merged) in the side panel once a PR is merged, so a merged PR stands out. ([#34](https://github.com/elite-build/foreman/pull/34), [#35](https://github.com/elite-build/foreman/pull/35))
+
+### Changed
+
+- The archive dialog's branch has its own **Keep / Delete** row, so choosing no longer moves it between columns. The merged header remembers whether you last archived with or without deleting the branch. ([#35](https://github.com/elite-build/foreman/pull/35))
+- Installer file names no longer contain spaces, and releases carry the update files (`latest.yml`, `latest-mac.yml`, the macOS zip and blockmaps). ([#36](https://github.com/elite-build/foreman/pull/36))
+
 ## 1.0.1 (2026-10-27)
 
 ### Fixed
