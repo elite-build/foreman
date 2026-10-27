@@ -1,0 +1,118 @@
+/* Stepper: a row of marks joined by a line, each label beneath its mark. A reached step's mark and the line into it take
+   the step's tone; an upcoming step is a hollow ring on a neutral line. The current step is larger with a heavier edge
+   and a bold label, so it doesn't rely on colour. */
+.ui-stepper {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ui-stepper__step {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  --ui-stepper-tone: var(--text-muted);
+  --ui-stepper-tint: transparent;
+}
+.ui-stepper__step[data-tone='ok'] {
+  --ui-stepper-tone: var(--green);
+  --ui-stepper-tint: var(--add-bg);
+}
+.ui-stepper__step[data-tone='warn'] {
+  --ui-stepper-tone: var(--amber);
+  --ui-stepper-tint: var(--amber-bg);
+}
+.ui-stepper__step[data-tone='error'] {
+  --ui-stepper-tone: var(--red);
+  --ui-stepper-tint: var(--del-bg);
+}
+.ui-stepper__step[data-tone='info'] {
+  --ui-stepper-tone: var(--blue);
+  --ui-stepper-tint: var(--blue-bg);
+}
+/* The line into a step, from the previous mark's edge to this one's, through the middle of the 22px mark row. */
+.ui-stepper__step + .ui-stepper__step::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  right: calc(50% + 14px);
+  left: calc(-50% + 14px);
+  height: 2px;
+  background: var(--border-strong);
+}
+.ui-stepper__step[data-tone]::before {
+  background: var(--ui-stepper-tone);
+}
+.ui-stepper__mark {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0;
+  border: 1.5px solid var(--border-control);
+  border-radius: var(--radius-full);
+  background: var(--ui-stepper-tint);
+  color: var(--ui-stepper-tone);
+}
+.ui-stepper__step[data-tone] .ui-stepper__mark {
+  border-color: var(--ui-stepper-tone);
+}
+.ui-stepper__step[data-status='current'] .ui-stepper__mark {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  border-width: 2px;
+}
+.ui-stepper__step[data-status='current']:not([data-tone]) .ui-stepper__mark {
+  border-color: var(--selected-border);
+  background: var(--selected-bg);
+  color: var(--selected-mark);
+}
+.ui-stepper__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+.ui-stepper__label {
+  max-width: 100%;
+  padding: 0 2px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-stepper__step[data-status='done'] .ui-stepper__label {
+  color: var(--text-soft);
+}
+.ui-stepper__step[data-status='current'] .ui-stepper__label {
+  color: var(--text);
+  font-weight: 600;
+}
+/* The state in words, for screen readers only. */
+.ui-stepper__state {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (forced-colors: active) {
+  .ui-stepper__mark,
+  .ui-stepper__step[data-tone] .ui-stepper__mark {
+    border-color: CanvasText;
+  }
+  .ui-stepper__step + .ui-stepper__step::before {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+}
