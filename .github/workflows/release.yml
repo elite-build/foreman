@@ -69,8 +69,10 @@ jobs:
           [ -z "$existing" ] || { echo "::error::$TAG already has a release: $existing"; exit 1; }
           cd assets
           shopt -s nullglob
-          dmg=(*.dmg) exe=(*.exe)
+          dmg=(*.dmg) exe=(*.exe) zip=(*.zip)
           [ ${#dmg[@]} -eq 1 ] && [ ${#exe[@]} -eq 1 ] || { echo "::error::Expected one DMG and one Windows installer."; ls -la; exit 1; }
+          # What installed copies update from (main/updateInstaller.ts): each feed names its installer, so both must be here.
+          [ ${#zip[@]} -eq 1 ] && [ -f latest.yml ] && [ -f latest-mac.yml ] || { echo "::error::Expected the macOS zip, latest.yml and latest-mac.yml."; ls -la; exit 1; }
           # GitHub turns spaces in asset names into dots; rename first so SHA256SUMS.txt names the files as published.
           for f in *' '*; do mv -- "$f" "${f// /.}"; done
           sha256sum -- * > SHA256SUMS.txt

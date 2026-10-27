@@ -54,8 +54,19 @@ export interface StopSafelyDeps {
   archiveProgress?(workspaceId: string, progress: ArchiveProgress): void
 }
 
+/** Waiting for turns to end for something other than a quit (restarting to install an update). */
+export interface WaitThen {
+  // Why new turns are held back, shown where a send waits.
+  reason: string
+  // The turns ended: true when it is quitting, so held-back work stays held.
+  then(): boolean
+  // The wait was cancelled.
+  cancelled?(): void
+}
+
 export class StopSafely {
   private draining = false
+  private waitThen?: WaitThen
   // O10: "Keep agents running in the background" was chosen; shutdown leaves the host's turns going.
   private keep = false
 
@@ -88,7 +99,8 @@ export class StopSafely {
       return row.kind === 'turn' && session ? [{ sessionId: row.sessionId, workspace: row.workspace, agent: session.agent, waiting: Boolean(row.waiting) }] : []
     })
     const keep = host ? keepRunningPlan(turns, (id) => host.hosts(id), this.deps.store.state.settings.keepAgentsRunning) : undefined
-    return { ...plan, ...(this.draining ? { draining: true } : {}), ...(keep ? { keep } : {}) }
+    // A wait to restart for an update isn't a quit: the Quit sheet still offers to quit when turns finish.
+    return { ...plan, ...(this.draining && !this.waitThen ? { draining: true } : {}), ...(keep ? { keep } : {}) }
   }
 
   /**
@@ -109,11 +121,17 @@ export class StopSafely {
     return quitNeedsAsking(this.plan())
   }
 
-  /** Freeze new turns (sends, queued turns, schedules, checks after turns) and quit once the finite work has ended. */
-  quitWhenFinished(): void {
+  /**
+   * Freeze new turns (sends, queued turns, schedules, checks after turns) and quit once the finite work has ended, or
+   * with `instead`, do that (restart to install an update). Quit chosen meanwhile takes over from `instead`.
+   */
+  quitWhenFinished(instead?: WaitThen): void {
+    if (this.draining && instead && !this.waitThen) return this.check()
+    if (this.draining && this.waitThen && !instead) this.waitThen.cancelled?.()
+    this.waitThen = instead
+    this.deps.sessions.freezeAdmissions(instead?.reason ?? this.t()('stop.quit.frozen'))
     if (!this.draining) {
       this.draining = true
-      this.deps.sessions.freezeAdmissions(this.t()('stop.quit.frozen'))
       this.deps.changed()
     }
     this.check()
@@ -123,21 +141,31 @@ export class StopSafely {
   cancelQuit(): void {
     if (!this.draining) return
     this.draining = false
+    const waited = this.waitThen
+    this.waitThen = undefined
     this.deps.sessions.freezeAdmissions(null)
     this.deps.resumed?.()
+    waited?.cancelled?.()
     this.deps.changed()
   }
 
   quitNow(): void {
     this.draining = false
+    this.waitThen = undefined
     this.deps.quit()
   }
 
-  /** On every state change while draining: quit once no turn, check run or waiting turn is left. */
+  /** On every state change while draining: quit (or do what was waiting) once no turn, check run or waiting turn is left. */
   check(): void {
     if (!this.draining || !finiteWorkDone(this.plan())) return
     this.draining = false
-    this.deps.quit()
+    const waited = this.waitThen
+    this.waitThen = undefined
+    if (!waited) return this.deps.quit()
+    if (waited.then()) return
+    this.deps.sessions.freezeAdmissions(null)
+    this.deps.resumed?.()
+    this.deps.changed()
   }
 
   /**
