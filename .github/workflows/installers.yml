@@ -1,9 +1,11 @@
 name: Installers
 
 # Manual only: someone with write access starts it from the Actions tab (or `gh workflow run installers.yml --ref <branch>`).
-# Builds unsigned installers and keeps them as short-lived run artifacts. Nothing is published or released.
+# Builds unsigned installers and keeps them as short-lived run artifacts. Nothing is published or released here; the
+# Release workflow calls this one and attaches the artifacts to a draft release.
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
