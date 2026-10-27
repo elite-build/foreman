@@ -1,7 +1,8 @@
-import { ChevronDown, Languages, Volume2 } from 'lucide-react'
+import { ChevronDown, Download, Languages, Volume2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { completeness, LOCALES, localeName, resolveSystemLocale, type LanguageSetting, type PlainKey } from '../../../../shared/i18n'
 import type { Settings, SoundSetting } from '../../../../shared/types'
+import type { UpdateCheckResult } from '../../../../shared/appUpdate'
 import { systemLanguages, useT, type RendererT } from '../../i18n'
 import { playSound } from '../../sound'
 import { api, attempt, showToast, startTour, useStore } from '../../store'
@@ -28,6 +29,7 @@ const DEFAULTS = {
   keepAwakeBatteryPercent: 20,
   keepAwakeThermalCutoff: true,
   keepAwakeOnlyOnPower: false,
+  checkForUpdates: true,
   expandToolCalls: false,
   assistantEnabled: true
 } satisfies Partial<Settings>
@@ -230,6 +232,15 @@ export function GeneralPage() {
           onReset={KEEP_AWAKE_KEYS.every((key) => settings[key] === DEFAULTS[key]) ? undefined : () => void resetSettings([...KEEP_AWAKE_KEYS])}
           below={settings.keepAwake && <KeepAwakeOptions />}
         />
+        <ToggleRow
+          id="check-for-updates"
+          label={t('settings.general.checkForUpdates.label')}
+          help={t('settings.general.checkForUpdates.help')}
+          checked={settings.checkForUpdates}
+          onChange={(checkForUpdates) => void saveSettings({ checkForUpdates })}
+          onReset={reset('checkForUpdates')}
+          below={<CheckForUpdatesNow />}
+        />
       </Section>
 
       <OpenInSection />
@@ -301,6 +312,36 @@ function LanguagePicker({ value, onChange }: { value: LanguageSetting; onChange:
       <Listbox label={t('settings.language.menuLabel')} options={options} value={value} onChange={pick} />
       <div className="lang-foot faint small">{t('settings.language.fallbackNote')}</div>
     </Popover>
+  )
+}
+
+/** The running version and "Check now", which works with the start-up check on or off; a newer release links to its page. */
+function CheckForUpdatesNow() {
+  const t = useT()
+  const version = useStore((s) => s.snapshot!.appVersion)
+  const [result, setResult] = useState<UpdateCheckResult | 'checking' | null>(null)
+  const check = async () => {
+    setResult('checking')
+    setResult(await api.checkForUpdates().catch((): UpdateCheckResult => ({ state: 'failed', current: version ?? '' })))
+  }
+  const found = result && result !== 'checking' ? result : null
+  return (
+    <div className="update-check">
+      {version && <span>{t('settings.general.checkForUpdates.version', { version })}</span>}
+      <Button size="sm" disabled={result === 'checking'} onClick={() => void check()}>
+        {t(result === 'checking' ? 'settings.general.checkForUpdates.checking' : 'settings.general.checkForUpdates.checkNow')}
+      </Button>
+      <span role="status">
+        {found?.state === 'current' && <Status tone="ok" label={t('settings.general.checkForUpdates.upToDate')} />}
+        {found?.state === 'failed' && <Status tone="error" label={t('settings.general.checkForUpdates.failed')} />}
+        {found?.state === 'available' && <Status tone="info" label={t('update.available', { version: found.update.version })} />}
+      </span>
+      {found?.state === 'available' && (
+        <Button size="sm" variant="primary" icon={<Download size={12} />} title={t('update.downloadTitle')} onClick={() => void attempt(() => api.openExternal(found.update.url))}>
+          {t('update.download')}
+        </Button>
+      )}
+    </div>
   )
 }
 

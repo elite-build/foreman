@@ -64,6 +64,8 @@ export interface PersistedState {
   keepRunning?: { closedAt: string }
   // O10: Home's "Reconnected to …" line, until dismissed.
   reconnected?: ReconnectRecord
+  // The release the update notice's "Skip this version" hid; a newer one is offered again.
+  skippedUpdate?: string
   // Integrations: connections (secrets are in the vault), defaults, Slack rules and people.
   integrations?: IntegrationsState
   // Remote workspaces: this month's sandbox stop receipts added up, per provider (Settings → Remote workspaces).
@@ -95,6 +97,7 @@ export function defaultSettings(): Settings {
     keepAwakeBatteryPercent: 20,
     keepAwakeThermalCutoff: true,
     keepAwakeOnlyOnPower: false,
+    checkForUpdates: true,
     expandToolCalls: false,
     editorCommand: 'code',
     // #14: Automatic (the first editor found), and no paths of the user's own.

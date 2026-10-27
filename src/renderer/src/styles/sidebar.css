@@ -365,6 +365,11 @@
   padding: 8px 10px;
   border-top: 1px solid var(--border);
 }
+/* A newer Foreman is out: the update notice (a ui/Callout) above the chips and footer. */
+.update-notice {
+  flex: none;
+  margin: 0 12px 6px;
+}
 /* O17: keep-awake chip above the footer, only while agents work. */
 .awake-strip {
   flex: none;

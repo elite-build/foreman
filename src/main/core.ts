@@ -66,6 +66,7 @@ import { DataService } from './dataService'
 import { GitBackupService } from './gitBackup'
 import { searchChats, searchNotes } from './chatSearch'
 import { ModelCatalogService } from './models'
+import { UpdateCheck } from './updates'
 import { Spotlight } from './spotlight'
 import { attachFromData, attachFromPath, listWorkspaceFiles, readWorkspaceFile, searchWorkspace, stageAttachment, writeWorkspaceFile } from './files'
 import { listWorkspaceDir, readImageAtCommit, readWorkspaceImage } from './fileBrowse'
@@ -291,6 +292,8 @@ export class Core {
   readonly gitBackup: GitBackupService
   readonly spotlight: Spotlight
   readonly models: ModelCatalogService
+  // Is there a newer Foreman? Checked at launch (index.ts) and from Settings.
+  readonly updates: UpdateCheck
   readonly environment: Environment
   readonly stopSafely: StopSafely
   readonly agentHost: AgentHostService
@@ -818,6 +821,16 @@ export class Core {
       changed
     })
     this.models = new ModelCatalogService(store, (agent) => this.agentOptions(agent), changed)
+    this.updates = new UpdateCheck({
+      currentVersion: () => host.appInfo?.().version,
+      enabled: () => store.state.settings.checkForUpdates,
+      skipped: () => store.state.skippedUpdate,
+      setSkipped: (version) => {
+        store.state.skippedUpdate = version
+        store.save()
+      },
+      changed
+    })
     // G1: an ACP agent's declared session modes (a plan mode lights its Plan chip); per-turn launch files go in Foreman's data folder.
     onAcpModes((agent, modes) => {
       if (this.models.declaredModes(agent, modes)) changed()
@@ -1832,7 +1845,9 @@ export class Core {
       stopRecord: this.stopSafely?.record(),
       reconnected: this.store.state.reconnected,
       integrations: this.integrations.view(),
-      slackAsks: this.slack.asks()
+      slackAsks: this.slack.asks(),
+      appVersion: this.host.appInfo?.().version,
+      update: this.updates.notice()
     }
   }
 
@@ -2261,6 +2276,8 @@ export class Core {
     cancelQuit: async () => this.stopSafely.cancelQuit(),
     quitKeepRunning: () => this.stopSafely.quitKeepRunning(),
     dismissReconnected: async () => this.agentHost.dismissReconnected(),
+    checkForUpdates: () => this.updates.check(),
+    dismissUpdate: async (skip) => this.updates.dismiss(Boolean(skip)),
     stopReview: () => this.stopSafely.review(),
     retryStopped: (turnId) => this.stopSafely.retry(turnId),
     dismissStopped: async (key) => this.stopSafely.dismiss(key),

@@ -158,6 +158,7 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   def('keep-awake-battery-percent', { registryId: 'keep-awake', field: 'keepAwakeBatteryPercent', type: 'integer', options: BATTERY_PERCENTS }),
   flag('keep-awake-thermal-cutoff', 'keep-awake', 'keepAwakeThermalCutoff'),
   flag('keep-awake-only-on-power', 'keep-awake', 'keepAwakeOnlyOnPower'),
+  flag('check-for-updates', 'check-for-updates', 'checkForUpdates'),
   flag('expand-tool-calls', 'expand-tool-calls', 'expandToolCalls'),
   // Stored '' is Automatic; the command line says `auto`.
   choice('open-in-default', 'open-in-apps', 'openInDefault', ['auto', 'custom', ...OPEN_IN_APP_IDS], { labels: { auto: '' } }),

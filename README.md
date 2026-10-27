@@ -47,6 +47,10 @@ Set `FOREMAN_DATA_DIR=/some/folder` to keep app state separate, for development 
 
 If `npm run dev` says Electron failed to install, run `node node_modules/electron/install.js`.
 
+### Updates
+
+An installed Foreman asks GitHub for the latest published release of `elite-build/foreman` a few seconds after each start: one unauthenticated request to `api.github.com`, which sees your IP address and Foreman's version. When that release is newer, a notice in the sidebar offers **Download** (the release page), **Later** (until the next start) and **Skip this version**. Foreman never downloads or installs anything by itself. Drafts and prereleases are never offered. Turn the check off in **Settings → General → Check for updates when Foreman starts**; **Check now** in the same row asks at any time, also in a development build, which doesn't check at start.
+
 ## Repository configuration
 
 Use repository settings for overrides on this computer, or commit `.foreman/settings.toml` to share configuration. Local overrides take precedence over the shared file, followed by user settings where supported and built-in defaults. Foreman also reads `.switchyard/settings.toml`, from the app's earlier name, when no Foreman file exists. Other applications' settings files and workspace-variable aliases are not imported; move shared settings into `.foreman/settings.toml` and use `FOREMAN_*` variables in scripts and preview URLs.
