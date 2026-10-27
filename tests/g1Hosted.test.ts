@@ -1,7 +1,7 @@
 // G1: Cursor gets the repo's MCP servers and Foreman's report tools through its SDK (#20, #2), and Cursor and
 // OpenCode turns can run in the background agent host (O10). The Cursor SDK is a fake here (no Cursor key) and
 // OpenCode is a fake ACP agent, so this proves Foreman's side only; a real Cursor or OpenCode never ran.
-import * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk/unstable'
 import type { RunResult, SDKMessage } from '@cursor/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { keptRunning } from '../src/shared/agentHost'

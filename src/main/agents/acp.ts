@@ -1,7 +1,7 @@
 // Agents that speak the Agent Client Protocol (OpenCode and friends). Each
 // turn starts the agent, talks newline-delimited JSON-RPC over its stdio and
 // ends the process once the prompt returns.
-import * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk/unstable'
 import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'

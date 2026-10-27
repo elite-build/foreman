@@ -4,7 +4,7 @@
 // (acp.ts, the one OpenCode uses) with that agent's launch command. What an
 // agent declares when it starts (capabilities, session modes) is remembered
 // for the Agents catalog.
-import { methods as acpMethods } from '@agentclientprotocol/sdk'
+import { methods as acpMethods } from '@agentclientprotocol/sdk/unstable'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'

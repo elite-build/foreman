@@ -1,4 +1,4 @@
-import * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk/unstable'
 import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -308,6 +308,20 @@ describe('ACP driver', () => {
     expect(rec.find('notice')).toEqual([])
   })
 
+  it('shows an item-based plan_update as the todo list', async () => {
+    // plan_update is an unstable v1 update: the SDK's stable entry point would neither type nor parse it.
+    const { app } = fakeAgent({
+      prompt: async ({ send }) => {
+        await send({ sessionUpdate: 'plan_update', plan: { type: 'items', planId: 'p1', entries: [{ content: 'Ship it', priority: 'high', status: 'in_progress' }] } })
+        await send({ sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p2', content: '# Ignored' } })
+        return 'end_turn'
+      }
+    })
+    const rec = recorder()
+    await driverFor(app).createTurn(request(), rec.cb).run()
+    expect(rec.find('tool')).toMatchObject([{ id: 'turn-1:todos', name: 'TodoWrite', input: { todos: [{ content: 'Ship it', status: 'in_progress' }] } }])
+  })
+
   it('routes permission requests to the user otherwise', async () => {
     const { app, log } = fakeAgent()
     const rec = recorder(() => ({ allow: false }))
@@ -487,7 +501,7 @@ describe('ACP driver', () => {
 describe('ACP agent processes', () => {
   // A tiny ACP agent run with node, talking over stdio like `opencode acp`.
   async function agentScript(): Promise<string> {
-    const sdk = pathToFileURL(createRequire(import.meta.url).resolve('@agentclientprotocol/sdk')).href
+    const sdk = pathToFileURL(createRequire(import.meta.url).resolve('@agentclientprotocol/sdk/unstable')).href
     const file = path.join(await tempDir('switchyard-acp-agent-'), 'agent.mjs')
     await writeFile(
       file,

@@ -3,7 +3,7 @@
 // ACP agent, in process and as a real program found on PATH); Terminal agents run
 // their CLI in a terminal in the worktree, with activity tracked and scratch files
 // kept out of git through info/exclude.
-import * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk/unstable'
 import { readFile, writeFile, chmod } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -152,7 +152,7 @@ describe('Chat agents over the generic ACP adapter', () => {
   })
 
   it('finds a real agent program on PATH and starts it with its ACP flag', async () => {
-    const sdk = pathToFileURL(createRequire(import.meta.url).resolve('@agentclientprotocol/sdk')).href
+    const sdk = pathToFileURL(createRequire(import.meta.url).resolve('@agentclientprotocol/sdk/unstable')).href
     const dir = await tempDir('foreman-gemini-bin-')
     const script = path.join(dir, 'agent.mjs')
     await writeFile(

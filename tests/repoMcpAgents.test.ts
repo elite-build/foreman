@@ -1,5 +1,5 @@
 // #20: repo MCP servers reach Codex and ACP agents (OpenCode, Chat agents) the way they reach Claude.
-import * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk/unstable'
 import { Codex } from '@openai/codex-sdk'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
