@@ -2437,6 +2437,8 @@ export const ptBR: Catalogue = {
   'sidebar.archived.title': 'Espaços de trabalho arquivados',
   'sidebar.import': 'Importar…',
   'sidebar.import.title': 'Importar um espaço de trabalho de um arquivo .foreman',
+  'sidebar.version': 'v{version}',
+  'sidebar.version.title': 'Foreman {version}. Abra as configurações para procurar atualizações.',
 
   // ---- Home: the header, banner, cards and rows ----
   'home.empty.quip1': 'Tudo tranquilo. Aproveite este momento suspeitamente calmo.',

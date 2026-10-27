@@ -2437,6 +2437,8 @@ export const zhCN: Catalogue = {
   'sidebar.archived.title': '已归档的工作区',
   'sidebar.import': '导入…',
   'sidebar.import.title': '从 .foreman 文件导入工作区',
+  'sidebar.version': 'v{version}',
+  'sidebar.version.title': 'Foreman {version}。打开设置以检查更新。',
 
   // ---- Home: the header, banner, cards and rows ----
   'home.empty.quip1': '一切正常。享受这份安静得有点可疑的时光吧。',

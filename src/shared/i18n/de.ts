@@ -2437,6 +2437,8 @@ export const de: Catalogue = {
   'sidebar.archived.title': 'Archivierte Arbeitsbereiche',
   'sidebar.import': 'Importieren…',
   'sidebar.import.title': 'Einen Arbeitsbereich aus einer .foreman-Datei importieren',
+  'sidebar.version': 'v{version}',
+  'sidebar.version.title': 'Foreman {version}. Einstellungen öffnen, um nach Updates zu suchen.',
 
   // ---- Home: the header, banner, cards and rows ----
   'home.empty.quip1': 'Alles erledigt. Genieß den verdächtig friedlichen Moment.',

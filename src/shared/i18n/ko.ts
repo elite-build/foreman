@@ -2437,6 +2437,8 @@ export const ko: Catalogue = {
   'sidebar.archived.title': '보관된 워크스페이스',
   'sidebar.import': '가져오기…',
   'sidebar.import.title': '.foreman 파일에서 워크스페이스 가져오기',
+  'sidebar.version': 'v{version}',
+  'sidebar.version.title': 'Foreman {version}. 설정을 열어 업데이트를 확인합니다.',
 
   // ---- Home: the header, banner, cards and rows ----
   'home.empty.quip1': '모두 해결됐습니다. 수상할 만큼 평화로운 순간을 즐기세요.',

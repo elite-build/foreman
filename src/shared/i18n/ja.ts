@@ -2437,6 +2437,8 @@ export const ja: Catalogue = {
   'sidebar.archived.title': 'アーカイブ済みのワークスペース',
   'sidebar.import': 'インポート…',
   'sidebar.import.title': '.foreman ファイルからワークスペースをインポート',
+  'sidebar.version': 'v{version}',
+  'sidebar.version.title': 'Foreman {version}。設定を開いてアップデートを確認します。',
 
   // ---- Home: the header, banner, cards and rows ----
   'home.empty.quip1': 'すべて片付きました。妙に平和なひとときをお楽しみください。',

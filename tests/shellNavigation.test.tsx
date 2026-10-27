@@ -41,7 +41,8 @@ beforeEach(() => {
     repoSettings: {},
     attentionHistory: { events: [] },
     schedules: [],
-    occurrences: []
+    occurrences: [],
+    appVersion: undefined
   })
   fakeState.snapshot.settings = { ...fakeState.snapshot.settings, showResourceUsage: false, coloredSidebarDiffs: false, sidebarSide: 'left', keepAwakeBatteryCutoff: false }
 })
@@ -129,6 +130,22 @@ describe('sidebar filters and search', () => {
     expect(spy('setSidebarQuery')).toHaveBeenLastCalledWith('x')
     await user.keyboard('{Escape}')
     expect(spy('setSidebarQuery')).toHaveBeenLastCalledWith('')
+  })
+})
+
+describe('sidebar footer', () => {
+  it('shows the running version, which opens Settings at the update check', async () => {
+    fakeState.snapshot.appVersion = '0.1.0'
+    render(<Sidebar />)
+    const version = screen.getByRole('button', { name: 'v0.1.0' })
+    expect(version.getAttribute('title')).toBe('Foreman 0.1.0. Open Settings to check for updates.')
+    await userEvent.setup().click(version)
+    expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'general', scrollTo: 'check-for-updates' })
+  })
+
+  it('shows no version without one', () => {
+    render(<Sidebar />)
+    expect(screen.queryByRole('button', { name: /^v\d/ })).toBeNull()
   })
 })
 
