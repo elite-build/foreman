@@ -39,7 +39,8 @@ jobs:
       # Without this the packaged macOS app ships node-pty's spawn-helper without its execute bit and every terminal fails.
       - name: Restore node-pty spawn-helper execute permission
         run: node scripts/postinstall.mjs
-      # The dist scripts pass --publish never. No signing identity exists here, so the installers are unsigned.
+      # The dist scripts pass --publish never. No signing identity exists here: the macOS app is ad-hoc signed
+      # (build.mac.identity "-") so its signature is valid, but it is not notarized; Windows is unsigned.
       - name: Build installer
         env:
           DIST_SCRIPT: ${{ matrix.script }}

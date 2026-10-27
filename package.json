@@ -129,6 +129,8 @@
       "target": [
         "dmg"
       ],
+      "identity": "-",
+      "hardenedRuntime": false,
       "extraResources": [
         {
           "from": "resources/cli",
