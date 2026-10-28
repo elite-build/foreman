@@ -91,7 +91,7 @@ const input: ScheduleInput = { templateId: 't1', templateName: 'Dependency audit
 const inputs: FingerprintInputs = { templateBody: 'npm outdated', templateRev: undefined, setupScript: 'npm ci', checks: [{ name: 'test', command: 'npm test' }], mcp: [] }
 const MON_9 = iso('2026-10-26T16:00:00Z')
 
-function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; occurrences?: Occurrence[] }; turnStart?: ScheduleDeps['turnStart'] } = {}) {
+function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; occurrences?: Occurrence[] }; turnStart?: ScheduleDeps['turnStart']; afterRun?: ScheduleDeps['afterRun'] } = {}) {
   const store = { state: { schedules: options.start?.schedules, occurrences: options.start?.occurrences } as { schedules?: Schedule[]; occurrences?: Occurrence[] }, flush: vi.fn() }
   const clock = { now: iso('2026-10-20T12:00:00Z') }
   let current = inputs as FingerprintInputs | { error: string }
@@ -111,7 +111,8 @@ function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; oc
     stop: async (o) => void stopped.push(o.id),
     changed: vi.fn(),
     maxActive: options.maxActive,
-    turnStart: options.turnStart
+    turnStart: options.turnStart,
+    afterRun: options.afterRun
   }
   const service = new ScheduleService(deps)
   return {
@@ -134,6 +135,41 @@ const running = async (r: ReturnType<typeof rig>, n = 0) => {
   l.created(`ws${n}`, `sess${n}`)
   return l
 }
+
+describe('after each run', () => {
+  it('hands a completed run to afterRun when its schedule archives or deletes, and never a failed one', async () => {
+    const afterRun = vi.fn()
+    const r = rig({ afterRun })
+    const s = r.service.create({ ...input, afterRun: 'delete-unchanged', afterRunDeleteBranch: true }, inputs)
+    expect(s).toMatchObject({ afterRun: 'delete-unchanged', afterRunDeleteBranch: true })
+    await r.at(MON_9 + 1000)
+    await running(r)
+    r.service.turnEnded('sess0', 'completed')
+    expect(afterRun).toHaveBeenCalledTimes(1)
+    expect(afterRun.mock.calls[0][0]).toBe(s)
+    expect(afterRun.mock.calls[0][1]).toMatchObject({ state: 'completed', workspaceId: 'ws0' })
+
+    // The next Monday 09:00, after the change to standard time.
+    await r.at(iso('2026-11-02T17:00:00Z') + 1000)
+    await running(r, 1)
+    r.service.turnEnded('sess1', 'error')
+    expect(afterRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the workspace by default, and editing back to keep drops the branch choice', async () => {
+    const afterRun = vi.fn()
+    const r = rig({ afterRun })
+    const s = r.service.create({ ...input, afterRun: 'archive', afterRunDeleteBranch: true }, inputs)
+    r.service.update(s.id, { ...input, afterRun: 'keep', afterRunDeleteBranch: true }, inputs)
+    expect(s.afterRun).toBeUndefined()
+    expect(s.afterRunDeleteBranch).toBeUndefined()
+    await r.at(MON_9 + 1000)
+    await running(r)
+    r.service.turnEnded('sess0', 'completed')
+    expect(afterRun).not.toHaveBeenCalled()
+    expect(scheduleProblem({ ...input, afterRun: 'shred' as never })).toMatch(/after a run/)
+  })
+})
 
 describe('schedule service', () => {
   it('plans the next run when created and refuses a non-Claude model', () => {

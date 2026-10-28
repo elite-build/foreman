@@ -163,6 +163,8 @@ export function ScheduleDetail({ schedule: s }: { schedule: Schedule }) {
         <dd>{s.baseBranch}</dd>
         <dt>{t('automations.schedule.stopsAfter')}</dt>
         <dd>{t('automations.schedule.minutes', { minutes: s.maxMinutes })}</dd>
+        <dt>{t('automations.schedule.afterRun')}</dt>
+        <dd>{t(s.afterRun === 'archive' ? 'scheduleDialog.afterRun.archive' : s.afterRun === 'delete-unchanged' ? 'scheduleDialog.afterRun.deleteUnchanged' : 'scheduleDialog.afterRun.keep')}</dd>
         <dt>{t('automations.schedule.timeZone')}</dt>
         <dd>{s.timezone}</dd>
         {template && (

@@ -595,11 +595,34 @@ export interface Workspace {
   scheduled?: { scheduleId: string; occurrenceId: string }
   createdAt: string
   archivedAt?: string
+  // Why it was archived. Absent on ones archived before this was kept, which were archived by hand.
+  archiveReason?: ArchiveReason
+  // "Keep" in Archived: the cleanup of auto-archived workspaces never deletes this one.
+  keepArchived?: boolean
   // G3 · #13: the diff kept at archive time (its files are in a log file; this is the summary).
   archiveDiff?: { at: string; files: number; additions: number; deletions: number; truncated?: boolean }
   // G3 · O18: Docker containers the archive couldn't remove (or couldn't check), for Home's line until removed or dismissed.
   dockerLeft?: DockerLeft
 }
+
+/** Why a workspace was archived: by hand, after its scheduled run completed, or after its pull request was merged. */
+export type ArchiveReason = { kind: 'manual' } | { kind: 'run'; scheduleId: string } | { kind: 'merged'; number: number }
+
+/** What deleting an archived workspace would lose that isn't anywhere else, for the delete dialog and the cleanup. */
+export interface ArchivedWork {
+  id: string
+  branch: string
+  // Delete removes this local branch: not the default branch, another workspace's, or one added from disk.
+  deletesBranch: boolean
+  // Commits on that branch not on `against` (the pushed branch, else the base); null when git can't say.
+  unpushed: number | null
+  against?: string
+  // Uncommitted work saved only in the archive checkpoint.
+  uncommitted: boolean
+}
+
+/** What happens to a scheduled run's workspace once the run completes. A run that fails, stops or needs you is always kept. */
+export type AfterRun = 'keep' | 'archive' | 'delete-unchanged'
 
 /** A template run later, on a cadence the user approved (R-5). Claude only, permission mode auto; never starts anything while Foreman is closed. */
 export interface Schedule {
@@ -621,6 +644,10 @@ export interface Schedule {
   timezone: string
   model: string
   maxMinutes: number
+  // After a completed run: keep its workspace (absent), archive it, or delete it when the run changed nothing (else archive).
+  afterRun?: AfterRun
+  // Archiving after a run also deletes the local branch.
+  afterRunDeleteBranch?: boolean
   state: 'active' | 'paused' | 'finished'
   // Why it is paused, in words; `pausedKind` says what clears it.
   pausedReason?: string
@@ -650,6 +677,8 @@ export interface ScheduleRequest {
   agent: AgentKind
   model: string
   maxMinutes: number
+  afterRun?: AfterRun
+  afterRunDeleteBranch?: boolean
 }
 
 export interface ScheduleFingerprint {
@@ -1050,6 +1079,8 @@ export interface Settings {
   renameWorkspaceWithBranch: boolean
   deleteBranchOnArchive: boolean
   archiveOnMerge: boolean
+  // Delete workspaces Foreman archived on its own (a completed run, a merged pull request) this many days later; 0 is never.
+  archiveCleanupDays: number
   automerge: boolean
   optionalChecksBlock: boolean
   pushAutoSetupRemote: boolean
@@ -2469,6 +2500,10 @@ export interface Api {
   dismissStopped(key?: string): Promise<void>
   unarchiveWorkspace(id: string): Promise<void>
   forgetWorkspace(id: string): Promise<void>
+  // Archived: what deleting would lose, delete for good (chats, archive checkpoint, logs, local branch), and Keep (never cleaned up).
+  archivedWork(ids: string[]): Promise<ArchivedWork[]>
+  deleteArchived(ids: string[]): Promise<void>
+  keepArchived(id: string, keep: boolean): Promise<void>
   // Give a history-only workspace a worktree. Refused (with the reason) unless its branch exists here.
   activateWorkspace(id: string): Promise<void>
   // Export (Workspace menu → Export…): the chats to review, then the file.
@@ -2792,7 +2827,7 @@ export const API_METHODS = [
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',
   'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',
-  'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
+  'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'archivedWork', 'deleteArchived', 'keepArchived', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
   'readFile', 'writeFile', 'searchFiles', 'listDir', 'readImage', 'previewUrl', 'readImageAt', 'alertFile',
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',

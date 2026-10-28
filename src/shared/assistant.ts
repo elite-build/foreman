@@ -134,7 +134,7 @@ export const READABLE_SETTINGS = [
   'theme', 'zoom', 'coloredSidebarDiffs', 'colorVision', 'codeLigatures', 'terminalFontSize', 'contentFontSize', 'reduceMotion', 'announce', 'announceSummary', 'earcons', 'speechOutput', 'speechVoice', 'speechRate', 'speechVolume', 'sttProvider', 'sttLanguage', 'pushToTalk',
   'windowLayout', 'sidebarSide', 'sidePanelSide', 'terminalPlacement', 'homeBoard', 'homeLayout', 'homeDoneDays', 'loadouts', 'reviewModel',
   'claudeOutputStyle', 'defaultPlanMode', 'branchPrefixType', 'autoRenameBranches', 'renameWorkspaceWithBranch',
-  'deleteBranchOnArchive', 'archiveOnMerge', 'automerge', 'optionalChecksBlock', 'pushAutoSetupRemote', 'openPrIn', 'stackedPrs',
+  'deleteBranchOnArchive', 'archiveOnMerge', 'archiveCleanupDays', 'automerge', 'optionalChecksBlock', 'pushAutoSetupRemote', 'openPrIn', 'stackedPrs',
   'claudeAuth', 'codexAuth', 'chromeMode', 'autoPermissionMode', 'autoRunAfterSetup', 'forkToNewTab', 'showResourceUsage',
   'terminalScrollbackMb', 'terminalCopyOnSelect', 'terminalScreenReader', 'restoreTerminals', 'keepAgentsRunning', 'maxRunningAgents', 'backgroundWaitMinutes', 'keepClearedHistory', 'dailyBackup',
   'acceptHandOffs', 'mobileEnabled', 'assistantEnabled'

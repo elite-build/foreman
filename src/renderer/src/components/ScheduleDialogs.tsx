@@ -7,8 +7,8 @@ import type { Locale, PlainKey, TFunction } from '../../../shared/i18n'
 import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, MAX_DURATION_CHOICES, nextRuns, parseDate, previewRuns, specProblem, weekdayShort, weekdaysText } from '../../../shared/schedule'
 import { t as storeT, useT } from '../i18n'
 import { api, attempt, openScheduleDialog, selectWorkspace, timeAgo, uiLocale, useStore } from '../store'
-import type { Occurrence, Schedule } from '../../../shared/types'
-import { Button, Callout, ChipButton, Dialog, Field, LinkButton, Select, Tag, TextInput } from '../ui'
+import type { AfterRun, Occurrence, Schedule } from '../../../shared/types'
+import { Button, Callout, Checkbox, ChipButton, Dialog, Field, LinkButton, RadioList, Select, Tag, TextInput } from '../ui'
 import { LimitResumeRows, useLimitResumes } from './LimitResume'
 
 const NO_HIDDEN: HiddenModels = {}
@@ -73,6 +73,8 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
   const claude = pickerModels(modelsFor('claude'), hidden, existing?.model ? { agent: 'claude', model: existing.model } : undefined).shown
   const [model, setModel] = useState(existing?.model ?? claude.find((m) => m.id.includes('sonnet'))?.id ?? claude[0]?.id ?? '')
   const [maxMinutes, setMaxMinutes] = useState(existing?.maxMinutes ?? DEFAULT_MAX_MINUTES)
+  const [afterRun, setAfterRun] = useState<AfterRun>(existing?.afterRun ?? 'keep')
+  const [afterRunDeleteBranch, setAfterRunDeleteBranch] = useState(Boolean(existing?.afterRunDeleteBranch))
   const [busy, setBusy] = useState(false)
   const close = () => openScheduleDialog(null)
   const changeStartDate = (value: string) => {
@@ -101,7 +103,7 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
   const save = async () => {
     setBusy(true)
     const done = await attempt(async () => {
-      await api.saveSchedule({ templateId, templateName: template.name, repoId, baseBranch: base, recurrence, startDate, weekdays, dayOfMonth, time, timezone, agent: 'claude', model, maxMinutes }, existing?.id)
+      await api.saveSchedule({ templateId, templateName: template.name, repoId, baseBranch: base, recurrence, startDate, weekdays, dayOfMonth, time, timezone, agent: 'claude', model, maxMinutes, afterRun, afterRunDeleteBranch: afterRun !== 'keep' && afterRunDeleteBranch }, existing?.id)
       return true
     })
     setBusy(false)
@@ -240,6 +242,23 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
             />
           )}
         </Field>
+      </div>
+      <div className="schedule-after">
+        <RadioList<AfterRun>
+          legend={t('scheduleDialog.afterRun')}
+          value={afterRun}
+          onChange={setAfterRun}
+          options={[
+            { value: 'keep', label: t('scheduleDialog.afterRun.keep'), description: t('scheduleDialog.afterRun.keepHint') },
+            { value: 'archive', label: t('scheduleDialog.afterRun.archive'), description: t('scheduleDialog.afterRun.archiveHint') },
+            { value: 'delete-unchanged', label: t('scheduleDialog.afterRun.deleteUnchanged'), description: t('scheduleDialog.afterRun.deleteUnchangedHint') }
+          ]}
+        />
+        {afterRun !== 'keep' && (
+          <Checkbox checked={afterRunDeleteBranch} onChange={(e) => setAfterRunDeleteBranch(e.target.checked)}>
+            {t('scheduleDialog.afterRun.deleteBranch')}
+          </Checkbox>
+        )}
       </div>
       <Callout>
         <div>{t.rich('scheduleDialog.rules.run', { freshWorkspace: <b>{t('scheduleDialog.rules.freshWorkspace')}</b>, auto: <b>{t('scheduleDialog.rules.auto')}</b>, stopsTheRun: <b>{t('scheduleDialog.rules.stopsTheRun')}</b> })}</div>

@@ -205,7 +205,9 @@ async function buildRequest(host: CliHost, snapshot: AppSnapshot, p: Record<stri
     timezone,
     agent: 'claude',
     model,
-    maxMinutes
+    maxMinutes,
+    // Not set from the command line yet: an edit keeps what the Schedule dialog chose.
+    ...(existing?.afterRun ? { afterRun: existing.afterRun, afterRunDeleteBranch: existing.afterRunDeleteBranch } : {})
   }
   const problem = scheduleProblem(request)
   if (problem) throw invalid(problem)
@@ -292,7 +294,7 @@ const edit: MethodDef = {
 
 /** The request a saved schedule stands for, to ask what it would approve now. */
 function requestOf(s: Schedule): ScheduleRequest {
-  return { templateId: s.templateId, templateName: s.templateName, repoId: s.repoId, baseBranch: s.baseBranch, recurrence: s.recurrence, startDate: s.startDate, weekdays: s.weekdays, ...(s.dayOfMonth !== undefined ? { dayOfMonth: s.dayOfMonth } : {}), time: s.time, timezone: s.timezone, agent: 'claude', model: s.model, maxMinutes: s.maxMinutes }
+  return { templateId: s.templateId, templateName: s.templateName, repoId: s.repoId, baseBranch: s.baseBranch, recurrence: s.recurrence, startDate: s.startDate, weekdays: s.weekdays, ...(s.dayOfMonth !== undefined ? { dayOfMonth: s.dayOfMonth } : {}), time: s.time, timezone: s.timezone, agent: 'claude', model: s.model, maxMinutes: s.maxMinutes, ...(s.afterRun ? { afterRun: s.afterRun, afterRunDeleteBranch: s.afterRunDeleteBranch } : {}) }
 }
 
 const approve: MethodDef = {
