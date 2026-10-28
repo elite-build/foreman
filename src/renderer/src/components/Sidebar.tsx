@@ -48,6 +48,9 @@ import {
   toggleShowFinished,
   useStore
 } from '../store'
+import { resolveFilter, VIEW_LABEL, viewsOn } from '../../../shared/views'
+import { LATER_CHOICES, putAway, waitingLater } from '../../../shared/later'
+import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater, useLaterWake } from '../later'
 import { BUCKET_LABEL, liveRepo, sidebarGroups, sidebarOrder, STATUS_LABEL, triageAll, type SidebarFilter, type Triage, type TriageInput } from '../triage'
 import { promptTitle } from '../../../shared/compare'
 import type { CompareSection } from '../../../shared/triage'
@@ -109,6 +112,8 @@ export function DiffBadge({ additions, deletions, muted }: { additions: number; 
 /** Open a workspace, on the chat that needs the user if there is one. */
 export function openTriaged(t: Triage): void {
   selectWorkspace(t.ws.id)
+  // Back from Later: opening it is what bringing it back was for, so it leaves Later.
+  if (t.laterBack) void attempt(() => api.updateWorkspace(t.ws.id, { later: null }))
   if (t.bucket === 'attention') recordMilestone('needsYou')
   if (t.bucket === 'attention' && t.sessionId) selectSession(t.ws.id, t.sessionId)
 }
@@ -140,6 +145,17 @@ function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: numb
             {t(STATUS_LABEL[status])}
           </MenuRadioItem>
         ))}
+      </MenuGroup>
+      <MenuSeparator />
+      <MenuLabel>{t('later.menu')}</MenuLabel>
+      <MenuGroup label={t('later.menu')}>
+        {ws.later && <MenuItem onSelect={() => void bringBackNow(ws)}>{t('later.menu.now')}</MenuItem>}
+        {LATER_CHOICES.map((choice) => (
+          <MenuItem key={choice} onSelect={() => void saveForLater(ws, choice, t)}>
+            {laterChoiceLabel(choice, t)}
+          </MenuItem>
+        ))}
+        {ws.later && <MenuItem onSelect={() => void takeOutOfLater(ws, t)}>{t('later.menu.remove')}</MenuItem>}
       </MenuGroup>
       <MenuSeparator />
       {/* A cloud workspace has no folder here to export or hand off; its sandbox sleeps and wakes instead. */}
@@ -412,17 +428,14 @@ function RepoRail({ attention }: { attention: Map<string | null, number> }) {
   )
 }
 
-const FILTERS: { id: SidebarFilter; label: PlainKey }[] = [
-  { id: 'all', label: 'sidebar.filter.all' },
-  { id: 'needs-you', label: 'sidebar.filter.needsYou' },
-  { id: 'running', label: 'sidebar.filter.running' },
-  { id: 'pinned', label: 'sidebar.filter.pinned' }
-]
-
 const EMPTY: Record<Exclude<SidebarFilter, 'all'>, PlainKey> = {
   'needs-you': 'sidebar.empty.needsYou',
-  running: 'sidebar.empty.running',
-  pinned: 'sidebar.empty.pinned'
+  working: 'sidebar.empty.running',
+  pinned: 'sidebar.empty.pinned',
+  'in-review': 'sidebar.empty.inReview',
+  ready: 'sidebar.empty.ready',
+  done: 'sidebar.empty.done',
+  later: 'sidebar.empty.later'
 }
 
 export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: PaneSide }) {
@@ -445,7 +458,19 @@ export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: 
     attention.set(null, attention.get(null)! + 1)
     attention.set(t.ws.repoId, (attention.get(t.ws.repoId) ?? 0) + 1)
   }
-  const { groups, compares, hiddenFinished } = sidebarGroups(input, view)
+  const grouped = sidebarGroups(input, view)
+  const { compares, hiddenFinished } = grouped
+  // The tabs Settings → Appearance → Sidebar & Home turns on, and the one shown (a tab turned off falls back).
+  const tabs = viewsOn(snapshot.settings.views, 'tab')
+  const filter = resolveFilter(view.filter, snapshot.settings.views)
+  // Saved for later: reachable from a line under the list when Later isn't a tab.
+  useLaterWake()
+  const laterCount = scoped.filter((x) => waitingLater(x.ws, Date.now())).length
+  // In Later, a row put away says when it comes back.
+  const groups =
+    filter === 'later'
+      ? grouped.groups.map((g) => ({ ...g, items: g.items.map((x) => (putAway(x, Date.now()) ? { ...x, label: laterWhen(x.ws, t), tone: undefined } : x)) }))
+      : grouped.groups
   const order = sidebarOrder(input, view).map((w) => w.id)
   const archived = snapshot.workspaces.filter((w) => w.state === 'archived').length
   const anyUnread = Object.keys(unread).length > 0
@@ -510,16 +535,16 @@ export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: 
           <div className="sidebar-summary">
             <span className={running ? 'running' : ''}>{t('sidebar.runningCount', { count: running })}</span>
             {needYou > 0 && (
-              <ChipButton pill tone="warn" pressed={view.filter === 'needs-you'} onClick={() => setSidebarFilter(view.filter === 'needs-you' ? 'all' : 'needs-you')}>
+              <ChipButton pill tone="warn" pressed={filter === 'needs-you'} onClick={() => setSidebarFilter(filter === 'needs-you' ? tabs[0] : 'needs-you')}>
                 {t('sidebar.needsYouCount', { count: needYou })}
               </ChipButton>
             )}
           </div>
-          <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={view.filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
+          <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
             <TabList label={t('sidebar.filter.label')}>
-              {FILTERS.map((f) => (
-                <Tab key={f.id} value={f.id}>
-                  {t(f.label)}
+              {tabs.map((id) => (
+                <Tab key={id} value={id}>
+                  {t(VIEW_LABEL[id])}
                 </Tab>
               ))}
             </TabList>
@@ -553,19 +578,24 @@ export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: 
               <div className="sidebar-empty">
                 {view.query
                   ? t('sidebar.empty.noMatch')
-                  : view.filter !== 'all'
-                    ? t(EMPTY[view.filter])
+                  : filter !== 'all'
+                    ? t(EMPTY[filter])
                     : snapshot.repos.length
                       ? t('sidebar.empty.noWorkspaces')
                       : t('sidebar.empty.noRepos')}
               </div>
+            )}
+            {laterCount > 0 && filter !== 'later' && !tabs.includes('later') && (
+              <LinkButton size="sm" className="sidebar-more" onClick={() => setSidebarFilter('later')}>
+                {t('later.link', { count: laterCount })}
+              </LinkButton>
             )}
             {hiddenFinished > 0 && (
               <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
                 {t('sidebar.showFinished', { count: hiddenFinished })}
               </LinkButton>
             )}
-            {view.showFinished && view.filter !== 'pinned' && !view.query && scoped.some((t) => t.bucket === 'finished') && (
+            {view.showFinished && filter === 'all' && !view.query && scoped.some((t) => t.bucket === 'finished') && (
               <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
                 {t('sidebar.hideFinished')}
               </LinkButton>

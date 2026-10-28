@@ -13,6 +13,7 @@ import { defaultOnboarding, migrateOnboarding } from '../shared/onboarding'
 import { isScriptShellChoice, isShellChoice } from '../shared/shells'
 import { parseSavedCommands } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
+import { DEFAULT_VIEWS, normalizeViews } from '../shared/views'
 import { parseAgentPrefs, parseProviderKeyAgents } from '../shared/agentCatalog'
 import { defaultFromEditorCommand, isOpenInChoice } from '../shared/openIn'
 import type { PairedDevice, Transfer } from '../shared/transfer'
@@ -142,6 +143,7 @@ export function defaultSettings(): Settings {
     homeBoard: false,
     homeLayout: 'list',
     homeDoneDays: 7,
+    views: DEFAULT_VIEWS.map((v) => ({ ...v })),
     loadouts: DEFAULT_LOADOUTS,
     reviewModel: { agent: 'claude', model: 'claude-opus-5-5[1m]', effort: 'high', fast: false },
     claudeOutputStyle: 'default',
@@ -229,6 +231,8 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   state.settings.savedCommands = parseSavedCommands(state.settings.savedCommands)
   // O8: hidden models checked the same way; anything malformed is dropped.
   state.settings.hiddenModels = parseHiddenModels(state.settings.hiddenModels)
+  // Sidebar & Home: unknown views dropped, views added since appended with their default places.
+  state.settings.views = normalizeViews(state.settings.views)
   // #22: the agent catalog's choices, checked the same way.
   state.settings.agentPrefs = parseAgentPrefs(state.settings.agentPrefs)
   state.settings.providerKeyAgents = parseProviderKeyAgents(state.settings.providerKeyAgents)

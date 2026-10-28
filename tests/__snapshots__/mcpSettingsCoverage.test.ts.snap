@@ -411,6 +411,7 @@ exports[`MCP settings coverage review > requires review when defaults, structure
     "{"field":"updateChannel","value":"stable"}",
     "{"field":"updateInterval","value":"every-4-hours"}",
     "{"field":"updateMode","value":"download"}",
+    "{"field":"views","value":[{"id":"all","tab":true,"lane":false,"home":false},{"id":"needs-you","tab":true,"lane":true,"home":true},{"id":"working","tab":true,"lane":true,"home":true},{"id":"pinned","tab":true,"lane":false,"home":false},{"id":"later","tab":false,"lane":false,"home":false},{"id":"in-review","tab":false,"lane":true,"home":false},{"id":"ready","tab":false,"lane":true,"home":false},{"id":"done","tab":false,"lane":true,"home":false}]}",
     "{"field":"windowLayout","value":"panes"}",
     "{"field":"workspacesRoot","value":"~/foreman/workspaces"}",
     "{"field":"zoom","value":1}",
@@ -478,6 +479,10 @@ exports[`MCP settings coverage review > requires review when defaults, structure
     },
     {
       "field": "onboarding",
+      "mcp": "No dedicated settings read/write tool. CLI fallback does not count as dedicated coverage.",
+    },
+    {
+      "field": "views",
       "mcp": "No dedicated settings read/write tool. CLI fallback does not count as dedicated coverage.",
     },
   ],

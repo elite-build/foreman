@@ -26,7 +26,9 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* One column per lane that's on (Settings → Appearance → Sidebar & Home). */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 10px;
 }
 .blane {

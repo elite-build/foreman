@@ -10,6 +10,9 @@ import { isBlocker, openReports } from './agentReports'
 import { latestReview } from './autoReview'
 import { isGitlabWorkspace } from './scm'
 import { createT, type PlainKey, type TFunction } from './i18n'
+import { DEFAULT_DONE_DAYS } from './board'
+import { matchesView, resolveFilter, type ViewId } from './views'
+import { laterDue, putAway } from './later'
 import type { AppSnapshot, ApprovalRequest, PullRequestInfo, Session, Workspace, WorkspaceStatus } from './types'
 
 // English unless a caller passes its own `t` (the renderer passes the UI language's; `foreman status` stays English).
@@ -26,7 +29,8 @@ export const STATUS_LABEL: Record<WorkspaceStatus, PlainKey> = {
 
 export type Bucket = 'attention' | 'working' | 'idle' | 'finished'
 export type Tone = 'amber' | 'green' | 'red' | 'blue' | 'accent'
-export type SidebarFilter = 'all' | 'needs-you' | 'running' | 'pinned'
+// A view (views.ts): the tabs are the views Settings → Appearance → Sidebar & Home turns on.
+export type SidebarFilter = ViewId
 
 /** Each group's heading, as a key: `t(BUCKET_LABEL[bucket])`. */
 export const BUCKET_LABEL: Record<Bucket, PlainKey> = {
@@ -71,6 +75,8 @@ export interface Triage {
   limitResume?: { sessionId: string; resetAt: string }
   // #17: the auto review this row is about (Home words it, and offers Dismiss or Review again…).
   autoReviewId?: string
+  // Save for later: its day has come (Home offers Dismiss and Later again; opening it takes it out of Later).
+  laterBack?: boolean
 }
 
 export interface TriageInput {
@@ -388,6 +394,8 @@ function triageOne(ws: Workspace, sessions: Session[], input: TriageInput): Tria
     const sessionId = sessions.find((s) => input.unreadSessions[s.id])?.id
     return { ws, bucket: 'attention', tone: 'green', label: t('triage.readyForReview'), detail: title(sessionId), since: last, sessionId, facts: factsFor(sessionId) }
   }
+  // Save for later: back on its day, and waiting on you until it's opened, dismissed or put away again.
+  if (laterDue(ws, now)) return { ws, bucket: 'attention', tone: 'blue', label: t('triage.later.back'), since: ws.later!.until!, laterBack: true }
   // #1: "Stopped when Foreman quit · 2 tabs" until they're retried or dismissed from Home's review.
   const stopped = stoppedIn(input.snapshot.stopRecord, ws.id)
   if (stopped.length) {
@@ -463,13 +471,17 @@ export function sidebarGroups(
   const query = view.query.trim().toLowerCase()
   let items = triageAll(input, liveRepo(input.snapshot, view.repo))
   if (query) items = items.filter((t) => t.ws.name.toLowerCase().includes(query) || t.ws.branch.toLowerCase().includes(query))
-  if (view.filter === 'needs-you') items = items.filter((t) => t.bucket === 'attention')
-  if (view.filter === 'running') items = items.filter((t) => t.bucket === 'working')
-  if (view.filter === 'pinned') items = items.filter((t) => t.ws.pinned)
+  const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
+  const filter = resolveFilter(view.filter, settings?.views)
+  const opts = { now: input.now ?? Date.now(), doneDays: settings?.homeDoneDays || DEFAULT_DONE_DAYS }
+  // Put away for later: only the Later view and a search show it until its day.
+  if (filter !== 'later' && !query) items = items.filter((t) => !putAway(t, opts.now))
+  if (filter !== 'all') items = items.filter((t) => matchesView(filter, t, opts))
   const compares = compareSections(items)
   const grouped = new Set(compares.flatMap((c) => c.items.map((t) => t.ws.id)))
   const plain = items.filter((t) => !grouped.has(t.ws.id))
-  const showFinished = view.showFinished || view.filter === 'pinned' || Boolean(query)
+  // Any view but All shows what it holds, finished or not.
+  const showFinished = view.showFinished || filter !== 'all' || Boolean(query)
   const groups = BUCKETS.filter((bucket) => showFinished || bucket !== 'finished')
     .map((bucket) => ({ bucket, items: sortBucket(plain.filter((t) => t.bucket === bucket), bucket) }))
     .filter((g) => g.items.length > 0)

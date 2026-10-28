@@ -296,7 +296,7 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
 ]
 
 /** Settings with their own commands (`foreman loadouts`, `models`, `agents`, `templates`, `commands`, `keys`, `gitlab`): validated field by field there, never set as JSON. `onboarding` (the Get started checklist's milestones and whether it is hidden) has none: the app records it as the person goes, and it is not a preference to script. */
-export const STRUCTURED_SETTINGS: readonly (keyof Settings)[] = ['loadouts', 'reviewModel', 'promptTemplates', 'savedCommands', 'hiddenModels', 'agentPrefs', 'providerKeyAgents', 'gitlabHosts', 'onboarding']
+export const STRUCTURED_SETTINGS: readonly (keyof Settings)[] = ['loadouts', 'reviewModel', 'promptTemplates', 'savedCommands', 'hiddenModels', 'agentPrefs', 'providerKeyAgents', 'gitlabHosts', 'onboarding', 'views']
 
 /** What is deliberately not a CLI setting, with the reason (PLAN §13 item 21). None of these is a `Settings` field: they are the window's own state or system facts. */
 export const NOT_A_SETTING: Record<string, string> = {

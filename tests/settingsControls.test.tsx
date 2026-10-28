@@ -5,6 +5,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GeneralPage } from '../src/renderer/src/components/settings/GeneralPage'
+import { HomeSection } from '../src/renderer/src/components/settings/HomeSection'
 import { MaskedValue, Row, TextAreaRow, TextRow, ToggleRow } from '../src/renderer/src/components/settings/controls'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 
@@ -101,5 +102,54 @@ describe('Settings → General', () => {
     render(<GeneralPage />)
     expect(screen.getByRole('combobox', { name: 'Send messages with' })).toBeTruthy()
     expect(screen.getByRole('switch', { name: 'Agent notifications' })).toBeTruthy()
+  })
+})
+
+describe('Appearance → Sidebar & Home: the views', () => {
+  afterEach(() => {
+    delete (fakeState.snapshot.settings as { views?: unknown; homeBoard?: unknown }).views
+    delete (fakeState.snapshot.settings as { homeBoard?: unknown }).homeBoard
+  })
+
+  it('a switch per place each view can go, named by view and place; turning one on saves the list', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.homeBoard = true
+    render(<HomeSection />)
+    // All is a tab only; Pinned is no lane.
+    expect(screen.queryByRole('switch', { name: 'All: Board lane' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Pinned: Board lane' })).toBeNull()
+    const inReview = screen.getByRole('switch', { name: 'In review: Sidebar tab' })
+    expect(inReview.getAttribute('aria-checked')).toBe('false')
+    await user.click(inReview)
+    const saved = (fakeApi.updateSettings as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]
+    expect(saved.views.find((v: { id: string }) => v.id === 'in-review')).toEqual({ id: 'in-review', tab: true, lane: true, home: false })
+  })
+
+  it('the board column shows only while Board view is on', () => {
+    render(<HomeSection />)
+    expect(screen.getByRole('switch', { name: 'Working: Sidebar tab' })).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: 'Working: Board lane' })).toBeNull()
+  })
+
+  it('the last tab on can’t be turned off', () => {
+    fakeState.snapshot.settings.views = [
+      { id: 'all', tab: false, lane: false, home: false },
+      { id: 'needs-you', tab: false, lane: true, home: true },
+      { id: 'working', tab: true, lane: true, home: true },
+      { id: 'pinned', tab: false, lane: false, home: false }
+    ]
+    render(<HomeSection />)
+    expect((screen.getByRole('switch', { name: 'Working: Sidebar tab' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('switch', { name: 'Working: Home section' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('Move up and Move down reorder the list; the ends are disabled', async () => {
+    const user = userEvent.setup()
+    render(<HomeSection />)
+    expect((screen.getByRole('button', { name: 'Move All up' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Move Done down' }) as HTMLButtonElement).disabled).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Move Pinned up' }))
+    const saved = (fakeApi.updateSettings as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]
+    expect(saved.views.map((v: { id: string }) => v.id)).toEqual(['all', 'needs-you', 'pinned', 'working', 'later', 'in-review', 'ready', 'done'])
   })
 })

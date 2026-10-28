@@ -112,14 +112,57 @@ describe('sidebar rows', () => {
   })
 })
 
+describe('save for later', () => {
+  it('the row menu saves it for later, coming back tomorrow at 9:00', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+    fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+    const menu = await screen.findByRole('menu')
+    expect(within(menu).getByRole('group', { name: 'Save for later' })).toBeTruthy()
+    await user.click(within(menu).getByRole('menuitem', { name: /^Tomorrow · / }))
+    const [id, patch] = (fakeApi.updateWorkspace as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
+    expect(id).toBe('w1')
+    const until = new Date(patch.later.until)
+    expect([until.getHours(), until.getMinutes(), until.getDate()]).toEqual([9, 0, new Date(Date.now() + 86_400_000).getDate()])
+  })
+
+  it('a workspace put away leaves the list, and a line under it opens Later', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.workspaces = [{ ...ws, later: { at: '2026-01-01T00:00:00Z', until: '2999-01-01T09:00:00Z' } }]
+    render(<Sidebar />)
+    expect(screen.queryByRole('button', { name: /fix-login/ })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Later · 1' }))
+    expect(spy('setSidebarFilter')).toHaveBeenCalledWith('later')
+  })
+})
+
 describe('sidebar filters and search', () => {
   it('the filters are a tab list; choosing one sets the filter', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)
     const tabs = screen.getByRole('tablist')
     expect(within(tabs).getAllByRole('tab')).toHaveLength(4)
-    await user.click(within(tabs).getByRole('tab', { name: /running/i }))
-    expect(spy('setSidebarFilter')).toHaveBeenCalledWith('running')
+    await user.click(within(tabs).getByRole('tab', { name: /working/i }))
+    expect(spy('setSidebarFilter')).toHaveBeenCalledWith('working')
+  })
+
+  it('shows the tabs Settings turns on, in its order', () => {
+    fakeState.snapshot.settings.views = [
+      { id: 'pinned', tab: true, lane: false, home: false },
+      { id: 'all', tab: true, lane: false, home: false },
+      { id: 'needs-you', tab: false, lane: true, home: true },
+      { id: 'working', tab: false, lane: true, home: true },
+      { id: 'in-review', tab: true, lane: true, home: false }
+    ]
+    try {
+      render(<Sidebar />)
+      const tabs = within(screen.getByRole('tablist')).getAllByRole('tab')
+      expect(tabs.map((tab) => tab.textContent)).toEqual(['Pinned', 'All', 'In review'])
+      // The saved filter (All) stays selected.
+      expect(tabs[1].getAttribute('aria-selected')).toBe('true')
+    } finally {
+      delete (fakeState.snapshot.settings as { views?: unknown }).views
+    }
   })
 
   it('the search field filters by typing and clears with Escape', async () => {

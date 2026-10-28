@@ -84,6 +84,25 @@ describe('Home board', () => {
     fireEvent.drop(target, { dataTransfer })
     await waitFor(() => expect(fakeApi.updateWorkspace).toHaveBeenCalledWith('w1', { status: 'in-review' }))
   })
+
+  it('shows only the lanes Settings turns on, in its order', () => {
+    fakeState.snapshot.settings.views = [
+      { id: 'done', tab: false, lane: true, home: false },
+      { id: 'needs-you', tab: true, lane: true, home: true },
+      { id: 'working', tab: true, lane: false, home: true },
+      { id: 'in-review', tab: false, lane: false, home: false },
+      { id: 'ready', tab: false, lane: false, home: false }
+    ]
+    try {
+      render(<HomeBoard items={items} now={NOW} />)
+      const lanes = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))
+      expect(lanes).toEqual(['Done', 'Needs you'])
+      // In review is off: its card is on no lane, and not listed under the board either.
+      expect(screen.queryByRole('button', { name: /add-search/ })).toBeNull()
+    } finally {
+      delete (fakeState.snapshot.settings as { views?: unknown }).views
+    }
+  })
 })
 
 describe('archive sheet', () => {
