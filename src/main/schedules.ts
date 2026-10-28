@@ -9,7 +9,7 @@
 //  - after a crash, runs that were in flight are marked uncertain and are never retried.
 import { createHash, randomUUID } from 'node:crypto'
 import { GLOBAL_ACTIVE_CAP, MISSED_GRACE_MS, dueAction, nextRuns, specOf, specProblem } from '../shared/schedule'
-import type { Occurrence, Schedule, ScheduleFingerprint, ScheduleRequest, TurnOutcome } from '../shared/types'
+import type { AfterRun, Occurrence, Schedule, ScheduleFingerprint, ScheduleRequest, TurnOutcome } from '../shared/types'
 
 const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
 
@@ -68,7 +68,16 @@ export function scheduleProblem(input: ScheduleInput, now = Date.now()): string 
   if (input.agent !== 'claude' || !input.model.trim()) return 'Scheduled runs are Claude only: other agents can’t pause for approvals.'
   if (!Number.isFinite(input.maxMinutes) || input.maxMinutes < 5 || input.maxMinutes > 480) return 'Pick a maximum duration between 5 minutes and 8 hours.'
   if (!input.baseBranch.trim()) return 'Pick a base branch.'
+  if (input.afterRun !== undefined && !AFTER_RUN.includes(input.afterRun)) return 'Pick what happens to the workspace after a run.'
   return null
+}
+
+const AFTER_RUN: readonly AfterRun[] = ['keep', 'archive', 'delete-unchanged']
+
+/** What a schedule says happens after a completed run, as stored: absent is keep, and the branch choice only goes with archiving. */
+function afterRunFields(input: ScheduleInput): Pick<Schedule, 'afterRun' | 'afterRunDeleteBranch'> {
+  const afterRun = input.afterRun && input.afterRun !== 'keep' ? input.afterRun : undefined
+  return { afterRun, afterRunDeleteBranch: afterRun && input.afterRunDeleteBranch ? true : undefined }
 }
 
 export interface ScheduleStore {
@@ -98,6 +107,8 @@ export interface ScheduleDeps {
   turnStart?(occurrence: Occurrence): 'waiting' | string | undefined
   /** The workspace that carries this occurrence id, if one was created before a crash. */
   workspaceFor?(occurrenceId: string): { workspaceId: string; sessionId?: string } | undefined
+  /** A run completed and its schedule archives or deletes the workspace after (`afterRun`); the run's record is already closed. */
+  afterRun?(schedule: Schedule, occurrence: Occurrence): void
   changed(): void
   // #1: true while Foreman quits once the running turns finish; nothing new launches (a run due meanwhile is missed, never replayed).
   paused?(): boolean
@@ -206,6 +217,7 @@ export class ScheduleService {
       baseBranch: input.baseBranch.trim(),
       weekdays: [...new Set(input.weekdays)].sort((a, b) => a - b),
       dayOfMonth: input.dayOfMonth,
+      ...afterRunFields(input),
       state: 'active',
       consecutiveFailures: 0,
       approved: fingerprintOf(inputs),
@@ -224,6 +236,11 @@ export class ScheduleService {
     if (problem) throw new Error(problem)
     const s = this.schedule(id)
     Object.assign(s, { templateId: input.templateId, repoId: input.repoId, recurrence: input.recurrence, startDate: input.startDate, timezone: input.timezone, time: input.time, model: input.model, maxMinutes: input.maxMinutes, baseBranch: input.baseBranch.trim(), weekdays: [...new Set(input.weekdays)].sort((a, b) => a - b), dayOfMonth: input.dayOfMonth })
+    const after = afterRunFields(input)
+    for (const key of ['afterRun', 'afterRunDeleteBranch'] as const) {
+      if (after[key] === undefined) delete s[key]
+      else Object.assign(s, { [key]: after[key] })
+    }
     return this.approveWith(s, inputs)
   }
 
@@ -434,5 +451,6 @@ export class ScheduleService {
       }
     }
     this.persist()
+    if (s && state === 'completed' && s.afterRun && o.workspaceId) this.deps.afterRun?.(s, o)
   }
 }

@@ -2467,9 +2467,58 @@ export const en = {
   // {time} is how long ago, e.g. "3d ago".
   'archivedList.archivedAgo': 'archived {time}',
   'archivedList.restore': 'Restore',
-  'archivedList.forgetTitle': 'Remove from this list (the branch is kept)',
+  // The filter above the list (Segmented): by why each workspace was archived. Each label is followed by its count.
+  'archivedList.filter': 'Show archived workspaces',
+  'archivedList.filter.all': 'All',
+  'archivedList.filter.auto': 'Auto-archived',
+  'archivedList.filter.merged': 'Merged PRs',
+  'archivedList.filter.run': 'Scheduled runs',
+  'archivedList.filter.manual': 'By you',
+  'archivedList.filterEmpty': 'Nothing archived for this filter.',
+  // Why a workspace was archived, as a tag on its row. {number} is the pull request's number.
+  'archivedList.reason.manual': 'Archived by you',
+  'archivedList.reason.run': 'Run completed',
+  'archivedList.reason.merged': 'PR #{number} merged',
+  'archivedList.selectAll': 'Select all',
+  'archivedList.selected': { one: '{count} selected', other: '{count} selected' },
   // {name} is the workspace's name.
-  'archivedList.forgetConfirm': 'Remove {name} from the archive list? Its branch stays in git.',
+  'archivedList.select': 'Select {name}',
+  'archivedList.delete': 'Delete {name}…',
+  'archivedList.deleteSelected': 'Delete…',
+  // The cleanup of auto-archived workspaces deletes this one in {count} days (0: at its next run, within the hour).
+  'archivedList.deletesIn': { zero: 'Deleted within the hour', one: 'Deleted in {count} day', other: 'Deleted in {count} days' },
+  // Keep: the cleanup never deletes this workspace.
+  'archivedList.keep': 'Keep',
+  'archivedList.keepTitle': 'Never delete this one in the cleanup of auto-archived workspaces',
+  'archivedList.kept': 'Kept',
+  'archivedList.cleanupNote': 'Workspaces you archived yourself, kept ones and ones with commits that aren’t pushed are never deleted on a timer.',
+  // ---- Delete archived workspaces for good ----
+  // {name} is the workspace's name.
+  'archivedDelete.title.one': 'Delete {name}?',
+  'archivedDelete.title.other': 'Delete {count} archived workspaces?',
+  'archivedDelete.lede': 'This can’t be undone.',
+  'archivedDelete.chats': 'Chats and their history',
+  // {branch} is a git branch name.
+  'archivedDelete.branch': 'Local branch {branch}',
+  'archivedDelete.branches': { one: '{count} local branch', other: '{count} local branches' },
+  'archivedDelete.saved': 'Changes saved when it was archived',
+  'archivedDelete.sandbox': { one: 'Its remote sandbox', other: '{count} remote sandboxes' },
+  'archivedDelete.logs': 'Setup, checks and archive logs',
+  'archivedDelete.remote': 'Branches pushed to the remote',
+  'archivedDelete.pr': 'Pull requests on GitHub or GitLab',
+  'archivedDelete.snapshots': 'Sandbox snapshots, until they expire',
+  'archivedDelete.checking': 'Checking for work that isn’t pushed…',
+  'archivedDelete.safe': 'Nothing to lose: every commit is pushed or on the base branch.',
+  'archivedDelete.atRisk': { one: 'Deleting loses work that isn’t anywhere else:', other: 'Deleting loses work in {count} of them that isn’t anywhere else:' },
+  // {against} is where the commits aren't, e.g. "origin/main".
+  'archivedDelete.unpushed': { one: '{name}: {count} commit not on {against}', other: '{name}: {count} commits not on {against}' },
+  'archivedDelete.uncommitted': '{name}: uncommitted changes saved when it was archived',
+  'archivedDelete.unknown': '{name}: couldn’t check for commits that aren’t pushed',
+  'archivedDelete.go': { one: 'Delete workspace', other: 'Delete {count} workspaces' },
+  'archivedDelete.goAnyway': 'Delete and lose this work',
+  'archivedDelete.busy': 'Deleting…',
+  'archivedDelete.done.one': 'Deleted {name}.',
+  'archivedDelete.done.other': 'Deleted {count} workspaces.',
   // ---- Workspace note bar, above the chat ----
   // The workspace note (noun): guidance written once for every chat in the workspace.
   'noteBar.label': 'Note',
@@ -3073,6 +3122,15 @@ export const en = {
   // A Codex model, disabled in the list: it can't stop for approvals, which a scheduled run needs.
   'scheduleDialog.modelNoApprovals': '{model}: can’t pause for approvals',
   'scheduleDialog.maxDuration': 'Max duration',
+  // What happens to a run's workspace once the run completes.
+  'scheduleDialog.afterRun': 'After each run',
+  'scheduleDialog.afterRun.keep': 'Keep the workspace',
+  'scheduleDialog.afterRun.keepHint': 'It stays in the sidebar until you archive it.',
+  'scheduleDialog.afterRun.archive': 'Archive it when the run completes',
+  'scheduleDialog.afterRun.archiveHint': 'A run that fails, stops or needs you stays in the sidebar so you can look.',
+  'scheduleDialog.afterRun.deleteUnchanged': 'Delete it if the run changed nothing',
+  'scheduleDialog.afterRun.deleteUnchangedHint': 'No commits and no changed files: the workspace, its chats and branch are deleted. A run with changes is archived.',
+  'scheduleDialog.afterRun.deleteBranch': 'Also delete the branch when archiving',
   'scheduleDialog.durationHours': '{hours} h',
   'scheduleDialog.durationMinutes': '{minutes} min',
   // The bold parts are scheduleDialog.rules.freshWorkspace, .auto and .stopsTheRun.
@@ -4554,7 +4612,11 @@ export const en = {
   'settings.git.deleteBranchOnArchive.help': 'Delete the local branch when archiving a workspace.',
   'settings.git.deleteBranchOnArchive.warning': 'The branch is deleted. Restoring the workspace later starts a new branch from its last commit.',
   'settings.git.archiveOnMerge.label': 'Archive on merge',
-  'settings.git.archiveOnMerge.help': 'Automatically archive a workspace after merging its PR in Foreman',
+  'settings.git.archiveOnMerge.help': 'Automatically archive a workspace once its PR is merged, in Foreman, on GitHub or on GitLab. If an agent is working in it, Foreman waits for it to finish.',
+  'settings.git.archiveCleanup.label': 'Delete auto-archived workspaces after',
+  'settings.git.archiveCleanup.help': 'Workspaces archived after a completed run or a merged PR are deleted for good: chats, local branch and saved changes. Ones you archived yourself, kept ones and ones with commits that aren’t pushed are never deleted.',
+  'settings.git.archiveCleanup.never': 'Never',
+  'settings.git.archiveCleanup.days': { one: '{count} day', other: '{count} days' },
   'settings.git.branchPrefix.label': 'Branch name prefix',
   'settings.git.branchPrefix.help': 'Prefix for new workspace branch names.',
   'settings.git.branchPrefix.notSignedIn': 'Not signed in to GitHub, so branches get no prefix.',
@@ -4843,6 +4905,7 @@ export const en = {
   // The branch new workspaces start from.
   'automations.schedule.from': 'From',
   'automations.schedule.stopsAfter': 'Stops after',
+  'automations.schedule.afterRun': 'After a run',
   'automations.schedule.minutes': '{minutes} min',
   'automations.schedule.timeZone': 'Time zone',
   'automations.schedule.template': 'Template',
@@ -5733,8 +5796,6 @@ export const en = {
   'cloud.archive.processes': 'Processes in the sandbox',
   'cloud.archive.processesHint': 'Dev servers and shells end when it stops',
   'cloud.archive.failedLog': 'The sandbox is still running. The script’s output is in the Setup tab.',
-  'cloud.archive.forgetConfirm': 'Remove {name} from the archive list? Its sandbox and snapshots are deleted with its provider, so anything not pushed is gone.',
-  'cloud.archive.forgetConfirmKeep': 'Remove {name} from the archive list? Its sandbox is deleted with its provider and its snapshots stay until they expire; anything not pushed can’t be restored here.',
   'cloud.quit.title': 'Keeps running remotely',
   'cloud.quit.hint': 'in its sandbox, without this computer',
   // {limit} is cloud.limit.minutes or cloud.limit.hours ("45-minute").

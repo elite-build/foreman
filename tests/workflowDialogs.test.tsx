@@ -150,7 +150,20 @@ describe('schedules', () => {
     render(<ScheduleDialog templateId="tpl" />)
     await user.click(await screen.findByRole('button', { name: 'Approve schedule' }))
     await waitFor(() => expect(fakeApi.saveSchedule).toHaveBeenCalled())
-    expect(fakeApi.saveSchedule.mock.calls[0][0]).toMatchObject({ templateId: 'tpl', repoId: 'r1', recurrence: 'once' })
+    expect(fakeApi.saveSchedule.mock.calls[0][0]).toMatchObject({ templateId: 'tpl', repoId: 'r1', recurrence: 'once', afterRun: 'keep', afterRunDeleteBranch: false })
+  })
+
+  it('saves what happens after each run, and the branch choice only once archiving is picked', async () => {
+    const user = userEvent.setup()
+    fakeApi.saveSchedule = vi.fn(async () => ({}))
+    render(<ScheduleDialog templateId="tpl" />)
+    const after = await screen.findByRole('group', { name: 'After each run' })
+    expect(screen.queryByRole('checkbox', { name: 'Also delete the branch when archiving' })).toBeNull()
+    await user.click(within(after).getByRole('radio', { name: 'Archive it when the run completes' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Also delete the branch when archiving' }))
+    await user.click(screen.getByRole('button', { name: 'Approve schedule' }))
+    await waitFor(() => expect(fakeApi.saveSchedule).toHaveBeenCalled())
+    expect(fakeApi.saveSchedule.mock.calls[0][0]).toMatchObject({ afterRun: 'archive', afterRunDeleteBranch: true })
   })
 })
 

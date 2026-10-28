@@ -5,6 +5,7 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentKind, Loadout } from '../shared/agents'
+import { ARCHIVE_CLEANUP_DAYS, mergedNow } from '../shared/autoArchive'
 import { DONE_DAYS_OPTIONS, nextPrInfo } from '../shared/board'
 import { parseViews } from '../shared/views'
 import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from '../shared/agentSlots'
@@ -52,12 +53,13 @@ import { intakeFile } from '../shared/githubLink'
 import { chooseStartLoadout } from '../shared/startModel'
 import { randomUUID } from 'node:crypto'
 import { pruneViewed, withMark } from '../shared/viewed'
-import { changedFilesBetween, fileAtRef, refsDiff, revertFile, workspaceDiff, workspaceDiffPatch, workspaceDiffStat } from './diff'
+import { branchPoint, changedFilesBetween, fileAtRef, refsDiff, revertFile, workspaceDiff, workspaceDiffPatch, workspaceDiffStat } from './diff'
 import { sharedWorkingTree, VIEW_REUSE_MS } from './checkpoints'
 import { turnAnswer } from '../shared/handOff'
 import { DEFAULT_MODEL } from '../shared/agents'
 import { branchCommitCount, branchCommits, sourceDiff, sourceInfo, type PrTarget } from './diffSources'
 import { CommitAttribution } from './commitAttribution'
+import { AutoArchive } from './autoArchive'
 import { AutoChecks } from './autoChecks'
 import { ChecksError, ChecksService } from './checks'
 import { GitActions } from './gitActions'
@@ -301,6 +303,8 @@ export class Core {
   readonly updates: UpdateCheck
   readonly environment: Environment
   readonly stopSafely: StopSafely
+  // Archives a workspace once its scheduled run completed or its PR merged, and deletes auto-archived ones later.
+  readonly autoArchive: AutoArchive
   readonly agentHost: AgentHostService
   // #2: turn identity, agent reports and "Teach agents Foreman".
   readonly agentReports: AgentReportService
@@ -560,10 +564,12 @@ export class Core {
       activity: (sessionId) => this.limitResume.activity(sessionId),
       workStarting: (workspaceId) => {
         this.autoChecks.workStarting(workspaceId)
+        this.autoArchive?.cancel(workspaceId)
         this.autoReview.activity(workspaceId)
       },
       settled: (workspaceId) => {
         this.autoChecks.settled(workspaceId)
+        this.autoArchive?.settled(workspaceId)
         this.autoReview.activity(workspaceId)
         for (const s of this.store.state.sessions) if (s.workspaceId === workspaceId) this.diffSelections.wake(s.id)
       }
@@ -623,6 +629,12 @@ export class Core {
         const session = ws && this.store.state.sessions.find((x) => x.workspaceId === ws.id)
         return ws ? { workspaceId: ws.id, sessionId: session?.id } : undefined
       },
+      afterRun: (schedule, occurrence) =>
+        this.autoArchive.request(occurrence.workspaceId!, {
+          reason: { kind: 'run', scheduleId: schedule.id },
+          deleteBranch: Boolean(schedule.afterRunDeleteBranch),
+          deleteIfUnchanged: schedule.afterRun === 'delete-unchanged'
+        }),
       paused: () => Boolean(this.stopSafely?.isDraining),
       ready: () => ghActiveAccountReady(),
       changed
@@ -729,7 +741,37 @@ export class Core {
       ready: () => ghActiveAccountReady(),
       onResult: (ws, result) => this.notePullRequest(ws.id, result)
     })
-    this.git = new GitActions(store, this.workspaces, this.sessions, (url) => host.openExternal(url), this.prs, (ws) => this.scmFor(ws.repoId))
+    this.autoArchive = new AutoArchive({
+      workspaces: () => this.store.state.workspaces,
+      // Quiet as auto-fix means it, plus checks after a turn still waiting to run and a cloud turn.
+      quiet: (ws) =>
+        !(
+          this.sessions.isBusy(ws.id) ||
+          this.cloudTurns?.running(ws.id) ||
+          ws.checks?.running ||
+          ws.autoChecks?.state === 'running' ||
+          ws.autoChecks?.state === 'waiting' ||
+          (ws.setupRun && !ws.setupRun.finishedAt)
+        ),
+      archive: async (id, deleteBranch, reason, stopTabs) => {
+        const outcome = await this.stopSafely.archive(id, deleteBranch, { stopTabs }, reason)
+        return outcome.ok ? { ok: true } : { ok: false, detail: outcome.detail }
+      },
+      unchanged: async (ws) => {
+        const at = workspaceTarget(ws)
+        const { baseRef } = await branchPoint(ws, at)
+        const commits = await git(at, ['rev-list', '--count', `${baseRef}..HEAD`], { allowFail: true })
+        return commits.code === 0 && Number(commits.stdout.trim()) === 0 && (await workspaceDiffStat(ws)).files === 0
+      },
+      work: (id) => this.workspaces.archivedWork(id),
+      remove: (id) => this.workspaces.deleteArchived(id),
+      cleanupDays: () => this.store.state.settings.archiveCleanupDays ?? 0,
+      now: () => Date.now(),
+      log: (message) => console.warn(message)
+    })
+    this.git = new GitActions(store, this.workspaces, this.sessions, (url) => host.openExternal(url), this.prs, (ws) => this.scmFor(ws.repoId), (id, number, deleteBranch) =>
+      this.autoArchive.now(id, { reason: { kind: 'merged', number }, deleteBranch })
+    )
     this.prWatch = new PrWatcher({
       store,
       prs: this.prs,
@@ -1062,10 +1104,16 @@ export class Core {
     // #21: also the checks, review and conflicts the board's Ready to merge reads, with when; a failed read marks them unknown.
     const next = nextPrInfo(ws.prInfo, result, Date.now())
     if (next === ws.prInfo) return
+    const merged = mergedNow(ws.prInfo?.state, next?.state)
     if (next) ws.prInfo = next
     else delete ws.prInfo
     this.store.save()
     this.broadcastState()
+    // Archive on merge: merged here, on GitHub or on GitLab, it's archived once nothing runs in it.
+    const settings = this.workspaces.settingsFor(ws.repoId)
+    if (merged && next && ws.state === 'ready' && settings.archiveOnMerge) {
+      this.autoArchive.request(ws.id, { reason: { kind: 'merged', number: next.number }, deleteBranch: settings.deleteBranchOnArchive })
+    }
   }
 
   /** Rules watch a repository's PRs even when no workspace or CI/review watch is open. */
@@ -2272,6 +2320,11 @@ export class Core {
     },
     listWorktrees: (repoId) => this.workspaces.listWorktrees(repoId),
     updateWorkspace: async (id, patch) => this.workspaces.updateWorkspace(id, patch),
+    archivedWork: async (ids) => Promise.all(ids.map((id) => this.workspaces.archivedWork(id))),
+    deleteArchived: async (ids) => {
+      for (const id of ids) await this.workspaces.deleteArchived(id)
+    },
+    keepArchived: async (id, keep) => this.workspaces.keepArchived(id, keep),
     startCompare: (workspaceId, request) => this.compare.start(workspaceId, request),
     archiveCompareOthers: (compareId, keepWorkspaceId) => this.compare.archiveOthers(compareId, keepWorkspaceId),
     archiveWorkspace: (id, deleteBranch, options) => this.stopSafely.archive(id, deleteBranch, options),
@@ -2866,6 +2919,7 @@ export class Core {
       if ('homeLayout' in patch && patch.homeLayout !== 'list' && patch.homeLayout !== 'board') throw new Error('Unknown Home layout')
       if ('homeDoneDays' in patch && !(DONE_DAYS_OPTIONS as readonly number[]).includes(patch.homeDoneDays as number)) throw new Error('Unknown Done window')
       if ('views' in patch) patch = { ...patch, views: parseViews(patch.views) }
+      if ('archiveCleanupDays' in patch && !(ARCHIVE_CLEANUP_DAYS as readonly number[]).includes(patch.archiveCleanupDays as number)) throw new Error('Unknown cleanup window')
       if ('maxRunningAgents' in patch && !isSlotSetting(patch.maxRunningAgents, MAX_RUNNING_AGENTS)) throw new Error(`Maximum agents running at once must be a whole number from 0 (no limit) to ${MAX_RUNNING_AGENTS}`)
       if ('backgroundWaitMinutes' in patch && !isSlotSetting(patch.backgroundWaitMinutes, MAX_BACKGROUND_WAIT_MINUTES)) throw new Error(`Background task wait must be a whole number of minutes from 0 (never stop) to ${MAX_BACKGROUND_WAIT_MINUTES}`)
       if ('updateInterval' in patch && !['hourly', 'every-4-hours', 'daily'].includes(patch.updateInterval as string)) throw new Error('Unknown update schedule')
@@ -2988,6 +3042,7 @@ export class Core {
     this.autoReview.dispose()
     this.baseWatch.stop()
     this.schedules.stopTimer()
+    this.autoArchive.stop()
     this.limitResume.stopTimer()
     if (this.powerTimer) clearInterval(this.powerTimer)
     await this.net.close()

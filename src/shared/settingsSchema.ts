@@ -6,6 +6,7 @@
 // directory) name their page themselves.
 import path from 'node:path'
 import { MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from './agentSlots'
+import { ARCHIVE_CLEANUP_DAYS } from './autoArchive'
 import { DONE_DAYS_OPTIONS } from './board'
 import { cloudSettings } from './cloud'
 import { LOCALES } from './i18n'
@@ -236,6 +237,13 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   flag('rename-workspace-with-branch', 'rename-workspace-with-branch', 'renameWorkspaceWithBranch'),
   flag('delete-branch-on-archive', 'delete-branch-on-archive', 'deleteBranchOnArchive'),
   flag('archive-on-merge', 'archive-on-merge', 'archiveOnMerge'),
+  def('archive-cleanup-days', {
+    registryId: 'archive-cleanup-days',
+    field: 'archiveCleanupDays',
+    type: 'integer',
+    options: ARCHIVE_CLEANUP_DAYS,
+    note: 'Workspaces Foreman archived on its own are deleted this many days later, chats and local branch included (0 never). Ones with unpushed commits are kept.'
+  }),
   flag('automerge', 'automerge', 'automerge'),
   flag('optional-checks-block', 'optional-checks-block', 'optionalChecksBlock'),
   flag('push-auto-setup-remote', 'push-auto-setup-remote', 'pushAutoSetupRemote'),

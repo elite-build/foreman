@@ -155,6 +155,7 @@ export function defaultSettings(): Settings {
     renameWorkspaceWithBranch: true,
     deleteBranchOnArchive: false,
     archiveOnMerge: false,
+    archiveCleanupDays: 0,
     automerge: false,
     optionalChecksBlock: false,
     pushAutoSetupRemote: true,

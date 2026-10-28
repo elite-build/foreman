@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ARCHIVE_CLEANUP_DAYS } from '../../../../shared/autoArchive'
 import type { BranchPrefixType, Settings } from '../../../../shared/types'
 import { api, openSettingsPage } from '../../store'
 import { LinkButton, RadioList, Select, TextInput } from '../../ui'
@@ -13,6 +14,7 @@ const DEFAULTS = {
   renameWorkspaceWithBranch: true,
   deleteBranchOnArchive: false,
   archiveOnMerge: false,
+  archiveCleanupDays: 0,
   automerge: false,
   optionalChecksBlock: false,
   pushAutoSetupRemote: true,
@@ -145,6 +147,15 @@ export function GitPage() {
           onChange={(archiveOnMerge) => void saveSettings({ archiveOnMerge })}
           onReset={reset('archiveOnMerge')}
         />
+        <Row id="archive-cleanup-days" label={t('settings.git.archiveCleanup.label')} help={t('settings.git.archiveCleanup.help')} onReset={reset('archiveCleanupDays')}>
+          <Select
+            label={t('settings.git.archiveCleanup.label')}
+            width={140}
+            value={String(settings.archiveCleanupDays ?? 0)}
+            options={ARCHIVE_CLEANUP_DAYS.map((n) => ({ value: String(n), label: n ? t('settings.git.archiveCleanup.days', { count: n }) : t('settings.git.archiveCleanup.never') }))}
+            onChange={(value) => void saveSettings({ archiveCleanupDays: Number(value) })}
+          />
+        </Row>
       </Section>
     </Page>
   )

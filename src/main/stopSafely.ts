@@ -22,7 +22,7 @@ import {
   type StopReviewRow,
   type TerminalInfo
 } from '../shared/stopSafely'
-import type { ArchiveOptions, ArchiveOutcome, ArchivePreview, ArchiveProgress, ChatItem } from '../shared/types'
+import type { ArchiveOptions, ArchiveOutcome, ArchiveReason, ArchivePreview, ArchiveProgress, ChatItem } from '../shared/types'
 import type { DockerRemoval } from '../shared/docker'
 import { isHistoryOnly, wsPath } from '../shared/workspacePath'
 import { git, type GitTarget } from './git'
@@ -303,7 +303,7 @@ export class StopSafely {
    * never blocking); remove the folder. A failed checkpoint or script
    * stops there, before anything is deleted, and says which step failed so the dialog can retry just that one.
    */
-  async archive(id: string, deleteBranch: boolean, options: ArchiveOptions = {}): Promise<ArchiveOutcome> {
+  async archive(id: string, deleteBranch: boolean, options: ArchiveOptions = {}, reason?: ArchiveReason): Promise<ArchiveOutcome> {
     const { store, sessions, workspaces } = this.deps
     const ws = workspaces.workspace(id)
     const repo = workspaces.repo(ws.repoId)
@@ -322,7 +322,7 @@ export class StopSafely {
     // O18: the Docker step's result; reported, never blocking.
     const step: { docker?: DockerRemoval } = {}
     try {
-      await workspaces.archiveWorkspace(id, deleteBranch, { from: options.from, anyway: options.anyway, onDocker: (r) => (step.docker = r) })
+      await workspaces.archiveWorkspace(id, deleteBranch, { from: options.from, anyway: options.anyway, onDocker: (r) => (step.docker = r), reason })
     } catch (err) {
       if (err instanceof ArchiveStepError) return { ok: false, step: err.step, detail: err.detail }
       throw err
