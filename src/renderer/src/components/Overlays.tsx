@@ -45,6 +45,7 @@ import { resetPanelSizes } from './resize'
 import { ActionRow, Button, Combobox, Dialog, IconButton, Kbd, Segmented, Tag } from '../ui'
 import { CATEGORIES } from './settings/registry'
 import { SearchChats } from './SearchChats'
+import { ArchivedInbox } from './ArchivedList'
 import { OpenInSwitcher } from './OpenIn'
 import { AskOverlay } from './assistant/AskOverlay'
 import { formatChord, formatKeys, GROUP_LABELS, groupedShortcuts, gitShortcutId, shortcutHint } from '../shortcuts'
@@ -395,59 +396,10 @@ export function ShortcutsHelp() {
 }
 
 export function ArchivedList() {
-  const snapshot = useStore((s) => s.snapshot!)
-  const archived = snapshot.workspaces.filter((w) => w.state === 'archived').sort((a, b) => (b.archivedAt ?? '').localeCompare(a.archivedAt ?? ''))
   const t = useT()
-  const [busy, setBusy] = useState<string | null>(null)
-  const restore = async (id: string) => {
-    setBusy(id)
-    await restoreArchived(id)
-    setBusy(null)
-  }
   return (
     <Overlay wide title={t('archivedList.title')}>
-      {archived.length > 0 && <p className="faint small archived-hint">{t('archivedView.list.hint')}</p>}
-      {archived.length === 0 && <p className="faint">{t('archivedList.empty')}</p>}
-      <div role="list">
-        {archived.map((w) => {
-          const repo = snapshot.repos.find((r) => r.id === w.repoId)
-          return (
-            <ActionRow
-              key={w.id}
-              role="listitem"
-              divided
-              actions={
-                <>
-                  {/* #13: read without restoring; nothing is called in main. */}
-                  <Button size="sm" icon={<Eye size={12} />} title={t('archivedView.list.readTitle')} onClick={() => openArchivedChats(w.id)} disabled={busy !== null}>
-                    {t('archivedView.list.read')}
-                  </Button>
-                  <Button size="sm" icon={<RotateCcw size={12} />} onClick={() => void restore(w.id)} disabled={busy !== null}>
-                    {busy === w.id ? t('archivedView.restoring') : t('archivedList.restore')}
-                  </Button>
-                  <IconButton
-                    label={t('archivedList.forgetTitle')}
-                    onClick={() => {
-                      // A remote workspace's sandbox is deleted with its provider, its snapshots too unless Settings → Remote workspaces keeps them.
-                      const question = w.cloud
-                        ? t(cloudSettings(snapshot.settings).deleteSnapshotsOnForget ? 'cloud.archive.forgetConfirm' : 'cloud.archive.forgetConfirmKeep', { name: w.name })
-                        : t('archivedList.forgetConfirm', { name: w.name })
-                      if (window.confirm(question)) void attempt(() => api.forgetWorkspace(w.id))
-                    }}
-                  >
-                    <Trash2 size={13} />
-                  </IconButton>
-                </>
-              }
-            >
-              <div className="archived-name">{w.name}</div>
-              <div className="faint small mono">
-                {repo?.name} · {w.branch} · {t('archivedList.archivedAgo', { time: timeAgo(w.archivedAt) })} · {t('archivedView.list.chats', { count: openSessions(snapshot, w.id).length })}
-              </div>
-            </ActionRow>
-          )
-        })}
-      </div>
+      <ArchivedInbox />
     </Overlay>
   )
 }

@@ -38,7 +38,9 @@ export class GitActions {
     private openExternal: (url: string) => Promise<void>,
     private prs: PrCache,
     // O2: GitHub (as the repo's linked account) unless told otherwise.
-    private scm?: ScmResolver
+    private scm?: ScmResolver,
+    // "Archive on merge" after a merge made here: stops the workspace's tabs and archives it, saying why.
+    private archiveMerged?: (workspaceId: string, number: number, deleteBranch: boolean) => Promise<void>
   ) {}
 
   private resolve(ws: Workspace): ReturnType<ScmResolver> {
@@ -192,7 +194,7 @@ export class GitActions {
         if (!status.pr) throw new Error('There is no pull request to merge')
         const head = await gitOut(workspaceTarget(ws, { wake: true }), ['rev-parse', 'HEAD'])
         await provider.merge(ws, status.pr, head)
-        if (repoSettings.archiveOnMerge) await this.archiveAfterMerge(ws.id, repoSettings.deleteBranchOnArchive)
+        if (repoSettings.archiveOnMerge) await this.archiveMerged?.(ws.id, status.pr.number, repoSettings.deleteBranchOnArchive)
         return
       }
 
@@ -284,12 +286,6 @@ export class GitActions {
     } finally {
       this.prs.invalidate(workspaceId)
     }
-  }
-
-  /** "Archive on merge": stop chats and archive once the PR is merged. */
-  private async archiveAfterMerge(workspaceId: string, deleteBranch: boolean): Promise<void> {
-    for (const session of this.store.state.sessions.filter((s) => s.workspaceId === workspaceId)) await this.sessions.cancel(session.id)
-    await this.workspaces.archiveWorkspace(workspaceId, deleteBranch)
   }
 }
 

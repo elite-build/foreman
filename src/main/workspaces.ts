@@ -9,6 +9,8 @@ import path from 'node:path'
 import type {
   AccountDetection,
   ArchivedDiff,
+  ArchivedWork,
+  ArchiveReason,
   ArchiveProgress,
   SetupStep,
   SetupStepResult,
@@ -25,7 +27,7 @@ import type {
   WorktreeInfo
 } from '../shared/types'
 import type { GitBackupWorkspace } from '../shared/gitBackup'
-import { restoreCheckpoint, saveCheckpoint } from './checkpoints'
+import { CHECKPOINT_REF_PREFIX, deleteCheckpoints, restoreCheckpoint, saveCheckpoint } from './checkpoints'
 import type { Environment } from './environment'
 import { excludeContextDir } from './files'
 import { effectivePatterns, filesToCopy } from './filesToCopy'
@@ -1058,7 +1060,7 @@ export class WorkspaceService {
   async archiveWorkspace(
     id: string,
     deleteBranch: boolean,
-    options: { from?: 'checkpoint' | 'script'; anyway?: boolean; onDocker?: (result: DockerRemoval) => void } = {}
+    options: { from?: 'checkpoint' | 'script'; anyway?: boolean; onDocker?: (result: DockerRemoval) => void; reason?: ArchiveReason } = {}
   ): Promise<Workspace> {
     const ws = this.workspace(id)
     const repo = this.repo(ws.repoId)
@@ -1080,16 +1082,12 @@ export class WorkspaceService {
       // Not stopping it doesn't hold the archive up: the session ends at its own timeout.
       this.events.archiveProgress?.(ws.id, { step: 'sandbox', status: stopped ? 'done' : 'skipped' })
       if (ws.cloud.status !== 'gone') ws.cloud.status = 'archived'
-      ws.state = 'archived'
-      ws.archivedAt = new Date().toISOString()
-      this.changed()
+      this.markArchived(ws, options.reason)
       return ws
     }
     // A worktree added from disk stays where the user made it.
     if (ws.adopted || isHistoryOnly(ws)) {
-      ws.state = 'archived'
-      ws.archivedAt = new Date().toISOString()
-      this.changed()
+      this.markArchived(ws, options.reason)
       return ws
     }
     const progress = (step: ArchiveProgress['step'], status: ArchiveProgress['status'], extra: Omit<ArchiveProgress, 'step' | 'status'> = {}) =>
@@ -1147,10 +1145,24 @@ export class WorkspaceService {
     if (deleteBranch && ws.branch !== repo.defaultBranch) await git(repo.rootPath, ['branch', '-D', ws.branch], { allowFail: true })
     progress('remove', 'done')
     this.archiveRuns.delete(ws.id)
+    this.markArchived(ws, options.reason)
+    return ws
+  }
+
+  /** Archived now, and why: by hand unless Foreman archived it on its own. */
+  private markArchived(ws: Workspace, reason: ArchiveReason = { kind: 'manual' }): void {
     ws.state = 'archived'
     ws.archivedAt = new Date().toISOString()
+    ws.archiveReason = reason
+    delete ws.keepArchived
     this.changed()
-    return ws
+  }
+
+  /** Restored: why it was archived, and Keep, belong to the archived state. */
+  private clearArchived(ws: Workspace): void {
+    delete ws.archivedAt
+    delete ws.archiveReason
+    delete ws.keepArchived
   }
 
   /**
@@ -1316,7 +1328,7 @@ export class WorkspaceService {
     if (ws.cloud) {
       if (!this.cloud) throw new Error('Remote workspaces aren’t available')
       await this.cloud.unarchive(ws)
-      delete ws.archivedAt
+      this.clearArchived(ws)
       // The archive-time diff belongs to the archived state.
       await this.dropArchiveDiff(ws)
       ws.state = 'ready'
@@ -1325,7 +1337,7 @@ export class WorkspaceService {
     }
     if (isHistoryOnly(ws) || (ws.adopted && !ws.path)) {
       ws.state = 'history'
-      delete ws.archivedAt
+      this.clearArchived(ws)
       this.changed()
       return ws
     }
@@ -1333,7 +1345,7 @@ export class WorkspaceService {
       if (!existsSync(wsPath(ws))) throw new Error(`${wsPath(ws)} no longer exists`)
       const taken = ws.direct && this.directWorkspace(ws.repoId)
       if (taken) throw new Error(`${taken.name} already works in the repository folder. Archive it first.`)
-      delete ws.archivedAt
+      this.clearArchived(ws)
       ws.state = 'ready'
       this.changed()
       return ws
@@ -1356,7 +1368,7 @@ export class WorkspaceService {
     if (sameCommit || attempt.code !== 0) await restoreCheckpoint(wsPath(ws), `archive-${ws.id}`).catch(() => undefined)
     await this.configurePush(repo, ws)
     await excludeContextDir(wsPath(ws)).catch(() => undefined)
-    delete ws.archivedAt
+    this.clearArchived(ws)
     // G3: the archive-time diff and Docker line belong to the archived state.
     delete ws.dockerLeft
     await this.dropArchiveDiff(ws)
@@ -1377,6 +1389,74 @@ export class WorkspaceService {
     this.state.sessions = this.state.sessions.filter((s) => s.workspaceId !== id)
     this.state.comments = this.state.comments.filter((c) => c.workspaceId !== id)
     this.changed()
+  }
+
+  /** "Keep" in Archived: the cleanup of auto-archived workspaces never deletes a kept one. */
+  keepArchived(id: string, keep: boolean): void {
+    const ws = this.workspace(id)
+    if (ws.state !== 'archived') throw new Error('Only an archived workspace can be kept')
+    if (keep) ws.keepArchived = true
+    else delete ws.keepArchived
+    this.changed()
+  }
+
+  /**
+   * What deleting an archived workspace would lose that isn't anywhere else: commits on its local branch that aren't
+   * on the pushed branch (else the base), and uncommitted work saved only in the archive checkpoint. Null counts
+   * when git can't say. Nothing to check for a remote workspace (its sandbox goes) or one added from disk (its branch stays).
+   */
+  async archivedWork(id: string): Promise<ArchivedWork> {
+    const ws = this.workspace(id)
+    const repo = this.state.repos.find((r) => r.id === ws.repoId)
+    const none: ArchivedWork = { id, branch: ws.branch, deletesBranch: false, unpushed: 0, uncommitted: false }
+    if (!repo || ws.cloud || ws.adopted || !existsSync(repo.rootPath)) return none
+    const deletesBranch = this.deletesBranch(ws, repo)
+    const remote = repo.hasOrigin ? repo.remote || 'origin' : null
+    const work: ArchivedWork = { ...none, deletesBranch }
+    if (deletesBranch && (await revParse(repo.rootPath, `refs/heads/${ws.branch}`))) {
+      work.unpushed = null
+      for (const against of remote ? [`${remote}/${ws.branch}`, `${remote}/${ws.baseBranch}`, ws.baseBranch] : [ws.baseBranch]) {
+        const out = await git(repo.rootPath, ['rev-list', '--count', `${against}..refs/heads/${ws.branch}`], { allowFail: true })
+        if (out.code !== 0) continue
+        work.unpushed = Number(out.stdout.trim()) || 0
+        work.against = against
+        break
+      }
+    }
+    // The archive checkpoint's tree against the commit it was taken on: different means uncommitted work saved there.
+    const ref = `${CHECKPOINT_REF_PREFIX}archive-${ws.id}`
+    const tree = async (rev: string) => {
+      const out = await git(repo.rootPath, ['rev-parse', '-q', '--verify', `${rev}^{tree}`], { allowFail: true })
+      return out.code === 0 ? out.stdout.trim() : null
+    }
+    const saved = await tree(ref)
+    const head = saved ? await tree(`${ref}^1`) : null
+    work.uncommitted = Boolean(saved && head && saved !== head)
+    return work
+  }
+
+  /** Delete removes the local branch unless it's the default branch, another workspace's, or one added from disk. */
+  private deletesBranch(ws: Workspace, repo: Repo): boolean {
+    if (ws.adopted || ws.cloud || ws.branch === repo.defaultBranch) return false
+    return !this.state.workspaces.some((w) => w.id !== ws.id && w.repoId === ws.repoId && w.branch === ws.branch)
+  }
+
+  /**
+   * Delete an archived workspace for good: its chats and records, the checkpoint kept at archive time, its logs and
+   * its local branch. The remote branch and the pull request stay. A remote workspace's sandbox is deleted.
+   */
+  async deleteArchived(id: string): Promise<void> {
+    const ws = this.workspace(id)
+    if (ws.state !== 'archived') throw new Error('Archive the workspace first')
+    const repo = this.state.repos.find((r) => r.id === ws.repoId)
+    if (repo && !ws.cloud && existsSync(repo.rootPath)) {
+      if (this.deletesBranch(ws, repo)) await git(repo.rootPath, ['branch', '-D', ws.branch], { allowFail: true })
+      await deleteCheckpoints(repo.rootPath, `archive-${ws.id}`).catch(() => undefined)
+    }
+    const logs = path.dirname(this.store.logPath('x'))
+    const mine = await readdir(logs).catch(() => [] as string[])
+    await Promise.all(mine.filter((name) => name.startsWith(`${ws.id}-`)).map((name) => rm(path.join(logs, name), { recursive: true, force: true }).catch(() => undefined)))
+    await this.forgetWorkspace(id)
   }
 
   async shutdown(): Promise<void> {

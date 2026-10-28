@@ -644,6 +644,8 @@ async function main(): Promise<void> {
   void core.autoReview.resume().catch((err: unknown) => console.error('Auto review:', err))
   core.baseWatch.start()
   core.schedules.start()
+  // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).
+  core.autoArchive.start()
   // #11: an armed usage-limit resume whose time came while Foreman was closed, or the computer asleep, asks instead of sending.
   const limitResume = core.limitResume
   limitResume.start()

@@ -6084,17 +6084,18 @@ Agents
   agents.chrome-mode      on | off                 Use Claude Code with Chrome
 
 Git
-  git.branch-prefix-type            github | custom | none  Branch name prefix
-  git.branch-prefix                 text                    Branch name prefix
-  git.auto-rename-branches          on | off                Automatically rename new branches
-  git.rename-workspace-with-branch  on | off                Rename workspace when branch is named
-  git.delete-branch-on-archive      on | off                Delete branch on archive
-  git.archive-on-merge              on | off                Archive on merge
-  git.automerge                     on | off                Automerge
-  git.optional-checks-block         on | off                Treat optional checks as blocking
-  git.push-auto-setup-remote        on | off                Set upstream on plain git push
-  git.stacked-prs                   on | off                Use GitHub stacked PRs
-  git.open-pr-in                    github | graphite       Open pull requests in
+  git.branch-prefix-type            github | custom | none        Branch name prefix
+  git.branch-prefix                 text                          Branch name prefix
+  git.auto-rename-branches          on | off                      Automatically rename new branches
+  git.rename-workspace-with-branch  on | off                      Rename workspace when branch is named
+  git.delete-branch-on-archive      on | off                      Delete branch on archive
+  git.archive-on-merge              on | off                      Archive on merge
+  git.archive-cleanup-days          integer, one of 0, 7, 30, 90  Delete auto-archived workspaces after
+  git.automerge                     on | off                      Automerge
+  git.optional-checks-block         on | off                      Treat optional checks as blocking
+  git.push-auto-setup-remote        on | off                      Set upstream on plain git push
+  git.stacked-prs                   on | off                      Use GitHub stacked PRs
+  git.open-pr-in                    github | graphite             Open pull requests in
 
 Environment
   environment.env-files        list (a,b,c)             Env files
