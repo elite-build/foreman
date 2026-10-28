@@ -50,6 +50,7 @@ import type { Store } from './store'
 import { NO_HOOKS } from './worktreeBundle'
 import { isHistoryOnly, wsPath } from '../shared/workspacePath'
 import { gitlabHostFor } from '../shared/scm'
+import { parseLater } from '../shared/later'
 
 /** #1: archiving stopped at a step that preserves work; nothing was deleted. */
 export class ArchiveStepError extends Error {
@@ -1029,6 +1030,11 @@ export class WorkspaceService {
       else delete ws.status
     }
     if (patch.pinned !== undefined) ws.pinned = patch.pinned
+    if (patch.later !== undefined) {
+      const later = parseLater(patch.later)
+      if (later) ws.later = { at: new Date().toISOString(), ...later }
+      else delete ws.later
+    }
     this.changed()
   }
 

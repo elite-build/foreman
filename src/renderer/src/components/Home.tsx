@@ -2,12 +2,16 @@
 // sidebar's rail), what's running, and what was active lately.
 import { IntegrationsHome } from './IntegrationsHome'
 import { Plus } from 'lucide-react'
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import { api, attempt, markWorkspaceUnread, modKey, openFixCi, openHandOffDialog, openImportDialog, openResolveBase, openNewWorkspace, selectWorkspace, sendUnseenReviews, timeWaited, useStore } from '../store'
 import { useClock } from '../clock'
 import { BUCKET_LABEL, liveRepo, oldestFirst, triageAll, type Triage } from '../triage'
 import type { PlainKey } from '../../../shared/i18n'
 import { compareGroups } from '../../../shared/compare'
+import { DEFAULT_DONE_DAYS } from '../../../shared/board'
+import { matchesView, VIEW_LABEL, viewsOn, type ViewId } from '../../../shared/views'
+import { putAway } from '../../../shared/later'
+import { laterWhen, saveForLater, takeOutOfLater } from '../later'
 import { AddRepoCards } from './AddRepository'
 import { GetStarted } from './GetStarted'
 import { CompareRow } from './CompareDialogs'
@@ -127,6 +131,17 @@ function HomeRow({ t, repoName }: { t: Triage; repoName?: string }) {
             </LinkButton>
           )}
           {autoReview && t.bucket === 'attention' && <AutoReviewRowActions review={autoReview.review} />}
+          {/* Back from Later: take it out, or put it away for another day. */}
+          {t.laterBack && (
+            <>
+              <LinkButton size="sm" onClick={() => void takeOutOfLater(t.ws, tr)}>
+                {tr('later.dismiss')}
+              </LinkButton>
+              <Button size="sm" onClick={() => void saveForLater(t.ws, 'tomorrow', tr)}>
+                {tr('later.again')}
+              </Button>
+            </>
+          )}
           {!review && (
             <Button size="sm" onClick={() => openTriaged(t)}>
               {actionLabel(t, tr)}
@@ -191,7 +206,9 @@ export function Home() {
   const repoId = useStore((s) => liveRepo(s.snapshot!, s.sidebarView.repo))
   const repo = snapshot.repos.find((r) => r.id === repoId)
   const mod = modKey(snapshot.platform)
-  const items = triageAll(input, repoId)
+  const all = triageAll(input, repoId)
+  // Put away for later: out of Home and the board until its day (a Later section can still show them).
+  const items = all.filter((x) => !putAway(x, now))
   const attention = oldestFirst(items.filter((t) => t.bucket === 'attention'))
   // A comparison gets one row of its own; a member that needs you still shows under Needs your attention.
   const compares = compareGroups(snapshot.workspaces.filter((w) => !repoId || w.repoId === repoId), snapshot.sessions)
@@ -208,6 +225,29 @@ export function Home() {
   const t = useT()
   const { enabled: boardEnabled, layout } = useHomeLayout()
   const board = layout === 'board' && snapshot.repos.length > 0
+  // The sections Settings → Appearance → Sidebar & Home turns on, in its order.
+  const homeViews = viewsOn(snapshot.settings.views, 'home')
+  const doneDays = snapshot.settings.homeDoneDays || DEFAULT_DONE_DAYS
+  const sectionTitle = (id: ViewId) => (id === 'needs-you' ? t(BUCKET_LABEL.attention) : id === 'working' ? t(BUCKET_LABEL.working) : t(VIEW_LABEL[id]))
+  const sectionItems = (id: ViewId): Triage[] =>
+    id === 'needs-you'
+      ? attention
+      : id === 'working'
+        ? working
+        : id === 'later'
+          ? all.filter((x) => matchesView(id, x, { now, doneDays })).map((x) => (putAway(x, now) ? { ...x, label: laterWhen(x.ws, t), tone: undefined } : x))
+          : items.filter((x) => matchesView(id, x, { now, doneDays })).sort((a, b) => b.since.localeCompare(a.since))
+  const comparesCard = compares.length > 0 && (
+    <section className="home-card">
+      <header className="home-card-head">
+        <span className="home-card-title">{t('home.compare.title')}</span>
+        <span className="home-card-hint">{compares.length}</span>
+      </header>
+      {compares.map((g) => (
+        <CompareRow key={g.id} group={g} />
+      ))}
+    </section>
+  )
 
   return (
     <div className={`home ${board ? 'board-mode' : ''}`}>
@@ -283,20 +323,16 @@ export function Home() {
               <PendingHandOffs repoId={repoId ?? undefined} />
               {/* Integrations: Slack messages waiting for Send or Skip, connections that need attention. */}
               <IntegrationsHome repoId={repoId ?? undefined} />
-              <HomeCard title={t(BUCKET_LABEL.attention)} hint={t('home.board.hint.needs-you')} items={attention} repoNames={repoNames} />
-              <ScheduledCard repoId={repoId ?? undefined} />
-              <HomeCard title={t(BUCKET_LABEL.working)} items={working} repoNames={repoNames} />
-              {compares.length > 0 && (
-                <section className="home-card">
-                  <header className="home-card-head">
-                    <span className="home-card-title">{t('home.compare.title')}</span>
-                    <span className="home-card-hint">{compares.length}</span>
-                  </header>
-                  {compares.map((g) => (
-                    <CompareRow key={g.id} group={g} />
-                  ))}
-                </section>
-              )}
+              {/* Scheduled runs follow Needs you, and comparisons follow Working, wherever those sections are (or first and last without them). */}
+              {!homeViews.includes('needs-you') && <ScheduledCard repoId={repoId ?? undefined} />}
+              {homeViews.map((id) => (
+                <Fragment key={id}>
+                  <HomeCard title={sectionTitle(id)} hint={id === 'needs-you' ? t('home.board.hint.needs-you') : undefined} items={sectionItems(id)} repoNames={repoNames} />
+                  {id === 'needs-you' && <ScheduledCard repoId={repoId ?? undefined} />}
+                  {id === 'working' && comparesCard}
+                </Fragment>
+              ))}
+              {!homeViews.includes('working') && comparesCard}
               <HomeCard title={t('home.recent.title')} items={recent} repoNames={repoNames} />
               {/* #3: what happened, as history; it never resolves anything above, so it comes last. */}
               <RecentCard repoId={repoId} repoNames={repoNames} />

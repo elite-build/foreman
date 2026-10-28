@@ -9,7 +9,7 @@ export type Lane = 'needs-you' | 'working' | 'in-review' | 'ready' | 'done'
 
 export const LANES: Lane[] = ['needs-you', 'working', 'in-review', 'ready', 'done']
 
-/** How long the Done lane keeps finished work (Settings → Appearance → Home). */
+/** How long the Done lane keeps finished work (Settings → Appearance → Sidebar & Home). */
 export const DONE_DAYS_OPTIONS = [1, 3, 7, 14, 30] as const
 export const DEFAULT_DONE_DAYS = 7
 
@@ -182,14 +182,19 @@ export interface Board {
   off: Placement[]
 }
 
-/** Every workspace placed: Needs you oldest first, the other lanes most recent first. */
-export function boardLanes(items: Triage[], opts: BoardOptions): Board {
+/**
+ * Every workspace placed: Needs you oldest first, the other lanes most recent first. `shown` is the lanes
+ * Settings → Appearance → Sidebar & Home turns on; a card whose lane is off isn't on the board, and isn't listed
+ * under it either, since turning the lane off asked for that.
+ */
+export function boardLanes(items: Triage[], opts: BoardOptions, shown: readonly Lane[] = LANES): Board {
   const lanes = Object.fromEntries(LANES.map((l) => [l, [] as Placement[]])) as Record<Lane, Placement[]>
   const off: Placement[] = []
   for (const t of items) {
     const p = placeOne(t, opts)
-    if (p.lane) lanes[p.lane].push(p)
-    else if (!p.hidden) off.push(p)
+    if (p.lane) {
+      if (shown.includes(p.lane)) lanes[p.lane].push(p)
+    } else if (!p.hidden) off.push(p)
   }
   for (const lane of LANES) lanes[lane].sort((a, b) => (lane === 'needs-you' ? a.t.since.localeCompare(b.t.since) : b.t.since.localeCompare(a.t.since)))
   return { lanes, off }
@@ -215,12 +220,12 @@ export function laneAfterDrop(t: Triage, lane: Lane, opts: BoardOptions): Lane |
 }
 
 /**
- * G2 (#21): where Alt+← / Alt+→ moves a focused card: the nearest lane that takes drops in that direction
+ * G2 (#21): where Alt+← / Alt+→ moves a focused card: the nearest shown lane that takes drops in that direction
  * (In review and Done; the others come from live facts). Null when there is none that way.
  */
-export function keyboardLane(from: Lane, dir: -1 | 1): Lane | null {
-  for (let i = LANES.indexOf(from) + dir; i >= 0 && i < LANES.length; i += dir) {
-    if (canDrop(LANES[i])) return LANES[i]
+export function keyboardLane(from: Lane, dir: -1 | 1, shown: readonly Lane[] = LANES): Lane | null {
+  for (let i = shown.indexOf(from) + dir; i >= 0 && i < shown.length; i += dir) {
+    if (canDrop(shown[i])) return shown[i]
   }
   return null
 }

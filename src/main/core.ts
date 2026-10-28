@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AgentKind, Loadout } from '../shared/agents'
 import { DONE_DAYS_OPTIONS, nextPrInfo } from '../shared/board'
+import { parseViews } from '../shared/views'
 import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from '../shared/agentSlots'
 import { ENV_NAME } from '../shared/envfile'
 import { PROVIDER_KEYS } from '../shared/providers'
@@ -2864,6 +2865,7 @@ export class Core {
       // #21
       if ('homeLayout' in patch && patch.homeLayout !== 'list' && patch.homeLayout !== 'board') throw new Error('Unknown Home layout')
       if ('homeDoneDays' in patch && !(DONE_DAYS_OPTIONS as readonly number[]).includes(patch.homeDoneDays as number)) throw new Error('Unknown Done window')
+      if ('views' in patch) patch = { ...patch, views: parseViews(patch.views) }
       if ('maxRunningAgents' in patch && !isSlotSetting(patch.maxRunningAgents, MAX_RUNNING_AGENTS)) throw new Error(`Maximum agents running at once must be a whole number from 0 (no limit) to ${MAX_RUNNING_AGENTS}`)
       if ('backgroundWaitMinutes' in patch && !isSlotSetting(patch.backgroundWaitMinutes, MAX_BACKGROUND_WAIT_MINUTES)) throw new Error(`Background task wait must be a whole number of minutes from 0 (never stop) to ${MAX_BACKGROUND_WAIT_MINUTES}`)
       if ('updateInterval' in patch && !['hourly', 'every-4-hours', 'daily'].includes(patch.updateInterval as string)) throw new Error('Unknown update schedule')

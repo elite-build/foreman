@@ -13,6 +13,7 @@ import type { HiddenModels } from './modelVisibility'
 import type { AgentCatalogView, AgentPrefs, ProviderKeyAgents, TerminalAgentRun } from './agentCatalog'
 import type { SavedTerminalTab, TerminalTabSave } from './terminalTabs'
 import type { ScriptShellChoice, ShellChoice, ShellDetection } from './shells'
+import type { ViewSetting } from './views'
 import type { ReportDiagnostics } from './reportProblem'
 import type { KeepAwakeStatus } from './keepAwake'
 import type { QuitPlan, StopRecord, StopReviewRow } from './stopSafely'
@@ -542,6 +543,8 @@ export interface Workspace {
   // #21: when the status was last set, for the board's Done window. Absent for statuses set before #21.
   statusAt?: string
   pinned?: boolean
+  // Save for later (later.ts): when it was saved, and when it comes back (none: it waits until taken out).
+  later?: { at: string; until?: string }
   diffStat?: DiffStat
   error?: string
   // The first message, held because setup failed. It was never sent; "Start
@@ -1036,6 +1039,8 @@ export interface Settings {
   homeBoard: boolean
   homeLayout: HomeLayout
   homeDoneDays: number
+  // Settings → Appearance → Sidebar & Home: which views are sidebar tabs, board lanes and Home sections, in order (views.ts).
+  views: ViewSetting[]
   // Default models
   loadouts: Loadout[]
   reviewModel: Loadout
@@ -2071,7 +2076,7 @@ export type MainEvent =
 export type RepoPatch = Partial<Pick<Repo, 'name' | 'defaultBranch' | 'remote' | 'setupHintDismissed'>> & { icon?: RepoIcon | null; cloud?: Partial<Omit<RepoCloud, 'build'>> | null }
 
 // G2: `status: null` clears the status (the board's Undo, back to a workspace that had none).
-export type WorkspacePatch = Partial<Pick<Workspace, 'name' | 'pinned'>> & { status?: WorkspaceStatus | null }
+export type WorkspacePatch = Partial<Pick<Workspace, 'name' | 'pinned'>> & { status?: WorkspaceStatus | null; later?: { until?: string } | null }
 
 export type SessionPatch = Partial<
   Pick<Session, 'title' | 'agent' | 'model' | 'effort' | 'fastMode' | 'planMode' | 'autoAcceptEdits' | 'includeNote'>

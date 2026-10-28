@@ -882,3 +882,39 @@ textarea.tpl-body {
 .shell-scripts { display: inline-flex; align-items: center; gap: 6px; }
 .shell-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--text-sm); }
 .shell-preview-default { font-weight: 500; color: var(--text); }
+
+/* ---- Appearance → Sidebar & Home: the views ---- */
+
+.set-views {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.set-views-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(2, 96px) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+.set-views.three .set-views-row {
+  grid-template-columns: minmax(0, 1fr) repeat(3, 96px) auto;
+}
+.set-views-row + .set-views-row:not(.set-views-head + .set-views-row) {
+  border-top: 1px solid var(--border);
+}
+.set-views-head {
+  padding-bottom: 0;
+}
+.set-views-name {
+  min-width: 0;
+}
+.set-views-cell {
+  display: flex;
+  justify-content: center;
+  text-align: center;
+}
+.set-views-move {
+  display: flex;
+  gap: 2px;
+}

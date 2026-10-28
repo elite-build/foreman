@@ -1,13 +1,15 @@
 // #21 Board view on Home: an optional Kanban layout, off by default (Settings →
-// Appearance → Home). Lanes come from src/shared/board.ts on every render and are
-// never stored; dragging a card only sets the manual status, as the sidebar's
-// right-click Status menu does, and lanes worked out from live facts refuse drops.
+// Appearance → Sidebar & Home, which also picks the lanes and their order). Lanes come
+// from src/shared/board.ts on every render and are never stored; dragging a card only
+// sets the manual status, as the sidebar's right-click Status menu does, and lanes
+// worked out from live facts refuse drops.
 import { Ban, Check, CircleHelp, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Info, Kanban, List, X } from 'lucide-react'
 import { useEffect, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { modelInfo } from '../../../shared/agents'
-import { boardLanes, canDrop, DEFAULT_DONE_DAYS, dropStatus, keyboardLane, laneAfterDrop, LANES, moveChanges, prUnknown, type BoardOptions, type Lane, type Placement } from '../../../shared/board'
+import { boardLanes, canDrop, DEFAULT_DONE_DAYS, dropStatus, keyboardLane, laneAfterDrop, moveChanges, prUnknown, type BoardOptions, type Lane, type Placement } from '../../../shared/board'
 import { prGlyph } from '../../../shared/attention'
 import { isGitlabWorkspace } from '../../../shared/scm'
+import { viewsOn } from '../../../shared/views'
 import type { HomeLayout, Session, WorkspaceStatus } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
 import type { Locale } from '../../../shared/i18n'
@@ -432,7 +434,10 @@ export function HomeBoard({ items, repoNames, now }: { items: Triage[]; repoName
   const doneDays = useStore((s) => s.snapshot!.settings.homeDoneDays) || DEFAULT_DONE_DAYS
   const sessions = useStore((s) => s.snapshot!.sessions)
   const opts: BoardOptions = { now, doneDays }
-  const board = boardLanes(items, opts)
+  // The lanes Settings → Appearance → Sidebar & Home turns on, in its order.
+  const views = useStore((s) => s.snapshot!.settings.views)
+  const shown = viewsOn(views, 'lane')
+  const board = boardLanes(items, opts, shown)
   const [drag, setDrag] = useState<{ p: Placement; from: Lane } | null>(null)
   const [over, setOver] = useState<Lane | null>(null)
 
@@ -473,7 +478,7 @@ export function HomeBoard({ items, repoNames, now }: { items: Triage[]; repoName
   }
 
   const keyMove = async (p: Placement, from: Lane, dir: -1 | 1) => {
-    const to = keyboardLane(from, dir)
+    const to = keyboardLane(from, dir, shown)
     if (!to) return showToast(t(dir < 0 ? 'home.board.key.noLeft' : 'home.board.key.noRight'))
     await move(p, from, to)
     setFocusId(p.t.ws.id)
@@ -498,7 +503,7 @@ export function HomeBoard({ items, repoNames, now }: { items: Triage[]; repoName
   return (
     <>
       <div className={`board ${drag ? 'dragging' : ''}`}>
-        {LANES.map((lane) => {
+        {shown.map((lane) => {
           const cards = board.lanes[lane]
           const dropClass = !drag ? '' : !canDrop(lane) ? 'drop-no' : over === lane ? 'drop-ok' : 'drop-maybe'
           const hint = lane === 'done' ? t('home.board.hint.done', { count: doneDays }) : t(`home.board.hint.${lane}`)

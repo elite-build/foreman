@@ -23,6 +23,7 @@ import {
   type WorkspaceLook
 } from '../shared/attention'
 import type { PrResult } from './github'
+import { nextLaterDue } from '../shared/later'
 
 /** The parts of the state triage reads. */
 export type AttentionState = Pick<AppSnapshot, 'repos' | 'workspaces' | 'sessions' | 'stopRecord'>
@@ -57,6 +58,8 @@ export class AttentionService {
   private unread: Record<string, true> = {}
   private unreadSessions: Record<string, true> = {}
   private timer: NodeJS.Timeout | null = null
+  // Save for later: a look when the next saved workspace comes back, so the badge and history count it on time.
+  private laterTimer: NodeJS.Timeout | null = null
   private seen: string | undefined
   // The view last shown and what it was shown with, so a look that changes nothing doesn't redraw the tray.
   private shown: { key: string; context: unknown } | null = null
@@ -85,12 +88,29 @@ export class AttentionService {
 
   stop(): void {
     if (this.timer) clearTimeout(this.timer)
+    if (this.laterTimer) clearTimeout(this.laterTimer)
     this.timer = null
+    this.laterTimer = null
+  }
+
+  private wakeForLater(input: TriageInput): void {
+    if (this.laterTimer) clearTimeout(this.laterTimer)
+    this.laterTimer = null
+    const now = input.now ?? this.deps.now()
+    const next = nextLaterDue(input.snapshot.workspaces, now)
+    if (next === null) return
+    // setTimeout holds at most ~24.8 days; a later wake-up just looks again.
+    this.laterTimer = setTimeout(() => {
+      this.laterTimer = null
+      this.schedule()
+    }, Math.min(next - now + 1000, 2 ** 31 - 1))
+    this.laterTimer.unref?.()
   }
 
   /** Compare with the last look, log the transitions, and update the tray. The first look is the baseline. */
   observe(): void {
     const input = this.input()
+    this.wakeForLater(input)
     const next = lookAll(input)
     if (this.looks) {
       const drafts = [...next].flatMap(([id, look]) => transitions(id, this.looks!.get(id), look))

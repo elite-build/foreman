@@ -141,6 +141,22 @@ describe('AttentionService', () => {
     expect(approvalDraft(approval, { kind: 'tool', allow: true }, 'w1')).toMatchObject({ kind: 'approval-answered', workspaceId: 'w1', sessionId: 's1', label: 'Bash', allowed: true })
     expect(approvalDraft({ ...approval, kind: 'plan', plan: 'p' } as ApprovalRequest, { kind: 'plan', approve: false }, 'w1')).toMatchObject({ label: 'plan', allowed: false })
   })
+
+  it('looks again when a workspace saved for later comes back, so the tray counts it on time', async () => {
+    vi.useFakeTimers()
+    try {
+      const t = await setup({ repos: [], workspaces: [ws('w1', { later: { at: '2026-10-22T10:00:00Z', until: '2026-10-22T15:00:00Z' } })], sessions: [] })
+      t.service.observe()
+      expect(t.shown.at(-1)?.count).toBe(0)
+      // An hour later it's back in Needs you, with nothing else having changed.
+      t.tick(60 * 60_000)
+      vi.advanceTimersByTime(60 * 60_000 + 2000)
+      expect(t.shown.at(-1)?.count).toBe(1)
+      t.service.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('the 60-second PR poll', () => {
