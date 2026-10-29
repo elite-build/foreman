@@ -216,7 +216,7 @@ function fakeFetch(route: Route): typeof fetch {
 
 const auth = (init: RequestInit) => new Headers(init.headers).get('authorization') ?? ''
 
-// GitHub, Linear and Slack as Foreman's checks see them.
+// GitHub, Linear, Slack and Langfuse as Foreman's checks see them.
 const services: Route = (url, init) => {
   const token = auth(init).replace(/^Bearer /, '')
   if (url === 'https://api.github.com/user') {
@@ -231,6 +231,13 @@ const services: Route = (url, init) => {
     return { body: { data: { viewer: { id: 'u1', name: 'Yatin', email: 'y@acme.dev', organization: org } } } }
   }
   if (url.startsWith('https://slack.com/api/auth.test')) return { body: { ok: true, url: 'https://acme.slack.com/', team: 'Acme', team_id: 'T1', user: 'foreman', user_id: 'UBOT' } }
+  if (url.endsWith('/api/public/projects')) {
+    // A key pair names its project: pk-lf-kite-* are Kite's keys, anything else another project's.
+    const [pk, sk] = Buffer.from(auth(init).replace(/^Basic /, ''), 'base64').toString().split(':')
+    if (sk === 'sk-lf-revoked') return { status: 401, body: { message: 'Invalid credentials' } }
+    const project = pk.startsWith('pk-lf-kite') ? { id: 'p-kite', name: 'Kite' } : { id: 'p-other', name: 'Other' }
+    return { body: { data: [{ ...project, organization: { id: 'o1', name: 'Appsmith' } }] } }
+  }
   return undefined
 }
 
@@ -337,7 +344,7 @@ describe('connections', () => {
   it('exports resolved choices without credentials and imports them unresolved rather than using local defaults', () => {
     const s = state([conn({ id: 'work', service: 'linear' }), conn({ id: 'personal', service: 'linear' })], { linear: 'work' })
     const exported = exportIntegrationChoices(s, { integrations: { services: { slack: 'off' }, allowOwnMcp: ['linear'] } })!
-    expect(exported).toEqual({ services: { github: 'off', linear: 'work', slack: 'off' } })
+    expect(exported).toEqual({ services: { github: 'off', linear: 'work', slack: 'off', langfuse: 'off' } })
     const restored = importIntegrationChoices(exported)!
     s.defaults.linear = 'personal'
     expect(resolveIntegration(s, { integrations: restored }, 'linear')).toMatchObject({ state: 'broken', reason: 'missing' })
@@ -371,6 +378,34 @@ describe('connections', () => {
     expect(wrong).toMatchObject({ ok: false, error: expect.stringMatching(/Add it as a new connection/) })
     const right = await integrations.updateConnection(added.connection.id, { token: 'lin_acme2' })
     expect(right).toMatchObject({ ok: true, connection: { rev: 2 } })
+  })
+
+  it('checks a Langfuse key pair on its host, keeps the secret key in the vault and lets agents read at most', async () => {
+    const { integrations, secrets } = await rig()
+    const added = await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-kite-1', langfuse: { host: 'us.cloud.langfuse.com/', publicKey: 'pk-lf-kite-1' }, agentAccess: 'write' })
+    expect(added).toMatchObject({
+      ok: true,
+      connection: { name: 'Kite Langfuse', isDefault: true, agentAccess: 'read', langfuse: { host: 'https://us.cloud.langfuse.com', publicKey: 'pk-lf-kite-1' }, identity: { org: 'Kite', orgId: 'p-kite', user: 'Appsmith' } }
+    })
+    if (!added.ok) throw new Error('setup')
+    expect(secrets.appSecret(secretKey(added.connection.id))).toBe('sk-lf-kite-1')
+    expect(JSON.stringify(integrations.state())).not.toContain('sk-lf-kite-1')
+    expect(await integrations.updateConnection(added.connection.id, { agentAccess: 'write' })).toMatchObject({ ok: true, connection: { agentAccess: 'read' } })
+    expect(await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-kite-2', langfuse: { publicKey: 'pk-lf-kite-2' } })).toMatchObject({ ok: false, duplicateOf: 'Kite Langfuse' })
+    expect(await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-x', langfuse: { host: 'http://langfuse.acme.dev', publicKey: 'pk-lf-x' } })).toMatchObject({ ok: false, error: expect.stringMatching(/https/) })
+  })
+
+  it('replaces a Langfuse key pair only with one for the same project, and marks a revoked pair', async () => {
+    const { integrations, secrets } = await rig()
+    const added = await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-kite-1', langfuse: { publicKey: 'pk-lf-kite-1' } })
+    if (!added.ok) throw new Error('setup')
+    const id = added.connection.id
+    expect(await integrations.updateConnection(id, { token: 'sk-lf-x', langfuse: { publicKey: 'pk-lf-x' } })).toMatchObject({ ok: false, error: expect.stringMatching(/Add it as a new connection/) })
+    const rotated = await integrations.updateConnection(id, { token: 'sk-lf-kite-2', langfuse: { publicKey: 'pk-lf-kite-2' } })
+    expect(rotated).toMatchObject({ ok: true, connection: { rev: 2, langfuse: { host: 'https://cloud.langfuse.com', publicKey: 'pk-lf-kite-2' } } })
+    expect(secrets.appSecret(secretKey(id))).toBe('sk-lf-kite-2')
+    secrets.setAppSecret(secretKey(id), 'sk-lf-revoked')
+    expect((await integrations.checkConnection(id)).problem).toMatch(/refused/)
   })
 
   it('marks a refused key as needing attention; repositories that use it stop rather than fall back', async () => {

@@ -1,4 +1,4 @@
-// Integrations: named accounts (connections) for GitHub, Linear and Slack, one default per
+// Integrations: named accounts (connections) for GitHub, Linear, Slack and Langfuse, one default per
 // service, and each repository's choice. Pure, so main, the
 // renderer and tests share one resolver. Secrets never appear here: a connection's key lives
 // in the vault under `integration:<id>`. The sandbox services of remote workspaces are connections too, but not per-repository integrations:
@@ -7,12 +7,15 @@ import { githubSlug } from './githubLink'
 import type { CloudProviderId, PlanLimits, VercelPlan } from './cloud'
 
 /** Services a repository chooses a connection for (Repository settings → Integrations). */
-export type RepoIntegrationService = 'github' | 'linear' | 'slack'
+export type RepoIntegrationService = 'github' | 'linear' | 'slack' | 'langfuse'
 /** Services remote workspaces' sandboxes run on: one per provider, with the provider's id. */
 export type SandboxService = CloudProviderId
 export type IntegrationService = RepoIntegrationService | SandboxService
-export const INTEGRATION_SERVICES: RepoIntegrationService[] = ['github', 'linear', 'slack']
+export const INTEGRATION_SERVICES: RepoIntegrationService[] = ['github', 'linear', 'slack', 'langfuse']
 export const SANDBOX_SERVICES: SandboxService[] = ['vercel', 'docker', 'e2b', 'daytona']
+
+/** Each service's name in English (main's errors and agent notes; the renderer has its own). */
+export const SERVICE_LABELS: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
 
 export function isSandboxService(service: string): service is SandboxService {
   return (SANDBOX_SERVICES as string[]).includes(service)
@@ -24,7 +27,7 @@ export function sandboxServiceFor(provider: CloudProviderId): SandboxService {
 }
 
 /**
- * How a connection signs in. A token (PAT, Linear API key, Slack bot token, a sandbox service's API key) is in the
+ * How a connection signs in. A token (PAT, Linear API key, Slack bot token, Langfuse secret key, a sandbox service's API key) is in the
  * vault. `docker-context`: Docker on this computer or one it reaches (a context or DOCKER_HOST), with no secret.
  */
 export type ConnectionAuth = { kind: 'gh-account'; login: string } | { kind: 'gh-active' } | { kind: 'token' } | { kind: 'docker-context' }
@@ -34,7 +37,7 @@ export interface ConnectionIdentity {
   // The person (GitHub login, Linear user name, Slack bot name).
   user: string
   userId?: string
-  // Linear organization or Slack workspace, with its id and URL key.
+  // Linear organization, Slack workspace or Langfuse project, with its id and URL key.
   org?: string
   orgId?: string
   orgKey?: string
@@ -43,7 +46,7 @@ export interface ConnectionIdentity {
   checkedAt: string
 }
 
-/** What agents may do with a connection's tools. Linear: read only by default. GitHub reaches agents as GH_TOKEN whatever this says. */
+/** What agents may do with a connection's tools. Linear: read only by default; Langfuse: read only at most. GitHub reaches agents as GH_TOKEN whatever this says. */
 export type AgentAccess = 'off' | 'read' | 'write'
 
 export interface SlackDestination {
@@ -68,6 +71,8 @@ export interface Connection {
   slack?: { me?: { id: string; name: string }; destinations: SlackDestination[] }
   // Linear: whether the organization has Linear's own GitHub integration (it links PRs and moves issues).
   linearGithub?: boolean
+  // Langfuse: the host and the public key that go with the secret key in the vault.
+  langfuse?: LangfuseConnectionInfo
   // Vercel: the team and project sandboxes are made in, and the plan's limits as last checked.
   vercel?: VercelConnectionInfo
   // Docker, E2B, Daytona: what each connection points at besides its key (none of it secret).
@@ -75,6 +80,34 @@ export interface Connection {
   e2b?: E2bConnectionInfo
   daytona?: DaytonaConnectionInfo
   createdAt: string
+}
+
+export const LANGFUSE_CLOUD_HOST = 'https://cloud.langfuse.com'
+
+/** A Langfuse connection: the secret key is in the vault; the public key isn't secret (it names the key pair). */
+export interface LangfuseConnectionInfo {
+  host: string
+  publicKey: string
+}
+
+/**
+ * A Langfuse host as typed ("us.cloud.langfuse.com/", "https://langfuse.acme.dev/api/public") made into its
+ * origin and path, or an error. HTTPS, except on this computer: the keys travel in every request.
+ */
+export function normalizeLangfuseHost(raw: string | undefined): { host: string } | { error: string } {
+  let text = (raw ?? '').trim() || LANGFUSE_CLOUD_HOST
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = `https://${text}`
+  let url: URL
+  try {
+    url = new URL(text)
+  } catch {
+    return { error: 'Enter the Langfuse address, like https://cloud.langfuse.com.' }
+  }
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) return { error: 'The Langfuse address must use https:// (http:// only for this computer).' }
+  if (url.username || url.password || url.search || url.hash) return { error: 'Enter only the Langfuse address, without a login, query or #.' }
+  const pathname = url.pathname.replace(/\/+$/, '').replace(/\/api\/public$/, '')
+  return { host: `${url.origin}${pathname}` }
 }
 
 /** A Docker connection: a `docker context` name, or a DOCKER_HOST (ssh://user@box, tcp://host:2376). Neither: the current context. */
@@ -104,12 +137,13 @@ export interface DaytonaConnectionInfo {
   limits?: PlanLimits
 }
 
-/** A sandbox connection's non-secret settings, as added or edited. */
+/** A sandbox connection's non-secret settings, as added or edited. (Langfuse rides along: its host and public key aren't secret either.) */
 export interface SandboxConnectionInput {
   vercel?: { teamId: string; projectId: string }
   docker?: { context?: string; host?: string }
   e2b?: { domain?: string }
   daytona?: { apiUrl?: string; target?: string }
+  langfuse?: { host?: string; publicKey: string }
 }
 
 /** A Vercel connection's metadata. The token is in the vault like any other; these are not secrets. */
@@ -353,11 +387,12 @@ export function ownServerService(name: string, config: { url?: unknown; command?
   if (/mcp\.linear\.app|linear-mcp|mcp-linear|@linear\/|\blinear\b/.test(words)) return 'linear'
   if (/mcp\.slack\.com|server-slack|slack-mcp|mcp-slack|\bslack\b/.test(words)) return 'slack'
   if (/api\.githubcopilot\.com\/mcp|github-mcp-server|server-github|\bgithub\b/.test(words)) return 'github'
+  if (/langfuse/.test(words)) return 'langfuse'
   return null
 }
 
 /** claude.ai connectors Claude Code adds when signed in with a claude.ai account; tools are `mcp__claude_ai_<Name>__…`. */
-export const CLAUDE_AI_CONNECTORS: Record<RepoIntegrationService, string> = { github: 'claude_ai_GitHub', linear: 'claude_ai_Linear', slack: 'claude_ai_Slack' }
+export const CLAUDE_AI_CONNECTORS: Partial<Record<RepoIntegrationService, string>> = { github: 'claude_ai_GitHub', linear: 'claude_ai_Linear', slack: 'claude_ai_Slack' }
 
 // ---- Slack messages ----
 
@@ -455,6 +490,8 @@ export interface ConnectionPatch {
   docker?: { context?: string; host?: string }
   e2b?: { domain?: string }
   daytona?: { apiUrl?: string; target?: string }
+  // Langfuse: another host or public key (with a replacement secret key, checked together before it is saved).
+  langfuse?: { host?: string; publicKey?: string }
 }
 
 export interface SlackPersonView {

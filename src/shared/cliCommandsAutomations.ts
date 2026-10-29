@@ -545,15 +545,16 @@ ${FINGERPRINT_SAMPLE}`,
 
 // ---- integrations ----
 
-const SERVICES = ['github', 'linear', 'slack', 'vercel', 'e2b', 'daytona', 'docker'] as const
+const SERVICES = ['github', 'linear', 'slack', 'langfuse', 'vercel', 'e2b', 'daytona', 'docker'] as const
 
-const CONNECTION_DETAILS = `A connection is an account Foreman signs in to: GitHub, Linear, Slack, or a sandbox service for remote workspaces
+const CONNECTION_DETAILS = `A connection is an account Foreman signs in to: GitHub, Linear, Slack, Langfuse, or a sandbox service for remote workspaces
 (Vercel, E2B, Daytona, Docker). Secrets are never arguments: a token comes from standard input (--token-stdin) or
 from a prompt that does not echo it, and never comes back in any output (at most its last four characters).
 
   github   --gh-account <login> (a \`gh\` account), --gh-active (whichever is active now), or a token
   linear   a Linear API key
   slack    a bot token (xoxb-…)
+  langfuse a project's secret key (sk-lf-…), --public-key (pk-lf-…); --host (default https://cloud.langfuse.com)
   vercel   a token, --team-id and --project-id
   e2b      an API key; --domain for a self-hosted domain
   daytona  an API key; --api-url (default https://app.daytona.io/api), --target
@@ -575,7 +576,7 @@ export const INTEGRATION_COMMANDS: CommandSpec[] = [
     path: ['connections', 'add'],
     group: 'settings',
     summary: 'Connect an account',
-    usage: 'foreman connections add github|linear|slack|vercel|e2b|daytona|docker [--label name] [--token-stdin] [--default] […]',
+    usage: 'foreman connections add github|linear|slack|langfuse|vercel|e2b|daytona|docker [--label name] [--token-stdin] [--default] […]',
     args: [{ name: 'service', required: true, help: 'The service to connect', choices: SERVICES }],
     options: {
       label: { type: 'string', value: '<name>', help: 'What to call it', default: 'the account’s name' },
@@ -588,14 +589,16 @@ export const INTEGRATION_COMMANDS: CommandSpec[] = [
       'api-url': { type: 'string', value: '<url>', help: 'daytona: the API URL' },
       target: { type: 'string', value: '<region>', help: 'daytona: the target region' },
       context: { type: 'string', value: '<name>', help: 'docker: a Docker context' },
-      host: { type: 'string', value: '<url>', help: 'docker: a host, like ssh://user@host' },
-      'agent-access': { type: 'string', value: '<level>', choices: ['off', 'read', 'write'], help: 'linear: what agents may do with it', default: 'read' },
+      host: { type: 'string', value: '<url>', help: 'docker: a host, like ssh://user@host; langfuse: its address, like https://us.cloud.langfuse.com' },
+      'public-key': { type: 'string', value: '<pk-lf-…>', help: 'langfuse: the public key that goes with the secret key' },
+      'agent-access': { type: 'string', value: '<level>', choices: ['off', 'read', 'write'], help: 'linear, langfuse (off or read): what agents may do with it', default: 'read' },
       default: { type: 'boolean', help: 'Make it the service’s default connection' },
       'allow-duplicate': { type: 'boolean', help: 'Add it although a connection to the same account exists' }
     },
     examples: [
       'foreman connections add github --gh-account octocat --label Work',
       'printf %s "$LINEAR_API_KEY" | foreman connections add linear --token-stdin --label Acme',
+      'printf %s "$LANGFUSE_SECRET_KEY" | foreman connections add langfuse --public-key "$LANGFUSE_PUBLIC_KEY" --token-stdin --label Kite',
       'foreman connections add vercel --team-id team_123 --project-id prj_456 --token-stdin',
       'foreman connections add docker --context colima'
     ],
@@ -633,7 +636,7 @@ export const INTEGRATION_COMMANDS: CommandSpec[] = [
     summary: 'Choose a service’s default connection',
     usage: 'foreman connections default <service> <id|none>',
     args: [
-      { name: 'service', required: true, help: 'github, linear, slack, vercel, e2b, daytona or docker', choices: SERVICES },
+      { name: 'service', required: true, help: 'github, linear, slack, langfuse, vercel, e2b, daytona or docker', choices: SERVICES },
       { name: 'id', required: true, help: 'A connection of that service, or none' }
     ],
     options: {},

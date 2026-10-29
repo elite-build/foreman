@@ -7,7 +7,7 @@ import { useT } from '../../../i18n'
 import { api, attempt, showToast, useStore } from '../../../store'
 import { Button, LinkButton, MenuButton, MenuItem, Segmented, Spinner, Switch, Tag } from '../../../ui'
 import { flashSaved } from '../controls'
-import { AddConnectionDialog, ReplaceTokenDialog } from './AddConnectionDialog'
+import { AddConnectionDialog, LangfuseAccess, ReplaceTokenDialog } from './AddConnectionDialog'
 import { RenameDialog, RemoveDialog, UseInReposDialog } from './ConnectionDialogs'
 import { SERVICE_NAMES, ServiceMark } from './ServiceMark'
 import { AddSandboxDialog, SandboxServiceCard } from './SandboxServiceCard'
@@ -62,6 +62,8 @@ function identityLine(c: ConnectionView, t: ReturnType<typeof useT>): string {
     return [id?.user, t('integrations.card.pat'), key].filter(Boolean).join(' · ')
   }
   if (c.service === 'linear') return [id?.user, id?.org, id?.orgKey ? `linear.app/${id.orgKey}` : '', key].filter(Boolean).join(' · ')
+  // "Kite · Appsmith · cloud.langfuse.com · key ••••x7Qa": the project, its organization and where it runs.
+  if (c.service === 'langfuse') return [id?.org, id?.user !== id?.org ? id?.user : '', c.langfuse?.host.replace(/^https?:\/\//, ''), key].filter(Boolean).join(' · ')
   return [t('integrations.card.slackBot', { workspace: id?.org ?? 'Slack' }), c.slack?.me ? t('integrations.card.slackMe', { name: c.slack.me.name }) : ''].filter(Boolean).join(' · ')
 }
 
@@ -129,6 +131,12 @@ function ConnectionCard({ connection: c, cloudOn }: { connection: ConnectionView
                 { value: 'write', label: t('integrations.access.write') }
               ]}
             />
+          </div>
+        )}
+        {c.service === 'langfuse' && (
+          <div className="int-card-access">
+            <span className="int-card-access-label">{t('integrations.access.label')}</span>
+            <LangfuseAccess small value={c.agentAccess} onChange={(v) => void setAccess(v)} />
           </div>
         )}
         {c.service === 'slack' && <div className="int-card-access">

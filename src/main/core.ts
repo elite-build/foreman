@@ -1436,11 +1436,11 @@ export class Core {
         checks: inputs.checks,
         mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
         integrations: [
-          ...(['github', 'linear', 'slack'] as const).flatMap((service) => {
+          ...(['github', 'linear', 'slack', 'langfuse'] as const).flatMap((service) => {
             const r = this.integrations.resolve(repo.id, service)
             if (r.state === 'broken') return [`${service}: unavailable`]
             if (r.state !== 'ready') return []
-            return [`${service}: ${r.connection.name}${service === 'linear' ? ` (${r.connection.agentAccess})` : ''}`]
+            return [`${service}: ${r.connection.name}${service === 'linear' || service === 'langfuse' ? ` (${r.connection.agentAccess})` : ''}`]
           }),
           ...(own?.length ? [`your own ${[...own].sort().join(', ')} servers stay on`] : [])
         ]

@@ -86,7 +86,7 @@ export const REPO_TAB_LABELS: Record<RepoSection, PlainKey> = {
 export const PAGE_KEYWORDS: Record<PersonalSection | 'agents' | RepoSection, string[]> = {
   general: ['preferences', 'config', 'notifications', 'sound', 'send', 'language'],
   account: ['user', 'profile', 'login', 'sign in', 'github', 'privacy'],
-  integrations: ['linear', 'slack', 'github', 'token', 'api key', 'mcp', 'accounts', 'connections', 'work', 'personal', 'notifications', 'dm', 'reviewers'],
+  integrations: ['linear', 'slack', 'github', 'langfuse', 'traces', 'token', 'api key', 'mcp', 'accounts', 'connections', 'work', 'personal', 'notifications', 'dm', 'reviewers'],
   appearance: ['theme', 'colors', 'display', 'dark', 'light', 'font', 'layout', 'panes'],
   accessibility: ['low vision', 'screen reader', 'text size', 'font size', 'motion', 'animation', 'nvda', 'voiceover', 'a11y'],
   models: ['thinking', 'plan', 'fast', 'loadout', 'effort'],
@@ -156,7 +156,7 @@ export const SETTINGS: SettingEntry[] = [
   { id: 'codex-tool-approvals', page: p('account'), titleKey: 'settings.account.codexApprovals', title: 'Codex tool approvals', keywords: ['sandbox', 'permissions'] },
 
   // Integrations
-  { id: 'integrations-connections', page: p('integrations'), titleKey: 'integrations.connections.title', title: 'Connections', description: 'GitHub, Linear and Slack accounts Foreman and your agents use, with one default per service.', descriptionKey: 'settings.row.integrationsConnections.desc', keywords: ['linear', 'slack', 'github', 'token', 'api key', 'pat', 'mcp', 'work', 'personal', 'account'] },
+  { id: 'integrations-connections', page: p('integrations'), titleKey: 'integrations.connections.title', title: 'Connections', description: 'GitHub, Linear, Slack and Langfuse accounts Foreman and your agents use, with one default per service.', descriptionKey: 'settings.row.integrationsConnections.desc', keywords: ['linear', 'slack', 'github', 'langfuse', 'token', 'api key', 'pat', 'mcp', 'work', 'personal', 'account'] },
   { id: 'slack-rules', page: p('integrations'), titleKey: 'integrations.rules.title', title: 'Slack rules', description: 'Message yourself, reviewers or a channel when a pull request or agent needs attention.', descriptionKey: 'settings.row.slackRules.desc', keywords: ['slack', 'dm', 'notify', 'review', 'reviewer', 'ci', 'pull request'] },
   { id: 'slack-people', page: p('integrations'), titleKey: 'integrations.people.title', title: 'People', description: 'Which Slack person each GitHub reviewer is.', descriptionKey: 'settings.row.slackPeople.desc', keywords: ['slack', 'github', 'reviewer', 'match'] },
 
@@ -273,6 +273,7 @@ export const SETTINGS: SettingEntry[] = [
   { id: 'repo-push-auto-setup-remote', page: r('git'), titleKey: 'settings.git.pushAutoSetupRemote.label', title: 'Set upstream on plain git push' },
   { id: 'repo-linear', page: r('integrations'), titleKey: 'settings.row.repoLinear', title: 'Linear', description: 'The Linear workspace agents and New workspace use in this repository.', descriptionKey: 'settings.row.repoLinear.desc', keywords: ['linear', 'issues', 'mcp', 'work', 'personal', 'api key'] },
   { id: 'repo-slack', page: r('integrations'), titleKey: 'settings.row.repoSlack', title: 'Slack', description: 'The Slack workspace this repository’s rules message through.', descriptionKey: 'settings.row.repoSlack.desc', keywords: ['slack', 'dm', 'notifications', 'rules'] },
+  { id: 'repo-langfuse', page: r('integrations'), titleKey: 'settings.row.repoLangfuse', title: 'Langfuse', description: 'The Langfuse project agents read traces from in this repository.', descriptionKey: 'settings.row.repoLangfuse.desc', keywords: ['langfuse', 'traces', 'observability', 'llm', 'debug', 'mcp', 'api key'] },
   { id: 'repo-environment-variables', page: r('environment'), titleKey: 'settings.env.table', title: 'Environment variables', description: 'Variables for this repository; they override user ones.', descriptionKey: 'settings.row.repoEnvironmentVariables.desc' },
   { id: 'repo-env-files', page: r('environment'), titleKey: 'settings.env.files.label', title: 'Env files' },
   { id: 'setup-script', page: r('scripts'), titleKey: 'settings.row.setupScript', title: 'Setup steps', description: 'Named steps that run in order when a new workspace is created, each with a timeout', descriptionKey: 'settings.row.setupScript.desc' },

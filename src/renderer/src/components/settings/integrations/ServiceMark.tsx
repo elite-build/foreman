@@ -1,4 +1,4 @@
-// The GitHub, Linear, Slack and sandbox services' marks on their brand tiles (lucide has no brand icons).
+// The GitHub, Linear, Slack, Langfuse and sandbox services' marks on their brand tiles (lucide has no brand icons).
 import type { IntegrationService } from '../../../../../shared/integrations'
 import { GithubMark } from '../../GitlabMark'
 
@@ -35,9 +35,9 @@ function VercelGlyph({ size }: { size: number }) {
   )
 }
 
-export const SERVICE_NAMES: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
+export const SERVICE_NAMES: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
 
-// Docker: a stack of containers. E2B and Daytona: their initials (their marks aren't simple shapes).
+// Docker: a stack of containers. E2B, Daytona and Langfuse: their initials (their marks aren't simple shapes).
 function DockerGlyph({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden focusable="false">
@@ -76,6 +76,8 @@ function glyphFor(service: IntegrationService, glyph: number) {
       return <InitialsGlyph size={glyph} text="E2B" />
     case 'daytona':
       return <InitialsGlyph size={glyph} text="D" />
+    case 'langfuse':
+      return <InitialsGlyph size={glyph} text="LF" />
     default:
       return <SlackGlyph size={glyph} />
   }
