@@ -17,6 +17,7 @@ import {
   selectWorkspace,
   showBottomPanel,
   showChecksPanel,
+  showEditorSidebar,
   showRepoHome,
   toggleLeftPanel,
   toggleRightPanel
@@ -139,6 +140,16 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     await windowLayout('tiles')
     openWorkspace(f)
     return '.tiles-grid .tile .chat'
+  },
+  // The Editor layout with a file open from Changes: the diff in the middle, the chat beside it.
+  editor: async (f) => {
+    await windowLayout('editor')
+    showEditorSidebar('changes')
+    openWorkspace(f)
+    const row = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.workspace.editor-arrangement .panel-changes .change-row')].find((r) => r.title === 'src/login.ts'))
+    if (!row) return null
+    row.click()
+    return '.workspace.editor-arrangement .file-diff'
   },
   'new-workspace': (f) => {
     showRepoHome(null)

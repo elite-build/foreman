@@ -956,8 +956,9 @@ export interface DiffStat {
 export type PtyKind = 'shell' | 'run' | 'command' | 'snippet' | 'saved' | 'agent'
 
 export type ThemeSetting = 'system' | 'light' | 'dark'
-// The window's layout: one workspace with its side panel (panes), or several workspaces' chats side by side (tiles).
-export type WindowLayout = 'panes' | 'tiles'
+// The window's layout: one workspace with its side panel (panes), several workspaces' chats side by side (tiles), or
+// an editor's arrangement (editor): views picked from an activity bar, files in the centre, the chat beside them.
+export type WindowLayout = 'panes' | 'tiles' | 'editor'
 // Which window edge a pane sits against.
 export type PaneSide = 'left' | 'right'
 // Where the Run / Setup / Terminal panel goes: inside the side panel (below or above the changes) or under the chat.

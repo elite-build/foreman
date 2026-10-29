@@ -13,9 +13,9 @@
 .app.sidebar-right .sidebar-body {
   flex-direction: row-reverse;
 }
-.app.sidebar-right .repo-rail {
-  border-right: none;
-  border-left: 1px solid var(--border);
+.app.sidebar-right .sidebar-panel {
+  border-left: none;
+  border-right: 1px solid var(--border);
 }
 .app.sidebar-right .sidebar-titlebar {
   flex-direction: row-reverse;

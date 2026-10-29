@@ -33,6 +33,7 @@ import {
   showError,
   showToast,
   modKey,
+  showEditorSidebar,
   toggleBottomPanel,
   toggleLeftPanel,
   toggleRightPanel,
@@ -69,6 +70,8 @@ import { AppIcon, DefaultAppMenu, OpenInMenuItems, openDefault, useDefaultLabel 
 import { refreshOpenInApps } from '../openIn'
 import { runningStep } from '../../../shared/setupSteps'
 import { CloudBanner, CloudPill, useCloudStatusPoll, useWakeOnOpen } from './cloud/CloudBits'
+import { editorViewsFor, shownEditorView, type WorkspacePanelView } from '../editorLayout'
+import './editor/editor.css'
 
 /** The fork shortcut as shown in menus. */
 export function forkShortcut(platform: string | undefined): string {
@@ -475,6 +478,9 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const placement = useStore((s) => s.snapshot!.settings.terminalPlacement ?? 'panel-bottom')
   // Tiles: this workspace was opened full size from its tile.
   const zoomed = useStore((s) => s.snapshot!.settings.windowLayout === 'tiles' && s.tileZoom === workspaceId)
+  // Editor: the side panel shows the view the activity bar picked, beside the bar; the chat moves to the far side.
+  const editor = useStore((s) => s.snapshot!.settings.windowLayout === 'editor')
+  const editorView = useStore((s) => s.editorView)
   const snapshot = useHeldStore((s) => s.snapshot!, hidden)
   const forkToNewTab = useStore((s) => s.snapshot!.settings.forkToNewTab)
   const [openFile, setOpenFile] = useState<string | null>(null)
@@ -488,14 +494,18 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const [picking, setPicking] = useState(false)
   const [commitFile, setCommitFile] = useState<CommitFile | null>(null)
   const [commitsReload, setCommitsReload] = useState(0)
-  const [panelTab, setPanelTab] = useState<'changes' | 'commits' | 'files' | 'checks'>('changes')
+  const [panelTab, setPanelTab] = useState<WorkspacePanelView>('changes')
+  // The Editor layout's activity bar holds the tab instead (one for every workspace); asking for one shows the sidebar.
+  const showPanelTab = (tab: WorkspacePanelView) => (editor ? showEditorSidebar(tab) : setPanelTab(tab))
   // #19: the Files tab mounts the first time it's opened; Refresh there re-reads its folders.
   const [filesSeen, setFilesSeen] = useState(false)
   const [filesReload, setFilesReload] = useState(0)
-  if (panelTab === 'files' && !filesSeen) setFilesSeen(true)
   const checksRequest = useStore((s) => (s.checksPanelRequest?.workspaceId === workspaceId ? s.checksPanelRequest : null))
   useEffect(() => {
-    if (checksRequest) setPanelTab('checks')
+    if (!checksRequest) return
+    if (editor) showEditorSidebar('checks')
+    else setPanelTab('checks')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checksRequest])
   const [menu, setMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -506,6 +516,9 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const surfaces = workspaceSurfaces(ws ?? { state: 'creating' })
   const shownTab = useStore((s) => s.activeSession[workspaceId])
   const sessions = surfaces.archived ? archivedTabs(allSessions, workspaceId, shownTab) : openSessions(snapshot, workspaceId)
+  const editorPanel = editor ? shownEditorView(editorView, editorViewsFor(surfaces)) : null
+  const activeTab: WorkspacePanelView = editorPanel && editorPanel !== 'workspaces' ? editorPanel : panelTab
+  if (activeTab === 'files' && !filesSeen) setFilesSeen(true)
   const running = allSessions.some((s) => s.workspaceId === workspaceId && s.status === 'running')
   const hasWorktree = surfaces.worktree
   const hasChat = surfaces.chats
@@ -542,19 +555,21 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       const mod = navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey
       if (mod && e.altKey && e.code === 'KeyU') {
         e.preventDefault()
-        setPanelTab('changes')
+        if (editor) showEditorSidebar('changes')
+        else setPanelTab('changes')
         setSource((s) => ({ ...s, scope: toggleUncommitted(s.scope) }))
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [hidden, setSource])
+  }, [hidden, setSource, editor])
 
-  if (activeId && !openFile && !viewFile && !mounted.includes(activeId)) setMounted([...mounted, activeId])
+  // In the Editor layout the chat is beside the files, so a file being open doesn't keep it from mounting.
+  if (activeId && (editor || (!openFile && !viewFile)) && !mounted.includes(activeId)) setMounted([...mounted, activeId])
 
-  // Palette and review actions can return to a chat while a file is open.
+  // Palette and review actions can return to a chat while a file is open (the Editor layout shows both already).
   useEffect(() => {
-    if (!chatRequest) return
+    if (!chatRequest || editor) return
     setOpenFile(null)
     setViewFile(null)
     setCommitFile(null)
@@ -565,7 +580,9 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
     setOpenFile(null)
     setViewFile(null)
     setCommitFile(null)
-    showTerminalAgentTab(workspaceId, null)
+    // In the Editor layout a Terminal agent tab is beside the browser, not under it.
+    if (!editor) showTerminalAgentTab(workspaceId, null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browserActive, browser?.request, workspaceId])
 
   // Quick open and search ask the workspace to show a file.
@@ -597,11 +614,19 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
     observer.observe(el)
     return () => observer.disconnect()
   }, [hasView])
-  const panel = usePanelSize('side-panel', 380, 280, Math.min(760, windowWidth * 0.6, (containerWidth || windowWidth) - 420))
+  // Editor: the side panel shares the width with the files and the chat, so it starts narrower and keeps its own size.
+  const panel = usePanelSize(
+    editor ? 'editor-side-panel' : 'side-panel',
+    editor ? 300 : 380,
+    editor ? 240 : 280,
+    editor ? Math.min(560, windowWidth * 0.4, (containerWidth || windowWidth) - 360) : Math.min(760, windowWidth * 0.6, (containerWidth || windowWidth) - 420)
+  )
   // Terminal heights: in the side panel the changes list keeps room for a few rows; under the chat the chat keeps 300px.
   const windowHeight = useWindowHeight()
   const panelTerminal = usePanelSize('terminal-height', Math.round(windowHeight * 0.5), 120, windowHeight - 240)
   const chatTerminal = usePanelSize('bottom-height', Math.round(windowHeight * 0.35), 120, windowHeight - 320)
+  // Editor: the chat's width, shared by all workspaces; the files between it and the side panel keep at least 360px.
+  const chatPanel = usePanelSize('editor-chat', 380, 300, Math.min(760, windowWidth * 0.5, (containerWidth || windowWidth) - 360))
 
   // The terminal panel renders once into a node of its own, which moves to wherever the layout puts it,
   // so changing the layout never restarts its terminals.
@@ -622,11 +647,20 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   if (!diff && hasWorktree) panelTitle = t('workspaceView.panel.loading')
   if (diff?.files.length) panelTitle = t('workspaceView.panel.filesChanged', { count: diff.files.length })
 
-  const panelLeft = panelSide === 'left'
-  // The selected tab of the strip: a file or commit shown in the centre, a Terminal agent tab, or the chat.
-  const browserShown = browserActive && !openFile && !viewFile && !commitFile && !agentTab
-  const tabValue = browserShown ? 'browser' : openFile ? 'file:diff' : viewFile ? 'file:view' : commitFile ? 'file:commit' : agentTab ? agentTabValue(agentTab) : (activeId ?? '')
-  const belowChat = placement === 'below-chat'
+  // Editor: the side panel sits beside the activity bar (on the sidebar's side) and the chat on the other.
+  const panelLeft = editor ? sidebarSide !== 'right' : panelSide === 'left'
+  const panelShown = editor ? leftPanelOpen && editorPanel !== 'workspaces' : rightPanelOpen
+  // Three panes and Tiles: the selected tab of the strip, a file or commit shown in the centre, a Terminal agent tab, or
+  // the chat. Editor: the strip is two, the files over the middle and the chats over the chat, each with its own selection.
+  const browserShown = browserActive && !openFile && !viewFile && !commitFile && (editor || !agentTab)
+  const fileTabValue = browserShown ? 'browser' : openFile ? 'file:diff' : viewFile ? 'file:view' : commitFile ? 'file:commit' : ''
+  const chatTabValue = agentTab ? agentTabValue(agentTab) : (activeId ?? '')
+  const tabValue = fileTabValue || chatTabValue
+  // The chat's bars (note, setup hint, reviewer) stay over the chat; in Three panes the browser covers it.
+  const chatOnScreen = editor || !browserShown
+  // Editor: the terminal is always under the files.
+  const termPlacement = editor ? 'below-chat' : placement
+  const belowChat = termPlacement === 'below-chat'
   const terminalShown = terminalFullscreen || (bottomPanelOpen && (belowChat || rightPanelOpen))
   // Fullscreen (O3) moves the panel into a slot over the whole workspace; the usual slots step aside.
   const terminalDocked = surfaces.terminal && bottomPanelOpen && !terminalFullscreen
@@ -636,38 +670,324 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       <ResizeHandle panel={size} edge={edge} label={t('workspaceView.resize.terminal')} />
     </div>
   )
-  const sidebarToggle = !leftPanelOpen && (
+  // Editor: the activity bar shows the sidebar again, so the header doesn't.
+  const sidebarToggle = !leftPanelOpen && !editor && (
     <IconButton label={t('workspaceView.showSidebar', { key: `${mod}B` })} onClick={toggleLeftPanel}>
       {sidebarSide === 'right' ? <PanelRight size={15} /> : <PanelLeft size={15} />}
     </IconButton>
   )
-  const panelToggle = (
+  // The side panel's toggle; in the Editor layout the right-hand panel is the chat, so it shows and hides that.
+  const panelToggle = editor ? (
+    <IconButton label={t('editorLayout.chat.toggle', { key: `${mod}⌥B` })} pressed={rightPanelOpen} onClick={toggleRightPanel}>
+      {panelLeft ? <PanelRight size={15} /> : <PanelLeft size={15} />}
+    </IconButton>
+  ) : (
     <IconButton label={t('workspaceView.toggleSidePanel', { key: `${mod}⌥B` })} pressed={rightPanelOpen} onClick={toggleRightPanel}>
       {panelLeft ? <PanelLeft size={15} /> : <PanelRight size={15} />}
     </IconButton>
   )
+  // The toggle sits at the header's end nearest the panel it toggles.
+  const toggleAtStart = editor ? !panelLeft : panelLeft
 
   const showSession = (id: string) => {
-    setOpenFile(null)
-    setViewFile(null)
-    setCommitFile(null)
+    // In the Editor layout the file stays open beside the chat.
+    if (!editor) {
+      setOpenFile(null)
+      setViewFile(null)
+      setCommitFile(null)
+    }
     selectSession(workspaceId, id)
   }
+
+  const onTab = (id: string) => {
+    if (id === 'browser') {
+      setOpenFile(null)
+      setViewFile(null)
+      setCommitFile(null)
+      if (!editor) showTerminalAgentTab(workspaceId, null)
+      if (browser) selectBrowserTab(workspaceId, true)
+      else void attempt(() => api.openPreview(workspaceId))
+      return
+    }
+    // Editor: a chat or Terminal agent tab is picked beside the browser, which stays.
+    if (!editor) selectBrowserTab(workspaceId, false)
+    if (id.startsWith('agent:')) {
+      if (!editor) {
+        setOpenFile(null)
+        setViewFile(null)
+        setCommitFile(null)
+      }
+      showTerminalAgentTab(workspaceId, id.slice('agent:'.length))
+      return
+    }
+    // Terminal agent tabs select themselves; only a chat is ours to show.
+    if (!sessions.some((s) => s.id === id)) return
+    showTerminalAgentTab(workspaceId, null)
+    showSession(id)
+  }
+
+  // The tab strip's parts: Three panes and Tiles put them in one strip, the Editor layout in two.
+  const chatTabs = sessions.map((s) => (
+    <ChatTab
+      key={s.id}
+      session={s}
+      renaming={renaming === s.id}
+      showModel={sessions.length > 1}
+      fixed={surfaces.archived}
+      onRenameDone={() => setRenaming(null)}
+      onClose={() => void closeChat(workspaceId, s.id)}
+      onContextMenu={(x, y) => setMenu({ sessionId: s.id, x, y })}
+    />
+  ))
+  const browserTab = hasWorktree && browser && (
+    <Tab value="browser" actions={browser && <IconButton className="tab-close" label={t('browser.close')} onClick={() => closeBrowserTab(workspaceId)}><X size={11} /></IconButton>}>
+      <Globe size={12} /><span className="chat-tab-title">{t('browser.tab')}</span>
+    </Tab>
+  )
+  // #22
+  const agentTabs = <TerminalAgentTabs workspaceId={workspaceId} covered={!editor && Boolean(openFile || viewFile || commitFile)} />
+  const fileTabs = (
+    <>
+      {viewFile && !openFile && (
+        <Tab
+          value="file:view"
+          actions={
+            <IconButton className="tab-close" label={t('workspaceView.closeFile')} onClick={() => setViewFile(null)}>
+              <X size={11} />
+            </IconButton>
+          }
+        >
+          <span className="mono chat-tab-title">{viewFile.path.split('/').pop()}</span>
+        </Tab>
+      )}
+      {commitFile && !openFile && !viewFile && (
+        <Tab
+          value="file:commit"
+          actions={
+            <IconButton className="tab-close" label={t('workspaceView.closeFile')} onClick={() => setCommitFile(null)}>
+              <X size={11} />
+            </IconButton>
+          }
+        >
+          <span className="mono chat-tab-title">{commitFile.path.split('/').pop()}</span>
+          <span className="mono faint">{commitFile.commit.sha.slice(0, 7)}</span>
+        </Tab>
+      )}
+      {openFile && (
+        <Tab
+          value="file:diff"
+          actions={
+            <IconButton className="tab-close" label={t('workspaceView.closeFile')} onClick={() => setOpenFile(null)}>
+              <X size={11} />
+            </IconButton>
+          }
+        >
+          <span className="mono chat-tab-title">{openFile.split('/').pop()}</span>
+        </Tab>
+      )}
+    </>
+  )
+  const previewButton = hasWorktree && !browser && <IconButton label={t('browser.open')} onClick={() => void attempt(() => api.openPreview(workspaceId))}><Globe size={14} /></IconButton>
+  const chatButtons = (
+    <>
+      {hasWorktree && (
+        <IconButton className="new-tab" label={t('workspaceView.newChatTitle', { key: '⌘T' })} onClick={() => void newChat(workspaceId)}>
+          <Plus size={14} />
+        </IconButton>
+      )}
+      {!surfaces.archived && allSessions.some((s) => s.workspaceId === workspaceId && s.closedAt) && (
+        <IconButton label={t('workspaceView.reopenTitle', { key: '⌘⇧T' })} onClick={() => void reopenChat(workspaceId)}>
+          <RotateCcw size={13} />
+        </IconButton>
+      )}
+    </>
+  )
+  const chatBars = hasChat && chatOnScreen && (
+    <>
+      {ws.state !== 'history' && <NoteBar workspace={ws} session={sessions.find((s) => s.id === activeId)} readOnly={surfaces.archived} />}
+      {!surfaces.archived && <SetupHint workspace={ws} session={sessions.find((s) => s.id === activeId)} />}
+      {/* #17: the reviewer tab's running, stopped or stale bar. */}
+      <AutoReviewBar workspace={ws} session={sessions.find((s) => s.id === activeId)} />
+    </>
+  )
+  const chats = hasChat ? (
+    liveMounted.map((id) => {
+      const session = sessions.find((s) => s.id === id)!
+      const visible = editor ? !agentTab && id === activeId : (!browserShown || Boolean(browser?.split)) && !openFile && !viewFile && !commitFile && !agentTab && id === activeId
+      return (
+        <div key={id} className="fill" style={{ display: visible ? undefined : 'none' }}>
+          <ChatView session={session} workspace={ws} active={visible && !hidden} hidden={!visible || hidden} />
+        </div>
+      )
+    })
+  ) : (
+    <div className="fill">
+      <div className="center-empty">
+        {ws.state === 'error' ? (
+          <p className="error-text">{ws.error}</p>
+        ) : (
+          <p className="muted">
+            <Spinner size={14} /> {t('workspaceView.creating', { name: ws.name })}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+  // #22
+  const agentBodies = hasChat && <TerminalAgentBodies workspaceId={workspaceId} covered={!editor && Boolean(browserShown || openFile || viewFile || commitFile)} hidden={hidden} />
+  const fileViews = (
+    <>
+      {browser && hasWorktree && <WorkspaceBrowser workspaceId={workspaceId} visible={browserShown && !hidden && !terminalFullscreen} sessions={sessions} activeId={activeId} />}
+      {viewFile && !openFile && surfaces.local && (
+        <div className="fill">
+          <FileViewer workspaceId={workspaceId} workspacePath={wsPath(ws)} path={viewFile.path} line={viewFile.line} />
+        </div>
+      )}
+      {openFile && (
+        <div className="fill">
+          {file ? (
+            <FileDiffView file={file} workspaceId={workspaceId} expandable={workingTree} readonly={!workingTree} commentsHidden={!workingTree} scope={diff?.scope} mergeBase={diff?.mergeBase} />
+          ) : (
+            <div className="center-empty muted">{t('workspaceView.fileUnchanged')}</div>
+          )}
+        </div>
+      )}
+      {commitFile && !openFile && !viewFile && (
+        <div className="fill">
+          <CommitFileView
+            file={commitFile}
+            workspaceId={workspaceId}
+            branchFile={scope === 'all' ? (diff?.files.find((f) => f.path === commitFile.path) ?? null) : undefined}
+            onOpenInAll={() => {
+              setSource((s) => ({ ...s, scope: 'all' }))
+              showPanelTab('changes')
+              setCommitFile(null)
+              setOpenFile(commitFile.path)
+            }}
+          />
+        </div>
+      )}
+    </>
+  )
+
+  // The side panel's views, shown as tabs in Three panes and Tiles, or as the one the activity bar picked.
+  const panelActions = (
+    <>
+      {activeTab === 'changes' && hasWorktree && (
+        <DiffSourceMenu
+          workspaceId={workspaceId}
+          choice={source}
+          onChange={(next) => setSource((s) => ({ ...s, scope: next }))}
+          onPick={() => {
+            showPanelTab('commits')
+            setPicking(true)
+          }}
+        />
+      )}
+      <IconButton
+        label={t('common.refresh')}
+        onClick={() => {
+          void refresh()
+          void git.refresh()
+          if (activeTab === 'files') setFilesReload((n) => n + 1)
+          if (activeTab === 'files' && !workingTree) void treeDiff.refresh()
+          if (activeTab === 'commits') setCommitsReload((n) => n + 1)
+        }}
+        disabled={loading || !hasWorktree}
+      >
+        {loading ? <Spinner size={13} /> : <RefreshCw size={13} />}
+      </IconButton>
+    </>
+  )
+  const changesView = diff && (
+    <ChangesList
+      workspace={ws}
+      diff={diff}
+      selected={openFile}
+      onOpen={(path) => {
+        selectBrowserTab(workspaceId, false)
+        setViewFile(null)
+        setCommitFile(null)
+        setOpenFile(path)
+      }}
+      onBackToAll={() => setSource((s) => ({ ...s, scope: 'all' }))}
+    />
+  )
+  const commitsView = hasWorktree && (
+    <CommitsView
+      workspaceId={workspaceId}
+      reloadKey={`${running}:${commitsReload}`}
+      selected={commitFile}
+      picking={picking}
+      picked={source.picked}
+      onOpen={(next) => {
+        selectBrowserTab(workspaceId, false)
+        setOpenFile(null)
+        setViewFile(null)
+        setCommitFile(next)
+      }}
+      onShowUncommitted={() => {
+        setSource((s) => ({ ...s, scope: 'uncommitted' }))
+        showPanelTab('changes')
+      }}
+      onPick={setPicking}
+      onShowPicked={(shas) => {
+        setSource({ scope: 'picked', picked: shas })
+        setPicking(false)
+        showPanelTab('changes')
+      }}
+    />
+  )
+  const filesView = surfaces.local && filesSeen && (
+    <FilesTree
+      workspaceId={workspaceId}
+      diff={workingTree ? diff : treeDiff.diff}
+      selected={viewFile?.path ?? openFile}
+      reloadKey={filesReload}
+      onOpen={(path, changed) => {
+        selectBrowserTab(workspaceId, false)
+        // A deleted file isn't on disk any more; its diff is what there is to see.
+        setCommitFile(null)
+        if (changed?.status === 'deleted') {
+          setViewFile(null)
+          setOpenFile(path)
+        } else {
+          setOpenFile(null)
+          setViewFile({ path })
+        }
+      }}
+    />
+  )
+  const checksView = <ChecksView workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} />
+  const panelViewName: Record<WorkspacePanelView, string> = {
+    changes: t('workspaceView.panel.changes'),
+    commits: t('commits.tab'),
+    files: t('files.tab'),
+    checks: t('workspaceView.panel.checks')
+  }
+  const editorGrid = [panelShown && `${panel.size}px`, 'minmax(360px, 1fr)', rightPanelOpen && `${chatPanel.size}px`].filter(Boolean)
+  if (!panelLeft) editorGrid.reverse()
 
   return (
     <div
       ref={container}
-      className={`workspace ${rightPanelOpen ? 'with-panel' : ''} ${panelLeft ? 'panel-left' : ''} ${terminalFullscreen ? 'terminal-full' : ''}`}
+      className={`workspace ${panelShown ? 'with-panel' : ''} ${panelLeft ? 'panel-left' : ''} ${terminalFullscreen ? 'terminal-full' : ''} ${editor ? 'editor-arrangement' : ''}`}
       style={{
         display: hidden ? 'none' : undefined,
-        gridTemplateColumns: rightPanelOpen ? (panelLeft ? `${panel.size}px minmax(420px, 1fr)` : `minmax(420px, 1fr) ${panel.size}px`) : undefined
+        gridTemplateColumns: editor
+          ? editorGrid.join(' ')
+          : rightPanelOpen
+            ? panelLeft
+              ? `${panel.size}px minmax(420px, 1fr)`
+              : `minmax(420px, 1fr) ${panel.size}px`
+            : undefined
       }}
     >
       <section className="center" aria-labelledby={headingId}>
         <header className="titlebar drag center-header">
           <div className="header-title">
             {sidebarSide === 'left' && sidebarToggle}
-            {panelLeft && panelToggle}
+            {toggleAtStart && panelToggle}
             {surfaces.cloud ? <Cloud size={14} className="faint" aria-label={t('cloud.glyph')} /> : <Folder size={14} className="faint" />}
             <span className="header-name" id={headingId} role="heading" aria-level={1}>
               {ws.name}
@@ -708,7 +1028,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 <PanelBottom size={15} />
               </IconButton>
             )}
-            {!panelLeft && panelToggle}
+            {!toggleAtStart && panelToggle}
             {sidebarSide === 'right' && sidebarToggle}
           </div>
         </header>
@@ -716,173 +1036,69 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         {ws.transfer && <TransferBanner workspaceId={ws.id} />}
         {surfaces.cloud && <CloudBanner ws={ws} />}
         {ws.state === 'history' && !ws.transfer && <HistoryBanner ws={ws} />}
-        {hasChat && (
-          <Tabs
-            className="chat-tabs"
-            variant="chat"
-            value={tabValue}
-            onChange={(id) => {
-              if (id === 'browser') {
-                setOpenFile(null)
-                setViewFile(null)
-                setCommitFile(null)
-                showTerminalAgentTab(workspaceId, null)
-                if (browser) selectBrowserTab(workspaceId, true)
-                else void attempt(() => api.openPreview(workspaceId))
-                return
-              }
-              selectBrowserTab(workspaceId, false)
-              if (id.startsWith('agent:')) {
-                setOpenFile(null)
-                setViewFile(null)
-                setCommitFile(null)
-                showTerminalAgentTab(workspaceId, id.slice('agent:'.length))
-                return
-              }
-              // Terminal agent tabs select themselves; only a chat is ours to show.
-              if (!sessions.some((s) => s.id === id)) return
-              showTerminalAgentTab(workspaceId, null)
-              showSession(id)
-            }}
-          >
-            <TabList label={t('workspaceView.tabs.label')}>
-              {sessions.map((s) => (
-                <ChatTab
-                  key={s.id}
-                  session={s}
-                  renaming={renaming === s.id}
-                  showModel={sessions.length > 1}
-                  fixed={surfaces.archived}
-                  onRenameDone={() => setRenaming(null)}
-                  onClose={() => void closeChat(workspaceId, s.id)}
-                  onContextMenu={(x, y) => setMenu({ sessionId: s.id, x, y })}
-                />
-              ))}
-              {hasWorktree && browser && (
-                <Tab value="browser" actions={browser && <IconButton className="tab-close" label={t('browser.close')} onClick={() => closeBrowserTab(workspaceId)}><X size={11} /></IconButton>}>
-                  <Globe size={12} /><span className="chat-tab-title">{t('browser.tab')}</span>
-                </Tab>
-              )}
-              {/* #22 */}
-              <TerminalAgentTabs workspaceId={workspaceId} covered={Boolean(openFile || viewFile || commitFile)} />
-              {viewFile && !openFile && (
-                <Tab
-                  value="file:view"
-                  actions={
-                    <IconButton className="tab-close" label={t('workspaceView.closeFile')} onClick={() => setViewFile(null)}>
-                      <X size={11} />
-                    </IconButton>
-                  }
-                >
-                  <span className="mono chat-tab-title">{viewFile.path.split('/').pop()}</span>
-                </Tab>
-              )}
-              {commitFile && !openFile && !viewFile && (
-                <Tab
-                  value="file:commit"
-                  actions={
-                    <IconButton className="tab-close" label={t('workspaceView.closeFile')} onClick={() => setCommitFile(null)}>
-                      <X size={11} />
-                    </IconButton>
-                  }
-                >
-                  <span className="mono chat-tab-title">{commitFile.path.split('/').pop()}</span>
-                  <span className="mono faint">{commitFile.commit.sha.slice(0, 7)}</span>
-                </Tab>
-              )}
-              {openFile && (
-                <Tab
-                  value="file:diff"
-                  actions={
-                    <IconButton className="tab-close" label={t('workspaceView.closeFile')} onClick={() => setOpenFile(null)}>
-                      <X size={11} />
-                    </IconButton>
-                  }
-                >
-                  <span className="mono chat-tab-title">{openFile.split('/').pop()}</span>
-                </Tab>
-              )}
-              {hasWorktree && !browser && <IconButton label={t('browser.open')} onClick={() => void attempt(() => api.openPreview(workspaceId))}><Globe size={14} /></IconButton>}
-              {hasWorktree && (
-                <IconButton className="new-tab" label={t('workspaceView.newChatTitle', { key: '⌘T' })} onClick={() => void newChat(workspaceId)}>
-                  <Plus size={14} />
-                </IconButton>
-              )}
-              {!surfaces.archived && allSessions.some((s) => s.workspaceId === workspaceId && s.closedAt) && (
-                <IconButton label={t('workspaceView.reopenTitle', { key: '⌘⇧T' })} onClick={() => void reopenChat(workspaceId)}>
-                  <RotateCcw size={13} />
-                </IconButton>
-              )}
-            </TabList>
-          </Tabs>
-        )}
-        {hasChat && !browserShown && ws.state !== 'history' && <NoteBar workspace={ws} session={sessions.find((s) => s.id === activeId)} readOnly={surfaces.archived} />}
-        {hasChat && !browserShown && !surfaces.archived && <SetupHint workspace={ws} session={sessions.find((s) => s.id === activeId)} />}
-        {/* #17: the reviewer tab's running, stopped or stale bar. */}
-        {hasChat && !browserShown && <AutoReviewBar workspace={ws} session={sessions.find((s) => s.id === activeId)} />}
-
-        <div className={`center-body${browserShown && browser?.split ? ' browser-split' : ''}`}>
-          {hasChat ? (
-            liveMounted.map((id) => {
-              const session = sessions.find((s) => s.id === id)!
-              const visible = (!browserShown || Boolean(browser?.split)) && !openFile && !viewFile && !commitFile && !agentTab && id === activeId
-              return (
-                <div key={id} className="fill" style={{ display: visible ? undefined : 'none' }}>
-                  <ChatView session={session} workspace={ws} active={visible && !hidden} hidden={!visible || hidden} />
+        {editor ? (
+          <>
+            {hasWorktree && (
+              <Tabs className="chat-tabs" variant="chat" value={fileTabValue} onChange={onTab}>
+                <TabList label={t('editorLayout.files.label')}>
+                  {browserTab}
+                  {fileTabs}
+                  {previewButton}
+                </TabList>
+              </Tabs>
+            )}
+            <div className="center-body">
+              {fileViews}
+              {!browserShown && !openFile && !viewFile && !commitFile && (
+                <div className="fill">
+                  <div className="center-empty">
+                    <div className="editor-empty">
+                      <p className="muted">{t('editorLayout.empty')}</p>
+                      {hasWorktree && (
+                        <div className="editor-empty-actions">
+                          <Button size="sm" onClick={() => showEditorSidebar('changes')}>
+                            {t('editorLayout.empty.changes')}
+                          </Button>
+                          {surfaces.local && (
+                            <Button size="sm" onClick={() => showEditorSidebar('files')}>
+                              {t('editorLayout.empty.files')}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              )
-            })
-          ) : (
-            <div className="fill">
-              <div className="center-empty">
-                {ws.state === 'error' ? (
-                  <p className="error-text">{ws.error}</p>
-                ) : (
-                  <p className="muted">
-                    <Spinner size={14} /> {t('workspaceView.creating', { name: ws.name })}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-          {/* #22 */}
-          {hasChat && <TerminalAgentBodies workspaceId={workspaceId} covered={Boolean(browserShown || openFile || viewFile || commitFile)} hidden={hidden} />}
-          {browser && hasWorktree && <WorkspaceBrowser workspaceId={workspaceId} visible={browserShown && !hidden && !terminalFullscreen} sessions={sessions} activeId={activeId} />}
-          {viewFile && !openFile && surfaces.local && (
-            <div className="fill">
-              <FileViewer workspaceId={workspaceId} workspacePath={wsPath(ws)} path={viewFile.path} line={viewFile.line} />
-            </div>
-          )}
-          {openFile && (
-            <div className="fill">
-              {file ? (
-                <FileDiffView file={file} workspaceId={workspaceId} expandable={workingTree} readonly={!workingTree} commentsHidden={!workingTree} scope={diff?.scope} mergeBase={diff?.mergeBase} />
-              ) : (
-                <div className="center-empty muted">{t('workspaceView.fileUnchanged')}</div>
               )}
             </div>
-          )}
-          {commitFile && !openFile && !viewFile && (
-            <div className="fill">
-              <CommitFileView
-                file={commitFile}
-                workspaceId={workspaceId}
-                branchFile={scope === 'all' ? (diff?.files.find((f) => f.path === commitFile.path) ?? null) : undefined}
-                onOpenInAll={() => {
-                  setSource((s) => ({ ...s, scope: 'all' }))
-                  setPanelTab('changes')
-                  setCommitFile(null)
-                  setOpenFile(commitFile.path)
-                }}
-              />
+          </>
+        ) : (
+          <>
+            {hasChat && (
+              <Tabs className="chat-tabs" variant="chat" value={tabValue} onChange={onTab}>
+                <TabList label={t('workspaceView.tabs.label')}>
+                  {chatTabs}
+                  {browserTab}
+                  {agentTabs}
+                  {fileTabs}
+                  {previewButton}
+                  {chatButtons}
+                </TabList>
+              </Tabs>
+            )}
+            {chatBars}
+            <div className={`center-body${browserShown && browser?.split ? ' browser-split' : ''}`}>
+              {chats}
+              {agentBodies}
+              {fileViews}
             </div>
-          )}
-        </div>
+          </>
+        )}
         {belowChat && terminalDocked && terminalSlot(chatTerminal, 'top', 'below-chat')}
       </section>
 
       {/* Hidden rather than unmounted so its terminals keep running. */}
-      <aside className={`side-panel ${panel.size < 380 ? 'compact' : ''}`} aria-label={t('workspaceView.panel.label')} style={{ display: rightPanelOpen ? undefined : 'none' }}>
+      <aside className={`side-panel ${panel.size < 380 ? 'compact' : ''}`} aria-label={t('workspaceView.panel.label')} style={{ display: panelShown ? undefined : 'none' }}>
         <ResizeHandle panel={panel} edge={panelLeft ? 'right' : 'left'} label={t('workspaceView.resize.side')} />
         {surfaces.archived ? (
           <ArchivedPanel workspace={ws} />
@@ -901,125 +1117,83 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
               </div>
             </header>
             {!running && git.status?.primary.action === 'archive' && git.status.pr?.state === 'MERGED' && <MergedProgress pr={git.status.pr} />}
-            {placement === 'panel-top' && terminalDocked && terminalSlot(panelTerminal, 'bottom', 'panel-top')}
-            <Tabs className="panel-tabs-root" variant="underline" value={panelTab} onChange={(v) => setPanelTab(v as typeof panelTab)}>
-              <TabList label={t('workspaceView.panel.tabs')}>
-                <Tab value="changes">
-                  {t('workspaceView.panel.changes')} {diff?.files.length ? <span className="faint">{diff.files.length}</span> : null}
-                </Tab>
-                {hasWorktree && (
-                  <Tab value="commits">
-                    {t('commits.tab')} {commitCount?.count ? <span className="faint">{commitCount.count}{commitCount.more ? '+' : ''}</span> : null}
+            {termPlacement === 'panel-top' && terminalDocked && terminalSlot(panelTerminal, 'bottom', 'panel-top')}
+            {editor ? (
+              // The activity bar is this view's tab strip, so the view says its own name, with the strip's actions beside it.
+              <section className="panel-tabs-root" aria-labelledby={`${headingId}-view`}>
+                <div className="editor-view-head">
+                  <span className="header-name" id={`${headingId}-view`} role="heading" aria-level={2}>
+                    {panelViewName[activeTab]} {activeTab === 'changes' && diff?.files.length ? <span className="faint">{diff.files.length}</span> : null}
+                  </span>
+                  <span className="spacer" />
+                  {panelActions}
+                </div>
+                <div className="panel-changes">
+                  {activeTab === 'changes' && changesView}
+                  {activeTab === 'commits' && commitsView}
+                  {/* #19: kept mounted once opened, so open folders survive switching views. */}
+                  <div hidden={activeTab !== 'files'}>{filesView}</div>
+                  {activeTab === 'checks' && checksView}
+                </div>
+              </section>
+            ) : (
+              <Tabs className="panel-tabs-root" variant="underline" value={panelTab} onChange={(v) => setPanelTab(v as WorkspacePanelView)}>
+                <TabList label={t('workspaceView.panel.tabs')}>
+                  <Tab value="changes">
+                    {t('workspaceView.panel.changes')} {diff?.files.length ? <span className="faint">{diff.files.length}</span> : null}
                   </Tab>
-                )}
-                {surfaces.local && <Tab value="files">{t('files.tab')}</Tab>}
-                <Tab value="checks">
-                  {t('workspaceView.panel.checks')}
-                  {git.status?.pr?.checks.some((c) => c.state === 'failure') && <Status compact tone="error" label={t('workspaceView.panel.checksFailing')} />}
-                  {git.status?.pr?.checks.some((c) => c.state === 'pending') && <Status compact tone="warn" label={t('workspaceView.panel.checksPending')} />}
-                </Tab>
-                <span className="spacer" />
-                {panelTab === 'changes' && hasWorktree && (
-                  <DiffSourceMenu
-                    workspaceId={workspaceId}
-                    choice={source}
-                    onChange={(next) => setSource((s) => ({ ...s, scope: next }))}
-                    onPick={() => {
-                      setPanelTab('commits')
-                      setPicking(true)
-                    }}
-                  />
-                )}
-                <IconButton
-                  label={t('common.refresh')}
-                  onClick={() => {
-                    void refresh()
-                    void git.refresh()
-                    if (panelTab === 'files') setFilesReload((n) => n + 1)
-                    if (panelTab === 'files' && !workingTree) void treeDiff.refresh()
-                    if (panelTab === 'commits') setCommitsReload((n) => n + 1)
-                  }}
-                  disabled={loading || !hasWorktree}
-                >
-                  {loading ? <Spinner size={13} /> : <RefreshCw size={13} />}
-                </IconButton>
-              </TabList>
-              <div className="panel-changes">
-                <TabPanel value="changes">
-                  {diff && (
-                    <ChangesList
-                      workspace={ws}
-                      diff={diff}
-                      selected={openFile}
-                      onOpen={(path) => {
-                        selectBrowserTab(workspaceId, false)
-                        setViewFile(null)
-                        setCommitFile(null)
-                        setOpenFile(path)
-                      }}
-                      onBackToAll={() => setSource((s) => ({ ...s, scope: 'all' }))}
-                    />
-                  )}
-                </TabPanel>
-                <TabPanel value="commits">
                   {hasWorktree && (
-                    <CommitsView
-                      workspaceId={workspaceId}
-                      reloadKey={`${running}:${commitsReload}`}
-                      selected={commitFile}
-                      picking={picking}
-                      picked={source.picked}
-                      onOpen={(next) => {
-                        selectBrowserTab(workspaceId, false)
-                        setOpenFile(null)
-                        setViewFile(null)
-                        setCommitFile(next)
-                      }}
-                      onShowUncommitted={() => {
-                        setSource((s) => ({ ...s, scope: 'uncommitted' }))
-                        setPanelTab('changes')
-                      }}
-                      onPick={setPicking}
-                      onShowPicked={(shas) => {
-                        setSource({ scope: 'picked', picked: shas })
-                        setPicking(false)
-                        setPanelTab('changes')
-                      }}
-                    />
+                    <Tab value="commits">
+                      {t('commits.tab')} {commitCount?.count ? <span className="faint">{commitCount.count}{commitCount.more ? '+' : ''}</span> : null}
+                    </Tab>
                   )}
-                </TabPanel>
-                {/* #19: kept mounted once opened, so open folders survive switching tabs. */}
-                <TabPanel value="files" keepMounted>
-                  {surfaces.local && filesSeen && (
-                    <FilesTree
-                      workspaceId={workspaceId}
-                      diff={workingTree ? diff : treeDiff.diff}
-                      selected={viewFile?.path ?? openFile}
-                      reloadKey={filesReload}
-                      onOpen={(path, changed) => {
-                        selectBrowserTab(workspaceId, false)
-                        // A deleted file isn't on disk any more; its diff is what there is to see.
-                        setCommitFile(null)
-                        if (changed?.status === 'deleted') {
-                          setViewFile(null)
-                          setOpenFile(path)
-                        } else {
-                          setOpenFile(null)
-                          setViewFile({ path })
-                        }
-                      }}
-                    />
-                  )}
-                </TabPanel>
-                <TabPanel value="checks">
-                  <ChecksView workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} />
-                </TabPanel>
-              </div>
-            </Tabs>
-            {placement === 'panel-bottom' && terminalDocked && terminalSlot(panelTerminal, 'top', 'panel-bottom')}
+                  {surfaces.local && <Tab value="files">{t('files.tab')}</Tab>}
+                  <Tab value="checks">
+                    {t('workspaceView.panel.checks')}
+                    {git.status?.pr?.checks.some((c) => c.state === 'failure') && <Status compact tone="error" label={t('workspaceView.panel.checksFailing')} />}
+                    {git.status?.pr?.checks.some((c) => c.state === 'pending') && <Status compact tone="warn" label={t('workspaceView.panel.checksPending')} />}
+                  </Tab>
+                  <span className="spacer" />
+                  {panelActions}
+                </TabList>
+                <div className="panel-changes">
+                  <TabPanel value="changes">{changesView}</TabPanel>
+                  <TabPanel value="commits">{commitsView}</TabPanel>
+                  {/* #19: kept mounted once opened, so open folders survive switching tabs. */}
+                  <TabPanel value="files" keepMounted>
+                    {filesView}
+                  </TabPanel>
+                  <TabPanel value="checks">{checksView}</TabPanel>
+                </div>
+              </Tabs>
+            )}
+            {termPlacement === 'panel-bottom' && terminalDocked && terminalSlot(panelTerminal, 'top', 'panel-bottom')}
           </>
         )}
       </aside>
+      {editor && (
+        // Hidden rather than unmounted, like the side panel, so the chats keep their place and drafts.
+        <aside className={`editor-chat ${panelLeft ? 'edge-left' : 'edge-right'}`} aria-label={t('editorLayout.chat.label')} style={{ display: rightPanelOpen ? undefined : 'none' }}>
+          <ResizeHandle panel={chatPanel} edge={panelLeft ? 'left' : 'right'} label={t('editorLayout.chat.resize')} />
+          <header className="titlebar drag panel-header">
+            <span className="panel-status">{t('editorLayout.chat.label')}</span>
+          </header>
+          {hasChat && (
+            <Tabs className="chat-tabs" variant="chat" value={chatTabValue} onChange={onTab}>
+              <TabList label={t('workspaceView.tabs.label')}>
+                {chatTabs}
+                {agentTabs}
+                {chatButtons}
+              </TabList>
+            </Tabs>
+          )}
+          {chatBars}
+          <div className="editor-chat-body">
+            {chats}
+            {agentBodies}
+          </div>
+        </aside>
+      )}
       {terminalFullscreen && surfaces.terminal && <div className="bottom-slot terminal-fullscreen" ref={placeTerminal} />}
       {createPortal(<LiveBottomPanel workspaceId={workspaceId} visible={!hidden && terminalShown} />, terminalHost)}
 

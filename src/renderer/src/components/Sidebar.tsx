@@ -438,7 +438,11 @@ const EMPTY: Record<Exclude<SidebarFilter, 'all'>, PlainKey> = {
   later: 'sidebar.empty.later'
 }
 
-export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: PaneSide }) {
+/**
+ * The sidebar: the repository rail and the workspace list. The Editor layout puts its activity bar (`views`) at the top of
+ * the rail and hides the list (`list` false) while the rail has picked another view or the sidebar is hidden.
+ */
+export function Sidebar({ resize, side = 'left', views, list = true }: { resize?: PanelSize; side?: PaneSide; views?: ReactNode; list?: boolean }) {
   const t = useT()
   const input = useTriageInput()
   const { snapshot, unread } = input
@@ -479,147 +483,160 @@ export function Sidebar({ resize, side = 'left' }: { resize?: PanelSize; side?: 
 
   return (
     <aside className="sidebar" aria-label={t('sidebar.label')}>
-      {resize && <ResizeHandle panel={resize} edge={side === 'right' ? 'left' : 'right'} label={t('sidebar.resize')} />}
+      {resize && list && <ResizeHandle panel={resize} edge={side === 'right' ? 'left' : 'right'} label={t('sidebar.resize')} />}
       <div className="titlebar drag sidebar-titlebar">
-        <PhonePill />
-        <IconButton label={t('sidebar.hide', { key: `${mod}B` })} onClick={toggleLeftPanel}>
-          {side === 'right' ? <PanelRightClose size={15} /> : <PanelLeftClose size={15} />}
-        </IconButton>
+        {list && (
+          <>
+            <PhonePill />
+            <IconButton label={t('sidebar.hide', { key: `${mod}B` })} onClick={toggleLeftPanel}>
+              {side === 'right' ? <PanelRightClose size={15} /> : <PanelLeftClose size={15} />}
+            </IconButton>
+          </>
+        )}
       </div>
       <div className="sidebar-body">
-        <RepoRail attention={attention} />
-        <div className="sidebar-panel">
-          <header className="sidebar-head">
-            <div className="sidebar-head-text">
-              <div className="sidebar-title" role="heading" aria-level={2}>
-                {repo?.name ?? t('home.board.allRepos')}
+        {views ? (
+          <div className="rail-column">
+            {views}
+            <RepoRail attention={attention} />
+          </div>
+        ) : (
+          <RepoRail attention={attention} />
+        )}
+        {list && (
+          <div className="sidebar-panel">
+            <header className="sidebar-head">
+              <div className="sidebar-head-text">
+                <div className="sidebar-title" role="heading" aria-level={2}>
+                  {repo?.name ?? t('home.board.allRepos')}
+                </div>
+                <div className="sidebar-subtitle">
+                  {repo
+                    ? t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })
+                    : t('sidebar.subtitle.repos', { count: snapshot.repos.length })}
+                </div>
               </div>
-              <div className="sidebar-subtitle">
-                {repo
-                  ? t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })
-                  : t('sidebar.subtitle.repos', { count: snapshot.repos.length })}
-              </div>
+              {repo && (
+                <IconButton label={t('sidebar.repoSettings')} onClick={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>
+                  <Settings size={14} />
+                </IconButton>
+              )}
+            </header>
+            <AutomationsEntry />
+            <AssistantEntry />
+            <Button variant="primary" className="sidebar-new" data-tour="new-workspace" aria-keyshortcuts={`${snapshot.platform === 'darwin' ? 'Meta' : 'Control'}+N`} disabled={!newRepoId} icon={<Plus size={14} />} onClick={() => newRepoId && openNewWorkspace(newRepoId)}>
+              {t('palette.newWorkspace')}
+              <Kbd className="sidebar-new-hint" aria-hidden>
+                {mod}N
+              </Kbd>
+            </Button>
+            <div className="sidebar-search">
+              <Search size={14} aria-hidden />
+              <TextInput
+                type="search"
+                className="sidebar-search-input"
+                aria-label={t('sidebar.search.placeholder')}
+                placeholder={t('sidebar.search.placeholder')}
+                value={view.query}
+                spellCheck={false}
+                onChange={(e) => setSidebarQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setSidebarQuery('')}
+              />
+              {view.query && (
+                <IconButton label={t('sidebar.search.clear')} onClick={() => setSidebarQuery('')}>
+                  <X size={12} />
+                </IconButton>
+              )}
             </div>
-            {repo && (
-              <IconButton label={t('sidebar.repoSettings')} onClick={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>
-                <Settings size={14} />
-              </IconButton>
+            <div className="sidebar-summary">
+              <span className={running ? 'running' : ''}>{t('sidebar.runningCount', { count: running })}</span>
+              {needYou > 0 && (
+                <ChipButton pill tone="warn" pressed={filter === 'needs-you'} onClick={() => setSidebarFilter(filter === 'needs-you' ? tabs[0] : 'needs-you')}>
+                  {t('sidebar.needsYouCount', { count: needYou })}
+                </ChipButton>
+              )}
+            </div>
+            <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
+              <TabList label={t('sidebar.filter.label')}>
+                {tabs.map((id) => (
+                  <Tab key={id} value={id}>
+                    {t(VIEW_LABEL[id])}
+                  </Tab>
+                ))}
+              </TabList>
+            </Tabs>
+            {anyUnread && (
+              <div className="sidebar-actions">
+                <LinkButton size="sm" onClick={markAllRead}>
+                  {t('sidebar.markAllRead')}
+                </LinkButton>
+              </div>
             )}
-          </header>
-          <AutomationsEntry />
-          <AssistantEntry />
-          <Button variant="primary" className="sidebar-new" data-tour="new-workspace" aria-keyshortcuts={`${snapshot.platform === 'darwin' ? 'Meta' : 'Control'}+N`} disabled={!newRepoId} icon={<Plus size={14} />} onClick={() => newRepoId && openNewWorkspace(newRepoId)}>
-            {t('palette.newWorkspace')}
-            <Kbd className="sidebar-new-hint" aria-hidden>
-              {mod}N
-            </Kbd>
-          </Button>
-          <div className="sidebar-search">
-            <Search size={14} aria-hidden />
-            <TextInput
-              type="search"
-              className="sidebar-search-input"
-              aria-label={t('sidebar.search.placeholder')}
-              placeholder={t('sidebar.search.placeholder')}
-              value={view.query}
-              spellCheck={false}
-              onChange={(e) => setSidebarQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Escape' && setSidebarQuery('')}
-            />
-            {view.query && (
-              <IconButton label={t('sidebar.search.clear')} onClick={() => setSidebarQuery('')}>
-                <X size={12} />
-              </IconButton>
-            )}
-          </div>
-          <div className="sidebar-summary">
-            <span className={running ? 'running' : ''}>{t('sidebar.runningCount', { count: running })}</span>
-            {needYou > 0 && (
-              <ChipButton pill tone="warn" pressed={filter === 'needs-you'} onClick={() => setSidebarFilter(filter === 'needs-you' ? tabs[0] : 'needs-you')}>
-                {t('sidebar.needsYouCount', { count: needYou })}
-              </ChipButton>
-            )}
-          </div>
-          <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
-            <TabList label={t('sidebar.filter.label')}>
-              {tabs.map((id) => (
-                <Tab key={id} value={id}>
-                  {t(VIEW_LABEL[id])}
-                </Tab>
+            <div className="sidebar-scroll">
+              {groups.map((group) => (
+                <Fragment key={group.bucket}>
+                  <section className={`ws-group ${group.bucket}`} aria-labelledby={`ws-group-${group.bucket}`}>
+                    <div className="ws-group-head">
+                      <span id={`ws-group-${group.bucket}`} role="heading" aria-level={3}>
+                        {t(BUCKET_LABEL[group.bucket])}
+                      </span>
+                      <span className="ws-group-count">{group.items.length}</span>
+                    </div>
+                    {group.items.map((t) => (
+                      <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />
+                    ))}
+                  </section>
+                  {group.bucket === 'attention' && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
+                </Fragment>
               ))}
-            </TabList>
-          </Tabs>
-          {anyUnread && (
-            <div className="sidebar-actions">
-              <LinkButton size="sm" onClick={markAllRead}>
-                {t('sidebar.markAllRead')}
-              </LinkButton>
+              {!groups.some((g) => g.bucket === 'attention') && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
+              {groups.length === 0 && compares.length === 0 && (
+                <div className="sidebar-empty">
+                  {view.query
+                    ? t('sidebar.empty.noMatch')
+                    : filter !== 'all'
+                      ? t(EMPTY[filter])
+                      : snapshot.repos.length
+                        ? t('sidebar.empty.noWorkspaces')
+                        : t('sidebar.empty.noRepos')}
+                </div>
+              )}
+              {laterCount > 0 && filter !== 'later' && !tabs.includes('later') && (
+                <LinkButton size="sm" className="sidebar-more" onClick={() => setSidebarFilter('later')}>
+                  {t('later.link', { count: laterCount })}
+                </LinkButton>
+              )}
+              {hiddenFinished > 0 && (
+                <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
+                  {t('sidebar.showFinished', { count: hiddenFinished })}
+                </LinkButton>
+              )}
+              {view.showFinished && filter === 'all' && !view.query && scoped.some((t) => t.bucket === 'finished') && (
+                <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
+                  {t('sidebar.hideFinished')}
+                </LinkButton>
+              )}
             </div>
-          )}
-          <div className="sidebar-scroll">
-            {groups.map((group) => (
-              <Fragment key={group.bucket}>
-                <section className={`ws-group ${group.bucket}`} aria-labelledby={`ws-group-${group.bucket}`}>
-                  <div className="ws-group-head">
-                    <span id={`ws-group-${group.bucket}`} role="heading" aria-level={3}>
-                      {t(BUCKET_LABEL[group.bucket])}
-                    </span>
-                    <span className="ws-group-count">{group.items.length}</span>
-                  </div>
-                  {group.items.map((t) => (
-                    <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />
-                  ))}
-                </section>
-                {group.bucket === 'attention' && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
-              </Fragment>
-            ))}
-            {!groups.some((g) => g.bucket === 'attention') && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
-            {groups.length === 0 && compares.length === 0 && (
-              <div className="sidebar-empty">
-                {view.query
-                  ? t('sidebar.empty.noMatch')
-                  : filter !== 'all'
-                    ? t(EMPTY[filter])
-                    : snapshot.repos.length
-                      ? t('sidebar.empty.noWorkspaces')
-                      : t('sidebar.empty.noRepos')}
-              </div>
-            )}
-            {laterCount > 0 && filter !== 'later' && !tabs.includes('later') && (
-              <LinkButton size="sm" className="sidebar-more" onClick={() => setSidebarFilter('later')}>
-                {t('later.link', { count: laterCount })}
-              </LinkButton>
-            )}
-            {hiddenFinished > 0 && (
-              <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
-                {t('sidebar.showFinished', { count: hiddenFinished })}
-              </LinkButton>
-            )}
-            {view.showFinished && filter === 'all' && !view.query && scoped.some((t) => t.bucket === 'finished') && (
-              <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
-                {t('sidebar.hideFinished')}
-              </LinkButton>
-            )}
-          </div>
-          <UpdateNotice />
-          <SttChip />
-          <KeepAwakeChip />
-          <footer className="sidebar-footer">
-            <ResourceUsage />
-            <Button variant="ghost" size="sm" icon={<Archive size={13} />} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
-              {archived ? t('sidebar.archivedCount', { count: archived }) : t('sidebar.archived')}
-            </Button>
-            <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
-              {t('sidebar.import')}
-            </Button>
-            {/* The running version, always in sight; Settings → General has it in full with Check now. */}
-            {snapshot.appVersion && (
-              <Button variant="ghost" size="sm" className="sidebar-version" onClick={() => openSettingsPage({ section: 'general', scrollTo: 'check-for-updates' })} title={t('sidebar.version.title', { version: snapshot.appVersion })}>
-                {t('sidebar.version', { version: snapshot.appVersion })}
+            <UpdateNotice />
+            <SttChip />
+            <KeepAwakeChip />
+            <footer className="sidebar-footer">
+              <ResourceUsage />
+              <Button variant="ghost" size="sm" icon={<Archive size={13} />} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
+                {archived ? t('sidebar.archivedCount', { count: archived }) : t('sidebar.archived')}
               </Button>
-            )}
-          </footer>
-        </div>
+              <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
+                {t('sidebar.import')}
+              </Button>
+              {/* The running version, always in sight; Settings → General has it in full with Check now. */}
+              {snapshot.appVersion && (
+                <Button variant="ghost" size="sm" className="sidebar-version" onClick={() => openSettingsPage({ section: 'general', scrollTo: 'check-for-updates' })} title={t('sidebar.version.title', { version: snapshot.appVersion })}>
+                  {t('sidebar.version', { version: snapshot.appVersion })}
+                </Button>
+              )}
+            </footer>
+          </div>
+        )}
       </div>
     </aside>
   )

@@ -192,7 +192,10 @@ export function CommandPalette() {
     const { windowLayout, sidebarSide, sidePanelSide, terminalPlacement } = snapshot.settings
     const layout = (id: string, label: string, patch: Partial<Settings>) =>
       list.push({ id, label, group: t('palette.group.layout'), run: close(() => void attempt(() => api.updateSettings(patch))) })
-    layout('layout-window', windowLayout === 'tiles' ? t('palette.layout.panes') : t('palette.layout.tiles'), { windowLayout: windowLayout === 'tiles' ? 'panes' : 'tiles' })
+    // The other window layouts, each one command.
+    if (windowLayout !== 'panes') layout('layout-window-panes', t('palette.layout.panes'), { windowLayout: 'panes' })
+    if (windowLayout !== 'tiles') layout('layout-window-tiles', t('palette.layout.tiles'), { windowLayout: 'tiles' })
+    if (windowLayout !== 'editor') layout('layout-window-editor', t('palette.layout.editor'), { windowLayout: 'editor' })
     layout('layout-sidebar', sidebarSide === 'right' ? t('palette.layout.sidebarLeft') : t('palette.layout.sidebarRight'), { sidebarSide: sidebarSide === 'right' ? 'left' : 'right' })
     layout('layout-panel', sidePanelSide === 'left' ? t('palette.layout.panelRight') : t('palette.layout.panelLeft'), { sidePanelSide: sidePanelSide === 'left' ? 'right' : 'left' })
     if (terminalPlacement !== 'below-chat') layout('layout-terminal-chat', t('palette.layout.terminalChat'), { terminalPlacement: 'below-chat' })
