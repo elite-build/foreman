@@ -4,8 +4,8 @@
 // request's parameters (the command reads it from stdin) and is never written to a result, a message or a log: at most its last
 // four characters, which the window shows too.
 import { CLOUD_PROVIDERS } from '../../shared/cloud'
-import { DEFAULT_TEMPLATES, INTEGRATION_SERVICES, recipientsFor, SANDBOX_SERVICES, SLACK_EVENTS, sendsWithoutAsking, type AgentAccess, type ConnectionView, type IntegrationService, type NewConnection, type PersonLink, type SlackDelivery, type SlackRule } from '../../shared/integrations'
-import type { ConnectionRow, ConnectionsAddResult, ConnectionsApplyResult, ConnectionsCheckResult, ConnectionsDefaultResult, ConnectionsListResult, ConnectionsRemoveResult, DeliveryRow, LinearIssueRow, LinearIssuesResult, PersonRow, SlackActionResult, SlackDeliveriesResult, SlackPeopleResult, SlackRuleRow, SlackRulesResult } from '../../shared/cli/integrations'
+import { AGENT_TOOL_SERVICES, DEFAULT_TEMPLATES, INTEGRATION_SERVICES, recipientsFor, SANDBOX_SERVICES, SLACK_EVENTS, sendsWithoutAsking, type AgentAccess, type ConnectionPatch, type ConnectionView, type IntegrationService, type NewConnection, type PersonLink, type SlackDelivery, type SlackRule } from '../../shared/integrations'
+import type { ConnectionRow, ConnectionsAddResult, ConnectionsApplyResult, ConnectionsCheckResult, ConnectionsDefaultResult, ConnectionsEditResult, ConnectionsListResult, ConnectionsRemoveResult, DeliveryRow, LinearIssueRow, LinearIssuesResult, PersonRow, SlackActionResult, SlackDeliveriesResult, SlackPeopleResult, SlackRuleRow, SlackRulesResult } from '../../shared/cli/integrations'
 import type { AppSnapshot, Repo } from '../../shared/types'
 import type { CliHost } from './host'
 import { columns, flagParam, invalid, paramsObject, textList, textParam, type MethodDef } from './kit'
@@ -66,7 +66,8 @@ function connectionRow(c: ConnectionView): ConnectionRow {
     usedBy: c.usedBy,
     agentAccess: c.agentAccess,
     ...(c.hint ? { hint: c.hint } : {}),
-    ...(details ? { details } : {})
+    ...(details ? { details } : {}),
+    ...((AGENT_TOOL_SERVICES as IntegrationService[]).includes(c.service) ? { newWorkspaces: c.startsOff ? ('off' as const) : ('on' as const) } : {})
   }
 }
 
@@ -191,6 +192,40 @@ const connectionsRemove: MethodDef = {
     if (!flagParam(p, 'confirmed')) return { removed: false, needsConfirmation: true, impact, text: `${consequence}\nIts saved token is deleted from this computer.` }
     await host.api.removeConnection(c.id)
     return { removed: true, impact, text: `Removed the ${c.service} connection “${c.name}” and deleted its saved token from this computer.${effects.length ? ` Effects: ${effects.join('; ')}.` : ''}` }
+  }
+}
+
+/** What agents may do, per service: Linear reads or writes, Slack posts or not, Langfuse reads, the rest have no agent tools. */
+const ACCESS_BY_SERVICE: Partial<Record<IntegrationService, AgentAccess[]>> = { linear: ['off', 'read', 'write'], slack: ['off', 'write'], langfuse: ['off', 'read'] }
+
+const connectionsEdit: MethodDef = {
+  tier: 'admin',
+  async handle(host, params): Promise<ConnectionsEditResult> {
+    const p = paramsObject(params)
+    const c = pickConnection(host.snapshot(), textParam(p, 'id'))
+    const access = textParam(p, 'agentAccess', { optional: true })
+    const starts = textParam(p, 'newWorkspaces', { optional: true })
+    if (access === undefined && starts === undefined) throw invalid('Say what to change: --agent-access or --new-workspaces.')
+    const patch: ConnectionPatch = {}
+    const said: string[] = []
+    if (access !== undefined) {
+      const allowed = ACCESS_BY_SERVICE[c.service]
+      if (!allowed) throw invalid(`${c.service} connections have no agent-access setting (GitHub reaches agents as GH_TOKEN; the sandbox services not at all).`)
+      if (!(allowed as string[]).includes(access)) throw invalid(`Agent access for ${c.service} is ${allowed.join(', ')}.`)
+      patch.agentAccess = access as AgentAccess
+      said.push(`agents may ${access === 'off' ? 'do nothing with it' : access === 'read' ? 'read with it' : c.service === 'slack' ? 'post with it' : 'read and write with it'}`)
+    }
+    if (starts !== undefined) {
+      if (!(AGENT_TOOL_SERVICES as IntegrationService[]).includes(c.service)) throw invalid(`Only ${AGENT_TOOL_SERVICES.join(', ')} tools can start on or off in new workspaces.`)
+      if (starts !== 'on' && starts !== 'off') throw invalid('--new-workspaces is on or off.')
+      patch.startsOff = starts === 'off'
+      said.push(`new workspaces start with it ${starts}`)
+    }
+    const result = await host.api.updateConnection(c.id, patch)
+    if (!result.ok) throw new Error(result.error)
+    const row = connectionRow(result.connection)
+    const note = starts === 'off' ? ' A workspace can still switch it on (`foreman workspace integrations <workspace> --on ' + c.service + '`).' : ''
+    return { connection: row, text: `Updated “${row.name}”: ${said.join('; ')}.${note}` }
   }
 }
 
@@ -462,6 +497,7 @@ export const INTEGRATIONS_METHODS: Record<string, MethodDef> = {
   'connections-check': connectionsCheck,
   'connections-remove': connectionsRemove,
   'connections-default': connectionsDefault,
+  'connections-edit': connectionsEdit,
   'connections-apply': connectionsApply,
   'slack-rules': slackRules,
   'slack-people': slackPeople,

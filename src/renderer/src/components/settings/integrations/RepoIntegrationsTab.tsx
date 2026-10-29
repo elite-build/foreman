@@ -4,7 +4,7 @@
 // another account. Kept on this Mac, never in settings.toml.
 import { Plug } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { resolvedConnection, type BridgeActivity, type RepoIntegrationService, type RepoServiceView } from '../../../../../shared/integrations'
+import { AGENT_TOOL_SERVICES, resolvedConnection, type BridgeActivity, type RepoIntegrationService, type RepoServiceView } from '../../../../../shared/integrations'
 import { formatClock } from '../../../../../shared/i18n/time'
 import type { Repo } from '../../../../../shared/types'
 import { useT } from '../../../i18n'
@@ -22,7 +22,7 @@ export function RepoIntegrationsTab({ repo }: { repo: Repo }) {
   const [views, setViews] = useState<RepoServiceView[] | null>(null)
   const [activity, setActivity] = useState<BridgeActivity[]>([])
   // Re-read when connections or this repository's choices change.
-  const stamp = JSON.stringify([integrations.connections.map((c) => [c.id, c.rev, c.problem, c.agentAccess]), repo.integrations])
+  const stamp = JSON.stringify([integrations.connections.map((c) => [c.id, c.rev, c.problem, c.agentAccess, c.startsOff]), repo.integrations])
   const load = useCallback(() => {
     void api.repoIntegrations(repo.id).then(setViews, () => setViews([]))
     void api.integrationActivity(repo.id).then(setActivity, () => setActivity([]))
@@ -117,6 +117,21 @@ function ServiceRow({ repo, view }: { repo: Repo; view: RepoServiceView }) {
       </div>
       <div className="int-svc-detail">
         {r.state === 'ready' && <span>{detailLine(view.service, r.connection, t)}</span>}
+        {r.state === 'ready' && AGENT_TOOL_SERVICES.includes(view.service) && r.connection.agentAccess !== 'off' && (
+          <span className="int-inline">
+            {t('integrations.repo.starts')}
+            <Select<'default' | 'on' | 'off'>
+              label={t('integrations.repo.startsLabel', { service: SERVICE_NAMES[view.service] })}
+              value={repo.integrations?.starts?.[view.service] ?? 'default'}
+              options={[
+                { value: 'default', label: r.connection.startsOff ? t('integrations.repo.startsDefaultOff') : t('integrations.repo.startsDefaultOn') },
+                { value: 'on', label: t('integrations.repo.startsOn') },
+                { value: 'off', label: t('integrations.repo.startsOff') }
+              ]}
+              onChange={(v) => void attempt(() => api.setRepoIntegrationOptions(repo.id, { starts: { [view.service]: v } })).then(flashSaved)}
+            />
+          </span>
+        )}
         {r.state === 'env' && <span>{t('integrations.repo.envToken', { from: view.envToken ?? '' })}</span>}
         {r.state === 'none' && !r.off && <span>{t(`integrations.repo.none.${view.service}`)}</span>}
         {r.state === 'none' && r.off && <span>{t('integrations.repo.offHelp')}</span>}

@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import type net from 'node:net'
 import type { McpLaunch } from './agents/types'
 import {
+  AGENT_TOOL_SERVICES,
   bridgeServerName,
   changedIdentities,
   INTEGRATION_SERVICES,
@@ -16,6 +17,8 @@ import {
   LINEAR_MCP_URL,
   snapshotOf,
   slackEscape,
+  toolsOn,
+  toolTokens,
   ownServerService,
   SERVICE_LABELS,
   toolAllowed,
@@ -23,8 +26,11 @@ import {
   type BridgeActivity,
   type Connection,
   type IntegrationService,
+  type IdentityChange,
   type IntegrationSnapshot,
-  type OwnMcpServer
+  type OwnMcpServer,
+  type ToolCost,
+  type WorkspaceIntegrations
 } from '../shared/integrations'
 import type { Integrations } from './integrations'
 import { LANGFUSE_TOOLS, langfuseCall, LangfuseError } from './langfuse'
@@ -90,14 +96,12 @@ export interface TurnIntegrations {
   blocked: OwnMcpServer[]
   snapshot: IntegrationSnapshot[]
   // Services whose identity changed since this tab's last turn, for the receipt.
-  changed: { service: IntegrationService; was?: string; now?: string }[]
+  changed: IdentityChange[]
   // Lines for the agent's instructions: what it can use, and what is off and why.
   notes: string[]
 }
 
 const LABEL = SERVICE_LABELS
-// Agents get tools through the bridge for these services (GitHub's hosted MCP comes later).
-const BRIDGED: IntegrationService[] = ['linear', 'slack', 'langfuse']
 const ACTIVITY_LIMIT = 300
 
 export class IntegrationBridge {
@@ -129,14 +133,17 @@ export class IntegrationBridge {
    * use, the user's own same-service servers to switch off, and the identity snapshot.
    * `agent` decides only whether MCP is passed at all (supportsMcp) and how own servers are named.
    */
-  forTurn(input: { sessionId: string; workspaceId: string; repoId: string; cwd: string; supportsMcp: boolean; last?: IntegrationSnapshot[] }, probe = false): TurnIntegrations {
+  forTurn(input: { sessionId: string; workspaceId: string; repoId: string; cwd: string; supportsMcp: boolean; last?: IntegrationSnapshot[]; choices?: WorkspaceIntegrations }, probe = false): TurnIntegrations {
     if (!probe) this.endSession(input.sessionId)
     const { integrations } = this.deps
     const servers: Record<string, McpLaunch> = {}
     const blocked: OwnMcpServer[] = []
     const notes: string[] = []
     const snapshot: IntegrationSnapshot[] = []
-    const allowOwn = integrations.repoChoices(input.repoId)?.allowOwnMcp ?? []
+    // Switched off in this workspace: no server and no tools, one line saying so.
+    const offHere: string[] = []
+    const repoChoices = integrations.repoChoices(input.repoId)
+    const allowOwn = repoChoices?.allowOwnMcp ?? []
     const own = integrations.ownServers(input.cwd)
     const launch = this.deps.launch()
     const socket = this.deps.socket()
@@ -155,9 +162,14 @@ export class IntegrationBridge {
         notes.push(`${integrations.brokenText(input.repoId, service)} Don’t use any other ${LABEL[service]} account or server for this repository.`)
         continue
       }
-      if (r.state !== 'ready' || !BRIDGED.includes(service)) continue
+      if (r.state !== 'ready' || !AGENT_TOOL_SERVICES.includes(service)) continue
       const c = r.connection
       if (c.agentAccess === 'off') continue
+      if (!toolsOn({ integrations: repoChoices }, c, service, input.choices)) {
+        captured.off = true
+        offHere.push(LABEL[service])
+        continue
+      }
       if (!input.supportsMcp || !launch || !socket || (this.deps.platform ?? process.platform) === 'win32') {
         notes.push(`${LABEL[service]} tools aren’t available to this agent.`)
         continue
@@ -168,6 +180,10 @@ export class IntegrationBridge {
       notes.push(
         `${LABEL[service]}: use the ${name} MCP server's tools. They act as “${c.name}”${c.identity?.org ? ` (${c.identity.org})` : ''}${c.agentAccess === 'read' ? ', read only' : ''}. Don’t use any other ${LABEL[service]} account or server for this repository.`
       )
+    }
+    if (offHere.length) {
+      const names = offHere.join(', ')
+      notes.push(`${names}: switched off in this workspace, so no tools. The user can switch ${offHere.length > 1 ? 'them' : 'it'} on for later messages. Don’t use any other ${names} account or server for this repository.`)
     }
     return { servers, blocked, snapshot, changed: changedIdentities(input.last, snapshot), notes }
   }
@@ -197,7 +213,7 @@ export class IntegrationBridge {
   }
 
   /** A grant for an idle MCP status probe: it can list tools, nothing more. */
-  probeServers(input: { sessionId: string; workspaceId: string; repoId: string; cwd: string; supportsMcp: boolean }): Record<string, McpLaunch> {
+  probeServers(input: { sessionId: string; workspaceId: string; repoId: string; cwd: string; supportsMcp: boolean; choices?: WorkspaceIntegrations }): Record<string, McpLaunch> {
     const turn = this.forTurn(input, true)
     return turn.servers
   }
@@ -207,6 +223,30 @@ export class IntegrationBridge {
     const claude = agent === 'claude' ? blocked.filter((s) => s.from === 'claude' || s.from === 'claude.ai').map((s) => s.name) : []
     const codex = agent === 'codex' ? blocked.filter((s) => s.from === 'codex').map((s) => s.name) : []
     return { claude, codex }
+  }
+
+  /**
+   * What each of a repository's agent tools costs, listed (and cached) as a turn lists them. A service whose list
+   * can't be had in time (offline, a refused key) is left out rather than guessed.
+   */
+  async toolCosts(repoId: string, timeoutMs = 8000): Promise<ToolCost[]> {
+    const costs = await Promise.all(AGENT_TOOL_SERVICES.map(async (service): Promise<ToolCost | null> => {
+      const r = this.deps.integrations.resolve(repoId, service)
+      if (r.state !== 'ready' || r.connection.agentAccess === 'off') return null
+      const token = this.deps.integrations.secret(r.connection.id)
+      if (!token) return null
+      let timer: NodeJS.Timeout | undefined
+      const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), timeoutMs)))
+      try {
+        const tools = await Promise.race([this.tools(r.connection, token, r.connection.agentAccess), late])
+        return tools ? { service, tools: tools.length, tokens: toolTokens(tools) } : null
+      } catch {
+        return null
+      } finally {
+        clearTimeout(timer)
+      }
+    }))
+    return costs.filter((c): c is ToolCost => c !== null)
   }
 
   activity(repoId?: string): BridgeActivity[] {

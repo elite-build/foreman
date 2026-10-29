@@ -355,3 +355,35 @@ describe('the toolbar', () => {
     expect(fakeApi.updateSession).toHaveBeenCalledWith('s1', { planMode: true })
   })
 })
+
+describe('integrations for this workspace', () => {
+  const before = { repos: fakeState.snapshot.repos, integrations: fakeState.snapshot.integrations }
+  beforeEach(() => {
+    fakeState.snapshot.repos = [{ id: 'r1', name: 'web' }] as never
+    fakeState.snapshot.integrations = {
+      connections: [
+        { id: 'lin', service: 'linear', name: 'Acme Linear', rev: 1, auth: { kind: 'token' }, agentAccess: 'write', createdAt: 'x', usedBy: 1, isDefault: true },
+        { id: 'sl', service: 'slack', name: 'Acme Slack', rev: 1, auth: { kind: 'token' }, agentAccess: 'write', createdAt: 'x', usedBy: 1, isDefault: true, startsOff: true }
+      ]
+    } as never
+    fakeApi.setWorkspaceIntegration = vi.fn(async () => undefined)
+    fakeApi.integrationToolCosts = vi.fn(async () => [])
+  })
+  afterEach(() => Object.assign(fakeState.snapshot, before))
+
+  it('a chip says how many are on, and switching one goes to the workspace for its next turns', async () => {
+    const user = userEvent.setup()
+    renderComposer()
+    const chip = screen.getByRole('button', { name: 'Integrations: Linear' })
+    expect(chip.textContent).toContain('1')
+    expect(chip.getAttribute('title')).toContain('next message')
+    await user.click(chip)
+    await user.click(within(await screen.findByRole('menu', { name: 'Integrations' })).getByRole('menuitemcheckbox', { name: /Slack/ }))
+    expect(fakeApi.setWorkspaceIntegration).toHaveBeenCalledWith('w1', 'slack', true)
+  })
+
+  it('isn’t shown in a cloud workspace, where these tools don’t reach the sandbox', () => {
+    render(<Composer session={session()} workspace={{ ...(workspace as object), cloud: { provider: 'vercel' } } as never} active hasHistory={false} />)
+    expect(screen.queryByRole('button', { name: /^Integrations/ })).toBeNull()
+  })
+})

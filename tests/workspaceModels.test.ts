@@ -143,3 +143,40 @@ describe('workspace browser preview routing', () => {
     expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'browser-open' }))
   })
 })
+
+describe('the integrations a new workspace starts with', () => {
+  async function withConnections() {
+    const rigged = await setup()
+    rigged.store.state.repos.push({ id: 'repo', name: 'web', rootPath: '/web', defaultBranch: 'main', remote: 'origin', hasOrigin: true, local: {}, createdAt: 'x' } as never)
+    rigged.store.state.integrations = {
+      connections: [
+        { id: 'lin', service: 'linear', name: 'Acme Linear', rev: 1, auth: { kind: 'token' }, agentAccess: 'read', createdAt: 'x' },
+        { id: 'sl', service: 'slack', name: 'Acme Slack', rev: 1, auth: { kind: 'token' }, agentAccess: 'write', startsOff: true, createdAt: 'x' },
+        { id: 'gh', service: 'github', name: 'Work', rev: 1, auth: { kind: 'gh-active' }, agentAccess: 'write', createdAt: 'x' }
+      ],
+      defaults: { linear: 'lin', slack: 'sl', github: 'gh' },
+      rules: [],
+      people: []
+    }
+    // The keys are in the vault in real use.
+    vi.spyOn(rigged.core.integrations, 'secret').mockReturnValue('key')
+    return rigged
+  }
+
+  it('records every switchable one, from the caller’s choice over the repository’s defaults', async () => {
+    const { core, store } = await withConnections()
+    await core.api.createWorkspace('repo', { integrations: { slack: true } })
+    expect(store.state.workspaces[0].integrations).toEqual({ linear: true, slack: true })
+    // The CLI and the phone pass nothing: the defaults are recorded, so a later change to one doesn't flip this workspace.
+    await core.api.createWorkspace('repo')
+    expect(store.state.workspaces[0].integrations).toEqual({ linear: true, slack: false })
+    await core.api.adoptWorktree('repo', '/worktree', { runSetup: false, integrations: { linear: false } })
+    expect(store.state.workspaces[0].integrations).toEqual({ linear: false, slack: false })
+  })
+
+  it('records nothing when no integration gives agents tools', async () => {
+    const { core, store } = await setup()
+    await core.api.createWorkspace('repo', { integrations: { linear: true } })
+    expect(store.state.workspaces[0].integrations).toBeUndefined()
+  })
+})

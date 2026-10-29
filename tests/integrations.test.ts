@@ -16,6 +16,7 @@ import { Store } from '../src/main/store'
 import { contextParts } from '../src/shared/context'
 import {
   changedIdentities,
+  cleanWorkspaceIntegrations,
   emptyIntegrations,
   exportIntegrationChoices,
   importIntegrationChoices,
@@ -32,6 +33,8 @@ import {
   snapshotOf,
   suggestedRepos,
   toolAllowed,
+  toolTokens,
+  workspaceTools,
   type Connection,
   type IntegrationsState,
   type SlackRule
@@ -193,11 +196,69 @@ describe('agents switch the user’s own same-service servers off', () => {
   })
 })
 
+describe('which integrations a workspace starts with', () => {
+  const linear = conn({ id: 'lin', service: 'linear' })
+  const slack = conn({ id: 'sl', service: 'slack', agentAccess: 'write', startsOff: true })
+  const s = state([linear, slack, conn({ id: 'gh', service: 'github', agentAccess: 'write' })], { linear: 'lin', slack: 'sl', github: 'gh' })
+
+  it('lists only bridged services agents may use, starting from each connection’s default', () => {
+    expect(workspaceTools(s, {}).map((x) => [x.service, x.byDefault, x.on])).toEqual([
+      ['linear', true, true],
+      ['slack', false, false]
+    ])
+    // Access off is not a switch: it isn't offered at all.
+    expect(workspaceTools(state([{ ...linear, agentAccess: 'off' }], { linear: 'lin' }), {})).toEqual([])
+    // Nor is a service the repository turned off.
+    expect(workspaceTools(s, { integrations: { services: { slack: 'off' } } }).map((x) => x.service)).toEqual(['linear'])
+  })
+
+  it('Langfuse switches like the others: off by default here, on for one workspace', () => {
+    const lf = conn({ id: 'lf', service: 'langfuse', agentAccess: 'read', startsOff: true })
+    const withLangfuse = state([linear, lf], { linear: 'lin', langfuse: 'lf' })
+    expect(workspaceTools(withLangfuse, {}).map((x) => [x.service, x.on])).toEqual([['linear', true], ['langfuse', false]])
+    expect(workspaceTools(withLangfuse, {}, { langfuse: true }).map((x) => [x.service, x.on])).toEqual([['linear', true], ['langfuse', true]])
+    expect(cleanWorkspaceIntegrations({ langfuse: true })).toEqual({ langfuse: true })
+  })
+
+  it('a repository’s override beats the connection, and the workspace’s own switch beats both', () => {
+    const repo = { integrations: { starts: { linear: 'off' as const, slack: 'on' as const } } }
+    expect(workspaceTools(s, repo).map((x) => [x.service, x.byDefault, x.on])).toEqual([
+      ['linear', false, false],
+      ['slack', true, true]
+    ])
+    expect(workspaceTools(s, repo, { linear: true, slack: false }).map((x) => x.on)).toEqual([true, false])
+  })
+
+  it('keeps only known services and booleans from a stored switch', () => {
+    expect(cleanWorkspaceIntegrations({ linear: false, slack: 'yes', github: true, other: true })).toEqual({ linear: false })
+    expect(cleanWorkspaceIntegrations({})).toBeUndefined()
+    expect(cleanWorkspaceIntegrations('linear')).toBeUndefined()
+  })
+
+  it('says when a service was switched off in the workspace, and back on', () => {
+    const on = snapshotOf('linear', resolveIntegration(s, {}, 'linear'))
+    const off = { ...on, off: true }
+    expect(changedIdentities([on], [off])).toEqual([{ service: 'linear', was: 'lin', off: true }])
+    expect(changedIdentities([off], [on])).toEqual([{ service: 'linear', now: 'lin' }])
+    expect(changedIdentities([off], [off])).toEqual([])
+  })
+
+  it('estimates what tool definitions cost at about four characters a token', () => {
+    expect(toolTokens([])).toBe(0)
+    expect(toolTokens([{ name: 'get_issue', description: 'Read', inputSchema: { type: 'object' } }])).toBe(Math.ceil(('get_issue' + 'Read' + '{"type":"object"}').length / 4))
+  })
+})
+
 describe('the receipt says when an account changed', () => {
   it('names the change and the user’s own servers switched off', () => {
     const parts = contextParts({ instructions: '', hasStanding: false, noteText: '', commentsText: '', comments: [], attachmentText: '', attachments: [], integrations: { changed: [{ service: 'linear', was: 'Personal Linear', now: 'Acme Linear' }], ownOff: ['linear'] } })
     expect(parts).toHaveLength(1)
     expect(parts[0]).toMatchObject({ kind: 'integrations', label: 'Linear: Acme Linear (was Personal Linear) · your own linear off here', unit: 'accounts', size: 2 })
+  })
+
+  it('names an integration switched off in the workspace', () => {
+    const parts = contextParts({ instructions: '', hasStanding: false, noteText: '', commentsText: '', comments: [], attachmentText: '', attachments: [], integrations: { changed: [{ service: 'linear', was: 'Acme Linear', off: true }], ownOff: [] } })
+    expect(parts[0]).toMatchObject({ kind: 'integrations', label: 'Linear: off in this workspace' })
   })
 })
 

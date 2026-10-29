@@ -30,6 +30,9 @@ export interface RunParams {
   startAnyway?: boolean
   // Return as soon as the workspace exists, without waiting for setup.
   noWait?: boolean
+  // Integrations switched on or off in the new workspace, over the repository's defaults ("linear", "slack").
+  with?: string[]
+  without?: string[]
 }
 
 export interface RunResult {

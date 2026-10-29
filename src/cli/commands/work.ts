@@ -6,6 +6,7 @@ import { statusTable } from '../../shared/status'
 import { CliError, usageError } from '../client'
 import type { Context, Run } from '../command'
 import { waitText } from '../format'
+import { commaList } from './automationKit'
 import type { ReposListResult } from '../../shared/cli/repos'
 import type { AskResult } from '../../main/cli/ask'
 import { CHECKS_EXIT, EXIT_DISCONNECTED, EXIT_SETUP_HELD, WAIT_EXIT, type CancelResult, type ChecksCliResult, type ReportParams, type ReportResult, type ResumeAtResult, type RunResult, type SendResult, type StatusResult, type TemplateSummary, type WaitResult } from '../protocol'
@@ -163,7 +164,9 @@ const run: Run = async (ctx) => {
     open: opts.open,
     dryRun: opts['dry-run'],
     startAnyway: opts['start-anyway'],
-    noWait: opts['no-wait']
+    noWait: opts['no-wait'],
+    with: commaList(opts.with),
+    without: commaList(opts.without)
   })
   const describe = () => {
     if (!result.workspace) return result.prompt

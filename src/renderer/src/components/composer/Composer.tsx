@@ -19,6 +19,7 @@ import { ContextWheel } from './ContextWheel'
 import { newChatHint } from '../../../../shared/startModel'
 import { TemplatePicker } from './TemplatePicker'
 import { TerminalDraft } from './TerminalDraft'
+import { WorkspaceToolsChip } from '../WorkspaceIntegrations'
 import { isMixed, planControl } from '../../../../shared/switchAgent'
 
 const LONG_PASTE = 5000
@@ -716,6 +717,7 @@ export function Composer({
           <IconButton label={t('composer.attach.title', { key: `${mod}U` })} onClick={() => void pickAttachments()}>
             <Paperclip size={14} />
           </IconButton>
+          <WorkspaceToolsChip workspace={workspace} agent={session.agent} />
           {!disabled && (
             <TemplatePicker open={templatesOpen} onOpenChange={setTemplatesOpen} repoId={workspace.repoId} session={session} onPickCommand={insertCommand} onPick={applyTemplate} title={t('composer.templates.title', { key: `${mod}J` })} />
           )}

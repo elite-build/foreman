@@ -2,7 +2,7 @@
 // This is a receipt for Foreman's additions only. It says nothing about the agent's own context.
 import { createT, type Locale, type TFunction } from './i18n'
 import { formatNumber } from './i18n/time'
-import type { IntegrationService } from './integrations'
+import type { IdentityChange, IntegrationService } from './integrations'
 import type { ContextPart, DiffComment } from './types'
 
 const enT = createT('en')
@@ -36,7 +36,7 @@ export interface AssembledAdditions {
   // #20: the repo MCP servers this turn got, only when that set differs from the tab's last turn ([] = it now gets none).
   repoMcp?: string[]
   // Integrations: services whose account changed since the tab's last turn, and the user's own servers newly switched off.
-  integrations?: { changed: { service: IntegrationService; was?: string; now?: string }[]; ownOff: string[] }
+  integrations?: { changed: IdentityChange[]; ownOff: string[] }
 }
 
 const SERVICE_LABEL: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
@@ -112,6 +112,7 @@ export function contextParts(a: AssembledAdditions, t: TFunction = enT): Context
   if (a.integrations && (a.integrations.changed.length || a.integrations.ownOff.length)) {
     const labels = a.integrations.changed.map((c) => {
       const service = SERVICE_LABEL[c.service]
+      if (c.off) return t('context.integrations.offHere', { service })
       if (!c.now) return t('context.integrations.none', { service })
       return c.was ? t('context.integrations.changed', { service, now: c.now, was: c.was }) : t('context.integrations.now', { service, now: c.now })
     })
