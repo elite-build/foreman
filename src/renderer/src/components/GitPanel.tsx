@@ -22,7 +22,7 @@ import {
   Wrench,
   X
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { durationText, fingerprintText, isFailure, STATUS_TEXT, summarizeChecks, type ChecksTone } from '../../../shared/checks'
 import type { CheckRow, ChecksStatus, DiffComment, GitActionKind, GitStatus, PrCheck, PullRequestInfo } from '../../../shared/types'
 import { jobDuration } from '../../../shared/scm'
@@ -240,18 +240,36 @@ export async function runGitAction(workspaceId: string, action: GitActionKind, a
   after?.()
 }
 
+/** The pull request's number (a GitLab merge request's !iid), opening it in the browser. */
+function PrNumberLink({ pr }: { pr: PullRequestInfo }) {
+  const t = useT()
+  const gitlab = pr.provider === 'gitlab'
+  return (
+    <LinkButton underline title={gitlab ? t('gitPanel.merged.openMr') : t('gitPanel.merged.openPr')} onClick={() => void attempt(() => api.openExternal(pr.url))}>
+      {gitlab ? '!' : '#'}
+      {pr.number}
+    </LinkButton>
+  )
+}
+
+/** The header's status while there is a pull request that hasn't merged: its number, so it's one click away, then the words. */
+export function PrStatus({ pr, children }: { pr: PullRequestInfo; children: ReactNode }) {
+  return (
+    <span className="pr-status">
+      <PrNumberLink pr={pr} />
+      {children}
+    </span>
+  )
+}
+
 /** The header's status once the pull request merged: the state, then which PR, into what, and when. */
 export function MergedStatus({ pr }: { pr: PullRequestInfo }) {
   const t = useT()
-  const gitlab = pr.provider === 'gitlab'
   return (
     <span className="merged-status">
       <Tag tone="info">{t('attention.pr.state.merged')}</Tag>
       <span className="merged-meta muted small">
-        <LinkButton underline title={gitlab ? t('gitPanel.merged.openMr') : t('gitPanel.merged.openPr')} onClick={() => void attempt(() => api.openExternal(pr.url))}>
-          {gitlab ? '!' : '#'}
-          {pr.number}
-        </LinkButton>{' '}
+        <PrNumberLink pr={pr} />{' '}
         {t.rich('gitPanel.merged.into', { branch: <code>{pr.baseRefName}</code> })}
         {pr.mergedAt && <> · {timeAgo(pr.mergedAt)}</>}
       </span>

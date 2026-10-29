@@ -57,7 +57,7 @@ import { NoteBar } from './NoteBar'
 import { AutoReviewBar, AutoReviewTabMark } from './AutoReview'
 import { SetupHint } from './SetupHint'
 import { formatDuration } from './turnResult'
-import { ChecksView, GitHeaderActions, MergedProgress, MergedStatus, useGitStatus } from './GitPanel'
+import { ChecksView, GitHeaderActions, MergedProgress, MergedStatus, PrStatus, useGitStatus } from './GitPanel'
 import { FileViewer } from './FileViewer'
 import { FilesTree } from './FilesTree'
 import { ResizeHandle, usePanelSize, useWindowHeight, useWindowWidth, type PanelSize } from './resize'
@@ -646,6 +646,13 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   let panelTitle = t('workspaceView.panel.noChanges')
   if (!diff && hasWorktree) panelTitle = t('workspaceView.panel.loading')
   if (diff?.files.length) panelTitle = t('workspaceView.panel.filesChanged', { count: diff.files.length })
+  const statusWords = (
+    <span className={`panel-status ${git.status?.primary.tone ?? ''}`}>
+      {running ? t('workspaceView.panel.working') : git.status && git.status.primary.label !== 'No changes' ? git.status.primary.label : panelTitle}
+    </span>
+  )
+  // The pull request is one click away from the moment it exists, not only once it merged.
+  const panelStatus = git.status?.pr ? <PrStatus pr={git.status.pr}>{statusWords}</PrStatus> : statusWords
 
   // Editor: the side panel sits beside the activity bar (on the sidebar's side) and the chat on the other.
   const panelLeft = editor ? sidebarSide !== 'right' : panelSide === 'left'
@@ -1105,13 +1112,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         ) : (
           <>
             <header className="titlebar drag panel-header">
-              {!running && git.status?.primary.action === 'archive' && git.status.pr ? (
-                <MergedStatus pr={git.status.pr} />
-              ) : (
-                <span className={`panel-status ${git.status?.primary.tone ?? ''}`}>
-                  {running ? t('workspaceView.panel.working') : git.status && git.status.primary.label !== 'No changes' ? git.status.primary.label : panelTitle}
-                </span>
-              )}
+              {!running && git.status?.primary.action === 'archive' && git.status.pr ? <MergedStatus pr={git.status.pr} /> : panelStatus}
               <div className="header-actions">
                 {hasWorktree && <GitHeaderActions workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} running={running} />}
               </div>
