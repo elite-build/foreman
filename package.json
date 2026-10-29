@@ -1,6 +1,6 @@
 {
   "name": "foreman",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Run coding agents in parallel, each in its own git worktree.",
   "license": "Apache-2.0",
   "private": true,
