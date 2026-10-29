@@ -22,7 +22,6 @@
   align-items: center;
   gap: 8px;
   padding: 6px 0 12px;
-  border-right: 1px solid var(--border);
   overflow-y: auto;
   scrollbar-width: none;
 }
@@ -99,6 +98,9 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* The line between the rail and the list is the list's, so the rail alone (the Editor layout's activity bar) has only
+     the sidebar's own edge. */
+  border-left: 1px solid var(--border);
   /* The top block (Automations, Assistant, New workspace, search) is four rows of one size: the same height, the same
      inset from the edge to the icon (one icon column), the same gap from the icon to the label (one label column). */
   --sb-row-h: 34px;

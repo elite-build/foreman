@@ -12,6 +12,8 @@ Foreman runs on your computer. There is no Foreman account or cloud service: wor
 
 ![Two workspaces side by side in Tiles](docs/images/tiles-dark.png)
 
+**Editor.** Prefer an editor's arrangement? Settings → Appearance → Window layout → Editor puts files and diffs in the middle, the chat beside them, and an activity bar for switching between workspaces, changes, commits, files and checks.
+
 **Review.** Read every change as a diff before you commit, push or open a pull request.
 
 ![A file diff with the list of changed files](docs/images/file-diff-light.png)

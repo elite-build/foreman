@@ -6047,7 +6047,7 @@ Appearance
   appearance.code-ligatures         on | off                                        Code ligatures
   appearance.terminal-font          text                                            Terminal font
   appearance.terminal-font-size     integer 10-20 | content                         Terminal font
-  appearance.window-layout          panes | tiles                                   Window layout
+  appearance.window-layout          panes | tiles | editor                          Window layout
   appearance.sidebar-side           left | right                                    Workspaces sidebar
   appearance.side-panel-side        left | right                                    Side panel
   appearance.terminal-placement     panel-bottom | panel-top | below-chat           Terminal panel

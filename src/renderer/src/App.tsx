@@ -24,6 +24,10 @@ import { Home } from './components/Home'
 import { liveRepo, sidebarOrder } from './triage'
 import { WorkspaceView } from './components/WorkspaceView'
 import { TilesView } from './components/tiles/TilesView'
+import { EditorViews } from './components/editor/EditorViews'
+import { StatusBar } from './components/editor/StatusBar'
+import { editorViewsFor, RAIL_WIDTH, shownEditorView } from './editorLayout'
+import { workspaceSurfaces } from './archivedView'
 import './components/workspace.css'
 import { CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/AddRepository'
 import { Overlays } from './components/Overlays'
@@ -186,6 +190,8 @@ export function App() {
   const makeRepoDir = useStore((s) => s.makeRepoDir)
   const sidebarSide = useStore((s) => s.snapshot?.settings.sidebarSide ?? 'left')
   const tiled = useStore((s) => s.snapshot?.settings.windowLayout === 'tiles')
+  const editor = useStore((s) => s.snapshot?.settings.windowLayout === 'editor')
+  const editorView = useStore((s) => s.editorView)
   const tileZoom = useStore((s) => s.tileZoom)
   const windowWidth = useWindowWidth()
   // Leave the chat column 420px, plus the side panel's narrowest width when it's open.
@@ -210,15 +216,26 @@ export function App() {
   const fullView = tiled && selected && (selected.state === 'archived' || tileZoom === selected.id) ? selected.id : null
   const showHome = !covered && (tiled ? !selected : !selectedId || !liveOpened.includes(selectedId))
   const sidebarRight = sidebarSide === 'right'
+  // Editor: the rail stays as the activity bar; the list shows while Workspaces is the view, or there's no workspace whose
+  // side panel could take its place (Home, Settings in front).
+  const onScreen = editor && !covered && selected && liveOpened.includes(selected.id) ? selected : undefined
+  const editorViews = editorViewsFor(onScreen ? workspaceSurfaces(onScreen) : null)
+  const shownView = shownEditorView(editorView, editorViews)
+  const listShown = leftPanelOpen && (!editor || shownView === 'workspaces')
+  const sidebarWidth = listShown ? sidebar.size : RAIL_WIDTH
   // The main area reaches the window's left edge (where macOS draws the traffic lights).
-  const mainFirst = !leftPanelOpen || sidebarRight
+  const mainFirst = editor ? sidebarRight : !leftPanelOpen || sidebarRight
 
   return (
     <div
-      className={`app platform-${snapshot.platform} ${leftPanelOpen ? '' : 'no-sidebar'} ${sidebarRight ? 'sidebar-right' : ''} ${mainFirst ? 'main-first' : ''}`}
-      style={leftPanelOpen ? { gridTemplateColumns: sidebarRight ? `1fr ${sidebar.size}px` : `${sidebar.size}px 1fr` } : undefined}
+      className={`app platform-${snapshot.platform} ${leftPanelOpen || editor ? '' : 'no-sidebar'} ${sidebarRight ? 'sidebar-right' : ''} ${mainFirst ? 'main-first' : ''} ${editor ? 'editor-layout' : ''} ${editor && !listShown ? 'editor-rail' : ''}`}
+      style={leftPanelOpen || editor ? { gridTemplateColumns: sidebarRight ? `1fr ${sidebarWidth}px` : `${sidebarWidth}px 1fr` } : undefined}
     >
-      {leftPanelOpen && <Sidebar resize={sidebar} side={sidebarSide} />}
+      {editor ? (
+        <Sidebar resize={sidebar} side={sidebarSide} list={listShown} views={<EditorViews shown={leftPanelOpen ? shownView : null} available={editorViews} />} />
+      ) : (
+        leftPanelOpen && <Sidebar resize={sidebar} side={sidebarSide} />
+      )}
       <main className="main">
         {tiled ? (
           <>
@@ -233,6 +250,7 @@ export function App() {
         {assistantOpen && !settingsPage && !automations && <AssistantView />}
         {showHome && <Home />}
       </main>
+      {editor && <StatusBar workspaceId={onScreen?.id ?? null} />}
       {backgroundArchives.length > 0 && (
         <div className="background-archives" role="group" aria-label={t('stop.archive.viewProgress')}>
           {backgroundArchives.filter((id) => id !== archiveTarget).map((id) => (

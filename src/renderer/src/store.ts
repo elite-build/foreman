@@ -17,6 +17,7 @@ import { PtyEventRouter } from './ptyEvents'
 import { archivedTabs, hitRoute } from './archivedView'
 import type { SidebarFilter, SidebarView } from './triage'
 import { DEFAULT_TILE_COUNT, tileCountOf, type TileCount } from './tiles'
+import { editorViewOf, pickEditorView, type EditorView } from './editorLayout'
 import type { AttentionEvent } from '../../shared/attention'
 import { routeLink, workspaceLink, type LinkRoute } from '../../shared/deepLink'
 import { createT, resolveLocale, type Locale } from '../../shared/i18n'
@@ -84,6 +85,8 @@ interface State {
   tiles: string[]
   tileCount: TileCount
   tileZoom: string | null
+  // The Editor layout: what the activity bar shows in the sidebar.
+  editorView: EditorView
   // The Run / Setup / Terminal panel, wherever the layout puts it.
   bottomPanelOpen: boolean
   // The workspace whose terminal panel fills its area (O3), until Esc or ⌘⇧J.
@@ -211,6 +214,7 @@ let state: State = {
   tiles: loadPref<string[]>('tiles', []),
   tileCount: tileCountOf(loadPref('tileCount', DEFAULT_TILE_COUNT)),
   tileZoom: null,
+  editorView: editorViewOf(loadPref('editorView', 'workspaces')),
   rightPanelOpen: loadPref('rightPanelOpen', true),
   bottomPanelOpen: loadPref('bottomPanelOpen', true),
   terminalFullscreen: null,
@@ -956,12 +960,15 @@ export function toggleLeftPanel(): void {
 
 /** Shows or hides the terminal panel. Inside a closed side panel, showing it opens the side panel too. */
 export function toggleBottomPanel(): void {
-  const open = !state.bottomPanelOpen || (!state.rightPanelOpen && state.snapshot?.settings.terminalPlacement !== 'below-chat')
+  const open = !state.bottomPanelOpen || (!state.rightPanelOpen && terminalInSidePanel())
   showBottomPanel(open)
 }
 
+// The Editor layout keeps the terminal under the files, whatever Terminal placement says.
+const terminalInSidePanel = () => state.snapshot?.settings.terminalPlacement !== 'below-chat' && state.snapshot?.settings.windowLayout !== 'editor'
+
 export function showBottomPanel(open = true): void {
-  const inSidePanel = state.snapshot?.settings.terminalPlacement !== 'below-chat'
+  const inSidePanel = terminalInSidePanel()
   savePref('bottomPanelOpen', open)
   // Hiding the panel also ends its fullscreen.
   const fullscreen = open ? state.terminalFullscreen : null
@@ -974,6 +981,22 @@ export function showBottomPanel(open = true): void {
 /** The workspace's terminal panel fills the workspace, or goes back to its place (O3). */
 export function toggleTerminalFullscreen(workspaceId: string, on = state.terminalFullscreen !== workspaceId): void {
   setState({ terminalFullscreen: on ? workspaceId : state.terminalFullscreen === workspaceId ? null : state.terminalFullscreen })
+}
+
+/** Editor layout: the activity bar picked a view. The one already showing hides the sidebar; any other shows it. */
+export function pickEditorSidebar(view: EditorView): void {
+  const next = pickEditorView(state.editorView, state.leftPanelOpen, view)
+  savePref('editorView', next.view)
+  savePref('leftPanelOpen', next.open)
+  setState({ editorView: next.view, leftPanelOpen: next.open })
+}
+
+/** Editor layout: show a view in the sidebar (a Checks request, ⌘⌥U), opening the sidebar if it was hidden. */
+export function showEditorSidebar(view: EditorView): void {
+  if (state.editorView === view && state.leftPanelOpen) return
+  savePref('editorView', view)
+  savePref('leftPanelOpen', true)
+  setState({ editorView: view, leftPanelOpen: true })
 }
 
 /** Tiles: the workspaces on screen, in tile order. */

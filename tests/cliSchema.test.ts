@@ -160,7 +160,7 @@ describe('settings schema: enums', () => {
     codexApprovals: ['sandboxed', 'always'],
     theme: ['system', 'light', 'dark'],
     colorVision: ['default', 'protanopia-deuteranopia', 'tritanopia'],
-    windowLayout: ['panes', 'tiles'],
+    windowLayout: ['panes', 'tiles', 'editor'],
     sidebarSide: ['left', 'right'],
     sidePanelSide: ['left', 'right'],
     terminalPlacement: ['panel-bottom', 'panel-top', 'below-chat'],

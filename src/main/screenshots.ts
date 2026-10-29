@@ -276,6 +276,7 @@ export const SCREENS = [
   'file-diff',
   'git-panel',
   'tiles',
+  'editor',
   'new-workspace',
   'settings-general',
   'settings-agents',

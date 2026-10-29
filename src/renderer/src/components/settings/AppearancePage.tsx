@@ -25,7 +25,8 @@ const DEFAULTS = {
 
 const windowLayouts = (t: TFunction): SelectOption<WindowLayout>[] => [
   { value: 'panes', label: t('settings.appearance.windowLayout.panes') },
-  { value: 'tiles', label: t('settings.appearance.windowLayout.tiles') }
+  { value: 'tiles', label: t('settings.appearance.windowLayout.tiles') },
+  { value: 'editor', label: t('settings.appearance.windowLayout.editor') }
 ]
 
 const sides = (t: TFunction): SelectOption<PaneSide>[] => [
