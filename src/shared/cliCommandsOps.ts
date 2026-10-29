@@ -95,7 +95,7 @@ export const WORKSPACE_COMMANDS: CommandSpec[] = [
       'no-wait': { type: 'boolean', help: 'Return once the workspace exists, without waiting for setup' },
       wait: { type: 'boolean', help: 'Block until the first turn ends, and report how it went' },
       timeout: { type: 'string', value: '<s>', help: 'With --wait: stop waiting after s seconds' },
-      with: { type: 'string', value: '<a,b>', help: 'Integrations to switch on in this workspace (linear, slack), over the repository’s defaults' },
+      with: { type: 'string', value: '<a,b>', help: 'Integrations to switch on in this workspace (linear, slack, langfuse), over the repository’s defaults' },
       without: { type: 'string', value: '<a,b>', help: 'Integrations to switch off in this workspace' }
     },
     examples: ['foreman new "Add a dark mode toggle to the settings page" --open', 'foreman new "Why did the eval scores drop?" --with linear', 'foreman new "Fix the flaky login test" -b fix-flaky-login --wait --timeout 1800', 'foreman new "Review this" --existing feature/search --attach notes.md'],
@@ -296,7 +296,7 @@ available from inside an agent turn (send follows the same opt-in as foreman sen
     usage: 'foreman workspace integrations <workspace> [--on a,b] [--off a,b]',
     args: [WORKSPACE_ARG],
     options: {
-      on: { type: 'string', value: '<a,b>', help: 'Switch these on (linear, slack) from the next message' },
+      on: { type: 'string', value: '<a,b>', help: 'Switch these on (linear, slack, langfuse) from the next message' },
       off: { type: 'string', value: '<a,b>', help: 'Switch these off from the next message' }
     },
     examples: ['foreman ws integrations api', 'foreman ws integrations api --on linear', 'foreman ws integrations . --off slack --json'],

@@ -185,7 +185,7 @@ export const COMMANDS: CommandSpec[] = [
       'no-wait': { type: 'boolean', help: 'Return once the workspace exists, without waiting for setup' },
       wait: { type: 'boolean', help: 'Block until the first turn ends, and report how it went' },
       timeout: { type: 'string', value: '<s>', help: 'With --wait (and for `wait`): stop waiting after s seconds' },
-      with: { type: 'string', value: '<a,b>', help: 'Integrations to switch on in this workspace (linear, slack), over the repository’s defaults' },
+      with: { type: 'string', value: '<a,b>', help: 'Integrations to switch on in this workspace (linear, slack, langfuse), over the repository’s defaults' },
       without: { type: 'string', value: '<a,b>', help: 'Integrations to switch off in this workspace' }
     },
     examples: ['foreman run fix-a-bug "ENG-123: login button does nothing" --open', 'foreman run issue https://github.com/owner/repo/issues/12', 'foreman run fix-linear-bug ENG-123 --wait --timeout 1800', 'foreman run triage ENG-123 --with linear --without slack'],

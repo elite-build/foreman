@@ -153,6 +153,7 @@ export const REPO_SETTINGS_SCHEMA: readonly RepoSettingSpec[] = [
   def('github-account', { registryId: 'repo-github-account', target: 'integration', field: 'integrations.github', type: 'string', hint: 'A connection id or name, `default`, or `off`.' }),
   def('linear', { registryId: 'repo-linear', target: 'integration', field: 'integrations.linear', type: 'string', hint: 'A connection id or name, `default`, or `off`.' }),
   def('slack', { registryId: 'repo-slack', target: 'integration', field: 'integrations.slack', type: 'string', hint: 'A connection id or name, `default`, or `off`.' }),
+  def('langfuse', { registryId: 'repo-langfuse', target: 'integration', field: 'integrations.langfuse', type: 'string', hint: 'A connection id or name, `default`, or `off`.' }),
   def('slack-rules', { tab: 'integrations', target: 'integrationOptions', field: 'integrations.rules', type: 'enum', values: ['mine', 'off'] }),
   def('allow-own-mcp', { tab: 'integrations', target: 'integrationOptions', field: 'integrations.allowOwnMcp', type: 'list', itemValues: INTEGRATION_SERVICES }),
   // Whether a service's tools start on in this repository's new workspaces; `default` follows the connection's own setting.

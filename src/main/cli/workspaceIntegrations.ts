@@ -1,13 +1,13 @@
 // Which integrations a workspace's agents get, from the command line: `--with` / `--without` on `foreman run` and
 // `foreman new`, and `foreman workspace integrations`. The same rules as the window: only a working connection agents
 // may use can be switched on, and switching grants nothing the connection doesn't already allow.
-import { AGENT_TOOL_SERVICES, resolveIntegration, workspaceTools, type IntegrationsState, type RepoIntegrationService, type WorkspaceIntegrations, type WorkspaceTool } from '../../shared/integrations'
+import { AGENT_TOOL_SERVICES, resolveIntegration, SERVICE_LABELS, workspaceTools, type IntegrationsState, type RepoIntegrationService, type WorkspaceIntegrations, type WorkspaceTool } from '../../shared/integrations'
 import type { WsIntegrationRow, WsIntegrationsResult } from '../../shared/cli/workspaces'
 import type { Repo, Workspace } from '../../shared/types'
 import type { CliHost } from './host'
 import { columns, invalid } from './kit'
 
-const NAMES: Record<RepoIntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack' }
+const NAMES = SERVICE_LABELS
 
 function stateOf(host: CliHost): IntegrationsState {
   const connections = host.snapshot().integrations.connections

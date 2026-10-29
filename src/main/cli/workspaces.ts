@@ -526,7 +526,7 @@ async function startNew(host: CliHost, params: unknown, ctx: CliContext): Promis
   const attach = p.attach === undefined || p.attach === null ? [] : Array.isArray(p.attach) && p.attach.every((a) => typeof a === 'string') ? (p.attach as string[]) : undefined
   if (!attach) throw invalid('attach must be a list of file paths.')
   const withList = textList(p, 'with', { optional: true }) ?? []
-  // Linear and Slack tools don't reach a cloud sandbox, so there's nothing to switch there.
+  // Integration tools (Linear, Slack, Langfuse) don't reach a cloud sandbox, so there's nothing to switch there.
   if (cloud && withList.length) throw invalid('Integration tools don’t reach a cloud sandbox yet: drop --with or --cloud.')
   const integrations = cloud ? undefined : chosenIntegrations(host, repo, withList, textList(p, 'without', { optional: true }) ?? [])
   const attachments = attach.map((file) => {

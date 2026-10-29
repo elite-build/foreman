@@ -151,7 +151,7 @@ describe('foreman connections edit', () => {
     expect(r.calls).toEqual([['updateConnection', 'lin-1234567', { agentAccess: 'write', startsOff: false }]])
     expect((await failure(edit(rig(), { id: 'Acme Slack', agentAccess: 'read' }))).message).toContain('off, write')
     const gh = rig({ connections: [connection({ id: 'gh-1', service: 'github', name: 'Work' })] })
-    expect((await failure(edit(gh, { id: 'Work', newWorkspaces: 'off' }))).message).toContain('linear and slack')
+    expect((await failure(edit(gh, { id: 'Work', newWorkspaces: 'off' }))).message).toContain('Only linear, slack, langfuse tools')
     expect((await failure(edit(gh, { id: 'Work', agentAccess: 'read' }))).message).toContain('no agent-access setting')
     expect((await failure(edit(rig(), { id: 'lin-1234' }))).message).toContain('Say what to change')
   })

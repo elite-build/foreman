@@ -1,4 +1,4 @@
-// Integrations: named connections for GitHub, Linear and Slack,
+// Integrations: named connections for GitHub, Linear, Slack and Langfuse,
 // one default per service and each repository's choice. The sandbox services of remote workspaces
 // (Vercel, Docker, E2B, Daytona) are connections the same way: a key in the vault (none for Docker),
 // what it points at beside it, and a repository picks one on its Remote tab. Connections live in state.json without
@@ -20,6 +20,7 @@ import {
   resolveIntegration,
   resolvedConnection,
   ruleFingerprint,
+  SERVICE_LABELS,
   usedBy,
   type AddConnectionResult as AddResult,
   type AgentAccess,
@@ -43,7 +44,9 @@ import {
   type VercelConnectionInfo,
   DAYTONA_API_URL,
   isSandboxService,
+  normalizeLangfuseHost,
   type DaytonaConnectionInfo,
+  type LangfuseConnectionInfo,
   type DockerConnectionInfo,
   type E2bConnectionInfo,
   type SandboxConnectionInput,
@@ -57,6 +60,7 @@ import { isSshRemote } from './github'
 import type { GithubAccount, Repo } from '../shared/types'
 import type { SecretStore } from './secrets'
 import type { Store } from './store'
+import { langfuseProject, LangfuseError } from './langfuse'
 import { linearHasGithub, linearViewer, LinearError } from './linear'
 import { isAuthError, slackAuthTest } from './slack'
 
@@ -96,6 +100,7 @@ function defaultName(service: IntegrationService, identity: ConnectionIdentity |
     return identity ? `GitHub · ${identity.user}` : 'GitHub token'
   }
   if (service === 'linear') return identity?.org ? `${identity.org} Linear` : 'Linear'
+  if (service === 'langfuse') return identity?.org ? `${identity.org} Langfuse` : 'Langfuse'
   if (isSandboxService(service)) {
     const label = CLOUD_PROVIDERS[service].label
     return identity?.org ? `${identity.org} ${label}` : label
@@ -111,12 +116,24 @@ type Verified = {
   docker?: DockerConnectionInfo
   e2b?: E2bConnectionInfo
   daytona?: DaytonaConnectionInfo
+  langfuse?: LangfuseConnectionInfo
   problem?: undefined
 }
 
-/** A sandbox connection's settings to check: what's saved, with a patch over it. */
-function sandboxInput(c: Pick<Connection, 'vercel' | 'docker' | 'e2b' | 'daytona'> | undefined, patch: Pick<ConnectionPatch, 'vercel' | 'docker' | 'e2b' | 'daytona'> = {}): SandboxConnectionInput {
+/** Services whose connection has settings besides its key, checked together with it: the sandbox services and Langfuse (host and public key). */
+function hasSettings(service: IntegrationService): boolean {
+  return isSandboxService(service) || service === 'langfuse'
+}
+
+/** What agents may do with a new or changed connection. Langfuse tools only read, so write means read there. */
+function accessFor(service: IntegrationService, access: AgentAccess): AgentAccess {
+  return service === 'langfuse' && access === 'write' ? 'read' : access
+}
+
+/** A sandbox (or Langfuse) connection's settings to check: what's saved, with a patch over it. */
+function sandboxInput(c: Pick<Connection, 'vercel' | 'docker' | 'e2b' | 'daytona' | 'langfuse'> | undefined, patch: Pick<ConnectionPatch, 'vercel' | 'docker' | 'e2b' | 'daytona' | 'langfuse'> = {}): SandboxConnectionInput {
   return {
+    langfuse: { host: patch.langfuse?.host ?? c?.langfuse?.host, publicKey: (patch.langfuse?.publicKey ?? c?.langfuse?.publicKey ?? '').trim() },
     vercel: { teamId: patch.vercel?.teamId ?? c?.vercel?.teamId ?? '', projectId: patch.vercel?.projectId ?? c?.vercel?.projectId ?? '' },
     docker: { context: patch.docker?.context ?? c?.docker?.context, host: patch.docker?.host ?? c?.docker?.host },
     e2b: { domain: patch.e2b?.domain ?? c?.e2b?.domain },
@@ -125,8 +142,9 @@ function sandboxInput(c: Pick<Connection, 'vercel' | 'docker' | 'e2b' | 'daytona
 }
 
 /** The service's details from a check, to keep on the connection. */
-function checkedInfo(checked: Verified): Pick<Connection, 'vercel' | 'docker' | 'e2b' | 'daytona'> {
+function checkedInfo(checked: Verified): Pick<Connection, 'vercel' | 'docker' | 'e2b' | 'daytona' | 'langfuse'> {
   return {
+    ...(checked.langfuse ? { langfuse: checked.langfuse } : {}),
     ...(checked.vercel ? { vercel: checked.vercel } : {}),
     ...(checked.docker ? { docker: checked.docker } : {}),
     ...(checked.e2b ? { e2b: checked.e2b } : {}),
@@ -331,7 +349,7 @@ export class Integrations {
 
   /** Why a service can't be used in a repository, in a sentence for errors and agents. */
   brokenText(repoId: string, service: IntegrationService): string {
-    const label = service === 'github' ? 'GitHub' : service === 'linear' ? 'Linear' : 'Slack'
+    const label = SERVICE_LABELS[service]
     const r = this.resolve(repoId, service)
     if (r.state !== 'broken') return `${label} isn’t available in this repository.`
     if (r.reason === 'env-conflict') {
@@ -394,6 +412,12 @@ export class Integrations {
       }
       return { identity: await githubTokenUser(token!, this.fetch) }
     }
+    if (service === 'langfuse') {
+      const host = normalizeLangfuseHost(sandbox.langfuse?.host)
+      if ('error' in host) throw new Error(host.error)
+      const publicKey = sandbox.langfuse?.publicKey.trim() ?? ''
+      return { identity: await langfuseProject({ host: host.host, publicKey, secretKey: token! }, this.fetch), langfuse: { host: host.host, publicKey } }
+    }
     if (service === 'linear') {
       const identity = await linearViewer(token!, this.fetch)
       const github = await linearHasGithub(token!, this.fetch)
@@ -432,7 +456,7 @@ export class Integrations {
       auth: input.auth,
       identity: checked.identity,
       ...(token ? { hint: hint(token) } : {}),
-      agentAccess: input.service === 'linear' ? (('agentAccess' in input && input.agentAccess) || 'read') : 'off',
+      agentAccess: input.service === 'linear' || input.service === 'langfuse' ? accessFor(input.service, ('agentAccess' in input && input.agentAccess) || 'read') : 'off',
       ...(input.service === 'slack' ? { slack: { destinations: [] } } : {}),
       ...(checked.linearGithub !== undefined ? { linearGithub: checked.linearGithub } : {}),
       ...checkedInfo(checked),
@@ -447,9 +471,9 @@ export class Integrations {
 
   async updateConnection(id: string, patch: ConnectionPatch): Promise<AddResult> {
     const c = this.mustConnection(id)
-    // A sandbox service's other settings (Vercel's team or project, a Docker context, an API URL) are checked with the key they'll be used with.
-    const sandbox = isSandboxService(c.service) ? sandboxInput(c, patch) : undefined
-    const sandboxPatched = isSandboxService(c.service) && patch[c.service] !== undefined
+    // A sandbox service's other settings (Vercel's team or project, a Docker context, an API URL), or Langfuse's host and public key, are checked with the key they'll be used with.
+    const sandbox = hasSettings(c.service) ? sandboxInput(c, patch) : undefined
+    const sandboxPatched = (isSandboxService(c.service) || c.service === 'langfuse') && patch[c.service] !== undefined
     if (sandbox && sandboxPatched && patch.token === undefined) {
       let checked: Verified
       try {
@@ -485,8 +509,8 @@ export class Integrations {
       c.rev++
     }
     if (patch.name !== undefined && patch.name.trim()) c.name = patch.name.trim()
-    if (patch.agentAccess !== undefined && patch.agentAccess !== c.agentAccess) {
-      c.agentAccess = patch.agentAccess
+    if (patch.agentAccess !== undefined && accessFor(c.service, patch.agentAccess) !== c.agentAccess) {
+      c.agentAccess = accessFor(c.service, patch.agentAccess)
       c.rev++
     }
     // Only what new workspaces start with: it grants nothing, so the revision stays.
@@ -511,7 +535,7 @@ export class Integrations {
   async checkConnection(id: string): Promise<ConnectionView> {
     const c = this.mustConnection(id)
     try {
-      const checked = await this.verify(c.service, c.auth, c.auth.kind === 'token' ? this.secret(id) ?? '' : undefined, isSandboxService(c.service) ? sandboxInput(c) : undefined)
+      const checked = await this.verify(c.service, c.auth, c.auth.kind === 'token' ? this.secret(id) ?? '' : undefined, hasSettings(c.service) ? sandboxInput(c) : undefined)
       c.identity = checked.identity
       if (checked.linearGithub !== undefined) c.linearGithub = checked.linearGithub
       Object.assign(c, checkedInfo(checked))
@@ -522,7 +546,7 @@ export class Integrations {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       // Only an answer that says the credential is bad marks it; being offline doesn't.
-      const refused = (err as { auth?: boolean }).auth || (err instanceof LinearError && err.auth) || isAuthError(err) || /isn’t signed in|refused/i.test(message)
+      const refused = (err as { auth?: boolean }).auth || (err instanceof LinearError && err.auth) || (err instanceof LangfuseError && err.auth) || isAuthError(err) || /isn’t signed in|refused/i.test(message)
       if (refused) this.markProblem(id, message)
       else throw err
     }
@@ -740,7 +764,7 @@ export class Integrations {
   // ---- the user's own MCP servers ----
 
   /**
-   * Linear, GitHub and Slack servers the user set up in Claude Code (~/.claude.json, the worktree's
+   * Linear, GitHub, Slack and Langfuse servers the user set up in Claude Code (~/.claude.json, the worktree's
    * .mcp.json) or Codex (~/.codex/config.toml), plus the claude.ai connectors Claude Code may add.
    * Read only; Foreman never edits these files.
    */
@@ -753,7 +777,10 @@ export class Integrations {
     add(this.cached(path.join(home, '.claude.json'), (text) => claudeServers(JSON.parse(text) as Record<string, unknown>)))
     if (cwd) add(this.cached(path.join(cwd, '.mcp.json'), (text) => claudeServers(JSON.parse(text) as Record<string, unknown>)))
     add(this.cached(path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'config.toml'), (text) => codexServers(parseToml(text) as Record<string, unknown>)))
-    for (const service of INTEGRATION_SERVICES) add([{ name: CLAUDE_AI_CONNECTORS[service], from: 'claude.ai', service }])
+    for (const service of INTEGRATION_SERVICES) {
+      const name = CLAUDE_AI_CONNECTORS[service]
+      if (name) add([{ name, from: 'claude.ai', service }])
+    }
     return out
   }
 

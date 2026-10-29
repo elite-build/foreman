@@ -39,7 +39,7 @@ export interface AssembledAdditions {
   integrations?: { changed: IdentityChange[]; ownOff: string[] }
 }
 
-const SERVICE_LABEL: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
+const SERVICE_LABEL: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
 
 // The labels and sources are in `t`'s language; main records them in English.
 export function contextParts(a: AssembledAdditions, t: TFunction = enT): ContextPart[] {

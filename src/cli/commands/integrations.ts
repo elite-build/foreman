@@ -10,12 +10,15 @@ import type { Context, Run } from '../command'
 import { commaList, declinedNote, io, noMoreWords, optionalWord, previewAndAsk, printText, str } from './automationKit'
 import { readSecret, unknownVerb } from './input'
 
-const SERVICES = ['github', 'linear', 'slack', 'vercel', 'e2b', 'daytona', 'docker']
+const SERVICES = ['github', 'linear', 'slack', 'langfuse', 'vercel', 'e2b', 'daytona', 'docker']
 
 /** The provider fields that have an option, by the field's key. */
-const FIELD_FLAGS: Record<string, string> = { teamId: 'team-id', projectId: 'project-id', domain: 'domain', apiUrl: 'api-url', target: 'target', context: 'context', host: 'host' }
+const FIELD_FLAGS: Record<string, string> = { teamId: 'team-id', projectId: 'project-id', domain: 'domain', apiUrl: 'api-url', target: 'target', context: 'context', host: 'host', publicKey: 'public-key' }
 
-const SERVICE_NAMES: Record<string, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack' }
+const SERVICE_NAMES: Record<string, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse' }
+
+// Langfuse isn't a sandbox provider, but it has fields besides its secret key the same way.
+const LANGFUSE_FIELDS = ['host', 'publicKey']
 
 const list: Run = async (ctx) => {
   optionalWord(ctx, 'list', 'connections')
@@ -27,15 +30,17 @@ function connectionParams(ctx: Context, service: string): Record<string, unknown
   const { opts } = ctx
   const provider = (CLOUD_PROVIDERS as Record<string, (typeof CLOUD_PROVIDERS)[keyof typeof CLOUD_PROVIDERS] | undefined>)[service]
   const given = Object.fromEntries(Object.entries(FIELD_FLAGS).flatMap(([key, flag]) => (str(opts[flag])?.trim() ? [[key, (opts[flag] as string).trim()]] : [])))
-  const takes = new Set(provider?.connection.fields.filter((f) => !f.secret).map((f) => f.key) ?? [])
+  const takes = new Set(service === 'langfuse' ? LANGFUSE_FIELDS : (provider?.connection.fields.filter((f) => !f.secret).map((f) => f.key) ?? []))
   for (const key of Object.keys(given)) if (!takes.has(key)) throw usageError(`--${FIELD_FLAGS[key]} isn’t used by ${service}.`, `foreman help connections add lists what each service takes.`)
   if (service !== 'github' && (opts['gh-account'] !== undefined || opts['gh-active'])) throw usageError('--gh-account and --gh-active are for github.')
-  if (service !== 'linear' && opts['agent-access'] !== undefined) throw usageError('--agent-access is for linear.')
+  if (service !== 'linear' && service !== 'langfuse' && opts['agent-access'] !== undefined) throw usageError('--agent-access is for linear and langfuse.')
+  if (service === 'langfuse' && !given.publicKey) throw usageError('Langfuse also needs --public-key.', 'Find the key pair in Langfuse: Project settings → API Keys.')
   if (service === 'docker' && opts['token-stdin']) throw usageError('Docker has no token: it uses a context or a host (--context, --host), or the current context.')
   const missing = provider?.connection.fields.filter((f) => !f.secret && !f.optional && f.default === undefined && !given[f.key]).map((f) => `--${FIELD_FLAGS[f.key] ?? f.key}`) ?? []
   if (missing.length) throw usageError(`${provider!.label} also needs ${missing.join(' and ')}.`, `Find ${missing.length > 1 ? 'them' : 'it'} in ${provider!.label}’s dashboard (${provider!.docsUrl}).`)
   const access = str(opts['agent-access'])
   if (access !== undefined && !['off', 'read', 'write'].includes(access)) throw usageError('--agent-access is off, read or write.')
+  if (access === 'write' && service === 'langfuse') throw usageError('Langfuse tools only read: --agent-access is off or read.')
   const section = (...keys: string[]) => Object.fromEntries(keys.filter((k) => given[k]).map((k) => [k, given[k]]))
   return {
     service,
@@ -46,6 +51,7 @@ function connectionParams(ctx: Context, service: string): Record<string, unknown
     ...(service === 'docker' ? { docker: section('context', 'host') } : {}),
     ...(service === 'e2b' ? { e2b: section('domain') } : {}),
     ...(service === 'daytona' ? { daytona: section('apiUrl', 'target') } : {}),
+    ...(service === 'langfuse' ? { langfuse: section('host', 'publicKey') } : {}),
     agentAccess: access,
     setDefault: opts.default ? true : undefined,
     allowDuplicate: opts['allow-duplicate'] ? true : undefined
@@ -65,8 +71,9 @@ const add: Run = async (ctx) => {
   let token: string | undefined
   if (needsToken) {
     const label = SERVICE_NAMES[service] ?? CLOUD_PROVIDERS[service as keyof typeof CLOUD_PROVIDERS]?.label ?? service
-    if (!ctx.opts['token-stdin'] && !io.stdinIsTTY()) throw usageError(`${label} needs a token and there is no terminal to ask on: pipe it in with --token-stdin. It is never an argument.`)
-    token = await readSecret(`${label} token (not shown): `, { stdin: Boolean(ctx.opts['token-stdin']) })
+    const what = service === 'langfuse' ? 'secret key' : 'token'
+    if (!ctx.opts['token-stdin'] && !io.stdinIsTTY()) throw usageError(`${label} needs a ${what} and there is no terminal to ask on: pipe it in with --token-stdin. It is never an argument.`)
+    token = await readSecret(`${label} ${what} (not shown): `, { stdin: Boolean(ctx.opts['token-stdin']) })
   }
   printText(ctx, await ctx.send<{ text: string }>('connections-add', { ...params, ...(token !== undefined ? { token } : {}) }))
 }
