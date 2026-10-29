@@ -24,6 +24,7 @@ export const fakeState: Record<string, any> = {
       agentPrefs: {},
       cloud: {}
     },
+    repos: [],
     repoTemplates: {},
     comments: [],
     workspaces: [],

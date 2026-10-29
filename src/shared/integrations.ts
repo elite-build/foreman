@@ -64,6 +64,8 @@ export interface Connection {
   // The last four characters of the token ('' when too short to show).
   hint?: string
   agentAccess: AgentAccess
+  // Its tools start switched off in new workspaces (switched on per workspace when wanted). Absent: on. Never grants access by itself.
+  startsOff?: boolean
   // Slack: who "me" is in this workspace (picked once; a bot token can't say), and the channels rules may post to.
   slack?: { me?: { id: string; name: string }; destinations: SlackDestination[] }
   // Linear: whether the organization has Linear's own GitHub integration (it links PRs and moves issues).
@@ -175,7 +177,12 @@ export interface RepoIntegrations {
   githubSuggestion?: string
   // Added recently, with sibling repositories' choices to offer once ("Use the same").
   suggest?: boolean
+  // Whether a service's tools start on in this repository's new workspaces, over the connection's own default.
+  starts?: Partial<Record<RepoIntegrationService, 'on' | 'off'>>
 }
+
+/** A workspace's own switch per service: absent is what the repository and connection start with. */
+export type WorkspaceIntegrations = Partial<Record<RepoIntegrationService, boolean>>
 
 export type ResolutionSource = 'repo' | 'default'
 
@@ -229,6 +236,8 @@ export interface IntegrationSnapshot {
   name?: string
   rev?: number
   state: Resolution['state']
+  // Ready, but switched off in this workspace.
+  off?: boolean
 }
 
 export function snapshotOf(service: IntegrationService, r: Resolution): IntegrationSnapshot {
@@ -236,15 +245,90 @@ export function snapshotOf(service: IntegrationService, r: Resolution): Integrat
   return { service, state: r.state, ...(c ? { connectionId: c.id, name: c.name, rev: c.rev } : {}) }
 }
 
+/** One service's change since the last turn, for the receipt. `off`: switched off in this workspace. */
+export interface IdentityChange {
+  service: IntegrationService
+  was?: string
+  now?: string
+  off?: boolean
+}
+
 /** The services whose identity differs from the last turn's ([] when nothing changed, or there was no last turn). */
-export function changedIdentities(last: IntegrationSnapshot[] | undefined, now: IntegrationSnapshot[]): { service: IntegrationService; was?: string; now?: string }[] {
+export function changedIdentities(last: IntegrationSnapshot[] | undefined, now: IntegrationSnapshot[]): IdentityChange[] {
   if (!last) return []
-  const out: { service: IntegrationService; was?: string; now?: string }[] = []
+  const out: IdentityChange[] = []
   for (const s of now) {
     const before = last.find((l) => l.service === s.service)
-    if ((before?.connectionId ?? null) !== (s.connectionId ?? null) || before?.identity !== s.identity || (before?.state ?? 'none') !== s.state) out.push({ service: s.service, was: before?.name, now: s.name })
+    const switched = Boolean(before?.off) !== Boolean(s.off)
+    if ((before?.connectionId ?? null) !== (s.connectionId ?? null) || before?.identity !== s.identity || (before?.state ?? 'none') !== s.state || switched) {
+      if (s.off) out.push({ service: s.service, was: before?.name, off: true })
+      // Switched back on: the account is what it was, so only its name is news.
+      else out.push({ service: s.service, was: before?.off ? undefined : before?.name, now: s.name })
+    }
   }
   return out
+}
+
+// ---- which tools a workspace starts with ----
+
+/** Services whose tools reach agents through Foreman's bridge, so a workspace can switch each on or off. */
+export const AGENT_TOOL_SERVICES: RepoIntegrationService[] = ['linear', 'slack']
+
+/** Whether a service's tools start on in a repository's new workspaces: its override, else the connection's default (on). */
+export function startsOn(repo: { integrations?: RepoIntegrations } | undefined, connection: Pick<Connection, 'startsOff'> | undefined, service: RepoIntegrationService): boolean {
+  const override = repo?.integrations?.starts?.[service]
+  if (override) return override === 'on'
+  return !connection?.startsOff
+}
+
+/** Whether a workspace has a service's tools on: its own switch, else what new workspaces start with. */
+export function toolsOn(repo: { integrations?: RepoIntegrations } | undefined, connection: Pick<Connection, 'startsOff'> | undefined, service: RepoIntegrationService, choice: WorkspaceIntegrations | undefined): boolean {
+  return choice?.[service] ?? startsOn(repo, connection, service)
+}
+
+/** One integration a workspace can switch: a working connection agents may use. */
+export interface WorkspaceTool {
+  service: RepoIntegrationService
+  connection: Connection
+  // What new workspaces in this repository start with.
+  byDefault: boolean
+  on: boolean
+}
+
+/** The integrations a workspace can switch on or off, in service order. `choice` is the workspace's own (none yet: the defaults). */
+export function workspaceTools(state: IntegrationsState, repo: { integrations?: RepoIntegrations } | undefined, choice?: WorkspaceIntegrations): WorkspaceTool[] {
+  const out: WorkspaceTool[] = []
+  for (const service of AGENT_TOOL_SERVICES) {
+    const r = resolveIntegration(state, repo, service)
+    if (r.state !== 'ready' || r.connection.agentAccess === 'off') continue
+    const byDefault = startsOn(repo, r.connection, service)
+    out.push({ service, connection: r.connection, byDefault, on: choice?.[service] ?? byDefault })
+  }
+  return out
+}
+
+/** What one service's tools cost an agent that loads them up front: how many, and their definitions in tokens (roughly). */
+export interface ToolCost {
+  service: RepoIntegrationService
+  tools: number
+  tokens: number
+}
+
+/** About four characters a token, over what an agent is sent for each tool: its name, description and input schema. */
+export function toolTokens(tools: { name: string; description?: string; inputSchema?: unknown }[]): number {
+  const chars = tools.reduce((n, t) => n + t.name.length + (t.description?.length ?? 0) + JSON.stringify(t.inputSchema ?? {}).length, 0)
+  return Math.ceil(chars / 4)
+}
+
+/** A workspace switch as stored: known services only, booleans only. */
+export function cleanWorkspaceIntegrations(raw: unknown): WorkspaceIntegrations | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: WorkspaceIntegrations = {}
+  for (const service of AGENT_TOOL_SERVICES) {
+    const v = (raw as Record<string, unknown>)[service]
+    if (typeof v === 'boolean') out[service] = v
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 // ---- repositories: owners and suggestions ----
@@ -447,6 +531,7 @@ export interface ConnectionPatch {
   name?: string
   token?: string
   agentAccess?: AgentAccess
+  startsOff?: boolean
   slackMe?: { id: string; name: string } | null
   destinations?: SlackDestination[]
   // Vercel: another team or project (checked again before it is saved).

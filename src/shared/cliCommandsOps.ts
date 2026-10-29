@@ -94,9 +94,11 @@ export const WORKSPACE_COMMANDS: CommandSpec[] = [
       'start-anyway': { type: 'boolean', help: 'If setup fails, send the first message anyway' },
       'no-wait': { type: 'boolean', help: 'Return once the workspace exists, without waiting for setup' },
       wait: { type: 'boolean', help: 'Block until the first turn ends, and report how it went' },
-      timeout: { type: 'string', value: '<s>', help: 'With --wait: stop waiting after s seconds' }
+      timeout: { type: 'string', value: '<s>', help: 'With --wait: stop waiting after s seconds' },
+      with: { type: 'string', value: '<a,b>', help: 'Integrations to switch on in this workspace (linear, slack), over the repository’s defaults' },
+      without: { type: 'string', value: '<a,b>', help: 'Integrations to switch off in this workspace' }
     },
-    examples: ['foreman new "Add a dark mode toggle to the settings page" --open', 'foreman new "Fix the flaky login test" -b fix-flaky-login --wait --timeout 1800', 'foreman new "Review this" --existing feature/search --attach notes.md'],
+    examples: ['foreman new "Add a dark mode toggle to the settings page" --open', 'foreman new "Why did the eval scores drop?" --with linear', 'foreman new "Fix the flaky login test" -b fix-flaky-login --wait --timeout 1800', 'foreman new "Review this" --existing feature/search --attach notes.md'],
     exitCodes: { 0: 'Started (with --wait: the turn completed)', 1: 'Failed, or the turn failed, was stopped or was interrupted', 2: 'Usage error, or --wait timed out (the turn keeps running)', 3: 'Setup failed; the first message is held', 5: 'The connection to Foreman was lost (the turn is unaffected)' },
     details: NEW_DETAILS,
     tier: 'act'
@@ -285,6 +287,25 @@ export const WORKSPACE_COMMANDS: CommandSpec[] = [
     details: `The note is guidance shared by the workspace's tabs. Saving it sends nothing; send queues it
 as a normal message in one tab and prints the receipt like foreman send. set and send are not
 available from inside an agent turn (send follows the same opt-in as foreman send).`,
+    tier: 'act'
+  },
+  {
+    path: ['workspace', 'integrations'],
+    group: 'workspaces',
+    summary: 'Which integrations a workspace’s agents get, and switch one on or off',
+    usage: 'foreman workspace integrations <workspace> [--on a,b] [--off a,b]',
+    args: [WORKSPACE_ARG],
+    options: {
+      on: { type: 'string', value: '<a,b>', help: 'Switch these on (linear, slack) from the next message' },
+      off: { type: 'string', value: '<a,b>', help: 'Switch these off from the next message' }
+    },
+    examples: ['foreman ws integrations api', 'foreman ws integrations api --on linear', 'foreman ws integrations . --off slack --json'],
+    details: `Lists each integration that can give this workspace's agents tools: whether it is on here, what new
+workspaces in the repository start with, the account it acts as, and roughly what its tool definitions cost
+(a turn carries them only while it is on). --on and --off apply from the next message; the chat's receipt
+says so. Only a working connection that agents may use can be switched on: switching grants nothing the
+connection doesn't allow. From inside an agent turn, switching one on needs the repository's opt-in
+(Repository settings → Actions → "Let agents start workspaces and queue messages").`,
     tier: 'act'
   },
   {

@@ -4,7 +4,7 @@
 // `repo`, `integrations`, `cloud`). The structured settings (setup and archive steps, run scripts, checks, auto
 // review) have their own commands and are named in STRUCTURED_REPO_SETTINGS instead.
 import { CLOUD_PROVIDER_IDS } from './cloud'
-import { INTEGRATION_SERVICES, type RepoIntegrationService } from './integrations'
+import { AGENT_TOOL_SERVICES, INTEGRATION_SERVICES, type RepoIntegrationService } from './integrations'
 import { SETTINGS } from './settingsRegistry'
 import type { CustomPrompts, PreviewUrl, RepoCloud, RepoIcon, RepoPatch, RepoSettings, RepoSettingsPatch } from './types'
 
@@ -33,6 +33,7 @@ export type RepoSettingField =
   | `integrations.${RepoIntegrationService}`
   | 'integrations.rules'
   | 'integrations.allowOwnMcp'
+  | `integrations.starts.${RepoIntegrationService}`
 
 export interface RepoSettingSpec {
   // The full CLI key, `scripts.run-mode`.
@@ -154,6 +155,10 @@ export const REPO_SETTINGS_SCHEMA: readonly RepoSettingSpec[] = [
   def('slack', { registryId: 'repo-slack', target: 'integration', field: 'integrations.slack', type: 'string', hint: 'A connection id or name, `default`, or `off`.' }),
   def('slack-rules', { tab: 'integrations', target: 'integrationOptions', field: 'integrations.rules', type: 'enum', values: ['mine', 'off'] }),
   def('allow-own-mcp', { tab: 'integrations', target: 'integrationOptions', field: 'integrations.allowOwnMcp', type: 'list', itemValues: INTEGRATION_SERVICES }),
+  // Whether a service's tools start on in this repository's new workspaces; `default` follows the connection's own setting.
+  ...AGENT_TOOL_SERVICES.map((service) =>
+    def(`${service}-in-new-workspaces`, { tab: 'integrations', target: 'integrationOptions', field: `integrations.starts.${service}`, type: 'enum', values: ['default', 'on', 'off'], hint: '`default` follows the connection (`foreman connections edit <id> --new-workspaces on|off`).' })
+  ),
 
   // Remote workspaces (this repository's `cloud` record on Repo; the build is Foreman's own)
   flag('enabled', 'repo-cloud-enabled', 'cloud.enabled', { target: 'repoCloud' }),
@@ -297,12 +302,19 @@ export function coerceRepoSettingValue(spec: RepoSettingSpec, raw: string | read
 
 // ---- value to patch ----
 
+/** What setRepoIntegrationOptions takes from the command line. */
+export interface RepoIntegrationOptions {
+  rules?: 'mine' | 'off'
+  allowOwnMcp?: RepoIntegrationService[]
+  starts?: Partial<Record<RepoIntegrationService, 'default' | 'on' | 'off'>>
+}
+
 /** What to call to write one value (see RepoTarget). */
 export type RepoSettingWrite =
   | { kind: 'local'; patch: RepoSettingsPatch }
   | { kind: 'repo'; patch: RepoPatch }
   | { kind: 'integration'; service: RepoIntegrationService; choice: string }
-  | { kind: 'integrationOptions'; options: { rules?: 'mine' | 'off'; allowOwnMcp?: RepoIntegrationService[] } }
+  | { kind: 'integrationOptions'; options: RepoIntegrationOptions }
   | { kind: 'envFiles'; files: string[] }
 
 /**
@@ -324,8 +336,10 @@ export function repoSettingPatch(spec: RepoSettingSpec, value: unknown | null): 
       return { kind: 'repo', patch: { cloud: { [spec.field.slice('cloud.'.length)]: value } } as RepoPatch }
     case 'integration':
       return { kind: 'integration', service: spec.field.slice('integrations.'.length) as RepoIntegrationService, choice: String(value) }
-    case 'integrationOptions':
+    case 'integrationOptions': {
+      if (spec.field.startsWith('integrations.starts.')) return { kind: 'integrationOptions', options: { starts: { [spec.field.slice('integrations.starts.'.length)]: value as 'default' | 'on' | 'off' } } }
       return { kind: 'integrationOptions', options: spec.field === 'integrations.rules' ? { rules: value as 'mine' | 'off' } : { allowOwnMcp: value as RepoIntegrationService[] } }
+    }
     case 'envFiles':
       return { kind: 'envFiles', files: value as string[] }
   }

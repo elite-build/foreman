@@ -270,6 +270,9 @@ export interface NewParams {
   open?: boolean
   noWait?: boolean
   startAnyway?: boolean
+  // Integrations switched on or off in the new workspace, over the repository's defaults.
+  with?: string[]
+  without?: string[]
 }
 
 export interface NewResult {
@@ -284,5 +287,31 @@ export interface NewResult {
   // The chat and turn the first message started, for `foreman wait`.
   session?: string
   turn?: string
+  text: string
+}
+
+/** One integration a workspace can switch, as `foreman workspace integrations` lists it. */
+export interface WsIntegrationRow {
+  service: import('../integrations').RepoIntegrationService
+  on: boolean
+  // What new workspaces in this repository start with.
+  byDefault: boolean
+  connection: string
+  access: 'read' | 'write'
+  // How many tools, and roughly how many tokens their definitions take; absent when they couldn't be listed.
+  tools?: number
+  tokens?: number
+}
+
+export interface WsIntegrationsParams extends WorkspaceRef {
+  on?: string[]
+  off?: string[]
+}
+
+export interface WsIntegrationsResult {
+  workspace: { id: string; name: string }
+  integrations: WsIntegrationRow[]
+  // What this call switched, by service.
+  changed?: Partial<Record<import('../integrations').RepoIntegrationService, boolean>>
   text: string
 }

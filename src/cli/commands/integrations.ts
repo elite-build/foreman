@@ -97,6 +97,16 @@ const setDefault: Run = async (ctx) => {
   printText(ctx, await ctx.send<{ text: string }>('connections-default', { service, id }))
 }
 
+const editConnection: Run = async (ctx) => {
+  noMoreWords(ctx, 1, 'foreman connections edit <id> [--agent-access level] [--new-workspaces on|off]')
+  const [id] = ctx.args
+  if (!id) throw usageError('Name a connection. `foreman connections` lists them.')
+  const agentAccess = choice(ctx.opts['agent-access'], 'agent-access', ['off', 'read', 'write'])
+  const newWorkspaces = choice(ctx.opts['new-workspaces'], 'new-workspaces', ['on', 'off'])
+  if (agentAccess === undefined && newWorkspaces === undefined) throw usageError('Say what to change: --agent-access off|read|write or --new-workspaces on|off.')
+  printText(ctx, await ctx.send<{ text: string }>('connections-edit', { id, agentAccess, newWorkspaces }))
+}
+
 const apply: Run = async (ctx) => {
   noMoreWords(ctx, 1, 'foreman connections apply <id> --repos a,b')
   const [id] = ctx.args
@@ -193,6 +203,7 @@ export const integrationRunners: Record<string, Run> = {
   'connections check': check,
   'connections remove': remove,
   'connections default': setDefault,
+  'connections edit': editConnection,
   'connections apply': apply,
   'slack rules': slackRules,
   'slack people': slackPeople,

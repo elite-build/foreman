@@ -115,6 +115,7 @@ import { AttentionService, approvalDraft, PrPoller } from './attention'
 import type { TrayView } from '../shared/attention'
 import { PreviewServer } from './previewProtocol'
 import { Integrations } from './integrations'
+import { AGENT_TOOL_SERVICES, cleanWorkspaceIntegrations, toolsOn, type WorkspaceIntegrations } from '../shared/integrations'
 import { IntegrationBridge } from './integrationBridge'
 import { ForemanActions } from './foremanActions'
 import { ForemanMcp } from './foremanMcp'
@@ -1596,12 +1597,29 @@ export class Core {
       if (!create?.branch || (create.branch.kind === 'new' && !create.branch.name)) create = { ...create, branch: { kind: 'new', name: found.branch } }
     }
     const ws = await this.workspaces.createWorkspace(repoId, create)
-    if (internal?.scheduled) {
-      ws.scheduled = internal.scheduled
-      this.store.save()
-    }
+    if (internal?.scheduled) ws.scheduled = internal.scheduled
+    const integrations = this.startingIntegrations(repoId, options?.integrations)
+    if (integrations) ws.integrations = integrations
+    if (internal?.scheduled || integrations) this.store.save()
     this.startChat(ws.id, options?.prompt, options?.loadout, options?.templateId, intake, internal, options?.attachments)
     return ws
+  }
+
+  /**
+   * What a new workspace's integrations start as: every one it can switch, from the caller's choice where it made one
+   * and the repository's defaults otherwise. Recorded whole, so a later change to a default doesn't flip this workspace.
+   * Undefined when there is nothing to switch.
+   */
+  private startingIntegrations(repoId: string, choice: unknown): WorkspaceIntegrations | undefined {
+    const chosen = cleanWorkspaceIntegrations(choice)
+    const repo = this.store.state.repos.find((r) => r.id === repoId)
+    const out: WorkspaceIntegrations = {}
+    for (const service of AGENT_TOOL_SERVICES) {
+      const r = this.integrations.resolve(repoId, service)
+      if (r.state !== 'ready' || r.connection.agentAccess === 'off') continue
+      out[service] = toolsOn(repo, r.connection, service, chosen)
+    }
+    return Object.keys(out).length ? out : undefined
   }
 
   /**
@@ -2126,6 +2144,14 @@ export class Core {
     repoIntegrations: (repoId) => this.integrations.repoView(repoId),
     setRepoIntegration: async (repoId, service, choice) => this.integrations.setRepoChoice(repoId, service, choice),
     setRepoIntegrationOptions: async (repoId, options) => this.integrations.setRepoOptions(repoId, options),
+    setWorkspaceIntegration: async (workspaceId, service, on) => {
+      if (!AGENT_TOOL_SERVICES.includes(service)) throw new Error('That integration can’t be switched per workspace')
+      const ws = this.workspaces.workspace(workspaceId)
+      ws.integrations = { ...ws.integrations, [service]: Boolean(on) }
+      // An idle MCP status check started with the old set; the next one starts afresh.
+      this.sessions.workspaceIntegrationsChanged(workspaceId)
+      this.changed()
+    },
     applyConnectionToRepos: async (connectionId, repoIds) => this.integrations.applyToRepos(connectionId, repoIds),
     acceptIntegrationSuggestion: async (repoId) => this.integrations.acceptSuggestion(repoId),
     importRepoGithubToken: async (repoId) => {
@@ -2136,6 +2162,7 @@ export class Core {
       return added
     },
     integrationActivity: async (repoId) => this.bridge.activity(repoId),
+    integrationToolCosts: (repoId) => this.bridge.toolCosts(repoId),
     ghAccountsForIntegrations: async () => {
       forgetAccountTokens()
       const accounts = await githubAccounts().catch(() => [])
@@ -2315,6 +2342,11 @@ export class Core {
     resolveGithubLink: (repoId, url) => this.resolveLink(repoId, url),
     adoptWorktree: async (repoId, worktreePath, options) => {
       const ws = await this.workspaces.adoptWorktree(repoId, worktreePath, options)
+      const integrations = this.startingIntegrations(repoId, options.integrations)
+      if (integrations) {
+        ws.integrations = integrations
+        this.store.save()
+      }
       this.startChat(ws.id, options.prompt, options.loadout, options.templateId, undefined, undefined, options.attachments)
       return ws
     },

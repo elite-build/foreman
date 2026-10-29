@@ -17,6 +17,13 @@ export interface ConnectionRow {
   hint?: string
   // Vercel team and project, Docker context or host, E2B domain, Daytona API URL and target.
   details?: Record<string, string>
+  // Linear and Slack: whether new workspaces start with its tools on.
+  newWorkspaces?: 'on' | 'off'
+}
+
+export interface ConnectionsEditResult {
+  connection: ConnectionRow
+  text: string
 }
 
 export interface ConnectionsListResult {

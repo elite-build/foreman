@@ -260,6 +260,19 @@ describe('repo settings set and unset', () => {
     expect((await failure(set(['integrations.allow-own-mcp', 'jira']))).code).toBe('invalid')
   })
 
+  it('sets whether Linear and Slack start on in new workspaces, or back to the connection’s default', async () => {
+    const { set, calls } = await rig()
+    await set(['integrations.linear-in-new-workspaces', 'off'], ['integrations.slack-in-new-workspaces', 'on'])
+    await set(['integrations.linear-in-new-workspaces', 'default'])
+    expect(calls).toEqual([
+      ['setRepoIntegrationOptions', 'r1', { starts: { linear: 'off', slack: 'on' } }],
+      ['setRepoIntegrationOptions', 'r1', { starts: { linear: 'default' } }]
+    ])
+    expect((await failure(set(['integrations.linear-in-new-workspaces', 'sometimes']))).code).toBe('invalid')
+    // GitHub's tools don't come through the bridge, so there's nothing to start on or off.
+    expect((await failure(set(['integrations.github-in-new-workspaces', 'on']))).code).toBe('not-found')
+  })
+
   it('sends env files to setEnvFiles for the repository', async () => {
     const { set, calls } = await rig()
     await set(['repo.env-files', '.env.local, config/dev.env'])

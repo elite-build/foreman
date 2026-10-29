@@ -53,7 +53,7 @@ import { attachFromData, attachmentNote } from './files'
 import type { Environment } from './environment'
 import { IntegrationBridge } from './integrationBridge'
 import type { ForemanMcp } from './foremanMcp'
-import type { IntegrationService } from '../shared/integrations'
+import type { IdentityChange } from '../shared/integrations'
 import { ORIGIN_APPROVED, ORIGIN_UNAPPROVED, type RepoMcp } from './repoMcp'
 import { git } from './git'
 import { localOnly, workspaceTarget } from './runtime'
@@ -1167,7 +1167,7 @@ export class SessionService {
     servers: Record<string, McpLaunch>
     disabled: string[]
     notes: string[]
-    receipt?: { changed: { service: IntegrationService; was?: string; now?: string }[]; ownOff: string[] }
+    receipt?: { changed: IdentityChange[]; ownOff: string[] }
   } {
     if (!this.integrations) return { servers: {}, disabled: [], notes: [] }
     const turn = this.integrations.forTurn({
@@ -1176,7 +1176,8 @@ export class SessionService {
       repoId: ws.repoId,
       cwd: this.turnCwd(ws),
       supportsMcp: Boolean(AGENTS[session.agent]?.supportsRepoMcp),
-      last: session.integrations?.snapshot
+      last: session.integrations?.snapshot,
+      choices: ws.integrations
     })
     const { claude, codex } = IntegrationBridge.blockedFor(session.agent, turn.blocked)
     const disabled = [...claude, ...codex]
@@ -2091,7 +2092,7 @@ export class SessionService {
           ? {
               ...this.repoMcp?.launchable(ws),
               // Integrations: a probe-only grant, which lists tools and runs none.
-              ...this.integrations?.probeServers({ sessionId: session.id, workspaceId: ws.id, repoId: ws.repoId, cwd: wsPath(ws), supportsMcp: true })
+              ...this.integrations?.probeServers({ sessionId: session.id, workspaceId: ws.id, repoId: ws.repoId, cwd: wsPath(ws), supportsMcp: true, choices: ws.integrations })
             }
           : undefined
       })
@@ -2110,6 +2111,11 @@ export class SessionService {
     this.integrations?.endProbes(sessionId)
     clearTimeout(entry.timer)
     entry.probe.close()
+  }
+
+  /** A workspace's integrations were switched: idle MCP checks of its tabs started with the old set. */
+  workspaceIntegrationsChanged(workspaceId: string): void {
+    for (const session of this.store.state.sessions) if (session.workspaceId === workspaceId) this.closeMcpProbe(session.id)
   }
 
   async disposeWorkspaceSessions(workspaceId: string, repoRoot: string): Promise<void> {

@@ -2,7 +2,7 @@
 // whether it's the default, how many repositories use it and what agents may do with it.
 import { MoreHorizontal, Plus } from 'lucide-react'
 import { useState } from 'react'
-import { INTEGRATION_SERVICES, isSandboxService, SANDBOX_SERVICES, type AgentAccess, type ConnectionView, type IntegrationService, type RepoIntegrationService } from '../../../../../shared/integrations'
+import { AGENT_TOOL_SERVICES, INTEGRATION_SERVICES, isSandboxService, SANDBOX_SERVICES, type AgentAccess, type ConnectionView, type IntegrationService, type RepoIntegrationService } from '../../../../../shared/integrations'
 import { useT } from '../../../i18n'
 import { api, attempt, showToast, useStore } from '../../../store'
 import { Button, LinkButton, MenuButton, MenuItem, Segmented, Spinner, Switch, Tag } from '../../../ui'
@@ -136,6 +136,13 @@ function ConnectionCard({ connection: c, cloudOn }: { connection: ConnectionView
           <span>{t('integrations.slack.agentPosting')}</span>
           <span className="set-help">{t('integrations.slack.agentPostingHelp')}</span>
         </div>}
+        {AGENT_TOOL_SERVICES.includes(c.service as RepoIntegrationService) && c.agentAccess !== 'off' && (
+          <div className="int-card-access">
+            <Switch checked={!c.startsOff} onChange={(on) => void attempt(() => api.updateConnection(c.id, { startsOff: !on })).then((r) => r && flashSaved())} label={t('integrations.starts.label')} />
+            <span>{t('integrations.starts.label')}</span>
+            <span className="set-help">{t('integrations.starts.help')}</span>
+          </div>
+        )}
       </div>
       <div className="int-card-actions">
         {c.problem && c.auth.kind === 'token' && (

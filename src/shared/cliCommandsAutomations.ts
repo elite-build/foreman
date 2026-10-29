@@ -641,6 +641,20 @@ export const INTEGRATION_COMMANDS: CommandSpec[] = [
     tier: 'admin'
   },
   {
+    path: ['connections', 'edit'],
+    group: 'settings',
+    summary: 'Change what agents may do with a connection, and whether new workspaces start with it',
+    usage: 'foreman connections edit <id> [--agent-access level] [--new-workspaces on|off]',
+    args: [{ name: 'id', required: true, help: 'A connection’s id, the start of it, or its name' }],
+    options: {
+      'agent-access': { type: 'string', value: '<level>', choices: ['off', 'read', 'write'], help: 'linear: off, read or write; slack: off or write (post to allowed channels)' },
+      'new-workspaces': { type: 'string', value: '<on|off>', choices: ['on', 'off'], help: 'linear, slack: whether new workspaces start with its tools on (a repository can override it)' }
+    },
+    examples: ['foreman connections edit acme --new-workspaces off', 'foreman connections edit 3f2a --agent-access write'],
+    details: '--new-workspaces off keeps its tools out of new workspaces (and their context) until a workspace switches it on: in New workspace, the composer, `foreman run --with`, or `foreman workspace integrations --on`. It never changes what agents may do; --agent-access does.',
+    tier: 'admin'
+  },
+  {
     path: ['connections', 'apply'],
     group: 'settings',
     summary: 'Use a connection in repositories',

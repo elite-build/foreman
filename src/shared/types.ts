@@ -596,6 +596,8 @@ export interface Workspace {
   transfer?: WorkspaceTransfer
   // Created by a schedule: which one, and the run's occurrence id.
   scheduled?: { scheduleId: string; occurrenceId: string }
+  // Integrations switched on or off for this workspace's turns; absent services follow the repository's defaults.
+  integrations?: import('./integrations').WorkspaceIntegrations
   createdAt: string
   archivedAt?: string
   // Why it was archived. Absent on ones archived before this was kept, which were archived by hand.
@@ -814,6 +816,8 @@ export interface CreateWorkspaceOptions {
   pullRequest?: { repo: string; number: number; gitlabHost?: string }
   // Where the worktree lives: a folder here (the default) or a cloud sandbox.
   location?: 'local' | 'cloud'
+  // Integrations switched on or off for this workspace (absent: the repository's defaults).
+  integrations?: import('./integrations').WorkspaceIntegrations
 }
 
 export interface AdoptWorktreeOptions {
@@ -822,6 +826,7 @@ export interface AdoptWorktreeOptions {
   templateId?: string
   attachments?: string[]
   loadout?: Loadout
+  integrations?: import('./integrations').WorkspaceIntegrations
 }
 
 export interface QueuedMessage {
@@ -2416,12 +2421,16 @@ export interface Api {
   setIntegrationDefault(service: import('./integrations').IntegrationService, id: string | null): Promise<void>
   repoIntegrations(repoId: string): Promise<import('./integrations').RepoServiceView[]>
   setRepoIntegration(repoId: string, service: import('./integrations').IntegrationService, choice: string): Promise<void>
-  setRepoIntegrationOptions(repoId: string, options: { rules?: 'mine' | 'off'; allowOwnMcp?: import('./integrations').IntegrationService[]; dismissSuggestion?: boolean }): Promise<void>
+  setRepoIntegrationOptions(repoId: string, options: { rules?: 'mine' | 'off'; allowOwnMcp?: import('./integrations').IntegrationService[]; dismissSuggestion?: boolean; starts?: Partial<Record<import('./integrations').RepoIntegrationService, 'on' | 'off' | 'default'>> }): Promise<void>
+  // A workspace's integrations: switch one on or off for its next turns.
+  setWorkspaceIntegration(workspaceId: string, service: import('./integrations').RepoIntegrationService, on: boolean): Promise<void>
   applyConnectionToRepos(connectionId: string, repoIds: string[]): Promise<void>
   acceptIntegrationSuggestion(repoId: string): Promise<void>
   // "Make it a connection": the repository's own GH_TOKEN becomes a connection it uses; the variable stays where it is.
   importRepoGithubToken(repoId: string): Promise<import('./integrations').AddConnectionResult>
   integrationActivity(repoId?: string): Promise<import('./integrations').BridgeActivity[]>
+  // Per integration agents may use here: how many tools, and roughly how many tokens their definitions take.
+  integrationToolCosts(repoId: string): Promise<import('./integrations').ToolCost[]>
   ghAccountsForIntegrations(): Promise<{ login: string; active: boolean; connected: boolean }[]>
   // Slack
   slackManifest(): Promise<{ url: string; json: string }>
@@ -2851,8 +2860,8 @@ export const API_METHODS = [
   'cloudBuildBase', 'cloudWake', 'cloudSleep', 'cloudRestart', 'cloudStatus', 'cloudUsage',
   'cloudSetClaudeToken', 'cloudClaudeToken',
   'cloudContinue', 'cloudPreflight', 'cloudReattach',
-  'addConnection', 'updateConnection', 'checkConnection', 'connectionRemovalImpact', 'removeConnection', 'setIntegrationDefault', 'repoIntegrations', 'setRepoIntegration', 'setRepoIntegrationOptions',
-  'applyConnectionToRepos', 'acceptIntegrationSuggestion', 'importRepoGithubToken', 'integrationActivity', 'ghAccountsForIntegrations', 'slackManifest', 'slackPeople', 'slackChannels', 'saveSlackRule', 'consentSlackRule',
+  'addConnection', 'updateConnection', 'checkConnection', 'connectionRemovalImpact', 'removeConnection', 'setIntegrationDefault', 'repoIntegrations', 'setRepoIntegration', 'setRepoIntegrationOptions', 'setWorkspaceIntegration',
+  'applyConnectionToRepos', 'acceptIntegrationSuggestion', 'importRepoGithubToken', 'integrationActivity', 'integrationToolCosts', 'ghAccountsForIntegrations', 'slackManifest', 'slackPeople', 'slackChannels', 'saveSlackRule', 'consentSlackRule',
   'deleteSlackRule', 'linkPerson', 'unlinkPerson', 'slackDeliveries', 'answerSlackAsk', 'resendSlackDelivery', 'linearMyIssues', 'resolveLinearLink'
 ] as const satisfies readonly (keyof Api)[]
 

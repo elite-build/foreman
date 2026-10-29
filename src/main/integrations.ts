@@ -11,6 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse as parseToml } from 'smol-toml'
 import {
+  AGENT_TOOL_SERVICES,
   CLAUDE_AI_CONNECTORS,
   emptyIntegrations,
   INTEGRATION_SERVICES,
@@ -34,6 +35,7 @@ import {
   type OwnMcpServer,
   type PersonLink,
   type RepoIntegrations,
+  type RepoIntegrationService,
   type RepoServiceView,
   type Resolution,
   type SlackDestination,
@@ -487,6 +489,11 @@ export class Integrations {
       c.agentAccess = patch.agentAccess
       c.rev++
     }
+    // Only what new workspaces start with: it grants nothing, so the revision stays.
+    if (patch.startsOff !== undefined) {
+      if (patch.startsOff) c.startsOff = true
+      else delete c.startsOff
+    }
     if (patch.slackMe !== undefined || patch.destinations !== undefined) {
       c.rev++
       c.slack ??= { destinations: [] }
@@ -600,11 +607,17 @@ export class Integrations {
     this.save()
   }
 
-  setRepoOptions(repoId: string, options: { rules?: 'mine' | 'off'; allowOwnMcp?: IntegrationService[]; dismissSuggestion?: boolean }): void {
+  setRepoOptions(repoId: string, options: { rules?: 'mine' | 'off'; allowOwnMcp?: IntegrationService[]; dismissSuggestion?: boolean; starts?: Partial<Record<RepoIntegrationService, 'on' | 'off' | 'default'>> }): void {
     const ri = this.repoIntegrations(repoId)
     if (options.rules) ri.rules = options.rules
     if (options.allowOwnMcp) ri.allowOwnMcp = options.allowOwnMcp.filter((s) => (INTEGRATION_SERVICES as IntegrationService[]).includes(s))
     if (options.dismissSuggestion) delete ri.suggest
+    for (const service of AGENT_TOOL_SERVICES) {
+      const v = options.starts?.[service]
+      if (v === 'on' || v === 'off') ri.starts = { ...ri.starts, [service]: v }
+      else if (v === 'default' && ri.starts) delete ri.starts[service]
+    }
+    if (ri.starts && !Object.keys(ri.starts).length) delete ri.starts
     this.save()
   }
 
