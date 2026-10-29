@@ -46,7 +46,9 @@ function detailsOf(c: ConnectionView): Record<string, string> | undefined {
     ['host', c.docker?.host],
     ['domain', c.e2b?.domain],
     ['apiUrl', c.daytona?.apiUrl],
-    ['target', c.daytona?.target]
+    ['target', c.daytona?.target],
+    ['host', c.langfuse?.host],
+    ['publicKey', c.langfuse?.publicKey]
   ]
   const present = entries.filter((e): e is [string, string] => Boolean(e[1]))
   return present.length ? Object.fromEntries(present) : undefined
@@ -119,7 +121,7 @@ function newConnection(p: Record<string, unknown>): { input: NewConnection; toke
     const host = text(d, 'host')
     return { input: { service, auth: { kind: 'docker-context' }, docker: { ...(context ? { context } : {}), ...(host ? { host } : {}) }, ...(allowDuplicate ? { allowDuplicate } : {}), ...(name ? { name } : {}) } }
   }
-  if (!token) throw invalid(`${service === 'slack' ? 'A Slack bot token' : service === 'linear' ? 'A Linear API key' : `${CLOUD_PROVIDERS[service as keyof typeof CLOUD_PROVIDERS]?.label ?? service} needs an API key`} is needed: pass it on stdin (--token-stdin), never as an argument.`)
+  if (!token) throw invalid(`${service === 'slack' ? 'A Slack bot token' : service === 'linear' ? 'A Linear API key' : service === 'langfuse' ? 'A Langfuse secret key' : `${CLOUD_PROVIDERS[service as keyof typeof CLOUD_PROVIDERS]?.label ?? service} needs an API key`} is needed: pass it on stdin (--token-stdin), never as an argument.`)
   const extra: Record<string, unknown> = {}
   const provider = (CLOUD_PROVIDERS as Record<string, (typeof CLOUD_PROVIDERS)[keyof typeof CLOUD_PROVIDERS] | undefined>)[service]
   if (provider) {
@@ -129,9 +131,17 @@ function newConnection(p: Record<string, unknown>): { input: NewConnection; toke
     const picked = Object.fromEntries(provider.connection.fields.filter((f) => !f.secret).flatMap((f) => (text(given, f.key) ? [[f.key, text(given, f.key)]] : [])))
     extra[service] = picked
   }
+  if (service === 'langfuse') {
+    const given = section('langfuse')
+    const publicKey = text(given, 'publicKey')
+    if (!publicKey) throw invalid('Langfuse also needs --public-key.', 'Find the key pair in Langfuse: Project settings → API Keys.')
+    const host = text(given, 'host')
+    extra.langfuse = { publicKey, ...(host ? { host } : {}) }
+  }
   const access = textParam(p, 'agentAccess', { optional: true })
   if (access !== undefined && !(AGENT_ACCESS as string[]).includes(access)) throw invalid(`Agent access is ${AGENT_ACCESS.join(', ')}.`)
-  if (access !== undefined && service !== 'linear') throw invalid('Only Linear connections have an agent-access setting (GitHub reaches agents as GH_TOKEN; Slack and the sandbox services not at all).')
+  if (access !== undefined && service !== 'linear' && service !== 'langfuse') throw invalid('Only Linear and Langfuse connections have an agent-access setting (GitHub reaches agents as GH_TOKEN; Slack and the sandbox services not at all).')
+  if (access === 'write' && service === 'langfuse') throw invalid('Langfuse tools only read: agent access is off or read.')
   return { input: { service, auth: { kind: 'token' }, token, ...base, ...(access ? { agentAccess: access as AgentAccess } : {}), ...extra } as NewConnection, token }
 }
 

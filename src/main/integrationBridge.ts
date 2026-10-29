@@ -1,5 +1,5 @@
 // The integration bridge. Each turn of an agent that takes stdio
-// MCP servers gets `foreman-linear`, whose command is Foreman's own CLI in bridge mode. The CLI
+// MCP servers gets `foreman-linear` (and `foreman-slack`, `foreman-langfuse`), whose command is Foreman's own CLI in bridge mode. The CLI
 // holds no credential: it shows this table's grant id over the app's owner-only socket, and the
 // app answers MCP requests, forwarding allowed tool calls to Linear's hosted MCP with the real
 // key. So the key never reaches an agent, an MCP server process or argv; the grant id does
@@ -17,6 +17,7 @@ import {
   snapshotOf,
   slackEscape,
   ownServerService,
+  SERVICE_LABELS,
   toolAllowed,
   type AgentAccess,
   type BridgeActivity,
@@ -26,6 +27,7 @@ import {
   type OwnMcpServer
 } from '../shared/integrations'
 import type { Integrations } from './integrations'
+import { LANGFUSE_TOOLS, langfuseCall, LangfuseError } from './langfuse'
 import { isAuthError, slackPost } from './slack'
 
 export interface UpstreamTool {
@@ -93,9 +95,9 @@ export interface TurnIntegrations {
   notes: string[]
 }
 
-const LABEL: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
-// Agents get tools through the bridge for these services (Slack's agent tool and GitHub's hosted MCP come later).
-const BRIDGED: IntegrationService[] = ['linear', 'slack']
+const LABEL = SERVICE_LABELS
+// Agents get tools through the bridge for these services (GitHub's hosted MCP comes later).
+const BRIDGED: IntegrationService[] = ['linear', 'slack', 'langfuse']
 const ACTIVITY_LIMIT = 300
 
 export class IntegrationBridge {
@@ -257,6 +259,8 @@ export class IntegrationBridge {
       name: 'slack_post', description: `Post as the Foreman bot to an allowed channel: ${(connection.slack?.destinations ?? []).map((d) => `${d.id} (#${d.name})`).join(', ') || 'none configured'}.`,
       inputSchema: { type: 'object', properties: { channel: { type: 'string' }, text: { type: 'string', maxLength: 4000 } }, required: ['channel', 'text'], additionalProperties: false }
     }] : []
+    // Foreman's own read-only tools over Langfuse's public API (Langfuse's hosted MCP manages prompts, not traces).
+    if (connection.service === 'langfuse') return LANGFUSE_TOOLS
     const key = `${connection.id}:${connection.rev}:${access}`
     const hit = this.toolCache.get(key)
     if (hit) return hit
@@ -363,6 +367,13 @@ export class IntegrationBridge {
             this.record(grant, name, true)
             return reply({ content: [{ type: 'text', text: `Posted to ${posted.channel} (${posted.ts}).` }] })
           }
+          if (grant.service === 'langfuse') {
+            const info = ok.connection.langfuse
+            if (!info) return refuse('This Langfuse connection has no host or public key. Replace its keys in Settings → Integrations.')
+            const result = await langfuseCall({ ...info, secretKey: ok.token }, name, args, this.deps.fetch, this.deps.now?.())
+            this.record(grant, name, !result.isError)
+            return reply(result)
+          }
           const upstream = await this.upstream(ok.connection, ok.token, ok.access)
           const current = this.check(grant)
           if ('refused' in current) return refuse(current.refused)
@@ -372,7 +383,7 @@ export class IntegrationBridge {
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           // The service refused the key: the connection needs attention, for every repository using it.
-          if (isAuthError(err) || /\b401\b|unauthori[sz]ed|invalid.*(token|key)/i.test(message)) this.deps.integrations.markProblem(ok.connection.id, `${label} refused the key (${message})`)
+          if (isAuthError(err) || (err instanceof LangfuseError && err.auth) || /\b401\b|unauthori[sz]ed|invalid.*(token|key)/i.test(message)) this.deps.integrations.markProblem(ok.connection.id, `${label} refused the key (${message})`)
           this.record(grant, name, false, message)
           return reply({ content: [{ type: 'text', text: `${label} error: ${message}` }], isError: true })
         }

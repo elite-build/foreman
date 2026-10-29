@@ -5044,10 +5044,10 @@ Settings → Integrations. The id (or its first characters, or the name) is what
 Connect an account
 
 Usage:
-  foreman connections add github|linear|slack|vercel|e2b|daytona|docker [--label name] [--token-stdin] [--default] […]
+  foreman connections add github|linear|slack|langfuse|vercel|e2b|daytona|docker [--label name] [--token-stdin] [--default] […]
 
 Arguments:
-  <service>                   The service to connect (one of: github, linear, slack, vercel, e2b, daytona, docker)
+  <service>                   The service to connect (one of: github, linear, slack, langfuse, vercel, e2b, daytona, docker)
 
 Options:
       --label <name>          What to call it (default: the account’s name)
@@ -5060,8 +5060,9 @@ Options:
       --api-url <url>         daytona: the API URL
       --target <region>       daytona: the target region
       --context <name>        docker: a Docker context
-      --host <url>            docker: a host, like ssh://user@host
-      --agent-access <level>  linear: what agents may do with it (one of: off, read, write) (default: read)
+      --host <url>            docker: a host, like ssh://user@host; langfuse: its address, like https://us.cloud.langfuse.com
+      --public-key <pk-lf-…>  langfuse: the public key that goes with the secret key
+      --agent-access <level>  linear, langfuse (off or read): what agents may do with it (one of: off, read, write) (default: read)
       --default               Make it the service’s default connection
       --allow-duplicate       Add it although a connection to the same account exists
 
@@ -5074,16 +5075,18 @@ Common options:
 Examples:
   foreman connections add github --gh-account octocat --label Work
   printf %s "$LINEAR_API_KEY" | foreman connections add linear --token-stdin --label Acme
+  printf %s "$LANGFUSE_SECRET_KEY" | foreman connections add langfuse --public-key "$LANGFUSE_PUBLIC_KEY" --token-stdin --label Kite
   foreman connections add vercel --team-id team_123 --project-id prj_456 --token-stdin
   foreman connections add docker --context colima
 
-A connection is an account Foreman signs in to: GitHub, Linear, Slack, or a sandbox service for remote workspaces
+A connection is an account Foreman signs in to: GitHub, Linear, Slack, Langfuse, or a sandbox service for remote workspaces
 (Vercel, E2B, Daytona, Docker). Secrets are never arguments: a token comes from standard input (--token-stdin) or
 from a prompt that does not echo it, and never comes back in any output (at most its last four characters).
 
   github   --gh-account <login> (a `gh` account), --gh-active (whichever is active now), or a token
   linear   a Linear API key
   slack    a bot token (xoxb-…)
+  langfuse a project's secret key (sk-lf-…), --public-key (pk-lf-…); --host (default https://cloud.langfuse.com)
   vercel   a token, --team-id and --project-id
   e2b      an API key; --domain for a self-hosted domain
   daytona  an API key; --api-url (default https://app.daytona.io/api), --target
@@ -5154,7 +5157,7 @@ Usage:
   foreman connections default <service> <id|none>
 
 Arguments:
-  <service>    github, linear, slack, vercel, e2b, daytona or docker (one of: github, linear, slack, vercel, e2b, daytona, docker)
+  <service>    github, linear, slack, langfuse, vercel, e2b, daytona or docker (one of: github, linear, slack, langfuse, vercel, e2b, daytona, docker)
   <id>         A connection of that service, or none
 
 Common options:
@@ -6181,8 +6184,9 @@ Integrations
   integrations.github-account  text. A connection id or name, `default`, or `off`.  GitHub account
   integrations.linear          text. A connection id or name, `default`, or `off`.  Linear
   integrations.slack           text. A connection id or name, `default`, or `off`.  Slack
+  integrations.langfuse        text. A connection id or name, `default`, or `off`.  Langfuse
   integrations.slack-rules     mine | off                                           slack rules
-  integrations.allow-own-mcp   list of github, linear, slack                        allow own mcp
+  integrations.allow-own-mcp   list of github, linear, slack, langfuse              allow own mcp
 
 Remote workspaces
   cloud.enabled         on | off                                                                                 Remote workspaces

@@ -75,7 +75,7 @@ describe('export and import', () => {
     dst.store.state.integrations = { connections: [], defaults: { linear: 'personal-linear' }, rules: [], people: [] }
     const preview = await stage(dst, out)
     await dst.portability.importStaged(preview.stageId, { repoId: dst.repo.id })
-    expect(dst.repo.integrations?.services).toEqual({ github: 'off', linear: 'imported:work-linear', slack: 'off' })
+    expect(dst.repo.integrations?.services).toEqual({ github: 'off', linear: 'imported:work-linear', slack: 'off', langfuse: 'off' })
   })
 
   it('keeps tool output when the share asks for it', async () => {
