@@ -1,8 +1,8 @@
 name: Release
 
 # Manual only: someone with write access starts it on a version tag made by `npm run release -- tag`
-# (`gh workflow run release.yml --ref v<version>`). It builds the installers with the Installers workflow and attaches them
-# to a draft GitHub release. Drafts are visible only to people with write access; publishing one is a separate, human
+# (`gh workflow run release.yml --ref v<version>`). It builds the installers with the Installers workflow (the macOS app
+# signed with the Developer ID certificate and notarized) and attaches them to a draft GitHub release. Drafts are visible only to people with write access; publishing one is a separate, human
 # decision (see "Releases" in docs/maintenance.md).
 on:
   workflow_dispatch:
@@ -44,6 +44,16 @@ jobs:
     uses: ./.github/workflows/installers.yml
     permissions:
       contents: read
+    # A release's macOS app is always Developer ID signed and notarized: Installers fails rather than build it otherwise.
+    with:
+      sign-macos: true
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   release:
     name: Draft release

@@ -27,6 +27,7 @@
     "postinstall": "node scripts/postinstall.mjs",
     "release": "node scripts/release.mjs",
     "dist:mac": "electron-vite build && electron-builder --mac --publish never",
+    "dist:mac:adhoc": "electron-vite build && electron-builder --mac --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
     "dist:win": "electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {
@@ -137,8 +138,17 @@
         "zip"
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "identity": "-",
-      "hardenedRuntime": false,
+      "type": "distribution",
+      "forceCodeSigning": true,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "signIgnore": [
+        "/app\\.asar\\.unpacked/(?:.+/)?node_modules/@anthropic-ai/claude-agent-sdk-darwin-[^/]+/claude$",
+        "/app\\.asar\\.unpacked/(?:.+/)?node_modules/@openai/codex-darwin-[^/]+/vendor/[^/]+/(?:bin/codex[^/]*|codex-path/rg)$",
+        "/app\\.asar\\.unpacked/(?:.+/)?node_modules/@cursor/sdk-darwin-[^/]+/bin/[^/]+$"
+      ],
+      "notarize": true,
       "extraResources": [
         {
           "from": "resources/cli",
