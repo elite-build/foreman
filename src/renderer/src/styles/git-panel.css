@@ -23,6 +23,10 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* The Merged tag doesn't shrink: without this it spilled under the header's Archive button. The margin keeps the
+     PR link's focus ring. */
+  overflow: clip;
+  overflow-clip-margin: 4px;
 }
 .merged-meta {
   min-width: 0;

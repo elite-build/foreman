@@ -383,7 +383,9 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
           label={
             deleteNext ? (
               <>
-                <Trash2 size={13} /> {t('gitPanel.merged.archiveDeleteBranch')}
+                {/* A compact panel shows the short word; the trash icon, aria-label and title keep the branch's deletion. */}
+                <Trash2 size={13} /> <span className="btn-label-long">{t('gitPanel.merged.archiveDeleteBranch')}</span>
+                <span className="btn-label-short">{t('gitPanel.action.archive')}</span>
               </>
             ) : (
               primary
@@ -393,6 +395,7 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
           onClick={() => (deleteNext ? archiveDeleteBranch() : void run(action))}
           disabled={primaryDisabled}
           title={deleteNext ? t('gitPanel.merged.archiveDeleteBranch') : status?.primary.label}
+          aria-label={deleteNext ? t('gitPanel.merged.archiveDeleteBranch') : undefined}
         >
           <MenuItem icon={<Archive size={14} />} hint={archiveChoice && !deleteNext ? lastUsed : undefined} onSelect={() => void run('archive')}>
             {t('gitPanel.action.archive')}

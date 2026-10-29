@@ -52,6 +52,25 @@
   align-items: center;
   gap: 6px;
 }
+/* The workspace header is sized by its column, not the window: a narrow column (a wide side panel, the editor
+   arrangement) used to squeeze the name to nothing and push the last toggle under the side panel. */
+.center-header {
+  container-type: inline-size;
+}
+/* The title takes what the actions leave, and clips rather than running under them; the margin keeps its toggles'
+   focus rings. */
+.center-header > .header-title {
+  flex: 1 1 auto;
+  overflow: clip;
+  overflow-clip-margin: 4px;
+}
+/* A narrow column: the buttons keep their icons and drop their words (their aria-label and title still say them).
+   With words they take about 440px; below 680 (inside the padding) keeping them cut the workspace's name short. */
+@container (max-width: 680px) {
+  .center-header .header-actions .btn-label {
+    display: none;
+  }
+}
 .center-body {
   flex: 1;
   min-height: 0;
