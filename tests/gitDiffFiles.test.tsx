@@ -435,6 +435,9 @@ describe('the Git header actions', () => {
       render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
       const primary = screen.getByRole('button', { name: 'Archive and delete branch' })
       expect(primary.className).toContain('ui-btn--primary')
+      // A compact side panel shows the short word; the button's name keeps the whole action.
+      expect(primary.querySelector('.btn-label-long')?.textContent).toBe('Archive and delete branch')
+      expect(primary.querySelector('.btn-label-short')?.textContent).toBe('Archive')
       await user.click(primary)
       expect(archiveDialog).toHaveBeenLastCalledWith('w1', { deleteBranch: true })
       await user.click(screen.getByRole('button', { name: 'More options after merging' }))
