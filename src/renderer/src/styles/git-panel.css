@@ -30,6 +30,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Open or draft: the PR's number, then the next step's words, which give way when the panel is narrow. */
+.pr-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pr-status > .ui-link-btn {
+  flex: none;
+}
 /* The merged progress strip, between the header and the tabs. */
 .merged-progress {
   flex: none;

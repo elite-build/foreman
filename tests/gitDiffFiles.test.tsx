@@ -11,7 +11,7 @@ import { CommitsView } from '../src/renderer/src/components/CommitsView'
 import { SelectionBar, SelectionDraftBox, TabPicker } from '../src/renderer/src/components/DiffSelection'
 import { DiffSourceMenu } from '../src/renderer/src/components/DiffSourceMenu'
 import { FilesTree } from '../src/renderer/src/components/FilesTree'
-import { GitHeaderActions, MergedProgress, MergedStatus } from '../src/renderer/src/components/GitPanel'
+import { GitHeaderActions, MergedProgress, MergedStatus, PrStatus } from '../src/renderer/src/components/GitPanel'
 import { en } from '../src/shared/i18n/en'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -498,6 +498,25 @@ describe('the Git header actions', () => {
       expect(container.textContent).toBe('Merged#41 into main · 2h ago')
       await user.click(screen.getByRole('button', { name: '#41' }))
       expect(fakeApi.openExternal).toHaveBeenCalledWith(pr.url)
+    })
+  })
+
+  describe('while the pull request is open', () => {
+    const pr = { number: 42, url: 'https://github.com/o/r/pull/42', title: 'T', state: 'OPEN', baseRefName: 'main', checks: [] }
+
+    it('the status leads with the PR number, which opens it', async () => {
+      const user = userEvent.setup()
+      const { container } = render(<PrStatus pr={pr as never}><span>Review required</span></PrStatus>)
+      expect(container.textContent).toBe('#42Review required')
+      const link = screen.getByRole('button', { name: '#42' })
+      expect(link.getAttribute('title')).toBe('Open the pull request on GitHub')
+      await user.click(link)
+      expect(fakeApi.openExternal).toHaveBeenCalledWith(pr.url)
+    })
+
+    it('a GitLab merge request shows its !iid and says GitLab', () => {
+      render(<PrStatus pr={{ ...pr, provider: 'gitlab', url: 'https://gitlab.com/o/r/-/merge_requests/42' } as never}><span>Draft</span></PrStatus>)
+      expect(screen.getByRole('button', { name: '!42' }).getAttribute('title')).toBe('Open the merge request on GitLab')
     })
   })
 })

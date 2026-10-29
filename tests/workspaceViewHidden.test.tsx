@@ -75,6 +75,7 @@ vi.mock('../src/renderer/src/components/GitPanel', () => ({
   ChecksView: () => null,
   GitHeaderActions: () => null,
   MergedStatus: () => null,
+  PrStatus: ({ children }: { children: unknown }) => children,
   useGitStatus: () => ({ status: null, refresh: async () => undefined })
 }))
 vi.mock('../src/renderer/src/components/FileViewer', () => ({ FileViewer: () => null }))

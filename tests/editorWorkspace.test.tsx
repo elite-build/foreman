@@ -46,6 +46,7 @@ vi.mock('../src/renderer/src/components/GitPanel', () => ({
   ChecksView: () => <p>checks list</p>,
   GitHeaderActions: () => null,
   MergedStatus: () => null,
+  PrStatus: ({ children }: { children: unknown }) => children,
   MergedProgress: () => null,
   useGitStatus: () => ({ status: null, refresh: async () => undefined })
 }))
