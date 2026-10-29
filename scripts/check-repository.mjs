@@ -12,7 +12,7 @@ export function forbiddenPath(file) {
     || /^(?:features\.md|publication-[^/]+\.md)$/.test(p)
     || /(?:^|\/)(?:state\.json|foreman\.db(?:-wal|-shm)?|secrets\.json|credentials\.json)$/.test(p)
     || /(?:^|\/)\.env(?:\..*)?$/.test(p) && !/(?:^|\/)\.env\.(?:example|sample)$/.test(p)
-    || /\.(?:pem|key|p12|pfx|log)$/.test(p)
+    || /\.(?:pem|key|p8|p12|pfx|log)$/.test(p)
     || /(?:^|\/)(?:mocks?(?:[-.][^/]*)?|mockups?)(?:\/|\.html$)/.test(p)
 }
 

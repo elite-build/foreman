@@ -118,7 +118,7 @@ the macOS rows below come from listing the published darwin-arm64 npm tarballs.
 | Native code | Claude Code `claude.exe` (Anthropic-signed); Cursor `cursorsandbox.exe` (unsigned) plus ripgrep 14.1.1-cursor3 and tree-sitter/tree-sitter-bash bindings, shipped without notices by Cursor; Codex 0.163.0 executables and ripgrep 15.2.0; node-pty, winpty and Microsoft ConPTY; sherpa-onnx 2.0.0 with ONNX Runtime 1.28.2 (its MIT license and third-party notices are supplied). The macOS tarballs carry the same components as Mach-O files. |
 | Excluded | Codex's voice runtime: LGPL-2.1 GStreamer/GLib/libintl, libffi, PCRE2, Opus, zlib and, on Windows, Microsoft's `vcruntime140.dll`, whose notice says Microsoft's runtime terms alone do not grant redistribution. Foreman does not use Codex voice. `build.files` leaves out `codex-resources/voice/**`; the hook fails if it reappears. A copy of `codex.exe` without it printed its version and ran `codex exec` through startup to the expected 401 without credentials (Windows only; no authenticated turn). |
 | Downloaded models | The speech model is not in the installer. It is downloaded on the user's consent from Hugging Face `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26`, pinned to `672fbf1b30579d6585301139bb363f42a0ad4a24`, which is tagged Apache-2.0. |
-| Signing | With no certificate configured, electron-builder's signtool pass left the vendor executables byte-identical; `claude.exe` keeps Anthropic's valid signature. A real Windows certificate or macOS signing was not tested and may re-sign nested binaries. |
+| Signing | With no certificate configured, electron-builder's signtool pass left the vendor executables byte-identical; `claude.exe` keeps Anthropic's valid signature. A real Windows certificate was not tested and may re-sign nested binaries. On macOS `build.mac.signIgnore` leaves `claude`, the `codex` executables and Cursor's `cursorsandbox` and `rg` byte-identical with their vendors' signatures (checked on an ad-hoc build); Electron, node-pty, sherpa-onnx and Cursor's tree-sitter bindings are re-signed with Foreman's certificate, which notarization and library validation require. |
 | Electron | `LICENSE.electron.txt` and `LICENSES.chromium.html` ship beside the app on Windows and, with this change, in the app bundle's `Resources` on macOS. Electron's own `ffmpeg.dll` (LGPL build) and Microsoft DirectX compiler DLLs come with Electron and were not reviewed separately. |
 
 ### Owner decisions and remaining work
@@ -135,8 +135,9 @@ These need the owner, not a packaging change made on their behalf:
    credentials or session tokens". Local sign-in runs the binary's own
    `auth login`, but cloud workspaces store a `claude setup-token` token in
    Foreman's vault and inject it as `CLAUDE_CODE_OAUTH_TOKEN`; confirm that with
-   Anthropic or limit cloud workspaces to API keys. Confirm too whether
-   re-signing nested binaries for macOS notarization counts as modification.
+   Anthropic or limit cloud workspaces to API keys. macOS signing leaves
+   the binary unmodified; confirm whether re-signing it on Windows would count
+   as modification.
 2. **Cursor SDK.** Its `LICENSE.md` points to Cursor's Terms of Service (last
    updated 3 September 2026), which grant a limited right to access and use the
    Service and prohibit reproducing it; they give no redistribution grant. The

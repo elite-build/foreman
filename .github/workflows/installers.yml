@@ -1,13 +1,39 @@
 name: Installers
 
 # Manual only: someone with write access starts it from the Actions tab (or `gh workflow run installers.yml --ref <branch>`).
-# Builds unsigned installers and keeps them as short-lived run artifacts. Nothing is published or released here; the
-# Release workflow calls this one and attaches the artifacts to a draft release. Beside each installer go the files an
-# installed Foreman updates itself from (main/updateInstaller.ts): latest.yml / latest-mac.yml, the macOS zip, and the
+# Builds installers and keeps them as short-lived run artifacts. Nothing is published or released here; the Release
+# workflow calls this one with sign-macos and attaches the artifacts to a draft release. Beside each installer go the files
+# an installed Foreman updates itself from (main/updateInstaller.ts): latest.yml / latest-mac.yml, the macOS zip, and the
 # blockmaps used for smaller downloads.
+#
+# macOS: with sign-macos the app is signed with the Developer ID certificate, notarized and stapled, and the run fails
+# rather than produce anything less (see "macOS signing and notarization" in docs/maintenance.md). Without it the app is
+# ad-hoc signed and not notarized, as a test build. Windows is unsigned either way and never sees the Apple secrets.
 on:
   workflow_dispatch:
+    inputs:
+      sign-macos:
+        description: Sign and notarize the macOS app (uses the Apple signing secrets)
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      sign-macos:
+        type: boolean
+        default: false
+    secrets:
+      CSC_LINK:
+        required: false
+      CSC_KEY_PASSWORD:
+        required: false
+      APPLE_API_KEY:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
 
 permissions:
   contents: read
@@ -20,13 +46,14 @@ jobs:
   package:
     name: Package / ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # Notarization uploads the app to Apple and waits for its verdict, usually minutes but sometimes much longer.
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-15, platform: macOS, script: 'dist:mac', artifact: Foreman-macOS-arm64, files: "dist/*.dmg\ndist/*.zip\ndist/*.blockmap\ndist/latest-mac.yml" }
-          - { os: windows-2022, platform: Windows, script: 'dist:win', artifact: Foreman-Windows-x64, files: "dist/*Setup*.exe\ndist/*Setup*.exe.blockmap\ndist/latest.yml" }
+          - { os: macos-15, platform: macOS, script: 'dist:mac:adhoc', timeout: 90, artifact: Foreman-macOS-arm64, files: "dist/*.dmg\ndist/*.zip\ndist/*.blockmap\ndist/latest-mac.yml" }
+          - { os: windows-2022, platform: Windows, script: 'dist:win', timeout: 45, artifact: Foreman-Windows-x64, files: "dist/*Setup*.exe\ndist/*Setup*.exe.blockmap\ndist/latest.yml" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,13 +68,66 @@ jobs:
       # Without this the packaged macOS app ships node-pty's spawn-helper without its execute bit and every terminal fails.
       - name: Restore node-pty spawn-helper execute permission
         run: node scripts/postinstall.mjs
-      # The dist scripts pass --publish never. No signing identity exists here: the macOS app is ad-hoc signed
-      # (build.mac.identity "-") so its signature is valid, but it is not notarized; Windows is unsigned.
+      # The dist scripts pass --publish never. No signing identity: the macOS app is ad-hoc signed (dist:mac:adhoc) so its
+      # signature is valid, but it is not notarized; Windows is unsigned.
       - name: Build installer
+        if: matrix.platform != 'macOS' || !inputs.sign-macos
         env:
           DIST_SCRIPT: ${{ matrix.script }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run "$DIST_SCRIPT"
+
+      # Signed macOS build. A missing secret fails here, before anything is built.
+      - name: Check the Apple signing secrets and write the API key
+        if: matrix.platform == 'macOS' && inputs.sign-macos
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_FILE: ${{ runner.temp }}/notarization/AuthKey.p8
+        run: |
+          missing=()
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_TEAM_ID; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+          [ ${#missing[@]} -eq 0 ] || { echo "::error::A signed macOS build needs these repository secrets, which are missing or empty: ${missing[*]}"; exit 1; }
+          # notarytool reads the App Store Connect key from a file; the secret holds the .p8 file Base64-encoded.
+          install -d -m 700 "$(dirname "$KEY_FILE")"
+          node -e '
+            const raw = process.env.APPLE_API_KEY.trim()
+            const pem = raw.startsWith("-----BEGIN") ? raw : Buffer.from(raw, "base64").toString("utf8").trim()
+            if (!/^-----BEGIN PRIVATE KEY-----\r?\n[\s\S]+\r?\n-----END PRIVATE KEY-----$/.test(pem)) {
+              console.log("::error::APPLE_API_KEY is not a Base64-encoded App Store Connect API key (.p8 file)")
+              process.exit(1)
+            }
+            require("node:fs").writeFileSync(process.env.KEY_FILE, pem + "\n", { mode: 0o600 })
+          '
+      # build.mac signs with the Developer ID certificate in CSC_LINK (forceCodeSigning: none found fails the build),
+      # then notarizes with notarytool, waits for Apple's verdict (a rejection fails the build and prints Apple's log)
+      # and staples the ticket to the app before the DMG and zip are made.
+      - name: Build signed and notarized installer
+        if: matrix.platform == 'macOS' && inputs.sign-macos
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ runner.temp }}/notarization/AuthKey.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run dist:mac
+      - name: Remove the API key
+        if: always() && matrix.platform == 'macOS' && inputs.sign-macos
+        run: rm -rf "$RUNNER_TEMP/notarization"
+      # Checks what was built, independently of electron-builder: Developer ID and team, Hardened Runtime, timestamps,
+      # every nested binary, the stapled ticket and Gatekeeper, in both the DMG and the update zip.
+      - name: Verify the signature and notarization
+        if: matrix.platform == 'macOS' && inputs.sign-macos
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/verify-mac-release.sh dist "$APPLE_TEAM_ID"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact }}

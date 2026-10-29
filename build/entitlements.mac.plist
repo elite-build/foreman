@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Foreman.app's own executable under the Hardened Runtime (build.mac.entitlements). Keep this to what the app uses;
+     see "macOS signing and notarization" in docs/maintenance.md before adding anything. -->
+<plist version="1.0">
+  <dict>
+    <!-- V8 in the main process, and in the CLI, dictation helper and Cursor worker, which run this executable as Node. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- Dictation records the microphone (NSMicrophoneUsageDescription); the Hardened Runtime refuses it without this. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+  </dict>
+</plist>
