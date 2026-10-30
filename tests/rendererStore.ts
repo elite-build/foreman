@@ -35,7 +35,8 @@ export const fakeState: Record<string, any> = {
   },
   chats: {},
   composerFill: null,
-  rightPanelOpen: false
+  rightPanelOpen: false,
+  archiveRuns: {}
 }
 
 export function resetFake(): void {

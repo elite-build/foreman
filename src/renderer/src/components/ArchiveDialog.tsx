@@ -11,7 +11,7 @@ import { cloudSettings } from '../../../shared/cloud'
 import { turnRunning } from '../../../shared/stopSafely'
 import type { ArchiveOptions, ArchiveOutcome, ArchivePreview, ArchiveProgress, ArchiveProgressStep, SetupStepResult } from '../../../shared/types'
 import { useT } from '../i18n'
-import { api, attempt, backgroundArchive, bridge, finishBackgroundArchive, getState, openArchiveDialog, rememberArchiveChoice, selectWorkspace, showToast, useStore } from '../store'
+import { api, attempt, backgroundArchive, bridge, finishBackgroundArchive, getState, openArchiveDialog, rememberArchiveChoice, selectWorkspace, showToast, stopBackgroundArchive, useStore } from '../store'
 import { Button, Callout, Card, Dialog, Segmented, Spinner, Tag } from '../ui'
 import { toolSummary } from './ToolRow'
 import { formatDuration } from './turnResult'
@@ -88,11 +88,13 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
     setArmed(false)
     if (!outcome) {
       // Keep the controller available after an unexpected IPC or cleanup error.
+      stopBackgroundArchive(workspaceId)
       if (!getState().archiveTarget) openArchiveDialog(workspaceId)
       return
     }
     if (!outcome.ok) {
       setFailure(outcome)
+      stopBackgroundArchive(workspaceId)
       showToast(t('stop.archive.backgroundFailed', { name: ws.name }), 'error', {
         action: { label: t('stop.archive.viewProgress'), run: () => openArchiveDialog(workspaceId) }, report: false
       })
