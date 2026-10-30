@@ -2848,6 +2848,12 @@ export const en = {
   'sidebar.row.adopted': 'Added from disk',
   'sidebar.row.pinned': 'Pinned',
   'sidebar.row.archive': 'Archive workspace',
+  // A row whose archive is running in the background; after it, the step it's on ("Archiving… · Remove folder").
+  'sidebar.row.archiving': 'Archiving…',
+  'sidebar.row.archiveStep.stop': 'Stop tabs',
+  // A row whose background archive stopped on a failure; clicking it opens the dialog with Retry.
+  'sidebar.row.archiveStopped': 'Archive stopped',
+  'sidebar.row.archiveStoppedDetail': 'needs you',
   // A group of workspaces started together by Compare; {prompt} is the start of the prompt they were given.
   'sidebar.compare': 'Compare · “{prompt}”',
   'sidebar.usage.title': 'Foreman’s own processes',

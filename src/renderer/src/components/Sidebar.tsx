@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import type { PlainKey } from '../../../shared/i18n'
-import type { PaneSide, Repo, RepoIcon, Workspace, WorkspaceStatus } from '../../../shared/types'
+import type { ArchiveProgressStep, PaneSide, Repo, RepoIcon, Workspace, WorkspaceStatus } from '../../../shared/types'
 import { useT } from '../i18n'
 import { shortcutHint } from '../shortcuts'
 import {
@@ -215,12 +215,26 @@ function RowIcon({ t }: { t: Triage }) {
   }
 }
 
+// The step an archive in the background is on, after "Archiving…" in its row.
+const ARCHIVE_STEP: Record<ArchiveProgressStep, PlainKey> = {
+  stop: 'sidebar.row.archiveStep.stop',
+  checkpoint: 'stop.archive.step.checkpoint',
+  diff: 'stop.archive.step.diff',
+  script: 'stop.archive.step.script',
+  docker: 'docker.archive.stepUnknown',
+  remove: 'stop.archive.step.remove',
+  sandbox: 'cloud.archive.step.sandbox'
+}
+
 function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Repo }) {
   const { ws } = t
   const tr = useT()
   const selected = useStore((s) => s.selectedWorkspaceId === ws.id)
   const platform = useStore((s) => s.snapshot!.platform)
   const coloredDiffs = useStore((s) => s.snapshot!.settings.coloredSidebarDiffs)
+  // An archive running in the background (or stopped on a step that needs you) says so in place of the row's label.
+  const archive = useStore((s) => s.archiveRuns[ws.id])
+  const archiving = Boolean(archive && !archive.stopped)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(ws.name)
@@ -236,17 +250,26 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
   // Repo (when listing them all), branch and age; the label says what's going on.
   const meta = [repo?.name, ws.branch, timeAgo(t.since)].filter(Boolean).join(' · ')
   const icon = (
-    <span className="ws-icon" title={ws.direct ? tr('sidebar.row.direct') : ws.adopted ? tr('sidebar.row.adopted') : ws.pinned ? tr('sidebar.row.pinned') : ws.cloud ? tr('cloud.glyph') : undefined}>
-      <RowIcon t={t} />
+    <span className="ws-icon" title={archive ? undefined : ws.direct ? tr('sidebar.row.direct') : ws.adopted ? tr('sidebar.row.adopted') : ws.pinned ? tr('sidebar.row.pinned') : ws.cloud ? tr('cloud.glyph') : undefined}>
+      {archive?.stopped ? (
+        <Status compact aria-hidden tone="warn" label={tr('sidebar.row.archiveStopped')} />
+      ) : archive ? (
+        <span className="ws-spin blue">
+          <Spinner size={13} />
+        </span>
+      ) : (
+        <RowIcon t={t} />
+      )}
     </span>
   )
 
   return (
     <>
       <ActionRow
-        className={`ws-row ${selected ? 'selected' : ''} ${t.bucket}`}
+        className={`ws-row ${selected ? 'selected' : ''} ${t.bucket} ${archiving ? 'archiving' : ''}`}
         selected={selected}
-        onPress={() => openTriaged(t)}
+        // A stopped archive opens its dialog, where Retry is.
+        onPress={() => (archive?.stopped ? openArchiveDialog(ws.id) : openTriaged(t))}
         primaryProps={{ className: 'ws-flow' }}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -275,23 +298,34 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
         actions={
           <span className="ws-end">
             <PrGlyphView ws={ws} />
-            {ws.diffStat && <DiffBadge additions={ws.diffStat.additions} deletions={ws.diffStat.deletions} muted={!coloredDiffs && !selected} />}
+            {ws.diffStat && !archiving && <DiffBadge additions={ws.diffStat.additions} deletions={ws.diffStat.deletions} muted={!coloredDiffs && !selected} />}
             {index >= 0 && index < 9 && (
               <span className="ws-shortcut">
                 {modKey(platform)}
                 {index + 1}
               </span>
             )}
-            <IconButton className="ws-archive" label={tr('sidebar.row.archive')} onClick={() => openArchiveDialog(ws.id)}>
-              <Archive size={13} />
-            </IconButton>
+            {!archiving && (
+              <IconButton className="ws-archive" label={tr('sidebar.row.archive')} onClick={() => openArchiveDialog(ws.id)}>
+                <Archive size={13} />
+              </IconButton>
+            )}
           </span>
         }
       >
         {icon}
         <span className="ws-title">{ws.compare ? `${ws.name} · ${ws.compare.label}` : ws.name}</span>
         {/* #22: a Terminal agent's process and output activity replace the label while it runs; it never claims "needs you". */}
-        {terminalAgent ? (
+        {archive ? (
+          <span className={`ws-label ${archive.stopped ? 'amber' : 'blue'}`}>
+            {tr(archive.stopped ? 'sidebar.row.archiveStopped' : 'sidebar.row.archiving')}
+            {archive.stopped ? (
+              <span className="ws-detail"> · {tr('sidebar.row.archiveStoppedDetail')}</span>
+            ) : (
+              archive.step && <span className="ws-detail"> · {tr(ARCHIVE_STEP[archive.step])}</span>
+            )}
+          </span>
+        ) : terminalAgent ? (
           <TerminalAgentLabel workspaceId={ws.id} />
         ) : (
           t.label && (

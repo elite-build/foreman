@@ -465,6 +465,32 @@ describe('the Git header actions', () => {
       expect(archiveDialog).toHaveBeenLastCalledWith('w1')
     })
 
+    it('while the archive runs in the background, the button says Archiving… and neither it nor its menu can be used', () => {
+      fakeState.archiveChoice = 'delete-branch'
+      fakeState.archiveRuns = { w1: { stopped: false, step: 'remove' } }
+      try {
+        render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
+        const primary = screen.getByRole('button', { name: 'Archiving…' })
+        expect((primary as HTMLButtonElement).disabled).toBe(true)
+        expect((screen.getByRole('button', { name: 'More options after merging' }) as HTMLButtonElement).disabled).toBe(true)
+        expect(screen.queryByRole('button', { name: 'Archive and delete branch' })).toBeNull()
+      } finally {
+        fakeState.archiveRuns = {}
+      }
+    })
+
+    it('once the archive stops on a failure, the button is back, to open the dialog again', async () => {
+      fakeState.archiveChoice = 'delete-branch'
+      fakeState.archiveRuns = { w1: { stopped: true, step: 'script' } }
+      try {
+        render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Archive and delete branch' }))
+        expect(archiveDialog).toHaveBeenLastCalledWith('w1', { deleteBranch: true })
+      } finally {
+        fakeState.archiveRuns = {}
+      }
+    })
+
     it('an adopted checkout is not offered to delete its branch', async () => {
       fakeState.snapshot.workspaces = [{ id: 'w1', adopted: true }]
       const user = userEvent.setup()

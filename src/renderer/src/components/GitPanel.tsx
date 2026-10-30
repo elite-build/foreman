@@ -329,7 +329,9 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
       {busy === action ? <Spinner size={13} /> : <Icon size={13} />} {label(action) ?? status?.primary.label}
     </>
   )
-  const primaryDisabled = busy !== null || (running && action !== 'archive')
+  // Archiving in the background: the archive button says so, and nothing else starts meanwhile.
+  const archiving = useStore((s) => Boolean(s.archiveRuns[workspaceId] && !s.archiveRuns[workspaceId].stopped))
+  const primaryDisabled = busy !== null || archiving || (running && action !== 'archive')
   // An adopted checkout's branch isn't Foreman's to delete.
   const adopted = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId)?.adopted)
   const pr = status?.pr
@@ -381,7 +383,11 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
           size="sm"
           variant="primary"
           label={
-            deleteNext ? (
+            archiving ? (
+              <>
+                <Spinner size={13} /> {t('stop.archive.busy')}
+              </>
+            ) : deleteNext ? (
               <>
                 {/* A compact panel shows the short word; the trash icon, aria-label and title keep the branch's deletion. */}
                 <Trash2 size={13} /> <span className="btn-label-long">{t('gitPanel.merged.archiveDeleteBranch')}</span>
@@ -394,8 +400,9 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
           menuLabel={t('gitPanel.merged.moreOptions')}
           onClick={() => (deleteNext ? archiveDeleteBranch() : void run(action))}
           disabled={primaryDisabled}
-          title={deleteNext ? t('gitPanel.merged.archiveDeleteBranch') : status?.primary.label}
-          aria-label={deleteNext ? t('gitPanel.merged.archiveDeleteBranch') : undefined}
+          menuDisabled={archiving || undefined}
+          title={archiving ? t('stop.archive.busy') : deleteNext ? t('gitPanel.merged.archiveDeleteBranch') : status?.primary.label}
+          aria-label={deleteNext && !archiving ? t('gitPanel.merged.archiveDeleteBranch') : undefined}
         >
           <MenuItem icon={<Archive size={14} />} hint={archiveChoice && !deleteNext ? lastUsed : undefined} onSelect={() => void run('archive')}>
             {t('gitPanel.action.archive')}
