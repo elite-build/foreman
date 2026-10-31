@@ -328,6 +328,8 @@ class ClaudeTurn implements AgentTurn {
   // Subagents and shells, keyed by the tool call that started them.
   private taskTools = new Map<string, string>()
   private tasks = new Map<string, TaskProgress>()
+  // Follow-ups steered in since Claude last answered. Claude Code cuts off the request one arrives during and goes on with it.
+  private unansweredSteers = 0
 
   constructor(
     private req: TurnRequest,
@@ -485,6 +487,7 @@ class ClaudeTurn implements AgentTurn {
   steer(text: string): boolean {
     if (this.done || this.input.closed) return false
     this.input.push(userMessage(text, 'now'))
+    this.unansweredSteers++
     return true
   }
 
@@ -597,6 +600,7 @@ class ClaudeTurn implements AgentTurn {
         // Subagent output stays inside its tool call.
         if (message.parent_tool_use_id) return
         this.clearWakeTimer()
+        this.unansweredSteers = 0
         this.cb.assistantMessage(message.uuid)
         for (const block of message.message.content as unknown as ContentBlock[]) {
           this.handleAssistantBlock(message.message.id, block)
@@ -613,6 +617,11 @@ class ClaudeTurn implements AgentTurn {
         return
       }
       case 'result': {
+        // The request a follow-up cut off: Claude Code goes on to answer it, so the turn isn't over and nothing failed.
+        if (this.unansweredSteers && cutBySteer(message)) {
+          this.unansweredSteers = 0
+          return
+        }
         const ok = message.subtype === 'success' && !message.is_error
         this.cb.item({
           kind: 'result',
@@ -854,6 +863,16 @@ export function assistantOptions(profile: AssistantProfile) {
     plugins: [],
     mcpServers: { [ASSISTANT_SERVER]: createSdkMcpServer({ name: ASSISTANT_SERVER, version: '1.0.0', tools: assistantTools(profile.tools), alwaysLoad: true }) }
   }
+}
+
+/**
+ * The result Claude Code reports when a "now" message cuts off its request: an error whose diagnostic says the
+ * conversation ended on the user's message with no reply begun. It then answers that message in the same session.
+ */
+function cutBySteer(message: Extract<SDKMessage, { type: 'result' }>): boolean {
+  if (message.subtype !== 'error_during_execution') return false
+  const first = message.errors?.[0] ?? ''
+  return first.startsWith('[ede_diagnostic] result_type=user ') && first.includes(' last_content_type=n/a ')
 }
 
 function resultLimit(message: SDKMessage | null, errorText: string, event?: RateLimitEventInfo): UsageLimit | undefined {
