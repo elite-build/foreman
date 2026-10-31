@@ -206,6 +206,68 @@ describe('Claude turns with background work', () => {
     expect(cb.finished).toHaveBeenCalledTimes(1)
   })
 
+  // A follow-up sent mid-turn makes Claude Code cut off its request with this error, then answer the follow-up.
+  const cut = {
+    ...result,
+    subtype: 'error_during_execution',
+    is_error: true,
+    errors: ['[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null']
+  } as Partial<SDKMessage>
+
+  it('keeps the turn going when a steered follow-up cuts off Claude’s request', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    expect(turn.steer('also check the tests')).toBe(true)
+    claude.push(cut)
+    await settle()
+    expect(cb.finished).not.toHaveBeenCalled()
+    expect(claude.state.inputClosed).toBe(false)
+    expect(cb.item).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'notice', level: 'error' }))
+    expect(cb.item).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'result' }))
+    // Another follow-up still reaches the running turn rather than waiting for it to end.
+    expect(turn.steer('and the docs')).toBe(true)
+
+    claude.push(assistant('checked the tests and the docs'), result)
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+    expect(cb.finished).toHaveBeenCalledWith({ ok: true })
+    expect(claude.state.prompts.map((p) => p.message.content)).toEqual(['hello', 'also check the tests', 'and the docs'])
+  })
+
+  it('reports the same error when no follow-up was steered in', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(request, cb).run()
+    claude.push(cut)
+    await run
+    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: '[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null' })
+  })
+
+  it('reports the error once Claude has already answered the follow-up', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    turn.steer('also check the tests')
+    claude.push(assistant('on it'), cut)
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+    expect(cb.finished.mock.calls[0][0]).toMatchObject({ ok: false })
+  })
+
+  it('reports a different error after a follow-up', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    turn.steer('also check the tests')
+    claude.push({ ...result, subtype: 'error_during_execution', is_error: true, errors: ['Prompt is too long'] } as Partial<SDKMessage>)
+    await run
+    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: 'Prompt is too long' })
+  })
+
   it('ignores ambient tasks such as watchers', async () => {
     const claude = fakeClaude()
     const cb = callbacks()
