@@ -1,6 +1,6 @@
 import { WebContentsView, session, type BrowserWindow } from 'electron'
-import { browserBounds, browserUrl, isBrowserUrl, type BrowserCommand, type BrowserState } from '../shared/browser'
-import { CANCEL_BROWSER_SELECTION, SELECT_BROWSER_ELEMENT } from './browserSelection'
+import { browserBounds, browserUrl, isBrowserUrl, type BrowserCommand, type BrowserSelection, type BrowserState } from '../shared/browser'
+import { CANCEL_BROWSER_SELECTION, SELECT_BROWSER_ELEMENT, UNMARK_BROWSER_SELECTION, cleanSelection, elementCrop, frameworkLookup } from './browserSelection'
 import type { MainEvent } from '../shared/types'
 
 const configuredSessions = new WeakSet<Electron.Session>()
@@ -133,20 +133,30 @@ export class WorkspaceBrowser {
     void entry.view.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: CANCEL_BROWSER_SELECTION }]).catch(() => undefined)
   }
 
-  async selectElement(workspaceId: string) {
+  async selectElement(workspaceId: string): Promise<BrowserSelection | null> {
     const entry = this.entries.get(workspaceId)
     if (!entry?.visible || entry.selecting) throw new Error('Open the browser before selecting an element')
     const wc = entry.view.webContents
     entry.selecting = true
     try {
       wc.focus()
-      const selection = await wc.executeJavaScriptInIsolatedWorld(999, [{ code: SELECT_BROWSER_ELEMENT }]) as { selector: string; text: string } | null
-      if (!selection || !entry.visible || this.entries.get(workspaceId) !== entry) return null
-      return { url: wc.getURL(), selector: String(selection.selector).slice(0, 1000), text: String(selection.text).slice(0, 2000) }
+      const picked = await wc.executeJavaScriptInIsolatedWorld(999, [{ code: SELECT_BROWSER_ELEMENT }]) as { mark?: unknown } | null
+      if (!picked || !entry.visible || this.entries.get(workspaceId) !== entry) return null
+      const mark = typeof picked.mark === 'string' && /^[a-z0-9]{1,20}$/.test(picked.mark) ? picked.mark : ''
+      // Page code runs in the main world and could stall the lookup; the selection never waits on it for long.
+      const framework = mark ? await Promise.race([wc.executeJavaScript(frameworkLookup(mark)).catch(() => null), new Promise(resolve => setTimeout(resolve, 1000, null))]) : null
+      const selection = cleanSelection(wc.getURL(), picked, framework)
+      if (!selection) return null
+      const crop = elementCrop(picked, wc.getZoomFactor())
+      const image = crop ? await wc.capturePage(crop).catch(() => null) : null
+      return image && !image.isEmpty() ? { ...selection, image: image.toPNG().toString('base64') } : selection
     } catch {
       // Closing the page or navigating destroys its execution context and cancels the picker.
       return null
-    } finally { entry.selecting = false }
+    } finally {
+      entry.selecting = false
+      if (!wc.isDestroyed()) void wc.executeJavaScriptInIsolatedWorld(999, [{ code: UNMARK_BROWSER_SELECTION }]).catch(() => undefined)
+    }
   }
 
   async capture(workspaceId: string) {

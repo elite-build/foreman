@@ -32,6 +32,9 @@ vi.mock('electron', () => ({
       wc.isFocused = () => false
       wc.close = vi.fn(() => { wc.destroyed = true })
       wc.capturePage = vi.fn(async () => ({ isEmpty: () => false, toPNG: () => Buffer.from('png') }))
+      wc.getZoomFactor = () => 1
+      wc.executeJavaScript = vi.fn(async () => null)
+      wc.executeJavaScriptInIsolatedWorld = vi.fn(async () => null)
       this.webContents = wc
       fake.views.push(this)
     }
@@ -145,5 +148,33 @@ describe('workspace browser lifecycle', () => {
     expect(await manager.capture('one')).toEqual({ base64: Buffer.from('png').toString('base64'), url: 'https://example.com/' })
     fake.views[0].webContents.emit('did-fail-load', {}, -102, 'Connection refused', 'https://example.com', true)
     expect(win.webContents.send).toHaveBeenLastCalledWith('foreman:event', expect.objectContaining({ type: 'browser-state', state: expect.objectContaining({ error: 'Connection refused' }) }))
+  })
+  it('selects an element with its framework details and a picture cropped to it, always clearing the page mark', async () => {
+    const manager = new WorkspaceBrowser(window())
+    manager.command('one', { type: 'open', url: 'http://localhost:50230/' })
+    await expect(manager.selectElement('one')).rejects.toThrow('Open the browser')
+    manager.command('one', { type: 'bounds', bounds: { x: 0, y: 0, width: 200, height: 200 } })
+    const wc = fake.views[0].webContents
+    const picked = { selector: '#save', text: 'Save', html: '<button id="save">Save</button>', styles: [['color', 'red']], rect: { x: 20, y: 20, width: 60, height: 20 }, viewport: { width: 400, height: 300 }, mark: 'k1' }
+    wc.executeJavaScriptInIsolatedWorld.mockImplementation(async (_world: number, [{ code }]: { code: string }[]) => code.includes('new Promise') ? picked : undefined)
+    wc.executeJavaScript.mockResolvedValue({ framework: 'React', components: ['SaveButton', 'Toolbar'], source: 'src/Toolbar.tsx:4' })
+    expect(await manager.selectElement('one')).toEqual({
+      url: 'http://localhost:50230/', selector: '#save', text: 'Save', html: '<button id="save">Save</button>', styles: [['color', 'red']],
+      size: { width: 60, height: 20 }, components: ['Toolbar', 'SaveButton'], source: 'src/Toolbar.tsx:4', image: Buffer.from('png').toString('base64')
+    })
+    expect(wc.executeJavaScript.mock.calls[0][0]).toContain('"k1"')
+    expect(wc.capturePage).toHaveBeenCalledWith({ x: 12, y: 12, width: 76, height: 36 })
+    expect(wc.executeJavaScriptInIsolatedWorld.mock.calls.at(-1)[1][0].code).toContain("removeAttribute('data-foreman-selected')")
+    // A page that stalls the lookup, or a forged mark, still gets its selection, without framework details.
+    wc.executeJavaScript.mockReturnValue(new Promise(() => undefined))
+    const stalled = await manager.selectElement('one')
+    expect(stalled).toMatchObject({ selector: '#save' })
+    expect(stalled?.components).toBeUndefined()
+    wc.executeJavaScript.mockClear()
+    picked.mark = '"]);alert(1);//'
+    expect(await manager.selectElement('one')).toMatchObject({ selector: '#save' })
+    expect(wc.executeJavaScript).not.toHaveBeenCalled()
+    wc.capturePage.mockResolvedValueOnce({ isEmpty: () => true, toPNG: () => Buffer.from('') })
+    expect((await manager.selectElement('one'))?.image).toBeUndefined()
   })
 })

@@ -1,13 +1,30 @@
 /** Desktop-only browser contract. Never exposed to page content, agents or the CLI. */
+import type { TFunction } from './i18n'
+import { fenced } from './transcript'
+
 export type BrowserBounds = { x: number; y: number; width: number; height: number }
 export type BrowserState = { url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; error?: string }
 export type BrowserCommand =
   | { type: 'open' | 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' | 'close' | 'focus' | 'cancel-selection' }
   | { type: 'bounds'; bounds: BrowserBounds | null }
+/** A picked element, as page content: untrusted, bounded draft context. `image` is a PNG of the element, base64. */
+export type BrowserSelection = {
+  url: string
+  selector: string
+  text: string
+  html: string
+  styles: [name: string, value: string][]
+  size?: { width: number; height: number }
+  /** Nearest framework components, outermost first (dev builds only). */
+  components?: string[]
+  /** Where the element is written, `file:line` (dev builds only). */
+  source?: string
+  image?: string
+}
 export interface BrowserBridge {
   command(workspaceId: string, command: BrowserCommand): Promise<BrowserState | null>
-  selectElement(workspaceId: string): Promise<{ url: string; selector: string; text: string } | null>
+  selectElement(workspaceId: string): Promise<BrowserSelection | null>
   capture(workspaceId: string): Promise<{ base64: string; url: string }>
 }
 
@@ -32,4 +49,15 @@ export function browserBounds(bounds: BrowserBounds, zoom: number, size: readonl
   const right = Math.min(size[0], Math.round((bounds.x + bounds.width) * zoom))
   const bottom = Math.min(size[1], Math.round((bounds.y + bounds.height) * zoom))
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null
+}
+
+/** A picked element as a composer draft: where it is, what it says, its component and source, size, styles and HTML. */
+export function browserSelectionText(t: TFunction, s: BrowserSelection): string {
+  const lines = [t('browser.selectionContext', { selector: s.selector, url: s.url, text: s.text })]
+  if (s.components?.length) lines.push(t('browser.selectionComponent', { names: s.components.join(' > ') }))
+  if (s.source) lines.push(t('browser.selectionSource', { source: s.source }))
+  if (s.size) lines.push(t('browser.selectionSize', { width: s.size.width, height: s.size.height }))
+  if (s.styles.length) lines.push(t('browser.selectionStyles', { styles: s.styles.map(([name, value]) => `${name}: ${value}`).join('; ') }))
+  if (s.html) lines.push(`${t('browser.selectionHtml')}\n${fenced(s.html, 'html')}`)
+  return lines.join('\n')
 }

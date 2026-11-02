@@ -35,7 +35,7 @@ it('navigates from the address bar and attaches a screenshot to the chosen chat 
   fireEvent.change(address, { target: { value: 'localhost:50230/form' } })
   fireEvent.keyDown(address, { key: 'Enter' })
   await waitFor(() => expect(command).toHaveBeenCalledWith('w1', { type: 'navigate', url: 'http://localhost:50230/form' }))
-  fireEvent.change(screen.getByRole('combobox', { name: 'Send screenshot to chat' }), { target: { value: 's2' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Send to chat' }), { target: { value: 's2' } })
   fireEvent.click(screen.getByRole('button', { name: 'Screenshot to chat' }))
   await waitFor(() => expect(storeModule.fillComposer).toHaveBeenCalledWith('w1', 's2', 'Browser screenshot: http://localhost:50230/form', undefined, [expect.objectContaining({ name: 'screenshot.png' })]))
   expect(fakeApi.sendMessage).toBeUndefined()
@@ -83,12 +83,28 @@ it('measures its slot every frame only while the window is on screen, and keeps 
 })
 
 it('adds selected element context to the chosen chat as a draft', async () => {
-  const selectElement = vi.fn(async () => ({ url: 'https://example.com/', selector: '#save', text: 'Save' }))
+  const selectElement = vi.fn(async () => ({ url: 'https://example.com/', selector: '#save', text: 'Save', html: '', styles: [] }))
   ;(storeModule.bridge as any).browser.selectElement = selectElement
   render(<WorkspaceBrowser workspaceId="w1" visible sessions={sessions} activeId="s1" />)
   await waitFor(() => expect((screen.getByRole('button', { name: 'Select element' }) as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(screen.getByRole('button', { name: 'Select element' }))
-  await waitFor(() => expect(storeModule.fillComposer).toHaveBeenCalledWith('w1', 's1', 'Selected element: #save\nPage: https://example.com/\nVisible text: Save'))
+  await waitFor(() => expect(storeModule.fillComposer).toHaveBeenCalledWith('w1', 's1', 'Selected element: #save\nPage: https://example.com/\nVisible text: Save', undefined, undefined))
   expect(capture).not.toHaveBeenCalled()
   expect(fakeApi.sendMessage).toBeUndefined()
+})
+
+it('attaches the element\'s picture and draft details, and keeps the details when the picture cannot be saved', async () => {
+  const selectElement = vi.fn(async () => ({ url: 'https://example.com/', selector: '#save', text: 'Save', html: '<button>Save</button>', styles: [], components: ['Toolbar'], image: 'png' }))
+  ;(storeModule.bridge as any).browser.selectElement = selectElement
+  render(<WorkspaceBrowser workspaceId="w1" visible sessions={sessions} activeId="s1" />)
+  const select = screen.getByRole('button', { name: 'Select element' }) as HTMLButtonElement
+  await waitFor(() => expect(select.disabled).toBe(false))
+  fireEvent.click(select)
+  await waitFor(() => expect(storeModule.fillComposer).toHaveBeenCalledWith('w1', 's1', expect.stringContaining('Component: Toolbar\nHTML:\n```html\n<button>Save</button>\n```'), undefined, [expect.objectContaining({ name: 'screenshot.png' })]))
+  expect(fakeApi.attachData).toHaveBeenCalledWith('w1', expect.stringMatching(/^element-\d+\.png$/), 'png')
+  vi.mocked(storeModule.fillComposer as any).mockClear()
+  fakeApi.attachData = vi.fn(async () => { throw new Error('disk full') })
+  await waitFor(() => expect(select.disabled).toBe(false))
+  fireEvent.click(select)
+  await waitFor(() => expect(storeModule.fillComposer).toHaveBeenCalledWith('w1', 's1', expect.stringContaining('Selected element: #save'), undefined, undefined))
 })
