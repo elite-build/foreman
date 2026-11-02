@@ -20,6 +20,7 @@
     "check:licenses:distribution": "node scripts/check-licenses.mjs --distribution",
     "check:mcp": "vitest run tests/cliSchema.test.ts tests/mcpSettingsCoverage.test.ts tests/foremanCli.test.ts tests/foremanDelegation.test.ts tests/foremanMcp.test.ts",
     "screens": "node scripts/screenshots.mjs",
+    "pr:screens": "node scripts/pr-screens.mjs",
     "test": "vitest run",
     "check:ui": "vitest run tests/designSystem.test.ts tests/contrast.test.ts tests/i18nCatalogue.test.ts tests/i18n.test.ts tests/ui tests/contentA11y.test.tsx tests/newComponents.test.ts",
     "cloud:smoke": "vitest run tests/cloudVercel.integration.test.ts",

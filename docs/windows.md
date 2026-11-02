@@ -13,3 +13,4 @@ What still needs checking on a Windows machine:
 5. **Long paths.** Worktrees are created with `core.longpaths=true`. Keep the workspaces folder short (Settings); the default is `%USERPROFILE%\foreman\workspaces`.
 6. **Editor command.** Verify that `code`, `cursor` and other editor launchers open the workspace; Windows installations may use `.cmd` shims.
 7. **Installer.** Run `npm run dist:win` on Windows, or download the Windows artifact from a manual **Installers** workflow run. Code signing isn't configured yet (and isn't configured for macOS either).
+8. **PR screenshots.** `npm run pr:screens -- capture --only home` links the temporary base worktree's `node_modules` to the checkout's with a junction and removes the junction before the worktree. Check that `node_modules` is intact afterwards and that the worktree is gone from `git worktree list`.
