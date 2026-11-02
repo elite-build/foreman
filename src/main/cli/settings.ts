@@ -186,6 +186,7 @@ interface Writes {
   mobile?: { enabled: boolean; url: string }
   mobileLan?: { enabled: boolean; address: string }
   handOffs?: { on: boolean; port?: number }
+  remoteControl?: { allow: boolean; ask: boolean }
   envFiles?: string[]
   // The settings as they will be once everything is written (what the result reads back).
   after: Settings
@@ -195,7 +196,7 @@ interface Writes {
 function planWrites(current: Settings, planned: Planned[]): Writes {
   let after: Settings = { ...current }
   const patch: Partial<Settings> = {}
-  const touched = { mobile: false, mobileLan: false, handOffs: false }
+  const touched = { mobile: false, mobileLan: false, handOffs: false, remoteControl: false }
   let envFiles: string[] | undefined
   let port: number | undefined
   for (const { spec, value, replace } of planned) {
@@ -212,13 +213,15 @@ function planWrites(current: Settings, planned: Planned[]): Writes {
     else if (spec.apply === 'handOffs') {
       touched.handOffs = true
       if (spec.field === 'devicePort') port = value as number
-    } else if (spec.apply === 'envFiles') envFiles = value as string[]
+    } else if (spec.apply === 'remoteControl') touched.remoteControl = true
+    else if (spec.apply === 'envFiles') envFiles = value as string[]
   }
   return {
     patch,
     ...(touched.mobile ? { mobile: { enabled: after.mobileEnabled === true, url: after.mobileUrl ?? '' } } : {}),
     ...(touched.mobileLan ? { mobileLan: { enabled: after.mobileLanEnabled === true, address: after.mobileLanAddress ?? '' } } : {}),
     ...(touched.handOffs ? { handOffs: { on: after.acceptHandOffs === true, ...(port !== undefined ? { port } : {}) } } : {}),
+    ...(touched.remoteControl ? { remoteControl: { allow: after.allowRemoteControl === true, ask: after.remoteControlAsk !== false } } : {}),
     ...(envFiles ? { envFiles } : {}),
     after
   }
@@ -229,6 +232,7 @@ async function applyWrites(host: CliHost, writes: Writes): Promise<void> {
   if (writes.mobile) await host.api.mobileConfigure(writes.mobile.enabled, writes.mobile.url)
   if (writes.mobileLan) await host.api.mobileConfigureLan(writes.mobileLan.enabled, writes.mobileLan.address)
   if (writes.handOffs) await host.api.setAcceptHandOffs(writes.handOffs.on, writes.handOffs.port)
+  if (writes.remoteControl) await host.api.setRemoteControl(writes.remoteControl.allow, writes.remoteControl.ask)
   if (writes.envFiles) await host.api.setEnvFiles({ kind: 'user' }, writes.envFiles)
 }
 

@@ -22,6 +22,7 @@ import {
   toggleLeftPanel,
   toggleRightPanel
 } from './store'
+import { rowDomId } from './components/settings/controls'
 import { readWalk, type WalkReading } from './walk'
 
 interface Fixture {
@@ -163,6 +164,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   'settings-cloud': () => (openSettingsPage({ section: 'cloud' }), '.settings-view'),
   'settings-repo': (f) => (openSettingsPage({ section: 'repo', repoId: f.repoId }), '.settings-view'),
   'settings-integrations': () => (openSettingsPage({ section: 'integrations' }), '.settings-view'),
+  // Data & devices, scrolled to its Devices section: hand-offs, control from other computers, pairing.
+  'settings-devices': async () => {
+    openSettingsPage({ section: 'data' })
+    const row = await waitFor(() => document.getElementById(rowDomId('accept-hand-offs')))
+    if (!row) return null
+    row.scrollIntoView({ block: 'start' })
+    return '.settings-view'
+  },
   automations: () => (openAutomations(), '.automations-view'),
   assistant: () => (openAssistant(), '.assistant-view'),
   'phone-pairing': () => {

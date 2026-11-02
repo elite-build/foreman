@@ -188,6 +188,9 @@ export interface PairedDevice {
 export interface DevicesInfo {
   self: { id: string; name: string }
   accepting: boolean
+  // Paired computers may control this one; and the person here is asked first.
+  remoteControl: boolean
+  remoteControlAsk: boolean
   port: number
   // Addresses other Macs can try, most likely first.
   addresses: string[]

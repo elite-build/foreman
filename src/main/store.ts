@@ -203,6 +203,8 @@ export function defaultSettings(): Settings {
     backupFolder: '',
     acceptHandOffs: false,
     devicePort: 47631,
+    allowRemoteControl: false,
+    remoteControlAsk: true,
     mobileEnabled: false,
     mobileUrl: '',
     mobileLanEnabled: false,
