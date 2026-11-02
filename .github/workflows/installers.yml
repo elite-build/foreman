@@ -108,6 +108,10 @@ jobs:
       # build.mac signs with the Developer ID certificate in CSC_LINK (forceCodeSigning: none found fails the build),
       # then notarizes with notarytool, waits for Apple's verdict (a rejection fails the build and prints Apple's log)
       # and staples the ticket to the app before the DMG and zip are made.
+      # Stapling fetches the ticket from Apple's CloudKit service, and @electron/notarize retries it for only about seven
+      # seconds, so a brief network drop there fails an app that Apple has already accepted. electron-builder can't
+      # restart from the stapling step, so the whole build runs again, but only when stapling is what failed: a
+      # rejection or any other error still fails the step at once.
       - name: Build signed and notarized installer
         if: matrix.platform == 'macOS' && inputs.sign-macos
         env:
@@ -116,7 +120,18 @@ jobs:
           APPLE_API_KEY: ${{ runner.temp }}/notarization/AuthKey.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: npm run dist:mac
+          LOG_FILE: ${{ runner.temp }}/dist-mac.log
+        run: |
+          attempts=3
+          for attempt in $(seq 1 "$attempts"); do
+            npm run dist:mac 2>&1 | tee "$LOG_FILE" && exit 0
+            grep -q 'Failed to staple your application' "$LOG_FILE" || exit 1
+            [ "$attempt" -lt "$attempts" ] || break
+            echo "::warning::Apple accepted the app but stapling its ticket failed (attempt $attempt of $attempts); building again in a minute"
+            sleep 60
+          done
+          echo "::error::Stapling the notarization ticket failed $attempts times; Apple's ticket service may be unreachable from the runner"
+          exit 1
       - name: Remove the API key
         if: always() && matrix.platform == 'macOS' && inputs.sign-macos
         run: rm -rf "$RUNNER_TEMP/notarization"
