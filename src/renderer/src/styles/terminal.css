@@ -33,19 +33,6 @@
   flex: none;
   background: var(--border);
 }
-/* Inline rename in a terminal tab. */
-.bottom-tab .tab-rename {
-  width: 110px;
-  margin: 1px 2px 1px 4px;
-}
-.bottom-tab .term-name {
-  display: inline-block;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-}
 /* Restored after a restart: a history mark on the tab, the old output dimmed, and Start shell below it. */
 .term-restored-icon {
   margin-left: 5px;

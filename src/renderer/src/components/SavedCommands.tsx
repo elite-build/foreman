@@ -1,7 +1,7 @@
-// Cues (O9) in a workspace: the terminal panel's ▶ Commands menu, the request ⌘K sends,
+// Cues (O9) in a workspace: the terminal panel's Commands menu, the request ⌘K sends,
 // and the approval a repo's command needs before its first run (and after its text changes).
 // Each run opens a new terminal tab named after the command; nothing goes to an agent.
-import { ChevronDown, Play, SquareTerminal, Zap } from 'lucide-react'
+import { Bookmark, ChevronDown, SquareTerminal, Zap } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { commandsForRepo, needsApproval, type SavedCommand } from '../../../shared/savedCommands'
 import type { CheckConsentItem } from '../../../shared/types'
@@ -134,7 +134,7 @@ export function CommandsMenu({ repoId, repoName, disabled, onPick }: { repoId: s
       disabled={disabled}
       trigger={
         <>
-          <Play size={11} aria-hidden /> <span className="btn-label">{t('commands.menu.button')}</span> <ChevronDown size={11} aria-hidden />
+          <Bookmark size={11} aria-hidden /> <span className="btn-label">{t('commands.menu.button')}</span> <ChevronDown size={11} className="commands-chevron" aria-hidden />
         </>
       }
     >

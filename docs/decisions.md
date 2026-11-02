@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-02: The terminal panel lists its scripts and terminals in a side rail
+
+**Decision.** Run scripts, Setup and terminals are entries in a vertical list on the panel's right, icons only below 420px, with a header for the selected one. Several scripts can run at once. A terminal's rename and close live in its own right-click menu, not on its entry.
+
+**Why.** The horizontal strip crowded out the Run button and shrank terminal names to "▣ 1" at the side panel's width, and Setup held a tab it rarely needed.
+
+**Turned down.** Tidying the strip (still one script at a time, still crowded). A Run | Terminals switch (an extra click between a server's output and a shell). A process list above the output (takes the output's height). Close buttons on rail entries (crowd an icon rail).
+
+**Revisit when.** People routinely keep more terminals open than the rail shows without scrolling.
+
 ## 2026-11-02: Pull request screenshots live on their own branch
 
 **Decision.** `npm run pr:screens -- publish` pushes a PR's before-and-after screenshots to the `pr-screenshots` branch, which shares no history with `main`, and the PR links to them by commit.
