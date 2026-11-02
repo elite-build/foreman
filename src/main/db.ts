@@ -6,6 +6,7 @@ import { itemText, receiptOf } from '../shared/itemText'
 import type { UsageRow } from '../shared/usageReport'
 import type { AssistantThread } from '../shared/assistant'
 import type { ChatItem, CheckResult, DiffComment, Session, Workspace } from '../shared/types'
+import { perf } from './perf'
 
 type SqliteModule = typeof import('node:sqlite')
 
@@ -339,15 +340,18 @@ export class ForemanDb {
 
   /** Append, or update by id: the item keeps its place in the chat. */
   putItem(sessionId: string, item: ChatItem, fallbackAt?: string): void {
-    const { text, toolText } = itemText(item)
-    const given = 'at' in item && typeof item.at === 'string' ? item.at : (fallbackAt ?? null)
-    this.stmt(
-      `INSERT INTO items (session_id, id, kind, turn_id, at, json, text, tool_text, superseded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-       ON CONFLICT(session_id, id) DO UPDATE SET kind = excluded.kind, turn_id = excluded.turn_id,
-         at = CASE WHEN ? IS NOT NULL THEN excluded.at ELSE items.at END,
-         json = excluded.json, text = excluded.text, tool_text = excluded.tool_text, superseded = 0`
-    ).run(sessionId, item.id, item.kind, 'turnId' in item ? item.turnId ?? null : null, given ?? new Date().toISOString(), JSON.stringify(item), text, toolText, given)
-    this.putAttachments(sessionId, item)
+    // Synchronous, on the main thread, once per saved chat item: `db.putItem` shows what that costs.
+    perf.timed('db.putItem', () => {
+      const { text, toolText } = itemText(item)
+      const given = 'at' in item && typeof item.at === 'string' ? item.at : (fallbackAt ?? null)
+      this.stmt(
+        `INSERT INTO items (session_id, id, kind, turn_id, at, json, text, tool_text, superseded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+         ON CONFLICT(session_id, id) DO UPDATE SET kind = excluded.kind, turn_id = excluded.turn_id,
+           at = CASE WHEN ? IS NOT NULL THEN excluded.at ELSE items.at END,
+           json = excluded.json, text = excluded.text, tool_text = excluded.tool_text, superseded = 0`
+      ).run(sessionId, item.id, item.kind, 'turnId' in item ? item.turnId ?? null : null, given ?? new Date().toISOString(), JSON.stringify(item), text, toolText, given)
+      this.putAttachments(sessionId, item)
+    })
   }
 
   private putAttachments(sessionId: string, item: ChatItem): void {
@@ -358,7 +362,10 @@ export class ForemanDb {
 
   /** The chat in order, one entry per id (the last write of it). */
   readItems(sessionId: string): ChatItem[] {
-    return (this.stmt('SELECT json FROM items WHERE session_id = ? AND superseded = 0 ORDER BY seq').all(sessionId) as { json: string }[]).map((r) => JSON.parse(r.json) as ChatItem)
+    // A whole chat read and parsed, synchronously: `db.readChat`.
+    return perf.timed('db.readChat', () =>
+      (this.stmt('SELECT json FROM items WHERE session_id = ? AND superseded = 0 ORDER BY seq').all(sessionId) as { json: string }[]).map((r) => JSON.parse(r.json) as ChatItem)
+    )
   }
 
   /**

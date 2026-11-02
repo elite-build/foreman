@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parseMergeTree } from '../shared/baseWatch'
+import { perf } from './perf'
 import type { WorkspaceRuntime } from './runtime/types'
 
 /** Where git runs: a folder on this computer, or a workspace runtime. */
@@ -82,7 +83,11 @@ function withSlot(start: (done: () => void) => void): void {
   if (running < GIT_CONCURRENCY) {
     running++
     run()
-  } else waiting.push(run)
+  } else {
+    waiting.push(run)
+    // The deepest the queue got since the gauge was last read: git calls waiting on the limit.
+    perf.gauge('git.queue', waiting.length)
+  }
 }
 
 /** How a folder is known to the caches here: one spelling per folder (macOS and Windows ignore case by default). */
@@ -142,6 +147,12 @@ function localGit(cwd: string, args: string[], opts: GitOptions, command: string
   return new Promise((resolve, reject) => {
     // Never throws: the next queued call starts from inside a finished one's callback.
     const start = (done: () => void) => {
+      // One timing per subcommand (`git.status`, `git.rev-parse`): how many processes, and how long each ran.
+      const started = performance.now()
+      const finished = () => {
+        perf.time(`git.${command || '(none)'}`, performance.now() - started)
+        done()
+      }
       try {
         execFile(
           'git',
@@ -155,7 +166,7 @@ function localGit(cwd: string, args: string[], opts: GitOptions, command: string
             encoding: 'utf8'
           },
           (err, stdout, stderr) => {
-            done()
+            finished()
             if (!err) return resolve({ stdout, stderr, code: 0 })
             // execFile reports the exit status as a numeric `code`; spawn failures use a string code.
             const status = (err as { code?: unknown }).code
@@ -166,7 +177,7 @@ function localGit(cwd: string, args: string[], opts: GitOptions, command: string
           }
         )
       } catch (err) {
-        done()
+        finished()
         reject(err)
       }
     }

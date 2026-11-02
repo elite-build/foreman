@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { BranchPrefixType, GithubAccount, GithubStatus, GitStatus, PrCheck, PullRequestInfo, Settings, Workspace } from '../shared/types'
 import { baseStartPoint, git, revParse, type GitTarget } from './git'
+import { commandLabel, perf } from './perf'
 import { cloudSandboxes, workspaceTarget } from './runtime'
 import { wsPath } from '../shared/workspacePath'
 
@@ -337,9 +338,12 @@ export async function remoteGitEnv(account: string | undefined): Promise<Record<
 function runGh(cwd: string, args: string[], timeoutMs: number, env: Record<string, string>, keyring = false): Promise<string> {
   return new Promise((resolve, reject) => {
     const full = { ...ownEnv(keyring), ...env, GH_PROMPT_DISABLED: '1', NO_COLOR: '1' }
-    execFile('gh', args, { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: full }, (err, stdout, stderr) =>
-      err ? reject(new Error(stderr.trim() || err.message)) : resolve(stdout)
-    )
+    // One timing per command (`gh.pr.view`, `gh.api`): gh is a network process, so these are the slow ones.
+    const started = performance.now()
+    execFile('gh', args, { cwd, timeout: timeoutMs, windowsHide: true, maxBuffer: 32 * 1024 * 1024, env: full }, (err, stdout, stderr) => {
+      perf.time(`gh.${commandLabel(args, 2)}`, performance.now() - started)
+      return err ? reject(new Error(stderr.trim() || err.message)) : resolve(stdout)
+    })
   })
 }
 

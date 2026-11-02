@@ -127,6 +127,9 @@ import { findLinearLink, linearBranch, linearIntakeFile, type LinearIssue } from
 import type { LinearLinkInfo } from '../shared/types'
 import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
+import { perf } from './perf'
+import { diagnosticsFileName, writeDiagnostics } from './diagnostics'
+import type { DiagnosticsBundle } from '../shared/diagnostics'
 
 export interface Host {
   broadcast(event: MainEvent): void
@@ -152,6 +155,10 @@ export interface Host {
   power?(): PowerReading
   // CPU (%) and memory (MB) used by the app's own processes.
   metrics(): { cpuPercent: number; memoryMb: number }
+  // Diagnostics (docs/telemetry.md): Settings → Experimental → Keep diagnostics turned on or off (the event log, the
+  // performance samples file and local crash dumps), and the bundle Save diagnostics writes. Absent (tests): neither.
+  applyDiagnostics?(on: boolean): void
+  diagnosticsBundle?(): Promise<DiagnosticsBundle>
   // The launcher `foreman` should run (see cliInstall.ts).
   cliShim(): string
   // Foreman's version, whether it's an installed build, and where its package.json is (Report a problem, O20).
@@ -1672,14 +1679,19 @@ export class Core {
         // Before the broadcast, so the snapshot carries the fresh keep-awake status.
         this.updateKeepAwake()
       }
-      const snapshot = this.snapshot({ maxAgeMs: REPO_FILES_MAX_AGE_MS })
+      // Counted (docs/telemetry.md): how often the state is rebuilt, what building and comparing it costs, and how
+      // many rebuilds the window actually heard (`state.broadcast`).
+      perf.count('state.flush')
+      const snapshot = perf.timed('state.snapshot', () => this.snapshot({ maxAgeMs: REPO_FILES_MAX_AGE_MS }))
       // The store's records change in place, so only a copy shows what the window last heard: the snapshot as text
       // (it is JSON-shaped, and copied whole for the window anyway). The same text again sends nothing.
-      const text = stateText(snapshot)
+      const text = perf.timed('state.stringify', () => stateText(snapshot))
+      if (text !== undefined) perf.gauge('state.bytes', text.length)
       if (text !== undefined && text === this.lastStateText) {
         this.attention?.schedule()
         return
       }
+      perf.count('state.broadcast')
       this.host.broadcast({ type: 'state', snapshot })
       this.lastStateText = text
     } catch (err) {
@@ -1732,6 +1744,7 @@ export class Core {
     // A new token ends any pause after an auth failure.
     if (useGithubToken(settings.githubAuth === 'token' ? this.secrets.appSecret('GH_TOKEN') : undefined)) this.prs.resume()
     this.host.setZoom(settings.zoom)
+    this.host.applyDiagnostics?.(settings.diagnostics)
     this.powerChanged()
   }
 
@@ -2237,6 +2250,14 @@ export class Core {
       await this.host.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles')
     },
     resourceUsage: async () => ({ ...this.host.metrics(), workspaces: await this.processUsage.usage() }),
+    // Report a problem → Save diagnostics…: the bundle, redacted, written where the user chooses. Null when they cancel.
+    saveDiagnostics: async () => {
+      if (!this.host.diagnosticsBundle) throw new Error('Diagnostics are not available here')
+      const file = await this.host.pickPath({ title: mainT(this.store.state.settings)('report.saveDiagnosticsTitle'), kind: 'save', defaultPath: diagnosticsFileName() })
+      if (!file) return null
+      await writeDiagnostics(file, await this.host.diagnosticsBundle())
+      return file
+    },
     cliStatus: async () => {
       const status = await cliStatus({ shim: this.host.cliShim() })
       this.cliInstalled = status.installed
@@ -2955,7 +2976,7 @@ export class Core {
         this.scm.forget()
         this.prs.resume()
       }
-      if ('githubAuth' in patch || 'zoom' in patch || Object.keys(patch).some((key) => key.startsWith('keepAwake'))) this.applySettings()
+      if ('githubAuth' in patch || 'zoom' in patch || 'diagnostics' in patch || Object.keys(patch).some((key) => key.startsWith('keepAwake'))) this.applySettings()
       if (['checkForUpdates', 'updateInterval', 'updateMode', 'updateChannel'].some((key) => key in patch)) this.updates.settingsChanged({ channel: 'updateChannel' in patch })
       return settings
     }

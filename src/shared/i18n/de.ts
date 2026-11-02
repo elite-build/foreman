@@ -425,6 +425,14 @@ export const de: Catalogue = {
   'report.loading': 'Versionen und letzte Fehler werden gesammelt…',
   'report.loadFailed': 'Die Diagnosedaten konnten nicht gesammelt werden ({error}). Ergänze, was du weißt, von Hand.',
   'report.notIncluded': 'Kein Chatverlauf, keine Prompts, Dateiinhalte oder Umgebungsvariablen sind enthalten.',
+
+  'report.saveDiagnostics': 'Diagnosedaten speichern…',
+
+  'report.saveDiagnosticsHelp': 'Speichert eine Datei mit dem Leistungsbericht, den letzten Ereignissen und Abstürzen sowie den letzten Fehlern, ohne Pfade und Tokens. Häng sie an das Issue an.',
+
+  'report.saveDiagnosticsTitle': 'Diagnosedaten speichern',
+
+  'report.diagnosticsSaved': 'Diagnosedaten gespeichert unter {path}. Häng die Datei an das Issue an.',
   'report.redact.label': 'Pfade und Tokens entfernen',
   'report.redact.summary': { zero: 'Nichts gefunden. Die Suche erfolgt nach Mustern, also lies es vor dem Posten durch.', one: '{count} ersetzt: {detail}. Die Suche erfolgt nach Mustern, also lies es vor dem Posten durch.', other: '{count} ersetzt: {detail}. Die Suche erfolgt nach Mustern, also lies es vor dem Posten durch.' },
   'report.redact.off': 'Aus: Der Bericht geht so raus, wie er ist, einschließlich deines Home-Ordners, Benutzernamens und allem, was wie ein Token aussieht.',
@@ -1930,6 +1938,10 @@ export const de: Catalogue = {
   'settings.experimental.fork.help': 'Zweige einen Chat über das ⋯-Menü einer Antwort (Ab hier abzweigen), das Kontextmenü seines Tabs oder mit {keys} ab.',
   'settings.experimental.resourceUsage.label': 'Ressourcennutzung anzeigen',
   'settings.experimental.resourceUsage.help': 'Zeigt CPU- und Speichernutzung in der Fußzeile der Seitenleiste.',
+
+  'settings.experimental.diagnostics.label': 'Diagnosedaten aufbewahren',
+
+  'settings.experimental.diagnostics.help': 'Schreibt ein Ereignisprotokoll (Fehler, Abstürze, Beginn und Ende von Durchläufen, Hänger im Hauptthread) und Leistungsdaten in den Datenordner und bewahrt dort Absturzabbilder auf. Nichts verlässt diesen Computer. Aus: „Problem melden“ hat nur die Fehler dieser Sitzung.',
   'settings.advanced.section.storage': 'Speicher',
   'settings.advanced.section.commandLine': 'Befehlszeile',
   'settings.advanced.workspacesFolder.label': 'Ordner für Arbeitsbereiche',
@@ -2567,6 +2579,8 @@ export const de: Catalogue = {
   'sidebar.rail.add': 'Repository hinzufügen',
   'sidebar.rail.palette': 'Befehlspalette ({key})',
   'sidebar.rail.shortcuts': 'Tastaturkurzbefehle ({key})',
+
+  'sidebar.rail.report': 'Problem melden ({key})',
   'sidebar.rail.settings': 'Einstellungen ({key})',
   'sidebar.resize': 'Größe der Seitenleiste ändern',
   'sidebar.hide': 'Seitenleiste ausblenden ({key})',

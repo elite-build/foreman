@@ -375,6 +375,64 @@ export const COMMANDS: CommandSpec[] = [
     tier: 'read'
   },
   {
+    path: ['app', 'perf'],
+    group: 'app',
+    summary: 'Show what the running app is doing: its processes, main-thread stalls, and what it counted',
+    usage: 'foreman app perf [--reset] [--top <n>] [--json]',
+    args: [],
+    options: {
+      reset: { type: 'boolean', help: 'Start the counters and timings again after printing (run twice for a rate)' },
+      top: { type: 'string', value: '<n>', help: 'How many counters and timings to show', default: '20' }
+    },
+    examples: ['foreman app perf', 'foreman app perf --reset', 'foreman app perf --json'],
+    details:
+      'Everything stays on this computer. Processes are the app’s own (main, renderer, GPU), with CPU as a share of one core. Loop is the main thread’s event-loop delay over the last few seconds: hundreds of milliseconds means something synchronous is blocking it. Counters are what main did since the app started or the last --reset (state rebuilds, events sent, calls from the window, git and gh processes by command); timings add how long each took. See docs/telemetry.md.',
+    tier: 'read'
+  },
+  {
+    path: ['app', 'diagnostics'],
+    group: 'app',
+    summary: 'Save a diagnostics file to attach to a bug report',
+    usage: 'foreman app diagnostics [--out <file>] [--json]',
+    args: [],
+    options: {
+      out: { type: 'string', value: '<file>', help: 'Where to write it', default: 'foreman-diagnostics-<date>.json in the current folder' }
+    },
+    examples: ['foreman app diagnostics', 'foreman app diagnostics --out ~/Desktop/foreman.json'],
+    details:
+      'One JSON file with the app and OS versions, the settings the assistant may read, the performance report and its last ten minutes of samples, this session’s events and the tail of the event log (which reaches back before a crash), the last errors, resource usage, and the list of crash dumps. Paths, user names, tokens and e-mail addresses are removed from every string, as Report a problem does. Nothing is sent anywhere; you attach the file. The same file comes from Help → Report a problem → Save diagnostics. See docs/telemetry.md.',
+    tier: 'read'
+  },
+  {
+    path: ['app', 'profile'],
+    group: 'app',
+    summary: 'Record a CPU profile of the app for a few seconds',
+    usage: 'foreman app profile [--renderer] [--seconds <n>] [--json]',
+    args: [],
+    options: {
+      renderer: { type: 'boolean', help: 'Profile the window (the renderer) instead of the main process' },
+      seconds: { type: 'string', value: '<n>', help: 'How long to record (1 to 300)', default: '20' }
+    },
+    examples: ['foreman app profile', 'foreman app profile --renderer --seconds 10'],
+    details:
+      'Writes a .cpuprofile into the data folder’s logs (the path is printed) and says which functions the process spent its time in. Open it in Chrome DevTools (Performance → Load profile) or VS Code. The main process is sampled in place, with no debugger port opened; the window is sampled over its DevTools session. Record while the slowness is happening. See docs/telemetry.md.',
+    tier: 'read'
+  },
+  {
+    path: ['app', 'heap'],
+    group: 'app',
+    summary: 'Save a heap snapshot of the app, for memory growth',
+    usage: 'foreman app heap [--renderer] [--json]',
+    args: [],
+    options: {
+      renderer: { type: 'boolean', help: 'Snapshot the window (the renderer) instead of the main process' }
+    },
+    examples: ['foreman app heap', 'foreman app heap --renderer'],
+    details:
+      'Writes a .heapsnapshot into the data folder’s logs (the path is printed). Taking it pauses that process for a moment, and the file can be large. Two snapshots some minutes apart, compared in Chrome DevTools (Memory → Load), show what is being kept. See docs/telemetry.md.',
+    tier: 'read'
+  },
+  {
     path: ['doctor'],
     group: 'app',
     summary: 'Check the app, git, gh, agents and the data folder',

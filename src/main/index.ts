@@ -1,8 +1,10 @@
 import { ForemanDelegation } from './foremanDelegation'
 import { ForemanCli } from './foremanCli'
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, powerSaveBlocker, protocol, safeStorage, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeTheme, powerMonitor, powerSaveBlocker, protocol, safeStorage, shell, systemPreferences } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Server } from 'node:net'
@@ -18,7 +20,10 @@ import { SecretStore } from './secrets'
 import { allowPermission } from './speech/permissions'
 import { Store } from './store'
 import { MobileService } from './mobile'
-import { captureConsoleErrors, errorLine, errorLog, rendererErrorLine } from './reportProblem'
+import { captureConsoleErrors, errorLine, errorLog, osName, rendererErrorLine } from './reportProblem'
+import { diag, installProcessHandlers } from './diagnosticsLog'
+import { buildDiagnostics } from './diagnostics'
+import { heapSnapshotMain, heapSnapshotRenderer, MAX_PROFILE_MS, MIN_PROFILE_MS, profileFileName, profileMain, profileRenderer } from './profiler'
 import { launchPaths } from './dropFolders'
 import { spawn } from 'node:child_process'
 import { HOST_FLAG, hostArgs, hostDir } from './agentHost/protocol'
@@ -30,10 +35,13 @@ import { mainT, setSystemLanguages } from './i18n'
 import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
 import { runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
+import { perf } from './perf'
 import { electronUpdateInstaller, type ElectronUpdateInstaller } from './updateInstaller'
 
-// The last few errors go into Report a problem's diagnostics (O20).
-captureConsoleErrors()
+// The last few errors go into Report a problem's diagnostics (O20), and every one into the event log (docs/telemetry.md).
+captureConsoleErrors(errorLog, (line) => diag.log('error', { line }))
+// An uncaught exception or unhandled rejection in main is recorded with its stack before Electron's dialog shows.
+installProcessHandlers(process)
 // O13b: main's own text (menu, dialogs, tray, notifications) follows the OS's languages under System.
 setSystemLanguages(() => [...app.getPreferredSystemLanguages(), app.getLocale()])
 
@@ -75,6 +83,8 @@ function migrateFromSwitchyard(): void {
 const eventListeners = new Set<(event: MainEvent) => void>()
 
 function broadcast(event: MainEvent): void {
+  // Every event the window is sent, by type (`event.chat-append`, `event.state`): docs/telemetry.md.
+  perf.count(`event.${event.type}`)
   if (event.type === 'state') {
     const live = new Set(event.snapshot.workspaces.filter((w) => w.state !== 'archived' && w.state !== 'history').map((w) => w.id))
     for (const browser of workspaceBrowsers.values()) browser.retain(live)
@@ -297,7 +307,13 @@ function createWindow(): BrowserWindow {
     const line = rendererErrorLine(details)
     if (line) errorLog.record(line)
   })
-  win.webContents.on('render-process-gone', (_event, gone) => errorLog.record(errorLine([`[renderer] window process gone: ${gone.reason} (exit ${gone.exitCode})`])))
+  win.webContents.on('render-process-gone', (_event, gone) => {
+    errorLog.record(errorLine([`[renderer] window process gone: ${gone.reason} (exit ${gone.exitCode})`]))
+    diag.log('renderer.gone', { reason: gone.reason, exitCode: gone.exitCode })
+  })
+  // The page stopped answering (a long render, an endless loop), and when it came back: evidence for a hang report.
+  win.on('unresponsive', () => diag.log('window.unresponsive'))
+  win.on('responsive', () => diag.log('window.responsive'))
   win.on('closed', () => core?.ptys.killAll())
   // #1: where the close button quits the app, it asks first while something is running, as Quit does.
   win.on('close', (event) => {
@@ -352,6 +368,60 @@ async function main(): Promise<void> {
   if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId('dev.foreman.app')
   const fixture = screensRoot ? await seedScreens(screensRoot, app.getPath('userData')) : null
   const store = new Store(app.getPath('userData'))
+  // Diagnostics (docs/telemetry.md, "Evidence"): the event log, the performance samples file and local crash dumps,
+  // on while Settings → Experimental → Keep diagnostics is on (core.applySettings). Nothing is uploaded: the crash
+  // reporter only writes minidumps into the data folder. A screenshot run keeps none of it.
+  const logsDir = path.join(app.getPath('userData'), 'logs')
+  const startedAt = Date.now()
+  let crashReporting = false
+  const applyDiagnostics = (on: boolean): void => {
+    if (screensRoot) return
+    if (!on) {
+      if (diag.file) diag.log('diagnostics.off')
+      diag.close()
+      perf.stopRecording()
+      return
+    }
+    if (!crashReporting) {
+      crashReporting = true
+      try {
+        crashReporter.start({ uploadToServer: false, submitURL: '', compress: false })
+      } catch (err) {
+        console.error('Could not start the crash reporter:', err)
+      }
+    }
+    if (!diag.file) {
+      void diag.open(path.join(logsDir, 'foreman.log')).then(
+        () => diag.log('app.start', { version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, electron: process.versions.electron, node: process.versions.node }),
+        (err: unknown) => console.error('Could not open foreman.log:', err)
+      )
+    }
+    if (!perf.recording) void perf.record(path.join(logsDir, 'perf.jsonl')).catch((err: unknown) => console.error('Could not open perf.jsonl:', err))
+  }
+  const diagnosticsBundle = () =>
+    buildDiagnostics({
+      app: {
+        version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, arch: process.arch, os: osName(),
+        electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node
+      },
+      settings: store.state.settings,
+      workspaces: store.state.workspaces,
+      sessions: store.state.sessions,
+      perf,
+      events: diag,
+      errors: errorLog,
+      logsDir,
+      crashDumpsDir: crashReporting ? app.getPath('crashDumps') : undefined,
+      resourceUsage: () => core!.api.resourceUsage(),
+      redact: { home: os.homedir(), user: os.userInfo().username },
+      startedAt
+    })
+  // The window's DevTools session, for a renderer profile or heap snapshot (profiler.ts).
+  const rendererDebugger = () => {
+    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    if (!win) throw new Error('No window is open to profile.')
+    return win.webContents.debugger
+  }
   await store.load()
 
   const secrets = new SecretStore(path.join(app.getPath('userData'), 'secrets.bin'), {
@@ -433,6 +503,8 @@ async function main(): Promise<void> {
         memoryMb: Math.round(all.reduce((n, m) => n + m.memory.workingSetSize, 0) / 1024)
       }
     },
+    applyDiagnostics,
+    diagnosticsBundle,
     cliShim: () => shimPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }),
     // Integrations and Foreman's own tools: the MCP bridge is this app's own binary in Node mode running the bundled
     // bridge (bridge.js: only the bridge, not the whole CLI, as one runs per agent turn), by absolute path, so it needs
@@ -496,7 +568,8 @@ async function main(): Promise<void> {
   core.sandboxes.hostBundle = () => (hostBundle === undefined ? (hostBundle = readHostBundle(here, app.getVersion())) : hostBundle)
   core.addLaunchFolders(pendingLaunchFolders.splice(0))
   mobile = new MobileService({
-    store, secrets, api: core.api, snapshot: () => core!.snapshot(),
+    // The same 3 s reuse of repository files as the window's snapshot: the phone's stall check runs every minute.
+    store, secrets, api: core.api, snapshot: () => core!.snapshot({ maxAgeMs: 3000 }),
     approvals: () => core!.sessions.pendingApprovals(),
     consentNeeded: (workspaceId) => core!.checks.consentNeeded(workspaceId),
     appPath: app.getAppPath(),
@@ -529,7 +602,8 @@ async function main(): Promise<void> {
     if (!API_METHODS.includes(method)) throw new Error('Unknown API method')
     const fn = api[method]
     if (typeof fn !== 'function') throw new Error(`Unknown method ${String(method)}`)
-    return fn(...args)
+    // Every call from the window, by method, with how long main took to answer (`ipc.getDiff`, `ipc.gitStatus`).
+    return perf.timed(`ipc.${method}`, () => Promise.resolve((fn as (...a: unknown[]) => unknown)(...args)))
   })
   ipcMain.on('foreman:send', (event, method: keyof Signals, args: unknown[]) => {
     if (!workspaceBrowsers.has(event.sender.id) || event.senderFrame !== event.sender.mainFrame) return
@@ -623,7 +697,34 @@ async function main(): Promise<void> {
     // A window opened just now (macOS keeps running with none) hears events once its page loads.
     reveal: (workspaceId) => sendToWindow({ type: 'show-workspace', workspaceId }),
     showSetting: (id) => sendToWindow({ type: 'show-setting', id }),
-    checkConsent: (workspaceId) => started.checks.consentNeeded(workspaceId)
+    checkConsent: (workspaceId) => started.checks.consentNeeded(workspaceId),
+    // `foreman app perf`: the meter's report, and a fresh start for its counters when asked.
+    perf: ({ reset } = {}) => {
+      const report = perf.report()
+      if (reset) perf.reset()
+      return report
+    },
+    // `foreman app diagnostics`, `app profile` and `app heap` (docs/telemetry.md, "Evidence"). Profiles and snapshots
+    // go into the data folder's logs, as V8 files DevTools opens.
+    diagnostics: () => diagnosticsBundle(),
+    profile: async ({ target, seconds }) => {
+      const ms = Math.min(MAX_PROFILE_MS, Math.max(MIN_PROFILE_MS, Math.round(seconds * 1000)))
+      diag.log('profile.start', { target, ms })
+      const profile = target === 'renderer' ? await profileRenderer(rendererDebugger(), ms) : await profileMain(ms)
+      await mkdir(logsDir, { recursive: true })
+      const file = path.join(logsDir, profileFileName(target, 'cpuprofile'))
+      await writeFile(file, JSON.stringify(profile))
+      diag.log('profile.end', { target, file })
+      return { file, ms }
+    },
+    heapSnapshot: async ({ target }) => {
+      await mkdir(logsDir, { recursive: true })
+      const file = path.join(logsDir, profileFileName(target, 'heapsnapshot'))
+      if (target === 'renderer') await heapSnapshotRenderer(rendererDebugger(), file)
+      else heapSnapshotMain(file)
+      diag.log('heap.snapshot', { target, file })
+      return { file }
+    }
   }
   // The assistant's Run button runs commands against the same host, in process.
   started.assistant.attachCli(cliHost)
@@ -664,6 +765,17 @@ async function main(): Promise<void> {
   powerMonitor.on('on-battery', powerChanged)
   if (process.platform === 'darwin') powerMonitor.on('thermal-state-change', powerChanged)
   void core.models.refreshAll()
+  // The performance meter's samples (docs/telemetry.md): the app's processes every few seconds, written to perf.jsonl
+  // while Keep diagnostics is on (applyDiagnostics). A screenshot run measures nothing.
+  if (!screensRoot) {
+    perf.start({
+      processes: () => app.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, cpuPercent: Math.round(m.cpu.percentCPUUsage * 10) / 10, memoryMb: Math.round(m.memory.workingSetSize / 1024) })),
+      // The stall watchdog: a main-thread stall, with what ran during it, goes to the event log.
+      onStall: (stall) => diag.log('stall', { ...stall })
+    })
+    // A GPU, utility or other helper process that crashed or was killed.
+    app.on('child-process-gone', (_event, details) => diag.log('process.gone', { type: details.type, reason: details.reason, exitCode: details.exitCode, name: details.name, serviceName: details.serviceName }))
+  }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -700,7 +812,9 @@ app.on('before-quit', (event) => {
   core.stopSafely.recordQuit()
   // Stop agents and terminals and flush state before exiting.
   cliServer?.close()
-  void Promise.all([core.shutdown(), mobile?.close(), core.bridge.close()]).finally(() => {
+  perf.stop()
+  diag.log('app.quit')
+  void Promise.all([core.shutdown(), mobile?.close(), core.bridge.close(), perf.flushed(), diag.flushed()]).finally(() => {
     if (!installUpdate || !updateInstaller) return app.quit()
     // electron-updater quits once the installer is under way. When it can't start one it only reports an error, so
     // quit anyway rather than leave a stopped app open; the update stays downloaded for the next try.

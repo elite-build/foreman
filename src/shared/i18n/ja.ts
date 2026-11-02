@@ -425,6 +425,14 @@ export const ja: Catalogue = {
   'report.loading': 'バージョンと最近のエラーを収集しています…',
   'report.loadFailed': '診断情報を収集できませんでした（{error}）。わかる範囲で手動で追加してください。',
   'report.notIncluded': 'チャット履歴、プロンプト、ファイルの内容、環境変数は含まれません。',
+
+  'report.saveDiagnostics': '診断情報を保存…',
+
+  'report.saveDiagnosticsHelp': 'パフォーマンスレポート、最近のイベントとクラッシュ、最後のエラーをまとめたファイルを、パスとトークンを除いて保存します。Issue に添付してください。',
+
+  'report.saveDiagnosticsTitle': '診断情報を保存',
+
+  'report.diagnosticsSaved': '診断情報を {path} に保存しました。ファイルを Issue に添付してください。',
   'report.redact.label': 'パスとトークンを削除',
   'report.redact.summary': { zero: '一致するものはありませんでした。パターンで照合しているため、投稿前に内容を確認してください。', other: '{count}件を置換しました：{detail}。パターンで照合しているため、投稿前に内容を確認してください。' },
   'report.redact.off': 'オフ：ホームフォルダー、ユーザー名、トークンらしきものも含め、書かれたとおりにレポートが送られます。',
@@ -1930,6 +1938,10 @@ export const ja: Catalogue = {
   'settings.experimental.fork.help': '回答の ⋯ メニュー（ここから分岐）、タブのコンテキストメニュー、または {keys} でチャットを分岐します。',
   'settings.experimental.resourceUsage.label': 'リソース使用状況を表示',
   'settings.experimental.resourceUsage.help': 'サイドバーのフッターに CPU とメモリの使用量を表示します。',
+
+  'settings.experimental.diagnostics.label': '診断情報を保存する',
+
+  'settings.experimental.diagnostics.help': 'イベントログ（エラー、クラッシュ、ターンの開始と終了、メインスレッドの停止）とパフォーマンスのサンプルをデータフォルダーに書き込み、クラッシュダンプもそこに保存します。このコンピューターの外には何も送られません。オフの場合、「問題を報告」にはこのセッションのエラーだけが含まれます。',
   'settings.advanced.section.storage': 'ストレージ',
   'settings.advanced.section.commandLine': 'コマンドライン',
   'settings.advanced.workspacesFolder.label': 'ワークスペースのフォルダー',
@@ -2567,6 +2579,8 @@ export const ja: Catalogue = {
   'sidebar.rail.add': 'リポジトリを追加',
   'sidebar.rail.palette': 'コマンドパレット（{key}）',
   'sidebar.rail.shortcuts': 'キーボードショートカット（{key}）',
+
+  'sidebar.rail.report': '問題を報告（{key}）',
   'sidebar.rail.settings': '設定（{key}）',
   'sidebar.resize': 'サイドバーのサイズを変更',
   'sidebar.hide': 'サイドバーを非表示（{key}）',

@@ -425,6 +425,14 @@ export const fr: Catalogue = {
   'report.loading': 'Collecte des versions et des erreurs récentes…',
   'report.loadFailed': 'Impossible de collecter les diagnostics ({error}). Ajoutez à la main ce que vous savez.',
   'report.notIncluded': 'Aucun historique de discussion, prompt, contenu de fichier ni variable d’environnement n’est inclus.',
+
+  'report.saveDiagnostics': 'Enregistrer les diagnostics…',
+
+  'report.saveDiagnosticsHelp': 'Enregistre un fichier avec le rapport de performance, les événements et plantages récents et les dernières erreurs, sans chemins ni jetons. Joignez-le au ticket.',
+
+  'report.saveDiagnosticsTitle': 'Enregistrer les diagnostics',
+
+  'report.diagnosticsSaved': 'Diagnostics enregistrés dans {path}. Joignez le fichier au ticket.',
   'report.redact.label': 'Retirer les chemins et les jetons',
   'report.redact.summary': { zero: 'Aucune correspondance. La détection se fait par motif : relisez avant de publier.', one: '{count} remplacement : {detail}. La détection se fait par motif : relisez avant de publier.', other: '{count} remplacements : {detail}. La détection se fait par motif : relisez avant de publier.' },
   'report.redact.off': 'Désactivé : le rapport part tel quel, y compris votre dossier personnel, votre nom d’utilisateur et tout ce qui ressemble à un jeton.',
@@ -1930,6 +1938,10 @@ export const fr: Catalogue = {
   'settings.experimental.fork.help': 'Dupliquez une discussion depuis le menu ⋯ d’une réponse (Dupliquer à partir d’ici), le menu contextuel de son onglet, ou avec {keys}.',
   'settings.experimental.resourceUsage.label': 'Afficher l’utilisation des ressources',
   'settings.experimental.resourceUsage.help': 'Affiche l’utilisation du processeur et de la mémoire en bas de la barre latérale.',
+
+  'settings.experimental.diagnostics.label': 'Conserver les diagnostics',
+
+  'settings.experimental.diagnostics.help': 'Écrit un journal d’événements (erreurs, plantages, débuts et fins de tours, blocages du fil principal) et des mesures de performance dans le dossier de données, et y conserve les vidages de plantage. Rien ne quitte cet ordinateur. Désactivé : « Signaler un problème » n’a que les erreurs de cette session.',
   'settings.advanced.section.storage': 'Stockage',
   'settings.advanced.section.commandLine': 'Ligne de commande',
   'settings.advanced.workspacesFolder.label': 'Dossier des espaces de travail',
@@ -2567,6 +2579,8 @@ export const fr: Catalogue = {
   'sidebar.rail.add': 'Ajouter un dépôt',
   'sidebar.rail.palette': 'Palette de commandes ({key})',
   'sidebar.rail.shortcuts': 'Raccourcis clavier ({key})',
+
+  'sidebar.rail.report': 'Signaler un problème ({key})',
   'sidebar.rail.settings': 'Réglages ({key})',
   'sidebar.resize': 'Redimensionner la barre latérale',
   'sidebar.hide': 'Masquer la barre latérale ({key})',

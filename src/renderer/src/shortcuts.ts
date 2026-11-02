@@ -61,6 +61,8 @@ export interface ShortcutActions {
   toggleBottomPanel(): void
   toggleZen(): void
   toggleSettings(): void
+  // Help → Report a problem… (docs/telemetry.md): the dialog with the diagnostics filled in.
+  reportProblem(): void
   toggleAssistant(): void
   toggleTerminalFullscreen(workspaceId: string): void
   selectWorkspace(workspaceId: string): void
@@ -400,6 +402,8 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     run: (c) => pushToTalkHandler?.(c.event as ChordEvent & { repeat?: boolean })
   },
   { id: 'shortcuts.help', keys: k('mod+alt+Slash'), group: 'general', scope: 'app', labelKey: 'shortcuts.thisList', run: (c) => c.actions.openOverlay('shortcuts') },
+  // Report a problem: also the bug button in the sidebar rail and Help in the menu bar (hidden on Windows until Alt).
+  { id: 'report.problem', keys: k('mod+alt+KeyR'), group: 'general', scope: 'app', labelKey: 'report.command', run: (c) => c.actions.reportProblem() },
 
   // ---- Workspaces ----
   { id: 'workspace.new', keys: k('mod+KeyN'), group: 'workspaces', scope: 'app', labelKey: 'palette.newWorkspace', run: (c) => c.actions.newWorkspace(c.ws) },

@@ -20,7 +20,8 @@ Settings       templates, settings, env, keys, github, gitlab, loadouts, review-
                agents, commands, schedules, connections,
                slack rules|people|deliveries|answer|resend, linear issues, backup, git-backup
 Remote         cloud (12 commands: foreman help cloud)
-App            app info, doctor, cli status|install, completion, help, data, usage, attention
+App            app info|perf|diagnostics|profile|heap, doctor, cli status|install, completion,
+               help, data, usage, attention
 
 foreman help <command>   options, examples and exit codes       foreman help exit-codes | agents | settings-keys | environment
 Every command takes --json. Inside an agent turn, foreman report and foreman review are the commands to know.
@@ -5774,6 +5775,105 @@ Examples:
 Warns on stderr when the app speaks an older protocol than this command; update the app (the command is part of it).
 ```
 
+### foreman app perf
+
+```text
+Show what the running app is doing: its processes, main-thread stalls, and what it counted
+
+Usage:
+  foreman app perf [--reset] [--top <n>] [--json]
+
+Options:
+      --reset    Start the counters and timings again after printing (run twice for a rate)
+      --top <n>  How many counters and timings to show (default: 20)
+
+Common options:
+      --json     Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet    Hide progress lines and notes
+  -y, --yes      Answer yes to confirmations
+  -h, --help     Show this command’s help
+
+Examples:
+  foreman app perf
+  foreman app perf --reset
+  foreman app perf --json
+
+Everything stays on this computer. Processes are the app’s own (main, renderer, GPU), with CPU as a share of one core. Loop is the main thread’s event-loop delay over the last few seconds: hundreds of milliseconds means something synchronous is blocking it. Counters are what main did since the app started or the last --reset (state rebuilds, events sent, calls from the window, git and gh processes by command); timings add how long each took. See docs/telemetry.md.
+```
+
+### foreman app diagnostics
+
+```text
+Save a diagnostics file to attach to a bug report
+
+Usage:
+  foreman app diagnostics [--out <file>] [--json]
+
+Options:
+      --out <file>  Where to write it (default: foreman-diagnostics-<date>.json in the current folder)
+
+Common options:
+      --json        Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet       Hide progress lines and notes
+  -y, --yes         Answer yes to confirmations
+  -h, --help        Show this command’s help
+
+Examples:
+  foreman app diagnostics
+  foreman app diagnostics --out ~/Desktop/foreman.json
+
+One JSON file with the app and OS versions, the settings the assistant may read, the performance report and its last ten minutes of samples, this session’s events and the tail of the event log (which reaches back before a crash), the last errors, resource usage, and the list of crash dumps. Paths, user names, tokens and e-mail addresses are removed from every string, as Report a problem does. Nothing is sent anywhere; you attach the file. The same file comes from Help → Report a problem → Save diagnostics. See docs/telemetry.md.
+```
+
+### foreman app profile
+
+```text
+Record a CPU profile of the app for a few seconds
+
+Usage:
+  foreman app profile [--renderer] [--seconds <n>] [--json]
+
+Options:
+      --renderer     Profile the window (the renderer) instead of the main process
+      --seconds <n>  How long to record (1 to 300) (default: 20)
+
+Common options:
+      --json         Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet        Hide progress lines and notes
+  -y, --yes          Answer yes to confirmations
+  -h, --help         Show this command’s help
+
+Examples:
+  foreman app profile
+  foreman app profile --renderer --seconds 10
+
+Writes a .cpuprofile into the data folder’s logs (the path is printed) and says which functions the process spent its time in. Open it in Chrome DevTools (Performance → Load profile) or VS Code. The main process is sampled in place, with no debugger port opened; the window is sampled over its DevTools session. Record while the slowness is happening. See docs/telemetry.md.
+```
+
+### foreman app heap
+
+```text
+Save a heap snapshot of the app, for memory growth
+
+Usage:
+  foreman app heap [--renderer] [--json]
+
+Options:
+      --renderer  Snapshot the window (the renderer) instead of the main process
+
+Common options:
+      --json      Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet     Hide progress lines and notes
+  -y, --yes       Answer yes to confirmations
+  -h, --help      Show this command’s help
+
+Examples:
+  foreman app heap
+  foreman app heap --renderer
+
+Writes a .heapsnapshot into the data folder’s logs (the path is printed). Taking it pauses that process for a moment, and the file can be large. Two snapshots some minutes apart, compared in Chrome DevTools (Memory → Load), show what is being kept. See docs/telemetry.md.
+```
+
 ### foreman doctor
 
 ```text
@@ -6106,6 +6206,7 @@ Experimental
   experimental.auto-run-after-setup  on | off  Auto-run after setup
   experimental.fork-to-new-tab       on | off  Fork chat to new tab
   experimental.show-resource-usage   on | off  Show resource usage
+  experimental.diagnostics           on | off  Keep diagnostics
 
 Advanced
   advanced.workspaces-folder        path (empty: automatic)                    Workspaces folder

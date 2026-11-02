@@ -8,7 +8,8 @@ const DEFAULTS = {
   autoPermissionMode: false,
   autoRunAfterSetup: false,
   forkToNewTab: true,
-  showResourceUsage: false
+  showResourceUsage: false,
+  diagnostics: true
 } satisfies Partial<Settings>
 
 export function ExperimentalPage() {
@@ -64,6 +65,14 @@ export function ExperimentalPage() {
           checked={settings.showResourceUsage}
           onChange={(showResourceUsage) => void saveSettings({ showResourceUsage })}
           onReset={reset('showResourceUsage')}
+        />
+        <ToggleRow
+          id="diagnostics"
+          label={t('settings.experimental.diagnostics.label')}
+          help={t('settings.experimental.diagnostics.help')}
+          checked={settings.diagnostics}
+          onChange={(diagnostics) => void saveSettings({ diagnostics })}
+          onReset={reset('diagnostics')}
         />
       </Section>
     </Page>

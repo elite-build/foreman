@@ -135,7 +135,7 @@ export const READABLE_SETTINGS = [
   'windowLayout', 'sidebarSide', 'sidePanelSide', 'terminalPlacement', 'homeBoard', 'homeLayout', 'homeDoneDays', 'loadouts', 'reviewModel',
   'claudeOutputStyle', 'defaultPlanMode', 'branchPrefixType', 'autoRenameBranches', 'renameWorkspaceWithBranch',
   'deleteBranchOnArchive', 'archiveOnMerge', 'archiveCleanupDays', 'automerge', 'optionalChecksBlock', 'pushAutoSetupRemote', 'openPrIn', 'stackedPrs',
-  'claudeAuth', 'codexAuth', 'chromeMode', 'autoPermissionMode', 'autoRunAfterSetup', 'forkToNewTab', 'showResourceUsage',
+  'claudeAuth', 'codexAuth', 'chromeMode', 'autoPermissionMode', 'autoRunAfterSetup', 'forkToNewTab', 'showResourceUsage', 'diagnostics',
   'terminalScrollbackMb', 'terminalCopyOnSelect', 'terminalScreenReader', 'restoreTerminals', 'keepAgentsRunning', 'maxRunningAgents', 'backgroundWaitMinutes', 'keepClearedHistory', 'dailyBackup',
   'acceptHandOffs', 'mobileEnabled', 'assistantEnabled'
 ] as const satisfies readonly (keyof Settings)[]

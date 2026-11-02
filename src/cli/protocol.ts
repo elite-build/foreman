@@ -344,6 +344,27 @@ export interface AppInfoResult {
   cliPath?: string | null
 }
 
+/** `app-perf`: the performance meter's report (shared/perf.ts, PerfReport); `reset` starts its counters again afterwards. */
+export interface PerfParams {
+  reset?: boolean
+}
+
+/** `app-profile` and `app-heap`: which of the app's processes, and (profile) for how long. Defaults: main, 20 s. */
+export interface ProfileParams {
+  target?: 'main' | 'renderer'
+  seconds?: number
+}
+
+/** Where the profile or snapshot went (inside the data folder's logs). */
+export interface ProfileResult {
+  file: string
+  ms: number
+}
+
+export interface HeapResult {
+  file: string
+}
+
 /** One exit code table for every command: the existing per-command codes keep their numbers (see the plan, section 9). */
 export const ERROR_EXIT: Record<CliErrorCode, number> = {
   invalid: 2,

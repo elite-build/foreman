@@ -5,6 +5,8 @@ import type { AgentReport, TurnCaller } from '../../shared/agentReports'
 import type { ExportInfo, ExportOptions, ExportSummary, ImportChoice, StageResult } from '../../shared/portable'
 import type { AppSnapshot, Api, ApprovalRequest, CheckConsentItem, CreateWorkspaceOptions, LimitResume, MainEvent, Repo, ResolvedRepoSettings, SendOptions, SendReceipt, Session, Settings, TurnStatus, Workspace } from '../../shared/types'
 import type { ChecksCliResult, CliErrorCode } from '../../cli/protocol'
+import type { PerfReport } from '../../shared/perf'
+import type { DiagnosticsBundle } from '../../shared/diagnostics'
 import type { CallerIdentity, RecordInput } from '../agentReports'
 
 export interface CliHost {
@@ -59,6 +61,14 @@ export interface CliHost {
   // Integrations: an agent's `foreman mcp-bridge` connection. It stays open and carries MCP JSON-RPC lines;
   // `rest` is whatever arrived after the first line.
   bridge?(conn: net.Socket, params: { grant: string; service: string }, rest: string): void
+  // The performance meter's report (docs/telemetry.md), for `foreman app perf`; `reset` starts its counters again
+  // after the report. Absent (tests, the assistant's in-process host): the command says the app keeps none.
+  perf?(options?: { reset?: boolean }): PerfReport
+  // Diagnostics (docs/telemetry.md, "Evidence"): the bundle `foreman app diagnostics` writes, and on-demand CPU
+  // profiles and heap snapshots into the data folder's logs. Absent: the commands say the app keeps none.
+  diagnostics?(): Promise<DiagnosticsBundle>
+  profile?(options: { target: 'main' | 'renderer'; seconds: number }): Promise<{ file: string; ms: number }>
+  heapSnapshot?(options: { target: 'main' | 'renderer' }): Promise<{ file: string }>
 }
 
 /**

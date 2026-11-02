@@ -1,6 +1,6 @@
 # Performance with many agents
 
-Foreman is built to run 10 to 12 agents at once. This page covers what each running agent costs, the rules the app follows to stay responsive under that load, the settings that limit it, and the tests that fail if those rules break.
+Foreman is built to run 10 to 12 agents at once. This page covers what each running agent costs, the rules the app follows to stay responsive under that load, the settings that limit it, and the tests that fail if those rules break. To see what a running app is doing, see [telemetry.md](telemetry.md) and `foreman app perf`.
 
 ## What a running turn costs
 
