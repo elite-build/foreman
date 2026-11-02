@@ -18,6 +18,20 @@ notarized=1
 
 fail() { echo "::error::$*" >&2; exit 1; }
 
+# `stapler validate` looks the stapled ticket up in Apple's CloudKit service, and a dropped connection there (error 68,
+# NSURLErrorDomain) says nothing about the app, so only that is tried again. A missing or invalid ticket fails at once.
+validate_staple() {
+  local app=$1 out attempt
+  for attempt in 1 2 3 4 5; do
+    out=$(xcrun stapler validate "$app" 2>&1) && { echo "$out"; return 0; }
+    echo "$out"
+    grep -qE 'NSURLErrorDomain|Error 68\.' <<<"$out" || return 1
+    [ "$attempt" -lt 5 ] || return 1
+    echo "::warning::Couldn't reach Apple's ticket service to validate the stapled ticket (attempt $attempt of 5); trying again"
+    sleep $((attempt * 15))
+  done
+}
+
 shopt -s nullglob
 dmgs=("$dir"/*.dmg) zips=("$dir"/*.zip)
 [ ${#dmgs[@]} -eq 1 ] && [ ${#zips[@]} -eq 1 ] || fail "Expected one .dmg and one .zip in $dir"
@@ -61,7 +75,7 @@ check_app() {
   rm -f "$work/teams"
 
   if [ $notarized = 1 ]; then
-    xcrun stapler validate "$app" || fail "$2: Foreman.app has no valid stapled notarization ticket"
+    validate_staple "$app" || fail "$2: Foreman.app has no valid stapled notarization ticket"
     if spctl --status 2>&1 | grep -q 'assessments enabled'; then
       local gk
       gk=$(spctl --assess --type execute --verbose=4 "$app" 2>&1) || fail "$2: Gatekeeper rejects Foreman.app: $gk"
