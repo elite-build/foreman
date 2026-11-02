@@ -116,7 +116,7 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   terminal: async (f) => {
     openWorkspace(f)
     showBottomPanel(true)
-    const tab = await waitFor(element('.bottom-tabs .bottom-tab > button'))
+    const tab = await waitFor(element('.bottom-rail .rail-terminals [role="tab"]'))
     if (!tab) return null
     tab.click()
     const screen = await waitFor(element('.terminal .xterm-screen'))

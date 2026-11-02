@@ -26,52 +26,131 @@
   display: flex;
   flex-direction: column;
 }
-.bottom-tabs {
+/* The panel's width decides how much the header and the rail show (below). */
+.bottom-panel {
+  container: bottom-panel / inline-size;
+}
+/* The header: what is selected (a script, Setup or a terminal), then its actions. */
+.bottom-head {
   display: flex;
   align-items: center;
   gap: 2px;
+  min-height: 37px;
   padding: 5px 8px;
   border-bottom: 1px solid var(--border);
-  container-type: inline-size;
 }
-/* The tab strip is a ui/ Tabs (chat look): its tabs shrink, with the name ellipsised, before the toolbar wraps. */
-.bottom-tabs > .bottom-tablist {
+.bottom-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.bottom-title-name,
+.bottom-title-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bottom-title > svg,
+.bottom-title > .ui-status {
+  flex: none;
+}
+/* The output beside the rail. The rail comes first in the DOM (Tab reaches it before a terminal) and is drawn on the right. */
+.bottom-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.bottom-rail {
+  order: 2;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 132px;
+  padding: 6px;
+  border-left: 1px solid var(--border);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.rail-head {
+  display: flex;
   align-items: center;
   gap: 2px;
+  min-height: 24px;
+  padding: 6px 0 2px 6px;
+}
+.rail-head:first-child {
+  padding-top: 0;
+}
+.rail-heading {
+  flex: 1;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-/* Run and Setup carry no close button, so the chat tab's padding for one is trimmed. */
-.bottom-tabs .bottom-tablist .ui-tab {
-  padding: 0 2px 0 8px;
+.rail-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.bottom-tabs .bottom-tablist .bottom-tab {
-  flex: 0 1 auto;
-  min-width: 64px;
+.bottom-rail .ui-tab__button > svg,
+.bottom-rail .ui-tab__button > .ui-status,
+.bottom-rail .ui-tab__button > .ui-spinner {
+  flex: none;
 }
-/* A compact side panel keeps the Run button's icon and drops its shortcut. */
-.side-panel.compact .bottom-tabs .ui-btn .ui-kbd {
+/* A compact side panel drops the shortcut hint and the command beside the name. */
+.side-panel.compact .bottom-head .ui-kbd,
+.side-panel.compact .bottom-title-detail {
   display: none;
 }
-/* Whatever the panel's slot, a narrow bar (the side panel at its default width) makes room for the tabs: no shortcut
-   hint, the Commands menu as an icon, and a terminal tab as its icon and number. Without it the selected tab shrank to nothing. */
-@container (max-width: 460px) {
-  .bottom-tabs .ui-btn .ui-kbd {
+@container bottom-panel (max-width: 460px) {
+  .bottom-head .ui-kbd,
+  .bottom-title-detail {
     display: none;
   }
-  .bottom-tabs .ui-menu-wrap .btn-label {
+}
+/* A narrow panel shows the rail as icons: names stay as the entries' accessible names and tooltips. */
+@container bottom-panel (max-width: 420px) {
+  .bottom-rail {
+    width: 44px;
+    padding: 6px 4px;
+  }
+  .rail-head {
+    flex-direction: column;
+    padding: 6px 0 2px;
+  }
+  .rail-heading {
     display: none;
   }
-  .bottom-tabs .term-icon {
-    display: inline-block;
+  .bottom-rail .ui-tab {
+    padding: 0;
   }
-  .bottom-tabs .term-word {
+  .bottom-rail .ui-tab__button {
+    justify-content: center;
+    gap: 2px;
+  }
+  .bottom-rail .commands-chevron {
     display: none;
+  }
+  .bottom-rail .btn-label,
+  .bottom-rail .rail-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 .bottom-body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   position: relative;
 }
@@ -86,6 +165,9 @@
 }
 .run-empty .run-big {
   padding: 8px;
+}
+.run-empty-text {
+  max-width: 340px;
 }
 .terminal {
   flex: 1;

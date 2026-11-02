@@ -768,9 +768,9 @@ export const en = {
   'terminal.menu.close': 'Close terminal',
   'terminal.rename': 'Rename terminal',
   // {name} is the tab's name, e.g. "Terminal 2" or "dev server".
-  'terminal.closeTab': 'Close {name}',
   // {key} is the shortcut, ⌘⇧J on macOS and Ctrl+Shift+J elsewhere.
   'terminal.exitFullscreen': 'Exit fullscreen ({key} or Esc)',
+  'terminal.fullscreen': 'Fullscreen ({key})',
   'terminal.find.label': 'Find in terminal',
   'terminal.find.placeholder': 'Find',
   'terminal.find.matchCase': 'Match case',
@@ -4983,9 +4983,7 @@ export const en = {
   'bottomPanel.tab.run': 'Run',
   'bottomPanel.tab.setup': 'Setup',
   // A terminal tab reads "Terminal 1"; on a narrow panel only the number shows, so this word stands apart from it.
-  'bottomPanel.tab.terminalWord': 'Terminal',
   // {script} is a run script's name.
-  'bottomPanel.lastRun': 'Last run: {script}',
   'bottomPanel.newTerminal': 'New terminal',
   // {name} is a preview's name; {key} its shortcut.
   'bottomPanel.openPreview': 'Open {name} ({key})',
@@ -5000,12 +4998,18 @@ export const en = {
   'bottomPanel.spotlightTitle': 'Mirror this workspace into the repository folder and run it there',
   // {name} is the run script's name and {command} its command line.
   'bottomPanel.runTitle': 'Run {name}: {command}',
-  'bottomPanel.noRunScriptTitle': 'Add a run script in the repository settings',
-  'bottomPanel.chooseRunScript': 'Choose a run script',
   // {command} is the run script's command line, shown as code; {key} the shortcut.
   'bottomPanel.readyToRun': 'Ready to run {command} ({key})',
-  'bottomPanel.noRunScript': 'Add a run script (like a dev server) in the repository settings.',
-  'bottomPanel.openScriptsSettings': 'Open scripts settings',
+  'bottomPanel.scripts': 'Scripts',
+  'bottomPanel.terminals': 'Terminals',
+  'bottomPanel.running': 'Running',
+  'bottomPanel.exited': 'Exited with {code}',
+  'bottomPanel.noRunScriptHeading': 'No run script yet',
+  'bottomPanel.noRunScriptBody': 'A run script starts what you check while you work, like a dev server, on this workspace’s own ports.',
+  'bottomPanel.setUpRunScript': 'Set up a run script',
+  'bottomPanel.suggestRunScript': 'Ask the agent to suggest one',
+  'bottomPanel.suggestRunScriptTitle': 'Puts the “set up this repository” prompt in the chat. Nothing is sent until you send it.',
+  'bottomPanel.openTerminal': 'Open a terminal',
   // Written dimmed into a terminal when its process ends; {code} is the exit code.
   'terminalView.processExited': '[process exited with code {code}]',
   // ---- The app menu (main/index.ts). Edit and the macOS app menu are Electron roles, which name themselves. ----
@@ -5894,7 +5898,6 @@ export const en = {
   'approval.question.tabs': 'Questions',
   'bottomPanel.probe.notResponding': 'Not responding',
   'bottomPanel.probe.responding': 'Responding',
-  'bottomPanel.tabs': 'Run, setup and terminals',
   'changes.menu.label': 'File actions',
   'files.folderLine': '{folder}: {text}',
   'newWorkspace.repo.label': 'Repository',
