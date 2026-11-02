@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, Camera, ExternalLink, MousePointer2, PanelLeftClose, PanelLeftOpen, RotateCw, Square } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BrowserCommand } from '../../../shared/browser'
-import { browserUrl } from '../../../shared/browser'
+import { browserSelectionText, browserUrl } from '../../../shared/browser'
 import type { Session } from '../../../shared/types'
 import { api, attempt, bridge, fillComposer, getState, splitBrowserTab, useStore, useWindowVisible } from '../store'
 import { useT } from '../i18n'
@@ -85,7 +85,10 @@ export function WorkspaceBrowser({ workspaceId, visible, sessions, activeId }: {
     setSelecting(true)
     await attempt(async () => {
       const element = await bridge.browser.selectElement(workspaceId)
-      if (element) fillComposer(workspaceId, targetId, t('browser.selectionContext', element))
+      if (!element) return
+      // The element's picture rides along when it can be saved; the text alone still reaches the draft when it can't.
+      const attachment = element.image ? await api.attachData(workspaceId, `element-${Date.now()}.png`, element.image).catch(() => null) : null
+      fillComposer(workspaceId, targetId, browserSelectionText(t, element), undefined, attachment ? [attachment] : undefined)
     })
     setSelecting(false)
   }

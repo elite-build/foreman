@@ -17,11 +17,11 @@ function toolSummary(input: unknown): string {
   return ''
 }
 
-/** A code fence longer than any backtick run inside the text. */
-function fenced(text: string): string {
+/** A code fence longer than any backtick run inside the text, with an optional info string (`html`). */
+export function fenced(text: string, info = ''): string {
   const longest = Math.max(2, ...(text.match(/`+/g) ?? []).map((run) => run.length))
   const fence = '`'.repeat(longest + 1)
-  return `${fence}\n${text.replace(/\n$/, '')}\n${fence}`
+  return `${fence}${info}\n${text.replace(/\n$/, '')}\n${fence}`
 }
 
 export function chatToMarkdown(items: ChatItem[], options: TranscriptOptions): string {
