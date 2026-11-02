@@ -1,4 +1,4 @@
-// Integrations: named accounts (connections) for GitHub, Linear and Slack, one default per
+// Integrations: named accounts (connections) for GitHub, Linear, Slack and Langfuse, one default per
 // service, and each repository's choice. Pure, so main, the
 // renderer and tests share one resolver. Secrets never appear here: a connection's key lives
 // in the vault under `integration:<id>`. The sandbox services of remote workspaces are connections too, but not per-repository integrations:
@@ -7,12 +7,15 @@ import { githubSlug } from './githubLink'
 import type { CloudProviderId, PlanLimits, VercelPlan } from './cloud'
 
 /** Services a repository chooses a connection for (Repository settings → Integrations). */
-export type RepoIntegrationService = 'github' | 'linear' | 'slack'
+export type RepoIntegrationService = 'github' | 'linear' | 'slack' | 'langfuse'
 /** Services remote workspaces' sandboxes run on: one per provider, with the provider's id. */
 export type SandboxService = CloudProviderId
 export type IntegrationService = RepoIntegrationService | SandboxService
-export const INTEGRATION_SERVICES: RepoIntegrationService[] = ['github', 'linear', 'slack']
+export const INTEGRATION_SERVICES: RepoIntegrationService[] = ['github', 'linear', 'slack', 'langfuse']
 export const SANDBOX_SERVICES: SandboxService[] = ['vercel', 'docker', 'e2b', 'daytona']
+
+/** Each service's name in English (main's errors and agent notes; the renderer has its own). */
+export const SERVICE_LABELS: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
 
 export function isSandboxService(service: string): service is SandboxService {
   return (SANDBOX_SERVICES as string[]).includes(service)
@@ -24,7 +27,7 @@ export function sandboxServiceFor(provider: CloudProviderId): SandboxService {
 }
 
 /**
- * How a connection signs in. A token (PAT, Linear API key, Slack bot token, a sandbox service's API key) is in the
+ * How a connection signs in. A token (PAT, Linear API key, Slack bot token, Langfuse secret key, a sandbox service's API key) is in the
  * vault. `docker-context`: Docker on this computer or one it reaches (a context or DOCKER_HOST), with no secret.
  */
 export type ConnectionAuth = { kind: 'gh-account'; login: string } | { kind: 'gh-active' } | { kind: 'token' } | { kind: 'docker-context' }
@@ -34,7 +37,7 @@ export interface ConnectionIdentity {
   // The person (GitHub login, Linear user name, Slack bot name).
   user: string
   userId?: string
-  // Linear organization or Slack workspace, with its id and URL key.
+  // Linear organization, Slack workspace or Langfuse project, with its id and URL key.
   org?: string
   orgId?: string
   orgKey?: string
@@ -43,7 +46,7 @@ export interface ConnectionIdentity {
   checkedAt: string
 }
 
-/** What agents may do with a connection's tools. Linear: read only by default. GitHub reaches agents as GH_TOKEN whatever this says. */
+/** What agents may do with a connection's tools. Linear: read only by default; Langfuse: read only at most. GitHub reaches agents as GH_TOKEN whatever this says. */
 export type AgentAccess = 'off' | 'read' | 'write'
 
 export interface SlackDestination {
@@ -64,10 +67,14 @@ export interface Connection {
   // The last four characters of the token ('' when too short to show).
   hint?: string
   agentAccess: AgentAccess
+  // Its tools start switched off in new workspaces (switched on per workspace when wanted). Absent: on. Never grants access by itself.
+  startsOff?: boolean
   // Slack: who "me" is in this workspace (picked once; a bot token can't say), and the channels rules may post to.
   slack?: { me?: { id: string; name: string }; destinations: SlackDestination[] }
   // Linear: whether the organization has Linear's own GitHub integration (it links PRs and moves issues).
   linearGithub?: boolean
+  // Langfuse: the host and the public key that go with the secret key in the vault.
+  langfuse?: LangfuseConnectionInfo
   // Vercel: the team and project sandboxes are made in, and the plan's limits as last checked.
   vercel?: VercelConnectionInfo
   // Docker, E2B, Daytona: what each connection points at besides its key (none of it secret).
@@ -75,6 +82,34 @@ export interface Connection {
   e2b?: E2bConnectionInfo
   daytona?: DaytonaConnectionInfo
   createdAt: string
+}
+
+export const LANGFUSE_CLOUD_HOST = 'https://cloud.langfuse.com'
+
+/** A Langfuse connection: the secret key is in the vault; the public key isn't secret (it names the key pair). */
+export interface LangfuseConnectionInfo {
+  host: string
+  publicKey: string
+}
+
+/**
+ * A Langfuse host as typed ("us.cloud.langfuse.com/", "https://langfuse.acme.dev/api/public") made into its
+ * origin and path, or an error. HTTPS, except on this computer: the keys travel in every request.
+ */
+export function normalizeLangfuseHost(raw: string | undefined): { host: string } | { error: string } {
+  let text = (raw ?? '').trim() || LANGFUSE_CLOUD_HOST
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = `https://${text}`
+  let url: URL
+  try {
+    url = new URL(text)
+  } catch {
+    return { error: 'Enter the Langfuse address, like https://cloud.langfuse.com.' }
+  }
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) return { error: 'The Langfuse address must use https:// (http:// only for this computer).' }
+  if (url.username || url.password || url.search || url.hash) return { error: 'Enter only the Langfuse address, without a login, query or #.' }
+  const pathname = url.pathname.replace(/\/+$/, '').replace(/\/api\/public$/, '')
+  return { host: `${url.origin}${pathname}` }
 }
 
 /** A Docker connection: a `docker context` name, or a DOCKER_HOST (ssh://user@box, tcp://host:2376). Neither: the current context. */
@@ -104,12 +139,13 @@ export interface DaytonaConnectionInfo {
   limits?: PlanLimits
 }
 
-/** A sandbox connection's non-secret settings, as added or edited. */
+/** A sandbox connection's non-secret settings, as added or edited. (Langfuse rides along: its host and public key aren't secret either.) */
 export interface SandboxConnectionInput {
   vercel?: { teamId: string; projectId: string }
   docker?: { context?: string; host?: string }
   e2b?: { domain?: string }
   daytona?: { apiUrl?: string; target?: string }
+  langfuse?: { host?: string; publicKey: string }
 }
 
 /** A Vercel connection's metadata. The token is in the vault like any other; these are not secrets. */
@@ -175,7 +211,12 @@ export interface RepoIntegrations {
   githubSuggestion?: string
   // Added recently, with sibling repositories' choices to offer once ("Use the same").
   suggest?: boolean
+  // Whether a service's tools start on in this repository's new workspaces, over the connection's own default.
+  starts?: Partial<Record<RepoIntegrationService, 'on' | 'off'>>
 }
+
+/** A workspace's own switch per service: absent is what the repository and connection start with. */
+export type WorkspaceIntegrations = Partial<Record<RepoIntegrationService, boolean>>
 
 export type ResolutionSource = 'repo' | 'default'
 
@@ -229,6 +270,8 @@ export interface IntegrationSnapshot {
   name?: string
   rev?: number
   state: Resolution['state']
+  // Ready, but switched off in this workspace.
+  off?: boolean
 }
 
 export function snapshotOf(service: IntegrationService, r: Resolution): IntegrationSnapshot {
@@ -236,15 +279,90 @@ export function snapshotOf(service: IntegrationService, r: Resolution): Integrat
   return { service, state: r.state, ...(c ? { connectionId: c.id, name: c.name, rev: c.rev } : {}) }
 }
 
+/** One service's change since the last turn, for the receipt. `off`: switched off in this workspace. */
+export interface IdentityChange {
+  service: IntegrationService
+  was?: string
+  now?: string
+  off?: boolean
+}
+
 /** The services whose identity differs from the last turn's ([] when nothing changed, or there was no last turn). */
-export function changedIdentities(last: IntegrationSnapshot[] | undefined, now: IntegrationSnapshot[]): { service: IntegrationService; was?: string; now?: string }[] {
+export function changedIdentities(last: IntegrationSnapshot[] | undefined, now: IntegrationSnapshot[]): IdentityChange[] {
   if (!last) return []
-  const out: { service: IntegrationService; was?: string; now?: string }[] = []
+  const out: IdentityChange[] = []
   for (const s of now) {
     const before = last.find((l) => l.service === s.service)
-    if ((before?.connectionId ?? null) !== (s.connectionId ?? null) || before?.identity !== s.identity || (before?.state ?? 'none') !== s.state) out.push({ service: s.service, was: before?.name, now: s.name })
+    const switched = Boolean(before?.off) !== Boolean(s.off)
+    if ((before?.connectionId ?? null) !== (s.connectionId ?? null) || before?.identity !== s.identity || (before?.state ?? 'none') !== s.state || switched) {
+      if (s.off) out.push({ service: s.service, was: before?.name, off: true })
+      // Switched back on: the account is what it was, so only its name is news.
+      else out.push({ service: s.service, was: before?.off ? undefined : before?.name, now: s.name })
+    }
   }
   return out
+}
+
+// ---- which tools a workspace starts with ----
+
+/** Services whose tools reach agents through Foreman's bridge, so a workspace can switch each on or off. */
+export const AGENT_TOOL_SERVICES: RepoIntegrationService[] = ['linear', 'slack', 'langfuse']
+
+/** Whether a service's tools start on in a repository's new workspaces: its override, else the connection's default (on). */
+export function startsOn(repo: { integrations?: RepoIntegrations } | undefined, connection: Pick<Connection, 'startsOff'> | undefined, service: RepoIntegrationService): boolean {
+  const override = repo?.integrations?.starts?.[service]
+  if (override) return override === 'on'
+  return !connection?.startsOff
+}
+
+/** Whether a workspace has a service's tools on: its own switch, else what new workspaces start with. */
+export function toolsOn(repo: { integrations?: RepoIntegrations } | undefined, connection: Pick<Connection, 'startsOff'> | undefined, service: RepoIntegrationService, choice: WorkspaceIntegrations | undefined): boolean {
+  return choice?.[service] ?? startsOn(repo, connection, service)
+}
+
+/** One integration a workspace can switch: a working connection agents may use. */
+export interface WorkspaceTool {
+  service: RepoIntegrationService
+  connection: Connection
+  // What new workspaces in this repository start with.
+  byDefault: boolean
+  on: boolean
+}
+
+/** The integrations a workspace can switch on or off, in service order. `choice` is the workspace's own (none yet: the defaults). */
+export function workspaceTools(state: IntegrationsState, repo: { integrations?: RepoIntegrations } | undefined, choice?: WorkspaceIntegrations): WorkspaceTool[] {
+  const out: WorkspaceTool[] = []
+  for (const service of AGENT_TOOL_SERVICES) {
+    const r = resolveIntegration(state, repo, service)
+    if (r.state !== 'ready' || r.connection.agentAccess === 'off') continue
+    const byDefault = startsOn(repo, r.connection, service)
+    out.push({ service, connection: r.connection, byDefault, on: choice?.[service] ?? byDefault })
+  }
+  return out
+}
+
+/** What one service's tools cost an agent that loads them up front: how many, and their definitions in tokens (roughly). */
+export interface ToolCost {
+  service: RepoIntegrationService
+  tools: number
+  tokens: number
+}
+
+/** About four characters a token, over what an agent is sent for each tool: its name, description and input schema. */
+export function toolTokens(tools: { name: string; description?: string; inputSchema?: unknown }[]): number {
+  const chars = tools.reduce((n, t) => n + t.name.length + (t.description?.length ?? 0) + JSON.stringify(t.inputSchema ?? {}).length, 0)
+  return Math.ceil(chars / 4)
+}
+
+/** A workspace switch as stored: known services only, booleans only. */
+export function cleanWorkspaceIntegrations(raw: unknown): WorkspaceIntegrations | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: WorkspaceIntegrations = {}
+  for (const service of AGENT_TOOL_SERVICES) {
+    const v = (raw as Record<string, unknown>)[service]
+    if (typeof v === 'boolean') out[service] = v
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 // ---- repositories: owners and suggestions ----
@@ -353,11 +471,12 @@ export function ownServerService(name: string, config: { url?: unknown; command?
   if (/mcp\.linear\.app|linear-mcp|mcp-linear|@linear\/|\blinear\b/.test(words)) return 'linear'
   if (/mcp\.slack\.com|server-slack|slack-mcp|mcp-slack|\bslack\b/.test(words)) return 'slack'
   if (/api\.githubcopilot\.com\/mcp|github-mcp-server|server-github|\bgithub\b/.test(words)) return 'github'
+  if (/langfuse/.test(words)) return 'langfuse'
   return null
 }
 
 /** claude.ai connectors Claude Code adds when signed in with a claude.ai account; tools are `mcp__claude_ai_<Name>__…`. */
-export const CLAUDE_AI_CONNECTORS: Record<RepoIntegrationService, string> = { github: 'claude_ai_GitHub', linear: 'claude_ai_Linear', slack: 'claude_ai_Slack' }
+export const CLAUDE_AI_CONNECTORS: Partial<Record<RepoIntegrationService, string>> = { github: 'claude_ai_GitHub', linear: 'claude_ai_Linear', slack: 'claude_ai_Slack' }
 
 // ---- Slack messages ----
 
@@ -447,6 +566,7 @@ export interface ConnectionPatch {
   name?: string
   token?: string
   agentAccess?: AgentAccess
+  startsOff?: boolean
   slackMe?: { id: string; name: string } | null
   destinations?: SlackDestination[]
   // Vercel: another team or project (checked again before it is saved).
@@ -455,6 +575,8 @@ export interface ConnectionPatch {
   docker?: { context?: string; host?: string }
   e2b?: { domain?: string }
   daytona?: { apiUrl?: string; target?: string }
+  // Langfuse: another host or public key (with a replacement secret key, checked together before it is saved).
+  langfuse?: { host?: string; publicKey?: string }
 }
 
 export interface SlackPersonView {

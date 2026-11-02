@@ -46,6 +46,7 @@ vi.mock('../src/renderer/src/components/GitPanel', () => ({
   ChecksView: () => <p>checks list</p>,
   GitHeaderActions: () => null,
   MergedStatus: () => null,
+  PrStatus: ({ children }: { children: unknown }) => children,
   MergedProgress: () => null,
   useGitStatus: () => ({ status: null, refresh: async () => undefined })
 }))
@@ -150,6 +151,16 @@ describe('a workspace in the editor layout', () => {
 })
 
 describe('a workspace in three panes', () => {
+  it('keeps the header buttons\' names when a narrow column hides their words', () => {
+    setUp('panes')
+    render(<WorkspaceView workspaceId="w1" hidden={false} />)
+    const header = screen.getByRole('heading', { name: 'acme' }).closest('header')!
+    for (const name of ['Compare…', 'Export…', 'Hand off…', 'Open']) {
+      const button = within(header).getByRole('button', { name })
+      expect(button.querySelector('.btn-label')?.textContent).toBe(name)
+    }
+  })
+
   it('keeps one strip over the chat and the side panel\'s tabs', () => {
     setUp('panes', { fileRequest: { workspaceId: 'w1', path: 'src/login.ts', nonce: 1 } })
     render(<WorkspaceView workspaceId="w1" hidden={false} />)

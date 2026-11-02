@@ -7,7 +7,7 @@ import net from 'node:net'
 
 type Message = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> }
 
-const LABELS: Record<string, string> = { app: 'Foreman', linear: 'Linear', github: 'GitHub', slack: 'Slack' }
+const LABELS: Record<string, string> = { app: 'Foreman', linear: 'Linear', github: 'GitHub', slack: 'Slack', langfuse: 'Langfuse' }
 
 export function bridgeLocalReply(service: string, message: Message, why: string): Record<string, unknown> | null {
   if (message.id === undefined || message.id === null || !message.method) return null

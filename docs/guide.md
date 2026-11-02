@@ -63,9 +63,11 @@ Dedicated tools are the primary interface. `run_foreman` is a CLI escape hatch: 
 
 ## Integrations
 
-In **Settings → Integrations**, add named GitHub, Linear and Slack connections and choose a default for each service. In **Repository settings → Integrations**, inherit that default, select another connection, or turn a service off. A missing or broken selected connection blocks that service rather than silently using another account.
+In **Settings → Integrations**, add named GitHub, Linear, Slack and Langfuse connections and choose a default for each service. In **Repository settings → Integrations**, inherit that default, select another connection, or turn a service off. A missing or broken selected connection blocks that service rather than silently using another account.
 
-GitHub connections use a `gh` account or a personal access token. Linear connections support issue intake and agent tools with **Nothing**, **Read only**, or **Read and write** access. Slack rules can notify you, a reviewer or a channel about selected pull request and agent events; manage recipient matches under **People**. Linear and Slack keys stay in Foreman's encrypted storage and are not passed to agents.
+GitHub connections use a `gh` account or a personal access token. Linear connections support issue intake and agent tools with **Nothing**, **Read only**, or **Read and write** access. Slack rules can notify you, a reviewer or a channel about selected pull request and agent events; manage recipient matches under **People**. Linear, Slack and Langfuse keys stay in Foreman's encrypted storage and are not passed to agents.
+
+A Langfuse connection is one project's key pair (Project settings → API Keys in Langfuse) and where Langfuse runs: Langfuse Cloud EU, US or HIPAA, or a self-hosted address over HTTPS. With **Read only** access, agents in repositories that use it get a `foreman-langfuse` MCP server whose tools read your app's traces through Langfuse's Observations API v2: `search_observations` (by time, trace, session, user, name, level, or any Langfuse filter), `get_trace` (every observation of one trace, with errors, cost and latency) and `get_observation`. Long inputs and outputs are cut to keep replies small. They can't change anything in Langfuse. A self-hosted Langfuse needs a version with the Observations API v2. From a terminal: `printf %s "$LANGFUSE_SECRET_KEY" | foreman connections add langfuse --public-key "$LANGFUSE_PUBLIC_KEY" --token-stdin` (add `--host` for another region or a self-hosted Langfuse).
 
 ## Git configuration backup
 

@@ -90,7 +90,14 @@ async function rig() {
   const environment = new Environment(secrets, () => store.state.settings, repo)
   const linearOrg = (key: string) => (key.startsWith('lin_acme') ? { id: 'org-acme', name: 'Acme', urlKey: 'acme' } : { id: 'org-me', name: 'Lab', urlKey: 'lab' })
   const slackPosts: Record<string, unknown>[] = []
+  const langfuseAsked: { url: URL; auth: string }[] = []
   const fetchStub = (async (_url: string, init: RequestInit) => {
+    if (String(_url).startsWith('https://cloud.langfuse.com/api/public/')) {
+      const url = new URL(String(_url))
+      langfuseAsked.push({ url, auth: new Headers(init.headers).get('authorization') ?? '' })
+      if (url.pathname.endsWith('/projects')) return Response.json({ data: [{ id: 'p-kite', name: 'Kite' }] })
+      return Response.json({ data: [{ id: 'o1', traceId: 't1', projectId: 'p-kite', startTime: '2026-10-29T10:00:00Z', level: 'ERROR', statusMessage: 'tool timed out' }] })
+    }
     if (String(_url).startsWith('https://slack.com/api/')) {
       if (String(_url).includes('auth.test')) return Response.json({ ok: true, team: 'Acme', team_id: 'T1', user: 'foreman', user_id: 'UBOT' })
       slackPosts.push(JSON.parse(String(init.body)))
@@ -114,7 +121,7 @@ async function rig() {
     fetch: fetchStub,
     home: dir
   })
-  return { dir, store, secrets, integrations, slackPosts, fetch: fetchStub }
+  return { dir, store, secrets, integrations, slackPosts, langfuseAsked, fetch: fetchStub }
 }
 
 describe('the integration bridge', () => {
@@ -189,6 +196,55 @@ describe('the integration bridge', () => {
 
   const turnInput = { sessionId: 's1', workspaceId: 'w1', repoId: 'r', cwd: '/w', supportsMcp: true }
 
+  it('leaves out an integration switched off in the workspace: no server, one line, and the receipt says so', async () => {
+    const { bridge } = await setup()
+    const first = bridge.forTurn(turnInput)
+    expect(first.servers['foreman-linear']).toBeDefined()
+    const off = bridge.forTurn({ ...turnInput, choices: { linear: false }, last: first.snapshot })
+    expect(off.servers).toEqual({})
+    expect(off.notes).toEqual([expect.stringContaining('Linear: switched off in this workspace')])
+    expect(off.snapshot.find((s) => s.service === 'linear')).toMatchObject({ state: 'ready', off: true })
+    expect(off.changed).toEqual([{ service: 'linear', was: 'Acme Linear', off: true }])
+    const back = bridge.forTurn({ ...turnInput, choices: { linear: true }, last: off.snapshot })
+    expect(back.servers['foreman-linear']).toBeDefined()
+    expect(back.changed).toEqual([{ service: 'linear', now: 'Acme Linear' }])
+  })
+
+  it('starts from the connection’s default, a repository override over it, and the workspace’s switch over both', async () => {
+    const { bridge, integrations, connection, store } = await setup()
+    const updated = await integrations.updateConnection(connection.id, { startsOff: true })
+    // What new workspaces start with grants nothing, so running turns' grants stay good.
+    expect(updated.ok && updated.connection.rev).toBe(connection.rev)
+    expect(bridge.forTurn(turnInput).servers['foreman-linear']).toBeUndefined()
+    integrations.setRepoOptions('r', { starts: { linear: 'on' } })
+    expect(bridge.forTurn(turnInput).servers['foreman-linear']).toBeDefined()
+    expect(bridge.forTurn({ ...turnInput, choices: { linear: false } }).servers['foreman-linear']).toBeUndefined()
+    integrations.setRepoOptions('r', { starts: { linear: 'default' } })
+    expect(store.state.repos[0].integrations?.starts).toBeUndefined()
+    expect(bridge.forTurn({ ...turnInput, choices: { linear: true } }).servers['foreman-linear']).toBeDefined()
+  })
+
+  it('counts the tools a repository’s integrations would give agents', async () => {
+    const { bridge, integrations, connection } = await setup()
+    // Read only: get_issue, not save_comment.
+    const read = await bridge.toolCosts('r')
+    expect(read).toEqual([{ service: 'linear', tools: 1, tokens: expect.any(Number) }])
+    expect(read[0].tokens).toBeGreaterThan(0)
+    await integrations.updateConnection(connection.id, { agentAccess: 'write' })
+    expect((await bridge.toolCosts('r'))[0].tools).toBe(2)
+    await integrations.updateConnection(connection.id, { agentAccess: 'off' })
+    expect(await bridge.toolCosts('r')).toEqual([])
+  })
+
+  it('leaves out a service whose tools can’t be listed', async () => {
+    const r = await rig()
+    const added = await r.integrations.addConnection({ service: 'linear', auth: { kind: 'token' }, token: 'lin_acme' })
+    if (!added.ok) throw new Error(added.error)
+    const bridge = new IntegrationBridge({ integrations: r.integrations, launch: () => null, socket: () => null, upstream: async () => Promise.reject(new Error('offline')) })
+    bridges.push(bridge)
+    expect(await bridge.toolCosts('r')).toEqual([])
+  })
+
   it('keeps managed bridge tools unavailable on Windows', async () => {
     const { bridge } = await setup('win32')
     const turn = bridge.forTurn(turnInput)
@@ -211,6 +267,31 @@ describe('the integration bridge', () => {
     expect((await s.call('tools/call', { name: 'slack_post', arguments: { channel: 'C1', text: '<!here> hi' } })).result).not.toHaveProperty('isError', true)
     expect(slackPosts).toEqual([expect.objectContaining({ channel: 'C1', text: '&lt;!here&gt; hi' })])
     await s.close()
+  })
+
+  it('Langfuse gives agents read-only trace tools that call Langfuse with the key pair the agent never sees', async () => {
+    const { bridge, integrations, langfuseAsked } = await setup()
+    const added = await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-secret', langfuse: { publicKey: 'pk-lf-kite' } })
+    if (!added.ok) throw new Error(added.error)
+    const turn = bridge.forTurn(turnInput)
+    const server = turn.servers['foreman-langfuse']
+    expect(server.args).toEqual(['/app.asar/out/main/cli.js', 'mcp-bridge', 'langfuse'])
+    expect(JSON.stringify(turn.servers)).not.toContain('sk-lf-secret')
+    expect(turn.notes.join(' ')).toMatch(/foreman-langfuse MCP server.*“Kite Langfuse” \(Kite\), read only/)
+    const a = agent(server.env, 'langfuse')
+    const list = await a.call('tools/list')
+    expect((list.result!.tools as { name: string }[]).map((t) => t.name)).toEqual(['search_observations', 'get_trace', 'get_observation'])
+    const trace = await a.call('tools/call', { name: 'get_trace', arguments: { traceId: 't1' } })
+    expect(trace.result).not.toHaveProperty('isError', true)
+    expect((trace.result!.content as { text: string }[])[0].text).toContain('tool timed out')
+    await a.close()
+    const read = langfuseAsked.at(-1)!
+    expect(read.url.pathname).toBe('/api/public/v2/observations')
+    expect(read.auth).toBe(`Basic ${Buffer.from('pk-lf-kite:sk-lf-secret').toString('base64')}`)
+    expect(bridge.activity('r').map((x) => [x.service, x.tool, x.ok])).toEqual([['langfuse', 'get_trace', true]])
+    // Off: no server next turn.
+    await integrations.updateConnection(added.connection.id, { agentAccess: 'off' })
+    expect(bridge.forTurn(turnInput).servers['foreman-langfuse']).toBeUndefined()
   })
 
   it('gives agents a bridge server that holds no key, and forwards only read tools for a read-only connection', async () => {

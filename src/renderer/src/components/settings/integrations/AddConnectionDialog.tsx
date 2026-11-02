@@ -1,10 +1,10 @@
 // Adding a connection. Every key is checked with its service before anything is saved, and the
 // dialog shows who it belongs to, so a personal key can't be saved as the work one by mistake.
 // Slack takes four steps: the app (from Foreman's manifest), its bot token, who "me" is, and
-// where rules may post.
+// where rules may post. Langfuse takes a project's key pair and where Langfuse runs.
 import { Copy, ExternalLink, Eye, EyeOff, Search, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import type { AddConnectionResult, AgentAccess, ConnectionView, RepoIntegrationService, SlackChannelView, SlackPersonView } from '../../../../../shared/integrations'
+import { LANGFUSE_CLOUD_HOST, type AddConnectionResult, type AgentAccess, type ConnectionView, type RepoIntegrationService, type SlackChannelView, type SlackPersonView } from '../../../../../shared/integrations'
 import { useT } from '../../../i18n'
 import { api, attempt, showToast } from '../../../store'
 import { Button, Callout, Checkbox, Combobox, Dialog, Field, IconButton, LinkButton, RadioList, Segmented, Select, Spinner, Tag, TextInput, type FieldControlProps } from '../../../ui'
@@ -14,7 +14,8 @@ import { SERVICE_NAMES, ServiceMark } from './ServiceMark'
 const TOKEN_LINKS: Record<RepoIntegrationService, string> = {
   github: 'https://github.com/settings/personal-access-tokens/new',
   linear: 'https://linear.app/settings/account/security',
-  slack: 'https://api.slack.com/apps'
+  slack: 'https://api.slack.com/apps',
+  langfuse: 'https://langfuse.com/faq/all/where-are-langfuse-api-keys'
 }
 
 /** A secret being typed (a token or key): masked until the eye is pressed. Inside a `Field`, pass its `control` props so the field's label names it. */
@@ -77,6 +78,7 @@ function ConnectionDialog({ title, service, onClose, footer, children }: { title
 export function AddConnectionDialog({ service, existing, onClose }: { service: RepoIntegrationService; existing?: ConnectionView; onClose: () => void }) {
   if (service === 'github') return <AddGithub onClose={onClose} />
   if (service === 'linear') return <AddLinear onClose={onClose} />
+  if (service === 'langfuse') return <AddLangfuse onClose={onClose} />
   return <AddSlack existing={existing} onClose={onClose} />
 }
 
@@ -320,6 +322,187 @@ function AddLinear({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ---- Langfuse: a project's key pair, and where Langfuse runs ----
+
+const LANGFUSE_CLOUDS = [
+  { host: LANGFUSE_CLOUD_HOST, key: 'integrations.langfuse.cloudEu' },
+  { host: 'https://us.cloud.langfuse.com', key: 'integrations.langfuse.cloudUs' },
+  { host: 'https://hipaa.cloud.langfuse.com', key: 'integrations.langfuse.cloudHipaa' }
+] as const
+
+export interface LangfuseKeys {
+  host: string
+  // Self-hosted: the host is typed rather than picked.
+  custom: boolean
+  publicKey: string
+  secretKey: string
+}
+
+export function langfuseKeys(c?: ConnectionView): LangfuseKeys {
+  const host = c?.langfuse?.host ?? LANGFUSE_CLOUD_HOST
+  return { host, custom: !LANGFUSE_CLOUDS.some((x) => x.host === host), publicKey: c?.langfuse?.publicKey ?? '', secretKey: '' }
+}
+
+/** Where Langfuse runs and the project's key pair: adding a connection, or replacing its keys. */
+function LangfuseKeyFields({ keys, onChange, error, onEnter }: { keys: LangfuseKeys; onChange: (keys: LangfuseKeys) => void; error?: string; onEnter: () => void }) {
+  const t = useT()
+  const set = (patch: Partial<LangfuseKeys>) => onChange({ ...keys, ...patch })
+  return (
+    <>
+      <Field label={t('integrations.langfuse.where')}>
+        {(c) => (
+          <Select
+            {...c}
+            value={keys.custom ? 'custom' : keys.host}
+            onChange={(v) => set(v === 'custom' ? { custom: true, host: '' } : { custom: false, host: v })}
+            options={[...LANGFUSE_CLOUDS.map((x) => ({ value: x.host, label: t(x.key) })), { value: 'custom', label: t('integrations.langfuse.selfHosted') }]}
+          />
+        )}
+      </Field>
+      {keys.custom && (
+        <Field label={t('integrations.langfuse.address')} description={t('integrations.langfuse.addressHelp')}>
+          {(c) => <TextInput {...c} className="wide" mono spellCheck={false} autoComplete="off" placeholder="https://langfuse.example.com" value={keys.host} onChange={(e) => set({ host: e.target.value })} />}
+        </Field>
+      )}
+      <Field
+        label={t('integrations.langfuse.publicKey')}
+        description={
+          <>
+            {t('integrations.langfuse.keysHelp')}{' '}
+            <LinkButton size="sm" onClick={() => void attempt(() => api.openExternal(TOKEN_LINKS.langfuse))}>
+              {t('integrations.langfuse.findKeys')} <ExternalLink size={11} aria-hidden />
+            </LinkButton>
+          </>
+        }
+      >
+        {(c) => <TextInput {...c} className="wide" mono spellCheck={false} autoComplete="off" placeholder="pk-lf-…" value={keys.publicKey} onChange={(e) => set({ publicKey: e.target.value })} />}
+      </Field>
+      <Field label={t('integrations.langfuse.secretKey')} error={error}>
+        {(c) => <SecretInput control={c} value={keys.secretKey} onChange={(v) => set({ secretKey: v })} label={t('integrations.langfuse.secretKey')} placeholder="sk-lf-…" onEnter={onEnter} />}
+      </Field>
+    </>
+  )
+}
+
+const langfuseReady = (keys: LangfuseKeys) => Boolean(keys.host.trim() && keys.publicKey.trim() && keys.secretKey.trim())
+
+function AddLangfuse({ onClose }: { onClose: () => void }) {
+  const t = useT()
+  const [name, setName] = useState('')
+  const [keys, setKeys] = useState<LangfuseKeys>(() => langfuseKeys())
+  const [access, setAccess] = useState<AgentAccess>('read')
+  const [makeDefault, setMakeDefault] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<AddConnectionResult | null>(null)
+  const save = async (allowDuplicate = false) => {
+    if (!langfuseReady(keys)) return
+    setBusy(true)
+    try {
+      const r = await api.addConnection({
+        service: 'langfuse',
+        name: name.trim() || undefined,
+        auth: { kind: 'token' },
+        token: keys.secretKey.trim(),
+        langfuse: { host: keys.host.trim(), publicKey: keys.publicKey.trim() },
+        agentAccess: access,
+        allowDuplicate
+      })
+      setResult(r)
+      if (r.ok) {
+        if (makeDefault && !r.connection.isDefault) await api.setIntegrationDefault('langfuse', r.connection.id)
+        flashSaved()
+        showToast(t('integrations.add.added', { name: r.connection.name }))
+        onClose()
+      }
+    } catch (err) {
+      setResult({ ok: false, error: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const duplicate = result && !result.ok && result.duplicateOf
+  return (
+    <ConnectionDialog
+      title={t('integrations.add.langfuse')}
+      service="langfuse"
+      onClose={onClose}
+      footer={
+        <>
+          <span className="set-help int-encrypted">{t('integrations.add.encrypted')}</span>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" disabled={busy || !langfuseReady(keys)} icon={busy ? <Spinner size={12} /> : undefined} onClick={() => void save()}>
+            {t('integrations.add.checkSave')}
+          </Button>
+        </>
+      }
+    >
+      <div className="int-form">
+        <Field label={t('integrations.add.name')} description={t('integrations.add.nameHelp')}>
+          {(c) => <TextInput {...c} className="wide" value={name} placeholder={t('integrations.langfuse.namePlaceholder')} onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <LangfuseKeyFields
+          keys={keys}
+          onChange={(next) => {
+            setKeys(next)
+            setResult(null)
+          }}
+          error={result && !result.ok && !duplicate ? result.error : undefined}
+          onEnter={() => void save()}
+        />
+        {duplicate && result.identity && (
+          <Callout
+            tone="warn"
+            actions={
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setKeys({ ...keys, publicKey: '', secretKey: '' })
+                    setResult(null)
+                  }}
+                >
+                  {t('integrations.linear.pasteAnother')}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => void save(true)}>
+                  {t('integrations.linear.addAnyway')}
+                </Button>
+              </>
+            }
+          >
+            {t('integrations.langfuse.duplicate', { project: result.identity.org ?? '', name: result.duplicateOf ?? '' })}
+          </Callout>
+        )}
+        <div className="field">
+          <span className="int-label">{t('integrations.access.label')}</span>
+          <LangfuseAccess value={access} onChange={setAccess} />
+          <span className="set-help">{t(access === 'off' ? 'integrations.langfuse.accessOffHelp' : 'integrations.langfuse.accessReadHelp')}</span>
+        </div>
+        <Checkbox checked={makeDefault} onChange={(e) => setMakeDefault(e.target.checked)}>
+          {t('integrations.add.makeDefault', { service: 'Langfuse' })}
+        </Checkbox>
+      </div>
+    </ConnectionDialog>
+  )
+}
+
+/** What agents may do with a Langfuse connection: nothing, or read (its tools never change anything). */
+export function LangfuseAccess({ value, onChange, small }: { value: AgentAccess; onChange: (access: AgentAccess) => void; small?: boolean }) {
+  const t = useT()
+  return (
+    <Segmented
+      small={small}
+      plain={small}
+      label={t('integrations.access.label')}
+      value={value === 'off' ? 'off' : 'read'}
+      onChange={onChange}
+      options={[
+        { value: 'off', label: t('integrations.access.off') },
+        { value: 'read', label: t('integrations.access.read') }
+      ]}
+    />
+  )
+}
+
 // ---- Slack: the app, its token, who you are, where it may post ----
 
 function AddSlack({ existing, onClose }: { existing?: ConnectionView; onClose: () => void }) {
@@ -552,13 +735,18 @@ function ChannelPicker({ connectionId, value, onChange }: { connectionId: string
 export function ReplaceTokenDialog({ connection, onClose }: { connection: ConnectionView; onClose: () => void }) {
   const t = useT()
   const [token, setToken] = useState('')
+  // Langfuse: a key pair (and where it runs), replaced together.
+  const langfuse = connection.service === 'langfuse'
+  const [keys, setKeys] = useState<LangfuseKeys>(() => langfuseKeys(connection))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const ready = langfuse ? langfuseReady(keys) : Boolean(token.trim())
   const save = async () => {
+    if (!ready) return
     setBusy(true)
     setError(null)
     try {
-      const r = await api.updateConnection(connection.id, { token: token.trim() })
+      const r = await api.updateConnection(connection.id, langfuse ? { token: keys.secretKey.trim(), langfuse: { host: keys.host.trim(), publicKey: keys.publicKey.trim() } } : { token: token.trim() })
       if (r.ok) {
         flashSaved()
         showToast(t('integrations.replace.done', { name: connection.name }))
@@ -577,16 +765,23 @@ export function ReplaceTokenDialog({ connection, onClose }: { connection: Connec
       footer={
         <>
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={busy || !token.trim()} icon={busy ? <Spinner size={12} /> : undefined} onClick={() => void save()}>
+          <Button variant="primary" disabled={busy || !ready} icon={busy ? <Spinner size={12} /> : undefined} onClick={() => void save()}>
             {t('integrations.add.checkSave')}
           </Button>
         </>
       }
     >
       <div className="int-form">
-        <Field label={t('integrations.replace.label')} description={t('integrations.replace.help', { service: SERVICE_NAMES[connection.service] })} error={error ?? undefined}>
-          {(c) => <SecretInput control={c} value={token} onChange={setToken} label={t('integrations.replace.label')} onEnter={() => void save()} />}
-        </Field>
+        {langfuse ? (
+          <>
+            <p className="set-help">{t('integrations.replace.help', { service: SERVICE_NAMES[connection.service] })}</p>
+            <LangfuseKeyFields keys={keys} onChange={setKeys} error={error ?? undefined} onEnter={() => void save()} />
+          </>
+        ) : (
+          <Field label={t('integrations.replace.label')} description={t('integrations.replace.help', { service: SERVICE_NAMES[connection.service] })} error={error ?? undefined}>
+            {(c) => <SecretInput control={c} value={token} onChange={setToken} label={t('integrations.replace.label')} onEnter={() => void save()} />}
+          </Field>
+        )}
       </div>
     </Dialog>
   )

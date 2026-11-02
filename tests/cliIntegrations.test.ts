@@ -53,6 +53,7 @@ describe('the integration methods', () => {
       'connections-check': 'admin',
       'connections-remove': 'admin',
       'connections-default': 'admin',
+      'connections-edit': 'admin',
       'connections-apply': 'admin',
       'slack-rules': 'admin',
       'slack-people': 'admin',

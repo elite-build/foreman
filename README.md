@@ -59,7 +59,7 @@ An installed Foreman asks `api.github.com` whether a newer release of `elite-bui
 
 By default Foreman downloads the new version in the background and asks you to restart. **Restart** waits for running agents to finish first, holding new messages meanwhile; **Restart now** stops them, and they are listed for retry afterwards. You can also have it install whenever you quit, or only tell you. The Beta channel also offers prereleases. All of this is in **Settings → General → Updates**, where automatic checks can be turned off.
 
-Foreman installs updates itself on Windows, and on macOS only when the app is signed with an Apple Developer ID: macOS won't let an ad-hoc signed copy, such as today's builds, replace itself. There, and when a release has no installers attached, the card links to the release page instead.
+Foreman installs updates itself on Windows, and on macOS only when the app is signed with an Apple Developer ID, as releases after 1.0.4 are: macOS won't let an ad-hoc signed copy, such as 1.0.4 and earlier or a test build, replace itself. There, and when a release has no installers attached, the card links to the release page instead.
 
 ## Learn more
 

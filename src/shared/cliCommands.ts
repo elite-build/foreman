@@ -184,9 +184,11 @@ export const COMMANDS: CommandSpec[] = [
       'start-anyway': { type: 'boolean', help: 'If setup fails, send the first message anyway' },
       'no-wait': { type: 'boolean', help: 'Return once the workspace exists, without waiting for setup' },
       wait: { type: 'boolean', help: 'Block until the first turn ends, and report how it went' },
-      timeout: { type: 'string', value: '<s>', help: 'With --wait (and for `wait`): stop waiting after s seconds' }
+      timeout: { type: 'string', value: '<s>', help: 'With --wait (and for `wait`): stop waiting after s seconds' },
+      with: { type: 'string', value: '<a,b>', help: 'Integrations to switch on in this workspace (linear, slack, langfuse), over the repository’s defaults' },
+      without: { type: 'string', value: '<a,b>', help: 'Integrations to switch off in this workspace' }
     },
-    examples: ['foreman run fix-a-bug "ENG-123: login button does nothing" --open', 'foreman run issue https://github.com/owner/repo/issues/12', 'foreman run fix-linear-bug ENG-123 --wait --timeout 1800'],
+    examples: ['foreman run fix-a-bug "ENG-123: login button does nothing" --open', 'foreman run issue https://github.com/owner/repo/issues/12', 'foreman run fix-linear-bug ENG-123 --wait --timeout 1800', 'foreman run triage ENG-123 --with linear --without slack'],
     exitCodes: { 0: 'Started (with --wait: the turn completed)', 1: 'Failed, or the turn failed, was stopped or was interrupted', 2: 'Usage error, or --wait timed out (the turn keeps running)', 3: 'Setup failed; the first message is held', 5: 'The connection to Foreman was lost (the turn is unaffected)' },
     details: RUN_DETAILS,
     tier: 'act'

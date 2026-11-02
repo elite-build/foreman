@@ -64,6 +64,39 @@ describe('sidebar rows', () => {
     expect(spy('selectWorkspace')).not.toHaveBeenCalled()
   })
 
+  describe('while it archives in the background', () => {
+    afterEach(() => {
+      fakeState.archiveRuns = {}
+    })
+
+    it('says Archiving… and the step it is on, hides the archive button, and still opens the workspace', async () => {
+      fakeState.snapshot.workspaces = [{ ...ws, diffStat: { additions: 12, deletions: 3 } }]
+      fakeState.archiveRuns = { w1: { stopped: false, step: 'script' } }
+      render(<Sidebar />)
+      expect(row().textContent).toContain('Archiving… · Archive script')
+      expect(screen.queryByRole('button', { name: /archive workspace/i })).toBeNull()
+      expect(row().closest('.ws-row')?.textContent).not.toContain('+12')
+      await userEvent.setup().click(row())
+      expect(spy('selectWorkspace')).toHaveBeenCalledWith('w1')
+    })
+
+    it('before main reports a step it says Archiving… alone', () => {
+      fakeState.archiveRuns = { w1: { stopped: false, step: null } }
+      render(<Sidebar />)
+      expect(row().textContent).toContain('Archiving…')
+      expect(row().textContent).not.toContain('Archiving… ·')
+    })
+
+    it('stopped on a failure, it says so and opens the archive dialog, where Retry is', async () => {
+      fakeState.archiveRuns = { w1: { stopped: true, step: 'script' } }
+      render(<Sidebar />)
+      expect(row().textContent).toContain('Archive stopped · needs you')
+      await userEvent.setup().click(row())
+      expect(spy('openArchiveDialog')).toHaveBeenCalledWith('w1')
+      expect(spy('selectWorkspace')).not.toHaveBeenCalled()
+    })
+  })
+
   it('right-click opens a menu; Rename swaps the title for a field that Enter saves', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)

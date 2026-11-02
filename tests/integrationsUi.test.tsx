@@ -122,6 +122,40 @@ describe('add connection dialogs', () => {
     expect((screen.getByLabelText('Personal API key') as HTMLInputElement).getAttribute('aria-invalid')).toBe('true')
   })
 
+  it('Langfuse: the host is a choice with a self-hosted address; both keys are needed and saved together', async () => {
+    const user = userEvent.setup()
+    fakeApi.addConnection = vi.fn(async () => ({ ok: true, connection: { name: 'Kite Langfuse', isDefault: true } }))
+    render(<AddConnectionDialog service="langfuse" onClose={() => undefined} />)
+    const dialog = screen.getByRole('dialog', { name: 'Add Langfuse project' })
+    const save = within(dialog).getByRole('button', { name: 'Check and save' }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+    expect(screen.queryByLabelText('Address')).toBeNull()
+    await user.selectOptions(screen.getByLabelText('Where Langfuse runs'), 'Self-hosted')
+    await user.type(screen.getByLabelText('Address'), 'https://langfuse.acme.dev')
+    await user.type(screen.getByLabelText('Public key'), 'pk-lf-1')
+    expect(save.disabled).toBe(true)
+    const secret = screen.getByLabelText('Secret key') as HTMLInputElement
+    expect(secret.type).toBe('password')
+    await user.type(secret, 'sk-lf-1{Enter}')
+    await waitFor(() =>
+      expect(fakeApi.addConnection).toHaveBeenCalledWith({
+        service: 'langfuse',
+        name: undefined,
+        auth: { kind: 'token' },
+        token: 'sk-lf-1',
+        langfuse: { host: 'https://langfuse.acme.dev', publicKey: 'pk-lf-1' },
+        agentAccess: 'read',
+        allowDuplicate: false
+      })
+    )
+  })
+
+  it('Langfuse: agents may do nothing or read, never write', () => {
+    render(<AddConnectionDialog service="langfuse" onClose={() => undefined} />)
+    const group = screen.getByRole('radiogroup', { name: 'What agents may do' })
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Nothing', 'Read only'])
+  })
+
   it('Slack: the people search is a combobox; picking a person reports them', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()

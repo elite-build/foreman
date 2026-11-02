@@ -14,6 +14,7 @@ import type { CancelParams, CancelResult, ChecksCliResult, ChecksParams, ReportP
 import { HISTORY_ONLY_REASON, wsPath } from '../../shared/workspacePath'
 import { isBlocker, isReportKind, type TurnCaller } from '../../shared/agentReports'
 import type { CliHost } from './host'
+import { chosenIntegrations } from './workspaceIntegrations'
 import { findTab, findWorkspace, resolveRepo, resolveWorkspace } from './resolve'
 
 /**
@@ -146,6 +147,8 @@ export async function run(host: CliHost, params: RunParams): Promise<RunResult> 
   const filled = fillTemplate(found.template.body, values)
   if ('error' in filled) throw new Error(`${found.template.name}: ${filled.error}`)
   const result: RunResult = { template: found.template.name, repo: repo.name, prompt: filled.text }
+  // Checked before a dry run returns, so a mistake shows up there too.
+  const integrations = chosenIntegrations(host, repo, params.with, params.without)
   if (params.dryRun) return result
   let loadout: CreateWorkspaceOptions['loadout']
   if (params.loadout !== undefined) {
@@ -159,7 +162,8 @@ export async function run(host: CliHost, params: RunParams): Promise<RunResult> 
     ...(linear ? { linearIssue: linear.url ?? linear.identifier } : {}),
     baseBranch: params.base?.trim() || undefined,
     branch: { kind: 'new', name: params.branch?.trim() || undefined },
-    loadout
+    loadout,
+    ...(integrations ? { integrations } : {})
   })
   if (params.open) host.reveal(ws.id)
   result.workspace = { id: ws.id, name: ws.name, branch: ws.branch, path: wsPath(ws) }

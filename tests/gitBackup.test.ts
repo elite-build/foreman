@@ -180,7 +180,7 @@ describe('Git configuration backup', () => {
     expect(to.store.state.settings.promptTemplates[0].body).toBe('from backup')
     expect(to.store.state.repos[0].local.setupScript).toContain('touch')
     expect(to.store.state.repos[0].local.envFiles).toBeUndefined()
-    expect(to.store.state.repos[0].integrations?.services).toEqual({ github: 'off', linear: 'imported:work-linear', slack: 'off' })
+    expect(to.store.state.repos[0].integrations?.services).toEqual({ github: 'off', linear: 'imported:work-linear', slack: 'off', langfuse: 'off' })
     expect(to.store.state.workspaces[0]).toMatchObject({ name: 'stuttgart', branch: 'feature', adopted: true, state: 'ready' })
     expect(to.chats).toBe(1)
     expect(await readFile(path.join(from.store.dir, 'setup-ran'), 'utf8').catch(() => null)).toBeNull()

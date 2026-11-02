@@ -48,6 +48,22 @@
   flex-direction: column;
   gap: 12px;
 }
+.chat-namesake {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  text-align: center;
+}
+.chat-namesake::before,
+.chat-namesake::after {
+  content: '';
+  flex: 1 1 24px;
+  border-top: 1px solid var(--border);
+}
+.chat-namesake > span {
+  max-width: 75%;
+}
 .chat-greeting {
   padding: 8px 0;
   color: var(--text-soft);

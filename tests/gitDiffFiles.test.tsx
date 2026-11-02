@@ -11,7 +11,7 @@ import { CommitsView } from '../src/renderer/src/components/CommitsView'
 import { SelectionBar, SelectionDraftBox, TabPicker } from '../src/renderer/src/components/DiffSelection'
 import { DiffSourceMenu } from '../src/renderer/src/components/DiffSourceMenu'
 import { FilesTree } from '../src/renderer/src/components/FilesTree'
-import { GitHeaderActions, MergedProgress, MergedStatus } from '../src/renderer/src/components/GitPanel'
+import { GitHeaderActions, MergedProgress, MergedStatus, PrStatus } from '../src/renderer/src/components/GitPanel'
 import { en } from '../src/shared/i18n/en'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -435,6 +435,9 @@ describe('the Git header actions', () => {
       render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
       const primary = screen.getByRole('button', { name: 'Archive and delete branch' })
       expect(primary.className).toContain('ui-btn--primary')
+      // A compact side panel shows the short word; the button's name keeps the whole action.
+      expect(primary.querySelector('.btn-label-long')?.textContent).toBe('Archive and delete branch')
+      expect(primary.querySelector('.btn-label-short')?.textContent).toBe('Archive')
       await user.click(primary)
       expect(archiveDialog).toHaveBeenLastCalledWith('w1', { deleteBranch: true })
       await user.click(screen.getByRole('button', { name: 'More options after merging' }))
@@ -460,6 +463,32 @@ describe('the Git header actions', () => {
       render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
       await user.click(screen.getByRole('button', { name: /^Archive$/ }))
       expect(archiveDialog).toHaveBeenLastCalledWith('w1')
+    })
+
+    it('while the archive runs in the background, the button says Archiving… and neither it nor its menu can be used', () => {
+      fakeState.archiveChoice = 'delete-branch'
+      fakeState.archiveRuns = { w1: { stopped: false, step: 'remove' } }
+      try {
+        render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
+        const primary = screen.getByRole('button', { name: 'Archiving…' })
+        expect((primary as HTMLButtonElement).disabled).toBe(true)
+        expect((screen.getByRole('button', { name: 'More options after merging' }) as HTMLButtonElement).disabled).toBe(true)
+        expect(screen.queryByRole('button', { name: 'Archive and delete branch' })).toBeNull()
+      } finally {
+        fakeState.archiveRuns = {}
+      }
+    })
+
+    it('once the archive stops on a failure, the button is back, to open the dialog again', async () => {
+      fakeState.archiveChoice = 'delete-branch'
+      fakeState.archiveRuns = { w1: { stopped: true, step: 'script' } }
+      try {
+        render(<GitHeaderActions workspaceId="w1" status={merged()} refresh={vi.fn()} running={false} />)
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Archive and delete branch' }))
+        expect(archiveDialog).toHaveBeenLastCalledWith('w1', { deleteBranch: true })
+      } finally {
+        fakeState.archiveRuns = {}
+      }
     })
 
     it('an adopted checkout is not offered to delete its branch', async () => {
@@ -498,6 +527,25 @@ describe('the Git header actions', () => {
       expect(container.textContent).toBe('Merged#41 into main · 2h ago')
       await user.click(screen.getByRole('button', { name: '#41' }))
       expect(fakeApi.openExternal).toHaveBeenCalledWith(pr.url)
+    })
+  })
+
+  describe('while the pull request is open', () => {
+    const pr = { number: 42, url: 'https://github.com/o/r/pull/42', title: 'T', state: 'OPEN', baseRefName: 'main', checks: [] }
+
+    it('the status leads with the PR number, which opens it', async () => {
+      const user = userEvent.setup()
+      const { container } = render(<PrStatus pr={pr as never}><span>Review required</span></PrStatus>)
+      expect(container.textContent).toBe('#42Review required')
+      const link = screen.getByRole('button', { name: '#42' })
+      expect(link.getAttribute('title')).toBe('Open the pull request on GitHub')
+      await user.click(link)
+      expect(fakeApi.openExternal).toHaveBeenCalledWith(pr.url)
+    })
+
+    it('a GitLab merge request shows its !iid and says GitLab', () => {
+      render(<PrStatus pr={{ ...pr, provider: 'gitlab', url: 'https://gitlab.com/o/r/-/merge_requests/42' } as never}><span>Draft</span></PrStatus>)
+      expect(screen.getByRole('button', { name: '!42' }).getAttribute('title')).toBe('Open the merge request on GitLab')
     })
   })
 })

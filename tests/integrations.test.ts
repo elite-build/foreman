@@ -16,6 +16,7 @@ import { Store } from '../src/main/store'
 import { contextParts } from '../src/shared/context'
 import {
   changedIdentities,
+  cleanWorkspaceIntegrations,
   emptyIntegrations,
   exportIntegrationChoices,
   importIntegrationChoices,
@@ -32,6 +33,8 @@ import {
   snapshotOf,
   suggestedRepos,
   toolAllowed,
+  toolTokens,
+  workspaceTools,
   type Connection,
   type IntegrationsState,
   type SlackRule
@@ -193,11 +196,69 @@ describe('agents switch the user’s own same-service servers off', () => {
   })
 })
 
+describe('which integrations a workspace starts with', () => {
+  const linear = conn({ id: 'lin', service: 'linear' })
+  const slack = conn({ id: 'sl', service: 'slack', agentAccess: 'write', startsOff: true })
+  const s = state([linear, slack, conn({ id: 'gh', service: 'github', agentAccess: 'write' })], { linear: 'lin', slack: 'sl', github: 'gh' })
+
+  it('lists only bridged services agents may use, starting from each connection’s default', () => {
+    expect(workspaceTools(s, {}).map((x) => [x.service, x.byDefault, x.on])).toEqual([
+      ['linear', true, true],
+      ['slack', false, false]
+    ])
+    // Access off is not a switch: it isn't offered at all.
+    expect(workspaceTools(state([{ ...linear, agentAccess: 'off' }], { linear: 'lin' }), {})).toEqual([])
+    // Nor is a service the repository turned off.
+    expect(workspaceTools(s, { integrations: { services: { slack: 'off' } } }).map((x) => x.service)).toEqual(['linear'])
+  })
+
+  it('Langfuse switches like the others: off by default here, on for one workspace', () => {
+    const lf = conn({ id: 'lf', service: 'langfuse', agentAccess: 'read', startsOff: true })
+    const withLangfuse = state([linear, lf], { linear: 'lin', langfuse: 'lf' })
+    expect(workspaceTools(withLangfuse, {}).map((x) => [x.service, x.on])).toEqual([['linear', true], ['langfuse', false]])
+    expect(workspaceTools(withLangfuse, {}, { langfuse: true }).map((x) => [x.service, x.on])).toEqual([['linear', true], ['langfuse', true]])
+    expect(cleanWorkspaceIntegrations({ langfuse: true })).toEqual({ langfuse: true })
+  })
+
+  it('a repository’s override beats the connection, and the workspace’s own switch beats both', () => {
+    const repo = { integrations: { starts: { linear: 'off' as const, slack: 'on' as const } } }
+    expect(workspaceTools(s, repo).map((x) => [x.service, x.byDefault, x.on])).toEqual([
+      ['linear', false, false],
+      ['slack', true, true]
+    ])
+    expect(workspaceTools(s, repo, { linear: true, slack: false }).map((x) => x.on)).toEqual([true, false])
+  })
+
+  it('keeps only known services and booleans from a stored switch', () => {
+    expect(cleanWorkspaceIntegrations({ linear: false, slack: 'yes', github: true, other: true })).toEqual({ linear: false })
+    expect(cleanWorkspaceIntegrations({})).toBeUndefined()
+    expect(cleanWorkspaceIntegrations('linear')).toBeUndefined()
+  })
+
+  it('says when a service was switched off in the workspace, and back on', () => {
+    const on = snapshotOf('linear', resolveIntegration(s, {}, 'linear'))
+    const off = { ...on, off: true }
+    expect(changedIdentities([on], [off])).toEqual([{ service: 'linear', was: 'lin', off: true }])
+    expect(changedIdentities([off], [on])).toEqual([{ service: 'linear', now: 'lin' }])
+    expect(changedIdentities([off], [off])).toEqual([])
+  })
+
+  it('estimates what tool definitions cost at about four characters a token', () => {
+    expect(toolTokens([])).toBe(0)
+    expect(toolTokens([{ name: 'get_issue', description: 'Read', inputSchema: { type: 'object' } }])).toBe(Math.ceil(('get_issue' + 'Read' + '{"type":"object"}').length / 4))
+  })
+})
+
 describe('the receipt says when an account changed', () => {
   it('names the change and the user’s own servers switched off', () => {
     const parts = contextParts({ instructions: '', hasStanding: false, noteText: '', commentsText: '', comments: [], attachmentText: '', attachments: [], integrations: { changed: [{ service: 'linear', was: 'Personal Linear', now: 'Acme Linear' }], ownOff: ['linear'] } })
     expect(parts).toHaveLength(1)
     expect(parts[0]).toMatchObject({ kind: 'integrations', label: 'Linear: Acme Linear (was Personal Linear) · your own linear off here', unit: 'accounts', size: 2 })
+  })
+
+  it('names an integration switched off in the workspace', () => {
+    const parts = contextParts({ instructions: '', hasStanding: false, noteText: '', commentsText: '', comments: [], attachmentText: '', attachments: [], integrations: { changed: [{ service: 'linear', was: 'Acme Linear', off: true }], ownOff: [] } })
+    expect(parts[0]).toMatchObject({ kind: 'integrations', label: 'Linear: off in this workspace' })
   })
 })
 
@@ -216,7 +277,7 @@ function fakeFetch(route: Route): typeof fetch {
 
 const auth = (init: RequestInit) => new Headers(init.headers).get('authorization') ?? ''
 
-// GitHub, Linear and Slack as Foreman's checks see them.
+// GitHub, Linear, Slack and Langfuse as Foreman's checks see them.
 const services: Route = (url, init) => {
   const token = auth(init).replace(/^Bearer /, '')
   if (url === 'https://api.github.com/user') {
@@ -231,6 +292,13 @@ const services: Route = (url, init) => {
     return { body: { data: { viewer: { id: 'u1', name: 'Yatin', email: 'y@acme.dev', organization: org } } } }
   }
   if (url.startsWith('https://slack.com/api/auth.test')) return { body: { ok: true, url: 'https://acme.slack.com/', team: 'Acme', team_id: 'T1', user: 'foreman', user_id: 'UBOT' } }
+  if (url.endsWith('/api/public/projects')) {
+    // A key pair names its project: pk-lf-kite-* are Kite's keys, anything else another project's.
+    const [pk, sk] = Buffer.from(auth(init).replace(/^Basic /, ''), 'base64').toString().split(':')
+    if (sk === 'sk-lf-revoked') return { status: 401, body: { message: 'Invalid credentials' } }
+    const project = pk.startsWith('pk-lf-kite') ? { id: 'p-kite', name: 'Kite' } : { id: 'p-other', name: 'Other' }
+    return { body: { data: [{ ...project, organization: { id: 'o1', name: 'Appsmith' } }] } }
+  }
   return undefined
 }
 
@@ -337,7 +405,7 @@ describe('connections', () => {
   it('exports resolved choices without credentials and imports them unresolved rather than using local defaults', () => {
     const s = state([conn({ id: 'work', service: 'linear' }), conn({ id: 'personal', service: 'linear' })], { linear: 'work' })
     const exported = exportIntegrationChoices(s, { integrations: { services: { slack: 'off' }, allowOwnMcp: ['linear'] } })!
-    expect(exported).toEqual({ services: { github: 'off', linear: 'work', slack: 'off' } })
+    expect(exported).toEqual({ services: { github: 'off', linear: 'work', slack: 'off', langfuse: 'off' } })
     const restored = importIntegrationChoices(exported)!
     s.defaults.linear = 'personal'
     expect(resolveIntegration(s, { integrations: restored }, 'linear')).toMatchObject({ state: 'broken', reason: 'missing' })
@@ -371,6 +439,34 @@ describe('connections', () => {
     expect(wrong).toMatchObject({ ok: false, error: expect.stringMatching(/Add it as a new connection/) })
     const right = await integrations.updateConnection(added.connection.id, { token: 'lin_acme2' })
     expect(right).toMatchObject({ ok: true, connection: { rev: 2 } })
+  })
+
+  it('checks a Langfuse key pair on its host, keeps the secret key in the vault and lets agents read at most', async () => {
+    const { integrations, secrets } = await rig()
+    const added = await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-kite-1', langfuse: { host: 'us.cloud.langfuse.com/', publicKey: 'pk-lf-kite-1' }, agentAccess: 'write' })
+    expect(added).toMatchObject({
+      ok: true,
+      connection: { name: 'Kite Langfuse', isDefault: true, agentAccess: 'read', langfuse: { host: 'https://us.cloud.langfuse.com', publicKey: 'pk-lf-kite-1' }, identity: { org: 'Kite', orgId: 'p-kite', user: 'Appsmith' } }
+    })
+    if (!added.ok) throw new Error('setup')
+    expect(secrets.appSecret(secretKey(added.connection.id))).toBe('sk-lf-kite-1')
+    expect(JSON.stringify(integrations.state())).not.toContain('sk-lf-kite-1')
+    expect(await integrations.updateConnection(added.connection.id, { agentAccess: 'write' })).toMatchObject({ ok: true, connection: { agentAccess: 'read' } })
+    expect(await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-kite-2', langfuse: { publicKey: 'pk-lf-kite-2' } })).toMatchObject({ ok: false, duplicateOf: 'Kite Langfuse' })
+    expect(await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-x', langfuse: { host: 'http://langfuse.acme.dev', publicKey: 'pk-lf-x' } })).toMatchObject({ ok: false, error: expect.stringMatching(/https/) })
+  })
+
+  it('replaces a Langfuse key pair only with one for the same project, and marks a revoked pair', async () => {
+    const { integrations, secrets } = await rig()
+    const added = await integrations.addConnection({ service: 'langfuse', auth: { kind: 'token' }, token: 'sk-lf-kite-1', langfuse: { publicKey: 'pk-lf-kite-1' } })
+    if (!added.ok) throw new Error('setup')
+    const id = added.connection.id
+    expect(await integrations.updateConnection(id, { token: 'sk-lf-x', langfuse: { publicKey: 'pk-lf-x' } })).toMatchObject({ ok: false, error: expect.stringMatching(/Add it as a new connection/) })
+    const rotated = await integrations.updateConnection(id, { token: 'sk-lf-kite-2', langfuse: { publicKey: 'pk-lf-kite-2' } })
+    expect(rotated).toMatchObject({ ok: true, connection: { rev: 2, langfuse: { host: 'https://cloud.langfuse.com', publicKey: 'pk-lf-kite-2' } } })
+    expect(secrets.appSecret(secretKey(id))).toBe('sk-lf-kite-2')
+    secrets.setAppSecret(secretKey(id), 'sk-lf-revoked')
+    expect((await integrations.checkConnection(id)).problem).toMatch(/refused/)
   })
 
   it('marks a refused key as needing attention; repositories that use it stop rather than fall back', async () => {

@@ -285,7 +285,7 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const repoId = useStore((s) => s.snapshot?.workspaces.find((w) => w.id === session.workspaceId)?.repoId)
   const roots = useMemo(() => toolRoots({ path: workspace.path, provenance: { sourceRoot: workspace.provenance?.sourceRoot } }), [workspace.path, workspace.provenance?.sourceRoot])
   const readOnly = sessionReadOnly(workspace, session)
-  // The person a generated workspace name comes from, introduced in the greeting.
+  // The person a generated workspace name comes from, introduced in a divider at the top of the chat.
   const namesake = workspacePerson(workspace)
 
   // A finished answer is announced once, when it stops streaming: never a chunk of it while it arrives. Only for the chat on
@@ -497,24 +497,24 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
         </Hidden>
         <Activity mode={mode}>
           <div className="chat-inner" ref={observeLog}>
+            {namesake && (
+              // The workspace's namesake, as a divider at the top of the chat: it stays above the first message and scrolls away with it.
+              <p className="chat-namesake faint small">
+                <span>
+                  {t.rich('chat.greeting.namesake', {
+                    name: (
+                      <LinkButton key="name" underline title={t('chat.greeting.namesakeSource', { name: namesake.fullName })} onClick={() => void attempt(() => api.openExternal(namesake.source))}>
+                        {namesake.fullName}
+                      </LinkButton>
+                    ),
+                    contribution: namesake.contribution
+                  })}
+                </span>
+              </p>
+            )}
             {items.length === 0 && (
               <div className="chat-greeting">
-                <p>
-                  {t.rich('chat.greeting.copy', { name: <strong key="name">{workspace.name}</strong>, branch: <code key="branch">{workspace.branch}</code>, base: <code key="base">{workspace.baseBranch}</code> })}
-                  {namesake && (
-                    <>
-                      {' '}
-                      {t.rich('chat.greeting.namesake', {
-                        name: (
-                          <LinkButton key="name" underline title={t('chat.greeting.namesakeSource', { name: namesake.fullName })} onClick={() => void attempt(() => api.openExternal(namesake.source))}>
-                            {namesake.fullName}
-                          </LinkButton>
-                        ),
-                        contribution: namesake.contribution
-                      })}
-                    </>
-                  )}
-                </p>
+                <p>{t.rich('chat.greeting.copy', { name: <strong key="name">{workspace.name}</strong>, branch: <code key="branch">{workspace.branch}</code>, base: <code key="base">{workspace.baseBranch}</code> })}</p>
                 <p className="muted">{t('chat.greeting.ask', { agent: AGENTS[session.agent].label })}</p>
               </div>
             )}

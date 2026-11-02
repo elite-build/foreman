@@ -1,10 +1,10 @@
-// Repository settings → Integrations: which GitHub, Linear and Slack connection this repository
+// Repository settings → Integrations: which GitHub, Linear, Slack and Langfuse connection this repository
 // uses (the default, another one, or off), where that comes from, and anything that changes what
 // agents really get. A chosen connection that can't be used stops here; nothing falls back to
 // another account. Kept on this Mac, never in settings.toml.
 import { Plug } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { resolvedConnection, type BridgeActivity, type RepoIntegrationService, type RepoServiceView } from '../../../../../shared/integrations'
+import { AGENT_TOOL_SERVICES, resolvedConnection, type BridgeActivity, type RepoIntegrationService, type RepoServiceView } from '../../../../../shared/integrations'
 import { formatClock } from '../../../../../shared/i18n/time'
 import type { Repo } from '../../../../../shared/types'
 import { useT } from '../../../i18n'
@@ -14,7 +14,7 @@ import { flashSaved, rowDomId, Section } from '../controls'
 import { SERVICE_NAMES, ServiceMark } from './ServiceMark'
 import './integrations.css'
 
-const ROW_IDS: Record<RepoIntegrationService, string> = { github: 'repo-github-account', linear: 'repo-linear', slack: 'repo-slack' }
+const ROW_IDS: Record<RepoIntegrationService, string> = { github: 'repo-github-account', linear: 'repo-linear', slack: 'repo-slack', langfuse: 'repo-langfuse' }
 
 export function RepoIntegrationsTab({ repo }: { repo: Repo }) {
   const t = useT()
@@ -22,7 +22,7 @@ export function RepoIntegrationsTab({ repo }: { repo: Repo }) {
   const [views, setViews] = useState<RepoServiceView[] | null>(null)
   const [activity, setActivity] = useState<BridgeActivity[]>([])
   // Re-read when connections or this repository's choices change.
-  const stamp = JSON.stringify([integrations.connections.map((c) => [c.id, c.rev, c.problem, c.agentAccess]), repo.integrations])
+  const stamp = JSON.stringify([integrations.connections.map((c) => [c.id, c.rev, c.problem, c.agentAccess, c.startsOff]), repo.integrations])
   const load = useCallback(() => {
     void api.repoIntegrations(repo.id).then(setViews, () => setViews([]))
     void api.integrationActivity(repo.id).then(setActivity, () => setActivity([]))
@@ -117,6 +117,21 @@ function ServiceRow({ repo, view }: { repo: Repo; view: RepoServiceView }) {
       </div>
       <div className="int-svc-detail">
         {r.state === 'ready' && <span>{detailLine(view.service, r.connection, t)}</span>}
+        {r.state === 'ready' && AGENT_TOOL_SERVICES.includes(view.service) && r.connection.agentAccess !== 'off' && (
+          <span className="int-inline">
+            {t('integrations.repo.starts')}
+            <Select<'default' | 'on' | 'off'>
+              label={t('integrations.repo.startsLabel', { service: SERVICE_NAMES[view.service] })}
+              value={repo.integrations?.starts?.[view.service] ?? 'default'}
+              options={[
+                { value: 'default', label: r.connection.startsOff ? t('integrations.repo.startsDefaultOff') : t('integrations.repo.startsDefaultOn') },
+                { value: 'on', label: t('integrations.repo.startsOn') },
+                { value: 'off', label: t('integrations.repo.startsOff') }
+              ]}
+              onChange={(v) => void attempt(() => api.setRepoIntegrationOptions(repo.id, { starts: { [view.service]: v } })).then(flashSaved)}
+            />
+          </span>
+        )}
         {r.state === 'env' && <span>{t('integrations.repo.envToken', { from: view.envToken ?? '' })}</span>}
         {r.state === 'none' && !r.off && <span>{t(`integrations.repo.none.${view.service}`)}</span>}
         {r.state === 'none' && r.off && <span>{t('integrations.repo.offHelp')}</span>}
@@ -190,6 +205,7 @@ function detailLine(service: RepoIntegrationService, c: NonNullable<ReturnType<t
   const who = [c.identity?.user, c.identity?.org].filter(Boolean).join(' · ')
   if (service === 'github') return t('integrations.repo.githubDetail', { who: who || c.name })
   if (service === 'linear') return t(`integrations.repo.linearDetail.${c.agentAccess}`, { who: who || c.name })
+  if (service === 'langfuse') return t(c.agentAccess === 'off' ? 'integrations.repo.langfuseDetail.off' : 'integrations.repo.langfuseDetail.read', { who: who || c.name })
   return t('integrations.repo.slackDetail', { who: c.identity?.org ?? c.name })
 }
 
@@ -199,6 +215,7 @@ function Coverage({ views }: { views: RepoServiceView[] }) {
   const platform = useStore((s) => s.snapshot!.platform)
   const github = views.find((v) => v.service === 'github')!.resolution
   const linear = views.find((v) => v.service === 'linear')!.resolution
+  const langfuse = views.find((v) => v.service === 'langfuse')?.resolution
   const gh =
     github.state === 'ready'
       ? github.connection.name
@@ -210,13 +227,15 @@ function Coverage({ views }: { views: RepoServiceView[] }) {
             ? t('integrations.coverage.notGiven')
             : t('integrations.coverage.ghLogin')
   const ln = platform !== 'win32' && linear.state === 'ready' && linear.connection.agentAccess !== 'off' ? `${linear.connection.name}${linear.connection.agentAccess === 'read' ? ` · ${t('integrations.access.read')}` : ''}` : null
-  const rows: { agent: string; gh: string; ln: string; note: string; tone?: 'amber' }[] = [
-    { agent: 'Claude Code', gh, ln: ln ?? '—', note: t('integrations.coverage.claude') },
-    { agent: 'Codex', gh, ln: ln ?? '—', note: t('integrations.coverage.codex') },
-    { agent: t('integrations.coverage.acp'), gh, ln: ln ?? '—', note: t('integrations.coverage.acpNote') },
-    { agent: 'Cursor', gh, ln: ln ? t('integrations.coverage.untested') : '—', note: t('integrations.coverage.cursor'), tone: 'amber' },
-    { agent: t('integrations.coverage.terminal'), gh, ln: '—', note: t('integrations.coverage.terminalNote') },
-    { agent: t('integrations.coverage.kept'), gh, ln: ln ? t('integrations.coverage.paused') : '—', note: t('integrations.coverage.keptNote') }
+  // Langfuse reaches agents the same way Linear does (Foreman's bridge), so it gets the same column.
+  const lf = platform !== 'win32' && langfuse?.state === 'ready' && langfuse.connection.agentAccess !== 'off' ? `${langfuse.connection.name} · ${t('integrations.access.read')}` : null
+  const rows: { agent: string; gh: string; ln: string; lf: string; note: string; tone?: 'amber' }[] = [
+    { agent: 'Claude Code', gh, ln: ln ?? '—', lf: lf ?? '—', note: t('integrations.coverage.claude') },
+    { agent: 'Codex', gh, ln: ln ?? '—', lf: lf ?? '—', note: t('integrations.coverage.codex') },
+    { agent: t('integrations.coverage.acp'), gh, ln: ln ?? '—', lf: lf ?? '—', note: t('integrations.coverage.acpNote') },
+    { agent: 'Cursor', gh, ln: ln ? t('integrations.coverage.untested') : '—', lf: lf ? t('integrations.coverage.untested') : '—', note: t('integrations.coverage.cursor'), tone: 'amber' },
+    { agent: t('integrations.coverage.terminal'), gh, ln: '—', lf: '—', note: t('integrations.coverage.terminalNote') },
+    { agent: t('integrations.coverage.kept'), gh, ln: ln ? t('integrations.coverage.paused') : '—', lf: lf ? t('integrations.coverage.paused') : '—', note: t('integrations.coverage.keptNote') }
   ]
   return (
     <Section title={t('integrations.coverage.title')} plain>
@@ -227,6 +246,7 @@ function Coverage({ views }: { views: RepoServiceView[] }) {
             <th>{t('integrations.coverage.agent')}</th>
             <th>GitHub</th>
             <th>{t('integrations.coverage.linear')}</th>
+            <th>{t('integrations.coverage.langfuse')}</th>
             <th>{t('integrations.coverage.notes')}</th>
           </tr>
         </thead>
@@ -236,6 +256,7 @@ function Coverage({ views }: { views: RepoServiceView[] }) {
               <td>{row.agent}</td>
               <td>{row.gh}</td>
               <td className={row.tone === 'amber' && ln ? 'amber' : undefined}>{row.ln}</td>
+              <td className={row.tone === 'amber' && lf ? 'amber' : undefined}>{row.lf}</td>
               <td className="muted">{row.note}</td>
             </tr>
           ))}

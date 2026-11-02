@@ -69,6 +69,14 @@ export function formatNumber(n: number, locale: Locale): string {
   return n.toLocaleString(locale)
 }
 
+const compacts = new Map<string, Intl.NumberFormat>()
+/** A number in the language's short form: "9.1K" (en), "9100" (de), "9.1万"… */
+export function formatCompact(n: number, locale: Locale): string {
+  let f = compacts.get(locale)
+  if (!f) compacts.set(locale, (f = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 })))
+  return f.format(n)
+}
+
 const sizes = new Map<string, Intl.NumberFormat>()
 /** A memory size in the language's own units and digits: "512 MB", "1.2 GB" (en); "1,2 Go" (fr). */
 export function formatMemory(bytes: number, locale: Locale): string {

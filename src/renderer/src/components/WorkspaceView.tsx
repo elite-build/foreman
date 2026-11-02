@@ -1,5 +1,5 @@
 import { TransferBanner } from './HandOffDialogs'
-import { Archive, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, PanelBottom, PanelLeft, PanelRight, Plus, RefreshCw, RotateCcw, Users, X } from 'lucide-react'
+import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, PanelBottom, PanelLeft, PanelRight, Plus, RefreshCw, RotateCcw, Upload, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -57,7 +57,7 @@ import { NoteBar } from './NoteBar'
 import { AutoReviewBar, AutoReviewTabMark } from './AutoReview'
 import { SetupHint } from './SetupHint'
 import { formatDuration } from './turnResult'
-import { ChecksView, GitHeaderActions, MergedProgress, MergedStatus, useGitStatus } from './GitPanel'
+import { ChecksView, GitHeaderActions, MergedProgress, MergedStatus, PrStatus, useGitStatus } from './GitPanel'
 import { FileViewer } from './FileViewer'
 import { FilesTree } from './FilesTree'
 import { ResizeHandle, usePanelSize, useWindowHeight, useWindowWidth, type PanelSize } from './resize'
@@ -251,10 +251,11 @@ function OpenMenu({ ws }: { ws: Workspace }) {
         size="sm"
         label={
           <>
-            {fallback.id ? <AppIcon id={fallback.id} /> : <Code2 size={13} />} {t('openIn.button')}
+            {fallback.id ? <AppIcon id={fallback.id} /> : <Code2 size={13} />} <span className="btn-label">{t('openIn.button')}</span>
           </>
         }
         menuLabel={t('openIn.moreOptions')}
+        aria-label={t('openIn.button')}
         // With no default app to run, the button shows the menu instead.
         onClick={() => !openDefault({ folder: wsPath(ws) }) && setMenuOpen(true)}
         onContextMenu={(e) => {
@@ -646,6 +647,13 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   let panelTitle = t('workspaceView.panel.noChanges')
   if (!diff && hasWorktree) panelTitle = t('workspaceView.panel.loading')
   if (diff?.files.length) panelTitle = t('workspaceView.panel.filesChanged', { count: diff.files.length })
+  const statusWords = (
+    <span className={`panel-status ${git.status?.primary.tone ?? ''}`}>
+      {running ? t('workspaceView.panel.working') : git.status && git.status.primary.label !== 'No changes' ? git.status.primary.label : panelTitle}
+    </span>
+  )
+  // The pull request is one click away from the moment it exists, not only once it merged.
+  const panelStatus = git.status?.pr ? <PrStatus pr={git.status.pr}>{statusWords}</PrStatus> : statusWords
 
   // Editor: the side panel sits beside the activity bar (on the sidebar's side) and the chat on the other.
   const panelLeft = editor ? sidebarSide !== 'right' : panelSide === 'left'
@@ -1013,13 +1021,13 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
             {/* Compare, hand-off and Open in need a folder on this computer; a cloud workspace has none. */}
             {surfaces.local && <CompareButton ws={ws} sessionId={activeId} />}
             {surfaces.exportable && (
-              <Button size="sm" onClick={() => openExportDialog(ws.id)} title={t('workspaceView.export.title')}>
-                {t('workspaceView.export.label')}
+              <Button size="sm" icon={<Upload size={12} />} onClick={() => openExportDialog(ws.id)} title={t('workspaceView.export.title')} aria-label={t('workspaceView.export.label')}>
+                <span className="btn-label">{t('workspaceView.export.label')}</span>
               </Button>
             )}
             {surfaces.local && !ws.transfer && (
-              <Button size="sm" onClick={() => openHandOffTo({ workspaceId: ws.id })} title={t('workspaceView.handOff.title')}>
-                {t('workspaceView.handOff.label')}
+              <Button size="sm" icon={<ArrowRightLeft size={12} />} onClick={() => openHandOffTo({ workspaceId: ws.id })} title={t('workspaceView.handOff.title')} aria-label={t('workspaceView.handOff.label')}>
+                <span className="btn-label">{t('workspaceView.handOff.label')}</span>
               </Button>
             )}
             {surfaces.local && <OpenMenu ws={ws} />}
@@ -1105,13 +1113,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         ) : (
           <>
             <header className="titlebar drag panel-header">
-              {!running && git.status?.primary.action === 'archive' && git.status.pr ? (
-                <MergedStatus pr={git.status.pr} />
-              ) : (
-                <span className={`panel-status ${git.status?.primary.tone ?? ''}`}>
-                  {running ? t('workspaceView.panel.working') : git.status && git.status.primary.label !== 'No changes' ? git.status.primary.label : panelTitle}
-                </span>
-              )}
+              {!running && git.status?.primary.action === 'archive' && git.status.pr ? <MergedStatus pr={git.status.pr} /> : panelStatus}
               <div className="header-actions">
                 {hasWorktree && <GitHeaderActions workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} running={running} />}
               </div>
@@ -1241,8 +1243,8 @@ function CompareButton({ ws, sessionId }: { ws: Workspace; sessionId?: string })
   const t = useT()
   const reason = useStoreMemo((s) => [ws, s.snapshot!.sessions, t], ([w, sessions, tr]) => compareBlockFor(w, sessions, tr))
   return (
-    <Button size="sm" icon={<Users size={12} />} disabled={Boolean(reason) || !sessionId} title={reason ?? t('workspaceView.compare.title')} onClick={() => openCompareDialog({ workspaceId: ws.id, sessionId })}>
-      {t('workspaceView.compare.label')}
+    <Button size="sm" icon={<Users size={12} />} disabled={Boolean(reason) || !sessionId} title={reason ?? t('workspaceView.compare.title')} aria-label={t('workspaceView.compare.label')} onClick={() => openCompareDialog({ workspaceId: ws.id, sessionId })}>
+      <span className="btn-label">{t('workspaceView.compare.label')}</span>
     </Button>
   )
 }

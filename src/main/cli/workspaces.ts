@@ -6,13 +6,15 @@ import path from 'node:path'
 import { openReports } from '../../shared/agentReports'
 import { durationText } from '../../shared/checks'
 import { sendReceiptText } from '../../shared/tabs'
-import type { ArchivedRow, NewParams, NewResult, SetupVerb, WorkspaceKind, WsAdoptParams, WsAdoptResult, WsAlertsResult, WsArchiveResult, WsChangeResult, WsDockerResult, WsForgetResult, WsListResult, WsNoteParams, WsNoteResult, WsOpenResult, WsPathResult, WsReportsResult, WsSetupResult, WsSetupSummary, WsShowResult, WsSpotlightResult, WsUnarchiveResult, WsUsageResult } from '../../shared/cli/workspaces'
+import type { ArchivedRow, NewParams, NewResult, SetupVerb, WorkspaceKind, WsAdoptParams, WsAdoptResult, WsAlertsResult, WsArchiveResult, WsChangeResult, WsDockerResult, WsForgetResult, WsIntegrationsParams, WsIntegrationsResult, WsListResult, WsNoteParams, WsNoteResult, WsOpenResult, WsPathResult, WsReportsResult, WsSetupResult, WsSetupSummary, WsShowResult, WsSpotlightResult, WsUnarchiveResult, WsUsageResult } from '../../shared/cli/workspaces'
 import { checksState, pullRequestUrl, statusRows, statusTable } from '../../shared/status'
 import type { DockerListing, DockerRemoval } from '../../shared/docker'
 import type { ArchivePreview, CreateWorkspaceOptions, Repo, Session, Workspace, WorkspaceStatus } from '../../shared/types'
+import type { RepoIntegrationService } from '../../shared/integrations'
 import { wsPath } from '../../shared/workspacePath'
 import { CliCodedError, type CliHost } from './host'
-import { columns, flagParam, invalid, numberParam, paramsObject, textParam, type MethodDef } from './kit'
+import { columns, flagParam, invalid, numberParam, paramsObject, textList, textParam, type MethodDef } from './kit'
+import { chosenIntegrations, integrationRows, integrationsText, switchedIntegrations } from './workspaceIntegrations'
 import type { CliContext } from './methods'
 import { startRefusal } from './policy'
 import { findByRef, notFound, plural, refused } from './refs'
@@ -374,6 +376,27 @@ async function note(host: CliHost, params: unknown, ctx: CliContext): Promise<Ws
   return { ...base, note: revisionOf(ws.note), sent: { tab, session: session.id, turn: receipt.turnId, disposition }, text: sendReceiptText(disposition, tab, session, receipt.turnId) }
 }
 
+/** `foreman workspace integrations`: what a workspace's agents get, and switching one for its next turns. */
+async function integrations(host: CliHost, params: unknown, ctx: CliContext): Promise<WsIntegrationsResult> {
+  const p = paramsObject(params as WsIntegrationsParams)
+  const ws = liveOf(host, p)
+  const repo = host.state().repos.find((r) => r.id === ws.repoId)
+  if (!repo) throw invalid(`${ws.name}’s repository is gone.`)
+  const on = textList(p, 'on', { optional: true }) ?? []
+  const off = textList(p, 'off', { optional: true }) ?? []
+  let changed: WsIntegrationsResult['changed']
+  if (on.length || off.length) {
+    // Switching one on gives the agent more tools: from inside a turn, only with the repository's opt-in.
+    if (on.length) refuseStart(host, ctx)
+    if (ws.cloud) throw invalid('Integration tools don’t reach a cloud sandbox yet, so there’s nothing to switch in a cloud workspace.')
+    changed = switchedIntegrations(host, repo, on, off)
+    for (const [service, value] of Object.entries(changed)) await host.api.setWorkspaceIntegration(ws.id, service as RepoIntegrationService, Boolean(value))
+  }
+  const now = host.state().workspaces.find((w) => w.id === ws.id) ?? ws
+  const rows = await integrationRows(host, repo, now)
+  return { workspace: wsOut(now), integrations: rows, ...(changed ? { changed } : {}), text: integrationsText(now, rows, changed) }
+}
+
 async function usage(host: CliHost, params: unknown): Promise<WsUsageResult> {
   const ws = liveOf(host, paramsObject(params))
   const u = await host.api.workspaceUsage(ws.id)
@@ -502,6 +525,10 @@ async function startNew(host: CliHost, params: unknown, ctx: CliContext): Promis
   }
   const attach = p.attach === undefined || p.attach === null ? [] : Array.isArray(p.attach) && p.attach.every((a) => typeof a === 'string') ? (p.attach as string[]) : undefined
   if (!attach) throw invalid('attach must be a list of file paths.')
+  const withList = textList(p, 'with', { optional: true }) ?? []
+  // Integration tools (Linear, Slack, Langfuse) don't reach a cloud sandbox, so there's nothing to switch there.
+  if (cloud && withList.length) throw invalid('Integration tools don’t reach a cloud sandbox yet: drop --with or --cloud.')
+  const integrations = cloud ? undefined : chosenIntegrations(host, repo, withList, textList(p, 'without', { optional: true }) ?? [])
   const attachments = attach.map((file) => {
     const full = path.resolve(cwd, file)
     if (!existsSync(full) || !statSync(full).isFile()) throw invalid(`${file} isn’t a file${full === file ? '' : ` (looked for ${full})`}.`)
@@ -513,7 +540,8 @@ async function startNew(host: CliHost, params: unknown, ctx: CliContext): Promis
     branch: existing ? { kind: 'existing', name: existing } : direct ? { kind: 'direct', name: direct } : { kind: 'new', name: branchName || undefined },
     ...(loadout ? { loadout } : {}),
     ...(attachments.length ? { attachments } : {}),
-    ...(cloud ? { location: 'cloud' as const } : {})
+    ...(cloud ? { location: 'cloud' as const } : {}),
+    ...(integrations ? { integrations } : {})
   })
   if (flagParam(p, 'open')) host.reveal(ws.id)
   const result: NewResult = { repo: repo.name, prompt, workspace: { id: ws.id, name: ws.name, branch: ws.branch, ...(ws.path ? { path: ws.path } : {}) }, ...(ws.cloud ? { cloud: true } : {}), text: '' }
@@ -554,6 +582,8 @@ export const WORKSPACE_METHODS: Record<string, MethodDef> = {
   'ws-setup': { tier: 'act', handle: async (host, params) => setup(host, params) },
   'ws-note': { tier: 'act', handle: async (host, params, ctx) => note(host, params, ctx) },
   'ws-usage': { tier: 'read', handle: async (host, params) => usage(host, params) },
+  // Switching one on from an agent turn needs the repository's opt-in, like starting a turn.
+  'ws-integrations': { tier: 'act', handle: async (host, params, ctx) => integrations(host, params, ctx) },
   'ws-spotlight': { tier: 'act', handle: async (host, params) => spotlight(host, params) },
   'ws-docker': { tier: 'act', handle: async (host, params) => docker(host, params) },
   'ws-alerts': { tier: 'act', handle: async (host, params) => alerts(host, params) },

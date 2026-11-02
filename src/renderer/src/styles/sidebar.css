@@ -249,7 +249,8 @@
   grid-column: 1 / 3;
   grid-row: 1;
 }
-.ws-row.finished .ws-title {
+.ws-row.finished .ws-title,
+.ws-row.archiving .ws-title {
   color: var(--text-muted);
 }
 .ws-icon {

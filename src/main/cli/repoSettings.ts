@@ -11,6 +11,7 @@ import {
   findRepoSetting,
   repoSettingPatch,
   repoSettingsByTab,
+  type RepoIntegrationOptions,
   type RepoSettingSpec,
   type RepoTab
 } from '../../shared/repoSettingsSchema'
@@ -162,8 +163,13 @@ function read(spec: RepoSettingSpec, c: Reading): Read {
       const resolution = row?.resolution as { connection?: { name: string } } | undefined
       return { value: choice === 'default' || choice === 'off' ? choice : (resolution?.connection?.name ?? choice), source: 'repo' }
     }
-    case 'integrationOptions':
+    case 'integrationOptions': {
+      if (spec.field.startsWith('integrations.starts.')) {
+        const own = repo.integrations?.starts?.[spec.field.slice('integrations.starts.'.length) as RepoIntegrationService]
+        return { value: own ?? 'default', source: own ? 'repo' : 'default' }
+      }
       return { value: spec.field === 'integrations.rules' ? (repo.integrations?.rules ?? 'mine') : (repo.integrations?.allowOwnMcp ?? []), source: 'repo' }
+    }
   }
 }
 
@@ -361,7 +367,7 @@ interface Writes {
   local: RepoSettingsPatch
   repo: RepoPatch
   integrations: { service: RepoIntegrationService; choice: string }[]
-  options: { rules?: 'mine' | 'off'; allowOwnMcp?: RepoIntegrationService[] }
+  options: RepoIntegrationOptions
   envFiles?: string[]
 }
 
@@ -376,7 +382,11 @@ function planWrites(planned: Planned[]): Writes {
       Object.assign(writes.repo, rest)
       if (cloud) writes.repo.cloud = { ...writes.repo.cloud, ...cloud }
     } else if (w.kind === 'integration') writes.integrations.push({ service: w.service, choice: w.choice })
-    else if (w.kind === 'integrationOptions') Object.assign(writes.options, w.options)
+    else if (w.kind === 'integrationOptions') {
+      const { starts, ...rest } = w.options
+      Object.assign(writes.options, rest)
+      if (starts) writes.options.starts = { ...writes.options.starts, ...starts }
+    }
     else writes.envFiles = w.files
   }
   return writes

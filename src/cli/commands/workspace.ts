@@ -2,11 +2,12 @@
 // the `text` of the answer (or the JSON with --json); the destructive ones ask first.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import type { NewResult, WsArchiveResult } from '../../shared/cli/workspaces'
+import type { NewResult, WsArchiveResult, WsIntegrationsResult } from '../../shared/cli/workspaces'
 import { CliError, usageError } from '../client'
 import type { Context, Run } from '../command'
 import { waitText } from '../format'
 import { EXIT_DISCONNECTED, EXIT_SETUP_HELD, WAIT_EXIT, type WaitResult } from '../protocol'
+import { commaList } from './automationKit'
 
 const str = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
 
@@ -34,6 +35,13 @@ function simple(method: string, params: (ctx: Context, workspace: string) => unk
 }
 
 const noParams = () => ({})
+
+const integrations: Run = async (ctx) => {
+  if (ctx.args.length > 1) throw usageError('foreman workspace integrations takes one workspace; switch with --on and --off.')
+  const workspace = needWorkspace(ctx.args[0])
+  const result = await ctx.send<WsIntegrationsResult>('ws-integrations', { workspace, cwd: ctx.cwd, on: commaList(ctx.opts.on), off: commaList(ctx.opts.off) })
+  ctx.print(result, () => result.text)
+}
 
 /** `[verb] <workspace>` where the verb may come first; one word alone is the workspace. */
 function verbFirst(args: string[], verbs: readonly string[]): { verb?: string; workspace?: string; rest: string[] } {
@@ -201,7 +209,9 @@ const startNew: Run = async (ctx) => {
     cloud: opts.cloud,
     open: opts.open,
     noWait: opts['no-wait'],
-    startAnyway: opts['start-anyway']
+    startAnyway: opts['start-anyway'],
+    with: commaList(opts.with),
+    without: commaList(opts.without)
   })
   const waiting = opts.wait && result.turn && !result.held
   if (!ctx.json || !waiting) ctx.print(result, () => result.text)
@@ -246,6 +256,7 @@ export const workspaceRunners: Record<string, Run> = {
   'workspace setup': setup,
   'workspace note': note,
   'workspace usage': simple('ws-usage', noParams),
+  'workspace integrations': integrations,
   'workspace spotlight': spotlight,
   'workspace docker': verbed('ws-docker', ['list', 'remove', 'dismiss'], 'docker', false),
   'workspace alerts': verbed('ws-alerts', ['list', 'dismiss'], 'alerts', true),

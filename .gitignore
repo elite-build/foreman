@@ -13,3 +13,5 @@ release/
 !.env.sample
 *.pem
 *.key
+*.p12
+*.p8

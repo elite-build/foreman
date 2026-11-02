@@ -1,24 +1,33 @@
 import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { claudeDriver } from '../src/main/agents/claude'
+import { claudeDriver, EXIT_GRACE_MS } from '../src/main/agents/claude'
 import type { TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 
 // No Claude Code here: `query` is replaced by a fake whose messages each test pushes in.
 const sdk = vi.hoisted(() => ({ query: vi.fn(), tool: vi.fn(() => ({})), createSdkMcpServer: vi.fn(() => ({})) }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => sdk)
 
-/** A Claude Code stand-in: the test pushes its messages and sees when the input is closed. */
-function fakeClaude() {
+/**
+ * A Claude Code stand-in: the test pushes its messages and sees when the input is closed. With `exits: false` the
+ * process stays up after its input closes (as one held up on its way out does) until the driver aborts it.
+ */
+function fakeClaude(options: { exits?: boolean } = {}) {
   const queued: SDKMessage[] = []
   let wake: (() => void) | null = null
   let ended = false
-  const state = { inputClosed: false, prompts: [] as SDKUserMessage[] }
+  const state = { inputClosed: false, aborted: false, prompts: [] as SDKUserMessage[] }
 
-  sdk.query.mockImplementation(({ prompt }: { prompt: AsyncIterable<SDKUserMessage> }) => {
+  sdk.query.mockImplementation(({ prompt, options: opts }: { prompt: AsyncIterable<SDKUserMessage>; options: { abortController: AbortController } }) => {
+    opts.abortController.signal.addEventListener('abort', () => {
+      state.aborted = true
+      ended = true
+      wake?.()
+    })
     void (async () => {
       for await (const message of prompt) state.prompts.push(message)
       state.inputClosed = true
-      // Like Claude Code, the process exits once its input is closed.
+      // Like Claude Code, the process exits once its input is closed (unless the test keeps it up).
+      if (options.exits === false) return
       ended = true
       wake?.()
     })()
@@ -30,6 +39,8 @@ function fakeClaude() {
             yield next
             continue
           }
+          // As the SDK does: an aborted query ends with an AbortError from its iterator.
+          if (state.aborted) throw Object.assign(new Error('Claude Code process aborted by user'), { name: 'AbortError' })
           if (ended) return
           await new Promise<void>((resolve) => (wake = resolve))
           wake = null
@@ -206,6 +217,68 @@ describe('Claude turns with background work', () => {
     expect(cb.finished).toHaveBeenCalledTimes(1)
   })
 
+  // A follow-up sent mid-turn makes Claude Code cut off its request with this error, then answer the follow-up.
+  const cut = {
+    ...result,
+    subtype: 'error_during_execution',
+    is_error: true,
+    errors: ['[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null']
+  } as Partial<SDKMessage>
+
+  it('keeps the turn going when a steered follow-up cuts off Claude’s request', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    expect(turn.steer('also check the tests')).toBe(true)
+    claude.push(cut)
+    await settle()
+    expect(cb.finished).not.toHaveBeenCalled()
+    expect(claude.state.inputClosed).toBe(false)
+    expect(cb.item).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'notice', level: 'error' }))
+    expect(cb.item).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'result' }))
+    // Another follow-up still reaches the running turn rather than waiting for it to end.
+    expect(turn.steer('and the docs')).toBe(true)
+
+    claude.push(assistant('checked the tests and the docs'), result)
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+    expect(cb.finished).toHaveBeenCalledWith({ ok: true })
+    expect(claude.state.prompts.map((p) => p.message.content)).toEqual(['hello', 'also check the tests', 'and the docs'])
+  })
+
+  it('reports the same error when no follow-up was steered in', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(request, cb).run()
+    claude.push(cut)
+    await run
+    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: '[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null' })
+  })
+
+  it('reports the error once Claude has already answered the follow-up', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    turn.steer('also check the tests')
+    claude.push(assistant('on it'), cut)
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+    expect(cb.finished.mock.calls[0][0]).toMatchObject({ ok: false })
+  })
+
+  it('reports a different error after a follow-up', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    turn.steer('also check the tests')
+    claude.push({ ...result, subtype: 'error_during_execution', is_error: true, errors: ['Prompt is too long'] } as Partial<SDKMessage>)
+    await run
+    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: 'Prompt is too long' })
+  })
+
   it('ignores ambient tasks such as watchers', async () => {
     const claude = fakeClaude()
     const cb = callbacks()
@@ -238,6 +311,70 @@ const notification = taskEvent('task_notification', { status: 'completed', summa
 function toolUpdates(cb: ReturnType<typeof callbacks>, id: string) {
   return cb.item.mock.calls.filter(([item]) => item.kind === 'tool' && item.id === id).map(([item, transient]) => ({ ...item, transient: Boolean(transient) }))
 }
+
+// The SDK ends Claude Code's stdin only once it reports idle (waiting up to ten minutes for that), and never closes a
+// process that stays up after; a poor connection can hold up the exit. A process that outlives its turn is closed
+// after a grace, with the turn's result as it was.
+describe('Claude Code outliving its turn', () => {
+  const notices = (cb: ReturnType<typeof callbacks>) => cb.item.mock.calls.map(([item]) => item).filter((item) => item.kind === 'notice')
+
+  it('leaves a process that exits on its own alone', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(request, cb).run()
+    claude.push(assistant('done'), result)
+    await run
+    expect(claude.state.inputClosed).toBe(true)
+    expect(claude.state.aborted).toBe(false)
+  })
+
+  it('closes a process still up after the grace, keeping the result and saying nothing', async () => {
+    const claude = fakeClaude({ exits: false })
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(request, cb).run()
+    vi.useFakeTimers()
+    claude.push(assistant('done'), result)
+    await vi.advanceTimersByTimeAsync(EXIT_GRACE_MS - 1_000)
+    expect(cb.finished).toHaveBeenCalledWith({ ok: true })
+    expect(claude.state.inputClosed).toBe(true)
+    expect(claude.state.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(claude.state.aborted).toBe(true)
+    vi.useRealTimers()
+    await run
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+    expect(notices(cb)).toEqual([])
+  })
+
+  it('stops a turn that has ended by closing its process, with nothing to interrupt and no "Stopped."', async () => {
+    const claude = fakeClaude({ exits: false })
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    claude.push(assistant('done'), result)
+    await settle()
+    expect(cb.finished).toHaveBeenCalledWith({ ok: true })
+    await turn.stop()
+    await run
+    expect(claude.state.aborted).toBe(true)
+    expect(sdk.query.mock.results[0].value.interrupt).not.toHaveBeenCalled()
+    expect(cb.finished).toHaveBeenCalledTimes(1)
+    expect(notices(cb)).toEqual([])
+  })
+
+  it('still says "Stopped." when a running turn is stopped', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn(request, cb)
+    const run = turn.run()
+    claude.push(assistant('working'))
+    await settle()
+    await turn.stop()
+    await run
+    expect(notices(cb).map((n) => n.kind === 'notice' && n.text)).toEqual(['Stopped.'])
+    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: 'Stopped.' })
+  })
+})
 
 describe('Claude background agents in the chat', () => {
   it('shows a background agent on its tool call until it reports back', async () => {

@@ -3,7 +3,7 @@ import type { Attachment } from '../../shared/types'
 // Renderer state: the main process pushes snapshots and events, components
 // read slices through useStore.
 import { useSyncExternalStore } from 'react'
-import type { AdoptWorktreeOptions, AgentKind, AppSnapshot, ApprovalRequest, Bridge, ChatHit, ChatItem, CheckConsentItem, NoteHit, CreateWorkspaceOptions, HandOffKind, MainEvent, PromptTemplate, Session, SessionPatch } from '../../shared/types'
+import type { AdoptWorktreeOptions, AgentKind, AppSnapshot, ApprovalRequest, ArchiveProgressStep, Bridge, ChatHit, ChatItem, CheckConsentItem, NoteHit, CreateWorkspaceOptions, HandOffKind, MainEvent, PromptTemplate, Session, SessionPatch } from '../../shared/types'
 import { AGENT_ORDER, setModelCatalog, type ModelCatalog } from '../../shared/agents'
 import { pickerAgents } from '../../shared/agentPicker'
 import type { AgentPrefs } from '../../shared/agentCatalog'
@@ -42,6 +42,12 @@ export type AgentsSubpage = 'catalog' | 'signin' | 'keys'
 
 /** The merged header's archive button: archive and keep the branch, or archive and delete it. */
 export type ArchiveChoice = 'archive' | 'delete-branch'
+
+/** An archive running in the background, for the sidebar row and the header: the step main last started, or stopped on a failure. */
+export interface ArchiveRun {
+  stopped: boolean
+  step: ArchiveProgressStep | null
+}
 
 const archiveChoiceOf = (value: unknown): ArchiveChoice | null => (value === 'archive' || value === 'delete-branch' ? value : null)
 
@@ -94,6 +100,8 @@ interface State {
   // OpenCode is only offered once it is installed.
   opencodeInstalled: boolean
   backgroundArchives: string[]
+  // The archives in backgroundArchives, by workspace, as they go.
+  archiveRuns: Record<string, ArchiveRun>
   archiveTarget: string | null
   // The archive dialog opens with "Delete branch" already chosen (the merged header's menu).
   archiveDeleteBranch: boolean
@@ -220,6 +228,7 @@ let state: State = {
   terminalFullscreen: null,
   opencodeInstalled: false,
   backgroundArchives: [],
+  archiveRuns: {},
   archiveTarget: null,
   archiveDeleteBranch: false,
   archiveChoice: archiveChoiceOf(loadPref<unknown>('archiveChoice', null)),
@@ -752,6 +761,12 @@ function handleEvent(event: MainEvent): void {
     case 'window-visibility':
       setWindowVisible(event.visible)
       return
+    case 'archive-progress': {
+      const run = state.archiveRuns[event.workspaceId]
+      if (run && !run.stopped && event.progress.status === 'running')
+        setState({ archiveRuns: { ...state.archiveRuns, [event.workspaceId]: { ...run, step: event.progress.step } } })
+      return
+    }
   }
 }
 
@@ -1036,11 +1051,19 @@ export function requestOpenFile(workspaceId: string, path: string, line?: number
 
 /** Keep archive controllers alive while their dialogs are dismissed. */
 export function backgroundArchive(workspaceId: string): void {
-  setState({ backgroundArchives: [...new Set([...state.backgroundArchives, workspaceId])], archiveTarget: null })
+  setState({ backgroundArchives: [...new Set([...state.backgroundArchives, workspaceId])], archiveRuns: { ...state.archiveRuns, [workspaceId]: { stopped: false, step: null } },
+    archiveTarget: null })
+}
+
+/** The archive stopped on a step that needs you (Retry, Archive anyway or Keep workspace); its controller stays. */
+export function stopBackgroundArchive(workspaceId: string): void {
+  const run = state.archiveRuns[workspaceId]
+  if (run) setState({ archiveRuns: { ...state.archiveRuns, [workspaceId]: { ...run, stopped: true } } })
 }
 
 export function finishBackgroundArchive(workspaceId: string): void {
-  setState({ backgroundArchives: state.backgroundArchives.filter((id) => id !== workspaceId),
+  const { [workspaceId]: _, ...archiveRuns } = state.archiveRuns
+  setState({ backgroundArchives: state.backgroundArchives.filter((id) => id !== workspaceId), archiveRuns,
     ...(state.archiveTarget === workspaceId ? { archiveTarget: null } : {}) })
 }
 

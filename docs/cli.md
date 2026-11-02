@@ -11,7 +11,7 @@ foreman · drives the running Foreman app
 
 Work           run, wait, send, cancel, resume-at, checks, status, report, review, ask, new,
                approvals, approve, deny, stopped
-Workspaces     export, import, ws (20 commands: foreman help ws)
+Workspaces     export, import, ws (21 commands: foreman help ws)
 Chats          tabs, tab new|set|close|reopen|fork, chat, queue, rewind, resume-now, mcp, slash,
                search
 Git & PRs      git (18 commands: foreman help git), diff, commits, comments, base-moved, ack-ci
@@ -118,6 +118,8 @@ Options:
       --no-wait           Return once the workspace exists, without waiting for setup
       --wait              Block until the first turn ends, and report how it went
       --timeout <s>       With --wait (and for `wait`): stop waiting after s seconds
+      --with <a,b>        Integrations to switch on in this workspace (linear, slack, langfuse), over the repository’s defaults
+      --without <a,b>     Integrations to switch off in this workspace
 
 Common options:
       --json              Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -129,6 +131,7 @@ Examples:
   foreman run fix-a-bug "ENG-123: login button does nothing" --open
   foreman run issue https://github.com/owner/repo/issues/12
   foreman run fix-linear-bug ENG-123 --wait --timeout 1800
+  foreman run triage ENG-123 --with linear --without slack
 
 Exit codes:
   0  Started (with --wait: the turn completed)
@@ -472,6 +475,8 @@ Options:
       --no-wait            Return once the workspace exists, without waiting for setup
       --wait               Block until the first turn ends, and report how it went
       --timeout <s>        With --wait: stop waiting after s seconds
+      --with <a,b>         Integrations to switch on in this workspace (linear, slack, langfuse), over the repository’s defaults
+      --without <a,b>      Integrations to switch off in this workspace
 
 Common options:
       --json               Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -481,6 +486,7 @@ Common options:
 
 Examples:
   foreman new "Add a dark mode toggle to the settings page" --open
+  foreman new "Why did the eval scores drop?" --with linear
   foreman new "Fix the flaky login test" -b fix-flaky-login --wait --timeout 1800
   foreman new "Review this" --existing feature/search --attach notes.md
 
@@ -1130,6 +1136,40 @@ Examples:
 The note is guidance shared by the workspace's tabs. Saving it sends nothing; send queues it
 as a normal message in one tab and prints the receipt like foreman send. set and send are not
 available from inside an agent turn (send follows the same opt-in as foreman send).
+```
+
+### foreman workspace integrations
+
+```text
+Which integrations a workspace’s agents get, and switch one on or off
+
+Usage:
+  foreman workspace integrations <workspace> [--on a,b] [--off a,b]
+
+Arguments:
+  <workspace>      A name, id or branch from `foreman status`, or "." for the one you’re in
+
+Options:
+      --on <a,b>   Switch these on (linear, slack, langfuse) from the next message
+      --off <a,b>  Switch these off from the next message
+
+Common options:
+      --json       Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet      Hide progress lines and notes
+  -y, --yes        Answer yes to confirmations
+  -h, --help       Show this command’s help
+
+Examples:
+  foreman ws integrations api
+  foreman ws integrations api --on linear
+  foreman ws integrations . --off slack --json
+
+Lists each integration that can give this workspace's agents tools: whether it is on here, what new
+workspaces in the repository start with, the account it acts as, and roughly what its tool definitions cost
+(a turn carries them only while it is on). --on and --off apply from the next message; the chat's receipt
+says so. Only a working connection that agents may use can be switched on: switching grants nothing the
+connection doesn't allow. From inside an agent turn, switching one on needs the repository's opt-in
+(Repository settings → Actions → "Let agents start workspaces and queue messages").
 ```
 
 ### foreman workspace usage
@@ -5045,10 +5085,10 @@ Settings → Integrations. The id (or its first characters, or the name) is what
 Connect an account
 
 Usage:
-  foreman connections add github|linear|slack|vercel|e2b|daytona|docker [--label name] [--token-stdin] [--default] […]
+  foreman connections add github|linear|slack|langfuse|vercel|e2b|daytona|docker [--label name] [--token-stdin] [--default] […]
 
 Arguments:
-  <service>                   The service to connect (one of: github, linear, slack, vercel, e2b, daytona, docker)
+  <service>                   The service to connect (one of: github, linear, slack, langfuse, vercel, e2b, daytona, docker)
 
 Options:
       --label <name>          What to call it (default: the account’s name)
@@ -5061,8 +5101,9 @@ Options:
       --api-url <url>         daytona: the API URL
       --target <region>       daytona: the target region
       --context <name>        docker: a Docker context
-      --host <url>            docker: a host, like ssh://user@host
-      --agent-access <level>  linear: what agents may do with it (one of: off, read, write) (default: read)
+      --host <url>            docker: a host, like ssh://user@host; langfuse: its address, like https://us.cloud.langfuse.com
+      --public-key <pk-lf-…>  langfuse: the public key that goes with the secret key
+      --agent-access <level>  linear, langfuse (off or read): what agents may do with it (one of: off, read, write) (default: read)
       --default               Make it the service’s default connection
       --allow-duplicate       Add it although a connection to the same account exists
 
@@ -5075,16 +5116,18 @@ Common options:
 Examples:
   foreman connections add github --gh-account octocat --label Work
   printf %s "$LINEAR_API_KEY" | foreman connections add linear --token-stdin --label Acme
+  printf %s "$LANGFUSE_SECRET_KEY" | foreman connections add langfuse --public-key "$LANGFUSE_PUBLIC_KEY" --token-stdin --label Kite
   foreman connections add vercel --team-id team_123 --project-id prj_456 --token-stdin
   foreman connections add docker --context colima
 
-A connection is an account Foreman signs in to: GitHub, Linear, Slack, or a sandbox service for remote workspaces
+A connection is an account Foreman signs in to: GitHub, Linear, Slack, Langfuse, or a sandbox service for remote workspaces
 (Vercel, E2B, Daytona, Docker). Secrets are never arguments: a token comes from standard input (--token-stdin) or
 from a prompt that does not echo it, and never comes back in any output (at most its last four characters).
 
   github   --gh-account <login> (a `gh` account), --gh-active (whichever is active now), or a token
   linear   a Linear API key
   slack    a bot token (xoxb-…)
+  langfuse a project's secret key (sk-lf-…), --public-key (pk-lf-…); --host (default https://cloud.langfuse.com)
   vercel   a token, --team-id and --project-id
   e2b      an API key; --domain for a self-hosted domain
   daytona  an API key; --api-url (default https://app.daytona.io/api), --target
@@ -5155,7 +5198,7 @@ Usage:
   foreman connections default <service> <id|none>
 
 Arguments:
-  <service>    github, linear, slack, vercel, e2b, daytona or docker (one of: github, linear, slack, vercel, e2b, daytona, docker)
+  <service>    github, linear, slack, langfuse, vercel, e2b, daytona or docker (one of: github, linear, slack, langfuse, vercel, e2b, daytona, docker)
   <id>         A connection of that service, or none
 
 Common options:
@@ -5167,6 +5210,34 @@ Common options:
 Examples:
   foreman connections default github work
   foreman connections default slack none
+```
+
+### foreman connections edit
+
+```text
+Change what agents may do with a connection, and whether new workspaces start with it
+
+Usage:
+  foreman connections edit <id> [--agent-access level] [--new-workspaces on|off]
+
+Arguments:
+  <id>                           A connection’s id, the start of it, or its name
+
+Options:
+      --agent-access <level>     linear: off, read or write; slack: off or write (post to allowed channels); langfuse: off or read (one of: off, read, write)
+      --new-workspaces <on|off>  linear, slack, langfuse: whether new workspaces start with its tools on (a repository can override it) (one of: on, off)
+
+Common options:
+      --json                     Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet                    Hide progress lines and notes
+  -y, --yes                      Answer yes to confirmations
+  -h, --help                     Show this command’s help
+
+Examples:
+  foreman connections edit acme --new-workspaces off
+  foreman connections edit 3f2a --agent-access write
+
+--new-workspaces off keeps its tools out of new workspaces (and their context) until a workspace switches it on: in New workspace, the composer, `foreman run --with`, or `foreman workspace integrations --on`. It never changes what agents may do; --agent-access does.
 ```
 
 ### foreman connections apply
@@ -6279,11 +6350,15 @@ Repository
   repo.env-files      list (a,b,c)                                                                            Env files
 
 Integrations
-  integrations.github-account  text. A connection id or name, `default`, or `off`.  GitHub account
-  integrations.linear          text. A connection id or name, `default`, or `off`.  Linear
-  integrations.slack           text. A connection id or name, `default`, or `off`.  Slack
-  integrations.slack-rules     mine | off                                           slack rules
-  integrations.allow-own-mcp   list of github, linear, slack                        allow own mcp
+  integrations.github-account              text. A connection id or name, `default`, or `off`.                                                              GitHub account
+  integrations.linear                      text. A connection id or name, `default`, or `off`.                                                              Linear
+  integrations.slack                       text. A connection id or name, `default`, or `off`.                                                              Slack
+  integrations.langfuse                    text. A connection id or name, `default`, or `off`.                                                              Langfuse
+  integrations.slack-rules                 mine | off                                                                                                       slack rules
+  integrations.allow-own-mcp               list of github, linear, slack, langfuse                                                                          allow own mcp
+  integrations.linear-in-new-workspaces    default | on | off. `default` follows the connection (`foreman connections edit <id> --new-workspaces on|off`).  linear in new workspaces
+  integrations.slack-in-new-workspaces     default | on | off. `default` follows the connection (`foreman connections edit <id> --new-workspaces on|off`).  slack in new workspaces
+  integrations.langfuse-in-new-workspaces  default | on | off. `default` follows the connection (`foreman connections edit <id> --new-workspaces on|off`).  langfuse in new workspaces
 
 Remote workspaces
   cloud.enabled         on | off                                                                                 Remote workspaces

@@ -361,6 +361,7 @@ describe('policy and the socket', () => {
     'ws-setup': 'workspace setup',
     'ws-note': 'workspace note',
     'ws-usage': 'workspace usage',
+    'ws-integrations': 'workspace integrations',
     'ws-spotlight': 'workspace spotlight',
     'ws-docker': 'workspace docker',
     'ws-alerts': 'workspace alerts',

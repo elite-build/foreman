@@ -159,6 +159,21 @@
   color: var(--text-muted);
 }
 
+/* The Integrations field's trigger fills the column like the Model select; the names shorten, the chevron stays at the end. */
+.nw-integrations {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.nw-integrations .ws-int-names {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: start;
+}
+
 /* The signed-out line under the Model field: on its own line. */
 .nw-signin {
   display: block;

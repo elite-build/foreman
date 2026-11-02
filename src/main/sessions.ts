@@ -54,7 +54,7 @@ import { attachFromData, attachmentNote } from './files'
 import type { Environment } from './environment'
 import { IntegrationBridge } from './integrationBridge'
 import type { ForemanMcp } from './foremanMcp'
-import type { IntegrationService } from '../shared/integrations'
+import type { IdentityChange } from '../shared/integrations'
 import { ORIGIN_APPROVED, ORIGIN_UNAPPROVED, type RepoMcp } from './repoMcp'
 import { git } from './git'
 import { localOnly, workspaceTarget } from './runtime'
@@ -192,6 +192,19 @@ async function gitCommonDir(cwd: string): Promise<string | null> {
 const MCP_PROBE_IDLE_MS = 60_000
 // How many queued messages taken by dispatch are remembered, to tell a late edit "it already started".
 const CLAIMED_KEPT = 200
+// How long a new message waits for the chat's last agent process to exit before it goes to the queue instead.
+export const LINGER_MS = 3_000
+
+/** True when the promise settles (either way) within `ms`. */
+function settles(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    promise.then(() => true, () => true).then((v) => {
+      clearTimeout(timer)
+      resolve(v)
+    })
+  })
+}
 
 export class SessionService {
   private turns = new Map<string, ActiveTurn>()
@@ -681,8 +694,20 @@ export class SessionService {
       this.changed()
       return { disposition: 'queued', turnId }
     }
-    // Let a wrapping-up agent process exit before continuing its conversation.
-    if (active) await active.done
+    // Let a wrapping-up agent process exit before continuing its conversation. One that takes longer than a moment
+    // (a poor connection can hold up Claude Code's exit) must not hold the message unseen: it waits in the queue,
+    // which the turn's end drains, and the driver closes a process that outlives its turn (claude.ts).
+    if (active && !(await settles(active.done, LINGER_MS))) {
+      const turnId = options.turnId ?? randomUUID()
+      const revision = this.queueChanged(session)
+      session.queue.push({ id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin })
+      this.changed()
+      // The turn's end drains the queue. Had it ended just now, before this message was queued, the drain found nothing.
+      void active.done.catch(() => undefined).then(() => {
+        if (!active.cancelled && !this.turns.has(sessionId) && !this.starting.has(sessionId)) void this.drainQueue(sessionId)
+      })
+      return { disposition: 'queued', turnId }
+    }
     const turnId = options.turnId ?? randomUUID()
     // Every agent slot is taken: the turn waits first in the tab's queue (ahead of anything held there; behind a turn
     // of this tab already waiting) and starts when its turn for a slot comes. Its turn id is known now, so
@@ -1168,7 +1193,7 @@ export class SessionService {
     servers: Record<string, McpLaunch>
     disabled: string[]
     notes: string[]
-    receipt?: { changed: { service: IntegrationService; was?: string; now?: string }[]; ownOff: string[] }
+    receipt?: { changed: IdentityChange[]; ownOff: string[] }
   } {
     if (!this.integrations) return { servers: {}, disabled: [], notes: [] }
     const turn = this.integrations.forTurn({
@@ -1177,7 +1202,8 @@ export class SessionService {
       repoId: ws.repoId,
       cwd: this.turnCwd(ws),
       supportsMcp: Boolean(AGENTS[session.agent]?.supportsRepoMcp),
-      last: session.integrations?.snapshot
+      last: session.integrations?.snapshot,
+      choices: ws.integrations
     })
     const { claude, codex } = IntegrationBridge.blockedFor(session.agent, turn.blocked)
     const disabled = [...claude, ...codex]
@@ -2096,7 +2122,7 @@ export class SessionService {
           ? {
               ...this.repoMcp?.launchable(ws),
               // Integrations: a probe-only grant, which lists tools and runs none.
-              ...this.integrations?.probeServers({ sessionId: session.id, workspaceId: ws.id, repoId: ws.repoId, cwd: wsPath(ws), supportsMcp: true })
+              ...this.integrations?.probeServers({ sessionId: session.id, workspaceId: ws.id, repoId: ws.repoId, cwd: wsPath(ws), supportsMcp: true, choices: ws.integrations })
             }
           : undefined
       })
@@ -2115,6 +2141,11 @@ export class SessionService {
     this.integrations?.endProbes(sessionId)
     clearTimeout(entry.timer)
     entry.probe.close()
+  }
+
+  /** A workspace's integrations were switched: idle MCP checks of its tabs started with the old set. */
+  workspaceIntegrationsChanged(workspaceId: string): void {
+    for (const session of this.store.state.sessions) if (session.workspaceId === workspaceId) this.closeMcpProbe(session.id)
   }
 
   async disposeWorkspaceSessions(workspaceId: string, repoRoot: string): Promise<void> {

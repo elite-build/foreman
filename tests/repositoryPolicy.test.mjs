@@ -6,7 +6,7 @@ import path from 'node:path'
 import { candidateFiles, checkRepository, forbiddenPath } from '../scripts/check-repository.mjs'
 
 test('reject private/export-only material while retaining runtime assets and test mocks', () => {
-  for (const p of ['FEATURES.md', 'design/plan.md', 'design/mocks.html', '.publication-private/review.md', 'docs/vendor-spec/page.md', '.env', '.env.production', 'state.json', 'secret.pem', 'out/report.json']) assert.equal(forbiddenPath(p), true, p)
+  for (const p of ['FEATURES.md', 'design/plan.md', 'design/mocks.html', '.publication-private/review.md', 'docs/vendor-spec/page.md', '.env', '.env.production', 'state.json', 'secret.pem', 'AuthKey_ABC123.p8', 'certificate.p12', 'out/report.json']) assert.equal(forbiddenPath(p), true, p)
   for (const p of ['build/icons/foreman.svg', 'src/shared/types.ts', 'tests/fixtures/example.json', 'tests/mocks.ts', '.env.example', 'docs/design-system.md']) assert.equal(forbiddenPath(p), false, p)
 })
 

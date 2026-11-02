@@ -1,7 +1,7 @@
 # Workspace people
 
 `src/shared/workspacePeople.json` is the bundled catalog used for both generated
-workspace names and the introduction at the top of the workspace in Foreman.
+workspace names and the introduction at the top of each of the workspace's chats.
 It contains 2,050 scientists, inventors, philosophers, and thinkers. Each entry
 has a unique branch-safe `name`, a `fullName`, a short `contribution`, and source
 and article-history links. Familiar figures get short names such as `tesla`,
@@ -10,11 +10,13 @@ and article-history links. Familiar figures get short names such as `tesla`,
 The catalog is included in the application bundle. Creating a workspace and
 showing its introduction make no network requests and write no biography files,
 comments, commits, or introductory chat messages to the target repository.
-The optional Learn more button opens the entry's Wikipedia article.
+The person's name is a link that opens the entry's Wikipedia article.
 
-The introduction reads: "Meet Nikola Tesla - He helped shape how electricity
-powers our world, pioneering AC motors and power systems. This workspace carries
-their name." The name is emphasized in the UI.
+The introduction is a faint divider line above the first message: "It's named
+after Nikola Tesla. He helped shape how electricity powers our world, pioneering
+AC motors and power systems." It shows whether or not the chat has started (a
+workspace created with a task has its first message straight away) and scrolls
+away with the conversation.
 
 ## Name reservations and persistence
 
@@ -38,8 +40,8 @@ to its source article and that article's revision history, which identifies its
 contributors. Wikipedia-derived catalog text is available under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 Adaptations include removing pronunciation/date parentheses, selecting a short
-contribution sentence, and sometimes restating a "known for" clause. The friendly
-"Meet" introduction and workspace closing sentence are added by Foreman.
+contribution sentence, and sometimes restating a "known for" clause. The "It's
+named after" lead-in is added by Foreman.
 The source links are attribution, not a claim of endorsement.
 
 The candidate discovery list comes from Part 1 of

@@ -122,7 +122,7 @@ describe('Vercel connection', () => {
     if (!result.ok) throw new Error(result.error)
     expect(integrations.vercel()).toMatchObject({ state: 'ready', connection: { id: result.connection.id } })
     expect(INTEGRATION_SERVICES).not.toContain('vercel')
-    expect((await integrations.repoView('r1')).map((v) => v.service)).toEqual(['github', 'linear', 'slack'])
+    expect((await integrations.repoView('r1')).map((v) => v.service)).toEqual(['github', 'linear', 'slack', 'langfuse'])
     expect(integrations.fingerprints('r1').some((f) => f.includes('vercel'))).toBe(false)
     // A token missing from the vault is a problem, never a silent fallback.
     secrets.setAppSecret(secretKey(result.connection.id), null)

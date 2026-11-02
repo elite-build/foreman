@@ -177,3 +177,64 @@ describe('a signed-out agent', () => {
     expect(storeModule.openSettingsPage).toHaveBeenCalledWith({ section: 'agents', agent: 'claude' })
   })
 })
+
+describe('integrations for the new workspace', () => {
+  const connection = (patch: Record<string, unknown>) => ({ rev: 1, auth: { kind: 'token' }, createdAt: 'x', usedBy: 1, isDefault: true, ...patch })
+
+  beforeEach(() => {
+    fakeState.snapshot.integrations = {
+      ...fakeState.snapshot.integrations,
+      connections: [
+        connection({ id: 'lin', service: 'linear', name: 'Acme Linear', agentAccess: 'read' }),
+        connection({ id: 'sl', service: 'slack', name: 'Acme Slack', agentAccess: 'write', startsOff: true })
+      ]
+    } as typeof fakeState.snapshot.integrations
+    fakeApi.integrationToolCosts = vi.fn(async () => [
+      { service: 'linear' as const, tools: 12, tokens: 3400 },
+      { service: 'slack' as const, tools: 1, tokens: 90 }
+    ])
+  })
+
+  it('start from the defaults, show what each costs, and go with the workspace as switched', async () => {
+    const user = userEvent.setup()
+    storeModule.createWorkspace = vi.fn(async () => true)
+    render(<NewWorkspaceDialog repoId="r1" />)
+    const trigger = await screen.findByRole('button', { name: 'Integrations: Linear' })
+    await user.click(trigger)
+    const menu = await screen.findByRole('menu', { name: 'Integrations' })
+    const linear = within(menu).getByRole('menuitemcheckbox', { name: /Linear/ })
+    const slack = within(menu).getByRole('menuitemcheckbox', { name: /Slack/ })
+    expect(linear.getAttribute('aria-checked')).toBe('true')
+    expect(slack.getAttribute('aria-checked')).toBe('false')
+    expect(within(menu).getByRole('group', { name: 'Off by default' }).contains(slack)).toBe(true)
+    // The account and its access are named; the cost comes once the tools are listed.
+    expect(linear.textContent).toContain('Acme Linear · read only')
+    await waitFor(() => expect(linear.textContent).toContain('12 tools · ~3.4K tokens'))
+    expect(menu.textContent).toContain('Switched on: ~3.4K tokens of tool definitions')
+    // Switching keeps the menu open, so several can be switched in a row.
+    await user.click(slack)
+    expect(within(screen.getByRole('menu')).getByRole('menuitemcheckbox', { name: /Slack/ }).getAttribute('aria-checked')).toBe('true')
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: 'Integrations: Linear, Slack' })).toBeTruthy()
+    await user.type(await screen.findByRole('textbox', { name: /First message/ }), 'triage')
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalled())
+    expect((storeModule.createWorkspace as ReturnType<typeof vi.fn>).mock.calls[0][1].integrations).toEqual({ linear: true, slack: true })
+  })
+
+  it('isn’t offered when no integration gives agents tools here', async () => {
+    fakeState.snapshot.integrations = { ...fakeState.snapshot.integrations, connections: [] } as typeof fakeState.snapshot.integrations
+    storeModule.createWorkspace = vi.fn(async () => true)
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await typeAndSubmit()
+    expect(screen.queryByRole('button', { name: /^Integrations/ })).toBeNull()
+    expect((storeModule.createWorkspace as ReturnType<typeof vi.fn>).mock.calls[0][1].integrations).toBeUndefined()
+  })
+})
+
+async function typeAndSubmit() {
+  const user = userEvent.setup()
+  await user.type(await screen.findByRole('textbox', { name: /First message/ }), 'go')
+  await user.keyboard('{Control>}{Enter}{/Control}')
+  await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalled())
+}

@@ -19,6 +19,8 @@ import { TemplatePicker } from './composer/TemplatePicker'
 import { LinearIssuesButton, LinearLine, useHasLinear, useLinearIntake } from './LinearIntake'
 import { useT, type RendererT } from '../i18n'
 import { RepoIconView } from './Sidebar'
+import { IntegrationsMenu, useWorkspaceTools } from './WorkspaceIntegrations'
+import type { WorkspaceIntegrations } from '../../../shared/integrations'
 import { RunsOnField, useCloudReadiness, type RunsOnLocation } from './cloud/RunsOn'
 import { providerLabel, providerRegion, repoCloud, type CloudProviderId } from '../../../shared/cloud'
 import type { CloudProviderView } from '../../../shared/types'
@@ -442,6 +444,11 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const [modelChosen, setModelChosen] = useState(false)
   // G1: a Terminal agent to open in the new workspace instead of a chat (it runs its own CLI in a terminal tab).
   const [terminalAgent, setTerminalAgent] = useState<string | null>(null)
+  // Integrations switched away from the repository's defaults for this workspace.
+  const [integrations, setIntegrations] = useState<WorkspaceIntegrations>({})
+  const tools = useWorkspaceTools(repo, integrations)
+  // Linear and Slack tools don't reach a sandbox, and a Terminal agent runs its own CLI.
+  const offerTools = tools.length > 0 && !inCloud && !terminalAgent
   const repoTemplates = useStore((s) => s.snapshot!.repoTemplates)
   const chosenTemplate = prompt.trim() ? templateById(settings.promptTemplates, repoTemplates, templateId) : undefined
   const templateModel = modelChosen ? undefined : chooseStartLoadout(undefined, chosenTemplate).loadout
@@ -534,6 +541,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     setBrowsed(null)
     setRunSetup(false)
     setLocation('local')
+    setIntegrations({})
   }
 
   const browse = async () => {
@@ -595,6 +603,8 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     const attachments = terminalAgent || !files.length ? undefined : files.map((f) => f.path)
     // The template's start model is applied by the app when no model was chosen here.
     const sendLoadout = templateModel ? undefined : loadout
+    // Every switchable integration as it was shown, so later changes to the defaults don't flip this workspace.
+    const chosenTools: WorkspaceIntegrations | undefined = offerTools ? Object.fromEntries(tools.map((x) => [x.service, x.on])) : undefined
     let ok: boolean
     if (mode === 'new') {
       const name = newName.trim()
@@ -607,12 +617,13 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
         loadout: sendLoadout,
         githubUrl,
         linearIssue,
+        integrations: chosenTools,
         ...(inCloud ? { location: 'cloud' as const } : {})
       })
     } else if (mode === 'folder') {
-      ok = await createWorkspace(repo.id, { branch: { kind: 'direct', name: direct }, runSetup: hasSetup && runSetup, prompt: text, templateId: fromTemplate, attachments, loadout: sendLoadout, githubUrl, linearIssue })
+      ok = await createWorkspace(repo.id, { branch: { kind: 'direct', name: direct }, runSetup: hasSetup && runSetup, prompt: text, templateId: fromTemplate, attachments, loadout: sendLoadout, githubUrl, linearIssue, integrations: chosenTools })
     } else {
-      ok = await adoptWorktree(repo.id, chosenPath!, { runSetup: hasSetup && runSetup, prompt: text, templateId: fromTemplate, attachments, loadout: sendLoadout })
+      ok = await adoptWorktree(repo.id, chosenPath!, { runSetup: hasSetup && runSetup, prompt: text, templateId: fromTemplate, attachments, loadout: sendLoadout, integrations: chosenTools })
     }
     // createWorkspace and adoptWorktree select the new workspace.
     const created = getState().selectedWorkspaceId
@@ -819,6 +830,19 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
             }}
             note={templateModel && chosenTemplate ? t('newWorkspace.model.fromTemplate', { name: chosenTemplate.name }) : undefined}
           />
+          {offerTools && (
+            <Field label={t('workspaceIntegrations.label')} description={t('workspaceIntegrations.help')}>
+              {(control) => (
+                <IntegrationsMenu
+                  repoId={repo.id}
+                  control={control}
+                  tools={tools}
+                  triggerClassName="nw-integrations"
+                  onChange={(service, on) => setIntegrations((current) => ({ ...current, [service]: on }))}
+                />
+              )}
+            </Field>
+          )}
         </div>
 
         <div className="nw-message">

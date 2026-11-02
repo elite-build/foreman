@@ -18,6 +18,11 @@
 .side-panel.compact .btn-label {
   display: none;
 }
+/* A button with a long and a short label ("Archive and delete branch" / "Archive"): the short one when compact. */
+.side-panel.compact .btn-label-long,
+.side-panel:not(.compact) .btn-label-short {
+  display: none;
+}
 .term-icon {
   display: none;
 }
