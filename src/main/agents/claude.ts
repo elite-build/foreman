@@ -68,6 +68,8 @@ const ASSISTANT_TOOL_PREFIX = `mcp__${ASSISTANT_SERVER}__`
 const ASSISTANT_REFUSAL = 'The Foreman assistant can only use its own tools.'
 // After background work ends, how long to wait for Claude to pick it up before ending the turn.
 const BACKGROUND_WAKE_MS = 30_000
+// How long Claude Code gets to exit once the turn is over and its input closed, before its process is closed.
+export const EXIT_GRACE_MS = 15_000
 
 function executable(override?: string): string | undefined {
   return override?.trim() || bundledClaudeExecutable()
@@ -330,6 +332,9 @@ class ClaudeTurn implements AgentTurn {
   private tasks = new Map<string, TaskProgress>()
   // Follow-ups steered in since Claude last answered. Claude Code cuts off the request one arrives during and goes on with it.
   private unansweredSteers = 0
+  // Armed when the turn is over: a process still running when it fires is closed (exitForced says the end was ours).
+  private exitTimer: NodeJS.Timeout | null = null
+  private exitForced = false
 
   constructor(
     private req: TurnRequest,
@@ -458,8 +463,9 @@ class ClaudeTurn implements AgentTurn {
       })
       for await (const message of this.q) await this.handle(message)
     } catch (err) {
-      if (this.stopped) {
-        this.notice('info', 'Stopped.')
+      if (this.stopped || this.exitForced) {
+        // Closing a process whose turn had already ended is housekeeping, not a stop of its work.
+        if (!this.done) this.notice('info', 'Stopped.')
       } else {
         const detail = err instanceof Error ? err.message : String(err)
         const tail = this.stderrTail.trim()
@@ -478,8 +484,11 @@ class ClaudeTurn implements AgentTurn {
   async stop(): Promise<void> {
     if (this.stopped) return
     this.stopped = true
-    const interrupt = this.q?.interrupt().catch(() => undefined)
-    await Promise.race([interrupt, new Promise((resolve) => setTimeout(resolve, 3000))])
+    // A turn that has ended has nothing to interrupt; only its process is still to go.
+    if (!this.done) {
+      const interrupt = this.q?.interrupt().catch(() => undefined)
+      await Promise.race([interrupt, new Promise((resolve) => setTimeout(resolve, 3000))])
+    }
     this.input.close()
     this.abort.abort()
   }
@@ -656,7 +665,12 @@ class ClaudeTurn implements AgentTurn {
     }
   }
 
-  /** The turn is over: closing the input ends the query once the agent has wrapped up. */
+  /**
+   * The turn is over: closing the input ends the query once the agent has wrapped up. Claude Code then gets
+   * EXIT_GRACE_MS to exit, or its process is closed: the SDK only ends its stdin once Claude reports idle (and waits
+   * up to ten minutes for that), and a process held up on its way out (a poor connection, say) would otherwise keep
+   * this chat's next turn waiting on it indefinitely, with no stop to press since the turn has ended.
+   */
   private complete(): void {
     this.clearWakeTimer()
     if (this.backgroundCutoff) clearTimeout(this.backgroundCutoff)
@@ -666,6 +680,12 @@ class ClaudeTurn implements AgentTurn {
     this.done = true
     this.cb.finished(this.result ?? { ok: false, error: 'Claude Code ended without a result.' })
     this.input.close()
+    this.exitTimer = setTimeout(() => {
+      this.exitTimer = null
+      this.exitForced = true
+      this.abort.abort()
+    }, EXIT_GRACE_MS)
+    this.exitTimer.unref?.()
   }
 
   // Background work ended but Claude may not be woken (older Claude Code): end the turn after a while.
@@ -818,6 +838,8 @@ class ClaudeTurn implements AgentTurn {
   private finish(): void {
     if (this.flushTimer) clearTimeout(this.flushTimer)
     this.flushTimer = null
+    if (this.exitTimer) clearTimeout(this.exitTimer)
+    this.exitTimer = null
     this.taskPreviews.cancel()
     this.clearWakeTimer()
     for (const live of this.live.values()) {
