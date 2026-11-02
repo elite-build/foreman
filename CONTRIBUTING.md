@@ -1,6 +1,6 @@
 # Contributing
 
-Read [README.md](README.md) for setup and [AGENTS.md](AGENTS.md) for development conventions. Use a fork and a focused pull request. Explain the problem, the resulting behavior, and how you tested it.
+Read [README.md](README.md) for setup and [AGENTS.md](AGENTS.md) for development conventions. Use a fork and a focused pull request. Explain the problem, the resulting behavior, and how you tested it, using the headings of the [pull request template](.github/pull_request_template.md). End with a one-line release note, or `None` and why: release notes are written from them. A UI change shows the screen before and after (`npm run pr:screens`).
 
 Run `npm run typecheck`, `npm test`, `npm run build`, `npm run check:repository`, and the checks relevant to your change. UI changes must follow [the design system](docs/design-system.md) and pass `npm run check:ui`. MCP and settings changes must pass `npm run check:mcp`. There is no CI, so run these checks yourself; `npm run check:security`, `npm audit --audit-level=high` and `npm run check:licenses` cover secrets, dependencies and dependency licenses. A tool failure is a failed check.
 

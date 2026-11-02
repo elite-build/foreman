@@ -9,6 +9,7 @@ This is the repository-wide guide for coding agents. `CLAUDE.md` delegates here.
 3. Search with `rg` for the closest existing implementation, its callers and tests. Reuse business logic, hooks, utilities, API clients and services rather than adding parallel implementations.
 4. For any UI task, follow the design-system workflow below **before writing JSX or CSS**.
 5. Make the smallest coherent change, run the applicable checks, and report what changed, what was verified and any remaining limitations. Do not introduce speculative abstractions, unrelated refactors or dependencies to solve a local problem.
+6. Before reversing an established choice, check [docs/decisions.md](docs/decisions.md) for why it was made. When the user asks for a pull request, follow [.claude/skills/create-pr/SKILL.md](.claude/skills/create-pr/SKILL.md), whichever agent you are.
 
 ## UI: the design system comes first
 
@@ -107,6 +108,7 @@ Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if
 | `npm run build` | Build main, CLI, Cursor worker, sandbox host/attach, preload and renderer into `out/`. Preload output is CommonJS for Electron's sandbox. |
 | `npm start` | Preview the built Electron app. |
 | `npm run screens` | Capture real-app fixture screens; `npm run screens -- --compare <a> <b>` compares runs. Supports `--out`, `--only`, `--build`, `--no-build`. Requires Electron. |
+| `npm run pr:screens` | Before-and-after fixture screens for a UI pull request: `-- capture --only <screen,…>` takes them from the merge base and the working tree and compares them; `-- publish <png>…` pushes them to the `pr-screenshots` branch and prints image links. See `.claude/skills/create-pr/ui-changes.md`. |
 | `npm run docs:cli` | Regenerate `docs/cli.md` from command metadata; do not hand-edit generated command reference content. |
 | `npm run cloud:smoke` | Live Vercel integration test; requires the three variables above and a build first. Run only when live sandbox use is within the task's scope. |
 | `npm run dist:mac` / `npm run dist:win` | Build and package DMG/NSIS into `dist/`, with publishing disabled. |
@@ -129,7 +131,7 @@ There is no CI workflow and no Dependabot configuration; both were removed to st
 
 ### Documentation authority
 
-Keep this file as the agent entry point and `docs/design-system.md` as the single UI catalogue. `CLAUDE.md` should continue to delegate here. No additional nested agent instructions or Cursor rule files were found in this audit. Legacy class tables and design plans are historical context, not permission to bypass current UI rules. When source, docs and guards disagree, inspect the actual behaviour and report any unresolved conflict; do not invent commands or silently relax a requirement.
+Keep this file as the agent entry point and `docs/design-system.md` as the single UI catalogue. `CLAUDE.md` should continue to delegate here. Repository skills live in `.claude/skills/` (currently `create-pr`); this file points to each, so agents other than Claude find them too. There are no nested agent instructions or Cursor rule files. [docs/decisions.md](docs/decisions.md) records direction choices that would otherwise be lost, with a deliberately high bar for adding one. Legacy class tables and design plans are historical context, not permission to bypass current UI rules. When source, docs and guards disagree, inspect the actual behaviour and report any unresolved conflict; do not invent commands or silently relax a requirement.
 
 ## Checks
 
