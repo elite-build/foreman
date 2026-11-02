@@ -68,8 +68,11 @@ export function useGitStatus(workspaceId: string, shown: boolean, running: boole
   return { status, refresh }
 }
 
-/** Recorded checks for a workspace, with staleness worked out against the tree as it is now. */
-export function useChecksStatus(workspaceId: string): ChecksStatus | null {
+/**
+ * Recorded checks for a workspace, with staleness worked out against the tree as it is now. Each look takes a
+ * working-tree snapshot in main, so it polls only while `shown` (the workspace is on screen) and the window can be seen.
+ */
+export function useChecksStatus(workspaceId: string, shown = true): ChecksStatus | null {
   const configured = useStore((s) => {
     const ws = s.snapshot!.workspaces.find((w) => w.id === workspaceId)
     return (ws ? s.snapshot!.repoSettings[ws.repoId]?.values.checks.length : 0) ?? 0
@@ -83,7 +86,7 @@ export function useChecksStatus(workspaceId: string): ChecksStatus | null {
     (parts) => JSON.stringify(parts)
   )
   const [status, setStatus] = useState<ChecksStatus | null>(null)
-  const visible = useWindowVisible()
+  const visible = useWindowVisible() && shown
   useEffect(() => {
     if (!visible) return
     if (!configured) {
@@ -145,8 +148,8 @@ function CheckRowDetail({ row }: { row: CheckRow }) {
  * did, and whether that still describes these files. Shown only when checks exist.
  * It states what ran; it never says anything is verified or ready.
  */
-function ChecksEvidence({ workspaceId, comments }: { workspaceId: string; comments: number | null }) {
-  const status = useChecksStatus(workspaceId)
+function ChecksEvidence({ workspaceId, comments, shown }: { workspaceId: string; comments: number | null; shown: boolean }) {
+  const status = useChecksStatus(workspaceId, shown)
   const auto = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId)?.autoChecks?.state)
   const [open, setOpen] = useState(false)
   const t = useT()
@@ -523,7 +526,7 @@ function BaseWatchToggle({ workspaceId }: { workspaceId: string }) {
   )
 }
 
-export function ChecksView({ workspaceId, status, refresh }: { workspaceId: string; status: GitStatus | null; refresh: () => void }) {
+export function ChecksView({ workspaceId, status, refresh, shown = true }: { workspaceId: string; status: GitStatus | null; refresh: () => void; shown?: boolean }) {
   const comments = useStore((s) => s.snapshot!.comments)
   // Unresolved review threads on the pull request, once Reviews has counted them.
   const [openThreads, setOpenThreads] = useState<number | null>(null)
@@ -540,7 +543,7 @@ export function ChecksView({ workspaceId, status, refresh }: { workspaceId: stri
   if (!status) {
     return (
       <div className="checks">
-        <ChecksEvidence workspaceId={workspaceId} comments={null} />
+        <ChecksEvidence workspaceId={workspaceId} comments={null} shown={shown} />
         {cloudStatus && cloudStatus !== 'running' ? <SandboxNotRunning workspaceId={workspaceId} /> : <div className="panel-empty faint">{t('gitPanel.checkingStatus')}</div>}
       </div>
     )
@@ -553,7 +556,7 @@ export function ChecksView({ workspaceId, status, refresh }: { workspaceId: stri
 
   return (
     <div className="checks">
-      <ChecksEvidence workspaceId={workspaceId} comments={pr ? openThreads : null} />
+      <ChecksEvidence workspaceId={workspaceId} comments={pr ? openThreads : null} shown={shown} />
       {status.asOf && cloudStatus !== 'running' && <SandboxNotRunning workspaceId={workspaceId} asOf={status.asOf} />}
       {!status.hasRemote && <Row icon={<CircleAlert size={14} className="faint" />} label={t('gitPanel.noRemote')} />}
       {status.hasRemote && !status.ghAvailable && !lab && (

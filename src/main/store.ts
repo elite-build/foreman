@@ -25,6 +25,7 @@ import type { IntegrationsState } from '../shared/integrations'
 import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
 import { migrateRepoFields } from './repoSettings'
 import { ForemanDb } from './db'
+import { perf } from './perf'
 import { ensureDatabase, type MigrationInfo } from './legacyImport'
 
 export interface PersistedState {
@@ -181,6 +182,7 @@ export function defaultSettings(): Settings {
     autoRunAfterSetup: false,
     forkToNewTab: true,
     showResourceUsage: false,
+    diagnostics: true,
     terminalScrollbackMb: 10,
     terminalCopyOnSelect: false,
     terminalScreenReader: 'auto',
@@ -411,12 +413,15 @@ export class Store {
     return JSON.stringify(rest, null, 2)
   }
 
-  private async writeState(): Promise<void> {
-    if (this.closed) return
-    this.db.syncRows(this.state)
-    const tmp = `${this.statePath}.tmp`
-    await writeFile(tmp, this.preferences())
-    await rename(tmp, this.statePath)
+  private writeState(): Promise<void> {
+    if (this.closed) return Promise.resolve()
+    // `store.save`: every debounced save, with the row sync (synchronous SQLite) and the state.json write inside it.
+    return perf.timed('store.save', async () => {
+      this.db.syncRows(this.state)
+      const tmp = `${this.statePath}.tmp`
+      await writeFile(tmp, this.preferences())
+      await rename(tmp, this.statePath)
+    })
   }
 
   /** Synchronous flush for app shutdown. */

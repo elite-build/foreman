@@ -119,6 +119,12 @@ export function ReportProblemDialog() {
     }
   }
 
+  // Save diagnostics… (docs/telemetry.md): the redacted bundle, where the user chooses; they attach it to the issue.
+  const saveDiagnostics = async () => {
+    const file = await attempt(() => api.saveDiagnostics())
+    if (file) showToast(t('report.diagnosticsSaved', { path: file }))
+  }
+
   const syncScroll = (el: HTMLTextAreaElement) => {
     if (!backdrop.current) return
     backdrop.current.scrollTop = el.scrollTop
@@ -207,6 +213,12 @@ export function ReportProblemDialog() {
               </small>
             )}
             <small className="dlg-hint">{t('report.notIncluded')}</small>
+            <small className="dlg-hint">
+              {t('report.saveDiagnosticsHelp')}{' '}
+              <LinkButton size="sm" disabled={busy} onClick={() => void saveDiagnostics()}>
+                {t('report.saveDiagnostics')}
+              </LinkButton>
+            </small>
           </div>
         </>
       )}

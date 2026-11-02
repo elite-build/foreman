@@ -1,5 +1,6 @@
 import {
   Archive,
+  Bug,
   CircleHelp,
   Cloud,
   FileDown,
@@ -35,6 +36,7 @@ import {
   openImportDialog,
   openNewWorkspace,
   openOverlay,
+  openReportProblem,
   openSettingsPage,
   selectSession,
   recordMilestone,
@@ -448,6 +450,9 @@ function RepoRail({ attention }: { attention: Map<string | null, number> }) {
         </IconButton>
         <IconButton label={t('sidebar.rail.shortcuts', { key: shortcutHint('shortcuts.help', platform) ?? `${mod}⌥/` })} onClick={() => openOverlay('shortcuts')}>
           <Keyboard size={15} />
+        </IconButton>
+        <IconButton label={t('sidebar.rail.report', { key: shortcutHint('report.problem', platform) ?? `${mod}⌥R` })} onClick={() => openReportProblem(true)}>
+          <Bug size={15} />
         </IconButton>
         <IconButton label={t('tour.label')} data-tour="help" onClick={startTour}>
           <CircleHelp size={15} />

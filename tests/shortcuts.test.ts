@@ -174,6 +174,13 @@ describe('dispatchShortcut', () => {
     expect(actions.selectWorkspace).toHaveBeenLastCalledWith('b')
   })
 
+  it('opens Report a problem with Ctrl+Alt+R anywhere', () => {
+    const report = keydown('KeyR', { ctrlKey: true, altKey: true })
+    expect(dispatchShortcut(report, ctxFor(report, undefined), false)).toBe(true)
+    expect(actions.reportProblem).toHaveBeenCalledTimes(1)
+    expect(entry('report.problem').labelKey).toBe('report.command')
+  })
+
   it('switches by digit, and leaves unmatched keys alone', () => {
     const three = keydown('Digit3', { ctrlKey: true })
     dispatchShortcut(three, ctxFor(three, 0), false)

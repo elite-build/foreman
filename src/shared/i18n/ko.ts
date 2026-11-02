@@ -425,6 +425,14 @@ export const ko: Catalogue = {
   'report.loading': '버전과 최근 오류를 수집하는 중…',
   'report.loadFailed': '진단 정보를 수집할 수 없습니다({error}). 알고 있는 내용을 직접 추가하세요.',
   'report.notIncluded': '채팅 기록, 프롬프트, 파일 내용, 환경 변수는 포함되지 않습니다.',
+
+  'report.saveDiagnostics': '진단 정보 저장…',
+
+  'report.saveDiagnosticsHelp': '성능 보고서, 최근 이벤트와 충돌, 마지막 오류를 담은 파일을 경로와 토큰을 제거해 저장합니다. 이슈에 첨부하세요.',
+
+  'report.saveDiagnosticsTitle': '진단 정보 저장',
+
+  'report.diagnosticsSaved': '진단 정보를 {path}에 저장했습니다. 파일을 이슈에 첨부하세요.',
   'report.redact.label': '경로와 토큰 제거',
   'report.redact.summary': { zero: '일치하는 항목이 없습니다. 패턴으로 찾으므로 게시하기 전에 읽어 보세요.', other: '{count}개 대체됨: {detail}. 패턴으로 찾으므로 게시하기 전에 읽어 보세요.' },
   'report.redact.off': '끔: 홈 폴더, 사용자 이름, 토큰처럼 보이는 내용을 포함해 작성한 그대로 보고서가 전송됩니다.',
@@ -1930,6 +1938,10 @@ export const ko: Catalogue = {
   'settings.experimental.fork.help': '답변의 ⋯ 메뉴(여기서 분기), 탭의 컨텍스트 메뉴 또는 {keys}로 채팅을 분기합니다.',
   'settings.experimental.resourceUsage.label': '리소스 사용량 표시',
   'settings.experimental.resourceUsage.help': '사이드바 하단에 CPU 및 메모리 사용량을 표시합니다.',
+
+  'settings.experimental.diagnostics.label': '진단 정보 유지',
+
+  'settings.experimental.diagnostics.help': '이벤트 로그(오류, 충돌, 턴 시작과 종료, 메인 스레드 멈춤)와 성능 샘플을 데이터 폴더에 기록하고 충돌 덤프도 그곳에 보관합니다. 이 컴퓨터 밖으로는 아무것도 나가지 않습니다. 끄면 ‘문제 신고’에 이번 세션의 오류만 포함됩니다.',
   'settings.advanced.section.storage': '저장 공간',
   'settings.advanced.section.commandLine': '명령줄',
   'settings.advanced.workspacesFolder.label': '워크스페이스 폴더',
@@ -2571,6 +2583,8 @@ export const ko: Catalogue = {
   'sidebar.rail.add': '저장소 추가',
   'sidebar.rail.palette': '명령 팔레트({key})',
   'sidebar.rail.shortcuts': '키보드 단축키({key})',
+
+  'sidebar.rail.report': '문제 신고({key})',
   'sidebar.rail.settings': '설정({key})',
   'sidebar.resize': '사이드바 크기 조정',
   'sidebar.hide': '사이드바 숨기기({key})',

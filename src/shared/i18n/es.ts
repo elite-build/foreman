@@ -396,6 +396,14 @@ export const es: Catalogue = {
   'report.loading': 'Recopilando versiones y errores recientes…',
   'report.loadFailed': 'No se pudo recopilar el diagnóstico ({error}). Añade a mano lo que sepas.',
   'report.notIncluded': 'No se incluye el historial de chats, las instrucciones, el contenido de archivos ni las variables de entorno.',
+
+  'report.saveDiagnostics': 'Guardar diagnósticos…',
+
+  'report.saveDiagnosticsHelp': 'Guarda un archivo con el informe de rendimiento, los eventos y fallos recientes y los últimos errores, sin rutas ni tokens. Adjúntalo a la incidencia.',
+
+  'report.saveDiagnosticsTitle': 'Guardar diagnósticos',
+
+  'report.diagnosticsSaved': 'Diagnósticos guardados en {path}. Adjunta el archivo a la incidencia.',
   'report.redact.label': 'Quitar rutas y tokens',
   'report.redact.summary': {
     zero: 'No se encontró nada. La búsqueda es por patrones, así que léelo antes de publicar.',
@@ -1976,6 +1984,10 @@ export const es: Catalogue = {
   'settings.experimental.fork.help': 'Bifurca un chat desde el menú ⋯ de una respuesta (Bifurcar desde aquí), el menú contextual de su pestaña o con {keys}.',
   'settings.experimental.resourceUsage.label': 'Mostrar el uso de recursos',
   'settings.experimental.resourceUsage.help': 'Muestra el uso de CPU y memoria en el pie de la barra lateral.',
+
+  'settings.experimental.diagnostics.label': 'Guardar diagnósticos',
+
+  'settings.experimental.diagnostics.help': 'Escribe un registro de eventos (errores, fallos, inicio y fin de turnos, bloqueos del hilo principal) y muestras de rendimiento en la carpeta de datos, y guarda allí los volcados de fallos. Nada sale de este equipo. Desactivado: «Informar de un problema» solo tiene los errores de esta sesión.',
   'settings.advanced.section.storage': 'Almacenamiento',
   'settings.advanced.section.commandLine': 'Línea de comandos',
   'settings.advanced.workspacesFolder.label': 'Carpeta de espacios de trabajo',
@@ -2617,6 +2629,8 @@ export const es: Catalogue = {
   'sidebar.rail.add': 'Añadir repositorio',
   'sidebar.rail.palette': 'Paleta de comandos ({key})',
   'sidebar.rail.shortcuts': 'Atajos de teclado ({key})',
+
+  'sidebar.rail.report': 'Informar de un problema ({key})',
   'sidebar.rail.settings': 'Ajustes ({key})',
   'sidebar.resize': 'Cambiar el tamaño de la barra lateral',
   'sidebar.hide': 'Ocultar la barra lateral ({key})',

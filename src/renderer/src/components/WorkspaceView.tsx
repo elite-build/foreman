@@ -966,7 +966,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       }}
     />
   )
-  const checksView = <ChecksView workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} />
+  const checksView = <ChecksView workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} shown={!hidden} />
   const panelViewName: Record<WorkspacePanelView, string> = {
     changes: t('workspaceView.panel.changes'),
     commits: t('commits.tab'),

@@ -80,7 +80,7 @@ describe('foreman help', () => {
   it('shows groups in order, as one row each, with the labels from the plan', () => {
     const lines = text.split('\n')
     expect(lines.find((l) => l.startsWith('Work '))).toMatch(/^Work {11}run, wait, send, cancel, resume-at, checks, status, report, review/)
-    expect(lines.find((l) => l.startsWith('App '))).toContain('app info, doctor, cli status|install, completion, help')
+    expect(lines.find((l) => l.startsWith('App '))).toContain('app info|perf|diagnostics|profile|heap, doctor, cli status|install, completion,')
     const order = ['Work', 'Workspaces', 'Repositories', 'Settings', 'App'].map((label) => lines.findIndex((l) => l.startsWith(`${label} `)))
     expect(order.every((n) => n > 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)

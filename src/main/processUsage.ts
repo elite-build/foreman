@@ -11,6 +11,7 @@
 import { execFile } from 'node:child_process'
 import path from 'node:path'
 import type { ProcessGroupUsage, ProcessRootKind, WorkspaceResourceUsage } from '../shared/types'
+import { perf } from './perf'
 import type { ProcessRoot } from './processRoots'
 
 /** One process from the listing. `created` (Windows: FILETIME) tells a reused parent pid apart; 0 when unknown. */
@@ -214,7 +215,8 @@ export class ProcessUsageSampler {
 
   private async refresh(): Promise<void> {
     try {
-      this.rows = await this.table.list()
+      // The whole-system listing (a second of PowerShell on Windows): `process.list` says how often and how long.
+      this.rows = await perf.timed('process.list', () => this.table.list())
     } catch {
       // Keep the last listing; the next poll tries again after the refresh interval.
     } finally {

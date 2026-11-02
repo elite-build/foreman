@@ -1124,6 +1124,8 @@ export interface Settings {
   autoRunAfterSetup: boolean
   forkToNewTab: boolean
   showResourceUsage: boolean
+  // Keep diagnostics (docs/telemetry.md): the event log, performance samples and crash dumps in the data folder.
+  diagnostics: boolean
   // Advanced
   terminalScrollbackMb: number
   // Selecting text in a terminal copies it (O3).
@@ -2463,6 +2465,8 @@ export interface Api {
   fullDiskAccess(): Promise<boolean | null>
   openFullDiskAccessSettings(): Promise<void>
   resourceUsage(): Promise<ResourceUsage>
+  // Report a problem → Save diagnostics…: writes the redacted diagnostics bundle where the user chooses; null when cancelled.
+  saveDiagnostics(): Promise<string | null>
   // The `foreman` command: whether it's on the PATH, and putting it there.
   cliStatus(): Promise<CliInstallStatus>
   installCli(): Promise<CliInstallStatus>
@@ -2841,7 +2845,7 @@ export const API_METHODS = [
   'getSnapshot', 'pickDirectory', 'pickFiles', 'pickPath', 'addRepo', 'cloneRepo', 'githubRepos', 'quickStartRepo', 'makeRepo', 'forgetRecentRepo', 'classifyFolders', 'takeLaunchFolders', 'updateRepo', 'removeRepo',
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',
-  'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',
+  'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'saveDiagnostics', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',
   'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'archivedWork', 'deleteArchived', 'keepArchived', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
   'readFile', 'writeFile', 'searchFiles', 'listDir', 'readImage', 'previewUrl', 'readImageAt', 'alertFile',
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',

@@ -63,14 +63,19 @@ export function rendererErrorLine(details: { level: string | number; message: st
 
 let capturing = false
 
-/** Keep a copy of everything main writes with console.error (it still goes to the console). */
-export function captureConsoleErrors(log: ErrorLog = errorLog): void {
+/**
+ * Keep a copy of everything main writes with console.error (it still goes to the console); `also` hears each line
+ * too (the event log, docs/telemetry.md).
+ */
+export function captureConsoleErrors(log: ErrorLog = errorLog, also?: (line: string) => void): void {
   if (capturing) return
   capturing = true
   const original = console.error.bind(console)
   console.error = (...args: unknown[]) => {
     try {
-      log.record(errorLine(args))
+      const line = errorLine(args)
+      log.record(line)
+      also?.(line)
     } catch {
       // Never let the copy break the logging itself.
     }
@@ -96,7 +101,8 @@ export function foremanRepo(appPath: string): Promise<string | null> {
   return repoLookup
 }
 
-function osName(): string {
+/** The OS by name and version, as a report reads it: "Windows 11 Pro 10.0.26200", "macOS 26.1". */
+export function osName(): string {
   if (process.platform === 'darwin') {
     // Electron adds getSystemVersion ("26.1"); os.release() is the Darwin kernel's.
     const version = (process as { getSystemVersion?: () => string }).getSystemVersion?.()

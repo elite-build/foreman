@@ -425,6 +425,14 @@ export const ptBR: Catalogue = {
   'report.loading': 'Coletando versões e erros recentes…',
   'report.loadFailed': 'Não foi possível coletar o diagnóstico ({error}). Adicione manualmente o que você souber.',
   'report.notIncluded': 'Nenhum histórico de chat, prompt, conteúdo de arquivo ou variável de ambiente é incluído.',
+
+  'report.saveDiagnostics': 'Salvar diagnósticos…',
+
+  'report.saveDiagnosticsHelp': 'Salva um arquivo com o relatório de desempenho, eventos e travamentos recentes e os últimos erros, sem caminhos nem tokens. Anexe-o à issue.',
+
+  'report.saveDiagnosticsTitle': 'Salvar diagnósticos',
+
+  'report.diagnosticsSaved': 'Diagnósticos salvos em {path}. Anexe o arquivo à issue.',
   'report.redact.label': 'Remover caminhos e tokens',
   'report.redact.summary': { zero: 'Nada encontrado. A detecção é por padrão, então leia antes de publicar.', one: '{count} substituição: {detail}. A detecção é por padrão, então leia antes de publicar.', other: '{count} substituições: {detail}. A detecção é por padrão, então leia antes de publicar.' },
   'report.redact.off': 'Desativado: o relatório vai como está escrito, incluindo sua pasta pessoal, seu nome de usuário e tudo o que pareça um token.',
@@ -1930,6 +1938,10 @@ export const ptBR: Catalogue = {
   'settings.experimental.fork.help': 'Ramifique um chat pelo menu ⋯ de uma resposta (Ramificar daqui), pelo menu de contexto da aba ou com {keys}.',
   'settings.experimental.resourceUsage.label': 'Mostrar o uso de recursos',
   'settings.experimental.resourceUsage.help': 'Mostra o uso de CPU e memória no rodapé da barra lateral.',
+
+  'settings.experimental.diagnostics.label': 'Manter diagnósticos',
+
+  'settings.experimental.diagnostics.help': 'Grava um registro de eventos (erros, travamentos, início e fim de turnos, bloqueios da thread principal) e amostras de desempenho na pasta de dados, e mantém ali os despejos de travamento. Nada sai deste computador. Desligado: “Relatar um problema” tem apenas os erros desta sessão.',
   'settings.advanced.section.storage': 'Armazenamento',
   'settings.advanced.section.commandLine': 'Linha de comando',
   'settings.advanced.workspacesFolder.label': 'Pasta dos espaços de trabalho',
@@ -2571,6 +2583,8 @@ export const ptBR: Catalogue = {
   'sidebar.rail.add': 'Adicionar repositório',
   'sidebar.rail.palette': 'Paleta de comandos ({key})',
   'sidebar.rail.shortcuts': 'Atalhos de teclado ({key})',
+
+  'sidebar.rail.report': 'Relatar um problema ({key})',
   'sidebar.rail.settings': 'Configurações ({key})',
   'sidebar.resize': 'Redimensionar a barra lateral',
   'sidebar.hide': 'Ocultar barra lateral ({key})',

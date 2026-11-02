@@ -425,6 +425,14 @@ export const zhCN: Catalogue = {
   'report.loading': '正在收集版本信息和最近的错误…',
   'report.loadFailed': '无法收集诊断信息（{error}）。请手动补充你所知道的信息。',
   'report.notIncluded': '不包含对话历史、提示词、文件内容或环境变量。',
+
+  'report.saveDiagnostics': '保存诊断信息…',
+
+  'report.saveDiagnosticsHelp': '保存一个包含性能报告、最近的事件与崩溃以及最后的错误的文件，已移除路径和令牌。请把它附加到 issue 中。',
+
+  'report.saveDiagnosticsTitle': '保存诊断信息',
+
+  'report.diagnosticsSaved': '诊断信息已保存到 {path}。请把该文件附加到 issue 中。',
   'report.redact.label': '移除路径和令牌',
   'report.redact.summary': { zero: '没有匹配项。匹配基于模式，发布前请检查一遍。', other: '已替换 {count} 处：{detail}。匹配基于模式，发布前请检查一遍。' },
   'report.redact.off': '关闭：报告将按原样发送，包括你的主文件夹、用户名以及任何看起来像令牌的内容。',
@@ -1930,6 +1938,10 @@ export const zhCN: Catalogue = {
   'settings.experimental.fork.help': '可从回答的 ⋯ 菜单（从此处分叉）、标签页的右键菜单或使用 {keys} 分叉对话。',
   'settings.experimental.resourceUsage.label': '显示资源用量',
   'settings.experimental.resourceUsage.help': '在侧边栏底部显示 CPU 和内存用量。',
+
+  'settings.experimental.diagnostics.label': '保留诊断信息',
+
+  'settings.experimental.diagnostics.help': '将事件日志（错误、崩溃、回合的开始与结束、主线程卡顿）和性能采样写入数据文件夹，并在那里保留崩溃转储。不会有任何内容离开这台电脑。关闭后，“报告问题”只包含本次会话的错误。',
   'settings.advanced.section.storage': '存储',
   'settings.advanced.section.commandLine': '命令行',
   'settings.advanced.workspacesFolder.label': '工作区文件夹',
@@ -2571,6 +2583,8 @@ export const zhCN: Catalogue = {
   'sidebar.rail.add': '添加仓库',
   'sidebar.rail.palette': '命令面板 ({key})',
   'sidebar.rail.shortcuts': '键盘快捷键 ({key})',
+
+  'sidebar.rail.report': '报告问题 ({key})',
   'sidebar.rail.settings': '设置 ({key})',
   'sidebar.resize': '调整侧边栏大小',
   'sidebar.hide': '隐藏侧边栏 ({key})',

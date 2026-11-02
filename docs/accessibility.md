@@ -32,6 +32,8 @@ From the next release, a third section, **Announcements**, adds a choice of what
 
 Press **Ctrl+Alt+/** on Windows or **Cmd+Option+/** on macOS to open the shortcuts sheet, or choose **Keyboard shortcuts** in the command palette (Ctrl+K or Cmd+K). The sheet is generated from the same list the app uses to handle keys, so it cannot drift from what actually works. Every shortcut is also reachable from a named button or the command palette; the chords are shortcuts, not the only way.
 
+**Ctrl+Alt+R** (Cmd+Option+R) opens Report a problem, which also has a bug button in the sidebar rail above the help button and an entry under Help in the menu bar (on Windows the menu bar shows when you press Alt).
+
 ### Workspace keys
 
 - **Ctrl+1 to Ctrl+9** (Cmd+1 to Cmd+9) switch to the workspace in that position.

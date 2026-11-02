@@ -479,6 +479,10 @@ export const en = {
   'report.loading': 'Collecting versions and recent errors…',
   'report.loadFailed': 'Couldn’t collect the diagnostics ({error}). Add what you know by hand.',
   'report.notIncluded': 'No chat history, prompts, file contents or environment variables are included.',
+  'report.saveDiagnostics': 'Save diagnostics…',
+  'report.saveDiagnosticsHelp': 'Saves a file with the performance report, recent events and crashes, and the last errors, with paths and tokens removed. Attach it to the issue.',
+  'report.saveDiagnosticsTitle': 'Save diagnostics',
+  'report.diagnosticsSaved': 'Diagnostics saved to {path}. Attach the file to the issue.',
   'report.redact.label': 'Remove paths and tokens',
   // {detail} is a list such as "3 paths, 1 token".
   'report.redact.summary': {
@@ -2160,6 +2164,8 @@ export const en = {
   'settings.experimental.fork.help': 'Fork a chat from an answer\'s ⋯ menu (Fork from here), its tab\'s context menu, or with {keys}.',
   'settings.experimental.resourceUsage.label': 'Show resource usage',
   'settings.experimental.resourceUsage.help': 'Shows CPU and memory usage in the sidebar footer.',
+  'settings.experimental.diagnostics.label': 'Keep diagnostics',
+  'settings.experimental.diagnostics.help': 'Writes an event log (errors, crashes, turn starts and ends, main-thread stalls) and performance samples to the data folder, and keeps crash dumps there. Nothing leaves this computer. Off, Report a problem has only this session\'s errors.',
   // Settings → Advanced.
   'settings.advanced.section.storage': 'Storage',
   'settings.advanced.section.commandLine': 'Command line',
@@ -2879,6 +2885,7 @@ export const en = {
   // {key} is a keyboard shortcut.
   'sidebar.rail.palette': 'Command palette ({key})',
   'sidebar.rail.shortcuts': 'Keyboard shortcuts ({key})',
+  'sidebar.rail.report': 'Report a problem ({key})',
   'sidebar.rail.settings': 'Settings ({key})',
   'sidebar.resize': 'Resize sidebar',
   'sidebar.hide': 'Hide sidebar ({key})',

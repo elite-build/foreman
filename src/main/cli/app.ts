@@ -5,9 +5,11 @@ import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { catalogAgent, enabledAgentIds, FULL_AGENT_IDS } from '../../shared/agentCatalog'
 import type { AgentKind } from '../../shared/agents'
-import type { AppInfoResult, DoctorItem, DoctorParams, DoctorResult } from '../../cli/protocol'
+import type { AppInfoResult, DoctorItem, DoctorParams, DoctorResult, HeapResult, PerfParams, ProfileParams, ProfileResult } from '../../cli/protocol'
 import { CLI_PROTOCOL_VERSION, socketPath } from '../../cli/protocol'
-import type { CliHost } from './host'
+import type { DiagnosticsBundle } from '../../shared/diagnostics'
+import type { PerfReport } from '../../shared/perf'
+import { CliCodedError, type CliHost } from './host'
 import type { CliMethod } from './methods'
 
 /** `git --version`, or null when git isn't there. */
@@ -97,6 +99,17 @@ export async function doctor(host: CliHost, params: DoctorParams | undefined, de
   return { items }
 }
 
+export const DEFAULT_PROFILE_SECONDS = 20
+
+/** The process and duration a profile request asked for, with the defaults filled in and nonsense refused. */
+export function profileTarget(params: ProfileParams | undefined): { target: 'main' | 'renderer'; seconds: number } {
+  const target = params?.target ?? 'main'
+  if (target !== 'main' && target !== 'renderer') throw new CliCodedError('invalid', 'The target must be main or renderer.')
+  const seconds = params?.seconds ?? DEFAULT_PROFILE_SECONDS
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new CliCodedError('invalid', 'Seconds must be a number above 0.')
+  return { target, seconds }
+}
+
 /** The methods this file adds to the registry (methods.ts spreads them in). */
 export const appMethods: Record<string, CliMethod> = {
   'app-info': {
@@ -116,6 +129,38 @@ export const appMethods: Record<string, CliMethod> = {
     }
   },
   doctor: { tier: 'read', handle: async (host, params) => doctor(host, params as DoctorParams | undefined) },
+  // `foreman app perf`: what the running app has been doing (docs/telemetry.md). Reading it changes nothing; it is
+  // served to anyone on the socket, like app-info.
+  'app-perf': {
+    tier: 'read',
+    handle: async (host, params): Promise<PerfReport> => {
+      if (!host.perf) throw new CliCodedError('not-supported', 'This Foreman keeps no performance counters.')
+      return host.perf({ reset: Boolean((params as PerfParams | undefined)?.reset) })
+    }
+  },
+  // `foreman app diagnostics`: the redacted bundle (the command writes the file). Reading it changes nothing.
+  'app-diagnostics': {
+    tier: 'read',
+    handle: async (host): Promise<DiagnosticsBundle> => {
+      if (!host.diagnostics) throw new CliCodedError('not-supported', 'This Foreman keeps no diagnostics.')
+      return host.diagnostics()
+    }
+  },
+  // `foreman app profile` and `app heap`: files in the data folder's logs; nothing about the setup changes.
+  'app-profile': {
+    tier: 'read',
+    handle: async (host, params): Promise<ProfileResult> => {
+      if (!host.profile) throw new CliCodedError('not-supported', 'This Foreman cannot profile itself.')
+      return host.profile(profileTarget(params as ProfileParams | undefined))
+    }
+  },
+  'app-heap': {
+    tier: 'read',
+    handle: async (host, params): Promise<HeapResult> => {
+      if (!host.heapSnapshot) throw new CliCodedError('not-supported', 'This Foreman cannot snapshot its heap.')
+      return host.heapSnapshot({ target: profileTarget(params as ProfileParams | undefined).target })
+    }
+  },
   'cli-status': { tier: 'read', handle: async (host) => host.api.cliStatus() },
   // Installing changes the user's PATH (and may ask for an administrator password on macOS), so it is the user's to do.
   'cli-install': { tier: 'admin', handle: async (host) => host.api.installCli() }

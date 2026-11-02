@@ -5,8 +5,12 @@ import type { Context, Run } from '../command'
 import { completionScript, SHELLS } from '../completion'
 import { helpFor } from '../help'
 import { columns } from '../output'
-import { CLI_PROTOCOL_VERSION, type AppInfoResult, type DoctorResult } from '../protocol'
+import { writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { CLI_PROTOCOL_VERSION, type AppInfoResult, type DoctorResult, type HeapResult, type PerfParams, type ProfileParams, type ProfileResult } from '../protocol'
 import { CLI_VERSION } from '../version'
+import { diagnosticsFileName, type DiagnosticsBundle } from '../../shared/diagnostics'
+import type { PerfReport } from '../../shared/perf'
 import type { CliInstallStatus } from '../../shared/types'
 
 /** An app that speaks an older protocol than this command may lack things it asks for. Said once, on stderr. */
@@ -43,6 +47,87 @@ const doctor: Run = async (ctx) => {
   if (problems.length) process.exitCode = 1
 }
 
+const DEFAULT_TOP = 20
+
+function duration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(1)} s`
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m} min ${Math.round(s - m * 60)} s` : `${Math.floor(m / 60)} h ${m % 60} min`
+}
+
+/** The report as a person reads it: processes, the main thread, then the busiest counters and timings. */
+export function perfText(report: PerfReport, top = DEFAULT_TOP): string {
+  const lines: string[] = [`Since ${report.since} (up ${duration(report.uptimeMs)})`, '']
+  const sample = report.sample
+  if (!sample) lines.push('No sample yet: the app takes one every few seconds.')
+  else {
+    lines.push(`Processes at ${sample.at}:`)
+    const rows = sample.processes.map((p) => [`  ${p.type}`, String(p.pid), `${p.cpuPercent}% cpu`, `${p.memoryMb} MB`])
+    lines.push(rows.length ? columns(rows) : '  (not reported)')
+    lines.push(`  main: ${sample.cpuPercent}% cpu, ${sample.rssMb} MB resident, ${sample.heapUsedMb} MB heap`)
+    lines.push(`Main thread: event-loop delay p50 ${sample.loop.p50} ms, p99 ${sample.loop.p99} ms, max ${sample.loop.max} ms`)
+  }
+  const counters = Object.entries(report.counters).slice(0, top)
+  lines.push('', counters.length ? `Counters (top ${counters.length}):` : 'Counters: none yet')
+  if (counters.length) lines.push(columns(counters.map(([name, n]) => [`  ${name}`, String(n)])))
+  const timings = Object.entries(report.timings).slice(0, top)
+  lines.push('', timings.length ? `Timings (top ${timings.length} by total):` : 'Timings: none yet')
+  if (timings.length) lines.push(columns([['  name', 'count', 'total', 'avg', 'max'], ...timings.map(([name, t]) => [`  ${name}`, String(t.count), duration(t.totalMs), duration(t.totalMs / t.count), duration(t.maxMs)])]))
+  const gauges = Object.entries(report.gauges)
+  if (gauges.length) lines.push('', 'Gauges (latest):', columns(gauges.map(([name, v]) => [`  ${name}`, String(v)])))
+  return lines.join('\n')
+}
+
+const appPerf: Run = async (ctx) => {
+  const top = ctx.opts.top === undefined ? DEFAULT_TOP : Number(ctx.opts.top)
+  if (!Number.isInteger(top) || top < 1) throw usageError('--top takes a whole number of 1 or more.')
+  const report = await ctx.send<PerfReport>('app-perf', { reset: Boolean(ctx.opts.reset) } satisfies PerfParams)
+  ctx.print(report, () => perfText(report, top))
+}
+
+/** `foreman app diagnostics`: the bundle from the app, written to --out or the current folder; attach it to an issue. */
+const appDiagnostics: Run = async (ctx) => {
+  const bundle = await ctx.send<DiagnosticsBundle>('app-diagnostics')
+  const out = typeof ctx.opts.out === 'string' && ctx.opts.out ? path.resolve(ctx.cwd, ctx.opts.out) : path.join(ctx.cwd, diagnosticsFileName())
+  const text = `${JSON.stringify(bundle, null, 2)}\n`
+  await writeFile(out, text)
+  ctx.print({ file: out, bytes: text.length, events: bundle.events.length, crashDumps: bundle.crashDumps.length }, () =>
+    [
+      `Saved ${out}`,
+      `${bundle.events.length} events this session, ${bundle.logTail.length} log lines, ${bundle.perfTail.length} performance samples, ${bundle.crashDumps.length} crash dump${bundle.crashDumps.length === 1 ? '' : 's'} listed.`,
+      'Paths, user names, tokens and e-mail addresses were removed. Read it over, then attach it to the issue.'
+    ].join('\n')
+  )
+}
+
+function profileParams(ctx: Context): ProfileParams {
+  const params: ProfileParams = { target: ctx.opts.renderer ? 'renderer' : 'main' }
+  if (ctx.opts.seconds !== undefined) {
+    const seconds = Number(ctx.opts.seconds)
+    if (!Number.isFinite(seconds) || seconds <= 0) throw usageError('--seconds takes a number above 0.')
+    params.seconds = seconds
+  }
+  return params
+}
+
+/** `foreman app profile`: a CPU profile of main or the window, saved in the data folder's logs. */
+const appProfile: Run = async (ctx) => {
+  const params = profileParams(ctx)
+  ctx.note(`Profiling the ${params.target === 'renderer' ? 'window' : 'main process'} for ${params.seconds ?? 20} s…`)
+  const result = await ctx.send<ProfileResult>('app-profile', params)
+  ctx.print(result, () => `Saved ${result.file} (${Math.round(result.ms / 1000)} s). Open it in Chrome DevTools (Performance → Load profile) or VS Code.`)
+}
+
+/** `foreman app heap`: a heap snapshot of main or the window, saved in the data folder's logs. */
+const appHeap: Run = async (ctx) => {
+  const params = profileParams(ctx)
+  ctx.note(`Taking a heap snapshot of the ${params.target === 'renderer' ? 'window' : 'main process'}; this pauses it for a moment…`)
+  const result = await ctx.send<HeapResult>('app-heap', { target: params.target })
+  ctx.print(result, () => `Saved ${result.file}. Open it in Chrome DevTools (Memory → Load).`)
+}
+
 function statusText(status: CliInstallStatus): string {
   const lines = [status.installed ? `The foreman command is installed${status.path ? `: ${status.path}` : ''}` : 'The foreman command isn’t installed. Run `foreman cli install`, or use Settings → Advanced → foreman command → Install.']
   if (status.note) lines.push(status.note)
@@ -75,6 +160,10 @@ const help: Run = async (ctx) => {
 
 export const appRunners: Record<string, Run> = {
   'app info': appInfo,
+  'app perf': appPerf,
+  'app diagnostics': appDiagnostics,
+  'app profile': appProfile,
+  'app heap': appHeap,
   doctor,
   'cli status': cliStatus,
   'cli install': cliInstall,

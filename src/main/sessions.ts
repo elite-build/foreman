@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import os from 'node:os'
+import { diag } from './diagnosticsLog'
 import { cloudAgentRefusal } from '../shared/cloud'
 import { AGENTS, builtinCommands, DEFAULT_MODEL, defaultModel, modelInfo, supportsPlan } from '../shared/agents'
 import { planDelivery } from '../shared/delivery'
@@ -1283,6 +1284,9 @@ export class SessionService {
     const sessionId = session.id
     const entry: ActiveTurn = { turn, turnId, done: Promise.resolve(), finished: false, cancelled: false }
     let crash: string | undefined
+    // The event log (docs/telemetry.md): when turns start and end, and how, next to the errors and stalls around them.
+    const trackedFrom = Date.now()
+    diag.log('turn.start', { session: sessionId, turn: turnId, agent: session.agent, workspace: ws.id, hosted: Boolean(turn.hosted) })
     entry.done = turn
       .run()
       .catch((err) => {
@@ -1324,6 +1328,7 @@ export class SessionService {
             : !result && crash
               ? usageLimitOf(session.agent, crash, Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
               : undefined
+        diag.log('turn.end', { session: sessionId, turn: turnId, agent: session.agent, workspace: ws.id, outcome, error: error?.split('\n')[0], durationMs: stoppedAt - trackedFrom })
         await this.endTurn(session, ws, turnId, outcome, error, turn.endedAt, limit, interruption, stoppedAt)
         // A cloud host may queue a continuation here, which the drain below starts.
         if (turn.hosted) this.hostFor(ws)?.ended(sessionId, turnId)
