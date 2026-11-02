@@ -6,9 +6,12 @@
   flex-direction: column;
   min-height: 0;
 }
+/* Positioned, so the turns' .sr-only headings (absolute) are placed in the log and scroll with it, instead of hanging
+   below the window from .center-body and letting scrollIntoView scroll the whole app. */
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
+  position: relative;
 }
 .chat-search {
   display: flex;

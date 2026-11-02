@@ -1,9 +1,12 @@
 /* ---- layout ---- */
 
+/* Clipped, not hidden: nothing that overflows the app (an absolutely placed element in an unpositioned scroller) can
+   make the window itself scrollable, so scrollIntoView and focus never shift the whole layout under the title bar. */
 .app {
   display: grid;
   grid-template-columns: 264px 1fr;
   height: 100%;
+  overflow: clip;
 }
 .drag {
   -webkit-app-region: drag;
