@@ -415,12 +415,35 @@ describe('archive stops before deleting anything', () => {
     expect(disposed).not.toHaveBeenCalled()
     // The checkpoint (step 2) went through before the script failed.
     expect(await revParse(repo.rootPath, `${CHECKPOINT_REF_PREFIX}archive-${ws.id}`)).toBeTruthy()
+    // It needs you, kept on the workspace (so across a restart), until the archive goes through or the workspace is kept.
+    expect(ws.archiveStopped).toMatchObject({ step: 'script', detail: 'exit code 3' })
+    expect(Date.parse(ws.archiveStopped!.at)).not.toBeNaN()
 
     service.updateRepoSettings(repo.id, { archiveScript: isWindows ? 'exit 0' : 'true' })
     expect(await stop.archive(ws.id, true, { from: 'script' })).toEqual({ ok: true })
     expect(existsSync(wsPath(ws))).toBe(false)
     expect(ws.state).toBe('archived')
+    expect(ws.archiveStopped).toBeUndefined()
     expect(disposed).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a stopped archive’s workspace when asked: it stays, and no longer needs you', async () => {
+    const { store, service, repo, ws } = await setup()
+    service.updateRepoSettings(repo.id, { archiveScript: 'exit 4' })
+    const changed = vi.fn()
+    const stop = new StopSafely({
+      store, sessions: { cancel: async () => {}, cancelTurn: async () => null } as never, workspaces: service,
+      terminals: () => [], stopChecks: async () => {}, killTerminals: () => {}, forgetTerminals: () => {}, stopSpotlight: async () => {},
+      disposeSessions: async () => {}, quit: () => {}, changed
+    })
+    expect(await stop.archive(ws.id, false, { stopTabs: true })).toMatchObject({ ok: false, step: 'script' })
+    expect(ws.archiveStopped?.step).toBe('script')
+    service.dismissArchiveStopped(ws.id)
+    expect(ws.archiveStopped).toBeUndefined()
+    expect(ws.state).toBe('ready')
+    expect(existsSync(wsPath(ws))).toBe(true)
+    // Nothing to dismiss is fine.
+    expect(() => service.dismissArchiveStopped(ws.id)).not.toThrow()
   })
 
   it('keeps everything when the checkpoint can’t be saved, and archives anyway only when asked', async () => {

@@ -11,6 +11,7 @@ import type { ApprovalRequest, ApprovalResponse, AppSnapshot, Workspace } from '
 import type { TriageInput } from '../shared/triage'
 import {
   appendEvent,
+  archivedSince,
   boundLog,
   lookAll,
   pollTargets,
@@ -113,7 +114,7 @@ export class AttentionService {
     this.wakeForLater(input)
     const next = lookAll(input)
     if (this.looks) {
-      const drafts = [...next].flatMap(([id, look]) => transitions(id, this.looks!.get(id), look))
+      const drafts = [...[...next].flatMap(([id, look]) => transitions(id, this.looks!.get(id), look)), ...archivedSince(this.looks, next, input.snapshot.workspaces)]
       if (drafts.length) {
         for (const draft of drafts) this.write(draft)
         this.deps.logChanged()

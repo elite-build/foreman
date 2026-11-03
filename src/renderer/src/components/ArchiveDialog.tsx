@@ -28,7 +28,8 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
   const [previewFailed, setPreviewFailed] = useState(false)
   const [deleteBranch, setDeleteBranch] = useState(() => getState().archiveDeleteBranch)
   const [busy, setBusy] = useState(false)
-  const [failure, setFailure] = useState<Failure | null>(null)
+  // A stopped archive is kept on the workspace, so the dialog opened from Needs you (after a restart too) starts on it.
+  const [failure, setFailure] = useState<Failure | null>(() => (ws?.archiveStopped ? { ok: false, step: ws.archiveStopped.step, detail: ws.archiveStopped.detail } : null))
   // O18: the archive went through but the Docker step left something behind (or couldn't ask Docker).
   const [docker, setDocker] = useState<DockerRemoval | null>(null)
   // "Archive anyway…" asks for a second click.
@@ -78,11 +79,9 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
     if (options.from !== 'script') setScriptSteps(null)
     setBusy(true)
     setFailure(null)
+    // It carries on out of sight: the sidebar row says which step it's on, and only the end is worth a toast.
     backgroundArchive(workspaceId)
     if (getState().selectedWorkspaceId === workspaceId) selectWorkspace(null)
-    showToast(t('stop.archive.background', { name: ws.name }), 'info', {
-      action: { label: t('stop.archive.viewProgress'), run: () => openArchiveDialog(workspaceId) }
-    })
     const outcome = await attempt(() => api.archiveWorkspace(workspaceId, !ws.adopted && deleteBranch, options))
     setBusy(false)
     setArmed(false)
@@ -95,8 +94,9 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
     if (!outcome.ok) {
       setFailure(outcome)
       stopBackgroundArchive(workspaceId)
-      showToast(t('stop.archive.backgroundFailed', { name: ws.name }), 'error', {
-        action: { label: t('stop.archive.viewProgress'), run: () => openArchiveDialog(workspaceId) }, report: false
+      // Main kept it on the workspace (archiveStopped), so it waits in Needs you after the toast has gone.
+      showToast(t('stop.archive.stopped', { name: ws.name }), 'error', {
+        action: { label: t('stop.archive.resolve'), run: () => openArchiveDialog(workspaceId) }, report: false
       })
       return
     }
@@ -108,7 +108,8 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
       return
     }
     if (outcome.docker?.removed.length) showToast(t('docker.result.removed', { count: outcome.docker.removed.length }))
-    else showToast(t('stop.archive.completed', { name: ws.name }))
+    // Archives that finish close together share one toast ("Archived 3 workspaces"); each is in Home's Recent.
+    else showToast(t('stop.archive.completed', { name: ws.name }), 'info', { group: { key: 'archived', text: (count) => t('stop.archive.completedMany', { count }) } })
     finishBackgroundArchive(workspaceId)
   }
 
@@ -139,7 +140,14 @@ export function ArchiveDialog({ workspaceId, hidden = false }: { workspaceId: st
             <Button className="stop-left" variant={armed ? 'danger' : 'default'} disabled={busy} onClick={() => (armed ? void run({ from: failure.step, anyway: true }) : setArmed(true))}>
               {armed ? t(failure.step === 'checkpoint' ? 'stop.archive.anywayCheckpoint' : 'stop.archive.anywayScript') : t('stop.archive.anyway')}
             </Button>
-            <Button onClick={() => finishBackgroundArchive(workspaceId)}>{t('stop.archive.keep')}</Button>
+            <Button
+              onClick={() => {
+                finishBackgroundArchive(workspaceId)
+                void attempt(() => api.dismissArchiveStopped(workspaceId))
+              }}
+            >
+              {t('stop.archive.keep')}
+            </Button>
             <Button variant="primary" autoFocus disabled={busy} onClick={() => void run({ from: failure.step })}>
               {busy ? t('stop.archive.busy') : t('stop.archive.retry')}
             </Button>

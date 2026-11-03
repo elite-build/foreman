@@ -27,6 +27,8 @@ export type AttentionEventKind =
   | 'approval-answered'
   // An agent's own `foreman report` (its words, never Foreman's).
   | 'agent-report'
+  // The workspace was archived: what a toast said for a few seconds stays here.
+  | 'archived'
 
 export interface AttentionEvent {
   id: string
@@ -179,6 +181,16 @@ export function transitions(workspaceId: string, prev: WorkspaceLook | undefined
     out.push({ kind: 'agent-report', workspaceId, sessionId: r.sessionId, topic: `report:${r.sessionId ?? ''}`, key: r.kind, label: r.kind, detail: r.text || undefined })
   }
   return out
+}
+
+/**
+ * Workspaces the last look saw that are archived now. Archived ones aren't looked at, so this is the only trace of the
+ * archive in the log; the archive time is the key, so archiving the same workspace again is a new event.
+ */
+export function archivedSince(prev: Map<string, WorkspaceLook>, next: Map<string, WorkspaceLook>, workspaces: Workspace[]): EventDraft[] {
+  return workspaces
+    .filter((ws) => ws.state === 'archived' && prev.has(ws.id) && !next.has(ws.id))
+    .map((ws) => ({ kind: 'archived', workspaceId: ws.id, topic: 'archived', key: ws.archivedAt ?? 'archived' }))
 }
 
 /** Every live workspace looked at, keyed by id. */
@@ -355,6 +367,8 @@ export function describeEvent(e: AttentionEvent): string {
     }
     case 'agent-report':
       return join(`Agent report: ${e.label ?? ''}`, e.detail ? `“${e.detail}”` : undefined)
+    case 'archived':
+      return 'Archived'
   }
 }
 

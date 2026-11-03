@@ -324,7 +324,11 @@ export class StopSafely {
     try {
       await workspaces.archiveWorkspace(id, deleteBranch, { from: options.from, anyway: options.anyway, onDocker: (r) => (step.docker = r), reason })
     } catch (err) {
-      if (err instanceof ArchiveStepError) return { ok: false, step: err.step, detail: err.detail }
+      if (err instanceof ArchiveStepError) {
+        // Whoever started it (the dialog, a merge, a scheduled run), the workspace now waits in Needs you.
+        workspaces.markArchiveStopped(id, err.step, err.detail)
+        return { ok: false, step: err.step, detail: err.detail }
+      }
       throw err
     }
     this.deps.forgetTerminals(id)

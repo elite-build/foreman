@@ -608,6 +608,9 @@ export interface Workspace {
   archiveDiff?: { at: string; files: number; additions: number; deletions: number; truncated?: boolean }
   // G3 · O18: Docker containers the archive couldn't remove (or couldn't check), for Home's line until removed or dismissed.
   dockerLeft?: DockerLeft
+  // An archive that stopped before deleting anything (its checkpoint or archive script failed). It needs you until the
+  // archive is tried again or the workspace is kept, across restarts.
+  archiveStopped?: { step: 'checkpoint' | 'script'; detail: string; at: string }
 }
 
 /** Why a workspace was archived: by hand, after its scheduled run completed, or after its pull request was merged. */
@@ -2487,6 +2490,8 @@ export interface Api {
   removeDockerContainers(workspaceId: string): Promise<DockerRemoval>
   // G3 · O18: hide Home's "still running after archive" line without removing anything.
   dismissDockerLeft(workspaceId: string): Promise<void>
+  // An archive that stopped on a failed step: keep the workspace, and take it out of Needs you.
+  dismissArchiveStopped(workspaceId: string): Promise<void>
   // G3 · #13: the diff kept when the workspace was archived (null when none was kept), and a new workspace from an
   // archived chat, carrying that chat's history as text (the new workspace starts from the base branch).
   archivedDiff(workspaceId: string): Promise<ArchivedDiff | null>
@@ -2848,7 +2853,7 @@ export const API_METHODS = [
   'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'saveDiagnostics', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',
   'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'archivedWork', 'deleteArchived', 'keepArchived', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
   'readFile', 'writeFile', 'searchFiles', 'listDir', 'readImage', 'previewUrl', 'readImageAt', 'alertFile',
-  'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
+  'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
   'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',

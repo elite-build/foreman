@@ -1161,6 +1161,21 @@ export class WorkspaceService {
     ws.archivedAt = new Date().toISOString()
     ws.archiveReason = reason
     delete ws.keepArchived
+    delete ws.archiveStopped
+    this.changed()
+  }
+
+  /** An archive stopped on a failed step before deleting anything: the workspace needs you until it's tried again or kept. */
+  markArchiveStopped(id: string, step: 'checkpoint' | 'script', detail: string): void {
+    this.workspace(id).archiveStopped = { step, detail, at: new Date().toISOString() }
+    this.changed()
+  }
+
+  /** "Keep workspace" after a stopped archive: it stays as it is, and no longer needs you. */
+  dismissArchiveStopped(id: string): void {
+    const ws = this.workspace(id)
+    if (!ws.archiveStopped) return
+    delete ws.archiveStopped
     this.changed()
   }
 

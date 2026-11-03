@@ -113,6 +113,11 @@ export function DiffBadge({ additions, deletions, muted }: { additions: number; 
 
 /** Open a workspace, on the chat that needs the user if there is one. */
 export function openTriaged(t: Triage): void {
+  // A stopped archive opens its dialog on the step that failed, where Retry and Keep workspace are.
+  if (t.action?.kind === 'resolve-archive') {
+    recordMilestone('needsYou')
+    return openArchiveDialog(t.ws.id)
+  }
   selectWorkspace(t.ws.id)
   // Back from Later: opening it is what bringing it back was for, so it leaves Later.
   if (t.laterBack) void attempt(() => api.updateWorkspace(t.ws.id, { later: null }))
@@ -235,7 +240,9 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
   const platform = useStore((s) => s.snapshot!.platform)
   const coloredDiffs = useStore((s) => s.snapshot!.settings.coloredSidebarDiffs)
   // An archive running in the background (or stopped on a step that needs you) says so in place of the row's label.
-  const archive = useStore((s) => s.archiveRuns[ws.id])
+  // A stopped archive is also kept on the workspace (archiveStopped), so it still says so after a restart.
+  const run = useStore((s) => s.archiveRuns[ws.id])
+  const archive = run ?? (ws.archiveStopped ? { stopped: true, step: null } : undefined)
   const archiving = Boolean(archive && !archive.stopped)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)

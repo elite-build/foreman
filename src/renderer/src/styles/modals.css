@@ -220,10 +220,15 @@
   background: var(--toast-bg);
   border: 1px solid var(--red);
   border-radius: var(--radius-lg);
-  padding: 8px 14px;
+  padding: 6px 6px 6px 14px;
   z-index: 20;
-  white-space: pre-wrap;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   cursor: pointer;
+}
+.toast-text {
+  white-space: pre-wrap;
 }
 .toast.info {
   background: var(--bg-panel);
@@ -233,7 +238,11 @@
 }
 /* A toast button (Undo): an underlined LinkButton (ui/), so the toast stays one line. */
 .toast-action {
-  margin-left: 12px;
+  flex: none;
+}
+/* Dismiss, inside the Countdown ring (ui/) that shows the toast's time left. */
+.toast-dismiss {
+  flex: none;
 }
 
 /* Windows draws its own title bar above the content. */
