@@ -206,6 +206,9 @@ describe('workspaces', () => {
     expect(ws.branch).toBe('main')
     expect(ws.baseBranch).toBe('main')
     expect(service.agentContext(ws)).toContain('straight onto main')
+    // A server the agent starts can end with its turn: it is told to hand the user a runnable block instead.
+    expect(service.agentContext(ws)).toContain('can be stopped when your turn ends')
+    expect(service.agentContext(ws)).toContain('```bash block')
     // No worktree was added.
     expect((await service.listWorktrees(repo.id)).map((t) => t.workspaceId)).toEqual([ws.id])
 

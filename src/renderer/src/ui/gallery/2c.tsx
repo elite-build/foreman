@@ -77,6 +77,7 @@ function TabsDemo() {
   const [chat, setChat] = useState('one')
   const [editing, setEditing] = useState<string | null>('two')
   const [disabled, setDisabled] = useState('general')
+  const [rail, setRail] = useState('dev')
   return (
     <Section title="Tabs">
       <div style={{ ...stack, maxWidth: 560 }}>
@@ -126,6 +127,20 @@ function TabsDemo() {
               {PlusIcon}
             </button>
           </TabList>
+        </Tabs>
+        <Tabs value={rail} onChange={setRail} variant="chat">
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ width: 160 }}>
+              <TabList label="Vertical (a side rail)" orientation="vertical">
+                <Tab value="dev">dev</Tab>
+                <Tab value="storybook">storybook</Tab>
+                <Tab value="setup">Setup</Tab>
+              </TabList>
+            </div>
+            <TabPanel value="dev">The dev server's output.</TabPanel>
+            <TabPanel value="storybook">Storybook's output.</TabPanel>
+            <TabPanel value="setup">The setup log.</TabPanel>
+          </div>
         </Tabs>
       </div>
     </Section>

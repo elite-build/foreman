@@ -148,7 +148,7 @@ export function DataPage() {
   )
 }
 
-/** Paired Macs: who this Mac can hand work to, and whether it listens for hand-offs itself. */
+/** Paired computers: who this one can hand work to, whether it listens for hand-offs, and whether paired computers may control it. */
 function DevicesSection() {
   const t = useT()
   const [info, setInfo] = useState<DevicesInfo | null>(null)
@@ -176,6 +176,21 @@ function DevicesSection() {
         detail={t('settings.data.devices.acceptDetail')}
         checked={Boolean(info?.accepting)}
         onChange={(on) => void attempt(() => api.setAcceptHandOffs(on, Number(port) || undefined)).then((i) => i && setInfo(i))}
+      />
+      <ToggleRow
+        id="remote-control"
+        label={t('settings.data.devices.remote')}
+        help={t('settings.data.devices.remoteHelp')}
+        checked={Boolean(info?.remoteControl)}
+        onChange={(on) => info && void attempt(() => api.setRemoteControl(on, info.remoteControlAsk)).then((i) => i && setInfo(i))}
+      />
+      <ToggleRow
+        id="remote-control-ask"
+        label={t('settings.data.devices.remoteAsk')}
+        help={t('settings.data.devices.remoteAskHelp')}
+        disabled={!info?.remoteControl}
+        checked={info ? info.remoteControlAsk : true}
+        onChange={(on) => info && void attempt(() => api.setRemoteControl(info.remoteControl, on)).then((i) => i && setInfo(i))}
       />
       <Row id="device-port" label={t('settings.data.devices.port')} help={t('settings.data.devices.portHelp')}>
         {(control) => (

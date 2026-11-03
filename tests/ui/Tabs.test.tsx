@@ -91,6 +91,37 @@ describe('Tabs', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('vertical: says so, moves with up and down, and ignores left and right', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    function Rail() {
+      const [value, setValue] = useState('one')
+      return (
+        <Tabs value={value} onChange={(v) => (onChange(v), setValue(v))}>
+          <TabList label="Rail" orientation="vertical">
+            <Tab value="one">One</Tab>
+            <Tab value="two">Two</Tab>
+          </TabList>
+        </Tabs>
+      )
+    }
+    render(<Rail />)
+    expect(screen.getByRole('tablist', { name: 'Rail' }).getAttribute('aria-orientation')).toBe('vertical')
+    await user.tab()
+    await user.keyboard('{ArrowRight}{ArrowLeft}')
+    expect(onChange).not.toHaveBeenCalled()
+    await user.keyboard('{ArrowDown}')
+    expect(document.activeElement).toBe(tab('Two'))
+    await user.keyboard('{ArrowDown}')
+    expect(document.activeElement).toBe(tab('One'))
+    expect(onChange.mock.calls.map((c) => c[0])).toEqual(['two', 'one'])
+  })
+
+  it('a horizontal list says it is horizontal', () => {
+    render(<Demo />)
+    expect(screen.getByRole('tablist').getAttribute('aria-orientation')).toBe('horizontal')
+  })
+
   it('skips a disabled tab', async () => {
     const user = userEvent.setup()
     render(<Demo disabled="scripts" />)

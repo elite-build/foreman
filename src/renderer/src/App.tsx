@@ -17,6 +17,8 @@ import { SettingsView } from './components/settings/SettingsView'
 import { AutomationsView } from './components/automations/AutomationsView'
 import { AssistantView } from './components/assistant/AssistantView'
 import { PhoneSetupDialog } from './components/phone/PhoneSetupDialog'
+import { RemoteBanner } from './components/computers/RemoteBanner'
+import { ControlRequestDialog } from './components/computers/ControlRequestDialog'
 import { ReportProblemDialog } from './components/ReportProblemDialog'
 import { DropFolder } from './components/DropFolder'
 import { Sidebar } from './components/Sidebar'
@@ -237,6 +239,7 @@ export function App() {
         leftPanelOpen && <Sidebar resize={sidebar} side={sidebarSide} />
       )}
       <main className="main">
+        <RemoteBanner />
         {tiled ? (
           <>
             <TilesView hidden={covered || showHome || Boolean(fullView)} />
@@ -263,6 +266,7 @@ export function App() {
       {reconcileDialog && <ReconcileDialog key={reconcileDialog} transferId={reconcileDialog} />}
       {pairDialog && <PairDialog key={pairDialog} kind={pairDialog} />}
       {phoneSetupOpen && <PhoneSetupDialog />}
+      <ControlRequestDialog />
       {reportProblemOpen && <ReportProblemDialog />}
       {compareArchive && <CompareArchiveDialog key={compareArchive.compareId} {...compareArchive} />}
       {portDialog?.kind === 'export' && <ExportDialog key={portDialog.workspaceId} workspaceId={portDialog.workspaceId} />}

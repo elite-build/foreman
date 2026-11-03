@@ -1159,6 +1159,10 @@ export interface Settings {
   // Hand off to another Mac (P-4): listen on the local network for paired Macs (off by default), and on which port.
   acceptHandOffs: boolean
   devicePort: number
+  // Paired computers may control this one from their own window (off by default); and whether the person here is asked
+  // first each time one takes control (on by default).
+  allowRemoteControl: boolean
+  remoteControlAsk: boolean
   mobileEnabled: boolean
   mobileUrl: string
   mobileLanEnabled: boolean
@@ -2113,6 +2117,13 @@ export type MainEvent =
   | { type: 'stt-model'; state: 'missing' | 'downloading' | 'ready'; bytes?: number; total?: number }
   // The window was minimized or hidden, or shown again (main/windowVisibility.ts); sent to that window only, and on load.
   | { type: 'window-visibility'; visible: boolean }
+  // Other computers (shared/remote.ts): the computer chip's view changed.
+  | { type: 'computers'; view: import('./remote').ComputersView }
+  // A computer this window isn't showing needs you (computerId null: this one, while another is shown).
+  | { type: 'computer-notify'; computerId: string | null; computerName: string; workspaceId: string; sessionId: string; title: string; body: string }
+  // The window came back to this computer by itself: the other one ended control, turned it off, was unpaired, or the
+  // link was down when the window loaded.
+  | { type: 'computer-left'; name: string; reason: 'denied' | 'off' | 'timeout' | 'unreachable' | 'mismatch' | 'unpaired' }
 
 // `cloud` patches the repository's cloud settings (null puts them back to the defaults); the build is Foreman's own.
 export type RepoPatch = Partial<Pick<Repo, 'name' | 'defaultBranch' | 'remote' | 'setupHintDismissed'>> & { icon?: RepoIcon | null; cloud?: Partial<Omit<RepoCloud, 'build'>> | null }
@@ -2633,6 +2644,14 @@ export interface Api {
   pairWith(host: string, port: number, code: string): Promise<PairedDevice>
   unpairDevice(id: string): Promise<void>
   pingDevice(id: string): Promise<boolean>
+  // Let paired computers control this one, and whether to ask the person here first.
+  setRemoteControl(allow: boolean, ask: boolean): Promise<DevicesInfo>
+  // Other computers (shared/remote.ts). These always run on this computer, whichever one the window shows.
+  computers(): Promise<import('./remote').ComputersView>
+  // Show another computer's Foreman in this window (null: this computer's again), then open a workspace there.
+  viewComputer(deviceId: string | null, open?: { workspaceId: string; sessionId?: string }): Promise<void>
+  answerControlRequest(requestId: string, allow: boolean): Promise<void>
+  disconnectController(deviceId: string): Promise<void>
   startHandOffTo(workspaceId: string, deviceId: string): Promise<string>
   cancelHandOff(transferId: string): Promise<void>
   reconcileHandOff(transferId: string, choice: 'keep-here' | 'other-keeps'): Promise<void>
@@ -2856,7 +2875,7 @@ export const API_METHODS = [
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
-  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
+  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',

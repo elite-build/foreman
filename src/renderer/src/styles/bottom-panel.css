@@ -26,52 +26,62 @@
   display: flex;
   flex-direction: column;
 }
-.bottom-tabs {
+/* The panel's width decides how much the header and the rail show (below). */
+.bottom-panel {
+  container: bottom-panel / inline-size;
+}
+/* The header: the tabs, +, then the selected entry's actions. */
+.bottom-head {
   display: flex;
   align-items: center;
   gap: 2px;
+  min-height: 37px;
   padding: 5px 8px;
   border-bottom: 1px solid var(--border);
-  container-type: inline-size;
 }
-/* The tab strip is a ui/ Tabs (chat look): its tabs shrink, with the name ellipsised, before the toolbar wraps. */
-.bottom-tabs > .bottom-tablist {
-  align-items: center;
-  gap: 2px;
+/* The tabs take what the actions leave and scroll across, rather than shrink names to icons. */
+.bottom-tabs {
+  flex: 0 1 auto;
   min-width: 0;
+  flex-wrap: nowrap;
+  gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
 }
-/* Run and Setup carry no close button, so the chat tab's padding for one is trimmed. */
-.bottom-tabs .bottom-tablist .ui-tab {
-  padding: 0 2px 0 8px;
+.bottom-tabs .ui-tab {
+  max-width: 180px;
 }
-.bottom-tabs .bottom-tablist .bottom-tab {
-  flex: 0 1 auto;
-  min-width: 64px;
+.bottom-tabs .ui-tab__button {
+  gap: 5px;
 }
-/* A compact side panel keeps the Run button's icon and drops its shortcut. */
-.side-panel.compact .bottom-tabs .ui-btn .ui-kbd {
+.bottom-tabs .ui-tab__button > svg,
+.bottom-tabs .ui-tab__button > .ui-status,
+.bottom-tabs .ui-tab__button > .ui-spinner {
+  flex: none;
+}
+.bottom-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A compact side panel drops the shortcut hint. */
+.side-panel.compact .bottom-head .ui-kbd {
   display: none;
 }
-/* Whatever the panel's slot, a narrow bar (the side panel at its default width) makes room for the tabs: no shortcut
-   hint, the Commands menu as an icon, and a terminal tab as its icon and number. Without it the selected tab shrank to nothing. */
-@container (max-width: 460px) {
-  .bottom-tabs .ui-btn .ui-kbd {
+@container bottom-panel (max-width: 460px) {
+  .bottom-head .ui-kbd {
     display: none;
   }
-  .bottom-tabs .ui-menu-wrap .btn-label {
-    display: none;
-  }
-  .bottom-tabs .term-icon {
-    display: inline-block;
-  }
-  .bottom-tabs .term-word {
-    display: none;
-  }
+}
+.bottom-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 .bottom-body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   position: relative;
 }
@@ -86,6 +96,41 @@
 }
 .run-empty .run-big {
   padding: 8px;
+}
+/* The Run tab with no run script: four ways on, two by two (one column when narrow). */
+.run-launch {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  overflow-y: auto;
+}
+.run-launch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 460px);
+}
+@container bottom-panel (max-width: 420px) {
+  .run-launch-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* The element in the selector outranks .ui-pressable's display and padding, which load later. */
+button.run-launch-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  text-align: start;
+}
+.run-launch-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .terminal {
   flex: 1;

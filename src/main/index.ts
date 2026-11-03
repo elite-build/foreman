@@ -3,7 +3,7 @@ import { ForemanCli } from './foremanCli'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeTheme, powerMonitor, powerSaveBlocker, protocol, safeStorage, shell, systemPreferences } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,6 +36,7 @@ import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
 import { runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
 import { perf } from './perf'
+import { RemoteRouter, type WindowRoute } from './remote/router'
 import { electronUpdateInstaller, type ElectronUpdateInstaller } from './updateInstaller'
 
 // The last few errors go into Report a problem's diagnostics (O20), and every one into the event log (docs/telemetry.md).
@@ -48,6 +49,10 @@ setSystemLanguages(() => [...app.getPreferredSystemLanguages(), app.getLocale()]
 const here = path.dirname(fileURLToPath(import.meta.url))
 const workspaceBrowsers = new Map<number, WorkspaceBrowser>()
 let core: Core | null = null
+// Other computers (shared/remote.ts): where the window's calls and this computer's events go while it shows another one.
+let router: RemoteRouter | null = null
+// Events for the window once it has loaded again (it switched computers).
+const afterLoad: MainEvent[] = []
 let cliServer: Server | null = null
 let mobile: MobileService | null = null
 
@@ -89,7 +94,9 @@ function broadcast(event: MainEvent): void {
     const live = new Set(event.snapshot.workspaces.filter((w) => w.state !== 'archived' && w.state !== 'history').map((w) => w.id))
     for (const browser of workspaceBrowsers.values()) browser.retain(live)
   }
-  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('foreman:event', event)
+  const route: WindowRoute = router ? router.toWindow(event) : { send: event }
+  if ('leave' in route) void core?.remote.view(null, route.leave.workspaceId ? { workspaceId: route.leave.workspaceId, sessionId: route.leave.sessionId } : undefined)
+  else if ('send' in route) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('foreman:event', route.send)
   for (const listener of eventListeners) {
     try {
       listener(event)
@@ -103,7 +110,10 @@ function broadcast(event: MainEvent): void {
 /** Send an event to the window, once its page has loaded (a window opened just now hears nothing before). */
 function sendToWindow(event: MainEvent): void {
   const win = showWindow()
-  const send = () => win.webContents.send('foreman:event', event)
+  const route: WindowRoute = router ? router.toWindow(event) : { send: event }
+  if ('leave' in route) return void core?.remote.view(null, route.leave.workspaceId ? { workspaceId: route.leave.workspaceId, sessionId: route.leave.sessionId } : undefined)
+  if (!('send' in route)) return
+  const send = () => win.webContents.send('foreman:event', route.send)
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
   else send()
 }
@@ -264,6 +274,10 @@ function createWindow(): BrowserWindow {
 
   workspaceBrowsers.set(win.webContents.id, new WorkspaceBrowser(win))
   const contentsId = win.webContents.id
+  // Other computers: what the window is told once it has loaded again after switching (where to go, or why it came back).
+  win.webContents.on('did-finish-load', () => {
+    for (const event of afterLoad.splice(0)) win.webContents.send('foreman:event', event)
+  })
   // Electron grants every permission request when nothing handles it. The only change here is the microphone
   // (speech to text): audio alone, from this window's own page. Camera and screen capture requests are refused.
   win.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
@@ -435,6 +449,14 @@ async function main(): Promise<void> {
   nativeTheme.themeSource = store.state.settings.theme
   core = new Core(store, secrets, {
     broadcast,
+    // Other computers: the window starts over from the computer it now shows; that computer's events go straight to it.
+    reloadWindow: () => {
+      for (const win of BrowserWindow.getAllWindows()) win.webContents.reload()
+    },
+    afterReload: (event) => void afterLoad.push(event),
+    showRemoteEvent: (event) => {
+      for (const win of BrowserWindow.getAllWindows()) win.webContents.send('foreman:event', event)
+    },
     applyTheme: (theme) => {
       nativeTheme.themeSource = theme
     },
@@ -597,17 +619,28 @@ async function main(): Promise<void> {
   ipcMain.handle('foreman:browser', (event, workspaceId: string, command: BrowserCommand) => browserSender(event, workspaceId).command(workspaceId, command))
   ipcMain.handle('foreman:browser-select', (event, workspaceId: string) => browserSender(event, workspaceId).selectElement(workspaceId))
   ipcMain.handle('foreman:browser-capture', (event, workspaceId: string) => browserSender(event, workspaceId).capture(workspaceId))
+  const routed = core
+  router = new RemoteRouter({
+    remote: routed.remote,
+    local: api,
+    localSignals: signals,
+    selfName: () => routed.devices.self().name,
+    readFile: (file) => readFile(file),
+    t: () => mainT(routed.settings())
+  })
+  const routes = router
   ipcMain.handle('foreman:invoke', (event, method: keyof Api, args: unknown[]) => {
     desktopSender(event)
     if (!API_METHODS.includes(method)) throw new Error('Unknown API method')
     const fn = api[method]
     if (typeof fn !== 'function') throw new Error(`Unknown method ${String(method)}`)
     // Every call from the window, by method, with how long main took to answer (`ipc.getDiff`, `ipc.gitStatus`).
-    return perf.timed(`ipc.${method}`, () => Promise.resolve((fn as (...a: unknown[]) => unknown)(...args)))
+    // While the window shows another computer, most go there (remote/router.ts).
+    return perf.timed(`ipc.${method}`, () => routes.invoke(method, args))
   })
   ipcMain.on('foreman:send', (event, method: keyof Signals, args: unknown[]) => {
     if (!workspaceBrowsers.has(event.sender.id) || event.senderFrame !== event.sender.mainFrame) return
-    if (SIGNAL_METHODS.includes(method)) signals[method]?.(...args)
+    if (SIGNAL_METHODS.includes(method)) routes.signal(method, args)
   })
 
   installMenu()
@@ -753,6 +786,8 @@ async function main(): Promise<void> {
   powerMonitor.on('resume', () => limitResume.woke())
   core.transfers.recover()
   void core.applyDeviceListening().catch((err: unknown) => console.error('Hand-offs:', err))
+  // Other computers: background links to the paired ones, for the computer chip and their alerts.
+  core.startComputers()
   void core.baseWatch.poll()
   core.data.start()
   core.gitBackup.start()

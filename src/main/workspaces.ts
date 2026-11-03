@@ -90,6 +90,14 @@ export function samePath(a: string, b: string): boolean {
   return norm(a) === norm(b)
 }
 
+/**
+ * A new workspace's name. A branch with a real name (checked out, typed in, Linear's or a pull request's) names it;
+ * a generated branch keeps the generated name until the first message renames both.
+ */
+function workspaceName(branch: string, generated: string, fromBranch: boolean): string {
+  return fromBranch ? branch.split('/').pop() || generated : generated
+}
+
 /** Between a worktree being ready and setup running, for a workspace created with deferSetup. */
 interface SetupHold {
   prepared: Promise<void>
@@ -381,7 +389,13 @@ export class WorkspaceService {
         ]
     return [
       ...where,
-      ...(ws.cloud ? [] : [`Ports ${ws.portBase}-${ws.portBase + PORT_BLOCK_SIZE - 1} are reserved for this workspace; the first one is in $FOREMAN_PORT. Use them for dev servers.`]),
+      ...(ws.cloud
+        ? []
+        : [
+            `Ports ${ws.portBase}-${ws.portBase + PORT_BLOCK_SIZE - 1} are reserved for this workspace; the first one is in $FOREMAN_PORT. Use them for dev servers.`,
+            // A server an agent starts in its own command can end with the turn, so the link it hands over is dead; a detached one is an orphan nothing shows or stops.
+            'A process your commands start, such as a dev server, can be stopped when your turn ends, so a localhost link to it may be dead by the time the user opens it. Do not detach it to keep it alive. To leave the user a server, put its command in a ```bash block in your reply: Foreman gives the block a Run button that starts it in a terminal the user can see and stop.'
+          ]),
       'Do not commit, push, or open pull requests unless the user asks you to.',
       ws.direct ? 'Do not switch or rename the branch unless the user asks.' : 'Do not rename the branch unless the user asks; Foreman names it from the task.',
       ...(this.state.settings.stackedPrs ? ['You can stack pull requests with `gh stack` when a change is better split into several PRs.'] : []),
@@ -497,8 +511,7 @@ export class WorkspaceService {
     const ws: Workspace = {
       id: randomUUID(),
       repoId,
-      // A checked-out branch names the workspace; otherwise use the generated name.
-      name: choice.kind === 'existing' ? branch.split('/').pop() || generatedName : generatedName,
+      name: workspaceName(branch, generatedName, choice.kind === 'existing' || (!placeholderBranch && settings.renameWorkspaceWithBranch)),
       branch,
       placeholderBranch,
       namesake: choice.kind === 'existing' ? undefined : findWorkspacePerson(choice.name)?.name ?? generatedName,
@@ -551,7 +564,7 @@ export class WorkspaceService {
     const ws: Workspace = {
       id,
       repoId: repo.id,
-      name: choice.kind === 'existing' ? branch.split('/').pop() || generatedName : generatedName,
+      name: workspaceName(branch, generatedName, choice.kind === 'existing' || (!placeholderBranch && settings.renameWorkspaceWithBranch)),
       branch,
       placeholderBranch,
       namesake: choice.kind === 'existing' ? undefined : findWorkspacePerson(choice.name)?.name ?? generatedName,

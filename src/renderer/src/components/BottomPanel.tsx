@@ -1,25 +1,28 @@
-import { Check, ChevronDown, Cloud, ExternalLink, History, Minimize2, Play, Plus, Radar, Square, SquareTerminal, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown, Cloud, ExternalLink, History, Maximize2, MessageSquarePlus, Minimize2, Play, Radar, SlidersHorizontal, Square, SquareTerminal, Wrench, X } from 'lucide-react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { PROBE_EVERY_MS, probeNote, probeText, type PreviewProbe } from '../../../shared/previewProbe'
+import { DEFAULT_PROMPT_TEMPLATES, SETUP_REPO_TEMPLATE_ID } from '../../../shared/promptTemplates'
 import { shellName, type ShellChoice } from '../../../shared/shells'
 import { normalizeTabName, restoredWhen, type SavedTerminalTab, type TerminalTabSave } from '../../../shared/terminalTabs'
 import type { PreviewUrl, RunScript, Workspace } from '../../../shared/types'
 import { useT } from '../i18n'
-import { api, attempt, bridge, getState, modKey, onUiCommand, openSettingsPage, showBottomPanel, showError, toggleTerminalFullscreen, useStore } from '../store'
+import { activeSessionId, api, attempt, bridge, fillComposer, getState, modKey, onUiCommand, openSettingsPage, showBottomPanel, toggleTerminalFullscreen, useStore } from '../store'
 import { SetupLog } from './SetupLog'
-import { NewTerminalMenu } from './NewTerminalMenu'
-import { CommandsMenu, useSavedCommandRunner } from './SavedCommands'
+import { NewMenu } from './NewTerminalMenu'
+import { useSavedCommandRunner } from './SavedCommands'
 import type { SavedCommand } from '../../../shared/savedCommands'
 import { lucideIcon } from './Sidebar'
-import { TerminalMenu } from './TerminalMenu'
 import { TerminalView, type RestoredOutput, type TerminalReading } from './TerminalView'
-import { Button, ChipButton, IconButton, Kbd, LinkButton, MenuButton, MenuItem, SplitButton, Status, Tab, TabList, TabPanel, Tabs, TextInput } from '../ui'
+import { Button, CardButton, IconButton, Kbd, LinkButton, MenuButton, MenuItem, Spinner, Status, Tab, TabList, TabPanel, Tabs, TextInput } from '../ui'
 
-type PanelTab = 'run' | 'setup' | `term-${number}`
+// 'run' stands for the Run entry while the repository has no run script; each script is `run:<name>`.
+type PanelTab = 'run' | 'setup' | `run:${string}` | `term-${number}`
+
+const runTab = (name: string): PanelTab => `run:${name}`
 
 const NO_SCRIPTS: RunScript[] = []
 const NO_URLS: PreviewUrl[] = []
-// Selections sent to chat from the Run tab say "From Run".
+// Selections sent to chat from a run script say "From Run".
 const RUN_SOURCE = { kind: 'run' } as const
 // While output keeps arriving, terminal tabs are saved for restore at most this often (O3).
 const SAVE_EVERY_MS = 3000
@@ -39,6 +42,15 @@ interface TermTab {
   restored?: RestoredOutput & { started: boolean }
 }
 
+/** One run script's run. Several scripts can run at once, each in its own terminal; a new `key` mounts a fresh one. */
+interface ScriptRun {
+  key: number
+  pty: string | null
+  running: boolean
+  // How a run that ended by itself ended; unset while it runs and after Stop.
+  exit?: number
+}
+
 /** A saved tab comes back dimmed under "the process was not kept"; one that never printed anything (never opened) comes back as a plain tab. */
 function fromSaved(saved: SavedTerminalTab): TermTab {
   const tab: TermTab = { n: saved.n, name: saved.name, zoom: saved.zoom ?? 1, ...(saved.shell ? { shell: saved.shell } : {}) }
@@ -48,7 +60,23 @@ function fromSaved(saved: SavedTerminalTab): TermTab {
     : tab
 }
 
-/** Inline rename in a tab: Enter keeps the name, Esc cancels, and an empty name goes back to "Terminal {n}". */
+/** One way on from the Run tab's launcher: a card whose name is its title, described by the line under it. */
+function LaunchCard({ icon, title, children, disabled, onClick }: { icon: ReactNode; title: string; children: ReactNode; disabled?: boolean; onClick: () => void }) {
+  const id = useId()
+  return (
+    <CardButton size="sm" className="run-launch-card" aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`} disabled={disabled} onClick={onClick}>
+      <strong id={`${id}-title`} className="run-launch-title">
+        {icon}
+        {title}
+      </strong>
+      <span id={`${id}-body`} className="faint small">
+        {children}
+      </span>
+    </CardButton>
+  )
+}
+
+/** Inline rename of a terminal, in its tab: Enter keeps the name, Esc cancels, and an empty name goes back to "Terminal {n}". */
 function TabRename({ value, label, onDone }: { value: string; label: string; onDone: (name: string | null) => void }) {
   const done = useRef(false)
   const finish = (name: string | null) => {
@@ -77,7 +105,7 @@ function TabRename({ value, label, onDone }: { value: string; label: string; onD
   )
 }
 
-/** Scripts the Run button offers: hidden ones left out, the default one first. */
+/** Scripts the Run list offers: hidden ones left out, the default one first. */
 function visibleScripts(all: RunScript[]): RunScript[] {
   const shown = all.filter((s) => !s.hidden && s.command.trim())
   return [...shown.filter((s) => s.default), ...shown.filter((s) => !s.default)]
@@ -148,11 +176,19 @@ function PreviewCheck({ workspaceId, script, running }: { workspaceId: string; s
   )
 }
 
+/**
+ * The run scripts, setup and terminals: a header of tabs, + for a new terminal or saved command, and the selected
+ * one's actions, over its output. Several run scripts can run at once. With no run script and nothing open, the Run
+ * tab is a launcher and is the only tab; Setup's tab is an icon, named when it's selected.
+ */
 export function BottomPanel({ workspace, visible }: { workspace: Workspace; visible: boolean }) {
   const values = useStore((s) => s.snapshot!.repoSettings[workspace.repoId]?.values)
   const spotlightOn = useStore((s) => s.snapshot!.spotlight[workspace.repoId] === workspace.id)
   const platform = useStore((s) => s.snapshot!.platform)
   const autoRun = useStore((s) => s.autoRun[workspace.id])
+  const sessionId = useStore((s) => activeSessionId(s, workspace.id))
+  const setupTemplate =
+    useStore((s) => s.snapshot!.settings.promptTemplates.find((p) => p.id === SETUP_REPO_TEMPLATE_ID)) ?? DEFAULT_PROMPT_TEMPLATES.find((p) => p.id === SETUP_REPO_TEMPLATE_ID)!
   const scripts = visibleScripts(values?.runScripts ?? NO_SCRIPTS)
   const previewUrls = values?.previewUrls ?? NO_URLS
   // Phase 4: a cloud workspace's terminals and run scripts are in its sandbox; previews, spotlight and this
@@ -162,25 +198,31 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
   const spotlightMode = Boolean(values?.spotlightTesting) && !workspace.direct && !cloud
   const t = useT()
   const [tab, setTab] = useState<PanelTab>(workspace.state === 'ready' ? 'run' : 'setup')
-  const [terminals, setTerminals] = useState<TermTab[]>([{ n: 1, zoom: 1 }])
+  // None until one is opened: an empty panel is the Run tab's launcher.
+  const [terminals, setTerminals] = useState<TermTab[]>([])
   const [runZoom, setRunZoom] = useState(1)
   const [renaming, setRenaming] = useState<number | null>(null)
-  const [tabMenu, setTabMenu] = useState<{ n: number; x: number; y: number } | null>(null)
-  // The tab menu's Find… for terminal n: a nonce the terminal opens its find bar on.
-  const [findRequest, setFindRequest] = useState<{ n: number; nonce: number } | null>(null)
   const fullscreen = useStore((s) => s.terminalFullscreen === workspace.id)
-  const copyOnSelect = useStore((s) => s.snapshot!.settings.terminalCopyOnSelect ?? false)
-  // Each run mounts a fresh terminal; null when nothing has run yet.
-  const [run, setRun] = useState<{ key: number; script: string } | null>(null)
-  // Terminal tabs start their shell the first time they are shown.
-  const [visited, setVisited] = useState<Set<PanelTab>>(new Set())
-  if (!visited.has(tab)) setVisited(new Set(visited).add(tab))
-  const visitedRef = useRef(visited)
-  visitedRef.current = visited
-  const [runPty, setRunPty] = useState<string | null>(null)
-  const [running, setRunning] = useState(false)
+  const [runs, setRuns] = useState<Record<string, ScriptRun>>({})
   const mod = modKey(platform)
   const ready = workspace.state !== 'creating' && workspace.state !== 'error' && workspace.state !== 'history'
+
+  // The scripts in the list: the repository's, then any still running whose script has left the settings (its
+  // terminal stays until it stops; unmounting it would end the process).
+  const listed = [...scripts, ...Object.keys(runs).filter((name) => runs[name].running && !scripts.some((s) => s.name === name)).map((name): RunScript => ({ name, command: '', icon: '' }))]
+  const runValues: PanelTab[] = listed.length ? listed.map((s) => runTab(s.name)) : ['run']
+  // What the header and body show: the chosen entry while it exists, else the first run script (or Run).
+  const selected: PanelTab = tab === 'setup' || runValues.includes(tab) || terminals.some((term) => tab === `term-${term.n}`) ? tab : runValues[0]
+  const selectedScript = listed.find((s) => runTab(s.name) === selected)
+  const anyRunning = Object.values(runs).some((run) => run.running)
+  // Nothing to switch between: the launcher offers Setup's log itself, so its tab waits.
+  const launcher = !listed.length && !terminals.length && selected === 'run'
+
+  // Terminal tabs start their shell the first time they are shown.
+  const [visited, setVisited] = useState<Set<PanelTab>>(new Set())
+  if (!visited.has(selected)) setVisited(new Set(visited).add(selected))
+  const visitedRef = useRef(visited)
+  visitedRef.current = visited
 
   // Show setup output while the workspace is being prepared.
   useEffect(() => {
@@ -192,12 +234,11 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
   const launch = (script: RunScript) => {
     // Hidden by the user: a run brings it back so its output is on screen.
     if (!getState().bottomPanelOpen) showBottomPanel()
-    setRun({ key: Date.now(), script: script.name })
-    setRunning(true)
-    setTab('run')
+    setRuns((all) => ({ ...all, [script.name]: { key: Date.now(), pty: null, running: true } }))
+    setTab(runTab(script.name))
   }
 
-  const start = async (script: RunScript | undefined = scripts[0]) => {
+  const start = async (script: RunScript | undefined) => {
     if (spotlightMode) {
       // Spotlight: mirror this workspace into the repo root, then run from there.
       const ok = await attempt(async () => (await api.setSpotlight(workspace.id, true), true))
@@ -212,25 +253,39 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
     }
     launch(script)
   }
-  const stop = () => {
-    if (runPty) bridge.send.ptyKill(runPty)
-    setRunning(false)
-    if (spotlightOn) void attempt(() => api.setSpotlight(workspace.id, false))
+  const stopSpotlight = () => void attempt(() => api.setSpotlight(workspace.id, false))
+  const stop = (name: string) => {
+    const run = runs[name]
+    if (run?.pty) bridge.send.ptyKill(run.pty)
+    setRuns((all) => (all[name] ? { ...all, [name]: { ...all[name], running: false, exit: undefined } } : all))
+    // Spotlight ends with the last script running from it.
+    if (spotlightOn && !Object.entries(runs).some(([other, r]) => other !== name && r.running)) stopSpotlight()
+  }
+  // A run that ended by itself keeps how it ended; one stopped by Stop already says it isn't running.
+  const ended = (name: string, key: number, code: number) =>
+    setRuns((all) => {
+      const run = all[name]
+      if (run?.key !== key) return all
+      return { ...all, [name]: { ...run, running: false, exit: run.running ? code : undefined } }
+    })
+  // ⌘R: the selected script (else the default one) starts or stops.
+  const toggle = () => {
+    const script = selectedScript ?? scripts[0]
+    if (script && runs[script.name]?.running) stop(script.name)
+    else if (spotlightOn && !anyRunning) stopSpotlight()
+    else void start(script)
   }
 
   // Shortcut and auto-run handlers read the latest render's state.
-  const latest = useRef({ start, stop, launch, running, spotlightOn, scripts, ready })
-  latest.current = { start, stop, launch, running, spotlightOn, scripts, ready }
+  const latest = useRef({ toggle, launch, scripts, ready })
+  latest.current = { toggle, launch, scripts, ready }
 
   useEffect(
     () =>
       onUiCommand((command, workspaceId) => {
         if (workspaceId !== workspace.id) return
         if (command === 'show-setup-log') return setTab('setup')
-        if (command !== 'run') return
-        const now = latest.current
-        if (now.running || now.spotlightOn) now.stop()
-        else void now.start()
+        if (command === 'run') latest.current.toggle()
       }),
     [workspace.id]
   )
@@ -329,26 +384,18 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
     const rest = terminals.filter((term) => term.n !== n)
     setTerminals(rest)
     readers.current.delete(n)
-    if (tab === `term-${n}`) setTab(rest.length ? `term-${rest[rest.length - 1].n}` : 'run')
+    if (selected === `term-${n}`) setTab(rest.length ? `term-${rest[rest.length - 1].n}` : 'run')
   }
   const renameTerminal = (n: number, name: string | null) => {
     setRenaming(null)
     if (name !== null) updateTerminal(n, { name: normalizeTabName(name) })
   }
+  const openTerminal = () => (terminals.length ? setTab(`term-${terminals[0].n}`) : addTerminal())
   // A tab opened in another shell is named after it ("Git Bash") until renamed.
   const shellLabel = (term: TermTab) => (term.shell ? shellName(term.shell, t) : undefined)
   const tabName = (term: TermTab) => term.name ?? shellLabel(term) ?? t('terminalChat.source.terminal', { n: term.n })
   const startShell = (term: TermTab) => {
     if (term.restored) updateTerminal(term.n, { restored: { ...term.restored, started: true } })
-  }
-  const menuTerm = tabMenu ? terminals.find((term) => term.n === tabMenu.n) : undefined
-  const findIn = (n: number) => {
-    setTab(`term-${n}`)
-    setFindRequest({ n, nonce: Date.now() })
-  }
-  const toggleFullscreen = (show: PanelTab) => {
-    setTab(show)
-    toggleTerminalFullscreen(workspace.id)
   }
 
   // Esc leaves fullscreen, unless a terminal, its find bar, a rename or a menu has it (Esc matters to programs in a shell).
@@ -367,31 +414,87 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
     void attempt(() => api.openPreview(workspace.id, index))
   }
 
-  // The script the Run tab is about: the one last run, else the default one.
-  const previewScript = scripts.find((s) => s.name === run?.script) ?? scripts[0]
   const runLabel = spotlightMode ? t('bottomPanel.startSpotlight') : t('bottomPanel.run')
   const runIcon = spotlightMode ? <Radar size={11} /> : <Play size={11} />
-  const runTitle = spotlightMode
-    ? t('bottomPanel.spotlightTitle')
-    : scripts[0]
-      ? t('bottomPanel.runTitle', { name: scripts[0].name, command: scripts[0].command })
-      : t('bottomPanel.noRunScriptTitle')
-
+  const runTitle = (script: RunScript) => (spotlightMode ? t('bottomPanel.spotlightTitle') : t('bottomPanel.runTitle', { name: script.name, command: script.command }))
   const previewTitle = previewUrls[0]?.name ? t('bottomPanel.openPreview', { name: previewUrls[0].name, key: `${mod}⇧B` }) : t('bottomPanel.openPreviewDefault', { key: `${mod}⇧B` })
-  const runButtonLabel = (
-    <>
-      <span className="btn-label">{runLabel}</span> <Kbd>{mod}R</Kbd>
-    </>
-  )
+
+  // A script's state in words: shown beside its name in the header, as a shape in the rail with the word in its tooltip.
+  const runWord = (name: string): { tone: 'ok' | 'error'; label: string } | undefined => {
+    const run = runs[name]
+    if (run?.running) return { tone: 'ok', label: t('bottomPanel.running') }
+    if (run?.exit !== undefined && run.exit !== 0) return { tone: 'error', label: t('bottomPanel.exited', { code: run.exit }) }
+    return undefined
+  }
+  const setupBusy = workspace.state === 'creating' || workspace.state === 'setting-up'
+  const setupWord = setupBusy
+    ? t('workspaceView.state.settingUp')
+    : workspace.state === 'setup-failed'
+      ? t('workspaceView.state.setupFailed')
+      : workspace.state === 'error'
+        ? t('workspaceView.state.error')
+        : undefined
+  const tooltip = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(' · ')
+
+  // ---- the header: the tabs, +, then the selected one's actions ----
+  let action: ReactNode = null
+  if (selectedScript && runs[selectedScript.name]?.running) {
+    const name = selectedScript.name
+    action = (
+      <Button size="sm" icon={<Square size={11} />} onClick={() => stop(name)} title={`${t('common.stop')} (${mod}R)`}>
+        {t('common.stop')} <Kbd>{mod}R</Kbd>
+      </Button>
+    )
+  }
+  if (!action && spotlightOn && !anyRunning)
+    action = (
+      <Button size="sm" icon={<Square size={11} />} onClick={stopSpotlight} title={`${t('bottomPanel.stopSpotlight')} (${mod}R)`}>
+        {t('bottomPanel.stopSpotlight')} <Kbd>{mod}R</Kbd>
+      </Button>
+    )
+  // Without a run script, Run only does something in spotlight mode; otherwise the empty state offers the way on.
+  else if (!action && (selectedScript || (selected === 'run' && spotlightMode)))
+    action = (
+      <Button size="sm" icon={runIcon} onClick={() => void start(selectedScript)} disabled={!ready} title={selectedScript ? runTitle(selectedScript) : t('bottomPanel.spotlightTitle')}>
+        {runLabel} <Kbd>{mod}R</Kbd>
+      </Button>
+    )
 
   return (
-    <Tabs value={tab} onChange={(next) => setTab(next as PanelTab)} variant="chat" className="bottom-panel" role="region" aria-label={t('bottomPanel.label')}>
-      <div className="bottom-tabs">
-        <TabList label={t('bottomPanel.tabs')} className="bottom-tablist">
-          <Tab value="run" title={run ? t('bottomPanel.lastRun', { script: run.script }) : undefined}>
-            {t('bottomPanel.tab.run')}
-          </Tab>
-          <Tab value="setup">{t('bottomPanel.tab.setup')}</Tab>
+    <Tabs value={selected} onChange={(next) => setTab(next as PanelTab)} variant="chat" className="bottom-panel" role="region" aria-label={t('bottomPanel.label')}>
+      <div className="bottom-head">
+        <TabList label={t('bottomPanel.tabs')} className="bottom-tabs">
+          {listed.length ? (
+            listed.map((script) => {
+              const word = runWord(script.name)
+              return (
+                <Tab key={script.name} value={runTab(script.name)} title={tooltip(script.name, word?.label)}>
+                  <ScriptIcon script={script} size={12} />
+                  <span className="bottom-tab-label">{script.name}</span>
+                  {word && <Status compact tone={word.tone} label={word.label} />}
+                </Tab>
+              )
+            })
+          ) : (
+            <Tab value="run" title={t('bottomPanel.noRunScriptHeading')}>
+              <Play size={12} />
+              <span className="bottom-tab-label">{t('bottomPanel.tab.run')}</span>
+            </Tab>
+          )}
+          {!launcher && (
+            <Tab value="setup" title={tooltip(t('bottomPanel.tab.setup'), setupWord)}>
+              <Wrench size={12} />
+              <span className={selected === 'setup' ? 'bottom-tab-label' : 'sr-only'}>{t('bottomPanel.tab.setup')}</span>
+              {setupBusy ? (
+                <>
+                  <Spinner size={11} />
+                  <span className="sr-only">{setupWord}</span>
+                </>
+              ) : (
+                setupWord && <Status compact tone="error" label={setupWord} />
+              )}
+            </Tab>
+          )}
           {terminals.map((term) => {
             const { n } = term
             const name = tabName(term)
@@ -400,34 +503,16 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
               <Tab
                 key={n}
                 value={`term-${n}`}
-                className="bottom-tab"
                 title={name}
-                onDoubleClick={() => setRenaming(n)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  setTabMenu({ n, x: e.clientX, y: e.clientY })
-                }}
                 editor={renaming === n ? <TabRename value={term.name ?? ''} label={t('terminal.rename')} onDone={(value) => renameTerminal(n, value)} /> : undefined}
-                actions={
-                  <IconButton label={t('terminal.closeTab', { name })} onClick={() => closeTerminal(n)}>
-                    <X size={11} />
-                  </IconButton>
-                }
               >
-                <SquareTerminal size={12} className="term-icon" />
+                <SquareTerminal size={12} />
                 {cloud && (
                   <span className="term-cloud" title={t('cloud.terminal.tabTitle')} aria-label={t('cloud.terminal.tabTitle')}>
                     <Cloud size={11} />
                   </span>
                 )}
-                {term.name || term.shell ? (
-                  <span className="term-name">{name}</span>
-                ) : (
-                  <>
-                    <span className="term-word">{t('bottomPanel.tab.terminalWord')} </span>
-                    {n}
-                  </>
-                )}
+                <span className="bottom-tab-label">{name}</span>
                 {waiting && (
                   <span className="term-restored-icon" title={t('terminal.restoredTitle', { time: restoredWhen(term.restored!.at, Date.now(), t.locale) })}>
                     <History size={11} />
@@ -446,17 +531,8 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
             )
           })}
         </TabList>
-        <IconButton label={t('bottomPanel.newTerminal')} onClick={() => addTerminal()} disabled={!ready}>
-          <Plus size={14} />
-        </IconButton>
-        {platform === 'win32' && !cloud && <NewTerminalMenu disabled={!ready} onPick={addTerminal} />}
+        <NewMenu repoId={workspace.repoId} repoName={repoName} shells={platform === 'win32' && !cloud} disabled={!ready} onTerminal={addTerminal} onCommand={commands.run} />
         <span className="spacer" />
-        <CommandsMenu repoId={workspace.repoId} repoName={repoName} disabled={!ready} onPick={commands.run} />
-        {fullscreen && (
-          <IconButton label={t('terminal.exitFullscreen', { key: `${mod}⇧J` })} onClick={() => toggleTerminalFullscreen(workspace.id, false)}>
-            <Minimize2 size={13} />
-          </IconButton>
-        )}
         {!cloud && (
           <span className="preview-btns">
             <IconButton label={previewTitle} onClick={() => openPreview(0)} disabled={!ready}>
@@ -479,141 +555,102 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
             )}
           </span>
         )}
-        {running || spotlightOn ? (
-          <Button size="sm" icon={<Square size={11} />} onClick={stop} title={`${spotlightOn ? t('bottomPanel.stopSpotlight') : t('common.stop')} (${mod}R)`}>
-            <span className="btn-label">{spotlightOn ? t('bottomPanel.stopSpotlight') : t('common.stop')}</span> <Kbd>{mod}R</Kbd>
-          </Button>
-        ) : scripts.length > 1 ? (
-          <SplitButton
-            size="sm"
-            label={
-              <>
-                {runIcon} {runButtonLabel}
-              </>
-            }
-            menuLabel={t('bottomPanel.chooseRunScript')}
-            onClick={() => void start()}
-            disabled={!ready}
-            title={runTitle}
-          >
-            {scripts.map((script, i) => (
-              <MenuItem
-                key={script.name}
-                icon={<ScriptIcon script={script} size={14} />}
-                description={<span className="mono">{script.command}</span>}
-                hint={i === 0 ? `${mod}R` : undefined}
-                onSelect={() => void start(script)}
-              >
-                {script.name}
-              </MenuItem>
-            ))}
-          </SplitButton>
-        ) : (
-          <Button size="sm" icon={runIcon} onClick={() => void start()} disabled={!ready} title={runTitle}>
-            {runButtonLabel}
-          </Button>
-        )}
+        <IconButton label={fullscreen ? t('terminal.exitFullscreen', { key: `${mod}⇧J` }) : t('terminal.fullscreen', { key: `${mod}⇧J` })} onClick={() => toggleTerminalFullscreen(workspace.id)}>
+          {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </IconButton>
+        {action}
       </div>
-      <div className="bottom-body">
-        <TabPanel value="run" keepMounted className="fill">
-          {!cloud && previewScript?.previewUrl?.trim() && <PreviewCheck workspaceId={workspace.id} script={previewScript.name} running={running} />}
-          {run !== null ? (
-            <TerminalView
-              key={run.key}
-              workspaceId={workspace.id}
-              kind="run"
-              command={run.script}
-              chatSource={RUN_SOURCE}
-              zoom={runZoom}
-              onZoom={setRunZoom}
-              visible={visible && tab === 'run'}
-              onSpawn={setRunPty}
-              onExit={() => setRunning(false)}
-            />
-          ) : (
-            <div className="panel-empty run-empty">
-              <IconButton className="run-big" label={runLabel} onClick={() => void start()} disabled={!ready}>
-                <Play size={22} />
-              </IconButton>
-              {scripts[0] ? (
-                <>
-                  <span className="faint">
-                    {t.rich('bottomPanel.readyToRun', { command: <span key="command" className="mono">{scripts[0].command}</span>, key: `${mod}R` })}
-                  </span>
-                  {scripts.length > 1 && (
-                    <div className="run-others">
-                      {scripts.slice(1).map((script) => (
-                        <ChipButton key={script.name} onClick={() => void start(script)} disabled={!ready} title={script.command}>
-                          <ScriptIcon script={script} size={11} /> {script.name}
-                        </ChipButton>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <span className="faint">{t('bottomPanel.noRunScript')}</span>
-                  <Button size="sm" onClick={openScriptSettings}>
-                    {t('bottomPanel.openScriptsSettings')}
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
-        </TabPanel>
-        <TabPanel value="setup" keepMounted className="fill">
-          <SetupLog workspace={workspace} />
-        </TabPanel>
-        {ready &&
-          terminals
-            .filter((term) => visited.has(`term-${term.n}`))
-            .map((term) => {
-              const { n } = term
-              return (
-                <TabPanel key={n} value={`term-${n}`} keepMounted className="fill">
+      <div className="bottom-main">
+        <div className="bottom-body">
+          {listed.map((script) => {
+            const run = runs[script.name]
+            const value = runTab(script.name)
+            return (
+              <TabPanel key={script.name} value={value} keepMounted className="fill">
+                {!cloud && script.previewUrl?.trim() && <PreviewCheck workspaceId={workspace.id} script={script.name} running={Boolean(run?.running)} />}
+                {run ? (
                   <TerminalView
+                    key={run.key}
                     workspaceId={workspace.id}
-                    kind={term.saved ? 'saved' : 'shell'}
-                    command={term.saved ?? term.shell}
-                    onCommandStatus={term.saved ? (exit) => updateTerminal(n, { exit }) : undefined}
-                    visible={visible && tab === `term-${n}`}
-                    chatSource={{ kind: 'terminal', n, ...(term.name || term.shell ? { name: tabName(term) } : {}) }}
-                    zoom={term.zoom}
-                    onZoom={(zoom) => updateTerminal(n, { zoom })}
-                    restored={term.restored}
-                    waiting={Boolean(term.restored && !term.restored.started)}
-                    onStartShell={() => startShell(term)}
-                    findRequest={findRequest?.n === n ? findRequest.nonce : 0}
-                    onRename={() => setRenaming(n)}
-                    onClose={() => closeTerminal(n)}
-                    onOutput={markDirty}
-                    onReader={(read) => (read ? readers.current.set(n, read) : readers.current.delete(n))}
+                    kind="run"
+                    command={script.name}
+                    chatSource={RUN_SOURCE}
+                    zoom={runZoom}
+                    onZoom={setRunZoom}
+                    visible={visible && selected === value}
+                    onSpawn={(pty) => setRuns((all) => (all[script.name]?.key === run.key ? { ...all, [script.name]: { ...all[script.name], pty } } : all))}
+                    onExit={(code) => ended(script.name, run.key, code)}
                   />
-                </TabPanel>
-              )
-            })}
+                ) : (
+                  <div className="panel-empty run-empty">
+                    <IconButton className="run-big" label={runTitle(script)} onClick={() => void start(script)} disabled={!ready}>
+                      <Play size={22} />
+                    </IconButton>
+                    <span className="faint">{t.rich('bottomPanel.readyToRun', { command: <span key="command" className="mono">{script.command}</span>, key: `${mod}R` })}</span>
+                  </div>
+                )}
+              </TabPanel>
+            )
+          })}
+          {!listed.length && (
+            <TabPanel value="run" className="fill">
+              <div className="panel-empty run-launch">
+                <strong>{t('bottomPanel.launch.heading')}</strong>
+                <div className="run-launch-grid">
+                  <LaunchCard icon={<SlidersHorizontal size={13} />} title={t('bottomPanel.setUpRunScript')} onClick={openScriptSettings}>
+                    {t('bottomPanel.launch.runBody')}
+                  </LaunchCard>
+                  <LaunchCard
+                    icon={<MessageSquarePlus size={13} />}
+                    title={t('bottomPanel.suggestRunScript')}
+                    disabled={!sessionId}
+                    onClick={() => sessionId && fillComposer(workspace.id, sessionId, setupTemplate.body, setupTemplate.id)}
+                  >
+                    {t('bottomPanel.suggestRunScriptTitle')}
+                  </LaunchCard>
+                  <LaunchCard icon={<SquareTerminal size={13} />} title={t('bottomPanel.openTerminal')} disabled={!ready} onClick={openTerminal}>
+                    {t('bottomPanel.launch.terminalBody')}
+                  </LaunchCard>
+                  <LaunchCard icon={<Wrench size={13} />} title={t('bottomPanel.launch.setup')} onClick={() => setTab('setup')}>
+                    {setupWord ?? t('bottomPanel.launch.setupBody')}
+                  </LaunchCard>
+                </div>
+              </div>
+            </TabPanel>
+          )}
+          <TabPanel value="setup" keepMounted className="fill">
+            <SetupLog workspace={workspace} />
+          </TabPanel>
+          {ready &&
+            terminals
+              .filter((term) => visited.has(`term-${term.n}`))
+              .map((term) => {
+                const { n } = term
+                return (
+                  <TabPanel key={n} value={`term-${n}`} keepMounted className="fill">
+                    <TerminalView
+                      workspaceId={workspace.id}
+                      kind={term.saved ? 'saved' : 'shell'}
+                      command={term.saved ?? term.shell}
+                      onCommandStatus={term.saved ? (exit) => updateTerminal(n, { exit }) : undefined}
+                      visible={visible && selected === `term-${n}`}
+                      chatSource={{ kind: 'terminal', n, ...(term.name || term.shell ? { name: tabName(term) } : {}) }}
+                      zoom={term.zoom}
+                      onZoom={(zoom) => updateTerminal(n, { zoom })}
+                      restored={term.restored}
+                      waiting={Boolean(term.restored && !term.restored.started)}
+                      onStartShell={() => startShell(term)}
+                      onRename={() => setRenaming(n)}
+                      onClose={() => closeTerminal(n)}
+                      onOutput={markDirty}
+                      onReader={(read) => (read ? readers.current.set(n, read) : readers.current.delete(n))}
+                    />
+                  </TabPanel>
+                )
+              })}
+        </div>
       </div>
       {commands.dialog}
-      {menuTerm && tabMenu && (
-        // The tab's own right-click menu: the tab entries of the terminal menu (O3).
-        <TerminalMenu
-          x={tabMenu.x}
-          y={tabMenu.y}
-          label={tabName(menuTerm)}
-          dismiss={() => setTabMenu(null)}
-          tab={{
-            onRename: () => setRenaming(menuTerm.n),
-            fullscreen,
-            onFullscreen: () => toggleFullscreen(`term-${menuTerm.n}`),
-            copyOnSelect,
-            onCopyOnSelect: (on) => void api.updateSettings({ terminalCopyOnSelect: on }).catch(showError),
-            zoom: menuTerm.zoom,
-            onZoom: (zoom) => updateTerminal(menuTerm.n, { zoom }),
-            onFind: () => findIn(menuTerm.n),
-            onClose: () => closeTerminal(menuTerm.n)
-          }}
-        />
-      )}
     </Tabs>
   )
 }

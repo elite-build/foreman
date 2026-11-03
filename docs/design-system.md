@@ -116,7 +116,7 @@ Replaces `.chip` (and `.active`, `.accent`, `.plan-on`), the phone pill and the 
 
 - Props: `tone` (`neutral` / `warn` amber text on an amber tint: waiting on the user; there is no coral tone, and a mode that is on is `pressed`, the neutral hover fill), `pressed` (a toggle: `aria-pressed`), `haspopup` (`menu` / `listbox` / `dialog` / `true`) with `expanded` (`aria-haspopup` and `aria-expanded`, false until `expanded`), `pill` (fully rounded), plus native button props except `type`, `role` and `aria-pressed`. A Popover's trigger props spread straight onto it: native `aria-haspopup` and `aria-expanded` are kept, and `haspopup` / `expanded` win when both are given.
 - The highlighted look follows `aria-pressed=true` and `aria-expanded=true`; there is no look-only `active` prop. A chip that is a Plan mode toggle sets `pressed`; one that opens a picker sets `haspopup` and `expanded`.
-- A `Status` can sit inside a chip (the phone pill: `<ChipButton pill haspopup="dialog"><Status tone="warn" label=… /></ChipButton>`).
+- A `Status` can sit inside a chip (the "controlled from" chip: `<ChipButton pill><Status tone="info" label=… /></ChipButton>` in a `Popover`).
 
 ```tsx
 <ChipButton pressed={planMode} onClick={togglePlan}>{t('composer.plan')}</ChipButton>
@@ -350,7 +350,7 @@ Replaces `Segmented` in `settings/controls.tsx` (`.segmented`, `.segmented.small
 Replaces `Tabs` in `settings/controls.tsx` (`.set-tabs`), the sidebar filters (`.sidebar-filters`) and the chat tabs (`.chat-tab`).
 
 - `Tabs`: `value`, `onChange`, `variant` (`underline` default: a `--selected-mark` underline under the selected tab, in `--text` at weight 500; `pill`, `chat`). Controlled only. It provides the ids; use the parts inside it (they throw outside `Tabs`).
-- `TabList`: `label` (required). One Tab stop (the selected tab, or the first enabled one), ← → Home End move and select, wrapping, over disabled tabs. Other focusable children (a "new chat" button) keep their own Tab stops and keys.
+- `TabList`: `label` (required), `orientation` (`horizontal` default; `vertical` stacks the tabs in a full-width column, a side rail, sets `aria-orientation`, and moves with ↑ ↓ instead of ← →). One Tab stop (the selected tab, or the first enabled one), the arrow keys, Home and End move and select, wrapping, over disabled tabs. Other focusable children (a "new chat" button) keep their own Tab stops and keys. A vertical chat list drops the strip's padding and edge and scrolls down instead of across.
 - `Tab`: `value`, `disabled`, native button props (`title`, `onDoubleClick`, `onContextMenu`, `onMouseEnter`). `onChange` fires only when the selection changes.
   - `actions`: controls beside the tab, rendered as **siblings** of the tab button (the chat tab's close button), never inside it. Keys pressed on them are not tab navigation.
   - `editor`: a rename field. While set it takes the tab's place; the tab button stays in the DOM, hidden, so its panel keeps its name, and arrow keys skip it.

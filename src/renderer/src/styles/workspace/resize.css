@@ -23,17 +23,6 @@
 .side-panel:not(.compact) .btn-label-short {
   display: none;
 }
-.term-icon {
-  display: none;
-}
-.side-panel.compact .term-icon {
-  display: inline-block;
-  vertical-align: -2px;
-  margin-right: 3px;
-}
-.side-panel.compact .term-word {
-  display: none;
-}
-.side-panel.compact .bottom-tabs {
+.side-panel.compact .bottom-head {
   padding: 5px 6px;
 }

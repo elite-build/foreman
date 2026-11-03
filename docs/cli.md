@@ -6297,6 +6297,8 @@ Data
 Data & devices
   devices.accept-hand-offs    on | off            accept hand offs
   devices.port                integer 1024-65535  port
+  devices.remote-control      on | off            remote control
+  devices.remote-control-ask  on | off            remote control ask
   devices.mobile              on | off            mobile
   devices.mobile-url          text                mobile url
   devices.mobile-lan          on | off            mobile lan

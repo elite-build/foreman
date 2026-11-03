@@ -59,15 +59,17 @@ export function Tabs({ value, onChange, variant = 'underline', className, childr
 const tabsIn = (list: HTMLElement) => Array.from(list.querySelectorAll<HTMLButtonElement>('[role="tab"]')).filter((el) => !el.hidden)
 const isOff = (el: HTMLElement) => (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true'
 
-export type TabListProps = Omit<HTMLAttributes<HTMLDivElement>, 'role' | 'aria-label'> & {
+export type TabListProps = Omit<HTMLAttributes<HTMLDivElement>, 'role' | 'aria-label' | 'aria-orientation'> & {
   // The tab strip's accessible name.
   label: string
+  // vertical: the tabs stack in a column (a side rail) and ↑ ↓ move between them instead of ← →.
+  orientation?: 'horizontal' | 'vertical'
   ref?: Ref<HTMLDivElement>
 }
 
-// ← → Home End move between the tabs and select (focus follows selection). Other focusable children of the list
-// (a "new tab" button) keep their own Tab stops and their own keys.
-export function TabList({ label, className, children, onKeyDown, ref, ...rest }: TabListProps) {
+// ← → (↑ ↓ when vertical) Home End move between the tabs and select (focus follows selection). Other focusable
+// children of the list (a "new tab" button) keep their own Tab stops and their own keys.
+export function TabList({ label, orientation = 'horizontal', className, children, onKeyDown, ref, ...rest }: TabListProps) {
   const ctx = useTabs('TabList')
   const local = useRef<HTMLDivElement | null>(null)
 
@@ -88,7 +90,7 @@ export function TabList({ label, className, children, onKeyDown, ref, ...rest }:
     // Keys typed in a rename field or on a close button aren't tab navigation.
     if (target.getAttribute('role') !== 'tab') return
     const tabs = tabsIn(e.currentTarget)
-    const next = nextIndex(e.key, tabs.indexOf(target as HTMLButtonElement), tabs.length, { orientation: 'horizontal', wrap: true, disabled: (i) => isOff(tabs[i]) })
+    const next = nextIndex(e.key, tabs.indexOf(target as HTMLButtonElement), tabs.length, { orientation, wrap: true, disabled: (i) => isOff(tabs[i]) })
     if (next === undefined || isOff(tabs[next])) return
     e.preventDefault()
     const value = tabs[next].dataset.tabValue
@@ -107,6 +109,7 @@ export function TabList({ label, className, children, onKeyDown, ref, ...rest }:
       className={join('ui-tablist', className)}
       role="tablist"
       aria-label={label}
+      aria-orientation={orientation}
       onKeyDown={handleKeyDown}
     >
       {children}

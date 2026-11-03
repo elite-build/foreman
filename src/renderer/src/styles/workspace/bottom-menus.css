@@ -17,13 +17,3 @@
   min-width: 240px;
   max-width: 380px;
 }
-/* O4: the shells next to + open under it, toward the tabs, not off the panel's left edge (placement bottom-start). */
-.new-term-more {
-  margin-left: -3px;
-}
-.run-others {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-}

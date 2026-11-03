@@ -19,6 +19,7 @@ import type { SidebarFilter, SidebarView } from './triage'
 import { DEFAULT_TILE_COUNT, tileCountOf, type TileCount } from './tiles'
 import { editorViewOf, pickEditorView, type EditorView } from './editorLayout'
 import type { AttentionEvent } from '../../shared/attention'
+import type { ComputersView } from '../../shared/remote'
 import { routeLink, workspaceLink, type LinkRoute } from '../../shared/deepLink'
 import { createT, resolveLocale, type Locale } from '../../shared/i18n'
 import { timeAgo as formatAgo, timeWaited as formatWaited } from '../../shared/i18n/time'
@@ -132,6 +133,8 @@ interface State {
   handOffToDialog: { workspaceId: string; transferId?: string } | null
   reconcileDialog: string | null
   pairDialog: 'show' | 'enter' | null
+  // Other computers (shared/remote.ts): the computer chip's view, from this computer's main (whichever one the window shows).
+  computers: ComputersView | null
   // "This repo proposes N MCP servers" for this workspace.
   mcpConsent: string | null
   // Show the Git panel's checks tab for this workspace.
@@ -244,6 +247,7 @@ let state: State = {
   handOffToDialog: null,
   reconcileDialog: null,
   pairDialog: null,
+  computers: null,
   compareArchive: null,
   mcpConsent: null,
   checksPanelRequest: null,
@@ -705,6 +709,15 @@ function handleEvent(event: MainEvent): void {
     case 'notify':
       notify(event)
       return
+    case 'computers':
+      setState({ computers: event.view })
+      return
+    case 'computer-notify':
+      computerNotify(event)
+      return
+    case 'computer-left':
+      showToast(tNow()(`computers.left.${event.reason}`, { name: event.name }), event.reason === 'denied' || event.reason === 'off' ? 'info' : 'error', { report: false })
+      return
     case 'clone-progress':
       cloneListeners.get(event.cloneId)?.(event.line)
       return
@@ -778,8 +791,35 @@ export function onCloudBuildLog(listener: (repoId: string, buildId: string, chun
   return () => buildLogListeners.delete(listener)
 }
 
+/** Something on a computer this window isn't showing needs you: say so, with a way to go there. */
+function computerNotify(event: Extract<MainEvent, { type: 'computer-notify' }>): void {
+  const t = tNow()
+  const go = { workspaceId: event.workspaceId, sessionId: event.sessionId || undefined }
+  showToast(t('computers.notify', { computer: event.computerName, title: event.title, body: event.body }), 'info', {
+    action: { label: t('computers.openOn', { name: event.computerName }), run: () => api.viewComputer(event.computerId, event.workspaceId ? go : undefined) }
+  })
+  const settings = state.snapshot?.settings
+  if (!settings?.notifications) return
+  try {
+    const notification = new Notification(`${event.computerName} · ${event.title}`, { body: event.body, silent: true })
+    notification.onclick = () => {
+      window.focus()
+      void attempt(() => api.viewComputer(event.computerId, event.workspaceId ? go : undefined))
+    }
+  } catch {
+    // Notifications unavailable; the toast and the computer chip still say it.
+  }
+}
+
+/** Show another computer's Foreman in this window (null: this computer's again). The window loads again once it can. */
+export function viewComputer(deviceId: string | null): Promise<void> {
+  return attempt(() => api.viewComputer(deviceId)).then(() => undefined)
+}
+
 export async function initStore(): Promise<void> {
   bridge.onEvent(receiveEvent)
+  // The computer chip: always this computer's view, whichever computer the window shows.
+  void api.computers().then((computers) => setState({ computers }), () => undefined)
   // A window that has focus is on screen, whatever main last said.
   window.addEventListener('focus', () => setWindowVisible(true))
   const [snapshot, approvals] = await Promise.all([api.getSnapshot(), api.pendingApprovals()])

@@ -51,6 +51,20 @@
 .ui-tabpanel[hidden] {
   display: none;
 }
+/* Vertical: a column of full-width tabs (a side rail). Long names ellipsise on their own span rather than wrap. */
+.ui-tablist[aria-orientation='vertical'] {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+.ui-tablist[aria-orientation='vertical'] > .ui-tab {
+  max-width: none;
+}
+.ui-tablist[aria-orientation='vertical'] .ui-tab__button {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  text-align: start;
+}
 
 /* underline */
 .ui-tabs--underline > .ui-tablist {
@@ -126,6 +140,13 @@
 }
 .ui-tabs--chat .ui-tab:hover .ui-tab__button:not(:disabled) {
   color: var(--text-soft);
+}
+/* A vertical chat list is a rail, not a strip: no strip padding or edge, and it scrolls down instead of across. */
+.ui-tabs--chat .ui-tablist[aria-orientation='vertical'] {
+  padding: 0;
+  border-bottom: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 /* Close and other actions appear on hover, on the selected tab and whenever focus is inside. */
 .ui-tabs--chat .ui-tab__actions {

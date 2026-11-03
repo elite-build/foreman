@@ -1,14 +1,14 @@
-// Cues (O9) in a workspace: the terminal panel's ▶ Commands menu, the request ⌘K sends,
+// Cues (O9) in a workspace: the saved commands in the terminal panel's + menu, the request ⌘K sends,
 // and the approval a repo's command needs before its first run (and after its text changes).
 // Each run opens a new terminal tab named after the command; nothing goes to an agent.
-import { ChevronDown, Play, SquareTerminal, Zap } from 'lucide-react'
+import { Bookmark, Zap } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { commandsForRepo, needsApproval, type SavedCommand } from '../../../shared/savedCommands'
 import type { CheckConsentItem } from '../../../shared/types'
 import { useT } from '../i18n'
 import { api, attempt, modKey, openAutomations, useStore } from '../store'
 import { ConsentRow } from './ChecksDialogs'
-import { Button, Dialog, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuSeparator, Tag } from '../ui'
+import { Button, Dialog, MenuGroup, MenuItem, MenuLabel, Tag } from '../ui'
 
 const NO_COMMANDS: SavedCommand[] = []
 const EVENT = 'foreman:saved-command'
@@ -105,8 +105,11 @@ function CommandConsentDialog({ item, onCancel, onApprove }: { item: CheckConsen
   )
 }
 
-/** ▶ Commands in the terminal panel: this repo's commands, then all repos', and Edit commands… (Automations). */
-export function CommandsMenu({ repoId, repoName, disabled, onPick }: { repoId: string; repoName: string; disabled: boolean; onPick: (command: SavedCommand) => void }) {
+/**
+ * The saved commands in the terminal panel's + menu: this repo's commands, then all repos', and Edit commands…
+ * (Automations). Items for a MenuButton the caller owns.
+ */
+export function SavedCommandItems({ repoId, repoName, onPick }: { repoId: string; repoName: string; onPick: (command: SavedCommand) => void }) {
   const t = useT()
   const platform = useStore((s) => s.snapshot!.platform)
   const { repo, all } = useRepoCommands(repoId)
@@ -114,7 +117,7 @@ export function CommandsMenu({ repoId, repoName, disabled, onPick }: { repoId: s
   const row = (c: SavedCommand) => (
     <MenuItem
       key={c.id}
-      icon={<SquareTerminal size={14} />}
+      icon={<Bookmark size={14} />}
       title={c.command}
       description={<span className="mono">{c.command}</span>}
       hint={c.source === 'repo' ? <Tag>{needsApproval(c) ? t('commands.palette.fromRepoAsks') : t('commands.fromRepoTag')}</Tag> : undefined}
@@ -125,19 +128,7 @@ export function CommandsMenu({ repoId, repoName, disabled, onPick }: { repoId: s
   )
 
   return (
-    <MenuButton
-      look="ghost"
-      small
-      menuClassName="bottom-menu commands-menu"
-      label={t('commands.menu.button')}
-      title={t('commands.menu.title')}
-      disabled={disabled}
-      trigger={
-        <>
-          <Play size={11} aria-hidden /> <span className="btn-label">{t('commands.menu.button')}</span> <ChevronDown size={11} aria-hidden />
-        </>
-      }
-    >
+    <>
       {repo.length > 0 && (
         <>
           <MenuLabel>{repoName}</MenuLabel>
@@ -151,11 +142,10 @@ export function CommandsMenu({ repoId, repoName, disabled, onPick }: { repoId: s
         </>
       )}
       {!repo.length && !all.length && <MenuLabel>{t('commands.menu.empty')}</MenuLabel>}
-      <MenuSeparator />
       <MenuItem icon={<Zap size={14} />} onSelect={() => openAutomations(null, 'commands')}>
         {t('commands.menu.edit')}
       </MenuItem>
       <MenuLabel>{t('commands.menu.footer', { key: `${modKey(platform)}K` })}</MenuLabel>
-    </MenuButton>
+    </>
   )
 }

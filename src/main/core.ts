@@ -92,6 +92,8 @@ import { CompareService } from './compare'
 import { RepoMcp, fingerprint as mcpFingerprint, scriptFiles } from './repoMcp'
 import { Devices, plainAddress } from './devices'
 import { DeviceNet } from './deviceNet'
+import { RemoteHost } from './remote/host'
+import { RemoteComputers } from './remote/computers'
 import type { MobileService } from './mobile'
 import { TransferService, type TransferLocal } from './transfers'
 import { frozenReason, type DevicesInfo, type PairedDevice } from '../shared/transfer'
@@ -149,6 +151,11 @@ export interface Host {
   setBadge(count: number): void
   // #3: the tray or menu-bar extra's count and jump list, after every look at the state.
   showAttention?(view: TrayView): void
+  // Other computers (shared/remote.ts): load the window again (it now shows another computer, or this one again); once
+  // it has, send it this event; and send it an event from the computer it shows. Absent (tests): nothing to show.
+  reloadWindow?(): void
+  afterReload?(event: MainEvent): void
+  showRemoteEvent?(event: MainEvent): void
   setZoom(level: number): void
   // Hold off system sleep while agents work.
   keepAwake(on: boolean): void
@@ -300,6 +307,12 @@ export class Core {
   readonly schedules: ScheduleService
   readonly devices: Devices
   readonly net: DeviceNet
+  // Other computers: this one controlled from a paired computer, and the paired computers this window can show.
+  readonly remoteHost: RemoteHost
+  readonly remote: RemoteComputers
+  // Every event this computer broadcasts, for the computers controlling it.
+  private eventTaps = new Set<(event: MainEvent) => void>()
+  private attentionView: TrayView | null = null
   readonly transfers: TransferService
   readonly claudeMirror: ClaudeMirror
   readonly portability: PortabilityService
@@ -371,6 +384,13 @@ export class Core {
       if (event.type === 'state') {
         this.lastState = event.snapshot
         this.attention?.schedule()
+      }
+      for (const tap of this.eventTaps) {
+        try {
+          tap(event)
+        } catch (err) {
+          console.error('Event tap failed:', err)
+        }
       }
     }
     host = watched
@@ -678,7 +698,10 @@ export class Core {
     this.devices = new Devices({
       store,
       keys: { get: (id) => secrets.appSecret(`device-key:${id}`), set: (id, key) => secrets.setAppSecret(`device-key:${id}`, key) },
-      changed
+      changed: () => {
+        changed()
+        this.pairedChanged()
+      }
     })
     this.net = new DeviceNet({
       self: () => this.devices.self(this.store.state.settings.devicePort),
@@ -690,7 +713,43 @@ export class Core {
       onPaired: (result, address) => {
         this.devices.add(result, plainAddress(address), result.peer.port)
         this.devices.cancelCode()
-      }
+      },
+      onRemote: (from, hello) => this.remoteHost.welcome(from, hello)
+    })
+    const version = host.appInfo?.().version ?? '0.0.0'
+    this.remoteHost = new RemoteHost({
+      version,
+      platform: process.platform,
+      name: () => this.devices.self().name,
+      allowed: () => this.store.state.settings.allowRemoteControl === true,
+      ask: () => this.store.state.settings.remoteControlAsk !== false,
+      deviceName: (id) => this.devices.find(id)?.name ?? id,
+      api: this.api as unknown as Record<string, (...args: unknown[]) => unknown>,
+      signals: this.signals as unknown as Record<string, (...args: unknown[]) => void>,
+      onEvent: (listener) => {
+        this.eventTaps.add(listener)
+        return () => void this.eventTaps.delete(listener)
+      },
+      summary: () => this.localSummary(),
+      changed: () => this.remote?.hostChanged()
+    })
+    this.remote = new RemoteComputers({
+      self: () => {
+        const self = this.devices.self(this.store.state.settings.devicePort)
+        return { id: self.deviceId, name: self.name }
+      },
+      platform: process.platform,
+      version,
+      paired: () => this.devices.list(),
+      canDial: (id) => Boolean(this.devices.addressOf(id) && this.devices.keyFor(id)),
+      open: (id, hello) => this.net.openChannel(id, hello),
+      host: this.remoteHost,
+      localSummary: () => this.localSummary(),
+      broadcast: (event) => this.host.broadcast(event),
+      showEvent: (event) => this.host.showRemoteEvent?.(event),
+      reloadWindow: () => this.host.reloadWindow?.(),
+      afterReload: (event) => this.host.afterReload?.(event),
+      t: () => mainT(this.store.state.settings)
     })
     this.transfers = new TransferService({
       store,
@@ -976,6 +1035,9 @@ export class Core {
         // The same count as Home's "need you" (Windows has no numeric dock badge; the tray says it there).
         host.setBadge(store.state.settings.dockBadge ? view.count : 0)
         host.showAttention?.(view)
+        this.attentionView = view
+        this.remoteHost?.summaryChanged()
+        this.remote?.localChanged()
       },
       // The badge and tray also follow settings (dock badge, tray icon, language), replaced as a whole on each change.
       showContext: () => store.state.settings,
@@ -1349,14 +1411,15 @@ export class Core {
     }
   }
 
-  /** Listen for hand-offs, or not, as the setting says; always while a pairing code is showing. */
+  /** Listen for hand-offs and other computers, or not, as the settings say; always while a pairing code is showing. */
   async applyDeviceListening(): Promise<void> {
-    const { acceptHandOffs, devicePort } = this.store.state.settings
-    if (acceptHandOffs || this.devices.pairingHost()) {
+    const { acceptHandOffs, allowRemoteControl, devicePort } = this.store.state.settings
+    const wanted = acceptHandOffs || allowRemoteControl
+    if (wanted || this.devices.pairingHost()) {
       try {
         await this.net.listen(devicePort)
       } catch (err) {
-        if (acceptHandOffs) throw new Error(`Couldn’t listen on port ${devicePort}: ${err instanceof Error ? err.message : String(err)}`)
+        if (wanted) throw new Error(`Couldn’t listen on port ${devicePort}: ${err instanceof Error ? err.message : String(err)}`)
         throw err
       }
     } else await this.net.close()
@@ -1364,7 +1427,24 @@ export class Core {
 
   private devicesInfo(): DevicesInfo {
     const { settings } = this.store.state
-    return this.devices.info(settings.acceptHandOffs, settings.devicePort)
+    return { ...this.devices.info(settings.acceptHandOffs, settings.devicePort), remoteControl: settings.allowRemoteControl === true, remoteControlAsk: settings.remoteControlAsk !== false }
+  }
+
+  /** How many workspaces work and need someone here, as the computer chip on another computer shows it. */
+  private localSummary(): { running: number; needsYou: number } {
+    const view = this.attentionView ?? this.attention.view()
+    return { running: view.working.length, needsYou: view.count }
+  }
+
+  /** A computer was paired or unpaired: link it, and close what an unpaired one still had open. */
+  private pairedChanged(): void {
+    this.remote?.sync()
+    this.remoteHost?.refresh((id) => Boolean(this.devices.find(id)))
+  }
+
+  /** Start the background links to paired computers (after launch; never in tests or screenshot runs). */
+  startComputers(): void {
+    this.remote.sync()
   }
 
   // ---- scheduled templates (R-5) ----
@@ -2336,6 +2416,21 @@ export class Core {
       return this.devices.add(result, host.trim(), result.peer.port ?? port)
     },
     unpairDevice: async (id) => this.devices.forget(id),
+    setRemoteControl: async (allow, ask) => {
+      if (typeof allow !== 'boolean' || typeof ask !== 'boolean') throw new Error('Remote control settings are on or off.')
+      const settings = this.store.state.settings
+      settings.allowRemoteControl = allow
+      settings.remoteControlAsk = ask
+      this.store.save()
+      this.remoteHost.refresh((id) => Boolean(this.devices.find(id)))
+      await this.applyDeviceListening()
+      this.changed()
+      return this.devicesInfo()
+    },
+    computers: async () => this.remote.view_(),
+    viewComputer: (deviceId, open) => this.remote.view(deviceId, open),
+    answerControlRequest: async (requestId, allow) => this.remoteHost.answer(requestId, allow),
+    disconnectController: async (deviceId) => this.remoteHost.disconnect(deviceId),
     pingDevice: async (id) => {
       const state = await this.net.send(id, { type: 'status', transferId: 'ping' }, undefined, { timeoutMs: 4000 }).then(() => true, () => false)
       this.changed()
@@ -3087,6 +3182,8 @@ export class Core {
   }
 
   async shutdown(): Promise<void> {
+    this.remote.close()
+    this.remoteHost.close()
     this.updates.stop()
     this.sandboxes.stopIdleTicker()
     this.prWatch.stop()

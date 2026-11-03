@@ -22,6 +22,7 @@ import {
   toggleLeftPanel,
   toggleRightPanel
 } from './store'
+import { rowDomId } from './components/settings/controls'
 import { readWalk, type WalkReading } from './walk'
 
 interface Fixture {
@@ -113,12 +114,18 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
   'composer-queue': (f) => (openWorkspace(f, f.queueChatId), '.composer .queued, .queued'),
+  // The terminal panel with no run script and nothing open: the Run tab's launcher.
+  'run-launcher': (f) => (openWorkspace(f), showBottomPanel(true), '.bottom-panel .run-launch'),
   terminal: async (f) => {
     openWorkspace(f)
     showBottomPanel(true)
-    const tab = await waitFor(element('.bottom-tabs .bottom-tab > button'))
-    if (!tab) return null
-    tab.click()
+    // No terminal is open until one is asked for: + → New terminal (the menu's first item).
+    const plus = await waitFor(element('.bottom-head .new-menu button'))
+    if (!plus) return null
+    plus.click()
+    const item = await waitFor(element('.bottom-menu [role="menuitem"]'))
+    if (!item) return null
+    item.click()
     const screen = await waitFor(element('.terminal .xterm-screen'))
     // The shell's prompt.
     if (screen) await sleep(1500)
@@ -156,6 +163,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openNewWorkspace(f.repoId)
     return '.nw-modal'
   },
+  'new-workspace-branch': async (f) => {
+    showRepoHome(null)
+    openNewWorkspace(f.repoId)
+    const existing = await waitFor(() => document.querySelector<HTMLInputElement>('.nw-branch input[value="existing"]'))
+    if (!existing) return null
+    existing.click()
+    return '.nw-branch-shelf'
+  },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),
   'settings-appearance': () => (openSettingsPage({ section: 'appearance' }), '.settings-view'),
@@ -163,6 +178,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   'settings-cloud': () => (openSettingsPage({ section: 'cloud' }), '.settings-view'),
   'settings-repo': (f) => (openSettingsPage({ section: 'repo', repoId: f.repoId }), '.settings-view'),
   'settings-integrations': () => (openSettingsPage({ section: 'integrations' }), '.settings-view'),
+  // Data & devices, scrolled to its Devices section: hand-offs, control from other computers, pairing.
+  'settings-devices': async () => {
+    openSettingsPage({ section: 'data' })
+    const row = await waitFor(() => document.getElementById(rowDomId('accept-hand-offs')))
+    if (!row) return null
+    row.scrollIntoView({ block: 'start' })
+    return '.settings-view'
+  },
   automations: () => (openAutomations(), '.automations-view'),
   assistant: () => (openAssistant(), '.assistant-view'),
   'phone-pairing': () => {
