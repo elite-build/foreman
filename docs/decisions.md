@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-03: Controlling another computer forwards the whole window, minus a short refusal list
+
+**Decision.** A paired computer that is let in serves every window call except those in `src/shared/remote.ts`: its own screen and app (pickers, Open in…, quitting, updates), local file paths, and reading a saved secret back. Keys can be set from the other computer, never read. Asking first is the default, and agents can neither read nor change these settings.
+
+**Why.** The window already speaks one generic call channel, so forwarding it gives the whole app remotely with one rule to review, where a curated list would lag every new feature.
+
+**Turned down.** The phone's hand-picked endpoints (a second API to maintain). Mixing both computers' workspaces in one list (busier, and every call would need a target). Letting a paired computer in without asking by default (pairing proves the computer, not who is at it).
+
+**Revisit when.** Watch-only access is added, which needs every call classed as read or write.
+
 ## 2026-11-02: The terminal panel lists its scripts and terminals in a side rail
 
 **Decision.** Run scripts, Setup and terminals are entries in a vertical list on the panel's right, icons only below 420px, with a header for the selected one. Several scripts can run at once. A terminal's rename and close live in its own right-click menu, not on its entry.

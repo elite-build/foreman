@@ -25,7 +25,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = ['general', 'account', 'a
 export type SettingType = 'boolean' | 'enum' | 'integer' | 'number' | 'string' | 'path' | 'list' | 'map'
 
 /** Which Api call writes the value: updateSettings, or the service that owns a side effect. */
-export type SettingApply = 'settings' | 'mobile' | 'mobileLan' | 'handOffs' | 'envFiles'
+export type SettingApply = 'settings' | 'mobile' | 'mobileLan' | 'handOffs' | 'remoteControl' | 'envFiles'
 
 export type SettingField = keyof Settings | `cloud.${keyof CloudSettings}`
 
@@ -282,6 +282,8 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   // Devices: no registry rows (the window sets them from the pairing dialogs), kept so "every setting" holds.
   def('accept-hand-offs', { page: 'devices', field: 'acceptHandOffs', type: 'boolean', apply: 'handOffs' }),
   def('port', { page: 'devices', field: 'devicePort', type: 'integer', min: 1024, max: 65_535, apply: 'handOffs' }),
+  def('remote-control', { page: 'devices', field: 'allowRemoteControl', type: 'boolean', apply: 'remoteControl' }),
+  def('remote-control-ask', { page: 'devices', field: 'remoteControlAsk', type: 'boolean', apply: 'remoteControl' }),
   def('mobile', { page: 'devices', field: 'mobileEnabled', type: 'boolean', apply: 'mobile' }),
   def('mobile-url', { page: 'devices', field: 'mobileUrl', type: 'string', apply: 'mobile' }),
   def('mobile-lan', { page: 'devices', field: 'mobileLanEnabled', type: 'boolean', apply: 'mobileLan' }),
