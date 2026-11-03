@@ -880,6 +880,11 @@ export interface ToastOptions {
   report?: boolean
   /** The announcer already said these words: show the toast, but outside the live regions so they are not read twice. */
   silent?: boolean
+  /**
+   * Toasts of one group merge: another one while it shows replaces its words with `text(count)` ("Archived 3
+   * workspaces") and starts its time again, instead of pushing the first one off the screen.
+   */
+  group?: { key: string; text: (count: number) => string }
 }
 
 /**
@@ -899,6 +904,14 @@ export interface Toast {
   actions?: ToastAction[]
   // Already said by the announcer: ToastHost renders it outside the live regions.
   silent?: boolean
+  // Its time on screen, for the Countdown ring (showToast sets it). `round` goes up when a merge starts the time
+  // again; `paused` while the pointer is over it or focus is inside.
+  durationMs?: number
+  round?: number
+  paused?: boolean
+  // Its group's key and how many have merged into it.
+  group?: string
+  count?: number
 }
 
 /** Build a toast. Pure, so the action handling can be tested without timers or a DOM. */
@@ -908,24 +921,69 @@ export function makeToast(id: number, text: string, kind: 'info' | 'error', opti
   return { toast, durationMs: options?.durationMs ?? (actions.length ? 10_000 : 6000) }
 }
 
-/** A short message at the bottom of the window, optionally with buttons (`{ action: { label: 'Undo', run } }`). */
+/**
+ * The toast that shows next, given the one on screen: a toast of the same group merges into it (same id, the
+ * group's words for the new count, its time started again); anything else replaces it. Pure, for tests.
+ */
+export function nextToast(current: Toast | null, made: Toast, durationMs: number, group: ToastOptions['group']): Toast {
+  if (group && current?.group === group.key) {
+    const count = (current.count ?? 1) + 1
+    return { ...made, id: current.id, text: group.text(count), durationMs, round: (current.round ?? 0) + 1, paused: current.paused, group: group.key, count }
+  }
+  return { ...made, durationMs, round: 0, ...(group ? { group: group.key, count: 1 } : {}) }
+}
+
+// The one toast's timer. Paused, it keeps the time it had left.
+let toastTimer: { id: number; left: number; since: number; handle: ReturnType<typeof setTimeout> | null } | null = null
+
+function runToastTimer(id: number, ms: number, paused: boolean): void {
+  if (toastTimer?.handle) clearTimeout(toastTimer.handle)
+  const expire = () => {
+    toastTimer = null
+    if (state.toast?.id === id) setState({ toast: null })
+  }
+  toastTimer = { id, left: ms, since: Date.now(), handle: paused ? null : setTimeout(expire, ms) }
+}
+
+function stopToastTimer(): void {
+  if (toastTimer?.handle) clearTimeout(toastTimer.handle)
+  toastTimer = null
+}
+
+/** A short message at the bottom of the window, optionally with buttons (`{ action: { label: 'Undo', run } }`). It goes on its own. */
 export function showToast(text: string, kind: 'info' | 'error' = 'info', options?: ToastOptions): void {
-  const { toast, durationMs } = makeToast(++toastCounter, text, kind, withReportLink(text, kind, options, tNow()('report.toast.link'), (about) => openReportProblem(true, about)))
+  const { toast: made, durationMs } = makeToast(++toastCounter, text, kind, withReportLink(text, kind, options, tNow()('report.toast.link'), (about) => openReportProblem(true, about)))
+  const toast = nextToast(state.toast, made, durationMs, options?.group)
   setState({ toast })
-  setTimeout(() => {
-    if (state.toast?.id === toast.id) setState({ toast: null })
-  }, durationMs)
+  runToastTimer(toast.id, durationMs, Boolean(toast.paused))
+}
+
+/** Hold the toast while the pointer is over it or focus is inside (WCAG 2.2.1): its time stops until resumed. */
+export function pauseToast(id: number): void {
+  if (state.toast?.id !== id || !toastTimer || toastTimer.id !== id || !toastTimer.handle) return
+  clearTimeout(toastTimer.handle)
+  toastTimer = { ...toastTimer, left: Math.max(0, toastTimer.left - (Date.now() - toastTimer.since)), handle: null }
+  setState({ toast: { ...state.toast, paused: true } })
+}
+
+/** Let a held toast go on: it has the time it had left when it was paused. */
+export function resumeToast(id: number): void {
+  if (state.toast?.id !== id || !toastTimer || toastTimer.id !== id || toastTimer.handle) return
+  runToastTimer(id, toastTimer.left, false)
+  setState({ toast: { ...state.toast, paused: false } })
 }
 
 /** Run one of the current toast's buttons, then dismiss it. A failing action shows as an error toast. */
 export function runToastAction(id: number, index: number): void {
   const action = state.toast?.id === id ? state.toast.actions?.[index] : undefined
   if (!action) return
+  stopToastTimer()
   setState({ toast: null })
   void attempt(async () => action.run())
 }
 
 export function dismissToast(): void {
+  stopToastTimer()
   setState({ toast: null })
 }
 

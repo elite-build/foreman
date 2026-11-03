@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type FocusEvent, type MouseEvent } from 'react'
+import { X } from 'lucide-react'
 import type { ApprovalRequest, Session } from '../../../shared/types'
 import { AGENTS } from '../../../shared/agents'
 import type { TFunction } from '../../../shared/i18n'
@@ -7,8 +8,8 @@ import { announcePolicy, earconsFor, filterEvents, sessionStatuses, statusEvents
 import { useLocale, useT } from '../i18n'
 import { playEventEarcon } from '../sound'
 import { speech } from '../speech'
-import { activeSessionId, dismissToast, getState, runToastAction, subscribeLive, useStore } from '../store'
-import { LinkButton } from '../ui'
+import { activeSessionId, dismissToast, getState, pauseToast, resumeToast, runToastAction, subscribeLive, useStore } from '../store'
+import { Countdown, IconButton, LinkButton } from '../ui'
 
 function statusText(kind: StatusKind, name: string, t: TFunction): string {
   switch (kind) {
@@ -129,12 +130,31 @@ export function Announcer() {
  * zero-size and fixed, so they take no room in the layout.
  */
 export function ToastHost() {
+  const t = useT()
   const toast = useStore((s) => s.toast)
   // A toast whose words the announcer already said (`silent`) is shown outside the live regions: one voice per event.
   const live = toast && !toast.silent
+  // It goes on its own; pointing at it or moving focus into it holds it until both the pointer and focus have left.
+  const pointer = useRef(false)
+  const hold = toast
+    ? {
+        onMouseEnter: () => {
+          pointer.current = true
+          pauseToast(toast.id)
+        },
+        onMouseLeave: (e: MouseEvent<HTMLDivElement>) => {
+          pointer.current = false
+          if (!e.currentTarget.contains(document.activeElement)) resumeToast(toast.id)
+        },
+        onFocus: () => pauseToast(toast.id),
+        onBlur: (e: FocusEvent<HTMLDivElement>) => {
+          if (!pointer.current && !e.currentTarget.contains(e.relatedTarget as Node | null)) resumeToast(toast.id)
+        }
+      }
+    : {}
   const body = toast && (
-    <div className={`toast ${toast.kind}`} onClick={dismissToast}>
-      {toast.text}
+    <div className={`toast ${toast.kind}`} onClick={dismissToast} {...hold}>
+      <span className="toast-text">{toast.text}</span>
       {toast.actions?.map((a, i) => (
         <LinkButton
           key={i}
@@ -148,6 +168,19 @@ export function ToastHost() {
           {a.label}
         </LinkButton>
       ))}
+      {toast.durationMs !== undefined && (
+        <Countdown key={`${toast.id}:${toast.round ?? 0}`} className="toast-dismiss" durationMs={toast.durationMs} paused={toast.paused}>
+          <IconButton
+            label={t('common.dismiss')}
+            onClick={(e) => {
+              e.stopPropagation()
+              dismissToast()
+            }}
+          >
+            <X size={12} />
+          </IconButton>
+        </Countdown>
+      )}
     </div>
   )
   return (

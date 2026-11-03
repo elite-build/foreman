@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   appendEvent,
+  archivedSince,
   boundLog,
+  describeEvent,
   leadGlyph,
   LOG_MAX_AGE_MS,
   LOG_MAX_EVENTS,
@@ -125,6 +127,17 @@ describe('transitions', () => {
 
   it('archived and history-only workspaces are not looked at', () => {
     expect([...lookAll(input([ws('w1', { state: 'archived' }), ws('w2', { state: 'history' }), ws('w3')], [])).keys()]).toEqual(['w3'])
+  })
+  it('logs an archive once, keyed by when, so what a toast said for a moment stays in Recent', () => {
+    const before = lookAll(input([ws('w1'), ws('w2'), ws('w3')], []))
+    const at = ago(0)
+    const workspaces = [ws('w1', { state: 'archived', archivedAt: at }), ws('w2'), ws('w3', { state: 'history' })]
+    const after = lookAll(input(workspaces, []))
+    // w3 left the looks without being archived, so it isn't one.
+    expect(archivedSince(before, after, workspaces)).toEqual([{ kind: 'archived', workspaceId: 'w1', topic: 'archived', key: at }])
+    // Already archived at the last look: nothing new.
+    expect(archivedSince(after, after, workspaces)).toEqual([])
+    expect(describeEvent({ id: 'e', kind: 'archived', workspaceId: 'w1', topic: 'archived', key: at, firstAt: at, at, count: 1 })).toBe('Archived')
   })
 })
 

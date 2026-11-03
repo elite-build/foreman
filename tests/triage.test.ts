@@ -21,7 +21,15 @@ const approval = (sessionId: string): ApprovalRequest => ({ id: 'a', sessionId, 
 describe('triage reasons', () => {
   it('keeps the reason table in the agreed precedence', () => {
     // #2: an agent's needs-input / stuck right after approvals; its review request last.
-    expect(REASONS.map((r) => r.id)).toEqual(['approvals', 'agent-report', 'sensitive', 'checks-failed', 'ci-failed', 'review-comments', 'base-moved', 'turn-outcome', 'held-message', 'review-request', 'auto-review'])
+    // A stopped archive first: the user meant the workspace to go, and it's waiting on them.
+    expect(REASONS.map((r) => r.id)).toEqual(['archive-stopped', 'approvals', 'agent-report', 'sensitive', 'checks-failed', 'ci-failed', 'review-comments', 'base-moved', 'turn-outcome', 'held-message', 'review-request', 'auto-review'])
+  })
+
+  it('a stopped archive needs you, says which step failed, and offers its dialog; it ends when the field goes', () => {
+    const script = triage(ws({ archiveStopped: { step: 'script', detail: 'exit code 3', at: ago(2) } }), [session('s1')], { approvals: [approval('s1')] })
+    expect(script).toMatchObject({ bucket: 'attention', label: 'Archive stopped', tone: 'red', detail: 'Archive script failed', action: { kind: 'resolve-archive', label: 'Resolve…' }, extra: 1 })
+    expect(triage(ws({ archiveStopped: { step: 'checkpoint', detail: 'merge', at: ago(2) } }), []).detail).toBe('Couldn’t save the uncommitted changes')
+    expect(triage(ws(), []).bucket).toBe('idle')
   })
 
   it('#2: an approval names the row before an agent’s report; a report beats failed checks; a review request comes last', () => {

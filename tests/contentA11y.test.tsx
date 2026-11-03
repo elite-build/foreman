@@ -32,7 +32,9 @@ vi.mock('../src/renderer/src/store', async () => {
     // The real one: the tab the workspace remembers.
     activeSessionId: (s: { activeSession?: Record<string, string> }, workspaceId: string) => s.activeSession?.[workspaceId],
     dismissToast: vi.fn(),
-    runToastAction: vi.fn()
+    runToastAction: vi.fn(),
+    pauseToast: vi.fn(),
+    resumeToast: vi.fn()
   }
   return new Proxy(base, { get: (target, name: string) => (name in own ? own[name] : target[name]), has: () => true })
 })
@@ -382,6 +384,42 @@ describe('the toast hosts', () => {
     fakeState.toast = { id: 3, text: 'Deleted', kind: 'info', actions: [{ label: 'Undo' }] }
     render(<ToastHost />)
     expect(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' })).toBeTruthy()
+  })
+
+  it('show the time left around Dismiss, and hold the toast while pointed at or focused', async () => {
+    const store = await import('../src/renderer/src/store')
+    const [pause, resume, dismiss] = [store.pauseToast, store.resumeToast, store.dismissToast] as unknown as ReturnType<typeof vi.fn>[]
+    pause.mockClear()
+    resume.mockClear()
+    dismiss.mockClear()
+    fakeState.toast = { id: 4, text: 'Archived 2 workspaces.', kind: 'info', durationMs: 6000, round: 1, actions: [{ label: 'Show' }] }
+    render(<ToastHost />)
+    const status = screen.getByRole('status')
+    // The words are still the whole announcement: the ring is hidden and Dismiss is a named button.
+    expect(status.textContent).toBe('Archived 2 workspaces.Show')
+    const close = within(status).getByRole('button', { name: en['common.dismiss'] })
+    expect(close.closest('.ui-countdown')!.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true')
+    const user = userEvent.setup()
+    await user.hover(status.querySelector('.toast')!)
+    expect(pause).toHaveBeenCalledWith(4)
+    await user.unhover(status.querySelector('.toast')!)
+    expect(resume).toHaveBeenCalledWith(4)
+    resume.mockClear()
+    await user.tab()
+    expect(within(status).getByRole('button', { name: 'Show' })).toBe(document.activeElement)
+    expect(pause).toHaveBeenCalledTimes(2)
+    // Moving focus within the toast keeps it held; leaving it lets it go.
+    await user.tab()
+    expect(close).toBe(document.activeElement)
+    expect(resume).not.toHaveBeenCalled()
+    await user.click(close)
+    expect(dismiss).toHaveBeenCalled()
+  })
+
+  it('show no ring on a toast without a time', () => {
+    fakeState.toast = { id: 5, text: 'Copied', kind: 'info' }
+    render(<ToastHost />)
+    expect(document.querySelector('.ui-countdown')).toBeNull()
   })
 })
 

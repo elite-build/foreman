@@ -40,7 +40,6 @@ import { equipLoadout } from './components/composer/AgentPicker'
 import { runGitAction } from './components/GitPanel'
 import { dispatchShortcut, platformOf, type ShortcutActions } from './shortcuts'
 import { t } from './i18n'
-import { Button } from './ui'
 import {
   activeSessionId,
   addRepository,
@@ -55,7 +54,6 @@ import {
   modKey,
   newChat,
   openNewWorkspace,
-  openArchiveDialog,
   openOverlay,
   openSettingsPage,
   recordMilestone,
@@ -256,15 +254,6 @@ export function App() {
         {showHome && <Home />}
       </main>
       {editor && <StatusBar workspaceId={onScreen?.id ?? null} />}
-      {backgroundArchives.length > 0 && (
-        <div className="background-archives" role="group" aria-label={t('stop.archive.viewProgress')}>
-          {backgroundArchives.filter((id) => id !== archiveTarget).map((id) => (
-            <Button key={id} onClick={() => openArchiveDialog(id)}>
-              {snapshot.workspaces.find((ws) => ws.id === id)?.name} · {t('stop.archive.viewProgress')}
-            </Button>
-          ))}
-        </div>
-      )}
       {[...new Set([...backgroundArchives, ...(archiveTarget ? [archiveTarget] : [])])].map((id) => (
         <ArchiveDialog key={id} workspaceId={id} hidden={archiveTarget !== id} />
       ))}

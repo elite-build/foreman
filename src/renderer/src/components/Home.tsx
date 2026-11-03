@@ -116,6 +116,7 @@ function HomeRow({ t, repoName }: { t: Triage; repoName?: string }) {
               size="sm"
               onClick={() => {
                 if (t.action?.kind === 'open-review') return openReviewRequest(t)
+                if (t.action?.kind === 'resolve-archive') return openTriaged(t)
                 selectWorkspace(t.ws.id)
                 if (t.action?.kind === 'fix-ci') openFixCi(t.ws.id)
                 else if (t.action?.kind === 'resolve-base') openResolveBase(t.ws.id)
@@ -142,7 +143,8 @@ function HomeRow({ t, repoName }: { t: Triage; repoName?: string }) {
               </Button>
             </>
           )}
-          {!review && (
+          {/* A stopped archive's one way forward is its dialog, which Resolve… opens; Open would only repeat it. */}
+          {!review && t.action?.kind !== 'resolve-archive' && (
             <Button size="sm" onClick={() => openTriaged(t)}>
               {actionLabel(t, tr)}
             </Button>

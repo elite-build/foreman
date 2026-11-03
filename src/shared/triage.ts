@@ -41,8 +41,9 @@ export const BUCKET_LABEL: Record<Bucket, PlainKey> = {
 }
 
 export interface RowAction {
-  // #2 open-review: the Code review dialog, filled in with what the agent asked to check.
-  kind: 'fix-ci' | 'send-reviews' | 'resolve-base' | 'open-review'
+  // #2 open-review: the Code review dialog, filled in with what the agent asked to check. resolve-archive: the Archive
+  // dialog on the step that failed (Retry this step, Keep workspace).
+  kind: 'fix-ci' | 'send-reviews' | 'resolve-base' | 'open-review' | 'resolve-archive'
   label: string
 }
 
@@ -146,6 +147,20 @@ const none = (): null => null
  * because it only asks for a look and nothing is blocked on it.
  */
 export const REASONS: Reason[] = [
+  {
+    // An archive stopped before deleting anything. First: the user meant this workspace to go, and it's waiting on them.
+    id: 'archive-stopped',
+    find: ({ ws, input }) => {
+      if (!ws.archiveStopped) return null
+      const t = input.t ?? enT
+      return {
+        label: t('triage.archiveStopped'),
+        tone: 'red',
+        detail: t(ws.archiveStopped.step === 'checkpoint' ? 'triage.archiveStopped.checkpoint' : 'triage.archiveStopped.script'),
+        action: { kind: 'resolve-archive', label: t('triage.action.resolveArchive') }
+      }
+    }
+  },
   {
     id: 'approvals',
     find: ({ sessions, input, title }) => {

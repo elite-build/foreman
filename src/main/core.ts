@@ -2482,6 +2482,7 @@ export class Core {
     dockerContainers: (workspaceId) => this.workspaces.dockerContainers(workspaceId),
     removeDockerContainers: (workspaceId) => this.workspaces.removeDockerContainers(workspaceId),
     dismissDockerLeft: async (workspaceId) => this.workspaces.dismissDockerLeft(workspaceId),
+    dismissArchiveStopped: async (workspaceId) => this.workspaces.dismissArchiveStopped(workspaceId),
     // G3 · #13: an archived workspace's kept diff, and a new workspace from one of its chats.
     archivedDiff: (workspaceId) => this.workspaces.archivedDiff(workspaceId),
     forkArchivedChat: (sessionId) => this.forkArchivedChat(sessionId),

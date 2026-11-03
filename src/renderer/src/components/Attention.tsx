@@ -2,7 +2,7 @@
 // ("PR #42 · CI failing (2 checks) · as of 14:02 · Refresh") on sidebar and Home rows, and Home →
 // Recent, the history of what happened. Recent is history only: opening or marking it seen never
 // resolves anything that needs you; the live reasons stay in Needs your attention.
-import { Check, ChevronRight, Circle, CircleAlert, CircleCheck, CircleX, GitMerge, GitPullRequest, GitPullRequestDraft, MessageSquareText } from 'lucide-react'
+import { Archive, Check, ChevronRight, Circle, CircleAlert, CircleCheck, CircleX, GitMerge, GitPullRequest, GitPullRequestDraft, MessageSquareText } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import { prGlyph, unseenCount, type AttentionEvent, type PrGlyph } from '../../../shared/attention'
 import { clockTime } from '../../../shared/usageLimit'
@@ -140,6 +140,8 @@ function EventIcon({ e }: { e: AttentionEvent }) {
       return <CircleCheck size={13} className="faint" aria-hidden />
     case 'turn-ended':
       return e.outcome === 'completed' ? <CircleCheck size={13} className="green" aria-hidden /> : e.outcome === 'error' ? <CircleX size={13} className="red" aria-hidden /> : <Circle size={13} className="faint" aria-hidden />
+    case 'archived':
+      return <Archive size={13} className="faint" aria-hidden />
   }
 }
 
@@ -168,6 +170,8 @@ export function eventText(e: AttentionEvent, t: RendererT): { head: string; rest
       const kind = e.label === 'review' ? t('attention.event.reportReview') : e.label && ['needs-input', 'stuck', 'checkpoint', 'done'].includes(e.label) ? t(`reports.kind.${e.label as 'needs-input'}`) : (e.label ?? '')
       return { head: t('attention.event.report', { kind }), rest: e.detail ? [`“${e.detail}”`] : [], says: true }
     }
+    case 'archived':
+      return { head: t('attention.event.archived'), rest: [] }
   }
 }
 

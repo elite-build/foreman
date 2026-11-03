@@ -131,4 +131,78 @@ describe('toast actions', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(store.getState().toast).toMatchObject({ kind: 'error', text: 'Could not undo' })
   })
+
+  it('goes on its own, with its time on the toast for the Countdown ring', () => {
+    store.dismissToast()
+    vi.useFakeTimers()
+    try {
+      store.showToast('Copied')
+      expect(store.getState().toast).toMatchObject({ text: 'Copied', durationMs: 6000, round: 0 })
+      vi.advanceTimersByTime(5999)
+      expect(store.getState().toast).not.toBeNull()
+      vi.advanceTimersByTime(1)
+      expect(store.getState().toast).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('merges toasts of one group: the same toast, the group’s words for the count, its time started again', () => {
+    store.dismissToast()
+    vi.useFakeTimers()
+    try {
+      const group = { key: 'archived', text: (count: number) => `Archived ${count} workspaces.` }
+      store.showToast('Archived lisbon.', 'info', { group })
+      const first = store.getState().toast!
+      expect(first).toMatchObject({ text: 'Archived lisbon.', group: 'archived', count: 1, round: 0 })
+      vi.advanceTimersByTime(5000)
+      store.showToast('Archived porto.', 'info', { group })
+      expect(store.getState().toast).toMatchObject({ id: first.id, text: 'Archived 2 workspaces.', count: 2, round: 1 })
+      store.showToast('Archived faro.', 'info', { group })
+      expect(store.getState().toast).toMatchObject({ id: first.id, text: 'Archived 3 workspaces.', count: 3, round: 2 })
+      // The first toast's timer would have ended it by now; the merge started the time again.
+      vi.advanceTimersByTime(5999)
+      expect(store.getState().toast?.id).toBe(first.id)
+      vi.advanceTimersByTime(1)
+      expect(store.getState().toast).toBeNull()
+      // Anything else replaces a grouped toast rather than merging into it.
+      store.showToast('Archived lisbon.', 'info', { group })
+      store.showToast('Copied')
+      expect(store.getState().toast).toMatchObject({ text: 'Copied' })
+      expect(store.getState().toast?.group).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('holds while paused, then goes on with the time it had left; a stale id does nothing', () => {
+    store.dismissToast()
+    vi.useFakeTimers()
+    try {
+      store.showToast('Archived lisbon.')
+      const id = store.getState().toast!.id
+      vi.advanceTimersByTime(4000)
+      store.pauseToast(id + 1)
+      expect(store.getState().toast?.paused).toBeUndefined()
+      store.pauseToast(id)
+      expect(store.getState().toast?.paused).toBe(true)
+      vi.advanceTimersByTime(60_000)
+      expect(store.getState().toast?.id).toBe(id)
+      store.resumeToast(id)
+      expect(store.getState().toast?.paused).toBe(false)
+      vi.advanceTimersByTime(1999)
+      expect(store.getState().toast?.id).toBe(id)
+      vi.advanceTimersByTime(1)
+      expect(store.getState().toast).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a merge while held keeps it held, with the whole time ahead of it', () => {
+    const group = { key: 'archived', text: (count: number) => `Archived ${count}` }
+    const held = { ...store.makeToast(1, 'Archived lisbon.', 'info').toast, durationMs: 6000, round: 0, paused: true, group: 'archived', count: 1 }
+    expect(store.nextToast(held, store.makeToast(2, 'Archived porto.', 'info').toast, 6000, group)).toMatchObject({ id: 1, text: 'Archived 2', paused: true, round: 1, durationMs: 6000 })
+    expect(store.nextToast(held, store.makeToast(3, 'Saved', 'info').toast, 6000, undefined)).toEqual({ id: 3, text: 'Saved', kind: 'info', durationMs: 6000, round: 0 })
+  })
 })
