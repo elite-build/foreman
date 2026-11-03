@@ -34,7 +34,19 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-02: The terminal panel's scripts and terminals are tabs in its header
+
+**Decision.** Run scripts, Setup and terminals are one row of tabs in the panel's header, with + for a new terminal, another shell or a saved command (the Commands button is gone). No terminal opens until asked for; with no run script and nothing open, Run is the only tab and its panel offers four ways on. Setup's tab is an icon until selected.
+
+**Why.** The side rail took a fixed column from every terminal and run log, and drew a list beside an empty panel.
+
+**Turned down.** Keeping the rail (a column beside every output). A title menu listing everything (hides which terminals are open). A Run | Setup | Terminals switch (terminals a click deeper). Tabs along the bottom edge (less discoverable). Run and a terminal side by side (halves both).
+
+**Revisit when.** People routinely keep more terminals open than the header shows without scrolling.
+
 ## 2026-11-02: The terminal panel lists its scripts and terminals in a side rail
+
+**Superseded** by The terminal panel's scripts and terminals are tabs in its header.
 
 **Decision.** Run scripts, Setup and terminals are entries in a vertical list on the panel's right, icons only below 420px, with a header for the selected one. Several scripts can run at once. A terminal's rename and close live in its own right-click menu, not on its entry.
 

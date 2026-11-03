@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The terminal's menus and find bar on ui/: the output menu's zoom row, the new-terminal and Commands menus, Open in's
+// The terminal's menus and find bar on ui/: the output menu's zoom row, the panel's + menu (new terminals and saved commands), Open in's
 // default-app menu, and the find bar's toggles and keys.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -7,8 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalFind } from '../src/renderer/src/components/TerminalFind'
 import { TerminalMenu } from '../src/renderer/src/components/TerminalMenu'
-import { NewTerminalMenu } from '../src/renderer/src/components/NewTerminalMenu'
-import { CommandsMenu } from '../src/renderer/src/components/SavedCommands'
+import { NewMenu } from '../src/renderer/src/components/NewTerminalMenu'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -166,105 +165,98 @@ describe('the find bar', () => {
   })
 })
 
-describe('the new-terminal menu', () => {
+describe('the + menu', () => {
   const found = {
     paths: { pwsh: 'C:/pwsh.exe', powershell: 'C:/powershell.exe', gitbash: null, cmd: 'C:/cmd.exe', wsl: null },
     custom: { command: '', path: null }
   }
-
-  it('looks the shells up when it opens, lists the ones found, and picks a one-off shell', async () => {
-    const user = userEvent.setup()
-    fakeApi.detectShells = vi.fn(async () => found)
-    const onPick = vi.fn()
-    render(<NewTerminalMenu disabled={false} onPick={onPick} />)
-    const trigger = screen.getByRole('button', { name: 'New terminal in another shell' })
-    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
-    await user.click(trigger)
-    const items = await screen.findAllByRole('menuitem')
-    expect(items.length).toBeGreaterThan(1)
-    expect(fakeApi.detectShells).toHaveBeenCalled()
-    // One of them is "(default)": it opens a plain tab, so it reports undefined.
-    const plain = items.find((i) => i.textContent?.includes('(default)'))!
-    const other = items.find((i) => i !== plain)!
-    await user.click(other)
-    expect(onPick).toHaveBeenCalledTimes(1)
-    expect(onPick.mock.calls[0][0]).toEqual(expect.any(String))
-    expect(screen.queryByRole('menu')).toBeNull()
-    await user.click(trigger)
-    await user.click((await screen.findAllByRole('menuitem')).find((i) => i.textContent?.includes('(default)'))!)
-    expect(onPick).toHaveBeenLastCalledWith(undefined)
-  })
-
-  it('Escape closes it and gives the arrow its focus back', async () => {
-    const user = userEvent.setup()
-    fakeApi.detectShells = vi.fn(async () => found)
-    render(<NewTerminalMenu disabled={false} onPick={vi.fn()} />)
-    const trigger = screen.getByRole('button', { name: 'New terminal in another shell' })
-    await user.click(trigger)
-    await screen.findAllByRole('menuitem')
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(document.activeElement).toBe(trigger)
-  })
-
-  it('is off while the workspace is not ready', () => {
-    render(<NewTerminalMenu disabled onPick={vi.fn()} />)
-    expect((screen.getByRole('button', { name: 'New terminal in another shell' }) as HTMLButtonElement).disabled).toBe(true)
-  })
-})
-
-describe('the Commands menu', () => {
   const mine = { id: 'c1', name: 'Dev server', command: 'npm run dev', scope: 'repo' as const, repoId: 'r1' }
   const everywhere = { id: 'c2', name: 'Lint', command: 'npm run lint', scope: 'all' as const }
   const shared = { id: 'c3', name: 'Seed', command: 'make seed', scope: 'repo' as const, repoId: 'r1', source: 'repo' as const, approved: false }
+  const menu = (over: Partial<Parameters<typeof NewMenu>[0]> = {}) => (
+    <NewMenu repoId="r1" repoName="acme" shells={false} disabled={false} onTerminal={vi.fn()} onCommand={vi.fn()} {...over} />
+  )
+  const trigger = () => screen.getByRole('button', { name: 'New terminal or saved command' })
 
-  beforeEach(() => {
-    fakeState.snapshot.settings.savedCommands = [mine, everywhere]
-    fakeState.snapshot.repoCommands = { r1: [shared] }
+  it('New terminal comes first and takes focus; it opens a plain tab', async () => {
+    const user = userEvent.setup()
+    const onTerminal = vi.fn()
+    render(menu({ onTerminal }))
+    expect(trigger().getAttribute('aria-haspopup')).toBe('menu')
+    await user.click(trigger())
+    const items = screen.getAllByRole('menuitem')
+    expect(items[0].textContent).toBe('New terminal')
+    expect(document.activeElement).toBe(items[0])
+    await user.keyboard('{Enter}')
+    expect(onTerminal).toHaveBeenCalledWith(undefined)
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('lists this repo’s commands, then all repos’, and runs one', async () => {
+  it('on Windows it looks the shells up when it opens and lists the other ones found for a one-off tab', async () => {
     const user = userEvent.setup()
-    const onPick = vi.fn()
-    render(<CommandsMenu repoId="r1" repoName="acme" disabled={false} onPick={onPick} />)
-    const trigger = screen.getByRole('button', { name: /Commands/ })
-    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
-    expect(trigger.title).toBe('Run a saved command in a new terminal tab')
-    await user.click(trigger)
-    const menu = screen.getByRole('menu', { name: 'Commands' })
-    const repoGroup = within(menu).getByRole('group', { name: 'acme' })
+    fakeApi.detectShells = vi.fn(async () => found)
+    const onTerminal = vi.fn()
+    render(menu({ shells: true, onTerminal }))
+    expect(fakeApi.detectShells).not.toHaveBeenCalled()
+    await user.click(trigger())
+    expect(fakeApi.detectShells).toHaveBeenCalled()
+    await screen.findByText('New terminal in another shell')
+    // The default shell is New terminal itself, so it isn't listed again; shells that weren't found aren't offered.
+    const shells = screen.getAllByRole('menuitem').filter((i) => i.title.startsWith('C:/'))
+    expect(shells.length).toBeGreaterThan(0)
+    expect(shells.some((i) => i.textContent?.includes('Git Bash'))).toBe(false)
+    await user.click(shells[0])
+    expect(onTerminal).toHaveBeenCalledWith(expect.any(String))
+  })
+
+  it('elsewhere it never looks for shells', async () => {
+    const user = userEvent.setup()
+    fakeApi.detectShells = vi.fn(async () => found)
+    render(menu())
+    await user.click(trigger())
+    expect(fakeApi.detectShells).not.toHaveBeenCalled()
+    expect(screen.queryByText('New terminal in another shell')).toBeNull()
+  })
+
+  it('lists this repo’s saved commands, then all repos’, and runs one', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.savedCommands = [mine, everywhere]
+    fakeState.snapshot.repoCommands = { r1: [shared] }
+    const onCommand = vi.fn()
+    render(menu({ onCommand }))
+    await user.click(trigger())
+    const list = screen.getByRole('menu', { name: 'New terminal or saved command' })
+    const repoGroup = within(list).getByRole('group', { name: 'acme' })
     expect(within(repoGroup).getAllByRole('menuitem').map((i) => i.title)).toEqual(['npm run dev', 'make seed'])
-    const allGroup = within(menu).getByRole('group', { name: 'All repos' })
+    const allGroup = within(list).getByRole('group', { name: 'All repos' })
     expect(within(allGroup).getAllByRole('menuitem')).toHaveLength(1)
     // A repo's own command that still needs approval says so.
     expect(within(repoGroup).getByRole('menuitem', { name: /Seed/ }).textContent).toMatch(/approval|asks|repo/i)
     await user.click(within(allGroup).getByRole('menuitem', { name: /Lint/ }))
-    expect(onPick).toHaveBeenCalledWith(everywhere)
+    expect(onCommand).toHaveBeenCalledWith(everywhere)
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('the first entry takes focus, arrows move, Escape returns focus to the button', async () => {
+  it('says when there are no saved commands, and still offers Edit commands…', async () => {
     const user = userEvent.setup()
-    render(<CommandsMenu repoId="r1" repoName="acme" disabled={false} onPick={vi.fn()} />)
-    const trigger = screen.getByRole('button', { name: /Commands/ })
-    await user.click(trigger)
-    const items = screen.getAllByRole('menuitem')
-    expect(document.activeElement).toBe(items[0])
-    await user.keyboard('{ArrowDown}')
-    expect(document.activeElement).toBe(items[1])
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(document.activeElement).toBe(trigger)
-  })
-
-  it('says when there are none, and still offers Edit commands…', async () => {
-    const user = userEvent.setup()
-    fakeState.snapshot.settings.savedCommands = []
-    fakeState.snapshot.repoCommands = {}
-    render(<CommandsMenu repoId="r1" repoName="acme" disabled={false} onPick={vi.fn()} />)
-    await user.click(screen.getByRole('button', { name: /Commands/ }))
+    render(menu())
+    await user.click(trigger())
     expect(screen.getByText('No saved commands for this repo yet.')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /Edit commands/ })).toBeTruthy()
+  })
+
+  it('Escape closes it and gives + its focus back', async () => {
+    const user = userEvent.setup()
+    render(menu())
+    await user.click(trigger())
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(trigger())
+  })
+
+  it('is off while the workspace is not ready', () => {
+    render(menu({ disabled: true }))
+    expect((trigger() as HTMLButtonElement).disabled).toBe(true)
   })
 })
 

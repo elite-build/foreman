@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// The bottom panel: a header for the selected entry, and a rail of two vertical ui/ TabLists (run scripts and Setup,
-// then terminals). Several run scripts run at once; rename and close come from the terminal's own menu.
+// The bottom panel: a header of tabs (run scripts, Setup, terminals) in one ui/ TabList, + for a new terminal or saved
+// command, and the selected entry's actions. Several run scripts run at once; rename and close come from the terminal's
+// own menu. With no run script and nothing open, Run is the only tab and its panel is a launcher.
 import './domShims'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -61,72 +62,89 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-const scripts = () => within(screen.getByRole('tablist', { name: 'Scripts' })).getAllByRole('tab')
-const terms = () => within(screen.getByRole('tablist', { name: 'Terminals' })).getAllByRole('tab')
-const names = (tabs: HTMLElement[]) => tabs.map((t) => t.querySelector('.rail-label')?.textContent)
 const header = () => document.querySelector('.bottom-head') as HTMLElement
+const tabs = () => within(screen.getByRole('tablist', { name: 'Scripts and terminals' })).getAllByRole('tab')
+const terms = () => tabs().filter((tab) => tab.dataset.tabValue?.startsWith('term-'))
+const tab = (name: string) => tabs().find((t) => label(t) === name)!
+// The name a tab shows (Setup's is visually hidden until it is selected).
+const label = (tab: HTMLElement) => tab.querySelector('.bottom-tab-label, .sr-only')?.textContent
+const names = (list: HTMLElement[]) => list.map(label)
 const twoScripts = () =>
   (fakeState.snapshot.repoSettings.r1.values.runScripts = [
     { name: 'dev', command: 'npm run dev', default: true },
     { name: 'docs', command: 'npm run docs' }
   ])
+async function newTerminal(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'New terminal or saved command' }))
+  await user.click(screen.getByRole('menuitem', { name: 'New terminal' }))
+}
 
-describe('the rail', () => {
-  it('lists the run scripts and Setup, then the terminals, as vertical tablists, with the default script selected', () => {
+describe('the tabs', () => {
+  it('are one horizontal tablist in the header: the run scripts, then Setup, with the default script selected', () => {
     render(<BottomPanel workspace={workspace} visible />)
-    for (const name of ['Scripts', 'Terminals']) expect(screen.getByRole('tablist', { name }).getAttribute('aria-orientation')).toBe('vertical')
-    expect(names(scripts())).toEqual(['dev', 'Setup'])
-    expect(names(terms())).toEqual(['Terminal 1'])
-    expect(scripts()[0].getAttribute('aria-selected')).toBe('true')
-    // The header names what is selected, with its command.
-    expect(within(header()).getByText('dev')).toBeTruthy()
-    expect(within(header()).getByText('npm run dev')).toBeTruthy()
+    const list = screen.getByRole('tablist', { name: 'Scripts and terminals' })
+    expect(header().contains(list)).toBe(true)
+    expect(list.getAttribute('aria-orientation')).toBe('horizontal')
+    // No terminal until one is opened.
+    expect(names(tabs())).toEqual(['dev', 'Setup'])
+    expect(tabs()[0].getAttribute('aria-selected')).toBe('true')
   })
 
-  it('↑ ↓ move within a list and select; only the selected panel shows', async () => {
+  it('← → move and select; only the selected panel shows', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
-    scripts()[0].focus()
-    await user.keyboard('{ArrowDown}')
-    expect(scripts()[1].getAttribute('aria-selected')).toBe('true')
-    expect(document.activeElement).toBe(scripts()[1])
+    tabs()[0].focus()
+    await user.keyboard('{ArrowRight}')
+    expect(tab('Setup').getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(tab('Setup'))
     expect(screen.getByText('setup log').closest('[role="tabpanel"]')?.hasAttribute('hidden')).toBe(false)
-    await user.click(terms()[0])
+    await newTerminal(user)
     // The terminal starts the first time it is shown, and the earlier panels stay mounted but hidden.
     expect(screen.getByTestId('view-shell').getAttribute('data-visible')).toBe('true')
     expect(screen.getByText('setup log').closest('[role="tabpanel"]')?.hasAttribute('hidden')).toBe(true)
   })
 
-  it('+ opens another terminal and shows it', async () => {
+  it('+ → New terminal opens a terminal after the others and shows it', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
-    await user.click(screen.getByRole('button', { name: 'New terminal' }))
+    await newTerminal(user)
+    await newTerminal(user)
     expect(names(terms())).toEqual(['Terminal 1', 'Terminal 2'])
     expect(terms()[1].getAttribute('aria-selected')).toBe('true')
   })
 
-  it('shows Setup running and failing on its entry, in words for screen readers', () => {
+  it('Setup is an icon, named on screen only while selected', async () => {
+    const user = userEvent.setup()
+    render(<BottomPanel workspace={workspace} visible />)
+    expect(tab('Setup').querySelector('.sr-only')?.textContent).toBe('Setup')
+    await user.click(tab('Setup'))
+    expect(tab('Setup').querySelector('.bottom-tab-label')?.textContent).toBe('Setup')
+  })
+
+  it('shows Setup running and failing on its tab, in words for screen readers', () => {
     const { rerender } = render(<BottomPanel workspace={{ ...(workspace as object), state: 'setting-up' } as never} visible />)
-    expect(scripts()[1].textContent).toContain('Running setup…')
-    expect(scripts()[1].getAttribute('aria-selected')).toBe('true')
+    expect(tab('Setup').textContent).toContain('Running setup…')
+    expect(tab('Setup').getAttribute('aria-selected')).toBe('true')
     rerender(<BottomPanel workspace={{ ...(workspace as object), state: 'setup-failed' } as never} visible />)
-    expect(scripts()[1].textContent).toContain('Setup failed')
+    expect(tab('Setup').textContent).toContain('Setup failed')
   })
 })
 
 describe('a terminal’s name and closing come from its own menu', () => {
   async function startRename(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(terms()[0])
+    await newTerminal(user)
     await user.click(screen.getByRole('button', { name: 'menu rename' }))
     return screen.getByRole('textbox', { name: 'Rename terminal' }) as HTMLInputElement
   }
 
-  it('the rail has no close buttons', () => {
+  it('the tabs have no close buttons', async () => {
+    const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
+    await newTerminal(user)
     expect(screen.queryByRole('button', { name: 'Close Terminal 1' })).toBeNull()
   })
 
-  it('Rename opens a focused field in the header; Enter keeps the name', async () => {
+  it('Rename opens a focused field in place of the tab; Enter keeps the name', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
     const field = await startRename(user)
@@ -143,7 +161,8 @@ describe('a terminal’s name and closing come from its own menu', () => {
     await startRename(user)
     await user.keyboard('oops{Escape}')
     expect(names(terms())).toEqual(['Terminal 1'])
-    const field = await startRename(user)
+    await user.click(screen.getByRole('button', { name: 'menu rename' }))
+    const field = screen.getByRole('textbox', { name: 'Rename terminal' })
     await user.clear(field)
     await user.keyboard('{Enter}')
     expect(names(terms())).toEqual(['Terminal 1'])
@@ -152,10 +171,10 @@ describe('a terminal’s name and closing come from its own menu', () => {
   it('Close removes the terminal and goes back to the run script', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
-    await user.click(terms()[0])
+    await newTerminal(user)
     await user.click(screen.getByRole('button', { name: 'menu close' }))
-    expect(within(screen.getByRole('tablist', { name: 'Terminals' })).queryAllByRole('tab')).toHaveLength(0)
-    expect(scripts()[0].getAttribute('aria-selected')).toBe('true')
+    expect(terms()).toHaveLength(0)
+    expect(tab('dev').getAttribute('aria-selected')).toBe('true')
   })
 })
 
@@ -172,16 +191,16 @@ describe('running scripts', () => {
     twoScripts()
     render(<BottomPanel workspace={workspace} visible />)
     await user.click(within(header()).getByRole('button', { name: /^Run/ }))
-    await user.click(scripts()[1])
+    await user.click(tab('docs'))
     await user.click(within(header()).getByRole('button', { name: /^Run/ }))
     expect(screen.getAllByTestId('view-run').map((v) => v.getAttribute('data-command'))).toEqual(['dev', 'docs'])
-    expect(scripts()[0].title).toBe('dev · Running')
-    expect(scripts()[1].title).toBe('docs · Running')
+    expect(tab('dev').title).toBe('dev · Running')
+    expect(tab('docs').title).toBe('docs · Running')
     await user.click(within(header()).getByRole('button', { name: /^Stop/ }))
     expect(hoisted.bridge.send.ptyKill).toHaveBeenCalledWith('pty-docs')
     expect(hoisted.bridge.send.ptyKill).toHaveBeenCalledTimes(1)
-    expect(scripts()[0].title).toBe('dev · Running')
-    expect(scripts()[1].title).toBe('docs')
+    expect(tab('dev').title).toBe('dev · Running')
+    expect(tab('docs').title).toBe('docs')
   })
 
   it('a run that ends by itself says how; one ended by Stop does not', async () => {
@@ -190,20 +209,20 @@ describe('running scripts', () => {
     render(<BottomPanel workspace={workspace} visible />)
     await user.click(within(header()).getByRole('button', { name: /^Run/ }))
     await user.click(screen.getByRole('button', { name: 'exit dev' }))
-    expect(scripts()[0].title).toBe('dev · Exited with 1')
-    expect(within(header()).getByText('Exited with 1')).toBeTruthy()
-    await user.click(scripts()[1])
+    expect(tab('dev').title).toBe('dev · Exited with 1')
+    expect(tab('dev').textContent).toContain('Exited with 1')
+    await user.click(tab('docs'))
     await user.click(within(header()).getByRole('button', { name: /^Run/ }))
     await user.click(within(header()).getByRole('button', { name: /^Stop/ }))
     await user.click(screen.getByRole('button', { name: 'exit docs' }))
-    expect(scripts()[1].title).toBe('docs')
+    expect(tab('docs').title).toBe('docs')
   })
 
   it('⌘R starts and stops the selected script', async () => {
     const user = userEvent.setup()
     twoScripts()
     render(<BottomPanel workspace={workspace} visible />)
-    await user.click(scripts()[1])
+    await user.click(tab('docs'))
     // The shortcut arrives as a UI command, outside any event React knows about.
     const press = () => act(() => hoisted.ui.handler!('run', 'w1'))
     press()
@@ -231,13 +250,27 @@ describe('running scripts', () => {
   })
 })
 
+describe('saved commands', () => {
+  it('+ runs one in a new tab named after it', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.savedCommands = [{ id: 'c1', name: 'Lint', command: 'npm run lint', scope: 'all' }]
+    fakeApi.savedCommandConsent = vi.fn(async () => null)
+    render(<BottomPanel workspace={workspace} visible />)
+    await user.click(screen.getByRole('button', { name: 'New terminal or saved command' }))
+    await user.click(screen.getByRole('menuitem', { name: /Lint/ }))
+    expect(names(terms())).toEqual(['Lint'])
+    expect(terms()[0].getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('view-saved').getAttribute('data-command')).toBe('c1')
+  })
+})
+
 describe('full screen', () => {
   it('its button is always in the header, named with its shortcut, whatever is selected', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
     await user.click(within(header()).getByRole('button', { name: 'Fullscreen (Ctrl⇧J)' }))
     expect(store.toggleTerminalFullscreen).toHaveBeenCalledWith('w1')
-    await user.click(terms()[0])
+    await newTerminal(user)
     expect(within(header()).getByRole('button', { name: 'Fullscreen (Ctrl⇧J)' })).toBeTruthy()
   })
 
@@ -253,12 +286,17 @@ describe('without a run script', () => {
     fakeState.snapshot.repoSettings.r1.values.runScripts = []
   })
 
-  it('the Run entry offers to set one up, and no Run button pretends to run', async () => {
+  it('with nothing open, Run is the only tab and no Run button pretends to run', () => {
+    render(<BottomPanel workspace={workspace} visible />)
+    expect(names(tabs())).toEqual(['Run'])
+    expect(within(header()).queryByRole('button', { name: /^Run/ })).toBeNull()
+    expect(screen.getByText('Start something in this workspace')).toBeTruthy()
+  })
+
+  it('Set up a run script opens the repository’s scripts settings', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
-    expect(names(scripts())).toEqual(['Run', 'Setup'])
-    expect(within(header()).queryByRole('button', { name: /^Run/ })).toBeNull()
-    await user.click(screen.getByRole('button', { name: 'Set up a run script' }))
+    await user.click(screen.getByRole('button', { name: 'Set up a run script', description: 'Starts a dev server on this workspace’s own ports.' }))
     expect(store.openSettingsPage).toHaveBeenCalledWith({ section: 'repo', repoId: 'r1', tab: 'scripts' })
   })
 
@@ -273,10 +311,26 @@ describe('without a run script', () => {
     expect(store.fillComposer).toHaveBeenCalledWith('w1', 's1', expect.stringContaining('.foreman/settings.toml'), 'default-setup-repo')
   })
 
-  it('Open a terminal shows one', async () => {
+  it('Open a terminal shows one, and Setup gets its tab back', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
     await user.click(screen.getByRole('button', { name: 'Open a terminal' }))
+    expect(names(tabs())).toEqual(['Run', 'Setup', 'Terminal 1'])
     expect(terms()[0].getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('Setup log shows the setup output, and says when setup failed', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<BottomPanel workspace={workspace} visible />)
+    await user.click(screen.getByRole('button', { name: 'Setup log', description: 'What ran when this workspace was made.' }))
+    expect(tab('Setup').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('setup log').closest('[role="tabpanel"]')?.hasAttribute('hidden')).toBe(false)
+    // Back on Run with nothing open, the launcher is the only tab again.
+    await user.click(tab('Run'))
+    expect(names(tabs())).toEqual(['Run'])
+    unmount()
+    render(<BottomPanel workspace={{ ...(workspace as object), state: 'setup-failed' } as never} visible />)
+    await user.click(tab('Run'))
+    expect(screen.getByRole('button', { name: 'Setup log', description: 'Setup failed' })).toBeTruthy()
   })
 })
