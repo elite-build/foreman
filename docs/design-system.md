@@ -10,7 +10,7 @@ The **Components** sections below are the authoritative catalogue of purposes, v
 
 | Requirement | Catalogue entries to inspect | Runnable example source |
 | --- | --- | --- |
-| Actions, cards and feedback | Button, IconButton, LinkButton, ChipButton, Pressable, ActionRow, Card/CardButton, Tag, Status, Glyph, Spinner, Meter, Stepper, Callout, Kbd, MediaThumb | `ui/gallery/2a.tsx` |
+| Actions, cards and feedback | Button, IconButton, LinkButton, ChipButton, Pressable, ActionRow, Card/CardButton, Tag, Status, Glyph, Spinner, Countdown, Meter, Stepper, Callout, Kbd, MediaThumb | `ui/gallery/2a.tsx` |
 | Labelled inputs and choices | Field/useField, TextInput, TextArea, Range, FileInput, Checkbox, Select, MaskedValue, Switch, RadioList, RadioCards | `ui/gallery/2b.tsx` |
 | Navigation and action menus | Segmented, Tabs and parts, Menu and parts, ContextMenu, SplitButton, Disclosure | `ui/gallery/2c.tsx` |
 | Overlays, pickers and structure | Dialog/Sheet, Popover, HoverCard, Listbox, Combobox, Tree/TreeItem, Resizer | `ui/gallery/2d.tsx` |
@@ -215,6 +215,22 @@ Replaces `.spin` on icons.
 
 ```tsx
 <Spinner label={t('addRepo.clone.cloning')} />
+```
+
+### Countdown
+
+A ring that empties around a small control, for something that goes away on its own: the toast's Dismiss shows how long the toast has left. Added when toasts became the only notice for work that finishes in the background (an archive), so they had to say they will go and let the user hold them. Nothing existing fit: `Spinner` is indeterminate and says "still working", not "ending at a time"; `Meter` is an amount within a range, read out as a value, and a toast's time isn't something to announce; a variant of either would change what it means to a screen reader. The responsibility is narrow: the ring and its timing, nothing about what ends.
+
+- Props: `durationMs`, `paused`, `children` (the control inside, usually an `IconButton`), plus native span props. Give it a new `key` to start it again.
+- Decorative: the ring is `aria-hidden` and the control inside keeps its own name. The caller owns the timer and pauses it with the ring (pointer over, focus inside), so the time can always be held.
+- Look: a 1.5px ring in the text colour on a `--border-strong` track, emptying clockwise from twelve. Under Reduce Motion it steps down once a second instead of sweeping. In forced colours the track is `GrayText` and the ring `CanvasText`.
+
+```tsx
+<Countdown key={toast.round} durationMs={toast.durationMs} paused={toast.paused}>
+  <IconButton label={t('common.dismiss')} onClick={dismissToast}>
+    <X size={12} />
+  </IconButton>
+</Countdown>
 ```
 
 ### Meter
