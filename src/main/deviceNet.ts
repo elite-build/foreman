@@ -1,9 +1,13 @@
-// The wire between paired Macs: TCP on the local network, length-prefixed frames, and the
-// authenticated encryption from devicePairing.ts. Bonjour would need a native add-on, so Macs
-// are found by the address the other Mac shows (host:port); there is no third-party server.
+// The wire between paired computers: TCP on the local network, length-prefixed frames, and the
+// authenticated encryption from devicePairing.ts. Bonjour would need a native add-on, so computers
+// are found by the address the other one shows (host:port); there is no third-party server.
+// A connection carries one hand-off request, or becomes a lasting channel for controlling the other computer
+// (remote/channel.ts, shared/remote.ts).
 import net from 'node:net'
+import type { RemoteHello, RemoteWelcome } from '../shared/remote'
 import type { PeerRequest, PeerResponse, PeerTransport } from '../shared/transfer'
 import { PairingGuest, newNonce, sessionKeys, type PairingHost, type PairingMessage, type PairingPeer, type PairingResult, type SessionKeys } from './devicePairing'
+import { Channel } from './remote/channel'
 
 export const DEFAULT_DEVICE_PORT = 47631
 const MAX_FRAME = 2 * 1024 * 1024
@@ -14,7 +18,7 @@ const CONNECT_MS = 6_000
 const REQUEST_MS = 60_000
 
 /** Reads length-prefixed frames off a socket, one at a time. */
-class Frames {
+export class Frames {
   private chunks: Buffer[] = []
   private size = 0
   private waiters: { resolve: (b: Buffer) => void; reject: (e: Error) => void }[] = []
@@ -33,7 +37,7 @@ class Frames {
     socket.on('error', fail)
     socket.on('close', () => fail(new Error('The connection closed.')))
     socket.on('timeout', () => {
-      fail(new Error('The other Mac stopped answering.'))
+      fail(new Error('The other computer stopped answering.'))
       socket.destroy()
     })
   }
@@ -90,6 +94,8 @@ export interface DeviceNetDeps {
   seen(deviceId: string): void
   /** A request from a paired Mac. */
   onRequest(from: string, request: PeerRequest, file?: Buffer): Promise<PeerResponse>
+  /** A paired computer wants a lasting channel to control this one: the welcome to send, and what takes the channel. */
+  onRemote?(from: string, hello: RemoteHello): { welcome: RemoteWelcome; attach?: (channel: Channel) => void }
   /** The code being shown right now, if any. */
   pairingHost(): PairingHost | undefined
   /** A guest proved the code. */
@@ -141,7 +147,9 @@ export class DeviceNet implements PeerTransport {
     frames.write(json({ t: 'hello', deviceId: this.deps.self().deviceId, nonce: serverNonce.toString('hex') }))
     const keys = sessionKeys(key, clientNonce, serverNonce, false)
     // A peer without the key fails to decrypt here and is dropped.
-    const header = parse<{ request: PeerRequest; fileBytes?: number }>(keys.open(await frames.next()))
+    const opened = parse<{ request: PeerRequest; fileBytes?: number } | { remote: RemoteHello }>(keys.open(await frames.next()))
+    if ('remote' in opened) return this.serveRemote(first.deviceId, opened.remote, socket, frames, keys)
+    const header = opened
     const file = header.fileBytes ? await this.readFile(frames, keys, header.fileBytes) : undefined
     this.deps.seen(first.deviceId)
     // Staging a large file can take a while; the sender's own timeout decides when to give up.
@@ -154,6 +162,14 @@ export class DeviceNet implements PeerTransport {
     }
     frames.write(keys.seal(json(response)))
     socket.end()
+  }
+
+  private serveRemote(from: string, hello: RemoteHello, socket: net.Socket, frames: Frames, keys: SessionKeys): void {
+    this.deps.seen(from)
+    const answer = this.deps.onRemote?.(from, hello) ?? { welcome: { ok: false, version: '', platform: process.platform, name: this.deps.self().name, refused: 'off' as const } }
+    frames.write(keys.seal(json(answer.welcome)))
+    if (!answer.welcome.ok || !answer.attach) return void socket.end()
+    answer.attach(new Channel(socket, frames, keys))
   }
 
   private async servePairing(frames: Frames, hello: PairingMessage, socket: net.Socket): Promise<void> {
@@ -225,6 +241,34 @@ export class DeviceNet implements PeerTransport {
       return response
     } finally {
       socket.destroy()
+    }
+  }
+
+  /** Open a lasting channel to a paired computer, to control it. The channel is absent when it said no (see the welcome). */
+  async openChannel(peerId: string, hello: RemoteHello): Promise<{ welcome: RemoteWelcome; channel?: Channel }> {
+    const key = this.deps.keyFor(peerId)
+    const address = this.deps.addressOf(peerId)
+    if (!key || !address) throw new Error('That computer isn’t paired, or its address isn’t known.')
+    const socket = await this.connect(address.host, address.port)
+    socket.setTimeout(15_000)
+    const frames = new Frames(socket)
+    try {
+      const clientNonce = newNonce()
+      frames.write(json({ t: 'hello', deviceId: this.deps.self().deviceId, nonce: clientNonce.toString('hex') }))
+      const reply = parse<{ t: string; deviceId: string; nonce: string }>(await frames.next())
+      if (reply.t !== 'hello' || reply.deviceId !== peerId) throw new Error('That computer isn’t the one that was paired.')
+      const keys = sessionKeys(key, clientNonce, Buffer.from(reply.nonce, 'hex'), true)
+      frames.write(keys.seal(json({ remote: hello })))
+      const welcome = parse<RemoteWelcome>(keys.open(await frames.next()))
+      this.deps.seen(peerId)
+      if (!welcome.ok) {
+        socket.destroy()
+        return { welcome }
+      }
+      return { welcome, channel: new Channel(socket, frames, keys) }
+    } catch (err) {
+      socket.destroy()
+      throw err
     }
   }
 

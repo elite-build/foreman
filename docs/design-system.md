@@ -116,7 +116,7 @@ Replaces `.chip` (and `.active`, `.accent`, `.plan-on`), the phone pill and the 
 
 - Props: `tone` (`neutral` / `warn` amber text on an amber tint: waiting on the user; there is no coral tone, and a mode that is on is `pressed`, the neutral hover fill), `pressed` (a toggle: `aria-pressed`), `haspopup` (`menu` / `listbox` / `dialog` / `true`) with `expanded` (`aria-haspopup` and `aria-expanded`, false until `expanded`), `pill` (fully rounded), plus native button props except `type`, `role` and `aria-pressed`. A Popover's trigger props spread straight onto it: native `aria-haspopup` and `aria-expanded` are kept, and `haspopup` / `expanded` win when both are given.
 - The highlighted look follows `aria-pressed=true` and `aria-expanded=true`; there is no look-only `active` prop. A chip that is a Plan mode toggle sets `pressed`; one that opens a picker sets `haspopup` and `expanded`.
-- A `Status` can sit inside a chip (the phone pill: `<ChipButton pill haspopup="dialog"><Status tone="warn" label=… /></ChipButton>`).
+- A `Status` can sit inside a chip (the "controlled from" chip: `<ChipButton pill><Status tone="info" label=… /></ChipButton>` in a `Popover`).
 
 ```tsx
 <ChipButton pressed={planMode} onClick={togglePlan}>{t('composer.plan')}</ChipButton>

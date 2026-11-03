@@ -3228,20 +3228,20 @@ export const en = {
   'transfer.warning': 'Foreman can only pause its own work. Editors or agent CLIs you run yourself aren’t paused.',
 
   // ---- Pairing, hand-off, Reconcile dialogs and Home's hand-off rows (HandOffDialogs.tsx) ----
-  'pairDialog.show.title': 'Pair a Mac',
+  'pairDialog.show.title': "Pair a computer",
   'pairDialog.starting': 'Starting…',
   // {enterCode} is pairDialog.enter.title in bold. Settings → Data & devices is the Settings page.
-  'pairDialog.show.how': 'On the other Mac, open Settings → Data & devices → {enterCode} and type this. It works once and expires in two minutes.',
+  'pairDialog.show.how': "On the other computer, open Settings → Data & devices → {enterCode} and type this. It works once and expires in two minutes.",
   'pairDialog.show.code': 'Pairing code',
   // {address} is one or more host:port addresses.
   'pairDialog.show.address': 'This Mac’s address: {address}',
   // Between two addresses, with the spaces around it.
   'pairDialog.show.or': '  or  ',
   'pairDialog.show.port': 'port {port}',
-  'pairDialog.show.direct': 'Foreman doesn’t find other Macs by itself (that would need a native add-on), so the other Mac needs this address. Nothing goes through a server: the two Macs talk directly, on this network only.',
+  'pairDialog.show.direct': "Foreman doesn’t find other computers by itself (that would need a native add-on), so the other computer needs this address. Nothing goes through a server: the two computers talk directly, on this network only.",
   'pairDialog.enter.title': 'Enter a code',
   // {showCode} is pairDialog.enter.showCode in bold.
-  'pairDialog.enter.how': 'On the other Mac, choose Settings → Data & devices → {showCode}, then enter the address and code it shows.',
+  'pairDialog.enter.how': "On the other computer, choose Settings → Data & devices → {showCode}, then enter the address and code it shows.",
   'pairDialog.enter.showCode': 'Show a code',
   'pairDialog.enter.address': 'Address',
   'pairDialog.enter.code': '6-digit code',
@@ -3610,15 +3610,15 @@ export const en = {
   'settings.data.backedUpMissing': { one: 'Backed up to {path} ({count} attachment file was missing)', other: 'Backed up to {path} ({count} attachment files were missing)' },
   'settings.data.syncWarning': "Don't put foreman.db in iCloud or Dropbox: a synced live database can corrupt it. To move work between computers, use a workspace export file.",
   'settings.data.devices': 'Devices',
-  'settings.data.devices.desc': 'Hand a workspace to another Mac on the same network. The Macs talk directly over the local network with an encrypted channel; there is no server in between.',
-  'settings.data.devices.accept': 'Accept hand-offs on this Mac',
+  'settings.data.devices.desc': "Pair Foreman on your other computers, Mac or Windows, on the same network. Then you can hand a workspace to one, or control it from here with the device chip at the top of the sidebar. The computers talk directly over an encrypted channel; there is no server in between.",
+  'settings.data.devices.accept': "Accept hand-offs on this computer",
   'settings.data.devices.listening': 'Listening on port {port}.',
   // {addresses} is one or more host:port addresses joined with settings.data.devices.or, or "port 47633".
-  'settings.data.devices.reachAt': 'Other Macs reach this one at {addresses}.',
+  'settings.data.devices.reachAt': "Other computers reach this one at {addresses}.",
   // Between two addresses, with the spaces around it.
   'settings.data.devices.or': ' or ',
-  'settings.data.devices.off': 'Off: no other Mac can connect. It is also on briefly while a pairing code is showing.',
-  'settings.data.devices.acceptDetail': 'Foreman has to be open on this Mac for a hand-off to arrive. Only Macs you have paired can connect.',
+  'settings.data.devices.off': "Off: no other computer can connect. It is also on briefly while a pairing code is showing.",
+  'settings.data.devices.acceptDetail': "Foreman has to be open on this computer for a hand-off to arrive. Only computers you have paired can connect.",
   'settings.data.devices.port': 'Port',
   'settings.data.devices.portHelp': 'Change it only if another program uses this one.',
   // Beside a paired Mac's name.
@@ -3633,7 +3633,75 @@ export const en = {
   'settings.data.devices.unpair': 'Unpair',
   // {name} is a Mac's name.
   'settings.data.devices.unpairConfirm': 'Unpair {name}? It will no longer be able to send or receive hand-offs.',
-  'settings.data.devices.pairHelp': 'One Mac shows a 6-digit code and its address; the other enters both. Foreman can’t find other Macs on its own, so the address is typed in.',
+  'settings.data.devices.pairHelp': "One computer shows a 6-digit code and its address; the other enters both. Foreman can’t find other computers on its own, so the address is typed in.",
+  // ---- Other computers (shared/remote.ts): the device chip, the remote banner, being controlled. {name} is a computer’s name ----
+  'settings.data.devices.remote': "Let paired computers control this one",
+  'settings.data.devices.remoteHelp': "From their own window, with the device chip at the top of the sidebar. Everything they do runs on this computer: agents, terminals, files and git.",
+  'settings.data.devices.remoteAsk': "Ask on this screen before a computer takes control",
+  'settings.data.devices.remoteAskHelp': "Someone has to be here to click Allow. An Allow lasts until you disconnect that computer or quit Foreman.",
+  // Why switching to another computer didn’t work (the device chip’s error). {version} is a version number.
+  'computers.refused.denied': "{name} didn’t let this computer take control.",
+  'computers.refused.timeout': "Nobody answered on {name}. Try again when someone there can click Allow.",
+  'computers.refused.off': "{name} doesn’t let other computers control it. Turn it on there in Settings → Data & devices.",
+  'computers.refused.version': "{name} runs Foreman {version}. Both computers need the same version.",
+  'computers.refused.versionUnknown': "{name} runs a different version of Foreman. Both computers need the same version.",
+  'computers.refused.unreachable': "Couldn’t reach {name}. Check that Foreman is open there and both computers are on the same network.",
+  // A file picker, Open in…, a preview or an import while the window shows another computer.
+  'computers.unavailable': "Not available while you control {name}: it needs this computer’s own files or screen. Switch back to this computer to use it.",
+  'computers.thisComputer': "This computer",
+  'computers.menu.title': "Computers",
+  'computers.menu.pair': "Pair a computer…",
+  'computers.menu.settings': "Computer settings",
+  'computers.menu.phone': "Phone",
+  // The device chip’s tooltip.
+  'computers.chip.title': "Showing {name}. Switch computers",
+  'computers.joining.connecting': "Connecting to {name}…",
+  'computers.joining.waiting': "Waiting for someone at {name} to click Allow…",
+  // The chip’s count, for screen readers: needs-you on the computers the window isn’t showing.
+  'computers.othersNeedYou': { one: "{count} on another computer needs you", other: "{count} on other computers need you" },
+  'computers.summary.running': { one: "{count} running", other: "{count} running" },
+  'computers.summary.needsYou': { one: "{count} needs you", other: "{count} need you" },
+  // A paired computer’s line in the chip’s menu.
+  'computers.status.online': "Online",
+  'computers.status.connecting': "Connecting…",
+  'computers.status.offline': "Not reachable",
+  'computers.status.refused': "Doesn’t allow control",
+  'computers.status.unknown': "Address unknown",
+  'computers.status.mismatch': "Runs Foreman {version}",
+  'computers.status.mismatchUnknown': "Runs another Foreman version",
+  // The banner across the window while it shows another computer.
+  'computers.banner.controlling': "You’re controlling {name}.",
+  'computers.banner.detail': "Agents, terminals, files and git run there. This window only shows them.",
+  'computers.banner.waiting': "Waiting for {name} to let you back in.",
+  'computers.banner.lost': "Lost the connection to {name}.",
+  'computers.banner.lostDetail': "Its agents keep working there, and you’ll see what they did when it’s back. Retrying…",
+  'computers.banner.retry': "Retry now",
+  'computers.banner.back': "Back to this computer",
+  // Shown to the person at this computer while another one controls it.
+  'computers.controlled.many': { one: "{count} computer", other: "{count} computers" },
+  'computers.controlled.popTitle': "Controlled from another computer",
+  'computers.controlled.chipTitle': "Controlled from {name}",
+  'computers.controlled.title': "{name} is controlling this computer",
+  // {when} is a date and time.
+  'computers.controlled.since': "Since {when}",
+  'computers.controlled.detail': "What it does runs here and shows on this screen too. You can keep working alongside it.",
+  'computers.controlled.disconnect': "Disconnect",
+  // A paired computer asks to take control (Settings → Data & devices → Ask on this screen…).
+  'computers.request.title': "{name} wants to control this computer",
+  'computers.request.body': "It will see and use every workspace here: chats, terminals, files and git. Everything it runs, runs on this computer.",
+  'computers.request.lasts': "Allow lasts until you disconnect it or quit Foreman. Unanswered, this goes away in two minutes.",
+  'computers.request.allow': "Allow",
+  'computers.request.deny': "Deny",
+  // A toast: something on a computer this window isn’t showing needs you. {computer} is its name; {title} and {body} are the notification’s own words.
+  'computers.notify': "{computer} · {title}: {body}",
+  'computers.openOn': "Open on {name}",
+  // A toast: the window came back to this computer by itself.
+  'computers.left.denied': "{name} ended your control.",
+  'computers.left.off': "{name} turned off control from other computers.",
+  'computers.left.timeout': "Lost the connection to {name}. You’re back on this computer.",
+  'computers.left.unreachable': "Lost the connection to {name}. You’re back on this computer.",
+  'computers.left.mismatch': "{name} now runs a different Foreman version. You’re back on this computer.",
+  'computers.left.unpaired': "{name} is no longer paired. You’re back on this computer.",
   // ---- Settings → Account: GitHub sign-in, privacy and tool approvals ----
   'settings.account.privacy': 'Privacy and approvals',
   'settings.account.privacyMode': 'Privacy mode',
@@ -3670,7 +3738,6 @@ export const en = {
   'phone.title': 'Foreman on your phone',
   'phone.pill.connected': 'Phone connected',
   'phone.pill.use': 'Use Foreman from your phone',
-  'phone.pill.networkSetup': 'Network setup…',
   // The pill's label. Several phones paired; with one, the pill shows its name.
   'phone.label.phones': { one: '{count} phone', other: '{count} phones' },
   'phone.label.confirm': 'Confirm pairing',

@@ -285,6 +285,7 @@ export const SCREENS = [
   'settings-cloud',
   'settings-repo',
   'settings-integrations',
+  'settings-devices',
   'automations',
   'assistant',
   'phone-pairing',

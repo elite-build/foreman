@@ -1,0 +1,53 @@
+/* The device chip (computers and the phone), the "controlled from" chip and the remote banner (shared/remote.ts).
+   Layout only: the chips are ui/MenuButton and ui/ChipButton, the banner a ui/Callout. */
+
+.device-chip-wrap,
+.controlled-chip-wrap {
+  position: relative;
+  min-width: 0;
+  margin-right: 6px;
+  -webkit-app-region: no-drag;
+}
+.device-chip {
+  max-width: 220px;
+  min-width: 0;
+}
+.controlled-chip {
+  max-width: 170px;
+  min-width: 0;
+}
+.device-chip-name,
+.device-chip-name .ui-status__label,
+.controlled-chip-label .ui-status__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.device-chip-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.controlled-pop {
+  width: 300px;
+  padding: 12px;
+}
+.controlled-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.controlled-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.controlled-row + .controlled-row {
+  margin-top: 12px;
+}
+.remote-banner {
+  flex: none;
+}

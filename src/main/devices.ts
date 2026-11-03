@@ -111,7 +111,7 @@ export class Devices {
     this.deps.changed()
   }
 
-  info(accepting: boolean, port: number): DevicesInfo {
+  info(accepting: boolean, port: number): Omit<DevicesInfo, 'remoteControl' | 'remoteControlAsk'> {
     const self = this.self(port)
     const host = this.pairingHost()
     return {
