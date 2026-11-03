@@ -317,7 +317,29 @@ describe('new workspace options', () => {
     expect(ws.branch).toBe('feature/login')
     expect(ws.placeholderBranch).toBeUndefined()
     expect(ws.baseBranch).toBe('release')
+    // A named branch names the workspace too, as a Linear issue's does; the folder keeps the generated name.
+    expect(ws.name).toBe('login')
+    expect(path.basename(ws.path!)).toBe(ws.namesake)
     expect(await gitOut(wsPath(ws), ['branch', '--show-current'])).toBe('feature/login')
+  })
+
+  it('keeps the generated workspace name for a named branch when renaming with the branch is off', async () => {
+    const { store, service } = await setup()
+    store.state.settings.renameWorkspaceWithBranch = false
+    const repo = await service.addRepo(await makeRepo())
+    const ws = await service.createWorkspace(repo.id, { branch: { kind: 'new', name: 'test/eng-123' } })
+    await ready(ws)
+    expect(ws.branch).toBe('test/eng-123')
+    expect(ws.name).toBe(ws.namesake)
+  })
+
+  it('keeps the generated workspace name while the branch is generated', async () => {
+    const { service } = await setup()
+    const repo = await service.addRepo(await makeRepo())
+    const ws = await service.createWorkspace(repo.id)
+    await ready(ws)
+    expect(ws.branch).toBe(`test/${ws.name}`)
+    expect(ws.placeholderBranch).toBe(ws.branch)
   })
 
   it('checks out an existing branch, refusing one in use', async () => {
