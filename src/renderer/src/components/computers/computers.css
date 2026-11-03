@@ -1,26 +1,30 @@
-/* The computer chip, the "controlled from" chip and the remote banner (shared/remote.ts). Layout only: the chips are
-   ui/MenuButton and ui/ChipButton, the banner a ui/Callout. */
+/* The device chip (computers and the phone), the "controlled from" chip and the remote banner (shared/remote.ts).
+   Layout only: the chips are ui/MenuButton and ui/ChipButton, the banner a ui/Callout. */
 
-.computer-chip-wrap,
+.device-chip-wrap,
 .controlled-chip-wrap {
   position: relative;
   min-width: 0;
   margin-right: 6px;
   -webkit-app-region: no-drag;
 }
-.computer-chip,
+.device-chip {
+  max-width: 220px;
+  min-width: 0;
+}
 .controlled-chip {
   max-width: 170px;
   min-width: 0;
 }
-.computer-chip-name,
+.device-chip-name,
+.device-chip-name .ui-status__label,
 .controlled-chip-label .ui-status__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.computer-chip-count {
+.device-chip-count {
   display: inline-flex;
   align-items: center;
   gap: 3px;

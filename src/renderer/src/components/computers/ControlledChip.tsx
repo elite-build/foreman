@@ -6,7 +6,7 @@ import { formatDateTime } from '../../../../shared/i18n/time'
 import { useT } from '../../i18n'
 import { api, attempt, useStore } from '../../store'
 import { Button, ChipButton, IconButton, Popover, Status } from '../../ui'
-import { ComputerIcon } from './ComputerChip'
+import { ComputerIcon } from './DeviceChip'
 import './computers.css'
 
 export function ControlledChip() {

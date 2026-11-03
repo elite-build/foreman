@@ -1,36 +1,4 @@
-/* Phone pill, pairing panel and setup dialog. Theme tokens only. */
-
-.phone-pill-wrap {
-  position: relative;
-  min-width: 0;
-  margin-right: 6px;
-  -webkit-app-region: no-drag;
-}
-/* The pill is a ui/ChipButton in a ui/Popover; its state is a ui/Status inside it. */
-.phone-pill {
-  max-width: 180px;
-}
-.phone-pill-label .ui-status__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.phone-pop {
-  width: 320px;
-  padding: 12px;
-  overflow-y: auto;
-}
-.phone-pop-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.phone-pop-foot {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
-}
+/* Pairing panel and setup dialog (opened from the device chip, components/computers/DeviceChip.tsx). Theme tokens only. */
 
 /* ---- pairing panel ---- */
 

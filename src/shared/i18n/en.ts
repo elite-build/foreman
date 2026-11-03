@@ -3612,7 +3612,7 @@ export const en = {
   'settings.data.backedUpMissing': { one: 'Backed up to {path} ({count} attachment file was missing)', other: 'Backed up to {path} ({count} attachment files were missing)' },
   'settings.data.syncWarning': "Don't put foreman.db in iCloud or Dropbox: a synced live database can corrupt it. To move work between computers, use a workspace export file.",
   'settings.data.devices': 'Devices',
-  'settings.data.devices.desc': "Pair Foreman on your other computers, Mac or Windows, on the same network. Then you can hand a workspace to one, or control it from here with the computer chip at the top of the sidebar. The computers talk directly over an encrypted channel; there is no server in between.",
+  'settings.data.devices.desc': "Pair Foreman on your other computers, Mac or Windows, on the same network. Then you can hand a workspace to one, or control it from here with the device chip at the top of the sidebar. The computers talk directly over an encrypted channel; there is no server in between.",
   'settings.data.devices.accept': "Accept hand-offs on this computer",
   'settings.data.devices.listening': 'Listening on port {port}.',
   // {addresses} is one or more host:port addresses joined with settings.data.devices.or, or "port 47633".
@@ -3636,12 +3636,12 @@ export const en = {
   // {name} is a Mac's name.
   'settings.data.devices.unpairConfirm': 'Unpair {name}? It will no longer be able to send or receive hand-offs.',
   'settings.data.devices.pairHelp': "One computer shows a 6-digit code and its address; the other enters both. Foreman can’t find other computers on its own, so the address is typed in.",
-  // ---- Other computers (shared/remote.ts): the computer chip, the remote banner, being controlled. {name} is a computer’s name ----
+  // ---- Other computers (shared/remote.ts): the device chip, the remote banner, being controlled. {name} is a computer’s name ----
   'settings.data.devices.remote': "Let paired computers control this one",
-  'settings.data.devices.remoteHelp': "From their own window, with the computer chip at the top of the sidebar. Everything they do runs on this computer: agents, terminals, files and git.",
+  'settings.data.devices.remoteHelp': "From their own window, with the device chip at the top of the sidebar. Everything they do runs on this computer: agents, terminals, files and git.",
   'settings.data.devices.remoteAsk': "Ask on this screen before a computer takes control",
   'settings.data.devices.remoteAskHelp': "Someone has to be here to click Allow. An Allow lasts until you disconnect that computer or quit Foreman.",
-  // Why switching to another computer didn’t work (the computer chip’s error). {version} is a version number.
+  // Why switching to another computer didn’t work (the device chip’s error). {version} is a version number.
   'computers.refused.denied': "{name} didn’t let this computer take control.",
   'computers.refused.timeout': "Nobody answered on {name}. Try again when someone there can click Allow.",
   'computers.refused.off': "{name} doesn’t let other computers control it. Turn it on there in Settings → Data & devices.",
@@ -3654,7 +3654,8 @@ export const en = {
   'computers.menu.title': "Computers",
   'computers.menu.pair': "Pair a computer…",
   'computers.menu.settings': "Computer settings",
-  // The computer chip’s tooltip.
+  'computers.menu.phone': "Phone",
+  // The device chip’s tooltip.
   'computers.chip.title': "Showing {name}. Switch computers",
   'computers.joining.connecting': "Connecting to {name}…",
   'computers.joining.waiting': "Waiting for someone at {name} to click Allow…",
@@ -3739,7 +3740,6 @@ export const en = {
   'phone.title': 'Foreman on your phone',
   'phone.pill.connected': 'Phone connected',
   'phone.pill.use': 'Use Foreman from your phone',
-  'phone.pill.networkSetup': 'Network setup…',
   // The pill's label. Several phones paired; with one, the pill shows its name.
   'phone.label.phones': { one: '{count} phone', other: '{count} phones' },
   'phone.label.confirm': 'Confirm pairing',

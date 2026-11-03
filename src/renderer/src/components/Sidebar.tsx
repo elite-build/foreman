@@ -61,8 +61,7 @@ import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
 import { AutomationsEntry } from './automations/AutomationsEntry'
 import { AssistantEntry } from './assistant/AssistantEntry'
-import { PhonePill } from './phone/PhonePill'
-import { ComputerChip } from './computers/ComputerChip'
+import { DeviceChip } from './computers/DeviceChip'
 import { ControlledChip } from './computers/ControlledChip'
 import { KeepAwakeChip } from './KeepAwakeChip'
 import { ResourceUsage } from './ResourceUsage'
@@ -528,9 +527,8 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
       <div className="titlebar drag sidebar-titlebar">
         {list && (
           <>
-            <ComputerChip />
+            <DeviceChip />
             <ControlledChip />
-            <PhonePill />
             <IconButton label={t('sidebar.hide', { key: `${mod}B` })} onClick={toggleLeftPanel}>
               {side === 'right' ? <PanelRightClose size={15} /> : <PanelLeftClose size={15} />}
             </IconButton>

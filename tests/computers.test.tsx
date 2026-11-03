@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-// Other computers in the window (shared/remote.ts): the computer chip and its menu, the banner while another computer
-// is shown, the chip the person at a controlled computer sees, and the Allow / Deny request.
+// Other computers in the window (shared/remote.ts): the device chip and its menu (computers and the phone), the banner
+// while another computer is shown, the chip the person at a controlled computer sees, and the Allow / Deny request.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ComputerChip } from '../src/renderer/src/components/computers/ComputerChip'
+import { DeviceChip } from '../src/renderer/src/components/computers/DeviceChip'
 import { ControlledChip } from '../src/renderer/src/components/computers/ControlledChip'
 import { ControlRequestDialog } from '../src/renderer/src/components/computers/ControlRequestDialog'
 import { RemoteBanner } from '../src/renderer/src/components/computers/RemoteBanner'
@@ -31,22 +31,38 @@ function view(patch: Partial<ComputersView> = {}): ComputersView {
   }
 }
 
+const phone = (patch: Record<string, unknown> = {}) => ({ enabled: false, url: '', lan: { enabled: false, address: '', candidates: [] }, devices: [], ...patch })
+
 beforeEach(() => {
   resetFake()
-  for (const name of ['viewComputer', 'openPairDialog', 'openSettingsPage']) spy(name).mockClear()
+  for (const name of ['viewComputer', 'openPairDialog', 'openSettingsPage', 'openPhoneSetup']) spy(name).mockClear()
   fakeState.computers = view()
+  fakeApi.mobileInfo = vi.fn(async () => phone())
 })
 afterEach(cleanup)
 
-describe('the computer chip', () => {
-  it('stays away until a computer is paired', () => {
+describe('the device chip', () => {
+  it('is the phone’s chip until a computer is paired, and opens the phone dialog', async () => {
+    const user = userEvent.setup()
     fakeState.computers = view({ computers: [] })
-    const { container } = render(<ComputerChip />)
-    expect(container.innerHTML).toBe('')
+    render(<DeviceChip />)
+    const chip = await screen.findByRole('button', { name: /Connect phone/ })
+    expect(chip.getAttribute('title')).toBe('Use Foreman from your phone')
+    await user.click(chip)
+    const menu = screen.getByRole('menu', { name: 'Devices' })
+    expect(within(menu).queryByRole('menuitemradio')).toBeNull()
+    await user.click(within(menu).getByRole('menuitem', { name: /Connect phone/ }))
+    expect(spy('openPhoneSetup')).toHaveBeenCalledWith(true)
+  })
+
+  it('puts a phone pairing waiting for this screen first, in words', async () => {
+    fakeApi.mobileInfo = vi.fn(async () => phone({ pending: { id: 'p', code: '123456' } }))
+    render(<DeviceChip />)
+    expect(await screen.findByRole('button', { name: /Confirm pairing/ })).toBeTruthy()
   })
 
   it('says which computer the window shows and that another one needs you, in words', () => {
-    render(<ComputerChip />)
+    render(<DeviceChip />)
     const chip = screen.getByRole('button', { name: /This computer/ })
     expect(chip.getAttribute('aria-haspopup')).toBe('menu')
     expect(within(chip).getByLabelText('1 on another computer needs you')).toBeTruthy()
@@ -54,9 +70,9 @@ describe('the computer chip', () => {
 
   it('lists the paired computers, switches to an online one, and can’t pick one that is out of reach', async () => {
     const user = userEvent.setup()
-    render(<ComputerChip />)
+    render(<DeviceChip />)
     await user.click(screen.getByRole('button', { name: /This computer/ }))
-    const menu = screen.getByRole('menu', { name: 'Computers' })
+    const menu = screen.getByRole('menu', { name: 'Devices' })
     const here = within(menu).getByRole('menuitemradio', { name: /Desk/ })
     expect(here.getAttribute('aria-checked')).toBe('true')
     expect(within(menu).getByRole('menuitemradio', { name: /MacBook Pro/ }).textContent).toContain('Online · 3 running · 1 needs you')
@@ -68,7 +84,7 @@ describe('the computer chip', () => {
   it('offers pairing and settings only for this computer, and the way back while another is shown', async () => {
     const user = userEvent.setup()
     fakeState.computers = view({ viewing: { id: 'mac', name: 'MacBook Pro', state: 'connected' }, self: { id: 'pc', name: 'Desk', platform: 'win32', summary: { running: 0, needsYou: 2 } } })
-    render(<ComputerChip />)
+    render(<DeviceChip />)
     const chip = screen.getByRole('button', { name: /MacBook Pro/ })
     // This computer's own count shows while another is on screen.
     expect(within(chip).getByLabelText('2 on other computers need you')).toBeTruthy()
@@ -80,7 +96,7 @@ describe('the computer chip', () => {
 
   it('says it is waiting while the other computer asks its person', () => {
     fakeState.computers = view({ joining: { id: 'mac', name: 'MacBook Pro', waiting: true } })
-    render(<ComputerChip />)
+    render(<DeviceChip />)
     expect(screen.getByRole('button', { name: /MacBook Pro/ }).getAttribute('title')).toBe('Waiting for someone at MacBook Pro to click Allow…')
   })
 })
