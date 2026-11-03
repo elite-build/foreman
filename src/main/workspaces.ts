@@ -90,6 +90,14 @@ export function samePath(a: string, b: string): boolean {
   return norm(a) === norm(b)
 }
 
+/**
+ * A new workspace's name. A branch with a real name (checked out, typed in, Linear's or a pull request's) names it;
+ * a generated branch keeps the generated name until the first message renames both.
+ */
+function workspaceName(branch: string, generated: string, fromBranch: boolean): string {
+  return fromBranch ? branch.split('/').pop() || generated : generated
+}
+
 /** Between a worktree being ready and setup running, for a workspace created with deferSetup. */
 interface SetupHold {
   prepared: Promise<void>
@@ -497,8 +505,7 @@ export class WorkspaceService {
     const ws: Workspace = {
       id: randomUUID(),
       repoId,
-      // A checked-out branch names the workspace; otherwise use the generated name.
-      name: choice.kind === 'existing' ? branch.split('/').pop() || generatedName : generatedName,
+      name: workspaceName(branch, generatedName, choice.kind === 'existing' || (!placeholderBranch && settings.renameWorkspaceWithBranch)),
       branch,
       placeholderBranch,
       namesake: choice.kind === 'existing' ? undefined : findWorkspacePerson(choice.name)?.name ?? generatedName,
@@ -551,7 +558,7 @@ export class WorkspaceService {
     const ws: Workspace = {
       id,
       repoId: repo.id,
-      name: choice.kind === 'existing' ? branch.split('/').pop() || generatedName : generatedName,
+      name: workspaceName(branch, generatedName, choice.kind === 'existing' || (!placeholderBranch && settings.renameWorkspaceWithBranch)),
       branch,
       placeholderBranch,
       namesake: choice.kind === 'existing' ? undefined : findWorkspacePerson(choice.name)?.name ?? generatedName,
