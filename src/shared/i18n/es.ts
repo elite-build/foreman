@@ -3448,6 +3448,18 @@ export const es: Catalogue = {
   'duration.minutes': '{m} min {s} s',
   'duration.hours': '{h} h {m} min',
   'contextWheel.title': 'Contexto: {used} de {limit} tokens ({percent} %). Usa /compact para liberar espacio.',
+  'contextWheel.heading': 'Contexto',
+  'contextWheel.chart': '{percent} % de la ventana de contexto en uso',
+  'contextWheel.usedOf': '{used} de {limit}',
+  'contextWheel.totalOnly': '{agent} indica cuánto contexto usa, pero no qué lo ocupa.',
+  'contextWheel.tabs': 'Qué ocupa el contexto',
+  'contextWheel.tab.all': 'Todo',
+  'contextWheel.tab.mcp': 'MCP',
+  'contextWheel.tab.memory': 'Memoria',
+  'contextWheel.tab.skills': 'Skills',
+  'contextWheel.tools': { one: '{count} herramienta', other: '{count} herramientas' },
+  'contextWheel.onDemand': 'Bajo demanda',
+  'contextWheel.compact': 'Compactar ahora',
 
   // ---- The chat: greeting, messages, turn results and the answer menu ----
   'chat.greeting.copy': '{name} es tu propia copia del repositorio, en la rama {branch} creada desde {base}.',

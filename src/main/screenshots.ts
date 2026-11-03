@@ -19,7 +19,7 @@ import { selectWalks } from './walks'
 import { git } from './git'
 import { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
-import type { ApprovalResponse, ChatItem, ColorVision, Repo, Session, Settings, Workspace } from '../shared/types'
+import type { ApprovalResponse, ChatItem, ColorVision, ContextUsage, Repo, Session, Settings, Workspace } from '../shared/types'
 
 export const SCREENSHOTS = process.env.FOREMAN_SCREENSHOTS === '1'
 /** `npm run screens -- --walk`: play the keyboard walks after the screens, and fail the run when one does not match. */
@@ -181,6 +181,42 @@ export interface ScreensFixture {
   now: number
 }
 
+/** Three quarters full, so the composer shows its context ring; the `context-usage` screen opens it. */
+function fixtureContext(workspacePath: string): ContextUsage {
+  return {
+    used: 152_000,
+    limit: 200_000,
+    breakdown: {
+      categories: [
+        { name: 'System prompt', tokens: 9700, kind: 'used' },
+        { name: 'System tools', tokens: 16_800, kind: 'used' },
+        { name: 'MCP tools', tokens: 6400, kind: 'used' },
+        { name: 'Memory files', tokens: 2300, kind: 'used' },
+        { name: 'Skills', tokens: 4800, kind: 'used' },
+        { name: 'Messages', tokens: 112_000, kind: 'used' },
+        { name: 'Free space', tokens: 15_000, kind: 'free' },
+        { name: 'Autocompact buffer', tokens: 33_000, kind: 'buffer' },
+        { name: 'MCP tools (deferred)', tokens: 41_200, kind: 'deferred' }
+      ],
+      mcpServers: [
+        { name: 'sentry', tools: 30, tokens: 41_200, deferred: true },
+        { name: 'linear', tools: 12, tokens: 6400, deferred: false }
+      ],
+      memoryFiles: [
+        { path: path.join(workspacePath, 'AGENTS.md'), tokens: 2100 },
+        { path: path.join(workspacePath, 'CLAUDE.md'), tokens: 200 }
+      ],
+      skills: [
+        { name: 'create-pr', tokens: 1400 },
+        { name: 'code-review', tokens: 1100 },
+        { name: 'tdd', tokens: 900 },
+        { name: 'diagnose', tokens: 800 },
+        { name: 'run', tokens: 600 }
+      ]
+    }
+  }
+}
+
 /** Two real git repositories, three workspaces (worktrees) and their chats, written into `dataDir` before the app loads it. */
 export async function seedScreens(root: string, dataDir: string): Promise<ScreensFixture> {
   seededAt = Date.now()
@@ -228,7 +264,7 @@ export async function seedScreens(root: string, dataDir: string): Promise<Screen
   )
   const queued = (id: string, text: string) => ({ id, text, attachments: [], revision: 1 })
   store.state.sessions.push(
-    session('s-lisbon-1', 'ws-lisbon', 'Fix login redirect', 12),
+    session('s-lisbon-1', 'ws-lisbon', 'Fix login redirect', 12, { contextUsage: fixtureContext(lisbon) }),
     session('s-lisbon-2', 'ws-lisbon', 'Session tests', 25, {
       queue: [queued('q-1', 'Add a test for an expired token'), queued('q-2', 'Then update the README with the new returnTo parameter')],
       queueRevision: 2
@@ -271,6 +307,7 @@ export const SCREENS = [
   'home',
   'home-board',
   'workspace-chat',
+  'context-usage',
   'composer-queue',
   'run-launcher',
   'terminal',

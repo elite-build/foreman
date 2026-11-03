@@ -3854,6 +3854,18 @@ export const en = {
   'duration.hours': '{h}h {m}m',
   // {used} and {limit} are token counts like "45k" or "1M"; {percent} is a whole number.
   'contextWheel.title': 'Context: {used} of {limit} tokens ({percent}%). Use /compact to free space.',
+  'contextWheel.heading': 'Context',
+  'contextWheel.chart': '{percent}% of the context window used',
+  'contextWheel.usedOf': '{used} of {limit}',
+  'contextWheel.totalOnly': '{agent} reports how full its context is, but not what fills it.',
+  'contextWheel.tabs': 'What fills the context',
+  'contextWheel.tab.all': 'All',
+  'contextWheel.tab.mcp': 'MCP',
+  'contextWheel.tab.memory': 'Memory',
+  'contextWheel.tab.skills': 'Skills',
+  'contextWheel.tools': { one: '{count} tool', other: '{count} tools' },
+  'contextWheel.onDemand': 'On demand',
+  'contextWheel.compact': 'Compact now',
   // ---- The chat: greeting, messages, turn results and the answer menu ----
   // An empty chat's greeting. {name} is the workspace, {branch} its branch, {base} the branch it came from.
   'chat.greeting.copy': '{name} is your own copy of the repository, on branch {branch} from {base}.',

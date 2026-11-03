@@ -872,6 +872,21 @@ export interface MessageFollowUp extends TemplateFollowUp {
 export interface ContextUsage {
   used: number
   limit: number
+  // What fills the window, when the agent says: Claude does at the end of each turn (contextUsage.ts). Every other
+  // agent reports the total only, and the composer's context popover says so.
+  breakdown?: ContextBreakdown
+}
+
+/** The SDK's own row kinds: 'used' fills the window, 'free' is left, 'buffer' is kept for compaction, 'deferred' loads on demand. */
+export type ContextCategoryKind = 'used' | 'free' | 'buffer' | 'deferred'
+
+export interface ContextBreakdown {
+  // In the agent's order, named in its words (not translated: they are the agent's).
+  categories: { name: string; tokens: number; kind: ContextCategoryKind }[]
+  // Biggest first, at most CONTEXT_ROWS each. `deferred`: every one of the server's tools loads only when searched for.
+  mcpServers: { name: string; tools: number; tokens: number; deferred: boolean }[]
+  memoryFiles: { path: string; tokens: number }[]
+  skills: { name: string; tokens: number }[]
 }
 
 /** One chat tab. Each tab has its own agent conversation. */

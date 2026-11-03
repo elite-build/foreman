@@ -3402,6 +3402,18 @@ export const ptBR: Catalogue = {
   'duration.minutes': '{m}min {s}s',
   'duration.hours': '{h}h {m}min',
   'contextWheel.title': 'Contexto: {used} de {limit} tokens ({percent}%). Use /compact para liberar espaço.',
+  'contextWheel.heading': 'Contexto',
+  'contextWheel.chart': '{percent}% da janela de contexto em uso',
+  'contextWheel.usedOf': '{used} de {limit}',
+  'contextWheel.totalOnly': '{agent} informa o quanto o contexto está cheio, mas não o que o ocupa.',
+  'contextWheel.tabs': 'O que ocupa o contexto',
+  'contextWheel.tab.all': 'Tudo',
+  'contextWheel.tab.mcp': 'MCP',
+  'contextWheel.tab.memory': 'Memória',
+  'contextWheel.tab.skills': 'Skills',
+  'contextWheel.tools': { one: '{count} ferramenta', other: '{count} ferramentas' },
+  'contextWheel.onDemand': 'Sob demanda',
+  'contextWheel.compact': 'Compactar agora',
 
   // ---- The chat: greeting, messages, turn results and the answer menu ----
   'chat.greeting.copy': '{name} é sua própria cópia do repositório, no branch {branch} criado a partir de {base}.',

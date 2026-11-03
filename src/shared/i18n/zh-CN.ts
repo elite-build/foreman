@@ -3402,6 +3402,18 @@ export const zhCN: Catalogue = {
   'duration.minutes': '{m} 分 {s} 秒',
   'duration.hours': '{h} 小时 {m} 分',
   'contextWheel.title': '上下文：已用 {used} / {limit} 令牌（{percent}%）。使用 /compact 释放空间。',
+  'contextWheel.heading': '上下文',
+  'contextWheel.chart': '已使用上下文窗口的 {percent}%',
+  'contextWheel.usedOf': '已用 {used} / {limit}',
+  'contextWheel.totalOnly': '{agent} 只报告上下文的用量，不报告其中的内容。',
+  'contextWheel.tabs': '上下文的组成',
+  'contextWheel.tab.all': '全部',
+  'contextWheel.tab.mcp': 'MCP',
+  'contextWheel.tab.memory': '记忆',
+  'contextWheel.tab.skills': '技能',
+  'contextWheel.tools': { other: '{count} 个工具' },
+  'contextWheel.onDemand': '按需加载',
+  'contextWheel.compact': '立即压缩',
 
   // ---- The chat: greeting, messages, turn results and the answer menu ----
   'chat.greeting.copy': '{name} 是你自己的仓库副本，位于从 {base} 创建的分支 {branch} 上。',

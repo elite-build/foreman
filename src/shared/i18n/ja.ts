@@ -3402,6 +3402,18 @@ export const ja: Catalogue = {
   'duration.minutes': '{m}分{s}秒',
   'duration.hours': '{h}時間{m}分',
   'contextWheel.title': 'コンテキスト：{limit} トークン中 {used}（{percent}%）。/compact で空きを増やせます。',
+  'contextWheel.heading': 'コンテキスト',
+  'contextWheel.chart': 'コンテキストウィンドウの {percent}% を使用中',
+  'contextWheel.usedOf': '{limit} 中 {used}',
+  'contextWheel.totalOnly': '{agent} はコンテキストの使用量だけを報告し、内訳は報告しません。',
+  'contextWheel.tabs': 'コンテキストの内訳',
+  'contextWheel.tab.all': 'すべて',
+  'contextWheel.tab.mcp': 'MCP',
+  'contextWheel.tab.memory': 'メモリ',
+  'contextWheel.tab.skills': 'スキル',
+  'contextWheel.tools': { other: '{count} 個のツール' },
+  'contextWheel.onDemand': '必要時に読み込み',
+  'contextWheel.compact': '今すぐ圧縮',
 
   // ---- The chat: greeting, messages, turn results and the answer menu ----
   'chat.greeting.copy': '{name} はリポジトリの専用コピーで、{base} から作成したブランチ {branch} 上にあります。',
