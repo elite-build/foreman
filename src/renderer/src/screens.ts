@@ -163,6 +163,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openNewWorkspace(f.repoId)
     return '.nw-modal'
   },
+  'new-workspace-branch': async (f) => {
+    showRepoHome(null)
+    openNewWorkspace(f.repoId)
+    const existing = await waitFor(() => document.querySelector<HTMLInputElement>('.nw-branch input[value="existing"]'))
+    if (!existing) return null
+    existing.click()
+    return '.nw-branch-shelf'
+  },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),
   'settings-appearance': () => (openSettingsPage({ section: 'appearance' }), '.settings-view'),
