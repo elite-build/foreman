@@ -272,6 +272,7 @@ export const SCREENS = [
   'home-board',
   'workspace-chat',
   'composer-queue',
+  'run-launcher',
   'terminal',
   'file-diff',
   'git-panel',

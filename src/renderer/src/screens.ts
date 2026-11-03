@@ -114,12 +114,18 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
   'composer-queue': (f) => (openWorkspace(f, f.queueChatId), '.composer .queued, .queued'),
+  // The terminal panel with no run script and nothing open: the Run tab's launcher.
+  'run-launcher': (f) => (openWorkspace(f), showBottomPanel(true), '.bottom-panel .run-launch'),
   terminal: async (f) => {
     openWorkspace(f)
     showBottomPanel(true)
-    const tab = await waitFor(element('.bottom-rail .rail-terminals [role="tab"]'))
-    if (!tab) return null
-    tab.click()
+    // No terminal is open until one is asked for: + → New terminal (the menu's first item).
+    const plus = await waitFor(element('.bottom-head .new-menu button'))
+    if (!plus) return null
+    plus.click()
+    const item = await waitFor(element('.bottom-menu [role="menuitem"]'))
+    if (!item) return null
+    item.click()
     const screen = await waitFor(element('.terminal .xterm-screen'))
     // The shell's prompt.
     if (screen) await sleep(1500)
