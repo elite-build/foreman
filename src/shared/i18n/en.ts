@@ -2956,6 +2956,10 @@ export const en = {
   'newWorkspace.branches.loading': 'Loading branches…',
   'newWorkspace.branches.noMatch': 'No branches match',
   'newWorkspace.branches.none': 'No branches',
+  'newWorkspace.branches.search': 'Search branches…',
+  'newWorkspace.branches.available': 'Available locally',
+  'newWorkspace.branches.remote': 'Remote branches',
+  'newWorkspace.branches.inUse': 'Already checked out',
   // More branches than the list shows.
   'newWorkspace.branches.more': { one: '{count} more. Type to narrow down.', other: '{count} more. Type to narrow down.' },
   'newWorkspace.tree.alreadyWorkspace': 'Already a workspace',

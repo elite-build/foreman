@@ -25,7 +25,7 @@ import { RunsOnField, useCloudReadiness, type RunsOnLocation } from './cloud/Run
 import { providerLabel, providerRegion, repoCloud, type CloudProviderId } from '../../../shared/cloud'
 import type { CloudProviderView } from '../../../shared/types'
 import { blocksChoice, providerFacts } from '../cloudView'
-import { Button, Checkbox, Combobox, Dialog, Field, Kbd, LinkButton, MediaThumb, MenuButton, MenuRadioItem, RadioCards, RadioList, Segmented, Select, Spinner, Status, Tag, TextArea, TextInput, type ListboxOption, type RadioCardOption } from '../ui'
+import { Button, Card, Checkbox, Combobox, Dialog, Field, Kbd, LinkButton, Listbox, MediaThumb, MenuButton, MenuRadioItem, RadioCards, RadioList, Segmented, Select, Spinner, Status, Tag, TextArea, TextInput, type ListboxOption, type RadioCardOption } from '../ui'
 
 // Long branch lists are cut off; typing narrows them down.
 const MAX_OPTIONS = 150
@@ -116,15 +116,20 @@ interface BranchPickerProps {
   unavailable?: (branch: BranchInfo) => string | undefined
   // Focus and open the list when it first appears.
   openOnMount?: boolean
+  // Keep search and results in the form instead of a floating dropdown.
+  inline?: boolean
 }
 
-/** A searchable branch list. The input only holds the search; the chosen branch shows as its placeholder. */
-function BranchPicker({ branches, value, onChange, home, label, placeholder, unavailable, openOnMount }: BranchPickerProps) {
+/** A searchable branch list, shown inline for checkout or as a combobox for the other branch fields. */
+function BranchPicker({ branches, value, onChange, home, label, placeholder, unavailable, openOnMount, inline }: BranchPickerProps) {
   const t = useT()
   const [open, setOpen] = useState(Boolean(openOnMount))
   const [query, setQuery] = useState('')
   const ranked = useMemo(() => rankItems(branches ?? [], query, (b) => b.name), [branches, query])
-  const items = ranked.slice(0, MAX_OPTIONS)
+  // Keep available branches first without disturbing fuzzy rank within each group.
+  const groupOf = (b: BranchInfo) => unavailable?.(b) ? 2 : b.remote && !b.local ? 1 : 0
+  const ordered = inline ? [...ranked].sort((a, b) => groupOf(a) - groupOf(b)) : ranked
+  const items = ordered.slice(0, MAX_OPTIONS)
   const selected = branches?.find((b) => b.name === value)
 
   const options: ListboxOption[] = items.map((b) => {
@@ -133,12 +138,42 @@ function BranchPicker({ branches, value, onChange, home, label, placeholder, una
       value: b.name,
       label: b.name,
       disabled: Boolean(reason),
-      title: b.checkedOutAt,
+      title: [b.name, reason ?? b.checkedOutAt].filter(Boolean).join(' — '),
+      group: inline ? t(reason ? 'newWorkspace.branches.inUse' : b.remote && !b.local ? 'newWorkspace.branches.remote' : 'newWorkspace.branches.available') : undefined,
       description: reason ?? (b.checkedOutAt ? tildify(b.checkedOutAt, home) : undefined),
       leading: <GitBranch size={13} aria-hidden />,
       trailing: <BranchTags branch={b} inUse={!reason} />
     }
   })
+
+  if (inline) {
+    return (
+      <Card className="nw-branch-shelf">
+        <TextInput
+          type="search"
+          aria-label={t('newWorkspace.branches.search')}
+          placeholder={t('newWorkspace.branches.search')}
+          className="dlg-fill"
+          autoFocus={openOnMount}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && query) {
+              e.preventDefault()
+              e.stopPropagation()
+              setQuery('')
+            }
+          }}
+        />
+        {options.length > 0 ? (
+          <Listbox className="nw-branch-results" label={label} mono options={options} value={value} onChange={onChange} />
+        ) : (
+          <Status tone="off" role="status" label={branches === null ? t('newWorkspace.branches.loading') : query ? t('newWorkspace.branches.noMatch') : t('newWorkspace.branches.none')} />
+        )}
+        {ranked.length > items.length && <small className="nw-hint">{t('newWorkspace.branches.more', { count: ranked.length - items.length })}</small>}
+      </Card>
+    )
+  }
 
   return (
     <Combobox
@@ -759,6 +794,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                               : undefined
                           }
                           openOnMount={!existing}
+                          inline
                         />
                       </div>
                     )

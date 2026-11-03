@@ -87,6 +87,22 @@
 .nw-combo {
   width: 100%;
 }
+/* The existing-branch shelf stays in the settings column; only its results scroll. */
+.nw-branch-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+.nw-branch-results {
+  max-height: 232px;
+}
+.nw-branch-results .ui-option {
+  min-height: 40px;
+  padding: 8px;
+}
+
 /* A little more room between a heading, its control and the hint under it. */
 .nw-settings .dlg-group {
   gap: 6px;

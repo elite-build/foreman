@@ -279,6 +279,7 @@ export const SCREENS = [
   'tiles',
   'editor',
   'new-workspace',
+  'new-workspace-branch',
   'settings-general',
   'settings-agents',
   'settings-appearance',
