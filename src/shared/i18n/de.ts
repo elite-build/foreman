@@ -3402,6 +3402,18 @@ export const de: Catalogue = {
   'duration.minutes': '{m} min {s} s',
   'duration.hours': '{h} h {m} min',
   'contextWheel.title': 'Kontext: {used} von {limit} Tokens ({percent} %). Mit /compact Platz schaffen.',
+  'contextWheel.heading': 'Kontext',
+  'contextWheel.chart': '{percent} % des Kontextfensters belegt',
+  'contextWheel.usedOf': '{used} von {limit}',
+  'contextWheel.totalOnly': '{agent} meldet, wie voll der Kontext ist, aber nicht, was ihn füllt.',
+  'contextWheel.tabs': 'Was den Kontext füllt',
+  'contextWheel.tab.all': 'Alle',
+  'contextWheel.tab.mcp': 'MCP',
+  'contextWheel.tab.memory': 'Speicher',
+  'contextWheel.tab.skills': 'Skills',
+  'contextWheel.tools': { one: '{count} Tool', other: '{count} Tools' },
+  'contextWheel.onDemand': 'Bei Bedarf',
+  'contextWheel.compact': 'Jetzt komprimieren',
 
   // ---- The chat: greeting, messages, turn results and the answer menu ----
   'chat.greeting.copy': '{name} ist deine eigene Kopie des Repositorys, auf Branch {branch} von {base}.',

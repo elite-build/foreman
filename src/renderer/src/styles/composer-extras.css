@@ -139,31 +139,114 @@
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 30px var(--shadow);
 }
-.context-wheel {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-}
-.context-wheel .track {
+.context-ring .track {
   fill: none;
   stroke: var(--border-strong);
-  stroke-width: 2.5;
 }
-.context-wheel .fill {
+.context-ring circle:not(.track) {
   fill: none;
+}
+.context-ring .fill {
   stroke: var(--text-muted);
-  stroke-width: 2.5;
   stroke-linecap: round;
 }
-.context-wheel.amber .fill {
+.context-ring.amber .fill {
   stroke: var(--amber);
 }
-.context-wheel.red .fill {
+.context-ring.red .fill {
   stroke: var(--red);
 }
-.context-wheel.red {
-  color: var(--red);
+/* What fills the window, by position (ContextWheel.tsx): the legend names each one, so colour is never alone. */
+.context-ring .seg-0 { stroke: var(--blue); fill: var(--blue); }
+.context-ring .seg-1 { stroke: var(--code-keyword); fill: var(--code-keyword); }
+.context-ring .seg-2 { stroke: var(--code-string); fill: var(--code-string); }
+.context-ring .seg-3 { stroke: var(--code-number); fill: var(--code-number); }
+.context-ring .seg-4 { stroke: var(--code-type); fill: var(--code-type); }
+.context-ring .seg-5 { stroke: var(--text-muted); fill: var(--text-muted); }
+.context-ring .seg-buffer { stroke: var(--border-strong); fill: var(--border-strong); }
+.context-ring circle[class^='seg-'] {
+  fill: none;
+}
+.context-ring .ring-big {
+  fill: var(--text);
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+.context-ring .ring-small {
+  fill: var(--text-muted);
+  font-size: var(--text-xs);
+}
+/* The context popover: layout only (the panel's look is Popover's). */
+.context-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 16px;
+}
+.context-pop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.context-pop-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.context-pop-summary > svg {
+  flex: none;
+}
+.context-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.context-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.context-legend li > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-pop-rows {
+  max-height: 220px;
+  margin-top: 6px;
+  overflow-y: auto;
+}
+.context-rows {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.context-rows td {
+  padding: 3px 0;
+}
+.context-rows .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-rows .num {
+  width: 64px;
+  padding-left: 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.context-pop-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 /* The queue: a surface above the box holding a labelled list of ActionRows. */
 .queued {

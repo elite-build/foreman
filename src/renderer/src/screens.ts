@@ -113,6 +113,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     return '.home .board'
   },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
+  // The composer's context ring, pressed: what fills the chat's context window.
+  'context-usage': async (f) => {
+    openWorkspace(f)
+    const ring = await waitFor(element('.composer-toolbar button[aria-label^="Context:"]'))
+    if (!ring) return null
+    ring.click()
+    return '.context-pop'
+  },
   'composer-queue': (f) => (openWorkspace(f, f.queueChatId), '.composer .queued, .queued'),
   // The terminal panel with no run script and nothing open: the Run tab's launcher.
   'run-launcher': (f) => (openWorkspace(f), showBottomPanel(true), '.bottom-panel .run-launch'),

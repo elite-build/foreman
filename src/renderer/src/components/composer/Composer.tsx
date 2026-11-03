@@ -158,6 +158,8 @@ export function Composer({
   const suggestionsId = useId()
   const running = session.status === 'running'
   const agent = AGENTS[session.agent]
+  // The context popover offers /compact only to agents that have it.
+  const canCompact = agent.builtinCommands.some((c) => c.name === 'compact')
   // O1: controls follow the tab's agent; in a chat that switched agents, a Plan chip the agent lacks stays greyed.
   // Scanned again only when this chat's log changes, not on every store event.
   const mixed = useStoreMemo((s) => [s.chats[session.id]], ([chat]) => isMixed(chat ?? []))
@@ -724,7 +726,14 @@ export function Composer({
           {!disabled && <AlsoTry workspace={workspace} session={session} text={text} />}
           {running && !pendingPlan && <SendModeChip mode={followUp} canSteer={canSteer} sendsOnEnter={settings.messageSendKey === 'enter'} isMac={isMac} mod={mod} onToggle={() => setOverride(oppositeMode(followUp))} />}
           <span className="spacer" />
-          {session.contextUsage && <ContextWheel usage={session.contextUsage} />}
+          {session.contextUsage && (
+            <ContextWheel
+              usage={session.contextUsage}
+              agent={session.agent}
+              root={workspace.path}
+              onCompact={canCompact ? () => insertCommand('/compact ') : undefined}
+            />
+          )}
           {running && !stopIsPrimary && (
             <LinkButton size="sm" onClick={() => void attempt(() => api.cancel(session.id))}>
               {t('common.stop')}

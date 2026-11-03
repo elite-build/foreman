@@ -3402,6 +3402,18 @@ export const ko: Catalogue = {
   'duration.minutes': '{m}분 {s}초',
   'duration.hours': '{h}시간 {m}분',
   'contextWheel.title': '컨텍스트: {limit} 토큰 중 {used} 사용({percent}%). /compact로 공간을 확보하세요.',
+  'contextWheel.heading': '컨텍스트',
+  'contextWheel.chart': '컨텍스트 창의 {percent}% 사용 중',
+  'contextWheel.usedOf': '{limit} 중 {used}',
+  'contextWheel.totalOnly': '{agent}은(는) 컨텍스트 사용량만 알려 주고 무엇이 채우는지는 알려 주지 않습니다.',
+  'contextWheel.tabs': '컨텍스트를 채우는 항목',
+  'contextWheel.tab.all': '전체',
+  'contextWheel.tab.mcp': 'MCP',
+  'contextWheel.tab.memory': '메모리',
+  'contextWheel.tab.skills': '스킬',
+  'contextWheel.tools': { other: '도구 {count}개' },
+  'contextWheel.onDemand': '필요할 때 로드',
+  'contextWheel.compact': '지금 압축',
 
   // ---- The chat: greeting, messages, turn results and the answer menu ----
   'chat.greeting.copy': '{name}은(는) {base}에서 만든 {branch} 브랜치에 있는 나만의 저장소 사본입니다.',

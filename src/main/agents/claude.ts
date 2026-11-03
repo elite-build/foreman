@@ -28,6 +28,7 @@ import type { OperatorTools } from '../../shared/assistant'
 import type { AgentStatus, ChatItem, McpServerInfo, SlashCommandInfo, TaskProgress, UsageLimit } from '../../shared/types'
 import { bundledClaudeExecutable } from '../platform'
 import { trackedClaudeSpawn } from './claudeSpawn'
+import { claudeContextUsage } from '../../shared/contextUsage'
 import { claudeLimit, type RateLimitEventInfo } from '../../shared/usageLimit'
 import {
   looksLikeAuthError,
@@ -746,7 +747,8 @@ class ClaudeTurn implements AgentTurn {
       this.q.getContextUsage().catch(() => null),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000))
     ])
-    if (usage && usage.maxTokens > 0) this.cb.usage({ used: usage.totalTokens, limit: usage.maxTokens })
+    const context = usage && claudeContextUsage(usage)
+    if (context) this.cb.usage(context)
   }
 
   private handleStreamEvent(event: Record<string, any>): void {
