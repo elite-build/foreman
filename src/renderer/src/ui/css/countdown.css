@@ -1,0 +1,54 @@
+/* Countdown: a ring that empties around a small control (a toast's Dismiss). The time left is in the text colour on a
+   --border-strong track, so it reads on every surface a toast sits on. */
+.ui-countdown {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+.ui-countdown__ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  /* Start at twelve o'clock and empty clockwise. */
+  transform: rotate(-90deg) scaleY(-1);
+}
+.ui-countdown__track,
+.ui-countdown__left {
+  fill: none;
+  stroke-width: 1.5;
+}
+.ui-countdown__track {
+  stroke: var(--border-strong);
+}
+.ui-countdown__left {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: 0;
+  animation: ui-countdown var(--ui-countdown-duration) linear forwards;
+}
+@keyframes ui-countdown {
+  to {
+    stroke-dashoffset: 100;
+  }
+}
+.ui-countdown--paused .ui-countdown__left {
+  animation-play-state: paused;
+}
+/* Reduce Motion: html[data-reduce-motion] is the resolved setting (theme.ts). The ring steps once a second. */
+html[data-reduce-motion='on'] .ui-countdown__left {
+  animation-timing-function: steps(var(--ui-countdown-steps), end);
+}
+@media (forced-colors: active) {
+  .ui-countdown__track {
+    stroke: GrayText;
+  }
+  .ui-countdown__left {
+    stroke: CanvasText;
+  }
+}

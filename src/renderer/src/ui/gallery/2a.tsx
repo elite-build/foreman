@@ -5,6 +5,7 @@ import { Button } from '../Button'
 import { Callout } from '../Callout'
 import { Card, CardButton } from '../Card'
 import { ChipButton } from '../ChipButton'
+import { Countdown } from '../Countdown'
 import { Glyph } from '../Glyph'
 import type { GlyphName } from '../Glyph'
 import { IconButton } from '../IconButton'
@@ -216,6 +217,23 @@ export function Gallery2a() {
           <Spinner label="Cloning" />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Spinner /> Loading (decorative, the text says it)
+          </span>
+        </div>
+      </Section>
+
+      <Section title="Countdown">
+        <div style={row}>
+          <Countdown durationMs={6000}>
+            <IconButton label="Dismiss">{CloseIcon}</IconButton>
+          </Countdown>
+          <Countdown durationMs={6000} paused>
+            <IconButton label="Dismiss, paused">{CloseIcon}</IconButton>
+          </Countdown>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            Archived 2 workspaces
+            <Countdown durationMs={10000}>
+              <IconButton label="Dismiss toast">{CloseIcon}</IconButton>
+            </Countdown>
           </span>
         </div>
       </Section>
