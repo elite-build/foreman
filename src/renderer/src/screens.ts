@@ -113,6 +113,8 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
   'composer-queue': (f) => (openWorkspace(f, f.queueChatId), '.composer .queued, .queued'),
+  // The terminal panel with no run script and nothing open: the Run tab's launcher.
+  'run-launcher': (f) => (openWorkspace(f), showBottomPanel(true), '.bottom-panel .run-launch'),
   terminal: async (f) => {
     openWorkspace(f)
     showBottomPanel(true)
