@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Listbox, type ListboxOption } from '../../src/renderer/src/ui/Listbox'
+import { readCss, ruleBody } from './cssRule'
 
 afterEach(cleanup)
 
@@ -188,5 +189,13 @@ describe('Listbox markup labels', () => {
     screen.getByRole('listbox').focus()
     await user.keyboard('b')
     expect(active()).toBe('Beta')
+  })
+})
+
+describe('Listbox layout', () => {
+  // A list capped by max-height (the Clone dialog's repos) squeezed its rows to min-height, and a two-line row's
+  // description ran into the next row. A row keeps its height; the list scrolls.
+  it('never shrinks a row below its content', () => {
+    expect(ruleBody(readCss('listbox'), '.ui-option')).toMatch(/(^|;|\s)flex:\s*none/)
   })
 })

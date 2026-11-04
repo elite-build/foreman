@@ -3061,15 +3061,14 @@ export const en = {
   'addRepo.clone.title': 'Clone GitHub repo',
   // Before a GitHub account picker: clone "as" that account.
   'addRepo.clone.as': 'as',
-  'addRepo.clone.intro': 'Choose a recent repo or paste a clone URL.',
   // {account} is a GitHub login.
-  'addRepo.clone.introAs': 'Choose a recent repo or paste a clone URL. It’s cloned and linked as {account}.',
   'addRepo.clone.loading': 'Loading your GitHub repos…',
   'addRepo.clone.recent': 'Recent repos',
   'addRepo.clone.search': 'Search repositories…',
   'addRepo.clone.listLabel': 'Your GitHub repositories',
   'addRepo.clone.private': 'Private',
   'addRepo.clone.noMatch': 'No repositories match.',
+  'addRepo.clone.recentOnly': 'Only your most recently pushed repos are listed. Paste a URL for any other.',
   'addRepo.clone.signIn': 'Sign in to GitHub (Settings → Account) to see your repos here, or paste a URL.',
   'addRepo.clone.url': 'Repository URL',
   'addRepo.clone.locationTitle': 'Choose where to clone the repository',

@@ -18,7 +18,10 @@
   font-size: var(--text-xs);
   font-weight: 500;
 }
+/* flex: none: in a list capped by max-height, a row keeps its content's height and the list scrolls; a shrinking row let
+   its description run into the next one. */
 .ui-option {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;

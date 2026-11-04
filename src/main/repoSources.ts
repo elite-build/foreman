@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { GithubRepo } from '../shared/types'
+import { GITHUB_REPOS_LISTED, type GithubRepo } from '../shared/types'
 import { git } from './git'
 import { gh, githubEnvAsync } from './github'
 
@@ -86,7 +86,7 @@ interface ApiRepo {
 
 /** The user's GitHub repositories, most recently pushed first (via the gh CLI). */
 export async function githubRepos(account?: string): Promise<GithubRepo[]> {
-  const out = await gh(process.cwd(), ['api', 'user/repos?sort=pushed&per_page=50&affiliation=owner,collaborator,organization_member'], 20_000, account)
+  const out = await gh(process.cwd(), ['api', `user/repos?sort=pushed&per_page=${GITHUB_REPOS_LISTED}&affiliation=owner,collaborator,organization_member`], 20_000, account)
   return (JSON.parse(out) as ApiRepo[]).map((r) => ({
     fullName: r.full_name,
     httpsUrl: r.clone_url,

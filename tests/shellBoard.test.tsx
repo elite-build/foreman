@@ -10,6 +10,7 @@ import { ArchiveDialog } from '../src/renderer/src/components/ArchiveDialog'
 import { CloneRepoDialog } from '../src/renderer/src/components/AddRepository'
 import { HomeBoard } from '../src/renderer/src/components/HomeBoard'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
+import { GITHUB_REPOS_LISTED, type GithubRepo } from '../src/shared/types'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
 
@@ -220,6 +221,24 @@ describe('clone dialog', () => {
     expect(location.value).toBe('/home/me/code')
     await user.type(url, 'https://github.com/user/repo.git{Enter}')
     await waitFor(() => expect(spy('cloneRepository')).toHaveBeenCalledWith('https://github.com/user/repo.git', '/home/me/code', expect.any(String), undefined))
+  })
+
+  it('names each repo with what its row shows, drops a description with no words, and says when the list is cut off', async () => {
+    const twoDays = new Date(Date.now() - 2 * 86_400_000).toISOString()
+    const repo = (name: string, extra: Partial<GithubRepo> = {}): GithubRepo => ({
+      fullName: `acme/${name}`,
+      httpsUrl: `https://github.com/acme/${name}.git`,
+      sshUrl: `git@github.com:acme/${name}.git`,
+      private: false,
+      ...extra
+    })
+    const repos = [repo('kite', { description: '🪁', private: true, pushedAt: twoDays }), repo('docs', { description: 'The docs site' })]
+    fakeApi.githubRepos = vi.fn(async () => ({ repos: [...repos, ...Array.from({ length: GITHUB_REPOS_LISTED - 2 }, (_, i) => repo(`r${i}`))], protocol: 'https' }))
+    render(<CloneRepoDialog />)
+    const kite = await screen.findByRole('option', { name: 'acme/kite, Private, 2d ago' })
+    expect(kite.querySelector('.ui-option__desc')).toBeNull()
+    expect(screen.getByRole('option', { name: 'acme/docs' }).querySelector('.ui-option__desc')?.textContent).toBe('The docs site')
+    expect(screen.getByText('Only your most recently pushed repos are listed. Paste a URL for any other.')).toBeTruthy()
   })
 
   it('Cancel and Escape close it', async () => {
