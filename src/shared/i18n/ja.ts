@@ -2590,6 +2590,10 @@ export const ja: Catalogue = {
   'sidebar.rail.needYou': { other: '{label} · {count}件が要対応' },
   'sidebar.rail.all': 'すべて',
   'sidebar.rail.add': 'リポジトリを追加',
+  // Opens the drawer that lists every repository by name.
+  'sidebar.rail.expand': 'リポジトリを表示',
+  'sidebar.rail.filter': 'リポジトリを絞り込む',
+  'sidebar.rail.noMatch': '一致するリポジトリはありません。',
   'sidebar.rail.palette': 'コマンドパレット（{key}）',
   'sidebar.rail.shortcuts': 'キーボードショートカット（{key}）',
 

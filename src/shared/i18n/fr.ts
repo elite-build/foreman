@@ -2590,6 +2590,10 @@ export const fr: Catalogue = {
   'sidebar.rail.needYou': { one: '{label} · {count} requiert votre attention', other: '{label} · {count} requièrent votre attention' },
   'sidebar.rail.all': 'Tous',
   'sidebar.rail.add': 'Ajouter un dépôt',
+  // Opens the drawer that lists every repository by name.
+  'sidebar.rail.expand': 'Afficher les dépôts',
+  'sidebar.rail.filter': 'Filtrer les dépôts',
+  'sidebar.rail.noMatch': 'Aucun dépôt ne correspond.',
   'sidebar.rail.palette': 'Palette de commandes ({key})',
   'sidebar.rail.shortcuts': 'Raccourcis clavier ({key})',
 

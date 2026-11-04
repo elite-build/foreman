@@ -234,6 +234,45 @@ describe('repository rail', () => {
     expect(spy('showRepoHome')).toHaveBeenCalledWith('r1')
   })
 
+  it("each tile has its repository's name under it, which leaves the tile's name alone", () => {
+    render(<Sidebar />)
+    const tile = screen.getByRole('button', { name: 'kite' })
+    expect(tile.closest('.rail-item')?.querySelector('.rail-caption')?.textContent).toBe('kite')
+    // All says so on its tile.
+    expect(screen.getByRole('button', { name: 'All repositories' }).closest('.rail-item')?.querySelector('.rail-caption')).toBeNull()
+  })
+
+  it('the repositories drawer lists each repository by name with what is going on in it, and picking one shows it', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+    const open = screen.getByRole('button', { name: 'Show repositories' })
+    expect(open.getAttribute('aria-haspopup')).toBe('dialog')
+    await user.click(open)
+    const drawer = await screen.findByRole('dialog', { name: 'Repositories' })
+    // Each row is named by its repository (the icon or initials before it are decoration) and says what is going on.
+    const rows = within(drawer).getAllByRole('option')
+    expect(rows).toHaveLength(2)
+    expect(within(drawer).getByRole('option', { name: /^All repositories/ }).textContent).toContain('1 repository')
+    expect(within(drawer).getByRole('option', { name: /^kite/ }).textContent).toContain('1 workspace · main')
+    await user.type(within(drawer).getByRole('combobox', { name: 'Filter repositories' }), 'ki')
+    expect(within(drawer).getAllByRole('option')).toHaveLength(1)
+    await user.keyboard('{Enter}')
+    expect(spy('showRepoHome')).toHaveBeenCalledWith('r1')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a filter that matches nothing says so, and Escape closes the drawer without picking', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+    await user.click(screen.getByRole('button', { name: 'Show repositories' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Repositories' })
+    await user.type(within(drawer).getByRole('combobox'), 'zzz')
+    expect(drawer.textContent).toContain('No repositories match.')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(spy('showRepoHome')).not.toHaveBeenCalled()
+  })
+
   it('right-click on a tile opens the repository menu', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)

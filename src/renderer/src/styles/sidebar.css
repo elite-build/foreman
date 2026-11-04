@@ -13,14 +13,15 @@
   display: flex;
 }
 
-/* The rail: All, one tile per repository, Add. */
+/* The rail: All, one tile per repository with its name under it, Add. (editorLayout.ts's RAIL_WIDTH is this plus the
+   sidebar's edge.) */
 .repo-rail {
   flex: none;
-  width: 52px;
+  width: 68px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 6px 0 12px;
   overflow-y: auto;
   scrollbar-width: none;
@@ -39,6 +40,44 @@
 }
 /* A tile is a CardButton (ui/: the interactive Card outline, hover and selected); the second class makes these rules beat
    .ui-pressable's display and padding, which load later. The wrapper draws the ring for the repository Home is showing. */
+/* A tile and its caption: the repository's name, up to two lines. */
+.rail-item {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+.rail-caption {
+  max-width: 100%;
+  font-size: var(--text-xs);
+  line-height: 1.2;
+  color: var(--text-muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  /* Clicks go to the tile's button, which reaches down over the caption. */
+  pointer-events: none;
+}
+.rail-item.on .rail-caption {
+  color: var(--text);
+  font-weight: 600;
+}
+/* The tile's button reaches over its caption (4px gap + two lines), so clicking the name picks the repository too. */
+.repo-rail .rail-item:has(.rail-caption) .rail-tile::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -13px;
+  right: -13px;
+  bottom: -32px;
+}
 .rail-tile-wrap {
   flex: none;
   display: inline-flex;
@@ -74,6 +113,16 @@
 .rail-tile .repo-icon {
   color: inherit;
 }
+/* The repositories drawer: a Sheet (ui/) contained in the workspace list, so it covers the list and nothing else. */
+.rail-drawer .ui-dialog__body {
+  gap: 0;
+  padding: 10px 12px;
+}
+.rail-drawer-combo .ui-combobox__field {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
 .rail-badge {
   position: absolute;
   top: -5px;
@@ -94,6 +143,8 @@
 
 /* The panel: header, new, search, summary, filters, groups. */
 .sidebar-panel {
+  /* The repositories drawer (a contained Sheet) fills this. */
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;

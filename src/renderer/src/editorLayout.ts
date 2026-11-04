@@ -7,8 +7,8 @@ export type EditorView = (typeof EDITOR_VIEWS)[number]
 /** The views that belong to the workspace on screen: the side panel's tabs. */
 export type WorkspacePanelView = Exclude<EditorView, 'workspaces'>
 
-// The activity bar is the repository rail (52px) and the sidebar's edge, so the sidebar shrinks to this with its list hidden.
-export const RAIL_WIDTH = 53
+// The activity bar is the repository rail (68px) and the sidebar's edge, so the sidebar shrinks to this with its list hidden.
+export const RAIL_WIDTH = 69
 
 /** A remembered view, or Workspaces when it isn't one we offer. */
 export function editorViewOf(value: unknown): EditorView {

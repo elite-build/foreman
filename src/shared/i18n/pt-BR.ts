@@ -2590,6 +2590,10 @@ export const ptBR: Catalogue = {
   'sidebar.rail.needYou': { one: '{label} · {count} precisa de você', other: '{label} · {count} precisam de você' },
   'sidebar.rail.all': 'Todos',
   'sidebar.rail.add': 'Adicionar repositório',
+  // Opens the drawer that lists every repository by name.
+  'sidebar.rail.expand': 'Mostrar repositórios',
+  'sidebar.rail.filter': 'Filtrar repositórios',
+  'sidebar.rail.noMatch': 'Nenhum repositório corresponde.',
   'sidebar.rail.palette': 'Paleta de comandos ({key})',
   'sidebar.rail.shortcuts': 'Atalhos de teclado ({key})',
 
