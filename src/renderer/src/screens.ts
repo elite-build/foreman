@@ -113,6 +113,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     chooseHomeLayout('board')
     return '.home .board'
   },
+  // The rail opened out: the repositories drawer over the workspace list.
+  'repo-drawer': async () => {
+    showRepoHome(null)
+    const open = await waitFor(element('.repo-rail .rail-tools button[aria-haspopup="dialog"]'))
+    if (!open) return null
+    open.click()
+    return '.rail-drawer [role="option"]'
+  },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
   // The composer's context ring, pressed: what fills the chat's context window.
   'context-usage': async (f) => {

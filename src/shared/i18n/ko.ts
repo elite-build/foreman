@@ -2590,6 +2590,10 @@ export const ko: Catalogue = {
   'sidebar.rail.needYou': { other: '{label} · {count}개 확인 필요' },
   'sidebar.rail.all': '전체',
   'sidebar.rail.add': '저장소 추가',
+  // Opens the drawer that lists every repository by name.
+  'sidebar.rail.expand': '저장소 보기',
+  'sidebar.rail.filter': '저장소 필터',
+  'sidebar.rail.noMatch': '일치하는 저장소가 없습니다.',
   'sidebar.rail.palette': '명령 팔레트({key})',
   'sidebar.rail.shortcuts': '키보드 단축키({key})',
 

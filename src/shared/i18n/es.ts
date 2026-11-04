@@ -2636,6 +2636,10 @@ export const es: Catalogue = {
   'sidebar.rail.needYou': { one: '{label} · {count} te necesita', other: '{label} · {count} te necesitan' },
   'sidebar.rail.all': 'Todos',
   'sidebar.rail.add': 'Añadir repositorio',
+  // Opens the drawer that lists every repository by name.
+  'sidebar.rail.expand': 'Mostrar repositorios',
+  'sidebar.rail.filter': 'Filtrar repositorios',
+  'sidebar.rail.noMatch': 'Ningún repositorio coincide.',
   'sidebar.rail.palette': 'Paleta de comandos ({key})',
   'sidebar.rail.shortcuts': 'Atajos de teclado ({key})',
 

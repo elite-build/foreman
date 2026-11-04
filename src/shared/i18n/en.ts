@@ -2891,6 +2891,10 @@ export const en = {
   // The rail's tile for all repositories (a short word).
   'sidebar.rail.all': 'All',
   'sidebar.rail.add': 'Add repository',
+  // Opens the drawer that lists every repository by name.
+  'sidebar.rail.expand': 'Show repositories',
+  'sidebar.rail.filter': 'Filter repositories',
+  'sidebar.rail.noMatch': 'No repositories match.',
   // {key} is a keyboard shortcut.
   'sidebar.rail.palette': 'Command palette ({key})',
   'sidebar.rail.shortcuts': 'Keyboard shortcuts ({key})',

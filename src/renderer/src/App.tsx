@@ -196,8 +196,9 @@ export function App() {
   const editorView = useStore((s) => s.editorView)
   const tileZoom = useStore((s) => s.tileZoom)
   const windowWidth = useWindowWidth()
-  // Leave the chat column 420px, plus the side panel's narrowest width when it's open.
-  const sidebar = usePanelSize('sidebar', 312, 260, Math.min(480, windowWidth - 420 - (rightPanelOpen ? 280 : 0)))
+  // Leave the chat column 420px, plus the side panel's narrowest width when it's open. The default and the minimum make
+  // room for the repository rail (68px) beside a list as wide as it was beside the old 52px one.
+  const sidebar = usePanelSize('sidebar', 328, 276,Math.min(480, windowWidth - 420 - (rightPanelOpen ? 280 : 0)))
   // Workspaces stay mounted once opened so terminals and scroll positions survive switching. A hidden one holds what it
   // read and skips these renders, so it costs nothing per store event (WorkspaceView); its terminals still run.
   const [opened, setOpened] = useState<string[]>([])

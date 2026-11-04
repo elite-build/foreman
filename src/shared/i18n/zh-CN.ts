@@ -2590,6 +2590,10 @@ export const zhCN: Catalogue = {
   'sidebar.rail.needYou': { other: '{label} · {count} 个需要你处理' },
   'sidebar.rail.all': '全部',
   'sidebar.rail.add': '添加仓库',
+  // Opens the drawer that lists every repository by name.
+  'sidebar.rail.expand': '显示仓库',
+  'sidebar.rail.filter': '筛选仓库',
+  'sidebar.rail.noMatch': '没有匹配的仓库。',
   'sidebar.rail.palette': '命令面板 ({key})',
   'sidebar.rail.shortcuts': '键盘快捷键 ({key})',
 
