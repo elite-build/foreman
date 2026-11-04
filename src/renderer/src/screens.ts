@@ -8,6 +8,7 @@ import type { WindowLayout } from '../../shared/types'
 import {
   api,
   getState,
+  openAddRepoDialog,
   openAssistant,
   openAutomations,
   openNewWorkspace,
@@ -178,6 +179,12 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     if (!existing) return null
     existing.click()
     return '.nw-branch-shelf'
+  },
+  // Clone GitHub repo, with the fixture's repos listed (main answers githubRepos for the run).
+  'clone-repo': () => {
+    showRepoHome(null)
+    openAddRepoDialog('clone')
+    return '.add-repo-combo .ui-option'
   },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),

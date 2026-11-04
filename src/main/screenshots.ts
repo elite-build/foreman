@@ -19,7 +19,7 @@ import { selectWalks } from './walks'
 import { git } from './git'
 import { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
-import type { ApprovalResponse, ChatItem, ColorVision, ContextUsage, Repo, Session, Settings, Workspace } from '../shared/types'
+import type { ApprovalResponse, ChatItem, ColorVision, ContextUsage, GithubRepo, Repo, Session, Settings, Workspace } from '../shared/types'
 
 export const SCREENSHOTS = process.env.FOREMAN_SCREENSHOTS === '1'
 /** `npm run screens -- --walk`: play the keyboard walks after the screens, and fail the run when one does not match. */
@@ -300,6 +300,23 @@ export async function seedScreens(root: string, dataDir: string): Promise<Screen
   return { repoId: 'repo-atlas', workspaceId: 'ws-lisbon', chatId: 's-lisbon-1', queueChatId: 's-lisbon-2', now: seededAt + 30_000 }
 }
 
+// The Clone dialog's list: GitHub as gh would answer, without asking this machine's gh (its accounts and repos are real).
+const GITHUB_REPOS: GithubRepo[] = [
+  { name: 'atlas', description: 'The web app: sign-in, sessions and the dashboard', private: true, minutes: 30 },
+  { name: 'atlas-mobile', description: '📱', private: true, minutes: 300 },
+  { name: 'billing', private: true, minutes: 1500 },
+  { name: 'design-tokens', description: 'Colours, type and spacing shared by every Acme app, generated for CSS, Swift and Kotlin', private: false, minutes: 4400 },
+  { name: 'infra', description: 'Terraform for the staging and production clusters', private: true, minutes: 8800 },
+  { name: 'docs', description: 'developer.acme.dev', private: false, minutes: 20_000 },
+  { name: 'support-bot', private: true, minutes: 45_000 }
+].map(({ name, minutes, ...rest }) => ({
+  fullName: `acme/${name}`,
+  httpsUrl: `https://github.com/acme/${name}.git`,
+  sshUrl: `git@github.com:acme/${name}.git`,
+  pushedAt: minutesAgo(minutes),
+  ...rest
+}))
+
 // ---- the run ----
 
 /** Screens the renderer hook knows (renderer/src/screens.ts), in capture order. */
@@ -317,6 +334,7 @@ export const SCREENS = [
   'editor',
   'new-workspace',
   'new-workspace-branch',
+  'clone-repo',
   'settings-general',
   'settings-agents',
   'settings-appearance',
@@ -520,6 +538,8 @@ async function runWalks(run: ScreensRun): Promise<WalkResult[]> {
 export async function runScreens(run: ScreensRun): Promise<void> {
   const { win, core, out } = run
   mkdirSync(out, { recursive: true })
+  core.api.githubRepos = async () => ({ repos: GITHUB_REPOS, protocol: 'https' })
+  core.api.githubAccounts = async () => []
   win.setContentSize(1320, 860)
   // The real pointer would leave hover states wherever it happens to rest over the window.
   win.setIgnoreMouseEvents(true)
