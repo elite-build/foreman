@@ -2289,6 +2289,9 @@ export type ReadOnlyEnforcement = 'plan' | 'sandbox'
 /** `stale`: the source changed since the preview, nothing was started; the dialog should refresh. */
 export type HandOffResult = { session: Session } | { stale: string }
 
+/** How many of the user's GitHub repos, most recently pushed first, the Clone dialog lists. */
+export const GITHUB_REPOS_LISTED = 50
+
 export interface GithubRepo {
   fullName: string
   httpsUrl: string

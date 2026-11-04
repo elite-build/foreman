@@ -2,7 +2,7 @@
 // project, or reopen a recent folder.
 import { Folder, FolderOpen, FolderPlus, Globe, Lock, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { GithubRepo, GitIdentity } from '../../../shared/types'
+import { GITHUB_REPOS_LISTED, type GithubRepo, type GitIdentity } from '../../../shared/types'
 import {
   addRepository,
   api,
@@ -17,6 +17,7 @@ import {
   useStore
 } from '../store'
 import { useT } from '../i18n'
+import { timeAgo } from '../../../shared/i18n/time'
 import { Button, Callout, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, MenuControlRow, MenuGroup, MenuItem, MenuSeparator, CardButton, Spinner, TextInput } from '../ui'
 import { AccountPicker, useGithubAccounts } from './settings/GithubAccount'
 
@@ -151,12 +152,30 @@ export function CloneRepoDialog() {
     const q = query.trim().toLowerCase()
     return (repos ?? []).filter((r) => !q || r.fullName.toLowerCase().includes(q) || r.description?.toLowerCase().includes(q)).slice(0, 50)
   }, [repos, query])
-  const options = shown.map((r) => ({
-    value: protocol === 'ssh' ? r.sshUrl : r.httpsUrl,
-    label: r.fullName,
-    description: r.description || undefined,
-    trailing: r.private ? <Lock size={11} role="img" aria-label={t('addRepo.clone.private')} /> : undefined
-  }))
+  const options = shown.map((r) => {
+    const slash = r.fullName.lastIndexOf('/')
+    const pushed = timeAgo(r.pushedAt, t.locale)
+    return {
+      value: protocol === 'ssh' ? r.sshUrl : r.httpsUrl,
+      // The owner recedes so the names line up for scanning.
+      label: (
+        <>
+          <span className="faint">{r.fullName.slice(0, slash + 1)}</span>
+          <span className="add-repo-name">{r.fullName.slice(slash + 1)}</span>
+        </>
+      ),
+      // The option's name, with what the trailing time and lock show.
+      textValue: [r.fullName, r.private && t('addRepo.clone.private'), pushed].filter(Boolean).join(', '),
+      // A description of only an emoji or punctuation says nothing in a list.
+      description: r.description && /[\p{L}\p{N}]/u.test(r.description) ? r.description : undefined,
+      trailing: (
+        <span className="add-repo-meta faint" aria-hidden>
+          {pushed}
+          <span className="add-repo-lock">{r.private && <Lock size={11} />}</span>
+        </span>
+      )
+    }
+  })
 
   const name = repoNameFromUrl(url)
   const submit = async () => {
@@ -201,7 +220,6 @@ export function CloneRepoDialog() {
       }
     >
       <div className="add-repo-body" onKeyDown={onKeyDown}>
-        <p className="faint small">{cloneAs ? t('addRepo.clone.introAs', { account: cloneAs }) : t('addRepo.clone.intro')}</p>
         {repos === null ? (
           <div className="faint small add-repo-loading" role="status">
             <Spinner size={13} /> {t('addRepo.clone.loading')}
@@ -220,6 +238,8 @@ export function CloneRepoDialog() {
                 query={query}
                 onQueryChange={setQuery}
                 empty={t('addRepo.clone.noMatch')}
+                // GitHub lists the most recently pushed repos only (repoSources.githubRepos), so say where the rest are.
+                footer={repos.length >= GITHUB_REPOS_LISTED && !query.trim() ? t('addRepo.clone.recentOnly') : undefined}
                 options={options}
                 value={url}
                 onChange={setUrl}
