@@ -10,6 +10,35 @@ import { DEFAULT_LOADOUTS, DEFAULT_MODEL } from '../shared/agents'
 import { DEFAULT_PROMPT_TEMPLATES } from '../shared/promptTemplates'
 import { dateInZone } from '../shared/schedule'
 import { defaultOnboarding, migrateOnboarding } from '../shared/onboarding'
+
+// On Windows, moving the written file into place can fail for a moment while an indexer or antivirus holds the old
+// one (EPERM, EBUSY, EACCES); a few short retries get past it. Anything else is thrown as before.
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
+const RENAME_TRIES = 5
+const retryDelayMs = (attempt: number) => 25 * (attempt + 1)
+const retryable = (error: unknown, attempt: number) => attempt < RENAME_TRIES - 1 && RENAME_RETRY_CODES.has((error as NodeJS.ErrnoException)?.code ?? '')
+
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await rename(from, to)
+    } catch (error) {
+      if (!retryable(error, attempt)) throw error
+      await new Promise((r) => setTimeout(r, retryDelayMs(attempt)))
+    }
+  }
+}
+
+function renameSyncWithRetry(from: string, to: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return renameSync(from, to)
+    } catch (error) {
+      if (!retryable(error, attempt)) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, retryDelayMs(attempt))
+    }
+  }
+}
 import { isScriptShellChoice, isShellChoice } from '../shared/shells'
 import { parseSavedCommands } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
@@ -434,7 +463,7 @@ export class Store {
       this.db.syncRows(this.state)
       const tmp = `${this.statePath}.tmp`
       await writeFile(tmp, this.preferences())
-      await rename(tmp, this.statePath)
+      await renameWithRetry(tmp, this.statePath)
     })
   }
 
@@ -446,7 +475,7 @@ export class Store {
     this.db.syncRows(this.state)
     const tmp = `${this.statePath}.tmp`
     writeFileSync(tmp, this.preferences())
-    renameSync(tmp, this.statePath)
+    renameSyncWithRetry(tmp, this.statePath)
   }
 
   /** Flush and let go of foreman.db (app quit, or a test finishing). */

@@ -76,7 +76,8 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
 }
 
-function harness(toml = GREEN, options: { checks?: CheckResult['status'][]; loadouts?: Loadout[]; state?: { flowRuns?: FlowRun[] }; maxActive?: number } = {}) {
+function harness(toml = GREEN, options: { checks?: CheckResult['status'][]; loadouts?: Loadout[]; state?: { flowRuns?: FlowRun[] }; maxActive?: number; flushFailures?: number } = {}) {
+  let flushFailures = options.flushFailures ?? 0
   const parsed = parseFlow(toml, 'personal')
   if (!('flow' in parsed)) throw new Error(parsed.problems.join(' '))
   const { flow } = parsed
@@ -99,7 +100,13 @@ function harness(toml = GREEN, options: { checks?: CheckResult['status'][]; load
     sent.push({ sessionId: 's-1', text: first.text, turnId: 't-first' })
   })
   const deps: FlowServiceDeps = {
-    store: { state, flush: () => flushed.push(structuredClone(state.flowRuns ?? [])) },
+    store: {
+      state,
+      flush: () => {
+        if (flushFailures-- > 0) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' })
+        flushed.push(structuredClone(state.flowRuns ?? []))
+      }
+    },
     now: () => clock,
     newId: () => `id-${++n}`,
     prepare: () => prepared,
@@ -244,6 +251,22 @@ describe('running a flow', () => {
     expect(h.run().state).toBe('stopped')
     expect(h.run().reason).toBe('Stopped: the loop “ask-again” reached its bound of 15 minutes.')
     expect(names(h.run())).toEqual(['work', 'ask', 'work'])
+  })
+
+  it('a flush that fails doesn’t end the step: the record stays in memory and the gate still asks', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const h = harness(GREEN, { checks: ['passed'], flushFailures: 3 })
+      await h.start()
+      await h.endTurn()
+      expect(h.gates).toHaveLength(1)
+      expect(h.run().state).toBe('waiting')
+      expect(error).toHaveBeenCalled()
+      // Later flushes write the record as usual.
+      expect(h.flushed.at(-1)?.[0]).toMatchObject({ state: 'waiting' })
+    } finally {
+      error.mockRestore()
+    }
   })
 
   it('a gate answered “send back” routes along its edge with the note', async () => {

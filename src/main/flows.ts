@@ -207,7 +207,13 @@ export class FlowService {
   }
 
   private persist(): void {
-    this.deps.store.flush()
+    // A flush that fails (the file briefly locked on Windows, say) must not end a step half-way: the record stands in
+    // memory, the store's next save writes it, and the failure is logged rather than thrown into the run.
+    try {
+      this.deps.store.flush()
+    } catch (error) {
+      console.error('flows: the run record could not be written now; it stays in memory and the next save retries', error)
+    }
     this.deps.changed()
   }
 
