@@ -10,6 +10,10 @@
 //
 //   node scripts/check-new-components.mjs [<base ref>]    (default origin/main)
 // PR_LABELS (a JSON array of label names) supplies the pull request's labels; without it the label is not checked.
+//
+//   node scripts/check-new-components.mjs --staged [<base ref>]
+// The pre-commit hook's run: the ordering rule alone (the last point above), on the branch since <base ref> plus what is
+// staged, so a component and the feature that uses it can't share a branch even when they're in separate commits.
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -36,9 +40,7 @@ export function exportsOf(indexSource) {
  * ui/index.ts is the change that brings the design system in, the one change allowed to add components and use them.
  */
 export function newComponentProblems({ baseIndex, headIndex, changed, labels, has, gallery }) {
-  if (!baseIndex) return []
-  const before = exportsOf(baseIndex)
-  const added = [...exportsOf(headIndex)].filter(([name]) => !before.has(name))
+  const added = addedExports(baseIndex, headIndex)
   if (!added.length) return []
 
   const problems = []
@@ -53,17 +55,35 @@ export function newComponentProblems({ baseIndex, headIndex, changed, labels, ha
   for (const [name] of added) {
     if (/^[A-Z]/.test(name) && !new RegExp(`<${name}\\b`).test(gallery)) problems.push(`${name}: not in any ui/gallery/ page. Add a sample so it shows in the gallery screenshots.`)
   }
+  return [...problems, ...orderProblems({ baseIndex, headIndex, changed })]
+}
+
+/** The value exports `headIndex` has and `baseIndex` doesn't, as [name, module]. None when the base has no ui/index.ts. */
+export function addedExports(baseIndex, headIndex) {
+  if (!baseIndex) return []
+  const before = exportsOf(baseIndex)
+  return [...exportsOf(headIndex)].filter(([name]) => !before.has(name))
+}
+
+/**
+ * The ordering rule alone: a component is in the design system once it is on the base, so a change that adds one leaves
+ * feature code alone. The pre-commit hook checks this on every commit; the label, test and gallery wait for the pull request,
+ * so a component can be committed while it's being built.
+ */
+export function orderProblems({ baseIndex, headIndex, changed }) {
+  const added = addedExports(baseIndex, headIndex)
   const feature = changed.filter((p) => p.startsWith('src/renderer/src/') && !p.startsWith(UI))
-  if (feature.length) {
-    const list = feature.slice(0, 10).join(', ') + (feature.length > 10 ? `, and ${feature.length - 10} more` : '')
-    problems.push(`ui/index.ts gains ${names}, and feature code changes too (${list}). Add the component in its own pull request first, then use it.`)
-  }
-  return problems
+  if (!added.length || !feature.length) return []
+  const names = added.map(([name]) => name).join(', ')
+  const list = feature.slice(0, 10).join(', ') + (feature.length > 10 ? `, and ${feature.length - 10} more` : '')
+  return [`ui/index.ts gains ${names}, and feature code changes too (${list}). A component is used only once it is in the design system: add it in its own pull request first, then use it in a later one. An agent stops here and asks the developer to add the component first.`]
 }
 
 function main() {
   const git = (...args) => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-  const base = git('merge-base', process.argv[2] ?? 'origin/main', 'HEAD').trim()
+  const args = process.argv.slice(2)
+  if (args[0] === '--staged') return staged(git, args[1])
+  const base = git('merge-base', args[0] ?? 'origin/main', 'HEAD').trim()
   let baseIndex = ''
   try {
     baseIndex = git('show', `${base}:${UI}index.ts`)
@@ -82,6 +102,33 @@ function main() {
     return
   }
   console.error('check-new-components: a new component must go into the design system first (AGENTS.md, "UI: the design system comes first").\n')
+  for (const p of problems) console.error(`  - ${p}`)
+  process.exitCode = 1
+}
+
+/** The pre-commit run: the staged ui/index.ts against the base, and every path changed since the base, staged ones included. */
+function staged(git, ref) {
+  const tryGit = (...args) => {
+    try {
+      return git(...args)
+    } catch {
+      return ''
+    }
+  }
+  const candidates = ref ? [ref] : ['origin/main', 'main']
+  const found = candidates.find((r) => tryGit('rev-parse', '--verify', '--quiet', `${r}^{commit}`))
+  if (!found) {
+    console.log(`check-new-components: no ${candidates.join(' or ')} to compare with; the ordering rule is not checked.`)
+    return
+  }
+  const base = git('merge-base', found, 'HEAD').trim()
+  const problems = orderProblems({
+    baseIndex: tryGit('show', `${base}:${UI}index.ts`),
+    headIndex: tryGit('show', `:${UI}index.ts`),
+    changed: git('diff', '--cached', '--name-only', base).split('\n').filter(Boolean)
+  })
+  if (!problems.length) return
+  console.error(`check-new-components: a new component must be in the design system (on ${found}) before feature code uses it (AGENTS.md, "UI: the design system comes first").\n`)
   for (const p of problems) console.error(`  - ${p}`)
   process.exitCode = 1
 }

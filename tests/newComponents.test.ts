@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { exportsOf, LABEL, newComponentProblems } from '../scripts/check-new-components.mjs'
+import { addedExports, exportsOf, LABEL, newComponentProblems, orderProblems } from '../scripts/check-new-components.mjs'
 
 // The pull-request check (scripts/check-new-components.mjs): a new
 // design-system export comes labelled, tested, in a gallery, and in a pull request of its own.
@@ -65,5 +65,30 @@ describe('check-new-components', () => {
     const problems = newComponentProblems({ ...complete, changed })
     expect(problems).toHaveLength(1)
     expect(problems[0]).toMatch(/feature code changes too \(src\/renderer\/src\/components\/Home\.tsx, src\/renderer\/src\/styles\/home\.css\)/)
+    expect(problems[0]).toMatch(/asks the developer to add the component first/)
+  })
+})
+
+describe('check-new-components --staged (the pre-commit ordering rule)', () => {
+  const feature = 'src/renderer/src/components/Home.tsx'
+
+  it('lists the exports the head adds, none when the base has no ui/', () => {
+    expect(addedExports(BASE, WITH_STEPPER)).toEqual([['Stepper', 'Stepper']])
+    expect(addedExports(BASE, BASE)).toEqual([])
+    expect(addedExports('', WITH_STEPPER)).toEqual([])
+  })
+
+  it('a component being built passes without its label, test or gallery sample', () => {
+    expect(orderProblems({ baseIndex: BASE, headIndex: WITH_STEPPER, changed: ['src/renderer/src/ui/Stepper.tsx', 'src/renderer/src/ui/index.ts'] })).toEqual([])
+  })
+
+  it('feature code using components already in the design system passes', () => {
+    expect(orderProblems({ baseIndex: WITH_STEPPER, headIndex: WITH_STEPPER, changed: [feature] })).toEqual([])
+  })
+
+  it('a branch that adds a component and changes feature code fails, whichever commit each is in', () => {
+    const problems = orderProblems({ baseIndex: BASE, headIndex: WITH_STEPPER, changed: ['src/renderer/src/ui/Stepper.tsx', 'src/renderer/src/ui/index.ts', feature] })
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toMatch(/ui\/index\.ts gains Stepper, and feature code changes too \(src\/renderer\/src\/components\/Home\.tsx\)/)
   })
 })
