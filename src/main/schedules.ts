@@ -11,11 +11,12 @@
 // templates and personas too, the occurrence follows the flow run to its end, and the flow's loop bounds stand in for the
 // duration limit.
 import { createHash, randomUUID } from 'node:crypto'
-import type { FlowFingerprint, FlowRun } from '../shared/flows'
+import { scheduleFingerprintOfFlow, type FlowFingerprint, type FlowRun } from '../shared/flows'
 import { GLOBAL_ACTIVE_CAP, MISSED_GRACE_MS, dueAction, nextRuns, specOf, specProblem } from '../shared/schedule'
 import type { AfterRun, Occurrence, Schedule, ScheduleFingerprint, ScheduleRequest, TurnOutcome } from '../shared/types'
 
-const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
+/** A fingerprint part: the SHA-256 of the value as JSON (flows.ts makes a flow run's parts the same way). */
+export const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
 
 export interface FingerprintInputs {
   templateBody: string
@@ -30,7 +31,7 @@ export interface FingerprintInputs {
 }
 
 export function fingerprintOf(i: FingerprintInputs): ScheduleFingerprint {
-  if (i.flow) return { template: i.flow.templates, setup: i.flow.setup, checks: i.flow.checks, mcp: i.flow.mcp, flow: i.flow.flow, personas: i.flow.personas }
+  if (i.flow) return scheduleFingerprintOfFlow(i.flow)
   return {
     template: sha({ body: i.templateBody, rev: i.templateRev ?? null }),
     setup: sha(i.setupScript),
@@ -58,7 +59,8 @@ export function changedParts(approved: ScheduleFingerprint, now: ScheduleFingerp
   return (Object.keys(PART_TEXT) as (keyof ScheduleFingerprint)[]).filter((k) => approved[k] !== now[k]).map((k) => PART_TEXT[k])
 }
 
-const joinWords = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] ?? '')
+/** "a, b and c". */
+export const joinWords = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] ?? '')
 
 /** The words a refused approval starts with: what the user was shown is not what would be approved now. */
 export const SHOWN_CHANGED = 'What you approved has changed; run it again'
@@ -69,7 +71,17 @@ export const SHOWN_CHANGED = 'What you approved has changed; run it again'
  */
 export function assertFingerprintShown(shown: ScheduleFingerprint | undefined, now: ScheduleFingerprint): void {
   if (shown === undefined) return
-  const changed = changedParts(typeof shown === 'object' && shown !== null ? shown : ({} as ScheduleFingerprint), now)
+  refuseChangedParts(shown, now, PART_TEXT)
+}
+
+/**
+ * The one refusal for an approval whose shown fingerprint isn't what would be approved now (a schedule's here, a flow
+ * run's in flows.ts): each part that differs, in `words`, after SHOWN_CHANGED. Something shown that isn't an object
+ * differs in every part.
+ */
+export function refuseChangedParts<K extends string>(shown: unknown, now: Partial<Record<K, string>>, words: Record<K, string>): void {
+  const seen = (typeof shown === 'object' && shown !== null ? shown : {}) as Partial<Record<K, unknown>>
+  const changed = (Object.keys(words) as K[]).filter((k) => seen[k] !== now[k]).map((k) => words[k])
   if (changed.length) throw new Error(`${SHOWN_CHANGED}. Changed: ${joinWords(changed)}.`)
 }
 
@@ -102,9 +114,12 @@ function targetFields(input: ScheduleInput): Pick<Schedule, 'templateId' | 'temp
   return { templateId: input.templateId, templateName: input.templateName }
 }
 
-/** What a schedule says happens after a completed run, as stored: absent is keep, and the branch choice only goes with archiving. */
+/**
+ * What a schedule says happens after a completed run, as stored: absent is keep, and the branch choice only goes with
+ * archiving. A flow schedule has none: the flow's `[after]` is the one policy for its runs.
+ */
 function afterRunFields(input: ScheduleInput): Pick<Schedule, 'afterRun' | 'afterRunDeleteBranch'> {
-  const afterRun = input.afterRun && input.afterRun !== 'keep' ? input.afterRun : undefined
+  const afterRun = !input.flow && input.afterRun && input.afterRun !== 'keep' ? input.afterRun : undefined
   return { afterRun, afterRunDeleteBranch: afterRun && input.afterRunDeleteBranch ? true : undefined }
 }
 
@@ -155,7 +170,7 @@ const KEEP_OCCURRENCES = 40
 // A look at the fingerprints costs file reads, so do it now and then, not on every tick.
 const FINGERPRINT_EVERY_MS = 5 * 60_000
 // How a flow run's end closes its occurrence. A stopped run (by you, a loop's bound) ends as stopped.
-const RUN_END: Partial<Record<FlowRun['state'], Occurrence['state']>> = { completed: 'completed', failed: 'failed', 'needs-you': 'needs-you', uncertain: 'uncertain', stopped: 'cancelled', cancelled: 'cancelled' }
+const RUN_END: Partial<Record<FlowRun['state'], Occurrence['state']>> = { completed: 'completed', failed: 'failed', 'needs-you': 'needs-you', uncertain: 'uncertain', stopped: 'cancelled' }
 
 export class ScheduleService {
   private timer: NodeJS.Timeout | null = null
@@ -503,6 +518,7 @@ export class ScheduleService {
       }
     }
     this.persist()
-    if (s && state === 'completed' && s.afterRun && o.workspaceId) this.deps.afterRun?.(s, o)
+    // A flow schedule's run applies the flow's own `[after]` (FlowService) to every workspace it made; the schedule adds none.
+    if (s && !s.flow && state === 'completed' && s.afterRun && o.workspaceId) this.deps.afterRun?.(s, o)
   }
 }

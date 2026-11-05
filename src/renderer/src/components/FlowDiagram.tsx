@@ -3,7 +3,7 @@
 // it can't a Callout saying why; the source's accTitle gives the SVG its <title>, and the picture is labelled with the
 // flow and lens. The outline beside it (the step list) is the accessible equivalent, so nothing here is interactive.
 import { useEffect, useMemo, useState } from 'react'
-import { flowGraph, flowMermaid, type FlowLens } from '../../../shared/flowGraph'
+import { flowGraph, flowMermaid, type FlowLens, type FlowMermaidDirection } from '../../../shared/flowGraph'
 import type { Flow, FlowRun } from '../../../shared/flows'
 import { useT } from '../i18n'
 import { Callout, Card, Spinner } from '../ui'
@@ -30,11 +30,14 @@ export function FlowDiagram({ source, label, className }: { source: string; labe
   )
 }
 
-/** A flow (and a run of it) through one lens, as a diagram: the Mermaid source, kept steady while nothing changes. */
-export function FlowLensDiagram({ flow, run, lens, workspaceNames }: { flow?: Flow; run?: FlowRun; lens: FlowLens; workspaceNames?: Record<string, string> }) {
+/**
+ * A flow (and a run of it) through one lens, as a diagram: the Mermaid source, kept steady while nothing changes.
+ * `direction`: TB in the side panel (it scrolls down; left to right it shrinks to a strip), LR where it is wide.
+ */
+export function FlowLensDiagram({ flow, run, lens, workspaceNames, direction = 'LR' }: { flow?: Flow; run?: FlowRun; lens: FlowLens; workspaceNames?: Record<string, string>; direction?: FlowMermaidDirection }) {
   const t = useT()
   const graph = useMemo(() => flowGraph(flow, run, lens, { t, locale: t.locale, workspaceNames }), [flow, run, lens, t, workspaceNames])
-  const source = useMemo(() => flowMermaid(graph), [graph])
+  const source = useMemo(() => flowMermaid(graph, { direction }), [graph, direction])
   return <FlowDiagram source={source} label={graph.title} />
 }
 

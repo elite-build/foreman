@@ -15,6 +15,7 @@ import { contextParts, pendingComments } from '../shared/context'
 import { hasNote, noteBlock, noteMessage, savedNote } from '../shared/note'
 import { workspaceUsage } from '../shared/usage'
 import { editIsStale, isAppCommand, moveQueuedMessage } from '../shared/queueEdit'
+import { isActiveRun } from '../shared/flows'
 import { usageLimitOf } from '../shared/usageLimit'
 import { PreviewEncoder, RESYNC_MS, type ChatAppend } from '../shared/chatAppend'
 import type { DiffComment, NotifyKind, QueueChangeResult, QueueMove, SendReceipt, TurnDelta, TurnInterruption, TurnStatus, UsageLimit, WorkspaceUsage } from '../shared/types'
@@ -1592,9 +1593,32 @@ export class SessionService {
     if (!this.turns.has(sessionId) && !this.starting.has(sessionId)) void this.drainQueue(sessionId)
   }
 
+  /** Delete a queued message (the composer's queue, `foreman tab queue`). A flow step's message is refused while its run goes. */
   removeQueued(sessionId: string, messageId: string): void {
+    this.refuseFlowMessage(sessionId, messageId)
+    this.discardQueued(sessionId, messageId)
+  }
+
+  // Foreman's own drops (Stop on a tab waiting for a slot, cancelling a queued turn by id) aren't the queue's editor.
+  private discardQueued(sessionId: string, messageId: string): void {
     this.dropQueued(sessionId, messageId)
     this.events.settled?.(this.session(sessionId).workspaceId)
+  }
+
+  /**
+   * A queued message that is a running flow's next step is the run's, not the queue's: edited, moved, steered or removed,
+   * its turn would never start as the step expects, and the run would wait for it forever. Refused, naming the flow; Stop
+   * on the run takes it back. Once the run has ended the message is an ordinary one.
+   */
+  private refuseFlowMessage(sessionId: string, messageId: string): void {
+    const message = this.session(sessionId).queue.find((m) => m.id === messageId)
+    if (!message) return
+    const mark = message.turnId ? this.unattendedTurns.get(message.turnId) : undefined
+    const runId = mark && 'flowRunId' in mark ? mark.flowRunId : message.origin?.kind === 'flow' ? message.origin.runId : undefined
+    if (!runId) return
+    const run = this.store.state.flowRuns?.find((r) => r.id === runId)
+    if (run && !isActiveRun(run)) return
+    throw new Error(`This message is the next step of the flow “${run?.flow.name ?? 'a flow'}”, so it can’t be changed, moved, sent now or deleted. Stop the run to take it back.`)
   }
 
   private dropQueued(sessionId: string, messageId: string): void {
@@ -1655,6 +1679,7 @@ export class SessionService {
    */
   editQueued(sessionId: string, messageId: string, text: string, revision: number, attachments?: Attachment[]): QueueChangeResult {
     const session = this.session(sessionId)
+    this.refuseFlowMessage(sessionId, messageId)
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) {
       const gone = this.gone(session, messageId)
@@ -1684,6 +1709,7 @@ export class SessionService {
   moveQueued(sessionId: string, messageId: string, direction: QueueMove, revision: number): QueueChangeResult {
     const session = this.session(sessionId)
     if (!session.queue.some((m) => m.id === messageId)) return this.gone(session, messageId)
+    this.refuseFlowMessage(sessionId, messageId)
     const current = session.queueRevision ?? 0
     if (revision !== current) return { ok: false, reason: 'stale', revision: current }
     const moved = moveQueuedMessage(session.queue, messageId, direction)
@@ -1699,6 +1725,7 @@ export class SessionService {
     const session = this.session(sessionId)
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) return
+    this.refuseFlowMessage(sessionId, messageId)
     // A tab waiting for an agent slot has no turn to steer and can't start one yet: the message goes first in its queue,
     // keeping the tab's place in the slot queue, and starts when a slot is free (rather than going behind held messages).
     if (session.waitingForSlot && !this.turns.has(sessionId) && !this.starting.has(sessionId)) {
@@ -1733,7 +1760,7 @@ export class SessionService {
     if (!session?.waitingForSlot) return
     const head = session.queue[0]
     this.unwait(sessionId)
-    if (head) this.removeQueued(sessionId, head.id)
+    if (head) this.discardQueued(sessionId, head.id)
   }
 
   /**
@@ -1768,7 +1795,7 @@ export class SessionService {
     if (!status || status.state === 'ended') return status
     if (status.state === 'queued') {
       const queued = this.session(status.sessionId).queue.find((m) => m.turnId === turnId)
-      if (queued) this.removeQueued(status.sessionId, queued.id)
+      if (queued) this.discardQueued(status.sessionId, queued.id)
       return { ...status, state: 'ended', outcome: 'cancelled' }
     }
     if (this.turns.get(status.sessionId)?.turnId === turnId) await this.cancel(status.sessionId)

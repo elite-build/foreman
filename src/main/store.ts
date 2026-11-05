@@ -10,6 +10,25 @@ import { DEFAULT_LOADOUTS, DEFAULT_MODEL } from '../shared/agents'
 import { DEFAULT_PROMPT_TEMPLATES } from '../shared/promptTemplates'
 import { dateInZone } from '../shared/schedule'
 import { defaultOnboarding, migrateOnboarding } from '../shared/onboarding'
+import { isScriptShellChoice, isShellChoice } from '../shared/shells'
+import { parseSavedCommands } from '../shared/savedCommands'
+import { parseHiddenModels } from '../shared/modelVisibility'
+import { DEFAULT_VIEWS, normalizeViews } from '../shared/views'
+import { parseAgentPrefs, parseProviderKeyAgents } from '../shared/agentCatalog'
+import { defaultFromEditorCommand, isOpenInChoice } from '../shared/openIn'
+import type { PairedDevice, Transfer } from '../shared/transfer'
+import type { MobileDevice } from '../shared/mobile'
+import type { GitBackupStatus } from '../shared/gitBackup'
+import { addStops, type StopRecord } from '../shared/stopSafely'
+import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
+import type { IntegrationsState } from '../shared/integrations'
+import type { FlowRun, PersonalFlow } from '../shared/flows'
+import type { PersonalPersona } from '../shared/personas'
+import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
+import { migrateRepoFields } from './repoSettings'
+import { ForemanDb } from './db'
+import { perf } from './perf'
+import { ensureDatabase, type MigrationInfo } from './legacyImport'
 
 // On Windows, moving the written file into place can fail for a moment while an indexer or antivirus holds the old
 // one (EPERM, EBUSY, EACCES); a few short retries get past it. Anything else is thrown as before.
@@ -39,25 +58,6 @@ function renameSyncWithRetry(from: string, to: string): void {
     }
   }
 }
-import { isScriptShellChoice, isShellChoice } from '../shared/shells'
-import { parseSavedCommands } from '../shared/savedCommands'
-import { parseHiddenModels } from '../shared/modelVisibility'
-import { DEFAULT_VIEWS, normalizeViews } from '../shared/views'
-import { parseAgentPrefs, parseProviderKeyAgents } from '../shared/agentCatalog'
-import { defaultFromEditorCommand, isOpenInChoice } from '../shared/openIn'
-import type { PairedDevice, Transfer } from '../shared/transfer'
-import type { MobileDevice } from '../shared/mobile'
-import type { GitBackupStatus } from '../shared/gitBackup'
-import { addStops, type StopRecord } from '../shared/stopSafely'
-import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
-import type { IntegrationsState } from '../shared/integrations'
-import type { FlowRun, PersonalFlow } from '../shared/flows'
-import type { PersonalPersona } from '../shared/personas'
-import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
-import { migrateRepoFields } from './repoSettings'
-import { ForemanDb } from './db'
-import { perf } from './perf'
-import { ensureDatabase, type MigrationInfo } from './legacyImport'
 
 export interface PersistedState {
   version: 1 | 2

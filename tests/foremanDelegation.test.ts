@@ -199,11 +199,16 @@ describe('flow delegation: start_flow, get_flow_status and the flows list', () =
 
   it('lists the runnable flows with their inputs and personas, only while Flows are on', async () => {
     const r = flowRig()
+    // Why one can't run is what a start would refuse it with: the run preview's problems, as start_flow reads them.
+    const notClaude = 'Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: review (Codex).'
+    // As core's preview has it: turns on other agents listed apart from the other problems.
+    r.preview.summary = summary({ notClaude: [{ step: 'review', agent: 'Codex' }], problems: [] })
     const options = (await r.service.call('list_delegation_options', {}, r.scope)) as { flows: unknown[] }
     // The broken one isn't listed; one whose review is on the Codex loadout says why it can't run unattended.
     expect(options.flows).toEqual([
-      { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in', inputs: [{ name: 'task', description: 'What to build or fix' }], personas: ['developer', 'qa-engineer'], cantRun: 'unattended turns are Claude only, and review (codex) isn’t' }
+      { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in', inputs: [{ name: 'task', description: 'What to build or fix' }], personas: ['developer', 'qa-engineer'], cantRun: notClaude }
     ])
+    expect(r.host.api.flowRunPreview).toHaveBeenCalledWith({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main' })
     expect(r.host.api.listFlows).toHaveBeenCalledWith('r')
     r.state.settings.flows = false
     expect(await r.service.call('list_delegation_options', {}, r.scope)).not.toHaveProperty('flows')

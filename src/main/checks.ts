@@ -46,7 +46,12 @@ interface ActiveRun {
   interruptNote?: string
   current?: RunningScript
   done?: Promise<CheckResult[]>
+  // What started it, from the moment it is taken (the workspace's record says so only once the tree is read).
+  startedBy?: CheckStartedBy
 }
+
+const sameStarter = (a: CheckStartedBy | undefined, b: CheckStartedBy): boolean =>
+  typeof a === 'object' && typeof b === 'object' ? a.flowRun === b.flowRun && a.step === b.step : a === b
 
 export const commandHash = (command: string): string => createHash('sha256').update(command).digest('hex')
 
@@ -160,7 +165,7 @@ export class ChecksService {
       const unshown = checks.filter((c) => consent.some((i) => i.name === c.name) && !shown.has(commandHash(c.command)))
       if (unshown.length) return { kind: 'consent', items: consent.filter((i) => unshown.some((c) => c.name === i.name)) }
     }
-    const active: ActiveRun = { cancelled: false, interrupted: false }
+    const active: ActiveRun = { cancelled: false, interrupted: false, ...(options.startedBy ? { startedBy: options.startedBy } : {}) }
     // Taken before the first await so two starts can't both get through.
     this.runs.set(workspaceId, active)
     try {
@@ -248,9 +253,25 @@ export class ChecksService {
     return ran
   }
 
-  async cancel(workspaceId: string): Promise<void> {
+  /**
+   * Start once the check run going here (someone else's) ends, unless `wanted` says the caller gave up meanwhile:
+   * then nothing starts. A flow's checks step waits this way, and Stop on its run must not start them afterwards.
+   */
+  async startWhenFree(workspaceId: string, options: { approve?: boolean | string[]; timeoutMs?: number; startedBy?: CheckStartedBy }, wanted: () => boolean, pollMs = 500): Promise<CheckStart | { kind: 'abandoned' }> {
+    while (this.runs.has(workspaceId)) {
+      if (!wanted()) return { kind: 'abandoned' }
+      await new Promise((r) => setTimeout(r, pollMs))
+    }
+    // No await between this look and start taking the workspace, so nothing slips in.
+    if (!wanted()) return { kind: 'abandoned' }
+    return this.start(workspaceId, options)
+  }
+
+  /** Cancel the check run going here; with `only`, just when that is what started it (a flow's Stop leaves yours alone). */
+  async cancel(workspaceId: string, only?: CheckStartedBy): Promise<void> {
     const active = this.runs.get(workspaceId)
     if (!active) return
+    if (only !== undefined && !sameStarter(active.startedBy, only)) return
     active.cancelled = true
     await active.current?.kill()
   }

@@ -311,7 +311,7 @@ describe('Start with (Flows on)', () => {
   const summary = {
     flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1,
     personas: [{ name: 'developer', source: 'built-in' }], templates: [], setupScript: 'npm ci', checks: [{ name: 'Tests', command: 'npm test' }],
-    mcpServers: [], integrations: [], unsupported: [], notClaude: [], problems: [], after: 'archive'
+    mcpServers: [], integrations: [], notClaude: [], problems: [], after: 'archive'
   }
   const flowsOn = () => {
     fakeState.snapshot.settings.flows = true

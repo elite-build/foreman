@@ -12,7 +12,6 @@ export const RUN_STATE: Record<FlowRun['state'], PlainKey> = {
   failed: 'flowRun.state.failed',
   'needs-you': 'flowRun.state.needsYou',
   stopped: 'flowRun.state.stopped',
-  cancelled: 'flowRun.state.cancelled',
   uncertain: 'flowRun.state.uncertain'
 }
 
@@ -24,7 +23,6 @@ export const RUN_TONE: Record<FlowRun['state'], StatusTone> = {
   failed: 'error',
   'needs-you': 'warn',
   stopped: 'off',
-  cancelled: 'off',
   uncertain: 'warn'
 }
 
@@ -33,7 +31,6 @@ export const STEP_STATE: Record<FlowRunStep['state'], PlainKey> = {
   completed: 'flowRun.stepState.completed',
   failed: 'flowRun.stepState.failed',
   waiting: 'flowRun.stepState.waiting',
-  skipped: 'flowRun.stepState.skipped',
   stopped: 'flowRun.stepState.stopped'
 }
 
@@ -42,7 +39,6 @@ export const STEP_TONE: Record<FlowRunStep['state'], StatusTone> = {
   completed: 'ok',
   failed: 'error',
   waiting: 'warn',
-  skipped: 'off',
   stopped: 'off'
 }
 

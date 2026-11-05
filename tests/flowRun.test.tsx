@@ -229,6 +229,8 @@ describe('the Flow tab’s diagram and its four lenses', () => {
     // Run: the diagram of the run (drawn from its records: the flow isn't listed here), and nothing more than the steps.
     expect(await screen.findByRole('img', { name: 'Green · Run' })).toBeTruthy()
     expect(mermaid.sources.at(-1)).toContain('accTitle: Green · Run')
+    // The side panel scrolls down, so the diagram reads top to bottom rather than shrinking to a strip.
+    expect(mermaid.sources.at(-1)!.startsWith('flowchart TB\n')).toBe(true)
     expect(mermaid.sources.at(-1)).toContain('● completed · 4m 02s')
     const lenses = screen.getByRole('radiogroup', { name: 'Show the flow as' })
     expect(within(lenses).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Run', 'Context', 'Memory', 'Data'])

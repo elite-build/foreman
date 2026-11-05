@@ -114,8 +114,9 @@ const show: MethodDef = {
   }
 }
 
+// Saving or deleting a personal persona changes what a flow's turns are told, so it is admin, as flow add is.
 const add: MethodDef = {
-  tier: 'act',
+  tier: 'admin',
   async handle(host, params): Promise<PersonaAddResult> {
     flowsOn(host)
     const p = paramsObject(params)
@@ -127,7 +128,7 @@ const add: MethodDef = {
 }
 
 const remove: MethodDef = {
-  tier: 'act',
+  tier: 'admin',
   async handle(host, params): Promise<PersonaRemoveResult> {
     flowsOn(host)
     const p = paramsObject(params)

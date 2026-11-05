@@ -2738,7 +2738,7 @@ export interface Api {
   resumeSchedule(id: string): Promise<void>
   deleteSchedule(id: string): Promise<void>
   stopScheduledRun(occurrenceId: string): Promise<void>
-  // Flows (docs/loops-and-graphs.md), behind Settings → Experimental → Flows: each refuses while it is off. Nothing runs yet.
+  // Flows (docs/loops-and-graphs.md), behind Settings → Experimental → Flows: each refuses while it is off.
   // Built-in starters, repository files (only `repoId`'s when given) and personal flows, each with its problems.
   listFlows(repoId?: string): Promise<FlowListing[]>
   // Saves the document as a personal flow (a new one without `id`); a flow with errors isn't saved and its problems come back.

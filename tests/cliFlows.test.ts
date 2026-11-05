@@ -13,16 +13,22 @@ import { APPROVAL_METHODS } from '../src/main/cli/approvals'
 import { decide } from '../src/main/cli/work'
 import { workRunners } from '../src/cli/commands/work'
 import { FLOW_METHODS, FLOWS_OFF, runRow, withFlowName } from '../src/main/cli/flows'
+import { runCli } from '../src/main/cli/inProcess'
+import { LINEAGE_METHODS } from '../src/main/cli/lineage'
+import { PERSONA_METHODS } from '../src/main/cli/personas'
 import type { CliContext } from '../src/main/cli/methods'
 import { CliCodedError, tierCheck, type CliHost } from '../src/main/cliServer'
 import { listFlows, personalFlowListing } from '../src/main/flowFiles'
+import { flowRunProblems } from '../src/main/flows'
+import { parsePersona } from '../src/shared/personas'
+import { PERSONA_STARTERS } from '../src/shared/personaStarters'
 import { SHOWN_CHANGED } from '../src/main/schedules'
 import { defaultSettings } from '../src/main/store'
 import type { ApprovalAnswerResult, ApprovalsResult } from '../src/shared/cli/approvals'
 import type { FlowAddResult, FlowListResult, FlowRunPreviewResult, FlowRunRow, FlowRunsResult, FlowRunStartedResult, FlowShowResult, FlowStatusResult, FlowWaitResult } from '../src/shared/cli/flows'
 import { COMMANDS, commandName, findCommand } from '../src/shared/cliCommands'
 import { FLOW_COMMANDS } from '../src/shared/cliCommandsAutomations'
-import type { FlowFingerprint, FlowRun, FlowRunPreview, FlowRunStart, PersonalFlow } from '../src/shared/flows'
+import { parseFlow, type FlowFingerprint, type FlowRun, type FlowRunPreview, type FlowRunStart, type PersonalFlow } from '../src/shared/flows'
 import type { Api, ApprovalRequest, Repo, Session, Settings, Workspace } from '../src/shared/types'
 import { fakeApi, stubHost } from './cliHost'
 
@@ -88,10 +94,17 @@ const tab = { id: 's1', workspaceId: 'ws1', agent: 'claude', model: 'claude-opus
 
 const FP: FlowFingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
 
+/** A built-in persona by name, as a flow in any repository finds it. */
+function starterPersona(name: string) {
+  const starter = PERSONA_STARTERS.find((s) => s.name === name)
+  const read = starter ? parsePersona(starter.markdown, 'built-in') : undefined
+  return read && 'persona' in read ? read.persona : undefined
+}
+
 function preview(over: Partial<FlowRunPreview['summary']> = {}, inputs = [{ name: 'task', description: 'What to tidy' }]): FlowRunPreview {
   return {
     fingerprint: FP,
-    summary: { flowName: 'Tidy', flowSource: 'personal', flowRev: '2026-11-02T00:00:00.000Z', repoName: 'api', baseBranch: 'develop', steps: 4, loops: 1, gates: 1, personas: [], templates: [], setupScript: 'npm ci', checks: [{ name: 'test', command: 'npm test' }], mcpServers: [], integrations: ['linear: Work (read)'], unsupported: [], notClaude: [], problems: [], ...over },
+    summary: { flowName: 'Tidy', flowSource: 'personal', flowRev: '2026-11-02T00:00:00.000Z', repoName: 'api', baseBranch: 'develop', steps: 4, loops: 1, gates: 1, personas: [], templates: [], setupScript: 'npm ci', checks: [{ name: 'test', command: 'npm test' }], mcpServers: [], integrations: ['linear: Work (read)'], notClaude: [], problems: [], ...over },
     inputs
   }
 }
@@ -192,10 +205,11 @@ describe('the flow command table', () => {
     expect(Object.keys(flowRunners).sort()).toEqual(FLOW_COMMANDS.map(commandName).sort())
   })
 
-  it('puts the reads in the read tier and run, stop, add and remove in act, like run and send', () => {
+  it('puts the reads in the read tier, run and stop in act like run and send, and add and remove in admin', () => {
     // flow draft saves a personal flow with --save, as flow add does.
-    expect(Object.fromEntries(FLOW_COMMANDS.map((c) => [commandName(c), c.tier]))).toEqual({ 'flow list': 'read', 'flow show': 'read', 'flow add': 'act', 'flow remove': 'act', 'flow run': 'act', 'flow runs': 'read', 'flow status': 'read', 'flow stop': 'act', 'flow draft': 'act' })
-    expect(Object.fromEntries(Object.entries(FLOW_METHODS).map(([m, d]) => [m, d.tier]))).toEqual({ 'flow-list': 'read', 'flow-show': 'read', 'flow-add': 'act', 'flow-remove': 'act', 'flow-run': 'act', 'flow-runs': 'read', 'flow-status': 'read', 'flow-wait': 'read', 'flow-stop': 'act' })
+    expect(Object.fromEntries(FLOW_COMMANDS.map((c) => [commandName(c), c.tier]))).toEqual({ 'flow list': 'read', 'flow show': 'read', 'flow add': 'admin', 'flow remove': 'admin', 'flow run': 'act', 'flow runs': 'read', 'flow status': 'read', 'flow stop': 'act', 'flow draft': 'admin' })
+    expect(Object.fromEntries(Object.entries(FLOW_METHODS).map(([m, d]) => [m, d.tier]))).toEqual({ 'flow-list': 'read', 'flow-show': 'read', 'flow-add': 'admin', 'flow-remove': 'admin', 'flow-run': 'act', 'flow-runs': 'read', 'flow-status': 'read', 'flow-wait': 'read', 'flow-stop': 'act' })
+    expect(LINEAGE_METHODS['flow-draft'].tier).toBe('admin')
     // The assistant may propose flow run on its Run card (slice 8); workspace agents start flows with start_flow instead.
     expect(FLOW_COMMANDS.find((c) => commandName(c) === 'flow run')?.noAssistant).toBeUndefined()
     expect(CLI_DEDICATED_TOOLS['flow run']).toEqual(['start_flow'])
@@ -256,7 +270,20 @@ describe('flow methods', () => {
   })
 
   it('list: built-in, personal and broken flows with their source, summary, problems and why one can’t run', async () => {
-    const { call } = rig({ personal: [personal('flow-tidy', TIDY), personal('flow-codex', ON_CODEX), personal('flow-bad', 'name = "Broken"')] })
+    const lost = ON_CODEX.replace('name = "Codex try"', 'name = "Lost persona"').replace('agent = "codex"', 'persona = "missing"')
+    const flows = [personal('flow-tidy', TIDY), personal('flow-codex', ON_CODEX), personal('flow-bad', 'name = "Broken"'), personal('flow-lost', lost)]
+    // Why one can't run comes from the run preview, as a start reads it: here flowRunProblems over each flow as written,
+    // with the built-in personas and a persona the repository doesn't have.
+    const flowRunPreview = vi.fn(async (input: { flowId: string }) => {
+      const listing = listFlows([], flows).find((f) => f.id === input.flowId)!
+      const parsed = parseFlow(listing.toml, listing.source)
+      if (!('flow' in parsed)) throw new Error('not a flow')
+      const personas = Object.fromEntries(parsed.flow.steps.flatMap((s) => ('persona' in s && s.persona ? [[s.persona, s.persona === 'missing' ? undefined : starterPersona(s.persona)]] : [])))
+      const { problems, notClaude } = flowRunProblems({ flow: parsed.flow, ref: { id: listing.id, name: listing.name, source: listing.source }, templates: {}, personas, fingerprint: FP }, defaultSettings().loadouts)
+      // As core's preview has it: turns on other agents apart, the rest as problems.
+      return preview({ notClaude, problems: problems.filter((p) => !(notClaude.length && p.startsWith('Unattended turns'))) })
+    })
+    const { call } = rig({ personal: flows, api: { flowRunPreview } })
     const result = await call<FlowListResult>('flow-list', { cwd: root })
     const byName = Object.fromEntries(result.flows.map((f) => [f.name, f]))
     expect(byName['Fix until green']).toMatchObject({ source: 'built-in', starter: 'fix-until-green', steps: 6, loops: 2, gates: 1, personas: ['developer', 'qa-engineer'] })
@@ -265,9 +292,12 @@ describe('flow methods', () => {
     expect(byName.Tidy).toMatchObject({ source: 'personal', steps: 4, loops: 1, gates: 1, problems: [] })
     expect(byName.Tidy.cantRun).toBeUndefined()
     expect(byName['Codex try'].cantRun).toContain('Claude only')
+    // A persona the repository doesn't have refuses the start, so the list says so too.
+    expect(byName['Lost persona'].cantRun).toContain('The persona “missing” (step “work”) isn’t here')
     expect(byName['flow-bad'].problems.length).toBeGreaterThan(0)
     expect(result.text.split('\n')[0]).toMatch(/^NAME\s+SOURCE\s+FILE\s+REV\s+STEPS\s+LOOPS\s+GATES\s+PERSONAS$/)
-    expect(result.text).toContain('  can’t run: unattended turns are Claude only, and work (codex) isn’t')
+    expect(result.text).toContain('  can’t run: Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: work (Codex).')
+    expect(flowRunPreview).toHaveBeenCalledWith({ flowId: 'flow-codex', repoId: 'r1', baseBranch: 'develop' })
     expect(result.text).not.toContain('supported yet')
     expect(result.text).toContain('  problem: ')
   })
@@ -361,6 +391,26 @@ describe('flow methods', () => {
       expect(tierCheck('flow-status', 'read', { v: 2, method: 'flow-status', caller }, agent(false))).toBeNull()
       // An agent can't answer a gate: approve is admin.
       expect(tierCheck('approve', 'admin', { v: 2, method: 'approve', params: {}, caller, token: 'test-token' }, agent(true))).toMatchObject({ code: 'refused' })
+    })
+
+    it('refuses saving or removing a personal flow or persona to a turn, even with the opt-in, and serves the app’s own token', () => {
+      const caller = { sessionId: 's1', turnId: 't', token: 'k' }
+      const agent = stubHost({ identifyCaller: () => ({ kind: 'turn', session: tab, ws, turnId: 't', live: true }), agentsMayStart: () => true })
+      const methods = { ...FLOW_METHODS, ...PERSONA_METHODS, ...LINEAGE_METHODS }
+      for (const method of ['flow-add', 'flow-remove', 'flow-draft', 'persona-add', 'persona-remove']) {
+        expect(tierCheck(method, methods[method].tier, { v: 2, method, params: { save: true }, caller, token: 'test-token' }, agent), method).toMatchObject({ code: 'refused', error: expect.stringContaining('inside an agent turn') })
+        // The assistant's Run card: in process, with the app's token and no caller.
+        expect(tierCheck(method, methods[method].tier, { v: 2, method, params: {}, token: 'test-token' }, stubHost()), method).toBeNull()
+      }
+    })
+
+    it('still saves a flow from the assistant’s Run card, which runs in process after the click', async () => {
+      const { host, calls } = rig()
+      const result = await runCli(['flow', 'add', '--toml', TIDY, '--name', 'Tidy too'], host, { confirmed: true, cwd: root })
+      expect(result.stderr).toBe('')
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain('Saved the personal flow “Tidy too”')
+      expect(calls.filter(([name]) => name === 'savePersonalFlow')).toHaveLength(1)
     })
   })
 

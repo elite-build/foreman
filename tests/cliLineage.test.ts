@@ -74,7 +74,8 @@ describe('foreman workspace lineage', () => {
 
   it('is a read: workspace lineage parses with --lens and --mermaid', () => {
     expect(findCommand(['workspace', 'lineage', '.', '--lens', 'memory'])).toMatchObject({ spec: { path: ['workspace', 'lineage'], tier: 'read' } })
-    expect(findCommand(['flow', 'draft', '.'])).toMatchObject({ spec: { path: ['flow', 'draft'], tier: 'act' } })
+    // flow draft can save a personal flow, so like flow add it is admin: never from inside an agent turn.
+    expect(findCommand(['flow', 'draft', '.'])).toMatchObject({ spec: { path: ['flow', 'draft'], tier: 'admin' } })
   })
 })
 

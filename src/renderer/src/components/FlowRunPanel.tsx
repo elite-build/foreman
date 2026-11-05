@@ -5,7 +5,7 @@
 // workspace it stands for (a run that makes more than one workspace shows it in each).
 import { Square } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { FLOW_LENSES, LENS_WORD, flowGraph, stepTrees, type FlowLens } from '../../../shared/flowGraph'
+import { FLOW_LENSES, LENS_WORD, flowGraph, type FlowLens } from '../../../shared/flowGraph'
 import { FLOW_COMPACT_ABOVE, currentLoopBounds, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
 import { formatCompact } from '../../../shared/i18n/time'
 import { useT, type RendererT } from '../i18n'
@@ -56,7 +56,7 @@ function usageText(usage: { used: number; limit: number }, t: RendererT): string
 
 /** "abc1234 → def5678", either side "unknown" when it wasn't read. */
 function treesText(step: FlowRunStep, t: RendererT): string | undefined {
-  const { start, end } = stepTrees(step)
+  const { start, end } = step.tree ?? {}
   if (!start && !end) return undefined
   const unknown = t('flowRun.data.unknown')
   return t('flowRun.data.trees', { start: start?.slice(0, 7) ?? unknown, end: (end ?? start)?.slice(0, 7) ?? unknown })
@@ -104,7 +104,7 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
         )}
       </div>
       <Segmented<FlowLens> small label={t('flowRun.lens.label')} value={lens} onChange={setLens} options={FLOW_LENSES.map((l) => ({ value: l, label: t(LENS_WORD[l]) }))} />
-      <FlowLensDiagram flow={flow} run={run} lens={lens} workspaceNames={names} />
+      <FlowLensDiagram flow={flow} run={run} lens={lens} workspaceNames={names} direction="TB" />
       {lens === 'context' && <ContextRows run={run} />}
       {lens === 'memory' && <MemoryRows run={run} flow={flow} />}
       {lens === 'data' && <DataRows run={run} />}

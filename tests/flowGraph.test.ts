@@ -2,7 +2,7 @@
 // from the flow file alone and with a run's records, and the Mermaid source the diagram renders: shapes, rings for
 // loops, taken edges solid and the rest dotted, state as a glyph and a word, labels escaped, never too big to render.
 import { describe, expect, it } from 'vitest'
-import { FLOW_MERMAID_MAX_CHARS, flowGraph, flowMermaid, mermaidLabel, stepTrees, type FlowGraph } from '../src/shared/flowGraph'
+import { FLOW_MERMAID_MAX_CHARS, flowGraph, flowMermaid, mermaidLabel, type FlowGraph } from '../src/shared/flowGraph'
 import { parseFlow, type Flow, type FlowRun, type FlowRunStep } from '../src/shared/flows'
 import { MERMAID_MAX_CHARS } from '../src/renderer/src/components/mermaidSource'
 import { createT } from '../src/shared/i18n'
@@ -99,6 +99,11 @@ describe('the run lens', () => {
 
     const source = flowMermaid(g)
     expect(source.split('\n').slice(0, 2)).toEqual(['flowchart LR', '  accTitle: Fix until green · Run'])
+    // Top to bottom for a side panel: the same diagram, only the direction differs.
+    const down = flowMermaid(g, { direction: 'TB' })
+    expect(down.split('\n')[0]).toBe('flowchart TB')
+    expect(down.split('\n').slice(1)).toEqual(source.split('\n').slice(1))
+    expect(flowMermaid(g, { direction: 'LR' })).toBe(source)
     expect(source).toContain('subgraph L0 ["green · at most 3 iterations · at most 30 min"]')
     expect(source).toContain('n0["implement<br/>· developer · Opus 5.5"]')
     expect(source).toContain('n3{{"ship<br/>· gate"}}')
@@ -232,11 +237,6 @@ describe('the data lens', () => {
     const source = flowMermaid(g)
     expect(source).toContain('>"tree bbbbbbb"]')
     expect(source).toContain('|moved|')
-  })
-
-  it('reads a review tree a run from before kept as a string', () => {
-    expect(stepTrees({ tree: 'abc1234' as unknown as FlowRunStep['tree'] })).toEqual({ start: 'abc1234' })
-    expect(stepTrees({})).toEqual({})
   })
 })
 

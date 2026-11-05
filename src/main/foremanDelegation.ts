@@ -3,7 +3,7 @@ import { parseFlow, type FlowListing, type FlowRun, type FlowRunOrigin } from '.
 import { frozenReason } from '../shared/transfer'
 import type { Workspace, WorkspaceStartedBy } from '../shared/types'
 import type { NewResult } from '../shared/cli/workspaces'
-import { cantRunText } from './cli/flows'
+import { cantRunIn } from './cli/flows'
 import type { CliHost } from './cli/host'
 import type { CliContext } from './cli/methods'
 import { WORKSPACE_METHODS } from './cli/workspaces'
@@ -135,16 +135,17 @@ export class ForemanDelegation {
   /** Runnable flows, each with what start_flow needs: id, name, source, inputs and personas (and why it can't run, if so). */
   private async flowOptions(repoId: string | undefined) {
     const listings = (await this.host.api.listFlows(repoId)).filter((f) => !f.problems.length)
-    return listings.map((f) => {
+    // Why one can't run, as start_flow would refuse it: the same preview the start reads.
+    return Promise.all(listings.map(async (f) => {
       const parsed = parseFlow(f.toml, f.source)
-      const cantRun = 'flow' in parsed ? cantRunText(parsed.flow, this.host.state().settings.loadouts) : undefined
+      const cantRun = await cantRunIn(this.host.api, this.host.state().repos, f, repoId)
       return {
         id: f.id, name: f.name, source: f.source, ...(f.repoId ? { repoId: f.repoId } : {}),
         inputs: 'flow' in parsed ? Object.entries(parsed.flow.inputs).map(([name, description]) => ({ name, description })) : [],
         personas: f.summary?.personas ?? [],
         ...(cantRun ? { cantRun } : {})
       }
-    })
+    }))
   }
 
   /** The coordinating chat and its running turn, when a workspace agent calls (Workspace.startedBy, a message's origin). */

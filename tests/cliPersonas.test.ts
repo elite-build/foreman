@@ -89,8 +89,8 @@ describe('the persona command table', () => {
       for (const example of spec.examples ?? []) expect(findCommand(example.split(' ').slice(1)), example).toMatchObject({ spec })
     }
     expect(Object.keys(personaRunners).sort()).toEqual(PERSONA_COMMANDS.map(commandName).sort())
-    expect(Object.fromEntries(PERSONA_COMMANDS.map((c) => [commandName(c), c.tier]))).toEqual({ 'persona list': 'read', 'persona show': 'read', 'persona add': 'act', 'persona remove': 'act' })
-    expect(Object.fromEntries(Object.entries(PERSONA_METHODS).map(([m, d]) => [m, d.tier]))).toEqual({ 'persona-list': 'read', 'persona-show': 'read', 'persona-add': 'act', 'persona-remove': 'act' })
+    expect(Object.fromEntries(PERSONA_COMMANDS.map((c) => [commandName(c), c.tier]))).toEqual({ 'persona list': 'read', 'persona show': 'read', 'persona add': 'admin', 'persona remove': 'admin' })
+    expect(Object.fromEntries(Object.entries(PERSONA_METHODS).map(([m, d]) => [m, d.tier]))).toEqual({ 'persona-list': 'read', 'persona-show': 'read', 'persona-add': 'admin', 'persona-remove': 'admin' })
   })
 })
 

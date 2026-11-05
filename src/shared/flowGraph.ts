@@ -87,8 +87,7 @@ export const FLOW_STATE_GLYPH: Record<FlowNodeState, string> = {
   'not-yet': '◌',
   running: '◐',
   waiting: '▲',
-  stopped: '■',
-  skipped: '○'
+  stopped: '■'
 }
 
 const STATE_WORD: Record<FlowNodeState, PlainKey> = {
@@ -97,8 +96,7 @@ const STATE_WORD: Record<FlowNodeState, PlainKey> = {
   'not-yet': 'flowGraph.state.notYet',
   running: 'flowGraph.state.running',
   waiting: 'flowGraph.state.waiting',
-  stopped: 'flowGraph.state.stopped',
-  skipped: 'flowGraph.state.skipped'
+  stopped: 'flowGraph.state.stopped'
 }
 
 export const LENS_WORD: Record<FlowLens, PlainKey> = {
@@ -111,7 +109,6 @@ export const LENS_WORD: Record<FlowLens, PlainKey> = {
 const END_WORD: Partial<Record<FlowRun['state'], PlainKey>> = {
   failed: 'flowGraph.end.failed',
   stopped: 'flowGraph.end.stopped',
-  cancelled: 'flowGraph.end.stopped',
   'needs-you': 'flowGraph.end.needsYou',
   uncertain: 'flowGraph.end.uncertain'
 }
@@ -119,13 +116,6 @@ const END_WORD: Partial<Record<FlowRun['state'], PlainKey>> = {
 /** A state in words with its glyph: "● completed". */
 export function stateText(state: FlowNodeState, t: TFunction = enT): string {
   return `${FLOW_STATE_GLYPH[state]} ${t(STATE_WORD[state])}`
-}
-
-/** A step's start and end trees, whichever record shape it has (a run from before kept a review's tree as a string). */
-export function stepTrees(step: Pick<FlowRunStep, 'tree'>): { start?: string; end?: string } {
-  const tree = step.tree as FlowRunStep['tree'] | string | undefined
-  if (typeof tree === 'string') return tree ? { start: tree } : {}
-  return tree ?? {}
 }
 
 /** "4m 02s", "42s", "1h 05m". */
@@ -210,7 +200,7 @@ export function flowGraph(flow: Flow | undefined, run: FlowRun | undefined, lens
     }
     const usages = mine.filter((r) => r.usage).map((r) => r.usage!)
     const usage = usages.at(-1)
-    const trees = latest ? stepTrees(latest) : {}
+    const trees = latest?.tree ?? {}
     if (lens === 'context' && usage) {
       const series = usages.length > 1 ? usages.map((u) => compact(u.used)).join(' → ') : compact(usage.used)
       lines.push(t('flowGraph.usage', { used: series, limit: compact(usage.limit) }))
@@ -431,7 +421,7 @@ function dataEdges(m: Model, run: FlowRun | undefined, node: AddNode, edge: AddE
     const ws = r.workspaceId ?? run.workspaceId
     const first = ws !== undefined && !seenIn.has(ws)
     if (ws) seenIn.add(ws)
-    const { start, end } = stepTrees(r)
+    const { start, end } = r.tree ?? {}
     if (start) {
       const id = `tree:${start}`
       node({ id, kind: 'tree', label: t('flowGraph.data.tree', { hash: start.slice(0, 7) }), loops: [] })
@@ -471,9 +461,12 @@ function shape(n: FlowGraphNode, text: string): string {
   return `["${text}"]`
 }
 
-function mermaidOf(graph: FlowGraph, compact: boolean): string {
+/** Which way a diagram reads: left to right where it is wide (the Flows dialog, a terminal), top to bottom in a side panel. */
+export type FlowMermaidDirection = 'LR' | 'TB'
+
+function mermaidOf(graph: FlowGraph, compact: boolean, direction: FlowMermaidDirection): string {
   const ids = new Map(graph.nodes.map((n, i) => [n.id, `n${i}`]))
-  const lines = ['flowchart LR', `  accTitle: ${graph.title.replace(/[\r\n]+/g, ' ')}`]
+  const lines = [`flowchart ${direction}`, `  accTitle: ${graph.title.replace(/[\r\n]+/g, ' ')}`]
   const declare = (n: FlowGraphNode, indent: string) => {
     const parts = [n.label, ...(!compact && n.sublabel ? n.sublabel.split('\n') : [])]
     lines.push(`${indent}${ids.get(n.id)}${shape(n, parts.map(mermaidLabel).join('<br/>'))}`)
@@ -507,17 +500,19 @@ function mermaidOf(graph: FlowGraph, compact: boolean): string {
 }
 
 /**
- * The graph as Mermaid flowchart source: left to right, loops as subgraphs titled with their bounds, a gate or pick as a
+ * The graph as Mermaid flowchart source: left to right unless `direction` says top to bottom (the side panel's Flow and
+ * Lineage tabs, which scroll down, not across), loops as subgraphs titled with their bounds, a gate or pick as a
  * hexagon, a decide as a rhombus, the ends as stadiums, sources as files, memory as cylinders and trees as flags; edges
  * not taken (yet) dotted. No colours: the renderer themes it, and state is a glyph and a word. Kept under
  * FLOW_MERMAID_MAX_CHARS: a graph too big with its lines drops them, then everything but its steps.
  */
-export function flowMermaid(graph: FlowGraph): string {
-  const full = mermaidOf(graph, false)
+export function flowMermaid(graph: FlowGraph, options: { direction?: FlowMermaidDirection } = {}): string {
+  const direction = options.direction ?? 'LR'
+  const full = mermaidOf(graph, false, direction)
   if (full.length <= FLOW_MERMAID_MAX_CHARS) return full
-  const short = mermaidOf(graph, true)
+  const short = mermaidOf(graph, true, direction)
   if (short.length <= FLOW_MERMAID_MAX_CHARS) return short
   const keep = new Set(graph.nodes.filter((n) => n.kind === 'step' || n.kind === 'end').map((n) => n.id))
-  const steps = mermaidOf({ ...graph, nodes: graph.nodes.filter((n) => keep.has(n.id)), edges: graph.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) }, true)
+  const steps = mermaidOf({ ...graph, nodes: graph.nodes.filter((n) => keep.has(n.id)), edges: graph.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) }, true, direction)
   return steps.length <= FLOW_MERMAID_MAX_CHARS ? steps : steps.slice(0, steps.lastIndexOf('\n', FLOW_MERMAID_MAX_CHARS))
 }

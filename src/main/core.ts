@@ -38,8 +38,8 @@ import { readRepoTemplates, revalidateRepoTemplates } from './repoTemplates'
 import { listFlows, personalFlowListing, personaRef } from './flowFiles'
 import { listPersonas, personalPersonaListing } from './personaFiles'
 import { findPersona, MAX_PERSONA_BYTES, MAX_PERSONAL_PERSONAS, parsePersona, type Persona, type PersonaList, type PersonaListing, type TurnPersona } from '../shared/personas'
-import { isActiveRun, MAX_FLOW_BYTES, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunOrigin, type FlowRunPreview, type FlowRunStart, type FlowRunSummary } from '../shared/flows'
-import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
+import { isActiveRun, MAX_FLOW_BYTES, MAX_PERSONAL_FLOWS, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunOrigin, type FlowRunPreview, type FlowRunStart, type FlowRunSummary } from '../shared/flows'
+import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowChecksStart, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
 import { DEFAULT_CHECK_TIMEOUT_MS, isFailure } from '../shared/checks'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
 import { commandInputWithStatus, commandNamed, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
@@ -707,8 +707,10 @@ export class Core {
         await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId, ...(options.origin ? { origin: options.origin } : {}) })
       },
       cancel: (sessionId) => this.sessions.cancel(sessionId),
-      startChecks: (workspaceId, by) => this.startFlowChecks(workspaceId, by),
-      cancelChecks: (workspaceId) => this.checks.cancel(workspaceId),
+      turnStatus: (turnId) => this.sessions.turnStatus(turnId),
+      startChecks: (workspaceId, by, wanted) => this.startFlowChecks(workspaceId, by, wanted),
+      // Only the check run this run's step started: one the user started meanwhile is theirs.
+      cancelChecks: (workspaceId, by) => this.checks.cancel(workspaceId, by),
       checksResults: (workspaceId) => this.failingChecksText(workspaceId),
       readChat: (sessionId) => this.store.readChat(sessionId),
       reported: (workspaceId, turnId) => (this.store.state.workspaces.find((w) => w.id === workspaceId)?.agentReports ?? []).filter((r) => r.turnId === turnId).map((r) => ({ kind: r.kind, text: r.text })),
@@ -1700,6 +1702,7 @@ export class Core {
     const now = new Date().toISOString()
     let flow = input.id ? flows.find((f) => f.id === input.id) : undefined
     if (input.id && !flow) throw new Error('That flow isn’t saved any more.')
+    if (!flow && flows.length >= MAX_PERSONAL_FLOWS) return { problems: [t('flows.problem.tooMany', { max: MAX_PERSONAL_FLOWS })] }
     if (flow) Object.assign(flow, { toml: input.toml, updatedAt: now })
     else flows.push((flow = { id: `flow-${randomUUID()}`, toml: input.toml, createdAt: now, updatedAt: now }))
     this.store.save()
@@ -1858,32 +1861,31 @@ export class Core {
   private flowRunSummary(prepared: PreparedFlow, repo: Repo, baseBranch: string): FlowRunSummary {
     const { flow } = prepared
     const parts = this.repoApprovalParts(repo)
-    const { problems, unsupported, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
+    const { problems, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
     const personas = Object.values(prepared.personas).flatMap((p) => (p ? [personaRef(p)] : []))
     return {
-        flowName: flow.name,
-        flowSource: prepared.ref.source,
-        ...(prepared.ref.starter ? { starter: prepared.ref.starter } : {}),
-        ...(prepared.ref.file ? { flowFile: prepared.ref.file } : {}),
-        ...(prepared.ref.rev ? { flowRev: prepared.ref.rev } : {}),
-        repoName: repo.name,
-        baseBranch: (baseBranch ?? '').trim(),
-        steps: flow.steps.length,
-        loops: flow.loops.length,
-        gates: flow.steps.filter((s) => s.kind === 'gate').length,
-        personas,
-        templates: Object.values(prepared.templates).flatMap((x) => (x ? [{ name: x.name, ...(x.rev ? { rev: x.rev } : {}), source: x.source }] : [])),
-        setupScript: parts.setupScript,
-        checks: parts.checks,
-        ...(Object.values(prepared.commands ?? {}).some(Boolean) ? { commands: Object.values(prepared.commands ?? {}).flatMap((c) => (c ? [{ name: c.name, command: c.command }] : [])) } : {}),
-        mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
-        integrations: this.integrationLines(repo.id),
-        unsupported,
-        notClaude,
-        ...(flow.loops.some((l) => l.at_most.cost !== undefined) ? { costBound: true } : {}),
-        // The unsupported steps and non-Claude turns have their own lines in the dialog.
-        problems: problems.filter((p) => !(unsupported.length && p.startsWith('This version of Foreman')) && !(notClaude.length && p.startsWith('Unattended turns'))),
-        after: flow.after
+      flowName: flow.name,
+      flowSource: prepared.ref.source,
+      ...(prepared.ref.starter ? { starter: prepared.ref.starter } : {}),
+      ...(prepared.ref.file ? { flowFile: prepared.ref.file } : {}),
+      ...(prepared.ref.rev ? { flowRev: prepared.ref.rev } : {}),
+      repoName: repo.name,
+      baseBranch: (baseBranch ?? '').trim(),
+      steps: flow.steps.length,
+      loops: flow.loops.length,
+      gates: flow.steps.filter((s) => s.kind === 'gate').length,
+      personas,
+      templates: Object.values(prepared.templates).flatMap((x) => (x ? [{ name: x.name, ...(x.rev ? { rev: x.rev } : {}), source: x.source }] : [])),
+      setupScript: parts.setupScript,
+      checks: parts.checks,
+      ...(Object.values(prepared.commands ?? {}).some(Boolean) ? { commands: Object.values(prepared.commands ?? {}).flatMap((c) => (c ? [{ name: c.name, command: c.command }] : [])) } : {}),
+      mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
+      integrations: this.integrationLines(repo.id),
+      notClaude,
+      ...(flow.loops.some((l) => l.at_most.cost !== undefined) ? { costBound: true } : {}),
+      // The non-Claude turns have their own line in the dialog.
+      problems: problems.filter((p) => !(notClaude.length && p.startsWith('Unattended turns'))),
+      after: flow.after
     }
   }
 
@@ -1906,7 +1908,7 @@ export class Core {
    * A flow run's first step: a fresh workspace made the way a scheduled run's is, its first chat unattended for that turn.
    * Resolves once the first turn has started.
    */
-  private async launchFlowRun(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
+  private async launchFlowRun(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<{ turnId: string }> {
     // A run a workspace agent or the assistant started: its workspace records who (Workspace.startedBy).
     const origin = run.origin
     const startedBy: WorkspaceStartedBy | undefined =
@@ -1918,14 +1920,18 @@ export class Core {
     )
     const setup = await this.setupOutcome(ws.id)
     if (setup.failed || setup.held) throw new Error(`Setup failed, so the first message was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
-    if (!(await this.firstTurn(ws.id))) throw new Error('The first turn did not start.')
+    const started = await this.firstTurn(ws.id)
+    if (!started) throw new Error('The first turn did not start.')
+    return { turnId: started.turn }
   }
 
-  /** A checks step: after any check run already going here, the repository's checks, never approving a command. */
-  private async startFlowChecks(workspaceId: string, by?: { flowRun: string; step: string }): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }> {
-    while (this.checks.isRunning(workspaceId)) await new Promise((r) => setTimeout(r, 500))
+  /**
+   * A checks step: after any check run already going here, the repository's checks, never approving a command. `wanted`
+   * is asked again once that run ends: a step stopped while it waited starts nothing.
+   */
+  private async startFlowChecks(workspaceId: string, by?: { flowRun: string; step: string }, wanted: () => boolean = () => true): Promise<FlowChecksStart> {
     try {
-      const started = await this.checks.start(workspaceId, { approve: false, ...(by ? { startedBy: by } : {}) })
+      const started = await this.checks.startWhenFree(workspaceId, { approve: false, ...(by ? { startedBy: by } : {}) }, wanted)
       return started.kind === 'consent' ? { kind: 'consent', names: started.items.map((i) => i.name) } : started
     } catch (err) {
       if (err instanceof ChecksError && err.code === 'not-configured') return { kind: 'not-configured' }
@@ -2115,12 +2121,12 @@ export class Core {
     return { failed, held: Boolean(ws?.heldMessage), logTail: tailLines(log, 20) }
   }
 
-  /** The chat and turn that a new workspace's first message started, once it has (give up after `timeoutMs`). */
   /** A new workspace from the command line or delegation: as the window makes one, recording who started it when known. */
   createWorkspaceFor(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy }): Promise<Workspace> {
     return this.createFromOptions(repoId, options, extra?.startedBy ? { startedBy: extra.startedBy } : undefined)
   }
 
+  /** The chat and turn that a new workspace's first message started, once it has (give up after `timeoutMs`). */
   async firstTurn(workspaceId: string, timeoutMs = 15_000): Promise<{ session: string; turn: string } | undefined> {
     const deadline = Date.now() + timeoutMs
     for (;;) {
@@ -3017,7 +3023,8 @@ export class Core {
       if (!LINEAGE_LENSES.includes(lens)) throw new Error('A lens is run, context, memory or data.')
       const locale = mainLocale(this.store.state.settings)
       const graph = lineageGraph(await lineageInput(this.lineageSources(), workspaceId), lens, { t: createT(locale), locale })
-      return { graph, outline: lineageOutline(graph), mermaid: flowMermaid(graph), gaps: graph.gaps }
+      // Drawn top to bottom for the Lineage tab in the side panel; `foreman workspace lineage --mermaid` draws its own, left to right.
+      return { graph, outline: lineageOutline(graph), mermaid: flowMermaid(graph, { direction: 'TB' }), gaps: graph.gaps }
     },
     lineageFlowDraft: async (workspaceId) => {
       this.flowsOn()

@@ -5,6 +5,7 @@ import { useId, useMemo, useState } from 'react'
 import { modelsFor } from '../../../shared/agents'
 import { pickerModels, type HiddenModels } from '../../../shared/modelVisibility'
 import type { Locale, PlainKey, TFunction } from '../../../shared/i18n'
+import { scheduleFingerprintOfFlow } from '../../../shared/flows'
 import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, MAX_DURATION_CHOICES, nextRuns, parseDate, previewRuns, scheduleName, specProblem, weekdayShort, weekdaysText } from '../../../shared/schedule'
 import { t as storeT, useT } from '../i18n'
 import { api, attempt, openScheduleDialog, selectWorkspace, timeAgo, uiLocale, useStore } from '../store'
@@ -107,6 +108,8 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
     monthly: 'scheduleDialog.hint.monthly'
   } as const satisfies Record<Schedule['recurrence'], PlainKey>)[recurrence])
   const placeholders = !runsFlow && template ? /\{\{[^}]+\}\}/.test(template.body) : false
+  // A flow schedule while Flows are off: shown, not editable, saying where the switch is.
+  if (existing?.flow && !flowsOn) return <FlowsOffScheduleDialog schedule={existing} onClose={close} />
   if (!template && !runsFlow) return null
 
   const changed = existing?.pausedKind === 'changed' || existing?.pausedKind === 'failures'
@@ -115,7 +118,11 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
     setBusy(true)
     const done = await attempt(async () => {
       const what = runsFlow && chosenFlow ? { flow: { flowId: chosenFlow.id, flowSource: chosenFlow.source, flowName: chosenFlow.name, inputs: flowValues } } : { templateId, templateName: template!.name }
-      await api.saveSchedule({ ...what, repoId, baseBranch: base, recurrence, startDate, weekdays, dayOfMonth, time, timezone, agent: 'claude', model: runsFlow ? '' : model, maxMinutes, afterRun, afterRunDeleteBranch: afterRun !== 'keep' && afterRunDeleteBranch }, existing?.id)
+      // A flow's own `[after]` says what follows a run, so the schedule keeps its workspaces; and saving approves exactly the
+      // run approval shown, so a flow changed since the preview is refused rather than approved unseen.
+      const after = runsFlow ? { afterRun: 'keep' as const, afterRunDeleteBranch: false } : { afterRun, afterRunDeleteBranch: afterRun !== 'keep' && afterRunDeleteBranch }
+      const shown = runsFlow && flowPreview ? scheduleFingerprintOfFlow(flowPreview.fingerprint) : undefined
+      await api.saveSchedule({ ...what, repoId, baseBranch: base, recurrence, startDate, weekdays, dayOfMonth, time, timezone, agent: 'claude', model: runsFlow ? '' : model, maxMinutes, ...after }, existing?.id, shown)
       return true
     })
     setBusy(false)
@@ -299,6 +306,7 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
           )}
         </div>
       )}
+      {!runsFlow && (
       <div className="schedule-after">
         <RadioList<AfterRun>
           legend={t('scheduleDialog.afterRun')}
@@ -316,11 +324,25 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
           </Checkbox>
         )}
       </div>
+      )}
       <Callout>
         <div>{t.rich('scheduleDialog.rules.run', { freshWorkspace: <b>{t('scheduleDialog.rules.freshWorkspace')}</b>, auto: <b>{t('scheduleDialog.rules.auto')}</b>, stopsTheRun: <b>{t('scheduleDialog.rules.stopsTheRun')}</b> })}</div>
         <div>{t('scheduleDialog.rules.limits')}</div>
         <div>{t('scheduleDialog.rules.pauses')}</div>
       </Callout>
+    </Dialog>
+  )
+}
+
+/** A flow schedule while Flows are off: what it is and when it runs, read-only, and where to turn Flows back on. */
+function FlowsOffScheduleDialog({ schedule, onClose }: { schedule: Schedule; onClose: () => void }) {
+  const t = useT()
+  return (
+    <Dialog title={t('scheduleDialog.title', { name: scheduleName(schedule) })} onClose={onClose} className="dlg schedule-modal" footer={<Button onClick={onClose}>{t('common.close')}</Button>}>
+      <Callout tone="info" role="status">
+        {t('scheduleDialog.flowsOff')}
+      </Callout>
+      <div className="faint small">{cadenceText(schedule, t, t.locale)}</div>
     </Dialog>
   )
 }

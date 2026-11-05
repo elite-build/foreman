@@ -627,7 +627,7 @@ that renders Mermaid. ${FLOWS_OFF_NOTE}`,
 
 --toml takes the document as one argument instead of a file. The assistant drafts a flow that way: its Run card shows
 the whole command, so you read the flow before you click Run, and nothing is saved until you do. ${FLOWS_OFF_NOTE}`,
-    tier: 'act'
+    tier: 'admin'
   },
   {
     path: ['flow', 'remove'],
@@ -639,7 +639,7 @@ the whole command, so you read the flow before you click Run, and nothing is sav
     examples: ['foreman flow remove triage --yes'],
     exitCodes: CONFIRM_EXIT,
     details: `Only personal flows: built-in flows and repository files are read-only here. Its past runs stay listed. ${FLOWS_OFF_NOTE}`,
-    tier: 'act'
+    tier: 'admin'
   },
   {
     path: ['flow', 'run'],
@@ -726,7 +726,7 @@ sent back an address step in a review-until-clean loop of at most 2, a pull requ
 turn that runs \`foreman git pr create\`, and auto-fix a wait on CI with a fix step. Steps follow the order things
 happened, and a comment at the top lists what the draft leaves out. A draft runs nothing: edit it, then save it with
 --save (or \`foreman flow add\`). ${FLOWS_OFF_NOTE}`,
-    tier: 'act'
+    tier: 'admin'
   }
 ]
 
@@ -782,7 +782,7 @@ one of the same name, and changing one changes the approval of every flow that u
 --markdown takes the document as one argument instead of a file, as the assistant's Run card carries a persona it
 drafted: the card shows the whole command, and nothing is saved until you click Run. The document starts with ---, so
 give it as --markdown=<text>. ${FLOWS_OFF_NOTE}`,
-    tier: 'act'
+    tier: 'admin'
   },
   {
     path: ['persona', 'remove'],
@@ -795,7 +795,7 @@ give it as --markdown=<text>. ${FLOWS_OFF_NOTE}`,
     exitCodes: CONFIRM_EXIT,
     details: `Only personal personas: built-in ones and repository files are read-only here. A flow that names it then runs
 as the repository's or the built-in persona of that name, if there is one, or can't start. ${FLOWS_OFF_NOTE}`,
-    tier: 'act'
+    tier: 'admin'
   }
 ]
 

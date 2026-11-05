@@ -136,7 +136,7 @@ describe('Flows on Automations', () => {
       summary: {
         flowName: 'Team flow', flowSource: 'repo', flowFile: '.foreman/flows/team.toml', flowRev: 'abcdef1234567890', repoName: 'foreman', baseBranch: 'main',
         steps: 3, loops: 1, gates: 1, personas: [{ name: 'developer', source: 'repo', file: '.foreman/personas/developer.md', rev: '1234567abcdef' }, { name: 'qa-engineer', source: 'built-in', readOnly: true }], templates: [], setupScript: 'npm ci', checks: [{ name: 'Tests', command: 'npm test' }],
-        mcpServers: [], integrations: [], unsupported: [], notClaude: [], problems: []
+        mcpServers: [], integrations: [], notClaude: [], problems: []
       }
     }))
     fakeApi.startFlowRun = vi.fn(async () => ({ id: 'run' }))
@@ -169,7 +169,7 @@ describe('Flows on Automations', () => {
     fakeApi.flowRunPreview = vi.fn(async () => ({
       fingerprint: {},
       inputs: [],
-      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], unsupported: [], notClaude: [{ step: 'review', agent: 'Cursor' }], problems: [], costBound: true }
+      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [{ step: 'review', agent: 'Cursor' }], problems: [], costBound: true }
     }))
     render(<AutomationsView />)
     const runs = await screen.findByRole('list', { name: 'Runs of Fix until green' })
@@ -198,6 +198,7 @@ describe('a flow’s run graph in its dialog', () => {
     // Above the document.
     const editor = within(dialog).getByRole('textbox', { name: 'Flow (TOML)' })
     expect(picture.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // The wide Flows dialog keeps the run graph left to right.
     expect(mermaid.sources.at(-1)).toContain('flowchart LR')
     expect(mermaid.sources.at(-1)).toContain('subgraph')
     // Nothing in a run's state: a flow on its own has no run.

@@ -376,10 +376,70 @@ describe('running a flow', () => {
     await c.endTurn()
     expect(c.run().steps.at(-1)).toMatchObject({ name: 'checks', state: 'running' })
     await c.service.stopRun(c.run().id)
-    expect(c.deps.cancelChecks).toHaveBeenCalledWith('ws-1')
+    // Only the check run this step started: the run and step go with the cancel.
+    expect(c.deps.cancelChecks).toHaveBeenCalledWith('ws-1', { flowRun: c.run().id, step: 'checks' })
     finish([])
     await settle()
     expect(c.run()).toMatchObject({ state: 'stopped', reason: 'Stopped by you.' })
+  })
+
+  it('Stop while the checks step waits for another check run: the step is no longer wanted, so nothing starts', async () => {
+    const h = harness()
+    let wanted: (() => boolean) | undefined
+    let free!: () => void
+    h.deps.startChecks = async (_ws, _by, stillWanted) => {
+      wanted = stillWanted
+      // The user's own check run holds the workspace until it ends.
+      await new Promise<void>((r) => (free = r))
+      return stillWanted?.() === false ? { kind: 'abandoned' } : { kind: 'started', done: Promise.resolve([]) }
+    }
+    await h.start()
+    await h.endTurn()
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'checks', state: 'running' })
+    expect(wanted?.()).toBe(true)
+    await h.service.stopRun(h.run().id)
+    expect(wanted?.()).toBe(false)
+    free()
+    await settle()
+    expect(h.run()).toMatchObject({ state: 'stopped', reason: 'Stopped by you.' })
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'checks', state: 'stopped' })
+  })
+
+  it('fails a step whose queued message was taken out before it ran, on the second look in a row, naming the step', async () => {
+    const h = harness(GREEN, { checks: ['failed'] })
+    let status: { state: string } | null = { state: 'queued' }
+    h.deps.turnStatus = async () => status
+    await h.start()
+    await h.endTurn()
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'fix', state: 'running' })
+    await h.service.tick()
+    expect(h.run().state).toBe('running')
+    status = null
+    // One look could catch a message on its way from the queue to its turn.
+    await h.service.tick()
+    expect(h.run().state).toBe('running')
+    await h.service.tick()
+    expect(h.run()).toMatchObject({ state: 'failed', reason: 'The “fix” step’s message was taken out of its chat’s queue before it ran, so its turn will never end.' })
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'fix', state: 'failed' })
+  })
+
+  it('follows the first turn by the id its launch gives, and notices when that message goes missing too', async () => {
+    const h = harness()
+    h.launch.mockImplementationOnce(async (_run, first, handle) => {
+      handle.created('ws-1', 's-1')
+      h.sent.push({ sessionId: 's-1', text: first.text, turnId: 't-first' })
+      return { turnId: 't-first' }
+    })
+    await h.start()
+    expect(h.run().steps[0]).toMatchObject({ name: 'build', turnId: 't-first' })
+    // Another turn ending in the new tab isn't the step's.
+    await h.service.turnEnded('s-1', 'not-the-step', 'completed')
+    await settle()
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'build', state: 'running' })
+    h.deps.turnStatus = async () => null
+    await h.service.tick()
+    await h.service.tick()
+    expect(h.run()).toMatchObject({ state: 'failed', reason: 'The “build” step’s message was taken out of its chat’s queue before it ran, so its turn will never end.' })
   })
 
   it('an unattended turn that asks for something stops the run for the human (needs-you)', async () => {
@@ -985,6 +1045,31 @@ describe('iteration policies', () => {
     expect(h.sent.at(-1)!.text).toContain('Fix the checks.')
     expect(h.sent.at(-1)!.sessionId).toBe('s-1')
     expect(h.run().steps.at(-1)!.detail).toContain('compacted at 75% of the context window')
+  })
+
+  it('while the tab compacts, a turn the step didn’t start ending there never moves the step on', async () => {
+    const h = harness(COMPACT, { checks: ['failed'] })
+    h.deps.contextUsage = () => ({ used: 150_000, limit: 200_000 })
+    h.deps.canCompact = () => true
+    await h.start()
+    await h.endTurn()
+    expect(h.sent.at(-1)!.text).toBe('/compact')
+    // The step's own turn id is reserved before the compaction's turn.
+    const reserved = h.run().steps.at(-1)!.turnId
+    expect(reserved).toBeTruthy()
+    // A message someone queued in that tab earlier runs and ends meanwhile.
+    await h.service.turnEnded('s-1', 'someone-elses-turn', 'completed')
+    await settle()
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'fix', state: 'running', turnId: reserved })
+    expect(h.sent.at(-1)!.text).toBe('/compact')
+    // The compaction ends; the step's message goes under the reserved id, and only that turn ends the step.
+    await h.endTurn('completed', '')
+    expect(h.sent.at(-1)).toMatchObject({ turnId: reserved, text: expect.stringContaining('Fix the checks.') })
+    await h.service.turnEnded('s-1', 'another-turn', 'completed')
+    await settle()
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'fix', state: 'running' })
+    await h.endTurn()
+    expect(h.run().steps.find((s) => s.name === 'fix')).toMatchObject({ state: 'completed', turnId: reserved })
   })
 
   it('below the threshold nothing is compacted; an agent with no compact command gets a fresh tab with the ledger', async () => {

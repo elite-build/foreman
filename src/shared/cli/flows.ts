@@ -274,7 +274,7 @@ export function gateWaitText(gate: NonNullable<FlowRunRow['gate']>): string {
   return lines.join('\n')
 }
 
-const END_WORDS: Partial<Record<FlowRunState, string>> = { failed: 'failed', stopped: 'stopped', 'needs-you': 'needs you', cancelled: 'was cancelled', uncertain: 'is uncertain' }
+const END_WORDS: Partial<Record<FlowRunState, string>> = { failed: 'failed', stopped: 'stopped', 'needs-you': 'needs you', uncertain: 'is uncertain' }
 
 /** The line a finished run ends on: which way it ended and why. */
 export function flowEndText(run: Pick<FlowRunRow, 'flow' | 'state' | 'reason'>): string {

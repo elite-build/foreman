@@ -8,10 +8,10 @@ import { Core } from '../src/main/core'
 import { revalidateRepoFlows } from '../src/main/flowFiles'
 import type { FlowService } from '../src/main/flows'
 import { revalidateRepoPersonas } from '../src/main/personaFiles'
-import { changedParts, fingerprintOf, flowFingerprintFrom, ScheduleService, scheduleProblem, type FingerprintInputs, type LaunchHandle, type ScheduleDeps } from '../src/main/schedules'
+import { changedParts, fingerprintOf, flowFingerprintFrom, ScheduleService, scheduleProblem, SHOWN_CHANGED, type FingerprintInputs, type LaunchHandle, type ScheduleDeps } from '../src/main/schedules'
 import { SecretStore } from '../src/main/secrets'
 import { Store } from '../src/main/store'
-import type { FlowFingerprint, FlowRun } from '../src/shared/flows'
+import { scheduleFingerprintOfFlow, type FlowFingerprint, type FlowRun } from '../src/shared/flows'
 import { scheduleName } from '../src/shared/schedule'
 import type { Occurrence, Schedule, ScheduleRequest } from '../src/shared/types'
 import { makeRepo, tempDir } from './helpers'
@@ -45,10 +45,11 @@ function rig() {
     launch: async (schedule, occurrence, handle) => void launches.push({ schedule, occurrence, handle }),
     stop: async (o) => void stopped.push(o),
     turnStart: () => undefined,
+    afterRun: vi.fn(),
     changed: vi.fn()
   }
   const service = new ScheduleService(deps)
-  return { service, store, clock, launches, stopped, setInputs: (next: FingerprintInputs | { error: string }) => (current = next) }
+  return { service, store, clock, launches, stopped, afterRun: deps.afterRun!, setInputs: (next: FingerprintInputs | { error: string }) => (current = next) }
 }
 
 describe('a schedule that runs a flow (the service)', () => {
@@ -107,6 +108,21 @@ describe('a schedule that runs a flow (the service)', () => {
     // Another run's end changes nothing.
     r.service.flowRunEnded({ id: 'other', state: 'completed' })
     expect(occurrence.state).toBe('needs-you')
+  })
+
+  it('has no after-run policy of its own: the flow’s [after] is the one, even on a record saved with one', async () => {
+    const r = rig()
+    const s = r.service.create(request({ afterRun: 'archive', afterRunDeleteBranch: true }), flowInputs())
+    expect(s.afterRun).toBeUndefined()
+    expect(s.afterRunDeleteBranch).toBeUndefined()
+    // A schedule saved before this, with an after-run choice.
+    s.afterRun = 'archive'
+    r.clock.now = iso('2026-10-20T13:00:30Z')
+    await r.service.tick()
+    r.launches[0].handle.flowRun?.('run')
+    r.service.flowRunEnded({ id: 'run', state: 'completed', workspaceId: 'ws-1' })
+    expect(r.launches[0].occurrence).toMatchObject({ state: 'completed', workspaceId: 'ws-1' })
+    expect(r.afterRun).not.toHaveBeenCalled()
   })
 
   it('maps a run’s end onto the occurrence: completed, failed, stopped as stopped by you', async () => {
@@ -173,6 +189,20 @@ describe('a flow schedule in core', () => {
     expect(saved).toMatchObject({ flow: { flowName: 'Runnable', flowSource: 'personal', inputs: { task: 'the parser' } }, model: '' })
     expect(saved.flow?.inputs).not.toHaveProperty('extra')
     expect(store.state.schedules).toHaveLength(1)
+    await c.shutdown()
+  })
+
+  it('refuses to save on a run approval that changed since the dialog previewed it, naming the flow', async () => {
+    const { core: c, store, repo, flowId, req } = await core()
+    // What the Schedule dialog shows and sends back: the flow run's preview, as a schedule fingerprint.
+    const preview = await c.api.flowRunPreview({ flowId, repoId: repo.id, baseBranch: 'main' })
+    const edited = await c.api.savePersonalFlow({ id: flowId, toml: RUNNABLE.replace('Build {{task}}', 'Build {{task}} carefully') })
+    if (!('flow' in edited)) throw new Error('not saved')
+    await expect(c.api.saveSchedule(req, undefined, scheduleFingerprintOfFlow(preview.fingerprint))).rejects.toThrow(`${SHOWN_CHANGED}. Changed: the flow.`)
+    expect(store.state.schedules ?? []).toHaveLength(0)
+    // Shown as it stands, it saves.
+    const again = await c.api.flowRunPreview({ flowId, repoId: repo.id, baseBranch: 'main' })
+    await expect(c.api.saveSchedule(req, undefined, scheduleFingerprintOfFlow(again.fingerprint))).resolves.toMatchObject({ flow: { flowId } })
     await c.shutdown()
   })
 

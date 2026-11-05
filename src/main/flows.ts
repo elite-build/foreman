@@ -12,7 +12,7 @@
 //    each pass in a fresh tab seeded with the run ledger;
 //  - at most GLOBAL_ACTIVE_CAP runs at once, nothing new while Foreman quits, and after a crash runs that were in flight
 //    are uncertain and never retried; a completed run's `[after]` archives or deletes the workspaces it made.
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { AGENTS, defaultModel, type AgentKind, type Loadout } from '../shared/agents'
 import { autoReviewPrompt, canReview, findingsMessage, parseFindings } from '../shared/autoReview'
 import { readOnlyEnforcement } from '../shared/permissions'
@@ -27,7 +27,6 @@ import {
   loopsContaining,
   nextStep,
   stepPersona,
-  unsupportedSteps,
   type Flow,
   type FlowAfter,
   type FlowFingerprint,
@@ -44,9 +43,7 @@ import { isMemoryPath } from '../shared/memoryPaths'
 import { GLOBAL_ACTIVE_CAP } from '../shared/schedule'
 import type { PrFacts } from '../shared/board'
 import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, ContextUsage, MessageOrigin, TurnOutcome } from '../shared/types'
-import { fingerprintOf, SHOWN_CHANGED } from './schedules'
-
-const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
+import { fingerprintOf, refuseChangedParts, sha } from './schedules'
 
 type TurnStep = Extract<FlowStep, { kind: 'turn' }>
 type AgentStep = Extract<FlowStep, { kind: 'turn' | 'review' | 'decide' }>
@@ -121,13 +118,9 @@ const PART_TEXT: Record<keyof FlowFingerprint, string> = {
   personas: 'its personas'
 }
 
-const joinWords = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] ?? '')
-
-/** Refuse a start whose shown fingerprint isn't what would run now, naming what changed. */
+/** Refuse a start whose shown fingerprint isn't what would run now, naming what changed (nothing shown: everything did). */
 export function assertFlowFingerprintShown(shown: FlowFingerprint | undefined, now: FlowFingerprint): void {
-  const seen = typeof shown === 'object' && shown !== null ? shown : ({} as Partial<FlowFingerprint>)
-  const changed = (Object.keys(PART_TEXT) as (keyof FlowFingerprint)[]).filter((k) => seen[k] !== now[k]).map((k) => PART_TEXT[k])
-  if (changed.length) throw new Error(`${SHOWN_CHANGED}. Changed: ${joinWords(changed)}.`)
+  refuseChangedParts(shown, now, PART_TEXT)
 }
 
 /**
@@ -163,11 +156,9 @@ function loadoutStep(flow: Flow, step: AgentStep): AgentStep {
 }
 
 /** Every reason the flow can't start, in words; empty when it can. */
-export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { problems: string[]; unsupported: { step: string; kind: FlowStep['kind'] }[]; notClaude: { step: string; agent: string }[] } {
+export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { problems: string[]; notClaude: { step: string; agent: string }[] } {
   const { flow } = prepared
   const problems: string[] = []
-  const unsupported = unsupportedSteps(flow)
-  if (unsupported.length) problems.push(`This version of Foreman can’t run ${joinWords([...new Set(unsupported.map((u) => u.kind))])} steps yet: ${unsupported.map((u) => `${u.step} (${u.kind})`).join(', ')}.`)
   const first = flow.steps.find((s) => s.name === flow.start)
   if (first && first.kind !== 'turn' && first.kind !== 'workspace') problems.push('A flow run starts with a turn or a workspace step: one of them makes the run’s workspace.')
   const notClaude: { step: string; agent: string }[] = []
@@ -195,8 +186,13 @@ export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { 
       problems.push(`The step “${step.name}” is read-only${persona?.read_only ? ` (persona “${persona.name}”)` : step.kind === 'decide' ? ' (a decide step only decides)' : ''}, which ${label} can’t enforce.`)
     if (persona?.source === 'claude-agents' && loadout.agent !== 'claude') problems.push(`The persona “${persona.name}” (step “${step.name}”) is a Claude Code subagent, for Claude steps only; this step runs on ${label}.`)
   }
-  if (notClaude.length) problems.push(`Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: ${notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`)
-  return { problems, unsupported, notClaude }
+  if (notClaude.length) problems.push(notClaudeProblem(notClaude))
+  return { problems, notClaude }
+}
+
+/** Why a flow with turns on other agents can't run unattended, naming them (a run preview lists them apart, as `notClaude`). */
+export function notClaudeProblem(notClaude: { step: string; agent: string }[]): string {
+  return `Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: ${notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`
 }
 
 /** The values a run asks for: the flow's inputs, then any other {{placeholder}} in the templates its steps name. */
@@ -224,6 +220,9 @@ export type FlowCommandStart =
   | { kind: 'consent'; name: string }
   | { kind: 'started'; done: Promise<{ code: number; output: string; timedOut?: boolean; cancelled?: boolean }> }
 
+/** A checks step's start: `abandoned` when the step stopped while another check run held the workspace, so nothing started. */
+export type FlowChecksStart = { kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'abandoned' } | { kind: 'started'; done: Promise<CheckResult[]> }
+
 /** What a pull request says, as a wait step reads it through the PR cache. */
 export type FlowPullRequest = { kind: 'facts'; facts: Pick<PrFacts, 'checks' | 'review'> } | { kind: 'no-pr' } | { kind: 'unknown'; message: string }
 
@@ -239,17 +238,22 @@ export interface FlowServiceDeps {
    * `created` is called once the workspace and its chat exist, before the message goes. Resolves once the first turn
    * has started (or is waiting for an agent slot); throws when it can't (setup failed, the turn didn't start).
    */
-  launch(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void>
+  // Resolves with the first turn's id when it is known, so the step follows that turn and no other.
+  launch(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void | { turnId?: string }>
   /** A new tab in the workspace, on this loadout. Returns its id. */
   createSession(workspaceId: string, loadout: Loadout, options?: { title?: string }): string
   /** Send a message as the turn with this id, unattended for that turn (narrowed by its persona; a decide step's options offer the decide tool). Queued behind a running turn. */
   // `origin`: the message says which run, step and iteration sent it (MessageOrigin), for its receipt and the Lineage tab.
   deliver(sessionId: string, text: string, options: { turnId: string; unattended: { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[] }; origin?: MessageOrigin }): Promise<void>
   cancel(sessionId: string): Promise<void>
+  /** Where a turn is by id (queued, starting, running, ended), or null when no chat knows it: its queued message was removed. */
+  turnStatus?(turnId: string): Promise<{ state: string } | null>
   /** The repository's checks in the workspace, never approving a command (one needing consent comes back as such). */
-  // `by`: the run and step that started them, kept on the check run (WorkspaceChecks.startedBy).
-  startChecks(workspaceId: string, by?: { flowRun: string; step: string }): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }>
-  cancelChecks(workspaceId: string): Promise<void>
+  // `by`: the run and step that started them, kept on the check run (WorkspaceChecks.startedBy). `wanted`: asked again
+  // after waiting for a check run already going there; false means the step was stopped, and nothing starts.
+  startChecks(workspaceId: string, by?: { flowRun: string; step: string }, wanted?: () => boolean): Promise<FlowChecksStart>
+  /** Cancel the check run this run's step started, and no other (one the user started meanwhile is left alone). */
+  cancelChecks(workspaceId: string, by: { flowRun: string; step: string }): Promise<void>
   /** The failing checks' output, as a fix message carries it. */
   checksResults(workspaceId: string): Promise<string>
   readChat(sessionId: string): Promise<ChatItem[]>
@@ -342,7 +346,12 @@ export class FlowService {
   // A review's turn id → who reviewed which tree, and whether its persona expects findings or `done`.
   private reviews = new Map<string, { reviewer: Loadout; tree: string; expects: boolean }>()
   // A compaction's turn id → the run it is for and what to do when it ends.
-  private compacting = new Map<string, { runId: string; resolve(outcome: TurnOutcome): void }>()
+  // 'lost': its queued message was taken out before it ran (tick), so no turn end will come.
+  private compacting = new Map<string, { runId: string; resolve(outcome: TurnOutcome | 'lost'): void }>()
+  // The turn ids whose message has been handed over (delivered, or the first turn launched): only those can go missing.
+  private sent = new Set<string>()
+  // A sent turn id → how many looks in a row found no chat that knows it (a message between the queue and its turn isn't missing).
+  private missing = new Map<string, number>()
 
   constructor(private deps: FlowServiceDeps) {}
 
@@ -685,7 +694,7 @@ export class FlowService {
       record.model = loadout.model
       run.task = text
       this.persist()
-      await this.deps.launch(run, { text, loadout, step: step.name, ...(limits ? { persona: limits } : {}) }, {
+      const launched = await this.deps.launch(run, { text, loadout, step: step.name, ...(limits ? { persona: limits } : {}) }, {
         created: (workspaceId, sessionId) => {
           run.workspaceId = workspaceId
           run.workspaces = [...(run.workspaces ?? []), workspaceId]
@@ -697,6 +706,12 @@ export class FlowService {
           if (!isActiveRun(run)) void this.deps.cancel(sessionId).catch(() => undefined)
         }
       })
+      // The first turn's id, once known: the step follows that turn only, and notices if its message goes missing.
+      const firstTurn = launched ? launched.turnId : undefined
+      if (firstTurn && this.current(run, record) && (record.turnId ?? firstTurn) === firstTurn) {
+        record.turnId = firstTurn
+        this.sent.add(firstTurn)
+      }
       return
     }
 
@@ -751,22 +766,30 @@ export class FlowService {
       sessionId = this.deps.createSession(run.workspaceId, loadout, step.kind === 'turn' ? undefined : { title: step.kind === 'review' ? `Review · ${step.name}` : `Decide · ${step.name}` })
     }
     record.sessionId = sessionId
-    record.turnId = this.id()
+    // A compaction reserved the step's turn id before its own turn, so nothing else ending in the tab passes for the step.
+    record.turnId ??= this.id()
+    const turnId = record.turnId
     // Who reviewed which tree, for the findings' words; and whether its persona expects findings or `done`.
     if (step.kind === 'review') this.reviews.set(record.turnId, { reviewer: 'error' in loadout ? { agent: 'claude', model: defaultModel('claude'), fast: false } : loadout, tree: reviewTree ?? '', expects: applied.endsWith.length > 0 })
     this.persist()
-    await this.deps.deliver(sessionId, text, { turnId: record.turnId, unattended: mark, origin: { kind: 'flow', runId: run.id, step: step.name, iteration: record.iteration } })
+    await this.deps.deliver(sessionId, text, { turnId, unattended: mark, origin: { kind: 'flow', runId: run.id, step: step.name, iteration: record.iteration } })
+    this.sent.add(turnId)
   }
 
   /** Send the tab's compact command and wait for that turn to end. False when the run moved on meanwhile. */
   private async compact(run: FlowRun, record: FlowRunStep, step: AgentStep, sessionId: string): Promise<boolean> {
     const turnId = this.id()
-    const ended = new Promise<TurnOutcome>((resolve) => this.compacting.set(turnId, { runId: run.id, resolve }))
+    const ended = new Promise<TurnOutcome | 'lost'>((resolve) => this.compacting.set(turnId, { runId: run.id, resolve }))
     record.sessionId = sessionId
+    // The step's own turn id, reserved now: while the tab compacts, only that id (or the compaction's) is the step's.
+    record.turnId ??= this.id()
     this.persist()
     await this.deps.deliver(sessionId, '/compact', { turnId, unattended: { flowRunId: run.id, step: step.name } })
+    this.sent.add(turnId)
     const outcome = await ended
+    this.sent.delete(turnId)
     if (!this.current(run, record)) return false
+    if (outcome === 'lost') throw new Error(`The /compact message before “${step.name}” was taken out of its chat’s queue before it ran, so the step didn’t go on.`)
     if (outcome !== 'completed') throw new Error(`Compacting the tab before “${step.name}” ended ${outcome === 'cancelled' ? 'stopped' : `with ${outcome === 'error' ? 'an error' : 'an interruption'}`}, so the step didn’t go on.`)
     return true
   }
@@ -777,8 +800,8 @@ export class FlowService {
     // The tree the checks read.
     this.startTree(run, record, await this.treeNow(ws))
     if (!this.current(run, record)) return
-    const started = await this.deps.startChecks(ws, { flowRun: run.id, step: record.name })
-    if (!isActiveRun(run)) return
+    const started = await this.deps.startChecks(ws, { flowRun: run.id, step: record.name }, () => this.current(run, record))
+    if (!isActiveRun(run) || started.kind === 'abandoned') return
     if (started.kind === 'not-configured') return this.finish(run, 'failed', 'No checks are configured for this repository.')
     if (started.kind === 'consent') {
       record.detail = `Needs approval: ${started.names.join(', ')}`
@@ -930,7 +953,7 @@ export class FlowService {
     const short = tree.slice(0, TREE_CHARS)
     record.tree = { ...record.tree, start: short }
     const ws = record.workspaceId ?? run.workspaceId
-    const before = run.steps.filter((s) => s !== record && s.state === 'completed' && (s.workspaceId ?? run.workspaceId) === ws && s.tree && typeof s.tree === 'object' && (s.tree.end || s.tree.start)).at(-1)
+    const before = run.steps.filter((s) => s !== record && s.state === 'completed' && (s.workspaceId ?? run.workspaceId) === ws && (s.tree?.end || s.tree?.start)).at(-1)
     const ended = before?.tree?.end ?? before?.tree?.start
     if (ended && ended !== short) record.moved = true
   }
@@ -1033,11 +1056,14 @@ export class FlowService {
   // ---- what happens while a step is going ----
 
   /** The running agent step this chat's turn belongs to. */
-  private turnStepOf(sessionId: string, turnId?: string): { run: FlowRun; record: FlowRunStep } | undefined {
+  // `anyTurn`: an unattended turn in the tab stopped for a person, which says no turn id; it is the step's whichever it is.
+  private turnStepOf(sessionId: string, turnId: string | undefined, anyTurn = false): { run: FlowRun; record: FlowRunStep } | undefined {
     for (const run of this.runs) {
       if (!isActiveRun(run)) continue
       const record = run.steps.at(-1)
-      if (record && isAgentKind(record.kind) && record.state === 'running' && record.sessionId === sessionId && (!turnId || !record.turnId || record.turnId === turnId)) return { run, record }
+      // Once the step has its turn id, only that turn is the step's: never another ending in the same tab. The first step
+      // has none until its launch says (its tab is new, so its first turn is the step's).
+      if (record && isAgentKind(record.kind) && record.state === 'running' && record.sessionId === sessionId && (anyTurn || !record.turnId || record.turnId === turnId)) return { run, record }
     }
     return undefined
   }
@@ -1053,6 +1079,10 @@ export class FlowService {
     if (!found) return
     const { run, record } = found
     if (turnId) record.turnId ??= turnId
+    if (record.turnId) {
+      this.sent.delete(record.turnId)
+      this.missing.delete(record.turnId)
+    }
     const items = record.turnId ? await this.deps.readChat(sessionId).catch(() => [] as ChatItem[]) : []
     if (!this.current(run, record)) return
     const end = items.find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end' && i.turnId === record.turnId)
@@ -1148,21 +1178,23 @@ export class FlowService {
 
   /** An unattended turn asked for an approval or a question: the run stops here for the human. */
   needsHuman(sessionId: string, what: string): void {
-    const found = this.turnStepOf(sessionId)
+    const found = this.turnStepOf(sessionId, undefined, true)
     if (!found) return
     found.record.state = 'stopped'
     found.record.endedAt = this.iso()
     this.finish(found.run, 'needs-you', `Stopped: ${what}. Nobody can answer a flow’s turn, so it was denied and left for you.`)
   }
 
-  /** Stop a minute bound that runs out while a step is still going. */
+  /** Stop a minute bound that runs out while a step is still going, and fail a step whose turn can no longer come. */
   async tick(): Promise<void> {
     const now = this.deps.now()
     for (const run of [...this.runs]) {
       if (run.state !== 'running') continue
       const record = run.steps.at(-1)
+      if (!record || record.state !== 'running') continue
+      if (await this.lost(run, record)) continue
       // A wait counts no minutes against a loop.
-      if (!record || record.state !== 'running' || record.kind === 'wait') continue
+      if (record.kind === 'wait') continue
       let live = (now - Date.parse(record.startedAt)) / 60_000
       if (isAgentKind(record.kind) && record.sessionId) {
         const start = this.deps.turnStart?.(record.sessionId)
@@ -1177,6 +1209,40 @@ export class FlowService {
         break
       }
     }
+  }
+
+  /**
+   * A step waiting on a turn no chat knows any more (its queued message was taken out, or cancelled while queued) gets no
+   * turn end, so it would wait forever. Two looks in a row, a tick apart, find it gone (a message on its way from the
+   * queue to its turn is between the two for a moment only): the step fails, saying why. The compaction before a step's
+   * turn is watched the same way. True when the run ended or moved on meanwhile.
+   */
+  private async lost(run: FlowRun, record: FlowRunStep): Promise<boolean> {
+    if (!this.deps.turnStatus || !isAgentKind(record.kind)) return false
+    const compactions = [...this.compacting].filter(([, c]) => c.runId === run.id).map(([id]) => id)
+    for (const turnId of compactions.length ? compactions : record.turnId ? [record.turnId] : []) {
+      if (!this.sent.has(turnId)) continue
+      const status = await this.deps.turnStatus(turnId).catch(() => undefined)
+      if (!this.current(run, record)) return true
+      if (status !== null) {
+        this.missing.delete(turnId)
+        continue
+      }
+      const looks = (this.missing.get(turnId) ?? 0) + 1
+      this.missing.set(turnId, looks)
+      if (looks < 2) continue
+      this.missing.delete(turnId)
+      this.sent.delete(turnId)
+      const compaction = this.compacting.get(turnId)
+      if (compaction) {
+        this.compacting.delete(turnId)
+        compaction.resolve('lost')
+        return true
+      }
+      this.finish(run, 'failed', `The “${record.name}” step’s message was taken out of its chat’s queue before it ran, so its turn will never end.`)
+      return true
+    }
+    return false
   }
 
   /** Stop on the run: the current turn, check run, command or ask is cancelled and the run ends stopped. */
@@ -1196,7 +1262,7 @@ export class FlowService {
     if (!record) return
     if (isAgentKind(record.kind) && record.sessionId) await this.deps.cancel(record.sessionId).catch(() => undefined)
     const ws = record.workspaceId ?? run.workspaceId
-    if (record.kind === 'checks' && ws) await this.deps.cancelChecks(ws).catch(() => undefined)
+    if (record.kind === 'checks' && ws) await this.deps.cancelChecks(ws, { flowRun: run.id, step: record.name }).catch(() => undefined)
     if (record.kind === 'script' && ws) await this.deps.cancelCommand(ws).catch(() => undefined)
   }
 
@@ -1219,7 +1285,12 @@ export class FlowService {
     const after = this.prepared.get(run.id)?.flow.after
     this.prepared.delete(run.id)
     this.texts.delete(run.id)
-    for (const step of run.steps) if (step.turnId) this.reviews.delete(step.turnId)
+    for (const step of run.steps) {
+      if (!step.turnId) continue
+      this.reviews.delete(step.turnId)
+      this.sent.delete(step.turnId)
+      this.missing.delete(step.turnId)
+    }
     this.persist()
     try {
       this.deps.ended?.(run)

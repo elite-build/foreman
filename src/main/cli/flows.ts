@@ -3,15 +3,13 @@
 // approval summary the Run dialog shows, and with the fingerprint sent back it starts exactly that: the service refuses
 // when it changed meanwhile. A gate is answered with `foreman approve <id> --continue | --send-back | --stop`, a pick with
 // `foreman approve <id> --pick <step>` (approvals.ts).
-import { flowSummary, isActiveRun, parseFlow, type Flow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview, type FlowRunSummary } from '../../shared/flows'
-import { flowGraph, flowMermaid, stepTrees } from '../../shared/flowGraph'
+import { flowSummary, isActiveRun, parseFlow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview, type FlowRunSummary } from '../../shared/flows'
+import { flowGraph, flowMermaid } from '../../shared/flowGraph'
 import { formatCompact } from '../../shared/i18n/time'
 import { memoryLabel } from '../../shared/memoryPaths'
 import { FLOW_STATUS_LENSES, flowEndText, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowListResult, type FlowLoopRow, type FlowRemoveResult, type FlowRow, type FlowRunPreviewResult, type FlowRunResult, type FlowRunRow, type FlowRunsResult, type FlowShowResult, type FlowStatusResult, type FlowStopResult, type FlowWaitResult } from '../../shared/cli/flows'
-import { AGENTS, type Loadout } from '../../shared/agents'
-import { canReview } from '../../shared/autoReview'
-import type { ApprovalRequest, Repo, Workspace } from '../../shared/types'
-import { stepLoadout } from '../flows'
+import type { Api, ApprovalRequest, Repo, Workspace } from '../../shared/types'
+import { notClaudeProblem } from '../flows'
 import { SHOWN_CHANGED } from '../schedules'
 import type { CliHost } from './host'
 import { CliCodedError } from './host'
@@ -58,30 +56,29 @@ export function findFlow(flows: FlowListing[], query: string): FlowListing {
   return findByRef(flows, query, 'flow', flowSpec)
 }
 
-/** Why a flow can't run with these loadouts, in a sentence: where it starts, and agent steps that aren't on Claude or can't be held to read-only. */
-export function cantRunText(flow: Flow, loadouts: Loadout[]): string | undefined {
-  const reasons: string[] = []
-  const first = flow.steps.find((s) => s.name === flow.start)
-  if (first && first.kind !== 'turn' && first.kind !== 'workspace') reasons.push('a run starts with a turn or a workspace step')
-  const notClaude: string[] = []
-  for (const step of flow.steps) {
-    if ((step.kind !== 'turn' && step.kind !== 'review' && step.kind !== 'decide') || (step.kind === 'turn' && step.same_tab)) continue
-    const loadout = stepLoadout(step, loadouts)
-    if ('error' in loadout) reasons.push(loadout.error.replace(/\.$/, ''))
-    else {
-      if (loadout.agent !== 'claude') notClaude.push(`${step.name} (${loadout.agent})`)
-      if (step.kind === 'review' && !canReview(loadout.agent)) reasons.push(`the review step ${step.name} runs on ${AGENTS[loadout.agent]?.label ?? loadout.agent}, which can’t be held to read-only`)
-    }
+/**
+ * Why a flow can't start in this repository, in the words a start refuses it with: the run preview's problems
+ * (flowRunProblems: where it starts, its loadouts and agents, personas, templates and saved commands). Undefined when it
+ * can start, when the file has problems of its own, and when no repository is known (none to read its personas and
+ * commands from: a run needs one anyway).
+ */
+export async function cantRunIn(api: Pick<Api, 'flowRunPreview'>, repos: Repo[], listing: FlowListing, repoId: string | undefined): Promise<string | undefined> {
+  const repo = repos.find((r) => r.id === (listing.repoId ?? repoId))
+  if (!repo || listing.problems.length) return undefined
+  try {
+    const { summary } = await api.flowRunPreview({ flowId: listing.id, repoId: repo.id, baseBranch: repo.defaultBranch || 'main' })
+    // The preview lists turns on other agents apart from the rest; a start refuses them in these words.
+    const problems = [...summary.problems, ...(summary.notClaude.length ? [notClaudeProblem(summary.notClaude)] : [])]
+    return problems.length ? problems.join(' ') : undefined
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err)
   }
-  if (notClaude.length) reasons.push(`unattended turns are Claude only, and ${notClaude.join(', ')} ${notClaude.length === 1 ? 'isn’t' : 'aren’t'}`)
-  return reasons.length ? reasons.join('; ') : undefined
 }
 
-function flowRow(f: FlowListing, repos: Repo[], loadouts: Loadout[]): FlowRow {
+function flowRow(f: FlowListing, repos: Repo[], cantRun?: string): FlowRow {
   const parsed = f.problems.length ? undefined : parseFlow(f.toml, f.source)
   const flow = parsed && 'flow' in parsed ? parsed.flow : undefined
   const summary = f.summary ?? (flow ? flowSummary(flow) : undefined)
-  const cantRun = flow ? cantRunText(flow, loadouts) : undefined
   return {
     id: f.id,
     name: f.name,
@@ -116,7 +113,8 @@ const list: MethodDef = {
     const p = paramsObject(params)
     const repo = await optionalRepo(host, p)
     const state = host.state()
-    const rows = (await host.api.listFlows(repo?.id)).map((f) => flowRow(f, state.repos, state.settings.loadouts))
+    const listings = await host.api.listFlows(repo?.id)
+    const rows = await Promise.all(listings.map(async (f) => flowRow(f, state.repos, await cantRunIn(host.api, state.repos, f, repo?.id))))
     if (!rows.length) return { flows: rows, ...(repo ? { repo: repo.name } : {}), text: 'No flows.' }
     const table = columns([
       ['NAME', 'SOURCE', 'FILE', 'REV', 'STEPS', 'LOOPS', 'GATES', 'PERSONAS'],
@@ -140,7 +138,7 @@ const show: MethodDef = {
     const repo = await optionalRepo(host, p)
     const listing = findFlow(await host.api.listFlows(repo?.id), textParam(p, 'flow'))
     const state = host.state()
-    const row = flowRow(listing, state.repos, state.settings.loadouts)
+    const row = flowRow(listing, state.repos, await cantRunIn(host.api, state.repos, listing, repo?.id))
     if (flagParam(p, 'mermaid')) {
       // The run graph the Flows dialog draws, as Mermaid source; a file that isn't a flow has nothing to draw.
       const parsed = row.problems.length ? undefined : parseFlow(listing.toml, listing.source)
@@ -171,8 +169,10 @@ export function withFlowName(toml: string, name: string): string {
   return lines.join('\n')
 }
 
+// Saving or deleting a personal flow changes what Foreman will run, so it is admin: never from inside an agent turn. The
+// assistant's Run card runs it in process with the app's token, after the user's click.
 const add: MethodDef = {
-  tier: 'act',
+  tier: 'admin',
   async handle(host, params): Promise<FlowAddResult> {
     flowsOn(host)
     const p = paramsObject(params)
@@ -189,14 +189,16 @@ const add: MethodDef = {
     const saved = await host.api.savePersonalFlow({ toml })
     if ('problems' in saved) return { saved: false, problems: saved.problems, text: [`Not saved: the flow has ${saved.problems.length === 1 ? 'a problem' : 'problems'}.`, ...saved.problems.map((x) => `  ${x}`)].join('\n') }
     const state = host.state()
-    const row = flowRow(saved.flow, state.repos, state.settings.loadouts)
+    // Whether it can start in the repository this ran in, as `flow run` there would say.
+    const here = await optionalRepo(host, p)
+    const row = flowRow(saved.flow, state.repos, await cantRunIn(host.api, state.repos, saved.flow, here?.id))
     const notes = [...row.warnings.map((w) => `  warning: ${w}`), ...(row.cantRun ? [`  can’t run yet: ${row.cantRun}`] : [])]
     return { saved: true, flow: row, text: [`Saved the personal flow “${row.name}” (id ${row.id}).`, ...notes].join('\n') }
   }
 }
 
 const remove: MethodDef = {
-  tier: 'act',
+  tier: 'admin',
   async handle(host, params): Promise<FlowRemoveResult> {
     flowsOn(host)
     const p = paramsObject(params)
@@ -204,7 +206,7 @@ const remove: MethodDef = {
     if (listing.source !== 'personal') throw refused(`Only personal flows can be removed here; “${listing.name}” is ${listing.source === 'built-in' ? 'built into Foreman' : `the repository file ${listing.file}`}.`)
     await host.api.deletePersonalFlow(listing.id)
     const state = host.state()
-    return { removed: flowRow(listing, state.repos, state.settings.loadouts), text: `Removed the personal flow “${listing.name}”. Its past runs stay listed.` }
+    return { removed: flowRow(listing, state.repos), text: `Removed the personal flow “${listing.name}”. Its past runs stay listed.` }
   }
 }
 
@@ -268,7 +270,7 @@ export function runRow(run: FlowRun, state: { repos: Repo[]; workspaces: Workspa
       ...(s.memoryFiles?.length ? { memoryFiles: s.memoryFiles } : {}),
       ...(s.memoryWrites?.length ? { memoryWrites: s.memoryWrites } : {}),
       ...(s.noteRevision !== undefined ? { noteRevision: s.noteRevision } : {}),
-      ...(stepTrees(s).start || stepTrees(s).end ? { tree: stepTrees(s) } : {}),
+      ...(s.tree?.start || s.tree?.end ? { tree: s.tree } : {}),
       ...(s.moved ? { moved: true } : {})
     })),
     ...(gate ? { gate: { id: gate.id, step: gate.step, ask: gate.ask, show: gate.show } } : {}),

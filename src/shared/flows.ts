@@ -6,11 +6,14 @@ import { parse } from 'smol-toml'
 import { createT, type TFunction } from './i18n'
 import { applyPersona, type Persona, type PersonaSource } from './personas'
 import { templatePlaceholders } from './promptTemplates'
+import type { ScheduleFingerprint } from './types'
 
 const enT = createT('en')
 
 export const FLOW_DIR = '.foreman/flows'
 export const MAX_FLOW_BYTES = 64 * 1024
+// How many personal flows one person keeps, as personas are capped (MAX_PERSONAL_PERSONAS).
+export const MAX_PERSONAL_FLOWS = 100
 export const MAX_REPO_FLOWS = 50
 
 export const FLOW_STEP_KINDS = ['turn', 'checks', 'script', 'review', 'decide', 'workspace', 'wait', 'gate', 'pick'] as const
@@ -625,14 +628,6 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
 
 // ---- runs ----
 
-/** The step kinds a run can carry out in this version: every kind (a flow with another kind doesn't read). */
-export const FLOW_RUNNABLE_KINDS: readonly FlowStepKind[] = FLOW_STEP_KINDS
-
-/** The steps a run can't carry out yet, in the file's order: none in this version. */
-export function unsupportedSteps(flow: Flow): { step: string; kind: FlowStepKind }[] {
-  return flow.steps.filter((s) => !FLOW_RUNNABLE_KINDS.includes(s.kind)).map((s) => ({ step: s.name, kind: s.kind }))
-}
-
 /** Something a gate shows the person deciding, in words ("Tests failed, Types passed"); `step` names whose answer. */
 export interface FlowGateShow {
   kind: 'diff' | 'checks.results' | 'review.findings' | 'step.answer'
@@ -648,11 +643,11 @@ export interface FlowPickChoice {
 }
 
 /** waiting: at a gate or a pick. needs-you: an unattended turn asked for something and was stopped. uncertain: Foreman closed mid-run; never retried. */
-export type FlowRunState = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'needs-you' | 'stopped' | 'cancelled' | 'uncertain'
+export type FlowRunState = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'needs-you' | 'stopped' | 'uncertain'
 export const FLOW_RUN_ACTIVE: readonly FlowRunState[] = ['starting', 'running', 'waiting']
 export const isActiveRun = (run: Pick<FlowRun, 'state'>): boolean => FLOW_RUN_ACTIVE.includes(run.state)
 
-export type FlowRunStepState = 'running' | 'completed' | 'failed' | 'waiting' | 'skipped' | 'stopped'
+export type FlowRunStepState = 'running' | 'completed' | 'failed' | 'waiting' | 'stopped'
 
 /** One execution of a step: a step that runs again (a loop) gets another entry. */
 export interface FlowRunStep {
@@ -682,8 +677,7 @@ export interface FlowRunStep {
   // The workspace it ran in (a run that makes more than one workspace moves between them).
   workspaceId?: string
   // The working tree's hash (short) before the step ran and after it ended; checks, a review and a script record the
-  // tree they read as `start`, a workspace step its new workspace's as `end`. Runs from before this record kept a
-  // review's tree as a string (see stepTrees in flowGraph.ts).
+  // tree they read as `start`, a workspace step its new workspace's as `end`.
   tree?: { start?: string; end?: string }
   // Its start tree differs from the end of the step before it in the same workspace: something changed files between.
   moved?: true
@@ -729,6 +723,11 @@ export interface FlowFingerprint {
   mcp: string
   // Every persona the flow's steps run as: name, source and the document as written.
   personas: string
+}
+
+/** A flow run's approval as a flow schedule's fingerprint has it: what the Schedule dialog sends back as `shown`. */
+export function scheduleFingerprintOfFlow(f: FlowFingerprint): ScheduleFingerprint {
+  return { template: f.templates, setup: f.setup, checks: f.checks, mcp: f.mcp, flow: f.flow, personas: f.personas }
 }
 
 /**
@@ -789,8 +788,7 @@ export interface FlowRunSummary {
   commands?: { name: string; command: string }[]
   mcpServers: string[]
   integrations: string[]
-  // Steps of kinds a run can't carry out yet (none in this version), and agent steps whose agent isn't Claude: either refuses the run.
-  unsupported: { step: string; kind: FlowStepKind }[]
+  // Agent steps whose agent isn't Claude: they refuse the run.
   notClaude: { step: string; agent: string }[]
   // A loop bounds cost, which only counts turns whose agent says what they cost (Claude).
   costBound?: boolean

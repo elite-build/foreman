@@ -516,10 +516,11 @@ export interface CompareSection {
   items: Triage[]
 }
 
-function compareSections(items: Triage[], flowRuns: readonly FlowRun[] | undefined): CompareSection[] {
+// `flowsOn`: a flow run's workspaces are grouped only while Flows are on; off, nothing of flows shows, so they are plain rows.
+function compareSections(items: Triage[], flowRuns: readonly FlowRun[] | undefined, flowsOn: boolean): CompareSection[] {
   const byId = new Map<string, CompareSection>()
   for (const t of items) {
-    const runId = t.ws.flowRun?.runId
+    const runId = flowsOn ? t.ws.flowRun?.runId : undefined
     const id = t.ws.compareId ?? (runId ? `flow:${runId}` : undefined)
     if (!id) continue
     const flow = !t.ws.compareId && runId ? (flowRuns?.find((r) => r.id === runId)?.flow.name ?? '') : undefined
@@ -544,7 +545,7 @@ export function sidebarGroups(
   // Put away for later: only the Later view and a search show it until its day.
   if (filter !== 'later' && !query) items = items.filter((t) => !putAway(t, opts.now))
   if (filter !== 'all') items = items.filter((t) => matchesView(filter, t, opts))
-  const compares = compareSections(items, input.snapshot.flowRuns)
+  const compares = compareSections(items, input.snapshot.flowRuns, Boolean(settings?.flows))
   const grouped = new Set(compares.flatMap((c) => c.items.map((t) => t.ws.id)))
   const plain = items.filter((t) => !grouped.has(t.ws.id))
   // Any view but All shows what it holds, finished or not.

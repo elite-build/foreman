@@ -8,6 +8,7 @@ import { revalidateRepoFlows } from '../src/main/flowFiles'
 import { revalidateRepoPersonas } from '../src/main/personaFiles'
 import { SecretStore } from '../src/main/secrets'
 import { Store } from '../src/main/store'
+import { MAX_PERSONAL_FLOWS } from '../src/shared/flows'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
 import { makeRepo, tempDir } from './helpers'
 
@@ -92,6 +93,18 @@ describe('the flow API', () => {
     await core.shutdown()
   })
 
+  it('keeps at most 100 personal flows, as personas are capped; an edit of one still saves', async () => {
+    const { core, store } = await setup()
+    await core.api.updateSettings({ flows: true })
+    expect(MAX_PERSONAL_FLOWS).toBe(100)
+    store.state.personalFlows = Array.from({ length: MAX_PERSONAL_FLOWS }, (_, i) => ({ id: `flow-${i}`, toml: GOOD.replace('Fix until green', `Mine ${i}`), createdAt: '', updatedAt: '' }))
+    expect(await core.api.savePersonalFlow({ toml: GOOD })).toEqual({ problems: ['There can be at most 100 personal flows.'] })
+    expect(store.state.personalFlows).toHaveLength(MAX_PERSONAL_FLOWS)
+    const edited = await core.api.savePersonalFlow({ id: 'flow-0', toml: GOOD.replace('Fix until green', 'Renamed') })
+    expect('flow' in edited && edited.flow.name).toBe('Renamed')
+    await core.shutdown()
+  })
+
   it('previews a run: what it approves, the inputs it asks for, and why it can’t start; a changed fingerprint is refused', async () => {
     const { core, store } = await setup()
     await core.api.updateSettings({ flows: true })
@@ -99,13 +112,13 @@ describe('the flow API', () => {
     const builtIn = await core.api.flowRunPreview({ flowId: 'built-in:fix-until-green', repoId: repo.id, baseBranch: 'main' })
     expect(builtIn.summary).toMatchObject({ flowName: 'Fix until green', flowSource: 'built-in', repoName: repo.name, baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [{ name: 'developer', source: 'built-in' }, { name: 'qa-engineer', source: 'built-in', readOnly: true }] })
     // Every step kind runs: the starter can start (the default loadouts set the slot its review names).
-    expect(builtIn.summary).toMatchObject({ unsupported: [], notClaude: [], problems: [] })
+    expect(builtIn.summary).toMatchObject({ notClaude: [], problems: [] })
     expect(builtIn.inputs).toEqual([{ name: 'task', description: 'What to build or fix' }])
 
     const saved = await core.api.savePersonalFlow({ toml: RUNNABLE })
     if (!('flow' in saved)) throw new Error('not saved')
     const preview = await core.api.flowRunPreview({ flowId: saved.flow.id, repoId: repo.id, baseBranch: 'main' })
-    expect(preview.summary).toMatchObject({ flowName: 'Runnable', flowSource: 'personal', unsupported: [], notClaude: [], problems: [] })
+    expect(preview.summary).toMatchObject({ flowName: 'Runnable', flowSource: 'personal', notClaude: [], problems: [] })
     await expect(core.api.startFlowRun({ flowId: saved.flow.id, repoId: repo.id, baseBranch: 'main', inputs: { task: 'x' }, shown: { ...preview.fingerprint, flow: 'old' } })).rejects.toThrow(
       'What you approved has changed; run it again. Changed: the flow.'
     )

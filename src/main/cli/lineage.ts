@@ -73,8 +73,8 @@ export const wsLineage: MethodDef = {
 }
 
 const draft: MethodDef = {
-  // Saving writes a personal flow, as `flow add` does.
-  tier: 'act',
+  // Saving writes a personal flow, as `flow add` does, so it is admin like flow add: never from inside an agent turn.
+  tier: 'admin',
   async handle(host, params): Promise<FlowDraftResult> {
     flowsOn(host)
     const p = paramsObject(params)

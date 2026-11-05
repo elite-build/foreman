@@ -49,6 +49,15 @@
   min-width: 0;
   overflow-x: auto;
 }
+/*
+ * The Lineage tab's diagram (its chats side by side, wide even top to bottom) keeps its own size and scrolls sideways,
+ * rather than shrinking to the side panel's width until its words can't be read. Mermaid caps a flowchart at its natural
+ * width (an inline max-width), so a wide width here lands on exactly that, up to this bound. The Flow tab's run graph is
+ * narrow enough top to bottom to fit the panel.
+ */
+.flow-diagram-natural .mmd-view svg {
+  width: 1600px;
+}
 .flow-lens-rows {
   display: flex;
   flex-direction: column;

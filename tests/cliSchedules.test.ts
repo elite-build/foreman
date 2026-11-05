@@ -388,7 +388,7 @@ describe('schedules add --flow (Flows on)', () => {
   const listing = { id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: '', problems: [], warnings: [] } as unknown as FlowListing
   const summary = {
     flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'develop', steps: 6, loops: 2, gates: 1, personas: [{ name: 'developer', source: 'built-in' }],
-    templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], unsupported: [], notClaude: [], problems: []
+    templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [], problems: []
   } as unknown as FlowRunSummary
   const flowView: ScheduleFingerprintView = { fingerprint: { template: 't', setup: 's', checks: 'c', mcp: 'm', flow: 'f', personas: 'p' }, summary: { flow: summary, repoName: 'foreman', baseBranch: 'develop', setupScript: '', checks: [], mcpServers: [], integrations: [] } }
   const flowSpec = { flow: 'fix-until-green', cwd: root, recurrence: 'weekly', on: ['mon'], at: '07:00', tz: 'Europe/London', start: START }

@@ -74,7 +74,7 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
         <p className="faint small">{t('lineage.empty')}</p>
       ) : (
         <>
-          <FlowDiagram source={lineage.mermaid} label={lineage.graph.title} />
+          <FlowDiagram source={lineage.mermaid} label={lineage.graph.title} className="flow-diagram-natural" />
           {lineage.gaps.length > 0 && (
             <Callout tone="info" role="note" title={t('lineage.gaps.title')}>
               <p>{t('lineage.gaps.intro')}</p>

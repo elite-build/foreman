@@ -51,7 +51,8 @@ describe('the lineage API', () => {
     const run = await core.api.workspaceLineage('ws', 'run')
     expect(run.graph.edges).toContainEqual(expect.objectContaining({ from: 'turn:s1:t1', to: 'turn:s2:f1', label: 'forked from', recorded: 'Session.forkedFrom' }))
     expect(run.outline.map((e) => e.id)).toEqual(['turn:s1:t1', 'turn:s2:f1'])
-    expect(run.mermaid).toContain('flowchart LR')
+    // The Lineage tab sits in the side panel, so it reads top to bottom; the command line's --mermaid stays left to right.
+    expect(run.mermaid).toContain('flowchart TB')
     expect(run.gaps).toEqual([])
     const data = await core.api.workspaceLineage('ws', 'data')
     expect(data.graph.nodes.map((n) => n.id)).toEqual(expect.arrayContaining(['tree:base', `tree:${'a'.repeat(12)}`]))

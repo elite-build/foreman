@@ -168,13 +168,22 @@ describe('triage: flow runs', () => {
 
   it('groups the workspaces one run made under the flow’s name, as Compare siblings are grouped', () => {
     const made = (id: string) => ws({ id, name: id, flowRun: { runId: 'run' } })
-    const snapshot = { workspaces: [made('first'), made('second'), ws({ id: 'mine', name: 'mine' })], sessions: [], flowRuns: [run({ workspaces: ['first', 'second'], workspaceId: 'second' })], settings: defaultSettings() } as unknown as AppSnapshot
+    const snapshot = { workspaces: [made('first'), made('second'), ws({ id: 'mine', name: 'mine' })], sessions: [], flowRuns: [run({ workspaces: ['first', 'second'], workspaceId: 'second' })], settings: { ...defaultSettings(), flows: true } } as unknown as AppSnapshot
     const grouped = sidebarGroups({ snapshot, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true })
     expect(grouped.compares).toEqual([expect.objectContaining({ id: 'flow:run', flow: 'Green', items: [expect.objectContaining({ ws: expect.objectContaining({ id: 'first' }) }), expect.objectContaining({ ws: expect.objectContaining({ id: 'second' }) })] })])
     expect(grouped.groups.flatMap((g) => g.items.map((t) => t.ws.id))).toEqual(['mine'])
     // One workspace is no group.
     const alone = { ...snapshot, workspaces: [made('first'), ws({ id: 'mine', name: 'mine' })] } as unknown as AppSnapshot
     expect(sidebarGroups({ snapshot: alone, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true }).compares).toEqual([])
+  })
+
+  it('groups nothing by flow run while Flows are off: the run’s workspaces are plain rows, with no nameless “Flow ·” header', () => {
+    const made = (id: string) => ws({ id, name: id, flowRun: { runId: 'run' } })
+    // Off, the snapshot carries no runs, but each workspace still says which run made it.
+    const snapshot = { workspaces: [made('first'), made('second')], sessions: [], flowRuns: [], settings: { ...defaultSettings(), flows: false } } as unknown as AppSnapshot
+    const grouped = sidebarGroups({ snapshot, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true })
+    expect(grouped.compares).toEqual([])
+    expect(grouped.groups.flatMap((g) => g.items.map((t) => t.ws.id)).sort()).toEqual(['first', 'second'])
   })
 
   it('a stopped run is idle, with why', () => {
