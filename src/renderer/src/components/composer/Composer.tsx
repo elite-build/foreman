@@ -1,5 +1,6 @@
 import { frozenReason } from '../../../../shared/transfer'
-import { ArrowDown, ArrowUp, Check, ClipboardList, MessageSquareQuote, Users, Copy, CornerDownLeft, File as FileIcon, FileText, Image, Lock, Paperclip, Pencil, Send, Square, SquareTerminal, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ClipboardList, MessageSquareQuote, Users, Copy, CornerDownLeft, File as FileIcon, FileText, Image, Lock, Paperclip, Pencil, Send, Square, SquareTerminal, Trash2, Workflow, X } from 'lucide-react'
+import { isActiveRun } from '../../../../shared/flows'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { AGENTS, modelInfo, nextEffort, supportsPlan } from '../../../../shared/agents'
 import { compareBlockFor } from '../../../../shared/compare'
@@ -123,6 +124,8 @@ export function Composer({
   pendingPlan?: Extract<ApprovalRequest, { kind: 'plan' }>
 }) {
   const settings = useStore((s) => s.snapshot!.settings)
+  // A flow run's step is running in this tab: it is unattended, and the chip says whose step it is.
+  const flowRun = useStore((s) => s.snapshot!.flowRuns?.find((r) => isActiveRun(r) && r.steps.at(-1)?.sessionId === session.id))
   const repoTemplates = useStore((s) => s.snapshot!.repoTemplates)
   const platform = useStore((s) => s.snapshot!.platform)
   const [text, setText] = useState('')
@@ -705,6 +708,11 @@ export function Composer({
           {session.readOnly && (
             <Tag title={t(session.agent === 'claude' ? 'readOnlyOpinion.enforced.claude' : 'readOnlyOpinion.enforced.codex')}>
               <Lock size={12} /> {t('readOnlyOpinion.chip')}
+            </Tag>
+          )}
+          {flowRun?.current && (
+            <Tag title={t('flowRun.chip.title')}>
+              <Workflow size={12} aria-hidden /> {t('flowRun.chip', { name: flowRun.flow.name, step: flowRun.current.step })}
             </Tag>
           )}
           {settings.requireToolApprovals && session.autoAcceptEdits && (

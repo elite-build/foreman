@@ -21,7 +21,7 @@ import type { DirListing } from './fileTree'
 import type { ImagePreview } from './imageInfo'
 import type { OpenInChoice, OpenInDetection, OpenInTarget } from './openIn'
 import type { SavedCommand } from './savedCommands'
-import type { FlowListing } from './flows'
+import type { FlowGateShow, FlowListing, FlowRun, FlowRunPreview, FlowRunStart } from './flows'
 import type { DockerLeft, DockerListing, DockerPreview, DockerRemoval } from './docker'
 import type { CloudProviderId, PlanLimits, ProviderCapabilities } from './cloud'
 
@@ -597,6 +597,8 @@ export interface Workspace {
   transfer?: WorkspaceTransfer
   // Created by a schedule: which one, and the run's occurrence id.
   scheduled?: { scheduleId: string; occurrenceId: string }
+  // Created by a flow run (docs/loops-and-graphs.md): the run it belongs to.
+  flowRun?: { runId: string }
   // Integrations switched on or off for this workspace's turns; absent services follow the repository's defaults.
   integrations?: import('./integrations').WorkspaceIntegrations
   createdAt: string
@@ -927,7 +929,8 @@ export interface Session {
   outputStyle?: string
   // A scheduled run: nobody is there to answer, so tools run in auto mode and any approval or question stops it.
   // #17: an auto review's reviewer turn is unattended the same way (its approvals are denied and the review stops).
-  unattended?: { occurrenceId: string } | { autoReviewId: string }
+  // A flow run's turn step is unattended the same way, for that one turn (its approvals stop the run for the human).
+  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string }
   // #17: this tab is an auto review's read-only reviewer; its turns never start another review.
   autoReview?: { reviewId: string }
   // Closed tabs stay restorable until the workspace is archived.
@@ -1438,12 +1441,18 @@ export type ApprovalRequest = {
     }
   | { kind: 'plan'; plan: string }
   | { kind: 'question'; questions: Question[] }
+  // A flow's gate step (docs/loops-and-graphs.md): planned, so it waits for a person instead of stopping the run.
+  | { kind: 'gate'; flowRunId: string; flowName: string; step: string; ask: string; show: FlowGateShow[] }
 )
+
+/** What an agent's turn can ask for: every approval kind but a flow's gate, which Foreman asks itself. */
+export type AgentApprovalRequest = Exclude<ApprovalRequest, { kind: 'gate' }>
 
 export type ApprovalResponse =
   | { kind: 'tool'; allow: boolean; alternate?: boolean; message?: string }
   | { kind: 'plan'; approve: boolean; feedback?: string; handOff?: boolean }
   | { kind: 'question'; answers?: Record<string, string>; skipped?: boolean }
+  | { kind: 'gate'; answer: 'continued' | 'sent-back' | 'stopped'; note?: string }
 
 export interface DiffLine {
   type: 'add' | 'del' | 'ctx'
@@ -2016,6 +2025,8 @@ export interface AppSnapshot {
   // Scheduled templates and their recent runs (R-5).
   schedules: Schedule[]
   occurrences: Occurrence[]
+  // Flow runs (docs/loops-and-graphs.md): in flight and the last finished ones. Empty while Flows are off.
+  flowRuns?: FlowRun[]
   // Hand-offs to and from other Macs, including ones left unresolved (P-4).
   transfers: Transfer[]
   pairedDevices: PairedDevice[]
@@ -2650,6 +2661,12 @@ export interface Api {
   // Saves the document as a personal flow (a new one without `id`); a flow with errors isn't saved and its problems come back.
   savePersonalFlow(input: { id?: string; toml: string }): Promise<{ flow: FlowListing } | { problems: string[] }>
   deletePersonalFlow(id: string): Promise<void>
+  // Running a flow: what starting it would approve (and the inputs it asks for), starting it with the fingerprint that
+  // was shown (refused when it changed since), stopping a run, and the runs (one repository's when given).
+  flowRunPreview(input: { flowId: string; repoId: string; baseBranch: string }): Promise<FlowRunPreview>
+  startFlowRun(input: FlowRunStart): Promise<FlowRun>
+  stopFlowRun(runId: string): Promise<void>
+  listFlowRuns(repoId?: string): Promise<FlowRun[]>
   // #11: tick "Resume at …" on the latest turn's limit card; untick / Cancel / Dismiss; "Resume now" on a missed one.
   armLimitResume(sessionId: string, turnId: string): Promise<void>
   cancelLimitResume(sessionId: string): Promise<void>
@@ -2902,7 +2919,7 @@ export const API_METHODS = [
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
-  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
+  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'flowRunPreview', 'startFlowRun', 'stopFlowRun', 'listFlowRuns', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',

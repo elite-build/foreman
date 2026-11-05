@@ -362,3 +362,47 @@ div.auto-card {
   margin: 0;
   padding-left: 18px;
 }
+
+/* A flow card with its recent runs under it. */
+.flow-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.flow-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+}
+.flow-run-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.flow-run-reason {
+  flex-basis: 100%;
+}
+/* The Run dialog's approval summary: a Card (ui/) holding a two-column list of what the run approves. */
+.flow-run-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.flow-run-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+.flow-run-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

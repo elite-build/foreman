@@ -22,7 +22,7 @@ import type { GitBackupStatus } from '../shared/gitBackup'
 import { addStops, type StopRecord } from '../shared/stopSafely'
 import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
 import type { IntegrationsState } from '../shared/integrations'
-import type { PersonalFlow } from '../shared/flows'
+import type { FlowRun, PersonalFlow } from '../shared/flows'
 import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
 import { migrateRepoFields } from './repoSettings'
 import { ForemanDb } from './db'
@@ -53,6 +53,8 @@ export interface PersistedState {
   occurrences?: Occurrence[]
   // Personal flows (docs/loops-and-graphs.md): the TOML documents, kept beside personal templates in state.json.
   personalFlows?: PersonalFlow[]
+  // Flow runs, like occurrences: written with a synchronous flush before anything of a run launches.
+  flowRuns?: FlowRun[]
   // Paired Macs (keys are in the vault) and hand-offs (P-4).
   devices?: { selfId?: string; paired: PairedDevice[] }
   transfers?: Transfer[]
@@ -227,6 +229,7 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   state.migrations ??= []
   state.schedules ??= []
   state.occurrences ??= []
+  state.flowRuns = (Array.isArray(state.flowRuns) ? state.flowRuns : []).filter((r) => r && typeof r.id === 'string' && typeof r.state === 'string' && Array.isArray(r.steps))
   // Personal flows checked entry by entry; anything malformed is dropped.
   state.personalFlows = (Array.isArray(state.personalFlows) ? state.personalFlows : []).filter(
     (f) => f && typeof f.id === 'string' && typeof f.toml === 'string' && typeof f.createdAt === 'string' && typeof f.updatedAt === 'string'

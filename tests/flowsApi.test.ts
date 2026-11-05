@@ -39,6 +39,12 @@ describe('the flow API', () => {
     await expect(core.api.listFlows()).rejects.toThrow('Flows are off; turn them on in Settings → Experimental.')
     await expect(core.api.savePersonalFlow({ toml: GOOD })).rejects.toThrow('Flows are off')
     await expect(core.api.deletePersonalFlow('x')).rejects.toThrow('Flows are off')
+    await expect(core.api.flowRunPreview({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main' })).rejects.toThrow('Flows are off')
+    await expect(core.api.startFlowRun({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main', inputs: {}, shown: { flow: '', templates: '', setup: '', checks: '', mcp: '' } })).rejects.toThrow('Flows are off')
+    await expect(core.api.stopFlowRun('x')).rejects.toThrow('Flows are off')
+    await expect(core.api.listFlowRuns()).rejects.toThrow('Flows are off')
+    expect(store.state.flowRuns).toEqual([])
+    expect(core.snapshot().flowRuns).toEqual([])
     expect(store.state.personalFlows).toEqual([])
     await core.shutdown()
   })
@@ -80,4 +86,48 @@ describe('the flow API', () => {
     expect((await core.api.listFlows()).filter((f) => f.source === 'personal')).toEqual([])
     await core.shutdown()
   })
+
+  it('previews a run: what it approves, the inputs it asks for, and why it can’t start; a changed fingerprint is refused', async () => {
+    const { core, store } = await setup()
+    await core.api.updateSettings({ flows: true })
+    const repo = await core.api.addRepo(await makeRepo())
+    const builtIn = await core.api.flowRunPreview({ flowId: 'built-in:fix-until-green', repoId: repo.id, baseBranch: 'main' })
+    expect(builtIn.summary).toMatchObject({ flowName: 'Fix until green', flowSource: 'built-in', repoName: repo.name, baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: ['developer', 'qa-engineer'] })
+    expect(builtIn.summary.unsupported).toEqual([{ step: 'review', kind: 'review' }])
+    expect(builtIn.inputs).toEqual([{ name: 'task', description: 'What to build or fix' }])
+
+    const saved = await core.api.savePersonalFlow({ toml: RUNNABLE })
+    if (!('flow' in saved)) throw new Error('not saved')
+    const preview = await core.api.flowRunPreview({ flowId: saved.flow.id, repoId: repo.id, baseBranch: 'main' })
+    expect(preview.summary).toMatchObject({ flowName: 'Runnable', flowSource: 'personal', unsupported: [], notClaude: [], problems: [] })
+    await expect(core.api.startFlowRun({ flowId: saved.flow.id, repoId: repo.id, baseBranch: 'main', inputs: { task: 'x' }, shown: { ...preview.fingerprint, flow: 'old' } })).rejects.toThrow(
+      'What you approved has changed; run it again. Changed: the flow.'
+    )
+    expect(store.state.flowRuns).toEqual([])
+    await core.shutdown()
+  })
 })
+
+const RUNNABLE = `name = "Runnable"
+
+[start]
+step = "build"
+
+[steps.build]
+kind = "turn"
+prompt = "Build {{task}}"
+
+[steps.checks]
+kind = "checks"
+
+[steps.ok]
+kind = "gate"
+
+[edges]
+build = "checks"
+checks = { passed = "ok", failed = "build" }
+
+[loops.again]
+over = ["build", "checks"]
+at_most = { iterations = 2 }
+`

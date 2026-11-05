@@ -19,7 +19,7 @@ import { formatClock } from '../../../shared/i18n/time'
 import { Button, Callout, Checkbox, ChipButton, flash, LinkButton, MenuButton, MenuItem, MenuLabel, MenuSeparator, Pressable, Spinner, Tag } from '../ui'
 import { hasNote } from '../../../shared/note'
 import { formatDuration } from './turnResult'
-import { QuestionPanel, ToolApprovalPanel } from './ApprovalPanel'
+import { GatePanel, QuestionPanel, ToolApprovalPanel } from './ApprovalPanel'
 import { AttachmentChip, Composer } from './composer/Composer'
 import { UserMessageText } from './composer/TerminalDraft'
 import { AgentIcon } from './composer/AgentPicker'
@@ -362,6 +362,7 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const toolRequest = pending.find((a): a is Extract<ApprovalRequest, { kind: 'tool' }> => a.kind === 'tool')
   const question = pending.find((a): a is Extract<ApprovalRequest, { kind: 'question' }> => a.kind === 'question')
   const plan = pending.find((a): a is Extract<ApprovalRequest, { kind: 'plan' }> => a.kind === 'plan')
+  const gate = pending.find((a): a is Extract<ApprovalRequest, { kind: 'gate' }> => a.kind === 'gate')
   const background = useMemo(() => items.filter((i): i is ToolItem => i.kind === 'tool' && i.task?.status === 'running' && Boolean(i.task.background)), [items])
   // Continue (on the latest answer's menu): only once the chat is idle, so it isn't worked out while a turn streams.
   const continuation = useMemo(() => {
@@ -557,6 +558,8 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
         <ToolApprovalPanel request={toolRequest} workspacePath={workspace.path ?? ''} />
       ) : question ? (
         <QuestionPanel request={question} />
+      ) : gate ? (
+        <GatePanel request={gate} workspaceId={workspace.id} />
       ) : (
         <Activity mode={mode}>
           {!hasHistory && session.queue.length === 0 && hasNote(workspace.note) && (

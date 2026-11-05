@@ -12,7 +12,7 @@ import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from '
 import { ENV_NAME } from '../shared/envfile'
 import { PROVIDER_KEYS } from '../shared/providers'
 import { tailLines } from '../shared/setupLog'
-import { type AgentKeyName, type Api, type AppSnapshot, type CreateWorkspaceOptions, type EnvScope, type GitlabConnection, type GitlabHostRow, type GitStatus, type HeldMessage, type IntakeFile, type MainEvent, type Occurrence, type PromptTemplate, type Schedule, type ScheduleFingerprint, type ScheduleFingerprintView, type Settings, type Signals, type Workspace } from '../shared/types'
+import { type AgentKeyName, type Api, type AppSnapshot, type CheckResult, type CreateWorkspaceOptions, type EnvScope, type GitlabConnection, type GitlabHostRow, type GitStatus, type HeldMessage, type IntakeFile, type MainEvent, type Occurrence, type PromptTemplate, type Repo, type Schedule, type ScheduleFingerprint, type ScheduleFingerprintView, type Settings, type Signals, type Workspace } from '../shared/types'
 import { driverFor } from './agents/registry'
 import { catalogLoginCommand, executablePathFor, setAgentRuntimeDir } from './agents/catalogDrivers'
 import { onAcpModes } from './agents/acp'
@@ -36,7 +36,9 @@ import { probePreview } from './previewProbe'
 import { browserUrl } from '../shared/browser'
 import { readRepoTemplates, revalidateRepoTemplates } from './repoTemplates'
 import { listFlows, personalFlowListing } from './flowFiles'
-import { MAX_FLOW_BYTES, parseFlow, type FlowListing } from '../shared/flows'
+import { MAX_FLOW_BYTES, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunPreview, type FlowRunStart } from '../shared/flows'
+import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowTemplate, type PreparedFlow } from './flows'
+import { isFailure } from '../shared/checks'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
 import { commandInputWithStatus, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
@@ -248,6 +250,8 @@ export function expandPorts(template: string, port: number): string {
 /** What only the app itself may ask for when it makes a workspace. */
 interface InternalStart {
   scheduled?: { scheduleId: string; occurrenceId: string }
+  // A flow run's first step: the workspace is the run's, and its first turn is unattended as that step.
+  flowRun?: { runId: string; step: string }
   onChat?: (workspaceId: string, sessionId: string) => void
 }
 
@@ -307,6 +311,8 @@ export class Core {
   readonly compare: CompareService
   readonly repoMcp: RepoMcp
   readonly schedules: ScheduleService
+  // Flows (docs/loops-and-graphs.md), behind Settings → Experimental → Flows.
+  readonly flows: FlowService
   readonly devices: Devices
   readonly net: DeviceNet
   // Other computers: this one controlled from a paired computer, and the paired computers this window can show.
@@ -582,6 +588,7 @@ export class Core {
         if (ended && !ended.prInfo && this.slack.hasRules() && this.workspaces.repo(ended.repoId).hasOrigin) void this.prs.get(ended, { fresh: true })
         this.autoChecks.turnEnded(session.workspaceId, outcome)
         this.schedules.turnEnded(sessionId, outcome)
+        void this.flows.turnEnded(sessionId, session.lastTurn?.turnId, outcome).catch(() => undefined)
         this.diffSelections.wake(sessionId)
         if (session.lastTurn?.turnId) this.autoFix.turnEnded(session.lastTurn.turnId, outcome)
         // #17: a worker's completed turn may make a review owed (only where the repo opted in); a reviewer's settles its review.
@@ -589,6 +596,7 @@ export class Core {
       },
       unattendedStopped: (sessionId, what) => {
         this.schedules.needsHuman(sessionId, what)
+        this.flows.needsHuman(sessionId, what)
         this.autoReview.needsHuman(sessionId, what)
       },
       activity: (sessionId) => this.limitResume.activity(sessionId),
@@ -667,6 +675,36 @@ export class Core {
         }),
       paused: () => Boolean(this.stopSafely?.isDraining),
       ready: () => ghActiveAccountReady(),
+      changed
+    })
+    this.flows = new FlowService({
+      store,
+      now: () => Date.now(),
+      prepare: (flowId, repoId) => this.prepareFlow(flowId, repoId),
+      loadouts: () => this.store.state.settings.loadouts,
+      launch: (run, first, handle) => this.launchFlowRun(run, first, handle),
+      // Never in plan mode: nobody is there to review a plan.
+      createSession: (workspaceId, loadout) => this.sessions.createSession(workspaceId, { agent: loadout.agent, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false }).id,
+      deliver: async (sessionId, text, options) => {
+        this.sessions.markUnattended(options.turnId, options.unattended)
+        await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId })
+      },
+      cancel: (sessionId) => this.sessions.cancel(sessionId),
+      startChecks: (workspaceId) => this.startFlowChecks(workspaceId),
+      cancelChecks: (workspaceId) => this.checks.cancel(workspaceId),
+      checksResults: (workspaceId) => this.failingChecksText(workspaceId),
+      readChat: (sessionId) => this.store.readChat(sessionId),
+      reported: (workspaceId, turnId) => (this.store.state.workspaces.find((w) => w.id === workspaceId)?.agentReports ?? []).filter((r) => r.turnId === turnId).map((r) => r.kind),
+      diffStat: (workspaceId) => this.diffStatText(workspaceId),
+      note: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.note?.text,
+      requestGate: (sessionId, request) => this.sessions.requestGate(sessionId, request),
+      cancelGate: (id) => this.sessions.cancelGate(id),
+      turnStart: (sessionId) => {
+        const session = this.store.state.sessions.find((s) => s.id === sessionId)
+        if (session?.waitingForSlot) return 'waiting'
+        return session?.turnId ? session.turnStartedAt : undefined
+      },
+      paused: () => Boolean(this.stopSafely?.isDraining),
       changed
     })
     this.data = new DataService(store, undefined, this.claudeMirror)
@@ -1457,11 +1495,14 @@ export class Core {
     if (!repo) return { error: 'the repository was removed' }
     const template = this.workspaces.template(schedule.templateId)
     if (!template) return { error: `the template “${schedule.templateName}” no longer exists` }
+    return { templateBody: template.body, templateRev: template.rev, ...this.repoApprovalParts(repo) }
+  }
+
+  /** What an unattended run's approval covers in the repository: its setup script, checks, MCP servers and integrations. */
+  private repoApprovalParts(repo: Repo): Pick<FingerprintInputs, 'setupScript' | 'checks' | 'mcp'> {
     const settings = this.workspaces.settingsFor(repo.id)
     const layer = readSharedLayer(repo.rootPath)
     return {
-      templateBody: template.body,
-      templateRev: template.rev,
       setupScript: settings.setupScript,
       checks: settings.checks.map((c) => ({ name: c.name, command: c.command })),
       mcp: [
@@ -1470,6 +1511,20 @@ export class Core {
         ...this.integrationFingerprint(repo.id)
       ]
     }
+  }
+
+  /** The accounts a run's agent gets from Integrations, in words ("linear: Work (read)"), as an approval shows them. */
+  private integrationLines(repoId: string): string[] {
+    const own = this.integrations.repoChoices(repoId)?.allowOwnMcp
+    return [
+      ...(['github', 'linear', 'slack', 'langfuse'] as const).flatMap((service) => {
+        const r = this.integrations.resolve(repoId, service)
+        if (r.state === 'broken') return [`${service}: unavailable`]
+        if (r.state !== 'ready') return []
+        return [`${service}: ${r.connection.name}${service === 'linear' || service === 'langfuse' ? ` (${r.connection.agentAccess})` : ''}`]
+      }),
+      ...(own?.length ? [`your own ${[...own].sort().join(', ')} servers stay on`] : [])
+    ]
   }
 
   /** What agents in a repository get from Integrations, for schedule fingerprints ([] when nothing, so older schedules stay approved). */
@@ -1550,7 +1605,6 @@ export class Core {
     if (problem) throw new Error(problem)
     const { template, inputs } = this.checkedScheduleInputs(input)
     const repo = this.workspaces.repo(input.repoId)
-    const own = this.integrations.repoChoices(repo.id)?.allowOwnMcp
     return {
       fingerprint: fingerprintOf(inputs),
       summary: {
@@ -1562,17 +1616,135 @@ export class Core {
         setupScript: inputs.setupScript,
         checks: inputs.checks,
         mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
-        integrations: [
-          ...(['github', 'linear', 'slack', 'langfuse'] as const).flatMap((service) => {
-            const r = this.integrations.resolve(repo.id, service)
-            if (r.state === 'broken') return [`${service}: unavailable`]
-            if (r.state !== 'ready') return []
-            return [`${service}: ${r.connection.name}${service === 'linear' || service === 'langfuse' ? ` (${r.connection.agentAccess})` : ''}`]
-          }),
-          ...(own?.length ? [`your own ${[...own].sort().join(', ')} servers stay on`] : [])
-        ]
+        integrations: this.integrationLines(repo.id)
       }
     }
+  }
+
+  // ---- flow runs (docs/loops-and-graphs.md) ----
+
+  /** A flow as it stands now in this repository: the document, the templates its steps name, and what an approval covers. */
+  private prepareFlow(flowId: string, repoId: string): PreparedFlow | { error: string } {
+    const repo = this.store.state.repos.find((r) => r.id === repoId)
+    if (!repo) return { error: 'The repository was removed.' }
+    const t = mainT(this.store.state.settings)
+    const listing = listFlows(this.store.state.repos, this.store.state.personalFlows ?? [], t, repoId).find((f) => f.id === flowId)
+    if (!listing) return { error: 'That flow isn’t there any more.' }
+    const parsed = parseFlow(listing.toml, listing.source, t)
+    if ('problems' in parsed) return { error: `This flow has problems: ${parsed.problems.join(' ')}` }
+    const flow: Flow = parsed.flow
+    const all = [...this.store.state.settings.promptTemplates, ...readRepoTemplates(repo.id, repo.rootPath)]
+    const templates: Record<string, FlowTemplate | undefined> = {}
+    for (const step of flow.steps) {
+      if (step.kind !== 'turn' || !step.template || step.template in templates) continue
+      const ref = step.template
+      const found = all.find((x) => x.id === ref) ?? all.find((x) => x.name.trim().toLowerCase() === ref.trim().toLowerCase())
+      templates[ref] = found && { id: found.id, name: found.name, body: found.body, ...(found.rev ? { rev: found.rev } : {}), source: found.source === 'repo' ? 'repo' : 'personal' }
+    }
+    const fingerprint = flowFingerprintOf({ flow, templates: Object.values(templates).filter((x): x is FlowTemplate => Boolean(x)), ...this.repoApprovalParts(repo) })
+    const ref: FlowRun['flow'] = { id: listing.id, name: flow.name, source: listing.source, ...(listing.starter ? { starter: listing.starter } : {}), ...(listing.file ? { file: listing.file } : {}), ...(listing.rev ? { rev: listing.rev } : {}) }
+    return { flow, ref, templates, fingerprint }
+  }
+
+  /** What starting a flow in this repository would approve now, and the values it asks for (the Run dialog). */
+  private flowRunPreview(input: { flowId: string; repoId: string; baseBranch: string }): FlowRunPreview {
+    this.flowsOn()
+    const repo = this.workspaces.repo(input?.repoId)
+    const prepared = this.prepareFlow(input.flowId, repo.id)
+    if ('error' in prepared) throw new Error(prepared.error)
+    const { flow } = prepared
+    const parts = this.repoApprovalParts(repo)
+    const { problems, unsupported, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
+    const personas: string[] = []
+    for (const step of flow.steps) if ('persona' in step && step.persona && !personas.includes(step.persona)) personas.push(step.persona)
+    return {
+      fingerprint: prepared.fingerprint,
+      summary: {
+        flowName: flow.name,
+        flowSource: prepared.ref.source,
+        ...(prepared.ref.starter ? { starter: prepared.ref.starter } : {}),
+        ...(prepared.ref.file ? { flowFile: prepared.ref.file } : {}),
+        ...(prepared.ref.rev ? { flowRev: prepared.ref.rev } : {}),
+        repoName: repo.name,
+        baseBranch: (input.baseBranch ?? '').trim(),
+        steps: flow.steps.length,
+        loops: flow.loops.length,
+        gates: flow.steps.filter((s) => s.kind === 'gate').length,
+        personas,
+        templates: Object.values(prepared.templates).flatMap((x) => (x ? [{ name: x.name, ...(x.rev ? { rev: x.rev } : {}), source: x.source }] : [])),
+        setupScript: parts.setupScript,
+        checks: parts.checks,
+        mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
+        integrations: this.integrationLines(repo.id),
+        unsupported,
+        notClaude,
+        // The unsupported steps and non-Claude turns have their own lines in the dialog.
+        problems: problems.filter((p) => !(unsupported.length && p.startsWith('This version of Foreman')) && !(notClaude.length && p.startsWith('Unattended turns')))
+      },
+      inputs: flowRunInputs(prepared)
+    }
+  }
+
+  private startFlowRun(input: FlowRunStart): FlowRun {
+    this.flowsOn()
+    if (!input || typeof input !== 'object') throw new Error('Choose a flow to start.')
+    this.workspaces.repo(input.repoId)
+    return this.flows.begin(input)
+  }
+
+  /**
+   * A flow run's first step: a fresh workspace made the way a scheduled run's is, its first chat unattended for that turn.
+   * Resolves once the first turn has started.
+   */
+  private async launchFlowRun(run: FlowRun, first: { text: string; loadout: Loadout; step: string }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
+    const ws = await this.createFromOptions(
+      run.repoId,
+      { prompt: first.text, baseBranch: run.baseBranch, branch: { kind: 'new' }, loadout: first.loadout },
+      { flowRun: { runId: run.id, step: first.step }, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
+    )
+    const setup = await this.setupOutcome(ws.id)
+    if (setup.failed || setup.held) throw new Error(`Setup failed, so the first message was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
+    if (!(await this.firstTurn(ws.id))) throw new Error('The first turn did not start.')
+  }
+
+  /** A checks step: after any check run already going here, the repository's checks, never approving a command. */
+  private async startFlowChecks(workspaceId: string): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }> {
+    while (this.checks.isRunning(workspaceId)) await new Promise((r) => setTimeout(r, 500))
+    try {
+      const started = await this.checks.start(workspaceId, { approve: false })
+      return started.kind === 'consent' ? { kind: 'consent', names: started.items.map((i) => i.name) } : started
+    } catch (err) {
+      if (err instanceof ChecksError && err.code === 'not-configured') return { kind: 'not-configured' }
+      throw err
+    }
+  }
+
+  /** The failing checks' commands and the end of each log, as a step's `checks.results` section. Empty when none failed. */
+  private async failingChecksText(workspaceId: string): Promise<string> {
+    const failing = this.checks.failing(workspaceId).slice(0, 6)
+    const parts: string[] = []
+    for (const check of failing) {
+      const log = await readFile(check.logPath, 'utf8').catch(() => '')
+      const tail = tailLines(log, 60).slice(-4000)
+      parts.push(`### ${check.name}${check.exitCode !== undefined ? ` (exit ${check.exitCode})` : ''}\n\n\`${check.command.split('\n')[0]}\`\n\n\`\`\`\n${tail.trim() || '(no output)'}\n\`\`\``)
+    }
+    const others = (this.store.state.workspaces.find((w) => w.id === workspaceId)?.checks?.results ?? []).filter((r) => !isFailure(r))
+    if (parts.length && others.length) parts.push(`Not failing: ${others.map((r) => `${r.name} (${r.status})`).join(', ')}`)
+    return parts.join('\n\n')
+  }
+
+  /** The workspace's changes against its base as a stat: a line per file and the totals last. */
+  private async diffStatText(workspaceId: string): Promise<string> {
+    const ws = this.store.state.workspaces.find((w) => w.id === workspaceId)
+    if (!ws) return ''
+    const diff = await workspaceDiff(ws, 'all').catch(() => null)
+    if (!diff?.files.length) return ''
+    const lines = diff.files.slice(0, 80).map((f) => `${f.path} +${f.additions} −${f.deletions}`)
+    if (diff.files.length > 80) lines.push(`… and ${diff.files.length - 80} more files`)
+    const additions = diff.files.reduce((n, f) => n + f.additions, 0)
+    const deletions = diff.files.reduce((n, f) => n + f.deletions, 0)
+    lines.push(`${diff.files.length} file${diff.files.length === 1 ? '' : 's'} changed, +${additions} −${deletions}`)
+    return lines.join('\n')
   }
 
   /**
@@ -1674,15 +1846,16 @@ export class Core {
     // An explicit model wins; otherwise the template's start model, which only ever applies to a chat started here.
     const template = this.workspaces.template(templateId)
     // Get started: a workspace started from a template (a scheduled run is not the person trying one).
-    if (template && !internal?.scheduled) this.recordMilestone('template')
+    if (template && !internal?.scheduled && !internal?.flowRun) this.recordMilestone('template')
     const chosen = chooseStartLoadout(loadout, template).loadout
     const session = this.sessions.createSession(workspaceId, {
       ...(chosen ? { agent: chosen.agent, model: chosen.model, effort: chosen.effort, fastMode: chosen.fast } : {}),
       // A scheduled run never starts in plan mode: nobody is there to review a plan.
-      ...(internal?.scheduled ? { planMode: false } : {})
+      ...(internal?.scheduled || internal?.flowRun ? { planMode: false } : {})
     })
     // Marked before the first message can go, so the run is unattended from its first tool call.
     if (internal?.scheduled) session.unattended = { occurrenceId: internal.scheduled.occurrenceId }
+    if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step }
     internal?.onChat?.(workspaceId, session.id)
     if (prompt?.trim() || files?.length) {
       this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}) })
@@ -1724,9 +1897,10 @@ export class Core {
     }
     const ws = await this.workspaces.createWorkspace(repoId, create)
     if (internal?.scheduled) ws.scheduled = internal.scheduled
+    if (internal?.flowRun) ws.flowRun = { runId: internal.flowRun.runId }
     const integrations = this.startingIntegrations(repoId, options?.integrations)
     if (integrations) ws.integrations = integrations
-    if (internal?.scheduled || integrations) this.store.save()
+    if (internal?.scheduled || internal?.flowRun || integrations) this.store.save()
     this.startChat(ws.id, options?.prompt, options?.loadout, options?.templateId, intake, internal, options?.attachments)
     return ws
   }
@@ -2050,6 +2224,7 @@ export class Core {
       pairedDevices: this.devices.list(),
       schedules: this.schedules.schedules,
       occurrences: this.schedules.occurrences,
+      flowRuns: settings.flows ? this.flows.runs : [],
       platform: process.platform,
       homeDir: os.homedir(),
       screenReader: this.host.screenReader?.() ?? false,
@@ -2492,6 +2667,16 @@ export class Core {
     listFlows: async (repoId) => this.listFlows(repoId),
     savePersonalFlow: async (input) => this.savePersonalFlow(input),
     deletePersonalFlow: async (id) => this.deletePersonalFlow(id),
+    flowRunPreview: async (input) => this.flowRunPreview(input),
+    startFlowRun: async (input) => this.startFlowRun(input),
+    stopFlowRun: async (runId) => {
+      this.flowsOn()
+      await this.flows.stopRun(runId)
+    },
+    listFlowRuns: async (repoId) => {
+      this.flowsOn()
+      return this.flows.list(repoId)
+    },
     armLimitResume: async (sessionId, turnId) => {
       await this.limitResume.arm(sessionId, turnId)
     },
@@ -3125,6 +3310,8 @@ export class Core {
       if (patch.restoreTerminals === false) this.terminals.clear()
       // Turning the assistant off (or privacy mode on) stops what it is answering.
       if (patch.assistantEnabled === false || patch.privacyMode === true) void this.assistant.stopAll()
+      // Turning Flows off stops the runs in flight as Stop would, saying why.
+      if (patch.flows === false) void this.flows.stopAll('Stopped: Flows were turned off in Settings → Experimental.')
       if (patch.scriptShell) setScriptShell(patch.scriptShell)
       this.store.save()
       if (patch.theme) this.host.applyTheme(settings.theme)
@@ -3235,6 +3422,7 @@ export class Core {
     this.autoReview.dispose()
     this.baseWatch.stop()
     this.schedules.stopTimer()
+    this.flows.stopTimer()
     this.autoArchive.stop()
     this.limitResume.stopTimer()
     if (this.powerTimer) clearInterval(this.powerTimer)

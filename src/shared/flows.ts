@@ -546,3 +546,149 @@ export function validateFlow(flow: Flow, t: TFunction = enT): FlowProblem[] {
   for (const step of flow.steps) if (names.has(flow.start) && !fromStart.has(step.name)) warn(t('flows.problem.unreachable', { step: step.name }))
   return out
 }
+
+// ---- runs ----
+
+/** The step kinds a run can carry out in this version; a flow with any other kind is refused before it starts. */
+export const FLOW_RUNNABLE_KINDS: readonly FlowStepKind[] = ['turn', 'checks', 'gate']
+
+/** The steps a run can't carry out yet, in the file's order. */
+export function unsupportedSteps(flow: Flow): { step: string; kind: FlowStepKind }[] {
+  return flow.steps.filter((s) => !FLOW_RUNNABLE_KINDS.includes(s.kind)).map((s) => ({ step: s.name, kind: s.kind }))
+}
+
+/** Something a gate shows the person deciding, in words ("Tests failed, Types passed"); `step` names whose answer. */
+export interface FlowGateShow {
+  kind: 'diff' | 'checks.results' | 'review.findings' | 'step.answer'
+  step?: string
+  summary: string
+}
+
+/** waiting: at a gate. needs-you: an unattended turn asked for something and was stopped. uncertain: Foreman closed mid-run; never retried. */
+export type FlowRunState = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'needs-you' | 'stopped' | 'cancelled' | 'uncertain'
+export const FLOW_RUN_ACTIVE: readonly FlowRunState[] = ['starting', 'running', 'waiting']
+export const isActiveRun = (run: Pick<FlowRun, 'state'>): boolean => FLOW_RUN_ACTIVE.includes(run.state)
+
+export type FlowRunStepState = 'running' | 'completed' | 'failed' | 'waiting' | 'skipped' | 'stopped'
+
+/** One execution of a step: a step that runs again (a loop) gets another entry. */
+export interface FlowRunStep {
+  name: string
+  kind: FlowStepKind
+  // How many times this step has run in this run, this one included.
+  iteration: number
+  // The loops spanning it, with the iteration each was on.
+  loops?: Record<string, number>
+  state: FlowRunStepState
+  startedAt: string
+  endedAt?: string
+  sessionId?: string
+  turnId?: string
+  // The fact that chose the next step ("failed", "continued").
+  fact?: string
+  // What happened, in words ("Tests failed, Types passed").
+  detail?: string
+  delta?: { files: number; additions: number; deletions: number }
+  // The context sections its message carried, in order ("task", "implement.answer", "checks.results").
+  shown?: string[]
+  // Minutes this step counted against its loops (a gate counts none).
+  minutes?: number
+}
+
+/** A loop's current pass: it starts when the run enters the loop's steps from outside, and its bounds count within it. */
+export interface FlowRunLoop {
+  iterations: number
+  startedAt: string
+  minutesUsed: number
+  // The loop's steps entered in this iteration; entering one again starts the next iteration.
+  visited: string[]
+}
+
+/** What a run's approval covers, part by part, so a refusal can say which part changed. */
+export interface FlowFingerprint {
+  flow: string
+  templates: string
+  setup: string
+  checks: string
+  mcp: string
+}
+
+export interface FlowRun {
+  id: string
+  flow: { id: string; name: string; source: FlowSource; starter?: string; file?: string; rev?: string }
+  repoId: string
+  baseBranch: string
+  inputs: Record<string, string>
+  fingerprint: FlowFingerprint
+  state: FlowRunState
+  reason?: string
+  startedAt: string
+  endedAt?: string
+  workspaceId?: string
+  // The first message as sent: the run's task, which a step's `task` context carries.
+  task?: string
+  current?: { step: string; iteration: number }
+  steps: FlowRunStep[]
+  loops: Record<string, FlowRunLoop>
+  // Each loop's steps and bounds as the flow said when the run started, so a run can be shown without its file.
+  bounds?: Record<string, { over: string[]; iterations?: number; minutes?: number; cost?: number }>
+  // A gate's "Send back" note, carried to the next step's message and then cleared.
+  note?: string
+}
+
+/** What starting a flow would approve, as the Run dialog shows it. */
+export interface FlowRunSummary {
+  flowName: string
+  flowSource: FlowSource
+  starter?: string
+  flowFile?: string
+  flowRev?: string
+  repoName: string
+  baseBranch: string
+  steps: number
+  loops: number
+  gates: number
+  personas: string[]
+  templates: { name: string; rev?: string; source: 'personal' | 'repo' }[]
+  setupScript: string
+  checks: { name: string; command: string }[]
+  mcpServers: string[]
+  integrations: string[]
+  // Steps of kinds a run can't carry out yet, and turn steps whose agent isn't Claude: either refuses the run.
+  unsupported: { step: string; kind: FlowStepKind }[]
+  notClaude: { step: string; agent: string }[]
+  // Other reasons it can't start (a template that doesn't exist, a loadout slot that isn't set).
+  problems: string[]
+}
+
+export interface FlowRunPreview {
+  fingerprint: FlowFingerprint
+  summary: FlowRunSummary
+  // The values a run asks for: the flow's [inputs] and its templates' {{placeholders}}.
+  inputs: { name: string; description: string }[]
+}
+
+export interface FlowRunStart {
+  flowId: string
+  source?: FlowSource
+  repoId: string
+  baseBranch: string
+  inputs: Record<string, string>
+  // The fingerprint the caller showed; the run is refused when it is no longer what would run.
+  shown: FlowFingerprint
+}
+
+/** The active run a workspace belongs to, else its latest run. */
+export function runForWorkspace(runs: readonly FlowRun[] | undefined, workspaceId: string): FlowRun | undefined {
+  const mine = (runs ?? []).filter((r) => r.workspaceId === workspaceId)
+  return mine.find(isActiveRun) ?? mine.sort((a, b) => a.startedAt.localeCompare(b.startedAt)).at(-1)
+}
+
+/** The loops spanning the run's current step with their bounds: "iteration 2 of at most 4 · 18 of 45 min" as numbers. */
+export function currentLoopBounds(run: FlowRun): { loop: string; iteration: number; maxIterations?: number; minutes: number; maxMinutes?: number }[] {
+  const at = run.current?.step
+  if (!at) return []
+  return Object.entries(run.bounds ?? {})
+    .filter(([name, b]) => b.over.includes(at) && run.loops[name])
+    .map(([name, b]) => ({ loop: name, iteration: run.loops[name].iterations, maxIterations: b.iterations, minutes: Math.floor(run.loops[name].minutesUsed), maxMinutes: b.minutes }))
+}

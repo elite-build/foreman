@@ -1,0 +1,43 @@
+/* A flow run's Flow tab: the header lines and the steps as a column of cards. Layout only; the Cards, Status and
+   Button (ui/) draw themselves. */
+.flow-run {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+.flow-run-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.flow-run-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.flow-run-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The doubled class beats .ui-pressable's display and padding, which load later. */
+.flow-step.flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: start;
+}
+.flow-step-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}

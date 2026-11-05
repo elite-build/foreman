@@ -19,6 +19,7 @@ import { usageLimitOf } from '../shared/usageLimit'
 import { PreviewEncoder, RESYNC_MS, type ChatAppend } from '../shared/chatAppend'
 import type { DiffComment, NotifyKind, QueueChangeResult, QueueMove, SendReceipt, TurnDelta, TurnInterruption, TurnStatus, UsageLimit, WorkspaceUsage } from '../shared/types'
 import type {
+  AgentApprovalRequest,
   ApprovalRequest,
   ApprovalResponse,
   Attachment,
@@ -97,7 +98,7 @@ export interface SessionEvents {
 }
 
 // An approval request before it gets its id and session.
-type NewApproval = ApprovalRequest extends infer R ? (R extends ApprovalRequest ? Omit<R, 'id' | 'sessionId'> : never) : never
+type NewApproval = AgentApprovalRequest extends infer R ? (R extends AgentApprovalRequest ? Omit<R, 'id' | 'sessionId'> : never) : never
 
 interface PendingApproval {
   request: ApprovalRequest
@@ -214,6 +215,8 @@ export class SessionService {
   // Cloud: chats whose queue waits while a turn they lost the connection to is looked for (drainQueue).
   private draining = new Set<string>()
   private approvals = new Map<string, PendingApproval>()
+  // Turns to run unattended when they start (a flow's turn step, possibly queued behind another turn), by turn id.
+  private unattendedTurns = new Map<string, NonNullable<Session['unattended']>>()
   private naming = new Set<string>()
   // Turns to stop the moment their agent exists (cancelled while still starting).
   private cancelOnStart = new Set<string>()
@@ -979,6 +982,12 @@ export class SessionService {
   private async beginTurn(session: Session, ws: Workspace, text: string, attachments: Attachment[], followUp?: MessageFollowUp, id?: string, extras: TurnExtras = {}): Promise<void> {
     const sessionId = session.id
     const turnId = id ?? randomUUID()
+    // A flow's turn step is unattended from its first tool call, for this turn only (endTurn clears it).
+    const unattended = this.unattendedTurns.get(turnId)
+    if (unattended) {
+      this.unattendedTurns.delete(turnId)
+      session.unattended = unattended
+    }
     const checkpointId = startCheckpointId(sessionId, turnId)
     const firstMessage = !session.agentSessionId && !session.lastAssistantUuid
     const note = this.noteDelivery(session, ws, extras.noteRevision)
@@ -1873,7 +1882,7 @@ export class SessionService {
 
   private requestApproval(sessionId: string, request: NewApproval, signal: AbortSignal): Promise<ApprovalResponse> {
     const id = randomUUID()
-    const full = { id, sessionId, ...request } as ApprovalRequest
+    const full = { id, sessionId, ...request } as AgentApprovalRequest
     const session = this.session(sessionId)
     const ws = this.workspaces.workspace(session.workspaceId)
     if (session.unattended) return this.denyUnattended(session, full)
@@ -1888,6 +1897,31 @@ export class SessionService {
     })
   }
 
+  /** The turn with this id runs unattended when it starts: tools in auto mode, and any approval or question stops it. */
+  markUnattended(turnId: string, mark: NonNullable<Session['unattended']>): void {
+    this.unattendedTurns.set(turnId, mark)
+  }
+
+  /**
+   * A flow's gate: a planned question for a person, shown with the chat's approvals (Needs you, notifications, the
+   * phone). Only the flow cancels it; a turn ending or stopping in the chat leaves it waiting.
+   */
+  requestGate(sessionId: string, request: Omit<Extract<ApprovalRequest, { kind: 'gate' }>, 'id' | 'sessionId'>): { id: string; answer: Promise<ApprovalResponse> } {
+    const id = randomUUID()
+    const full: ApprovalRequest = { id, sessionId, ...request }
+    const session = this.session(sessionId)
+    const ws = this.workspaces.workspace(session.workspaceId)
+    const answer = new Promise<ApprovalResponse>((resolve) => this.approvals.set(id, { request: full, resolve }))
+    this.events.approval(full)
+    this.events.notify(ws.id, sessionId, this.label(session, ws), this.t()('notify.approval.gate', { flow: request.flowName, step: request.step }), 'attention')
+    return { id, answer }
+  }
+
+  /** The flow stopped or moved on: its gate is answered as stopped and leaves Needs you. */
+  cancelGate(id: string): void {
+    this.cancelApproval(id)
+  }
+
   /**
    * A scheduled run has nobody to answer. The request is denied (never shown as pending), the run is stopped, and the
    * chat becomes an ordinary one the human can open and continue.
@@ -1895,9 +1929,10 @@ export class SessionService {
   private denyUnattended(session: Session, request: ApprovalRequest): Promise<ApprovalResponse> {
     const what =
       request.kind === 'tool' ? `it asked for permission to use ${request.toolName}` : request.kind === 'plan' ? 'it proposed a plan for approval' : 'it asked a question'
-    // #17: an auto review's reviewer is unattended the same way; its words say so.
+    // #17: an auto review's reviewer is unattended the same way; its words say so. So is a flow's turn step.
     const review = Boolean(session.unattended && 'autoReviewId' in session.unattended)
-    const run = review ? 'an auto review' : 'a scheduled run'
+    const flow = Boolean(session.unattended && 'flowRunId' in session.unattended)
+    const run = review ? 'an auto review' : flow ? 'a flow’s turn' : 'a scheduled run'
     this.emit(session.id, {
       kind: 'notice',
       id: `${session.turnId ?? 'turn'}:unattended:${request.id}`,
@@ -1905,7 +1940,9 @@ export class SessionService {
       level: 'info',
       text: review
         ? `Auto review stopped: ${what}. Nobody can approve tools in an auto review, so the request was denied. Ask a follow-up here when you are ready.`
-        : `Scheduled run stopped: ${what}. Nobody can answer a scheduled run, so the request was denied. Continue here when you are ready.`
+        : flow
+          ? `Flow stopped: ${what}. Nobody can answer a flow’s turn, so the request was denied. Continue here when you are ready.`
+          : `Scheduled run stopped: ${what}. Nobody can answer a scheduled run, so the request was denied. Continue here when you are ready.`
     })
     this.changed()
     this.events.unattendedStopped?.(session.id, what)
@@ -1914,7 +1951,8 @@ export class SessionService {
     const denied: Record<ApprovalRequest['kind'], ApprovalResponse> = {
       tool: { kind: 'tool', allow: false, message: `This is ${run} and nobody can approve this. Stop.` },
       plan: { kind: 'plan', approve: false, feedback: `This is ${run} and nobody can review the plan. Stop.` },
-      question: { kind: 'question', skipped: true }
+      question: { kind: 'question', skipped: true },
+      gate: { kind: 'gate', answer: 'stopped' }
     }
     return Promise.resolve(denied[request.kind])
   }
@@ -2018,13 +2056,15 @@ export class SessionService {
     const cancelled: Record<ApprovalRequest['kind'], ApprovalResponse> = {
       tool: { kind: 'tool', allow: false, message: 'Cancelled.' },
       plan: { kind: 'plan', approve: false },
-      question: { kind: 'question', skipped: true }
+      question: { kind: 'question', skipped: true },
+      gate: { kind: 'gate', answer: 'stopped' }
     }
     void this.respondApproval(id, cancelled[pending.request.kind])
   }
 
   private rejectApprovals(sessionId: string): void {
-    for (const [id, pending] of this.approvals) if (pending.request.sessionId === sessionId) this.cancelApproval(id)
+    // A flow's gate isn't the turn's to cancel: it waits for its person (or its flow) whatever the chat does.
+    for (const [id, pending] of this.approvals) if (pending.request.sessionId === sessionId && pending.request.kind !== 'gate') this.cancelApproval(id)
   }
 
   // ---- misc ----

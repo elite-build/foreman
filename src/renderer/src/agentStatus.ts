@@ -22,7 +22,8 @@ export interface StatusEvent {
 
 export type StatusMap = ReadonlyMap<string, SessionStatus>
 
-const NEEDS: Record<ApprovalRequest['kind'], Needs> = { tool: 'approval', question: 'question', plan: 'plan' }
+// A flow's gate is a person deciding, like a question.
+const NEEDS: Record<ApprovalRequest['kind'], Needs> = { tool: 'approval', question: 'question', plan: 'plan', gate: 'question' }
 
 export function sessionStatuses(sessions: readonly Session[], approvals: readonly ApprovalRequest[]): Map<string, SessionStatus> {
   const out = new Map<string, SessionStatus>()

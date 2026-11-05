@@ -31,6 +31,7 @@ export function askText(request: ApprovalRequest): string {
     const steps = planSteps(request.plan)
     return clip(`${first}${steps ? ` (${steps} ${steps === 1 ? 'step' : 'steps'})` : ''}`)
   }
+  if (request.kind === 'gate') return clip(`${request.flowName} · ${request.step}: ${request.ask}`)
   const first = request.questions[0]?.question ?? 'A question'
   return clip(`${first}${request.questions.length > 1 ? ` (+${request.questions.length - 1} more)` : ''}`)
 }
@@ -107,6 +108,10 @@ async function approve(host: CliHost, params: unknown): Promise<ApprovalAnswerRe
     if (always || edits || message || p.answers) throw invalid('That is a plan. Use --plan with --feedback to approve it with a note.')
     response = { kind: 'plan', approve: true, ...(feedback ? { feedback } : {}) }
     answer = 'approved'
+  } else if (request.kind === 'gate') {
+    if (always || edits || message || feedback || planFlag || p.answers) throw invalid('That is a flow’s gate. Approve continues the flow; deny with --message sends it back with a note, and deny alone stops it.')
+    response = { kind: 'gate', answer: 'continued' }
+    answer = 'continued'
   } else {
     if (always || edits || message || feedback || planFlag) throw invalid('That is a question. Answer it with --answer "question=choice".')
     const raw = p.answers
@@ -144,13 +149,16 @@ async function deny(host: CliHost, params: unknown): Promise<ApprovalAnswerResul
   } else if (request.kind === 'plan') {
     response = { kind: 'plan', approve: false, ...(message ? { feedback: message } : {}) }
     answer = 'sent back'
+  } else if (request.kind === 'gate') {
+    response = message ? { kind: 'gate', answer: 'sent-back', note: message } : { kind: 'gate', answer: 'stopped' }
+    answer = message ? 'sent back' : 'stopped'
   } else {
     response = { kind: 'question', skipped: true }
     answer = 'skipped'
   }
   await host.api.respondApproval(request.id, response)
   const row = rowOf(request, host.state().sessions, host.state().workspaces)
-  return { id: request.id, workspace: row.workspace, kind: request.kind, answer, text: `${request.kind === 'question' ? 'Skipped' : request.kind === 'plan' ? 'Sent back' : 'Denied'} ${request.kind} request ${request.id.slice(0, 8)} in ${row.workspace}.` }
+  return { id: request.id, workspace: row.workspace, kind: request.kind, answer, text: `${request.kind === 'question' ? 'Skipped' : request.kind === 'plan' || (request.kind === 'gate' && message) ? 'Sent back' : request.kind === 'gate' ? 'Stopped' : 'Denied'} ${request.kind} request ${request.id.slice(0, 8)} in ${row.workspace}.` }
 }
 
 // ----- stopped turns -----

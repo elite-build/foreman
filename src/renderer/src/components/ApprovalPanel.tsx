@@ -1,14 +1,15 @@
-import { MessageCircleQuestion, ShieldCheck } from 'lucide-react'
+import { MessageCircleQuestion, ShieldCheck, Workflow } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import type { PlainKey } from '../../../shared/i18n'
 import type { ApprovalRequest } from '../../../shared/types'
 import { useT } from '../i18n'
-import { api, attempt, modKey, useStore } from '../store'
-import { Button, CardButton, Kbd, Tab, TabList, Tabs, TextArea, TextInput } from '../ui'
+import { api, attempt, modKey, showChecksPanel, useStore } from '../store'
+import { Button, CardButton, Field, Kbd, LinkButton, Tab, TabList, Tabs, TextArea, TextInput } from '../ui'
 import { toolSummary } from './ToolRow'
 
 type ToolRequest = Extract<ApprovalRequest, { kind: 'tool' }>
 type QuestionRequest = Extract<ApprovalRequest, { kind: 'question' }>
+type GateRequest = Extract<ApprovalRequest, { kind: 'gate' }>
 
 const TOOL_TITLES: Record<string, PlainKey> = {
   Bash: 'approval.title.bash',
@@ -201,6 +202,62 @@ export function QuestionPanel({ request }: { request: QuestionRequest }) {
           <Button onClick={() => submit(true)}>{t('approval.question.skip')}</Button>
           <Button variant="primary" onClick={() => submit()}>
             {t('approval.question.submit')} <Kbd>↵</Kbd>
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A flow's gate (docs/loops-and-graphs.md): the flow waits here for a person. What it shows are read-only lines; Continue
+ * goes on, Send back carries the note to the next step, Stop ends the run.
+ */
+export function GatePanel({ request, workspaceId }: { request: GateRequest; workspaceId: string }) {
+  const t = useT()
+  const [note, setNote] = useState('')
+  const panel = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+
+  useEffect(() => panel.current?.focus(), [request.id])
+
+  const answer = (choice: 'continued' | 'sent-back' | 'stopped') =>
+    void attempt(() => api.respondApproval(request.id, choice === 'sent-back' && note.trim() ? { kind: 'gate', answer: choice, note: note.trim() } : { kind: 'gate', answer: choice }))
+  const label = (kind: GateRequest['show'][number]['kind'], step?: string) =>
+    kind === 'diff' ? t('flowRun.gate.show.diff') : kind === 'checks.results' ? t('flowRun.gate.show.checks') : kind === 'review.findings' ? t('flowRun.gate.show.findings') : t('flowRun.gate.show.answer', { step: step ?? '' })
+
+  return (
+    <div className="composer">
+      <div className="approval-panel gate" tabIndex={-1} ref={panel} role="group" aria-labelledby={titleId}>
+        <div className="approval-title">
+          <Workflow size={15} aria-hidden />
+          <strong id={titleId}>{t('flowRun.gate.heading', { flow: request.flowName, step: request.step })}</strong>
+        </div>
+        <p className="gate-ask">{request.ask}</p>
+        {request.show.length > 0 && (
+          <ul className="gate-show">
+            {request.show.map((item, n) => (
+              <li key={n}>
+                <span className="faint">{label(item.kind, item.step)}:</span> {item.summary}
+                {item.kind === 'checks.results' && (
+                  <>
+                    {' '}
+                    <LinkButton size="sm" onClick={() => showChecksPanel(workspaceId)}>
+                      {t('flowRun.gate.openChecks')}
+                    </LinkButton>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <Field label={t('flowRun.gate.note')}>{(c) => <TextArea {...c} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+        <div className="approval-actions">
+          <span className="spacer" />
+          <Button onClick={() => answer('stopped')}>{t('flowRun.gate.stop')}</Button>
+          <Button onClick={() => answer('sent-back')}>{t('flowRun.gate.sendBack')}</Button>
+          <Button variant="primary" onClick={() => answer('continued')}>
+            {t('flowRun.gate.continue')}
           </Button>
         </div>
       </div>

@@ -13,6 +13,7 @@ import { createT, type PlainKey, type TFunction } from './i18n'
 import { DEFAULT_DONE_DAYS } from './board'
 import { matchesView, resolveFilter, type ViewId } from './views'
 import { laterDue, putAway } from './later'
+import { currentLoopBounds, runForWorkspace, type FlowRun } from './flows'
 import type { AppSnapshot, ApprovalRequest, PullRequestInfo, Session, Workspace, WorkspaceStatus } from './types'
 
 // English unless a caller passes its own `t` (the renderer passes the UI language's; `foreman status` stays English).
@@ -103,6 +104,7 @@ export interface SidebarView {
 function approvalLabel(approval: ApprovalRequest, t: TFunction): string {
   if (approval.kind === 'plan') return t('triage.approval.plan')
   if (approval.kind === 'question') return t('triage.approval.question')
+  if (approval.kind === 'gate') return t('triage.flow.gate', { step: approval.step })
   return t('triage.approval.tool', { tool: approval.toolName })
 }
 
@@ -169,6 +171,18 @@ export const REASONS: Reason[] = [
       const t = input.t ?? enT
       const label = waiting.length > 1 ? t('triage.approval.many', { count: waiting.length }) : approvalLabel(waiting[0], t)
       return { label, tone: 'amber', detail: title(waiting[0].sessionId), sessionId: waiting[0].sessionId }
+    }
+  },
+  {
+    // A flow run stopped for the human (an unattended turn asked for something) or failed, until something else happens
+    // in the workspace. A run waiting at a gate is the approvals row above ("Waiting for you · step").
+    id: 'flow-run',
+    find: ({ ws, sessions, input }) => {
+      const run = settledRun(input.snapshot.flowRuns, ws.id, sessions)
+      if (!run || (run.state !== 'needs-you' && run.state !== 'failed')) return null
+      const t = input.t ?? enT
+      const sessionId = run.steps.filter((s) => s.sessionId).at(-1)?.sessionId
+      return { label: t(run.state === 'needs-you' ? 'triage.flow.needsYou' : 'triage.flow.failed'), tone: run.state === 'needs-you' ? 'amber' : 'red', detail: run.reason, sessionId }
     }
   },
   {
@@ -324,6 +338,26 @@ export const REASONS: Reason[] = [
   }
 ]
 
+/**
+ * The workspace's latest flow run once it ended, while nothing has happened in the workspace since: no turn that isn't
+ * one of the run's own has ended after it, and none is running.
+ */
+function settledRun(runs: readonly FlowRun[] | undefined, workspaceId: string, sessions: Session[]): FlowRun | undefined {
+  const run = runForWorkspace(runs, workspaceId)
+  if (!run?.endedAt || run.state === 'completed' || run.state === 'starting' || run.state === 'running' || run.state === 'waiting') return undefined
+  const own = new Set(run.steps.map((s) => s.turnId).filter(Boolean))
+  const since = sessions.some((s) => (s.turnId && !own.has(s.turnId)) || (s.lastTurn?.turnId && !own.has(s.lastTurn.turnId) && s.lastTurn.endedAt > run.endedAt!))
+  return since ? undefined : run
+}
+
+/** "Flow: Fix until green · fix · 2/4": the run, its step, and the iteration of the loop spanning it (with its bound). */
+export function flowRunLabel(run: FlowRun, t: TFunction = enT): string {
+  const step = run.current?.step ?? ''
+  const loop = currentLoopBounds(run)[0]
+  if (loop?.maxIterations) return t('triage.flow.runningLoop', { name: run.flow.name, step, iteration: loop.iteration, max: loop.maxIterations })
+  return t('triage.flow.running', { name: run.flow.name, step })
+}
+
 /** #11: the tab has a usage-limit resume armed that hasn't been missed. */
 const armedResume = (s: Session): boolean => Boolean(s.limitResume && !s.limitResume.missed)
 
@@ -390,6 +424,13 @@ function triageOne(ws: Workspace, sessions: Session[], input: TriageInput): Tria
     const [first, ...extra] = hits
     return { ws, bucket: 'attention', ...first, since: last, extra: extra.length || undefined }
   }
+  // A flow run at work (a turn or a check run): with the working ones, saying the flow, its step and the iteration.
+  const flowRun = runForWorkspace(input.snapshot.flowRuns, ws.id)
+  if (flowRun && (flowRun.state === 'running' || flowRun.state === 'starting')) {
+    const at = flowRun.steps.at(-1)
+    return { ws, bucket: 'working', tone: 'blue', label: flowRunLabel(flowRun, t), detail: title(at?.sessionId), since: at?.startedAt ?? flowRun.startedAt, sessionId: at?.sessionId, spinning: true }
+  }
+  if (flowRun?.state === 'waiting') return { ws, bucket: 'attention', tone: 'amber', label: t('triage.flow.gate', { step: flowRun.current?.step ?? '' }), since: flowRun.steps.at(-1)?.startedAt ?? last, sessionId: flowRun.steps.at(-1)?.sessionId }
   const running = sessions.filter((s) => s.status === 'running')
   if (running.length) {
     // #17: only an auto reviewer at work reads "Reviewing · auto review · read-only".
@@ -424,6 +465,9 @@ function triageOne(ws: Workspace, sessions: Session[], input: TriageInput): Tria
     const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
     return { ws, bucket: 'idle', label: t('attention.limit.resumesAt', { time }), detail: t('attention.limit.usageLimit'), since: last, sessionId: armed.id, limitResume: { sessionId: armed.id, resetAt: armed.limitResume.resetAt } }
   }
+  // A flow run that was stopped (by you, a bound, or Foreman closing): idle, with why, until something else happens here.
+  const ended = settledRun(input.snapshot.flowRuns, ws.id, sessions)
+  if (ended && ended.state !== 'needs-you' && ended.state !== 'failed') return { ws, bucket: 'idle', label: t('triage.flow.stopped'), detail: ended.reason, since: ended.endedAt!, sessionId: ended.steps.filter((s) => s.sessionId).at(-1)?.sessionId }
   if (ws.status === 'done' || ws.status === 'canceled') {
     const latest = sessions.filter((s) => s.lastTurn).sort((a, b) => (b.lastTurn!.endedAt).localeCompare(a.lastTurn!.endedAt))[0]
     return { ws, bucket: 'finished', label: t(STATUS_LABEL[ws.status]), since: last, facts: factsFor(latest?.id) }

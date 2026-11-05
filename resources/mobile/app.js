@@ -75,6 +75,7 @@ function askText(a) {
     return a.toolName === 'Bash' && arg ? '<b>Wants to run</b> ' + safe(arg) : '<b>Wants to use ' + safe(a.toolName) + '</b>' + (arg ? ' ' + safe(arg) : '')
   }
   if (a.kind === 'plan') return '<b>Plan ready:</b> ' + safe(firstLine(a.plan))
+  if (a.kind === 'gate') return '<b>' + safe(a.flowName) + ' waits for you:</b> ' + safe(a.ask)
   return '<b>Asks:</b> ' + safe(a.questions[0]?.question || 'A question')
 }
 function preview(w, approvals) {
@@ -278,6 +279,13 @@ function requestHtml(a) {
       '<div class="plan-body' + (full || !long ? ' full' : ' clip') + '">' + md(a.plan) + '</div>' + (long ? '<button class="linkish" data-action="plan:' + id + '">' + (full ? 'Show less' : 'Show full plan') + '</button>' : '') + (replying ? note : '') + '</div>' +
       '<div class="acts">' + (replying ? '<button class="alt" data-action="reply:' + id + '">Cancel</button><button class="no" data-action="reject:' + id + '">Send feedback</button>' :
         '<button class="no" data-action="reject:' + id + '">Reject</button><button class="alt" data-action="reply:' + id + '">Reply</button><button class="yes" data-action="approve:' + id + '">Approve</button>') + '</div></div>'
+  }
+  if (a.kind === 'gate') {
+    // A flow's gate: what it shows, a note for Send back, and Stop · Send back · Continue.
+    const gateNote = '<textarea class="note" data-note="' + id + '" placeholder="Send back with a note…">' + safe(state.notes[a.id] || '') + '</textarea>'
+    return '<div class="req"><div class="rh">' + icon('chat', 'sm') + safe(a.flowName) + ' · ' + safe(a.step) + '</div><div class="rb">' +
+      '<p class="why">' + safe(a.ask) + '</p>' + a.show.map((x) => '<p class="why">' + safe(x.summary) + '</p>').join('') + gateNote + '</div>' +
+      '<div class="acts"><button class="no" data-action="gstop:' + id + '">Stop</button><button class="alt" data-action="gback:' + id + '">Send back</button><button class="yes" data-action="gcont:' + id + '">Continue</button></div></div>'
   }
   const picked = state.answers[a.id] || {}
   return '<div class="req"><div class="rh">' + icon('chat', 'sm') + (a.questions.length > 1 ? a.questions.length + ' questions' : 'Question') + '</div><div class="rb">' +
@@ -592,6 +600,9 @@ root.addEventListener('click', async (event) => {
     if (name === 'allow') return await respond(arg, { kind: 'tool', allow: true }, 'Allowed')
     if (name === 'deny') { approval(); return await respond(arg, { kind: 'tool', allow: false, message: state.replying.has(arg) ? state.notes[arg]?.trim() || undefined : undefined }, 'Denied') }
     if (name === 'approve') return await respond(arg, { kind: 'plan', approve: true }, 'Plan approved')
+    if (name === 'gcont') return await respond(arg, { kind: 'gate', answer: 'continued' }, 'Flow continued')
+    if (name === 'gback') return await respond(arg, { kind: 'gate', answer: 'sent-back', note: state.notes[arg]?.trim() || undefined }, 'Sent back')
+    if (name === 'gstop') return await respond(arg, { kind: 'gate', answer: 'stopped' }, 'Flow stopped')
     if (name === 'reject') { approval(); return await respond(arg, { kind: 'plan', approve: false, feedback: state.replying.has(arg) ? state.notes[arg]?.trim() || undefined : undefined }, state.replying.has(arg) ? 'Feedback sent' : 'Plan rejected') }
     if (name === 'skip' || name === 'answer') {
       const a = approval()
