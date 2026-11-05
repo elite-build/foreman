@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-05: Automations is a library, not a week calendar
+
+**Decision.** The Automations page centres on a library of templates and commands, as cards with tabs and a search. Each template says when it runs and how its last run went; the side panel lists every schedule. The week calendar is gone.
+
+**Why.** The calendar answered only "when" for schedules, which most templates don't have, and flows (`docs/loops-and-graphs.md`) add runs that aren't on a clock at all.
+
+**Turned down.** Runs first (Needs you, Running, Coming up), which empties the page for anyone without runs. Rules ("when CI fails, run…"), which makes templates secondary. One template that grows into a flow, which merges two persisted shapes before flows exist.
+
+**Revisit when.** Flows ship: they add Flows and Personas tabs here, and runs may earn the centre.
+
 ## 2026-11-03: The terminal panel's scripts and terminals are tabs in its header
 
 **Decision.** Run scripts, Setup and terminals are one row of tabs in the panel's header, with + for a new terminal, another shell or a saved command (the Commands button is gone). No terminal opens until asked for; with no run script and nothing open, Run is the only tab and its panel offers four ways on. Setup's tab is an icon until selected.

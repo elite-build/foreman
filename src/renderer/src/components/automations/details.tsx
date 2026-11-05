@@ -1,4 +1,4 @@
-// The Automations side panel's detail views: one template, one schedule.
+// The Automations side panel: every schedule, or the detail of one template or one schedule.
 import { CalendarClock, ExternalLink, Pause, Play } from 'lucide-react'
 import type { PlainKey } from '../../../../shared/i18n'
 import { templateName } from '../../../../shared/promptTemplates'
@@ -24,7 +24,7 @@ export const RUN_LABEL: Record<Occurrence['state'], PlainKey> = {
   uncertain: 'automations.run.uncertain'
 }
 
-/** A run's colour class: the calendar tints its block by it, and `runStatusTone` gives the same state as a `Status`. */
+/** A run's state as a colour class; `runStatusTone` gives the same state as a `Status` tone. */
 export function runTone(o: Occurrence): string {
   if (o.state === 'completed') return 'green'
   if (o.state === 'running' || o.state === 'starting') return 'blue'
@@ -102,14 +102,40 @@ export function TemplateDetail({ template }: { template: PromptTemplate }) {
   )
 }
 
-function ScheduleRow({ schedule: s, occurrences }: { schedule: Schedule; occurrences: Occurrence[] }) {
+/** With nothing selected: every schedule, active ones soonest first, then paused, then finished. */
+export function ScheduleOverview() {
+  const t = useT()
+  const schedules = useStore((s) => s.snapshot!.schedules)
+  const occurrences = useStore((s) => s.snapshot!.occurrences)
+  const rank = (s: Schedule) => (s.state === 'active' ? 0 : s.state === 'paused' ? 1 : 2)
+  const sorted = [...schedules].sort((a, b) => rank(a) - rank(b) || (a.nextRunAt ?? '').localeCompare(b.nextRunAt ?? ''))
+  return (
+    <div className="auto-detail">
+      <h2 className="auto-h2">{t('automations.template.schedules')}</h2>
+      {sorted.length ? (
+        <Card className="auto-list" role="list" aria-label={t('automations.template.schedules')}>
+          {sorted.map((s) => (
+            <ScheduleRow key={s.id} schedule={s} occurrences={occurrences} named />
+          ))}
+        </Card>
+      ) : (
+        <p className="faint small">{t('automations.overview.empty')}</p>
+      )}
+    </div>
+  )
+}
+
+/** A schedule in a list: its cadence and what's next. `named` leads with the template's name, for a list of every schedule. */
+function ScheduleRow({ schedule: s, occurrences, named }: { schedule: Schedule; occurrences: Occurrence[]; named?: boolean }) {
   const t = useT()
   const last = [...occurrences].reverse().find((o) => o.scheduleId === s.id && o.state !== 'skipped')
+  const cadence = cadenceText(s, t, t.locale)
+  const when = s.state === 'paused' ? s.pausedReason ?? t('automations.schedule.paused') : s.state === 'finished' ? t('automations.schedule.finished') : s.nextRunAt ? t('automations.schedule.next', { time: formatRun(Date.parse(s.nextRunAt), s.timezone, t.locale) }) : ''
   return (
     <ActionRow role="listitem" divided onPress={() => selectAutomation(`s:${s.id}`)} primaryProps={{ className: 'auto-row' }}>
       <span className="auto-row-main">
-        <span className="auto-row-title">{cadenceText(s, t, t.locale)}</span>
-        <span className="auto-row-sub">{s.state === 'paused' ? s.pausedReason ?? t('automations.schedule.paused') : s.state === 'finished' ? t('automations.schedule.finished') : s.nextRunAt ? t('automations.schedule.next', { time: formatRun(Date.parse(s.nextRunAt), s.timezone, t.locale) }) : ''}</span>
+        <span className="auto-row-title">{named ? s.templateName : cadence}</span>
+        <span className="auto-row-sub">{named ? [cadence, when].filter(Boolean).join(' · ') : when}</span>
       </span>
       {last && <Status compact tone={runStatusTone(last)} label={t('automations.schedule.lastRun', { state: t(RUN_LABEL[last.state]) })} title={t('automations.schedule.lastRun', { state: t(RUN_LABEL[last.state]) })} />}
     </ActionRow>

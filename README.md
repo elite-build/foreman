@@ -20,7 +20,7 @@ Foreman runs on your computer. There is no Foreman account or cloud service: wor
 
 **Automations.** Save prompts as templates, then run them on demand or on a schedule.
 
-![The Automations calendar and templates](docs/images/automations-light.png)
+![The Automations library of templates and commands, with the schedules beside it](docs/images/automations-light.png)
 
 Foreman also has checkpoints you can rewind to, terminals and run scripts, a built-in assistant, the `foreman` command line, GitHub, Linear and Slack integrations, and a phone view for approving requests away from your desk. See the [guide](docs/guide.md) for those.
 

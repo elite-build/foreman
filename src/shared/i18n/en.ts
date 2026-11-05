@@ -4946,7 +4946,7 @@ export const en = {
   'githubAccount.detecting': 'Detecting…',
   // A button: find the account that can push.
   'githubAccount.detect': 'Detect',
-  // ---- Automations: the sidebar entry, the week calendar, the template list and the template / schedule details ----
+  // ---- Automations: the sidebar entry, the library of templates and commands, and the template / schedule details ----
   'automations.title': 'Automations',
   'automations.entry.title': 'Prompt templates and the schedules that run them',
   // The sidebar entry's hint, under "Automations".
@@ -4955,19 +4955,20 @@ export const en = {
   // {time} is when the next scheduled run starts, e.g. "Mon 09:00".
   'automations.entry.next': 'next {time}',
   'automations.entry.idle': 'templates & schedules',
-  'automations.week.previous': 'Previous week',
-  'automations.week.this': 'This week',
-  'automations.week.next': 'Next week',
-  // {date} is the Monday the week starts on, e.g. "October 3".
-  'automations.week.of': 'Week of {date}',
-  // {zone} is this computer's time zone, e.g. Europe/London.
-  'automations.week.hint': 'Runs only while Foreman is open · {zone}',
-  // A calendar block whose schedule has since been deleted.
-  'automations.cal.deletedSchedule': 'Deleted schedule',
-  // A calendar block for a run that hasn't happened yet.
+  // The Automations header, beside the title.
+  'automations.openHint': 'Runs only while Foreman is open',
+  // A run that hasn't happened yet, in a schedule's Next runs.
   'automations.cal.planned': 'Planned',
-  'automations.cal.emptyTitle': 'Nothing scheduled yet',
-  'automations.cal.emptyHint': 'Pick a template on the right and choose Schedule… to run it in a fresh workspace every weekday morning, every Monday, or once.',
+  // The library's tabs: everything, or one kind ("Templates", "Commands").
+  'automations.show': 'Show',
+  'automations.all': 'All',
+  'automations.search': 'Search templates and commands',
+  // {query} is what was typed in the search box.
+  'automations.noMatches': 'Nothing matches “{query}”.',
+  // A template card with no schedule: it runs when you start it.
+  'automations.onDemand': 'On demand',
+  // The side panel's Schedules list when there are none.
+  'automations.overview.empty': 'Nothing scheduled yet. Open a template and choose Schedule… to run it in a fresh workspace every weekday morning, every Monday, or once.',
   'automations.templates': 'Templates',
   // {names} lists the built-in templates that were deleted.
   'automations.restoreDefaults': 'Restore defaults: {names}',
@@ -5254,7 +5255,7 @@ export const en = {
   'tour.step.layout.title': 'Two ways to see your work',
   'tour.step.layout.body': 'Three panes shows one workspace with its changes and terminal beside it; that’s what you have now. Tiles shows several workspaces’ chats side by side. Switch any time with {palette} (“Switch to tiles”) or in Settings → Appearance → Window layout.',
   'tour.step.automations.title': 'Templates and Automations',
-  'tour.step.automations.body': 'Templates are prompts with blanks for the details; keep your own, or the repository’s. Automations run a template on a schedule (daily, weekly and so on) while Foreman is open, with a calendar of what ran and what’s next.',
+  'tour.step.automations.body': 'Templates are prompts with blanks for the details; keep your own, or the repository’s. Automations run a template on a schedule (daily, weekly and so on) while Foreman is open; each template says when it runs next and how its last run went.',
   'tour.step.automations.where': 'Automations, at the top of the sidebar',
   'tour.step.assistant.title': 'Ask the assistant',
   'tour.step.assistant.body': 'Not sure where something is? Ask here ({key}). It points you to the exact setting and never changes anything. It runs on Claude, so sign in to Claude first.',
@@ -6020,7 +6021,7 @@ export const en = {
   'a11y.agent.needsQuestion': '{name} has a question for you',
   'a11y.agent.started': '{name} started working',
   'a11y.agent.stopped': '{name} stopped',
-  'automations.side.label': 'Templates and details',
+  'automations.side.label': 'Schedules and details',
   'bottomPanel.label': 'Terminal and scripts',
   'chat.log.heading': 'Chat: {title}',
   'chat.message.agentReplyAt': '{name}, reply to your {time} message',

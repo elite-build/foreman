@@ -1,4 +1,4 @@
-/* Automations: the week calendar and its side panel. Theme tokens only. */
+/* Automations: the library of templates and commands, and its side panel. Theme tokens only. */
 
 /* ---- sidebar entry ---- */
 
@@ -68,11 +68,6 @@ div.automations-entry {
 .auto-title svg {
   color: var(--accent);
 }
-.auto-week-nav {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 .auto-head-hint {
   margin-left: auto;
   white-space: nowrap;
@@ -83,129 +78,82 @@ div.automations-entry {
   display: flex;
 }
 
-/* ---- calendar ---- */
+/* ---- library ---- */
 
-.auto-cal {
-  position: relative;
+/* The tabs, the search and the panels: a Tabs (ui/) laid out as a column. */
+.auto-lib {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-.auto-days,
-.auto-grid {
-  display: grid;
-  grid-template-columns: 52px repeat(7, minmax(0, 1fr));
-}
-.auto-days {
+.auto-lib-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--border);
-  /* Line up with the grid under its scrollbar gutter. */
-  scrollbar-gutter: stable;
-  overflow: hidden;
 }
-.auto-days span {
-  padding: 8px 10px;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  white-space: nowrap;
+.auto-search {
+  width: min(280px, 40%);
+  margin: 6px 0 6px auto;
 }
-.auto-days strong {
-  font-size: var(--text-md);
-  color: var(--text);
-}
-.auto-days span.today,
-.auto-days span.today strong {
-  color: var(--text);
-  font-weight: 600;
-}
-.auto-grid-scroll {
+/* A TabPanel: no display of its own, so its hidden attribute still hides it. */
+.auto-lib-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-gutter: stable;
+  padding: 10px 14px 40px;
 }
-.auto-grid {
-  position: relative;
+.auto-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin: 4px 10px 14px;
 }
-.auto-hours {
-  position: relative;
-}
-.auto-hours span {
-  position: absolute;
-  right: 8px;
-  transform: translateY(-6px);
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-.auto-hours span:first-child {
-  transform: none;
-}
-.auto-col {
-  position: relative;
-  overflow: hidden;
-  border-left: 1px solid var(--border);
-  /* An hour line every HOUR_PX (backgroundSize is set inline). */
-  background-image: linear-gradient(to bottom, color-mix(in srgb, var(--border) 70%, transparent) 1px, transparent 1px);
-}
-.auto-col.today {
-  background-color: color-mix(in srgb, var(--text) 3%, transparent);
-}
-.auto-now {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  height: 2px;
-  background: var(--selected-mark);
-  pointer-events: none;
-}
-/* A calendar block is a small CardButton (ui/: its outline, hover, selected fill, and a stripe for the state); this is its
-   place in the day column. The doubled selector outranks .ui-pressable's display and padding. */
-.auto-col .auto-block {
-  position: absolute;
-  z-index: 1;
-  display: flex;
+/* A template card is an ActionRow card (ui/: outline, hover, selected fill, focus); its actions sit at the top right. The
+   element in the selector outranks .ui-action-row's alignment and padding, which load after this file. */
+div.auto-card {
   align-items: flex-start;
-  gap: 6px;
-  overflow: hidden;
-  padding: 2px 6px;
-  line-height: 15px;
+  padding: 10px 8px 10px 12px;
 }
-.auto-block-name {
+.ui-action-row__main.auto-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.auto-card-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.auto-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  font-size: var(--text-xs);
+  margin-top: 2px;
+}
+.auto-card-when {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
-}
-.auto-block-time {
-  flex: none;
-  color: var(--text-muted);
   font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
 }
-.auto-cal-empty {
-  position: absolute;
-  top: 45%;
-  left: 50%;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: min(360px, 80%);
-  padding: 18px 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel);
-  box-shadow: 0 10px 30px var(--shadow);
-  text-align: center;
-  transform: translate(-50%, -50%);
+.auto-card-foot .ui-status {
+  flex: none;
 }
-.auto-cal-empty svg {
-  color: var(--text-soft);
+/* Command rows read as a list, not stretched across a wide window. */
+.auto-lib .cmd-section {
+  max-width: 640px;
 }
 
 /* ---- side panel ---- */
@@ -361,17 +309,7 @@ div.automations-entry {
   }
 }
 
-/* Narrow blocks (overlaps, small windows) keep the name and drop the time; it's in the tooltip. */
-.auto-col .auto-block {
-  container-type: inline-size;
-}
-@container (max-width: 96px) {
-  .auto-block-time {
-    display: none;
-  }
-}
-
-/* ---- O9: saved commands, under Templates ---- */
+/* ---- O9: saved commands, beside Templates ---- */
 
 .cmd-section {
   margin-top: 14px;

@@ -1,4 +1,4 @@
-// Cues (O9) in Automations, under Templates: your saved shell commands (add, edit inline, delete)
+// Cues (O9) in Automations, beside Templates: your saved shell commands (add, edit inline, delete)
 // and the ones each repo shares in .foreman/settings.toml, read-only here. Templates are prompts
 // for an agent; these are plain shell commands that open a terminal tab and never reach one.
 import { Plus, SquareTerminal } from 'lucide-react'
@@ -11,7 +11,8 @@ import { saveSettings, useDraft, useSettings } from '../settings/controls'
 
 const NO_COMMANDS: SavedCommand[] = []
 
-export function CommandsSection() {
+/** `query` keeps the commands whose name or command line contains it; the one being edited always stays. */
+export function CommandsSection({ query = '' }: { query?: string }) {
   const t = useT()
   const commands = useSettings().savedCommands ?? NO_COMMANDS
   const repos = useStore((s) => s.snapshot!.repos)
@@ -19,6 +20,10 @@ export function CommandsSection() {
   const selectedRepo = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === s.selectedWorkspaceId)?.repoId)
   const [open, setOpen] = useState<{ id: string; fresh: boolean } | null>(null)
   const repoName = (id?: string) => repos.find((r) => r.id === id)?.name
+  const needle = query.trim().toLowerCase()
+  const hit = (c: SavedCommand) => !needle || open?.id === c.id || `${c.name}\n${c.command}`.toLowerCase().includes(needle)
+  const mine = commands.filter(hit)
+  const shared = repos.map((r) => ({ repo: r, list: (byRepo?.[r.id] ?? []).filter(hit) })).filter((g) => g.list.length)
   // G4 O9: Edit commands… (terminal panel, ⌘K) lands here rather than at the top of Automations.
   const section = useRef<HTMLElement>(null)
   const scrollHere = useStore((s) => s.automations?.scrollTo === 'commands')
@@ -53,25 +58,24 @@ export function CommandsSection() {
         </span>
       </div>
       <p className="faint small auto-side-note">{t('commands.note')}</p>
-      {commands.length === 0 && <p className="faint small auto-side-note">{t('commands.empty')}</p>}
-      {commands.map((c) =>
+      {!needle && commands.length === 0 && <p className="faint small auto-side-note">{t('commands.empty')}</p>}
+      {needle && !mine.length && !shared.length && <p className="faint small auto-side-note">{t('automations.noMatches', { query: query.trim() })}</p>}
+      {mine.map((c) =>
         open?.id === c.id ? (
           <CommandEditor key={c.id} command={c} autoFocus={open.fresh} onChange={(patch) => update(c.id, patch)} onRemove={() => remove(c.id)} onClose={() => setOpen(null)} />
         ) : (
           <CommandRow key={c.id} command={c} scopeLabel={c.scope === 'repo' ? (repoName(c.repoId) ?? t('commands.edit.thisRepo')) : t('commands.allRepos')} onOpen={() => setOpen({ id: c.id, fresh: false })} />
         )
       )}
-      {repos
-        .filter((r) => byRepo?.[r.id]?.length)
-        .map((r) => (
-          <div key={r.id}>
-            <div className="auto-side-head sub">{t('commands.fromRepo', { repo: r.name })}</div>
-            {byRepo[r.id].map((c) => (
-              <CommandRow key={c.id} command={c} scopeLabel={t('commands.fromRepoTag')} />
-            ))}
-            <p className="faint small auto-side-note">{t.rich('commands.fromRepoNote', { file: <code key="file">.foreman/settings.toml</code> })}</p>
-          </div>
-        ))}
+      {shared.map(({ repo: r, list }) => (
+        <div key={r.id}>
+          <div className="auto-side-head sub">{t('commands.fromRepo', { repo: r.name })}</div>
+          {list.map((c) => (
+            <CommandRow key={c.id} command={c} scopeLabel={t('commands.fromRepoTag')} />
+          ))}
+          <p className="faint small auto-side-note">{t.rich('commands.fromRepoNote', { file: <code key="file">.foreman/settings.toml</code> })}</p>
+        </div>
+      ))}
     </section>
   )
 }
