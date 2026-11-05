@@ -13,3 +13,14 @@ export const foremanToolName = z.enum(['get_workspace_status', 'get_check_result
 export const foremanToolArgs = z.object({ workspaceId: z.string().min(1).max(200) }).strict()
 export type ForemanToolArgs = z.infer<typeof foremanToolArgs>
 export interface PendingForemanAction { name: ForemanToolName; workspaceId: string }
+
+/**
+ * A flow's decide step (docs/loops-and-graphs.md): the turn says which of the step's options it picked, so the flow
+ * branches on a deliberate call and never on its prose. Only offered in that step's turn, and only for its options.
+ */
+export const FLOW_DECIDE_TOOL = {
+  name: 'decide',
+  description: 'Only in a Foreman flow’s decide step: say which one of the options the step named you decided on. Call it once, with the option exactly as written; Foreman refuses anything else. The flow goes on along that option.',
+  readOnly: true,
+  schema: z.object({ option: z.string().min(1).max(200) }).strict()
+} as const

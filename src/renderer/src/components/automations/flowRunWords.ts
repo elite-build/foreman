@@ -46,9 +46,15 @@ export const STEP_TONE: Record<FlowRunStep['state'], StatusTone> = {
   stopped: 'off'
 }
 
-/** The kinds a run carries out, by name; any other kind is shown as written in the file. */
-export const STEP_KIND: Partial<Record<FlowStepKind, PlainKey>> = {
+/** The kinds a run carries out, by name. */
+export const STEP_KIND: Record<FlowStepKind, PlainKey> = {
   turn: 'flowRun.kind.turn',
   checks: 'flowRun.kind.checks',
-  gate: 'flowRun.kind.gate'
+  script: 'flowRun.kind.script',
+  review: 'flowRun.kind.review',
+  decide: 'flowRun.kind.decide',
+  workspace: 'flowRun.kind.workspace',
+  wait: 'flowRun.kind.wait',
+  gate: 'flowRun.kind.gate',
+  pick: 'flowRun.kind.pick'
 }

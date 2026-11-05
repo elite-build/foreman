@@ -70,7 +70,9 @@ once per question (the question's text, header or position from 1); deny skips i
 A flow's gate (Settings → Experimental → Flows) waits for you between a flow's steps; \`foreman approvals\` lists it with
 its ask and what it shows. Answer it with approve and one of --continue (the flow goes on), --send-back with an
 optional --note (the flow takes its "sent back" edge, and the note goes to the next step) or --stop (the run ends).
-deny doesn't answer a gate.
+A flow's pick waits for you to choose among sibling results (workspaces or turns the flow made); \`foreman approvals\`
+lists each result with how it stands. Answer it with approve --pick <step> (the run goes on in that result's
+workspace) or --stop (nothing is chosen and the run ends). deny doesn't answer a gate or a pick.
 
 Answering lets an agent act, so approve and deny are refused from inside an agent turn.`
 
@@ -572,8 +574,8 @@ export const APPROVAL_COMMANDS: CommandSpec[] = [
   {
     path: ['approve'],
     group: 'work',
-    summary: 'Approve a tool, plan or question an agent is waiting on, or answer a flow’s gate',
-    usage: 'foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]... [--continue|--send-back [--note "…"]|--stop]',
+    summary: 'Approve a tool, plan or question an agent is waiting on, or answer a flow’s gate or pick',
+    usage: 'foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]... [--continue|--send-back [--note "…"]|--stop] [--pick <step>]',
     args: [{ name: 'id', required: true, help: 'The request’s id from `foreman approvals` (or the start of it)' }],
     options: {
       always: { type: 'boolean', help: 'Tool: allow it from now on, when the tool offers that' },
@@ -585,9 +587,10 @@ export const APPROVAL_COMMANDS: CommandSpec[] = [
       continue: { type: 'boolean', help: 'Gate: go on with the flow' },
       'send-back': { type: 'boolean', help: 'Gate: take the flow’s “sent back” edge' },
       note: { type: 'string', value: '<text>', help: 'Gate, with --send-back: a note for the next step' },
-      stop: { type: 'boolean', help: 'Gate: stop the flow’s run' }
+      stop: { type: 'boolean', help: 'Gate or pick: stop the flow’s run' },
+      pick: { type: 'string', value: '<step>', help: 'Pick: the step whose result the flow goes on with' }
     },
-    examples: ['foreman approve 3f9a', 'foreman approve 3f9a --always', 'foreman approve 5c21 --plan --feedback "Skip step 4"', 'foreman approve 8d07 --answer "Which database?=Postgres"', 'foreman approve 6b40 --send-back --note "Keep the old API too"'],
+    examples: ['foreman approve 3f9a', 'foreman approve 3f9a --always', 'foreman approve 5c21 --plan --feedback "Skip step 4"', 'foreman approve 8d07 --answer "Which database?=Postgres"', 'foreman approve 6b40 --send-back --note "Keep the old API too"', 'foreman approve 2e19 --pick try-b'],
     details: APPROVE_DETAILS,
     tier: 'admin'
   },

@@ -167,7 +167,7 @@ export function eventText(e: AttentionEvent, t: RendererT): { head: string; rest
       return { head: t(e.allowed ? 'attention.event.approvalAllowed' : 'attention.event.approvalDenied', { what }), rest: e.via ? [t(e.via === 'phone' ? 'attention.event.viaPhone' : 'attention.event.viaWindow')] : [] }
     }
     case 'agent-report': {
-      const kind = e.label === 'review' ? t('attention.event.reportReview') : e.label && ['needs-input', 'stuck', 'checkpoint', 'done'].includes(e.label) ? t(`reports.kind.${e.label as 'needs-input'}`) : (e.label ?? '')
+      const kind = e.label === 'review' ? t('attention.event.reportReview') : e.label && ['needs-input', 'stuck', 'checkpoint', 'done', 'decide'].includes(e.label) ? t(`reports.kind.${e.label as 'needs-input'}`) : (e.label ?? '')
       return { head: t('attention.event.report', { kind }), rest: e.detail ? [`“${e.detail}”`] : [], says: true }
     }
     case 'archived':

@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { FOREMAN_TOOLS, type ForemanToolName } from '../shared/foremanTools'
+import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, type ForemanToolName } from '../shared/foremanTools'
 import type { Session } from '../shared/types'
 import type { McpLaunch } from './agents/types'
 import type { ForemanActions } from './foremanActions'
@@ -120,6 +120,22 @@ export class ForemanMcp {
         }
       })
     }
+    // A flow's decide step only: the turn's mark names its options (Session.unattended), so no other turn is offered it.
+    const grant = this.grants.get(grantId)
+    const marked = grant && this.deps.session(grant.sessionId)?.unattended
+    if (marked && 'decide' in marked && marked.decide?.length) server.registerTool(FLOW_DECIDE_TOOL.name, {
+      description: `${FLOW_DECIDE_TOOL.description} The options: ${marked.decide.join(', ')}.`,
+      inputSchema: FLOW_DECIDE_TOOL.schema,
+      annotations: { readOnlyHint: true }
+    }, async (args) => {
+      try {
+        const scope = this.scope(grantId)
+        const result = this.deps.actions.decide(scope.sessionId, args.option)
+        return { content: [{ type: 'text' as const, text: result.message }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
+      }
+    })
     for (const name of Object.keys(FOREMAN_TOOLS) as ForemanToolName[]) {
       const definition = FOREMAN_TOOLS[name]
       if (readOnly && !definition.readOnly) continue

@@ -16,7 +16,9 @@ import {
   answerReports,
   callerFromEnv,
   closeReport,
+  decisionProblem,
   isReportCall,
+  REPORT_KINDS,
   missingPlanTemplates,
   openReports,
   PLAN_STEP_SLUG,
@@ -445,6 +447,60 @@ describe('Teach agents Foreman: the instructions', () => {
     expect(PLAN_TEMPLATE.body).toContain('Don\'t run these commands yourself')
     expect(missingPlanTemplates([]).map((t) => t.name)).toEqual(['Plan the work', 'Work on a task'])
     expect(missingPlanTemplates(missingPlanTemplates([]))).toEqual([])
+  })
+})
+
+describe('a flow’s decide step', () => {
+  it('a decision is recorded as a quiet report: never open, and it supersedes nothing', () => {
+    let list = recordReport([], report({ kind: 'needs-input', text: 'EUR?' })).list
+    const decided = recordReport(list, report({ kind: 'decide', text: 'large' }))
+    expect(decided.added).toBe(true)
+    list = decided.list
+    expect(openReports(list).map((r) => r.text)).toEqual(['EUR?'])
+    expect(recordReport(list, report({ kind: 'decide', text: 'large' })).added).toBe(false)
+    expect(reportLine({ kind: 'decide', text: 'large' })).toBe('agent says: decided — large')
+  })
+
+  it('only a decide step’s turn decides, and only one of its options', () => {
+    expect(decisionProblem({ flowRunId: 'r', step: 'size', decide: ['small', 'large'] }, ' large ')).toBeNull()
+    expect(decisionProblem({ flowRunId: 'r', step: 'size', decide: ['small', 'large'] }, 'huge')).toBe('“huge” isn’t one of the options. Decide one of: small, large.')
+    expect(decisionProblem({ flowRunId: 'r', step: 'build' }, 'small')).toContain('Only a flow’s decide step decides')
+    expect(decisionProblem(undefined, 'small')).toContain('Only a flow’s decide step decides')
+  })
+
+  it('decide isn’t one of the report tool’s kinds, and its own calls fold into the marker', () => {
+    expect(REPORT_KINDS).not.toContain('decide')
+    expect(isReportCall({ name: 'mcp__foreman-app__decide', input: { option: 'large' }, status: 'done' })).toBe(true)
+    expect(isReportCall({ name: 'Bash', input: { command: 'foreman decide large' }, status: 'done' })).toBe(true)
+  })
+
+  it('`foreman decide` from inside a decide step’s turn lands on its turn; an option it doesn’t name is refused', async () => {
+    const r = await rig()
+    const answers: unknown[] = []
+    const fake = agent('codex', async (req) => {
+      answers.push(await handleRequest(r.host, { method: 'decide', params: { option: 'huge' }, caller: callerFromEnv(req.env) }))
+      answers.push(await handleRequest(r.host, { method: 'decide', params: { option: 'large' }, caller: callerFromEnv(req.env) }))
+    })
+    const session = r.sessions.createSession(r.ws.id, { agent: 'codex' })
+    r.sessions.markUnattended('decide-turn', { flowRunId: 'run', step: 'size', decide: ['small', 'large'] })
+    await r.sessions.deliver(session.id, 'decide', { turnId: 'decide-turn' })
+    await until(idle(session))
+    fake.restore()
+    expect(answers[0]).toMatchObject({ ok: false })
+    expect(JSON.stringify(answers[0])).toContain('isn’t one of the options')
+    expect(answers[1]).toMatchObject({ ok: true, result: { decided: 'large', turn: 'decide-turn' } })
+    expect(r.ws.agentReports).toMatchObject([{ kind: 'decide', text: 'large', sessionId: session.id, turnId: 'decide-turn', via: 'cli' }])
+    // Without the step's mark (an ordinary turn), nothing is recorded.
+    const plain = await handleRequest(r.host, { method: 'decide', params: { option: 'large' } })
+    expect(plain).toMatchObject({ ok: false })
+  })
+
+  it('the report service records a decision on its tab and turn, with its marker in the chat', async () => {
+    const { reports, items } = await rig()
+    const { report: saved, added } = reports.record({ workspaceId: 'ws', sessionId: 's1', turnId: 't1', kind: 'decide', text: 'large', via: 'mcp' })
+    expect(added).toBe(true)
+    expect(saved).toMatchObject({ kind: 'decide', text: 'large', sessionId: 's1', turnId: 't1' })
+    expect(items.at(-1)).toMatchObject({ sessionId: 's1', item: { kind: 'notice', text: 'agent says: decided — large', report: { kind: 'decide', text: 'large' } } })
   })
 })
 

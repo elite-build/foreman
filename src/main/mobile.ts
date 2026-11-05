@@ -451,6 +451,8 @@ export class MobileService {
       else if (pending.kind === 'plan') response = { kind: 'plan', approve: body.approve === true, feedback: typeof body.feedback === 'string' ? body.feedback.slice(0, 2000) : undefined }
       // A flow's gate: Continue, Send back (with a note) or Stop.
       else if (pending.kind === 'gate') response = { kind: 'gate', answer: body.answer === 'continued' || body.answer === 'sent-back' ? body.answer : 'stopped', note: typeof body.note === 'string' ? body.note.slice(0, 2000) : undefined }
+      // A flow's pick: one of the results it offered, or none (the run stops).
+      else if (pending.kind === 'pick') response = { kind: 'pick', chosen: typeof body.chosen === 'string' && pending.choices.some((c) => c.step === body.chosen) ? body.chosen : null }
       else response = { kind: 'question', answers: typeof body.answers === 'object' && body.answers && !Array.isArray(body.answers) ? Object.fromEntries(Object.entries(body.answers).filter(([, v]) => typeof v === 'string').map(([k, v]) => [k, String(v).slice(0, 2000)])) : undefined, skipped: body.skipped === true }
       await this.deps.api.respondApproval(approval[1], response, 'phone')
       return this.json(res, 200, { ok: true })

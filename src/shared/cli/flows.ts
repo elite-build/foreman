@@ -1,6 +1,6 @@
 // Parameters and results of the flow methods (`foreman flow …`, docs/loops-and-graphs.md). Each result has a `text`
 // the command prints unless --json is given. Type-only imports, so the command line loads nothing of the flow model.
-import type { FlowFingerprint, FlowGateShow, FlowRunState, FlowRunStepState, FlowRunSummary, FlowSource, FlowStepKind } from '../flows'
+import type { FlowFingerprint, FlowGateShow, FlowPickChoice, FlowRunState, FlowRunStepState, FlowRunSummary, FlowSource, FlowStepKind } from '../flows'
 
 export interface FlowRow {
   // 'built-in:<starter>', 'repo:<repoId>:<file>', or a personal flow's id.
@@ -20,7 +20,7 @@ export interface FlowRow {
   // Why the file isn't a flow (nothing else is known about it then), and what is worth knowing about one that is.
   problems: string[]
   warnings: string[]
-  // Why this version can't run it (steps it can't carry out yet, a turn that isn't on Claude); absent when it can.
+  // Why it can't run where it is listed (an agent step that isn't on Claude, a loadout that isn't set); absent when it can.
   cantRun?: string
 }
 
@@ -103,6 +103,10 @@ export interface FlowStepRow {
   delta?: { files: number; additions: number; deletions: number }
   session?: string
   turn?: string
+  // The workspace it ran in, when the run made more than one.
+  workspace?: string
+  // What its turn cost, where the agent says (Claude), in USD.
+  costUsd?: number
 }
 
 export interface FlowLoopRow {
@@ -114,6 +118,9 @@ export interface FlowLoopRow {
   maxIterations?: number
   minutes: number
   maxMinutes?: number
+  // USD spent by the pass's turns, where the agent says (Claude), and the bound.
+  cost?: number
+  maxCost?: number
 }
 
 export interface FlowRunRow {
@@ -129,11 +136,15 @@ export interface FlowRunRow {
   startedAt: string
   endedAt?: string
   workspace?: { id: string; name: string }
+  // Every workspace the run made, when it made more than one (a workspace step makes another).
+  workspaces?: { id: string; name: string }[]
   current?: { step: string; iteration: number }
   loops: FlowLoopRow[]
   steps: FlowStepRow[]
   // The gate the run waits at, with the request id `foreman approve` takes.
   gate?: { id: string; step: string; ask: string; show: FlowGateShow[] }
+  // The pick the run waits at: the results to choose among, with the request id `foreman approve --pick` takes.
+  pick?: { id: string; step: string; ask: string; choices: FlowPickChoice[] }
 }
 
 export interface FlowRunPreviewResult {
@@ -213,8 +224,22 @@ export function flowStepText(step: FlowStepRow, started = false): string {
   const extra: string[] = []
   if (!started && step.delta) extra.push(`${step.delta.files} ${step.delta.files === 1 ? 'file' : 'files'} +${step.delta.additions} −${step.delta.deletions}`)
   if (!started && step.detail) extra.push(step.detail)
+  if (!started && step.costUsd !== undefined) extra.push(`$${step.costUsd.toFixed(2)}`)
+  if (step.workspace) extra.push(`in ${step.workspace}`)
   const state = started ? 'started' : step.state === 'waiting' ? 'waiting for you' : step.state
   return `${step.name}, iteration ${step.iteration}: ${state}${!started && step.fact ? ` (${step.fact})` : ''}${extra.length ? ` · ${extra.join(' · ')}` : ''}`
+}
+
+/** "try-b: 3 files changed, +40 −2 · last turn try-b: completed · checks: Tests passed". */
+export function pickChoiceText(choice: FlowPickChoice): string {
+  return `${choice.step}: ${choice.summary}`
+}
+
+/** What a pick asks and how to answer it from here. */
+export function pickWaitText(pick: NonNullable<FlowRunRow['pick']>): string {
+  const lines = [`Waiting for you to pick at ${pick.step}: ${pick.ask} — answer with \`foreman approve ${pick.id} --pick <step> | --stop\``]
+  for (const choice of pick.choices) lines.push(`  ${pickChoiceText(choice)}`)
+  return lines.join('\n')
 }
 
 /** What a gate asks and how to answer it from here. */

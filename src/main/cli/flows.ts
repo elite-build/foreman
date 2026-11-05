@@ -1,10 +1,12 @@
 // `foreman flow …`: flows (docs/loops-and-graphs.md) from the command line, behind Settings → Experimental → Flows like the
 // window's Flows section. Starting a run approves what it will do, so `flow-run` without `shown` answers with the same
 // approval summary the Run dialog shows, and with the fingerprint sent back it starts exactly that: the service refuses
-// when it changed meanwhile. A gate is answered with `foreman approve <id> --continue | --send-back | --stop` (approvals.ts).
-import { flowSummary, isActiveRun, parseFlow, unsupportedSteps, type Flow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview } from '../../shared/flows'
-import { flowEndText, flowStepText, gateWaitText, type FlowAddResult, type FlowListResult, type FlowLoopRow, type FlowRemoveResult, type FlowRow, type FlowRunPreviewResult, type FlowRunResult, type FlowRunRow, type FlowRunsResult, type FlowShowResult, type FlowStatusResult, type FlowStopResult, type FlowWaitResult } from '../../shared/cli/flows'
-import type { Loadout } from '../../shared/agents'
+// when it changed meanwhile. A gate is answered with `foreman approve <id> --continue | --send-back | --stop`, a pick with
+// `foreman approve <id> --pick <step>` (approvals.ts).
+import { flowSummary, isActiveRun, parseFlow, type Flow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview } from '../../shared/flows'
+import { flowEndText, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowListResult, type FlowLoopRow, type FlowRemoveResult, type FlowRow, type FlowRunPreviewResult, type FlowRunResult, type FlowRunRow, type FlowRunsResult, type FlowShowResult, type FlowStatusResult, type FlowStopResult, type FlowWaitResult } from '../../shared/cli/flows'
+import { AGENTS, type Loadout } from '../../shared/agents'
+import { canReview } from '../../shared/autoReview'
 import type { ApprovalRequest, Repo, Workspace } from '../../shared/types'
 import { stepLoadout } from '../flows'
 import { SHOWN_CHANGED } from '../schedules'
@@ -16,6 +18,9 @@ import { durationText, findByRef, firstLine, notFound, refused, utcText } from '
 import { resolveRepo } from './resolve'
 
 type GateRequest = Extract<ApprovalRequest, { kind: 'gate' }>
+type PickRequest = Extract<ApprovalRequest, { kind: 'pick' }>
+// What a run waits on from a person: its gate, or its pick.
+type Asks = { gate?: GateRequest; pick?: PickRequest }
 
 const short = (id: string) => id.slice(0, 8)
 // How often a wait looks again when no event woke it.
@@ -50,19 +55,20 @@ function findFlow(flows: FlowListing[], query: string): FlowListing {
   return findByRef(flows, query, 'flow', flowSpec)
 }
 
-/** Why this version can't run a flow, in a sentence: steps it can't carry out yet, and turns that aren't on Claude. */
+/** Why a flow can't run with these loadouts, in a sentence: where it starts, and agent steps that aren't on Claude or can't be held to read-only. */
 export function cantRunText(flow: Flow, loadouts: Loadout[]): string | undefined {
   const reasons: string[] = []
-  const unsupported = unsupportedSteps(flow)
-  if (unsupported.length) reasons.push(`${[...new Set(unsupported.map((u) => u.kind))].join(', ')} steps aren’t supported yet (${unsupported.map((u) => u.step).join(', ')})`)
   const first = flow.steps.find((s) => s.name === flow.start)
-  if (first && first.kind !== 'turn') reasons.push('a run starts with a turn step')
+  if (first && first.kind !== 'turn' && first.kind !== 'workspace') reasons.push('a run starts with a turn or a workspace step')
   const notClaude: string[] = []
   for (const step of flow.steps) {
-    if (step.kind !== 'turn' || step.same_tab) continue
+    if ((step.kind !== 'turn' && step.kind !== 'review' && step.kind !== 'decide') || (step.kind === 'turn' && step.same_tab)) continue
     const loadout = stepLoadout(step, loadouts)
     if ('error' in loadout) reasons.push(loadout.error.replace(/\.$/, ''))
-    else if (loadout.agent !== 'claude') notClaude.push(`${step.name} (${loadout.agent})`)
+    else {
+      if (loadout.agent !== 'claude') notClaude.push(`${step.name} (${loadout.agent})`)
+      if (step.kind === 'review' && !canReview(loadout.agent)) reasons.push(`the review step ${step.name} runs on ${AGENTS[loadout.agent]?.label ?? loadout.agent}, which can’t be held to read-only`)
+    }
   }
   if (notClaude.length) reasons.push(`unattended turns are Claude only, and ${notClaude.join(', ')} ${notClaude.length === 1 ? 'isn’t' : 'aren’t'}`)
   return reasons.length ? reasons.join('; ') : undefined
@@ -204,13 +210,18 @@ function loopRows(run: FlowRun): FlowLoopRow[] {
       iterations: pass?.iterations ?? Math.max(0, ...inLoop.map((s) => s.loops![loop])),
       ...(b.iterations !== undefined ? { maxIterations: b.iterations } : {}),
       minutes: Math.floor(pass ? pass.minutesUsed : inLoop.reduce((n, s) => n + (s.minutes ?? 0), 0)),
-      ...(b.minutes !== undefined ? { maxMinutes: b.minutes } : {})
+      ...(b.minutes !== undefined ? { maxMinutes: b.minutes } : {}),
+      ...(pass?.costUsed ? { cost: pass.costUsed } : {}),
+      ...(b.cost !== undefined ? { maxCost: b.cost } : {})
     }
   })
 }
 
-export function runRow(run: FlowRun, state: { repos: Repo[]; workspaces: Workspace[] }, gate?: GateRequest): FlowRunRow {
+export function runRow(run: FlowRun, state: { repos: Repo[]; workspaces: Workspace[] }, asks: Asks = {}): FlowRunRow {
+  const { gate, pick } = asks
   const ws = run.workspaceId ? state.workspaces.find((w) => w.id === run.workspaceId) : undefined
+  const name = (id: string) => state.workspaces.find((w) => w.id === id)?.name ?? '(removed)'
+  const many = (run.workspaces?.length ?? 0) > 1
   return {
     id: run.id,
     flow: run.flow.name,
@@ -224,6 +235,7 @@ export function runRow(run: FlowRun, state: { repos: Repo[]; workspaces: Workspa
     startedAt: run.startedAt,
     ...(run.endedAt ? { endedAt: run.endedAt } : {}),
     ...(run.workspaceId ? { workspace: { id: run.workspaceId, name: ws?.name ?? '(removed)' } } : {}),
+    ...(many ? { workspaces: run.workspaces!.map((id) => ({ id, name: name(id) })) } : {}),
     ...(run.current ? { current: run.current } : {}),
     loops: loopRows(run),
     steps: run.steps.map((s) => ({
@@ -238,31 +250,43 @@ export function runRow(run: FlowRun, state: { repos: Repo[]; workspaces: Workspa
       ...(s.detail ? { detail: s.detail } : {}),
       ...(s.delta ? { delta: s.delta } : {}),
       ...(s.sessionId ? { session: s.sessionId } : {}),
-      ...(s.turnId ? { turn: s.turnId } : {})
+      ...(s.turnId ? { turn: s.turnId } : {}),
+      ...(many && s.workspaceId ? { workspace: name(s.workspaceId) } : {}),
+      ...(s.costUsd !== undefined ? { costUsd: s.costUsd } : {})
     })),
-    ...(gate ? { gate: { id: gate.id, step: gate.step, ask: gate.ask, show: gate.show } } : {})
+    ...(gate ? { gate: { id: gate.id, step: gate.step, ask: gate.ask, show: gate.show } } : {}),
+    ...(pick ? { pick: { id: pick.id, step: pick.step, ask: pick.ask, choices: pick.choices } } : {})
   }
 }
 
-/** A run and, while it waits at a gate, the request that asks. Undefined when it is gone (or Flows went off). */
-async function readRun(host: CliHost, id: string): Promise<{ run: FlowRun; gate?: GateRequest } | undefined> {
-  const run = (await host.api.listFlowRuns()).find((r) => r.id === id)
-  if (!run) return undefined
-  const gate = run.state === 'waiting' ? (await host.api.pendingApprovals()).find((r): r is GateRequest => r.kind === 'gate' && r.flowRunId === id) : undefined
-  return { run, ...(gate ? { gate } : {}) }
+type ReadRun = { run: FlowRun } & Asks
+
+/** What waits on a person for these runs: each waiting run's gate or pick, from the pending requests. */
+function asksOf(run: FlowRun, pending: ApprovalRequest[]): Asks {
+  if (run.state !== 'waiting') return {}
+  const gate = pending.find((r): r is GateRequest => r.kind === 'gate' && r.flowRunId === run.id)
+  const pick = pending.find((r): r is PickRequest => r.kind === 'pick' && r.flowRunId === run.id)
+  return { ...(gate ? { gate } : {}), ...(pick ? { pick } : {}) }
 }
 
-/** Where a run is, as a token a wait compares: its state, how many steps, the last one's state, its gate, its workspace. */
-export function seenOf(run: FlowRun, gate?: GateRequest): string {
-  return [run.state, run.steps.length, run.steps.at(-1)?.state ?? '', gate?.id ?? '', run.workspaceId ? 'w' : ''].join('|')
+/** A run and, while it waits at a gate or a pick, the request that asks. Undefined when it is gone (or Flows went off). */
+async function readRun(host: CliHost, id: string): Promise<ReadRun | undefined> {
+  const run = (await host.api.listFlowRuns()).find((r) => r.id === id)
+  if (!run) return undefined
+  return { run, ...asksOf(run, run.state === 'waiting' ? await host.api.pendingApprovals() : []) }
+}
+
+/** Where a run is, as a token a wait compares: its state, how many steps, the last one's state, its gate or pick, its workspace. */
+export function seenOf(run: FlowRun, asks: Asks = {}): string {
+  return [run.state, run.steps.length, run.steps.at(-1)?.state ?? '', asks.gate?.id ?? asks.pick?.id ?? '', run.workspaceId ?? ''].join('|')
 }
 
 /** Read the run until `done` says so, the time is up or the caller goes away; woken by the app's events and a poll. */
-function untilRun(host: CliHost, id: string, done: (r: { run: FlowRun; gate?: GateRequest } | undefined) => boolean, options: { signal?: AbortSignal; timeoutMs?: number }): Promise<{ run: FlowRun; gate?: GateRequest } | undefined> {
+function untilRun(host: CliHost, id: string, done: (r: ReadRun | undefined) => boolean, options: { signal?: AbortSignal; timeoutMs?: number }): Promise<ReadRun | undefined> {
   return new Promise((resolve) => {
     let finished = false
     let checking = false
-    let last: { run: FlowRun; gate?: GateRequest } | undefined
+    let last: ReadRun | undefined
     const cleanups: (() => void)[] = []
     const finish = () => {
       if (finished) return
@@ -310,7 +334,8 @@ async function findRun(host: CliHost, query: string): Promise<FlowRun> {
 }
 
 function loopText(l: FlowLoopRow): string {
-  return `${l.loop}: ${l.pass ? `pass ${l.pass} · ` : ''}iteration ${l.iterations}${l.maxIterations !== undefined ? ` of at most ${l.maxIterations}` : ''}${l.maxMinutes !== undefined ? ` · ${l.minutes} of ${l.maxMinutes} min` : l.minutes ? ` · ${l.minutes} min` : ''}`
+  const cost = l.maxCost !== undefined ? ` · $${(l.cost ?? 0).toFixed(2)} of $${l.maxCost.toFixed(2)} (Claude turns)` : l.cost ? ` · $${l.cost.toFixed(2)}` : ''
+  return `${l.loop}: ${l.pass ? `pass ${l.pass} · ` : ''}iteration ${l.iterations}${l.maxIterations !== undefined ? ` of at most ${l.maxIterations}` : ''}${l.maxMinutes !== undefined ? ` · ${l.minutes} of ${l.maxMinutes} min` : l.minutes ? ` · ${l.minutes} min` : ''}${cost}`
 }
 
 /** The run in lines: what it is, where it is, its loops, its steps so far, and the gate it waits at. */
@@ -320,10 +345,12 @@ export function runText(row: FlowRunRow): string {
   if (row.current && (row.state === 'running' || row.state === 'waiting' || row.state === 'starting')) lines.push(`At: ${row.current.step}, iteration ${row.current.iteration}`)
   for (const loop of row.loops) lines.push(`Loop ${loopText(loop)}`)
   if (row.workspace) lines.push(`Workspace: ${row.workspace.name} (${row.workspace.id})`)
+  if (row.workspaces) lines.push(`Workspaces it made: ${row.workspaces.map((w) => w.name).join(', ')}`)
   lines.push(`Started: ${utcText(row.startedAt)}${row.endedAt ? ` · ended ${utcText(row.endedAt)} (took ${durationText(Date.parse(row.endedAt) - Date.parse(row.startedAt))})` : ''}`)
   lines.push(row.steps.length ? 'Steps:' : 'No step has started yet.')
   for (const step of row.steps) lines.push(`  ${flowStepText(step)}`)
   if (row.gate) lines.push(gateWaitText(row.gate))
+  if (row.pick) lines.push(pickWaitText(row.pick))
   return lines.join('\n')
 }
 
@@ -346,10 +373,12 @@ function previewText(preview: FlowRunPreview, inputs: Record<string, string>): s
     `Templates: ${s.templates.length ? s.templates.map((t) => `${t.name}${t.rev ? ` (revision ${t.rev.slice(0, 7)})` : ''}${t.source === 'repo' ? ', a repository template' : ''}`).join('; ') : '(none)'}`,
     `Setup script: ${setup}`,
     `Checks: ${s.checks.length ? s.checks.map((c) => `${c.name} (${firstLine(c.command, 60)})`).join(', ') : '(none)'}`,
+    ...(s.commands?.length ? [`Commands its script steps run: ${s.commands.map((c) => `${c.name} (${firstLine(c.command, 60)})`).join(', ')}`] : []),
     `Repository MCP servers: ${s.mcpServers.length ? s.mcpServers.join(', ') : '(none)'}`,
     ...(s.integrations.length ? [`Integrations: ${s.integrations.join('; ')}`] : []),
     ...(Object.keys(inputs).length ? [`Inputs: ${Object.entries(inputs).map(([k, v]) => `${k} = ${JSON.stringify(firstLine(v, 60))}`).join(', ')}`] : []),
-    'Unattended turns are Claude only. Each turn step runs in auto mode, and any approval or question stops the run and leaves it for you. Gates wait for your answer. The run works in a new workspace, and is refused if anything above changes before it starts.'
+    'Unattended turns are Claude only. Each turn step runs in auto mode, and any approval or question stops the run and leaves it for you. Gates and picks wait for your answer. The run works in a new workspace, and is refused if anything above changes before it starts.',
+    ...(s.costBound ? ['A cost bound applies to Claude turns only: other agents don’t say what a turn cost.'] : [])
   ]
   return lines.join('\n')
 }
@@ -380,11 +409,7 @@ const run: MethodDef = {
     const baseBranch = textParam(p, 'base', { optional: true })?.trim() || repo.defaultBranch || 'main'
     const preview = await host.api.flowRunPreview({ flowId: listing.id, repoId: repo.id, baseBranch })
     const s = preview.summary
-    const reasons = [
-      ...(s.unsupported.length ? [`This version runs turn, checks and gate steps. Not yet: ${s.unsupported.map((u) => `${u.step} (${u.kind})`).join(', ')}.`] : []),
-      ...(s.notClaude.length ? [`Unattended turns are Claude only; these turn steps aren’t on Claude: ${s.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []),
-      ...s.problems
-    ]
+    const reasons = [...(s.notClaude.length ? [`Unattended turns are Claude only; these agent steps aren’t on Claude: ${s.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []), ...s.problems]
     if (reasons.length) throw new CliCodedError('not-supported', `Can’t run “${s.flowName}”: ${reasons.join(' ')}`)
     const given = inputsParam(p.inputs)
     const asked = preview.inputs
@@ -414,14 +439,14 @@ const run: MethodDef = {
       if (isActiveRun(now)) first = await host.firstTurn(now.workspaceId)
     }
     const latest = (await readRun(host, started.id).catch(() => undefined)) ?? placed ?? { run: now }
-    const row = runRow(latest.run, host.state(), latest.gate)
+    const row = runRow(latest.run, host.state(), latest)
     const lines = [`Started “${row.flow}” in ${row.repo} from ${row.base}`, `  run        ${row.id}`]
     if (row.workspace) lines.push(`  workspace  ${row.workspace.name} (${row.workspace.id})`)
     if (first) lines.push(`  session    ${first.session}`, `  turn       ${first.turn}`)
     if (!isActiveRun(latest.run)) lines.push(flowEndText(row))
     else if (!row.workspace) lines.push('  The workspace isn’t made yet; `foreman flow status` shows where the run is.')
     else if (!first) lines.push('  The first turn hasn’t started yet (setup may still be running); `foreman flow status` shows where the run is.')
-    return { started: true, run: row, ...(first ? { session: first.session, turn: first.turn } : {}), seen: seenOf(latest.run, latest.gate), text: lines.join('\n') }
+    return { started: true, run: row, ...(first ? { session: first.session, turn: first.turn } : {}), seen: seenOf(latest.run, latest), text: lines.join('\n') }
   }
 }
 
@@ -436,11 +461,10 @@ const runs: MethodDef = {
     const found = await host.api.listFlowRuns(repo?.id)
     const state = host.state()
     const pending = await host.api.pendingApprovals()
-    const gateOf = (r: FlowRun) => (r.state === 'waiting' ? pending.find((x): x is GateRequest => x.kind === 'gate' && x.flowRunId === r.id) : undefined)
     const rows = [...found]
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
       .slice(0, all ? undefined : 20)
-      .map((r) => runRow(r, state, gateOf(r)))
+      .map((r) => runRow(r, state, asksOf(r, pending)))
     if (!rows.length) return { runs: rows, text: repo ? `No flow runs in ${repo.name} yet.` : 'No flow runs yet.' }
     const at = (r: FlowRunRow) => (r.current && (r.state === 'running' || r.state === 'waiting' || r.state === 'starting') ? `${r.current.step} #${r.current.iteration}` : '')
     const table = columns([['RUN', 'FLOW', 'REPO', 'STATE', 'AT', 'STARTED', 'WORKSPACE'], ...rows.map((r) => [short(r.id), r.flow, r.repo, `${r.state}${r.reason && r.state !== 'completed' ? `: ${firstLine(r.reason, 60)}` : ''}`, at(r), utcText(r.startedAt), r.workspace?.name ?? ''])])
@@ -455,7 +479,7 @@ const status: MethodDef = {
     const p = paramsObject(params)
     const found = await findRun(host, textParam(p, 'run'))
     const read = (await readRun(host, found.id)) ?? { run: found }
-    const row = runRow(read.run, host.state(), read.gate)
+    const row = runRow(read.run, host.state(), read)
     return { run: row, text: runText(row) }
   }
 }
@@ -470,10 +494,10 @@ const wait: MethodDef = {
     const seen = textParam(p, 'seen', { optional: true })
     const timeoutSec = numberParam(p, 'timeoutSec')
     if (timeoutSec !== undefined && !(timeoutSec > 0)) throw invalid('timeoutSec must be above zero.')
-    const moved = await untilRun(host, found.id, (r) => !r || !isActiveRun(r.run) || seenOf(r.run, r.gate) !== seen, { signal: ctx.signal, ...(timeoutSec !== undefined ? { timeoutMs: timeoutSec * 1000 } : {}) })
+    const moved = await untilRun(host, found.id, (r) => !r || !isActiveRun(r.run) || seenOf(r.run, r) !== seen, { signal: ctx.signal, ...(timeoutSec !== undefined ? { timeoutMs: timeoutSec * 1000 } : {}) })
     flowsOn(host)
     const now = moved ?? { run: found }
-    return { run: runRow(now.run, host.state(), now.gate), seen: seenOf(now.run, now.gate), ended: !isActiveRun(now.run) }
+    return { run: runRow(now.run, host.state(), now), seen: seenOf(now.run, now), ended: !isActiveRun(now.run) }
   }
 }
 
@@ -486,7 +510,7 @@ const stop: MethodDef = {
     if (!isActiveRun(found)) throw refused(`That run isn’t going: it ${found.state === 'completed' ? 'completed' : `is ${found.state}`}.`)
     await host.api.stopFlowRun(found.id)
     const after = (await readRun(host, found.id)) ?? { run: found }
-    const row = runRow(after.run, host.state(), after.gate)
+    const row = runRow(after.run, host.state(), after)
     return { run: row, text: `Stopped the run of “${row.flow}”${row.current ? ` at ${row.current.step}` : ''}. Its workspace stays.` }
   }
 }

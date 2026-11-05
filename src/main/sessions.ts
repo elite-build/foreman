@@ -1916,17 +1916,20 @@ export class SessionService {
   }
 
   /**
-   * A flow's gate: a planned question for a person, shown with the chat's approvals (Needs you, notifications, the
-   * phone). Only the flow cancels it; a turn ending or stopping in the chat leaves it waiting.
+   * A flow's gate or pick: a planned question for a person, shown with the chat's approvals (Needs you, notifications,
+   * the phone). Only the flow cancels it; a turn ending or stopping in the chat leaves it waiting.
    */
-  requestGate(sessionId: string, request: Omit<Extract<ApprovalRequest, { kind: 'gate' }>, 'id' | 'sessionId'>): { id: string; answer: Promise<ApprovalResponse> } {
+  requestGate(
+    sessionId: string,
+    request: Omit<Extract<ApprovalRequest, { kind: 'gate' }>, 'id' | 'sessionId'> | Omit<Extract<ApprovalRequest, { kind: 'pick' }>, 'id' | 'sessionId'>
+  ): { id: string; answer: Promise<ApprovalResponse> } {
     const id = randomUUID()
-    const full: ApprovalRequest = { id, sessionId, ...request }
+    const full = { id, sessionId, ...request } as ApprovalRequest
     const session = this.session(sessionId)
     const ws = this.workspaces.workspace(session.workspaceId)
     const answer = new Promise<ApprovalResponse>((resolve) => this.approvals.set(id, { request: full, resolve }))
     this.events.approval(full)
-    this.events.notify(ws.id, sessionId, this.label(session, ws), this.t()('notify.approval.gate', { flow: request.flowName, step: request.step }), 'attention')
+    this.events.notify(ws.id, sessionId, this.label(session, ws), this.t()(request.kind === 'pick' ? 'notify.approval.pick' : 'notify.approval.gate', { flow: request.flowName, step: request.step }), 'attention')
     return { id, answer }
   }
 
@@ -1965,7 +1968,8 @@ export class SessionService {
       tool: { kind: 'tool', allow: false, message: `This is ${run} and nobody can approve this. Stop.` },
       plan: { kind: 'plan', approve: false, feedback: `This is ${run} and nobody can review the plan. Stop.` },
       question: { kind: 'question', skipped: true },
-      gate: { kind: 'gate', answer: 'stopped' }
+      gate: { kind: 'gate', answer: 'stopped' },
+      pick: { kind: 'pick', chosen: null }
     }
     return Promise.resolve(denied[request.kind])
   }
@@ -2070,14 +2074,15 @@ export class SessionService {
       tool: { kind: 'tool', allow: false, message: 'Cancelled.' },
       plan: { kind: 'plan', approve: false },
       question: { kind: 'question', skipped: true },
-      gate: { kind: 'gate', answer: 'stopped' }
+      gate: { kind: 'gate', answer: 'stopped' },
+      pick: { kind: 'pick', chosen: null }
     }
     void this.respondApproval(id, cancelled[pending.request.kind])
   }
 
   private rejectApprovals(sessionId: string): void {
-    // A flow's gate isn't the turn's to cancel: it waits for its person (or its flow) whatever the chat does.
-    for (const [id, pending] of this.approvals) if (pending.request.sessionId === sessionId && pending.request.kind !== 'gate') this.cancelApproval(id)
+    // A flow's gate or pick isn't the turn's to cancel: it waits for its person (or its flow) whatever the chat does.
+    for (const [id, pending] of this.approvals) if (pending.request.sessionId === sessionId && pending.request.kind !== 'gate' && pending.request.kind !== 'pick') this.cancelApproval(id)
   }
 
   // ---- misc ----

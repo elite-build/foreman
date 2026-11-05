@@ -21,7 +21,7 @@ import type { DirListing } from './fileTree'
 import type { ImagePreview } from './imageInfo'
 import type { OpenInChoice, OpenInDetection, OpenInTarget } from './openIn'
 import type { SavedCommand } from './savedCommands'
-import type { FlowGateShow, FlowListing, FlowRun, FlowRunPreview, FlowRunStart } from './flows'
+import type { FlowGateShow, FlowListing, FlowPickChoice, FlowRun, FlowRunPreview, FlowRunStart } from './flows'
 import type { PersonaList, PersonaListing, TurnPersona } from './personas'
 import type { DockerLeft, DockerListing, DockerPreview, DockerRemoval } from './docker'
 import type { CloudProviderId, PlanLimits, ProviderCapabilities } from './cloud'
@@ -618,7 +618,7 @@ export interface Workspace {
 }
 
 /** Why a workspace was archived: by hand, after its scheduled run completed, or after its pull request was merged. */
-export type ArchiveReason = { kind: 'manual' } | { kind: 'run'; scheduleId: string } | { kind: 'merged'; number: number }
+export type ArchiveReason = { kind: 'manual' } | { kind: 'run'; scheduleId: string } | { kind: 'merged'; number: number } | { kind: 'flow'; runId: string }
 
 /** What deleting an archived workspace would lose that isn't anywhere else, for the delete dialog and the cleanup. */
 export interface ArchivedWork {
@@ -931,8 +931,9 @@ export interface Session {
   // A scheduled run: nobody is there to answer, so tools run in auto mode and any approval or question stops it.
   // #17: an auto review's reviewer turn is unattended the same way (its approvals are denied and the review stops).
   // A flow run's turn step is unattended the same way, for that one turn (its approvals stop the run for the human).
-  // A flow step's persona rides along for that turn: its instructions, read-only and the MCP servers it keeps.
-  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string; persona?: TurnPersona }
+  // A flow step's persona rides along for that turn: its instructions, read-only and the MCP servers it keeps. A decide
+  // step's turn carries the options it picks from: only then is Foreman's `decide` tool offered.
+  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[] }
   // #17: this tab is an auto review's read-only reviewer; its turns never start another review.
   autoReview?: { reviewId: string }
   // Closed tabs stay restorable until the workspace is archived.
@@ -1446,16 +1447,20 @@ export type ApprovalRequest = {
   | { kind: 'question'; questions: Question[] }
   // A flow's gate step (docs/loops-and-graphs.md): planned, so it waits for a person instead of stopping the run.
   | { kind: 'gate'; flowRunId: string; flowName: string; step: string; ask: string; show: FlowGateShow[] }
+  // A flow's pick step: the person chooses one of the sibling results; the run goes on in the chosen one's workspace.
+  | { kind: 'pick'; flowRunId: string; flowName: string; step: string; ask: string; choices: FlowPickChoice[] }
 )
 
-/** What an agent's turn can ask for: every approval kind but a flow's gate, which Foreman asks itself. */
-export type AgentApprovalRequest = Exclude<ApprovalRequest, { kind: 'gate' }>
+/** What an agent's turn can ask for: every approval kind but a flow's gate and pick, which Foreman asks itself. */
+export type AgentApprovalRequest = Exclude<ApprovalRequest, { kind: 'gate' | 'pick' }>
 
 export type ApprovalResponse =
   | { kind: 'tool'; allow: boolean; alternate?: boolean; message?: string }
   | { kind: 'plan'; approve: boolean; feedback?: string; handOff?: boolean }
   | { kind: 'question'; answers?: Record<string, string>; skipped?: boolean }
   | { kind: 'gate'; answer: 'continued' | 'sent-back' | 'stopped'; note?: string }
+  // null: nothing was chosen, and the run stops.
+  | { kind: 'pick'; chosen: string | null }
 
 export interface DiffLine {
   type: 'add' | 'del' | 'ctx'

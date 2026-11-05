@@ -24,6 +24,12 @@ export type FlowAfter = (typeof FLOW_AFTER)[number]
 
 export const FLOW_WAITS = ['ci', 'review'] as const
 
+/** How long a `wait` step waits by default before it ends as `timed-out`. */
+export const FLOW_WAIT_MINUTES = 120
+
+/** Above this share of the context window (a percentage), `compact-when-full` compacts before the next pass's turn. */
+export const FLOW_COMPACT_ABOVE = 70
+
 /** Where a flow came from: shipped with Foreman, a file in the repository, or kept in state.json. */
 export type FlowSource = 'built-in' | 'repo' | 'personal'
 
@@ -53,7 +59,7 @@ export type FlowStep = { name: string } & (
   | ({ kind: 'review' } & AgentStepFields)
   | ({ kind: 'decide'; options: string[]; prompt?: string } & AgentStepFields)
   | { kind: 'workspace'; from?: string }
-  | { kind: 'wait'; on: (typeof FLOW_WAITS)[number] }
+  | { kind: 'wait'; on: (typeof FLOW_WAITS)[number]; at_most?: { minutes: number } }
   | { kind: 'gate'; show?: string[]; ask?: string }
   | { kind: 'pick'; over: string[] }
 )
@@ -66,6 +72,8 @@ export interface FlowLoop {
   over: string[]
   at_most: { iterations?: number; minutes?: number; cost?: number }
   iteration?: FlowIteration
+  // compact-when-full: the share of the context window (a percentage) above which the tab is compacted first.
+  compact_above?: number
 }
 
 export interface Flow {
@@ -149,7 +157,7 @@ const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
   review: ['persona', 'loadout', 'agent', 'model', 'context', 'read_only', 'mcp'],
   decide: ['options', 'persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
   workspace: ['from'],
-  wait: ['on'],
+  wait: ['on', 'at_most'],
   gate: ['show', 'ask'],
   pick: ['over']
 }
@@ -346,6 +354,12 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
       if (on === undefined) problems.push(t('flows.problem.required', { step: name, field: 'on' }))
       else if (typeof on !== 'string' || !(FLOW_WAITS as readonly string[]).includes(on)) problems.push(t('flows.problem.fieldChoice', { step: name, field: 'on', choices: FLOW_WAITS.join(', ') }))
       step = { name, kind: k, on: (on as (typeof FLOW_WAITS)[number]) ?? 'ci' }
+      if (body.at_most !== undefined) {
+        const bound = body.at_most
+        const minutes = isTable(bound) ? bound.minutes : undefined
+        if (isTable(bound) && typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0 && Object.keys(bound).every((key) => key === 'minutes')) step.at_most = { minutes }
+        else problems.push(t('flows.problem.waitBound', { step: name }))
+      }
       break
     }
     case 'gate': {
@@ -368,7 +382,7 @@ function loopFrom(name: string, body: unknown, problems: string[], warnings: str
     problems.push(t('flows.problem.loopShape', { loop: name }))
     return undefined
   }
-  for (const field of Object.keys(body)) if (!['over', 'at_most', 'iteration'].includes(field)) warnings.push(t('flows.problem.loopUnknownField', { loop: name, field }))
+  for (const field of Object.keys(body)) if (!['over', 'at_most', 'iteration', 'compact_above'].includes(field)) warnings.push(t('flows.problem.loopUnknownField', { loop: name, field }))
   const before = problems.length
   const over = Array.isArray(body.over) && body.over.every((x) => typeof x === 'string') ? (body.over as string[]) : null
   if (!over) problems.push(t('flows.problem.loopOver', { loop: name }))
@@ -391,8 +405,14 @@ function loopFrom(name: string, body: unknown, problems: string[], warnings: str
     if (typeof body.iteration === 'string' && (FLOW_ITERATIONS as readonly string[]).includes(body.iteration)) iteration = body.iteration as FlowIteration
     else problems.push(t('flows.problem.loopIteration', { loop: name, choices: FLOW_ITERATIONS.join(', ') }))
   }
+  let compactAbove: number | undefined
+  if (body.compact_above !== undefined) {
+    const v = body.compact_above
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 100) compactAbove = v
+    else problems.push(t('flows.problem.loopCompactAbove', { loop: name }))
+  }
   if (problems.length !== before) return undefined
-  return { name, over: over ?? [], at_most, ...(iteration ? { iteration } : {}) }
+  return { name, over: over ?? [], at_most, ...(iteration ? { iteration } : {}), ...(compactAbove !== undefined ? { compact_above: compactAbove } : {}) }
 }
 
 // ---- the graph ----
@@ -407,17 +427,18 @@ export function flowFacts(step: FlowStep): string[] {
     case 'script':
       return ['ok', 'failed']
     case 'review':
-      return ['clean', 'findings']
+      // undecided: a persona expected to end with findings or `done` did neither; with no edge for it, the findings edge.
+      return ['clean', 'findings', 'undecided']
     case 'decide':
       return [...step.options, 'undecided']
     case 'wait':
-      return ['green', 'failed']
+      return step.on === 'review' ? ['approved', 'changes-requested', 'timed-out'] : ['green', 'failed', 'none', 'timed-out']
     case 'gate':
       return ['continued', 'sent-back', 'stopped']
     case 'pick':
       return [...step.over]
     case 'workspace':
-      return []
+      return ['ready', 'failed']
   }
 }
 
@@ -572,7 +593,12 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
       else if (other.kind !== 'turn') error(t('flows.problem.sameTabKind', { step: step.name, other: other.name, kind: other.kind }))
     }
     if (step.kind === 'workspace' && step.from && step.from !== 'base') reference(step, step.from, step.from)
-    if (step.kind === 'pick') for (const other of step.over) reference(step, other, other)
+    if (step.kind === 'pick')
+      for (const other of step.over) {
+        reference(step, other, other)
+        const kind = byName.get(other)?.kind
+        if (kind && kind !== 'workspace' && kind !== 'turn') error(t('flows.problem.pickKind', { step: step.name, other, kind }))
+      }
   }
 
   // Loops: unique names, real steps that lead back to each other, and at least one bound.
@@ -599,10 +625,10 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
 
 // ---- runs ----
 
-/** The step kinds a run can carry out in this version; a flow with any other kind is refused before it starts. */
-export const FLOW_RUNNABLE_KINDS: readonly FlowStepKind[] = ['turn', 'checks', 'gate']
+/** The step kinds a run can carry out in this version: every kind (a flow with another kind doesn't read). */
+export const FLOW_RUNNABLE_KINDS: readonly FlowStepKind[] = FLOW_STEP_KINDS
 
-/** The steps a run can't carry out yet, in the file's order. */
+/** The steps a run can't carry out yet, in the file's order: none in this version. */
 export function unsupportedSteps(flow: Flow): { step: string; kind: FlowStepKind }[] {
   return flow.steps.filter((s) => !FLOW_RUNNABLE_KINDS.includes(s.kind)).map((s) => ({ step: s.name, kind: s.kind }))
 }
@@ -614,7 +640,14 @@ export interface FlowGateShow {
   summary: string
 }
 
-/** waiting: at a gate. needs-you: an unattended turn asked for something and was stopped. uncertain: Foreman closed mid-run; never retried. */
+/** One result a pick step offers: the step that made it, the workspace it is in, and how it ended, in words. */
+export interface FlowPickChoice {
+  step: string
+  workspaceId: string
+  summary: string
+}
+
+/** waiting: at a gate or a pick. needs-you: an unattended turn asked for something and was stopped. uncertain: Foreman closed mid-run; never retried. */
 export type FlowRunState = 'starting' | 'running' | 'waiting' | 'completed' | 'failed' | 'needs-you' | 'stopped' | 'cancelled' | 'uncertain'
 export const FLOW_RUN_ACTIVE: readonly FlowRunState[] = ['starting', 'running', 'waiting']
 export const isActiveRun = (run: Pick<FlowRun, 'state'>): boolean => FLOW_RUN_ACTIVE.includes(run.state)
@@ -644,8 +677,14 @@ export interface FlowRunStep {
   // The persona it ran as, and whether that held its tab read-only.
   persona?: string
   readOnly?: boolean
-  // Minutes this step counted against its loops (a gate counts none).
+  // Minutes this step counted against its loops (a gate, a pick and a wait count none).
   minutes?: number
+  // The workspace it ran in (a run that makes more than one workspace moves between them).
+  workspaceId?: string
+  // The tree it read (a review), as a hash.
+  tree?: string
+  // What its turn cost, when the agent says (Claude's result items), in USD.
+  costUsd?: number
 }
 
 /**
@@ -661,6 +700,8 @@ export interface FlowRunLoop {
   iterations: number
   startedAt: string
   minutesUsed: number
+  // USD spent by this pass's turns, where the agent says (Claude).
+  costUsed?: number
   // The loop's steps entered in this iteration; entering one again starts the next iteration.
   visited: string[]
 }
@@ -688,6 +729,8 @@ export interface FlowRun {
   startedAt: string
   endedAt?: string
   workspaceId?: string
+  // Every workspace the run made, in order (a workspace step makes another; a pick moves `workspaceId` among them).
+  workspaces?: string[]
   // The first message as sent: the run's task, which a step's `task` context carries.
   task?: string
   current?: { step: string; iteration: number }
@@ -717,11 +760,15 @@ export interface FlowRunSummary {
   templates: { name: string; rev?: string; source: 'personal' | 'repo' }[]
   setupScript: string
   checks: { name: string; command: string }[]
+  // The saved commands its script steps run, approved with the checks.
+  commands?: { name: string; command: string }[]
   mcpServers: string[]
   integrations: string[]
-  // Steps of kinds a run can't carry out yet, and turn steps whose agent isn't Claude: either refuses the run.
+  // Steps of kinds a run can't carry out yet (none in this version), and agent steps whose agent isn't Claude: either refuses the run.
   unsupported: { step: string; kind: FlowStepKind }[]
   notClaude: { step: string; agent: string }[]
+  // A loop bounds cost, which only counts turns whose agent says what they cost (Claude).
+  costBound?: boolean
   // Other reasons it can't start (a template that doesn't exist, a loadout slot that isn't set).
   problems: string[]
 }
@@ -743,17 +790,26 @@ export interface FlowRunStart {
   shown: FlowFingerprint
 }
 
-/** The active run a workspace belongs to, else its latest run. */
+/** The active run a workspace belongs to (its current workspace, or another the run made), else its latest run. */
 export function runForWorkspace(runs: readonly FlowRun[] | undefined, workspaceId: string): FlowRun | undefined {
-  const mine = (runs ?? []).filter((r) => r.workspaceId === workspaceId)
+  const mine = (runs ?? []).filter((r) => r.workspaceId === workspaceId || r.workspaces?.includes(workspaceId))
   return mine.find(isActiveRun) ?? mine.sort((a, b) => a.startedAt.localeCompare(b.startedAt)).at(-1)
 }
 
-/** The loops spanning the run's current step with their bounds: "iteration 2 of at most 4 · 18 of 45 min" as numbers. */
-export function currentLoopBounds(run: FlowRun): { loop: string; pass: number; iteration: number; maxIterations?: number; minutes: number; maxMinutes?: number }[] {
+/** The loops spanning the run's current step with their bounds: "iteration 2 of at most 4 · 18 of 45 min · $0.40 of $2.00" as numbers. */
+export function currentLoopBounds(run: FlowRun): { loop: string; pass: number; iteration: number; maxIterations?: number; minutes: number; maxMinutes?: number; cost?: number; maxCost?: number }[] {
   const at = run.current?.step
   if (!at) return []
   return Object.entries(run.bounds ?? {})
     .filter(([name, b]) => b.over.includes(at) && run.loops[name]?.open)
-    .map(([name, b]) => ({ loop: name, pass: run.loops[name].pass, iteration: run.loops[name].iterations, maxIterations: b.iterations, minutes: Math.floor(run.loops[name].minutesUsed), maxMinutes: b.minutes }))
+    .map(([name, b]) => ({
+      loop: name,
+      pass: run.loops[name].pass,
+      iteration: run.loops[name].iterations,
+      maxIterations: b.iterations,
+      minutes: Math.floor(run.loops[name].minutesUsed),
+      maxMinutes: b.minutes,
+      ...(run.loops[name].costUsed ? { cost: run.loops[name].costUsed } : {}),
+      ...(b.cost !== undefined ? { maxCost: b.cost } : {})
+    }))
 }

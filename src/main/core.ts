@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AgentKind, Loadout } from '../shared/agents'
 import { ARCHIVE_CLEANUP_DAYS, mergedNow } from '../shared/autoArchive'
-import { DONE_DAYS_OPTIONS, nextPrInfo } from '../shared/board'
+import { DONE_DAYS_OPTIONS, nextPrInfo, prFacts } from '../shared/board'
 import { parseViews } from '../shared/views'
 import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from '../shared/agentSlots'
 import { ENV_NAME } from '../shared/envfile'
@@ -39,10 +39,10 @@ import { listFlows, personalFlowListing, personaRef } from './flowFiles'
 import { listPersonas, personalPersonaListing } from './personaFiles'
 import { findPersona, MAX_PERSONA_BYTES, MAX_PERSONAL_PERSONAS, parsePersona, type Persona, type PersonaList, type PersonaListing, type TurnPersona } from '../shared/personas'
 import { MAX_FLOW_BYTES, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunPreview, type FlowRunStart } from '../shared/flows'
-import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowTemplate, type PreparedFlow } from './flows'
-import { isFailure } from '../shared/checks'
+import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
+import { DEFAULT_CHECK_TIMEOUT_MS, isFailure } from '../shared/checks'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
-import { commandInputWithStatus, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
+import { commandInputWithStatus, commandNamed, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
 import { BaseWatcher } from './baseWatch'
 import { PrWatcher } from './prWatch'
@@ -60,9 +60,11 @@ import { chooseStartLoadout } from '../shared/startModel'
 import { randomUUID } from 'node:crypto'
 import { pruneViewed, withMark } from '../shared/viewed'
 import { branchPoint, changedFilesBetween, fileAtRef, refsDiff, revertFile, workspaceDiff, workspaceDiffPatch, workspaceDiffStat } from './diff'
-import { sharedWorkingTree, VIEW_REUSE_MS } from './checkpoints'
+import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint, sharedWorkingTree, VIEW_REUSE_MS } from './checkpoints'
+import { runScript, type RunningScript } from './scripts'
+import { endCheckpointId } from './turnDelta'
 import { turnAnswer } from '../shared/handOff'
-import { DEFAULT_MODEL } from '../shared/agents'
+import { builtinCommands, DEFAULT_MODEL } from '../shared/agents'
 import { branchCommitCount, branchCommits, sourceDiff, sourceInfo, type PrTarget } from './diffSources'
 import { CommitAttribution } from './commitAttribution'
 import { AutoArchive } from './autoArchive'
@@ -254,6 +256,8 @@ interface InternalStart {
   scheduled?: { scheduleId: string; occurrenceId: string }
   // A flow run's first step: the workspace is the run's, and its first turn is unattended as that step.
   flowRun?: { runId: string; step: string; persona?: TurnPersona }
+  // A flow run's workspace step: the workspace is the run's, and its first chat waits for the steps after it.
+  flowWorkspace?: { runId: string }
   onChat?: (workspaceId: string, sessionId: string) => void
 }
 
@@ -615,7 +619,7 @@ export class Core {
       }
     }, this.repoMcp, this.claudeMirror, this.agentHost, this.agentReports)
     this.sessions.integrations = this.bridge
-    this.foremanActions = new ForemanActions({ state: () => store.state, api: this.api })
+    this.foremanActions = new ForemanActions({ state: () => store.state, api: this.api, record: (input) => this.agentReports.record(input) })
     this.foremanMcp = new ForemanMcp({
       actions: this.foremanActions,
       session: (id) => store.state.sessions.find((s) => s.id === id),
@@ -685,8 +689,9 @@ export class Core {
       prepare: (flowId, repoId) => this.prepareFlow(flowId, repoId),
       loadouts: () => this.store.state.settings.loadouts,
       launch: (run, first, handle) => this.launchFlowRun(run, first, handle),
-      // Never in plan mode: nobody is there to review a plan.
-      createSession: (workspaceId, loadout) => this.sessions.createSession(workspaceId, { agent: loadout.agent, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false }).id,
+      // Never in plan mode: nobody is there to review a plan (a read-only step's turn is held in it by its persona mark).
+      createSession: (workspaceId, loadout, options) =>
+        this.sessions.createSession(workspaceId, { agent: loadout.agent, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false, ...(options?.title ? { title: options.title } : {}) }).id,
       deliver: async (sessionId, text, options) => {
         this.sessions.markUnattended(options.turnId, options.unattended)
         await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId })
@@ -696,9 +701,32 @@ export class Core {
       cancelChecks: (workspaceId) => this.checks.cancel(workspaceId),
       checksResults: (workspaceId) => this.failingChecksText(workspaceId),
       readChat: (sessionId) => this.store.readChat(sessionId),
-      reported: (workspaceId, turnId) => (this.store.state.workspaces.find((w) => w.id === workspaceId)?.agentReports ?? []).filter((r) => r.turnId === turnId).map((r) => r.kind),
+      reported: (workspaceId, turnId) => (this.store.state.workspaces.find((w) => w.id === workspaceId)?.agentReports ?? []).filter((r) => r.turnId === turnId).map((r) => ({ kind: r.kind, text: r.text })),
       diffStat: (workspaceId) => this.diffStatText(workspaceId),
       note: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.note?.text,
+      tree: async (workspaceId) => {
+        const ws = this.workspaces.workspace(workspaceId)
+        const tree = await sharedWorkingTree(workspaceTarget(ws)).catch(() => '')
+        return `Base branch: ${ws.baseBranch}${tree ? `\nWorking tree: ${tree.slice(0, 7)}` : ''}`
+      },
+      captureDiff: (workspaceId) => workspaceDiffPatch(this.workspaces.workspace(workspaceId)),
+      reviewPrompt: (workspaceId) => this.workspaces.settingsFor(this.workspaces.workspace(workspaceId).repoId).prompts.codeReview,
+      runCommand: (workspaceId, name) => this.runFlowCommand(workspaceId, name),
+      cancelCommand: async (workspaceId) => {
+        const running = this.flowCommands.get(workspaceId)
+        if (!running) return
+        running.cancelled = true
+        await running.script.kill()
+      },
+      pullRequest: (workspaceId) => this.flowPullRequest(workspaceId),
+      newWorkspace: (run, from) => this.flowWorkspace(run, from),
+      contextUsage: (sessionId) => this.store.state.sessions.find((s) => s.id === sessionId)?.contextUsage,
+      // The agents with a /compact of their own (Claude Code, Codex): it goes as a message, as the composer sends it.
+      canCompact: (sessionId) => {
+        const session = this.store.state.sessions.find((s) => s.id === sessionId)
+        return Boolean(session && builtinCommands(session.agent).some((c) => c.name === 'compact'))
+      },
+      afterRun: (run, workspaceId, after) => this.autoArchive.request(workspaceId, { reason: { kind: 'flow', runId: run.id }, deleteBranch: false, deleteIfUnchanged: after === 'delete-unchanged' }),
       requestGate: (sessionId, request) => this.sessions.requestGate(sessionId, request),
       cancelGate: (id) => this.sessions.cancelGate(id),
       turnStart: (sessionId) => {
@@ -1275,6 +1303,8 @@ export class Core {
   private powerTimer: ReturnType<typeof setInterval> | null = null
   // Workspace id → the first message to send once it's ready.
   private firstMessages = new Map<string, FirstMessage>()
+  // A flow's script step running in a workspace, so Stop can cancel it.
+  private flowCommands = new Map<string, { script: RunningScript; cancelled: boolean }>()
   // Pasted files waiting for a workspace that is still being made (the new-workspace dialog).
   private stagingDir = path.join(os.tmpdir(), 'foreman-staged')
   // O21: folders named on a launch's command line that the window hasn't asked for yet.
@@ -1692,14 +1722,24 @@ export class Core {
     const listings = this.personaListings(repo.id)
     const personas: Record<string, Persona | undefined> = {}
     for (const step of flow.steps) if ('persona' in step && step.persona && !(step.persona in personas)) personas[step.persona] = findPersona(listings, step.persona, repo.id)
+    // Each command a script step names, as this repository's workspaces offer it (yours, then the repository's).
+    const commands: Record<string, FlowCommand | undefined> = {}
+    const saved = this.store.state.settings.savedCommands ?? []
+    const shared = flow.steps.some((s) => s.kind === 'script') ? repoCommands(this.store.state, repo) : []
+    for (const step of flow.steps) {
+      if (step.kind !== 'script' || step.command in commands) continue
+      const found = commandNamed(saved, shared, repo.id, step.command)
+      commands[step.command] = found && { name: found.name, command: found.command, source: found.source === 'repo' ? 'repo' : 'personal' }
+    }
     const fingerprint = flowFingerprintOf({
       flow,
       templates: Object.values(templates).filter((x): x is FlowTemplate => Boolean(x)),
       personas: Object.values(personas).filter((x): x is Persona => Boolean(x)),
+      commands: Object.values(commands).filter((x): x is FlowCommand => Boolean(x)),
       ...this.repoApprovalParts(repo)
     })
     const ref: FlowRun['flow'] = { id: listing.id, name: flow.name, source: listing.source, ...(listing.starter ? { starter: listing.starter } : {}), ...(listing.file ? { file: listing.file } : {}), ...(listing.rev ? { rev: listing.rev } : {}) }
-    return { flow, ref, templates, personas, fingerprint }
+    return { flow, ref, templates, personas, commands, fingerprint }
   }
 
   /** What starting a flow in this repository would approve now, and the values it asks for (the Run dialog). */
@@ -1729,10 +1769,12 @@ export class Core {
         templates: Object.values(prepared.templates).flatMap((x) => (x ? [{ name: x.name, ...(x.rev ? { rev: x.rev } : {}), source: x.source }] : [])),
         setupScript: parts.setupScript,
         checks: parts.checks,
+        ...(Object.values(prepared.commands ?? {}).some(Boolean) ? { commands: Object.values(prepared.commands ?? {}).flatMap((c) => (c ? [{ name: c.name, command: c.command }] : [])) } : {}),
         mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
         integrations: this.integrationLines(repo.id),
         unsupported,
         notClaude,
+        ...(flow.loops.some((l) => l.at_most.cost !== undefined) ? { costBound: true } : {}),
         // The unsupported steps and non-Claude turns have their own lines in the dialog.
         problems: problems.filter((p) => !(unsupported.length && p.startsWith('This version of Foreman')) && !(notClaude.length && p.startsWith('Unattended turns')))
       },
@@ -1772,6 +1814,103 @@ export class Core {
       if (err instanceof ChecksError && err.code === 'not-configured') return { kind: 'not-configured' }
       throw err
     }
+  }
+
+  /**
+   * A flow's script step: the saved command by name, run in the workspace as checks run theirs (no terminal, the same
+   * consent: a repository command needs this computer's approval of its current text, never given here), its output kept.
+   */
+  private async runFlowCommand(workspaceId: string, name: string): Promise<FlowCommandStart> {
+    const ws = this.workspaces.workspace(workspaceId)
+    const repo = this.workspaces.repo(ws.repoId)
+    const command = commandNamed(this.store.state.settings.savedCommands ?? [], repoCommands(this.store.state, repo), repo.id, name)
+    if (!command?.command.trim()) return { kind: 'missing' }
+    if (needsApproval(command)) return { kind: 'consent', name: command.name }
+    const frozen = frozenReason(ws)
+    if (frozen) throw new Error(frozen)
+    if (this.flowCommands.has(workspaceId)) throw new Error('A flow command is already running in this workspace.')
+    const target = workspaceTarget(ws, { wake: true })
+    const where = typeof target === 'string' ? commandLaunch(command, { name: ws.name, path: target }, mainT(this.store.state.settings)).cwd : target
+    let output = ''
+    let timedOut = false
+    const script = runScript(command.command, where, this.terminalEnv(ws), (chunk) => {
+      output += chunk
+      // Only the end is kept for the step's context; the rest needn't stay in memory.
+      if (output.length > 256 * 1024) output = output.slice(-128 * 1024)
+    })
+    const entry = { script, cancelled: false }
+    this.flowCommands.set(workspaceId, entry)
+    const timer = setTimeout(() => {
+      timedOut = true
+      output += `\n[Foreman] Stopped after ${Math.round(DEFAULT_CHECK_TIMEOUT_MS / 1000)}s (time limit)\n`
+      void script.kill()
+    }, DEFAULT_CHECK_TIMEOUT_MS)
+    const done = script.done
+      .then((code) => ({ code, output, timedOut, cancelled: entry.cancelled }))
+      .finally(() => {
+        clearTimeout(timer)
+        if (this.flowCommands.get(workspaceId) === entry) this.flowCommands.delete(workspaceId)
+      })
+    return { kind: 'started', done }
+  }
+
+  /** A flow's wait step: the workspace's pull request, through the PR cache (its pauses and back-off hold). */
+  private async flowPullRequest(workspaceId: string): Promise<FlowPullRequest> {
+    const ws = this.workspaces.workspace(workspaceId)
+    if (!this.workspaces.repo(ws.repoId).hasOrigin) return { kind: 'no-pr' }
+    const result = await this.prs.get(ws, { fresh: true })
+    if (result.kind === 'ok') return { kind: 'facts', facts: prFacts(result.pr, new Date().toISOString()) }
+    if (result.kind === 'no-pr') return { kind: 'no-pr' }
+    return { kind: 'unknown', message: result.message }
+  }
+
+  /**
+   * A flow's workspace step: a new workspace for the steps after it, from the run's base branch, or from a step's end:
+   * that turn's end checkpoint, else a snapshot of its workspace now, restored before setup runs (as Compare does).
+   */
+  private async flowWorkspace(run: FlowRun, from?: { workspaceId: string; sessionId?: string; turnId?: string }): Promise<{ workspaceId: string; sessionId?: string; failed?: string }> {
+    let sessionId: string | undefined
+    if (!from) {
+      const ws = await this.createFromOptions(run.repoId, { baseBranch: run.baseBranch, branch: { kind: 'new' } }, { flowWorkspace: { runId: run.id }, onChat: (_w, s) => (sessionId = s) })
+      const setup = await this.setupOutcome(ws.id)
+      return { workspaceId: ws.id, sessionId, ...(setup.failed ? { failed: setup.logTail.trim().split('\n').at(-1) || 'the setup script failed' } : {}) }
+    }
+    const source = this.workspaces.workspace(from.workspaceId)
+    if (source.cloud) throw new Error('A workspace step can’t start from a cloud workspace yet.')
+    // A turn's end checkpoint when it has one; otherwise (or when it is gone) a snapshot of that workspace now.
+    let checkpointId = from.sessionId && from.turnId ? endCheckpointId(from.sessionId, from.turnId) : ''
+    let temporary = false
+    const snapshot = async () => {
+      checkpointId = `flow-${run.id}-${randomUUID().slice(0, 8)}`
+      const saved = await saveCheckpoint(wsPath(source), checkpointId)
+      if (!saved.ok) throw new Error(`Couldn’t snapshot ${source.name}: ${saved.reason}.`)
+      temporary = true
+    }
+    if (!checkpointId) await snapshot()
+    const ws = await this.workspaces.createWorkspace(run.repoId, { baseBranch: source.baseBranch, deferSetup: true })
+    ws.flowRun = { runId: run.id }
+    this.workspaces.touch()
+    try {
+      await this.workspaces.worktreePrepared(ws.id)
+      try {
+        await restoreCheckpoint(wsPath(ws), checkpointId)
+      } catch (err) {
+        if (temporary) throw err
+        await snapshot()
+        await restoreCheckpoint(wsPath(ws), checkpointId)
+      }
+      this.workspaces.continueSetup(ws.id)
+    } catch (err) {
+      this.workspaces.continueSetup(ws.id, `Couldn’t copy ${source.name} into this workspace: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      if (temporary) await deleteCheckpoints(wsPath(source), checkpointId).catch(() => undefined)
+    }
+    sessionId = this.startChat(ws.id, undefined, undefined, undefined, undefined, { flowWorkspace: { runId: run.id } })
+    this.store.save()
+    const setup = await this.setupOutcome(ws.id)
+    const now = this.store.state.workspaces.find((w) => w.id === ws.id)
+    const failed = setup.failed ? setup.logTail.trim().split('\n').at(-1) || 'the setup script failed' : now?.state === 'error' ? now.error ?? 'the workspace couldn’t be made' : undefined
+    return { workspaceId: ws.id, sessionId, ...(failed ? { failed } : {}) }
   }
 
   /** The failing checks' commands and the end of each log, as a step's `checks.results` section. Empty when none failed. */
@@ -1901,12 +2040,12 @@ export class Core {
     // An explicit model wins; otherwise the template's start model, which only ever applies to a chat started here.
     const template = this.workspaces.template(templateId)
     // Get started: a workspace started from a template (a scheduled run is not the person trying one).
-    if (template && !internal?.scheduled && !internal?.flowRun) this.recordMilestone('template')
+    if (template && !internal?.scheduled && !internal?.flowRun && !internal?.flowWorkspace) this.recordMilestone('template')
     const chosen = chooseStartLoadout(loadout, template).loadout
     const session = this.sessions.createSession(workspaceId, {
       ...(chosen ? { agent: chosen.agent, model: chosen.model, effort: chosen.effort, fastMode: chosen.fast } : {}),
       // A scheduled run never starts in plan mode: nobody is there to review a plan.
-      ...(internal?.scheduled || internal?.flowRun ? { planMode: false } : {})
+      ...(internal?.scheduled || internal?.flowRun || internal?.flowWorkspace ? { planMode: false } : {})
     })
     // Marked before the first message can go, so the run is unattended from its first tool call.
     if (internal?.scheduled) session.unattended = { occurrenceId: internal.scheduled.occurrenceId }
@@ -1953,9 +2092,10 @@ export class Core {
     const ws = await this.workspaces.createWorkspace(repoId, create)
     if (internal?.scheduled) ws.scheduled = internal.scheduled
     if (internal?.flowRun) ws.flowRun = { runId: internal.flowRun.runId }
+    if (internal?.flowWorkspace) ws.flowRun = { runId: internal.flowWorkspace.runId }
     const integrations = this.startingIntegrations(repoId, options?.integrations)
     if (integrations) ws.integrations = integrations
-    if (internal?.scheduled || internal?.flowRun || integrations) this.store.save()
+    if (internal?.scheduled || internal?.flowRun || internal?.flowWorkspace || integrations) this.store.save()
     this.startChat(ws.id, options?.prompt, options?.loadout, options?.templateId, intake, internal, options?.attachments)
     return ws
   }

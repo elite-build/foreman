@@ -105,6 +105,7 @@ function approvalLabel(approval: ApprovalRequest, t: TFunction): string {
   if (approval.kind === 'plan') return t('triage.approval.plan')
   if (approval.kind === 'question') return t('triage.approval.question')
   if (approval.kind === 'gate') return t('triage.flow.gate', { step: approval.step })
+  if (approval.kind === 'pick') return t('triage.flow.pick', { step: approval.step })
   return t('triage.approval.tool', { tool: approval.toolName })
 }
 
@@ -430,7 +431,7 @@ function triageOne(ws: Workspace, sessions: Session[], input: TriageInput): Tria
     const at = flowRun.steps.at(-1)
     return { ws, bucket: 'working', tone: 'blue', label: flowRunLabel(flowRun, t), detail: title(at?.sessionId), since: at?.startedAt ?? flowRun.startedAt, sessionId: at?.sessionId, spinning: true }
   }
-  if (flowRun?.state === 'waiting') return { ws, bucket: 'attention', tone: 'amber', label: t('triage.flow.gate', { step: flowRun.current?.step ?? '' }), since: flowRun.steps.at(-1)?.startedAt ?? last, sessionId: flowRun.steps.at(-1)?.sessionId }
+  if (flowRun?.state === 'waiting') return { ws, bucket: 'attention', tone: 'amber', label: t(flowRun.steps.at(-1)?.kind === 'pick' ? 'triage.flow.pick' : 'triage.flow.gate', { step: flowRun.current?.step ?? '' }), since: flowRun.steps.at(-1)?.startedAt ?? last, sessionId: flowRun.steps.at(-1)?.sessionId }
   const running = sessions.filter((s) => s.status === 'running')
   if (running.length) {
     // #17: only an auto reviewer at work reads "Reviewing · auto review · read-only".

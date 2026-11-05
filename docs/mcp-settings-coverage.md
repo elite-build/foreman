@@ -19,7 +19,9 @@ paths are normalized for Windows and Unix.
 Current decision: ordinary settings have no dedicated MCP read/write tools.
 Loadouts have a partial dedicated read through `list_delegation_options`.
 Running a configured check or opening a preview is an action, not an adapter for
-reading or editing that setting.
+reading or editing that setting. The `decide` tool records which option a flow's
+decide step chose; it is registered only for that step's turn, reads and writes no
+setting, and is covered by its own handler tests in `tests/foremanMcp.test.ts`.
 
 The `run_foreman` CLI escape hatch is tracked separately and never counts as
 dedicated coverage. Workspace agents can use CLI help and the reviewed

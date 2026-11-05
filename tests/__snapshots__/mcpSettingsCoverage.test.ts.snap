@@ -209,6 +209,11 @@ exports[`MCP settings coverage review > requires a settings coverage review when
     "readOnly": false,
   },
   {
+    "description": "Only in a Foreman flow’s decide step: say which one of the options the step named you decided on. Call it once, with the option exactly as written; Foreman refuses anything else. The flow goes on along that option.",
+    "name": "decide",
+    "readOnly": true,
+  },
+  {
     "description": "Read configured check results and whether they are running or stale. Does not start checks or wake a sleeping sandbox.",
     "name": "get_check_results",
     "readOnly": true,

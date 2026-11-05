@@ -9,6 +9,8 @@ import { confirm } from '../src/cli/output'
 import { ERROR_EXIT } from '../src/cli/protocol'
 import { parseCommandArgs } from '../src/cli/registry'
 import { APPROVAL_METHODS } from '../src/main/cli/approvals'
+import { decide } from '../src/main/cli/work'
+import { workRunners } from '../src/cli/commands/work'
 import { FLOW_METHODS, FLOWS_OFF, runRow, withFlowName } from '../src/main/cli/flows'
 import type { CliContext } from '../src/main/cli/methods'
 import { CliCodedError, tierCheck, type CliHost } from '../src/main/cliServer'
@@ -232,13 +234,15 @@ describe('flow methods', () => {
     const result = await call<FlowListResult>('flow-list', { cwd: root })
     const byName = Object.fromEntries(result.flows.map((f) => [f.name, f]))
     expect(byName['Fix until green']).toMatchObject({ source: 'built-in', starter: 'fix-until-green', steps: 6, loops: 2, gates: 1, personas: ['developer', 'qa-engineer'] })
-    expect(byName['Fix until green'].cantRun).toContain('review steps aren’t supported yet (review)')
+    // Every step kind runs now: a built-in flow is only held back by its loadouts.
+    expect(byName['Fix until green'].cantRun ?? '').not.toContain('supported')
     expect(byName.Tidy).toMatchObject({ source: 'personal', steps: 4, loops: 1, gates: 1, problems: [] })
     expect(byName.Tidy.cantRun).toBeUndefined()
     expect(byName['Codex try'].cantRun).toContain('Claude only')
     expect(byName['flow-bad'].problems.length).toBeGreaterThan(0)
     expect(result.text.split('\n')[0]).toMatch(/^NAME\s+SOURCE\s+FILE\s+REV\s+STEPS\s+LOOPS\s+GATES\s+PERSONAS$/)
-    expect(result.text).toContain('  can’t run: review steps aren’t supported yet')
+    expect(result.text).toContain('  can’t run: unattended turns are Claude only, and work (codex) isn’t')
+    expect(result.text).not.toContain('supported yet')
     expect(result.text).toContain('  problem: ')
   })
 
@@ -295,12 +299,11 @@ describe('flow methods', () => {
       expect(calls.some((c) => c[0] === 'startFlowRun')).toBe(false)
     })
 
-    it('refuses a flow this version can’t run, naming the steps', async () => {
-      const { call } = rig({ api: { flowRunPreview: async () => preview({ unsupported: [{ step: 'review', kind: 'review' }], notClaude: [{ step: 'try', agent: 'Codex' }] }) } })
+    it('refuses a flow that can’t run unattended, naming the steps', async () => {
+      const { call } = rig({ api: { flowRunPreview: async () => preview({ notClaude: [{ step: 'try', agent: 'Codex' }] }) } })
       const err = await failure(call('flow-run', { flow: 'tidy', cwd: root, inputs: { task: 'x' } }))
       expect(err.code).toBe('not-supported')
-      expect(err.message).toContain('Not yet: review (review)')
-      expect(err.message).toContain('try (Codex)')
+      expect(err.message).toContain('these agent steps aren’t on Claude: try (Codex)')
     })
 
     it('starts what was shown and answers with the run, its workspace and its first turn; --open brings it forward', async () => {
@@ -311,7 +314,7 @@ describe('flow methods', () => {
       expect(result.text).toContain('  run        new-run-0001')
       expect(result.text).toContain('  workspace  lisbon (ws1)')
       expect(result.text).toContain('  turn       turn-1')
-      expect(result.seen).toBe('running|1|running||w')
+      expect(result.seen).toBe('running|1|running||ws1')
       expect(reveal).toHaveBeenCalledWith('ws1')
       expect(runs).toHaveLength(1)
     })
@@ -357,8 +360,8 @@ describe('flow methods', () => {
   it('wait: answers at once when the run moved since `seen`, and after the timeout when it didn’t', async () => {
     const run = aRun()
     const { call } = rig({ runs: [run] })
-    const moved = await call<FlowWaitResult>('flow-wait', { run: run.id, seen: 'running|2|running||w' })
-    expect(moved).toMatchObject({ seen: 'running|3|running||w', ended: false })
+    const moved = await call<FlowWaitResult>('flow-wait', { run: run.id, seen: 'running|2|running||ws1' })
+    expect(moved).toMatchObject({ seen: 'running|3|running||ws1', ended: false })
     const still = await call<FlowWaitResult>('flow-wait', { run: run.id, seen: moved.seen, timeoutSec: 0.05 })
     expect(still.seen).toBe(moved.seen)
   })
@@ -411,6 +414,85 @@ describe('gates through approve', () => {
   })
 })
 
+const pickRequest = (runId: string): Extract<ApprovalRequest, { kind: 'pick' }> => ({
+  id: 'pick5678-abcd',
+  sessionId: 's1',
+  kind: 'pick',
+  flowRunId: runId,
+  flowName: 'Tidy',
+  step: 'choose',
+  ask: 'Which result should the flow go on with after “choose”?',
+  choices: [
+    { step: 'try-a', workspaceId: 'ws1', summary: '2 files changed, +10 −1 · last turn try-a: completed · checks: not run' },
+    { step: 'try-b', workspaceId: 'ws2', summary: '1 file changed, +3 −0 · last turn try-b: completed · checks: Tests passed' }
+  ]
+})
+
+describe('picks through approve', () => {
+  const pick = pickRequest('run11111-2222')
+
+  it('lists a pick with its results, and status says how to answer it', async () => {
+    const waiting = aRun({ state: 'waiting', current: { step: 'choose', iteration: 1 }, workspaces: ['ws1', 'ws2'], steps: [...aRun().steps.slice(0, 2), { name: 'choose', kind: 'pick', iteration: 1, state: 'waiting', startedAt: '2026-11-05T10:07:00.000Z', sessionId: 's1' }] })
+    const { call } = rig({ runs: [waiting], pending: [pick] })
+    const listed = await call<ApprovalsResult>('approvals')
+    expect(listed.approvals[0]).toMatchObject({ kind: 'pick', flow: 'Tidy', step: 'choose', ask: 'Tidy · choose: pick one of try-a, try-b', choices: pick.choices })
+    expect(listed.text).toContain('    try-b: 1 file changed, +3 −0 · last turn try-b: completed · checks: Tests passed')
+    const status = await call<FlowStatusResult>('flow-status', { run: 'run1' })
+    expect(status.run.pick).toMatchObject({ id: 'pick5678-abcd', step: 'choose' })
+    expect(status.text).toContain('Waiting for you to pick at choose: Which result should the flow go on with after “choose”? — answer with `foreman approve pick5678-abcd --pick <step> | --stop`')
+    expect(status.text).toContain('  try-a: 2 files changed, +10 −1')
+    expect(status.text).toContain('Workspaces it made: lisbon, (removed)')
+  })
+
+  it('picks a result by its step (any case), or stops with none; refuses anything else', async () => {
+    const { call, calls } = rig({ pending: [pick, gateRequest('run11111-2222')] })
+    expect((await call<ApprovalAnswerResult>('approve', { id: 'pick5678', pick: 'TRY-B' })).answer).toBe('picked try-b')
+    expect((await call<ApprovalAnswerResult>('approve', { id: 'pick5678', gate: 'stop' })).answer).toBe('stopped, nothing chosen')
+    expect(calls).toEqual([
+      ['respondApproval', 'pick5678-abcd', { kind: 'pick', chosen: 'try-b' }],
+      ['respondApproval', 'pick5678-abcd', { kind: 'pick', chosen: null }]
+    ])
+    expect((await failure(call('approve', { id: 'pick5678', pick: 'try-c' }))).message).toBe('“try-c” isn’t one of the results. Pick one of: try-a, try-b.')
+    expect((await failure(call('approve', { id: 'pick5678' }))).message).toContain('Say which result “choose” goes on with: try-a, try-b.')
+    expect((await failure(call('approve', { id: 'pick5678', gate: 'continue' }))).message).toContain('That is a flow’s pick.')
+    expect((await failure(call('approve', { id: 'gate1234', pick: 'try-a' }))).message).toBe('--pick answers a flow’s pick; that is a gate request.')
+    expect((await failure(call('deny', { id: 'pick5678' }))).message).toContain('deny doesn’t answer')
+  })
+})
+
+describe('foreman decide', () => {
+  const session = (unattended?: Session['unattended']) => ({ id: 's1', workspaceId: 'ws1', agent: 'claude', status: 'running', turnId: 'turn-9', unattended }) as Session
+  const hostWith = (s: Session, live = true) => {
+    const recordReport = vi.fn(() => ({ report: {} as never, added: true }))
+    const host = stubHost({ identifyCaller: () => ({ kind: 'turn', session: s, ws, turnId: 'turn-9', live }), recordReport })
+    return { host, recordReport }
+  }
+
+  it('records an option the decide step names, from inside its turn', () => {
+    const { host, recordReport } = hostWith(session({ flowRunId: 'run', step: 'size', decide: ['small', 'large'] }))
+    const result = decide(host, { option: 'large' }, { sessionId: 's1', turnId: 'turn-9', token: 'tok' })
+    expect(result).toMatchObject({ decided: 'large', turn: 'turn-9', message: 'Decided “large”. End your turn now: the flow goes on from there.' })
+    expect(recordReport).toHaveBeenCalledWith({ workspaceId: 'ws1', sessionId: 's1', turnId: 'turn-9', kind: 'decide', text: 'large', via: 'cli' })
+  })
+
+  it('refuses an option the step doesn’t name, a turn that isn’t a decide step’s, and a call with no turn token', () => {
+    const decideStep = hostWith(session({ flowRunId: 'run', step: 'size', decide: ['small', 'large'] }))
+    expect(() => decide(decideStep.host, { option: 'huge' }, { token: 'tok' })).toThrow('“huge” isn’t one of the options. Decide one of: small, large.')
+    expect(decideStep.recordReport).not.toHaveBeenCalled()
+    expect(() => decide(hostWith(session({ flowRunId: 'run', step: 'build' })).host, { option: 'small' }, { token: 'tok' })).toThrow('Only a flow’s decide step decides')
+    expect(() => decide(hostWith(session({ flowRunId: 'run', step: 'size', decide: ['small'] }), false).host, { option: 'small' }, { token: 'tok' })).toThrow('That turn has ended')
+    expect(() => decide(stubHost({}), { option: 'small' })).toThrow('this call carries no turn token')
+  })
+
+  it('the command sends the option and prints the answer; it needs one', async () => {
+    const r = await runLine(['decide', 'large'], { decide: { message: 'Decided “large”.' } })
+    await r.done
+    expect(r.sent).toEqual([['decide', { option: 'large' }]])
+    expect(r.out).toEqual(['Decided “large”.'])
+    expect(COMMANDS.find((c) => commandName(c) === 'decide')?.tier).toBe('read')
+  })
+})
+
 // ---- the command's side ----
 
 type Answers = Record<string, unknown>
@@ -439,7 +521,7 @@ async function runLine(line: string[], answers: Answers = {}) {
     progress: () => undefined
   }
   const name = commandName(found.spec)
-  const runner = flowRunners[name] ?? approvalRunners[name]
+  const runner = flowRunners[name] ?? approvalRunners[name] ?? workRunners[name]
   return { done: runner(context), sent, out }
 }
 
@@ -560,5 +642,12 @@ describe('foreman flow', () => {
     expect(r.sent[0][1]).toMatchObject({ id: 'gate1234', gate: 'send-back', note: 'Keep the old API' })
     await expect((await runLine(['approve', 'gate1234', '--continue', '--stop'])).done).rejects.toThrow('Give one of --continue, --send-back and --stop.')
     await expect((await runLine(['approve', 'gate1234', '--continue', '--note', 'x'])).done).rejects.toThrow('--note goes with --send-back.')
+  })
+
+  it('approve sends a pick’s step, and refuses --pick with another answer', async () => {
+    const r = await runLine(['approve', 'pick5678', '--pick', 'try-b'], { approve: { text: 'ok' } })
+    await r.done
+    expect(r.sent[0][1]).toMatchObject({ id: 'pick5678', pick: 'try-b' })
+    await expect((await runLine(['approve', 'pick5678', '--pick', 'try-b', '--stop'])).done).rejects.toThrow('Give --pick on its own')
   })
 })

@@ -1,9 +1,10 @@
 // The workspace's Flow tab (docs/loops-and-graphs.md, "Running a flow"): the run this workspace belongs to, where it is,
-// its loop bounds, Stop, and its steps in run order. A step opens the chat tab or the checks it stands for. No diagram yet.
+// its loop bounds, Stop, and its steps in run order with their facts. A step opens the chat tab, the checks or the
+// workspace it stands for (a run that makes more than one workspace shows it in each). No diagram yet.
 import { Square } from 'lucide-react'
 import { currentLoopBounds, isActiveRun, runForWorkspace, type FlowRunStep } from '../../../shared/flows'
 import { useT } from '../i18n'
-import { api, attempt, selectSession, showChecksPanel, timeAgo, useStore } from '../store'
+import { api, attempt, selectSession, selectWorkspace, showChecksPanel, timeAgo, useStore } from '../store'
 import { Button, Card, CardButton, Status } from '../ui'
 import { RUN_STATE, RUN_TONE, STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import './flowRun.css'
@@ -31,7 +32,8 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
           <span key={b.loop} className="faint small">
             {[
               b.maxIterations ? t('flowRun.panel.loopIterationsMax', { loop: b.loop, iteration: b.iteration, max: b.maxIterations }) : t('flowRun.panel.loopIterations', { loop: b.loop, iteration: b.iteration }),
-              b.maxMinutes ? t('flowRun.panel.loopMinutes', { minutes: b.minutes, max: b.maxMinutes }) : null
+              b.maxMinutes ? t('flowRun.panel.loopMinutes', { minutes: b.minutes, max: b.maxMinutes }) : null,
+              b.maxCost !== undefined ? t('flowRun.panel.loopCost', { cost: (b.cost ?? 0).toFixed(2), max: b.maxCost.toFixed(2) }) : null
             ]
               .filter(Boolean)
               .join(' · ')}
@@ -65,7 +67,8 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
 /** One execution of a step; a button when there is a tab or check run to open for it. */
 function StepCard({ workspaceId, step }: { workspaceId: string; step: FlowRunStep }) {
   const t = useT()
-  const kind = STEP_KIND[step.kind] ? t(STEP_KIND[step.kind]!) : step.kind
+  const kind = t(STEP_KIND[step.kind])
+  const elsewhere = useStore((s) => (step.workspaceId && step.workspaceId !== workspaceId ? (s.snapshot?.workspaces.find((w) => w.id === step.workspaceId)?.name ?? step.workspaceId) : undefined))
   const loops = Object.entries(step.loops ?? {})
   const body = (
     <>
@@ -79,13 +82,25 @@ function StepCard({ workspaceId, step }: { workspaceId: string; step: FlowRunSte
       {step.detail && <span className="small">{step.detail}</span>}
       {step.delta && <span className="faint small">{t('flowRun.panel.delta', { count: step.delta.files, additions: step.delta.additions, deletions: step.delta.deletions })}</span>}
       {step.shown && step.shown.length > 0 && <span className="faint small">{t('flowRun.panel.shown', { sections: step.shown.join(', ') })}</span>}
+      {step.costUsd !== undefined && <span className="faint small">{t('flowRun.panel.cost', { cost: step.costUsd.toFixed(2) })}</span>}
+      {elsewhere && <span className="faint small">{t('flowRun.panel.inWorkspace', { workspace: elsewhere })}</span>}
       {step.fact && <span className="faint small">{t('flowRun.panel.fact', { fact: step.fact })}</span>}
     </>
   )
-  const open = step.kind === 'checks' ? () => showChecksPanel(workspaceId) : step.sessionId ? () => selectSession(workspaceId, step.sessionId!) : undefined
+  const where = step.workspaceId ?? workspaceId
+  const open =
+    step.kind === 'checks' || step.kind === 'script'
+      ? step.kind === 'checks'
+        ? () => showChecksPanel(where)
+        : undefined
+      : step.kind === 'workspace' && step.workspaceId
+        ? () => selectWorkspace(step.workspaceId!)
+        : step.sessionId
+          ? () => selectSession(where, step.sessionId!)
+          : undefined
   if (!open) return <Card className="flow-step">{body}</Card>
   return (
-    <CardButton className="flow-step" onClick={open} title={t(step.kind === 'checks' ? 'flowRun.panel.openChecks' : 'flowRun.panel.openTab')}>
+    <CardButton className="flow-step" onClick={open} title={t(step.kind === 'checks' ? 'flowRun.panel.openChecks' : step.kind === 'workspace' ? 'flowRun.panel.openWorkspace' : 'flowRun.panel.openTab')}>
       {body}
     </CardButton>
   )

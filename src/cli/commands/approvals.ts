@@ -1,6 +1,6 @@
 // The approval commands: approvals, approve, deny and stopped. Each one sends a request and prints the `text` of
 // the answer (or the JSON with --json); `stopped dismiss --all` asks first. A flow's gate is answered with approve and
-// one of --continue, --send-back [--note] and --stop.
+// one of --continue, --send-back [--note] and --stop; a flow's pick with --pick <step> (or --stop).
 import { usageError } from '../client'
 import type { Run } from '../command'
 
@@ -39,6 +39,8 @@ const approve: Run = async (ctx) => {
   if (extra.length) throw usageError('foreman approve takes one request id.')
   const { opts } = ctx
   const gate = gateOf(opts)
+  const pick = str(opts.pick)
+  if (pick !== undefined && gate !== undefined) throw usageError('Give --pick on its own: it answers a flow’s pick.')
   const result = await ctx.send<{ text: string }>('approve', {
     id,
     always: opts.always,
@@ -48,7 +50,8 @@ const approve: Run = async (ctx) => {
     feedback: str(opts.feedback),
     answers: answersOf(opts.answer),
     gate,
-    note: str(opts.note)
+    note: str(opts.note),
+    pick
   })
   ctx.print(result, () => result.text)
 }

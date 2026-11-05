@@ -141,7 +141,7 @@ describe('Flows on Automations', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
-  it('a flow that can’t run says why, and Start stays off; each flow lists its runs', async () => {
+  it('a flow that can’t run says why, and Start stays off; a cost bound says it counts Claude turns only; each flow lists its runs', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
     fakeState.snapshot = { ...fakeState.snapshot, workspaces: [{ id: 'ws-1', name: 'lisbon', state: 'ready' }], flowRuns: [
@@ -151,7 +151,7 @@ describe('Flows on Automations', () => {
     fakeApi.flowRunPreview = vi.fn(async () => ({
       fingerprint: {},
       inputs: [],
-      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], unsupported: [{ step: 'review', kind: 'review' }], notClaude: [], problems: [] }
+      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], unsupported: [], notClaude: [{ step: 'review', agent: 'Cursor' }], problems: [], costBound: true }
     }))
     render(<AutomationsView />)
     const runs = await screen.findByRole('list', { name: 'Runs of Fix until green' })
@@ -160,8 +160,8 @@ describe('Flows on Automations', () => {
     expect(within(runs).getByRole('button', { name: 'lisbon' })).toBeTruthy()
     await u.click(screen.getByRole('button', { name: 'Run Fix until green…' }))
     const dialog = screen.getByRole('dialog', { name: 'Run Fix until green' })
-    await waitFor(() => expect(within(dialog).getByText('This flow can’t run yet')).toBeTruthy())
-    expect(within(dialog).getByText('This version runs turn, checks and gate steps. Not yet: review (review)')).toBeTruthy()
+    await waitFor(() => expect(within(dialog).getByText('These turn steps aren’t on Claude, so the flow can’t run unattended: review (Cursor)')).toBeTruthy())
+    expect(within(dialog).getByText('The cost bound applies to Claude turns only: other agents don’t say what a turn cost.')).toBeTruthy()
     expect((within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

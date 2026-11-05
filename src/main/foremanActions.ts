@@ -1,10 +1,14 @@
+import { decisionProblem } from '../shared/agentReports'
 import { FOREMAN_TOOLS, foremanToolArgs, foremanToolName, type ForemanToolName } from '../shared/foremanTools'
 import type { Api, Session, Workspace } from '../shared/types'
 import { frozenReason } from '../shared/transfer'
+import type { RecordInput } from './agentReports'
 
 export interface ForemanActionDeps {
   state(): { workspaces: Workspace[]; sessions: Session[] }
   api: Pick<Api, 'checksStatus' | 'runChecks' | 'openPreview'>
+  // Keep what an agent decided in a flow's decide step, as a report on its tab and turn (agentReports.ts).
+  record?(input: RecordInput): { added: boolean }
 }
 
 export interface ForemanScope { workspaceId?: string; readOnly: boolean }
@@ -26,6 +30,21 @@ export class ForemanActions {
       if (workspace.state !== 'ready') throw new Error('The workspace must be ready before running this action.')
     }
     return { name: tool, workspace }
+  }
+
+  /**
+   * A flow's decide step: the turn in `sessionId` decided on `option`. Refused outside that step's turn, and for an
+   * option the step doesn't name; recorded as a `decide` report the flow reads when the turn ends.
+   */
+  decide(sessionId: string, option: string): { decided: string; message: string } {
+    const session = this.deps.state().sessions.find((s) => s.id === sessionId)
+    if (!session) throw new Error('Foreman couldn’t find this chat any more; nothing was recorded.')
+    const problem = decisionProblem(session.unattended, option)
+    if (problem) throw new Error(problem)
+    if (!session.turnId || !this.deps.record) throw new Error('This turn has ended, so nothing was recorded.')
+    const decided = option.trim()
+    const { added } = this.deps.record({ workspaceId: session.workspaceId, sessionId, turnId: session.turnId, kind: 'decide', text: decided, via: 'mcp' })
+    return { decided, message: added ? `Noted: you decided “${decided}”. End your turn now.` : 'Already noted; nothing changed.' }
   }
 
   async call(name: string, args: unknown, scope: ForemanScope): Promise<unknown> {

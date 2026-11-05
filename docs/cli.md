@@ -9,8 +9,8 @@ The `foreman` command drives the running Foreman app from a terminal: start work
 ```text
 foreman · drives the running Foreman app
 
-Work           run, wait, send, cancel, resume-at, checks, status, report, review, ask, new,
-               approvals, approve, deny, stopped
+Work           run, wait, send, cancel, resume-at, checks, status, report, review, decide, ask,
+               new, approvals, approve, deny, stopped
 Workspaces     export, import, ws (21 commands: foreman help ws)
 Chats          tabs, tab new|set|close|reopen|fork, chat, queue, rewind, resume-now, mcp, slash,
                search
@@ -404,6 +404,32 @@ foreman review adds a row on Home asking the user to look at something; it start
 Like foreman report it is for agents: see `foreman help report` and `foreman help agents`.
 ```
 
+### foreman decide
+
+```text
+Say, as a flow’s decide step, which option you decided on
+
+Usage:
+  foreman decide <option>
+
+Arguments:
+  <option...>  One of the options the step names, as written
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman decide high
+
+foreman decide is for agents in a flow's decide step (Settings → Experimental → Flows). The step
+names its options; the agent decides one, once, with foreman decide <option> (or Foreman's decide tool), and
+the flow goes on along that option. Only a call from inside that step's turn counts (its turn token says
+which), and an option the step doesn't name is refused. A turn that ends without deciding is "undecided".
+```
+
 ### foreman ask
 
 ```text
@@ -540,10 +566,10 @@ One row per request: id, workspace, tab, kind (tool, plan, question or gate) and
 ### foreman approve
 
 ```text
-Approve a tool, plan or question an agent is waiting on, or answer a flow’s gate
+Approve a tool, plan or question an agent is waiting on, or answer a flow’s gate or pick
 
 Usage:
-  foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]... [--continue|--send-back [--note "…"]|--stop]
+  foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]... [--continue|--send-back [--note "…"]|--stop] [--pick <step>]
 
 Arguments:
   <id>                            The request’s id from `foreman approvals` (or the start of it)
@@ -558,7 +584,8 @@ Options:
       --continue                  Gate: go on with the flow
       --send-back                 Gate: take the flow’s “sent back” edge
       --note <text>               Gate, with --send-back: a note for the next step
-      --stop                      Gate: stop the flow’s run
+      --stop                      Gate or pick: stop the flow’s run
+      --pick <step>               Pick: the step whose result the flow goes on with
 
 Common options:
       --json                      Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -572,6 +599,7 @@ Examples:
   foreman approve 5c21 --plan --feedback "Skip step 4"
   foreman approve 8d07 --answer "Which database?=Postgres"
   foreman approve 6b40 --send-back --note "Keep the old API too"
+  foreman approve 2e19 --pick try-b
 
 foreman approvals lists what agents are waiting on: a tool asking permission, a plan to review
 or a question. approve and deny answer one by its id (or the start of it, four characters or
@@ -583,7 +611,9 @@ once per question (the question's text, header or position from 1); deny skips i
 A flow's gate (Settings → Experimental → Flows) waits for you between a flow's steps; `foreman approvals` lists it with
 its ask and what it shows. Answer it with approve and one of --continue (the flow goes on), --send-back with an
 optional --note (the flow takes its "sent back" edge, and the note goes to the next step) or --stop (the run ends).
-deny doesn't answer a gate.
+A flow's pick waits for you to choose among sibling results (workspaces or turns the flow made); `foreman approvals`
+lists each result with how it stands. Answer it with approve --pick <step> (the run goes on in that result's
+workspace) or --stop (nothing is chosen and the run ends). deny doesn't answer a gate or a pick.
 
 Answering lets an agent act, so approve and deny are refused from inside an agent turn.
 ```
@@ -622,7 +652,9 @@ once per question (the question's text, header or position from 1); deny skips i
 A flow's gate (Settings → Experimental → Flows) waits for you between a flow's steps; `foreman approvals` lists it with
 its ask and what it shows. Answer it with approve and one of --continue (the flow goes on), --send-back with an
 optional --note (the flow takes its "sent back" edge, and the note goes to the next step) or --stop (the run ends).
-deny doesn't answer a gate.
+A flow's pick waits for you to choose among sibling results (workspaces or turns the flow made); `foreman approvals`
+lists each result with how it stands. Answer it with approve --pick <step> (the run goes on in that result's
+workspace) or --stop (nothing is chosen and the run ends). deny doesn't answer a gate or a pick.
 
 Answering lets an agent act, so approve and deny are refused from inside an agent turn.
 ```

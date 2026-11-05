@@ -348,7 +348,7 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
   }, [flow.id, repoId, base])
 
   const summary = preview?.summary
-  const blocked = Boolean(summary && (summary.unsupported.length || summary.notClaude.length || summary.problems.length))
+  const blocked = Boolean(summary && (summary.notClaude.length || summary.problems.length))
   const filled = (preview?.inputs ?? []).every((i) => values[i.name]?.trim())
   const ready = Boolean(preview) && !blocked && filled && Boolean(base.trim()) && !busy
   const name = flowTitle(flow, t)
@@ -428,6 +428,12 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
               <dd>{summary.setupScript.trim() ? <code>{summary.setupScript.trim().split('\n')[0]}</code> : none}</dd>
               <dt className="faint">{t('flowRun.dialog.checks')}</dt>
               <dd>{summary.checks.length ? summary.checks.map((c) => c.name).join(', ') : none}</dd>
+              {summary.commands?.length ? (
+                <>
+                  <dt className="faint">{t('flowRun.dialog.commands')}</dt>
+                  <dd>{summary.commands.map((c) => c.name).join(', ')}</dd>
+                </>
+              ) : null}
               <dt className="faint">{t('flowRun.dialog.mcp')}</dt>
               <dd>{summary.mcpServers.length ? summary.mcpServers.join(', ') : none}</dd>
               <dt className="faint">{t('flowRun.dialog.integrations')}</dt>
@@ -440,9 +446,9 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
             {t('flowRun.dialog.claudeOnly')}
           </Callout>
         )}
-        {summary && summary.unsupported.length > 0 && (
-          <Callout tone="warn" role="status" title={t('flowRun.dialog.unsupportedTitle')}>
-            {t('flowRun.dialog.unsupported', { steps: summary.unsupported.map((u) => `${u.step} (${u.kind})`).join(', ') })}
+        {summary?.costBound && (
+          <Callout tone="info" role="note">
+            {t('flowRun.dialog.costBound')}
           </Callout>
         )}
         {summary && summary.notClaude.length > 0 && (

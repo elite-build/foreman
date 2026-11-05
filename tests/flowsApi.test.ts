@@ -98,7 +98,8 @@ describe('the flow API', () => {
     const repo = await core.api.addRepo(await makeRepo())
     const builtIn = await core.api.flowRunPreview({ flowId: 'built-in:fix-until-green', repoId: repo.id, baseBranch: 'main' })
     expect(builtIn.summary).toMatchObject({ flowName: 'Fix until green', flowSource: 'built-in', repoName: repo.name, baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [{ name: 'developer', source: 'built-in' }, { name: 'qa-engineer', source: 'built-in', readOnly: true }] })
-    expect(builtIn.summary.unsupported).toEqual([{ step: 'review', kind: 'review' }])
+    // Every step kind runs: the starter can start (the default loadouts set the slot its review names).
+    expect(builtIn.summary).toMatchObject({ unsupported: [], notClaude: [], problems: [] })
     expect(builtIn.inputs).toEqual([{ name: 'task', description: 'What to build or fix' }])
 
     const saved = await core.api.savePersonalFlow({ toml: RUNNABLE })
@@ -112,6 +113,20 @@ describe('the flow API', () => {
     await core.shutdown()
   })
 })
+
+const SCRIPTED = `name = "Scripted"
+
+[start]
+step = "build"
+
+[steps.build]
+kind = "turn"
+prompt = "Build it."
+
+[steps.lint]
+kind = "script"
+command = "lint"
+`
 
 const RUNNABLE = `name = "Runnable"
 
@@ -155,6 +170,25 @@ kind = "turn"
 prompt = "Build {{task}}"
 persona = "reviewer"
 `
+
+describe('script steps where a flow runs', () => {
+  it('finds the saved command by name, shows it in what starting approves, and makes it part of the approval', async () => {
+    const { core } = await setup()
+    await core.api.updateSettings({ flows: true })
+    const repo = await core.api.addRepo(await makeRepo())
+    const flow = await core.api.savePersonalFlow({ toml: SCRIPTED })
+    if (!('flow' in flow)) throw new Error('not saved')
+    const missing = await core.api.flowRunPreview({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main' })
+    expect(missing.summary.problems).toEqual([expect.stringContaining('The command “lint” (step “lint”) isn’t saved for this repository')])
+    await core.api.updateSettings({ savedCommands: [{ id: 'c1', name: 'Lint', command: 'npm run lint', scope: 'all' }] })
+    const found = await core.api.flowRunPreview({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main' })
+    expect(found.summary).toMatchObject({ problems: [], commands: [{ name: 'Lint', command: 'npm run lint' }] })
+    await core.api.updateSettings({ savedCommands: [{ id: 'c1', name: 'Lint', command: 'npm run lint -- --fix', scope: 'all' }] })
+    const changed = await core.api.flowRunPreview({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main' })
+    expect(changed.fingerprint.checks).not.toBe(found.fingerprint.checks)
+    await core.shutdown()
+  })
+})
 
 describe('the persona API', () => {
   it('lists built-in, repository, .claude/agents and personal personas, saves a personal one only when it reads, and deletes it', async () => {

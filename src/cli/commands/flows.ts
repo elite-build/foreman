@@ -1,7 +1,7 @@
 // `foreman flow …`: flows (docs/loops-and-graphs.md). Starting a run approves what it will do, so `flow run` asks the
 // app for the approval summary first, prints it, asks, and sends the fingerprint back as `shown`: the app refuses when it
 // no longer matches, as the Run dialog does. `--wait` then follows the run step by step until it ends.
-import { flowEndText, flowRunExit, flowRunGoing, flowStepText, gateWaitText, type FlowAddResult, type FlowRunResult, type FlowRunRow, type FlowRunStartedResult, type FlowWaitResult } from '../../shared/cli/flows'
+import { flowEndText, flowRunExit, flowRunGoing, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowRunResult, type FlowRunRow, type FlowRunStartedResult, type FlowWaitResult } from '../../shared/cli/flows'
 import { CliError, usageError } from '../client'
 import type { Context, Run } from '../command'
 import { EXIT_DISCONNECTED } from '../protocol'
@@ -56,7 +56,7 @@ const remove: Run = async (ctx) => {
   printText(ctx, await ctx.send<{ text: string }>('flow-remove', { flow }))
 }
 
-/** Prints each step once as it starts and once as it ends, and a gate once as it starts to wait. */
+/** Prints each step once as it starts and once as it ends, and a gate or pick once as it starts to wait. */
 export function stepPrinter(say: (line: string) => void): (run: FlowRunRow) => void {
   const started = new Set<number>()
   const ended = new Set<number>()
@@ -75,6 +75,10 @@ export function stepPrinter(say: (line: string) => void): (run: FlowRunRow) => v
     if (run.gate && !gates.has(run.gate.id)) {
       gates.add(run.gate.id)
       say(gateWaitText(run.gate))
+    }
+    if (run.pick && !gates.has(run.pick.id)) {
+      gates.add(run.pick.id)
+      say(pickWaitText(run.pick))
     }
   }
 }

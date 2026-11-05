@@ -23,7 +23,7 @@ const state = {
   model: null, view: 'list', wsId: null, sessionId: null, tab: 'chat',
   chat: [], chatFor: null, diff: null, checks: null, git: null, checkConsent: null,
   filter: 'all', query: '', sheet: null, newRepo: null, newPrompt: '',
-  drafts: {}, notes: {}, answers: {}, others: {}, replying: new Set(), fullPlans: new Set(),
+  drafts: {}, notes: {}, answers: {}, others: {}, picks: {}, replying: new Set(), fullPlans: new Set(),
   openTools: new Set(), openFiles: new Set(), limit: 120,
   error: '', pairingId: sessionStorage.getItem('pairingId'), pairCode: sessionStorage.getItem('pairCode'),
   lastKey: '', busy: false, recent: null
@@ -76,6 +76,7 @@ function askText(a) {
   }
   if (a.kind === 'plan') return '<b>Plan ready:</b> ' + safe(firstLine(a.plan))
   if (a.kind === 'gate') return '<b>' + safe(a.flowName) + ' waits for you:</b> ' + safe(a.ask)
+  if (a.kind === 'pick') return '<b>' + safe(a.flowName) + ' asks you to pick:</b> ' + safe(a.choices.map((c) => c.step).join(', '))
   return '<b>Asks:</b> ' + safe(a.questions[0]?.question || 'A question')
 }
 function preview(w, approvals) {
@@ -286,6 +287,14 @@ function requestHtml(a) {
     return '<div class="req"><div class="rh">' + icon('chat', 'sm') + safe(a.flowName) + ' · ' + safe(a.step) + '</div><div class="rb">' +
       '<p class="why">' + safe(a.ask) + '</p>' + a.show.map((x) => '<p class="why">' + safe(x.summary) + '</p>').join('') + gateNote + '</div>' +
       '<div class="acts"><button class="no" data-action="gstop:' + id + '">Stop</button><button class="alt" data-action="gback:' + id + '">Send back</button><button class="yes" data-action="gcont:' + id + '">Continue</button></div></div>'
+  }
+  if (a.kind === 'pick') {
+    // A flow's pick: each result with how it stands; choose one, then Go on (or Stop with none chosen).
+    const chosen = state.picks[a.id]
+    return '<div class="req"><div class="rh">' + icon('chat', 'sm') + safe(a.flowName) + ' · ' + safe(a.step) + '</div><div class="rb">' +
+      '<p class="why">' + safe(a.ask) + '</p><div class="opts">' +
+      a.choices.map((c, ci) => '<button class="opt' + (chosen === c.step ? ' on' : '') + '" data-action="pchoose:' + id + '|' + ci + '"><span class="mk"></span><span><b>' + safe(c.step) + '</b><small>' + safe(c.summary) + '</small></span></button>').join('') +
+      '</div></div><div class="acts"><button class="no" data-action="pstop:' + id + '">Stop</button><button class="yes" data-action="pgo:' + id + '"' + (chosen ? '' : ' disabled') + '>' + (chosen ? 'Go on with ' + safe(chosen) : 'Pick one first') + '</button></div></div>'
   }
   const picked = state.answers[a.id] || {}
   return '<div class="req"><div class="rh">' + icon('chat', 'sm') + (a.questions.length > 1 ? a.questions.length + ' questions' : 'Question') + '</div><div class="rb">' +
@@ -603,6 +612,16 @@ root.addEventListener('click', async (event) => {
     if (name === 'gcont') return await respond(arg, { kind: 'gate', answer: 'continued' }, 'Flow continued')
     if (name === 'gback') return await respond(arg, { kind: 'gate', answer: 'sent-back', note: state.notes[arg]?.trim() || undefined }, 'Sent back')
     if (name === 'gstop') return await respond(arg, { kind: 'gate', answer: 'stopped' }, 'Flow stopped')
+    if (name === 'pchoose') {
+      const [id, ci] = arg.split('|')
+      const a = state.model.approvals.find((x) => x.id === id)
+      const choice = a?.choices?.[ci]
+      if (!choice) return
+      state.picks[id] = state.picks[id] === choice.step ? undefined : choice.step
+      return render()
+    }
+    if (name === 'pgo') return state.picks[arg] ? await respond(arg, { kind: 'pick', chosen: state.picks[arg] }, 'Flow goes on with ' + state.picks[arg]) : undefined
+    if (name === 'pstop') return await respond(arg, { kind: 'pick', chosen: null }, 'Flow stopped')
     if (name === 'reject') { approval(); return await respond(arg, { kind: 'plan', approve: false, feedback: state.replying.has(arg) ? state.notes[arg]?.trim() || undefined : undefined }, state.replying.has(arg) ? 'Feedback sent' : 'Plan rejected') }
     if (name === 'skip' || name === 'answer') {
       const a = approval()

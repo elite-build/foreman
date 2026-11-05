@@ -101,6 +101,15 @@ describe('paired mobile access', () => {
     // G2: answered on the phone, which Home → Recent records.
     expect(respondApproval).toHaveBeenCalledWith('approval-1', { kind: 'tool', allow: true, message: undefined }, 'phone')
     expect((await answer()).status).toBe(409)
+    // A flow's pick: one of the results it offered, else none (the run stops).
+    const pickAnswer = async (chosen: unknown) => {
+      approvals.push({ id: 'pick-1', sessionId: 'chat-1', kind: 'pick', flowRunId: 'run', flowName: 'Siblings', step: 'choose', ask: 'Which?', choices: [{ step: 'try-a', workspaceId: 'w1', summary: '' }, { step: 'try-b', workspaceId: 'w2', summary: '' }] })
+      return fetch(base + '/api/approval/pick-1', { method: 'POST', headers: { Cookie: auth, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'pick', chosen }) })
+    }
+    expect((await pickAnswer('try-b')).status).toBe(200)
+    expect(respondApproval).toHaveBeenLastCalledWith('pick-1', { kind: 'pick', chosen: 'try-b' }, 'phone')
+    expect((await pickAnswer('try-z')).status).toBe(200)
+    expect(respondApproval).toHaveBeenLastCalledWith('pick-1', { kind: 'pick', chosen: null }, 'phone')
     const old = new Date(Date.now() - 20 * 60_000).toISOString()
     snapshot.repos.push({ id: 'repo-1', name: 'Repo' } as Repo)
     snapshot.workspaces.push({ id: 'ws-1', repoId: 'repo-1', name: 'Stalled work', branch: 'feature/stall', state: 'ready', status: 'in-progress', createdAt: old } as Workspace)

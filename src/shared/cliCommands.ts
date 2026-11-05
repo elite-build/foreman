@@ -161,6 +161,11 @@ and done are quiet lines in the chat. The token is attribution, not a security b
 A call carrying a turn token can't use run or send unless the repository allows it
 (Repository settings → Actions → "Let agents start workspaces and queue messages").`
 
+const DECIDE_DETAILS = `foreman decide is for agents in a flow's decide step (Settings → Experimental → Flows). The step
+names its options; the agent decides one, once, with foreman decide <option> (or Foreman's decide tool), and
+the flow goes on along that option. Only a call from inside that step's turn counts (its turn token says
+which), and an option the step doesn't name is refused. A turn that ends without deciding is "undecided".`
+
 const REVIEW_DETAILS = `foreman review adds a row on Home asking the user to look at something; it starts nothing.
 Like foreman report it is for agents: see \`foreman help report\` and \`foreman help agents\`.`
 
@@ -293,6 +298,18 @@ export const COMMANDS: CommandSpec[] = [
     details: REVIEW_DETAILS,
     tier: 'read',
     noAssistant: 'it is for agents, which ask for a review from inside a turn'
+  },
+  {
+    path: ['decide'],
+    group: 'work',
+    summary: 'Say, as a flow’s decide step, which option you decided on',
+    usage: 'foreman decide <option>',
+    args: [{ name: 'option', required: true, rest: true, help: 'One of the options the step names, as written' }],
+    options: {},
+    examples: ['foreman decide high'],
+    details: DECIDE_DETAILS,
+    tier: 'read',
+    noAssistant: 'it is for agents, which decide from inside a flow’s decide step'
   },
   {
     path: ['ask'],

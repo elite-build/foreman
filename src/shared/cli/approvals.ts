@@ -1,6 +1,6 @@
 // Parameters and results of the approvals and stopped-turns methods. Each result has
 // a `text` the command prints unless --json is given.
-import type { FlowGateShow } from '../flows'
+import type { FlowGateShow, FlowPickChoice } from '../flows'
 import type { ApprovalRequest } from '../types'
 
 export interface ApprovalRow {
@@ -20,6 +20,8 @@ export interface ApprovalRow {
   step?: string
   flowRunId?: string
   show?: FlowGateShow[]
+  // A flow's pick: the results to choose among, each with the step that made it and how it stands.
+  choices?: FlowPickChoice[]
 }
 
 export interface ApprovalsResult {
@@ -44,6 +46,8 @@ export interface ApproveParams {
   // A flow's gate: continue the flow, send it back (with `note` for the next step), or stop the run.
   gate?: 'continue' | 'send-back' | 'stop'
   note?: string
+  // A flow's pick: the step whose result the run goes on with (`gate: 'stop'` chooses none).
+  pick?: string
 }
 
 export interface DenyParams {

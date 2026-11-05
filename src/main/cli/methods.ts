@@ -4,7 +4,7 @@ import type { TurnCaller } from '../../shared/agentReports'
 import { templatePlaceholders, templateSlug } from '../../shared/promptTemplates'
 import { qualifiedName } from '../../shared/repoTemplates'
 import { readRepoTemplates } from '../repoTemplates'
-import type { CancelParams, ChecksParams, ExportParams, ImportParams, ReportParams, RepoSummary, ResumeAtParams, RunParams, SendParams, TemplateSummary, WaitParams, WaitResult } from '../../cli/protocol'
+import type { CancelParams, ChecksParams, DecideParams, ExportParams, ImportParams, ReportParams, RepoSummary, ResumeAtParams, RunParams, SendParams, TemplateSummary, WaitParams, WaitResult } from '../../cli/protocol'
 import { appMethods } from './app'
 import { ASK_METHODS } from './ask'
 import { APPROVAL_METHODS } from './approvals'
@@ -29,7 +29,7 @@ import type { CliHost } from './host'
 import type { AnyCliRequest, Tier } from './policy'
 import { importCommand, exportCommand } from './portability'
 import { resolveRepo } from './resolve'
-import { cancel, checks, report, resumeAt, run, send, status, waitForTurn } from './work'
+import { cancel, checks, decide, report, resumeAt, run, send, status, waitForTurn } from './work'
 
 /** What a handler gets besides its parameters. */
 export interface CliContext {
@@ -84,6 +84,8 @@ export const METHODS: Record<string, CliMethod> = {
   },
   // A report is how an agent talks to the user; it changes nothing about Foreman's setup.
   report: { tier: 'read', handle: async (host, params, ctx) => report(host, params as ReportParams, ctx.caller) },
+  // A flow's decide step says which option it took, like a report: it records, and changes nothing else.
+  decide: { tier: 'read', handle: async (host, params, ctx) => decide(host, params as DecideParams, ctx.caller) },
   // app-info, doctor, cli-status and cli-install are in app.ts.
   ...appMethods,
   run: { tier: 'act', handle: async (host, params) => run(host, params as RunParams) },

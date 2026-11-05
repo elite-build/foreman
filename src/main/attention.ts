@@ -169,7 +169,7 @@ export class AttentionService {
 
 /** An answered approval, as history: who asked, for what, whether it was allowed, and (G2) where it was answered. */
 export function approvalDraft(request: ApprovalRequest, response: ApprovalResponse, workspaceId: string, via?: 'window' | 'phone'): EventDraft {
-  const allowed = response.kind === 'tool' ? response.allow : response.kind === 'plan' ? response.approve : response.kind === 'gate' ? response.answer === 'continued' : !response.skipped
+  const allowed = response.kind === 'tool' ? response.allow : response.kind === 'plan' ? response.approve : response.kind === 'gate' ? response.answer === 'continued' : response.kind === 'pick' ? response.chosen !== null : !response.skipped
   const label = request.kind === 'tool' ? request.toolName : request.kind
   return { kind: 'approval-answered', workspaceId, sessionId: request.sessionId, topic: `approval:${request.sessionId}`, key: `${label}:${allowed}`, label, allowed, ...(via ? { via } : {}) }
 }

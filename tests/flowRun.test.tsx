@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { FlowRun } from '../src/shared/flows'
 import type { ApprovalRequest } from '../src/shared/types'
-import { GatePanel } from '../src/renderer/src/components/ApprovalPanel'
+import { GatePanel, PickPanel } from '../src/renderer/src/components/ApprovalPanel'
 import { FlowRunPanel } from '../src/renderer/src/components/FlowRunPanel'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -54,6 +54,7 @@ beforeEach(() => {
   resetFake()
   ;(storeModule.selectSession as Mock).mockClear()
   ;(storeModule.showChecksPanel as Mock).mockClear()
+  ;(storeModule.selectWorkspace as Mock).mockClear()
   fakeState.snapshot = { ...original, settings: { ...original.settings, flows: true }, flowRuns: [RUN] }
 })
 afterEach(() => {
@@ -79,6 +80,45 @@ describe('a flow’s gate', () => {
     expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'continued' })
     await user.click(within(panel).getByRole('button', { name: 'Stop' }))
     expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'stopped' })
+  })
+})
+
+const PICK = {
+  id: 'p1',
+  sessionId: 's1',
+  kind: 'pick',
+  flowRunId: 'run',
+  flowName: 'Siblings',
+  step: 'choose',
+  ask: 'Which result should the flow go on with after “choose”?',
+  choices: [
+    { step: 'try-a', workspaceId: 'ws-1', summary: '2 files changed, +10 −1 · last turn try-a: completed · checks: not run' },
+    { step: 'try-b', workspaceId: 'ws-2', summary: '1 file changed, +3 −0 · last turn try-b: completed · checks: Tests passed' }
+  ]
+} as Extract<ApprovalRequest, { kind: 'pick' }>
+
+describe('a flow’s pick', () => {
+  it('shows each result with how it stands; nothing goes until one is chosen; Stop chooses none', async () => {
+    const user = userEvent.setup()
+    render(<PickPanel request={PICK} />)
+    const panel = screen.getByRole('group', { name: 'Siblings asks you to pick at choose' })
+    const results = within(panel).getByRole('list', { name: 'Results' })
+    expect(within(results).getAllByRole('listitem')).toHaveLength(2)
+    const goOn = within(panel).getByRole('button', { name: 'Pick a result first' }) as HTMLButtonElement
+    expect(goOn.disabled).toBe(true)
+    const b = within(panel).getByRole('button', { name: /^try-b/ })
+    expect(b.textContent).toContain('checks: Tests passed')
+    expect(b.getAttribute('aria-pressed')).toBe('false')
+    await user.click(b)
+    expect(b.getAttribute('aria-pressed')).toBe('true')
+    // A result's workspace opens to look at it first.
+    await user.click(within(panel).getByRole('button', { name: 'Open the workspace of try-b' }))
+    expect(storeModule.selectWorkspace).toHaveBeenCalledWith('ws-2')
+    expect(fakeApi.respondApproval?.mock.calls ?? []).toEqual([])
+    await user.click(within(panel).getByRole('button', { name: 'Go on with try-b' }))
+    expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('p1', { kind: 'pick', chosen: 'try-b' })
+    await user.click(within(panel).getByRole('button', { name: 'Stop' }))
+    expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('p1', { kind: 'pick', chosen: null })
   })
 })
 
@@ -109,6 +149,37 @@ describe('the Flow tab', () => {
 
     await user.click(screen.getByRole('button', { name: 'Stop run' }))
     expect(fakeApi.stopFlowRun).toHaveBeenCalledWith('run')
+  })
+
+  it('names every kind of step with its facts, and a step in another workspace says where and opens there', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot = {
+      ...fakeState.snapshot,
+      workspaces: [...(fakeState.snapshot.workspaces ?? []), { id: 'ws-2', name: 'porto', state: 'ready' }],
+      flowRuns: [
+        {
+          ...RUN,
+          workspaces: ['ws-1', 'ws-2'],
+          steps: [
+            { name: 'review', kind: 'review', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:00:00.000Z', sessionId: 's2', turnId: 't3', fact: 'findings', detail: '2 findings', tree: 'abc1234', readOnly: true, costUsd: 0.42 },
+            { name: 'lint', kind: 'script', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:01:00.000Z', fact: 'ok', detail: 'lint: exit 0' },
+            { name: 'size', kind: 'decide', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:02:00.000Z', fact: 'large' },
+            { name: 'ci', kind: 'wait', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:03:00.000Z', fact: 'green', detail: 'CI passed after 4 min' },
+            { name: 'second', kind: 'workspace', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:04:00.000Z', fact: 'ready', workspaceId: 'ws-2', sessionId: 's9' },
+            { name: 'choose', kind: 'pick', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:05:00.000Z', fact: 'try-a', workspaceId: 'ws-1' }
+          ]
+        }
+      ]
+    }
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    const items = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem')
+    expect(items.map((li) => within(li).getByText(/· run 1$/).textContent)).toEqual(['Review · run 1', 'Script · run 1', 'Decide · run 1', 'Wait · run 1', 'Workspace · run 1', 'Pick · run 1'])
+    expect(within(items[0]).getByText('Went on by: findings')).toBeTruthy()
+    expect(within(items[0]).getByText('Cost $0.42')).toBeTruthy()
+    expect(within(items[3]).getByText('CI passed after 4 min')).toBeTruthy()
+    expect(within(items[4]).getByText('In porto')).toBeTruthy()
+    await user.click(within(items[4]).getByRole('button'))
+    expect(storeModule.selectWorkspace).toHaveBeenCalledWith('ws-2')
   })
 
   it('shows nothing while Flows are off, or for a workspace no run made', () => {

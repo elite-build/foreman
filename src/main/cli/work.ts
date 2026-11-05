@@ -10,9 +10,9 @@ import { sendReceiptText, tabModelText } from '../../shared/tabs'
 import { checksState, pullRequestUrl, statusRows } from '../../shared/status'
 import type { CreateWorkspaceOptions, Repo, TurnStatus } from '../../shared/types'
 import { clockTime, dayOf } from '../../shared/usageLimit'
-import type { CancelParams, CancelResult, ChecksCliResult, ChecksParams, ReportParams, ReportResult, ResumeAtParams, ResumeAtResult, RunParams, RunResult, SendParams, SendResult, StatusResult, WaitParams, WaitResult } from '../../cli/protocol'
+import type { CancelParams, CancelResult, ChecksCliResult, ChecksParams, DecideParams, DecideResult, ReportParams, ReportResult, ResumeAtParams, ResumeAtResult, RunParams, RunResult, SendParams, SendResult, StatusResult, WaitParams, WaitResult } from '../../cli/protocol'
 import { HISTORY_ONLY_REASON, wsPath } from '../../shared/workspacePath'
-import { isBlocker, isReportKind, type TurnCaller } from '../../shared/agentReports'
+import { decisionProblem, isBlocker, isReportKind, type TurnCaller } from '../../shared/agentReports'
 import type { CliHost } from './host'
 import { chosenIntegrations } from './workspaceIntegrations'
 import { findTab, findWorkspace, resolveRepo, resolveWorkspace } from './resolve'
@@ -248,4 +248,21 @@ export function report(host: CliHost, params: ReportParams, caller?: TurnCaller)
   else if (isBlocker(saved.kind)) lines.push('The user sees it on Home as “agent says” until they reply or dismiss it.')
   else if (saved.kind === 'review') lines.push('Foreman added a row on the user’s Home. Nothing starts until they open it.')
   return { ...result, message: lines.join(' ') }
+}
+
+/**
+ * `foreman decide <option>`: in a flow's decide step, the turn says which option it decided on, as the decide tool does.
+ * Only a call carrying that turn's token counts, and only for an option the step names: anything else is refused.
+ */
+export function decide(host: CliHost, params: DecideParams, caller?: TurnCaller): DecideResult {
+  const option = typeof params?.option === 'string' ? params.option.trim() : ''
+  if (!option) throw new Error('Say which option you decided on: foreman decide <option>.')
+  const who = host.identifyCaller(caller)
+  if (who?.kind !== 'turn') throw new Error(who?.kind === 'bad-token' ? 'The turn token wasn’t recognised, so nothing was recorded. Only a flow’s decide step decides, from inside its turn.' : 'Only a flow’s decide step decides, from inside its turn; this call carries no turn token. Nothing was recorded.')
+  if (!who.live) throw new Error('That turn has ended, so nothing was recorded.')
+  const problem = decisionProblem(who.session.unattended, option)
+  if (problem) throw new Error(problem)
+  const { added } = host.recordReport({ workspaceId: who.ws.id, sessionId: who.session.id, turnId: who.turnId, kind: 'decide', text: option, via: 'cli' })
+  const base = { workspace: { id: who.ws.id, name: who.ws.name }, session: who.session.id, turn: who.turnId, decided: option }
+  return added ? { ...base, message: `Decided “${option}”. End your turn now: the flow goes on from there.` } : { ...base, duplicate: true, message: 'Already decided; nothing changed.' }
 }

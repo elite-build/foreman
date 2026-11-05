@@ -128,6 +128,22 @@ context = "diff"`,
     expect(problems(parseFlow(doc().replace('[after]', '') + '\n[after]\nworkspace = "burn"', 'personal'))).toEqual(['[after] workspace should be one of: keep, archive, delete-unchanged.'])
   })
 
+  it('reads a wait’s bound and a loop’s compact_above, and refuses bad ones', () => {
+    const wait = '[steps.w]\nkind = "wait"\non = "ci"\nat_most = { minutes = 45 }'
+    const flow = ok(parseFlow(doc(wait).replace('iterations = 3 }', 'iterations = 3 }\niteration = "compact-when-full"\ncompact_above = 80'), 'personal'))
+    expect(flow.steps.find((s) => s.name === 'w')).toEqual({ name: 'w', kind: 'wait', on: 'ci', at_most: { minutes: 45 } })
+    expect(flow.loops[0]).toMatchObject({ iteration: 'compact-when-full', compact_above: 80 })
+    expect(problems(parseFlow(doc(wait.replace('{ minutes = 45 }', '{ hours = 2 }')).replace('iterations = 3 }', 'iterations = 3 }\ncompact_above = 120'), 'personal'))).toEqual([
+      'The step “w” has `at_most`, which for a wait step takes only `minutes`: a number of minutes above zero.',
+      'The loop “fix” has `compact_above`, which is the share of the context window (a percentage between 1 and 99) above which its tab is compacted.'
+    ])
+  })
+
+  it('refuses a pick over a step that makes no result to pick', () => {
+    const pick = '[steps.p]\nkind = "pick"\nover = ["a", "b"]'
+    expect(problems(parseFlow(doc(pick, 'a = "b"\nb = { passed = "p", failed = "c" }\nc = "b"'), 'personal'))).toEqual(['The pick “p” chooses among “b”, a checks step: a pick chooses among workspace or turn steps.'])
+  })
+
   it('speaks the language it is given', () => {
     const t = createT('de')
     expect(problems(parseFlow('description = "x"', 'personal', t))[0]).toBe('Der Flow braucht einen Namen: name = "…".')
@@ -156,7 +172,7 @@ describe('validateFlow', () => {
   it('refuses a fact the step kind cannot produce', () => {
     expect(errors({ ...base(), edges: { ...base().edges, b: { green: 'done', failed: 'c' } } })).toEqual(['“b” is a checks step and can’t produce “green”. It produces: passed, failed.'])
     const ws: Flow = { ...base(), steps: [...base().steps, { name: 'w', kind: 'workspace' }], edges: { ...base().edges, w: { ok: 'a' } } }
-    expect(errors(ws)).toContain('“w” is a workspace step and has no facts to branch on. Give it one next step.')
+    expect(errors(ws)).toContain('“w” is a workspace step and can’t produce “ok”. It produces: ready, failed.')
   })
 
   it('refuses context from a step that cannot have run before', () => {
@@ -219,10 +235,13 @@ describe('helpers', () => {
 
   it('lists the facts each kind produces', () => {
     const facts = Object.fromEntries(flow.steps.map((s) => [s.kind, flowFacts(s)]))
-    expect(facts).toMatchObject({ turn: ['answer', 'delta', 'outcome', 'reports'], checks: ['passed', 'failed'], review: ['clean', 'findings'], gate: ['continued', 'sent-back', 'stopped'] })
+    expect(facts).toMatchObject({ turn: ['answer', 'delta', 'outcome', 'reports'], checks: ['passed', 'failed'], review: ['clean', 'findings', 'undecided'], gate: ['continued', 'sent-back', 'stopped'] })
     expect(flowFacts({ name: 'd', kind: 'decide', options: ['low', 'high'] })).toEqual(['low', 'high', 'undecided'])
     expect(flowFacts({ name: 's', kind: 'script', command: 'lint' })).toEqual(['ok', 'failed'])
-    expect(flowFacts({ name: 'w', kind: 'wait', on: 'ci' })).toEqual(['green', 'failed'])
+    expect(flowFacts({ name: 'w', kind: 'wait', on: 'ci' })).toEqual(['green', 'failed', 'none', 'timed-out'])
+    expect(flowFacts({ name: 'w', kind: 'wait', on: 'review' })).toEqual(['approved', 'changes-requested', 'timed-out'])
+    expect(flowFacts({ name: 'n', kind: 'workspace' })).toEqual(['ready', 'failed'])
+    expect(flowFacts({ name: 'p', kind: 'pick', over: ['a', 'b'] })).toEqual(['a', 'b'])
   })
 
   it('follows edges: a plain one whatever the fact, a branch by fact, done at the end, null for an unplanned fact', () => {

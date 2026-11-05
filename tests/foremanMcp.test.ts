@@ -246,6 +246,29 @@ describe('Foreman MCP in-process (Claude turns in the app)', () => {
     bridge.endSession(session.id)
   })
 
+  it('offers decide only to a flow’s decide step’s turn, and refuses an option outside its list', async () => {
+    const { actions: plain, state, session } = rig()
+    const local = new ForemanMcp({ actions: plain, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null })
+    const ordinary = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await ordinary.listTools()).tools.map((t) => t.name)).not.toContain('decide')
+
+    const record = vi.fn(() => ({ added: true }))
+    const actions = new ForemanActions({ state: () => state, api: {} as never, record })
+    const flow = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null })
+    Object.assign(session, { turnId: 't1', planMode: true, unattended: { flowRunId: 'run', step: 'size', decide: ['small', 'large'] } })
+    const client = await inProcessClient(flow.inProcessForTurn(session)['foreman-app'])
+    const decide = (await client.listTools()).tools.find((t) => t.name === 'decide')
+    // Offered to the read-only turn the step runs in, naming its options.
+    expect(decide?.description).toContain('The options: small, large.')
+    const refused = await client.callTool({ name: 'decide', arguments: { option: 'huge' } })
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('isn’t one of the options')
+    expect(record).not.toHaveBeenCalled()
+    const taken = await client.callTool({ name: 'decide', arguments: { option: 'large' } })
+    expect(taken.isError).not.toBe(true)
+    expect(record).toHaveBeenCalledWith({ workspaceId: 'w', sessionId: 's', turnId: 't1', kind: 'decide', text: 'large', via: 'mcp' })
+  })
+
   it('offers only read-only tools to a read-only turn', async () => {
     const { actions, state, session } = rig()
     session.planMode = true
