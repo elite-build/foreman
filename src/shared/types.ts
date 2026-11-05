@@ -300,6 +300,8 @@ export interface Repo {
   // On this Mac only; never read from settings.toml, so a committed file can't choose accounts.
   integrations?: import('./integrations').RepoIntegrations
   icon?: RepoIcon
+  // Foreman has looked for an icon itself (main/repoIcons.ts), once: an icon removed afterwards stays removed.
+  iconChecked?: boolean
   // The "Set up this repo" hint was dismissed (or used) for this repo.
   setupHintDismissed?: boolean
   // #17: auto review, approved on this Mac through its consent dialog. Absent means off (the default); never read from settings.toml.
@@ -2916,6 +2918,10 @@ export interface Api {
   refreshModels(agent?: AgentKind): Promise<void>
   // Misc
   openPath(path: string): Promise<void>
+  // A file named in the chat (a tool call's path): a page, picture, PDF, film or office file opens in the OS default app,
+  // text and code in the editor from Settings → Open in apps, and a program or archive is only shown in its folder
+  // (shared/fileOpen.ts; main decides, so a click never runs a file). 'reveal' shows any file in its folder.
+  openFile(path: string, how?: 'open' | 'reveal'): Promise<void>
   // Opens in the default app (#14); a file opens in the editor, terminals get its folder.
   openInEditor(path: string): Promise<void>
   // #14: the editors, terminals and file manager found on this computer; `refresh` looks again.
@@ -3017,7 +3023,7 @@ export const API_METHODS = [
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',
   'ptySpawn', 'savedTerminals', 'savedCommandConsent', 'approveSavedCommand', 'detectShells', 'agentStatus', 'reportDiagnostics', 'refreshModels',
   'agentCatalog', 'setAgentKey', 'revealAgentKey', 'importAgentKey', 'agentSignInStatus', 'importProviderKey', 'revealProviderKey', 'terminalAgentRuns',
-  'openPath', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openExternal', 'updateSettings', 'resetSettings', 'recordOnboardingMilestone',
+  'openPath', 'openFile', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openExternal', 'updateSettings', 'resetSettings', 'recordOnboardingMilestone',
   'attentionHistory', 'markAttentionSeen', 'refreshPullRequest',
   'assistantState', 'assistantItems', 'assistantSend', 'assistantCancel', 'assistantDeleteThread', 'assistantClearHistory', 'assistantConfirmRun', 'assistantCancelRun',
   'sttStart', 'sttAudio', 'sttStop', 'sttCancel', 'sttModelStatus', 'sttDownloadModel',

@@ -29,6 +29,8 @@ import { SensitiveCard } from './SensitiveAlert'
 import { ChatSearch } from './ChatSearch'
 import { textMatches } from './findInChat'
 import { describe, taskActivity, TaskMeta, ToolRow, type Root, type ToolItem } from './ToolRow'
+import type { FileAccess } from './OpenFileChip'
+import { workspaceSurfaces } from '../archivedView'
 import { toolRoots } from '../../../shared/portable'
 import { sessionReadOnly } from '../../../shared/workspacePath'
 import { workspacePerson } from '../../../shared/workspacePeople'
@@ -284,6 +286,13 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const forkToNewTab = useStore((s) => s.snapshot?.settings.forkToNewTab ?? false)
   const repoId = useStore((s) => s.snapshot?.workspaces.find((w) => w.id === session.workspaceId)?.repoId)
   const roots = useMemo(() => toolRoots({ path: workspace.path, provenance: { sourceRoot: workspace.provenance?.sourceRoot } }), [workspace.path, workspace.provenance?.sourceRoot])
+  // What a tool call's path may open: nothing in a cloud workspace (its files are in the sandbox); Foreman's own viewer
+  // only for a worktree on this computer.
+  const preview = workspaceSurfaces(workspace).local
+  const files = useMemo<FileAccess | null>(
+    () => (workspace.cloud ? null : { workspaceId: workspace.id, root: workspace.path, preview }),
+    [workspace.cloud, workspace.id, workspace.path, preview]
+  )
   const readOnly = sessionReadOnly(workspace, session)
   // The person a generated workspace name comes from, introduced in a divider at the top of the chat.
   const namesake = workspacePerson(workspace)
@@ -463,6 +472,7 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
           readOnly={readOnly}
           level={headingLevel + 2}
           workspacePath={roots}
+          files={kind === 'tool' ? files : undefined}
           strip={strip}
           expandTools={expandTools}
           running={kind === 'user' || kind === 'turn-end' || signIn ? running : undefined}
@@ -651,6 +661,8 @@ type RowProps = {
   // The heading level of a message in this row; what an agent writes inside it starts one level below.
   level: number
   workspacePath: Root
+  // Only for tool rows: what their paths may open.
+  files?: FileAccess | null
   strip: boolean
   expandTools: boolean
   repoId?: string
@@ -684,6 +696,7 @@ const ChatRow = memo(function ChatRow({
   readOnly,
   level,
   workspacePath,
+  files,
   strip,
   expandTools,
   repoId,
@@ -764,7 +777,7 @@ const ChatRow = memo(function ChatRow({
       // #2: a call that only made a report is folded into the report's own line.
       if (isReportCall(item)) return null
       // The call written out for search only while there is a query.
-      return <ToolRow item={item} workspacePath={workspacePath} expandByDefault={expandTools} forceOpen={Boolean(query) && textMatches(toolSearchText(item), query).length > 0} />
+      return <ToolRow item={item} workspacePath={workspacePath} files={files} expandByDefault={expandTools} forceOpen={Boolean(query) && textMatches(toolSearchText(item), query).length > 0} />
     case 'notice':
       // O10: where Foreman was closed while this turn kept running in the background.
       if (item.gap) return <ClosedGapLine gap={item.gap} />

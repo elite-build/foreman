@@ -1,6 +1,6 @@
 import { ForemanDelegation } from './foremanDelegation'
 import { ForemanCli } from './foremanCli'
-import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeTheme, powerMonitor, powerSaveBlocker, protocol, safeStorage, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, safeStorage, shell, systemPreferences } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -502,6 +502,13 @@ async function main(): Promise<void> {
       const icon = await app.getFileIcon(target, { size: 'normal' })
       return icon.isEmpty() ? null : icon.toDataURL()
     },
+    shrinkImage: async (bytes, pixels) => {
+      const image = nativeImage.createFromBuffer(bytes)
+      if (image.isEmpty()) return null
+      const { width, height } = image.getSize()
+      const scale = Math.min(1, pixels / Math.max(width, height))
+      return (scale < 1 ? image.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'best' }) : image).toDataURL()
+    },
     openExternal: (url) => shell.openExternal(url),
     setZoom: (level) => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.setZoomFactor(level)
@@ -795,6 +802,8 @@ async function main(): Promise<void> {
   core.data.start()
   core.gitBackup.start()
   core.applySettings()
+  // Icons for repositories added before Foreman picked them, one at a time in the background.
+  core.findMissingRepoIcons()
   // #2: which commands "Teach agents Foreman" may mention depends on whether `foreman` is installed.
   void core.refreshCliInstalled()
   // Keep-awake cutoffs (O17) react at once to plugging in or out and to heat; a minute timer covers the rest.

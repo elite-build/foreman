@@ -41,7 +41,7 @@ export class GitlabApi {
     return `${this.host.host}|${this.token ?? ''}`
   }
 
-  private async call<T>(path: string, init: { method?: string; body?: Record<string, unknown>; text?: boolean } = {}): Promise<Answer<T>> {
+  private async call<T>(path: string, init: { method?: string; body?: Record<string, unknown>; text?: boolean; bytes?: boolean } = {}): Promise<Answer<T>> {
     if (!this.token) throw new GitlabError(`GitLab authentication needed: no token is saved for ${this.host.host}. Add one in Settings → Git → Accounts.`, 'auth')
     let res: Response
     try {
@@ -49,7 +49,7 @@ export class GitlabApi {
         method: init.method ?? 'GET',
         headers: {
           Authorization: `Bearer ${this.token}`,
-          Accept: init.text ? 'text/plain' : 'application/json',
+          Accept: init.bytes ? '*/*' : init.text ? 'text/plain' : 'application/json',
           ...(init.body ? { 'Content-Type': 'application/json' } : {})
         },
         body: init.body ? JSON.stringify(init.body) : undefined,
@@ -63,6 +63,7 @@ export class GitlabApi {
     if (!res.ok) throw await failure(res, this.host.host)
     const nextPage = res.headers.get('x-next-page') || undefined
     if (init.text) return { data: (await res.text()) as T, nextPage }
+    if (init.bytes) return { data: { bytes: Buffer.from(await res.arrayBuffer()), type: res.headers.get('content-type') ?? '' } as T, nextPage }
     const text = await res.text()
     try {
       return { data: (text ? JSON.parse(text) : null) as T, nextPage }
@@ -77,6 +78,11 @@ export class GitlabApi {
 
   async text(path: string): Promise<string> {
     return (await this.call<string>(path, { text: true })).data
+  }
+
+  /** A file's bytes and its content type, such as a project's avatar. */
+  async bytes(path: string): Promise<{ bytes: Buffer; type: string }> {
+    return (await this.call<{ bytes: Buffer; type: string }>(path, { bytes: true })).data
   }
 
   async send<T>(method: 'POST' | 'PUT', path: string, body?: Record<string, unknown>): Promise<T> {
@@ -506,6 +512,16 @@ export async function retryPipeline(api: GitlabApi, projectPath: string, pipelin
 export async function jobTrace(api: GitlabApi, projectPath: string, jobId: number, maxLines = 1000): Promise<string> {
   const log = await api.text(`${project(projectPath)}/jobs/${jobId}/trace`)
   return log.split('\n').slice(-maxLines).join('\n')
+}
+
+/** The project's own avatar (GitLab 16.9 and later), or null when it has none. */
+export async function projectAvatar(api: GitlabApi, projectPath: string): Promise<{ bytes: Buffer; type: string } | null> {
+  try {
+    return await api.bytes(`${project(projectPath)}/avatar`)
+  } catch (err) {
+    if (err instanceof GitlabError && err.kind === 'not-found') return null
+    throw err
+  }
 }
 
 export async function projectWebUrl(api: GitlabApi, projectPath: string): Promise<string> {

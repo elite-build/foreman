@@ -116,6 +116,7 @@ Replaces `.chip` (and `.active`, `.accent`, `.plan-on`), the phone pill and the 
 
 - Props: `tone` (`neutral` / `warn` amber text on an amber tint: waiting on the user; there is no coral tone, and a mode that is on is `pressed`, the neutral hover fill), `pressed` (a toggle: `aria-pressed`), `haspopup` (`menu` / `listbox` / `dialog` / `true`) with `expanded` (`aria-haspopup` and `aria-expanded`, false until `expanded`), `pill` (fully rounded), plus native button props except `type`, `role` and `aria-pressed`. A Popover's trigger props spread straight onto it: native `aria-haspopup` and `aria-expanded` are kept, and `haspopup` / `expanded` win when both are given.
 - The highlighted look follows `aria-pressed=true` and `aria-expanded=true`; there is no look-only `active` prop. A chip that is a Plan mode toggle sets `pressed`; one that opens a picker sets `haspopup` and `expanded`.
+- `path`: a file path that acts (the chat's tool calls: a click opens the file). It keeps the inline-code look a path has everywhere (`--bg-raised` fill, small radius, monospace, `--text`), since a path is not a link, and shows the control edge (`--border-control`) and hover fill on hover and while its menu is open. Neutral whatever the tone; the caller gives it a `title` saying where the file opens.
 - A `Status` can sit inside a chip (the "controlled from" chip: `<ChipButton pill><Status tone="info" label=… /></ChipButton>` in a `Popover`).
 
 ```tsx

@@ -50,6 +50,26 @@ describe('ChipButton', () => {
     expect(readCss('chip-button')).not.toMatch(/--accent/)
   })
 
+  it('has a path look: the inline-code look of a path, the control edge on hover, never coral or a link colour', () => {
+    const onClick = vi.fn()
+    render(
+      <ChipButton path onClick={onClick}>
+        src/app.ts
+      </ChipButton>
+    )
+    const b = screen.getByRole('button', { name: 'src/app.ts' })
+    expect(b.className).toBe('ui-chip-btn ui-chip-btn--path')
+    b.click()
+    expect(onClick).toHaveBeenCalledTimes(1)
+    const css = readCss('chip-button')
+    const rest = ruleBody(css, '.ui-chip-btn--path')
+    expect(rest).toMatch(/background:\s*var\(--bg-raised\)/)
+    expect(rest).toMatch(/font-family:\s*var\(--mono\)/)
+    expect(rest).toMatch(/border-color:\s*transparent/)
+    expect(ruleBody(css, ".ui-chip-btn--path[aria-expanded='true']")).toMatch(/border-color:\s*var\(--border-control\)/)
+    expect(rest).not.toMatch(/--blue|--accent/)
+  })
+
   it('has a warn tone, and every tone combines with pill', () => {
     render(
       <>

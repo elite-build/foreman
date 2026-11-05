@@ -40,6 +40,26 @@
   background: var(--amber-bg);
   color: var(--amber);
 }
+/* path: a file path that opens the file. The inline-code look of a path (docs/design-system.md, "Links": a path is
+   not a link), so a chat of tool calls reads as before; the control edge and the hover fill show on hover and while
+   its menu is open. Neutral whatever the tone. */
+.ui-chip-btn--path {
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+.ui-chip-btn--path:hover:not(:disabled),
+.ui-chip-btn--path[aria-expanded='true'] {
+  border-color: var(--border-control);
+  background: var(--bg-hover);
+  color: var(--text);
+}
 /* A Status inside a chip (the phone pill) takes the chip's text colour; its glyph keeps the state colour. */
 .ui-chip-btn .ui-status {
   color: inherit;

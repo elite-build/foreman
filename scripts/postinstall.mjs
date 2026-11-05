@@ -15,7 +15,8 @@ if (process.platform !== 'win32') {
   }
 }
 
-// Turn on the repo's git hooks (.githooks/pre-commit runs the design-system check) for anyone who installs from a clone.
+// Turn on the repo's git hooks (.githooks/pre-commit runs the design-system check, pre-push keeps mocks out of pushes)
+// for anyone who installs from a clone.
 // Not in CI, not outside a git work tree, and not over a hooks path someone has already chosen. Never fails the install:
 // git missing, a tarball without .git, or a read-only config all end quietly.
 if (!process.env.CI && existsSync(path.join('.githooks', 'pre-commit'))) {

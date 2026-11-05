@@ -4,7 +4,7 @@ Read [README.md](README.md) for setup and [AGENTS.md](AGENTS.md) for development
 
 Run `npm run typecheck`, `npm test`, `npm run build`, `npm run check:repository`, and the checks relevant to your change. UI changes must follow [the design system](docs/design-system.md) and pass `npm run check:ui`. MCP and settings changes must pass `npm run check:mcp`. There is no CI, so run these checks yourself; `npm run check:security`, `npm audit --audit-level=high` and `npm run check:licenses` cover secrets, dependencies and dependency licenses. A tool failure is a failed check.
 
-Do not commit credentials, local application data, internal planning records, mockups or generated build output. Use synthetic test data. Keep third-party copyright notices, license texts and attribution intact; identify the source and license of new external material in your PR.
+Do not commit credentials, local application data, internal planning records, mockups or generated build output. A branch may carry design mocks (`mocks/`, `mockups/`, `mock*.html`) while you work on it, but the `.githooks/pre-push` hook refuses to push a commit that still holds one, so none reaches a pull request or `main`: take them out with `git rm -r --cached` before you push. Use synthetic test data. Keep third-party copyright notices, license texts and attribution intact; identify the source and license of new external material in your PR.
 
 Changes reach `main` only through a pull request approved by a maintainer with write access; the GitHub ruleset that enforces this is described in [maintenance controls](docs/maintenance.md). This repository does not supply CODEOWNERS or ruleset files. Dependency and security-boundary changes still need careful human inspection.
 

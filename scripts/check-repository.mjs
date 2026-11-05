@@ -4,17 +4,9 @@ import { lstatSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseToml } from 'smol-toml'
+import { forbiddenPath } from './publication-paths.mjs'
 
-export function forbiddenPath(file) {
-  const p = file.replaceAll('\\', '/').toLowerCase()
-  return /^(?:design|\.publication-private|out|dist|release|node_modules|\.workspace-people-cache)\//.test(p)
-    || /^docs\/[^/]+-spec\//.test(p)
-    || /^(?:features\.md|publication-[^/]+\.md)$/.test(p)
-    || /(?:^|\/)(?:state\.json|foreman\.db(?:-wal|-shm)?|secrets\.json|credentials\.json)$/.test(p)
-    || /(?:^|\/)\.env(?:\..*)?$/.test(p) && !/(?:^|\/)\.env\.(?:example|sample)$/.test(p)
-    || /\.(?:pem|key|p8|p12|pfx|log)$/.test(p)
-    || /(?:^|\/)(?:mocks?(?:[-.][^/]*)?|mockups?)(?:\/|\.html$)/.test(p)
-}
+export { forbiddenPath }
 
 export function candidateFiles(root = process.cwd()) {
   return [...new Set(execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean))]

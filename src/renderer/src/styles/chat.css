@@ -345,6 +345,47 @@ button.tool-row {
   white-space: nowrap;
   min-width: 0;
 }
+/* A path that opens (OpenFileChip, a ChipButton path) sits between the row's two halves: the label's, and the rest of
+   the line's, which also expands the row. */
+.tool-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.tool-line > .tool-row {
+  flex: none;
+  width: auto;
+  max-width: 55%;
+}
+.tool-line > .tool-row .tool-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+.tool-line > .tool-row-rest {
+  flex: 1 1 0;
+  max-width: none;
+  align-self: stretch;
+}
+.tool-file {
+  flex: 0 1 auto;
+}
+.tool-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Where it opens shows on hover and focus only, so a chat of tool calls looks as it did. */
+.tool-file-go {
+  display: none;
+  flex: none;
+}
+.tool-file:hover .tool-file-go,
+.tool-file:focus-visible .tool-file-go {
+  display: block;
+}
 .tool-body {
   margin: 6px 0 4px 23px;
   padding: 8px 10px;
