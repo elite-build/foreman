@@ -1,6 +1,6 @@
 // Wires the services together and implements the renderer-facing API.
 // Kept free of Electron imports (they are injected) so it can be tested.
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync } from 'node:fs'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -24,7 +24,7 @@ import { Environment } from './environment'
 import { makeRepository } from './makeRepo'
 import { cloneRepo, githubRepos, gitProtocol, quickStart } from './repoSources'
 import { cliStatus, installCli, macAdmin } from './cliInstall'
-import { baseStartPoint, git, gitOut, noteWorktreeChanged, repoEvidence } from './git'
+import { baseStartPoint, git, gitBlob, gitOut, noteWorktreeChanged, repoEvidence } from './git'
 import { accountToken, accountTokenAsync, branchPrefix, forgetAccountTokens, forgetIdentityLogins, ghActiveAccount, ghActiveAccountAsync, ghActiveAccountReady, ghAs, githubAccounts, githubEnv, githubEnvOrNone, githubLogin, githubSlug, githubStatus, refreshGhActiveAccount, setGithubIdentities, useGithubToken, warmGithub, type PrResult } from './github'
 import { SandboxManager } from './cloud/sandboxes'
 import { CloudPtyBackend, cloudTerminalFolder } from './cloud/terminal'
@@ -47,6 +47,7 @@ import { permissionNote } from '../shared/permissions'
 import { fixErrorsInstructions } from '../shared/prompts'
 import { resolveGithubLink, resolveGitlabLink } from './intake'
 import { gitlabTokenKey, ScmRouter, type ScmProvider } from './scm'
+import { githubOrgAvatar, gitlabProjectAvatar, RepoIcons } from './repoIcons'
 import { GitlabApi, GlabLogins, gitlabAgentContext, glabInstalled, probeGitlab, readGlabToken, testConnection } from './gitlab'
 import { findScmLink, gitlabHosts, looksLikeGitlab, normalizeGitlabHost, projectOnHost, scmForRemote } from '../shared/scm'
 import { intakeFile } from '../shared/githubLink'
@@ -148,6 +149,8 @@ export interface Host {
   revealPath?(path: string): void
   // G4 #14: a file's icon from the OS, as a data: URL (null when it has none).
   fileIcon?(path: string): Promise<string | null>
+  // A picture scaled down to `pixels` on its long side, as a PNG data: URL; null when it can't be read (repoIcons.ts).
+  shrinkImage?(bytes: Buffer, pixels: number): Promise<string | null>
   openExternal(url: string): Promise<void>
   setBadge(count: number): void
   // #3: the tray or menu-bar extra's count and jump list, after every look at the state.
@@ -198,14 +201,6 @@ export interface Host {
 // sign-ins, and Claude Code's /mcp screen for authenticating MCP servers.
 // 'claude-setup-token' prints a long-lived token for Claude in cloud workspaces (Settings → Cloud workspaces).
 const LOGIN_COMMANDS = ['claude-login', 'claude-setup-token', 'codex-login', 'gh-login', 'claude-mcp'] as const
-
-// Where repositories usually keep a favicon, best first.
-const FAVICON_PATHS = [
-  'public/favicon.svg', 'public/favicon.png', 'public/favicon.ico', 'public/apple-touch-icon.png', 'app/favicon.ico', 'app/icon.svg',
-  'app/icon.png', 'src/app/favicon.ico', 'src/app/icon.svg', 'static/favicon.svg', 'static/favicon.png', 'static/favicon.ico',
-  'favicon.svg', 'favicon.png', 'favicon.ico', 'apple-touch-icon.png'
-]
-const IMAGE_TYPES: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' }
 
 const SETTINGS_TEMPLATE = `# Shared Foreman settings for this repository. Commit this file so the
 # whole team gets the same scripts. Settings made in the app on one computer
@@ -295,6 +290,8 @@ export class Core {
   readonly autoReview: AutoReviewService
   // O2: which host (GitHub or GitLab) each repository's pull requests live on.
   readonly scm: ScmRouter
+  // Icons Foreman picks for repositories that have none (repoIcons.ts).
+  readonly repoIcons: RepoIcons
   // G2: whether glab is signed in per GitLab host, for the agent's system prompt.
   private glab = new GlabLogins()
   // G2 (O5): which tab made each commit, kept between loads of the Commits tab.
@@ -476,7 +473,10 @@ export class Core {
     this.environment.githubKeyFresh = githubKeyFresh
     this.workspaces.githubKeyFresh = githubKeyFresh
     this.workspaces.githubDetected = (repoId, login, explicit) => this.integrations.detectedGithubAccount(repoId, login, explicit)
-    this.workspaces.repoAdded = (repoId) => this.integrations.repoAdded(repoId)
+    this.workspaces.repoAdded = (repoId) => {
+      this.integrations.repoAdded(repoId)
+      void this.repoIcons.pick(repoId)
+    }
     this.sandboxes = new SandboxManager({
       store,
       secrets,
@@ -791,6 +791,35 @@ export class Core {
         const r = this.integrations.resolve(repoId, 'github')
         return r.state === 'ready' ? `${r.connection.id}:${r.connection.rev}:${this.integrations.githubKey(repoId) ?? ''}` : this.integrations.githubKey(repoId) ?? ''
       }
+    })
+    this.repoIcons = new RepoIcons({
+      repo: (repoId) => this.store.state.repos.find((r) => r.id === repoId),
+      changed: () => this.changed(),
+      listTree: async (root, ref) => {
+        const r = await git(root, ['ls-tree', '-r', '-l', '-z', ref], { allowFail: true, timeoutMs: 30_000 })
+        return r.code === 0 ? r.stdout : null
+      },
+      blob: (root, oid) => gitBlob(root, oid),
+      ask: async (prompt) => {
+        const { settings } = this.store.state
+        // Privacy mode keeps the repository's names and README on this computer, as it does a chat's first message.
+        if (settings.privacyMode) return null
+        const claude = driverFor('claude')
+        if (!claude.oneShot) return null
+        // Run outside the repository: the answer comes from the prompt alone.
+        return claude.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent('claude'), executablePath: executablePathFor(settings, 'claude') }).catch(() => null)
+      },
+      remoteAvatar: async (repo) => {
+        const target = await this.scm.target(repo.id)
+        if (target.kind === 'gitlab') {
+          const token = this.secrets.appSecret(gitlabTokenKey(target.host.host))
+          return token ? gitlabProjectAvatar(new GitlabApi(target.host, token), target.project) : null
+        }
+        const url = await this.workspaces.remoteUrl(repo.id)
+        const slug = url ? githubSlug(url) : null
+        return slug ? githubOrgAvatar(slug, (args) => ghAs(this.integrations.githubKey(repo.id))(repo.rootPath, args, 15_000)) : null
+      },
+      shrink: host.shrinkImage ? (image, pixels) => host.shrinkImage!(image.bytes, pixels) : undefined
     })
     // G2: a GitLab repository's agents hear about the host, and about glab when it's signed in there.
     this.workspaces.hostContext = (ws) => {
@@ -1444,6 +1473,11 @@ export class Core {
   }
 
   /** Start the background links to paired computers (after launch; never in tests or screenshot runs). */
+  /** At launch: look for an icon for each repository added before Foreman picked them, or whose look was cut short. */
+  findMissingRepoIcons(): void {
+    for (const repo of this.store.state.repos) if (!repo.icon && !repo.iconChecked) void this.repoIcons.pick(repo.id)
+  }
+
   startComputers(): void {
     this.remote.sync()
   }
@@ -2148,20 +2182,7 @@ export class Core {
       return out.stdout.split('\n').map((r) => r.trim()).filter(Boolean)
     },
     previewFilesToCopy: (repoId, patterns) => this.workspaces.previewFilesToCopy(repoId, patterns),
-    detectRepoIcon: async (repoId) => {
-      const root = this.workspaces.repo(repoId).rootPath
-      for (const rel of FAVICON_PATHS) {
-        const file = path.join(root, rel)
-        try {
-          if (statSync(file).size > 1_000_000) continue
-          const type = IMAGE_TYPES[path.extname(file).toLowerCase()]
-          return `data:${type};base64,${readFileSync(file).toString('base64')}`
-        } catch {
-          // Not there; try the next spot.
-        }
-      }
-      return null
-    },
+    detectRepoIcon: (repoId) => this.repoIcons.detectFile(this.workspaces.repo(repoId)),
     openRepoSettingsFile: async (repoId) => {
       const repo = this.workspaces.repo(repoId)
       const inUse = this.workspaces.resolvedSettings(repoId).sharedFile

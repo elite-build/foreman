@@ -293,6 +293,8 @@ export interface Repo {
   // On this Mac only; never read from settings.toml, so a committed file can't choose accounts.
   integrations?: import('./integrations').RepoIntegrations
   icon?: RepoIcon
+  // Foreman has looked for an icon itself (main/repoIcons.ts), once: an icon removed afterwards stays removed.
+  iconChecked?: boolean
   // The "Set up this repo" hint was dismissed (or used) for this repo.
   setupHintDismissed?: boolean
   // #17: auto review, approved on this Mac through its consent dialog. Absent means off (the default); never read from settings.toml.
