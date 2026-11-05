@@ -107,6 +107,8 @@ export interface FlowStepRow {
 
 export interface FlowLoopRow {
   loop: string
+  // Which pass of the loop these numbers are for (the run entered it again from outside, after a gate say): 2 or more.
+  pass?: number
   // Iterations and minutes used: the pass going now, else the most the run reached.
   iterations: number
   maxIterations?: number

@@ -595,8 +595,16 @@ export interface FlowRunStep {
   minutes?: number
 }
 
-/** A loop's current pass: it starts when the run enters the loop's steps from outside, and its bounds count within it. */
+/**
+ * A loop's current pass: it starts when the run enters the loop's steps from outside, and its bounds count within it.
+ * Leaving the loop's steps (a gate outside it, say) closes the pass; entering again opens the next one with fresh bounds.
+ * A flow that wants a gate to count against the loop lists the gate in the loop's `over`.
+ */
 export interface FlowRunLoop {
+  // 1 for the first pass of this run, up by one each time the loop is entered again from outside.
+  pass: number
+  // False once the run has left the loop's steps.
+  open: boolean
   iterations: number
   startedAt: string
   minutesUsed: number
@@ -634,6 +642,8 @@ export interface FlowRun {
   bounds?: Record<string, { over: string[]; iterations?: number; minutes?: number; cost?: number }>
   // A gate's "Send back" note, carried to the next step's message and then cleared.
   note?: string
+  // The gate the note came from, named in the message that carries it.
+  noteFrom?: string
 }
 
 /** What starting a flow would approve, as the Run dialog shows it. */
@@ -685,10 +695,10 @@ export function runForWorkspace(runs: readonly FlowRun[] | undefined, workspaceI
 }
 
 /** The loops spanning the run's current step with their bounds: "iteration 2 of at most 4 · 18 of 45 min" as numbers. */
-export function currentLoopBounds(run: FlowRun): { loop: string; iteration: number; maxIterations?: number; minutes: number; maxMinutes?: number }[] {
+export function currentLoopBounds(run: FlowRun): { loop: string; pass: number; iteration: number; maxIterations?: number; minutes: number; maxMinutes?: number }[] {
   const at = run.current?.step
   if (!at) return []
   return Object.entries(run.bounds ?? {})
-    .filter(([name, b]) => b.over.includes(at) && run.loops[name])
-    .map(([name, b]) => ({ loop: name, iteration: run.loops[name].iterations, maxIterations: b.iterations, minutes: Math.floor(run.loops[name].minutesUsed), maxMinutes: b.minutes }))
+    .filter(([name, b]) => b.over.includes(at) && run.loops[name]?.open)
+    .map(([name, b]) => ({ loop: name, pass: run.loops[name].pass, iteration: run.loops[name].iterations, maxIterations: b.iterations, minutes: Math.floor(run.loops[name].minutesUsed), maxMinutes: b.minutes }))
 }

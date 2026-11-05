@@ -236,7 +236,8 @@ describe('running a flow', () => {
     await settle()
     const again = h.sent.at(-1)!
     expect(again.sessionId).toBe('s-1')
-    expect(again.text).toContain('## Note from you\n\nUse the other API.')
+    expect(again.text).toContain('You sent the run back from the gate “ask” with this note. It is your instruction for this step:\n\nUse the other API.')
+    expect(again.text).not.toContain('## Note from you')
     expect(h.run().steps.at(-1)).toMatchObject({ name: 'work', iteration: 2, shown: ['note from you'] })
     expect(h.run().loops['ask-again'].minutesUsed).toBe(10)
     await h.endTurn('completed', 'Second go.', 10)
@@ -253,7 +254,9 @@ describe('running a flow', () => {
     await settle()
     expect(h.run().steps.at(-2)).toMatchObject({ name: 'ship', fact: 'sent-back', detail: 'Sent back: Rename the button.' })
     expect(h.run().steps.at(-1)?.name).toBe('fix')
-    expect(h.sent.at(-1)!.text).toContain('## Note from you\n\nRename the button.')
+    expect(h.sent.at(-1)!.text).toContain('You sent the run back from the gate “ship” with this note. It is your instruction for this step:\n\nRename the button.')
+    // Leaving the loop through the gate closed its first pass; the send-back opened a second one with fresh bounds.
+    expect(h.run().loops.green).toMatchObject({ pass: 2, open: true, iterations: 1 })
     expect(h.run().note).toBeUndefined()
   })
 

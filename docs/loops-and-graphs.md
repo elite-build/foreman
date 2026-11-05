@@ -147,6 +147,10 @@ Routing done by the file rather than by the agent is also what makes a step chea
 
 A loop names the steps it spans and what ends it. It ends when an edge leaves the spanned steps (the fact the loop was for came true) or when a bound is hit: `iterations`, `minutes` (time spent waiting for an agent slot doesn't count, as with schedules), `cost` (from the turns' `result` items), or the context window past a threshold with no policy to deal with it. A bound that ends a loop ends the run as `stopped`, with the bound named, never as `completed`.
 
+A loop counts in **passes**. A pass opens when the run enters one of the loop's steps from outside and closes when it leaves them, and the bounds count within a pass. So a gate placed outside the loop, whose `sent-back` edge re-enters it, starts a fresh pass with fresh bounds: the person at the gate chose another round. A flow that wants the gate's rounds to count against the loop lists the gate in the loop's `over`. The run record numbers the passes ("pass 2 · iteration 1 of at most 3").
+
+A note sent back from a gate is the user's own instruction for the step it goes to. It leads that step's message as such, before the step's prompt, and is never framed as data from an earlier step. A step that gets a sent-back note with checks that already pass should expect to act on the note, so a flow's "fix" prompt is better written as "address what failed or what you were sent back for" than "the checks below failed".
+
 Each loop has an **iteration policy**, the context decision that makes loops safe or dangerous:
 
 - `same-tab`: the next iteration continues the conversation. Cheapest, and the window fills; the context lens shows the ring per iteration.

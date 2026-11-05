@@ -198,6 +198,7 @@ function loopRows(run: FlowRun): FlowLoopRow[] {
     const inLoop = run.steps.filter((s) => s.loops?.[loop] !== undefined)
     return {
       loop,
+      ...(pass && pass.pass > 1 ? { pass: pass.pass } : {}),
       iterations: pass?.iterations ?? Math.max(0, ...inLoop.map((s) => s.loops![loop])),
       ...(b.iterations !== undefined ? { maxIterations: b.iterations } : {}),
       minutes: Math.floor(pass ? pass.minutesUsed : inLoop.reduce((n, s) => n + (s.minutes ?? 0), 0)),
@@ -307,7 +308,7 @@ async function findRun(host: CliHost, query: string): Promise<FlowRun> {
 }
 
 function loopText(l: FlowLoopRow): string {
-  return `${l.loop}: iteration ${l.iterations}${l.maxIterations !== undefined ? ` of at most ${l.maxIterations}` : ''}${l.maxMinutes !== undefined ? ` · ${l.minutes} of ${l.maxMinutes} min` : l.minutes ? ` · ${l.minutes} min` : ''}`
+  return `${l.loop}: ${l.pass ? `pass ${l.pass} · ` : ''}iteration ${l.iterations}${l.maxIterations !== undefined ? ` of at most ${l.maxIterations}` : ''}${l.maxMinutes !== undefined ? ` · ${l.minutes} of ${l.maxMinutes} min` : l.minutes ? ` · ${l.minutes} min` : ''}`
 }
 
 /** The run in lines: what it is, where it is, its loops, its steps so far, and the gate it waits at. */

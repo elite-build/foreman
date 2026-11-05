@@ -112,7 +112,7 @@ function aRun(over: Partial<FlowRun> = {}): FlowRun {
       { name: 'checks', kind: 'checks', iteration: 1, loops: { green: 1 }, state: 'completed', startedAt: '2026-11-05T10:05:00.000Z', endedAt: '2026-11-05T10:06:00.000Z', fact: 'failed', detail: 'test failed', minutes: 1 },
       { name: 'fix', kind: 'turn', iteration: 1, loops: { green: 2 }, state: 'running', startedAt: '2026-11-05T10:06:00.000Z', sessionId: 's1' }
     ],
-    loops: { green: { iterations: 2, startedAt: '2026-11-05T10:05:00.000Z', minutesUsed: 7.4, visited: ['fix'] } },
+    loops: { green: { pass: 1, open: true, iterations: 2, startedAt: '2026-11-05T10:05:00.000Z', minutesUsed: 7.4, visited: ['fix'] } },
     bounds: { green: { over: ['checks', 'fix'], iterations: 3, minutes: 30 } },
     ...over
   }

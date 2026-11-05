@@ -135,7 +135,7 @@ describe('triage: flow runs', () => {
     const fixing = run({
       current: { step: 'fix', iteration: 2 },
       steps: [{ name: 'fix', kind: 'turn', iteration: 2, state: 'running', startedAt: ago(4), sessionId: 's1', turnId: 't2' }],
-      loops: { green: { iterations: 2, startedAt: ago(20), minutesUsed: 7, visited: ['checks', 'fix'] } },
+      loops: { green: { pass: 1, open: true, iterations: 2, startedAt: ago(20), minutesUsed: 7, visited: ['checks', 'fix'] } },
       bounds: { green: { over: ['checks', 'fix'], iterations: 4, minutes: 45 } }
     })
     expect(withRuns([fixing], [session('s1', { status: 'running', turnId: 't2' })])).toMatchObject({ bucket: 'working', label: 'Flow: Green · fix · 2/4', sessionId: 's1', spinning: true })
