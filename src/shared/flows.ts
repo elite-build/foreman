@@ -681,10 +681,24 @@ export interface FlowRunStep {
   minutes?: number
   // The workspace it ran in (a run that makes more than one workspace moves between them).
   workspaceId?: string
-  // The tree it read (a review), as a hash.
-  tree?: string
+  // The working tree's hash (short) before the step ran and after it ended; checks, a review and a script record the
+  // tree they read as `start`, a workspace step its new workspace's as `end`. Runs from before this record kept a
+  // review's tree as a string (see stepTrees in flowGraph.ts).
+  tree?: { start?: string; end?: string }
+  // Its start tree differs from the end of the step before it in the same workspace: something changed files between.
+  moved?: true
   // What its turn cost, when the agent says (Claude's result items), in USD.
   costUsd?: number
+  // The model its turn ran on (an agent step).
+  model?: string
+  // How full the tab's context window was when its turn ended, as the agent said (Claude per turn; others a total).
+  usage?: { used: number; limit: number }
+  // The memory files the agent's context breakdown named (Claude), as it named them.
+  memoryFiles?: string[]
+  // Paths its turn's changes touched that are agent memory (isMemoryPath): CLAUDE.md, .claude/, AGENTS.md and the above.
+  memoryWrites?: string[]
+  // The workspace note's revision its message carried, when it was shown the note.
+  noteRevision?: number
 }
 
 /**

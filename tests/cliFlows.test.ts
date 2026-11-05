@@ -651,3 +651,83 @@ describe('foreman flow', () => {
     await expect((await runLine(['approve', 'pick5678', '--pick', 'try-b', '--stop'])).done).rejects.toThrow('Give --pick on its own')
   })
 })
+
+// ---- the lenses from a terminal (docs/loops-and-graphs.md, "Four graphs over one flow") ----
+
+describe('foreman flow show --mermaid and flow status --lens', () => {
+  const LENSED = (): FlowRun =>
+    aRun({
+      state: 'completed',
+      endedAt: '2026-11-05T10:20:00.000Z',
+      current: undefined,
+      steps: [
+        { name: 'work', kind: 'turn', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:00:00.000Z', endedAt: '2026-11-05T10:05:00.000Z', shown: ['task'], usage: { used: 61_000, limit: 1_000_000 }, memoryFiles: ['/repo/CLAUDE.md'], memoryWrites: ['CLAUDE.md'], tree: { end: 'aaaaaaaaaaaa' } },
+        { name: 'checks', kind: 'checks', iteration: 1, loops: { green: 1 }, state: 'completed', startedAt: '2026-11-05T10:05:00.000Z', fact: 'failed', tree: { start: 'aaaaaaaaaaaa' } },
+        { name: 'fix', kind: 'turn', iteration: 1, loops: { green: 2 }, state: 'completed', startedAt: '2026-11-05T10:06:00.000Z', endedAt: '2026-11-05T10:09:00.000Z', shown: ['checks.results', 'note', 'ledger'], noteRevision: 3, usage: { used: 84_000, limit: 1_000_000 }, tree: { start: 'bbbbbbbbbbbb', end: 'cccccccccccc' }, moved: true },
+        { name: 'fix', kind: 'turn', iteration: 2, loops: { green: 3 }, state: 'completed', startedAt: '2026-11-05T10:10:00.000Z', endedAt: '2026-11-05T10:12:00.000Z', shown: ['checks.results'], usage: { used: 97_000, limit: 1_000_000 } }
+      ]
+    })
+
+  it('declares --mermaid on show and --lens with its choices on status', () => {
+    const show = FLOW_COMMANDS.find((c) => commandName(c) === 'flow show')!
+    const status = FLOW_COMMANDS.find((c) => commandName(c) === 'flow status')!
+    expect(show.options.mermaid).toMatchObject({ type: 'boolean' })
+    expect(status.options.lens).toMatchObject({ type: 'string', choices: ['run', 'context', 'memory', 'data'] })
+    expect(parseCommandArgs(status, ['7c1e', '--lens', 'data']).opts).toMatchObject({ lens: 'data' })
+    expect(parseCommandArgs(show, ['tidy', '--mermaid']).opts).toMatchObject({ mermaid: true })
+    expect(renderCommandHelp(status)).toContain('--lens')
+  })
+
+  it('show --mermaid: the flow’s run graph as Mermaid source, and only that; a file that isn’t a flow is refused', async () => {
+    const { call } = rig({ personal: [personal('flow-tidy', TIDY), personal('flow-bad', 'name = "Broken"')] })
+    const result = await call<FlowShowResult>('flow-show', { flow: 'tidy', cwd: root, mermaid: true })
+    expect(result.text).toBe(result.mermaid)
+    expect(result.text.split('\n').slice(0, 2)).toEqual(['flowchart LR', '  accTitle: Tidy · Run'])
+    expect(result.text).toContain('subgraph L0 ["green · at most 3 iterations · at most 30 min"]')
+    expect(result.text).toContain('{{"ship<br/>· gate"}}')
+    expect(result.text).toContain('-->|failed|')
+    expect(result.text).not.toContain('[steps.')
+    expect((await failure(call('flow-show', { flow: 'flow-bad', cwd: root, mermaid: true }))).code).toBe('invalid')
+  })
+
+  it('status --lens context: what each step was shown and its window, per pass for a step that ran again', async () => {
+    const { call } = rig({ runs: [LENSED()] })
+    const result = await call<FlowStatusResult>('flow-status', { run: 'run1', lens: 'context' })
+    expect(result.run.steps[0]).toMatchObject({ shown: ['task'], usage: { used: 61_000, limit: 1_000_000 }, memoryWrites: ['CLAUDE.md'], tree: { end: 'aaaaaaaaaaaa' } })
+    for (const line of [
+      'Run run11111 of “Tidy” in api (from develop): completed',
+      '  work, iteration 1: shown task · window 61K of 1M (6%)',
+      '  checks, iteration 1: shown nothing from earlier steps',
+      '  fix, iteration 1: shown checks.results, note, ledger · window 84K of 1M (8%)',
+      '  fix per pass: 84K → 97K of 1M'
+    ])
+      expect(result.text).toContain(line)
+  })
+
+  it('status --lens memory and --lens data: memory read and written, the note and ledger; trees, and moved in words', async () => {
+    const { call } = rig({ runs: [LENSED()] })
+    const memory = await call<FlowStatusResult>('flow-status', { run: 'run1', lens: 'memory' })
+    expect(memory.text).toContain('  work, iteration 1: read repo/CLAUDE.md · wrote CLAUDE.md')
+    expect(memory.text).toContain('  fix, iteration 1: workspace note r3 · the run ledger')
+    expect(memory.text).toContain('  checks, iteration 1: nothing recorded')
+    const data = await call<FlowStatusResult>('flow-status', { run: 'run1', lens: 'data' })
+    expect(data.text).toContain('Data: the working tree each step started from and ended on (base develop):')
+    expect(data.text).toContain('  work, iteration 1: unknown → aaaaaaa')
+    expect(data.text).toContain('  checks, iteration 1: read aaaaaaa')
+    expect(data.text).toContain('  fix, iteration 1: bbbbbbb → ccccccc · moved since the last step')
+    expect(data.text).toContain('  fix, iteration 2: no tree recorded')
+    // The run lens is the default status; a lens it doesn't know is refused.
+    expect((await call<FlowStatusResult>('flow-status', { run: 'run1', lens: 'run' })).text).toContain('Steps:')
+    expect((await failure(call('flow-status', { run: 'run1', lens: 'colour' }))).code).toBe('invalid')
+  })
+
+  it('the commands send --lens and --mermaid', async () => {
+    const status = await runLine(['flow', 'status', '7c1e', '--lens', 'memory'], { 'flow-status': { text: 'ok' } })
+    await status.done
+    expect(status.sent).toEqual([['flow-status', { run: '7c1e', lens: 'memory' }]])
+    const show = await runLine(['flow', 'show', 'tidy', '--mermaid'], { 'flow-show': { text: 'flowchart LR' } })
+    await show.done
+    expect(show.sent).toEqual([['flow-show', expect.objectContaining({ flow: 'tidy', mermaid: true })]])
+    expect(show.out).toEqual(['flowchart LR'])
+  })
+})

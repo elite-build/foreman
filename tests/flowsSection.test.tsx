@@ -5,11 +5,29 @@ import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { FLOW_STARTERS } from '../src/shared/flowStarters'
 import type { FlowListing } from '../src/shared/flows'
 import { AutomationsView } from '../src/renderer/src/components/automations/AutomationsView'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
+
+// The diagram renders through a stand-in for Mermaid: it records the source and answers with an SVG naming it.
+const mermaid = vi.hoisted(() => ({ sources: [] as string[] }))
+vi.mock('../src/renderer/src/components/mermaidRender', () => ({
+  readThemeTokens: () => ({ tokens: {}, dark: false }),
+  cachedRender: () => undefined,
+  renderMermaid: async (source: string) => {
+    mermaid.sources.push(source)
+    const title = /accTitle: (.*)/.exec(source)?.[1] ?? ''
+    return { ok: true, svg: `<svg><title>${title}</title><g></g></svg>` }
+  },
+  svgElement: (svg: string) => {
+    const template = document.createElement('template')
+    template.innerHTML = svg
+    return template.content.querySelector('svg')
+  }
+}))
 
 const original = fakeState.snapshot
 
@@ -163,5 +181,32 @@ describe('Flows on Automations', () => {
     await waitFor(() => expect(within(dialog).getByText('These turn steps aren’t on Claude, so the flow can’t run unattended: review (Cursor)')).toBeTruthy())
     expect(within(dialog).getByText('The cost bound applies to Claude turns only: other agents don’t say what a turn cost.')).toBeTruthy()
     expect((within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+describe('a flow’s run graph in its dialog', () => {
+  it('shows a built-in flow’s run graph, read-only, above its TOML; a file that isn’t a flow has none', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    mermaid.sources.length = 0
+    fakeApi.listFlows = vi.fn(async () => [{ ...LISTINGS[0], toml: FLOW_STARTERS[0].toml }, LISTINGS[2]])
+    render(<AutomationsView />)
+    await u.click(await screen.findByRole('button', { name: /^Fix until green/ }))
+    const dialog = screen.getByRole('dialog', { name: 'Fix until green' })
+    expect(within(dialog).getByText('Run graph')).toBeTruthy()
+    const picture = await within(dialog).findByRole('img', { name: 'Fix until green · Run' })
+    // Above the document.
+    const editor = within(dialog).getByRole('textbox', { name: 'Flow (TOML)' })
+    expect(picture.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(mermaid.sources.at(-1)).toContain('flowchart LR')
+    expect(mermaid.sources.at(-1)).toContain('subgraph')
+    // Nothing in a run's state: a flow on its own has no run.
+    expect(mermaid.sources.at(-1)).not.toContain('not yet')
+    await u.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    await u.click(screen.getByRole('button', { name: /^broken/ }))
+    const broken = screen.getByRole('dialog', { name: 'Edit flow' })
+    expect(within(broken).queryByText('Run graph')).toBeNull()
+    expect(within(broken).queryByRole('img')).toBeNull()
   })
 })

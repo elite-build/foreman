@@ -28,9 +28,9 @@ const list: Run = async (ctx) => {
 }
 
 const show: Run = async (ctx) => {
-  noMoreWords(ctx, 1, 'foreman flow show <flow>')
+  noMoreWords(ctx, 1, 'foreman flow show <flow> [--mermaid]')
   if (!ctx.args[0]) throw usageError('Name a flow. `foreman flow list` lists them.')
-  printText(ctx, await ctx.send<{ text: string }>('flow-show', { flow: ctx.args[0], repo: str(ctx.opts.repo), cwd: ctx.cwd }))
+  printText(ctx, await ctx.send<{ text: string }>('flow-show', { flow: ctx.args[0], repo: str(ctx.opts.repo), cwd: ctx.cwd, ...(ctx.opts.mermaid ? { mermaid: true } : {}) }))
 }
 
 const add: Run = async (ctx) => {
@@ -144,7 +144,8 @@ function byRun(method: 'flow-status' | 'flow-stop', usage: string): Run {
   return async (ctx) => {
     noMoreWords(ctx, 1, usage)
     if (!ctx.args[0]) throw usageError('Name a run. `foreman flow runs` lists their ids.')
-    printText(ctx, await ctx.send<{ text: string }>(method, { run: ctx.args[0] }))
+    const lens = method === 'flow-status' ? str(ctx.opts.lens) : undefined
+    printText(ctx, await ctx.send<{ text: string }>(method, { run: ctx.args[0], ...(lens ? { lens } : {}) }))
   }
 }
 
@@ -155,6 +156,6 @@ export const flowRunners: Record<string, Run> = {
   'flow remove': remove,
   'flow run': run,
   'flow runs': runs,
-  'flow status': byRun('flow-status', 'foreman flow status <run>'),
+  'flow status': byRun('flow-status', 'foreman flow status <run> [--lens context|memory|data]'),
   'flow stop': byRun('flow-stop', 'foreman flow stop <run>')
 }

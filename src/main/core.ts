@@ -704,11 +704,14 @@ export class Core {
       reported: (workspaceId, turnId) => (this.store.state.workspaces.find((w) => w.id === workspaceId)?.agentReports ?? []).filter((r) => r.turnId === turnId).map((r) => ({ kind: r.kind, text: r.text })),
       diffStat: (workspaceId) => this.diffStatText(workspaceId),
       note: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.note?.text,
+      noteRevision: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.note?.revision,
       tree: async (workspaceId) => {
         const ws = this.workspaces.workspace(workspaceId)
         const tree = await sharedWorkingTree(workspaceTarget(ws)).catch(() => '')
         return `Base branch: ${ws.baseBranch}${tree ? `\nWorking tree: ${tree.slice(0, 7)}` : ''}`
       },
+      // The data lens's trees: the shared snapshot the diff stat and checks read, a new scan only when none is fresh.
+      workingTree: async (workspaceId) => (await sharedWorkingTree(workspaceTarget(this.workspaces.workspace(workspaceId))).catch(() => '')) || undefined,
       captureDiff: (workspaceId) => workspaceDiffPatch(this.workspaces.workspace(workspaceId)),
       reviewPrompt: (workspaceId) => this.workspaces.settingsFor(this.workspaces.workspace(workspaceId).repoId).prompts.codeReview,
       runCommand: (workspaceId, name) => this.runFlowCommand(workspaceId, name),

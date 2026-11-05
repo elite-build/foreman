@@ -211,13 +211,13 @@ function harness(
       return started
     },
     /** The latest message's turn ends: its answer and how long it took go in the chat, then the service hears of it. */
-    endTurn: async (outcome: TurnOutcome = 'completed', answer = 'I did it.', minutes = 1, costUsd?: number) => {
+    endTurn: async (outcome: TurnOutcome = 'completed', answer = 'I did it.', minutes = 1, costUsd?: number, delta?: { files: { path: string; additions: number; deletions: number }[]; additions: number; deletions: number }) => {
       const last = sent.at(-1)!
       chats.set(last.sessionId, [
         ...(chats.get(last.sessionId) ?? []),
         { kind: 'assistant', id: `a-${last.turnId}`, turnId: last.turnId, text: answer },
         ...(costUsd !== undefined ? [{ kind: 'result' as const, id: `r-${last.turnId}`, turnId: last.turnId, ok: true, costUsd }] : []),
-        { kind: 'turn-end', id: `e-${last.turnId}`, turnId: last.turnId, outcome, durationMs: minutes * 60_000 }
+        { kind: 'turn-end', id: `e-${last.turnId}`, turnId: last.turnId, outcome, durationMs: minutes * 60_000, ...(delta ? { delta } : {}) }
       ])
       await service.turnEnded(last.sessionId, last.turnId, outcome)
       await settle()
@@ -571,7 +571,7 @@ describe('review steps', () => {
     expect(review.text).toContain('foreman-findings')
     expect(review.text).toContain('## Answer from “build”\n\nBuilt it.')
     expect(review.text).toContain(`## Diff against main\n\n${PATCH}`)
-    expect(h.run().steps.at(-1)).toMatchObject({ name: 'review', readOnly: true, tree: 'abc1234def', shown: ['build.answer', 'diff'] })
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'review', readOnly: true, tree: { start: 'abc1234def' }, shown: ['build.answer', 'diff'] })
     await h.endTurn('completed', findingsBlock([]))
     expect(h.run().state).toBe('completed')
     expect(h.run().steps.at(-1)).toMatchObject({ name: 'review', fact: 'clean' })
@@ -1040,5 +1040,122 @@ describe('after a run, and cost bounds', () => {
     await h.endTurn('completed', 'Fixed again.', 1, 0.6)
     expect(h.run().state).toBe('stopped')
     expect(h.run().reason).toBe('Stopped: the loop “green” reached its bound of $1.00 (what Claude’s turns reported they cost).')
+  })
+})
+
+// The lenses' records (docs/loops-and-graphs.md, "Four graphs over one flow"): each step keeps the window its turn ended
+// with, the memory it read and wrote, the note revision it saw and its trees, and a step whose tree moved says so.
+const LENS = `name = "Lens"
+
+[start]
+step = "build"
+
+[steps.build]
+kind = "turn"
+prompt = "Build it."
+
+[steps.checks]
+kind = "checks"
+
+[steps.fix]
+kind = "turn"
+same_tab = "build"
+prompt = "Fix it."
+context = ["note", "checks.results"]
+
+[edges]
+build = "checks"
+checks = { passed = "done", failed = "fix" }
+fix = "checks"
+
+[loops.green]
+over = ["checks", "fix"]
+at_most = { iterations = 3 }
+`
+
+describe('what the lenses read', () => {
+  it('records each turn’s window, memory read and written, note revision, model and trees, and marks a moved tree', async () => {
+    const h = harness(LENS, { checks: ['failed', 'passed'] })
+    // The working tree as each read finds it: the build's end, the checks' start, the fix's start (moved), its end, the checks' start.
+    const trees = ['a'.repeat(40), 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40), 'c'.repeat(40)]
+    h.deps.workingTree = vi.fn(async () => trees.shift())
+    h.deps.note = () => 'Keep the API.'
+    h.deps.noteRevision = () => 3
+    let used = 61_000
+    h.deps.contextUsage = () => ({
+      used,
+      limit: 1_000_000,
+      breakdown: { categories: [], mcpServers: [], skills: [], memoryFiles: [{ path: '/repo/CLAUDE.md', tokens: 900 }, { path: '/repo/docs/team-notes.md', tokens: 300 }] }
+    })
+    await h.start({})
+    const files = (paths: string[]) => ({ files: paths.map((path) => ({ path, additions: 1, deletions: 0 })), additions: paths.length, deletions: 0 })
+    await h.endTurn('completed', 'Built.', 4, undefined, files(['src/a.ts', 'CLAUDE.md', 'docs/team-notes.md', 'docs/readme.md']))
+    const [build, checks] = h.run().steps
+    expect(build).toMatchObject({
+      name: 'build',
+      model: 'claude-sonnet-5',
+      usage: { used: 61_000, limit: 1_000_000 },
+      memoryFiles: ['/repo/CLAUDE.md', '/repo/docs/team-notes.md'],
+      memoryWrites: ['CLAUDE.md', 'docs/team-notes.md'],
+      tree: { end: 'aaaaaaaaaaaa' }
+    })
+    // The launching turn has no start tree: its workspace didn't exist before it.
+    expect(build.tree?.start).toBeUndefined()
+    // Checks read the tree the build ended on: not moved.
+    expect(checks).toMatchObject({ name: 'checks', tree: { start: 'aaaaaaaaaaaa' }, fact: 'failed' })
+    expect(checks.moved).toBeUndefined()
+    // Something changed files between the checks and the fix.
+    const fix = h.run().steps.at(-1)!
+    expect(fix).toMatchObject({ name: 'fix', tree: { start: 'bbbbbbbbbbbb' }, moved: true, noteRevision: 3, shown: ['checks.results', 'note'] })
+    used = 84_000
+    await h.endTurn('completed', 'Fixed.', 2, undefined, files(['src/a.ts']))
+    const fixed = h.run().steps.find((s) => s.name === 'fix')!
+    expect(fixed).toMatchObject({ usage: { used: 84_000, limit: 1_000_000 }, tree: { start: 'bbbbbbbbbbbb', end: 'cccccccccccc' } })
+    expect(fixed.memoryWrites).toBeUndefined()
+    expect(fixed.detail).toContain('tree moved since the last step')
+    expect(h.run().state).toBe('completed')
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'checks', tree: { start: 'cccccccccccc' } })
+    expect(h.run().steps.at(-1)!.moved).toBeUndefined()
+    // Short: twelve characters a hash, whatever the reader gave.
+    for (const step of h.run().steps) for (const hash of Object.values(step.tree ?? {})) expect(hash).toHaveLength(12)
+  })
+
+  it('a tree that can’t be read is left out, never a reason to stop; a script and a workspace step record theirs', async () => {
+    const h = harness(LENS, { checks: ['passed'] })
+    h.deps.workingTree = vi.fn(async () => {
+      throw new Error('not a git repository')
+    })
+    await h.start({})
+    await h.endTurn()
+    expect(h.run().state).toBe('completed')
+    expect(h.run().steps.every((s) => s.tree === undefined && !s.moved)).toBe(true)
+
+    const scripted = harness(`name = "Scripted"
+
+[start]
+step = "work"
+
+[steps.work]
+kind = "turn"
+prompt = "Work."
+
+[steps.lint]
+kind = "script"
+command = "lint"
+
+[steps.again]
+kind = "workspace"
+
+[edges]
+work = "lint"
+lint = "again"
+`)
+    scripted.deps.workingTree = vi.fn(async (ws: string) => (ws === 'ws-2' ? 'f'.repeat(40) : 'e'.repeat(40)))
+    await scripted.start({})
+    await scripted.endTurn()
+    await settle()
+    const steps = scripted.run().steps
+    expect(steps.find((s) => s.name === 'lint')).toMatchObject({ tree: { start: 'eeeeeeeeeeee' } })
+    expect(steps.find((s) => s.name === 'again')).toMatchObject({ tree: { end: 'ffffffffffff' } })
   })
 })

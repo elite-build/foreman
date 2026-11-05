@@ -4,7 +4,10 @@
 // when it changed meanwhile. A gate is answered with `foreman approve <id> --continue | --send-back | --stop`, a pick with
 // `foreman approve <id> --pick <step>` (approvals.ts).
 import { flowSummary, isActiveRun, parseFlow, type Flow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview } from '../../shared/flows'
-import { flowEndText, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowListResult, type FlowLoopRow, type FlowRemoveResult, type FlowRow, type FlowRunPreviewResult, type FlowRunResult, type FlowRunRow, type FlowRunsResult, type FlowShowResult, type FlowStatusResult, type FlowStopResult, type FlowWaitResult } from '../../shared/cli/flows'
+import { flowGraph, flowMermaid, stepTrees } from '../../shared/flowGraph'
+import { formatCompact } from '../../shared/i18n/time'
+import { memoryLabel } from '../../shared/memoryPaths'
+import { FLOW_STATUS_LENSES, flowEndText, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowListResult, type FlowLoopRow, type FlowRemoveResult, type FlowRow, type FlowRunPreviewResult, type FlowRunResult, type FlowRunRow, type FlowRunsResult, type FlowShowResult, type FlowStatusResult, type FlowStopResult, type FlowWaitResult } from '../../shared/cli/flows'
 import { AGENTS, type Loadout } from '../../shared/agents'
 import { canReview } from '../../shared/autoReview'
 import type { ApprovalRequest, Repo, Workspace } from '../../shared/types'
@@ -138,6 +141,13 @@ const show: MethodDef = {
     const listing = findFlow(await host.api.listFlows(repo?.id), textParam(p, 'flow'))
     const state = host.state()
     const row = flowRow(listing, state.repos, state.settings.loadouts)
+    if (flagParam(p, 'mermaid')) {
+      // The run graph the Flows dialog draws, as Mermaid source; a file that isn't a flow has nothing to draw.
+      const parsed = row.problems.length ? undefined : parseFlow(listing.toml, listing.source)
+      if (!parsed || !('flow' in parsed)) throw invalid(`“${row.name}” isn’t a flow it can draw: ${(parsed && 'problems' in parsed ? parsed.problems : row.problems).join(' ')}`)
+      const mermaid = flowMermaid(flowGraph(parsed.flow, undefined, 'run'))
+      return { flow: row, toml: listing.toml, mermaid, text: mermaid }
+    }
     const lines = [`${row.name} (${row.source === 'repo' ? `${row.repo}: ${row.file}${row.rev ? ` at ${row.rev.slice(0, 7)}` : ''}` : row.source === 'built-in' ? 'built-in' : 'personal'})`, `id ${row.id}`]
     if (row.steps !== undefined) lines.push(`Steps ${row.steps} · loops ${row.loops} · gates ${row.gates}`)
     // Each persona as found where the flow runs (one that isn't found is among the problems below).
@@ -252,7 +262,14 @@ export function runRow(run: FlowRun, state: { repos: Repo[]; workspaces: Workspa
       ...(s.sessionId ? { session: s.sessionId } : {}),
       ...(s.turnId ? { turn: s.turnId } : {}),
       ...(many && s.workspaceId ? { workspace: name(s.workspaceId) } : {}),
-      ...(s.costUsd !== undefined ? { costUsd: s.costUsd } : {})
+      ...(s.costUsd !== undefined ? { costUsd: s.costUsd } : {}),
+      ...(s.shown?.length ? { shown: s.shown } : {}),
+      ...(s.usage ? { usage: s.usage } : {}),
+      ...(s.memoryFiles?.length ? { memoryFiles: s.memoryFiles } : {}),
+      ...(s.memoryWrites?.length ? { memoryWrites: s.memoryWrites } : {}),
+      ...(s.noteRevision !== undefined ? { noteRevision: s.noteRevision } : {}),
+      ...(stepTrees(s).start || stepTrees(s).end ? { tree: stepTrees(s) } : {}),
+      ...(s.moved ? { moved: true } : {})
     })),
     ...(gate ? { gate: { id: gate.id, step: gate.step, ask: gate.ask, show: gate.show } } : {}),
     ...(pick ? { pick: { id: pick.id, step: pick.step, ask: pick.ask, choices: pick.choices } } : {})
@@ -351,6 +368,53 @@ export function runText(row: FlowRunRow): string {
   for (const step of row.steps) lines.push(`  ${flowStepText(step)}`)
   if (row.gate) lines.push(gateWaitText(row.gate))
   if (row.pick) lines.push(pickWaitText(row.pick))
+  return lines.join('\n')
+}
+
+const AGENT_KINDS = new Set(['turn', 'review', 'decide'])
+const READS_TREE = new Set(['checks', 'review', 'script'])
+const amount = (n: number) => formatCompact(n, 'en')
+const windowText = (u: { used: number; limit: number }) => `${amount(u.used)} of ${amount(u.limit)} (${u.limit > 0 ? Math.round((u.used / u.limit) * 100) : 0}%)`
+
+/** The run through a lens, as `foreman flow status --lens` prints it: the facts the Flow tab's lens draws, in lines. */
+export function lensText(row: FlowRunRow, lens: 'context' | 'memory' | 'data'): string {
+  const lines = [`Run ${short(row.id)} of “${row.flow}” in ${row.repo} (from ${row.base}): ${row.state}`]
+  if (!row.steps.length) return [...lines, 'No step has started yet.'].join('\n')
+  if (lens === 'context') {
+    lines.push('Context: what each step was shown, and its context window when its turn ended:')
+    for (const s of row.steps) {
+      const parts = [s.shown?.length ? `shown ${s.shown.join(', ')}` : 'shown nothing from earlier steps']
+      if (s.usage) parts.push(`window ${windowText(s.usage)}`)
+      else if (AGENT_KINDS.has(s.kind) && s.endedAt) parts.push('window not reported by the agent')
+      lines.push(`  ${s.name}, iteration ${s.iteration}: ${parts.join(' · ')}`)
+    }
+    // A step that ran more than once (a loop): its window pass by pass.
+    for (const name of [...new Set(row.steps.map((s) => s.name))]) {
+      const usages = row.steps.filter((s) => s.name === name && s.usage).map((s) => s.usage!)
+      if (usages.length > 1) lines.push(`  ${name} per pass: ${usages.map((u) => amount(u.used)).join(' → ')} of ${amount(usages.at(-1)!.limit)}`)
+    }
+  } else if (lens === 'memory') {
+    lines.push('Memory: what each step read and wrote that outlives it:')
+    for (const s of row.steps) {
+      const parts: string[] = []
+      if (s.memoryFiles?.length) parts.push(`read ${s.memoryFiles.map(memoryLabel).join(', ')}`)
+      if (s.memoryWrites?.length) parts.push(`wrote ${s.memoryWrites.join(', ')}`)
+      if (s.noteRevision !== undefined) parts.push(`workspace note r${s.noteRevision}`)
+      if (s.shown?.includes('ledger')) parts.push('the run ledger')
+      if (s.kind === 'decide' && s.fact && s.fact !== 'undecided') parts.push(`reported: decided ${s.fact}`)
+      else if (s.fact === 'reports') parts.push('reported: done')
+      lines.push(`  ${s.name}, iteration ${s.iteration}: ${parts.length ? parts.join(' · ') : 'nothing recorded'}`)
+    }
+  } else {
+    lines.push(`Data: the working tree each step started from and ended on (base ${row.base}):`)
+    for (const s of row.steps) {
+      const start = s.tree?.start?.slice(0, 7)
+      const end = s.tree?.end?.slice(0, 7)
+      const tree = READS_TREE.has(s.kind) && start ? `read ${start}` : start || end ? `${start ?? 'unknown'} → ${end ?? start ?? 'unknown'}` : 'no tree recorded'
+      lines.push(`  ${s.name}, iteration ${s.iteration}: ${tree}${s.workspace ? ` · in ${s.workspace}` : ''}${s.moved ? ' · moved since the last step' : ''}`)
+    }
+    if (row.workspaces) lines.push(`Workspaces it made: ${row.workspaces.map((w) => w.name).join(', ')}`)
+  }
   return lines.join('\n')
 }
 
@@ -477,10 +541,12 @@ const status: MethodDef = {
   async handle(host, params): Promise<FlowStatusResult> {
     flowsOn(host)
     const p = paramsObject(params)
+    const lens = textParam(p, 'lens', { optional: true })
+    if (lens !== undefined && !(FLOW_STATUS_LENSES as readonly string[]).includes(lens)) throw invalid(`--lens is one of ${FLOW_STATUS_LENSES.join(', ')}, not “${lens}”.`)
     const found = await findRun(host, textParam(p, 'run'))
     const read = (await readRun(host, found.id)) ?? { run: found }
     const row = runRow(read.run, host.state(), read)
-    return { run: row, text: runText(row) }
+    return { run: row, text: lens && lens !== 'run' ? lensText(row, lens as 'context' | 'memory' | 'data') : runText(row) }
   }
 }
 

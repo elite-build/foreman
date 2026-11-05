@@ -5132,16 +5132,17 @@ has, and its personas. A file that isn't a flow is listed with its problems; a f
 ### foreman flow show
 
 ```text
-Print a flow’s TOML and its summary
+Print a flow’s TOML and its summary, or its run graph as Mermaid
 
 Usage:
-  foreman flow show <flow> [--repo <name|path>]
+  foreman flow show <flow> [--repo <name|path>] [--mermaid]
 
 Arguments:
   <flow>                  A flow’s name, id, built-in id (fix-until-green) or file name (`foreman flow list` lists them)
 
 Options:
   -r, --repo <name|path>  The repository whose flow files to look in (default: the one you’re in)
+      --mermaid           Print the flow’s run graph as Mermaid flowchart source instead (steps, the facts between them, loops as subgraphs)
 
 Common options:
       --json              Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -5151,9 +5152,12 @@ Common options:
 
 Examples:
   foreman flow show fix-until-green
+  foreman flow show fix-until-green --mermaid > flow.mmd
   foreman flow show "Research then implement" --json
 
-Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+--mermaid prints the same run graph the Flows dialog draws: each step with its persona and model, a gate as a
+hexagon, the facts on the edges, the ends, and each loop as a subgraph titled with its bounds. Paste it into anything
+that renders Mermaid. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman flow add
@@ -5301,27 +5305,37 @@ workspace. Flows are experimental: every flow command answers “Flows are off�
 ### foreman flow status
 
 ```text
-Show where a flow run is and its steps so far
+Show where a flow run is and its steps so far, or the run through a lens
 
 Usage:
-  foreman flow status <run>
+  foreman flow status <run> [--lens context|memory|data]
 
 Arguments:
-  <run>        A run’s id from `foreman flow runs` (four characters or more)
+  <run>              A run’s id from `foreman flow runs` (four characters or more)
+
+Options:
+      --lens <lens>  Print the run through a lens instead: what each step was shown and how full its window was, the memory it read and wrote, or the trees it worked on (one of: run, context, memory, data) (default: run: the steps in order)
 
 Common options:
-      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
-  -q, --quiet  Hide progress lines and notes
-  -y, --yes    Answer yes to confirmations
-  -h, --help   Show this command’s help
+      --json         Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet        Hide progress lines and notes
+  -y, --yes          Answer yes to confirmations
+  -h, --help         Show this command’s help
 
 Examples:
   foreman flow status 7c1e
+  foreman flow status 7c1e --lens data
   foreman flow status 7c1e --json
 
 The run's state and reason, the step and iteration it is at, each loop's iterations and minutes against its
 bounds, every step so far (iteration, state, what happened), its workspace, and the gate it waits at with the answer
-to give. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+to give.
+
+--lens prints the same facts the Flow tab's lenses draw. context: the sections each step was shown and its tab's
+context window when its turn ended (per pass for a loop). memory: the memory files each turn read (Claude says) and
+wrote (CLAUDE.md, .claude/, AGENTS.md), the workspace note revision it saw and whether it read the run ledger. data:
+the working tree each step started from and ended on, and "moved" where it didn't start where the step before it
+ended. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman flow stop

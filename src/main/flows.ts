@@ -39,9 +39,10 @@ import {
 } from '../shared/flows'
 import { turnAnswer, truncateBytes } from '../shared/handOff'
 import { fillTemplate, templatePlaceholders } from '../shared/promptTemplates'
+import { isMemoryPath } from '../shared/memoryPaths'
 import { GLOBAL_ACTIVE_CAP } from '../shared/schedule'
 import type { PrFacts } from '../shared/board'
-import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, TurnOutcome } from '../shared/types'
+import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, ContextUsage, TurnOutcome } from '../shared/types'
 import { fingerprintOf, SHOWN_CHANGED } from './schedules'
 
 const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
@@ -255,8 +256,12 @@ export interface FlowServiceDeps {
   diffStat(workspaceId: string): Promise<string>
   /** The workspace note's text, if it has one. */
   note?(workspaceId: string): string | undefined
+  /** The workspace note's revision, recorded on a step shown the note. */
+  noteRevision?(workspaceId: string): number | undefined
   /** The base branch and the working tree's hash, for a step shown the `tree`. */
   tree?(workspaceId: string): Promise<string>
+  /** The working tree's hash (as sharedWorkingTree reads it), recorded before a step runs and after it ends. */
+  workingTree?(workspaceId: string): Promise<string | undefined>
   /** A review step: the workspace's diff against its base, as auto review captures it. */
   captureDiff(workspaceId: string): Promise<FlowCapturedDiff>
   /** The repository's Code review preferences, which a review's prompt carries. */
@@ -268,8 +273,8 @@ export interface FlowServiceDeps {
   pullRequest(workspaceId: string): Promise<FlowPullRequest>
   /** A workspace step: a new workspace from the base branch, or a copy of a step's end (its end checkpoint, else its workspace now). */
   newWorkspace(run: FlowRun, from?: { workspaceId: string; sessionId?: string; turnId?: string }): Promise<{ workspaceId: string; sessionId?: string; failed?: string }>
-  /** How full a tab's context window is, when its agent says. */
-  contextUsage?(sessionId: string): { used: number; limit: number } | undefined
+  /** How full a tab's context window is, when its agent says (with what fills it, when Claude says). */
+  contextUsage?(sessionId: string): ContextUsage | undefined
   /** Whether a tab's agent has a compact command (`/compact`). */
   canCompact?(sessionId: string): boolean
   /** Ask in this chat, as an approval request; `answer` settles when a person answers or the request is cancelled. */
@@ -304,6 +309,13 @@ const WAIT_NO_CHECKS_MS = 10 * 60_000
 // Context sources this version sends; anything else (attachments, comments) is noted on the step as not sent.
 const SENT_SOURCES = new Set(['task', 'tree', 'checks.results', 'diff', 'note', 'ledger'])
 const SENT_SUFFIXES = ['.answer', '.findings', '.output']
+
+// A step's tree hashes are kept this short: enough to tell trees apart in one run, small in state.json.
+const TREE_CHARS = 12
+// At most this many memory files and memory writes are kept on a step.
+const MAX_MEMORY_PATHS = 20
+/** The detail a step whose start tree isn't where the step before it ended gets. */
+export const MOVED_DETAIL = 'tree moved since the last step'
 
 const sentRef = (ref: string) => SENT_SOURCES.has(ref) || SENT_SUFFIXES.some((s) => ref.endsWith(s))
 const money = (usd: number) => `$${usd.toFixed(2)}`
@@ -557,8 +569,9 @@ export class FlowService {
   }
 
   /** The context sections a message carries (the step's own and its persona's), in a fixed order, and the ones this version doesn't send. */
-  private async sections(run: FlowRun, asked: string[]): Promise<{ sections: Section[]; notSent: string[] }> {
+  private async sections(run: FlowRun, asked: string[]): Promise<{ sections: Section[]; notSent: string[]; noteRevision?: number }> {
     const out: Section[] = []
+    let noteRevision: number | undefined
     const ws = run.workspaceId
     if (asked.includes('task') && run.task) out.push({ id: 'task', label: 'Task', text: run.task })
     // Before the run has a workspace, the tree is the base branch it will start from.
@@ -577,11 +590,14 @@ export class FlowService {
     if (asked.includes('diff') && ws) out.push({ id: 'diff', label: 'Diff (stat)', text: (await this.deps.diffStat(ws)) || 'No changes against the base branch.' })
     if (asked.includes('note') && ws) {
       const note = this.deps.note?.(ws)
-      if (note?.trim()) out.push({ id: 'note', label: 'Workspace note', text: note })
+      if (note?.trim()) {
+        out.push({ id: 'note', label: 'Workspace note', text: note })
+        noteRevision = this.deps.noteRevision?.(ws)
+      }
     }
     if (asked.includes('ledger')) out.push({ id: 'ledger', label: 'Run ledger', text: (await this.ledger(run)) || 'No step has ended yet.' })
     const notSent = asked.filter((r) => !sentRef(r))
-    return { sections: out, notSent }
+    return { sections: out, notSent, ...(noteRevision !== undefined ? { noteRevision } : {}) }
   }
 
   /**
@@ -652,13 +668,15 @@ export class FlowService {
 
     if (!run.workspaceId) {
       if (step.kind !== 'turn') throw new Error(`The ${step.kind} step “${step.name}” needs the run’s workspace, which a turn or workspace step makes first.`)
-      const { sections, notSent } = await this.sections(run, applied.context)
+      const { sections, notSent, noteRevision } = await this.sections(run, applied.context)
       if (notSent.length) details.push(`not sent yet: ${notSent.join(', ')}`)
       const text = this.compose(run, record, body, sections)
+      if (noteRevision !== undefined) record.noteRevision = noteRevision
       if (details.length) record.detail = details.join(' · ')
       if (!isActiveRun(run)) return
       const loadout = stepLoadout(step, this.deps.loadouts(), persona)
       if ('error' in loadout) throw new Error(loadout.error)
+      record.model = loadout.model
       run.task = text
       this.persist()
       await this.deps.launch(run, { text, loadout, step: step.name, ...(limits ? { persona: limits } : {}) }, {
@@ -699,20 +717,28 @@ export class FlowService {
     }
     const asked = fresh && !applied.context.includes('ledger') ? [...applied.context, 'ledger'] : applied.context
     // A review reads the patch it is sent, so the stat isn't sent beside it.
-    let { sections, notSent } = await this.sections(run, step.kind === 'review' ? asked.filter((r) => r !== 'diff') : asked)
+    let { sections, notSent, noteRevision } = await this.sections(run, step.kind === 'review' ? asked.filter((r) => r !== 'diff') : asked)
+    if (noteRevision !== undefined) record.noteRevision = noteRevision
     let text: string
+    let reviewTree: string | undefined
     if (step.kind === 'review') {
       const capture = await this.deps.captureDiff(run.workspaceId)
-      record.tree = capture.tree
+      // The tree it reads is the one it starts from.
+      reviewTree = capture.tree
+      this.startTree(run, record, capture.tree)
       const patch = capture.text.trim() ? truncateBytes(capture.text, MAX_REVIEW_DIFF_BYTES) + (capture.cut || Buffer.byteLength(capture.text) > MAX_REVIEW_DIFF_BYTES ? '\n[Diff truncated at the size limit.]' : '') : 'No changes against the base branch.'
       sections = [...sections, { id: 'diff', label: `Diff against ${capture.baseRef}`, text: patch }]
       text = this.compose(run, record, autoReviewPrompt(this.deps.reviewPrompt(run.workspaceId)), sections)
       details.push(`read tree ${capture.tree.slice(0, 7)} (${capture.files} file${capture.files === 1 ? '' : 's'}, +${capture.additions} −${capture.deletions})`)
-    } else text = this.compose(run, record, body, sections)
+    } else {
+      text = this.compose(run, record, body, sections)
+      this.startTree(run, record, await this.treeNow(run.workspaceId))
+    }
     if (notSent.length) details.push(`not sent yet: ${notSent.join(', ')}`)
     if (details.length) record.detail = details.join(' · ')
     if (!this.current(run, record)) return
     const loadout = stepLoadout(loadoutStep(flow, step), this.deps.loadouts(), persona)
+    if (!('error' in loadout)) record.model = loadout.model
     if (!sessionId) {
       if ('error' in loadout) throw new Error(loadout.error)
       if (step.kind === 'review' && !canReview(loadout.agent)) throw new Error(`The review step “${step.name}” can’t run on ${AGENTS[loadout.agent]?.label ?? loadout.agent}: it can’t be held to read-only.`)
@@ -721,7 +747,7 @@ export class FlowService {
     record.sessionId = sessionId
     record.turnId = this.id()
     // Who reviewed which tree, for the findings' words; and whether its persona expects findings or `done`.
-    if (step.kind === 'review') this.reviews.set(record.turnId, { reviewer: 'error' in loadout ? { agent: 'claude', model: defaultModel('claude'), fast: false } : loadout, tree: record.tree ?? '', expects: applied.endsWith.length > 0 })
+    if (step.kind === 'review') this.reviews.set(record.turnId, { reviewer: 'error' in loadout ? { agent: 'claude', model: defaultModel('claude'), fast: false } : loadout, tree: reviewTree ?? '', expects: applied.endsWith.length > 0 })
     this.persist()
     await this.deps.deliver(sessionId, text, { turnId: record.turnId, unattended: mark })
   }
@@ -742,6 +768,9 @@ export class FlowService {
   private async checks(run: FlowRun, record: FlowRunStep): Promise<void> {
     const ws = run.workspaceId
     if (!ws) throw new Error('The checks step needs the run’s workspace, which a turn or workspace step makes first.')
+    // The tree the checks read.
+    this.startTree(run, record, await this.treeNow(ws))
+    if (!this.current(run, record)) return
     const started = await this.deps.startChecks(ws)
     if (!isActiveRun(run)) return
     if (started.kind === 'not-configured') return this.finish(run, 'failed', 'No checks are configured for this repository.')
@@ -767,6 +796,8 @@ export class FlowService {
   private async script(run: FlowRun, step: Extract<FlowStep, { kind: 'script' }>, record: FlowRunStep): Promise<void> {
     const ws = run.workspaceId
     if (!ws) throw new Error(`The script step “${step.name}” needs the run’s workspace, which a turn or workspace step makes first.`)
+    this.startTree(run, record, await this.treeNow(ws))
+    if (!this.current(run, record)) return
     const started = await this.deps.runCommand(ws, step.command)
     if (!this.current(run, record)) return
     if (started.kind === 'missing') return this.finish(run, 'failed', `The command “${step.command}” (step “${step.name}”) isn’t saved for this repository any more.`)
@@ -850,6 +881,12 @@ export class FlowService {
     if (run.state === 'starting') run.state = 'running'
     if (!this.current(run, record)) return this.persist()
     this.count(run, record, (this.deps.now() - Date.parse(record.startedAt)) / 60_000)
+    // The tree the new workspace starts on, which the steps after it start from.
+    if (!made.failed) {
+      const end = await this.treeNow(made.workspaceId)
+      if (!this.current(run, record)) return
+      if (end) record.tree = { end }
+    }
     record.detail = made.failed ? `Setup failed${from ? ` (from “${step.from}”)` : ''}: ${made.failed}` : from ? `From the end of “${step.from}”` : `From ${run.baseBranch}`
     if (made.failed) {
       const edge = flow.edges[step.name]
@@ -865,9 +902,31 @@ export class FlowService {
   /** End a step that produced a fact, and go on along its edge. */
   private complete(run: FlowRun, record: FlowRunStep, fact: string | undefined, route = fact): void {
     Object.assign(record, { state: 'completed', fact, endedAt: this.iso() })
+    if (record.moved && !record.detail?.includes(MOVED_DETAIL)) record.detail = [record.detail, MOVED_DETAIL].filter(Boolean).join(' · ')
     if (run.state === 'waiting') run.state = 'running'
     this.persist()
     this.advance(run, record.name, route)
+  }
+
+  /** The working tree's hash now, short; undefined when it can't be read (never a reason to stop the run). */
+  private async treeNow(workspaceId: string | undefined): Promise<string | undefined> {
+    if (!workspaceId || !this.deps.workingTree) return undefined
+    const tree = await this.deps.workingTree(workspaceId).catch(() => undefined)
+    return tree ? tree.slice(0, TREE_CHARS) : undefined
+  }
+
+  /**
+   * Record the tree a step starts from, and whether it moved: the step before it in the same workspace (the last one
+   * that kept a tree) ended on another tree, so something changed files between the two.
+   */
+  private startTree(run: FlowRun, record: FlowRunStep, tree: string | undefined): void {
+    if (!tree) return
+    const short = tree.slice(0, TREE_CHARS)
+    record.tree = { ...record.tree, start: short }
+    const ws = record.workspaceId ?? run.workspaceId
+    const before = run.steps.filter((s) => s !== record && s.state === 'completed' && (s.workspaceId ?? run.workspaceId) === ws && s.tree && typeof s.tree === 'object' && (s.tree.end || s.tree.start)).at(-1)
+    const ended = before?.tree?.end ?? before?.tree?.start
+    if (ended && ended !== short) record.moved = true
   }
 
   /** Minutes a step spent, counted against each loop pass spanning it. */
@@ -992,6 +1051,19 @@ export class FlowService {
     if (!this.current(run, record)) return
     const end = items.find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end' && i.turnId === record.turnId)
     if (end?.delta) record.delta = { files: end.delta.files.length, additions: end.delta.additions, deletions: end.delta.deletions }
+    // How full the window was as the turn ended, the memory files it read and the ones its changes wrote.
+    const usage = this.deps.contextUsage?.(sessionId)
+    if (usage && usage.limit > 0) record.usage = { used: usage.used, limit: usage.limit }
+    const memoryFiles = (usage?.breakdown?.memoryFiles ?? []).map((f) => f.path).slice(0, MAX_MEMORY_PATHS)
+    if (memoryFiles.length) record.memoryFiles = memoryFiles
+    const memoryWrites = (end?.delta?.files ?? []).map((f) => f.path).filter((p) => isMemoryPath(p, memoryFiles)).slice(0, MAX_MEMORY_PATHS)
+    if (memoryWrites.length) record.memoryWrites = memoryWrites
+    // A turn that could change files ends on a tree of its own; a review and a decide read theirs.
+    if (record.kind === 'turn') {
+      const tree = await this.treeNow(record.workspaceId ?? run.workspaceId)
+      if (!this.current(run, record)) return
+      if (tree) record.tree = { ...record.tree, end: tree }
+    }
     this.count(run, record, end?.durationMs !== undefined ? end.durationMs / 60_000 : (this.deps.now() - Date.parse(record.startedAt)) / 60_000)
     // What the turn cost, where the agent says (Claude's result items): it counts against each loop pass's cost bound.
     const results = items.filter((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId === record.turnId && typeof i.costUsd === 'number')
@@ -1033,7 +1105,7 @@ export class FlowService {
    * `undecided` (which takes the findings edge when the flow has none for it); without such a persona it is clean.
    */
   private reviewEnded(run: FlowRun, record: FlowRunStep, flow: Flow, answer: string, reports: { kind: string; text: string }[]): void {
-    const review = (record.turnId && this.reviews.get(record.turnId)) || { reviewer: { agent: 'claude' as const, model: defaultModel('claude'), fast: false }, tree: record.tree ?? '', expects: false }
+    const review = (record.turnId && this.reviews.get(record.turnId)) || { reviewer: { agent: 'claude' as const, model: defaultModel('claude'), fast: false }, tree: record.tree?.start ?? '', expects: false }
     if (record.turnId) this.reviews.delete(record.turnId)
     const findings = parseFindings(answer)
     const requests = reports.filter((r) => r.kind === 'review' && r.text.trim())

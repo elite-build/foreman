@@ -362,6 +362,13 @@ div.auto-card {
   margin: 0;
   padding-left: 18px;
 }
+/* The run graph above the document: its words, then the diagram (FlowDiagram's Card). */
+.flow-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 
 /* A flow card with its recent runs under it. */
 .flow-item {

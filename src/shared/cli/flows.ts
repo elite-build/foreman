@@ -42,11 +42,15 @@ export interface FlowShowParams {
   flow: string
   repo?: string
   cwd: string
+  // Answer with the flow's run graph as Mermaid source instead of its summary and TOML.
+  mermaid?: boolean
 }
 
 export interface FlowShowResult {
   flow: FlowRow
   toml: string
+  // The run graph as Mermaid flowchart source, when `mermaid` was asked for.
+  mermaid?: string
   text: string
 }
 
@@ -107,6 +111,18 @@ export interface FlowStepRow {
   workspace?: string
   // What its turn cost, where the agent says (Claude), in USD.
   costUsd?: number
+  // The context sections its message carried, in order.
+  shown?: string[]
+  // How full its tab's context window was when its turn ended, where the agent says.
+  usage?: { used: number; limit: number }
+  // The memory files its agent read (Claude's breakdown) and the memory paths its changes wrote.
+  memoryFiles?: string[]
+  memoryWrites?: string[]
+  // The workspace note's revision it was shown.
+  noteRevision?: number
+  // The working tree's hash (short) it started from and ended on; `moved`: not where the step before it ended.
+  tree?: { start?: string; end?: string }
+  moved?: boolean
 }
 
 export interface FlowLoopRow {
@@ -185,6 +201,15 @@ export interface FlowRunsResult {
 export interface FlowRunRefParams {
   // A run's id (the start of it, four characters or more).
   run: string
+}
+
+/** The lenses `foreman flow status --lens` prints, beside the run order it prints by default. */
+export const FLOW_STATUS_LENSES = ['run', 'context', 'memory', 'data'] as const
+
+export interface FlowStatusParams extends FlowRunRefParams {
+  // Print the run through this lens: what each step was shown and how full its window was (context), the memory it
+  // read and wrote (memory), or the trees it worked on (data). Default: the run's steps in order.
+  lens?: (typeof FLOW_STATUS_LENSES)[number]
 }
 
 export interface FlowStatusResult {

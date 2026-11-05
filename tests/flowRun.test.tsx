@@ -2,7 +2,7 @@
 // Running a flow in the window: a gate takes the composer's place with what it shows and Continue · Send back · Stop,
 // and the workspace's Flow tab lists the run's steps in order, each opening what it stands for.
 import './domShims'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { FlowRun } from '../src/shared/flows'
@@ -12,6 +12,23 @@ import { FlowRunPanel } from '../src/renderer/src/components/FlowRunPanel'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
+
+// The diagram renders through a stand-in for Mermaid: it records the source and answers with an SVG naming it.
+const mermaid = vi.hoisted(() => ({ sources: [] as string[] }))
+vi.mock('../src/renderer/src/components/mermaidRender', () => ({
+  readThemeTokens: () => ({ tokens: {}, dark: false }),
+  cachedRender: () => undefined,
+  renderMermaid: async (source: string) => {
+    mermaid.sources.push(source)
+    const title = /accTitle: (.*)/.exec(source)?.[1] ?? ''
+    return { ok: true, svg: `<svg><title>${title}</title><g></g></svg>` }
+  },
+  svgElement: (svg: string) => {
+    const template = document.createElement('template')
+    template.innerHTML = svg
+    return template.content.querySelector('svg')
+  }
+}))
 
 const original = fakeState.snapshot
 
@@ -188,5 +205,87 @@ describe('the Flow tab', () => {
     fakeState.snapshot = { ...fakeState.snapshot, settings: { ...fakeState.snapshot.settings, flows: false } }
     rerender(<FlowRunPanel workspaceId="ws-1" />)
     expect(container.textContent).toBe('')
+  })
+})
+
+describe('the Flow tab’s diagram and its four lenses', () => {
+  const LENSED: FlowRun = {
+    ...RUN,
+    steps: [
+      { ...RUN.steps[0], endedAt: '2026-11-05T10:04:02.000Z', persona: 'developer', shown: ['task'], usage: { used: 61_000, limit: 1_000_000 }, memoryFiles: ['/repo/CLAUDE.md'], memoryWrites: ['CLAUDE.md'], noteRevision: 2, tree: { end: 'aaaaaaaaaaaa' } },
+      { ...RUN.steps[1], tree: { start: 'aaaaaaaaaaaa' } },
+      { ...RUN.steps[2], usage: { used: 84_000, limit: 1_000_000 }, tree: { start: 'bbbbbbbbbbbb', end: 'cccccccccccc' }, moved: true }
+    ]
+  }
+
+  beforeEach(() => {
+    mermaid.sources.length = 0
+    fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [LENSED] }
+  })
+
+  it('draws the run, and the lens switch changes the diagram and the rows under it while the steps stay', async () => {
+    const user = userEvent.setup()
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    // Run: the diagram of the run (drawn from its records: the flow isn't listed here), and nothing more than the steps.
+    expect(await screen.findByRole('img', { name: 'Green · Run' })).toBeTruthy()
+    expect(mermaid.sources.at(-1)).toContain('accTitle: Green · Run')
+    expect(mermaid.sources.at(-1)).toContain('● completed · 4m 02s')
+    const lenses = screen.getByRole('radiogroup', { name: 'Show the flow as' })
+    expect(within(lenses).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Run', 'Context', 'Memory', 'Data'])
+    const steps = () => within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem')
+    expect(steps()).toHaveLength(3)
+
+    // Context: what each turn was shown and how full its window was.
+    await user.click(within(lenses).getByRole('radio', { name: 'Context' }))
+    expect(await screen.findByRole('img', { name: 'Green · Context' })).toBeTruthy()
+    expect(mermaid.sources.at(-1)).toContain('window 84K of 1M')
+    const context = screen.getByRole('list', { name: 'What each turn was shown' })
+    const rows = within(context).getAllByRole('listitem')
+    expect(rows.map((r) => within(r).getByText(/^(build|fix)$/).textContent)).toEqual(['build', 'fix'])
+    expect(within(rows[1]).getByText('checks.results')).toBeTruthy()
+    const meter = within(rows[1]).getByRole('meter', { name: 'Context window at the end of fix' })
+    expect(meter.getAttribute('aria-valuetext')).toBe('84K of 1M (8%)')
+    expect(within(steps()[0]).getByText('61K of 1M (6%)')).toBeTruthy()
+    expect(steps()).toHaveLength(3)
+
+    // Memory: the ledger, what outlives a step with its reads and writes, and each card's memory writes.
+    await user.click(within(lenses).getByRole('radio', { name: 'Memory' }))
+    expect(await screen.findByRole('img', { name: 'Green · Memory' })).toBeTruthy()
+    const ledger = screen.getByRole('table', { name: 'Run ledger' })
+    expect(within(ledger).getAllByRole('row')).toHaveLength(4)
+    expect(within(ledger).getByText('build.answer, checks.results')).toBeTruthy()
+    const memory = screen.getByRole('list', { name: 'What outlives a step' })
+    const file = within(memory).getByText('repo/CLAUDE.md').closest('li')!
+    expect(within(file).getByText('read 1 · written 1')).toBeTruthy()
+    expect(within(steps()[0]).getByText('Wrote CLAUDE.md')).toBeTruthy()
+
+    // Data: each step's trees, with Moved in words where the tree moved.
+    await user.click(within(lenses).getByRole('radio', { name: 'Data' }))
+    expect(await screen.findByRole('img', { name: 'Green · Data' })).toBeTruthy()
+    expect(mermaid.sources.at(-1)).toContain('|moved|')
+    const data = screen.getByRole('list', { name: 'Trees each step worked on' })
+    const fix = within(data).getAllByRole('listitem')[2]
+    expect(within(fix).getByText('bbbbbbb → ccccccc')).toBeTruthy()
+    expect(within(fix).getByText('Moved')).toBeTruthy()
+    expect(within(steps()[1]).getByText('aaaaaaa → aaaaaaa')).toBeTruthy()
+    expect(within(steps()[2]).getByText('Moved')).toBeTruthy()
+    expect(steps()).toHaveLength(3)
+  })
+
+  it('draws the flow file’s steps when it is still what the run started from, so a step not yet run shows', async () => {
+    fakeApi.listFlows = vi.fn(async () => [
+      {
+        id: 'flow-1',
+        source: 'personal',
+        name: 'Green',
+        problems: [],
+        warnings: [],
+        toml: 'name = "Green"\n\n[start]\nstep = "build"\n\n[steps.build]\nkind = "turn"\nprompt = "Build"\n\n[steps.checks]\nkind = "checks"\n\n[steps.fix]\nkind = "turn"\nprompt = "Fix"\n\n[steps.ship]\nkind = "gate"\n\n[edges]\nbuild = "checks"\nchecks = { passed = "ship", failed = "fix" }\nfix = "checks"\n\n[loops.green]\nover = ["checks", "fix"]\nat_most = { iterations = 4 }\n'
+      }
+    ])
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    await waitFor(() => expect(mermaid.sources.some((s) => s.includes('ship<br/>· gate<br/>◌ not yet'))).toBe(true))
+    expect(fakeApi.listFlows).toHaveBeenCalledWith('r1')
+    expect(mermaid.sources.at(-1)).toContain('-.->|passed|')
   })
 })

@@ -11,6 +11,7 @@ import type { BranchInfo } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
 import { api, attempt, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
 import { ActionRow, Button, Callout, Card, Dialog, Field, LinkButton, Select, Status, Tag, TextArea, TextInput } from '../../ui'
+import { FlowLensDiagram, useSettled } from '../FlowDiagram'
 import { RUN_STATE, RUN_TONE } from './flowRunWords'
 import { PersonasSection } from './PersonasSection'
 
@@ -156,6 +157,12 @@ function FlowDialog({ editing, onCopy, onClose, onSaved }: { editing: Editing; o
   const parsed = useMemo(() => parseFlow(toml, editable ? 'personal' : flow.source, t), [toml, editable, flow, t])
   const problems = refused ?? ('problems' in parsed ? parsed.problems : [])
   const { warnings } = parsed
+  // The run graph as a read-only picture of the document, drawn once typing pauses (a file to read is drawn at once).
+  const settled = useSettled(toml, editable ? 400 : 0)
+  const preview = useMemo(() => {
+    const read = settled === toml ? parsed : parseFlow(settled, editable ? 'personal' : flow.source, t)
+    return 'flow' in read ? read.flow : undefined
+  }, [settled, toml, parsed, editable, flow, t])
 
   // A different document (Copy to personal) starts over.
   useEffect(() => {
@@ -220,6 +227,12 @@ function FlowDialog({ editing, onCopy, onClose, onSaved }: { editing: Editing; o
           <Callout tone="info" role="note">
             {t('automations.flows.readOnly')}
           </Callout>
+        )}
+        {preview && (
+          <div className="flow-preview">
+            <span className="small">{t('automations.flows.preview')}</span>
+            <FlowLensDiagram flow={preview} lens="run" />
+          </div>
         )}
         <Field label={t('automations.flows.toml')} description={editable ? t('automations.flows.tomlHelp') : undefined}>
           {(c) => (

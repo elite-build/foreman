@@ -41,3 +41,52 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+/* The diagram and the lens rows under it: layout only; Card, Meter, Tag and Status (ui/) draw themselves, and the
+   diagram is the chat's Mermaid view inside the Card. */
+.flow-diagram {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-x: auto;
+}
+.flow-lens-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-lens-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.flow-lens-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.flow-lens-usage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.flow-lens-meter {
+  width: 96px;
+}
+.flow-ledger {
+  width: 100%;
+  border-collapse: collapse;
+}
+.flow-ledger caption {
+  text-align: start;
+  padding-bottom: 4px;
+}
+.flow-ledger th,
+.flow-ledger td {
+  padding: 2px 8px 2px 0;
+  text-align: start;
+  vertical-align: top;
+}

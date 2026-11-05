@@ -585,12 +585,17 @@ has, and its personas. A file that isn't a flow is listed with its problems; a f
   {
     path: ['flow', 'show'],
     group: 'settings',
-    summary: 'Print a flow’s TOML and its summary',
-    usage: 'foreman flow show <flow> [--repo <name|path>]',
+    summary: 'Print a flow’s TOML and its summary, or its run graph as Mermaid',
+    usage: 'foreman flow show <flow> [--repo <name|path>] [--mermaid]',
     args: [FLOW_REF],
-    options: { repo: { ...REPO, help: 'The repository whose flow files to look in' } },
-    examples: ['foreman flow show fix-until-green', 'foreman flow show "Research then implement" --json'],
-    details: FLOWS_OFF_NOTE,
+    options: {
+      repo: { ...REPO, help: 'The repository whose flow files to look in' },
+      mermaid: { type: 'boolean', help: 'Print the flow’s run graph as Mermaid flowchart source instead (steps, the facts between them, loops as subgraphs)' }
+    },
+    examples: ['foreman flow show fix-until-green', 'foreman flow show fix-until-green --mermaid > flow.mmd', 'foreman flow show "Research then implement" --json'],
+    details: `--mermaid prints the same run graph the Flows dialog draws: each step with its persona and model, a gate as a
+hexagon, the facts on the edges, the ends, and each loop as a subgraph titled with its bounds. Paste it into anything
+that renders Mermaid. ${FLOWS_OFF_NOTE}`,
     tier: 'read'
   },
   {
@@ -658,14 +663,20 @@ workspace. ${FLOWS_OFF_NOTE}`,
   {
     path: ['flow', 'status'],
     group: 'settings',
-    summary: 'Show where a flow run is and its steps so far',
-    usage: 'foreman flow status <run>',
+    summary: 'Show where a flow run is and its steps so far, or the run through a lens',
+    usage: 'foreman flow status <run> [--lens context|memory|data]',
     args: [RUN_REF],
-    options: {},
-    examples: ['foreman flow status 7c1e', 'foreman flow status 7c1e --json'],
+    options: { lens: { type: 'string', value: '<lens>', choices: ['run', 'context', 'memory', 'data'], help: 'Print the run through a lens instead: what each step was shown and how full its window was, the memory it read and wrote, or the trees it worked on', default: 'run: the steps in order' } },
+    examples: ['foreman flow status 7c1e', 'foreman flow status 7c1e --lens data', 'foreman flow status 7c1e --json'],
     details: `The run's state and reason, the step and iteration it is at, each loop's iterations and minutes against its
 bounds, every step so far (iteration, state, what happened), its workspace, and the gate it waits at with the answer
-to give. ${FLOWS_OFF_NOTE}`,
+to give.
+
+--lens prints the same facts the Flow tab's lenses draw. context: the sections each step was shown and its tab's
+context window when its turn ended (per pass for a loop). memory: the memory files each turn read (Claude says) and
+wrote (CLAUDE.md, .claude/, AGENTS.md), the workspace note revision it saw and whether it read the run ledger. data:
+the working tree each step started from and ended on, and "moved" where it didn't start where the step before it
+ended. ${FLOWS_OFF_NOTE}`,
     tier: 'read'
   },
   {
