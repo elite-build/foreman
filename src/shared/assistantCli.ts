@@ -78,6 +78,17 @@ export function refusalFor(spec: CommandSpec): string | undefined {
   return undefined
 }
 
+// ---- flows the assistant drafts and starts ----
+
+const FLOW_NOTES: Record<string, string> = {
+  'flow add': 'To save a flow you drafted, pass the whole TOML as one argument with --toml (not a file: you can’t write one). The Run card shows the document, and nothing is saved until the user clicks Run; a flow with problems is not saved and the result lists them.',
+  'persona add': 'To save a persona you drafted, pass the whole markdown as one word, --markdown=<document> (it starts with ---, so the = form is the only one that takes it), not a file. The Run card shows it, and nothing is saved until the user clicks Run.',
+  'flow run': 'You may propose it with --repo and every --input the flow asks for (foreman flow show lists them). It starts only when the user clicks Run, and its output says what the run approved. Never propose it unless the user asked to start the flow.'
+}
+
+/** What cli_help adds under a flow command the assistant drafts or starts flows with; undefined for every other command. */
+export const flowNote = (spec: CommandSpec): string | undefined => FLOW_NOTES[commandName(spec)]
+
 // ---- answering what an agent waits on ----
 
 const ANSWERS = new Set(['approve', 'deny'])

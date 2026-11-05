@@ -8,6 +8,7 @@ import type { ChecksCliResult, CliErrorCode } from '../../cli/protocol'
 import type { PerfReport } from '../../shared/perf'
 import type { DiagnosticsBundle } from '../../shared/diagnostics'
 import type { CallerIdentity, RecordInput } from '../agentReports'
+import type { FlowRun, FlowRunOrigin, FlowRunStart } from '../../shared/flows'
 
 export interface CliHost {
   state(): { repos: Repo[]; workspaces: Workspace[]; sessions: Session[]; settings: Settings }
@@ -38,6 +39,9 @@ export interface CliHost {
   firstTurn(workspaceId: string): Promise<{ session: string; turn: string } | undefined>
   // `startedBy`: the chat (or assistant thread) that started it, when the call came from one.
   createWorkspace(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy }): Promise<Workspace>
+  // Delegation's start_flow: a flow run as the Run dialog starts one, recording who started it (the run's origin). Absent:
+  // the tool says starting a flow is unavailable.
+  startFlowRun?(input: FlowRunStart, origin?: FlowRunOrigin): Promise<FlowRun>
   // Bring the window forward on this workspace.
   reveal(workspaceId: string): void
   showSetting(id: string): void

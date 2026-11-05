@@ -34,6 +34,7 @@ import {
   type FlowGateShow,
   type FlowPickChoice,
   type FlowRun,
+  type FlowRunOrigin,
   type FlowRunStep,
   type FlowStep
 } from '../shared/flows'
@@ -289,6 +290,8 @@ export interface FlowServiceDeps {
   /** Wait between a wait step's looks at the pull request. */
   sleep?(ms: number): Promise<void>
   changed(): void
+  /** A run ended, however it ended (a schedule's occurrence follows its run). Called after the record is written. */
+  ended?(run: FlowRun): void
   /** True while Foreman quits once the running turns finish: nothing new starts. */
   paused?(): boolean
   maxActive?: number
@@ -406,7 +409,7 @@ export class FlowService {
   // ---- starting ----
 
   /** Start a run of what the caller showed. Throws, starting nothing, when it can't. */
-  begin(input: { flowId: string; repoId: string; baseBranch: string; inputs: Record<string, string>; shown: FlowFingerprint }): FlowRun {
+  begin(input: { flowId: string; repoId: string; baseBranch: string; inputs: Record<string, string>; shown: FlowFingerprint; origin?: FlowRunOrigin }): FlowRun {
     if (this.deps.paused?.()) throw new Error('Foreman is quitting, so nothing new starts.')
     const prepared = this.deps.prepare(input.flowId, input.repoId)
     if ('error' in prepared) throw new Error(prepared.error)
@@ -427,6 +430,7 @@ export class FlowService {
     const { flow } = prepared
     const run: FlowRun = {
       id: this.id(),
+      ...(input.origin ? { origin: input.origin } : {}),
       flow: prepared.ref,
       repoId: input.repoId,
       baseBranch,
@@ -1217,6 +1221,11 @@ export class FlowService {
     this.texts.delete(run.id)
     for (const step of run.steps) if (step.turnId) this.reviews.delete(step.turnId)
     this.persist()
+    try {
+      this.deps.ended?.(run)
+    } catch (error) {
+      console.error('flows: what follows a run’s end failed', error)
+    }
     // As a schedule's `afterRun`: only a run that completed, and every workspace it made (each waits until it is quiet).
     if (state === 'completed' && after && after !== 'keep') for (const ws of new Set([...(run.workspaces ?? []), ...(run.workspaceId ? [run.workspaceId] : [])])) this.deps.afterRun?.(run, ws, after)
   }

@@ -712,6 +712,7 @@ async function main(): Promise<void> {
     cancelLimitResume: (sessionId) => started.limitResume.cancel(sessionId),
     firstTurn: (workspaceId) => started.firstTurn(workspaceId),
     createWorkspace: (repoId, options, extra) => started.createWorkspaceFor(repoId, options, extra),
+    startFlowRun: async (input, origin) => started.startFlowRunFrom(input, origin),
     setupOutcome: (workspaceId) => started.setupOutcome(workspaceId),
     startHeldMessage: (workspaceId) => started.startHeldMessage(workspaceId),
     runChecks: (workspaceId) => started.checks.runForCli(workspaceId),

@@ -27,7 +27,7 @@ import {
   type OperatorTools,
   type PendingRun
 } from '../shared/assistant'
-import { ANSWER_NOTE, answerRefusal, answersRequest, cliLine, refusalFor, searchCommands } from '../shared/assistantCli'
+import { ANSWER_NOTE, answerRefusal, answersRequest, cliLine, flowNote, refusalFor, searchCommands } from '../shared/assistantCli'
 import { assistantSystemPrompt, viewingLine } from '../shared/assistantGuide'
 import { AGENTS, type AgentKind } from '../shared/agents'
 import { COMMANDS, commandName } from '../shared/cliCommands'
@@ -347,7 +347,7 @@ export class AssistantService {
     }
     if (run.delegation) {
       const t = mainT(this.deps.store.state.settings)
-      input.summary = t(run.delegation.name === 'start_task' ? 'assistant.delegation.start' : run.delegation.name === 'send_task' ? 'assistant.delegation.send' : 'assistant.delegation.cancel')
+      input.summary = t(run.delegation.name === 'start_task' ? 'assistant.delegation.start' : run.delegation.name === 'send_task' ? 'assistant.delegation.send' : run.delegation.name === 'start_flow' ? 'assistant.delegation.startFlow' : 'assistant.delegation.cancel')
       input.command = `${run.delegation.name}\n${JSON.stringify(run.delegation.args, null, 2)}`
     }
     return foremanRunItem(run.turnId, input, output)
@@ -444,7 +444,7 @@ export class AssistantService {
     const { store, platform } = this.deps
     return {
       ...operatorTools(() => this.cli, context),
-      ...(this.delegation ? { delegate: async (name: DelegationToolName, args: Record<string, unknown>) => {
+      ...(this.delegation ? { flowsOn: Boolean(store.state.settings.flows), delegate: async (name: DelegationToolName, args: Record<string, unknown>) => {
         try {
           const delegation = this.delegation!
           const parsed = await delegation.validate(name, args, { readOnly: false })
@@ -488,7 +488,8 @@ export class AssistantService {
         if (!found.length) return `No command matches "${query}". Try other words, or answer with the steps in the app.`
         return found
           .map((spec) => {
-            const note = spec.noAssistant ? `\nYou may not run this one with run_foreman: ${spec.noAssistant}. Show the command so the user can copy it.` : answersRequest(spec) ? `\n${ANSWER_NOTE}` : ''
+            const flow = flowNote(spec)
+            const note = spec.noAssistant ? `\nYou may not run this one with run_foreman: ${spec.noAssistant}. Show the command so the user can copy it.` : answersRequest(spec) ? `\n${ANSWER_NOTE}` : flow ? `\n${flow}` : ''
             return `### foreman ${commandName(spec)}${note}\n${renderCommandHelp(spec)}`
           })
           .join('\n\n')

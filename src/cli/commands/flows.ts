@@ -34,15 +34,20 @@ const show: Run = async (ctx) => {
 }
 
 const add: Run = async (ctx) => {
-  noMoreWords(ctx, 1, 'foreman flow add <file.toml> [--name <name>]')
+  noMoreWords(ctx, 1, 'foreman flow add <file.toml> | --toml <text> [--name <name>]')
   const [file] = ctx.args
-  if (!file) throw usageError('Give the flow’s TOML file: foreman flow add <file.toml>')
+  const text = str(ctx.opts.toml)
+  if (text !== undefined && file) throw usageError('Give the flow’s file or --toml, not both.')
+  if (text === undefined && !file) throw usageError('Give the flow’s TOML file: foreman flow add <file.toml> (or the text with --toml)')
   let toml: string
-  try {
-    toml = await io.readFile(file, ctx.cwd)
-  } catch (err) {
-    throw usageError(`Can’t read ${file}: ${(err as NodeJS.ErrnoException).code === 'ENOENT' ? 'no such file' : (err as Error).message}`)
-  }
+  if (text !== undefined) toml = text
+  else
+    try {
+      toml = await io.readFile(file, ctx.cwd)
+    } catch (err) {
+      throw usageError(`Can’t read ${file}: ${(err as NodeJS.ErrnoException).code === 'ENOENT' ? 'no such file' : (err as Error).message}`)
+    }
+  if (!toml.trim()) throw usageError('The flow’s TOML is empty.')
   const result = await ctx.send<FlowAddResult>('flow-add', { toml, name: str(ctx.opts.name) })
   printText(ctx, result)
   if (!result.saved) process.exitCode = 1

@@ -42,6 +42,9 @@ describe('workspace MCP CLI escape hatch', () => {
     const cli = new ForemanCli(r.host)
     await expect(cli.call({ args: ['new', 'research'] }, r.scope)).rejects.toThrow('start_task')
     await expect(cli.call({ args: ['checks'] }, r.scope)).rejects.toThrow('run_checks')
+    // The assistant may propose flow run; a workspace agent starts a flow with start_flow, under the repository's opt-in.
+    await expect(cli.call({ args: ['flow', 'run', 'fix-until-green', '--input', 'task=x'] }, r.scope)).rejects.toThrow('Use the dedicated MCP tool: start_flow.')
+    await expect(cli.call({ args: ['flow', 'add', '--toml', 'name = "x"'] }, r.scope)).rejects.toThrow('not available through the workspace CLI fallback')
     for (const args of [
       ['settings', 'set', 'appearance.theme', 'dark'],
       ['settings', 'import', 'settings.json'], ['settings', 'export', '--out', 'settings.json'],

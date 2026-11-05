@@ -10,6 +10,10 @@ import { defaultSettings, Store } from '../src/main/store'
 import type { SchedulePreviewResult, SchedulesApproveResult, SchedulesChangeResult, SchedulesListResult, SchedulesRemoveResult, SchedulesRunsResult, SchedulesSaveResult } from '../src/shared/cli/schedules'
 import type { ModelInfo } from '../src/shared/agents'
 import type { Api, AppSnapshot, Occurrence, PromptTemplate, Repo, Schedule, ScheduleFingerprint, ScheduleFingerprintView, ScheduleRequest, Settings, Workspace } from '../src/shared/types'
+import type { Context } from '../src/cli/command'
+import { parseCommandArgs, runnerFor } from '../src/cli/registry'
+import { COMMANDS, commandName } from '../src/shared/cliCommands'
+import type { FlowListing, FlowRunSummary } from '../src/shared/flows'
 import { fakeApi, stubHost } from './cliHost'
 import { tempDir } from './helpers'
 
@@ -376,5 +380,66 @@ describe('what a schedule is approved on (the service)', () => {
     expect(store.state.schedules![0]).toMatchObject({ state: 'active', approved: now })
     // And as before, with nothing shown.
     await core.api.approveSchedule(saved.id)
+  })
+})
+
+describe('schedules add --flow (Flows on)', () => {
+  const FLOW_FP = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
+  const listing = { id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: '', problems: [], warnings: [] } as unknown as FlowListing
+  const summary = {
+    flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'develop', steps: 6, loops: 2, gates: 1, personas: [{ name: 'developer', source: 'built-in' }],
+    templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], unsupported: [], notClaude: [], problems: []
+  } as unknown as FlowRunSummary
+  const flowView: ScheduleFingerprintView = { fingerprint: { template: 't', setup: 's', checks: 'c', mcp: 'm', flow: 'f', personas: 'p' }, summary: { flow: summary, repoName: 'foreman', baseBranch: 'develop', setupScript: '', checks: [], mcpServers: [], integrations: [] } }
+  const flowSpec = { flow: 'fix-until-green', cwd: root, recurrence: 'weekly', on: ['mon'], at: '07:00', tz: 'Europe/London', start: START }
+  const rig = (flows = true) => {
+    const listFlows = vi.fn(async () => [listing])
+    const flowRunPreview = vi.fn(async () => ({ fingerprint: FLOW_FP, summary, inputs: [{ name: 'task', description: 'What to build or fix' }] }))
+    return setup({ settings: { flows }, api: { listFlows, flowRunPreview, scheduleFingerprint: vi.fn(async () => flowView) } })
+  }
+
+  it('previews the flow’s run approval with the cadence, and saves the flow with its inputs on the fingerprint shown', async () => {
+    const { call, saveSchedule } = rig()
+    const preview = await call<SchedulesSaveResult>('schedules-add', { ...flowSpec, inputs: { task: 'Fix the flaky tests' } })
+    expect(preview).toMatchObject({ saved: false, needsConfirmation: true })
+    for (const line of ['Schedule the flow “Fix until green”', 'Runs every Mon at 07:00 (Europe/London)', 'Steps: 6 · loops: 2 · gates: 1', 'Personas: developer (built-in)', 'Inputs: task = "Fix the flaky tests"', 'Limit: the flow’s loop bounds']) expect(preview.text).toContain(line)
+    expect(saveSchedule).not.toHaveBeenCalled()
+    await call('schedules-add', { ...flowSpec, inputs: { task: 'Fix the flaky tests' }, shown: preview.preview!.fingerprint })
+    const [request, , shown] = saveSchedule.mock.calls[0]
+    expect(request).toMatchObject({ flow: { flowId: 'built-in:fix-until-green', flowSource: 'built-in', flowName: 'Fix until green', inputs: { task: 'Fix the flaky tests' } }, model: '', agent: 'claude', weekdays: [1] })
+    expect(request.templateId).toBeUndefined()
+    expect(shown).toEqual(flowView.fingerprint)
+  })
+
+  it('refuses a missing or unknown input, a template and a flow together, --model, and every flow while Flows are off', async () => {
+    const { call, saveSchedule } = rig()
+    expect((await failure(call('schedules-add', flowSpec))).message).toMatch(/can’t ask for values.*task \(What to build or fix\)/)
+    expect((await failure(call('schedules-add', { ...flowSpec, inputs: { task: 'x', colour: 'red' } }))).message).toMatch(/has no input “colour”/)
+    expect((await failure(call('schedules-add', { ...flowSpec, template: 'nightly-review', inputs: { task: 'x' } }))).message).toMatch(/not both/)
+    expect((await failure(call('schedules-add', { ...flowSpec, inputs: { task: 'x' }, model: 'claude-opus-5-5[1m]' }))).message).toMatch(/--model doesn’t go with --flow/)
+    expect((await failure(call('schedules-add', { ...spec, inputs: { task: 'x' } }))).message).toMatch(/--input goes with a flow/)
+    expect((await failure(rig(false).call('schedules-add', { ...flowSpec, inputs: { task: 'x' } }))).message).toMatch(/Flows are off/)
+    expect(saveSchedule).not.toHaveBeenCalled()
+  })
+
+  it('the command sends --flow and each --input, and takes no template word beside --flow', async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = []
+    const run = async (argv: string[]) => {
+      const command = COMMANDS.find((c) => commandName(c) === 'schedules add')!
+      const { opts, positionals } = parseCommandArgs(command, argv)
+      const context = {
+        args: positionals, opts, json: false, quiet: true, yes: true, cwd: root,
+        send: async (method: string, params: Record<string, unknown>) => (sent.push({ method, params }), params.shown ? { saved: true, text: 'Saved.' } : { saved: false, needsConfirmation: true, preview: { fingerprint: FP, text: 'preview' }, text: 'preview' }),
+        print: () => undefined, confirm: async () => true, note: () => undefined, progress: () => undefined
+      } as unknown as Context
+      await runnerFor(command)(context)
+    }
+    await run(['--flow', 'fix-until-green', '--input', 'task=Fix it', '--repo', 'foreman', '--every', 'daily', '--at', '07:00'])
+    expect(sent.map((s) => s.method)).toEqual(['schedules-add', 'schedules-add'])
+    expect(sent[0].params).toMatchObject({ flow: 'fix-until-green', inputs: { task: 'Fix it' }, repo: 'foreman', recurrence: 'daily', at: '07:00' })
+    expect(sent[0].params).not.toHaveProperty('template')
+    expect(sent[1].params).toMatchObject({ shown: FP })
+    await expect(run(['nightly-review', '--flow', 'fix-until-green', '--every', 'daily', '--at', '07:00'])).rejects.toThrow(/template or a flow/)
+    await expect(run(['nightly-review', '--input', 'task=x', '--every', 'daily', '--at', '07:00'])).rejects.toThrow(/--input goes with --flow/)
   })
 })

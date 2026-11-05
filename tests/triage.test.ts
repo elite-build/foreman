@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { elapsed, finishedFacts, REASONS, runningFact, triageAll, type TriageInput } from '../src/renderer/src/triage'
+import { sidebarGroups } from '../src/shared/triage'
+import { defaultSettings } from '../src/main/store'
 import type { FlowRun } from '../src/shared/flows'
 import type { AppSnapshot, ApprovalRequest, Session, Workspace } from '../src/shared/types'
 
@@ -157,6 +159,22 @@ describe('triage: flow runs', () => {
     // A turn of your own since then: the run's row is done.
     const yours = session('s1', { lastTurn: { outcome: 'completed', turnId: 'mine', endedAt: ago(1) } })
     expect(withRuns([needs], [yours]).label).not.toBe('Flow needs you')
+  })
+
+  it('a run waiting at a pick needs you too, naming the step, on Home’s row as in the sidebar', () => {
+    const picking = run({ state: 'waiting', current: { step: 'choose', iteration: 1 }, steps: [{ name: 'choose', kind: 'pick', iteration: 1, state: 'waiting', startedAt: ago(1), sessionId: 's1' }] })
+    expect(withRuns([picking], [session('s1')])).toMatchObject({ bucket: 'attention', tone: 'amber', label: 'Pick a result · choose', sessionId: 's1' })
+  })
+
+  it('groups the workspaces one run made under the flow’s name, as Compare siblings are grouped', () => {
+    const made = (id: string) => ws({ id, name: id, flowRun: { runId: 'run' } })
+    const snapshot = { workspaces: [made('first'), made('second'), ws({ id: 'mine', name: 'mine' })], sessions: [], flowRuns: [run({ workspaces: ['first', 'second'], workspaceId: 'second' })], settings: defaultSettings() } as unknown as AppSnapshot
+    const grouped = sidebarGroups({ snapshot, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true })
+    expect(grouped.compares).toEqual([expect.objectContaining({ id: 'flow:run', flow: 'Green', items: [expect.objectContaining({ ws: expect.objectContaining({ id: 'first' }) }), expect.objectContaining({ ws: expect.objectContaining({ id: 'second' }) })] })])
+    expect(grouped.groups.flatMap((g) => g.items.map((t) => t.ws.id))).toEqual(['mine'])
+    // One workspace is no group.
+    const alone = { ...snapshot, workspaces: [made('first'), ws({ id: 'mine', name: 'mine' })] } as unknown as AppSnapshot
+    expect(sidebarGroups({ snapshot: alone, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true }).compares).toEqual([])
   })
 
   it('a stopped run is idle, with why', () => {

@@ -8,7 +8,7 @@ import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, type ForemanToolName } from '../shared
 import type { Session } from '../shared/types'
 import type { McpLaunch } from './agents/types'
 import type { ForemanActions } from './foremanActions'
-import { DELEGATION_TOOLS, type DelegationToolName } from '../shared/foremanDelegation'
+import { DELEGATION_TOOLS, delegationToolNames } from '../shared/foremanDelegation'
 import type { ForemanDelegation } from './foremanDelegation'
 import type { ForemanCli } from './foremanCli'
 import { FOREMAN_CLI_TOOL } from '../shared/foremanCli'
@@ -19,6 +19,8 @@ interface Deps {
   session(id: string): Session | undefined
   launch(): { command: string; args: string[]; env: Record<string, string> } | null
   socket(): string | null
+  // Settings → Experimental → Flows: off, the flow delegation tools aren't offered at all.
+  flowsOn?(): boolean
 }
 
 /** Local capabilities, never the CLI's optional/cooperative caller identity. */
@@ -104,7 +106,7 @@ export class ForemanMcp {
         return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
       }
     })
-    if (this.delegation) for (const name of Object.keys(DELEGATION_TOOLS) as DelegationToolName[]) {
+    if (this.delegation) for (const name of delegationToolNames(Boolean(this.deps.flowsOn?.()))) {
       const definition = DELEGATION_TOOLS[name]
       if (readOnly && !definition.readOnly) continue
       server.registerTool(name, {

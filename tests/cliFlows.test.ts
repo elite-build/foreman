@@ -7,7 +7,8 @@ import { io } from '../src/cli/commands/input'
 import { renderCommandHelp } from '../src/cli/help'
 import { confirm } from '../src/cli/output'
 import { ERROR_EXIT } from '../src/cli/protocol'
-import { parseCommandArgs } from '../src/cli/registry'
+import { parseCommandArgs, runnerFor } from '../src/cli/registry'
+import { CLI_DEDICATED_TOOLS } from '../src/shared/foremanCli'
 import { APPROVAL_METHODS } from '../src/main/cli/approvals'
 import { decide } from '../src/main/cli/work'
 import { workRunners } from '../src/cli/commands/work'
@@ -195,7 +196,31 @@ describe('the flow command table', () => {
     // flow draft saves a personal flow with --save, as flow add does.
     expect(Object.fromEntries(FLOW_COMMANDS.map((c) => [commandName(c), c.tier]))).toEqual({ 'flow list': 'read', 'flow show': 'read', 'flow add': 'act', 'flow remove': 'act', 'flow run': 'act', 'flow runs': 'read', 'flow status': 'read', 'flow stop': 'act', 'flow draft': 'act' })
     expect(Object.fromEntries(Object.entries(FLOW_METHODS).map(([m, d]) => [m, d.tier]))).toEqual({ 'flow-list': 'read', 'flow-show': 'read', 'flow-add': 'act', 'flow-remove': 'act', 'flow-run': 'act', 'flow-runs': 'read', 'flow-status': 'read', 'flow-wait': 'read', 'flow-stop': 'act' })
-    expect(FLOW_COMMANDS.find((c) => commandName(c) === 'flow run')?.noAssistant).toBeTruthy()
+    // The assistant may propose flow run on its Run card (slice 8); workspace agents start flows with start_flow instead.
+    expect(FLOW_COMMANDS.find((c) => commandName(c) === 'flow run')?.noAssistant).toBeUndefined()
+    expect(CLI_DEDICATED_TOOLS['flow run']).toEqual(['start_flow'])
+  })
+
+  it('flow add and persona add take the document itself (--toml, --markdown), as the assistant’s Run card carries a draft', async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = []
+    const run = async (name: string, argv: string[]) => {
+      const spec = COMMANDS.find((c) => commandName(c) === name)!
+      const { opts, positionals } = parseCommandArgs(spec, argv)
+      const ctx = {
+        args: positionals, opts, json: false, quiet: true, yes: true, cwd: process.cwd(),
+        send: async (method: string, params: Record<string, unknown>) => (sent.push({ method, params }), { saved: true, text: 'Saved.' }),
+        print: () => undefined, confirm: async () => true, note: () => undefined, progress: () => undefined
+      } as unknown as Context
+      await runnerFor(spec)(ctx)
+    }
+    await run('flow add', ['--toml', 'name = "Mine"\n[start]\nstep = "a"', '--name', 'Mine'])
+    expect(sent.at(-1)).toEqual({ method: 'flow-add', params: { toml: 'name = "Mine"\n[start]\nstep = "a"', name: 'Mine' } })
+    // A persona starts with ---, which only the one-word form passes as a value.
+    await run('persona add', ['--markdown=---\nname: finder\n---\nFind.'])
+    expect(sent.at(-1)).toEqual({ method: 'persona-add', params: { markdown: '---\nname: finder\n---\nFind.' } })
+    await expect(run('flow add', ['f.toml', '--toml', 'x'])).rejects.toThrow(/not both/)
+    await expect(run('flow add', [])).rejects.toThrow(/TOML file/)
+    await expect(run('persona add', ['--markdown', '  '])).rejects.toThrow(/empty/)
   })
 
   it('parses repeated --input, and --wait and --open', () => {

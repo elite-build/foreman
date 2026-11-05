@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetAgentStatuses } from '../src/renderer/src/agentReadiness'
 import { NewWorkspaceDialog } from '../src/renderer/src/components/NewWorkspaceDialog'
+import { FLOW_STARTERS } from '../src/shared/flowStarters'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -18,6 +19,17 @@ vi.mock('../src/renderer/src/components/composer/Composer', () => ({
 }))
 vi.mock('../src/renderer/src/components/composer/TemplatePicker', () => ({ TemplatePicker: () => null }))
 vi.mock('../src/renderer/src/components/cloud/RunsOn', () => ({ RunsOnField: () => null, useCloudReadiness: () => undefined }))
+// Start with › Flow draws the flow's run graph: a stand-in for Mermaid answers with an SVG.
+vi.mock('../src/renderer/src/components/mermaidRender', () => ({
+  readThemeTokens: () => ({ tokens: {}, dark: false }),
+  cachedRender: () => undefined,
+  renderMermaid: async () => ({ ok: true, svg: '<svg><title>flow</title><g></g></svg>' }),
+  svgElement: (svg: string) => {
+    const template = document.createElement('template')
+    template.innerHTML = svg
+    return template.content.querySelector('svg')
+  }
+}))
 
 const repo = { id: 'r1', name: 'foreman', rootPath: '/code/foreman', defaultBranch: 'main', remote: 'origin', hasOrigin: false }
 const branches = [
@@ -289,3 +301,108 @@ async function typeAndSubmit() {
   await user.keyboard('{Control>}{Enter}{/Control}')
   await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalled())
 }
+
+describe('Start with (Flows on)', () => {
+  const fingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
+  const flows = [
+    { id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: FLOW_STARTERS[0].toml, summary: { steps: 6, loops: 2, gates: 1, personas: ['developer', 'qa-engineer'] }, problems: [], warnings: [] },
+    { id: 'flow-broken', source: 'personal', name: 'Broken', toml: 'name = "x"', problems: ['No steps.'], warnings: [] }
+  ]
+  const summary = {
+    flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1,
+    personas: [{ name: 'developer', source: 'built-in' }], templates: [], setupScript: 'npm ci', checks: [{ name: 'Tests', command: 'npm test' }],
+    mcpServers: [], integrations: [], unsupported: [], notClaude: [], problems: [], after: 'archive'
+  }
+  const flowsOn = () => {
+    fakeState.snapshot.settings.flows = true
+    fakeApi.listFlows = vi.fn(async () => flows)
+    fakeApi.flowRunPreview = vi.fn(async () => ({ fingerprint, summary, inputs: [{ name: 'task', description: 'What to build or fix' }] }))
+    fakeApi.startFlowRun = vi.fn(async () => ({ id: 'run-1' }))
+  }
+  afterEach(() => {
+    fakeState.snapshot.settings.flows = false
+  })
+
+  it('is not there while Flows are off: the dialog is today’s, and no flow is asked for', async () => {
+    fakeState.snapshot.settings.flows = false
+    fakeApi.listFlows = vi.fn(async () => flows)
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await screen.findByRole('dialog', { name: 'New workspace' })
+    expect(screen.queryByRole('radiogroup', { name: 'Start with' })).toBeNull()
+    expect(screen.getByRole('textbox', { name: /First message/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Create workspace/ })).toBeTruthy()
+    expect(fakeApi.listFlows).not.toHaveBeenCalled()
+  })
+
+  it('Flow: picks a runnable flow, asks for its inputs, shows its graph and approval, and starts it from the form’s base branch', async () => {
+    const user = userEvent.setup()
+    flowsOn()
+    render(<NewWorkspaceDialog repoId="r1" />)
+    const startWith = await screen.findByRole('radiogroup', { name: 'Start with' })
+    expect(within(startWith).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Message', 'Template', 'Flow', 'Issue or PR'])
+    await user.click(within(startWith).getByRole('radio', { name: 'Flow' }))
+    // Only the runnable flows, each with where it comes from, its shape and its personas.
+    const card = await screen.findByRole('radio', { name: 'Fix until green' })
+    expect(screen.queryByRole('radio', { name: 'Broken' })).toBeNull()
+    expect(screen.getByText('Built-in · 6 steps · 2 loops · 1 gate · developer, qa-engineer')).toBeTruthy()
+    // The model, source and branch choices belong to a message; a flow's steps say their own.
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
+    expect(screen.queryByRole('radiogroup', { name: 'Workspace source' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: /First message/ })).toBeNull()
+    await user.click(card)
+    await waitFor(() => expect(screen.getByText('What starting it approves')).toBeTruthy())
+    expect(fakeApi.flowRunPreview).toHaveBeenCalledWith({ flowId: 'built-in:fix-until-green', repoId: 'r1', baseBranch: 'main' })
+    expect(screen.getByText('Run graph')).toBeTruthy()
+    expect(screen.getByText(/Unattended turns are Claude only/)).toBeTruthy()
+    // [after] isn't overridable: it is read-only text.
+    expect(screen.getByText('After the run')).toBeTruthy()
+    expect(screen.getByText('Archive its workspaces once it completes')).toBeTruthy()
+    const start = screen.getByRole('button', { name: /Start flow/ }) as HTMLButtonElement
+    expect(start.disabled).toBe(true)
+    await user.type(screen.getByRole('textbox', { name: 'task' }), 'the flaky tests')
+    expect(start.disabled).toBe(false)
+    await user.click(start)
+    expect(fakeApi.startFlowRun).toHaveBeenCalledWith({ flowId: 'built-in:fix-until-green', source: 'built-in', repoId: 'r1', baseBranch: 'main', inputs: { task: 'the flaky tests' }, shown: fingerprint })
+    expect(storeModule.showToast).toHaveBeenCalledWith('Started Fix until green in a new workspace.')
+    await waitFor(() => expect(closed()).toHaveBeenCalledWith(null))
+  })
+
+  it('Flow: Create workspace only makes the workspace the form describes, with no first message and no run', async () => {
+    const user = userEvent.setup()
+    flowsOn()
+    storeModule.createWorkspace = vi.fn(async () => true)
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.click(within(await screen.findByRole('radiogroup', { name: 'Start with' })).getByRole('radio', { name: 'Flow' }))
+    await user.click(await screen.findByRole('radio', { name: 'Fix until green' }))
+    await user.type(await screen.findByRole('textbox', { name: 'task' }), 'x')
+    await user.click(screen.getByRole('button', { name: 'Create workspace only' }))
+    await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalledWith('r1', expect.objectContaining({ baseBranch: 'main', branch: { kind: 'new' }, prompt: undefined })))
+    expect(fakeApi.startFlowRun).not.toHaveBeenCalled()
+  })
+
+  it('Flow: the keyboard shortcut starts the flow once it can', async () => {
+    const user = userEvent.setup()
+    flowsOn()
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.click(within(await screen.findByRole('radiogroup', { name: 'Start with' })).getByRole('radio', { name: 'Flow' }))
+    await user.click(await screen.findByRole('radio', { name: 'Fix until green' }))
+    const task = await screen.findByRole('textbox', { name: 'task' })
+    await user.type(task, 'x')
+    fireEvent.keyDown(task, { key: 'Enter', ctrlKey: true, metaKey: true })
+    await waitFor(() => expect(fakeApi.startFlowRun).toHaveBeenCalledTimes(1))
+  })
+
+  it('Issue or PR: a link field the link detection reads, sent with anything written under it', async () => {
+    const user = userEvent.setup()
+    flowsOn()
+    storeModule.createWorkspace = vi.fn(async () => true)
+    fakeApi.resolveGithubLink = vi.fn(async () => ({ kind: 'issue', number: 7, title: 'Crash', repo: 'acme/app', state: 'open' }))
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.click(within(await screen.findByRole('radiogroup', { name: 'Start with' })).getByRole('radio', { name: 'Issue or PR' }))
+    await user.type(screen.getByRole('textbox', { name: 'Issue or pull request link' }), 'https://github.com/acme/app/issues/7')
+    await waitFor(() => expect(fakeApi.resolveGithubLink).toHaveBeenCalledWith('r1', 'https://github.com/acme/app/issues/7'))
+    await user.type(screen.getByRole('textbox', { name: /First message/ }), 'Start with the stack trace')
+    await user.click(screen.getByRole('button', { name: /Create workspace/ }))
+    await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalledWith('r1', expect.objectContaining({ prompt: 'https://github.com/acme/app/issues/7\n\nStart with the stack trace', githubUrl: 'https://github.com/acme/app/issues/7' })))
+  })
+})

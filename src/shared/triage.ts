@@ -504,19 +504,26 @@ export function liveRepo(snapshot: AppSnapshot, repoId: string | null): string |
   return repoId && snapshot.repos.some((r) => r.id === repoId) ? repoId : null
 }
 
-/** Workspaces started together by Compare, as triaged rows (two or more still live). */
+/**
+ * Workspaces started together by Compare, or made by one flow run (its workspace steps), as triaged rows (two or more
+ * still live). A flow run's group names the flow in `flow`; a comparison's, the prompt.
+ */
 export interface CompareSection {
   id: string
   prompt: string
+  // A flow run's workspaces: the flow's name.
+  flow?: string
   items: Triage[]
 }
 
-function compareSections(items: Triage[]): CompareSection[] {
+function compareSections(items: Triage[], flowRuns: readonly FlowRun[] | undefined): CompareSection[] {
   const byId = new Map<string, CompareSection>()
   for (const t of items) {
-    const id = t.ws.compareId
+    const runId = t.ws.flowRun?.runId
+    const id = t.ws.compareId ?? (runId ? `flow:${runId}` : undefined)
     if (!id) continue
-    const section = byId.get(id) ?? { id, prompt: t.ws.compare?.prompt ?? '', items: [] }
+    const flow = !t.ws.compareId && runId ? (flowRuns?.find((r) => r.id === runId)?.flow.name ?? '') : undefined
+    const section = byId.get(id) ?? { id, prompt: t.ws.compare?.prompt ?? '', ...(flow !== undefined ? { flow } : {}), items: [] }
     section.items.push(t)
     byId.set(id, section)
   }
@@ -537,7 +544,7 @@ export function sidebarGroups(
   // Put away for later: only the Later view and a search show it until its day.
   if (filter !== 'later' && !query) items = items.filter((t) => !putAway(t, opts.now))
   if (filter !== 'all') items = items.filter((t) => matchesView(filter, t, opts))
-  const compares = compareSections(items)
+  const compares = compareSections(items, input.snapshot.flowRuns)
   const grouped = new Set(compares.flatMap((c) => c.items.map((t) => t.ws.id)))
   const plain = items.filter((t) => !grouped.has(t.ws.id))
   // Any view but All shows what it holds, finished or not.

@@ -21,7 +21,7 @@ import type { DirListing } from './fileTree'
 import type { ImagePreview } from './imageInfo'
 import type { OpenInChoice, OpenInDetection, OpenInTarget } from './openIn'
 import type { SavedCommand } from './savedCommands'
-import type { FlowGateShow, FlowListing, FlowPickChoice, FlowRun, FlowRunPreview, FlowRunStart } from './flows'
+import type { FlowGateShow, FlowListing, FlowPickChoice, FlowRun, FlowRunPreview, FlowRunStart, FlowRunSummary, FlowSource } from './flows'
 import type { PersonaList, PersonaListing, TurnPersona } from './personas'
 import type { DockerLeft, DockerListing, DockerPreview, DockerRemoval } from './docker'
 import type { CloudProviderId, PlanLimits, ProviderCapabilities } from './cloud'
@@ -645,12 +645,25 @@ export interface ArchivedWork {
 /** What happens to a scheduled run's workspace once the run completes. A run that fails, stops or needs you is always kept. */
 export type AfterRun = 'keep' | 'archive' | 'delete-unchanged'
 
+/**
+ * A flow a schedule starts instead of a template (docs/loops-and-graphs.md): which flow, where it came from, its name as it
+ * was when scheduled, and the values for its inputs (a scheduled run can't ask, so every input is filled in here).
+ */
+export interface ScheduleFlow {
+  flowId: string
+  flowSource: FlowSource
+  flowName: string
+  inputs: Record<string, string>
+}
+
 /** A template run later, on a cadence the user approved (R-5). Claude only, permission mode auto; never starts anything while Foreman is closed. */
 export interface Schedule {
   id: string
-  templateId: string
+  // What it runs: a template (every schedule made before flows), or a flow. One of the two is set.
+  templateId?: string
   // As it was when scheduled, for rows that outlive the template.
-  templateName: string
+  templateName?: string
+  flow?: ScheduleFlow
   repoId: string
   baseBranch: string
   recurrence: 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
@@ -682,10 +695,11 @@ export interface Schedule {
   createdAt: string
 }
 
-/** What the Schedule dialog sends. */
+/** What the Schedule dialog sends: a template or a flow, one of the two. */
 export interface ScheduleRequest {
-  templateId: string
-  templateName: string
+  templateId?: string
+  templateName?: string
+  flow?: ScheduleFlow
   repoId: string
   baseBranch: string
   recurrence: Schedule['recurrence']
@@ -703,18 +717,26 @@ export interface ScheduleRequest {
 }
 
 export interface ScheduleFingerprint {
+  // A flow schedule: its templates' texts and revisions.
   template: string
   setup: string
+  // A flow schedule: with the commands its script steps run.
   checks: string
   mcp: string
+  // A flow schedule only: the flow document and its personas, as its run approval has them (FlowFingerprint).
+  flow?: string
+  personas?: string
 }
 
 /** What a schedule's fingerprint stands for, in words: what the approval covers besides the cadence. */
 export interface ScheduleSummary {
-  templateName: string
+  // A template schedule's template; a flow schedule has `flow` instead.
+  templateName?: string
   // The template file's revision (a repo template's git blob SHA); personal templates have none.
   templateRev?: string
-  templateSource: 'personal' | 'repo'
+  templateSource?: 'personal' | 'repo'
+  // A flow schedule: what a run of the flow approves, as its Run dialog shows it.
+  flow?: FlowRunSummary
   repoName: string
   baseBranch: string
   // The repo's setup script as the run would use it ('' when there is none).
@@ -744,6 +766,8 @@ export interface Occurrence {
   reason?: string
   workspaceId?: string
   sessionId?: string
+  // A flow schedule's occurrence: the flow run it started, which says how it ends.
+  flowRunId?: string
 }
 
 export interface WorkspaceNote {

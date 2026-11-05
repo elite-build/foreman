@@ -731,8 +731,19 @@ export interface FlowFingerprint {
   personas: string
 }
 
+/**
+ * Who started a run when it wasn't someone at the window or a terminal: a schedule's occurrence, a workspace agent's
+ * start_flow (the coordinating chat and its turn), or the assistant's thread (its Run card).
+ */
+export type FlowRunOrigin =
+  | { kind: 'schedule'; scheduleId: string; occurrenceId: string }
+  | { kind: 'delegation'; sessionId: string; turnId?: string }
+  | { kind: 'assistant'; threadId: string }
+
 export interface FlowRun {
   id: string
+  // Absent: started from the window or a terminal.
+  origin?: FlowRunOrigin
   flow: { id: string; name: string; source: FlowSource; starter?: string; file?: string; rev?: string }
   repoId: string
   baseBranch: string
@@ -785,6 +796,8 @@ export interface FlowRunSummary {
   costBound?: boolean
   // Other reasons it can't start (a template that doesn't exist, a loadout slot that isn't set).
   problems: string[]
+  // What a completed run does with the workspaces it made (the flow's [after]); a run can't change it.
+  after?: FlowAfter
 }
 
 export interface FlowRunPreview {

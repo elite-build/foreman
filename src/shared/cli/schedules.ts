@@ -1,5 +1,6 @@
 // Parameters and results of the schedule methods.
 // Each result has a `text` the command prints unless --json is given.
+import type { FlowSource } from '../flows'
 import type { Schedule, ScheduleFingerprint, ScheduleRequest, ScheduleSummary } from '../types'
 
 /** The cadence and limits of a schedule, as the command line says them. Anything left out takes the Schedule dialog's default. */
@@ -17,15 +18,19 @@ export interface ScheduleSpecParams {
   start?: string
   // The branch each run starts from. Default: the repository's.
   base?: string
-  // A Claude model id. Default: the dialog's (Sonnet when listed).
+  // A Claude model id. Default: the dialog's (Sonnet when listed). A flow schedule takes none: its steps say their own.
   model?: string
   // 5 to 480. Default: 30.
   maxMinutes?: number
 }
 
 export interface SchedulesPreviewParams extends ScheduleSpecParams {
-  // Slug, name, id or `repo:<slug>`.
-  template: string
+  // Slug, name, id or `repo:<slug>`; or `flow` instead.
+  template?: string
+  // With Flows on: a flow's name, file name or id (`foreman flow list`) to start instead of a template.
+  flow?: string
+  // A flow's inputs, every one it asks for: a scheduled run can't ask.
+  inputs?: Record<string, string>
   // Repository name, id or folder; otherwise the one the command ran in.
   repo?: string
   cwd: string
@@ -41,6 +46,9 @@ export interface SchedulesEditParams extends Partial<ScheduleSpecParams> {
   id: string
   cwd: string
   template?: string
+  // Start this flow instead (or, for a flow schedule, change its inputs with `inputs`).
+  flow?: string
+  inputs?: Record<string, string>
   repo?: string
   shown?: ScheduleFingerprint
 }
@@ -69,8 +77,11 @@ export interface SchedulesSaveResult {
 
 export interface ScheduleRow {
   id: string
+  // What it runs, by name: the template's, or the flow's.
   template: string
-  templateId: string
+  templateId?: string
+  // A flow schedule: the flow and the values for its inputs.
+  flow?: { id: string; name: string; source: FlowSource; inputs: Record<string, string> }
   repo: string
   repoId: string
   base: string
@@ -141,6 +152,8 @@ export interface OccurrenceRow {
   id: string
   scheduleId: string
   template: string
+  // A flow schedule's run: the flow run it started (`foreman flow status <id>`).
+  flowRun?: string
   plannedAt: string
   startedAt?: string
   endedAt?: string

@@ -5,26 +5,15 @@
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FLOW_STARTERS, type FlowStarter } from '../../../../shared/flowStarters'
-import { parseFlow, type FlowListing, type FlowPersonaRef, type FlowRunPreview } from '../../../../shared/flows'
-import type { PlainKey } from '../../../../shared/i18n'
+import { parseFlow, type FlowListing } from '../../../../shared/flows'
 import type { BranchInfo } from '../../../../shared/types'
-import { useT, type RendererT } from '../../i18n'
+import { useT } from '../../i18n'
 import { api, attempt, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
-import { ActionRow, Button, Callout, Card, Dialog, Field, LinkButton, Select, Status, Tag, TextArea, TextInput } from '../../ui'
+import { ActionRow, Button, Callout, Dialog, Field, LinkButton, Select, Status, TextArea } from '../../ui'
 import { FlowLensDiagram, useSettled } from '../FlowDiagram'
+import { FlowApproval, FlowInputFields, flowStartReady, flowTitle, ProblemList, SourceTags, STARTER_NAME, summaryText, useFlowPreview } from './FlowStartFields'
 import { RUN_STATE, RUN_TONE } from './flowRunWords'
 import { PersonasSection } from './PersonasSection'
-
-const STARTER_NAME: Record<FlowStarter['id'], PlainKey> = {
-  'fix-until-green': 'automations.flows.starter.fixUntilGreen',
-  'research-then-implement': 'automations.flows.starter.researchThenImplement'
-}
-
-/** A flow's title: a built-in starter's in the app's language, otherwise the name in its file. */
-function flowTitle(flow: FlowListing, t: RendererT): string {
-  const starter = flow.starter as FlowStarter['id'] | undefined
-  return starter && STARTER_NAME[starter] ? t(STARTER_NAME[starter]) : flow.name
-}
 
 type Editing = { flow?: FlowListing; toml: string; starter?: FlowStarter['id'] }
 
@@ -91,27 +80,6 @@ function FlowList({ query }: { query: string }) {
       <PersonasSection query={query} usedBy={usedBy} onChanged={() => void load()} />
     </>
   )
-}
-
-/** Where a flow comes from, in words: built-in, personal, or the repository with the file and its revision. */
-function SourceTags({ flow }: { flow: FlowListing }) {
-  const t = useT()
-  const repo = useStore((s) => s.snapshot!.repos.find((r) => r.id === flow.repoId)?.name)
-  if (flow.source === 'built-in') return <Tag>{t('automations.flows.builtIn')}</Tag>
-  if (flow.source === 'personal') return <Tag>{t('automations.flows.personal')}</Tag>
-  return (
-    <>
-      <Tag>{t('automations.flows.fromRepo', { repo: repo ?? '' })}</Tag>
-      <Tag mono>{t('automations.flows.fileRev', { file: flow.file ?? '', rev: flow.rev?.slice(0, 7) ?? '' })}</Tag>
-    </>
-  )
-}
-
-/** "6 steps · 2 loops · 1 gate". */
-function summaryText(flow: FlowListing, t: RendererT): string {
-  if (!flow.summary) return ''
-  const { steps, loops, gates } = flow.summary
-  return [t('automations.flows.steps', { count: steps }), t('automations.flows.loops', { count: loops }), t('automations.flows.gates', { count: gates })].join(' · ')
 }
 
 function FlowCard({ flow, onOpen, onRun }: { flow: FlowListing; onOpen: () => void; onRun: () => void }) {
@@ -271,16 +239,6 @@ function FlowDialog({ editing, onCopy, onClose, onSaved }: { editing: Editing; o
   )
 }
 
-function ProblemList({ items }: { items: string[] }) {
-  return (
-    <ul className="flow-problems">
-      {items.map((item, i) => (
-        <li key={i}>{item}</li>
-      ))}
-    </ul>
-  )
-}
-
 /** A flow's latest runs, newest first: how each ended (or where it is), when, its workspace and why it stopped. */
 function FlowRuns({ flow }: { flow: FlowListing }) {
   const t = useT()
@@ -309,16 +267,10 @@ function FlowRuns({ flow }: { flow: FlowListing }) {
   )
 }
 
-/** Where a persona a run approves comes from: built-in, personal (and when it was saved), or its file and revision. */
-function personaWhere(p: FlowPersonaRef, t: RendererT): string {
-  const base = p.source === 'built-in' ? t('automations.flows.builtIn') : p.source === 'personal' ? t('automations.flows.personal') : t('automations.flows.fileRev', { file: p.file ?? '', rev: p.rev?.slice(0, 7) ?? '' })
-  return p.readOnly ? `${base} · ${t('automations.personas.readOnly')}` : base
-}
-
 /**
  * Run…: the repository (for a personal or built-in flow), the base branch, the flow's inputs, and what starting it
- * approves: the flow file and its revision, templates, personas, setup, checks, MCP servers and integrations. Starting
- * sends back the fingerprint shown here, so a run is refused when any of it changed meanwhile.
+ * approves (FlowStartFields): the flow file and its revision, templates, personas, setup, checks, MCP servers and
+ * integrations. Starting sends back the fingerprint shown here, so a run is refused when any of it changed meanwhile.
  */
 function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => void }) {
   const t = useT()
@@ -328,10 +280,9 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
   const repo = repos.find((r) => r.id === repoId)
   const [base, setBase] = useState(repo?.defaultBranch ?? 'main')
   const [branches, setBranches] = useState<BranchInfo[] | null>(null)
-  const [preview, setPreview] = useState<FlowRunPreview | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const { preview, error } = useFlowPreview(flow.id, repoId, base)
 
   useEffect(() => {
     if (!repoId) return
@@ -346,24 +297,7 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
     }
   }, [repoId])
 
-  useEffect(() => {
-    if (!repoId) return
-    let live = true
-    setPreview(null)
-    setError(null)
-    api
-      .flowRunPreview({ flowId: flow.id, repoId, baseBranch: base })
-      .then((next) => live && setPreview(next))
-      .catch((err: unknown) => live && setError(err instanceof Error ? err.message : String(err)))
-    return () => {
-      live = false
-    }
-  }, [flow.id, repoId, base])
-
-  const summary = preview?.summary
-  const blocked = Boolean(summary && (summary.notClaude.length || summary.problems.length))
-  const filled = (preview?.inputs ?? []).every((i) => values[i.name]?.trim())
-  const ready = Boolean(preview) && !blocked && filled && Boolean(base.trim()) && !busy
+  const ready = flowStartReady(preview, values) && Boolean(base.trim()) && !busy
   const name = flowTitle(flow, t)
 
   const start = async () => {
@@ -377,9 +311,6 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
   }
 
   const branchOptions = [...new Set([base, ...(branches ?? []).map((b) => b.name)])].map((b) => ({ value: b, label: b }))
-  const none = t('flowRun.dialog.none')
-  const flowLine =
-    flow.source === 'built-in' ? t('automations.flows.builtIn') : flow.source === 'personal' ? t('automations.flows.personal') : t('automations.flows.fileRev', { file: flow.file ?? '', rev: flow.rev?.slice(0, 7) ?? '' })
 
   return (
     <Dialog
@@ -415,65 +346,8 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
         <Field label={t('flowRun.dialog.base')} description={branches === null ? t('flowRun.dialog.loadingBranches') : undefined}>
           {(c) => <Select {...c} value={base} options={branchOptions} onChange={setBase} />}
         </Field>
-        {(preview?.inputs ?? []).map((input) => (
-          <Field key={input.name} label={input.name} description={input.description || undefined}>
-            {(c) => <TextInput {...c} value={values[input.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [input.name]: e.target.value }))} />}
-          </Field>
-        ))}
-        {error && (
-          <Callout tone="error" role="status">
-            {error}
-          </Callout>
-        )}
-        {summary && (
-          <Card className="flow-run-summary">
-            <strong>{t('flowRun.dialog.approval')}</strong>
-            <dl className="flow-run-facts">
-              <dt className="faint">{t('flowRun.dialog.flow')}</dt>
-              <dd>
-                {flowLine} · {[t('automations.flows.steps', { count: summary.steps }), t('automations.flows.loops', { count: summary.loops }), t('automations.flows.gates', { count: summary.gates })].join(' · ')}
-              </dd>
-              <dt className="faint">{t('flowRun.dialog.templates')}</dt>
-              <dd>{summary.templates.length ? summary.templates.map((x) => (x.rev ? `${x.name} @ ${x.rev.slice(0, 7)}` : x.name)).join(', ') : none}</dd>
-              <dt className="faint">{t('flowRun.dialog.personas')}</dt>
-              <dd>{summary.personas.length ? summary.personas.map((p) => t('flowRun.dialog.personaWhere', { name: p.name, where: personaWhere(p, t) })).join(', ') : none}</dd>
-              <dt className="faint">{t('flowRun.dialog.setup')}</dt>
-              <dd>{summary.setupScript.trim() ? <code>{summary.setupScript.trim().split('\n')[0]}</code> : none}</dd>
-              <dt className="faint">{t('flowRun.dialog.checks')}</dt>
-              <dd>{summary.checks.length ? summary.checks.map((c) => c.name).join(', ') : none}</dd>
-              {summary.commands?.length ? (
-                <>
-                  <dt className="faint">{t('flowRun.dialog.commands')}</dt>
-                  <dd>{summary.commands.map((c) => c.name).join(', ')}</dd>
-                </>
-              ) : null}
-              <dt className="faint">{t('flowRun.dialog.mcp')}</dt>
-              <dd>{summary.mcpServers.length ? summary.mcpServers.join(', ') : none}</dd>
-              <dt className="faint">{t('flowRun.dialog.integrations')}</dt>
-              <dd>{summary.integrations.length ? summary.integrations.join(', ') : none}</dd>
-            </dl>
-          </Card>
-        )}
-        {summary && (
-          <Callout tone="info" role="note">
-            {t('flowRun.dialog.claudeOnly')}
-          </Callout>
-        )}
-        {summary?.costBound && (
-          <Callout tone="info" role="note">
-            {t('flowRun.dialog.costBound')}
-          </Callout>
-        )}
-        {summary && summary.notClaude.length > 0 && (
-          <Callout tone="warn" role="status">
-            {t('flowRun.dialog.notClaude', { steps: summary.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ') })}
-          </Callout>
-        )}
-        {summary && summary.problems.length > 0 && (
-          <Callout tone="error" role="status" title={t('flowRun.dialog.problems')}>
-            <ProblemList items={summary.problems} />
-          </Callout>
-        )}
+        <FlowInputFields preview={preview} values={values} onChange={setValues} />
+        <FlowApproval flow={flow} summary={preview?.summary} error={error} />
       </div>
     </Dialog>
   )

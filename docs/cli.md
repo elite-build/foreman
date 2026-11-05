@@ -4808,10 +4808,10 @@ Prints each schedule’s id, template, repository, cadence, and its next run, pa
 Show what a schedule would approve and when it would run, without saving
 
 Usage:
-  foreman schedules preview <template> --every cadence --at HH:MM [--repo r] [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n]
+  foreman schedules preview <template> | --flow <flow> [--input key=value]... --every cadence --at HH:MM [--repo r] [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n]
 
 Arguments:
-  <template>                A template’s slug, name or id; it must have no {{placeholders}}
+  <template>                A template’s slug, name or id; it must have no {{placeholders}}. Leave it out with --flow (optional)
 
 Options:
   -r, --repo <name|path>    The repository each run works in (default: the one you’re in)
@@ -4822,8 +4822,10 @@ Options:
       --tz <zone>           An IANA zone, like Europe/London (default: this computer’s)
       --start <YYYY-MM-DD>  The first date it may run, in the zone (default: today there)
       --base <branch>       The branch each run starts from (default: the repository’s base branch)
-      --model <id>          A Claude model id (default: a Sonnet from the picker)
-      --max-minutes <n>     Stop a run after n minutes, 5 to 480 (default: 30)
+      --model <id>          A Claude model id (not with --flow: a flow’s steps say their own) (default: a Sonnet from the picker)
+      --max-minutes <n>     Stop a run after n minutes, 5 to 480 (a flow’s run is bounded by its loops instead) (default: 30)
+      --flow <flow>         Schedule this flow instead of a template (Flows on): its name, id or file name from `foreman flow list`
+      --input <key=value>   With --flow, a value for one of the flow’s inputs; once per input, and every input it asks for (repeatable)
 
 Common options:
       --json                Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -4844,6 +4846,13 @@ skipped, never replayed; two failed runs in a row pause the schedule.
 A scheduled run can't ask for values, so the template must have no {{placeholders}}: `foreman templates edit` writes
 them out. `schedules add` takes no values for that reason.
 
+With Flows on (Settings → Experimental → Flows), --flow <flow> schedules a flow instead of a template: each run starts it
+from the base branch as `foreman flow run` does, and saving approves what a run of it approves (the flow file and its
+revision, its templates and personas, the commands its script steps run, the setup, checks and MCP servers), so a change
+to any of them pauses the schedule. Give every input it asks for with --input key=value. Its turn steps must be on
+Claude, as every scheduled run is, else it is refused; it takes no --model, and its loop bounds stand in for
+--max-minutes. A gate or a pick waits for you, and the schedule's next run is skipped while one is going.
+
 What add, edit and approve print before they save anything (the fingerprint block):
 
   Schedule “nightly-triage” (template revision 3fa91c2)
@@ -4860,13 +4869,13 @@ What add, edit and approve print before they save anything (the fingerprint bloc
 ### foreman schedules add
 
 ```text
-Schedule a template to start a workspace
+Schedule a template (or a flow) to start a workspace
 
 Usage:
-  foreman schedules add <template> --repo r --every cadence --at HH:MM [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]
+  foreman schedules add <template> | --flow <flow> [--input key=value]... --repo r --every cadence --at HH:MM [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]
 
 Arguments:
-  <template>                A template’s slug, name or id; it must have no {{placeholders}}
+  <template>                A template’s slug, name or id; it must have no {{placeholders}}. Leave it out with --flow (optional)
 
 Options:
   -r, --repo <name|path>    The repository each run works in (default: the one you’re in)
@@ -4877,8 +4886,10 @@ Options:
       --tz <zone>           An IANA zone, like Europe/London (default: this computer’s)
       --start <YYYY-MM-DD>  The first date it may run, in the zone (default: today there)
       --base <branch>       The branch each run starts from (default: the repository’s base branch)
-      --model <id>          A Claude model id (default: a Sonnet from the picker)
-      --max-minutes <n>     Stop a run after n minutes, 5 to 480 (default: 30)
+      --model <id>          A Claude model id (not with --flow: a flow’s steps say their own) (default: a Sonnet from the picker)
+      --max-minutes <n>     Stop a run after n minutes, 5 to 480 (a flow’s run is bounded by its loops instead) (default: 30)
+      --flow <flow>         Schedule this flow instead of a template (Flows on): its name, id or file name from `foreman flow list`
+      --input <key=value>   With --flow, a value for one of the flow’s inputs; once per input, and every input it asks for (repeatable)
 
 Common options:
       --json                Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -4888,6 +4899,7 @@ Common options:
 
 Examples:
   foreman schedules add nightly-triage --repo api --every daily --at 09:00 --tz Europe/London
+  foreman schedules add --flow fix-until-green --input task="Fix the flaky tests" --repo api --every weekly --on mon --at 07:00
   foreman schedules add weekly-deps --repo api --every weekly --on mon,thu --at 08:30 --yes
   foreman schedules add release-notes --repo api --every monthly --day-of-month 1 --at 10:00
 
@@ -4905,6 +4917,13 @@ skipped, never replayed; two failed runs in a row pause the schedule.
 
 A scheduled run can't ask for values, so the template must have no {{placeholders}}: `foreman templates edit` writes
 them out. `schedules add` takes no values for that reason.
+
+With Flows on (Settings → Experimental → Flows), --flow <flow> schedules a flow instead of a template: each run starts it
+from the base branch as `foreman flow run` does, and saving approves what a run of it approves (the flow file and its
+revision, its templates and personas, the commands its script steps run, the setup, checks and MCP servers), so a change
+to any of them pauses the schedule. Give every input it asks for with --input key=value. Its turn steps must be on
+Claude, as every scheduled run is, else it is refused; it takes no --model, and its loop bounds stand in for
+--max-minutes. A gate or a pick waits for you, and the schedule's next run is skipped while one is going.
 
 What add, edit and approve print before they save anything (the fingerprint block):
 
@@ -4925,7 +4944,7 @@ What add, edit and approve print before they save anything (the fingerprint bloc
 Change a schedule
 
 Usage:
-  foreman schedules edit <id> [--template t] [--repo r] [--every cadence] [--on days] [--day-of-month n] [--at HH:MM] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]
+  foreman schedules edit <id> [--template t | --flow f] [--input key=value]... [--repo r] [--every cadence] [--on days] [--day-of-month n] [--at HH:MM] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]
 
 Arguments:
   <id>                      A schedule’s id (four characters or more) or its template’s name
@@ -4940,8 +4959,10 @@ Options:
       --tz <zone>           An IANA zone, like Europe/London (default: this computer’s)
       --start <YYYY-MM-DD>  The first date it may run, in the zone (default: today there)
       --base <branch>       The branch each run starts from (default: the repository’s base branch)
-      --model <id>          A Claude model id (default: a Sonnet from the picker)
-      --max-minutes <n>     Stop a run after n minutes, 5 to 480 (default: 30)
+      --model <id>          A Claude model id (not with --flow: a flow’s steps say their own) (default: a Sonnet from the picker)
+      --max-minutes <n>     Stop a run after n minutes, 5 to 480 (a flow’s run is bounded by its loops instead) (default: 30)
+      --flow <flow>         Schedule this flow instead of a template (Flows on): its name, id or file name from `foreman flow list`
+      --input <key=value>   With --flow, a value for one of the flow’s inputs; once per input, and every input it asks for (repeatable)
 
 Common options:
       --json                Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -4967,6 +4988,13 @@ skipped, never replayed; two failed runs in a row pause the schedule.
 
 A scheduled run can't ask for values, so the template must have no {{placeholders}}: `foreman templates edit` writes
 them out. `schedules add` takes no values for that reason.
+
+With Flows on (Settings → Experimental → Flows), --flow <flow> schedules a flow instead of a template: each run starts it
+from the base branch as `foreman flow run` does, and saving approves what a run of it approves (the flow file and its
+revision, its templates and personas, the commands its script steps run, the setup, checks and MCP servers), so a change
+to any of them pauses the schedule. Give every input it asks for with --input key=value. Its turn steps must be on
+Claude, as every scheduled run is, else it is refused; it takes no --model, and its loop bounds stand in for
+--max-minutes. A gate or a pick waits for you, and the schedule's next run is skipped while one is going.
 
 What add, edit and approve print before they save anything (the fingerprint block):
 
@@ -5199,16 +5227,17 @@ that renders Mermaid. Flows are experimental: every flow command answers “Flow
 ### foreman flow add
 
 ```text
-Save a personal flow from a TOML file
+Save a personal flow from a TOML file (or its text)
 
 Usage:
-  foreman flow add <file.toml> [--name <name>]
+  foreman flow add <file.toml> | --toml <text> [--name <name>]
 
 Arguments:
-  <file>             The flow’s TOML file, relative to where you are
+  <file>             The flow’s TOML file, relative to where you are. Leave it out with --toml (optional)
 
 Options:
       --name <name>  Save it under this name instead of the file’s (default: the file’s name = …)
+      --toml <text>  The flow’s TOML itself instead of a file (how the assistant’s Run card carries a flow it drafted)
 
 Common options:
       --json         Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -5219,13 +5248,17 @@ Common options:
 Examples:
   foreman flow add flows/triage.toml
   foreman flow add fix-until-green.toml --name "Fix until green (mine)"
+  foreman flow add --toml "$(cat flows/triage.toml)"
 
 Exit codes:
   1  The flow has problems; they are listed and nothing is saved
   Every code: foreman help exit-codes
 
 The file is checked as the flow editor checks it: a file with problems is not saved, and the problems are listed
-(exit 1). Personal flows are kept in Foreman's state, not in a repository. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+(exit 1). Personal flows are kept in Foreman's state, not in a repository.
+
+--toml takes the document as one argument instead of a file. The assistant drafts a flow that way: its Run card shows
+the whole command, so you read the flow before you click Run, and nothing is saved until you do. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman flow remove
@@ -5309,7 +5342,9 @@ waiting: answer with `foreman approve <id> --continue`, `--send-back --note "…
 in the app). It exits 0 when the run completed and 1 when it failed, was stopped or needs you, with a line saying which.
 
 From inside an agent turn, flow run needs the repository's "Let agents start workspaces and queue messages", as
-`foreman run` does; an agent can never answer a gate. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+`foreman run` does; an agent can never answer a gate. A workspace agent starts a flow with the start_flow tool instead
+(not through run_foreman); the assistant may propose flow run on its Run card, which runs only when you click Run.
+Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman flow runs
@@ -5496,22 +5531,26 @@ the document. Flows are experimental: every flow command answers “Flows are of
 ### foreman persona add
 
 ```text
-Save a personal persona from a markdown file
+Save a personal persona from a markdown file (or its text)
 
 Usage:
-  foreman persona add <file.md>
+  foreman persona add <file.md> | --markdown <text>
 
 Arguments:
-  <file>       The persona’s markdown file, with its settings between two --- lines, relative to where you are
+  <file>                 The persona’s markdown file, with its settings between two --- lines, relative to where you are. Leave it out with --markdown (optional)
+
+Options:
+      --markdown <text>  The persona’s markdown itself instead of a file (how the assistant’s Run card carries a persona it drafted)
 
 Common options:
-      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
-  -q, --quiet  Hide progress lines and notes
-  -y, --yes    Answer yes to confirmations
-  -h, --help   Show this command’s help
+      --json             Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet            Hide progress lines and notes
+  -y, --yes              Answer yes to confirmations
+  -h, --help             Show this command’s help
 
 Examples:
   foreman persona add personas/qa-engineer.md
+  foreman persona add --markdown="$(cat personas/qa-engineer.md)"
 
 Exit codes:
   1  The persona has problems, or you already have one of that name; they are listed and nothing is saved
@@ -5519,7 +5558,11 @@ Exit codes:
 
 The file is checked as the persona editor checks it: name, then any of loadout, agent, model, read_only,
 shows, ends_with and mcp, with the instructions beneath. A personal persona is used in place of a repository or built-in
-one of the same name, and changing one changes the approval of every flow that uses it. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+one of the same name, and changing one changes the approval of every flow that uses it.
+
+--markdown takes the document as one argument instead of a file, as the assistant's Run card carries a persona it
+drafted: the card shows the whole command, and nothing is saved until you click Run. The document starts with ---, so
+give it as --markdown=<text>. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman persona remove

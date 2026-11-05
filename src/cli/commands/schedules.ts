@@ -1,10 +1,12 @@
 // `foreman schedules …`: Automations → Schedules. Saving or approving a schedule approves what it will run (the template,
 // the repository's setup, checks and MCP servers), so add, edit and approve ask the app for the fingerprint block first,
 // print it, ask, and send it back as `shown`: the app refuses when it no longer matches, as the Schedule dialog does.
+// `--flow <name>` schedules a flow instead of a template, with `--input key=value` for each of its inputs.
 import type { SchedulesApproveResult, SchedulesSaveResult } from '../../shared/cli/schedules'
 import { usageError } from '../client'
 import type { Context, Run } from '../command'
 import { commaList, declinedNote, noMoreWords, optionalWord, previewAndAsk, printText, str, wholeOption } from './automationKit'
+import { inputsOf } from './flows'
 
 const RECURRENCES = ['once', 'hourly', 'daily', 'weekly', 'monthly']
 
@@ -28,8 +30,29 @@ function scheduleParams(ctx: Context): Record<string, unknown> {
     start: str(opts.start),
     base: str(opts.base),
     model: str(opts.model),
-    maxMinutes: wholeOption(opts['max-minutes'], '--max-minutes')
+    maxMinutes: wholeOption(opts['max-minutes'], '--max-minutes'),
+    ...flowParams(ctx)
   }
+}
+
+/** `--flow` and its `--input key=value` values, when given. */
+function flowParams(ctx: Context): { flow?: string; inputs?: Record<string, string> } {
+  const flow = str(ctx.opts.flow)
+  const inputs = ctx.opts.input === undefined ? undefined : inputsOf(ctx.opts.input)
+  if (flow !== undefined && !flow.trim()) throw usageError('--flow names a flow. `foreman flow list` lists them.')
+  return { ...(flow !== undefined ? { flow } : {}), ...(inputs ? { inputs } : {}) }
+}
+
+/** The template named as the first word, or none when --flow names a flow instead (not both). */
+function templateWord(ctx: Context, usage: string): string | undefined {
+  const [template] = ctx.args
+  if (ctx.opts.flow !== undefined) {
+    if (template !== undefined) throw usageError('A schedule runs a template or a flow: give the template’s name or --flow, not both.', usage)
+    return undefined
+  }
+  if (!template) throw usageError('Name the template to schedule, or a flow with --flow. `foreman templates` and `foreman flow list` list them.')
+  if (ctx.opts.input !== undefined) throw usageError('--input goes with --flow: a scheduled template has no values to fill in.')
+  return template
 }
 
 /** The paragraph the app adds for its own callers ("Nothing is saved yet…"): the question that follows says it. */
@@ -42,8 +65,8 @@ const list: Run = async (ctx) => {
 
 const preview: Run = async (ctx) => {
   noMoreWords(ctx, 1, 'foreman schedules preview <template> [options]')
-  if (!ctx.args[0]) throw usageError('Name the template to schedule. `foreman templates` lists them.')
-  printText(ctx, await ctx.send<{ text: string }>('schedules-preview', { template: ctx.args[0], ...scheduleParams(ctx) }))
+  const template = templateWord(ctx, 'foreman schedules preview <template> | --flow <flow> [options]')
+  printText(ctx, await ctx.send<{ text: string }>('schedules-preview', { ...(template !== undefined ? { template } : {}), ...scheduleParams(ctx) }))
 }
 
 /** add and edit: the app's answer to a request without `shown` is the preview; with the preview's fingerprint it saves. */
@@ -55,8 +78,13 @@ async function saveAfterPreview(ctx: Context, method: 'schedules-add' | 'schedul
 }
 
 const add: Run = async (ctx) => {
-  const [template, ...values] = ctx.args
-  if (!template) throw usageError('Name the template to schedule. `foreman templates` lists them.')
+  if (ctx.opts.flow !== undefined) {
+    templateWord(ctx, 'foreman schedules add --flow <flow> [--input key=value]... [options]')
+    noMoreWords(ctx, 0, 'foreman schedules add --flow <flow> [--input key=value]... [options]')
+    return saveAfterPreview(ctx, 'schedules-add', scheduleParams(ctx), 'Save')
+  }
+  const [, ...values] = ctx.args
+  const template = templateWord(ctx, 'foreman schedules add <template> [options]')!
   const params = { template, ...scheduleParams(ctx) }
   if (values.length) {
     // A scheduled run can't ask for values. The app names the template's placeholders when it has any (this throws that
@@ -73,6 +101,7 @@ const edit: Run = async (ctx) => {
   if (!id) throw usageError('Name a schedule. `foreman schedules` lists them.')
   const { cwd, ...cadence } = scheduleParams(ctx)
   const template = str(ctx.opts.template)
+  if (template !== undefined && ctx.opts.flow !== undefined) throw usageError('A schedule runs a template or a flow: give --template or --flow, not both.')
   const params = { id, cwd, template, ...cadence }
   if (template === undefined && Object.values(cadence).every((v) => v === undefined)) throw usageError('Nothing to change: give an option such as --at, --every or --on.', 'foreman help schedules edit lists them.')
   await saveAfterPreview(ctx, 'schedules-edit', params, 'Save')

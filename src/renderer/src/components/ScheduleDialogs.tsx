@@ -1,15 +1,17 @@
 // Schedule… on a template: when it runs, on what, and what a run is allowed to do. Saving is the
-// approval. Also the Home card that lists running and upcoming schedules.
+// approval. With Flows on, a schedule may start a flow instead (its picker, inputs and approval card, as Run… shows
+// them). Also the Home card that lists running and upcoming schedules.
 import { useId, useMemo, useState } from 'react'
 import { modelsFor } from '../../../shared/agents'
 import { pickerModels, type HiddenModels } from '../../../shared/modelVisibility'
 import type { Locale, PlainKey, TFunction } from '../../../shared/i18n'
-import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, MAX_DURATION_CHOICES, nextRuns, parseDate, previewRuns, specProblem, weekdayShort, weekdaysText } from '../../../shared/schedule'
+import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, MAX_DURATION_CHOICES, nextRuns, parseDate, previewRuns, scheduleName, specProblem, weekdayShort, weekdaysText } from '../../../shared/schedule'
 import { t as storeT, useT } from '../i18n'
 import { api, attempt, openScheduleDialog, selectWorkspace, timeAgo, uiLocale, useStore } from '../store'
 import type { AfterRun, Occurrence, Schedule } from '../../../shared/types'
-import { Button, Callout, Checkbox, ChipButton, Dialog, Field, LinkButton, RadioList, Select, Tag, TextInput } from '../ui'
+import { Button, Callout, Checkbox, ChipButton, Dialog, Field, LinkButton, RadioList, Segmented, Select, Tag, TextInput } from '../ui'
 import { LimitResumeRows, useLimitResumes } from './LimitResume'
+import { FlowApproval, FlowInputFields, FlowPicker, flowStartReady, flowTitle, useFlowPreview, useRunnableFlows } from './automations/FlowStartFields'
 
 const NO_HIDDEN: HiddenModels = {}
 
@@ -56,10 +58,19 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
   const templateId = existing?.templateId ?? ('templateId' in props ? props.templateId : '')
   const template =
     snapshot.settings.promptTemplates.find((t) => t.id === templateId) ?? Object.values(snapshot.repoTemplates).flat().find((t) => t.id === templateId)
-  const fixedRepo = template?.source === 'repo' ? template.repoId : undefined
+  // What it runs: the template, or (with Flows on) a flow with its inputs.
+  const flowsOn = Boolean(snapshot.settings.flows)
+  const [target, setTarget] = useState<'template' | 'flow'>(existing?.flow ? 'flow' : 'template')
+  const runsFlow = flowsOn && target === 'flow'
+  const fixedRepo = !runsFlow && template?.source === 'repo' ? template.repoId : undefined
   const [repoId, setRepoId] = useState(existing?.repoId ?? fixedRepo ?? snapshot.repos[0]?.id ?? '')
   const repo = snapshot.repos.find((r) => r.id === repoId)
   const [base, setBase] = useState(existing?.baseBranch ?? repo?.defaultBranch ?? 'main')
+  const flows = useRunnableFlows(repoId, runsFlow)
+  const [flowId, setFlowId] = useState<string | undefined>(existing?.flow?.flowId)
+  const [flowValues, setFlowValues] = useState<Record<string, string>>(existing?.flow?.inputs ?? {})
+  const chosenFlow = runsFlow ? flows?.find((f) => f.id === flowId) : undefined
+  const { preview: flowPreview, error: flowError } = useFlowPreview(chosenFlow?.id, repoId, base)
   const [timezone, setTimezone] = useState(existing?.timezone ?? localZone())
   const [startDate, setStartDate] = useState(existing?.state === 'finished' ? tomorrowInZone(timezone) : existing?.startDate ?? tomorrowInZone(timezone))
   const [recurrence, setRecurrence] = useState<Schedule['recurrence']>(existing?.recurrence ?? 'once')
@@ -95,26 +106,28 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
     weekly: 'scheduleDialog.hint.weekly',
     monthly: 'scheduleDialog.hint.monthly'
   } as const satisfies Record<Schedule['recurrence'], PlainKey>)[recurrence])
-  const placeholders = template ? /\{\{[^}]+\}\}/.test(template.body) : false
-  if (!template) return null
+  const placeholders = !runsFlow && template ? /\{\{[^}]+\}\}/.test(template.body) : false
+  if (!template && !runsFlow) return null
 
   const changed = existing?.pausedKind === 'changed' || existing?.pausedKind === 'failures'
-  const ready = !problem && !placeholders && Boolean(repo) && Boolean(model) && Boolean(base.trim()) && !busy
+  const ready = !problem && Boolean(repo) && Boolean(base.trim()) && !busy && (runsFlow ? Boolean(chosenFlow) && flowStartReady(flowPreview, flowValues) : !placeholders && Boolean(model))
   const save = async () => {
     setBusy(true)
     const done = await attempt(async () => {
-      await api.saveSchedule({ templateId, templateName: template.name, repoId, baseBranch: base, recurrence, startDate, weekdays, dayOfMonth, time, timezone, agent: 'claude', model, maxMinutes, afterRun, afterRunDeleteBranch: afterRun !== 'keep' && afterRunDeleteBranch }, existing?.id)
+      const what = runsFlow && chosenFlow ? { flow: { flowId: chosenFlow.id, flowSource: chosenFlow.source, flowName: chosenFlow.name, inputs: flowValues } } : { templateId, templateName: template!.name }
+      await api.saveSchedule({ ...what, repoId, baseBranch: base, recurrence, startDate, weekdays, dayOfMonth, time, timezone, agent: 'claude', model: runsFlow ? '' : model, maxMinutes, afterRun, afterRunDeleteBranch: afterRun !== 'keep' && afterRunDeleteBranch }, existing?.id)
       return true
     })
     setBusy(false)
     if (done) close()
   }
+  const name = runsFlow ? (chosenFlow ? flowTitle(chosenFlow, t) : existing?.flow?.flowName ?? t('newWorkspace.startWith.flow')) : template!.name
 
   const codex = pickerModels(modelsFor('codex'), hidden).shown
   const weekdayLabel = `${uid}-weekdays`
   return (
     <Dialog
-      title={t('scheduleDialog.title', { name: template.name })}
+      title={t('scheduleDialog.title', { name })}
       onClose={close}
       size="lg"
       className="dlg schedule-modal"
@@ -147,6 +160,17 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
         <Callout tone="error" role="alert">
           {t('scheduleDialog.placeholders', { placeholders: '{{placeholders}}' })}
         </Callout>
+      )}
+      {flowsOn && (
+        <Segmented
+          label={t('scheduleDialog.target')}
+          value={runsFlow ? 'flow' : 'template'}
+          options={[
+            { value: 'template', label: t('scheduleDialog.target.template'), disabled: !template },
+            { value: 'flow', label: t('scheduleDialog.target.flow') }
+          ]}
+          onChange={setTarget}
+        />
       )}
       <div className="schedule-row">
         <Field label={t('scheduleDialog.starts')}>{(control) => <TextInput {...control} type="date" width={165} value={startDate} onChange={(e) => changeStartDate(e.target.value)} />}</Field>
@@ -216,6 +240,7 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
             </span>
           )}
         </Field>
+        {!runsFlow && (
         <Field label={t('scheduleDialog.model')} className="schedule-grow">
           {(control) => (
             <Select
@@ -230,6 +255,8 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
             />
           )}
         </Field>
+        )}
+        {!runsFlow && (
         <Field label={t('scheduleDialog.maxDuration')}>
           {(control) => (
             <Select
@@ -242,7 +269,36 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
             />
           )}
         </Field>
+        )}
       </div>
+      {runsFlow && (
+        <div className="schedule-flow">
+          {flows === null ? null : flows.length === 0 ? (
+            <Callout tone="info" role="status">
+              {t('newWorkspace.flow.none')}
+            </Callout>
+          ) : (
+            <FlowPicker
+              legend={t('newWorkspace.flow.label')}
+              flows={flows}
+              value={flowId}
+              onChange={(id) => {
+                setFlowId(id)
+                setFlowValues({})
+              }}
+            />
+          )}
+          {chosenFlow && (
+            <>
+              <FlowInputFields preview={flowPreview} values={flowValues} onChange={setFlowValues} />
+              <FlowApproval flow={chosenFlow} summary={flowPreview?.summary} error={flowError} />
+              <Callout tone="info" role="note">
+                {t('scheduleDialog.flow.limits')}
+              </Callout>
+            </>
+          )}
+        </div>
+      )}
       <div className="schedule-after">
         <RadioList<AfterRun>
           legend={t('scheduleDialog.afterRun')}
@@ -301,7 +357,7 @@ export function cadenceText(s: Schedule, t: TFunction = storeT, locale: Locale =
 /** Home's Scheduled card: what is running, what is next, and what is paused and why. */
 export function ScheduledCard({ repoId }: { repoId?: string }) {
   const t = useT()
-  const { schedules, occurrences, workspaces, repos } = useStore((s) => s.snapshot!)
+  const { schedules, occurrences, workspaces, repos, flowRuns } = useStore((s) => s.snapshot!)
   const repoNames = useMemo(() => new Map(repos.map((r) => [r.id, r.name])), [repos])
   const mine = schedules.filter((s) => !repoId || s.repoId === repoId)
   // #11: armed usage-limit resumes are listed here too, first.
@@ -319,7 +375,9 @@ export function ScheduledCard({ repoId }: { repoId?: string }) {
         const attention = attentionFor(s, occurrences)
         const last = [...occurrences].reverse().find((o) => o.scheduleId === s.id)
         const ageOccurrence = attention ?? (s.state === 'finished' ? last : undefined)
-        const ws = workspaces.find((w) => w.id === (run ?? attention)?.workspaceId)
+        // A flow schedule's run makes its workspace as its first step does: the run says which.
+        const runWs = run?.flowRunId ? flowRuns?.find((r) => r.id === run.flowRunId)?.workspaceId : undefined
+        const ws = workspaces.find((w) => w.id === (runWs ?? (run ?? attention)?.workspaceId))
         const nextAt = s.nextRunAt ? Date.parse(s.nextRunAt) : undefined
         const next = nextAt === undefined ? s.state === 'finished' ? t('scheduledCard.finished') : t('scheduledCard.paused') : nextPill(nextAt, s.timezone, t.locale)
         const lastLabel = STATE_LABEL[last?.state ?? 'completed']
@@ -337,7 +395,8 @@ export function ScheduledCard({ repoId }: { repoId?: string }) {
             </Tag>
             <div className="home-row-main">
               <div className="home-row-title">
-                <span className="home-row-name">{s.templateName}</span>
+                <span className="home-row-name">{scheduleName(s)}</span>
+                {s.flow && <Tag>{t('scheduledCard.flow')}</Tag>}
                 {ws && <span className="home-row-branch">{ws.name}</span>}
               </div>
               <div className="home-row-sub">

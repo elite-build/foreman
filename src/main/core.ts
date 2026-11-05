@@ -38,7 +38,7 @@ import { readRepoTemplates, revalidateRepoTemplates } from './repoTemplates'
 import { listFlows, personalFlowListing, personaRef } from './flowFiles'
 import { listPersonas, personalPersonaListing } from './personaFiles'
 import { findPersona, MAX_PERSONA_BYTES, MAX_PERSONAL_PERSONAS, parsePersona, type Persona, type PersonaList, type PersonaListing, type TurnPersona } from '../shared/personas'
-import { MAX_FLOW_BYTES, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunPreview, type FlowRunStart } from '../shared/flows'
+import { isActiveRun, MAX_FLOW_BYTES, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunOrigin, type FlowRunPreview, type FlowRunStart, type FlowRunSummary } from '../shared/flows'
 import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
 import { DEFAULT_CHECK_TIMEOUT_MS, isFailure } from '../shared/checks'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
@@ -110,7 +110,7 @@ import type { MobileService } from './mobile'
 import { TransferService, type TransferLocal } from './transfers'
 import { frozenReason, type DevicesInfo, type PairedDevice } from '../shared/transfer'
 import { repoReasons } from '../shared/portable'
-import { assertFingerprintShown, fingerprintOf, scheduleProblem, ScheduleService, type FingerprintInputs, type LaunchHandle, type ScheduleInput } from './schedules'
+import { assertFingerprintShown, fingerprintOf, flowFingerprintFrom, scheduleProblem, ScheduleService, type FingerprintInputs, type LaunchHandle, type ScheduleInput } from './schedules'
 import { readSharedLayer, resolveRepoSettings, revalidateSharedLayers } from './repoSettings'
 import { templatePlaceholders } from '../shared/promptTemplates'
 import { SessionService } from './sessions'
@@ -630,7 +630,8 @@ export class Core {
       actions: this.foremanActions,
       session: (id) => store.state.sessions.find((s) => s.id === id),
       launch: () => host.bridgeLaunch?.() ?? null,
-      socket: () => host.cliSocket?.() ?? null
+      socket: () => host.cliSocket?.() ?? null,
+      flowsOn: () => Boolean(store.state.settings.flows)
     })
     this.sessions.foremanMcp = this.foremanMcp
     this.assistant.foremanActions = this.foremanActions
@@ -667,7 +668,9 @@ export class Core {
       inputs: (schedule) => this.scheduleInputs(schedule),
       launch: (schedule, occurrence, handle) => this.launchScheduled(schedule, occurrence, handle),
       stop: async (occurrence) => {
-        if (occurrence.sessionId) await this.sessions.cancel(occurrence.sessionId)
+        // A flow schedule's run: Stop on the run (its occurrence then ends with it).
+        if (occurrence.flowRunId) await this.flows.stopRun(occurrence.flowRunId)
+        else if (occurrence.sessionId) await this.sessions.cancel(occurrence.sessionId)
       },
       turnStart: (occurrence) => {
         const session = occurrence.sessionId ? this.store.state.sessions.find((s) => s.id === occurrence.sessionId) : undefined
@@ -744,6 +747,8 @@ export class Core {
         return session?.turnId ? session.turnStartedAt : undefined
       },
       paused: () => Boolean(this.stopSafely?.isDraining),
+      // A schedule's occurrence ends with the flow run it started.
+      ended: (run) => this.schedules.flowRunEnded(run),
       changed
     })
     this.data = new DataService(store, undefined, this.claudeMirror)
@@ -1531,10 +1536,16 @@ export class Core {
 
   // ---- scheduled templates (R-5) ----
 
-  /** What a schedule's fingerprint covers, as it stands now. */
-  private scheduleInputs(schedule: { templateId: string; templateName: string; repoId: string }): FingerprintInputs | { error: string } {
+  /** What a schedule's fingerprint covers, as it stands now: a flow schedule's is its flow run's approval. */
+  private scheduleInputs(schedule: Pick<Schedule, 'templateId' | 'templateName' | 'flow' | 'repoId'>): FingerprintInputs | { error: string } {
     const repo = this.store.state.repos.find((r) => r.id === schedule.repoId)
     if (!repo) return { error: 'the repository was removed' }
+    if (schedule.flow) {
+      if (!this.store.state.settings.flows) return { error: 'Flows are off; turn them on in Settings → Experimental' }
+      const prepared = this.prepareFlow(schedule.flow.flowId, repo.id)
+      if ('error' in prepared) return { error: `the flow “${schedule.flow.flowName}”: ${prepared.error.replace(/\.$/, '')}` }
+      return { templateBody: '', ...this.repoApprovalParts(repo), flow: prepared.fingerprint }
+    }
     const template = this.workspaces.template(schedule.templateId)
     if (!template) return { error: `the template “${schedule.templateName}” no longer exists` }
     return { templateBody: template.body, templateRev: template.rev, ...this.repoApprovalParts(repo) }
@@ -1675,8 +1686,31 @@ export class Core {
     return inputs
   }
 
-  /** The template and the fingerprint inputs a schedule request would be approved on, or the error saving it gives. */
-  private checkedScheduleInputs(input: ScheduleInput): { template: PromptTemplate; inputs: FingerprintInputs } {
+  /**
+   * A flow schedule's flow as it would run unattended: Flows on, the flow there, every step it can carry out on Claude
+   * (with the design's wording when not), and a value for every input, since a scheduled run can't ask.
+   */
+  private checkedScheduleFlow(input: ScheduleInput): PreparedFlow {
+    this.flowsOn()
+    const flow = input.flow!
+    this.workspaces.repo(input.repoId)
+    const prepared = this.prepareFlow(flow.flowId, input.repoId)
+    if ('error' in prepared) throw new Error(prepared.error)
+    const { problems } = flowRunProblems(prepared, this.store.state.settings.loadouts)
+    if (problems.length) throw new Error(problems.join(' '))
+    const missing = flowRunInputs(prepared).filter((i) => !flow.inputs[i.name]?.trim()).map((i) => `“${i.name}”`)
+    if (missing.length) throw new Error(`A scheduled run can’t ask for values, so fill in ${missing.join(', ')} first.`)
+    return prepared
+  }
+
+  /** The template (or flow) and the fingerprint inputs a schedule request would be approved on, or the error saving it gives. */
+  private checkedScheduleInputs(input: ScheduleInput): { template?: PromptTemplate; prepared?: PreparedFlow; inputs: FingerprintInputs } {
+    if (input.flow) {
+      const prepared = this.checkedScheduleFlow(input)
+      const inputs = this.scheduleInputs({ ...input })
+      if ('error' in inputs) throw new Error(inputs.error)
+      return { prepared, inputs }
+    }
     const template = this.workspaces.template(input.templateId)
     if (!template) throw new Error('That template no longer exists.')
     if (templatePlaceholders(template.body).length) throw new Error('This template has {{placeholders}} to fill in each time. A scheduled run can’t ask, so write them out first.')
@@ -1689,10 +1723,14 @@ export class Core {
 
   /** Schedule… → Approve schedule. Saving is the approval of the template and repo as they are now (and, with `shown`, of exactly what the caller showed). */
   private saveSchedule(input: ScheduleInput, id?: string, shown?: ScheduleFingerprint): Schedule {
-    const { template, inputs } = this.checkedScheduleInputs(input)
+    const { template, prepared, inputs } = this.checkedScheduleInputs(input)
     assertFingerprintShown(shown, fingerprintOf(inputs))
-    if (id) return this.schedules.update(id, input, inputs)
-    const created = this.schedules.create({ ...input, templateName: template.name }, inputs)
+    // The flow's name and source as they are now; only the inputs the flow asks for are kept.
+    const target: ScheduleInput = prepared
+      ? { ...input, templateId: undefined, templateName: undefined, flow: { flowId: prepared.ref.id, flowSource: prepared.ref.source, flowName: prepared.flow.name, inputs: Object.fromEntries(flowRunInputs(prepared).map((i) => [i.name, input.flow!.inputs[i.name].trim()])) } }
+      : { ...input, flow: undefined, templateName: template!.name }
+    if (id) return this.schedules.update(id, target, inputs)
+    const created = this.schedules.create(target, inputs)
     // Get started: a schedule created.
     this.recordMilestone('automation')
     return created
@@ -1702,8 +1740,16 @@ export class Core {
   private scheduleFingerprintView(input: ScheduleInput): ScheduleFingerprintView {
     const problem = scheduleProblem(input)
     if (problem) throw new Error(problem)
-    const { template, inputs } = this.checkedScheduleInputs(input)
+    const { template, prepared, inputs } = this.checkedScheduleInputs(input)
     const repo = this.workspaces.repo(input.repoId)
+    if (prepared) {
+      const flow = this.flowRunSummary(prepared, repo, input.baseBranch)
+      return {
+        fingerprint: fingerprintOf(inputs),
+        summary: { flow, repoName: repo.name, baseBranch: flow.baseBranch, setupScript: flow.setupScript, checks: flow.checks, mcpServers: flow.mcpServers, integrations: flow.integrations }
+      }
+    }
+    if (!template) throw new Error('That template no longer exists.')
     return {
       fingerprint: fingerprintOf(inputs),
       summary: {
@@ -1770,20 +1816,23 @@ export class Core {
     const repo = this.workspaces.repo(input?.repoId)
     const prepared = this.prepareFlow(input.flowId, repo.id)
     if ('error' in prepared) throw new Error(prepared.error)
+    return { fingerprint: prepared.fingerprint, summary: this.flowRunSummary(prepared, repo, input.baseBranch), inputs: flowRunInputs(prepared) }
+  }
+
+  /** A prepared flow's approval in parts, as the Run dialog, New workspace's Start with and a flow schedule show it. */
+  private flowRunSummary(prepared: PreparedFlow, repo: Repo, baseBranch: string): FlowRunSummary {
     const { flow } = prepared
     const parts = this.repoApprovalParts(repo)
     const { problems, unsupported, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
     const personas = Object.values(prepared.personas).flatMap((p) => (p ? [personaRef(p)] : []))
     return {
-      fingerprint: prepared.fingerprint,
-      summary: {
         flowName: flow.name,
         flowSource: prepared.ref.source,
         ...(prepared.ref.starter ? { starter: prepared.ref.starter } : {}),
         ...(prepared.ref.file ? { flowFile: prepared.ref.file } : {}),
         ...(prepared.ref.rev ? { flowRev: prepared.ref.rev } : {}),
         repoName: repo.name,
-        baseBranch: (input.baseBranch ?? '').trim(),
+        baseBranch: (baseBranch ?? '').trim(),
         steps: flow.steps.length,
         loops: flow.loops.length,
         gates: flow.steps.filter((s) => s.kind === 'gate').length,
@@ -1798,17 +1847,24 @@ export class Core {
         notClaude,
         ...(flow.loops.some((l) => l.at_most.cost !== undefined) ? { costBound: true } : {}),
         // The unsupported steps and non-Claude turns have their own lines in the dialog.
-        problems: problems.filter((p) => !(unsupported.length && p.startsWith('This version of Foreman')) && !(notClaude.length && p.startsWith('Unattended turns')))
-      },
-      inputs: flowRunInputs(prepared)
+        problems: problems.filter((p) => !(unsupported.length && p.startsWith('This version of Foreman')) && !(notClaude.length && p.startsWith('Unattended turns'))),
+        after: flow.after
     }
   }
 
   private startFlowRun(input: FlowRunStart): FlowRun {
+    return this.startFlowRunFrom(input)
+  }
+
+  /**
+   * Start a flow run; `origin` says who, when it wasn't someone at the window or a terminal (a workspace agent's
+   * start_flow, the assistant's Run card). The window's own calls carry none: their input's fields are taken one by one.
+   */
+  startFlowRunFrom(input: FlowRunStart, origin?: FlowRunOrigin): FlowRun {
     this.flowsOn()
     if (!input || typeof input !== 'object') throw new Error('Choose a flow to start.')
     this.workspaces.repo(input.repoId)
-    return this.flows.begin(input)
+    return this.flows.begin({ flowId: input.flowId, repoId: input.repoId, baseBranch: input.baseBranch, inputs: input.inputs, shown: input.shown, ...(origin ? { origin } : {}) })
   }
 
   /**
@@ -1816,10 +1872,14 @@ export class Core {
    * Resolves once the first turn has started.
    */
   private async launchFlowRun(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
+    // A run a workspace agent or the assistant started: its workspace records who (Workspace.startedBy).
+    const origin = run.origin
+    const startedBy: WorkspaceStartedBy | undefined =
+      origin?.kind === 'delegation' ? { sessionId: origin.sessionId, ...(origin.turnId ? { turnId: origin.turnId } : {}), via: 'delegation' } : origin?.kind === 'assistant' ? { sessionId: origin.threadId, via: 'assistant' } : undefined
     const ws = await this.createFromOptions(
       run.repoId,
       { prompt: first.text, baseBranch: run.baseBranch, branch: { kind: 'new' }, loadout: first.loadout },
-      { flowRun: { runId: run.id, step: first.step, ...(first.persona ? { persona: first.persona } : {}) }, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
+      { flowRun: { runId: run.id, step: first.step, ...(first.persona ? { persona: first.persona } : {}) }, ...(startedBy ? { startedBy } : {}), onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
     )
     const setup = await this.setupOutcome(ws.id)
     if (setup.failed || setup.held) throw new Error(`Setup failed, so the first message was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
@@ -1968,6 +2028,7 @@ export class Core {
    * Resolves once the first turn has started; its end comes back through the session events.
    */
   private async launchScheduled(schedule: Schedule, occurrence: Occurrence, handle: LaunchHandle): Promise<void> {
+    if (schedule.flow) return this.launchScheduledFlow(schedule, schedule.flow, occurrence, handle)
     const template = this.workspaces.template(schedule.templateId)
     if (!template) throw new Error(`The template “${schedule.templateName}” no longer exists.`)
     const ws = await this.createFromOptions(
@@ -1984,6 +2045,26 @@ export class Core {
     const setup = await this.setupOutcome(ws.id, schedule.maxMinutes * 60_000)
     if (setup.failed || setup.held) throw new Error(`Setup failed, so the prompt was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
     if (!(await this.firstTurn(ws.id))) throw new Error('The first turn did not start.')
+  }
+
+  /**
+   * A flow schedule's run: the flow started as its Run dialog starts it, from the schedule's base branch with its inputs,
+   * on exactly what the schedule was approved on (the run is refused, and the occurrence fails, when that changed). The
+   * run says it came from this occurrence; the occurrence follows the run to its end.
+   */
+  private async launchScheduledFlow(schedule: Schedule, flow: NonNullable<Schedule['flow']>, occurrence: Occurrence, handle: LaunchHandle): Promise<void> {
+    this.flowsOn()
+    const run = this.flows.begin({
+      flowId: flow.flowId,
+      repoId: schedule.repoId,
+      baseBranch: schedule.baseBranch,
+      inputs: flow.inputs,
+      shown: flowFingerprintFrom(schedule.approved),
+      origin: { kind: 'schedule', scheduleId: schedule.id, occurrenceId: occurrence.id }
+    })
+    handle.flowRun?.(run.id)
+    // A run that ended before its id was recorded (its first step refused at once) ends the occurrence now.
+    if (!isActiveRun(run)) this.schedules.flowRunEnded(run)
   }
 
   /** Wait for a new workspace's setup to settle. `held` is set when setup failed with a message held back. */

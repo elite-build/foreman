@@ -3,7 +3,7 @@
 // approval summary the Run dialog shows, and with the fingerprint sent back it starts exactly that: the service refuses
 // when it changed meanwhile. A gate is answered with `foreman approve <id> --continue | --send-back | --stop`, a pick with
 // `foreman approve <id> --pick <step>` (approvals.ts).
-import { flowSummary, isActiveRun, parseFlow, type Flow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview } from '../../shared/flows'
+import { flowSummary, isActiveRun, parseFlow, type Flow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview, type FlowRunSummary } from '../../shared/flows'
 import { flowGraph, flowMermaid, stepTrees } from '../../shared/flowGraph'
 import { formatCompact } from '../../shared/i18n/time'
 import { memoryLabel } from '../../shared/memoryPaths'
@@ -54,7 +54,7 @@ const flowSpec = {
   describe: (f: FlowListing) => `${f.name} (${f.source === 'repo' ? f.file : f.source}, id ${f.id})`
 }
 
-function findFlow(flows: FlowListing[], query: string): FlowListing {
+export function findFlow(flows: FlowListing[], query: string): FlowListing {
   return findByRef(flows, query, 'flow', flowSpec)
 }
 
@@ -424,9 +424,8 @@ export function personaRefText(ref: FlowPersonaRef): string {
   return `${ref.name} (${where}${ref.readOnly ? ', read-only' : ''})`
 }
 
-/** The approval the Run dialog shows, in lines. */
-function previewText(preview: FlowRunPreview, inputs: Record<string, string>): string {
-  const s = preview.summary
+/** The approval the Run dialog shows, in lines (a flow schedule's preview prints them too). */
+export function flowPreviewLines(s: FlowRunSummary, inputs: Record<string, string>): string[] {
   const where = s.flowSource === 'repo' ? `the repository file ${s.flowFile}${s.flowRev ? ` at ${s.flowRev.slice(0, 7)}` : ''}` : s.flowSource === 'built-in' ? 'built into Foreman' : `a personal flow${s.flowRev ? `, saved ${s.flowRev.slice(0, 10)}` : ''}`
   const setup = s.setupScript.trim() ? firstLine(s.setupScript, 100) + (s.setupScript.trim().includes('\n') ? ' …' : '') : '(none)'
   const lines = [
@@ -444,7 +443,11 @@ function previewText(preview: FlowRunPreview, inputs: Record<string, string>): s
     'Unattended turns are Claude only. Each turn step runs in auto mode, and any approval or question stops the run and leaves it for you. Gates and picks wait for your answer. The run works in a new workspace, and is refused if anything above changes before it starts.',
     ...(s.costBound ? ['A cost bound applies to Claude turns only: other agents don’t say what a turn cost.'] : [])
   ]
-  return lines.join('\n')
+  return lines
+}
+
+function previewText(preview: FlowRunPreview, inputs: Record<string, string>): string {
+  return flowPreviewLines(preview.summary, inputs).join('\n')
 }
 
 function fingerprintParam(raw: unknown): FlowFingerprint | undefined {

@@ -123,6 +123,17 @@ describe('prompt and guide', () => {
     expect(prompt).toContain('scripts.checks-after-turn')
   })
 
+  it('drafts flows and personas through the Run card and never runs one on its own', () => {
+    expect(prompt).toContain('Fable researches, Opus implements, Sonnet writes the PR text, and ask me before implementing')
+    expect(prompt).toContain('draft a flow and propose saving it, never run it on your own')
+    expect(prompt).toContain('`foreman flow add --toml "<the whole document>"` with run_foreman')
+    expect(prompt).toContain('`foreman persona add --markdown=<the document>`')
+    expect(prompt).toContain('"ask me before" is a `kind = "gate"` step')
+    expect(prompt).toContain('unattended turns are Claude only')
+    expect(prompt).toContain('show_setting with id flows')
+    expect(prompt).toContain('`foreman flow run <flow> --repo <name> --input task="…"`')
+  })
+
   it('names every group of `foreman help`', () => {
     const guide = prompt.toLowerCase()
     for (const label of Object.values(GROUP_LABELS)) expect(guide, label).toContain(label.toLowerCase())
@@ -214,6 +225,22 @@ describe('run_foreman', () => {
     expect(answer).toContain('copy it')
     expect(runItems(service.items(threadId))).toEqual([])
     expect(tools.cliHelp('ask foreman a question')).toContain('You may not run this one with run_foreman: it runs the assistant itself')
+  })
+
+  it('proposes saving a drafted flow or persona and starting a flow, each on a Run card that waits for the click', async () => {
+    const { service, state, threadId, tools } = await proposing()
+    const toml = 'name = "Research, implement, write up"\nmade_from = "assistant thread"\n\n[start]\nstep = "research"\n\n[steps.research]\nkind = "turn"\nprompt = "Research {{task}}"'
+    expect(tools.runForeman(['flow', 'add', '--toml', toml])).toBe(`Waiting for the user to click Run: ${commandLine(['flow', 'add', '--toml', toml])}`)
+    expect(tools.runForeman(['persona', 'add', '--markdown=---\nname: finder\nread_only: true\n---\nFind; don’t fix.'])).toMatch(/^Waiting for the user to click Run: foreman persona add/)
+    expect(tools.runForeman(['flow', 'run', 'research-implement', '--repo', 'api', '--input', 'task=the parser'])).toBe('Waiting for the user to click Run: foreman flow run research-implement --repo api --input "task=the parser"')
+    const cards = runItems(service.items(threadId)).map((i) => foremanRunOf(i))
+    expect(cards.map((c) => c?.state)).toEqual(['pending', 'pending', 'pending'])
+    // The whole document is on the card, so the user reads the flow before clicking Run.
+    expect(cards[0]?.command).toContain('[steps.research]')
+    expect(state).not.toHaveBeenCalled()
+    expect(tools.cliHelp('flow add')).toContain('pass the whole TOML as one argument with --toml')
+    expect(tools.cliHelp('flow run start')).toContain('starts only when the user clicks Run')
+    expect(tools.cliHelp('flow run start')).not.toContain('You may not run this one')
   })
 
   it('refuses a command the assistant may not run, with its reason', async () => {

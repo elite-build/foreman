@@ -392,8 +392,10 @@ const SCHEDULE_OPTIONS: Record<string, OptionSpec> = {
   tz: { type: 'string', value: '<zone>', help: 'An IANA zone, like Europe/London', default: 'this computer’s' },
   start: { type: 'string', value: '<YYYY-MM-DD>', help: 'The first date it may run, in the zone', default: 'today there' },
   base: { type: 'string', value: '<branch>', help: 'The branch each run starts from', default: 'the repository’s base branch' },
-  model: { type: 'string', value: '<id>', help: 'A Claude model id', default: 'a Sonnet from the picker' },
-  'max-minutes': { type: 'string', value: '<n>', help: 'Stop a run after n minutes, 5 to 480', default: '30' }
+  model: { type: 'string', value: '<id>', help: 'A Claude model id (not with --flow: a flow’s steps say their own)', default: 'a Sonnet from the picker' },
+  'max-minutes': { type: 'string', value: '<n>', help: 'Stop a run after n minutes, 5 to 480 (a flow’s run is bounded by its loops instead)', default: '30' },
+  flow: { type: 'string', value: '<flow>', help: 'Schedule this flow instead of a template (Flows on): its name, id or file name from `foreman flow list`' },
+  input: { type: 'string', multiple: true, value: '<key=value>', help: 'With --flow, a value for one of the flow’s inputs; once per input, and every input it asks for' }
 }
 
 /** What add, edit and approve print before they save anything; shown in the help so nobody has to guess. */
@@ -419,6 +421,13 @@ skipped, never replayed; two failed runs in a row pause the schedule.
 A scheduled run can't ask for values, so the template must have no {{placeholders}}: \`foreman templates edit\` writes
 them out. \`schedules add\` takes no values for that reason.
 
+With Flows on (Settings → Experimental → Flows), --flow <flow> schedules a flow instead of a template: each run starts it
+from the base branch as \`foreman flow run\` does, and saving approves what a run of it approves (the flow file and its
+revision, its templates and personas, the commands its script steps run, the setup, checks and MCP servers), so a change
+to any of them pauses the schedule. Give every input it asks for with --input key=value. Its turn steps must be on
+Claude, as every scheduled run is, else it is refused; it takes no --model, and its loop bounds stand in for
+--max-minutes. A gate or a pick waits for you, and the schedule's next run is skipped while one is going.
+
 ${FINGERPRINT_SAMPLE}`
 
 export const SCHEDULE_COMMANDS: CommandSpec[] = [
@@ -437,8 +446,8 @@ export const SCHEDULE_COMMANDS: CommandSpec[] = [
     path: ['schedules', 'preview'],
     group: 'settings',
     summary: 'Show what a schedule would approve and when it would run, without saving',
-    usage: 'foreman schedules preview <template> --every cadence --at HH:MM [--repo r] [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n]',
-    args: [{ name: 'template', required: true, help: 'A template’s slug, name or id; it must have no {{placeholders}}' }],
+    usage: 'foreman schedules preview <template> | --flow <flow> [--input key=value]... --every cadence --at HH:MM [--repo r] [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n]',
+    args: [{ name: 'template', help: 'A template’s slug, name or id; it must have no {{placeholders}}. Leave it out with --flow' }],
     options: SCHEDULE_OPTIONS,
     examples: ['foreman schedules preview nightly-triage --repo api --every daily --at 09:00'],
     details: SCHEDULE_DETAILS,
@@ -447,12 +456,13 @@ export const SCHEDULE_COMMANDS: CommandSpec[] = [
   {
     path: ['schedules', 'add'],
     group: 'settings',
-    summary: 'Schedule a template to start a workspace',
-    usage: 'foreman schedules add <template> --repo r --every cadence --at HH:MM [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]',
-    args: [{ name: 'template', required: true, help: 'A template’s slug, name or id; it must have no {{placeholders}}' }],
+    summary: 'Schedule a template (or a flow) to start a workspace',
+    usage: 'foreman schedules add <template> | --flow <flow> [--input key=value]... --repo r --every cadence --at HH:MM [--on days] [--day-of-month n] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]',
+    args: [{ name: 'template', help: 'A template’s slug, name or id; it must have no {{placeholders}}. Leave it out with --flow' }],
     options: SCHEDULE_OPTIONS,
     examples: [
       'foreman schedules add nightly-triage --repo api --every daily --at 09:00 --tz Europe/London',
+      'foreman schedules add --flow fix-until-green --input task="Fix the flaky tests" --repo api --every weekly --on mon --at 07:00',
       'foreman schedules add weekly-deps --repo api --every weekly --on mon,thu --at 08:30 --yes',
       'foreman schedules add release-notes --repo api --every monthly --day-of-month 1 --at 10:00'
     ],
@@ -464,7 +474,7 @@ export const SCHEDULE_COMMANDS: CommandSpec[] = [
     path: ['schedules', 'edit'],
     group: 'settings',
     summary: 'Change a schedule',
-    usage: 'foreman schedules edit <id> [--template t] [--repo r] [--every cadence] [--on days] [--day-of-month n] [--at HH:MM] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]',
+    usage: 'foreman schedules edit <id> [--template t | --flow f] [--input key=value]... [--repo r] [--every cadence] [--on days] [--day-of-month n] [--at HH:MM] [--tz zone] [--start date] [--base b] [--model m] [--max-minutes n] [--yes]',
     args: [{ name: 'id', required: true, help: 'A schedule’s id (four characters or more) or its template’s name' }],
     options: { template: { type: 'string', value: '<t>', help: 'Run this template instead' }, ...SCHEDULE_OPTIONS },
     examples: ['foreman schedules edit 4f2a --at 10:30', 'foreman schedules edit nightly-triage --every weekly --on weekdays --yes'],
@@ -566,7 +576,9 @@ waiting: answer with \`foreman approve <id> --continue\`, \`--send-back --note "
 in the app). It exits 0 when the run completed and 1 when it failed, was stopped or needs you, with a line saying which.
 
 From inside an agent turn, flow run needs the repository's "Let agents start workspaces and queue messages", as
-\`foreman run\` does; an agent can never answer a gate. ${FLOWS_OFF_NOTE}`
+\`foreman run\` does; an agent can never answer a gate. A workspace agent starts a flow with the start_flow tool instead
+(not through run_foreman); the assistant may propose flow run on its Run card, which runs only when you click Run.
+${FLOWS_OFF_NOTE}`
 
 export const FLOW_COMMANDS: CommandSpec[] = [
   {
@@ -601,14 +613,20 @@ that renders Mermaid. ${FLOWS_OFF_NOTE}`,
   {
     path: ['flow', 'add'],
     group: 'settings',
-    summary: 'Save a personal flow from a TOML file',
-    usage: 'foreman flow add <file.toml> [--name <name>]',
-    args: [{ name: 'file', required: true, help: 'The flow’s TOML file, relative to where you are' }],
-    options: { name: { type: 'string', value: '<name>', help: 'Save it under this name instead of the file’s', default: 'the file’s name = …' } },
-    examples: ['foreman flow add flows/triage.toml', 'foreman flow add fix-until-green.toml --name "Fix until green (mine)"'],
+    summary: 'Save a personal flow from a TOML file (or its text)',
+    usage: 'foreman flow add <file.toml> | --toml <text> [--name <name>]',
+    args: [{ name: 'file', help: 'The flow’s TOML file, relative to where you are. Leave it out with --toml' }],
+    options: {
+      name: { type: 'string', value: '<name>', help: 'Save it under this name instead of the file’s', default: 'the file’s name = …' },
+      toml: { type: 'string', value: '<text>', help: 'The flow’s TOML itself instead of a file (how the assistant’s Run card carries a flow it drafted)' }
+    },
+    examples: ['foreman flow add flows/triage.toml', 'foreman flow add fix-until-green.toml --name "Fix until green (mine)"', 'foreman flow add --toml "$(cat flows/triage.toml)"'],
     exitCodes: { 1: 'The flow has problems; they are listed and nothing is saved' },
     details: `The file is checked as the flow editor checks it: a file with problems is not saved, and the problems are listed
-(exit 1). Personal flows are kept in Foreman's state, not in a repository. ${FLOWS_OFF_NOTE}`,
+(exit 1). Personal flows are kept in Foreman's state, not in a repository.
+
+--toml takes the document as one argument instead of a file. The assistant drafts a flow that way: its Run card shows
+the whole command, so you read the flow before you click Run, and nothing is saved until you do. ${FLOWS_OFF_NOTE}`,
     tier: 'act'
   },
   {
@@ -645,7 +663,6 @@ that renders Mermaid. ${FLOWS_OFF_NOTE}`,
       7: 'Flows are off, what was shown changed before it started, or an agent called it without the repository’s opt-in'
     },
     details: FLOW_RUN_DETAILS,
-    noAssistant: 'a flow run approves what the whole flow will do, which its Run dialog or a terminal shows; the assistant can’t start one yet',
     tier: 'act'
   },
   {
@@ -752,15 +769,19 @@ the document. ${FLOWS_OFF_NOTE}`,
   {
     path: ['persona', 'add'],
     group: 'settings',
-    summary: 'Save a personal persona from a markdown file',
-    usage: 'foreman persona add <file.md>',
-    args: [{ name: 'file', required: true, help: 'The persona’s markdown file, with its settings between two --- lines, relative to where you are' }],
-    options: {},
-    examples: ['foreman persona add personas/qa-engineer.md'],
+    summary: 'Save a personal persona from a markdown file (or its text)',
+    usage: 'foreman persona add <file.md> | --markdown <text>',
+    args: [{ name: 'file', help: 'The persona’s markdown file, with its settings between two --- lines, relative to where you are. Leave it out with --markdown' }],
+    options: { markdown: { type: 'string', value: '<text>', help: 'The persona’s markdown itself instead of a file (how the assistant’s Run card carries a persona it drafted)' } },
+    examples: ['foreman persona add personas/qa-engineer.md', 'foreman persona add --markdown="$(cat personas/qa-engineer.md)"'],
     exitCodes: { 1: 'The persona has problems, or you already have one of that name; they are listed and nothing is saved' },
     details: `The file is checked as the persona editor checks it: name, then any of loadout, agent, model, read_only,
 shows, ends_with and mcp, with the instructions beneath. A personal persona is used in place of a repository or built-in
-one of the same name, and changing one changes the approval of every flow that uses it. ${FLOWS_OFF_NOTE}`,
+one of the same name, and changing one changes the approval of every flow that uses it.
+
+--markdown takes the document as one argument instead of a file, as the assistant's Run card carries a persona it
+drafted: the card shows the whole command, and nothing is saved until you click Run. The document starts with ---, so
+give it as --markdown=<text>. ${FLOWS_OFF_NOTE}`,
     tier: 'act'
   },
   {

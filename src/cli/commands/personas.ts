@@ -17,15 +17,20 @@ const show: Run = async (ctx) => {
 }
 
 const add: Run = async (ctx) => {
-  noMoreWords(ctx, 1, 'foreman persona add <file.md>')
+  noMoreWords(ctx, 1, 'foreman persona add <file.md> | --markdown <text>')
   const [file] = ctx.args
-  if (!file) throw usageError('Give the persona’s markdown file: foreman persona add <file.md>')
+  const text = str(ctx.opts.markdown)
+  if (text !== undefined && file) throw usageError('Give the persona’s file or --markdown, not both.')
+  if (text === undefined && !file) throw usageError('Give the persona’s markdown file: foreman persona add <file.md> (or the text with --markdown)')
   let markdown: string
-  try {
-    markdown = await io.readFile(file, ctx.cwd)
-  } catch (err) {
-    throw usageError(`Can’t read ${file}: ${(err as NodeJS.ErrnoException).code === 'ENOENT' ? 'no such file' : (err as Error).message}`)
-  }
+  if (text !== undefined) markdown = text
+  else
+    try {
+      markdown = await io.readFile(file, ctx.cwd)
+    } catch (err) {
+      throw usageError(`Can’t read ${file}: ${(err as NodeJS.ErrnoException).code === 'ENOENT' ? 'no such file' : (err as Error).message}`)
+    }
+  if (!markdown.trim()) throw usageError('The persona’s markdown is empty.')
   const result = await ctx.send<PersonaAddResult>('persona-add', { markdown })
   printText(ctx, result)
   if (!result.saved) process.exitCode = 1

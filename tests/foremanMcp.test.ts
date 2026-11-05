@@ -269,6 +269,24 @@ describe('Foreman MCP in-process (Claude turns in the app)', () => {
     expect(record).toHaveBeenCalledWith({ workspaceId: 'w', sessionId: 's', turnId: 't1', kind: 'decide', text: 'large', via: 'mcp' })
   })
 
+  it('offers start_flow and get_flow_status only while Flows are on, and get_flow_status alone to a read-only turn', async () => {
+    const { actions, state, session } = rig()
+    const flows = { on: false }
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null, flowsOn: () => flows.on })
+    local.delegation = delegationRig().service
+    const off = (await (await inProcessClient(local.inProcessForTurn(session)['foreman-app'])).listTools()).tools.map((t) => t.name)
+    expect(off).toContain('start_task')
+    expect(off).not.toContain('start_flow')
+    expect(off).not.toContain('get_flow_status')
+    flows.on = true
+    const on = (await (await inProcessClient(local.inProcessForTurn(session)['foreman-app'])).listTools()).tools.map((t) => t.name)
+    expect(on).toEqual(expect.arrayContaining(['start_flow', 'get_flow_status']))
+    session.planMode = true
+    const readOnly = (await (await inProcessClient(local.inProcessForTurn(session)['foreman-app'])).listTools()).tools.map((t) => t.name)
+    expect(readOnly).toContain('get_flow_status')
+    expect(readOnly).not.toContain('start_flow')
+  })
+
   it('offers only read-only tools to a read-only turn', async () => {
     const { actions, state, session } = rig()
     session.planMode = true
