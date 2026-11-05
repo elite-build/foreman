@@ -349,3 +349,16 @@ div.auto-card {
   align-items: center;
   gap: 10px;
 }
+
+/* ---- flows (Settings → Experimental → Flows) ---- */
+
+/* The flow dialog's fields, stacked. The Dialog, Field, TextArea and Callout (ui/) draw themselves. */
+.flow-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.flow-problems {
+  margin: 0;
+  padding-left: 18px;
+}

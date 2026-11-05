@@ -21,6 +21,7 @@ import type { DirListing } from './fileTree'
 import type { ImagePreview } from './imageInfo'
 import type { OpenInChoice, OpenInDetection, OpenInTarget } from './openIn'
 import type { SavedCommand } from './savedCommands'
+import type { FlowListing } from './flows'
 import type { DockerLeft, DockerListing, DockerPreview, DockerRemoval } from './docker'
 import type { CloudProviderId, PlanLimits, ProviderCapabilities } from './cloud'
 
@@ -1142,6 +1143,8 @@ export interface Settings {
   autoRunAfterSetup: boolean
   forkToNewTab: boolean
   showResourceUsage: boolean
+  // Flows (docs/loops-and-graphs.md): off by default; off, nothing about flows appears and repo flow files are ignored.
+  flows: boolean
   // Keep diagnostics (docs/telemetry.md): the event log, performance samples and crash dumps in the data folder.
   diagnostics: boolean
   // Advanced
@@ -2641,6 +2644,12 @@ export interface Api {
   resumeSchedule(id: string): Promise<void>
   deleteSchedule(id: string): Promise<void>
   stopScheduledRun(occurrenceId: string): Promise<void>
+  // Flows (docs/loops-and-graphs.md), behind Settings → Experimental → Flows: each refuses while it is off. Nothing runs yet.
+  // Built-in starters, repository files (only `repoId`'s when given) and personal flows, each with its problems.
+  listFlows(repoId?: string): Promise<FlowListing[]>
+  // Saves the document as a personal flow (a new one without `id`); a flow with errors isn't saved and its problems come back.
+  savePersonalFlow(input: { id?: string; toml: string }): Promise<{ flow: FlowListing } | { problems: string[] }>
+  deletePersonalFlow(id: string): Promise<void>
   // #11: tick "Resume at …" on the latest turn's limit card; untick / Cancel / Dismiss; "Resume now" on a missed one.
   armLimitResume(sessionId: string, turnId: string): Promise<void>
   cancelLimitResume(sessionId: string): Promise<void>
@@ -2893,7 +2902,7 @@ export const API_METHODS = [
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
-  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
+  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',

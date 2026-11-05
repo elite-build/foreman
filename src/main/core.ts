@@ -35,6 +35,8 @@ import { PrCache } from './prCache'
 import { probePreview } from './previewProbe'
 import { browserUrl } from '../shared/browser'
 import { readRepoTemplates, revalidateRepoTemplates } from './repoTemplates'
+import { listFlows, personalFlowListing } from './flowFiles'
+import { MAX_FLOW_BYTES, parseFlow, type FlowListing } from '../shared/flows'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
 import { commandInputWithStatus, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
@@ -1475,6 +1477,43 @@ export class Core {
     return this.integrations.fingerprints(repoId)
   }
 
+  /** Flows are an experiment (Settings → Experimental → Flows): while it is off, every flow method refuses. */
+  private flowsOn(): void {
+    if (!this.store.state.settings.flows) throw new Error('Flows are off; turn them on in Settings → Experimental.')
+  }
+
+  private listFlows(repoId?: string): FlowListing[] {
+    this.flowsOn()
+    if (repoId) this.workspaces.repo(repoId)
+    return listFlows(this.store.state.repos, this.store.state.personalFlows ?? [], mainT(this.store.state.settings), repoId)
+  }
+
+  /** A personal flow saved as written, once it parses; its problems otherwise, with nothing saved. */
+  private savePersonalFlow(input: { id?: string; toml: string }): { flow: FlowListing } | { problems: string[] } {
+    this.flowsOn()
+    if (typeof input?.toml !== 'string') throw new Error('A flow needs its TOML document.')
+    const t = mainT(this.store.state.settings)
+    if (Buffer.byteLength(input.toml, 'utf8') > MAX_FLOW_BYTES) return { problems: [t('flows.problem.tooLarge', { kb: Math.round(MAX_FLOW_BYTES / 1024) })] }
+    const parsed = parseFlow(input.toml, 'personal', t)
+    if ('problems' in parsed) return { problems: parsed.problems }
+    const flows = (this.store.state.personalFlows ??= [])
+    const now = new Date().toISOString()
+    let flow = input.id ? flows.find((f) => f.id === input.id) : undefined
+    if (input.id && !flow) throw new Error('That flow isn’t saved any more.')
+    if (flow) Object.assign(flow, { toml: input.toml, updatedAt: now })
+    else flows.push((flow = { id: `flow-${randomUUID()}`, toml: input.toml, createdAt: now, updatedAt: now }))
+    this.store.save()
+    return { flow: personalFlowListing(flow, t) }
+  }
+
+  private deletePersonalFlow(id: string): void {
+    this.flowsOn()
+    const flows = this.store.state.personalFlows ?? []
+    if (!flows.some((f) => f.id === id)) return
+    this.store.state.personalFlows = flows.filter((f) => f.id !== id)
+    this.store.save()
+  }
+
   private inputsOrThrow(scheduleId: string): FingerprintInputs {
     const schedule = this.schedules.schedule(scheduleId)
     const inputs = this.scheduleInputs(schedule)
@@ -2450,6 +2489,9 @@ export class Core {
     resumeSchedule: async (id) => this.schedules.resume(id),
     deleteSchedule: async (id) => this.schedules.remove(id),
     stopScheduledRun: (occurrenceId) => this.schedules.stopRun(occurrenceId),
+    listFlows: async (repoId) => this.listFlows(repoId),
+    savePersonalFlow: async (input) => this.savePersonalFlow(input),
+    deletePersonalFlow: async (id) => this.deletePersonalFlow(id),
     armLimitResume: async (sessionId, turnId) => {
       await this.limitResume.arm(sessionId, turnId)
     },
