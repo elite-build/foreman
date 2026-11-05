@@ -1,6 +1,8 @@
 // The approval commands: approvals, approve, deny and stopped. Answering an approval
 // lets an agent act, so approve and deny are admin: refused with any turn token (§13 item 2). Retrying a stopped turn
-// sends its message again, so it goes through the start policy like `foreman send`.
+// sends its message again, so it goes through the start policy like `foreman send`. A flow's gate has three answers,
+// all on approve (--continue, --send-back with a note, --stop); deny refuses it rather than guess which one was meant.
+import { gateShowText } from '../../shared/cli/flows'
 import { toolSummary } from '../../shared/cli/tabs'
 import type { ApprovalAnswerResult, ApprovalRow, ApprovalsResult, ApproveParams, DenyParams, StoppedParams, StoppedResult, StoppedRow } from '../../shared/cli/approvals'
 import type { ApprovalRequest, ApprovalResponse, Session, Workspace } from '../../shared/types'
@@ -49,7 +51,8 @@ function rowOf(request: ApprovalRequest, sessions: Session[], workspaces: Worksp
     ...(session && !tab ? { tabTitle: session.title || 'New chat' } : {}),
     kind: request.kind,
     ask: askText(request),
-    ...(request.kind === 'tool' && request.alternate ? { alternate: request.alternate } : {})
+    ...(request.kind === 'tool' && request.alternate ? { alternate: request.alternate } : {}),
+    ...(request.kind === 'gate' ? { flow: request.flowName, step: request.step, flowRunId: request.flowRunId, show: request.show } : {})
   }
 }
 
@@ -57,8 +60,15 @@ async function approvals(host: CliHost): Promise<ApprovalsResult> {
   const requests = await host.api.pendingApprovals()
   const { sessions, workspaces } = host.state()
   const rows = requests.map((r) => rowOf(r, sessions, workspaces))
-  const text = rows.length ? columns([['ID', 'WORKSPACE', 'TAB', 'KIND', 'ASK'], ...rows.map((r) => [r.id.slice(0, 8), r.workspace, r.tab ? String(r.tab) : (r.tabTitle ?? ''), r.kind, r.ask])]).join('\n') : 'Nothing is waiting for an answer.'
-  return { approvals: rows, text }
+  if (!rows.length) return { approvals: rows, text: 'Nothing is waiting for an answer.' }
+  const table = columns([['ID', 'WORKSPACE', 'TAB', 'KIND', 'ASK'], ...rows.map((r) => [r.id.slice(0, 8), r.workspace, r.tab ? String(r.tab) : (r.tabTitle ?? ''), r.kind, r.ask])])
+  // A gate's show rows go under it: what the person deciding is meant to look at.
+  const lines = [table[0]]
+  rows.forEach((r, i) => {
+    lines.push(table[i + 1])
+    for (const show of r.show ?? []) lines.push(`    ${gateShowText(show)}`)
+  })
+  return { approvals: rows, text: lines.join('\n') }
 }
 
 /** The request `query` names: its id or the start of it (four characters or more). */
@@ -87,6 +97,10 @@ function questionKey(request: Extract<ApprovalRequest, { kind: 'question' }>, ke
   return hit.question
 }
 
+const GATE_ANSWERS = ['continue', 'send-back', 'stop'] as const
+type GateAnswer = (typeof GATE_ANSWERS)[number]
+const GATE_HOW = 'Answer it with `foreman approve <id> --continue`, `--send-back [--note "…"]` or `--stop`.'
+
 async function approve(host: CliHost, params: unknown): Promise<ApprovalAnswerResult> {
   const p = paramsObject(params as ApproveParams)
   const request = await requestOf(host, textParam(p, 'id'))
@@ -95,6 +109,10 @@ async function approve(host: CliHost, params: unknown): Promise<ApprovalAnswerRe
   const message = textParam(p, 'message', { optional: true })?.trim() || undefined
   const feedback = textParam(p, 'feedback', { optional: true })?.trim() || undefined
   const planFlag = flagParam(p, 'plan')
+  const gate = textParam(p, 'gate', { optional: true })
+  const note = textParam(p, 'note', { optional: true })?.trim() || undefined
+  if (gate !== undefined && !GATE_ANSWERS.includes(gate as GateAnswer)) throw invalid(`gate is one of ${GATE_ANSWERS.join(', ')}.`)
+  if (request.kind !== 'gate' && (gate !== undefined || note)) throw invalid(`--continue, --send-back, --note and --stop answer a flow’s gate; that is a ${request.kind} request.`)
   let response: ApprovalResponse
   let answer: string
   if (request.kind === 'tool') {
@@ -109,9 +127,12 @@ async function approve(host: CliHost, params: unknown): Promise<ApprovalAnswerRe
     response = { kind: 'plan', approve: true, ...(feedback ? { feedback } : {}) }
     answer = 'approved'
   } else if (request.kind === 'gate') {
-    if (always || edits || message || feedback || planFlag || p.answers) throw invalid('That is a flow’s gate. Approve continues the flow; deny with --message sends it back with a note, and deny alone stops it.')
-    response = { kind: 'gate', answer: 'continued' }
-    answer = 'continued'
+    if (always || edits || message || feedback || planFlag || p.answers) throw invalid(`That is a flow’s gate. ${GATE_HOW}`)
+    if (gate === undefined) throw invalid(`Say how to answer the gate “${request.step}” (${request.ask}). ${GATE_HOW}`)
+    if (note && gate !== 'send-back') throw invalid('--note goes with --send-back.')
+    const given = gate as GateAnswer
+    response = given === 'continue' ? { kind: 'gate', answer: 'continued' } : given === 'stop' ? { kind: 'gate', answer: 'stopped' } : { kind: 'gate', answer: 'sent-back', ...(note ? { note } : {}) }
+    answer = given === 'continue' ? 'continued' : given === 'stop' ? 'stopped' : note ? 'sent back with a note' : 'sent back'
   } else {
     if (always || edits || message || feedback || planFlag) throw invalid('That is a question. Answer it with --answer "question=choice".')
     const raw = p.answers
@@ -150,15 +171,14 @@ async function deny(host: CliHost, params: unknown): Promise<ApprovalAnswerResul
     response = { kind: 'plan', approve: false, ...(message ? { feedback: message } : {}) }
     answer = 'sent back'
   } else if (request.kind === 'gate') {
-    response = message ? { kind: 'gate', answer: 'sent-back', note: message } : { kind: 'gate', answer: 'stopped' }
-    answer = message ? 'sent back' : 'stopped'
+    throw invalid(`That is a flow’s gate, which deny doesn’t answer. ${GATE_HOW}`)
   } else {
     response = { kind: 'question', skipped: true }
     answer = 'skipped'
   }
   await host.api.respondApproval(request.id, response)
   const row = rowOf(request, host.state().sessions, host.state().workspaces)
-  return { id: request.id, workspace: row.workspace, kind: request.kind, answer, text: `${request.kind === 'question' ? 'Skipped' : request.kind === 'plan' || (request.kind === 'gate' && message) ? 'Sent back' : request.kind === 'gate' ? 'Stopped' : 'Denied'} ${request.kind} request ${request.id.slice(0, 8)} in ${row.workspace}.` }
+  return { id: request.id, workspace: row.workspace, kind: request.kind, answer, text: `${request.kind === 'question' ? 'Skipped' : request.kind === 'plan' ? 'Sent back' : 'Denied'} ${request.kind} request ${request.id.slice(0, 8)} in ${row.workspace}.` }
 }
 
 // ----- stopped turns -----

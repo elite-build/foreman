@@ -86,7 +86,7 @@ const ANSWERS = new Set(['approve', 'deny'])
 export const answersRequest = (spec: CommandSpec): boolean => ANSWERS.has(commandName(spec))
 
 /** What cli_help adds under `approve` and `deny`: the assistant proposes only the plain, one-shot form. */
-export const ANSWER_NOTE = 'You may propose only a plain approve or deny, by the request’s full id from the approvals tool (never the start of it). `--always` and `--edits` give an agent standing permission, so the user presses those buttons on the approval panel; never propose them.'
+export const ANSWER_NOTE = 'You may propose only a plain approve or deny, by the request’s full id from the approvals tool (never the start of it). `--always` and `--edits` give an agent standing permission, so the user presses those buttons on the approval panel; never propose them. A flow’s gate is answered with approve and one of `--continue`, `--send-back --note "…"` or `--stop`; deny doesn’t answer it.'
 
 /**
  * Why the assistant may not propose this `approve` or `deny`, in a sentence; undefined when it may. Only the plain one-shot

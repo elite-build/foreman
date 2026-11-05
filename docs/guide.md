@@ -88,8 +88,11 @@ The `foreman` command drives the running app from a terminal or a script: start 
 | Repositories | `foreman repo clone https://github.com/owner/repo` |
 | Remote | `foreman cloud build api` |
 | Schedules | `foreman schedules add nightly-triage --repo api --every daily --at 09:00` |
+| Flows | `foreman flow run fix-until-green --wait` |
 
-Exit codes are the same for every command (0 done, 1 failed, 2 usage error, up to 8 not found); `foreman help exit-codes` has the table. Agents can run `foreman report`, `foreman review` and `foreman checks` from inside a turn and, with the repository's opt-in (**Repository settings → Actions → Let agents start workspaces and queue messages**), `foreman run` and `foreman send`; they can never change settings. **Teach agents Foreman** in the same tab adds instructions for them.
+Flows (graphs of agent turns, check runs and gates with bounded loops, on Automations) are experimental: they and the `foreman flow` commands do nothing until **Settings → Experimental → Flows** is on, and a gate is answered with `foreman approve <id> --continue`, `--send-back --note "…"` or `--stop`.
+
+Exit codes are the same for every command (0 done, 1 failed, 2 usage error, up to 8 not found); `foreman help exit-codes` has the table. Agents can run `foreman report`, `foreman review` and `foreman checks` from inside a turn and, with the repository's opt-in (**Repository settings → Actions → Let agents start workspaces and queue messages**), `foreman run`, `foreman send` and `foreman flow run`; they can never change settings. **Teach agents Foreman** in the same tab adds instructions for them.
 
 Use the `foreman` command from the Foreman assistant: it shows the steps and the command, and runs a command when you click Run.
 

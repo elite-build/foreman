@@ -62,8 +62,8 @@ export function tierCheck(method: string, tier: Tier, request: AnyCliRequest, ho
   }
   if (tier === 'read') return null
   if (tier === 'act') {
-    // G4: arming a resume starts a turn later, so an agent call needs the same opt-in as send.
-    if ((method === 'send' || method === 'resume-at' || (method === 'run' && !params.dryRun)) && request.caller?.token) {
+    // G4: arming a resume starts a turn later, so an agent call needs the same opt-in as send. A flow run starts a workspace.
+    if ((method === 'send' || method === 'resume-at' || method === 'flow-run' || (method === 'run' && !params.dryRun)) && request.caller?.token) {
       const refusal = startRefusal(host, request.caller)
       if (refusal) return { code: 'refused', error: refusal }
     }

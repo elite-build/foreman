@@ -17,8 +17,9 @@ Chats          tabs, tab new|set|close|reopen|fork, chat, queue, rewind, resume-
 Git & PRs      git (18 commands: foreman help git), diff, commits, comments, base-moved, ack-ci
 Repositories   repos, repo (22 commands: foreman help repo)
 Settings       templates, settings, env, keys, github, gitlab, loadouts, review-model, models,
-               agents, commands, schedules, connections,
-               slack rules|people|deliveries|answer|resend, linear issues, backup, git-backup
+               agents, commands, schedules, flow list|show|add|remove|run|runs|status|stop,
+               connections, slack rules|people|deliveries|answer|resend, linear issues, backup,
+               git-backup
 Remote         cloud (12 commands: foreman help cloud)
 App            app info|perf|diagnostics|profile|heap, doctor, cli status|install, completion,
                help, data, usage, attention
@@ -533,16 +534,16 @@ Examples:
   foreman approvals
   foreman approvals --json
 
-One row per request: id, workspace, tab, kind (tool, plan or question) and the ask. Answer with foreman approve or foreman deny.
+One row per request: id, workspace, tab, kind (tool, plan, question or gate) and the ask; a flow’s gate also lists what it shows under its row. Answer with foreman approve or foreman deny (a gate: foreman approve with --continue, --send-back or --stop).
 ```
 
 ### foreman approve
 
 ```text
-Approve a tool, plan or question an agent is waiting on
+Approve a tool, plan or question an agent is waiting on, or answer a flow’s gate
 
 Usage:
-  foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]...
+  foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]... [--continue|--send-back [--note "…"]|--stop]
 
 Arguments:
   <id>                            The request’s id from `foreman approvals` (or the start of it)
@@ -554,6 +555,10 @@ Options:
       --plan                      Plan: approve it (checked against the request’s kind)
       --feedback <text>           Plan: a note with the approval
       --answer <question=choice>  Question: one answer per question (repeatable)
+      --continue                  Gate: go on with the flow
+      --send-back                 Gate: take the flow’s “sent back” edge
+      --note <text>               Gate, with --send-back: a note for the next step
+      --stop                      Gate: stop the flow’s run
 
 Common options:
       --json                      Print the result as JSON (FOREMAN_JSON=1 does the same)
@@ -566,6 +571,7 @@ Examples:
   foreman approve 3f9a --always
   foreman approve 5c21 --plan --feedback "Skip step 4"
   foreman approve 8d07 --answer "Which database?=Postgres"
+  foreman approve 6b40 --send-back --note "Keep the old API too"
 
 foreman approvals lists what agents are waiting on: a tool asking permission, a plan to review
 or a question. approve and deny answer one by its id (or the start of it, four characters or
@@ -573,6 +579,11 @@ more). For a tool, --always or --edits give the "allow from now on" and "allow e
 session" answers, when that tool offers them. For a plan, --feedback adds a note, and deny sends
 the plan back with --message as the feedback. For a question, give --answer "question=choice"
 once per question (the question's text, header or position from 1); deny skips it.
+
+A flow's gate (Settings → Experimental → Flows) waits for you between a flow's steps; `foreman approvals` lists it with
+its ask and what it shows. Answer it with approve and one of --continue (the flow goes on), --send-back with an
+optional --note (the flow takes its "sent back" edge, and the note goes to the next step) or --stop (the run ends).
+deny doesn't answer a gate.
 
 Answering lets an agent act, so approve and deny are refused from inside an agent turn.
 ```
@@ -607,6 +618,11 @@ more). For a tool, --always or --edits give the "allow from now on" and "allow e
 session" answers, when that tool offers them. For a plan, --feedback adds a note, and deny sends
 the plan back with --message as the feedback. For a question, give --answer "question=choice"
 once per question (the question's text, header or position from 1); deny skips it.
+
+A flow's gate (Settings → Experimental → Flows) waits for you between a flow's steps; `foreman approvals` lists it with
+its ask and what it shows. Answer it with approve and one of --continue (the flow goes on), --send-back with an
+optional --note (the flow takes its "sent back" edge, and the note goes to the next step) or --stop (the run ends).
+deny doesn't answer a gate.
 
 Answering lets an agent act, so approve and deny are refused from inside an agent turn.
 ```
@@ -5053,6 +5069,251 @@ Common options:
 
 Examples:
   foreman schedules stop-run 9c1d
+```
+
+### foreman flow list
+
+```text
+List flows: built-in, the repository’s and your own
+
+Usage:
+  foreman flow list [--repo <name|path>]
+
+Options:
+  -r, --repo <name|path>  Whose .foreman/flows files to list (default: the one you’re in, else every repository)
+
+Common options:
+      --json              Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet             Hide progress lines and notes
+  -y, --yes               Answer yes to confirmations
+  -h, --help              Show this command’s help
+
+Examples:
+  foreman flow list
+  foreman flow list --repo api --json
+
+Prints each flow's name, source (built-in, repo or personal), file and revision, how many steps, loops and gates it
+has, and its personas. A file that isn't a flow is listed with its problems; a flow this version can't run says
+"can't run" and why (steps it can't carry out yet, or a turn that isn't on Claude). Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow show
+
+```text
+Print a flow’s TOML and its summary
+
+Usage:
+  foreman flow show <flow> [--repo <name|path>]
+
+Arguments:
+  <flow>                  A flow’s name, id, built-in id (fix-until-green) or file name (`foreman flow list` lists them)
+
+Options:
+  -r, --repo <name|path>  The repository whose flow files to look in (default: the one you’re in)
+
+Common options:
+      --json              Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet             Hide progress lines and notes
+  -y, --yes               Answer yes to confirmations
+  -h, --help              Show this command’s help
+
+Examples:
+  foreman flow show fix-until-green
+  foreman flow show "Research then implement" --json
+
+Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow add
+
+```text
+Save a personal flow from a TOML file
+
+Usage:
+  foreman flow add <file.toml> [--name <name>]
+
+Arguments:
+  <file>             The flow’s TOML file, relative to where you are
+
+Options:
+      --name <name>  Save it under this name instead of the file’s (default: the file’s name = …)
+
+Common options:
+      --json         Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet        Hide progress lines and notes
+  -y, --yes          Answer yes to confirmations
+  -h, --help         Show this command’s help
+
+Examples:
+  foreman flow add flows/triage.toml
+  foreman flow add fix-until-green.toml --name "Fix until green (mine)"
+
+Exit codes:
+  1  The flow has problems; they are listed and nothing is saved
+  Every code: foreman help exit-codes
+
+The file is checked as the flow editor checks it: a file with problems is not saved, and the problems are listed
+(exit 1). Personal flows are kept in Foreman's state, not in a repository. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow remove
+
+```text
+Delete a personal flow
+
+Usage:
+  foreman flow remove <flow> [--yes]
+
+Arguments:
+  <flow>       A flow’s name, id, built-in id (fix-until-green) or file name (`foreman flow list` lists them)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman flow remove triage --yes
+
+Exit codes:
+  1  You answered no, so nothing changed
+  6  Needs confirmation: run it in a terminal or add --yes
+  Every code: foreman help exit-codes
+
+Only personal flows: built-in flows and repository files are read-only here. Its past runs stay listed. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow run
+
+```text
+Start a flow in a new workspace
+
+Usage:
+  foreman flow run <flow> [--repo <name|path>] [--base <branch>] [--input key=value]... [--wait] [--open] [--yes]
+
+Arguments:
+  <flow>                   A flow’s name, id, built-in id (fix-until-green) or file name (`foreman flow list` lists them)
+
+Options:
+  -r, --repo <name|path>   The repository the run works in (default: the one you’re in)
+      --base <branch>      Branch the run’s workspace starts from (default: the repository’s base branch)
+      --input <key=value>  A value for one of the flow’s inputs; once per input (repeatable)
+      --wait               Follow the run to its end, printing each step
+  -o, --open               Bring Foreman forward on the run’s workspace
+
+Common options:
+      --json               Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet              Hide progress lines and notes
+  -y, --yes                Answer yes to confirmations
+  -h, --help               Show this command’s help
+
+Examples:
+  foreman flow run tidy-imports --input task="Remove unused imports in src/" --wait
+  foreman flow run triage --repo api --base develop --yes
+
+Exit codes:
+  0  Started (with --wait: the run completed)
+  1  You answered no; the flow can’t run; or with --wait the run failed, was stopped or needs you
+  5  The connection to Foreman was lost (the run is unaffected)
+  6  Needs confirmation: run it in a terminal or add --yes
+  7  Flows are off, what was shown changed before it started, or an agent called it without the repository’s opt-in
+  Every code: foreman help exit-codes
+
+A flow is a graph of steps (agent turns, check runs, gates) with loops that end on their edges or a bound. flow run
+prints what starting it approves, as the Run dialog does: the flow file and its revision, the templates its steps name,
+personas, the repository's setup script, checks, MCP servers and integrations, and the inputs you gave. It starts only
+after you answer yes in a terminal or pass --yes, and exactly what was shown: if any of it changed meanwhile, the run is
+refused (exit 7). The run works in a new workspace from --base (the repository's base branch by default), and the command
+prints the run id, the workspace and the first turn.
+
+Each turn step runs unattended on Claude in auto mode: an approval or question stops the run as "needs you". A flow with
+steps this version can't carry out yet (review, script, decide, workspace, wait, pick) or a turn on another agent is
+refused before it starts, naming them; `foreman flow list` says "can't run" beside it.
+
+--wait follows the run to its end, like `foreman wait`, printing each step as it starts and ends (the step, its
+iteration, its state and what happened). At a gate it prints what the gate asks and how to answer it, and keeps
+waiting: answer with `foreman approve <id> --continue`, `--send-back --note "…"` or `--stop` from another terminal (or
+in the app). It exits 0 when the run completed and 1 when it failed, was stopped or needs you, with a line saying which.
+
+From inside an agent turn, flow run needs the repository's "Let agents start workspaces and queue messages", as
+`foreman run` does; an agent can never answer a gate. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow runs
+
+```text
+List flow runs, newest first
+
+Usage:
+  foreman flow runs [--repo <name|path>] [--all]
+
+Options:
+  -r, --repo <name|path>  Only this repository’s runs (default: the one you’re in, else every repository)
+      --all               Every repository’s runs, all that are kept (not just the newest 20)
+
+Common options:
+      --json              Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet             Hide progress lines and notes
+  -y, --yes               Answer yes to confirmations
+  -h, --help              Show this command’s help
+
+Examples:
+  foreman flow runs
+  foreman flow runs --all --json
+
+Each run's id, flow, repository, state (with the reason it ended), the step it is at, when it started and its
+workspace. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow status
+
+```text
+Show where a flow run is and its steps so far
+
+Usage:
+  foreman flow status <run>
+
+Arguments:
+  <run>        A run’s id from `foreman flow runs` (four characters or more)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman flow status 7c1e
+  foreman flow status 7c1e --json
+
+The run's state and reason, the step and iteration it is at, each loop's iterations and minutes against its
+bounds, every step so far (iteration, state, what happened), its workspace, and the gate it waits at with the answer
+to give. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow stop
+
+```text
+Stop a flow run
+
+Usage:
+  foreman flow stop <run>
+
+Arguments:
+  <run>        A run’s id from `foreman flow runs` (four characters or more)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman flow stop 7c1e
+
+Cancels the current turn, check run or gate and ends the run as stopped, as Stop run in the Flow tab does. The
+workspace stays. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman connections

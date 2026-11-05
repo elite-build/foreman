@@ -67,6 +67,11 @@ session" answers, when that tool offers them. For a plan, --feedback adds a note
 the plan back with --message as the feedback. For a question, give --answer "question=choice"
 once per question (the question's text, header or position from 1); deny skips it.
 
+A flow's gate (Settings → Experimental → Flows) waits for you between a flow's steps; \`foreman approvals\` lists it with
+its ask and what it shows. Answer it with approve and one of --continue (the flow goes on), --send-back with an
+optional --note (the flow takes its "sent back" edge, and the note goes to the next step) or --stop (the run ends).
+deny doesn't answer a gate.
+
 Answering lets an agent act, so approve and deny are refused from inside an agent turn.`
 
 const STOPPED_DETAILS = `When Foreman quits or crashes with turns running, they are listed here until you retry or
@@ -561,14 +566,14 @@ export const APPROVAL_COMMANDS: CommandSpec[] = [
     args: [{ name: 'list', choices: ['list'], help: 'Optional; listing is all this does' }],
     options: {},
     examples: ['foreman approvals', 'foreman approvals --json'],
-    details: 'One row per request: id, workspace, tab, kind (tool, plan or question) and the ask. Answer with foreman approve or foreman deny.',
+    details: 'One row per request: id, workspace, tab, kind (tool, plan, question or gate) and the ask; a flow’s gate also lists what it shows under its row. Answer with foreman approve or foreman deny (a gate: foreman approve with --continue, --send-back or --stop).',
     tier: 'read'
   },
   {
     path: ['approve'],
     group: 'work',
-    summary: 'Approve a tool, plan or question an agent is waiting on',
-    usage: 'foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]...',
+    summary: 'Approve a tool, plan or question an agent is waiting on, or answer a flow’s gate',
+    usage: 'foreman approve <id> [--always|--edits] [--message "…"] [--plan] [--feedback "…"] [--answer "question=choice"]... [--continue|--send-back [--note "…"]|--stop]',
     args: [{ name: 'id', required: true, help: 'The request’s id from `foreman approvals` (or the start of it)' }],
     options: {
       always: { type: 'boolean', help: 'Tool: allow it from now on, when the tool offers that' },
@@ -576,9 +581,13 @@ export const APPROVAL_COMMANDS: CommandSpec[] = [
       message: { type: 'string', value: '<text>', help: 'Tool: a note to the agent with the answer' },
       plan: { type: 'boolean', help: 'Plan: approve it (checked against the request’s kind)' },
       feedback: { type: 'string', value: '<text>', help: 'Plan: a note with the approval' },
-      answer: { type: 'string', multiple: true, value: '<question=choice>', help: 'Question: one answer per question' }
+      answer: { type: 'string', multiple: true, value: '<question=choice>', help: 'Question: one answer per question' },
+      continue: { type: 'boolean', help: 'Gate: go on with the flow' },
+      'send-back': { type: 'boolean', help: 'Gate: take the flow’s “sent back” edge' },
+      note: { type: 'string', value: '<text>', help: 'Gate, with --send-back: a note for the next step' },
+      stop: { type: 'boolean', help: 'Gate: stop the flow’s run' }
     },
-    examples: ['foreman approve 3f9a', 'foreman approve 3f9a --always', 'foreman approve 5c21 --plan --feedback "Skip step 4"', 'foreman approve 8d07 --answer "Which database?=Postgres"'],
+    examples: ['foreman approve 3f9a', 'foreman approve 3f9a --always', 'foreman approve 5c21 --plan --feedback "Skip step 4"', 'foreman approve 8d07 --answer "Which database?=Postgres"', 'foreman approve 6b40 --send-back --note "Keep the old API too"'],
     details: APPROVE_DETAILS,
     tier: 'admin'
   },

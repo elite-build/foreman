@@ -1,5 +1,6 @@
 // Parameters and results of the approvals and stopped-turns methods. Each result has
 // a `text` the command prints unless --json is given.
+import type { FlowGateShow } from '../flows'
 import type { ApprovalRequest } from '../types'
 
 export interface ApprovalRow {
@@ -14,6 +15,11 @@ export interface ApprovalRow {
   ask: string
   // Tool requests: what the "always" and "edits" answers mean for this tool, when they mean anything.
   alternate?: 'edits-for-session' | 'always-allow'
+  // A flow's gate: the flow, the step that waits, its run, and what it shows the person deciding.
+  flow?: string
+  step?: string
+  flowRunId?: string
+  show?: FlowGateShow[]
 }
 
 export interface ApprovalsResult {
@@ -35,6 +41,9 @@ export interface ApproveParams {
   feedback?: string
   // Question requests: the question (its text, header or position from 1) → the chosen option's label, or your own words.
   answers?: Record<string, string>
+  // A flow's gate: continue the flow, send it back (with `note` for the next step), or stop the run.
+  gate?: 'continue' | 'send-back' | 'stop'
+  note?: string
 }
 
 export interface DenyParams {

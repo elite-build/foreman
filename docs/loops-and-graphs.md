@@ -6,6 +6,16 @@ This page designs **flows**: a graph of steps the user (or, under the existing o
 
 Nothing here adds a server, a daemon or an account. Flows run while Foreman is open, on this computer, under the rules the schedule and auto-review services already follow.
 
+## Status
+
+Built so far, all behind **Settings → Experimental → Flows** (off by default):
+
+1. **Flow files.** The TOML format and its checks, the built-in starters, a repository's `.foreman/flows/*.toml` and personal flows, listed on Automations with an editor that checks as you type.
+2. **Runs.** `turn`, `checks` and `gate` steps in a new workspace, loops with iteration and minute bounds, the run approval and its fingerprint, Stop, needs-you, uncertain after a crash, the Flow tab, and flow rows on Home and in the sidebar. A gate is an approval with Continue, Send back and Stop.
+3. **The command line.** `foreman flow list | show | add | remove | run [--wait] | runs | status | stop`, and gate answers on `foreman approve <id> --continue | --send-back [--note] | --stop` ([cli.md](cli.md)).
+
+Not built yet: personas (named, not applied); `review`, `script`, `decide`, `workspace`, `wait` and `pick` steps (a flow with one is refused before it starts); the compact-when-full and fresh-with-summary iteration policies (they run as same-tab), cost bounds and `[after]`; the Lineage panel and the four lenses; the diagram; New workspace's **Start with** a flow, schedules that target a flow, delegation's `start_flow`, and the assistant drafting or starting flows.
+
 ## What exists already
 
 | Piece | Where | Loop or graph it is | Stop rule and record |

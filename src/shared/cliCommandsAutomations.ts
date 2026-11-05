@@ -1,6 +1,6 @@
-// The declarative half of the loadout, model, agent, template, saved-command, schedule, integration, backup and data
+// The declarative half of the loadout, model, agent, template, saved-command, schedule, flow, integration, backup and data
 // commands. Merged into COMMANDS by src/shared/cliCommands.ts; the functions
-// that run them are in src/cli/commands/{agents,templates,schedules,integrations,data}.ts, keyed by the path joined
+// that run them are in src/cli/commands/{agents,templates,schedules,flows,integrations,data}.ts, keyed by the path joined
 // with spaces. `foreman templates` itself (the list) is declared in cliCommands.ts and stays there. `agents key` and
 // `cloud token` belong to the environment and cloud commands.
 import { EFFORT_LEVELS } from './cli/agents'
@@ -543,6 +543,145 @@ ${FINGERPRINT_SAMPLE}`,
   }
 ]
 
+// ---- flows (docs/loops-and-graphs.md) ----
+
+const FLOWS_OFF_NOTE = 'Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).'
+const FLOW_REF = { name: 'flow', required: true, help: 'A flow’s name, id, built-in id (fix-until-green) or file name (`foreman flow list` lists them)' }
+const RUN_REF = { name: 'run', required: true, help: 'A run’s id from `foreman flow runs` (four characters or more)' }
+
+const FLOW_RUN_DETAILS = `A flow is a graph of steps (agent turns, check runs, gates) with loops that end on their edges or a bound. flow run
+prints what starting it approves, as the Run dialog does: the flow file and its revision, the templates its steps name,
+personas, the repository's setup script, checks, MCP servers and integrations, and the inputs you gave. It starts only
+after you answer yes in a terminal or pass --yes, and exactly what was shown: if any of it changed meanwhile, the run is
+refused (exit 7). The run works in a new workspace from --base (the repository's base branch by default), and the command
+prints the run id, the workspace and the first turn.
+
+Each turn step runs unattended on Claude in auto mode: an approval or question stops the run as "needs you". A flow with
+steps this version can't carry out yet (review, script, decide, workspace, wait, pick) or a turn on another agent is
+refused before it starts, naming them; \`foreman flow list\` says "can't run" beside it.
+
+--wait follows the run to its end, like \`foreman wait\`, printing each step as it starts and ends (the step, its
+iteration, its state and what happened). At a gate it prints what the gate asks and how to answer it, and keeps
+waiting: answer with \`foreman approve <id> --continue\`, \`--send-back --note "…"\` or \`--stop\` from another terminal (or
+in the app). It exits 0 when the run completed and 1 when it failed, was stopped or needs you, with a line saying which.
+
+From inside an agent turn, flow run needs the repository's "Let agents start workspaces and queue messages", as
+\`foreman run\` does; an agent can never answer a gate. ${FLOWS_OFF_NOTE}`
+
+export const FLOW_COMMANDS: CommandSpec[] = [
+  {
+    path: ['flow', 'list'],
+    group: 'settings',
+    summary: 'List flows: built-in, the repository’s and your own',
+    usage: 'foreman flow list [--repo <name|path>]',
+    args: [],
+    options: { repo: { ...REPO, help: 'Whose .foreman/flows files to list', default: 'the one you’re in, else every repository' } },
+    examples: ['foreman flow list', 'foreman flow list --repo api --json'],
+    details: `Prints each flow's name, source (built-in, repo or personal), file and revision, how many steps, loops and gates it
+has, and its personas. A file that isn't a flow is listed with its problems; a flow this version can't run says
+"can't run" and why (steps it can't carry out yet, or a turn that isn't on Claude). ${FLOWS_OFF_NOTE}`,
+    tier: 'read'
+  },
+  {
+    path: ['flow', 'show'],
+    group: 'settings',
+    summary: 'Print a flow’s TOML and its summary',
+    usage: 'foreman flow show <flow> [--repo <name|path>]',
+    args: [FLOW_REF],
+    options: { repo: { ...REPO, help: 'The repository whose flow files to look in' } },
+    examples: ['foreman flow show fix-until-green', 'foreman flow show "Research then implement" --json'],
+    details: FLOWS_OFF_NOTE,
+    tier: 'read'
+  },
+  {
+    path: ['flow', 'add'],
+    group: 'settings',
+    summary: 'Save a personal flow from a TOML file',
+    usage: 'foreman flow add <file.toml> [--name <name>]',
+    args: [{ name: 'file', required: true, help: 'The flow’s TOML file, relative to where you are' }],
+    options: { name: { type: 'string', value: '<name>', help: 'Save it under this name instead of the file’s', default: 'the file’s name = …' } },
+    examples: ['foreman flow add flows/triage.toml', 'foreman flow add fix-until-green.toml --name "Fix until green (mine)"'],
+    exitCodes: { 1: 'The flow has problems; they are listed and nothing is saved' },
+    details: `The file is checked as the flow editor checks it: a file with problems is not saved, and the problems are listed
+(exit 1). Personal flows are kept in Foreman's state, not in a repository. ${FLOWS_OFF_NOTE}`,
+    tier: 'act'
+  },
+  {
+    path: ['flow', 'remove'],
+    group: 'settings',
+    summary: 'Delete a personal flow',
+    usage: 'foreman flow remove <flow> [--yes]',
+    args: [FLOW_REF],
+    options: {},
+    examples: ['foreman flow remove triage --yes'],
+    exitCodes: CONFIRM_EXIT,
+    details: `Only personal flows: built-in flows and repository files are read-only here. Its past runs stay listed. ${FLOWS_OFF_NOTE}`,
+    tier: 'act'
+  },
+  {
+    path: ['flow', 'run'],
+    group: 'settings',
+    summary: 'Start a flow in a new workspace',
+    usage: 'foreman flow run <flow> [--repo <name|path>] [--base <branch>] [--input key=value]... [--wait] [--open] [--yes]',
+    args: [FLOW_REF],
+    options: {
+      repo: { ...REPO, help: 'The repository the run works in' },
+      base: { type: 'string', value: '<branch>', help: 'Branch the run’s workspace starts from', default: 'the repository’s base branch' },
+      input: { type: 'string', multiple: true, value: '<key=value>', help: 'A value for one of the flow’s inputs; once per input' },
+      wait: { type: 'boolean', help: 'Follow the run to its end, printing each step' },
+      open: { type: 'boolean', short: 'o', help: 'Bring Foreman forward on the run’s workspace' }
+    },
+    examples: ['foreman flow run tidy-imports --input task="Remove unused imports in src/" --wait', 'foreman flow run triage --repo api --base develop --yes'],
+    exitCodes: {
+      0: 'Started (with --wait: the run completed)',
+      1: 'You answered no; the flow can’t run; or with --wait the run failed, was stopped or needs you',
+      5: 'The connection to Foreman was lost (the run is unaffected)',
+      6: 'Needs confirmation: run it in a terminal or add --yes',
+      7: 'Flows are off, what was shown changed before it started, or an agent called it without the repository’s opt-in'
+    },
+    details: FLOW_RUN_DETAILS,
+    noAssistant: 'a flow run approves what the whole flow will do, which its Run dialog or a terminal shows; the assistant can’t start one yet',
+    tier: 'act'
+  },
+  {
+    path: ['flow', 'runs'],
+    group: 'settings',
+    summary: 'List flow runs, newest first',
+    usage: 'foreman flow runs [--repo <name|path>] [--all]',
+    args: [],
+    options: { repo: { ...REPO, help: 'Only this repository’s runs', default: 'the one you’re in, else every repository' }, all: { type: 'boolean', help: 'Every repository’s runs, all that are kept (not just the newest 20)' } },
+    examples: ['foreman flow runs', 'foreman flow runs --all --json'],
+    details: `Each run's id, flow, repository, state (with the reason it ended), the step it is at, when it started and its
+workspace. ${FLOWS_OFF_NOTE}`,
+    tier: 'read'
+  },
+  {
+    path: ['flow', 'status'],
+    group: 'settings',
+    summary: 'Show where a flow run is and its steps so far',
+    usage: 'foreman flow status <run>',
+    args: [RUN_REF],
+    options: {},
+    examples: ['foreman flow status 7c1e', 'foreman flow status 7c1e --json'],
+    details: `The run's state and reason, the step and iteration it is at, each loop's iterations and minutes against its
+bounds, every step so far (iteration, state, what happened), its workspace, and the gate it waits at with the answer
+to give. ${FLOWS_OFF_NOTE}`,
+    tier: 'read'
+  },
+  {
+    path: ['flow', 'stop'],
+    group: 'settings',
+    summary: 'Stop a flow run',
+    usage: 'foreman flow stop <run>',
+    args: [RUN_REF],
+    options: {},
+    examples: ['foreman flow stop 7c1e'],
+    details: `Cancels the current turn, check run or gate and ends the run as stopped, as Stop run in the Flow tab does. The
+workspace stays. ${FLOWS_OFF_NOTE}`,
+    tier: 'act'
+  }
+]
+
 // ---- integrations ----
 
 const SERVICES = ['github', 'linear', 'slack', 'langfuse', 'vercel', 'e2b', 'daytona', 'docker'] as const
@@ -855,4 +994,4 @@ export const DATA_COMMANDS: CommandSpec[] = [
 ]
 
 /** Every command of this file, in the order `foreman help` lists them. */
-export const AUTOMATION_COMMANDS: CommandSpec[] = [...AGENT_COMMANDS, ...TEMPLATE_COMMANDS, ...SAVED_COMMAND_COMMANDS, ...SCHEDULE_COMMANDS, ...INTEGRATION_COMMANDS, ...DATA_COMMANDS]
+export const AUTOMATION_COMMANDS: CommandSpec[] = [...AGENT_COMMANDS, ...TEMPLATE_COMMANDS, ...SAVED_COMMAND_COMMANDS, ...SCHEDULE_COMMANDS, ...FLOW_COMMANDS, ...INTEGRATION_COMMANDS, ...DATA_COMMANDS]
