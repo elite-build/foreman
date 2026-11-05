@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fileProblems, folderName, githubRepo, parseArgs, publishedName, publishScreens, withBaseWorktree } from '../scripts/pr-screens.mjs'
+import { fileProblems, folderName, githubRepo, parseArgs, publishedName, publishScreens, removeLink, withBaseWorktree } from '../scripts/pr-screens.mjs'
 import { makeRepo, tempDir } from './helpers'
 
 // The PR screenshot script (scripts/pr-screens.mjs): where its images go and what it refuses.
@@ -142,6 +142,22 @@ describe('pr-screens', () => {
     expect(existsSync(path.dirname(seen))).toBe(false)
     expect(run(root, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1)
     expect(readFileSync(path.join(root, 'node_modules', 'pkg', 'index.js'), 'utf8')).toBe('kept')
+  })
+
+  it('removes a link and never what it points to (a junction on Windows, a symbolic link elsewhere), and leaves a real folder alone', async () => {
+    const dir = await tempDir('foreman-pr-link-')
+    const target = path.join(dir, 'modules')
+    mkdirSync(path.join(target, 'pkg'), { recursive: true })
+    writeFileSync(path.join(target, 'pkg', 'index.js'), 'kept')
+    const link = path.join(dir, 'link')
+    symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+    removeLink(link)
+    expect(existsSync(link)).toBe(false)
+    expect(readFileSync(path.join(target, 'pkg', 'index.js'), 'utf8')).toBe('kept')
+    // Nothing there is fine; a folder that isn't a link is refused, with its contents untouched.
+    expect(() => removeLink(link)).not.toThrow()
+    expect(() => removeLink(target)).toThrow('is not a link')
+    expect(readFileSync(path.join(target, 'pkg', 'index.js'), 'utf8')).toBe('kept')
   })
 
   it('reports a ref that does not exist without leaving anything behind', async () => {
