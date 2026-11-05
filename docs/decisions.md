@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-06: The repository rail widens in place to show names; nothing opens over the list
+
+**Decision.** The rail is tiles alone (52px). One toggle (Ctrl/⌘+Shift+N) widens it beside the workspace list to show each repository's name and what is going on in it, and narrows it back; the choice is remembered. The drawer that covered the list is gone.
+
+**Why.** Captions under the tiles were cut to fit, and the drawer opened from a button that couldn't close it and hid the list it was meant to filter.
+
+**Turned down.** A switcher in the sidebar title (switching takes two actions). Repositories as foldable groups, or as a filter (a larger change, moves repository Home). Tabs (three names fit). A drill-in list (two clicks between repositories). A hover preview (accidental triggers, no touch).
+
+**Revisit when.** People routinely keep more repositories than the rail shows without scrolling.
+
 ## 2026-11-05: Automations is a library, not a week calendar
 
 **Decision.** The Automations page centres on a library of templates and commands, as cards with tabs and a search. Each template says when it runs and how its last run went; the side panel lists every schedule. The week calendar is gone.
