@@ -406,3 +406,19 @@ div.auto-card {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* ---- personas (beside flows) ---- */
+
+/* The persona editor: settings rows (Row, ToggleRow from settings/controls) stacked, the instructions beneath. */
+.persona-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+/* A row's checkboxes (what it is shown, how it ends, the MCP servers it keeps), wrapping. */
+.persona-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}

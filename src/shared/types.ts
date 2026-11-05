@@ -22,6 +22,7 @@ import type { ImagePreview } from './imageInfo'
 import type { OpenInChoice, OpenInDetection, OpenInTarget } from './openIn'
 import type { SavedCommand } from './savedCommands'
 import type { FlowGateShow, FlowListing, FlowRun, FlowRunPreview, FlowRunStart } from './flows'
+import type { PersonaList, PersonaListing, TurnPersona } from './personas'
 import type { DockerLeft, DockerListing, DockerPreview, DockerRemoval } from './docker'
 import type { CloudProviderId, PlanLimits, ProviderCapabilities } from './cloud'
 
@@ -930,7 +931,8 @@ export interface Session {
   // A scheduled run: nobody is there to answer, so tools run in auto mode and any approval or question stops it.
   // #17: an auto review's reviewer turn is unattended the same way (its approvals are denied and the review stops).
   // A flow run's turn step is unattended the same way, for that one turn (its approvals stop the run for the human).
-  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string }
+  // A flow step's persona rides along for that turn: its instructions, read-only and the MCP servers it keeps.
+  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string; persona?: TurnPersona }
   // #17: this tab is an auto review's read-only reviewer; its turns never start another review.
   autoReview?: { reviewId: string }
   // Closed tabs stay restorable until the workspace is archived.
@@ -1273,7 +1275,8 @@ export interface ContextPart {
   // #20 'mcp': the repo MCP servers this turn got, shown only when the set changed since the tab's last turn.
   // 'integrations': which GitHub, Linear or Slack account this turn uses, when that changed since the tab's last turn,
   // and the user's own same-service MCP servers switched off here.
-  kind: 'instructions' | 'note' | 'comments' | 'attachments' | 'history' | 'foreman' | 'catch-up' | 'mcp' | 'integrations'
+  // 'persona': a flow step's persona, its instructions appended to the system prompt for that turn.
+  kind: 'instructions' | 'note' | 'comments' | 'attachments' | 'history' | 'foreman' | 'catch-up' | 'mcp' | 'integrations' | 'persona'
   // The short form for the receipt line: "note r3", "2 review comments".
   label: string
   // Characters added (bytes for attachments; the number of servers for 'mcp'; of accounts and servers for 'integrations').
@@ -2661,6 +2664,12 @@ export interface Api {
   // Saves the document as a personal flow (a new one without `id`); a flow with errors isn't saved and its problems come back.
   savePersonalFlow(input: { id?: string; toml: string }): Promise<{ flow: FlowListing } | { problems: string[] }>
   deletePersonalFlow(id: string): Promise<void>
+  // Personas (who a flow's step is), behind the same switch: built-in, a repository's .foreman/personas and .claude/agents
+  // files (only `repoId`'s when given) and personal ones, with the MCP servers repositories propose; saving and deleting
+  // personal ones as with flows.
+  listPersonas(repoId?: string): Promise<PersonaList>
+  savePersonalPersona(input: { id?: string; markdown: string }): Promise<{ persona: PersonaListing } | { problems: string[] }>
+  deletePersonalPersona(id: string): Promise<void>
   // Running a flow: what starting it would approve (and the inputs it asks for), starting it with the fingerprint that
   // was shown (refused when it changed since), stopping a run, and the runs (one repository's when given).
   flowRunPreview(input: { flowId: string; repoId: string; baseBranch: string }): Promise<FlowRunPreview>
@@ -2919,7 +2928,7 @@ export const API_METHODS = [
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
-  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'flowRunPreview', 'startFlowRun', 'stopFlowRun', 'listFlowRuns', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
+  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'listPersonas', 'savePersonalPersona', 'deletePersonalPersona', 'flowRunPreview', 'startFlowRun', 'stopFlowRun', 'listFlowRuns', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',

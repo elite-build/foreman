@@ -6,6 +6,8 @@ import { FlowService, flowFingerprintOf, type FlowServiceDeps, type PreparedFlow
 import { SHOWN_CHANGED } from '../src/main/schedules'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
 import { parseFlow, type FlowRun } from '../src/shared/flows'
+import { parsePersona, type Persona } from '../src/shared/personas'
+import { PERSONA_STARTERS } from '../src/shared/personaStarters'
 import type { Loadout } from '../src/shared/agents'
 import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, TurnOutcome } from '../src/shared/types'
 
@@ -70,13 +72,22 @@ over = ["work", "ask"]
 at_most = { minutes = 15 }
 `
 
+/** The built-in personas by name, as a flow in any repository finds them. */
+const STARTER_PERSONAS: Record<string, Persona> = Object.fromEntries(
+  PERSONA_STARTERS.map((s) => {
+    const read = parsePersona(s.markdown, 'built-in')
+    if (!('persona' in read)) throw new Error(read.problems.join(' '))
+    return [s.name, read.persona]
+  })
+)
+
 type Gate = { id: string; sessionId: string; request: Omit<Extract<ApprovalRequest, { kind: 'gate' }>, 'id' | 'sessionId'>; resolve(r: ApprovalResponse): void }
 
 const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
 }
 
-function harness(toml = GREEN, options: { checks?: CheckResult['status'][]; loadouts?: Loadout[]; state?: { flowRuns?: FlowRun[] }; maxActive?: number; flushFailures?: number } = {}) {
+function harness(toml = GREEN, options: { checks?: CheckResult['status'][]; loadouts?: Loadout[]; state?: { flowRuns?: FlowRun[] }; maxActive?: number; flushFailures?: number; personas?: Record<string, Persona | undefined> } = {}) {
   let flushFailures = options.flushFailures ?? 0
   const parsed = parseFlow(toml, 'personal')
   if (!('flow' in parsed)) throw new Error(parsed.problems.join(' '))
@@ -84,20 +95,24 @@ function harness(toml = GREEN, options: { checks?: CheckResult['status'][]; load
   const state = options.state ?? { flowRuns: [] as FlowRun[] }
   let clock = Date.parse('2026-11-05T10:00:00Z')
   const flushed: FlowRun[][] = []
-  const sent: { sessionId: string; text: string; turnId: string; unattended?: unknown }[] = []
+  const sent: { sessionId: string; text: string; turnId: string; unattended?: unknown; persona?: unknown }[] = []
   const chats = new Map<string, ChatItem[]>()
   const gates: Gate[] = []
   const checks = [...(options.checks ?? [])]
   let n = 0
+  // The personas the flow's steps name, as prepare resolves them: the built-in ones unless the test says otherwise.
+  const personas: Record<string, Persona | undefined> = {}
+  for (const step of flow.steps) if ('persona' in step && step.persona) personas[step.persona] = options.personas ? options.personas[step.persona] : STARTER_PERSONAS[step.persona]
   const prepared: PreparedFlow = {
     flow,
     ref: { id: 'flow-1', name: flow.name, source: 'personal' },
     templates: {},
-    fingerprint: flowFingerprintOf({ flow, templates: [], setupScript: '', checks: [{ name: 'Tests', command: 'npm test' }], mcp: [] })
+    personas,
+    fingerprint: flowFingerprintOf({ flow, templates: [], personas: Object.values(personas).filter((p): p is Persona => Boolean(p)), setupScript: '', checks: [{ name: 'Tests', command: 'npm test' }], mcp: [] })
   }
   const launch = vi.fn<FlowServiceDeps['launch']>(async (_run, first, handle) => {
     handle.created('ws-1', 's-1')
-    sent.push({ sessionId: 's-1', text: first.text, turnId: 't-first' })
+    sent.push({ sessionId: 's-1', text: first.text, turnId: 't-first', persona: first.persona })
   })
   const deps: FlowServiceDeps = {
     store: {
@@ -187,7 +202,7 @@ describe('running a flow', () => {
     expect(h.flushed.length).toBeGreaterThan(1)
     expect(h.sent[0].text).toBe('Build this: add a button')
     expect(h.run()).toMatchObject({ state: 'running', workspaceId: 'ws-1', current: { step: 'build', iteration: 1 } })
-    expect(h.run().steps[0].detail).toContain('persona: developer (not applied yet)')
+    expect(h.run().steps[0]).toMatchObject({ persona: 'developer', detail: 'persona: developer' })
   })
 
   it('turn → checks failed → fix → checks passed → gate continued → done completes', async () => {
@@ -197,13 +212,15 @@ describe('running a flow', () => {
     // The fix continues the build's tab, unattended, with the failing output and the build's answer.
     const fix = h.sent.at(-1)!
     expect(fix.sessionId).toBe('s-1')
-    expect(fix.unattended).toEqual({ flowRunId: h.run().id, step: 'fix' })
+    // It continues the developer's tab, so it runs as the developer too.
+    expect(fix.unattended).toEqual({ flowRunId: h.run().id, step: 'fix', persona: { name: 'developer', instructions: STARTER_PERSONAS.developer.instructions } })
     expect(fix.text).toContain('Fix the checks.')
     expect(fix.text).toContain('## Check results\n\n### Tests (exit 1)')
     expect(fix.text).toContain('## Answer from “build”\n\nBuilt the button.')
     // In the fixed order: a step's answer before the check results.
     expect(fix.text.indexOf('Answer from')).toBeLessThan(fix.text.indexOf('Check results'))
-    expect(h.run().steps.at(-1)).toMatchObject({ name: 'fix', shown: ['build.answer', 'checks.results'] })
+    // The developer persona is shown the task as well.
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'fix', persona: 'developer', shown: ['task', 'build.answer', 'checks.results'] })
     await h.endTurn()
     // Checks passed: the gate asks in the latest tab, showing the diff and the check results.
     expect(h.run().state).toBe('waiting')
@@ -376,5 +393,88 @@ describe('running a flow', () => {
     expect(state.flowRuns[0].reason).toContain('not known how far it got. It was not retried.')
     expect(state.flowRuns[0].steps[0].state).toBe('stopped')
     expect(again.launch).not.toHaveBeenCalled()
+  })
+})
+
+// Two turns: an architect plans (read-only, its own tab), then a developer implements in a new tab.
+const PLANNED = `name = "Planned"
+
+[start]
+step = "plan"
+
+[steps.plan]
+kind = "turn"
+prompt = "Plan it."
+persona = "architect"
+
+[steps.build]
+kind = "turn"
+prompt = "Build it."
+persona = "developer"
+mcp = ["docs"]
+
+[edges]
+plan = "build"
+`
+
+describe('personas in a run', () => {
+  const narrowDeveloper = (() => {
+    const read = parsePersona('---\nname: developer\nloadout: 2\nmcp: [docs, github]\n---\nYou build.', 'personal')
+    if (!('persona' in read)) throw new Error(read.problems.join(' '))
+    return read.persona
+  })()
+
+  it('carries each step’s persona to its turn: the instructions, read-only and the servers it keeps', async () => {
+    const loadouts: Loadout[] = [{ agent: 'claude', model: 'claude-sonnet-5', fast: false }, { agent: 'claude', model: 'claude-opus-5', fast: false }]
+    const h = harness(PLANNED, { loadouts, personas: { architect: STARTER_PERSONAS.architect, developer: narrowDeveloper } })
+    const created: Loadout[] = []
+    h.deps.createSession = (_ws, loadout) => (created.push(loadout), 's-2')
+    await h.start({})
+    // The architect's turn makes the workspace, read-only, with its instructions.
+    expect(h.sent[0].persona).toEqual({ name: 'architect', instructions: STARTER_PERSONAS.architect.instructions, readOnly: true })
+    expect(h.run().steps[0]).toMatchObject({ name: 'plan', persona: 'architect', readOnly: true })
+    // Shown the task and the tree: the tree isn't sent in this version, and the step says so.
+    expect(h.run().steps[0].detail).toBe('persona: architect (read-only) · not sent yet: tree')
+    await h.endTurn('completed', 'The plan.')
+    // The developer's turn: a new tab on the persona's default loadout, its MCP servers narrowed by the step.
+    expect(created).toEqual([loadouts[1]])
+    expect(h.sent[1].unattended).toEqual({ flowRunId: h.run().id, step: 'build', persona: { name: 'developer', instructions: 'You build.', mcp: ['docs'] } })
+    expect(h.run().steps[1]).toMatchObject({ persona: 'developer', detail: 'persona: developer' })
+    expect(h.run().steps[1].readOnly).toBeUndefined()
+  })
+
+  it('refuses to start when a persona a step names isn’t there, naming it', () => {
+    const h = harness(GREEN, { personas: {} })
+    expect(() => h.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: { task: 'x' }, shown: h.prepared.fingerprint })).toThrow(
+      'The persona “developer” (step “build”) isn’t here: no personal, repository, .claude/agents or built-in persona has that name.'
+    )
+    expect(h.state.flowRuns).toEqual([])
+    expect(h.launch).not.toHaveBeenCalled()
+  })
+
+  it('refuses a step that loosens its persona, and a read-only persona on an agent that can’t hold it', () => {
+    const loose = harness(PLANNED.replace('persona = "architect"', 'persona = "architect"\nread_only = false'))
+    expect(() => loose.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: loose.prepared.fingerprint })).toThrow('can’t turn that off')
+    const cursor = harness(PLANNED, { loadouts: [{ agent: 'cursor', model: 'auto', fast: false }] })
+    expect(() => cursor.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: cursor.prepared.fingerprint })).toThrow(
+      'The step “plan” is read-only (persona “architect”), which Cursor can’t enforce.'
+    )
+  })
+
+  it('a persona’s default loadout that isn’t set refuses the start, naming the persona', () => {
+    const h = harness(PLANNED, { personas: { architect: STARTER_PERSONAS.architect, developer: narrowDeveloper } })
+    expect(() => h.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: h.prepared.fingerprint })).toThrow('Loadout 2 (persona “developer”, step “build”) isn’t set in Settings.')
+  })
+
+  it('a changed persona changes the fingerprint, so what was shown no longer starts', () => {
+    const before = harness(PLANNED)
+    const edited = { ...STARTER_PERSONAS.architect, instructions: `${STARTER_PERSONAS.architect.instructions} Be brief.` }
+    const after = harness(PLANNED, { personas: { architect: edited, developer: STARTER_PERSONAS.developer } })
+    expect(after.prepared.fingerprint.personas).not.toBe(before.prepared.fingerprint.personas)
+    expect({ ...after.prepared.fingerprint, personas: '' }).toEqual({ ...before.prepared.fingerprint, personas: '' })
+    // A new revision of the same text counts too: it is another file.
+    const moved = harness(PLANNED, { personas: { architect: { ...STARTER_PERSONAS.architect, rev: 'abc' }, developer: STARTER_PERSONAS.developer } })
+    expect(moved.prepared.fingerprint.personas).not.toBe(before.prepared.fingerprint.personas)
+    expect(() => after.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: before.prepared.fingerprint })).toThrow(`${SHOWN_CHANGED}. Changed: its personas.`)
   })
 })

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Core } from '../src/main/core'
 import { revalidateRepoFlows } from '../src/main/flowFiles'
+import { revalidateRepoPersonas } from '../src/main/personaFiles'
 import { SecretStore } from '../src/main/secrets'
 import { Store } from '../src/main/store'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
@@ -13,6 +14,7 @@ import { makeRepo, tempDir } from './helpers'
 afterEach(() => {
   vi.restoreAllMocks()
   revalidateRepoFlows()
+  revalidateRepoPersonas()
 })
 
 async function setup() {
@@ -40,9 +42,12 @@ describe('the flow API', () => {
     await expect(core.api.savePersonalFlow({ toml: GOOD })).rejects.toThrow('Flows are off')
     await expect(core.api.deletePersonalFlow('x')).rejects.toThrow('Flows are off')
     await expect(core.api.flowRunPreview({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main' })).rejects.toThrow('Flows are off')
-    await expect(core.api.startFlowRun({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main', inputs: {}, shown: { flow: '', templates: '', setup: '', checks: '', mcp: '' } })).rejects.toThrow('Flows are off')
+    await expect(core.api.startFlowRun({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main', inputs: {}, shown: { flow: '', templates: '', setup: '', checks: '', mcp: '', personas: '' } })).rejects.toThrow('Flows are off')
     await expect(core.api.stopFlowRun('x')).rejects.toThrow('Flows are off')
     await expect(core.api.listFlowRuns()).rejects.toThrow('Flows are off')
+    await expect(core.api.listPersonas()).rejects.toThrow('Flows are off')
+    await expect(core.api.savePersonalPersona({ markdown: '---\nname: x\n---\n' })).rejects.toThrow('Flows are off')
+    await expect(core.api.deletePersonalPersona('x')).rejects.toThrow('Flows are off')
     expect(store.state.flowRuns).toEqual([])
     expect(core.snapshot().flowRuns).toEqual([])
     expect(store.state.personalFlows).toEqual([])
@@ -92,7 +97,7 @@ describe('the flow API', () => {
     await core.api.updateSettings({ flows: true })
     const repo = await core.api.addRepo(await makeRepo())
     const builtIn = await core.api.flowRunPreview({ flowId: 'built-in:fix-until-green', repoId: repo.id, baseBranch: 'main' })
-    expect(builtIn.summary).toMatchObject({ flowName: 'Fix until green', flowSource: 'built-in', repoName: repo.name, baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: ['developer', 'qa-engineer'] })
+    expect(builtIn.summary).toMatchObject({ flowName: 'Fix until green', flowSource: 'built-in', repoName: repo.name, baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [{ name: 'developer', source: 'built-in' }, { name: 'qa-engineer', source: 'built-in', readOnly: true }] })
     expect(builtIn.summary.unsupported).toEqual([{ step: 'review', kind: 'review' }])
     expect(builtIn.inputs).toEqual([{ name: 'task', description: 'What to build or fix' }])
 
@@ -131,3 +136,94 @@ checks = { passed = "ok", failed = "build" }
 over = ["build", "checks"]
 at_most = { iterations = 2 }
 `
+
+const REVIEWER = `---
+name: reviewer
+read_only: true
+shows: [diff]
+---
+You review; you don't fix.
+`
+
+const REVIEWED = `name = "Reviewed"
+
+[start]
+step = "build"
+
+[steps.build]
+kind = "turn"
+prompt = "Build {{task}}"
+persona = "reviewer"
+`
+
+describe('the persona API', () => {
+  it('lists built-in, repository, .claude/agents and personal personas, saves a personal one only when it reads, and deletes it', async () => {
+    const { core, store } = await setup()
+    await core.api.updateSettings({ flows: true })
+    const root = await makeRepo()
+    await mkdir(path.join(root, '.foreman/personas'), { recursive: true })
+    await mkdir(path.join(root, '.claude/agents'), { recursive: true })
+    await writeFile(path.join(root, '.foreman/personas/reviewer.md'), REVIEWER)
+    await writeFile(path.join(root, '.claude/agents/helper.md'), '---\nname: helper\nmodel: sonnet\n---\nHelp.')
+    await writeFile(path.join(root, '.foreman/settings.toml'), '[mcp.servers.docs]\ncommand = "node"\nargs = ["docs.js"]\n')
+    const repo = await core.api.addRepo(root)
+
+    const listed = await core.api.listPersonas()
+    expect(listed.personas.map((p) => `${p.source}:${p.name}`)).toEqual(['built-in:architect', 'built-in:developer', 'built-in:qa-engineer', 'built-in:designer', 'repo:reviewer', 'claude-agents:helper'])
+    expect(listed.mcpServers).toEqual(['docs'])
+    expect((await core.api.listPersonas(repo.id)).personas).toHaveLength(6)
+
+    const refused = await core.api.savePersonalPersona({ markdown: 'no settings' })
+    expect('problems' in refused && refused.problems[0]).toContain('between two --- lines')
+    expect(store.state.personalPersonas).toEqual([])
+
+    const saved = await core.api.savePersonalPersona({ markdown: REVIEWER.replace('read_only: true', 'read_only: false') })
+    if (!('persona' in saved)) throw new Error('not saved')
+    expect(saved.persona).toMatchObject({ source: 'personal', name: 'reviewer', persona: { name: 'reviewer', source: 'personal' } })
+    // Two personal personas can't share a name.
+    const twice = await core.api.savePersonalPersona({ markdown: REVIEWER })
+    expect('problems' in twice && twice.problems).toEqual(['You already have a personal persona named “reviewer”.'])
+    // Saving it again under its id changes it.
+    const changed = await core.api.savePersonalPersona({ id: saved.persona.id, markdown: REVIEWER.replace('You review', 'You read') })
+    expect('persona' in changed && changed.persona.persona?.instructions).toBe('You read; you don\'t fix.')
+    await expect(core.api.savePersonalPersona({ id: 'gone', markdown: REVIEWER })).rejects.toThrow('That persona isn’t saved any more.')
+    await core.api.deletePersonalPersona(saved.persona.id)
+    expect(store.state.personalPersonas).toEqual([])
+    await core.shutdown()
+  })
+
+  it('resolves a flow’s personas where it runs: a missing one is a problem and refuses the start; a changed one changes the approval', async () => {
+    const { core, store } = await setup()
+    await core.api.updateSettings({ flows: true })
+    const root = await makeRepo()
+    const repo = await core.api.addRepo(root)
+    const flow = await core.api.savePersonalFlow({ toml: REVIEWED })
+    if (!('flow' in flow)) throw new Error('not saved')
+    // No reviewer anywhere yet.
+    const listed = (await core.api.listFlows()).find((f) => f.id === flow.flow.id)!
+    expect(listed.problems).toEqual([expect.stringContaining('Step “build” runs as the persona “reviewer”, which isn’t here')])
+    const missing = await core.api.flowRunPreview({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main' })
+    expect(missing.summary.problems).toEqual([expect.stringContaining('The persona “reviewer” (step “build”) isn’t here')])
+    await expect(core.api.startFlowRun({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main', inputs: { task: 'x' }, shown: missing.fingerprint })).rejects.toThrow('The persona “reviewer” (step “build”) isn’t here')
+
+    // The repository's file: listed with its revision, and what a run approves.
+    await mkdir(path.join(root, '.foreman/personas'), { recursive: true })
+    await writeFile(path.join(root, '.foreman/personas/reviewer.md'), REVIEWER)
+    revalidateRepoPersonas()
+    const found = (await core.api.listFlows(repo.id)).find((f) => f.id === flow.flow.id)!
+    expect(found.problems).toEqual([])
+    expect(found.personas).toEqual([{ name: 'reviewer', source: 'repo', file: '.foreman/personas/reviewer.md', rev: expect.stringMatching(/^[0-9a-f]{40}$/), readOnly: true }])
+    const preview = await core.api.flowRunPreview({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main' })
+    expect(preview.summary.personas).toEqual(found.personas)
+    expect(preview.summary.problems).toEqual([])
+
+    // A personal persona of that name comes first, and changes what starting it approves.
+    await core.api.savePersonalPersona({ markdown: REVIEWER.replace('You review', 'You look') })
+    const after = await core.api.flowRunPreview({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main' })
+    expect(after.summary.personas[0]).toMatchObject({ name: 'reviewer', source: 'personal' })
+    expect(after.fingerprint.personas).not.toBe(preview.fingerprint.personas)
+    await expect(core.api.startFlowRun({ flowId: flow.flow.id, repoId: repo.id, baseBranch: 'main', inputs: { task: 'x' }, shown: preview.fingerprint })).rejects.toThrow('Changed: its personas.')
+    expect(store.state.flowRuns).toEqual([])
+    await core.shutdown()
+  })
+})

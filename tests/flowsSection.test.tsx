@@ -110,14 +110,14 @@ describe('Flows on Automations', () => {
   it('Run… shows what starting the flow approves, asks for its inputs, and starts it with the fingerprint shown', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
-    const fingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm' }
+    const fingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
     fakeApi.listBranches = vi.fn(async () => [{ name: 'main', local: true, remote: true, isDefault: true }, { name: 'dev', local: true, remote: false, isDefault: false }])
     fakeApi.flowRunPreview = vi.fn(async () => ({
       fingerprint,
       inputs: [{ name: 'task', description: 'What to build' }],
       summary: {
         flowName: 'Team flow', flowSource: 'repo', flowFile: '.foreman/flows/team.toml', flowRev: 'abcdef1234567890', repoName: 'foreman', baseBranch: 'main',
-        steps: 3, loops: 1, gates: 1, personas: ['developer'], templates: [], setupScript: 'npm ci', checks: [{ name: 'Tests', command: 'npm test' }],
+        steps: 3, loops: 1, gates: 1, personas: [{ name: 'developer', source: 'repo', file: '.foreman/personas/developer.md', rev: '1234567abcdef' }, { name: 'qa-engineer', source: 'built-in', readOnly: true }], templates: [], setupScript: 'npm ci', checks: [{ name: 'Tests', command: 'npm test' }],
         mcpServers: [], integrations: [], unsupported: [], notClaude: [], problems: []
       }
     }))
@@ -129,7 +129,8 @@ describe('Flows on Automations', () => {
     expect(fakeApi.flowRunPreview).toHaveBeenCalledWith({ flowId: 'repo:r1:.foreman/flows/team.toml', repoId: 'r1', baseBranch: 'main' })
     // A repository's flow runs in its repository, so there is no repository to pick.
     expect(within(dialog).queryByRole('combobox', { name: 'Repository' })).toBeNull()
-    expect(within(dialog).getByText('developer (not applied yet)')).toBeTruthy()
+    // Each persona with where it comes from and its revision: what the run approves.
+    expect(within(dialog).getByText('developer (.foreman/personas/developer.md @ 1234567), qa-engineer (Built-in · read-only)')).toBeTruthy()
     expect(within(dialog).getByText('Tests')).toBeTruthy()
     expect(within(dialog).getByText(/Unattended turns are Claude only/)).toBeTruthy()
     const start = within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement

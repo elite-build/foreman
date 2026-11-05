@@ -2,7 +2,7 @@
 // window's Flows section. Starting a run approves what it will do, so `flow-run` without `shown` answers with the same
 // approval summary the Run dialog shows, and with the fingerprint sent back it starts exactly that: the service refuses
 // when it changed meanwhile. A gate is answered with `foreman approve <id> --continue | --send-back | --stop` (approvals.ts).
-import { flowSummary, isActiveRun, parseFlow, unsupportedSteps, type Flow, type FlowFingerprint, type FlowListing, type FlowRun, type FlowRunPreview } from '../../shared/flows'
+import { flowSummary, isActiveRun, parseFlow, unsupportedSteps, type Flow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview } from '../../shared/flows'
 import { flowEndText, flowStepText, gateWaitText, type FlowAddResult, type FlowListResult, type FlowLoopRow, type FlowRemoveResult, type FlowRow, type FlowRunPreviewResult, type FlowRunResult, type FlowRunRow, type FlowRunsResult, type FlowShowResult, type FlowStatusResult, type FlowStopResult, type FlowWaitResult } from '../../shared/cli/flows'
 import type { Loadout } from '../../shared/agents'
 import type { ApprovalRequest, Repo, Workspace } from '../../shared/types'
@@ -26,7 +26,7 @@ const PLACE_MS = 120_000
 export const FLOWS_OFF = 'Flows are off; turn them on in Settings → Experimental → Flows.'
 
 /** Every flow method refuses while the switch is off, naming it. */
-function flowsOn(host: CliHost): void {
+export function flowsOn(host: CliHost): void {
   if (!host.state().settings.flows) throw refused(FLOWS_OFF, '`foreman settings set experimental.flows on` does the same.')
 }
 
@@ -93,7 +93,7 @@ const sourceText = (r: FlowRow) => (r.source === 'repo' ? `repo ${r.repo ?? ''}`
 const revText = (r: FlowRow) => (r.source === 'repo' ? (r.rev ?? '').slice(0, 7) : r.source === 'personal' && r.rev ? r.rev.slice(0, 10) : '')
 
 /** The repository a command means, or none: `--repo`, else the one it ran in, else every repository. */
-async function optionalRepo(host: CliHost, p: Record<string, unknown>): Promise<Repo | undefined> {
+export async function optionalRepo(host: CliHost, p: Record<string, unknown>): Promise<Repo | undefined> {
   const query = textParam(p, 'repo', { optional: true })
   const cwd = textParam(p, 'cwd', { optional: true }) ?? process.cwd()
   if (query?.trim()) return resolveRepo(host.state(), cwd, query)
@@ -133,7 +133,9 @@ const show: MethodDef = {
     const state = host.state()
     const row = flowRow(listing, state.repos, state.settings.loadouts)
     const lines = [`${row.name} (${row.source === 'repo' ? `${row.repo}: ${row.file}${row.rev ? ` at ${row.rev.slice(0, 7)}` : ''}` : row.source === 'built-in' ? 'built-in' : 'personal'})`, `id ${row.id}`]
-    if (row.steps !== undefined) lines.push(`Steps ${row.steps} · loops ${row.loops} · gates ${row.gates}${row.personas.length ? ` · personas: ${row.personas.join(', ')}` : ''}`)
+    if (row.steps !== undefined) lines.push(`Steps ${row.steps} · loops ${row.loops} · gates ${row.gates}`)
+    // Each persona as found where the flow runs (one that isn't found is among the problems below).
+    for (const ref of listing.personas ?? []) lines.push(`Persona ${personaRefText(ref)}`)
     for (const problem of row.problems) lines.push(`Problem: ${problem}`)
     for (const warning of row.warnings) lines.push(`Warning: ${warning}`)
     if (row.cantRun) lines.push(`Can’t run: ${row.cantRun}`)
@@ -325,6 +327,12 @@ export function runText(row: FlowRunRow): string {
   return lines.join('\n')
 }
 
+/** "qa-engineer (built-in, read-only)", "reviewer (.claude/agents/reviewer.md at 1a2b3c4)". */
+export function personaRefText(ref: FlowPersonaRef): string {
+  const where = ref.source === 'built-in' ? 'built-in' : ref.source === 'personal' ? `personal${ref.rev ? `, saved ${ref.rev.slice(0, 10)}` : ''}` : `${ref.file ?? ref.source}${ref.rev ? ` at ${ref.rev.slice(0, 7)}` : ''}`
+  return `${ref.name} (${where}${ref.readOnly ? ', read-only' : ''})`
+}
+
 /** The approval the Run dialog shows, in lines. */
 function previewText(preview: FlowRunPreview, inputs: Record<string, string>): string {
   const s = preview.summary
@@ -334,7 +342,7 @@ function previewText(preview: FlowRunPreview, inputs: Record<string, string>): s
     `Run “${s.flowName}” (${where})`,
     `Repository: ${s.repoName}; the run starts from ${s.baseBranch} in a fresh workspace`,
     `Steps: ${s.steps} · loops: ${s.loops} · gates: ${s.gates}`,
-    ...(s.personas.length ? [`Personas: ${s.personas.join(', ')} (not applied yet)`] : []),
+    ...(s.personas.length ? [`Personas: ${s.personas.map(personaRefText).join('; ')}`] : []),
     `Templates: ${s.templates.length ? s.templates.map((t) => `${t.name}${t.rev ? ` (revision ${t.rev.slice(0, 7)})` : ''}${t.source === 'repo' ? ', a repository template' : ''}`).join('; ') : '(none)'}`,
     `Setup script: ${setup}`,
     `Checks: ${s.checks.length ? s.checks.map((c) => `${c.name} (${firstLine(c.command, 60)})`).join(', ') : '(none)'}`,
@@ -349,9 +357,9 @@ function previewText(preview: FlowRunPreview, inputs: Record<string, string>): s
 function fingerprintParam(raw: unknown): FlowFingerprint | undefined {
   if (raw === undefined || raw === null) return undefined
   const f = raw as Record<string, unknown>
-  const keys = ['flow', 'templates', 'setup', 'checks', 'mcp'] as const
+  const keys = ['flow', 'templates', 'setup', 'checks', 'mcp', 'personas'] as const
   if (typeof raw !== 'object' || keys.some((k) => typeof f[k] !== 'string')) throw invalid('shown must be the fingerprint a preview returned.')
-  return { flow: f.flow as string, templates: f.templates as string, setup: f.setup as string, checks: f.checks as string, mcp: f.mcp as string }
+  return { flow: f.flow as string, templates: f.templates as string, setup: f.setup as string, checks: f.checks as string, mcp: f.mcp as string, personas: f.personas as string }
 }
 
 function inputsParam(raw: unknown): Record<string, string> {

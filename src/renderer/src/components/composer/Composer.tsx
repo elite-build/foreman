@@ -126,6 +126,8 @@ export function Composer({
   const settings = useStore((s) => s.snapshot!.settings)
   // A flow run's step is running in this tab: it is unattended, and the chip says whose step it is.
   const flowRun = useStore((s) => s.snapshot!.flowRuns?.find((r) => isActiveRun(r) && r.steps.at(-1)?.sessionId === session.id))
+  // The persona the step runs as, when it has one: Flow: name · step · persona.
+  const flowPersona = flowRun?.steps.at(-1)?.persona
   const repoTemplates = useStore((s) => s.snapshot!.repoTemplates)
   const platform = useStore((s) => s.snapshot!.platform)
   const [text, setText] = useState('')
@@ -712,7 +714,9 @@ export function Composer({
           )}
           {flowRun?.current && (
             <Tag title={t('flowRun.chip.title')}>
-              <Workflow size={12} aria-hidden /> {t('flowRun.chip', { name: flowRun.flow.name, step: flowRun.current.step })}
+              <Workflow size={12} aria-hidden /> {flowPersona
+                ? t('flowRun.chipPersona', { name: flowRun.flow.name, step: flowRun.current.step, persona: flowPersona })
+                : t('flowRun.chip', { name: flowRun.flow.name, step: flowRun.current.step })}
             </Tag>
           )}
           {settings.requireToolApprovals && session.autoAcceptEdits && (

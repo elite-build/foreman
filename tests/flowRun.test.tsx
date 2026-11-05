@@ -36,7 +36,7 @@ const RUN: FlowRun = {
   repoId: 'r1',
   baseBranch: 'main',
   inputs: { task: 'x' },
-  fingerprint: { flow: '', templates: '', setup: '', checks: '', mcp: '' },
+  fingerprint: { flow: '', templates: '', setup: '', checks: '', mcp: '', personas: '' },
   state: 'running',
   startedAt: '2026-11-05T10:00:00.000Z',
   workspaceId: 'ws-1',

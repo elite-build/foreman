@@ -19,6 +19,7 @@ import { COMMANDS_METHODS } from './commands'
 import { DATA_METHODS } from './data'
 import { ENV_METHODS } from './env'
 import { FLOW_METHODS } from './flows'
+import { PERSONA_METHODS } from './personas'
 import { INTEGRATIONS_METHODS } from './integrations'
 import { REPO_SETTINGS_METHODS } from './repoSettings'
 import { SCHEDULES_METHODS } from './schedules'
@@ -106,6 +107,8 @@ export const METHODS: Record<string, CliMethod> = {
   ...SCHEDULES_METHODS,
   // Flows (docs/loops-and-graphs.md): reads in read, run/stop/add/remove in act; flow-run is under the start policy (policy.ts).
   ...FLOW_METHODS,
+  // Personas (who a flow's step is): reads in read, add/remove of personal ones in act.
+  ...PERSONA_METHODS,
   ...INTEGRATIONS_METHODS,
   ...DATA_METHODS,
   // Workspaces, chat tabs and approvals (plan §7).

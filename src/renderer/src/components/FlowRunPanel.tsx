@@ -74,6 +74,7 @@ function StepCard({ workspaceId, step }: { workspaceId: string; step: FlowRunSte
         <strong>{step.name}</strong>
         <span className="faint small">{t('flowRun.panel.kindRun', { kind, n: step.iteration })}</span>
       </span>
+      {step.persona && <span className="small">{t(step.readOnly ? 'flowRun.panel.personaReadOnly' : 'flowRun.panel.persona', { persona: step.persona })}</span>}
       {loops.length > 0 && <span className="faint small">{t('flowRun.panel.inLoops', { loops: loops.map(([name, i]) => t('flowRun.panel.loopAt', { loop: name, iteration: i })).join(', ') })}</span>}
       {step.detail && <span className="small">{step.detail}</span>}
       {step.delta && <span className="faint small">{t('flowRun.panel.delta', { count: step.delta.files, additions: step.delta.additions, deletions: step.delta.deletions })}</span>}

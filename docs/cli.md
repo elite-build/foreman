@@ -18,8 +18,8 @@ Git & PRs      git (18 commands: foreman help git), diff, commits, comments, bas
 Repositories   repos, repo (22 commands: foreman help repo)
 Settings       templates, settings, env, keys, github, gitlab, loadouts, review-model, models,
                agents, commands, schedules, flow list|show|add|remove|run|runs|status|stop,
-               connections, slack rules|people|deliveries|answer|resend, linear issues, backup,
-               git-backup
+               persona list|show|add|remove, connections,
+               slack rules|people|deliveries|answer|resend, linear issues, backup, git-backup
 Remote         cloud (12 commands: foreman help cloud)
 App            app info|perf|diagnostics|profile|heap, doctor, cli status|install, completion,
                help, data, usage, attention
@@ -5314,6 +5314,122 @@ Examples:
 
 Cancels the current turn, check run or gate and ends the run as stopped, as Stop run in the Flow tab does. The
 workspace stays. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman persona list
+
+```text
+List personas: built-in, the repository’s, its Claude subagents and your own
+
+Usage:
+  foreman persona list [--repo <name|path>]
+
+Options:
+  -r, --repo <name|path>  Whose .foreman/personas and .claude/agents files to list (default: the one you’re in, else every repository)
+
+Common options:
+      --json              Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet             Hide progress lines and notes
+  -y, --yes               Answer yes to confirmations
+  -h, --help              Show this command’s help
+
+Examples:
+  foreman persona list
+  foreman persona list --repo api --json
+
+Prints each persona's name, source, file and revision, and what it is: read-only or edits, and what it should
+end with. A file that isn't a persona is listed with its problems, and one that another of the same name comes before
+says so. A step names a persona with persona = "…" in its flow. The name means your personal persona first, then the
+repository's .foreman/personas/<name>.md, then its Claude Code subagent .claude/agents/<name>.md (Claude steps only; its
+name, description and model are read, its tools aren't applied), then the built-in one (architect, developer,
+qa-engineer, designer). Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman persona show
+
+```text
+Print a persona’s settings, the flows that use it and its markdown
+
+Usage:
+  foreman persona show <persona> [--repo <name|path>]
+
+Arguments:
+  <persona>               A persona’s name, id or file name (`foreman persona list` lists them)
+
+Options:
+  -r, --repo <name|path>  The repository whose persona files to look in (default: the one you’re in)
+
+Common options:
+      --json              Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet             Hide progress lines and notes
+  -y, --yes               Answer yes to confirmations
+  -h, --help              Show this command’s help
+
+Examples:
+  foreman persona show qa-engineer
+  foreman persona show architect --json
+
+A name means the persona a step of that name would run as. It prints what the persona may do (read-only,
+the MCP servers it keeps), what it is shown, its default loadout, what it should end with, the flows that name it, and
+the document. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman persona add
+
+```text
+Save a personal persona from a markdown file
+
+Usage:
+  foreman persona add <file.md>
+
+Arguments:
+  <file>       The persona’s markdown file, with its settings between two --- lines, relative to where you are
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman persona add personas/qa-engineer.md
+
+Exit codes:
+  1  The persona has problems, or you already have one of that name; they are listed and nothing is saved
+  Every code: foreman help exit-codes
+
+The file is checked as the persona editor checks it: name, then any of loadout, agent, model, read_only,
+shows, ends_with and mcp, with the instructions beneath. A personal persona is used in place of a repository or built-in
+one of the same name, and changing one changes the approval of every flow that uses it. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman persona remove
+
+```text
+Delete a personal persona
+
+Usage:
+  foreman persona remove <persona> [--yes]
+
+Arguments:
+  <persona>    A persona’s name, id or file name (`foreman persona list` lists them)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman persona remove qa-engineer --yes
+
+Exit codes:
+  1  You answered no, so nothing changed
+  6  Needs confirmation: run it in a terminal or add --yes
+  Every code: foreman help exit-codes
+
+Only personal personas: built-in ones and repository files are read-only here. A flow that names it then runs
+as the repository's or the built-in persona of that name, if there is one, or can't start. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman connections

@@ -52,6 +52,7 @@ import { addStops, type StopRecord } from '../shared/stopSafely'
 import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
 import type { IntegrationsState } from '../shared/integrations'
 import type { FlowRun, PersonalFlow } from '../shared/flows'
+import type { PersonalPersona } from '../shared/personas'
 import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
 import { migrateRepoFields } from './repoSettings'
 import { ForemanDb } from './db'
@@ -82,6 +83,8 @@ export interface PersistedState {
   occurrences?: Occurrence[]
   // Personal flows (docs/loops-and-graphs.md): the TOML documents, kept beside personal templates in state.json.
   personalFlows?: PersonalFlow[]
+  // Personal personas (who a flow's step is): the markdown documents, beside personal flows.
+  personalPersonas?: PersonalPersona[]
   // Flow runs, like occurrences: written with a synchronous flush before anything of a run launches.
   flowRuns?: FlowRun[]
   // Paired Macs (keys are in the vault) and hand-offs (P-4).
@@ -262,6 +265,9 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   // Personal flows checked entry by entry; anything malformed is dropped.
   state.personalFlows = (Array.isArray(state.personalFlows) ? state.personalFlows : []).filter(
     (f) => f && typeof f.id === 'string' && typeof f.toml === 'string' && typeof f.createdAt === 'string' && typeof f.updatedAt === 'string'
+  )
+  state.personalPersonas = (Array.isArray(state.personalPersonas) ? state.personalPersonas : []).filter(
+    (p) => p && typeof p.id === 'string' && typeof p.markdown === 'string' && typeof p.createdAt === 'string' && typeof p.updatedAt === 'string'
   )
   // Older schedules selected weekdays only. Preserve their planned next run while adding the new cadence fields.
   for (const schedule of state.schedules) {

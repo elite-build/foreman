@@ -1,16 +1,18 @@
 // Flows on Automations (docs/loops-and-graphs.md), shown only while Settings → Experimental → Flows is on: the built-in,
 // repository and personal flows as cards, and a dialog to read one or write a personal one with live validation.
-// Run… starts a flow in a new workspace after showing what the run approves; each flow lists its recent runs.
+// Run… starts a flow in a new workspace after showing what the run approves; each flow lists its recent runs. The
+// Personas section (who a flow's step is) follows, with the flows that name each one.
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FLOW_STARTERS, type FlowStarter } from '../../../../shared/flowStarters'
-import { parseFlow, type FlowListing, type FlowRunPreview } from '../../../../shared/flows'
+import { parseFlow, type FlowListing, type FlowPersonaRef, type FlowRunPreview } from '../../../../shared/flows'
 import type { PlainKey } from '../../../../shared/i18n'
 import type { BranchInfo } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
 import { api, attempt, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
 import { ActionRow, Button, Callout, Card, Dialog, Field, LinkButton, Select, Status, Tag, TextArea, TextInput } from '../../ui'
 import { RUN_STATE, RUN_TONE } from './flowRunWords'
+import { PersonasSection } from './PersonasSection'
 
 const STARTER_NAME: Record<FlowStarter['id'], PlainKey> = {
   'fix-until-green': 'automations.flows.starter.fixUntilGreen',
@@ -47,41 +49,46 @@ function FlowList({ query }: { query: string }) {
 
   const needle = query.trim().toLowerCase()
   const shown = needle ? flows.filter((f) => `${flowTitle(f, t)}\n${f.toml}`.toLowerCase().includes(needle)) : flows
-  if (needle && !shown.length) return null
   const startNew = () => setOpen({ toml: FLOW_STARTERS[0].toml, starter: FLOW_STARTERS[0].id })
+  const usedBy = (name: string) => flows.filter((f) => f.summary?.personas.some((p) => p.toLowerCase() === name.toLowerCase())).map((f) => flowTitle(f, t))
 
   return (
-    <section aria-label={t('automations.flows')}>
-      <div className="auto-side-head">
-        <span>{t('automations.flows')}</span>
-        <span className="auto-side-tools">
-          <LinkButton size="sm" onClick={startNew}>
-            <Plus size={12} aria-hidden /> {t('automations.flows.new')}
-          </LinkButton>
-        </span>
-      </div>
-      <p className="faint small auto-side-note">{t('automations.flows.note')}</p>
-      <div className="auto-cards">
-        {shown.map((flow) => (
-          <div key={flow.id} className="flow-item">
-            <FlowCard flow={flow} onOpen={() => setOpen({ flow, toml: flow.toml })} onRun={() => setRunning(flow)} />
-            <FlowRuns flow={flow} />
+    <>
+      {(!needle || shown.length > 0) && (
+        <section aria-label={t('automations.flows')}>
+          <div className="auto-side-head">
+            <span>{t('automations.flows')}</span>
+            <span className="auto-side-tools">
+              <LinkButton size="sm" onClick={startNew}>
+                <Plus size={12} aria-hidden /> {t('automations.flows.new')}
+              </LinkButton>
+            </span>
           </div>
-        ))}
-      </div>
-      {running && <RunFlowDialog flow={running} onClose={() => setRunning(null)} />}
-      {open && (
-        <FlowDialog
-          editing={open}
-          onCopy={(toml) => setOpen({ toml })}
-          onClose={() => setOpen(null)}
-          onSaved={() => {
-            setOpen(null)
-            void load()
-          }}
-        />
+          <p className="faint small auto-side-note">{t('automations.flows.note')}</p>
+          <div className="auto-cards">
+            {shown.map((flow) => (
+              <div key={flow.id} className="flow-item">
+                <FlowCard flow={flow} onOpen={() => setOpen({ flow, toml: flow.toml })} onRun={() => setRunning(flow)} />
+                <FlowRuns flow={flow} />
+              </div>
+            ))}
+          </div>
+          {running && <RunFlowDialog flow={running} onClose={() => setRunning(null)} />}
+          {open && (
+            <FlowDialog
+              editing={open}
+              onCopy={(toml) => setOpen({ toml })}
+              onClose={() => setOpen(null)}
+              onSaved={() => {
+                setOpen(null)
+                void load()
+              }}
+            />
+          )}
+        </section>
       )}
-    </section>
+      <PersonasSection query={query} usedBy={usedBy} onChanged={() => void load()} />
+    </>
   )
 }
 
@@ -289,6 +296,12 @@ function FlowRuns({ flow }: { flow: FlowListing }) {
   )
 }
 
+/** Where a persona a run approves comes from: built-in, personal (and when it was saved), or its file and revision. */
+function personaWhere(p: FlowPersonaRef, t: RendererT): string {
+  const base = p.source === 'built-in' ? t('automations.flows.builtIn') : p.source === 'personal' ? t('automations.flows.personal') : t('automations.flows.fileRev', { file: p.file ?? '', rev: p.rev?.slice(0, 7) ?? '' })
+  return p.readOnly ? `${base} · ${t('automations.personas.readOnly')}` : base
+}
+
 /**
  * Run…: the repository (for a personal or built-in flow), the base branch, the flow's inputs, and what starting it
  * approves: the flow file and its revision, templates, personas, setup, checks, MCP servers and integrations. Starting
@@ -410,7 +423,7 @@ function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => vo
               <dt className="faint">{t('flowRun.dialog.templates')}</dt>
               <dd>{summary.templates.length ? summary.templates.map((x) => (x.rev ? `${x.name} @ ${x.rev.slice(0, 7)}` : x.name)).join(', ') : none}</dd>
               <dt className="faint">{t('flowRun.dialog.personas')}</dt>
-              <dd>{summary.personas.length ? t('flowRun.dialog.personasNote', { list: summary.personas.join(', ') }) : none}</dd>
+              <dd>{summary.personas.length ? summary.personas.map((p) => t('flowRun.dialog.personaWhere', { name: p.name, where: personaWhere(p, t) })).join(', ') : none}</dd>
               <dt className="faint">{t('flowRun.dialog.setup')}</dt>
               <dd>{summary.setupScript.trim() ? <code>{summary.setupScript.trim().split('\n')[0]}</code> : none}</dd>
               <dt className="faint">{t('flowRun.dialog.checks')}</dt>

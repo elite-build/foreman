@@ -682,6 +682,71 @@ workspace stays. ${FLOWS_OFF_NOTE}`,
   }
 ]
 
+// ---- personas (docs/loops-and-graphs.md, "Personas: who a step is") ----
+
+const PERSONA_REF = { name: 'persona', required: true, help: 'A persona’s name, id or file name (`foreman persona list` lists them)' }
+
+const PERSONA_SOURCES = `A step names a persona with persona = "…" in its flow. The name means your personal persona first, then the
+repository's .foreman/personas/<name>.md, then its Claude Code subagent .claude/agents/<name>.md (Claude steps only; its
+name, description and model are read, its tools aren't applied), then the built-in one (architect, developer,
+qa-engineer, designer).`
+
+export const PERSONA_COMMANDS: CommandSpec[] = [
+  {
+    path: ['persona', 'list'],
+    group: 'settings',
+    summary: 'List personas: built-in, the repository’s, its Claude subagents and your own',
+    usage: 'foreman persona list [--repo <name|path>]',
+    args: [],
+    options: { repo: { ...REPO, help: 'Whose .foreman/personas and .claude/agents files to list', default: 'the one you’re in, else every repository' } },
+    examples: ['foreman persona list', 'foreman persona list --repo api --json'],
+    details: `Prints each persona's name, source, file and revision, and what it is: read-only or edits, and what it should
+end with. A file that isn't a persona is listed with its problems, and one that another of the same name comes before
+says so. ${PERSONA_SOURCES} ${FLOWS_OFF_NOTE}`,
+    tier: 'read'
+  },
+  {
+    path: ['persona', 'show'],
+    group: 'settings',
+    summary: 'Print a persona’s settings, the flows that use it and its markdown',
+    usage: 'foreman persona show <persona> [--repo <name|path>]',
+    args: [PERSONA_REF],
+    options: { repo: { ...REPO, help: 'The repository whose persona files to look in' } },
+    examples: ['foreman persona show qa-engineer', 'foreman persona show architect --json'],
+    details: `A name means the persona a step of that name would run as. It prints what the persona may do (read-only,
+the MCP servers it keeps), what it is shown, its default loadout, what it should end with, the flows that name it, and
+the document. ${FLOWS_OFF_NOTE}`,
+    tier: 'read'
+  },
+  {
+    path: ['persona', 'add'],
+    group: 'settings',
+    summary: 'Save a personal persona from a markdown file',
+    usage: 'foreman persona add <file.md>',
+    args: [{ name: 'file', required: true, help: 'The persona’s markdown file, with its settings between two --- lines, relative to where you are' }],
+    options: {},
+    examples: ['foreman persona add personas/qa-engineer.md'],
+    exitCodes: { 1: 'The persona has problems, or you already have one of that name; they are listed and nothing is saved' },
+    details: `The file is checked as the persona editor checks it: name, then any of loadout, agent, model, read_only,
+shows, ends_with and mcp, with the instructions beneath. A personal persona is used in place of a repository or built-in
+one of the same name, and changing one changes the approval of every flow that uses it. ${FLOWS_OFF_NOTE}`,
+    tier: 'act'
+  },
+  {
+    path: ['persona', 'remove'],
+    group: 'settings',
+    summary: 'Delete a personal persona',
+    usage: 'foreman persona remove <persona> [--yes]',
+    args: [PERSONA_REF],
+    options: {},
+    examples: ['foreman persona remove qa-engineer --yes'],
+    exitCodes: CONFIRM_EXIT,
+    details: `Only personal personas: built-in ones and repository files are read-only here. A flow that names it then runs
+as the repository's or the built-in persona of that name, if there is one, or can't start. ${FLOWS_OFF_NOTE}`,
+    tier: 'act'
+  }
+]
+
 // ---- integrations ----
 
 const SERVICES = ['github', 'linear', 'slack', 'langfuse', 'vercel', 'e2b', 'daytona', 'docker'] as const
@@ -994,4 +1059,4 @@ export const DATA_COMMANDS: CommandSpec[] = [
 ]
 
 /** Every command of this file, in the order `foreman help` lists them. */
-export const AUTOMATION_COMMANDS: CommandSpec[] = [...AGENT_COMMANDS, ...TEMPLATE_COMMANDS, ...SAVED_COMMAND_COMMANDS, ...SCHEDULE_COMMANDS, ...FLOW_COMMANDS, ...INTEGRATION_COMMANDS, ...DATA_COMMANDS]
+export const AUTOMATION_COMMANDS: CommandSpec[] = [...AGENT_COMMANDS, ...TEMPLATE_COMMANDS, ...SAVED_COMMAND_COMMANDS, ...SCHEDULE_COMMANDS, ...FLOW_COMMANDS, ...PERSONA_COMMANDS, ...INTEGRATION_COMMANDS, ...DATA_COMMANDS]

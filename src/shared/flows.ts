@@ -1,9 +1,10 @@
 // Flows (docs/loops-and-graphs.md): a named graph of steps with one start, edges that branch on a step's facts,
 // and loops with bounds. This module is the model, the TOML reader and the checks, pure so the renderer (live
 // validation in the editor), main (repository files, personal flows) and tests share one set of rules. Nothing
-// here runs a step: a flow is only read, checked and listed in this slice.
+// here runs a step.
 import { parse } from 'smol-toml'
 import { createT, type TFunction } from './i18n'
+import { applyPersona, type Persona, type PersonaSource } from './personas'
 import { templatePlaceholders } from './promptTemplates'
 
 const enT = createT('en')
@@ -40,6 +41,9 @@ interface AgentStepFields {
   agent?: string
   model?: string
   context?: string[]
+  // Narrowing only (see applyPersona): read-only on, or fewer of the persona's MCP servers.
+  read_only?: boolean
+  mcp?: string[]
 }
 
 export type FlowStep = { name: string } & (
@@ -94,6 +98,15 @@ export interface FlowSummary {
   personas: string[]
 }
 
+/** A persona a flow names, as found where the flow is listed or runs. */
+export interface FlowPersonaRef {
+  name: string
+  source: PersonaSource
+  file?: string
+  rev?: string
+  readOnly?: boolean
+}
+
 /** A flow as the Automations page lists it, from any source. */
 export interface FlowListing {
   // 'built-in:<starter>', 'repo:<repoId>:<file>', or the personal flow's id.
@@ -108,6 +121,8 @@ export interface FlowListing {
   name: string
   toml: string
   summary?: FlowSummary
+  // The personas its steps name, as found (one that isn't found is among the problems).
+  personas?: FlowPersonaRef[]
   problems: string[]
   warnings: string[]
 }
@@ -128,11 +143,11 @@ const isTable = (v: unknown): v is Table => typeof v === 'object' && v !== null 
 const STEP_NAME = /^[A-Za-z0-9][\w-]*$/
 
 const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
-  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab'],
+  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab', 'read_only', 'mcp'],
   checks: [],
   script: ['command'],
-  review: ['persona', 'loadout', 'agent', 'model', 'context'],
-  decide: ['options', 'persona', 'loadout', 'agent', 'model', 'prompt', 'context'],
+  review: ['persona', 'loadout', 'agent', 'model', 'context', 'read_only', 'mcp'],
+  decide: ['options', 'persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
   workspace: ['from'],
   wait: ['on'],
   gate: ['show', 'ask'],
@@ -141,8 +156,14 @@ const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
 
 const TOP_FIELDS = ['name', 'description', 'made_from', 'start', 'steps', 'edges', 'loops', 'after', 'inputs']
 
-/** Read a flow document. Errors (bad TOML, a wrong shape, a broken graph) mean no flow; warnings ride along. */
-export function parseFlow(toml: string, source: FlowSource, t: TFunction = enT): FlowParse {
+/** The persona a name means where the flow runs, or undefined when there is none. */
+export type PersonaLookup = (name: string) => Persona | undefined
+
+/**
+ * Read a flow document. Errors (bad TOML, a wrong shape, a broken graph) mean no flow; warnings ride along. With
+ * `personas`, a step naming one that doesn't exist, or loosening one, is an error too.
+ */
+export function parseFlow(toml: string, source: FlowSource, t: TFunction = enT, personas?: PersonaLookup): FlowParse {
   let raw: unknown
   try {
     raw = parse(toml)
@@ -152,7 +173,7 @@ export function parseFlow(toml: string, source: FlowSource, t: TFunction = enT):
   }
   const read = flowFromObject(raw, source, t)
   if (!read.flow) return { problems: read.problems, warnings: read.warnings }
-  const checked = validateFlow(read.flow, t)
+  const checked = validateFlow(read.flow, t, personas)
   const problems = [...read.problems, ...checked.filter((p) => p.level === 'error').map((p) => p.text)]
   const warnings = [...read.warnings, ...checked.filter((p) => p.level === 'warning').map((p) => p.text)]
   return problems.length ? { problems, warnings } : { flow: read.flow, warnings }
@@ -279,6 +300,12 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     if (model) out.model = model
     const context = list('context')
     if (context) out.context = context
+    if (body.read_only !== undefined) {
+      if (typeof body.read_only === 'boolean') out.read_only = body.read_only
+      else problems.push(t('flows.problem.fieldBool', { step: name, field: 'read_only' }))
+    }
+    const mcp = list('mcp')
+    if (mcp) out.mcp = mcp
     return out
   }
   let step: FlowStep
@@ -410,6 +437,15 @@ export function loopsContaining(flow: Flow, step: string): FlowLoop[] {
   return flow.loops.filter((l) => l.over.includes(step))
 }
 
+/** The persona a step runs as: its own, else (continuing another step's tab) that step's. */
+export function stepPersona(flow: Flow, step: FlowStep): string | undefined {
+  if (step.kind !== 'turn' && step.kind !== 'review' && step.kind !== 'decide') return undefined
+  if (step.persona) return step.persona
+  if (step.kind !== 'turn' || !step.same_tab) return undefined
+  const other = flow.steps.find((s) => s.name === step.same_tab)
+  return other && other !== step && other.kind === 'turn' && other.persona ? other.persona : undefined
+}
+
 export function flowSummary(flow: Flow): FlowSummary {
   const personas: string[] = []
   for (const step of flow.steps) {
@@ -456,8 +492,20 @@ function reachableFrom(flow: Flow, names: Set<string>, name: string, within?: Se
   return seen
 }
 
-/** The graph's problems in words: errors refuse the flow, warnings are shown beside it. */
-export function validateFlow(flow: Flow, t: TFunction = enT): FlowProblem[] {
+/** Each persona a step names exists where the flow runs, and no step loosens it: the problems, in words. */
+export function flowPersonaProblems(flow: Flow, personas: PersonaLookup, t: TFunction = enT): string[] {
+  const out: string[] = []
+  for (const step of flow.steps) {
+    if (!('persona' in step) || !step.persona) continue
+    const persona = personas(step.persona)
+    if (!persona) out.push(t('flows.problem.personaUnknown', { step: step.name, persona: step.persona }))
+    else out.push(...applyPersona(step, persona, t).problems)
+  }
+  return out
+}
+
+/** The graph's problems in words: errors refuse the flow, warnings are shown beside it. `personas` checks the personas steps name. */
+export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaLookup): FlowProblem[] {
   const out: FlowProblem[] = []
   const error = (text: string) => out.push({ level: 'error', text })
   const warn = (text: string) => out.push({ level: 'warning', text })
@@ -543,6 +591,8 @@ export function validateFlow(flow: Flow, t: TFunction = enT): FlowProblem[] {
     if (iterations === undefined && minutes === undefined && cost === undefined) error(t('flows.problem.loopBound', { loop: loop.name }))
   }
 
+  if (personas) for (const problem of flowPersonaProblems(flow, personas, t)) error(problem)
+
   for (const step of flow.steps) if (names.has(flow.start) && !fromStart.has(step.name)) warn(t('flows.problem.unreachable', { step: step.name }))
   return out
 }
@@ -591,6 +641,9 @@ export interface FlowRunStep {
   delta?: { files: number; additions: number; deletions: number }
   // The context sections its message carried, in order ("task", "implement.answer", "checks.results").
   shown?: string[]
+  // The persona it ran as, and whether that held its tab read-only.
+  persona?: string
+  readOnly?: boolean
   // Minutes this step counted against its loops (a gate counts none).
   minutes?: number
 }
@@ -619,6 +672,8 @@ export interface FlowFingerprint {
   setup: string
   checks: string
   mcp: string
+  // Every persona the flow's steps run as: name, source and the document as written.
+  personas: string
 }
 
 export interface FlowRun {
@@ -658,7 +713,7 @@ export interface FlowRunSummary {
   steps: number
   loops: number
   gates: number
-  personas: string[]
+  personas: FlowPersonaRef[]
   templates: { name: string; rev?: string; source: 'personal' | 'repo' }[]
   setupScript: string
   checks: { name: string; command: string }[]

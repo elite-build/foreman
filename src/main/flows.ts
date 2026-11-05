@@ -1,7 +1,9 @@
 // Running a flow (docs/loops-and-graphs.md, "Running a flow"), on the rules ScheduleService follows:
 //  - a run is recorded (and flushed to disk) before anything launches, and again before each step starts;
-//  - its approval is a fingerprint (the flow, its templates, the repo's setup, checks and MCP servers), refused when what
-//    was shown differs from what would run;
+//  - its approval is a fingerprint (the flow, its templates and personas, the repo's setup, checks and MCP servers),
+//    refused when what was shown differs from what would run;
+//  - a step's persona narrows its turn: its instructions join the system prompt, read-only holds the tab, its MCP list
+//    keeps fewer servers, its `shows` adds context, its loadout is the default; a missing one refuses the start;
 //  - a turn step is unattended for its one turn: any approval or question stops the run for the human (needs-you);
 //  - a gate is planned: the run waits for a person, and that time counts against no loop;
 //  - loops end when an edge leaves them or a bound is hit, and a bound ends the run as stopped, naming it;
@@ -10,6 +12,8 @@
 // This version runs turn, checks and gate steps; a flow with any other kind is refused before it starts.
 import { createHash, randomUUID } from 'node:crypto'
 import { AGENTS, defaultModel, type AgentKind, type Loadout } from '../shared/agents'
+import { readOnlyEnforcement } from '../shared/permissions'
+import { applyPersona, personaMarkdown, type Persona, type TurnPersona } from '../shared/personas'
 import { FAILED_STATUSES } from '../shared/checks'
 import {
   FLOW_DONE,
@@ -17,6 +21,7 @@ import {
   isActiveRun,
   loopsContaining,
   nextStep,
+  stepPersona,
   unsupportedSteps,
   type Flow,
   type FlowFingerprint,
@@ -51,12 +56,15 @@ export interface PreparedFlow {
   ref: FlowRun['flow']
   // The name a step wrote → the template (undefined: it doesn't exist).
   templates: Record<string, FlowTemplate | undefined>
+  // The name a step runs as → the persona where the flow runs (undefined: there is none).
+  personas: Record<string, Persona | undefined>
   fingerprint: FlowFingerprint
 }
 
 export interface FlowFingerprintParts {
   flow: Flow
   templates: FlowTemplate[]
+  personas: Persona[]
   setupScript: string
   checks: { name: string; command: string }[]
   mcp: string[]
@@ -72,7 +80,9 @@ export function flowFingerprintOf(i: FlowFingerprintParts): FlowFingerprint {
     checks: i.checks,
     mcp: i.mcp
   })
-  return { flow: sha(flowFingerprintInputs(i.flow)), templates: base.template, setup: base.setup, checks: base.checks, mcp: base.mcp }
+  // Each persona as its document reads, with where it came from and its revision: a changed file changes the run's approval.
+  const personas = [...i.personas].sort((a, b) => a.name.localeCompare(b.name)).map((p) => [p.name, p.source, p.file ?? null, p.rev ?? null, personaMarkdown(p)])
+  return { flow: sha(flowFingerprintInputs(i.flow)), templates: base.template, setup: base.setup, checks: base.checks, mcp: base.mcp, personas: sha(personas) }
 }
 
 const PART_TEXT: Record<keyof FlowFingerprint, string> = {
@@ -80,7 +90,8 @@ const PART_TEXT: Record<keyof FlowFingerprint, string> = {
   templates: 'its templates',
   setup: 'the repo’s setup script',
   checks: 'the repo’s checks',
-  mcp: 'the repo’s MCP servers'
+  mcp: 'the repo’s MCP servers',
+  personas: 'its personas'
 }
 
 const joinWords = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] ?? '')
@@ -92,17 +103,29 @@ export function assertFlowFingerprintShown(shown: FlowFingerprint | undefined, n
   if (changed.length) throw new Error(`${SHOWN_CHANGED}. Changed: ${joinWords(changed)}.`)
 }
 
-/** The agent and model a turn step runs on: its loadout slot, its agent and model, or loadout 1. */
-export function stepLoadout(step: TurnStep, loadouts: Loadout[]): Loadout | { error: string } {
-  if (step.loadout !== undefined) {
-    const slot = loadouts[step.loadout - 1]
-    return slot ?? { error: `Loadout ${step.loadout} (step “${step.name}”) isn’t set in Settings.` }
+/**
+ * The agent and model a turn step runs on: its loadout slot, its agent and model, else its persona's default (a slot,
+ * or an agent and model), else loadout 1.
+ */
+export function stepLoadout(step: TurnStep, loadouts: Loadout[], persona?: Persona): Loadout | { error: string } {
+  const own = step.loadout !== undefined || Boolean(step.agent) || Boolean(step.model)
+  const s = persona ? applyPersona(step, persona) : step
+  const whose = !own && persona ? `persona “${persona.name}”, step “${step.name}”` : `step “${step.name}”`
+  if (s.loadout !== undefined) {
+    const slot = loadouts[s.loadout - 1]
+    return slot ?? { error: `Loadout ${s.loadout} (${whose}) isn’t set in Settings.` }
   }
   const first = loadouts[0] ?? { agent: 'claude' as const, model: defaultModel('claude'), fast: false }
-  if (!step.agent && !step.model) return first
-  const agent = (step.agent ?? first.agent) as AgentKind
-  if (!Object.hasOwn(AGENTS, agent)) return { error: `The agent “${step.agent}” (step “${step.name}”) isn’t one Foreman knows.` }
-  return { agent, model: step.model ?? (agent === first.agent ? first.model : defaultModel(agent)), fast: false }
+  if (!s.agent && !s.model) return first
+  const agent = (s.agent ?? first.agent) as AgentKind
+  if (!Object.hasOwn(AGENTS, agent)) return { error: `The agent “${s.agent}” (${whose}) isn’t one Foreman knows.` }
+  return { agent, model: s.model ?? (agent === first.agent ? first.model : defaultModel(agent)), fast: false }
+}
+
+/** The persona a step runs as where the flow runs, by the name it (or the step whose tab it continues) gives. */
+function personaOf(prepared: PreparedFlow, step: FlowStep): { name?: string; persona?: Persona } {
+  const name = stepPersona(prepared.flow, step)
+  return name ? { name, persona: prepared.personas[name] } : {}
 }
 
 /** Every reason the flow can't start, in words; empty when it can. */
@@ -115,14 +138,25 @@ export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { 
   if (first && first.kind !== 'turn') problems.push('A flow run starts with a turn step: its first message makes the workspace.')
   const notClaude: { step: string; agent: string }[] = []
   for (const step of flow.steps) {
+    // Every agent step's persona is there and isn't loosened, whether or not this version runs the step's kind.
+    const { name: personaName, persona } = personaOf(prepared, step)
+    if (personaName && !persona) problems.push(`The persona “${personaName}” (step “${step.name}”) isn’t here: no personal, repository, .claude/agents or built-in persona has that name.`)
+    if (persona && (step.kind === 'turn' || step.kind === 'review' || step.kind === 'decide')) problems.push(...applyPersona(step, persona).problems)
     if (step.kind !== 'turn') continue
     if (step.template && !prepared.templates[step.template]) problems.push(`The template “${step.template}” (step “${step.name}”) doesn’t exist.`)
     if (!step.template && !step.prompt && !step.same_tab && step.name === flow.start) problems.push(`The first step “${step.name}” has no prompt or template to send.`)
     // A step that continues another's tab runs on that tab's agent.
     if (step.same_tab) continue
-    const loadout = stepLoadout(step, loadouts)
-    if ('error' in loadout) problems.push(loadout.error)
-    else if (loadout.agent !== 'claude') notClaude.push({ step: step.name, agent: AGENTS[loadout.agent]?.label ?? loadout.agent })
+    const loadout = stepLoadout(step, loadouts, persona)
+    if ('error' in loadout) {
+      problems.push(loadout.error)
+      continue
+    }
+    const label = AGENTS[loadout.agent]?.label ?? loadout.agent
+    if (loadout.agent !== 'claude') notClaude.push({ step: step.name, agent: label })
+    if (applyPersona(step, persona).readOnly && !readOnlyEnforcement(loadout.agent))
+      problems.push(`The step “${step.name}” is read-only${persona?.read_only ? ` (persona “${persona.name}”)` : ''}, which ${label} can’t enforce.`)
+    if (persona?.source === 'claude-agents' && loadout.agent !== 'claude') problems.push(`The persona “${persona.name}” (step “${step.name}”) is a Claude Code subagent, for Claude steps only; this step runs on ${label}.`)
   }
   if (notClaude.length) problems.push(`Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: ${notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`)
   return { problems, unsupported, notClaude }
@@ -147,11 +181,11 @@ export interface FlowServiceDeps {
    * `created` is called once the workspace and its chat exist, before the message goes. Resolves once the first turn
    * has started (or is waiting for an agent slot); throws when it can't (setup failed, the turn didn't start).
    */
-  launch(run: FlowRun, first: { text: string; loadout: Loadout; step: string }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void>
+  launch(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void>
   /** A new tab in the run's workspace, on this loadout. Returns its id. */
   createSession(workspaceId: string, loadout: Loadout): string
-  /** Send a message as the turn with this id, unattended for that turn. Queued behind a running turn. */
-  deliver(sessionId: string, text: string, options: { turnId: string; unattended: { flowRunId: string; step: string } }): Promise<void>
+  /** Send a message as the turn with this id, unattended for that turn (and narrowed by its persona). Queued behind a running turn. */
+  deliver(sessionId: string, text: string, options: { turnId: string; unattended: { flowRunId: string; step: string; persona?: TurnPersona } }): Promise<void>
   cancel(sessionId: string): Promise<void>
   /** The repository's checks in the workspace, never approving a command (one needing consent comes back as such). */
   startChecks(workspaceId: string): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }>
@@ -381,9 +415,8 @@ export class FlowService {
     return parts.filter(Boolean).join('\n\n')
   }
 
-  /** The context sections a turn's message carries, in a fixed order, and the ones this version doesn't send. */
-  private async sections(run: FlowRun, step: TurnStep): Promise<{ sections: { id: string; label: string; text: string }[]; notSent: string[] }> {
-    const asked = step.context ?? []
+  /** The context sections a turn's message carries (its own and its persona's), in a fixed order, and the ones this version doesn't send. */
+  private async sections(run: FlowRun, asked: string[]): Promise<{ sections: { id: string; label: string; text: string }[]; notSent: string[] }> {
     const out: { id: string; label: string; text: string }[] = []
     const ws = run.workspaceId
     if (asked.includes('task') && run.task) out.push({ id: 'task', label: 'Task', text: run.task })
@@ -393,7 +426,8 @@ export class FlowService {
       const text = last ? turnAnswer(await this.deps.readChat(last.sessionId!), last.turnId!) : ''
       out.push({ id: ref, label: `Answer from “${from}”`, text: text || '(No answer was recorded.)' })
     }
-    if (asked.includes('checks.results') && ws) out.push({ id: 'checks.results', label: 'Check results', text: (await this.deps.checksResults(ws)) || 'All checks passed.' })
+    // Check results once a checks step has run in this run (a persona shown them may come first).
+    if (asked.includes('checks.results') && ws && run.steps.some((s) => s.kind === 'checks' && s.fact)) out.push({ id: 'checks.results', label: 'Check results', text: (await this.deps.checksResults(ws)) || 'All checks passed.' })
     if (asked.includes('diff') && ws) out.push({ id: 'diff', label: 'Diff (stat)', text: (await this.deps.diffStat(ws)) || 'No changes against the base branch.' })
     if (asked.includes('note') && ws) {
       const note = this.deps.note?.(ws)
@@ -405,10 +439,22 @@ export class FlowService {
 
   private async turn(run: FlowRun, prepared: PreparedFlow, flow: Flow, step: TurnStep, record: FlowRunStep): Promise<void> {
     const details: string[] = []
-    if (step.persona) details.push(`persona: ${step.persona} (not applied yet)`)
+    const { name: personaName, persona } = personaOf(prepared, step)
+    if (personaName && !persona) throw new Error(`The persona “${personaName}” (step “${step.name}”) no longer exists.`)
+    // The persona narrows the turn: read-only, fewer MCP servers, more context, its instructions in the system prompt.
+    const applied = applyPersona(step, persona)
+    if (applied.problems.length) throw new Error(applied.problems.join(' '))
+    if (persona) record.persona = persona.name
+    if (applied.readOnly) record.readOnly = true
+    if (persona) details.push(`persona: ${persona.name}${applied.readOnly ? ' (read-only)' : ''}`)
+    else if (applied.readOnly) details.push('read-only')
+    const limits: TurnPersona | undefined =
+      persona || applied.readOnly || applied.mcp
+        ? { ...(persona ? { name: persona.name, instructions: persona.instructions } : {}), ...(applied.readOnly ? { readOnly: true } : {}), ...(applied.mcp ? { mcp: applied.mcp } : {}) }
+        : undefined
     for (const loop of loopsContaining(flow, step.name)) if (loop.iteration && loop.iteration !== 'same-tab') details.push(`${loop.name}: ${loop.iteration} runs as same-tab in this version`)
     const body = this.body(run, prepared, step)
-    const { sections, notSent } = await this.sections(run, step)
+    const { sections, notSent } = await this.sections(run, applied.context)
     if (notSent.length) details.push(`not sent yet: ${notSent.join(', ')}`)
     let text = body || (sections.length ? 'Continue with the next step of this flow.' : '')
     // A gate's "Send back" note is the user's own instruction for this step, so it leads the message and is never
@@ -429,11 +475,11 @@ export class FlowService {
     if (!isActiveRun(run)) return
 
     if (!run.workspaceId) {
-      const loadout = stepLoadout(step, this.deps.loadouts())
+      const loadout = stepLoadout(step, this.deps.loadouts(), persona)
       if ('error' in loadout) throw new Error(loadout.error)
       run.task = text
       this.persist()
-      await this.deps.launch(run, { text, loadout, step: step.name }, {
+      await this.deps.launch(run, { text, loadout, step: step.name, ...(limits ? { persona: limits } : {}) }, {
         created: (workspaceId, sessionId) => {
           run.workspaceId = workspaceId
           record.sessionId = sessionId
@@ -450,14 +496,14 @@ export class FlowService {
     const from = step.same_tab ?? step.name
     let sessionId = run.steps.filter((s) => s.name === from && s !== record && s.sessionId).at(-1)?.sessionId
     if (!sessionId) {
-      const loadout = stepLoadout(step, this.deps.loadouts())
+      const loadout = stepLoadout(step, this.deps.loadouts(), persona)
       if ('error' in loadout) throw new Error(loadout.error)
       sessionId = this.deps.createSession(run.workspaceId, loadout)
     }
     record.sessionId = sessionId
     record.turnId = this.id()
     this.persist()
-    await this.deps.deliver(sessionId, text, { turnId: record.turnId, unattended: { flowRunId: run.id, step: step.name } })
+    await this.deps.deliver(sessionId, text, { turnId: record.turnId, unattended: { flowRunId: run.id, step: step.name, ...(limits ? { persona: limits } : {}) } })
   }
 
   private async checks(run: FlowRun, record: FlowRunStep): Promise<void> {

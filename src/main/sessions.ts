@@ -18,6 +18,7 @@ import { editIsStale, isAppCommand, moveQueuedMessage } from '../shared/queueEdi
 import { usageLimitOf } from '../shared/usageLimit'
 import { PreviewEncoder, RESYNC_MS, type ChatAppend } from '../shared/chatAppend'
 import type { DiffComment, NotifyKind, QueueChangeResult, QueueMove, SendReceipt, TurnDelta, TurnInterruption, TurnStatus, UsageLimit, WorkspaceUsage } from '../shared/types'
+import type { TurnPersona } from '../shared/personas'
 import type {
   AgentApprovalRequest,
   ApprovalRequest,
@@ -812,9 +813,14 @@ export class SessionService {
     return false
   }
 
-  /** #16: how this chat is held to read-only, or null when it isn't (or its agent can't enforce it, which refuses the turn). */
+  /** A flow step's persona for this turn (and what the step narrows), while its turn is unattended. */
+  private turnPersona(session: Session): TurnPersona | undefined {
+    return session.unattended && 'flowRunId' in session.unattended ? session.unattended.persona : undefined
+  }
+
+  /** #16: how this chat is held to read-only, or null when it isn't (or its agent can't enforce it, which refuses the turn). A flow step's persona can hold one turn read-only. */
   private readOnly(session: Session): ReturnType<typeof readOnlyEnforcement> {
-    if (!session.readOnly) return null
+    if (!session.readOnly && !this.turnPersona(session)?.readOnly) return null
     const how = readOnlyEnforcement(session.agent)
     if (!how) throw new Error(`This chat is read-only, which ${AGENTS[session.agent].label} can’t enforce`)
     return how
@@ -1003,8 +1009,8 @@ export class SessionService {
       noteRevision: note.revision,
       repoTemplate: extras.repoTemplate,
       origin: extras.origin,
-      // #16: the receipt says this turn ran read-only, and how that was enforced.
-      readOnly: session.readOnly ? readOnlyEnforcement(session.agent) ?? undefined : undefined,
+      // #16: the receipt says this turn ran read-only, and how that was enforced (a flow step's persona can make it so).
+      readOnly: session.readOnly || this.turnPersona(session)?.readOnly ? readOnlyEnforcement(session.agent) ?? undefined : undefined,
       // O1: which agent and model answered it, as a tab can switch agents.
       agent: session.agent,
       model: session.model,
@@ -1088,7 +1094,11 @@ export class SessionService {
     const taught = this.reports?.teach(session, ws, firstMessage) ?? null
     // Integrations: the accounts this repository uses, Foreman's bridge servers, and the user's own same-service servers switched off.
     const integ = this.integrationsFor(session, ws)
-    const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '')
+    // A flow step's persona: its instructions follow the rest, for this turn only; its MCP list keeps fewer servers.
+    const persona = this.turnPersona(session)
+    const personaText = persona?.name && persona.instructions?.trim() ? `This turn is a step of a Foreman flow, run as the persona “${persona.name}”. Its instructions:\n${persona.instructions.trim()}` : ''
+    const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '') + (personaText ? `\n\n${personaText}` : '')
+    const integServers = persona?.mcp ? Object.fromEntries(Object.entries(integ.servers).filter(([name]) => persona.mcp!.includes(name))) : integ.servers
 
     // Record what Foreman added from the strings handed to the agent, so the receipt is what happened.
     const attachmentText = this.attachmentText(ws, attachments)
@@ -1101,7 +1111,7 @@ export class SessionService {
     const catchUp = session.catchUpSince ? catchUpBlock(before, session.catchUpSince, session) : { text: '', cut: false }
     const sizes = await Promise.all(attachments.map(async (a) => ({ name: a.name, bytes: await stat(a.path).then((i) => i.size, () => undefined) })))
     // #20: the approved repo servers this agent gets; the receipt names them when the set changed since this tab's last turn.
-    const repoMcp = this.repoMcpFor(session, ws)
+    const repoMcp = this.repoMcpFor(session, ws, persona?.mcp)
     const t = this.t()
     const added = contextParts({
       instructions: baseInstructions,
@@ -1120,7 +1130,8 @@ export class SessionService {
       catchUpText: catchUp.text,
       catchUpSource: t('context.catchUp.sourceSince', { agent: AGENTS[session.agent].label }),
       repoMcp: repoMcp.changed,
-      integrations: integ.receipt
+      integrations: integ.receipt,
+      persona: persona?.name ? { name: persona.name, text: personaText, ...(persona.readOnly ? { readOnly: true } : {}), ...(persona.mcp ? { mcp: persona.mcp } : {}) } : undefined
     }, t)
     if (added.length) {
       message.added = added
@@ -1156,7 +1167,7 @@ export class SessionService {
         outputStyle: session.outputStyle,
         chrome: this.store.state.settings.chromeMode,
         extraWritableDirs: gitDir ? [gitDir] : undefined,
-        mcpServers: { ...repoMcp.servers, ...integ.servers, ...appServers },
+        mcpServers: { ...repoMcp.servers, ...integServers, ...appServers },
         inProcessMcp,
         disabledMcp: integ.disabled.length ? integ.disabled : undefined,
         sessionStore: this.mirrorFor(session, ws),
@@ -1183,9 +1194,11 @@ export class SessionService {
    * #20: the repo MCP servers a turn of this tab gets (approved as they are now, with only their declared variables),
    * for agents that take them. `changed` lists their names when the set differs from the tab's last turn ([] = none now).
    */
-  private repoMcpFor(session: Session, ws: Workspace): { servers?: Record<string, McpLaunch>; changed?: string[] } {
+  private repoMcpFor(session: Session, ws: Workspace, keep?: string[]): { servers?: Record<string, McpLaunch>; changed?: string[] } {
     const proposed = AGENTS[session.agent]?.supportsRepoMcp ? this.repoMcp?.launchable(ws) ?? {} : {}
-    const servers = this.integrations?.filterRepoServers(ws.repoId, proposed) ?? proposed
+    const allowed = this.integrations?.filterRepoServers(ws.repoId, proposed) ?? proposed
+    // A flow step's persona keeps only the servers it names, never more than the approvals give.
+    const servers = keep ? Object.fromEntries(Object.entries(allowed).filter(([name]) => keep.includes(name))) : allowed
     const names = Object.keys(servers).sort()
     const last = session.repoMcp?.servers ?? []
     const same = names.length === last.length && names.every((n, i) => n === last[i])

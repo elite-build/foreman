@@ -124,7 +124,7 @@ describe('PR facts on finished rows', () => {
 describe('triage: flow runs', () => {
   const run = (patch: Partial<FlowRun>): FlowRun => ({
     id: 'run', flow: { id: 'f', name: 'Green', source: 'personal' }, repoId: 'r', baseBranch: 'main', inputs: {},
-    fingerprint: { flow: '', templates: '', setup: '', checks: '', mcp: '' }, state: 'running', startedAt: ago(30), workspaceId: 'ws',
+    fingerprint: { flow: '', templates: '', setup: '', checks: '', mcp: '', personas: '' }, state: 'running', startedAt: ago(30), workspaceId: 'ws',
     steps: [{ name: 'build', kind: 'turn', iteration: 1, state: 'completed', startedAt: ago(30), endedAt: ago(20), sessionId: 's1', turnId: 't1' }],
     loops: {}, ...patch
   })

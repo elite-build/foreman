@@ -35,7 +35,9 @@ import { PrCache } from './prCache'
 import { probePreview } from './previewProbe'
 import { browserUrl } from '../shared/browser'
 import { readRepoTemplates, revalidateRepoTemplates } from './repoTemplates'
-import { listFlows, personalFlowListing } from './flowFiles'
+import { listFlows, personalFlowListing, personaRef } from './flowFiles'
+import { listPersonas, personalPersonaListing } from './personaFiles'
+import { findPersona, MAX_PERSONA_BYTES, MAX_PERSONAL_PERSONAS, parsePersona, type Persona, type PersonaList, type PersonaListing, type TurnPersona } from '../shared/personas'
 import { MAX_FLOW_BYTES, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunPreview, type FlowRunStart } from '../shared/flows'
 import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowTemplate, type PreparedFlow } from './flows'
 import { isFailure } from '../shared/checks'
@@ -251,7 +253,7 @@ export function expandPorts(template: string, port: number): string {
 interface InternalStart {
   scheduled?: { scheduleId: string; occurrenceId: string }
   // A flow run's first step: the workspace is the run's, and its first turn is unattended as that step.
-  flowRun?: { runId: string; step: string }
+  flowRun?: { runId: string; step: string; persona?: TurnPersona }
   onChat?: (workspaceId: string, sessionId: string) => void
 }
 
@@ -1540,7 +1542,52 @@ export class Core {
   private listFlows(repoId?: string): FlowListing[] {
     this.flowsOn()
     if (repoId) this.workspaces.repo(repoId)
-    return listFlows(this.store.state.repos, this.store.state.personalFlows ?? [], mainT(this.store.state.settings), repoId)
+    const t = mainT(this.store.state.settings)
+    // Each flow's personas resolved where it runs: one that isn't there is a problem on the flow.
+    return listFlows(this.store.state.repos, this.store.state.personalFlows ?? [], t, repoId, this.personaListings(repoId))
+  }
+
+  private personaListings(repoId?: string): PersonaListing[] {
+    return listPersonas(this.store.state.repos, this.store.state.personalPersonas ?? [], mainT(this.store.state.settings), repoId)
+  }
+
+  /** Personas (who a flow's step is) from every source, and the MCP servers the repositories propose, which a persona may keep fewer of. */
+  private listPersonas(repoId?: string): PersonaList {
+    this.flowsOn()
+    if (repoId) this.workspaces.repo(repoId)
+    const repos = this.store.state.repos.filter((r) => !repoId || r.id === repoId)
+    const mcpServers = [...new Set(repos.flatMap((r) => (readSharedLayer(r.rootPath).mcp ?? []).map((server) => server.name)))].sort()
+    return { personas: this.personaListings(repoId), mcpServers }
+  }
+
+  /** A personal persona saved as written, once it reads; its problems otherwise, with nothing saved. */
+  private savePersonalPersona(input: { id?: string; markdown: string }): { persona: PersonaListing } | { problems: string[] } {
+    this.flowsOn()
+    if (typeof input?.markdown !== 'string') throw new Error('A persona needs its markdown document.')
+    const t = mainT(this.store.state.settings)
+    if (Buffer.byteLength(input.markdown, 'utf8') > MAX_PERSONA_BYTES) return { problems: [t('flows.problem.tooLarge', { kb: Math.round(MAX_PERSONA_BYTES / 1024) })] }
+    const parsed = parsePersona(input.markdown, 'personal', t)
+    if ('problems' in parsed) return { problems: parsed.problems }
+    const personas = (this.store.state.personalPersonas ??= [])
+    let persona = input.id ? personas.find((p) => p.id === input.id) : undefined
+    if (input.id && !persona) throw new Error('That persona isn’t saved any more.')
+    const name = parsed.persona.name.toLowerCase()
+    const clash = personas.find((p) => p !== persona && personalPersonaListing(p, t).persona?.name.toLowerCase() === name)
+    if (clash) return { problems: [t('personas.problem.duplicate', { name: parsed.persona.name })] }
+    if (!persona && personas.length >= MAX_PERSONAL_PERSONAS) return { problems: [t('personas.problem.tooMany', { max: MAX_PERSONAL_PERSONAS })] }
+    const now = new Date().toISOString()
+    if (persona) Object.assign(persona, { markdown: input.markdown, updatedAt: now })
+    else personas.push((persona = { id: `persona-${randomUUID()}`, markdown: input.markdown, createdAt: now, updatedAt: now }))
+    this.store.save()
+    return { persona: personalPersonaListing(persona, t) }
+  }
+
+  private deletePersonalPersona(id: string): void {
+    this.flowsOn()
+    const personas = this.store.state.personalPersonas ?? []
+    if (!personas.some((p) => p.id === id)) return
+    this.store.state.personalPersonas = personas.filter((p) => p.id !== id)
+    this.store.save()
   }
 
   /** A personal flow saved as written, once it parses; its problems otherwise, with nothing saved. */
@@ -1641,9 +1688,18 @@ export class Core {
       const found = all.find((x) => x.id === ref) ?? all.find((x) => x.name.trim().toLowerCase() === ref.trim().toLowerCase())
       templates[ref] = found && { id: found.id, name: found.name, body: found.body, ...(found.rev ? { rev: found.rev } : {}), source: found.source === 'repo' ? 'repo' : 'personal' }
     }
-    const fingerprint = flowFingerprintOf({ flow, templates: Object.values(templates).filter((x): x is FlowTemplate => Boolean(x)), ...this.repoApprovalParts(repo) })
+    // Each persona a step names, as it reads in this repository now (yours, the repository's, .claude/agents, built-in).
+    const listings = this.personaListings(repo.id)
+    const personas: Record<string, Persona | undefined> = {}
+    for (const step of flow.steps) if ('persona' in step && step.persona && !(step.persona in personas)) personas[step.persona] = findPersona(listings, step.persona, repo.id)
+    const fingerprint = flowFingerprintOf({
+      flow,
+      templates: Object.values(templates).filter((x): x is FlowTemplate => Boolean(x)),
+      personas: Object.values(personas).filter((x): x is Persona => Boolean(x)),
+      ...this.repoApprovalParts(repo)
+    })
     const ref: FlowRun['flow'] = { id: listing.id, name: flow.name, source: listing.source, ...(listing.starter ? { starter: listing.starter } : {}), ...(listing.file ? { file: listing.file } : {}), ...(listing.rev ? { rev: listing.rev } : {}) }
-    return { flow, ref, templates, fingerprint }
+    return { flow, ref, templates, personas, fingerprint }
   }
 
   /** What starting a flow in this repository would approve now, and the values it asks for (the Run dialog). */
@@ -1655,8 +1711,7 @@ export class Core {
     const { flow } = prepared
     const parts = this.repoApprovalParts(repo)
     const { problems, unsupported, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
-    const personas: string[] = []
-    for (const step of flow.steps) if ('persona' in step && step.persona && !personas.includes(step.persona)) personas.push(step.persona)
+    const personas = Object.values(prepared.personas).flatMap((p) => (p ? [personaRef(p)] : []))
     return {
       fingerprint: prepared.fingerprint,
       summary: {
@@ -1696,11 +1751,11 @@ export class Core {
    * A flow run's first step: a fresh workspace made the way a scheduled run's is, its first chat unattended for that turn.
    * Resolves once the first turn has started.
    */
-  private async launchFlowRun(run: FlowRun, first: { text: string; loadout: Loadout; step: string }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
+  private async launchFlowRun(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
     const ws = await this.createFromOptions(
       run.repoId,
       { prompt: first.text, baseBranch: run.baseBranch, branch: { kind: 'new' }, loadout: first.loadout },
-      { flowRun: { runId: run.id, step: first.step }, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
+      { flowRun: { runId: run.id, step: first.step, ...(first.persona ? { persona: first.persona } : {}) }, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
     )
     const setup = await this.setupOutcome(ws.id)
     if (setup.failed || setup.held) throw new Error(`Setup failed, so the first message was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
@@ -1855,7 +1910,7 @@ export class Core {
     })
     // Marked before the first message can go, so the run is unattended from its first tool call.
     if (internal?.scheduled) session.unattended = { occurrenceId: internal.scheduled.occurrenceId }
-    if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step }
+    if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step, ...(internal.flowRun.persona ? { persona: internal.flowRun.persona } : {}) }
     internal?.onChat?.(workspaceId, session.id)
     if (prompt?.trim() || files?.length) {
       this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}) })
@@ -2667,6 +2722,9 @@ export class Core {
     listFlows: async (repoId) => this.listFlows(repoId),
     savePersonalFlow: async (input) => this.savePersonalFlow(input),
     deletePersonalFlow: async (id) => this.deletePersonalFlow(id),
+    listPersonas: async (repoId) => this.listPersonas(repoId),
+    savePersonalPersona: async (input) => this.savePersonalPersona(input),
+    deletePersonalPersona: async (id) => this.deletePersonalPersona(id),
     flowRunPreview: async (input) => this.flowRunPreview(input),
     startFlowRun: async (input) => this.startFlowRun(input),
     stopFlowRun: async (runId) => {

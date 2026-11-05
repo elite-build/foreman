@@ -83,7 +83,7 @@ const repo = { id: 'r1', name: 'api', rootPath: root, defaultBranch: 'develop' }
 const ws = { id: 'ws1', repoId: 'r1', name: 'lisbon', branch: 'flow-tidy', baseBranch: 'develop', state: 'ready', path: '/x', createdAt: 'x' } as Workspace
 const tab = { id: 's1', workspaceId: 'ws1', agent: 'claude', model: 'claude-opus-5-5[1m]', status: 'idle', queue: [], fastMode: false, planMode: false } as unknown as Session
 
-const FP: FlowFingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm' }
+const FP: FlowFingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
 
 function preview(over: Partial<FlowRunPreview['summary']> = {}, inputs = [{ name: 'task', description: 'What to tidy' }]): FlowRunPreview {
   return {
