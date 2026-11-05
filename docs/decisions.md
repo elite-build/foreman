@@ -44,6 +44,26 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 
 **Revisit when.** Flows ship: they add Flows and Personas tabs here, and runs may earn the centre.
 
+## 2026-11-06: A flow branches on a fact's kind, never on an agent's words
+
+**Decision.** A flow's edges choose the next step from facts a step produced: checks passed or failed, a review clean or with findings, a gate continued, sent back or stopped, an option a `decide` step reported through Foreman's tool. Nothing in a flow reads an agent's prose, and a sent-back note is the user's instruction, never data.
+
+**Why.** Loops that end when an agent says it is done end when the agent is wrong. Facts come from Foreman's own records and tools, so a run is predictable and auditable, and a step can run on a smaller model because the routing isn't its job.
+
+**Turned down.** Matching the answer's text (brittle, and an agent can be prompted into it). Confidence scores from the model (uncalibrated). Letting the agent call the next step itself (that is delegation, which already exists and isn't persisted).
+
+**Revisit when.** An agent can return a typed verdict the harness verifies, not a sentence.
+
+## 2026-11-06: A flow is edited as an outline and shown as a diagram, not drawn on a canvas
+
+**Decision.** A flow is a TOML file; the app edits it as a list of steps with forms, and draws it with the Mermaid renderer the chat already has, with a Run · Context · Memory · Data lens switch. The diagram is a picture of the outline and opens nothing itself; the outline carries every fact and is what the keyboard and a screen reader use. Flows are off by default, behind Settings → Experimental → Flows, and off means none of it is shown.
+
+**Why.** The graphs are a dozen nodes with labelled edges; a canvas would be a new component with its own keyboard model for little gain, and the catalogue forbids a second way to build controls. The file diffs and ships with the repository.
+
+**Turned down.** A drag-and-drop canvas (a new interaction model and component). Rendering the graph as the only view (not accessible). Shipping the feature on by default (it adds tabs, sections and tools everyone would see).
+
+**Revisit when.** Flows routinely exceed what a list can show, or the switch has been on for most users for a release.
+
 ## 2026-11-03: The terminal panel's scripts and terminals are tabs in its header
 
 **Decision.** Run scripts, Setup and terminals are one row of tabs in the panel's header, with + for a new terminal, another shell or a saved command (the Commands button is gone). No terminal opens until asked for; with no run script and nothing open, Run is the only tab and its panel offers four ways on. Setup's tab is an icon until selected.

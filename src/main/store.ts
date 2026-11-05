@@ -468,8 +468,14 @@ export class Store {
     return perf.timed('store.save', async () => {
       this.db.syncRows(this.state)
       const tmp = `${this.statePath}.tmp`
-      await writeFile(tmp, this.preferences())
-      await renameWithRetry(tmp, this.statePath)
+      try {
+        await writeFile(tmp, this.preferences())
+        await renameWithRetry(tmp, this.statePath)
+      } catch (error) {
+        // A save that was in flight when the store closed (quit, or a test's teardown) has nowhere to land; the
+        // synchronous flush on close already wrote the state.
+        if (!this.closed) throw error
+      }
     })
   }
 
