@@ -9,3 +9,5 @@ export declare function newComponentProblems(input: {
   has: (path: string) => boolean
   gallery: string
 }): string[]
+export declare function addedExports(baseIndex: string, headIndex: string): [name: string, module: string][]
+export declare function orderProblems(input: { baseIndex: string; headIndex: string; changed: string[] }): string[]
