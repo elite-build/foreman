@@ -7,6 +7,13 @@ export const FOREMAN_CLI_TOOL = {
   schema: z.object({ args: z.array(z.string().max(1000)).min(1).max(40) }).strict()
 } as const
 
+/**
+ * The assistant's run_foreman takes longer words than a workspace agent's: a flow or persona it drafted goes on its Run
+ * card as one argument (`flow add --toml`, `persona add --markdown`), up to a flow file's limit. It still only proposes:
+ * the command runs when the user clicks Run.
+ */
+export const ASSISTANT_CLI_ARGS = z.object({ args: z.array(z.string().max(64 * 1024)).min(1).max(40) }).strict()
+
 // Reviewed runner/request pairs. A CLI command changing its request must be
 // reviewed before it gains access through the workspace MCP escape hatch.
 export const MCP_CLI_READ_COMMANDS: Readonly<Record<string, string>> = {
@@ -22,5 +29,7 @@ export const CLI_DEDICATED_TOOLS: Readonly<Record<string, readonly string[]>> = 
   send: ['send_task'],
   wait: ['wait_for_turn'],
   cancel: ['cancel_turn'],
-  checks: ['run_checks', 'get_check_results']
+  checks: ['run_checks', 'get_check_results'],
+  // A workspace agent starts a flow with start_flow (under the repository's opt-in), never through this fallback.
+  'flow run': ['start_flow']
 }

@@ -189,6 +189,10 @@ describe('second opinion', () => {
     expect(open()).toHaveLength(2)
     expect(result.session).toMatchObject({ agent: 'codex', model: 'gpt-6.1-sol', title: 'Second opinion', planMode: false })
     expect(result.session.agentSessionId).toBeUndefined()
+    // Where it came from is kept on it: the source, the turn, the sections sent and their previewed hashes.
+    const req = await request()
+    expect(result.session.handedOffFrom).toEqual({ sessionId: source.id, kind: 'second-opinion', turnId: 't1', sections: ['task', 'answer', 'diff'], hashes: req.expect, at: expect.any(String) })
+    expect(store.state.sessions.find((s) => s.id === result.session.id)?.handedOffFrom?.sessionId).toBe(source.id)
     await vi.waitFor(() => expect(seen).toHaveLength(1))
     expect(seen[0].resume).toBeUndefined()
     expect(seen[0].prompt).toContain('## Task\n\nFix the flaky test')

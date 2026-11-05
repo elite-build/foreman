@@ -52,3 +52,28 @@
   flex: 1;
   min-height: 32px;
 }
+/* A flow's gate: the question, then what it shows as read-only lines. */
+.gate-ask {
+  margin: 0;
+}
+.gate-show {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 18px;
+}
+/* A flow's pick: each result a card with a link beside it to open its workspace. */
+.pick-choices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pick-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pick-choice > .question-option {
+  flex: 1;
+}

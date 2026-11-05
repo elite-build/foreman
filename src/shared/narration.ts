@@ -106,7 +106,7 @@ export function turnEnded(t: TFunction, input: TurnEndedInput): string {
 type Kind = ApprovalRequest['kind']
 
 /** A question outranks a plan outranks a tool approval: the one that says the most about what is wanted. */
-const RANK: Record<Kind, number> = { question: 0, plan: 1, tool: 2 }
+const RANK: Record<Kind, number> = { question: 0, gate: 1, pick: 1, plan: 1, tool: 2 }
 
 /** MCP tools are named `mcp__server__tool`; say the tool. */
 const toolLabel = (name: string): string => name.replace(/^mcp__[^_]+__/, '')
@@ -152,6 +152,10 @@ export function needsYou(t: TFunction, approval: ApprovalRequest, context: Needs
       const steps = planSteps(approval.plan)
       return steps ? t('narration.needs.plan', { agent, workspace, count: steps }) : t('narration.needs.planBare', { agent, workspace })
     }
+    case 'gate':
+      return t('narration.needs.gate', { flow: approval.flowName, workspace, step: approval.step, ask: oneLine(approval.ask) })
+    case 'pick':
+      return t('narration.needs.pick', { flow: approval.flowName, workspace, step: approval.step, count: approval.choices.length })
   }
 }
 
@@ -284,6 +288,10 @@ function waitingPhrase(t: TFunction, approval: ApprovalRequest, agent: string, r
       const steps = planSteps(approval.plan)
       return steps ? t('narration.summary.plan', { agent, count: steps }) : t('narration.summary.planBare', { agent })
     }
+    case 'gate':
+      return t('narration.summary.gate', { flow: approval.flowName, step: approval.step })
+    case 'pick':
+      return t('narration.summary.pick', { flow: approval.flowName, step: approval.step })
   }
 }
 

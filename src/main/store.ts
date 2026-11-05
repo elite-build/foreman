@@ -22,11 +22,42 @@ import type { GitBackupStatus } from '../shared/gitBackup'
 import { addStops, type StopRecord } from '../shared/stopSafely'
 import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
 import type { IntegrationsState } from '../shared/integrations'
+import type { FlowRun, PersonalFlow } from '../shared/flows'
+import type { PersonalPersona } from '../shared/personas'
 import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
 import { migrateRepoFields } from './repoSettings'
 import { ForemanDb } from './db'
 import { perf } from './perf'
 import { ensureDatabase, type MigrationInfo } from './legacyImport'
+
+// On Windows, moving the written file into place can fail for a moment while an indexer or antivirus holds the old
+// one (EPERM, EBUSY, EACCES); a few short retries get past it. Anything else is thrown as before.
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
+const RENAME_TRIES = 5
+const retryDelayMs = (attempt: number) => 25 * (attempt + 1)
+const retryable = (error: unknown, attempt: number) => attempt < RENAME_TRIES - 1 && RENAME_RETRY_CODES.has((error as NodeJS.ErrnoException)?.code ?? '')
+
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await rename(from, to)
+    } catch (error) {
+      if (!retryable(error, attempt)) throw error
+      await new Promise((r) => setTimeout(r, retryDelayMs(attempt)))
+    }
+  }
+}
+
+function renameSyncWithRetry(from: string, to: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return renameSync(from, to)
+    } catch (error) {
+      if (!retryable(error, attempt)) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, retryDelayMs(attempt))
+    }
+  }
+}
 
 export interface PersistedState {
   version: 1 | 2
@@ -50,6 +81,12 @@ export interface PersistedState {
   // Scheduled templates (R-5) and their runs. Written with a synchronous flush before a run launches.
   schedules?: Schedule[]
   occurrences?: Occurrence[]
+  // Personal flows (docs/loops-and-graphs.md): the TOML documents, kept beside personal templates in state.json.
+  personalFlows?: PersonalFlow[]
+  // Personal personas (who a flow's step is): the markdown documents, beside personal flows.
+  personalPersonas?: PersonalPersona[]
+  // Flow runs, like occurrences: written with a synchronous flush before anything of a run launches.
+  flowRuns?: FlowRun[]
   // Paired Macs (keys are in the vault) and hand-offs (P-4).
   devices?: { selfId?: string; paired: PairedDevice[] }
   transfers?: Transfer[]
@@ -182,6 +219,8 @@ export function defaultSettings(): Settings {
     autoRunAfterSetup: false,
     forkToNewTab: true,
     showResourceUsage: false,
+    // Flows are an experiment: off until the person here turns them on (a repository can't).
+    flows: false,
     diagnostics: true,
     terminalScrollbackMb: 10,
     terminalCopyOnSelect: false,
@@ -222,6 +261,14 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   state.migrations ??= []
   state.schedules ??= []
   state.occurrences ??= []
+  state.flowRuns = (Array.isArray(state.flowRuns) ? state.flowRuns : []).filter((r) => r && typeof r.id === 'string' && typeof r.state === 'string' && Array.isArray(r.steps))
+  // Personal flows checked entry by entry; anything malformed is dropped.
+  state.personalFlows = (Array.isArray(state.personalFlows) ? state.personalFlows : []).filter(
+    (f) => f && typeof f.id === 'string' && typeof f.toml === 'string' && typeof f.createdAt === 'string' && typeof f.updatedAt === 'string'
+  )
+  state.personalPersonas = (Array.isArray(state.personalPersonas) ? state.personalPersonas : []).filter(
+    (p) => p && typeof p.id === 'string' && typeof p.markdown === 'string' && typeof p.createdAt === 'string' && typeof p.updatedAt === 'string'
+  )
   // Older schedules selected weekdays only. Preserve their planned next run while adding the new cadence fields.
   for (const schedule of state.schedules) {
     schedule.recurrence ??= schedule.weekdays.length === 7 ? 'daily' : 'weekly'
@@ -421,8 +468,14 @@ export class Store {
     return perf.timed('store.save', async () => {
       this.db.syncRows(this.state)
       const tmp = `${this.statePath}.tmp`
-      await writeFile(tmp, this.preferences())
-      await rename(tmp, this.statePath)
+      try {
+        await writeFile(tmp, this.preferences())
+        await renameWithRetry(tmp, this.statePath)
+      } catch (error) {
+        // A save that was in flight when the store closed (quit, or a test's teardown) has nowhere to land; the
+        // synchronous flush on close already wrote the state.
+        if (!this.closed) throw error
+      }
     })
   }
 
@@ -434,7 +487,7 @@ export class Store {
     this.db.syncRows(this.state)
     const tmp = `${this.statePath}.tmp`
     writeFileSync(tmp, this.preferences())
-    renameSync(tmp, this.statePath)
+    renameSyncWithRetry(tmp, this.statePath)
   }
 
   /** Flush and let go of foreman.db (app quit, or a test finishing). */

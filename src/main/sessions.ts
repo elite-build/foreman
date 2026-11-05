@@ -15,10 +15,13 @@ import { contextParts, pendingComments } from '../shared/context'
 import { hasNote, noteBlock, noteMessage, savedNote } from '../shared/note'
 import { workspaceUsage } from '../shared/usage'
 import { editIsStale, isAppCommand, moveQueuedMessage } from '../shared/queueEdit'
+import { isActiveRun } from '../shared/flows'
 import { usageLimitOf } from '../shared/usageLimit'
 import { PreviewEncoder, RESYNC_MS, type ChatAppend } from '../shared/chatAppend'
 import type { DiffComment, NotifyKind, QueueChangeResult, QueueMove, SendReceipt, TurnDelta, TurnInterruption, TurnStatus, UsageLimit, WorkspaceUsage } from '../shared/types'
+import type { TurnPersona } from '../shared/personas'
 import type {
+  AgentApprovalRequest,
   ApprovalRequest,
   ApprovalResponse,
   Attachment,
@@ -49,7 +52,8 @@ import { catalogAgent } from '../shared/agentCatalog'
 import type { AgentKind } from '../shared/agents'
 import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint } from './checkpoints'
 import { alertsAfterRewind } from '../shared/sensitive'
-import { endCheckpointId, sensitiveAlert, startCheckpointId, turnDelta } from './turnDelta'
+import { checkpointTrees, endCheckpointId, sensitiveAlert, startCheckpointId, turnDelta } from './turnDelta'
+import { isMemoryPath } from '../shared/memoryPaths'
 import { attachFromData, attachmentNote } from './files'
 import type { Environment } from './environment'
 import { IntegrationBridge } from './integrationBridge'
@@ -65,6 +69,9 @@ import { pendingKey, type ClaudeMirror } from './claudeMirror'
 import { HISTORY_ONLY_REASON, wsPath } from '../shared/workspacePath'
 import type { TurnReports } from './agentReports'
 import { hasReportTools } from '../shared/agentReports'
+
+// At most this many memory paths on one turn's end item.
+const MAX_TURN_MEMORY_WRITES = 20
 
 /** Per-message choices carried from send to the turn that carries it. */
 interface TurnExtras {
@@ -97,7 +104,7 @@ export interface SessionEvents {
 }
 
 // An approval request before it gets its id and session.
-type NewApproval = ApprovalRequest extends infer R ? (R extends ApprovalRequest ? Omit<R, 'id' | 'sessionId'> : never) : never
+type NewApproval = AgentApprovalRequest extends infer R ? (R extends AgentApprovalRequest ? Omit<R, 'id' | 'sessionId'> : never) : never
 
 interface PendingApproval {
   request: ApprovalRequest
@@ -214,6 +221,8 @@ export class SessionService {
   // Cloud: chats whose queue waits while a turn they lost the connection to is looked for (drainQueue).
   private draining = new Set<string>()
   private approvals = new Map<string, PendingApproval>()
+  // Turns to run unattended when they start (a flow's turn step, possibly queued behind another turn), by turn id.
+  private unattendedTurns = new Map<string, NonNullable<Session['unattended']>>()
   private naming = new Set<string>()
   // Turns to stop the moment their agent exists (cancelled while still starting).
   private cancelOnStart = new Set<string>()
@@ -809,9 +818,14 @@ export class SessionService {
     return false
   }
 
-  /** #16: how this chat is held to read-only, or null when it isn't (or its agent can't enforce it, which refuses the turn). */
+  /** A flow step's persona for this turn (and what the step narrows), while its turn is unattended. */
+  private turnPersona(session: Session): TurnPersona | undefined {
+    return session.unattended && 'flowRunId' in session.unattended ? session.unattended.persona : undefined
+  }
+
+  /** #16: how this chat is held to read-only, or null when it isn't (or its agent can't enforce it, which refuses the turn). A flow step's persona can hold one turn read-only. */
   private readOnly(session: Session): ReturnType<typeof readOnlyEnforcement> {
-    if (!session.readOnly) return null
+    if (!session.readOnly && !this.turnPersona(session)?.readOnly) return null
     const how = readOnlyEnforcement(session.agent)
     if (!how) throw new Error(`This chat is read-only, which ${AGENTS[session.agent].label} can’t enforce`)
     return how
@@ -979,6 +993,12 @@ export class SessionService {
   private async beginTurn(session: Session, ws: Workspace, text: string, attachments: Attachment[], followUp?: MessageFollowUp, id?: string, extras: TurnExtras = {}): Promise<void> {
     const sessionId = session.id
     const turnId = id ?? randomUUID()
+    // A flow's turn step is unattended from its first tool call, for this turn only (endTurn clears it).
+    const unattended = this.unattendedTurns.get(turnId)
+    if (unattended) {
+      this.unattendedTurns.delete(turnId)
+      session.unattended = unattended
+    }
     const checkpointId = startCheckpointId(sessionId, turnId)
     const firstMessage = !session.agentSessionId && !session.lastAssistantUuid
     const note = this.noteDelivery(session, ws, extras.noteRevision)
@@ -994,8 +1014,8 @@ export class SessionService {
       noteRevision: note.revision,
       repoTemplate: extras.repoTemplate,
       origin: extras.origin,
-      // #16: the receipt says this turn ran read-only, and how that was enforced.
-      readOnly: session.readOnly ? readOnlyEnforcement(session.agent) ?? undefined : undefined,
+      // #16: the receipt says this turn ran read-only, and how that was enforced (a flow step's persona can make it so).
+      readOnly: session.readOnly || this.turnPersona(session)?.readOnly ? readOnlyEnforcement(session.agent) ?? undefined : undefined,
       // O1: which agent and model answered it, as a tab can switch agents.
       agent: session.agent,
       model: session.model,
@@ -1079,7 +1099,11 @@ export class SessionService {
     const taught = this.reports?.teach(session, ws, firstMessage) ?? null
     // Integrations: the accounts this repository uses, Foreman's bridge servers, and the user's own same-service servers switched off.
     const integ = this.integrationsFor(session, ws)
-    const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '')
+    // A flow step's persona: its instructions follow the rest, for this turn only; its MCP list keeps fewer servers.
+    const persona = this.turnPersona(session)
+    const personaText = persona?.name && persona.instructions?.trim() ? `This turn is a step of a Foreman flow, run as the persona “${persona.name}”. Its instructions:\n${persona.instructions.trim()}` : ''
+    const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '') + (personaText ? `\n\n${personaText}` : '')
+    const integServers = persona?.mcp ? Object.fromEntries(Object.entries(integ.servers).filter(([name]) => persona.mcp!.includes(name))) : integ.servers
 
     // Record what Foreman added from the strings handed to the agent, so the receipt is what happened.
     const attachmentText = this.attachmentText(ws, attachments)
@@ -1092,7 +1116,7 @@ export class SessionService {
     const catchUp = session.catchUpSince ? catchUpBlock(before, session.catchUpSince, session) : { text: '', cut: false }
     const sizes = await Promise.all(attachments.map(async (a) => ({ name: a.name, bytes: await stat(a.path).then((i) => i.size, () => undefined) })))
     // #20: the approved repo servers this agent gets; the receipt names them when the set changed since this tab's last turn.
-    const repoMcp = this.repoMcpFor(session, ws)
+    const repoMcp = this.repoMcpFor(session, ws, persona?.mcp)
     const t = this.t()
     const added = contextParts({
       instructions: baseInstructions,
@@ -1111,7 +1135,8 @@ export class SessionService {
       catchUpText: catchUp.text,
       catchUpSource: t('context.catchUp.sourceSince', { agent: AGENTS[session.agent].label }),
       repoMcp: repoMcp.changed,
-      integrations: integ.receipt
+      integrations: integ.receipt,
+      persona: persona?.name ? { name: persona.name, text: personaText, ...(persona.readOnly ? { readOnly: true } : {}), ...(persona.mcp ? { mcp: persona.mcp } : {}) } : undefined
     }, t)
     if (added.length) {
       message.added = added
@@ -1147,7 +1172,7 @@ export class SessionService {
         outputStyle: session.outputStyle,
         chrome: this.store.state.settings.chromeMode,
         extraWritableDirs: gitDir ? [gitDir] : undefined,
-        mcpServers: { ...repoMcp.servers, ...integ.servers, ...appServers },
+        mcpServers: { ...repoMcp.servers, ...integServers, ...appServers },
         inProcessMcp,
         disabledMcp: integ.disabled.length ? integ.disabled : undefined,
         sessionStore: this.mirrorFor(session, ws),
@@ -1174,9 +1199,11 @@ export class SessionService {
    * #20: the repo MCP servers a turn of this tab gets (approved as they are now, with only their declared variables),
    * for agents that take them. `changed` lists their names when the set differs from the tab's last turn ([] = none now).
    */
-  private repoMcpFor(session: Session, ws: Workspace): { servers?: Record<string, McpLaunch>; changed?: string[] } {
+  private repoMcpFor(session: Session, ws: Workspace, keep?: string[]): { servers?: Record<string, McpLaunch>; changed?: string[] } {
     const proposed = AGENTS[session.agent]?.supportsRepoMcp ? this.repoMcp?.launchable(ws) ?? {} : {}
-    const servers = this.integrations?.filterRepoServers(ws.repoId, proposed) ?? proposed
+    const allowed = this.integrations?.filterRepoServers(ws.repoId, proposed) ?? proposed
+    // A flow step's persona keeps only the servers it names, never more than the approvals give.
+    const servers = keep ? Object.fromEntries(Object.entries(allowed).filter(([name]) => keep.includes(name))) : allowed
     const names = Object.keys(servers).sort()
     const last = session.repoMcp?.servers ?? []
     const same = names.length === last.length && names.every((n, i) => n === last[i])
@@ -1423,6 +1450,12 @@ export class SessionService {
     // checkpoint, and that isn't worth a sensitive-path alert.
     const delta: TurnDelta | 'unavailable' = await turnDelta(this.checkpointTarget(ws), sessionId, turnId)
     if (!ws.cloud || delta !== 'unavailable') await this.raiseSensitiveAlert(ws, sessionId, turnId, delta)
+    // What the lenses read per turn (docs/loops-and-graphs.md): the window as the turn ended, the memory files its
+    // changes wrote, and the trees of its checkpoints. Best-effort: a cloud turn with no checkpoints keeps no trees.
+    const usage = session.contextUsage
+    const memoryFiles = (usage?.breakdown?.memoryFiles ?? []).map((f) => f.path)
+    const memoryWrites = delta === 'unavailable' ? [] : delta.files.map((f) => f.path).filter((p) => isMemoryPath(p, memoryFiles)).slice(0, MAX_TURN_MEMORY_WRITES)
+    const tree = ws.cloud && delta === 'unavailable' ? {} : await checkpointTrees(this.checkpointTarget(ws), sessionId, turnId)
     this.emit(sessionId, {
       kind: 'turn-end',
       id: `turn-end:${turnId}`,
@@ -1433,7 +1466,10 @@ export class SessionService {
       delta: delta === 'unavailable' ? undefined : delta,
       suggestions: outcome === 'completed' && suggestions?.length ? suggestions : undefined,
       ...(limit ? { limit } : {}),
-      ...(interrupted ? { interrupted } : {})
+      ...(interrupted ? { interrupted } : {}),
+      ...(usage && usage.limit > 0 ? { usage } : {}),
+      ...(memoryWrites.length ? { memoryWrites } : {}),
+      ...(tree.start || tree.end ? { tree } : {})
     })
     // A scheduled run is unattended for its one turn only; after that the chat is an ordinary one.
     session.unattended = undefined
@@ -1557,9 +1593,32 @@ export class SessionService {
     if (!this.turns.has(sessionId) && !this.starting.has(sessionId)) void this.drainQueue(sessionId)
   }
 
+  /** Delete a queued message (the composer's queue, `foreman tab queue`). A flow step's message is refused while its run goes. */
   removeQueued(sessionId: string, messageId: string): void {
+    this.refuseFlowMessage(sessionId, messageId)
+    this.discardQueued(sessionId, messageId)
+  }
+
+  // Foreman's own drops (Stop on a tab waiting for a slot, cancelling a queued turn by id) aren't the queue's editor.
+  private discardQueued(sessionId: string, messageId: string): void {
     this.dropQueued(sessionId, messageId)
     this.events.settled?.(this.session(sessionId).workspaceId)
+  }
+
+  /**
+   * A queued message that is a running flow's next step is the run's, not the queue's: edited, moved, steered or removed,
+   * its turn would never start as the step expects, and the run would wait for it forever. Refused, naming the flow; Stop
+   * on the run takes it back. Once the run has ended the message is an ordinary one.
+   */
+  private refuseFlowMessage(sessionId: string, messageId: string): void {
+    const message = this.session(sessionId).queue.find((m) => m.id === messageId)
+    if (!message) return
+    const mark = message.turnId ? this.unattendedTurns.get(message.turnId) : undefined
+    const runId = mark && 'flowRunId' in mark ? mark.flowRunId : message.origin?.kind === 'flow' ? message.origin.runId : undefined
+    if (!runId) return
+    const run = this.store.state.flowRuns?.find((r) => r.id === runId)
+    if (run && !isActiveRun(run)) return
+    throw new Error(`This message is the next step of the flow “${run?.flow.name ?? 'a flow'}”, so it can’t be changed, moved, sent now or deleted. Stop the run to take it back.`)
   }
 
   private dropQueued(sessionId: string, messageId: string): void {
@@ -1620,6 +1679,7 @@ export class SessionService {
    */
   editQueued(sessionId: string, messageId: string, text: string, revision: number, attachments?: Attachment[]): QueueChangeResult {
     const session = this.session(sessionId)
+    this.refuseFlowMessage(sessionId, messageId)
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) {
       const gone = this.gone(session, messageId)
@@ -1649,6 +1709,7 @@ export class SessionService {
   moveQueued(sessionId: string, messageId: string, direction: QueueMove, revision: number): QueueChangeResult {
     const session = this.session(sessionId)
     if (!session.queue.some((m) => m.id === messageId)) return this.gone(session, messageId)
+    this.refuseFlowMessage(sessionId, messageId)
     const current = session.queueRevision ?? 0
     if (revision !== current) return { ok: false, reason: 'stale', revision: current }
     const moved = moveQueuedMessage(session.queue, messageId, direction)
@@ -1664,6 +1725,7 @@ export class SessionService {
     const session = this.session(sessionId)
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) return
+    this.refuseFlowMessage(sessionId, messageId)
     // A tab waiting for an agent slot has no turn to steer and can't start one yet: the message goes first in its queue,
     // keeping the tab's place in the slot queue, and starts when a slot is free (rather than going behind held messages).
     if (session.waitingForSlot && !this.turns.has(sessionId) && !this.starting.has(sessionId)) {
@@ -1698,7 +1760,7 @@ export class SessionService {
     if (!session?.waitingForSlot) return
     const head = session.queue[0]
     this.unwait(sessionId)
-    if (head) this.removeQueued(sessionId, head.id)
+    if (head) this.discardQueued(sessionId, head.id)
   }
 
   /**
@@ -1733,7 +1795,7 @@ export class SessionService {
     if (!status || status.state === 'ended') return status
     if (status.state === 'queued') {
       const queued = this.session(status.sessionId).queue.find((m) => m.turnId === turnId)
-      if (queued) this.removeQueued(status.sessionId, queued.id)
+      if (queued) this.discardQueued(status.sessionId, queued.id)
       return { ...status, state: 'ended', outcome: 'cancelled' }
     }
     if (this.turns.get(status.sessionId)?.turnId === turnId) await this.cancel(status.sessionId)
@@ -1873,7 +1935,7 @@ export class SessionService {
 
   private requestApproval(sessionId: string, request: NewApproval, signal: AbortSignal): Promise<ApprovalResponse> {
     const id = randomUUID()
-    const full = { id, sessionId, ...request } as ApprovalRequest
+    const full = { id, sessionId, ...request } as AgentApprovalRequest
     const session = this.session(sessionId)
     const ws = this.workspaces.workspace(session.workspaceId)
     if (session.unattended) return this.denyUnattended(session, full)
@@ -1888,6 +1950,34 @@ export class SessionService {
     })
   }
 
+  /** The turn with this id runs unattended when it starts: tools in auto mode, and any approval or question stops it. */
+  markUnattended(turnId: string, mark: NonNullable<Session['unattended']>): void {
+    this.unattendedTurns.set(turnId, mark)
+  }
+
+  /**
+   * A flow's gate or pick: a planned question for a person, shown with the chat's approvals (Needs you, notifications,
+   * the phone). Only the flow cancels it; a turn ending or stopping in the chat leaves it waiting.
+   */
+  requestGate(
+    sessionId: string,
+    request: Omit<Extract<ApprovalRequest, { kind: 'gate' }>, 'id' | 'sessionId'> | Omit<Extract<ApprovalRequest, { kind: 'pick' }>, 'id' | 'sessionId'>
+  ): { id: string; answer: Promise<ApprovalResponse> } {
+    const id = randomUUID()
+    const full = { id, sessionId, ...request } as ApprovalRequest
+    const session = this.session(sessionId)
+    const ws = this.workspaces.workspace(session.workspaceId)
+    const answer = new Promise<ApprovalResponse>((resolve) => this.approvals.set(id, { request: full, resolve }))
+    this.events.approval(full)
+    this.events.notify(ws.id, sessionId, this.label(session, ws), this.t()(request.kind === 'pick' ? 'notify.approval.pick' : 'notify.approval.gate', { flow: request.flowName, step: request.step }), 'attention')
+    return { id, answer }
+  }
+
+  /** The flow stopped or moved on: its gate is answered as stopped and leaves Needs you. */
+  cancelGate(id: string): void {
+    this.cancelApproval(id)
+  }
+
   /**
    * A scheduled run has nobody to answer. The request is denied (never shown as pending), the run is stopped, and the
    * chat becomes an ordinary one the human can open and continue.
@@ -1895,9 +1985,10 @@ export class SessionService {
   private denyUnattended(session: Session, request: ApprovalRequest): Promise<ApprovalResponse> {
     const what =
       request.kind === 'tool' ? `it asked for permission to use ${request.toolName}` : request.kind === 'plan' ? 'it proposed a plan for approval' : 'it asked a question'
-    // #17: an auto review's reviewer is unattended the same way; its words say so.
+    // #17: an auto review's reviewer is unattended the same way; its words say so. So is a flow's turn step.
     const review = Boolean(session.unattended && 'autoReviewId' in session.unattended)
-    const run = review ? 'an auto review' : 'a scheduled run'
+    const flow = Boolean(session.unattended && 'flowRunId' in session.unattended)
+    const run = review ? 'an auto review' : flow ? 'a flow’s turn' : 'a scheduled run'
     this.emit(session.id, {
       kind: 'notice',
       id: `${session.turnId ?? 'turn'}:unattended:${request.id}`,
@@ -1905,7 +1996,9 @@ export class SessionService {
       level: 'info',
       text: review
         ? `Auto review stopped: ${what}. Nobody can approve tools in an auto review, so the request was denied. Ask a follow-up here when you are ready.`
-        : `Scheduled run stopped: ${what}. Nobody can answer a scheduled run, so the request was denied. Continue here when you are ready.`
+        : flow
+          ? `Flow stopped: ${what}. Nobody can answer a flow’s turn, so the request was denied. Continue here when you are ready.`
+          : `Scheduled run stopped: ${what}. Nobody can answer a scheduled run, so the request was denied. Continue here when you are ready.`
     })
     this.changed()
     this.events.unattendedStopped?.(session.id, what)
@@ -1914,7 +2007,9 @@ export class SessionService {
     const denied: Record<ApprovalRequest['kind'], ApprovalResponse> = {
       tool: { kind: 'tool', allow: false, message: `This is ${run} and nobody can approve this. Stop.` },
       plan: { kind: 'plan', approve: false, feedback: `This is ${run} and nobody can review the plan. Stop.` },
-      question: { kind: 'question', skipped: true }
+      question: { kind: 'question', skipped: true },
+      gate: { kind: 'gate', answer: 'stopped' },
+      pick: { kind: 'pick', chosen: null }
     }
     return Promise.resolve(denied[request.kind])
   }
@@ -2018,13 +2113,16 @@ export class SessionService {
     const cancelled: Record<ApprovalRequest['kind'], ApprovalResponse> = {
       tool: { kind: 'tool', allow: false, message: 'Cancelled.' },
       plan: { kind: 'plan', approve: false },
-      question: { kind: 'question', skipped: true }
+      question: { kind: 'question', skipped: true },
+      gate: { kind: 'gate', answer: 'stopped' },
+      pick: { kind: 'pick', chosen: null }
     }
     void this.respondApproval(id, cancelled[pending.request.kind])
   }
 
   private rejectApprovals(sessionId: string): void {
-    for (const [id, pending] of this.approvals) if (pending.request.sessionId === sessionId) this.cancelApproval(id)
+    // A flow's gate or pick isn't the turn's to cancel: it waits for its person (or its flow) whatever the chat does.
+    for (const [id, pending] of this.approvals) if (pending.request.sessionId === sessionId && pending.request.kind !== 'gate' && pending.request.kind !== 'pick') this.cancelApproval(id)
   }
 
   // ---- misc ----

@@ -7,11 +7,16 @@
 //  - a duration limit cancels it (time spent waiting for an agent slot doesn't count); two failures in a row pause the schedule;
 //  - the schedule is tied to a fingerprint (template text and revision, repo setup, checks, repo MCP config) and pauses when it changes;
 //  - after a crash, runs that were in flight are marked uncertain and are never retried.
+// A schedule may start a flow instead of a template (docs/loops-and-graphs.md): its fingerprint then covers the flow, its
+// templates and personas too, the occurrence follows the flow run to its end, and the flow's loop bounds stand in for the
+// duration limit.
 import { createHash, randomUUID } from 'node:crypto'
+import { scheduleFingerprintOfFlow, type FlowFingerprint, type FlowRun } from '../shared/flows'
 import { GLOBAL_ACTIVE_CAP, MISSED_GRACE_MS, dueAction, nextRuns, specOf, specProblem } from '../shared/schedule'
 import type { AfterRun, Occurrence, Schedule, ScheduleFingerprint, ScheduleRequest, TurnOutcome } from '../shared/types'
 
-const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
+/** A fingerprint part: the SHA-256 of the value as JSON (flows.ts makes a flow run's parts the same way). */
+export const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
 
 export interface FingerprintInputs {
   templateBody: string
@@ -20,9 +25,13 @@ export interface FingerprintInputs {
   checks: { name: string; command: string }[]
   // One fingerprint per repo-proposed MCP server.
   mcp: string[]
+  // A flow schedule: the flow run's approval as it stands now, which covers its templates, setup, checks (with its script
+  // steps' commands), MCP servers, the flow document and its personas. The template fields are then unused.
+  flow?: FlowFingerprint
 }
 
 export function fingerprintOf(i: FingerprintInputs): ScheduleFingerprint {
+  if (i.flow) return scheduleFingerprintOfFlow(i.flow)
   return {
     template: sha({ body: i.templateBody, rev: i.templateRev ?? null }),
     setup: sha(i.setupScript),
@@ -32,10 +41,17 @@ export function fingerprintOf(i: FingerprintInputs): ScheduleFingerprint {
 }
 
 const PART_TEXT: Record<keyof ScheduleFingerprint, string> = {
+  flow: 'the flow',
   template: 'the template',
   setup: 'the repo’s setup script',
   checks: 'the repo’s checks',
-  mcp: 'the repo’s MCP servers'
+  mcp: 'the repo’s MCP servers',
+  personas: 'its personas'
+}
+
+/** The run approval a flow schedule was approved on, as FlowService.begin compares it with what would run now. */
+export function flowFingerprintFrom(approved: ScheduleFingerprint): FlowFingerprint {
+  return { flow: approved.flow ?? '', templates: approved.template, setup: approved.setup, checks: approved.checks, mcp: approved.mcp, personas: approved.personas ?? '' }
 }
 
 /** Which parts differ, in words ("the template and the repo’s checks"). Empty when nothing changed. */
@@ -43,7 +59,8 @@ export function changedParts(approved: ScheduleFingerprint, now: ScheduleFingerp
   return (Object.keys(PART_TEXT) as (keyof ScheduleFingerprint)[]).filter((k) => approved[k] !== now[k]).map((k) => PART_TEXT[k])
 }
 
-const joinWords = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] ?? '')
+/** "a, b and c". */
+export const joinWords = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] ?? '')
 
 /** The words a refused approval starts with: what the user was shown is not what would be approved now. */
 export const SHOWN_CHANGED = 'What you approved has changed; run it again'
@@ -54,18 +71,35 @@ export const SHOWN_CHANGED = 'What you approved has changed; run it again'
  */
 export function assertFingerprintShown(shown: ScheduleFingerprint | undefined, now: ScheduleFingerprint): void {
   if (shown === undefined) return
-  const changed = changedParts(typeof shown === 'object' && shown !== null ? shown : ({} as ScheduleFingerprint), now)
+  refuseChangedParts(shown, now, PART_TEXT)
+}
+
+/**
+ * The one refusal for an approval whose shown fingerprint isn't what would be approved now (a schedule's here, a flow
+ * run's in flows.ts): each part that differs, in `words`, after SHOWN_CHANGED. Something shown that isn't an object
+ * differs in every part.
+ */
+export function refuseChangedParts<K extends string>(shown: unknown, now: Partial<Record<K, string>>, words: Record<K, string>): void {
+  const seen = (typeof shown === 'object' && shown !== null ? shown : {}) as Partial<Record<K, unknown>>
+  const changed = (Object.keys(words) as K[]).filter((k) => seen[k] !== now[k]).map((k) => words[k])
   if (changed.length) throw new Error(`${SHOWN_CHANGED}. Changed: ${joinWords(changed)}.`)
 }
 
 export type ScheduleInput = ScheduleRequest
 
-/** What is wrong with a schedule request, or null. Claude only: other agents can't pause for approvals. */
+/**
+ * What is wrong with a schedule request, or null. Claude only: other agents can't pause for approvals. A flow's steps say
+ * their own agents (the caller refuses a flow whose turns aren't on Claude), so a flow schedule needs no model.
+ */
 export function scheduleProblem(input: ScheduleInput, now = Date.now()): string | null {
   const spec = specProblem(input)
   if (spec) return spec
   if (input.recurrence === 'once' && !nextRuns(input, now, 1).length) return 'Choose a future date and time for a one-time run.'
-  if (input.agent !== 'claude' || !input.model.trim()) return 'Scheduled runs are Claude only: other agents can’t pause for approvals.'
+  const flow = input.flow
+  if (Boolean(flow) === Boolean(input.templateId)) return 'A schedule runs a template or a flow: choose one.'
+  if (flow && (typeof flow.flowId !== 'string' || !flow.flowId || typeof flow.inputs !== 'object' || flow.inputs === null || Object.values(flow.inputs).some((v) => typeof v !== 'string')))
+    return 'Choose the flow to schedule, with a value for each of its inputs.'
+  if (input.agent !== 'claude' || (!flow && !input.model.trim())) return 'Scheduled runs are Claude only: other agents can’t pause for approvals.'
   if (!Number.isFinite(input.maxMinutes) || input.maxMinutes < 5 || input.maxMinutes > 480) return 'Pick a maximum duration between 5 minutes and 8 hours.'
   if (!input.baseBranch.trim()) return 'Pick a base branch.'
   if (input.afterRun !== undefined && !AFTER_RUN.includes(input.afterRun)) return 'Pick what happens to the workspace after a run.'
@@ -74,9 +108,18 @@ export function scheduleProblem(input: ScheduleInput, now = Date.now()): string 
 
 const AFTER_RUN: readonly AfterRun[] = ['keep', 'archive', 'delete-unchanged']
 
-/** What a schedule says happens after a completed run, as stored: absent is keep, and the branch choice only goes with archiving. */
+/** What a schedule runs, as stored: the template, or the flow with its inputs. */
+function targetFields(input: ScheduleInput): Pick<Schedule, 'templateId' | 'templateName' | 'flow'> {
+  if (input.flow) return { flow: { flowId: input.flow.flowId, flowSource: input.flow.flowSource, flowName: input.flow.flowName, inputs: { ...input.flow.inputs } } }
+  return { templateId: input.templateId, templateName: input.templateName }
+}
+
+/**
+ * What a schedule says happens after a completed run, as stored: absent is keep, and the branch choice only goes with
+ * archiving. A flow schedule has none: the flow's `[after]` is the one policy for its runs.
+ */
 function afterRunFields(input: ScheduleInput): Pick<Schedule, 'afterRun' | 'afterRunDeleteBranch'> {
-  const afterRun = input.afterRun && input.afterRun !== 'keep' ? input.afterRun : undefined
+  const afterRun = !input.flow && input.afterRun && input.afterRun !== 'keep' ? input.afterRun : undefined
   return { afterRun, afterRunDeleteBranch: afterRun && input.afterRunDeleteBranch ? true : undefined }
 }
 
@@ -89,6 +132,8 @@ export interface ScheduleStore {
 export interface LaunchHandle {
   /** Called as soon as the run's workspace and chat exist, before its first message can go. */
   created(workspaceId: string, sessionId: string): void
+  /** A flow schedule: the run started (written before its first step); the occurrence ends when the run does. */
+  flowRun?(runId: string): void
 }
 
 export interface ScheduleDeps {
@@ -98,7 +143,7 @@ export interface ScheduleDeps {
   inputs(schedule: Schedule): FingerprintInputs | { error: string }
   /** Create a fresh workspace the way `foreman run` does and wait for its first turn to start. Throws if the run can't start. */
   launch(schedule: Schedule, occurrence: Occurrence, handle: LaunchHandle): Promise<void>
-  /** Stop the run's turn (it ends as cancelled). */
+  /** Stop the run's turn (it ends as cancelled); a flow schedule's run is stopped as Stop on the run does. */
   stop(occurrence: Occurrence): Promise<void>
   /**
    * Where the run's turn is for its duration limit: 'waiting' while it waits for an agent slot ("Maximum agents running
@@ -124,6 +169,8 @@ const FAILING: Occurrence['state'][] = ['failed', 'timed-out', 'needs-you']
 const KEEP_OCCURRENCES = 40
 // A look at the fingerprints costs file reads, so do it now and then, not on every tick.
 const FINGERPRINT_EVERY_MS = 5 * 60_000
+// How a flow run's end closes its occurrence. A stopped run (by you, a loop's bound) ends as stopped.
+const RUN_END: Partial<Record<FlowRun['state'], Occurrence['state']>> = { completed: 'completed', failed: 'failed', 'needs-you': 'needs-you', uncertain: 'uncertain', stopped: 'cancelled' }
 
 export class ScheduleService {
   private timer: NodeJS.Timeout | null = null
@@ -205,8 +252,7 @@ export class ScheduleService {
     const now = this.deps.now()
     const schedule: Schedule = {
       id: randomUUID(),
-      templateId: input.templateId,
-      templateName: input.templateName,
+      ...targetFields(input),
       repoId: input.repoId,
       recurrence: input.recurrence,
       startDate: input.startDate,
@@ -235,7 +281,10 @@ export class ScheduleService {
     const problem = scheduleProblem(input, this.deps.now())
     if (problem) throw new Error(problem)
     const s = this.schedule(id)
-    Object.assign(s, { templateId: input.templateId, repoId: input.repoId, recurrence: input.recurrence, startDate: input.startDate, timezone: input.timezone, time: input.time, model: input.model, maxMinutes: input.maxMinutes, baseBranch: input.baseBranch.trim(), weekdays: [...new Set(input.weekdays)].sort((a, b) => a - b), dayOfMonth: input.dayOfMonth })
+    delete s.templateId
+    delete s.templateName
+    delete s.flow
+    Object.assign(s, { ...targetFields(input), repoId: input.repoId, recurrence: input.recurrence, startDate: input.startDate, timezone: input.timezone, time: input.time, model: input.model, maxMinutes: input.maxMinutes, baseBranch: input.baseBranch.trim(), weekdays: [...new Set(input.weekdays)].sort((a, b) => a - b), dayOfMonth: input.dayOfMonth })
     const after = afterRunFields(input)
     for (const key of ['afterRun', 'afterRunDeleteBranch'] as const) {
       if (after[key] === undefined) delete s[key]
@@ -383,6 +432,13 @@ export class ScheduleService {
           this.persist()
           // Stopped while the workspace was still being made.
           if (!ACTIVE.includes(occurrence.state)) void this.deps.stop(occurrence).catch(() => undefined)
+        },
+        flowRun: (runId) => {
+          occurrence.flowRunId = runId
+          if (occurrence.state === 'starting') occurrence.state = 'running'
+          this.persist()
+          // Stopped before the run's id came back.
+          if (!ACTIVE.includes(occurrence.state)) void this.deps.stop(occurrence).catch(() => undefined)
         }
       })
       .catch((err: unknown) => this.finish(occurrence, 'failed', err instanceof Error ? err.message : String(err)))
@@ -392,6 +448,8 @@ export class ScheduleService {
     for (const o of [...this.occurrences]) {
       if (!ACTIVE.includes(o.state) || !o.startedAt) continue
       const s = this.schedules.find((x) => x.id === o.scheduleId)
+      // A flow's run is bounded by its loops, and its gates wait for a person: no duration limit.
+      if (o.flowRunId || s?.flow) continue
       const limit = (s?.maxMinutes ?? 30) * 60_000
       // Counted from launch while the workspace is made, and from the turn's start once it has one: a run waiting for an
       // agent slot hasn't started, so it isn't stopped for the wait.
@@ -425,6 +483,15 @@ export class ScheduleService {
     this.finish(o, 'needs-you', `Stopped: ${what}. Nobody can answer a scheduled run, so it was denied and left for you.`)
   }
 
+  /** A flow schedule's run ended: its occurrence ends the same way, with the run's reason and workspace. */
+  flowRunEnded(run: Pick<FlowRun, 'id' | 'state' | 'reason' | 'workspaceId'>): void {
+    const o = this.occurrences.find((x) => x.flowRunId === run.id && ACTIVE.includes(x.state))
+    if (!o) return
+    if (run.workspaceId) o.workspaceId ??= run.workspaceId
+    const state = RUN_END[run.state]
+    if (state) this.finish(o, state, run.reason)
+  }
+
   /** "Stop" on Home. */
   async stopRun(occurrenceId: string): Promise<void> {
     const o = this.occurrences.find((x) => x.id === occurrenceId)
@@ -451,6 +518,7 @@ export class ScheduleService {
       }
     }
     this.persist()
-    if (s && state === 'completed' && s.afterRun && o.workspaceId) this.deps.afterRun?.(s, o)
+    // A flow schedule's run applies the flow's own `[after]` (FlowService) to every workspace it made; the schedule adds none.
+    if (s && !s.flow && state === 'completed' && s.afterRun && o.workspaceId) this.deps.afterRun?.(s, o)
   }
 }

@@ -19,7 +19,15 @@ paths are normalized for Windows and Unix.
 Current decision: ordinary settings have no dedicated MCP read/write tools.
 Loadouts have a partial dedicated read through `list_delegation_options`.
 Running a configured check or opening a preview is an action, not an adapter for
-reading or editing that setting.
+reading or editing that setting. The `decide` tool records which option a flow's
+decide step chose; it is registered only for that step's turn, reads and writes no
+setting, and is covered by its own handler tests in `tests/foremanMcp.test.ts`.
+The delegation tools `start_flow` and `get_flow_status` start and read flow runs
+(docs/loops-and-graphs.md) under `start_task`'s scope rules; they read and write no
+setting, are offered only while Settings → Experimental → Flows is on, and are
+covered by `tests/foremanDelegation.test.ts` and `tests/foremanMcp.test.ts`.
+`list_delegation_options` lists the runnable flows beside the loadouts while
+Flows are on, which adds no settings coverage.
 
 The `run_foreman` CLI escape hatch is tracked separately and never counts as
 dedicated coverage. Workspace agents can use CLI help and the reviewed
@@ -27,8 +35,11 @@ dedicated coverage. Workspace agents can use CLI help and the reviewed
 agent-readable settings filter; metadata discovery does not expose saved
 sensitive values. Writes, `path --open`, confirmation flags, file import/export,
 other commands and arbitrary shell execution are unavailable in this scope.
+`flow run` is redirected to `start_flow` there, like `new` to `start_task`.
 The assistant retains its existing broader `run_foreman` fallback with command
-policy checks and Run/Cancel confirmation. Both interfaces prefer dedicated
+policy checks and Run/Cancel confirmation; its words may be as long as a flow
+file, so a drafted flow or persona travels on the card (`flow add --toml`,
+`persona add --markdown=`), while the workspace fallback keeps its short limit. Both interfaces prefer dedicated
 tools. The snapshot records dedicated gaps and fallback access independently;
 passing this check does **not** mean MCP has full CLI parity.
 

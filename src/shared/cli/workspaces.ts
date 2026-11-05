@@ -315,3 +315,13 @@ export interface WsIntegrationsResult {
   changed?: Partial<Record<import('../integrations').RepoIntegrationService, boolean>>
   text: string
 }
+
+/** `foreman workspace lineage`: the workspace's history through one lens (docs/loops-and-graphs.md, "Recovering graphs"). */
+export interface WsLineageResult {
+  workspace: { id: string; name: string }
+  lens: import('../lineage').LineageLens
+  outline: import('../lineage').LineageOutlineEntry[]
+  gaps: import('../lineage').LineageGap[]
+  mermaid: string
+  text: string
+}

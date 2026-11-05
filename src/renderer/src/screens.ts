@@ -32,6 +32,8 @@ interface Fixture {
   workspaceId: string
   chatId: string
   queueChatId: string
+  flowWorkspaceId: string
+  flowChatId: string
   now: number
 }
 
@@ -105,6 +107,27 @@ async function windowLayout(layout: WindowLayout): Promise<void> {
 function openWorkspace(f: Fixture, sessionId = f.chatId): void {
   selectWorkspace(f.workspaceId)
   selectSession(f.workspaceId, sessionId)
+}
+
+// The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'workspace-flow', 'workspace-lineage']
+
+/** Flows on or off. A setting, so it outlives the page, like the window layout. */
+async function flowsSetting(on: boolean): Promise<void> {
+  if (Boolean(getState().snapshot?.settings.flows) === on) return
+  await api.updateSettings({ flows: on })
+  await waitFor(() => Boolean(getState().snapshot?.settings.flows) === on)
+}
+
+/** The flow run's workspace with one of its side panel's tabs open; done when that tab's diagram has drawn. */
+async function flowTab(f: Fixture, tab: 'flow' | 'lineage'): Promise<string | null> {
+  selectWorkspace(f.flowWorkspaceId)
+  selectSession(f.flowWorkspaceId, f.flowChatId)
+  const button = await waitFor(element(`.side-panel [role="tab"][data-tab-value="${tab}"]`))
+  if (!button) return null
+  button.click()
+  // Mermaid renders after the panel mounts (a lazily loaded chunk); the Spinner stands in until the SVG is there.
+  return '.side-panel .flow-run .flow-diagram .mmd-view svg'
 }
 
 // Each screen: get there, and name what shows it has rendered.
@@ -210,6 +233,15 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     return '.settings-view'
   },
   automations: () => (openAutomations(), '.automations-view'),
+  // Flows on: the built-in and repository flows with their runs, then the personas.
+  'automations-flows': async () => {
+    openAutomations()
+    if (!(await waitFor(() => document.querySelectorAll('.automations-view .flow-item').length >= 3))) return null
+    return '.automations-view .flow-runs'
+  },
+  // A completed run's Flow tab (Run lens), and the same workspace's Lineage tab (Run lens).
+  'workspace-flow': (f) => flowTab(f, 'flow'),
+  'workspace-lineage': (f) => flowTab(f, 'lineage'),
   assistant: () => (openAssistant(), '.assistant-view'),
   'phone-pairing': () => {
     showRepoHome(null)
@@ -289,6 +321,7 @@ export function installScreens(): void {
       if (!(await waitFor(() => getState().snapshot, 15_000))) return { skipped: 'the store never loaded' }
       baseLayout()
       await windowLayout('panes')
+      await flowsSetting(FLOW_SCREENS.includes(screen))
       const selector = await go(fixture)
       if (!selector || !(await waitFor(element(selector)))) return { skipped: `${screen} did not render${selector ? ` (${selector})` : ''}` }
       await settle()

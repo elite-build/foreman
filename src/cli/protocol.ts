@@ -244,6 +244,21 @@ export interface ReportResult {
   message: string
 }
 
+export interface DecideParams {
+  // One of the options the flow's decide step named, exactly as written.
+  option: string
+}
+
+export interface DecideResult {
+  workspace: { id: string; name: string }
+  session: string
+  turn: string
+  decided: string
+  // The same option was already recorded for this turn; nothing changed.
+  duplicate?: boolean
+  message: string
+}
+
 export interface RepoSummary {
   name: string
   path: string
@@ -267,6 +282,7 @@ export type CliRequest = (
   | { method: 'templates'; params?: { cwd?: string } }
   | { method: 'repos' }
   | { method: 'report'; params: ReportParams }
+  | { method: 'decide'; params: DecideParams }
   // The integration bridge: the connection then carries MCP JSON-RPC lines both ways (see src/cli/bridge.ts).
   | { method: 'mcp-bridge'; params: { grant: string; service: string } }
 ) & { caller?: TurnCaller }

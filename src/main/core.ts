@@ -1,18 +1,18 @@
 // Wires the services together and implements the renderer-facing API.
 // Kept free of Electron imports (they are injected) so it can be tested.
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync } from 'node:fs'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentKind, Loadout } from '../shared/agents'
 import { ARCHIVE_CLEANUP_DAYS, mergedNow } from '../shared/autoArchive'
-import { DONE_DAYS_OPTIONS, nextPrInfo } from '../shared/board'
+import { DONE_DAYS_OPTIONS, nextPrInfo, prFacts } from '../shared/board'
 import { parseViews } from '../shared/views'
 import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from '../shared/agentSlots'
 import { ENV_NAME } from '../shared/envfile'
 import { PROVIDER_KEYS } from '../shared/providers'
 import { tailLines } from '../shared/setupLog'
-import { type AgentKeyName, type Api, type AppSnapshot, type CreateWorkspaceOptions, type EnvScope, type GitlabConnection, type GitlabHostRow, type GitStatus, type HeldMessage, type IntakeFile, type MainEvent, type Occurrence, type PromptTemplate, type Schedule, type ScheduleFingerprint, type ScheduleFingerprintView, type Settings, type Signals, type Workspace } from '../shared/types'
+import { type AgentKeyName, type Api, type AppSnapshot, type CheckResult, type CreateWorkspaceOptions, type EnvScope, type GitlabConnection, type GitlabHostRow, type GitStatus, type HeldMessage, type IntakeFile, type MainEvent, type Occurrence, type PromptTemplate, type Repo, type Schedule, type ScheduleFingerprint, type ScheduleFingerprintView, type Settings, type Signals, type Workspace } from '../shared/types'
 import { driverFor } from './agents/registry'
 import { catalogLoginCommand, executablePathFor, setAgentRuntimeDir } from './agents/catalogDrivers'
 import { onAcpModes } from './agents/acp'
@@ -24,7 +24,7 @@ import { Environment } from './environment'
 import { makeRepository } from './makeRepo'
 import { cloneRepo, githubRepos, gitProtocol, quickStart } from './repoSources'
 import { cliStatus, installCli, macAdmin } from './cliInstall'
-import { baseStartPoint, git, gitOut, noteWorktreeChanged, repoEvidence } from './git'
+import { baseStartPoint, git, gitBlob, gitOut, noteWorktreeChanged, repoEvidence } from './git'
 import { accountToken, accountTokenAsync, branchPrefix, forgetAccountTokens, forgetIdentityLogins, ghActiveAccount, ghActiveAccountAsync, ghActiveAccountReady, ghAs, githubAccounts, githubEnv, githubEnvOrNone, githubLogin, githubSlug, githubStatus, refreshGhActiveAccount, setGithubIdentities, useGithubToken, warmGithub, type PrResult } from './github'
 import { SandboxManager } from './cloud/sandboxes'
 import { CloudPtyBackend, cloudTerminalFolder } from './cloud/terminal'
@@ -35,8 +35,14 @@ import { PrCache } from './prCache'
 import { probePreview } from './previewProbe'
 import { browserUrl } from '../shared/browser'
 import { readRepoTemplates, revalidateRepoTemplates } from './repoTemplates'
+import { listFlows, personalFlowListing, personaRef } from './flowFiles'
+import { listPersonas, personalPersonaListing } from './personaFiles'
+import { findPersona, MAX_PERSONA_BYTES, MAX_PERSONAL_PERSONAS, parsePersona, type Persona, type PersonaList, type PersonaListing, type TurnPersona } from '../shared/personas'
+import { isActiveRun, MAX_FLOW_BYTES, MAX_PERSONAL_FLOWS, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunOrigin, type FlowRunPreview, type FlowRunStart, type FlowRunSummary } from '../shared/flows'
+import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowChecksStart, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
+import { DEFAULT_CHECK_TIMEOUT_MS, isFailure } from '../shared/checks'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
-import { commandInputWithStatus, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
+import { commandInputWithStatus, commandNamed, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
 import { BaseWatcher } from './baseWatch'
 import { PrWatcher } from './prWatch'
@@ -47,6 +53,7 @@ import { permissionNote } from '../shared/permissions'
 import { fixErrorsInstructions } from '../shared/prompts'
 import { resolveGithubLink, resolveGitlabLink } from './intake'
 import { gitlabTokenKey, ScmRouter, type ScmProvider } from './scm'
+import { githubOrgAvatar, gitlabProjectAvatar, RepoIcons } from './repoIcons'
 import { GitlabApi, GlabLogins, gitlabAgentContext, glabInstalled, probeGitlab, readGlabToken, testConnection } from './gitlab'
 import { findScmLink, gitlabHosts, looksLikeGitlab, normalizeGitlabHost, projectOnHost, scmForRemote } from '../shared/scm'
 import { intakeFile } from '../shared/githubLink'
@@ -54,9 +61,11 @@ import { chooseStartLoadout } from '../shared/startModel'
 import { randomUUID } from 'node:crypto'
 import { pruneViewed, withMark } from '../shared/viewed'
 import { branchPoint, changedFilesBetween, fileAtRef, refsDiff, revertFile, workspaceDiff, workspaceDiffPatch, workspaceDiffStat } from './diff'
-import { sharedWorkingTree, VIEW_REUSE_MS } from './checkpoints'
+import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint, sharedWorkingTree, VIEW_REUSE_MS } from './checkpoints'
+import { runScript, type RunningScript } from './scripts'
+import { endCheckpointId } from './turnDelta'
 import { turnAnswer } from '../shared/handOff'
-import { DEFAULT_MODEL } from '../shared/agents'
+import { builtinCommands, DEFAULT_MODEL } from '../shared/agents'
 import { branchCommitCount, branchCommits, sourceDiff, sourceInfo, type PrTarget } from './diffSources'
 import { CommitAttribution } from './commitAttribution'
 import { AutoArchive } from './autoArchive'
@@ -76,7 +85,11 @@ import { listWorkspaceDir, readImageAtCommit, readWorkspaceImage } from './fileB
 import { agentBaseEnv, bundledClaudeExecutable, findOnPath, interactiveShell, isWindows, setScriptShell, shellQuote } from './platform'
 import { detectShells, listWslDistros, realProbe } from './shells'
 import { isScriptShellChoice, isShellChoice, resolveShell, type ShellLaunch } from '../shared/shells'
-import { mainT } from './i18n'
+import { mainLocale, mainT } from './i18n'
+import { lineageInput, type LineageSources } from './lineage'
+import { draftFlowFromLineage, lineageGraph, lineageOutline, LINEAGE_LENSES } from '../shared/lineage'
+import { flowMermaid } from '../shared/flowGraph'
+import { createT } from '../shared/i18n'
 import { PtyManager, typeWhenQuiet } from './pty'
 import { existingFolder, TerminalRestore } from './terminalRestore'
 import { collectDiagnostics } from './reportProblem'
@@ -98,7 +111,7 @@ import type { MobileService } from './mobile'
 import { TransferService, type TransferLocal } from './transfers'
 import { frozenReason, type DevicesInfo, type PairedDevice } from '../shared/transfer'
 import { repoReasons } from '../shared/portable'
-import { assertFingerprintShown, fingerprintOf, scheduleProblem, ScheduleService, type FingerprintInputs, type LaunchHandle, type ScheduleInput } from './schedules'
+import { assertFingerprintShown, fingerprintOf, flowFingerprintFrom, scheduleProblem, ScheduleService, type FingerprintInputs, type LaunchHandle, type ScheduleInput } from './schedules'
 import { readSharedLayer, resolveRepoSettings, revalidateSharedLayers } from './repoSettings'
 import { templatePlaceholders } from '../shared/promptTemplates'
 import { SessionService } from './sessions'
@@ -128,7 +141,7 @@ import type { HelperLaunch } from './speech/local'
 import { linearIssue, linearMyIssues } from './linear'
 import { slackChannels, slackManifest, slackManifestUrl, slackPeople, slackUserByEmail, type SlackPerson } from './slack'
 import { findLinearLink, linearBranch, linearIntakeFile, type LinearIssue } from '../shared/linearLink'
-import type { LinearLinkInfo } from '../shared/types'
+import type { LinearLinkInfo, MessageOrigin, WorkspaceStartedBy } from '../shared/types'
 import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
@@ -148,6 +161,8 @@ export interface Host {
   revealPath?(path: string): void
   // G4 #14: a file's icon from the OS, as a data: URL (null when it has none).
   fileIcon?(path: string): Promise<string | null>
+  // A picture scaled down to `pixels` on its long side, as a PNG data: URL; null when it can't be read (repoIcons.ts).
+  shrinkImage?(bytes: Buffer, pixels: number): Promise<string | null>
   openExternal(url: string): Promise<void>
   setBadge(count: number): void
   // #3: the tray or menu-bar extra's count and jump list, after every look at the state.
@@ -199,14 +214,6 @@ export interface Host {
 // 'claude-setup-token' prints a long-lived token for Claude in cloud workspaces (Settings → Cloud workspaces).
 const LOGIN_COMMANDS = ['claude-login', 'claude-setup-token', 'codex-login', 'gh-login', 'claude-mcp'] as const
 
-// Where repositories usually keep a favicon, best first.
-const FAVICON_PATHS = [
-  'public/favicon.svg', 'public/favicon.png', 'public/favicon.ico', 'public/apple-touch-icon.png', 'app/favicon.ico', 'app/icon.svg',
-  'app/icon.png', 'src/app/favicon.ico', 'src/app/icon.svg', 'static/favicon.svg', 'static/favicon.png', 'static/favicon.ico',
-  'favicon.svg', 'favicon.png', 'favicon.ico', 'apple-touch-icon.png'
-]
-const IMAGE_TYPES: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' }
-
 const SETTINGS_TEMPLATE = `# Shared Foreman settings for this repository. Commit this file so the
 # whole team gets the same scripts. Settings made in the app on one computer
 # override these for that computer only.
@@ -247,6 +254,12 @@ export function expandPorts(template: string, port: number): string {
 /** What only the app itself may ask for when it makes a workspace. */
 interface InternalStart {
   scheduled?: { scheduleId: string; occurrenceId: string }
+  // A flow run's first step: the workspace is the run's, and its first turn is unattended as that step.
+  flowRun?: { runId: string; step: string; persona?: TurnPersona }
+  // A flow run's workspace step: the workspace is the run's, and its first chat waits for the steps after it.
+  flowWorkspace?: { runId: string }
+  // The chat (or assistant thread) that started it: delegation, or `foreman new`/`run` from inside a turn.
+  startedBy?: WorkspaceStartedBy
   onChat?: (workspaceId: string, sessionId: string) => void
 }
 
@@ -295,6 +308,8 @@ export class Core {
   readonly autoReview: AutoReviewService
   // O2: which host (GitHub or GitLab) each repository's pull requests live on.
   readonly scm: ScmRouter
+  // Icons Foreman picks for repositories that have none (repoIcons.ts).
+  readonly repoIcons: RepoIcons
   // G2: whether glab is signed in per GitLab host, for the agent's system prompt.
   private glab = new GlabLogins()
   // G2 (O5): which tab made each commit, kept between loads of the Commits tab.
@@ -306,6 +321,8 @@ export class Core {
   readonly compare: CompareService
   readonly repoMcp: RepoMcp
   readonly schedules: ScheduleService
+  // Flows (docs/loops-and-graphs.md), behind Settings → Experimental → Flows.
+  readonly flows: FlowService
   readonly devices: Devices
   readonly net: DeviceNet
   // Other computers: this one controlled from a paired computer, and the paired computers this window can show.
@@ -476,7 +493,10 @@ export class Core {
     this.environment.githubKeyFresh = githubKeyFresh
     this.workspaces.githubKeyFresh = githubKeyFresh
     this.workspaces.githubDetected = (repoId, login, explicit) => this.integrations.detectedGithubAccount(repoId, login, explicit)
-    this.workspaces.repoAdded = (repoId) => this.integrations.repoAdded(repoId)
+    this.workspaces.repoAdded = (repoId) => {
+      this.integrations.repoAdded(repoId)
+      void this.repoIcons.pick(repoId)
+    }
     this.sandboxes = new SandboxManager({
       store,
       secrets,
@@ -581,6 +601,7 @@ export class Core {
         if (ended && !ended.prInfo && this.slack.hasRules() && this.workspaces.repo(ended.repoId).hasOrigin) void this.prs.get(ended, { fresh: true })
         this.autoChecks.turnEnded(session.workspaceId, outcome)
         this.schedules.turnEnded(sessionId, outcome)
+        void this.flows.turnEnded(sessionId, session.lastTurn?.turnId, outcome).catch(() => undefined)
         this.diffSelections.wake(sessionId)
         if (session.lastTurn?.turnId) this.autoFix.turnEnded(session.lastTurn.turnId, outcome)
         // #17: a worker's completed turn may make a review owed (only where the repo opted in); a reviewer's settles its review.
@@ -588,6 +609,7 @@ export class Core {
       },
       unattendedStopped: (sessionId, what) => {
         this.schedules.needsHuman(sessionId, what)
+        this.flows.needsHuman(sessionId, what)
         this.autoReview.needsHuman(sessionId, what)
       },
       activity: (sessionId) => this.limitResume.activity(sessionId),
@@ -604,12 +626,13 @@ export class Core {
       }
     }, this.repoMcp, this.claudeMirror, this.agentHost, this.agentReports)
     this.sessions.integrations = this.bridge
-    this.foremanActions = new ForemanActions({ state: () => store.state, api: this.api })
+    this.foremanActions = new ForemanActions({ state: () => store.state, api: this.api, record: (input) => this.agentReports.record(input) })
     this.foremanMcp = new ForemanMcp({
       actions: this.foremanActions,
       session: (id) => store.state.sessions.find((s) => s.id === id),
       launch: () => host.bridgeLaunch?.() ?? null,
-      socket: () => host.cliSocket?.() ?? null
+      socket: () => host.cliSocket?.() ?? null,
+      flowsOn: () => Boolean(store.state.settings.flows)
     })
     this.sessions.foremanMcp = this.foremanMcp
     this.assistant.foremanActions = this.foremanActions
@@ -630,7 +653,7 @@ export class Core {
     this.limitResume = new LimitResumeService({
       sessions: () => this.store.state.sessions,
       readChat: (sessionId) => this.store.readChat(sessionId),
-      send: (sessionId, text) => this.sessions.deliver(sessionId, text, { mode: 'queue' }),
+      send: (sessionId, text, origin) => this.sessions.deliver(sessionId, text, { mode: 'queue', origin }),
       flush: () => store.flush(),
       changed,
       now: () => Date.now(),
@@ -646,7 +669,9 @@ export class Core {
       inputs: (schedule) => this.scheduleInputs(schedule),
       launch: (schedule, occurrence, handle) => this.launchScheduled(schedule, occurrence, handle),
       stop: async (occurrence) => {
-        if (occurrence.sessionId) await this.sessions.cancel(occurrence.sessionId)
+        // A flow schedule's run: Stop on the run (its occurrence then ends with it).
+        if (occurrence.flowRunId) await this.flows.stopRun(occurrence.flowRunId)
+        else if (occurrence.sessionId) await this.sessions.cancel(occurrence.sessionId)
       },
       turnStart: (occurrence) => {
         const session = occurrence.sessionId ? this.store.state.sessions.find((s) => s.id === occurrence.sessionId) : undefined
@@ -666,6 +691,67 @@ export class Core {
         }),
       paused: () => Boolean(this.stopSafely?.isDraining),
       ready: () => ghActiveAccountReady(),
+      changed
+    })
+    this.flows = new FlowService({
+      store,
+      now: () => Date.now(),
+      prepare: (flowId, repoId) => this.prepareFlow(flowId, repoId),
+      loadouts: () => this.store.state.settings.loadouts,
+      launch: (run, first, handle) => this.launchFlowRun(run, first, handle),
+      // Never in plan mode: nobody is there to review a plan (a read-only step's turn is held in it by its persona mark).
+      createSession: (workspaceId, loadout, options) =>
+        this.sessions.createSession(workspaceId, { agent: loadout.agent, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false, ...(options?.title ? { title: options.title } : {}) }).id,
+      deliver: async (sessionId, text, options) => {
+        this.sessions.markUnattended(options.turnId, options.unattended)
+        await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId, ...(options.origin ? { origin: options.origin } : {}) })
+      },
+      cancel: (sessionId) => this.sessions.cancel(sessionId),
+      turnStatus: (turnId) => this.sessions.turnStatus(turnId),
+      startChecks: (workspaceId, by, wanted) => this.startFlowChecks(workspaceId, by, wanted),
+      // Only the check run this run's step started: one the user started meanwhile is theirs.
+      cancelChecks: (workspaceId, by) => this.checks.cancel(workspaceId, by),
+      checksResults: (workspaceId) => this.failingChecksText(workspaceId),
+      readChat: (sessionId) => this.store.readChat(sessionId),
+      reported: (workspaceId, turnId) => (this.store.state.workspaces.find((w) => w.id === workspaceId)?.agentReports ?? []).filter((r) => r.turnId === turnId).map((r) => ({ kind: r.kind, text: r.text })),
+      diffStat: (workspaceId) => this.diffStatText(workspaceId),
+      note: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.note?.text,
+      noteRevision: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.note?.revision,
+      tree: async (workspaceId) => {
+        const ws = this.workspaces.workspace(workspaceId)
+        const tree = await sharedWorkingTree(workspaceTarget(ws)).catch(() => '')
+        return `Base branch: ${ws.baseBranch}${tree ? `\nWorking tree: ${tree.slice(0, 7)}` : ''}`
+      },
+      // The data lens's trees: the shared snapshot the diff stat and checks read, a new scan only when none is fresh.
+      workingTree: async (workspaceId) => (await sharedWorkingTree(workspaceTarget(this.workspaces.workspace(workspaceId))).catch(() => '')) || undefined,
+      captureDiff: (workspaceId) => workspaceDiffPatch(this.workspaces.workspace(workspaceId)),
+      reviewPrompt: (workspaceId) => this.workspaces.settingsFor(this.workspaces.workspace(workspaceId).repoId).prompts.codeReview,
+      runCommand: (workspaceId, name) => this.runFlowCommand(workspaceId, name),
+      cancelCommand: async (workspaceId) => {
+        const running = this.flowCommands.get(workspaceId)
+        if (!running) return
+        running.cancelled = true
+        await running.script.kill()
+      },
+      pullRequest: (workspaceId) => this.flowPullRequest(workspaceId),
+      newWorkspace: (run, from) => this.flowWorkspace(run, from),
+      contextUsage: (sessionId) => this.store.state.sessions.find((s) => s.id === sessionId)?.contextUsage,
+      // The agents with a /compact of their own (Claude Code, Codex): it goes as a message, as the composer sends it.
+      canCompact: (sessionId) => {
+        const session = this.store.state.sessions.find((s) => s.id === sessionId)
+        return Boolean(session && builtinCommands(session.agent).some((c) => c.name === 'compact'))
+      },
+      afterRun: (run, workspaceId, after) => this.autoArchive.request(workspaceId, { reason: { kind: 'flow', runId: run.id }, deleteBranch: false, deleteIfUnchanged: after === 'delete-unchanged' }),
+      requestGate: (sessionId, request) => this.sessions.requestGate(sessionId, request),
+      cancelGate: (id) => this.sessions.cancelGate(id),
+      turnStart: (sessionId) => {
+        const session = this.store.state.sessions.find((s) => s.id === sessionId)
+        if (session?.waitingForSlot) return 'waiting'
+        return session?.turnId ? session.turnStartedAt : undefined
+      },
+      paused: () => Boolean(this.stopSafely?.isDraining),
+      // A schedule's occurrence ends with the flow run it started.
+      ended: (run) => this.schedules.flowRunEnded(run),
       changed
     })
     this.data = new DataService(store, undefined, this.claudeMirror)
@@ -791,6 +877,35 @@ export class Core {
         const r = this.integrations.resolve(repoId, 'github')
         return r.state === 'ready' ? `${r.connection.id}:${r.connection.rev}:${this.integrations.githubKey(repoId) ?? ''}` : this.integrations.githubKey(repoId) ?? ''
       }
+    })
+    this.repoIcons = new RepoIcons({
+      repo: (repoId) => this.store.state.repos.find((r) => r.id === repoId),
+      changed: () => this.changed(),
+      listTree: async (root, ref) => {
+        const r = await git(root, ['ls-tree', '-r', '-l', '-z', ref], { allowFail: true, timeoutMs: 30_000 })
+        return r.code === 0 ? r.stdout : null
+      },
+      blob: (root, oid) => gitBlob(root, oid),
+      ask: async (prompt) => {
+        const { settings } = this.store.state
+        // Privacy mode keeps the repository's names and README on this computer, as it does a chat's first message.
+        if (settings.privacyMode) return null
+        const claude = driverFor('claude')
+        if (!claude.oneShot) return null
+        // Run outside the repository: the answer comes from the prompt alone.
+        return claude.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent('claude'), executablePath: executablePathFor(settings, 'claude') }).catch(() => null)
+      },
+      remoteAvatar: async (repo) => {
+        const target = await this.scm.target(repo.id)
+        if (target.kind === 'gitlab') {
+          const token = this.secrets.appSecret(gitlabTokenKey(target.host.host))
+          return token ? gitlabProjectAvatar(new GitlabApi(target.host, token), target.project) : null
+        }
+        const url = await this.workspaces.remoteUrl(repo.id)
+        const slug = url ? githubSlug(url) : null
+        return slug ? githubOrgAvatar(slug, (args) => ghAs(this.integrations.githubKey(repo.id))(repo.rootPath, args, 15_000)) : null
+      },
+      shrink: host.shrinkImage ? (image, pixels) => host.shrinkImage!(image.bytes, pixels) : undefined
     })
     // G2: a GitLab repository's agents hear about the host, and about glab when it's signed in there.
     this.workspaces.hostContext = (ws) => {
@@ -1234,6 +1349,8 @@ export class Core {
   private powerTimer: ReturnType<typeof setInterval> | null = null
   // Workspace id → the first message to send once it's ready.
   private firstMessages = new Map<string, FirstMessage>()
+  // A flow's script step running in a workspace, so Stop can cancel it.
+  private flowCommands = new Map<string, { script: RunningScript; cancelled: boolean }>()
   // Pasted files waiting for a workspace that is still being made (the new-workspace dialog).
   private stagingDir = path.join(os.tmpdir(), 'foreman-staged')
   // O21: folders named on a launch's command line that the window hasn't asked for yet.
@@ -1252,10 +1369,11 @@ export class Core {
    * Imported issue/PR text goes as a file next to the message, never into its instructions.
    */
   private sendTemplated(message: FirstMessage) {
-    const { sessionId, text, templateId, intake, files } = message
-    if (!intake && !files?.length) return templateId ? this.sessions.send(sessionId, text, { templateId }) : this.sessions.send(sessionId, text)
+    const { sessionId, text, templateId, intake, files, origin } = message
+    const options = { ...(templateId ? { templateId } : {}), ...(origin ? { origin } : {}) }
+    if (!intake && !files?.length) return Object.keys(options).length ? this.sessions.send(sessionId, text, options) : this.sessions.send(sessionId, text)
     return this.attachFirst(sessionId, intake, files).then(async (attachments) => {
-      const sent = await this.sessions.send(sessionId, text, { ...(templateId ? { templateId } : {}), attachments })
+      const sent = await this.sessions.send(sessionId, text, { ...options, attachments })
       this.dropStaged(files)
       return sent
     })
@@ -1444,23 +1562,37 @@ export class Core {
   }
 
   /** Start the background links to paired computers (after launch; never in tests or screenshot runs). */
+  /** At launch: look for an icon for each repository added before Foreman picked them, or whose look was cut short. */
+  findMissingRepoIcons(): void {
+    for (const repo of this.store.state.repos) if (!repo.icon && !repo.iconChecked) void this.repoIcons.pick(repo.id)
+  }
+
   startComputers(): void {
     this.remote.sync()
   }
 
   // ---- scheduled templates (R-5) ----
 
-  /** What a schedule's fingerprint covers, as it stands now. */
-  private scheduleInputs(schedule: { templateId: string; templateName: string; repoId: string }): FingerprintInputs | { error: string } {
+  /** What a schedule's fingerprint covers, as it stands now: a flow schedule's is its flow run's approval. */
+  private scheduleInputs(schedule: Pick<Schedule, 'templateId' | 'templateName' | 'flow' | 'repoId'>): FingerprintInputs | { error: string } {
     const repo = this.store.state.repos.find((r) => r.id === schedule.repoId)
     if (!repo) return { error: 'the repository was removed' }
+    if (schedule.flow) {
+      if (!this.store.state.settings.flows) return { error: 'Flows are off; turn them on in Settings → Experimental' }
+      const prepared = this.prepareFlow(schedule.flow.flowId, repo.id)
+      if ('error' in prepared) return { error: `the flow “${schedule.flow.flowName}”: ${prepared.error.replace(/\.$/, '')}` }
+      return { templateBody: '', ...this.repoApprovalParts(repo), flow: prepared.fingerprint }
+    }
     const template = this.workspaces.template(schedule.templateId)
     if (!template) return { error: `the template “${schedule.templateName}” no longer exists` }
+    return { templateBody: template.body, templateRev: template.rev, ...this.repoApprovalParts(repo) }
+  }
+
+  /** What an unattended run's approval covers in the repository: its setup script, checks, MCP servers and integrations. */
+  private repoApprovalParts(repo: Repo): Pick<FingerprintInputs, 'setupScript' | 'checks' | 'mcp'> {
     const settings = this.workspaces.settingsFor(repo.id)
     const layer = readSharedLayer(repo.rootPath)
     return {
-      templateBody: template.body,
-      templateRev: template.rev,
       setupScript: settings.setupScript,
       checks: settings.checks.map((c) => ({ name: c.name, command: c.command })),
       mcp: [
@@ -1471,9 +1603,118 @@ export class Core {
     }
   }
 
+  /** The accounts a run's agent gets from Integrations, in words ("linear: Work (read)"), as an approval shows them. */
+  private integrationLines(repoId: string): string[] {
+    const own = this.integrations.repoChoices(repoId)?.allowOwnMcp
+    return [
+      ...(['github', 'linear', 'slack', 'langfuse'] as const).flatMap((service) => {
+        const r = this.integrations.resolve(repoId, service)
+        if (r.state === 'broken') return [`${service}: unavailable`]
+        if (r.state !== 'ready') return []
+        return [`${service}: ${r.connection.name}${service === 'linear' || service === 'langfuse' ? ` (${r.connection.agentAccess})` : ''}`]
+      }),
+      ...(own?.length ? [`your own ${[...own].sort().join(', ')} servers stay on`] : [])
+    ]
+  }
+
   /** What agents in a repository get from Integrations, for schedule fingerprints ([] when nothing, so older schedules stay approved). */
   private integrationFingerprint(repoId: string): string[] {
     return this.integrations.fingerprints(repoId)
+  }
+
+  /** What a workspace's lineage is read from: the store's records, its flow runs and the templates' names. */
+  private lineageSources(): LineageSources {
+    const state = this.store.state
+    return {
+      workspaces: state.workspaces,
+      sessions: state.sessions,
+      readChat: (id) => this.store.readChat(id),
+      flowRuns: state.flowRuns ?? [],
+      templateNames: Object.fromEntries(state.settings.promptTemplates.map((t) => [t.id, t.name]))
+    }
+  }
+
+  /** Flows are an experiment (Settings → Experimental → Flows): while it is off, every flow method refuses. */
+  private flowsOn(): void {
+    if (!this.store.state.settings.flows) throw new Error('Flows are off; turn them on in Settings → Experimental.')
+  }
+
+  private listFlows(repoId?: string): FlowListing[] {
+    this.flowsOn()
+    if (repoId) this.workspaces.repo(repoId)
+    const t = mainT(this.store.state.settings)
+    // Each flow's personas resolved where it runs: one that isn't there is a problem on the flow.
+    return listFlows(this.store.state.repos, this.store.state.personalFlows ?? [], t, repoId, this.personaListings(repoId))
+  }
+
+  private personaListings(repoId?: string): PersonaListing[] {
+    return listPersonas(this.store.state.repos, this.store.state.personalPersonas ?? [], mainT(this.store.state.settings), repoId)
+  }
+
+  /** Personas (who a flow's step is) from every source, and the MCP servers the repositories propose, which a persona may keep fewer of. */
+  private listPersonas(repoId?: string): PersonaList {
+    this.flowsOn()
+    if (repoId) this.workspaces.repo(repoId)
+    const repos = this.store.state.repos.filter((r) => !repoId || r.id === repoId)
+    const mcpServers = [...new Set(repos.flatMap((r) => (readSharedLayer(r.rootPath).mcp ?? []).map((server) => server.name)))].sort()
+    return { personas: this.personaListings(repoId), mcpServers }
+  }
+
+  /** A personal persona saved as written, once it reads; its problems otherwise, with nothing saved. */
+  private savePersonalPersona(input: { id?: string; markdown: string }): { persona: PersonaListing } | { problems: string[] } {
+    this.flowsOn()
+    if (typeof input?.markdown !== 'string') throw new Error('A persona needs its markdown document.')
+    const t = mainT(this.store.state.settings)
+    if (Buffer.byteLength(input.markdown, 'utf8') > MAX_PERSONA_BYTES) return { problems: [t('flows.problem.tooLarge', { kb: Math.round(MAX_PERSONA_BYTES / 1024) })] }
+    const parsed = parsePersona(input.markdown, 'personal', t)
+    if ('problems' in parsed) return { problems: parsed.problems }
+    const personas = (this.store.state.personalPersonas ??= [])
+    let persona = input.id ? personas.find((p) => p.id === input.id) : undefined
+    if (input.id && !persona) throw new Error('That persona isn’t saved any more.')
+    const name = parsed.persona.name.toLowerCase()
+    const clash = personas.find((p) => p !== persona && personalPersonaListing(p, t).persona?.name.toLowerCase() === name)
+    if (clash) return { problems: [t('personas.problem.duplicate', { name: parsed.persona.name })] }
+    if (!persona && personas.length >= MAX_PERSONAL_PERSONAS) return { problems: [t('personas.problem.tooMany', { max: MAX_PERSONAL_PERSONAS })] }
+    const now = new Date().toISOString()
+    if (persona) Object.assign(persona, { markdown: input.markdown, updatedAt: now })
+    else personas.push((persona = { id: `persona-${randomUUID()}`, markdown: input.markdown, createdAt: now, updatedAt: now }))
+    this.store.save()
+    return { persona: personalPersonaListing(persona, t) }
+  }
+
+  private deletePersonalPersona(id: string): void {
+    this.flowsOn()
+    const personas = this.store.state.personalPersonas ?? []
+    if (!personas.some((p) => p.id === id)) return
+    this.store.state.personalPersonas = personas.filter((p) => p.id !== id)
+    this.store.save()
+  }
+
+  /** A personal flow saved as written, once it parses; its problems otherwise, with nothing saved. */
+  private savePersonalFlow(input: { id?: string; toml: string }): { flow: FlowListing } | { problems: string[] } {
+    this.flowsOn()
+    if (typeof input?.toml !== 'string') throw new Error('A flow needs its TOML document.')
+    const t = mainT(this.store.state.settings)
+    if (Buffer.byteLength(input.toml, 'utf8') > MAX_FLOW_BYTES) return { problems: [t('flows.problem.tooLarge', { kb: Math.round(MAX_FLOW_BYTES / 1024) })] }
+    const parsed = parseFlow(input.toml, 'personal', t)
+    if ('problems' in parsed) return { problems: parsed.problems }
+    const flows = (this.store.state.personalFlows ??= [])
+    const now = new Date().toISOString()
+    let flow = input.id ? flows.find((f) => f.id === input.id) : undefined
+    if (input.id && !flow) throw new Error('That flow isn’t saved any more.')
+    if (!flow && flows.length >= MAX_PERSONAL_FLOWS) return { problems: [t('flows.problem.tooMany', { max: MAX_PERSONAL_FLOWS })] }
+    if (flow) Object.assign(flow, { toml: input.toml, updatedAt: now })
+    else flows.push((flow = { id: `flow-${randomUUID()}`, toml: input.toml, createdAt: now, updatedAt: now }))
+    this.store.save()
+    return { flow: personalFlowListing(flow, t) }
+  }
+
+  private deletePersonalFlow(id: string): void {
+    this.flowsOn()
+    const flows = this.store.state.personalFlows ?? []
+    if (!flows.some((f) => f.id === id)) return
+    this.store.state.personalFlows = flows.filter((f) => f.id !== id)
+    this.store.save()
   }
 
   private inputsOrThrow(scheduleId: string): FingerprintInputs {
@@ -1483,8 +1724,31 @@ export class Core {
     return inputs
   }
 
-  /** The template and the fingerprint inputs a schedule request would be approved on, or the error saving it gives. */
-  private checkedScheduleInputs(input: ScheduleInput): { template: PromptTemplate; inputs: FingerprintInputs } {
+  /**
+   * A flow schedule's flow as it would run unattended: Flows on, the flow there, every step it can carry out on Claude
+   * (with the design's wording when not), and a value for every input, since a scheduled run can't ask.
+   */
+  private checkedScheduleFlow(input: ScheduleInput): PreparedFlow {
+    this.flowsOn()
+    const flow = input.flow!
+    this.workspaces.repo(input.repoId)
+    const prepared = this.prepareFlow(flow.flowId, input.repoId)
+    if ('error' in prepared) throw new Error(prepared.error)
+    const { problems } = flowRunProblems(prepared, this.store.state.settings.loadouts)
+    if (problems.length) throw new Error(problems.join(' '))
+    const missing = flowRunInputs(prepared).filter((i) => !flow.inputs[i.name]?.trim()).map((i) => `“${i.name}”`)
+    if (missing.length) throw new Error(`A scheduled run can’t ask for values, so fill in ${missing.join(', ')} first.`)
+    return prepared
+  }
+
+  /** The template (or flow) and the fingerprint inputs a schedule request would be approved on, or the error saving it gives. */
+  private checkedScheduleInputs(input: ScheduleInput): { template?: PromptTemplate; prepared?: PreparedFlow; inputs: FingerprintInputs } {
+    if (input.flow) {
+      const prepared = this.checkedScheduleFlow(input)
+      const inputs = this.scheduleInputs({ ...input })
+      if ('error' in inputs) throw new Error(inputs.error)
+      return { prepared, inputs }
+    }
     const template = this.workspaces.template(input.templateId)
     if (!template) throw new Error('That template no longer exists.')
     if (templatePlaceholders(template.body).length) throw new Error('This template has {{placeholders}} to fill in each time. A scheduled run can’t ask, so write them out first.')
@@ -1497,10 +1761,14 @@ export class Core {
 
   /** Schedule… → Approve schedule. Saving is the approval of the template and repo as they are now (and, with `shown`, of exactly what the caller showed). */
   private saveSchedule(input: ScheduleInput, id?: string, shown?: ScheduleFingerprint): Schedule {
-    const { template, inputs } = this.checkedScheduleInputs(input)
+    const { template, prepared, inputs } = this.checkedScheduleInputs(input)
     assertFingerprintShown(shown, fingerprintOf(inputs))
-    if (id) return this.schedules.update(id, input, inputs)
-    const created = this.schedules.create({ ...input, templateName: template.name }, inputs)
+    // The flow's name and source as they are now; only the inputs the flow asks for are kept.
+    const target: ScheduleInput = prepared
+      ? { ...input, templateId: undefined, templateName: undefined, flow: { flowId: prepared.ref.id, flowSource: prepared.ref.source, flowName: prepared.flow.name, inputs: Object.fromEntries(flowRunInputs(prepared).map((i) => [i.name, input.flow!.inputs[i.name].trim()])) } }
+      : { ...input, flow: undefined, templateName: template!.name }
+    if (id) return this.schedules.update(id, target, inputs)
+    const created = this.schedules.create(target, inputs)
     // Get started: a schedule created.
     this.recordMilestone('automation')
     return created
@@ -1510,9 +1778,16 @@ export class Core {
   private scheduleFingerprintView(input: ScheduleInput): ScheduleFingerprintView {
     const problem = scheduleProblem(input)
     if (problem) throw new Error(problem)
-    const { template, inputs } = this.checkedScheduleInputs(input)
+    const { template, prepared, inputs } = this.checkedScheduleInputs(input)
     const repo = this.workspaces.repo(input.repoId)
-    const own = this.integrations.repoChoices(repo.id)?.allowOwnMcp
+    if (prepared) {
+      const flow = this.flowRunSummary(prepared, repo, input.baseBranch)
+      return {
+        fingerprint: fingerprintOf(inputs),
+        summary: { flow, repoName: repo.name, baseBranch: flow.baseBranch, setupScript: flow.setupScript, checks: flow.checks, mcpServers: flow.mcpServers, integrations: flow.integrations }
+      }
+    }
+    if (!template) throw new Error('That template no longer exists.')
     return {
       fingerprint: fingerprintOf(inputs),
       summary: {
@@ -1524,17 +1799,269 @@ export class Core {
         setupScript: inputs.setupScript,
         checks: inputs.checks,
         mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
-        integrations: [
-          ...(['github', 'linear', 'slack', 'langfuse'] as const).flatMap((service) => {
-            const r = this.integrations.resolve(repo.id, service)
-            if (r.state === 'broken') return [`${service}: unavailable`]
-            if (r.state !== 'ready') return []
-            return [`${service}: ${r.connection.name}${service === 'linear' || service === 'langfuse' ? ` (${r.connection.agentAccess})` : ''}`]
-          }),
-          ...(own?.length ? [`your own ${[...own].sort().join(', ')} servers stay on`] : [])
-        ]
+        integrations: this.integrationLines(repo.id)
       }
     }
+  }
+
+  // ---- flow runs (docs/loops-and-graphs.md) ----
+
+  /** A flow as it stands now in this repository: the document, the templates its steps name, and what an approval covers. */
+  private prepareFlow(flowId: string, repoId: string): PreparedFlow | { error: string } {
+    const repo = this.store.state.repos.find((r) => r.id === repoId)
+    if (!repo) return { error: 'The repository was removed.' }
+    const t = mainT(this.store.state.settings)
+    const listing = listFlows(this.store.state.repos, this.store.state.personalFlows ?? [], t, repoId).find((f) => f.id === flowId)
+    if (!listing) return { error: 'That flow isn’t there any more.' }
+    const parsed = parseFlow(listing.toml, listing.source, t)
+    if ('problems' in parsed) return { error: `This flow has problems: ${parsed.problems.join(' ')}` }
+    const flow: Flow = parsed.flow
+    const all = [...this.store.state.settings.promptTemplates, ...readRepoTemplates(repo.id, repo.rootPath)]
+    const templates: Record<string, FlowTemplate | undefined> = {}
+    for (const step of flow.steps) {
+      if (step.kind !== 'turn' || !step.template || step.template in templates) continue
+      const ref = step.template
+      const found = all.find((x) => x.id === ref) ?? all.find((x) => x.name.trim().toLowerCase() === ref.trim().toLowerCase())
+      templates[ref] = found && { id: found.id, name: found.name, body: found.body, ...(found.rev ? { rev: found.rev } : {}), source: found.source === 'repo' ? 'repo' : 'personal' }
+    }
+    // Each persona a step names, as it reads in this repository now (yours, the repository's, .claude/agents, built-in).
+    const listings = this.personaListings(repo.id)
+    const personas: Record<string, Persona | undefined> = {}
+    for (const step of flow.steps) if ('persona' in step && step.persona && !(step.persona in personas)) personas[step.persona] = findPersona(listings, step.persona, repo.id)
+    // Each command a script step names, as this repository's workspaces offer it (yours, then the repository's).
+    const commands: Record<string, FlowCommand | undefined> = {}
+    const saved = this.store.state.settings.savedCommands ?? []
+    const shared = flow.steps.some((s) => s.kind === 'script') ? repoCommands(this.store.state, repo) : []
+    for (const step of flow.steps) {
+      if (step.kind !== 'script' || step.command in commands) continue
+      const found = commandNamed(saved, shared, repo.id, step.command)
+      commands[step.command] = found && { name: found.name, command: found.command, source: found.source === 'repo' ? 'repo' : 'personal' }
+    }
+    const fingerprint = flowFingerprintOf({
+      flow,
+      templates: Object.values(templates).filter((x): x is FlowTemplate => Boolean(x)),
+      personas: Object.values(personas).filter((x): x is Persona => Boolean(x)),
+      commands: Object.values(commands).filter((x): x is FlowCommand => Boolean(x)),
+      ...this.repoApprovalParts(repo)
+    })
+    const ref: FlowRun['flow'] = { id: listing.id, name: flow.name, source: listing.source, ...(listing.starter ? { starter: listing.starter } : {}), ...(listing.file ? { file: listing.file } : {}), ...(listing.rev ? { rev: listing.rev } : {}) }
+    return { flow, ref, templates, personas, commands, fingerprint }
+  }
+
+  /** What starting a flow in this repository would approve now, and the values it asks for (the Run dialog). */
+  private flowRunPreview(input: { flowId: string; repoId: string; baseBranch: string }): FlowRunPreview {
+    this.flowsOn()
+    const repo = this.workspaces.repo(input?.repoId)
+    const prepared = this.prepareFlow(input.flowId, repo.id)
+    if ('error' in prepared) throw new Error(prepared.error)
+    return { fingerprint: prepared.fingerprint, summary: this.flowRunSummary(prepared, repo, input.baseBranch), inputs: flowRunInputs(prepared) }
+  }
+
+  /** A prepared flow's approval in parts, as the Run dialog, New workspace's Start with and a flow schedule show it. */
+  private flowRunSummary(prepared: PreparedFlow, repo: Repo, baseBranch: string): FlowRunSummary {
+    const { flow } = prepared
+    const parts = this.repoApprovalParts(repo)
+    const { problems, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
+    const personas = Object.values(prepared.personas).flatMap((p) => (p ? [personaRef(p)] : []))
+    return {
+      flowName: flow.name,
+      flowSource: prepared.ref.source,
+      ...(prepared.ref.starter ? { starter: prepared.ref.starter } : {}),
+      ...(prepared.ref.file ? { flowFile: prepared.ref.file } : {}),
+      ...(prepared.ref.rev ? { flowRev: prepared.ref.rev } : {}),
+      repoName: repo.name,
+      baseBranch: (baseBranch ?? '').trim(),
+      steps: flow.steps.length,
+      loops: flow.loops.length,
+      gates: flow.steps.filter((s) => s.kind === 'gate').length,
+      personas,
+      templates: Object.values(prepared.templates).flatMap((x) => (x ? [{ name: x.name, ...(x.rev ? { rev: x.rev } : {}), source: x.source }] : [])),
+      setupScript: parts.setupScript,
+      checks: parts.checks,
+      ...(Object.values(prepared.commands ?? {}).some(Boolean) ? { commands: Object.values(prepared.commands ?? {}).flatMap((c) => (c ? [{ name: c.name, command: c.command }] : [])) } : {}),
+      mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
+      integrations: this.integrationLines(repo.id),
+      notClaude,
+      ...(flow.loops.some((l) => l.at_most.cost !== undefined) ? { costBound: true } : {}),
+      // The non-Claude turns have their own line in the dialog.
+      problems: problems.filter((p) => !(notClaude.length && p.startsWith('Unattended turns'))),
+      after: flow.after
+    }
+  }
+
+  private startFlowRun(input: FlowRunStart): FlowRun {
+    return this.startFlowRunFrom(input)
+  }
+
+  /**
+   * Start a flow run; `origin` says who, when it wasn't someone at the window or a terminal (a workspace agent's
+   * start_flow, the assistant's Run card). The window's own calls carry none: their input's fields are taken one by one.
+   */
+  startFlowRunFrom(input: FlowRunStart, origin?: FlowRunOrigin): FlowRun {
+    this.flowsOn()
+    if (!input || typeof input !== 'object') throw new Error('Choose a flow to start.')
+    this.workspaces.repo(input.repoId)
+    return this.flows.begin({ flowId: input.flowId, repoId: input.repoId, baseBranch: input.baseBranch, inputs: input.inputs, shown: input.shown, ...(origin ? { origin } : {}) })
+  }
+
+  /**
+   * A flow run's first step: a fresh workspace made the way a scheduled run's is, its first chat unattended for that turn.
+   * Resolves once the first turn has started.
+   */
+  private async launchFlowRun(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<{ turnId: string }> {
+    // A run a workspace agent or the assistant started: its workspace records who (Workspace.startedBy).
+    const origin = run.origin
+    const startedBy: WorkspaceStartedBy | undefined =
+      origin?.kind === 'delegation' ? { sessionId: origin.sessionId, ...(origin.turnId ? { turnId: origin.turnId } : {}), via: 'delegation' } : origin?.kind === 'assistant' ? { sessionId: origin.threadId, via: 'assistant' } : undefined
+    const ws = await this.createFromOptions(
+      run.repoId,
+      { prompt: first.text, baseBranch: run.baseBranch, branch: { kind: 'new' }, loadout: first.loadout },
+      { flowRun: { runId: run.id, step: first.step, ...(first.persona ? { persona: first.persona } : {}) }, ...(startedBy ? { startedBy } : {}), onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
+    )
+    const setup = await this.setupOutcome(ws.id)
+    if (setup.failed || setup.held) throw new Error(`Setup failed, so the first message was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
+    const started = await this.firstTurn(ws.id)
+    if (!started) throw new Error('The first turn did not start.')
+    return { turnId: started.turn }
+  }
+
+  /**
+   * A checks step: after any check run already going here, the repository's checks, never approving a command. `wanted`
+   * is asked again once that run ends: a step stopped while it waited starts nothing.
+   */
+  private async startFlowChecks(workspaceId: string, by?: { flowRun: string; step: string }, wanted: () => boolean = () => true): Promise<FlowChecksStart> {
+    try {
+      const started = await this.checks.startWhenFree(workspaceId, { approve: false, ...(by ? { startedBy: by } : {}) }, wanted)
+      return started.kind === 'consent' ? { kind: 'consent', names: started.items.map((i) => i.name) } : started
+    } catch (err) {
+      if (err instanceof ChecksError && err.code === 'not-configured') return { kind: 'not-configured' }
+      throw err
+    }
+  }
+
+  /**
+   * A flow's script step: the saved command by name, run in the workspace as checks run theirs (no terminal, the same
+   * consent: a repository command needs this computer's approval of its current text, never given here), its output kept.
+   */
+  private async runFlowCommand(workspaceId: string, name: string): Promise<FlowCommandStart> {
+    const ws = this.workspaces.workspace(workspaceId)
+    const repo = this.workspaces.repo(ws.repoId)
+    const command = commandNamed(this.store.state.settings.savedCommands ?? [], repoCommands(this.store.state, repo), repo.id, name)
+    if (!command?.command.trim()) return { kind: 'missing' }
+    if (needsApproval(command)) return { kind: 'consent', name: command.name }
+    const frozen = frozenReason(ws)
+    if (frozen) throw new Error(frozen)
+    if (this.flowCommands.has(workspaceId)) throw new Error('A flow command is already running in this workspace.')
+    const target = workspaceTarget(ws, { wake: true })
+    const where = typeof target === 'string' ? commandLaunch(command, { name: ws.name, path: target }, mainT(this.store.state.settings)).cwd : target
+    let output = ''
+    let timedOut = false
+    const script = runScript(command.command, where, this.terminalEnv(ws), (chunk) => {
+      output += chunk
+      // Only the end is kept for the step's context; the rest needn't stay in memory.
+      if (output.length > 256 * 1024) output = output.slice(-128 * 1024)
+    })
+    const entry = { script, cancelled: false }
+    this.flowCommands.set(workspaceId, entry)
+    const timer = setTimeout(() => {
+      timedOut = true
+      output += `\n[Foreman] Stopped after ${Math.round(DEFAULT_CHECK_TIMEOUT_MS / 1000)}s (time limit)\n`
+      void script.kill()
+    }, DEFAULT_CHECK_TIMEOUT_MS)
+    const done = script.done
+      .then((code) => ({ code, output, timedOut, cancelled: entry.cancelled }))
+      .finally(() => {
+        clearTimeout(timer)
+        if (this.flowCommands.get(workspaceId) === entry) this.flowCommands.delete(workspaceId)
+      })
+    return { kind: 'started', done }
+  }
+
+  /** A flow's wait step: the workspace's pull request, through the PR cache (its pauses and back-off hold). */
+  private async flowPullRequest(workspaceId: string): Promise<FlowPullRequest> {
+    const ws = this.workspaces.workspace(workspaceId)
+    if (!this.workspaces.repo(ws.repoId).hasOrigin) return { kind: 'no-pr' }
+    const result = await this.prs.get(ws, { fresh: true })
+    if (result.kind === 'ok') return { kind: 'facts', facts: prFacts(result.pr, new Date().toISOString()) }
+    if (result.kind === 'no-pr') return { kind: 'no-pr' }
+    return { kind: 'unknown', message: result.message }
+  }
+
+  /**
+   * A flow's workspace step: a new workspace for the steps after it, from the run's base branch, or from a step's end:
+   * that turn's end checkpoint, else a snapshot of its workspace now, restored before setup runs (as Compare does).
+   */
+  private async flowWorkspace(run: FlowRun, from?: { workspaceId: string; sessionId?: string; turnId?: string }): Promise<{ workspaceId: string; sessionId?: string; failed?: string }> {
+    let sessionId: string | undefined
+    if (!from) {
+      const ws = await this.createFromOptions(run.repoId, { baseBranch: run.baseBranch, branch: { kind: 'new' } }, { flowWorkspace: { runId: run.id }, onChat: (_w, s) => (sessionId = s) })
+      const setup = await this.setupOutcome(ws.id)
+      return { workspaceId: ws.id, sessionId, ...(setup.failed ? { failed: setup.logTail.trim().split('\n').at(-1) || 'the setup script failed' } : {}) }
+    }
+    const source = this.workspaces.workspace(from.workspaceId)
+    if (source.cloud) throw new Error('A workspace step can’t start from a cloud workspace yet.')
+    // A turn's end checkpoint when it has one; otherwise (or when it is gone) a snapshot of that workspace now.
+    let checkpointId = from.sessionId && from.turnId ? endCheckpointId(from.sessionId, from.turnId) : ''
+    let temporary = false
+    const snapshot = async () => {
+      checkpointId = `flow-${run.id}-${randomUUID().slice(0, 8)}`
+      const saved = await saveCheckpoint(wsPath(source), checkpointId)
+      if (!saved.ok) throw new Error(`Couldn’t snapshot ${source.name}: ${saved.reason}.`)
+      temporary = true
+    }
+    if (!checkpointId) await snapshot()
+    const ws = await this.workspaces.createWorkspace(run.repoId, { baseBranch: source.baseBranch, deferSetup: true })
+    ws.flowRun = { runId: run.id }
+    this.workspaces.touch()
+    try {
+      await this.workspaces.worktreePrepared(ws.id)
+      try {
+        await restoreCheckpoint(wsPath(ws), checkpointId)
+      } catch (err) {
+        if (temporary) throw err
+        await snapshot()
+        await restoreCheckpoint(wsPath(ws), checkpointId)
+      }
+      this.workspaces.continueSetup(ws.id)
+    } catch (err) {
+      this.workspaces.continueSetup(ws.id, `Couldn’t copy ${source.name} into this workspace: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      if (temporary) await deleteCheckpoints(wsPath(source), checkpointId).catch(() => undefined)
+    }
+    sessionId = this.startChat(ws.id, undefined, undefined, undefined, undefined, { flowWorkspace: { runId: run.id } })
+    this.store.save()
+    const setup = await this.setupOutcome(ws.id)
+    const now = this.store.state.workspaces.find((w) => w.id === ws.id)
+    const failed = setup.failed ? setup.logTail.trim().split('\n').at(-1) || 'the setup script failed' : now?.state === 'error' ? now.error ?? 'the workspace couldn’t be made' : undefined
+    return { workspaceId: ws.id, sessionId, ...(failed ? { failed } : {}) }
+  }
+
+  /** The failing checks' commands and the end of each log, as a step's `checks.results` section. Empty when none failed. */
+  private async failingChecksText(workspaceId: string): Promise<string> {
+    const failing = this.checks.failing(workspaceId).slice(0, 6)
+    const parts: string[] = []
+    for (const check of failing) {
+      const log = await readFile(check.logPath, 'utf8').catch(() => '')
+      const tail = tailLines(log, 60).slice(-4000)
+      parts.push(`### ${check.name}${check.exitCode !== undefined ? ` (exit ${check.exitCode})` : ''}\n\n\`${check.command.split('\n')[0]}\`\n\n\`\`\`\n${tail.trim() || '(no output)'}\n\`\`\``)
+    }
+    const others = (this.store.state.workspaces.find((w) => w.id === workspaceId)?.checks?.results ?? []).filter((r) => !isFailure(r))
+    if (parts.length && others.length) parts.push(`Not failing: ${others.map((r) => `${r.name} (${r.status})`).join(', ')}`)
+    return parts.join('\n\n')
+  }
+
+  /** The workspace's changes against its base as a stat: a line per file and the totals last. */
+  private async diffStatText(workspaceId: string): Promise<string> {
+    const ws = this.store.state.workspaces.find((w) => w.id === workspaceId)
+    if (!ws) return ''
+    const diff = await workspaceDiff(ws, 'all').catch(() => null)
+    if (!diff?.files.length) return ''
+    const lines = diff.files.slice(0, 80).map((f) => `${f.path} +${f.additions} −${f.deletions}`)
+    if (diff.files.length > 80) lines.push(`… and ${diff.files.length - 80} more files`)
+    const additions = diff.files.reduce((n, f) => n + f.additions, 0)
+    const deletions = diff.files.reduce((n, f) => n + f.deletions, 0)
+    lines.push(`${diff.files.length} file${diff.files.length === 1 ? '' : 's'} changed, +${additions} −${deletions}`)
+    return lines.join('\n')
   }
 
   /**
@@ -1542,6 +2069,7 @@ export class Core {
    * Resolves once the first turn has started; its end comes back through the session events.
    */
   private async launchScheduled(schedule: Schedule, occurrence: Occurrence, handle: LaunchHandle): Promise<void> {
+    if (schedule.flow) return this.launchScheduledFlow(schedule, schedule.flow, occurrence, handle)
     const template = this.workspaces.template(schedule.templateId)
     if (!template) throw new Error(`The template “${schedule.templateName}” no longer exists.`)
     const ws = await this.createFromOptions(
@@ -1560,6 +2088,26 @@ export class Core {
     if (!(await this.firstTurn(ws.id))) throw new Error('The first turn did not start.')
   }
 
+  /**
+   * A flow schedule's run: the flow started as its Run dialog starts it, from the schedule's base branch with its inputs,
+   * on exactly what the schedule was approved on (the run is refused, and the occurrence fails, when that changed). The
+   * run says it came from this occurrence; the occurrence follows the run to its end.
+   */
+  private async launchScheduledFlow(schedule: Schedule, flow: NonNullable<Schedule['flow']>, occurrence: Occurrence, handle: LaunchHandle): Promise<void> {
+    this.flowsOn()
+    const run = this.flows.begin({
+      flowId: flow.flowId,
+      repoId: schedule.repoId,
+      baseBranch: schedule.baseBranch,
+      inputs: flow.inputs,
+      shown: flowFingerprintFrom(schedule.approved),
+      origin: { kind: 'schedule', scheduleId: schedule.id, occurrenceId: occurrence.id }
+    })
+    handle.flowRun?.(run.id)
+    // A run that ended before its id was recorded (its first step refused at once) ends the occurrence now.
+    if (!isActiveRun(run)) this.schedules.flowRunEnded(run)
+  }
+
   /** Wait for a new workspace's setup to settle. `held` is set when setup failed with a message held back. */
   async setupOutcome(workspaceId: string, timeoutMs = 30 * 60_000): Promise<{ failed: boolean; held: boolean; logTail: string }> {
     const deadline = Date.now() + timeoutMs
@@ -1571,6 +2119,11 @@ export class Core {
     const failed = ws?.state === 'setup-failed'
     const log = failed ? await this.workspaces.setupLog(workspaceId).catch(() => '') : ''
     return { failed, held: Boolean(ws?.heldMessage), logTail: tailLines(log, 20) }
+  }
+
+  /** A new workspace from the command line or delegation: as the window makes one, recording who started it when known. */
+  createWorkspaceFor(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy }): Promise<Workspace> {
+    return this.createFromOptions(repoId, options, extra?.startedBy ? { startedBy: extra.startedBy } : undefined)
   }
 
   /** The chat and turn that a new workspace's first message started, once it has (give up after `timeoutMs`). */
@@ -1636,18 +2189,25 @@ export class Core {
     // An explicit model wins; otherwise the template's start model, which only ever applies to a chat started here.
     const template = this.workspaces.template(templateId)
     // Get started: a workspace started from a template (a scheduled run is not the person trying one).
-    if (template && !internal?.scheduled) this.recordMilestone('template')
+    if (template && !internal?.scheduled && !internal?.flowRun && !internal?.flowWorkspace) this.recordMilestone('template')
     const chosen = chooseStartLoadout(loadout, template).loadout
     const session = this.sessions.createSession(workspaceId, {
       ...(chosen ? { agent: chosen.agent, model: chosen.model, effort: chosen.effort, fastMode: chosen.fast } : {}),
       // A scheduled run never starts in plan mode: nobody is there to review a plan.
-      ...(internal?.scheduled ? { planMode: false } : {})
+      ...(internal?.scheduled || internal?.flowRun || internal?.flowWorkspace ? { planMode: false } : {})
     })
     // Marked before the first message can go, so the run is unattended from its first tool call.
     if (internal?.scheduled) session.unattended = { occurrenceId: internal.scheduled.occurrenceId }
+    if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step, ...(internal.flowRun.persona ? { persona: internal.flowRun.persona } : {}) }
     internal?.onChat?.(workspaceId, session.id)
     if (prompt?.trim() || files?.length) {
-      this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}) })
+      // A schedule's run and a flow run's first step say so on the message (MessageOrigin).
+      const origin: MessageOrigin | undefined = internal?.scheduled
+        ? { kind: 'schedule', scheduleId: internal.scheduled.scheduleId, occurrenceId: internal.scheduled.occurrenceId }
+        : internal?.flowRun
+          ? { kind: 'flow', runId: internal.flowRun.runId, step: internal.flowRun.step, iteration: 1 }
+          : undefined
+      this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}), ...(origin ? { origin } : {}) })
       this.sendFirstMessages()
     }
     return session.id
@@ -1686,9 +2246,12 @@ export class Core {
     }
     const ws = await this.workspaces.createWorkspace(repoId, create)
     if (internal?.scheduled) ws.scheduled = internal.scheduled
+    if (internal?.flowRun) ws.flowRun = { runId: internal.flowRun.runId }
+    if (internal?.flowWorkspace) ws.flowRun = { runId: internal.flowWorkspace.runId }
+    if (internal?.startedBy) ws.startedBy = internal.startedBy
     const integrations = this.startingIntegrations(repoId, options?.integrations)
     if (integrations) ws.integrations = integrations
-    if (internal?.scheduled || integrations) this.store.save()
+    if (internal?.scheduled || internal?.flowRun || internal?.flowWorkspace || internal?.startedBy || integrations) this.store.save()
     this.startChat(ws.id, options?.prompt, options?.loadout, options?.templateId, intake, internal, options?.attachments)
     return ws
   }
@@ -2012,6 +2575,7 @@ export class Core {
       pairedDevices: this.devices.list(),
       schedules: this.schedules.schedules,
       occurrences: this.schedules.occurrences,
+      flowRuns: settings.flows ? this.flows.runs : [],
       platform: process.platform,
       homeDir: os.homedir(),
       screenReader: this.host.screenReader?.() ?? false,
@@ -2148,20 +2712,7 @@ export class Core {
       return out.stdout.split('\n').map((r) => r.trim()).filter(Boolean)
     },
     previewFilesToCopy: (repoId, patterns) => this.workspaces.previewFilesToCopy(repoId, patterns),
-    detectRepoIcon: async (repoId) => {
-      const root = this.workspaces.repo(repoId).rootPath
-      for (const rel of FAVICON_PATHS) {
-        const file = path.join(root, rel)
-        try {
-          if (statSync(file).size > 1_000_000) continue
-          const type = IMAGE_TYPES[path.extname(file).toLowerCase()]
-          return `data:${type};base64,${readFileSync(file).toString('base64')}`
-        } catch {
-          // Not there; try the next spot.
-        }
-      }
-      return null
-    },
+    detectRepoIcon: (repoId) => this.repoIcons.detectFile(this.workspaces.repo(repoId)),
     openRepoSettingsFile: async (repoId) => {
       const repo = this.workspaces.repo(repoId)
       const inUse = this.workspaces.resolvedSettings(repoId).sharedFile
@@ -2451,6 +3002,34 @@ export class Core {
     resumeSchedule: async (id) => this.schedules.resume(id),
     deleteSchedule: async (id) => this.schedules.remove(id),
     stopScheduledRun: (occurrenceId) => this.schedules.stopRun(occurrenceId),
+    listFlows: async (repoId) => this.listFlows(repoId),
+    savePersonalFlow: async (input) => this.savePersonalFlow(input),
+    deletePersonalFlow: async (id) => this.deletePersonalFlow(id),
+    listPersonas: async (repoId) => this.listPersonas(repoId),
+    savePersonalPersona: async (input) => this.savePersonalPersona(input),
+    deletePersonalPersona: async (id) => this.deletePersonalPersona(id),
+    flowRunPreview: async (input) => this.flowRunPreview(input),
+    startFlowRun: async (input) => this.startFlowRun(input),
+    stopFlowRun: async (runId) => {
+      this.flowsOn()
+      await this.flows.stopRun(runId)
+    },
+    listFlowRuns: async (repoId) => {
+      this.flowsOn()
+      return this.flows.list(repoId)
+    },
+    workspaceLineage: async (workspaceId, lens) => {
+      this.flowsOn()
+      if (!LINEAGE_LENSES.includes(lens)) throw new Error('A lens is run, context, memory or data.')
+      const locale = mainLocale(this.store.state.settings)
+      const graph = lineageGraph(await lineageInput(this.lineageSources(), workspaceId), lens, { t: createT(locale), locale })
+      // Drawn top to bottom for the Lineage tab in the side panel; `foreman workspace lineage --mermaid` draws its own, left to right.
+      return { graph, outline: lineageOutline(graph), mermaid: flowMermaid(graph, { direction: 'TB' }), gaps: graph.gaps }
+    },
+    lineageFlowDraft: async (workspaceId) => {
+      this.flowsOn()
+      return draftFlowFromLineage(lineageGraph(await lineageInput(this.lineageSources(), workspaceId), 'run'))
+    },
     armLimitResume: async (sessionId, turnId) => {
       await this.limitResume.arm(sessionId, turnId)
     },
@@ -2723,7 +3302,8 @@ export class Core {
     // The Git panel asks right after the diff it shows changed the totals: that diff's snapshot serves.
     checksStatus: (workspaceId) => this.checks.status(workspaceId, { since: Date.now() - VIEW_REUSE_MS }),
     runChecks: async (workspaceId, approve) => {
-      const start = await this.checks.start(workspaceId, { approve })
+      // The Git panel, the phone, `foreman checks approve` and an agent's run_checks tool all come here.
+      const start = await this.checks.start(workspaceId, { approve, startedBy: 'user' })
       if (start.kind === 'consent') return { started: false, consent: start.items }
       // Progress and the result arrive through state events.
       void start.done.catch(() => undefined)
@@ -3085,6 +3665,8 @@ export class Core {
       if (patch.restoreTerminals === false) this.terminals.clear()
       // Turning the assistant off (or privacy mode on) stops what it is answering.
       if (patch.assistantEnabled === false || patch.privacyMode === true) void this.assistant.stopAll()
+      // Turning Flows off stops the runs in flight as Stop would, saying why.
+      if (patch.flows === false) void this.flows.stopAll('Stopped: Flows were turned off in Settings → Experimental.')
       if (patch.scriptShell) setScriptShell(patch.scriptShell)
       this.store.save()
       if (patch.theme) this.host.applyTheme(settings.theme)
@@ -3212,6 +3794,7 @@ export class Core {
     this.autoReview.dispose()
     this.baseWatch.stop()
     this.schedules.stopTimer()
+    this.flows.stopTimer()
     this.autoArchive.stop()
     this.limitResume.stopTimer()
     if (this.powerTimer) clearInterval(this.powerTimer)

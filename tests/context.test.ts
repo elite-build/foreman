@@ -107,3 +107,35 @@ describe('describing additions', () => {
     expect(receiptLine(undefined)).toBeNull()
   })
 })
+
+describe('a flow step’s persona', () => {
+  it('joins the system prompt for that turn only, is receipted, and holds the turn read-only', async () => {
+    const { h, requests } = await rig()
+    h.sessions.markUnattended('turn-qa', { flowRunId: 'run-1', step: 'qa', persona: { name: 'qa-engineer', instructions: 'You find; you don’t fix.', readOnly: true } })
+    await h.sessions.send(h.session.id, 'review it', { turnId: 'turn-qa' })
+    await settled(h)
+
+    const [req] = requests
+    expect(req.systemPromptAppend).toContain('Prefer small diffs.')
+    expect(req.systemPromptAppend).toContain('run as the persona “qa-engineer”. Its instructions:\nYou find; you don’t fix.')
+    // Read-only for this turn, the way a read-only chat is: plan mode Claude can't leave.
+    expect(req.readOnly).toBe(true)
+    expect(req.planMode).toBe(true)
+    const [msg] = await sentUsers(h)
+    expect(msg.readOnly).toBe('plan')
+    const part = msg.added!.find((p) => p.kind === 'persona')!
+    expect(part).toMatchObject({ label: 'persona: qa-engineer', unit: 'chars', source: 'The persona this flow step runs as', detail: 'read-only for this turn' })
+    // Its size is that of the text the agent was given.
+    const given = 'This turn is a step of a Foreman flow, run as the persona “qa-engineer”. Its instructions:\nYou find; you don’t fix.'
+    expect(req.systemPromptAppend!.endsWith(given)).toBe(true)
+    expect(part.size).toBe(given.length)
+    expect(receiptLine(msg.added)).toBe('Foreman added: standing instructions · persona: qa-engineer')
+    // The chat itself isn't read-only, and the next turn carries no persona.
+    expect(h.session.readOnly).toBeFalsy()
+    await h.sessions.send(h.session.id, 'and now?')
+    await settled(h)
+    expect(requests[1].systemPromptAppend).not.toContain('qa-engineer')
+    expect(requests[1].readOnly).toBeUndefined()
+    expect((await sentUsers(h))[1].added?.map((p) => p.kind)).toEqual(['instructions'])
+  })
+})

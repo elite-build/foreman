@@ -374,13 +374,16 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
   )
 }
 
-/** One comparison: its workspaces together under the prompt they were all given. Rows say which model each one is. */
+/**
+ * One comparison: its workspaces together under the prompt they were all given. Rows say which model each one is. A
+ * flow run's workspaces are grouped the same way, under the flow's name.
+ */
 function CompareGroupView({ section, order, repoId, repoById }: { section: CompareSection; order: string[]; repoId: string | null; repoById: Map<string, Repo> }) {
   const t = useT()
   return (
-    <section className="ws-group compare" title={section.prompt}>
+    <section className="ws-group compare" title={section.flow === undefined ? section.prompt : undefined}>
       <div className="ws-group-head">
-        <span>{t('sidebar.compare', { prompt: promptTitle(section.prompt) })}</span>
+        <span>{section.flow !== undefined ? t('sidebar.flowRun', { name: section.flow }) : t('sidebar.compare', { prompt: promptTitle(section.prompt) })}</span>
         <span className="ws-group-count">{section.items.length}</span>
       </div>
       {section.items.map((t) => (

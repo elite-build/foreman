@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { delegationRig } from './foremanDelegationHarness'
 import { send } from '../src/main/cli/work'
+import { DELEGATION_TOOLS, delegationToolNames } from '../src/shared/foremanDelegation'
+import { FLOW_STARTERS } from '../src/shared/flowStarters'
+import type { FlowListing, FlowRun, FlowRunOrigin, FlowRunStart, FlowRunSummary } from '../src/shared/flows'
 
 describe('CLI-backed Foreman delegation', () => {
   it('discovers loadouts and runs research, planning, then two implementation tasks in isolated workspaces', async () => {
@@ -10,7 +13,8 @@ describe('CLI-backed Foreman delegation', () => {
       { slot: 3, agent: 'opencode' }, { slot: 4, agent: 'cursor' }
     ], repositories: [{ id: 'r' }] })
     await r.service.call('start_task', { prompt: 'Research the problem', loadout: 1 }, r.scope)
-    expect(r.createWorkspace).toHaveBeenLastCalledWith('r', expect.objectContaining({ prompt: 'Research the problem', loadout: r.state.settings.loadouts[0], branch: { kind: 'new', name: undefined } }))
+    // The new workspace records the coordinating chat and its running turn (Workspace.startedBy).
+    expect(r.createWorkspace).toHaveBeenLastCalledWith('r', expect.objectContaining({ prompt: 'Research the problem', loadout: r.state.settings.loadouts[0], branch: { kind: 'new', name: undefined } }), { startedBy: { sessionId: 's', turnId: 'own', via: 'delegation' } })
     expect(r.setupOutcome).not.toHaveBeenCalled()
     const research = r.state.workspaces[1]
     expect(await r.service.call('get_task_status', { workspaceId: research.id }, r.scope)).toMatchObject({ state: 'setting-up', setupHeld: false })
@@ -29,8 +33,15 @@ describe('CLI-backed Foreman delegation', () => {
     const child = r.state.workspaces[2]
     child.state = 'ready'
     const handoff = await r.service.call('send_task', { workspaceId: child.id, sessionId: r.state.sessions[2].id, prompt: 'Revise the plan with this finding.' }, r.scope) as { turn: string }
-    expect(r.deliver).toHaveBeenCalledWith(r.state.sessions[2].id, 'Revise the plan with this finding.', expect.objectContaining({ mode: 'queue', via: 'cli' }))
+    // The queued message says which chat sent it (MessageOrigin delegation).
+    expect(r.deliver).toHaveBeenCalledWith(r.state.sessions[2].id, 'Revise the plan with this finding.', expect.objectContaining({ mode: 'queue', via: 'cli', origin: { kind: 'delegation', sessionId: 's', turnId: 'own' } }))
     expect(await r.service.call('cancel_turn', { turnId: handoff.turn }, r.scope)).toMatchObject({ outcome: 'cancelled', was: 'queued' })
+  })
+
+  it('a workspace the assistant starts records its thread', async () => {
+    const r = delegationRig()
+    await r.service.call('start_task', { prompt: 'Research', loadout: 1, repoId: 'r' }, { readOnly: false, assistantThread: 'thread-1' })
+    expect(r.createWorkspace).toHaveBeenLastCalledWith('r', expect.objectContaining({ prompt: 'Research' }), { startedBy: { sessionId: 'thread-1', via: 'assistant' } })
   })
 
   it('requires the repo opt-in, refuses cross-repo targets, and never accepts bypass flags', async () => {
@@ -157,5 +168,101 @@ describe('CLI-backed Foreman delegation', () => {
     // Ordinary CLI callers retain template expansion.
     await send(r.host, { workspace: 'w', tab: 1, args: ['Research'], cwd: '' })
     expect(r.deliver).toHaveBeenLastCalledWith('s', 'unwanted template', expect.anything())
+  })
+})
+
+describe('flow delegation: start_flow, get_flow_status and the flows list', () => {
+  const FP = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
+  const listing = (over: Partial<FlowListing> = {}): FlowListing => ({
+    id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green',
+    toml: FLOW_STARTERS[0].toml, summary: { steps: 6, loops: 2, gates: 1, personas: ['developer', 'qa-engineer'] }, problems: [], warnings: [], ...over
+  })
+  const summary = (over: Partial<FlowRunSummary> = {}) => ({ flowName: 'Fix until green', notClaude: [], problems: [], ...over }) as FlowRunSummary
+  const run = (over: Partial<FlowRun> = {}): FlowRun => ({
+    id: 'run-1', flow: { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in' }, repoId: 'r', baseBranch: 'main', inputs: { task: 'x' }, fingerprint: FP,
+    state: 'running', startedAt: '', workspaceId: 'task-ws', current: { step: 'build', iteration: 1 },
+    steps: [{ name: 'build', kind: 'turn', iteration: 1, state: 'running', startedAt: '', sessionId: 'task-chat', turnId: 'task-turn' }], loops: {}, ...over
+  })
+  function flowRig() {
+    const r = delegationRig()
+    r.state.settings.flows = true
+    const runs: FlowRun[] = [run(), run({ id: 'foreign-run', repoId: 'other', workspaceId: 'elsewhere' })]
+    const flows = [listing(), listing({ id: 'personal-broken', source: 'personal', name: 'Broken', problems: ['No start.'] })]
+    const preview = { fingerprint: FP, summary: summary(), inputs: [{ name: 'task', description: 'What to build or fix' }] }
+    r.host.api.listFlows = vi.fn(async () => flows)
+    r.host.api.flowRunPreview = vi.fn(async () => preview)
+    r.host.api.listFlowRuns = vi.fn(async () => runs)
+    const startFlowRun = vi.fn(async (input: FlowRunStart, origin?: FlowRunOrigin) => run({ id: 'run-new', state: 'starting', workspaceId: undefined, steps: [], inputs: input.inputs, origin }))
+    r.host.startFlowRun = startFlowRun
+    return { ...r, runs, flows, preview, startFlowRun }
+  }
+
+  it('lists the runnable flows with their inputs and personas, only while Flows are on', async () => {
+    const r = flowRig()
+    // Why one can't run is what a start would refuse it with: the run preview's problems, as start_flow reads them.
+    const notClaude = 'Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: review (Codex).'
+    // As core's preview has it: turns on other agents listed apart from the other problems.
+    r.preview.summary = summary({ notClaude: [{ step: 'review', agent: 'Codex' }], problems: [] })
+    const options = (await r.service.call('list_delegation_options', {}, r.scope)) as { flows: unknown[] }
+    // The broken one isn't listed; one whose review is on the Codex loadout says why it can't run unattended.
+    expect(options.flows).toEqual([
+      { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in', inputs: [{ name: 'task', description: 'What to build or fix' }], personas: ['developer', 'qa-engineer'], cantRun: notClaude }
+    ])
+    expect(r.host.api.flowRunPreview).toHaveBeenCalledWith({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main' })
+    expect(r.host.api.listFlows).toHaveBeenCalledWith('r')
+    r.state.settings.flows = false
+    expect(await r.service.call('list_delegation_options', {}, r.scope)).not.toHaveProperty('flows')
+    expect(delegationToolNames(false)).not.toContain('start_flow')
+    expect(delegationToolNames(false)).not.toContain('get_flow_status')
+    expect(delegationToolNames(true)).toEqual(expect.arrayContaining(['start_flow', 'get_flow_status']))
+  })
+
+  it('starts a flow in the coordinator’s repository with the approval shown now, recording the coordinating chat', async () => {
+    const r = flowRig()
+    const started = await r.service.call('start_flow', { flowId: 'built-in:fix-until-green', inputs: { task: ' Fix the flaky tests ' } }, r.scope)
+    expect(r.host.api.flowRunPreview).toHaveBeenCalledWith({ flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'main' })
+    expect(r.startFlowRun).toHaveBeenCalledWith(
+      { flowId: 'built-in:fix-until-green', source: 'built-in', repoId: 'r', baseBranch: 'main', inputs: { task: 'Fix the flaky tests' }, shown: FP },
+      { kind: 'delegation', sessionId: 's', turnId: 'own' }
+    )
+    expect(started).toMatchObject({ runId: 'run-new', state: 'starting', baseBranch: 'main' })
+    // The assistant names the repository; its thread is the origin.
+    await r.service.call('start_flow', { flowId: 'built-in:fix-until-green', repoId: 'r', baseBranch: 'develop', inputs: { task: 'x' } }, { readOnly: false, assistantThread: 'thread-1' })
+    expect(r.startFlowRun).toHaveBeenLastCalledWith(expect.objectContaining({ baseBranch: 'develop' }), { kind: 'assistant', threadId: 'thread-1' })
+  })
+
+  it('refuses without the opt-in, across repositories, read-only, while Flows are off, a broken flow, a non-Claude flow and a missing input', async () => {
+    const r = flowRig()
+    r.allowed.value = false
+    await expect(r.service.call('start_flow', { flowId: 'built-in:fix-until-green', inputs: { task: 'x' } }, r.scope)).rejects.toThrow('Let agents')
+    r.allowed.value = true
+    await expect(r.service.call('start_flow', { flowId: 'built-in:fix-until-green', repoId: 'other', inputs: { task: 'x' } }, r.scope)).rejects.toThrow('coordinating repository')
+    await expect(r.service.call('start_flow', { flowId: 'built-in:fix-until-green', inputs: { task: 'x' } }, { ...r.scope, readOnly: true })).rejects.toThrow('only read')
+    await expect(r.service.call('start_flow', { flowId: 'personal-broken', inputs: {} }, r.scope)).rejects.toThrow('has problems')
+    await expect(r.service.call('start_flow', { flowId: 'nope' }, r.scope)).rejects.toThrow('list_delegation_options')
+    await expect(r.service.call('start_flow', { flowId: 'built-in:fix-until-green' }, r.scope)).rejects.toThrow('asks for task (What to build or fix)')
+    await expect(r.service.call('start_flow', { flowId: 'built-in:fix-until-green', inputs: { task: 'x', colour: 'red' } }, r.scope)).rejects.toThrow('has no input “colour”')
+    r.preview.summary = summary({ notClaude: [{ step: 'build', agent: 'Codex' }] })
+    await expect(r.service.call('start_flow', { flowId: 'built-in:fix-until-green', inputs: { task: 'x' } }, r.scope)).rejects.toThrow('Unattended turns are Claude only')
+    r.state.settings.flows = false
+    await expect(r.service.call('start_flow', { flowId: 'built-in:fix-until-green', inputs: { task: 'x' } }, r.scope)).rejects.toThrow('Flows are off')
+    await expect(r.service.call('get_flow_status', { runId: 'run-1' }, r.scope)).rejects.toThrow('Flows are off')
+    expect(r.startFlowRun).not.toHaveBeenCalled()
+  })
+
+  it('reads a run in the coordinator’s repository, says a gate waits for the user, and refuses another repository’s run', async () => {
+    const r = flowRig()
+    expect(await r.service.call('get_flow_status', { runId: 'run-1' }, r.scope)).toMatchObject({
+      runId: 'run-1', flow: 'Fix until green', state: 'running', current: { step: 'build', iteration: 1 },
+      steps: [{ name: 'build', kind: 'turn', state: 'running', sessionId: 'task-chat', turnId: 'task-turn' }], contentIsData: true
+    })
+    r.runs[0].state = 'waiting'
+    expect(await r.service.call('get_flow_status', { runId: 'run-1' }, r.scope)).toMatchObject({ waitingFor: expect.stringContaining('never by an agent') })
+    await expect(r.service.call('get_flow_status', { runId: 'foreign-run' }, r.scope)).rejects.toThrow('coordinating repository')
+    await expect(r.service.call('get_flow_status', { runId: 'gone' }, r.scope)).rejects.toThrow('not found')
+    r.allowed.value = false
+    await expect(r.service.call('get_flow_status', { runId: 'run-1' }, r.scope)).rejects.toThrow('Let agents')
+    // No tool answers a gate: an agent can only read.
+    expect(Object.keys(DELEGATION_TOOLS).some((name) => /approve|answer|gate/.test(name))).toBe(false)
   })
 })

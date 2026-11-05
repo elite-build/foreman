@@ -31,6 +31,8 @@ export interface HostTools {
  */
 export interface AssistantTools {
   delegate?(name: import('../../shared/foremanDelegation').DelegationToolName, args: Record<string, unknown>): Promise<string>
+  // Settings → Experimental → Flows: off, the flow delegation tools (start_flow, get_flow_status) aren't offered.
+  flowsOn?: boolean
   foremanAction?(name: import('../../shared/foremanTools').ForemanToolName, workspaceId: string): Promise<string>
   searchSettings(query: string): string
   getSettings(keys?: string[]): string

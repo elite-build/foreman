@@ -1,0 +1,101 @@
+/* A flow run's Flow tab: the header lines and the steps as a column of cards. Layout only; the Cards, Status and
+   Button (ui/) draw themselves. */
+.flow-run {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+.flow-run-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.flow-run-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.flow-run-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The doubled class beats .ui-pressable's display and padding, which load later. */
+.flow-step.flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: start;
+}
+.flow-step-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* The diagram and the lens rows under it: layout only; Card, Meter, Tag and Status (ui/) draw themselves, and the
+   diagram is the chat's Mermaid view inside the Card. */
+.flow-diagram {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-x: auto;
+}
+/*
+ * The Lineage tab's diagram (its chats side by side, wide even top to bottom) keeps its own size and scrolls sideways,
+ * rather than shrinking to the side panel's width until its words can't be read. Mermaid caps a flowchart at its natural
+ * width (an inline max-width), so a wide width here lands on exactly that, up to this bound. The Flow tab's run graph is
+ * narrow enough top to bottom to fit the panel.
+ */
+.flow-diagram-natural .mmd-view svg {
+  width: 1600px;
+}
+.flow-lens-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-lens-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.flow-lens-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.flow-lens-usage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.flow-lens-meter {
+  width: 96px;
+}
+.flow-ledger {
+  width: 100%;
+  border-collapse: collapse;
+}
+.flow-ledger caption {
+  text-align: start;
+  padding-bottom: 4px;
+}
+.flow-ledger th,
+.flow-ledger td {
+  padding: 2px 8px 2px 0;
+  text-align: start;
+  vertical-align: top;
+}

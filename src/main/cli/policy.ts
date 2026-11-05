@@ -45,6 +45,16 @@ export function startRefusal(host: CliHost, caller: TurnCaller | undefined): str
   return 'Agents in this repository can’t start workspaces or queue messages. The user can allow it in Repository settings → Actions → “Let agents start workspaces and queue messages”.'
 }
 
+/**
+ * The chat and turn a call came from, when it carries a turn token that checks: who a workspace it starts was started
+ * by (Workspace.startedBy), and the origin of a message it queues. Undefined for a person at a terminal.
+ */
+export function callerTurn(host: CliHost, caller: TurnCaller | undefined): { sessionId: string; turnId: string } | undefined {
+  if (!caller?.token) return undefined
+  const who = host.identifyCaller(caller)
+  return who?.kind === 'turn' ? { sessionId: who.session.id, turnId: who.turnId } : undefined
+}
+
 function sameToken(given: unknown, expected: string): boolean {
   if (typeof given !== 'string') return false
   const a = Buffer.from(given)
@@ -62,8 +72,8 @@ export function tierCheck(method: string, tier: Tier, request: AnyCliRequest, ho
   }
   if (tier === 'read') return null
   if (tier === 'act') {
-    // G4: arming a resume starts a turn later, so an agent call needs the same opt-in as send.
-    if ((method === 'send' || method === 'resume-at' || (method === 'run' && !params.dryRun)) && request.caller?.token) {
+    // G4: arming a resume starts a turn later, so an agent call needs the same opt-in as send. A flow run starts a workspace.
+    if ((method === 'send' || method === 'resume-at' || method === 'flow-run' || (method === 'run' && !params.dryRun)) && request.caller?.token) {
       const refusal = startRefusal(host, request.caller)
       if (refusal) return { code: 'refused', error: refusal }
     }

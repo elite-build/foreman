@@ -92,6 +92,35 @@ describe('turn outcome', () => {
     expect(ended).toEqual(['completed'])
   })
 
+  it('keeps the window as the turn ended, the memory files it wrote and its trees on the turn-end item', async () => {
+    const { sessions, session, turnEnd, ws } = await setup()
+    registerDriver(
+      fakeDriver(async (_req, cb) => {
+        await writeFile(path.join(wsPath(ws), 'CLAUDE.md'), '# Notes\n')
+        await writeFile(path.join(wsPath(ws), 'app.ts'), 'x\n')
+        cb.usage({ used: 42_000, limit: 200_000, breakdown: { categories: [], mcpServers: [], memoryFiles: [{ path: '/home/me/.claude/CLAUDE.md', tokens: 10 }], skills: [] } })
+        cb.finished({ ok: true })
+      })
+    )
+    await sessions.send(session.id, 'go')
+    const item = await turnEnd()
+    expect(item.usage).toMatchObject({ used: 42_000, limit: 200_000 })
+    expect(item.memoryWrites).toEqual(['CLAUDE.md'])
+    expect(item.tree?.start).toMatch(/^[0-9a-f]{12}$/)
+    expect(item.tree?.end).toMatch(/^[0-9a-f]{12}$/)
+    expect(item.tree?.end).not.toBe(item.tree?.start)
+  })
+
+  it('leaves usage, memory writes and trees out when there are none to record', async () => {
+    const { sessions, session, turnEnd } = await setup()
+    registerDriver(fakeDriver(finishWith({ ok: true })))
+    await sessions.send(session.id, 'go')
+    const item = await turnEnd()
+    expect(item.usage).toBeUndefined()
+    expect(item.memoryWrites).toBeUndefined()
+    expect(item.tree?.start).toBe(item.tree?.end)
+  })
+
   it('calling finished() after a failure is an error, with its cause', async () => {
     const { sessions, session, turnEnd } = await setup()
     registerDriver(fakeDriver(finishWith({ ok: false, error: 'turn.failed: quota exceeded' })))

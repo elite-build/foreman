@@ -349,3 +349,95 @@ div.auto-card {
   align-items: center;
   gap: 10px;
 }
+
+/* ---- flows (Settings → Experimental → Flows) ---- */
+
+/* The flow dialog's fields, stacked. The Dialog, Field, TextArea and Callout (ui/) draw themselves. */
+.flow-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.flow-problems {
+  margin: 0;
+  padding-left: 18px;
+}
+/* The run graph above the document: its words, then the diagram (FlowDiagram's Card). */
+.flow-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* A repository flow's tags (its repository, its file and revision) wrap, and the file name breaks, rather than run past
+   the card's edge. */
+.auto-card-foot.flow-card-tags {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.flow-card-tags .ui-tag {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A flow card with its recent runs under it. */
+.flow-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.flow-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+}
+.flow-run-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.flow-run-reason {
+  flex-basis: 100%;
+}
+/* The Run dialog's approval summary: a Card (ui/) holding a two-column list of what the run approves. */
+.flow-run-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.flow-run-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+.flow-run-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- personas (beside flows) ---- */
+
+/* The persona editor: settings rows (Row, ToggleRow from settings/controls) stacked, the instructions beneath. */
+.persona-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+/* A row's checkboxes (what it is shown, how it ends, the MCP servers it keeps), wrapping. */
+.persona-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}

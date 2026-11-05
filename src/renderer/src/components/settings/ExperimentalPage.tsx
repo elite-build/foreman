@@ -9,6 +9,7 @@ const DEFAULTS = {
   autoRunAfterSetup: false,
   forkToNewTab: true,
   showResourceUsage: false,
+  flows: false,
   diagnostics: true
 } satisfies Partial<Settings>
 
@@ -65,6 +66,14 @@ export function ExperimentalPage() {
           checked={settings.showResourceUsage}
           onChange={(showResourceUsage) => void saveSettings({ showResourceUsage })}
           onReset={reset('showResourceUsage')}
+        />
+        <ToggleRow
+          id="flows"
+          label={t('settings.experimental.flows.label')}
+          help={t('settings.experimental.flows.help')}
+          checked={settings.flows}
+          onChange={(flows) => void saveSettings({ flows })}
+          onReset={reset('flows')}
         />
         <ToggleRow
           id="diagnostics"

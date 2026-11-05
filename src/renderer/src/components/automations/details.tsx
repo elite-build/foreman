@@ -2,7 +2,7 @@
 import { CalendarClock, ExternalLink, Pause, Play } from 'lucide-react'
 import type { PlainKey } from '../../../../shared/i18n'
 import { templateName } from '../../../../shared/promptTemplates'
-import { formatRun, nextRuns } from '../../../../shared/schedule'
+import { formatRun, nextRuns, scheduleName } from '../../../../shared/schedule'
 import type { Occurrence, PromptTemplate, Schedule } from '../../../../shared/types'
 import { t as tNow, useT } from '../../i18n'
 import { api, attempt, getState, openNewWorkspace, openScheduleDialog, recordMilestone, selectAutomation, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
@@ -134,7 +134,7 @@ function ScheduleRow({ schedule: s, occurrences, named }: { schedule: Schedule; 
   return (
     <ActionRow role="listitem" divided onPress={() => selectAutomation(`s:${s.id}`)} primaryProps={{ className: 'auto-row' }}>
       <span className="auto-row-main">
-        <span className="auto-row-title">{named ? s.templateName : cadence}</span>
+        <span className="auto-row-title">{named ? scheduleName(s) : cadence}</span>
         <span className="auto-row-sub">{named ? [cadence, when].filter(Boolean).join(' · ') : when}</span>
       </span>
       {last && <Status compact tone={runStatusTone(last)} label={t('automations.schedule.lastRun', { state: t(RUN_LABEL[last.state]) })} title={t('automations.schedule.lastRun', { state: t(RUN_LABEL[last.state]) })} />}
@@ -154,7 +154,7 @@ export function ScheduleDetail({ schedule: s }: { schedule: Schedule }) {
   return (
     <div className="auto-detail">
       <div className="auto-eyebrow">{t('automations.schedule.eyebrow')}</div>
-      <h1>{s.templateName}</h1>
+      <h1>{scheduleName(s)}</h1>
       <div className="muted">{cadenceText(s, t, t.locale)}</div>
       <div className="auto-detail-actions">
         {running ? (
@@ -187,8 +187,17 @@ export function ScheduleDetail({ schedule: s }: { schedule: Schedule }) {
         <dd>{repo?.name ?? t('automations.schedule.repoRemoved')}</dd>
         <dt>{t('automations.schedule.from')}</dt>
         <dd>{s.baseBranch}</dd>
-        <dt>{t('automations.schedule.stopsAfter')}</dt>
-        <dd>{t('automations.schedule.minutes', { minutes: s.maxMinutes })}</dd>
+        {s.flow ? (
+          <>
+            <dt>{t('automations.schedule.flow')}</dt>
+            <dd>{s.flow.flowName}</dd>
+          </>
+        ) : (
+          <>
+            <dt>{t('automations.schedule.stopsAfter')}</dt>
+            <dd>{t('automations.schedule.minutes', { minutes: s.maxMinutes })}</dd>
+          </>
+        )}
         <dt>{t('automations.schedule.afterRun')}</dt>
         <dd>{t(s.afterRun === 'archive' ? 'scheduleDialog.afterRun.archive' : s.afterRun === 'delete-unchanged' ? 'scheduleDialog.afterRun.deleteUnchanged' : 'scheduleDialog.afterRun.keep')}</dd>
         <dt>{t('automations.schedule.timeZone')}</dt>

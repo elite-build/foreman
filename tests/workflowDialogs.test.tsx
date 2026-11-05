@@ -165,6 +165,67 @@ describe('schedules', () => {
     await waitFor(() => expect(fakeApi.saveSchedule).toHaveBeenCalled())
     expect(fakeApi.saveSchedule.mock.calls[0][0]).toMatchObject({ afterRun: 'archive', afterRunDeleteBranch: true })
   })
+
+  it('shows a flow schedule read-only while Flows are off, saying where to turn them on', async () => {
+    fakeState.snapshot.settings.flows = false
+    const schedule = { id: 'sch1', flow: { flowId: 'built-in:fix-until-green', flowSource: 'built-in', flowName: 'Fix until green', inputs: { task: 'x' } }, repoId: 'r1', baseBranch: 'main', recurrence: 'daily', startDate: '2026-11-01', weekdays: [], time: '09:00', timezone: 'UTC', agent: 'claude', model: '', maxMinutes: 30, state: 'active', consecutiveFailures: 0, approved: { template: 't', setup: 's', checks: 'c', mcp: 'm' } }
+    const before = fakeState.snapshot.schedules
+    fakeState.snapshot.schedules = [schedule]
+    try {
+      render(<ScheduleDialog scheduleId="sch1" />)
+      const dialog = await screen.findByRole('dialog', { name: /Fix until green/ })
+      expect(within(dialog).getByRole('status').textContent).toBe('Flows are off; turn them on in Settings → Experimental.')
+      expect(within(dialog).queryByRole('button', { name: /Approve/ })).toBeNull()
+      expect(within(dialog).queryByLabelText('Repeat')).toBeNull()
+      expect(within(dialog).getAllByRole('button', { name: 'Close' }).length).toBeGreaterThan(0)
+    } finally {
+      fakeState.snapshot.schedules = before
+    }
+  })
+
+  it('offers no flow while Flows are off', async () => {
+    fakeState.snapshot.settings.flows = false
+    render(<ScheduleDialog templateId="tpl" />)
+    await screen.findByRole('dialog', { name: /Nightly/ })
+    expect(screen.queryByRole('radiogroup', { name: 'Runs' })).toBeNull()
+    expect(screen.getByLabelText('Model')).toBeTruthy()
+  })
+
+  it('with Flows on, schedules a flow instead: its picker, inputs and approval, and no model or duration', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.flows = true
+    const fingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
+    fakeApi.listFlows = vi.fn(async () => [{ id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: '', summary: { steps: 6, loops: 2, gates: 1, personas: [] }, problems: [], warnings: [] }])
+    fakeApi.flowRunPreview = vi.fn(async () => ({
+      fingerprint, inputs: [{ name: 'task', description: 'What to build or fix' }],
+      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [], problems: [] }
+    }))
+    fakeApi.saveSchedule = vi.fn(async () => ({}))
+    try {
+      render(<ScheduleDialog templateId="tpl" />)
+      await user.click(within(await screen.findByRole('radiogroup', { name: 'Runs' })).getByRole('radio', { name: 'Flow' }))
+      await user.click(await screen.findByRole('radio', { name: 'Fix until green' }))
+      await waitFor(() => expect(screen.getByText('What starting it approves')).toBeTruthy())
+      expect(screen.queryByLabelText('Model')).toBeNull()
+      expect(screen.queryByLabelText('Max duration')).toBeNull()
+      expect(screen.getByText(/bounded by its loops/)).toBeTruthy()
+      // The flow's own [after] is the one policy for its runs: no After each run choice beside it.
+      expect(screen.queryByRole('group', { name: 'After each run' })).toBeNull()
+      const approve = screen.getByRole('button', { name: 'Approve schedule' }) as HTMLButtonElement
+      expect(approve.disabled).toBe(true)
+      await user.type(screen.getByRole('textbox', { name: 'task' }), 'the flaky tests')
+      await user.click(approve)
+      await waitFor(() => expect(fakeApi.saveSchedule).toHaveBeenCalled())
+      const [request, id, shown] = fakeApi.saveSchedule.mock.calls[0]
+      expect(request).toMatchObject({ flow: { flowId: 'built-in:fix-until-green', flowSource: 'built-in', flowName: 'Fix until green', inputs: { task: 'the flaky tests' } }, model: '', agent: 'claude', afterRun: 'keep', afterRunDeleteBranch: false })
+      expect(request.templateId).toBeUndefined()
+      expect(id).toBeUndefined()
+      // Saving approves exactly the run approval shown: the service refuses it when the flow changed since.
+      expect(shown).toEqual({ template: 't', setup: 's', checks: 'c', mcp: 'm', flow: 'f', personas: 'p' })
+    } finally {
+      fakeState.snapshot.settings.flows = false
+    }
+  })
 })
 
 describe('a comparison on Home', () => {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { elapsed, finishedFacts, REASONS, runningFact, triageAll, type TriageInput } from '../src/renderer/src/triage'
+import { sidebarGroups } from '../src/shared/triage'
+import { defaultSettings } from '../src/main/store'
+import type { FlowRun } from '../src/shared/flows'
 import type { AppSnapshot, ApprovalRequest, Session, Workspace } from '../src/shared/types'
 
 const NOW = Date.parse('2026-01-01T12:00:00Z')
@@ -22,7 +25,7 @@ describe('triage reasons', () => {
   it('keeps the reason table in the agreed precedence', () => {
     // #2: an agent's needs-input / stuck right after approvals; its review request last.
     // A stopped archive first: the user meant the workspace to go, and it's waiting on them.
-    expect(REASONS.map((r) => r.id)).toEqual(['archive-stopped', 'approvals', 'agent-report', 'sensitive', 'checks-failed', 'ci-failed', 'review-comments', 'base-moved', 'turn-outcome', 'held-message', 'review-request', 'auto-review'])
+    expect(REASONS.map((r) => r.id)).toEqual(['archive-stopped', 'approvals', 'flow-run', 'agent-report', 'sensitive', 'checks-failed', 'ci-failed', 'review-comments', 'base-moved', 'turn-outcome', 'held-message', 'review-request', 'auto-review'])
   })
 
   it('a stopped archive needs you, says which step failed, and offers its dialog; it ends when the field goes', () => {
@@ -117,5 +120,73 @@ describe('PR facts on finished rows', () => {
     const t = triage(ws({ status: 'done', prInfo: { number: 42, state: 'CLOSED' } }), [session('s1', { lastTurn: last })])
     expect(t.facts).toContain('PR #42 closed')
     expect(triage(ws({ status: 'done', pullRequest: { repo: 'a/b', number: 9 } }), [session('s1', { lastTurn: last })]).facts).toContain('PR #9')
+  })
+})
+
+describe('triage: flow runs', () => {
+  const run = (patch: Partial<FlowRun>): FlowRun => ({
+    id: 'run', flow: { id: 'f', name: 'Green', source: 'personal' }, repoId: 'r', baseBranch: 'main', inputs: {},
+    fingerprint: { flow: '', templates: '', setup: '', checks: '', mcp: '', personas: '' }, state: 'running', startedAt: ago(30), workspaceId: 'ws',
+    steps: [{ name: 'build', kind: 'turn', iteration: 1, state: 'completed', startedAt: ago(30), endedAt: ago(20), sessionId: 's1', turnId: 't1' }],
+    loops: {}, ...patch
+  })
+  const withRuns = (flowRuns: FlowRun[], sessions: Session[], extra: Partial<TriageInput> = {}) =>
+    triageAll({ snapshot: { workspaces: [ws()], sessions, flowRuns } as unknown as AppSnapshot, approvals: [], unread: {}, unreadSessions: {}, now: NOW, ...extra }, null)[0]
+
+  it('a running run is working, naming the flow, the step and the loop’s iteration of its bound', () => {
+    const fixing = run({
+      current: { step: 'fix', iteration: 2 },
+      steps: [{ name: 'fix', kind: 'turn', iteration: 2, state: 'running', startedAt: ago(4), sessionId: 's1', turnId: 't2' }],
+      loops: { green: { pass: 1, open: true, iterations: 2, startedAt: ago(20), minutesUsed: 7, visited: ['checks', 'fix'] } },
+      bounds: { green: { over: ['checks', 'fix'], iterations: 4, minutes: 45 } }
+    })
+    expect(withRuns([fixing], [session('s1', { status: 'running', turnId: 't2' })])).toMatchObject({ bucket: 'working', label: 'Flow: Green · fix · 2/4', sessionId: 's1', spinning: true })
+    expect(withRuns([run({ current: { step: 'checks', iteration: 1 }, steps: [] })], [session('s1')])).toMatchObject({ bucket: 'working', label: 'Flow: Green · checks' })
+  })
+
+  it('a run waiting at a gate needs you, naming the step', () => {
+    const waiting = run({ state: 'waiting', current: { step: 'ship', iteration: 1 }, steps: [{ name: 'ship', kind: 'gate', iteration: 1, state: 'waiting', startedAt: ago(2), sessionId: 's1' }] })
+    const gate = { id: 'g', sessionId: 's1', kind: 'gate', flowRunId: 'run', flowName: 'Green', step: 'ship', ask: 'Ship it?', show: [] } as ApprovalRequest
+    expect(withRuns([waiting], [session('s1')], { approvals: [gate] })).toMatchObject({ bucket: 'attention', tone: 'amber', label: 'Waiting for you · ship', sessionId: 's1' })
+    expect(withRuns([waiting], [session('s1')])).toMatchObject({ bucket: 'attention', label: 'Waiting for you · ship' })
+  })
+
+  it('a run that needs you or failed needs you with its reason, until something else happens in the workspace', () => {
+    const s1 = session('s1', { lastTurn: { outcome: 'cancelled', turnId: 't1', endedAt: ago(9) } })
+    const needs = run({ state: 'needs-you', endedAt: ago(10), reason: 'Stopped: it asked a question.' })
+    expect(withRuns([needs], [s1])).toMatchObject({ bucket: 'attention', tone: 'amber', label: 'Flow needs you', detail: 'Stopped: it asked a question.', sessionId: 's1' })
+    expect(withRuns([run({ state: 'failed', endedAt: ago(10), reason: 'The “build” turn ended with an error.' })], [s1])).toMatchObject({ bucket: 'attention', tone: 'red', label: 'Flow failed', detail: 'The “build” turn ended with an error.' })
+    // A turn of your own since then: the run's row is done.
+    const yours = session('s1', { lastTurn: { outcome: 'completed', turnId: 'mine', endedAt: ago(1) } })
+    expect(withRuns([needs], [yours]).label).not.toBe('Flow needs you')
+  })
+
+  it('a run waiting at a pick needs you too, naming the step, on Home’s row as in the sidebar', () => {
+    const picking = run({ state: 'waiting', current: { step: 'choose', iteration: 1 }, steps: [{ name: 'choose', kind: 'pick', iteration: 1, state: 'waiting', startedAt: ago(1), sessionId: 's1' }] })
+    expect(withRuns([picking], [session('s1')])).toMatchObject({ bucket: 'attention', tone: 'amber', label: 'Pick a result · choose', sessionId: 's1' })
+  })
+
+  it('groups the workspaces one run made under the flow’s name, as Compare siblings are grouped', () => {
+    const made = (id: string) => ws({ id, name: id, flowRun: { runId: 'run' } })
+    const snapshot = { workspaces: [made('first'), made('second'), ws({ id: 'mine', name: 'mine' })], sessions: [], flowRuns: [run({ workspaces: ['first', 'second'], workspaceId: 'second' })], settings: { ...defaultSettings(), flows: true } } as unknown as AppSnapshot
+    const grouped = sidebarGroups({ snapshot, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true })
+    expect(grouped.compares).toEqual([expect.objectContaining({ id: 'flow:run', flow: 'Green', items: [expect.objectContaining({ ws: expect.objectContaining({ id: 'first' }) }), expect.objectContaining({ ws: expect.objectContaining({ id: 'second' }) })] })])
+    expect(grouped.groups.flatMap((g) => g.items.map((t) => t.ws.id))).toEqual(['mine'])
+    // One workspace is no group.
+    const alone = { ...snapshot, workspaces: [made('first'), ws({ id: 'mine', name: 'mine' })] } as unknown as AppSnapshot
+    expect(sidebarGroups({ snapshot: alone, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true }).compares).toEqual([])
+  })
+
+  it('groups nothing by flow run while Flows are off: the run’s workspaces are plain rows, with no nameless “Flow ·” header', () => {
+    const made = (id: string) => ws({ id, name: id, flowRun: { runId: 'run' } })
+    // Off, the snapshot carries no runs, but each workspace still says which run made it.
+    const snapshot = { workspaces: [made('first'), made('second')], sessions: [], flowRuns: [], settings: { ...defaultSettings(), flows: false } } as unknown as AppSnapshot
+    const grouped = sidebarGroups({ snapshot, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true })
+    expect(grouped.compares).toEqual([])
+    expect(grouped.groups.flatMap((g) => g.items.map((t) => t.ws.id)).sort()).toEqual(['first', 'second'])
+  })
+
+  it('a stopped run is idle, with why', () => {
+    expect(withRuns([run({ state: 'stopped', endedAt: ago(5), reason: 'Stopped by you.' })], [session('s1')])).toMatchObject({ bucket: 'idle', label: 'Flow stopped', detail: 'Stopped by you.' })
   })
 })

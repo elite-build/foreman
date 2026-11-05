@@ -260,6 +260,7 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   flag('auto-run-after-setup', 'auto-run-after-setup', 'autoRunAfterSetup'),
   flag('fork-to-new-tab', 'fork-to-new-tab', 'forkToNewTab'),
   flag('show-resource-usage', 'show-resource-usage', 'showResourceUsage'),
+  flag('flows', 'flows', 'flows'),
   flag('diagnostics', 'diagnostics', 'diagnostics'),
 
   // Advanced (the Workspaces folder and the Windows script shell live here, not under Git)

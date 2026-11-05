@@ -309,3 +309,22 @@
     min-height: 220px;
   }
 }
+
+/* Start with (Flows on): the row above the first message; a flow's picker, inputs, graph and approval scroll in the
+   message's place; the link field sits above the composer. */
+.nw-start-with {
+  align-self: flex-start;
+  margin: 0 0 12px;
+}
+.nw-flow {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.nw-link {
+  margin: 0 0 8px;
+}

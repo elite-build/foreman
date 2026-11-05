@@ -82,6 +82,40 @@ describe('running checks', () => {
     expect(service.isRunning('ws1')).toBe(false)
   })
 
+  it('cancels only the run a caller started when it says which, leaving someone else’s alone', async () => {
+    const { service } = await setup([check('slow', nodeCommand('setTimeout(() => {}, 5000)'))])
+    const start = await service.start('ws1', { approve: true, startedBy: 'user' })
+    if (start.kind !== 'started') throw new Error('expected a start')
+    await service.cancel('ws1', { flowRun: 'run-1', step: 'checks' })
+    expect(service.isRunning('ws1')).toBe(true)
+    await service.cancel('ws1', 'user')
+    expect((await start.done).map((r) => r.status)).toEqual(['cancelled'])
+    const flow = await service.start('ws1', { approve: true, startedBy: { flowRun: 'run-1', step: 'checks' } })
+    if (flow.kind !== 'started') throw new Error('expected a start')
+    await service.cancel('ws1', { flowRun: 'run-1', step: 'checks' })
+    expect((await flow.done).map((r) => r.status)).toEqual(['cancelled'])
+  })
+
+  it('waits for the check run going, then starts nothing when the caller gave up meanwhile', async () => {
+    const { service } = await setup([check('slow', nodeCommand('setTimeout(() => {}, 300)'))])
+    const theirs = await service.start('ws1', { approve: true, startedBy: 'user' })
+    if (theirs.kind !== 'started') throw new Error('expected a start')
+    let wanted = true
+    const waiting = service.startWhenFree('ws1', { approve: true, startedBy: { flowRun: 'run-1', step: 'checks' } }, () => wanted, 20)
+    wanted = false
+    await theirs.done
+    expect(await waiting).toEqual({ kind: 'abandoned' })
+    expect(service.isRunning('ws1')).toBe(false)
+    // Still wanted: it starts once the workspace is free.
+    const again = await service.start('ws1', { approve: true, startedBy: 'user' })
+    if (again.kind !== 'started') throw new Error('expected a start')
+    const next = service.startWhenFree('ws1', { approve: true }, () => true, 20)
+    await again.done
+    const started = await next
+    expect(started.kind).toBe('started')
+    if (started.kind === 'started') await started.done
+  })
+
   it('refuses a second run while one is going', async () => {
     const { service } = await setup([check('slow', nodeCommand('setTimeout(() => {}, 5000)'))])
     const start = await service.start('ws1', { approve: true })
@@ -109,6 +143,24 @@ describe('running checks', () => {
     const store = new Store(dataDir)
     await store.load()
     expect(store.state.workspaces[0].checks).toMatchObject({ running: false, results: [{ status: 'interrupted' }] })
+  })
+})
+
+describe('who started a run', () => {
+  it('keeps what the caller says started it, and `foreman checks` says the command line', async () => {
+    const { service, ws } = await setup([check('ok', 'echo fine')])
+    const user = await service.start('ws1', { approve: true, startedBy: 'user' })
+    if (user.kind === 'started') await user.done
+    expect(ws.checks?.startedBy).toBe('user')
+    const flow = await service.start('ws1', { startedBy: { flowRun: 'run-1', step: 'checks' } })
+    if (flow.kind === 'started') await flow.done
+    expect(ws.checks?.startedBy).toEqual({ flowRun: 'run-1', step: 'checks' })
+    expect((await service.runForCli('ws1')).outcome).toBe('passed')
+    expect(ws.checks?.startedBy).toBe('cli')
+    // A run with nobody named keeps nothing from the run before it.
+    const unnamed = await service.start('ws1')
+    if (unnamed.kind === 'started') await unnamed.done
+    expect(ws.checks?.startedBy).toBeUndefined()
   })
 })
 

@@ -20,10 +20,16 @@ export const MAX_REPORT_TEXT = 500
 // Closed reports kept per workspace as history (open ones are always kept).
 export const REPORT_HISTORY = 20
 
+/**
+ * What Foreman records from an agent: a report, a review request, or (in a flow's decide step only) the option it
+ * decided on. `decide` isn't one of the report tool's kinds: it has its own tool, offered only in that step's turn.
+ */
+export type RecordedKind = ReportKind | 'review' | 'decide'
+
 /** One report or review request, as Foreman stores it on the workspace. */
 export interface AgentReport {
   id: string
-  kind: ReportKind | 'review'
+  kind: RecordedKind
   // The agent's words, never Foreman's judgement.
   text: string
   // An http(s) link the agent gave with it.
@@ -97,7 +103,7 @@ export interface Recorded {
  * Add a report to a workspace's list. The rules:
  * - the same kind and words again from the same turn is a duplicate (a chatty agent can't flood Home);
  * - a later needs-input, stuck or done from the same tab supersedes its open blocker (one per tab);
- *   a checkpoint never clears one;
+ *   a checkpoint (or a flow step's decision) never clears one;
  * - a review request replaces the tab's earlier open one;
  * - a late report (its turn had ended) is history: it neither opens nor clears anything.
  */
@@ -108,7 +114,7 @@ export function recordReport(list: AgentReport[] | undefined, report: AgentRepor
   const closes = (r: AgentReport) => {
     if (report.late || !isOpen(r) || !sameSource(r, report)) return false
     if (report.kind === 'review') return r.kind === 'review'
-    return isBlocker(r.kind) && report.kind !== 'checkpoint'
+    return isBlocker(r.kind) && report.kind !== 'checkpoint' && report.kind !== 'decide'
   }
   const next = current.map((r) => (closes(r) ? { ...r, closed: { how: 'superseded' as const, at: report.at } } : r))
   return { list: trimHistory([...next, report]), added: true }
@@ -139,9 +145,9 @@ export function closeReport(list: AgentReport[] | undefined, id: string, how: 'd
   return { list: changed ? trimHistory(next) : list ?? [], changed }
 }
 
-/** The chat line for a report: "agent says: checkpoint — migrated 3 of 5 tables". */
+/** The chat line for a report: "agent says: checkpoint — migrated 3 of 5 tables", "agent says: decided — high". */
 export function reportLine(report: Pick<AgentReport, 'kind' | 'text' | 'late'>): string {
-  const kind = report.kind === 'review' ? 'asks for a review' : report.kind.replace('-', ' ')
+  const kind = report.kind === 'review' ? 'asks for a review' : report.kind === 'decide' ? 'decided' : report.kind.replace('-', ' ')
   return `agent says: ${kind}${report.text ? ` — ${report.text}` : ''}${report.late ? ' (from an earlier turn)' : ''}`
 }
 
@@ -152,14 +158,25 @@ export function withReviewRequest(message: string, request: string | undefined):
   return `${message.trimEnd()}\n\nThe agent that did this work asked for a review and says to check: ${what}`
 }
 
+/**
+ * Why an agent's decision can't be recorded, or null when it can: only a flow's decide step's turn decides, and only one
+ * of the options that step names. `unattended` is the turn's mark (Session.unattended).
+ */
+export function decisionProblem(unattended: unknown, option: string): string | null {
+  const options = unattended && typeof unattended === 'object' && 'decide' in unattended ? (unattended as { decide?: unknown }).decide : undefined
+  if (!Array.isArray(options) || !options.length) return 'Only a flow’s decide step decides, and this turn isn’t one. Nothing was recorded.'
+  if (!options.includes(option.trim())) return `“${option.trim()}” isn’t one of the options. Decide one of: ${options.join(', ')}.`
+  return null
+}
+
 /** A finished tool call that only made a report: the chat folds it into the report's own marker. */
 export function isReportCall(item: { name: string; input: unknown; status: string }): boolean {
   if (item.status !== 'done') return false
-  if (item.name === 'mcp__foreman__report' || item.name === 'mcp__foreman__request_review') return true
+  if (item.name === 'mcp__foreman__report' || item.name === 'mcp__foreman__request_review' || item.name === 'mcp__foreman-app__decide') return true
   // G1: Cursor's calls to its SDK custom tools (the "custom-user-tools" server).
   if (item.name === 'mcp__custom-user-tools__report' || item.name === 'mcp__custom-user-tools__request_review') return true
   const command = (item.input as { command?: unknown } | null)?.command
-  return (item.name === 'Bash' || item.name === 'shell' || item.name === 'command') && typeof command === 'string' && /^\s*foreman\s+(report|review)\b[^;&|\n]*$/.test(command)
+  return (item.name === 'Bash' || item.name === 'shell' || item.name === 'command') && typeof command === 'string' && /^\s*foreman\s+(report|review|decide)\b[^;&|\n]*$/.test(command)
 }
 
 // ---- turn identity ----

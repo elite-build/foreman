@@ -28,6 +28,7 @@ function ReasonTag({ ws }: { ws: Workspace }) {
   const reason = archiveReason(ws)
   if (reason.kind === 'merged') return <Tag tone="ok">{t('archivedList.reason.merged', { number: reason.number })}</Tag>
   if (reason.kind === 'run') return <Tag tone="info">{t('archivedList.reason.run')}</Tag>
+  if (reason.kind === 'flow') return <Tag tone="info">{t('archivedList.reason.flow')}</Tag>
   return <Tag>{t('archivedList.reason.manual')}</Tag>
 }
 

@@ -1,6 +1,9 @@
 // The approval commands: approvals, approve, deny and stopped. Answering an approval
 // lets an agent act, so approve and deny are admin: refused with any turn token (§13 item 2). Retrying a stopped turn
-// sends its message again, so it goes through the start policy like `foreman send`.
+// sends its message again, so it goes through the start policy like `foreman send`. A flow's gate has three answers,
+// all on approve (--continue, --send-back with a note, --stop); a flow's pick is answered with --pick <step> or --stop.
+// deny refuses both rather than guess which answer was meant.
+import { gateShowText, pickChoiceText } from '../../shared/cli/flows'
 import { toolSummary } from '../../shared/cli/tabs'
 import type { ApprovalAnswerResult, ApprovalRow, ApprovalsResult, ApproveParams, DenyParams, StoppedParams, StoppedResult, StoppedRow } from '../../shared/cli/approvals'
 import type { ApprovalRequest, ApprovalResponse, Session, Workspace } from '../../shared/types'
@@ -31,6 +34,8 @@ export function askText(request: ApprovalRequest): string {
     const steps = planSteps(request.plan)
     return clip(`${first}${steps ? ` (${steps} ${steps === 1 ? 'step' : 'steps'})` : ''}`)
   }
+  if (request.kind === 'gate') return clip(`${request.flowName} · ${request.step}: ${request.ask}`)
+  if (request.kind === 'pick') return clip(`${request.flowName} · ${request.step}: pick one of ${request.choices.map((c) => c.step).join(', ')}`)
   const first = request.questions[0]?.question ?? 'A question'
   return clip(`${first}${request.questions.length > 1 ? ` (+${request.questions.length - 1} more)` : ''}`)
 }
@@ -48,7 +53,9 @@ function rowOf(request: ApprovalRequest, sessions: Session[], workspaces: Worksp
     ...(session && !tab ? { tabTitle: session.title || 'New chat' } : {}),
     kind: request.kind,
     ask: askText(request),
-    ...(request.kind === 'tool' && request.alternate ? { alternate: request.alternate } : {})
+    ...(request.kind === 'tool' && request.alternate ? { alternate: request.alternate } : {}),
+    ...(request.kind === 'gate' ? { flow: request.flowName, step: request.step, flowRunId: request.flowRunId, show: request.show } : {}),
+    ...(request.kind === 'pick' ? { flow: request.flowName, step: request.step, flowRunId: request.flowRunId, choices: request.choices } : {})
   }
 }
 
@@ -56,8 +63,16 @@ async function approvals(host: CliHost): Promise<ApprovalsResult> {
   const requests = await host.api.pendingApprovals()
   const { sessions, workspaces } = host.state()
   const rows = requests.map((r) => rowOf(r, sessions, workspaces))
-  const text = rows.length ? columns([['ID', 'WORKSPACE', 'TAB', 'KIND', 'ASK'], ...rows.map((r) => [r.id.slice(0, 8), r.workspace, r.tab ? String(r.tab) : (r.tabTitle ?? ''), r.kind, r.ask])]).join('\n') : 'Nothing is waiting for an answer.'
-  return { approvals: rows, text }
+  if (!rows.length) return { approvals: rows, text: 'Nothing is waiting for an answer.' }
+  const table = columns([['ID', 'WORKSPACE', 'TAB', 'KIND', 'ASK'], ...rows.map((r) => [r.id.slice(0, 8), r.workspace, r.tab ? String(r.tab) : (r.tabTitle ?? ''), r.kind, r.ask])])
+  // A gate's show rows go under it: what the person deciding is meant to look at.
+  const lines = [table[0]]
+  rows.forEach((r, i) => {
+    lines.push(table[i + 1])
+    for (const show of r.show ?? []) lines.push(`    ${gateShowText(show)}`)
+    for (const choice of r.choices ?? []) lines.push(`    ${pickChoiceText(choice)}`)
+  })
+  return { approvals: rows, text: lines.join('\n') }
 }
 
 /** The request `query` names: its id or the start of it (four characters or more). */
@@ -86,6 +101,11 @@ function questionKey(request: Extract<ApprovalRequest, { kind: 'question' }>, ke
   return hit.question
 }
 
+const GATE_ANSWERS = ['continue', 'send-back', 'stop'] as const
+type GateAnswer = (typeof GATE_ANSWERS)[number]
+const GATE_HOW = 'Answer it with `foreman approve <id> --continue`, `--send-back [--note "…"]` or `--stop`.'
+const PICK_HOW = 'Answer it with `foreman approve <id> --pick <step>`, or `--stop` to choose none and stop the run.'
+
 async function approve(host: CliHost, params: unknown): Promise<ApprovalAnswerResult> {
   const p = paramsObject(params as ApproveParams)
   const request = await requestOf(host, textParam(p, 'id'))
@@ -94,6 +114,13 @@ async function approve(host: CliHost, params: unknown): Promise<ApprovalAnswerRe
   const message = textParam(p, 'message', { optional: true })?.trim() || undefined
   const feedback = textParam(p, 'feedback', { optional: true })?.trim() || undefined
   const planFlag = flagParam(p, 'plan')
+  const gate = textParam(p, 'gate', { optional: true })
+  const note = textParam(p, 'note', { optional: true })?.trim() || undefined
+  const pick = textParam(p, 'pick', { optional: true })?.trim()
+  if (gate !== undefined && !GATE_ANSWERS.includes(gate as GateAnswer)) throw invalid(`gate is one of ${GATE_ANSWERS.join(', ')}.`)
+  if (request.kind !== 'pick' && pick !== undefined) throw invalid(`--pick answers a flow’s pick; that is a ${request.kind} request.`)
+  if (request.kind === 'pick' && (note || (gate !== undefined && gate !== 'stop'))) throw invalid(`That is a flow’s pick. ${PICK_HOW}`)
+  if (request.kind !== 'gate' && request.kind !== 'pick' && (gate !== undefined || note)) throw invalid(`--continue, --send-back, --note and --stop answer a flow’s gate; that is a ${request.kind} request.`)
   let response: ApprovalResponse
   let answer: string
   if (request.kind === 'tool') {
@@ -107,6 +134,27 @@ async function approve(host: CliHost, params: unknown): Promise<ApprovalAnswerRe
     if (always || edits || message || p.answers) throw invalid('That is a plan. Use --plan with --feedback to approve it with a note.')
     response = { kind: 'plan', approve: true, ...(feedback ? { feedback } : {}) }
     answer = 'approved'
+  } else if (request.kind === 'gate') {
+    if (always || edits || message || feedback || planFlag || p.answers) throw invalid(`That is a flow’s gate. ${GATE_HOW}`)
+    if (gate === undefined) throw invalid(`Say how to answer the gate “${request.step}” (${request.ask}). ${GATE_HOW}`)
+    if (note && gate !== 'send-back') throw invalid('--note goes with --send-back.')
+    const given = gate as GateAnswer
+    response = given === 'continue' ? { kind: 'gate', answer: 'continued' } : given === 'stop' ? { kind: 'gate', answer: 'stopped' } : { kind: 'gate', answer: 'sent-back', ...(note ? { note } : {}) }
+    answer = given === 'continue' ? 'continued' : given === 'stop' ? 'stopped' : note ? 'sent back with a note' : 'sent back'
+  } else if (request.kind === 'pick') {
+    if (always || edits || message || feedback || planFlag || p.answers) throw invalid(`That is a flow’s pick. ${PICK_HOW}`)
+    if (pick !== undefined && gate === 'stop') throw invalid('Give --pick or --stop, not both.')
+    if (gate === 'stop') {
+      response = { kind: 'pick', chosen: null }
+      answer = 'stopped, nothing chosen'
+    } else {
+      const choices = request.choices.map((c) => c.step)
+      if (!pick) throw invalid(`Say which result “${request.step}” goes on with: ${choices.join(', ')}. ${PICK_HOW}`)
+      const chosen = choices.find((c) => c === pick) ?? choices.find((c) => c.toLowerCase() === pick.toLowerCase())
+      if (!chosen) throw invalid(`“${pick}” isn’t one of the results. Pick one of: ${choices.join(', ')}.`)
+      response = { kind: 'pick', chosen }
+      answer = `picked ${chosen}`
+    }
   } else {
     if (always || edits || message || feedback || planFlag) throw invalid('That is a question. Answer it with --answer "question=choice".')
     const raw = p.answers
@@ -144,6 +192,10 @@ async function deny(host: CliHost, params: unknown): Promise<ApprovalAnswerResul
   } else if (request.kind === 'plan') {
     response = { kind: 'plan', approve: false, ...(message ? { feedback: message } : {}) }
     answer = 'sent back'
+  } else if (request.kind === 'gate') {
+    throw invalid(`That is a flow’s gate, which deny doesn’t answer. ${GATE_HOW}`)
+  } else if (request.kind === 'pick') {
+    throw invalid(`That is a flow’s pick, which deny doesn’t answer. ${PICK_HOW}`)
   } else {
     response = { kind: 'question', skipped: true }
     answer = 'skipped'
