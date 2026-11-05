@@ -57,6 +57,7 @@ export interface ShortcutActions {
   toggleToolCalls(): void
   toggleTheme(): void
   toggleLeftPanel(): void
+  toggleRailNames(): void
   toggleRightPanel(): void
   toggleBottomPanel(): void
   toggleZen(): void
@@ -384,6 +385,8 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { id: 'settings.toggle', keys: k('mod+Comma'), group: 'general', scope: 'app', labelKey: 'shortcuts.settings', run: (c) => c.actions.toggleSettings() },
   { id: 'theme.toggle', keys: k('mod+alt+KeyT'), group: 'general', scope: 'app', labelKey: 'shortcuts.toggleTheme', run: (c) => c.actions.toggleTheme() },
   { id: 'panel.left', keys: k('mod+KeyB'), group: 'general', scope: 'app', labelKey: 'palette.toggleSidebar', run: (c) => c.actions.toggleLeftPanel() },
+  // ⇧B is Open preview, so the rail's names take N.
+  { id: 'panel.railNames', keys: k('mod+shift+KeyN'), group: 'general', scope: 'app', labelKey: 'palette.toggleRepoNames', run: (c) => c.actions.toggleRailNames() },
   { id: 'panel.right', keys: k('mod+alt+KeyB'), group: 'general', scope: 'app', labelKey: 'palette.toggleSidePanel', run: (c) => c.actions.toggleRightPanel() },
   { id: 'panel.bottom', keys: k('mod+alt+KeyJ'), group: 'general', scope: 'app', labelKey: 'palette.toggleTerminal', run: (c) => c.actions.toggleBottomPanel() },
   { id: 'zen.toggle', keys: k('mod+Period'), group: 'general', scope: 'app', labelKey: 'palette.zen', run: (c) => c.actions.toggleZen() },

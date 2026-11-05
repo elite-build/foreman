@@ -2369,6 +2369,7 @@ export const en = {
   'palette.viewArchived': 'View archived workspaces',
   'palette.toggleTheme': 'Toggle light / dark theme',
   'palette.toggleSidebar': 'Toggle sidebar',
+  'palette.toggleRepoNames': 'Show or hide repository names',
   'palette.toggleSidePanel': 'Toggle side panel',
   'palette.zen': 'Zen mode',
   'palette.toggleTerminal': 'Toggle terminal panel',
@@ -2891,10 +2892,8 @@ export const en = {
   // The rail's tile for all repositories (a short word).
   'sidebar.rail.all': 'All',
   'sidebar.rail.add': 'Add repository',
-  // Opens the drawer that lists every repository by name.
-  'sidebar.rail.expand': 'Show repositories',
-  'sidebar.rail.filter': 'Filter repositories',
-  'sidebar.rail.noMatch': 'No repositories match.',
+  // Widens the rail to show each repository's name beside its tile (a toggle); {key} is a keyboard shortcut.
+  'sidebar.rail.names': 'Show repository names ({key})',
   // {key} is a keyboard shortcut.
   'sidebar.rail.palette': 'Command palette ({key})',
   'sidebar.rail.shortcuts': 'Keyboard shortcuts ({key})',

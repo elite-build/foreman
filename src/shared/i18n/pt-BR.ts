@@ -2121,6 +2121,7 @@ export const ptBR: Catalogue = {
   'palette.viewArchived': 'Ver espaços de trabalho arquivados',
   'palette.toggleTheme': 'Alternar tema claro / escuro',
   'palette.toggleSidebar': 'Alternar barra lateral',
+  'palette.toggleRepoNames': 'Alternar nomes dos repositórios',
   'palette.toggleSidePanel': 'Alternar painel lateral',
   'palette.zen': 'Modo zen',
   'palette.toggleTerminal': 'Alternar painel do terminal',
@@ -2590,10 +2591,8 @@ export const ptBR: Catalogue = {
   'sidebar.rail.needYou': { one: '{label} · {count} precisa de você', other: '{label} · {count} precisam de você' },
   'sidebar.rail.all': 'Todos',
   'sidebar.rail.add': 'Adicionar repositório',
-  // Opens the drawer that lists every repository by name.
-  'sidebar.rail.expand': 'Mostrar repositórios',
-  'sidebar.rail.filter': 'Filtrar repositórios',
-  'sidebar.rail.noMatch': 'Nenhum repositório corresponde.',
+  // Widens the rail to show each repository's name beside its tile (a toggle); {key} is a keyboard shortcut.
+  'sidebar.rail.names': 'Mostrar nomes dos repositórios ({key})',
   'sidebar.rail.palette': 'Paleta de comandos ({key})',
   'sidebar.rail.shortcuts': 'Atalhos de teclado ({key})',
 

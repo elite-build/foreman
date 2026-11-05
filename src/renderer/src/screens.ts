@@ -21,6 +21,7 @@ import {
   showEditorSidebar,
   showRepoHome,
   toggleLeftPanel,
+  toggleRailNames,
   toggleRightPanel
 } from './store'
 import { rowDomId } from './components/settings/controls'
@@ -86,10 +87,11 @@ async function settle(quietMs = 400, maxMs = 5000): Promise<void> {
   await frame()
 }
 
-/** Both side panels open and the terminal panel closed, unless a screen asks for it. */
+/** Both side panels open, the rail narrow and the terminal panel closed, unless a screen asks for it. */
 function baseLayout(): void {
   const s = getState()
   if (!s.leftPanelOpen) toggleLeftPanel()
+  if (s.railNames) toggleRailNames()
   if (!s.rightPanelOpen) toggleRightPanel()
   showBottomPanel(false)
   chooseHomeLayout('list')
@@ -136,13 +138,11 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     chooseHomeLayout('board')
     return '.home .board'
   },
-  // The rail opened out: the repositories drawer over the workspace list.
-  'repo-drawer': async () => {
+  // The rail widened in place: each repository's name and what is going on in it beside its tile (baseLayout narrows it).
+  'repo-names': () => {
     showRepoHome(null)
-    const open = await waitFor(element('.repo-rail .rail-tools button[aria-haspopup="dialog"]'))
-    if (!open) return null
-    open.click()
-    return '.rail-drawer [role="option"]'
+    if (!getState().railNames) toggleRailNames()
+    return '.repo-rail.names .rail-name'
   },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
   // The composer's context ring, pressed: what fills the chat's context window.

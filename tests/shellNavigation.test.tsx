@@ -28,7 +28,8 @@ beforeEach(() => {
     approvals: [],
     unread: {},
     unreadSessions: {},
-    sidebarView: { repo: null, query: '', filter: 'all', showFinished: false }
+    sidebarView: { repo: null, query: '', filter: 'all', showFinished: false },
+    railNames: false
   })
   Object.assign(fakeState.snapshot, {
     platform: 'linux',
@@ -234,43 +235,58 @@ describe('repository rail', () => {
     expect(spy('showRepoHome')).toHaveBeenCalledWith('r1')
   })
 
-  it("each tile has its repository's name under it, which leaves the tile's name alone", () => {
+  it('the narrow rail is tiles alone: the name is the tile’s name and its tooltip', () => {
     render(<Sidebar />)
     const tile = screen.getByRole('button', { name: 'kite' })
-    expect(tile.closest('.rail-item')?.querySelector('.rail-caption')?.textContent).toBe('kite')
-    // All says so on its tile.
-    expect(screen.getByRole('button', { name: 'All repositories' }).closest('.rail-item')?.querySelector('.rail-caption')).toBeNull()
+    expect(tile.getAttribute('title')).toBe('kite')
+    expect(document.querySelector('.repo-rail.names')).toBeNull()
+    expect(document.querySelector('.rail-name')).toBeNull()
   })
 
-  it('the repositories drawer lists each repository by name with what is going on in it, and picking one shows it', async () => {
+  it('one toggle shows the names and, pressed again, hides them; nothing opens over the list', async () => {
     const user = userEvent.setup()
+    const { rerender } = render(<Sidebar />)
+    const toggle = screen.getByRole('button', { name: /^Show repository names \(Ctrl\+Shift\+N\)$/ })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    await user.click(toggle)
+    expect(spy('toggleRailNames')).toHaveBeenCalledTimes(1)
+    fakeState.railNames = true
+    rerender(<Sidebar />)
+    const pressed = screen.getByRole('button', { name: /^Show repository names/ })
+    expect(pressed.getAttribute('aria-pressed')).toBe('true')
+    await user.click(pressed)
+    expect(spy('toggleRailNames')).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('with names shown, each tile has its name and what is going on in it beside it, as its description', async () => {
+    fakeState.railNames = true
     render(<Sidebar />)
-    const open = screen.getByRole('button', { name: 'Show repositories' })
-    expect(open.getAttribute('aria-haspopup')).toBe('dialog')
-    await user.click(open)
-    const drawer = await screen.findByRole('dialog', { name: 'Repositories' })
-    // Each row is named by its repository (the icon or initials before it are decoration) and says what is going on.
-    const rows = within(drawer).getAllByRole('option')
-    expect(rows).toHaveLength(2)
-    expect(within(drawer).getByRole('option', { name: /^All repositories/ }).textContent).toContain('1 repository')
-    expect(within(drawer).getByRole('option', { name: /^kite/ }).textContent).toContain('1 workspace · main')
-    await user.type(within(drawer).getByRole('combobox', { name: 'Filter repositories' }), 'ki')
-    expect(within(drawer).getAllByRole('option')).toHaveLength(1)
-    await user.keyboard('{Enter}')
+    const tile = screen.getByRole('button', { name: 'kite' })
+    const item = tile.closest('.rail-item')!
+    expect(item.querySelector('.rail-name-title')?.textContent).toBe('kite')
+    expect(item.querySelector('.rail-name-line')?.textContent).toBe('1 workspace · main')
+    expect(tile.getAttribute('aria-describedby')).toBe(item.querySelector('.rail-name-line')?.id)
+    // The tooltip would repeat what the rail now says.
+    expect(tile.getAttribute('title')).toBeNull()
+    const all = screen.getByRole('button', { name: 'All repositories' }).closest('.rail-item')!
+    expect(all.querySelector('.rail-name-line')?.textContent).toBe('1 repository')
+    await userEvent.setup().click(tile)
     expect(spy('showRepoHome')).toHaveBeenCalledWith('r1')
-    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('a filter that matches nothing says so, and Escape closes the drawer without picking', async () => {
-    const user = userEvent.setup()
-    render(<Sidebar />)
-    await user.click(screen.getByRole('button', { name: 'Show repositories' }))
-    const drawer = await screen.findByRole('dialog', { name: 'Repositories' })
-    await user.type(within(drawer).getByRole('combobox'), 'zzz')
-    expect(drawer.textContent).toContain('No repositories match.')
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(spy('showRepoHome')).not.toHaveBeenCalled()
+  it('what needs you is a ▲ and a count on the narrow tile, and words beside the wide one', () => {
+    fakeState.snapshot.workspaces = [{ ...ws, archiveStopped: { step: 'script', detail: 'exit 1', at: '2026-01-01T00:00:00Z' } }]
+    const { rerender } = render(<Sidebar />)
+    const tile = screen.getByRole('button', { name: 'kite · 1 need you' })
+    const badge = tile.querySelector('.rail-badge')!
+    expect(badge.querySelector('[data-glyph="warn"]')).not.toBeNull()
+    expect(badge.textContent).toBe('1')
+    fakeState.railNames = true
+    rerender(<Sidebar />)
+    const wide = screen.getByRole('button', { name: 'kite · 1 need you' })
+    expect(wide.querySelector('.rail-badge')).toBeNull()
+    expect(wide.closest('.rail-item')?.querySelector('.rail-name-line')?.textContent).toBe('1 need you')
   })
 
   it('right-click on a tile opens the repository menu', async () => {

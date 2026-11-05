@@ -1,6 +1,7 @@
 import {
   Archive,
   Bug,
+  ChevronsLeft,
   ChevronsRight,
   CircleHelp,
   Cloud,
@@ -19,7 +20,7 @@ import {
   icons,
   type LucideIcon
 } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import type { PlainKey } from '../../../shared/i18n'
 import type { ArchiveProgressStep, PaneSide, Repo, RepoIcon, Workspace, WorkspaceStatus } from '../../../shared/types'
 import { useT } from '../i18n'
@@ -48,6 +49,7 @@ import {
   startTour,
   timeAgo,
   toggleLeftPanel,
+  toggleRailNames,
   toggleShowFinished,
   useStore
 } from '../store'
@@ -75,7 +77,7 @@ import { PrGlyphView } from './Attention'
 import { GitlabMark } from './GitlabMark'
 import { cloudAction, CloudSub } from './cloud/CloudBits'
 import { isGitlabWorkspace } from '../../../shared/scm'
-import { ActionRow, Button, CardButton, ChipButton, Combobox, ContextMenu, IconButton, Kbd, LinkButton, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Sheet, Spinner, Status, Tab, TabList, Tabs, TextInput, type StatusTone } from '../ui'
+import { ActionRow, Button, CardButton, ChipButton, ContextMenu, Glyph, IconButton, Kbd, LinkButton, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Spinner, Status, Tab, TabList, Tabs, TextInput, type StatusTone } from '../ui'
 
 /** A Lucide icon by name: PascalCase ("GitBranch") or kebab-case ("git-branch"). */
 export function lucideIcon(name: string | undefined): LucideIcon | undefined {
@@ -396,20 +398,20 @@ function repoInitials(name: string): string {
   return (name.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toLowerCase()
 }
 
-/** What is going on in one repository (or, under `null`, in all of them): the rail's badges and the drawer's lines. */
+/** What is going on in one repository (or, under `null`, in all of them): the rail's badges and lines. */
 type RepoCount = { attention: number; working: number; total: number }
 
-/** A repository's icon, or its initials when it has none: the rail's tiles and the drawer's rows. */
+/** A repository's icon, or its initials when it has none: the rail's tiles. */
 function repoMark(repo: Repo): ReactNode {
   return repo.icon ? <RepoIconView icon={repo.icon} size={16} /> : <span className="rail-text">{repoInitials(repo.name)}</span>
 }
 
 /**
- * The column of repositories down the left edge: All, each repo with its name under it, and Add; the repositories
- * drawer, search, shortcuts and settings at the bottom. `drawer` is the workspace list, which the drawer covers; without
- * one (the list is hidden) there is no drawer to open.
+ * The column of repositories down the left edge: All, each repo, and Add; search, shortcuts and settings at the bottom.
+ * Its toggle widens it in place to put each repository's name and what is going on in it beside the tile (the store's
+ * `railNames`), and narrows it back.
  */
-function RepoRail({ counts, drawer }: { counts: Map<string | null, RepoCount>; drawer: HTMLElement | null }) {
+function RepoRail({ counts }: { counts: Map<string | null, RepoCount> }) {
   const t = useT()
   const repos = useStore((s) => s.snapshot!.repos)
   const connections = useStore((s) => s.snapshot!.integrations.connections)
@@ -418,13 +420,19 @@ function RepoRail({ counts, drawer }: { counts: Map<string | null, RepoCount>; d
   const settingsOpen = useStore((s) => Boolean(s.settingsPage))
   const current = useStore((s) => liveRepo(s.snapshot!, s.sidebarView.repo))
   const home = useStore((s) => !s.selectedWorkspaceId && !s.settingsPage)
+  const names = useStore((s) => s.railNames)
   const [menu, setMenu] = useState<{ repo: Repo; x: number; y: number } | null>(null)
   const [removing, setRemoving] = useState<Repo | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
-  const tile = (repoId: string | null, label: string, caption: string | null, content: ReactNode) => {
+  // Beside a name: what needs you and what runs, or (when nothing does) how many workspaces it has.
+  const line = (repoId: string | null, quiet: string) => {
+    const c = counts.get(repoId)
+    const busy = [c?.attention ? t('home.banner.needYou', { count: c.attention }) : '', c?.working ? t('sidebar.runningCount', { count: c.working }) : ''].filter(Boolean)
+    return busy.length ? busy.join(' · ') : quiet
+  }
+  const tile = (repoId: string | null, label: string, title: string, quiet: string, content: ReactNode) => {
     const count = counts.get(repoId)?.attention ?? 0
     const name = count ? t('sidebar.rail.needYou', { label, count }) : label
+    const lineId = `rail-line-${repoId ?? 'all'}`
     return (
       <span key={repoId ?? 'all'} className={`rail-item ${current === repoId ? 'on' : ''}`}>
         {/* The wrapper draws the ring that says the tile's repository is also what Home is showing. */}
@@ -432,8 +440,9 @@ function RepoRail({ counts, drawer }: { counts: Map<string | null, RepoCount>; d
           <CardButton
             className="rail-tile"
             selected={current === repoId}
-            title={name}
+            title={names ? undefined : name}
             aria-label={name}
+            aria-describedby={names ? lineId : undefined}
             aria-pressed={current === repoId}
             onClick={() => showRepoHome(repoId)}
             onContextMenu={(e) => {
@@ -444,17 +453,23 @@ function RepoRail({ counts, drawer }: { counts: Map<string | null, RepoCount>; d
             }}
           >
             {content}
-            {count > 0 && (
+            {/* With names shown, the line beside the tile says it in words. */}
+            {count > 0 && !names && (
               <span className="rail-badge" aria-hidden>
+                <Glyph name="warn" />
                 {count > 9 ? '9+' : count}
               </span>
             )}
           </CardButton>
         </span>
-        {/* The tile's name already says it; the button reaches over the caption, so clicking the name picks it too. */}
-        {caption && (
-          <span className="rail-caption" aria-hidden>
-            {caption}
+        {/* The tile's name already says the title, and describes it with the line; the button reaches over both, so
+            clicking the name picks the repository too. */}
+        {names && (
+          <span className="rail-name" aria-hidden>
+            <span className="rail-name-title">{title}</span>
+            <span className="rail-name-line" id={lineId}>
+              {line(repoId, quiet)}
+            </span>
           </span>
         )}
       </span>
@@ -469,20 +484,33 @@ function RepoRail({ counts, drawer }: { counts: Map<string | null, RepoCount>; d
     })
   )
   return (
-    <nav className="repo-rail" aria-label={t('sidebar.rail.label')}>
-      {/* All says so on its tile, so it has no caption. */}
-      {tile(null, t('home.board.allRepos'), null, <span className="rail-text">{t('sidebar.rail.all')}</span>)}
-      {repos.map((repo) => tile(repo.id, githubNames.get(repo.id) ? `${repo.name} · ${githubNames.get(repo.id)}` : repo.name, repo.name, repoMark(repo)))}
-      {/* Drawn in the document beside the button: the rail scrolls, which would clip a menu that opens to its right. */}
-      <MenuButton label={t('sidebar.rail.add')} look="dashed" portal placement="right-start" triggerClassName="rail-add" data-tour="add-repo" trigger={<Plus size={15} />}>
-        <AddRepoItems />
-      </MenuButton>
-      <div className="rail-tools">
-        {drawer && (
-          <IconButton label={t('sidebar.rail.expand')} aria-haspopup="dialog" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
-            <ChevronsRight size={15} />
-          </IconButton>
+    <nav className={`repo-rail ${names ? 'names' : ''}`} aria-label={t('sidebar.rail.label')}>
+      {tile(null, t('home.board.allRepos'), t('home.board.allRepos'), t('sidebar.subtitle.repos', { count: repos.length }), <span className="rail-text">{t('sidebar.rail.all')}</span>)}
+      {repos.map((repo) =>
+        tile(
+          repo.id,
+          githubNames.get(repo.id) ? `${repo.name} · ${githubNames.get(repo.id)}` : repo.name,
+          repo.name,
+          t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }),
+          repoMark(repo)
+        )
+      )}
+      <span className="rail-item">
+        {/* Drawn in the document beside the button: the rail scrolls, which would clip a menu that opens to its right. */}
+        <MenuButton label={t('sidebar.rail.add')} look="dashed" portal placement="right-start" triggerClassName="rail-add" data-tour="add-repo" trigger={<Plus size={15} />}>
+          <AddRepoItems />
+        </MenuButton>
+        {names && (
+          <span className="rail-name" aria-hidden>
+            <span className="rail-name-title">{t('sidebar.rail.add')}</span>
+          </span>
         )}
+      </span>
+      <div className="rail-tools">
+        {/* One toggle, in place: pressed, the rail is wide with names; pressed again, it is back to its tiles. */}
+        <IconButton label={t('sidebar.rail.names', { key: shortcutHint('panel.railNames', platform) ?? `${mod}⇧N` })} pressed={names} onClick={toggleRailNames}>
+          {names ? <ChevronsLeft size={15} /> : <ChevronsRight size={15} />}
+        </IconButton>
         <IconButton label={t('sidebar.rail.palette', { key: `${mod}K` })} onClick={() => openOverlay('palette')}>
           <Search size={15} />
         </IconButton>
@@ -501,64 +529,7 @@ function RepoRail({ counts, drawer }: { counts: Map<string | null, RepoCount>; d
       </div>
       {menu && <RepoMenu {...menu} dismiss={() => setMenu(null)} onRemove={() => setRemoving(menu.repo)} />}
       {removing && <RemoveRepoDialog repo={removing} onClose={() => setRemoving(null)} />}
-      {drawerOpen && drawer && <RepoDrawer container={drawer} counts={counts} onClose={closeDrawer} />}
     </nav>
-  )
-}
-
-// The drawer's option for All repositories (a repository's option is its id).
-const ALL_REPOS = ''
-
-/**
- * The repositories drawer: the rail opened out over the workspace list, each repository with its full name and what is
- * going on in it, and a field to filter them. Picking one shows it and closes the drawer, as Escape does.
- */
-function RepoDrawer({ container, counts, onClose }: { container: HTMLElement; counts: Map<string | null, RepoCount>; onClose: () => void }) {
-  const t = useT()
-  const repos = useStore((s) => s.snapshot!.repos)
-  const current = useStore((s) => liveRepo(s.snapshot!, s.sidebarView.repo))
-  const [query, setQuery] = useState('')
-  // Escape closes the drawer wherever focus is: the always-open list would otherwise keep the key to close itself.
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      onClose()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onClose])
-  const line = (repoId: string | null, first: string) => {
-    const c = counts.get(repoId)
-    return [first, c?.attention ? t('home.banner.needYou', { count: c.attention }) : '', c?.working ? t('sidebar.runningCount', { count: c.working }) : ''].filter(Boolean).join(' · ')
-  }
-  const rows = [
-    { value: ALL_REPOS, label: t('home.board.allRepos'), description: line(null, t('sidebar.subtitle.repos', { count: repos.length })), leading: <span className="rail-text" aria-hidden>{t('sidebar.rail.all')}</span> },
-    ...repos.map((r) => ({ value: r.id, label: r.name, description: line(r.id, t('sidebar.subtitle.workspaces', { count: counts.get(r.id)?.total ?? 0, branch: r.defaultBranch })), leading: <span aria-hidden>{repoMark(r)}</span> }))
-  ]
-  const q = query.trim().toLowerCase()
-  const shown = q ? rows.filter((r) => r.label.toLowerCase().includes(q)) : rows
-  return (
-    <Sheet title={t('sidebar.rail.label')} closeLabel={t('common.close')} onClose={onClose} container={container} className="rail-drawer">
-      <Combobox
-        className="rail-drawer-combo"
-        label={t('sidebar.rail.filter')}
-        placeholder={current ? repos.find((r) => r.id === current)?.name : t('home.board.allRepos')}
-        autoFocus
-        inline
-        open
-        leading={<Search size={15} aria-hidden />}
-        query={query}
-        onQueryChange={setQuery}
-        empty={t('sidebar.rail.noMatch')}
-        value={current ?? ALL_REPOS}
-        options={shown}
-        onChange={(id) => {
-          onClose()
-          showRepoHome(id === ALL_REPOS ? null : id)
-        }}
-      />
-    </Sheet>
   )
 }
 
@@ -602,8 +573,6 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
     tally(null, t)
     tally(t.ws.repoId, t)
   }
-  // The workspace list, which the repositories drawer opens over.
-  const [panel, setPanel] = useState<HTMLDivElement | null>(null)
   const grouped = sidebarGroups(input, view)
   const { compares, hiddenFinished } = grouped
   // The tabs Settings → Appearance → Sidebar & Home turns on, and the one shown (a tab turned off falls back).
@@ -641,13 +610,13 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
         {views ? (
           <div className="rail-column">
             {views}
-            <RepoRail counts={counts} drawer={list ? panel : null} />
+            <RepoRail counts={counts} />
           </div>
         ) : (
-          <RepoRail counts={counts} drawer={list ? panel : null} />
+          <RepoRail counts={counts} />
         )}
         {list && (
-          <div className="sidebar-panel" ref={setPanel}>
+          <div className="sidebar-panel">
             <header className="sidebar-head">
               <div className="sidebar-head-text">
                 <div className="sidebar-title" role="heading" aria-level={2}>

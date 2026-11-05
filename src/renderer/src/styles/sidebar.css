@@ -13,11 +13,11 @@
   display: flex;
 }
 
-/* The rail: All, one tile per repository with its name under it, Add. (editorLayout.ts's RAIL_WIDTH is this plus the
-   sidebar's edge.) */
+/* The rail: All, one tile per repository, Add. (editorLayout.ts's RAIL_WIDTH and RAIL_NAMES_WIDTH are its two widths plus
+   the sidebar's edge.) */
 .repo-rail {
   flex: none;
-  width: 68px;
+  width: 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -40,43 +40,67 @@
 }
 /* A tile is a CardButton (ui/: the interactive Card outline, hover and selected); the second class makes these rules beat
    .ui-pressable's display and padding, which load later. The wrapper draws the ring for the repository Home is showing. */
-/* A tile and its caption: the repository's name, up to two lines. */
 .rail-item {
   flex: none;
   width: 100%;
   display: flex;
-  flex-direction: column;
+  justify-content: center;
   align-items: center;
-  gap: 4px;
-  padding: 0 4px;
+}
+
+/* With names: the same tiles, each with its repository's name and what is going on in it beside it. The column widens in
+   place (the list beside it keeps its width) and its tools line up in a row. */
+.repo-rail.names {
+  width: 212px;
+}
+.repo-rail.names .rail-item {
+  justify-content: flex-start;
+  gap: 10px;
+  /* The tile stays where it is in the narrow rail: centred in its first 52px. */
+  padding: 0 9px;
   box-sizing: border-box;
 }
-.rail-caption {
-  max-width: 100%;
-  font-size: var(--text-xs);
-  line-height: 1.2;
-  color: var(--text-muted);
-  text-align: center;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  /* Clicks go to the tile's button, which reaches down over the caption. */
+.rail-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* Clicks go to the tile's button, which reaches over the name. */
   pointer-events: none;
 }
-.rail-item.on .rail-caption {
+.rail-name-title,
+.rail-name-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-name-title {
+  font-size: var(--text-md);
+  color: var(--text-soft);
+}
+.rail-item.on .rail-name-title {
   color: var(--text);
   font-weight: 600;
 }
-/* The tile's button reaches over its caption (4px gap + two lines), so clicking the name picks the repository too. */
-.repo-rail .rail-item:has(.rail-caption) .rail-tile::after {
+.rail-name-line {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+/* The tile's button (and Add's) reaches over the name beside it, so clicking the name picks the repository too. */
+.repo-rail.names .rail-tile::after,
+.repo-rail.names .rail-add::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: -13px;
-  right: -13px;
-  bottom: -32px;
+  top: -5px;
+  bottom: -5px;
+  left: 0;
+  width: 194px;
+}
+.repo-rail.names .rail-tools {
+  flex-direction: row;
+  justify-content: space-between;
+  align-self: stretch;
+  padding: 6px 4px 0;
 }
 .rail-tile-wrap {
   flex: none;
@@ -102,6 +126,7 @@
 }
 /* Add: a dashed IconButton (ui/) of the same size. */
 .repo-rail .rail-add {
+  position: relative;
   width: 34px;
   height: 34px;
 }
@@ -113,38 +138,34 @@
 .rail-tile .repo-icon {
   color: inherit;
 }
-/* The repositories drawer: a Sheet (ui/) contained in the workspace list, so it covers the list and nothing else. */
-.rail-drawer .ui-dialog__body {
-  gap: 0;
-  padding: 10px 12px;
-}
-.rail-drawer-combo .ui-combobox__field {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
+/* What needs you, by shape and count: ▲ and the number. */
 .rail-badge {
   position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   top: -5px;
   right: -6px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border: 2px solid var(--bg-sidebar);
+  border: 1px solid var(--amber);
   border-radius: var(--radius-lg);
-  background: var(--amber);
-  color: var(--on-primary);
+  background: var(--bg);
+  color: var(--amber);
   font-size: var(--text-xs);
   font-weight: 600;
-  line-height: 12px;
+  line-height: 14px;
   font-variant-numeric: tabular-nums;
   box-sizing: border-box;
+}
+.rail-badge .ui-glyph {
+  width: 8px;
+  height: 8px;
 }
 
 /* The panel: header, new, search, summary, filters, groups. */
 .sidebar-panel {
-  /* The repositories drawer (a contained Sheet) fills this. */
-  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;

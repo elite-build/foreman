@@ -2167,6 +2167,7 @@ export const es: Catalogue = {
   'palette.viewArchived': 'Ver espacios de trabajo archivados',
   'palette.toggleTheme': 'Alternar tema claro / oscuro',
   'palette.toggleSidebar': 'Mostrar u ocultar la barra lateral',
+  'palette.toggleRepoNames': 'Mostrar u ocultar los nombres de los repositorios',
   'palette.toggleSidePanel': 'Mostrar u ocultar el panel lateral',
   'palette.zen': 'Modo zen',
   'palette.toggleTerminal': 'Mostrar u ocultar el panel de terminal',
@@ -2636,10 +2637,8 @@ export const es: Catalogue = {
   'sidebar.rail.needYou': { one: '{label} · {count} te necesita', other: '{label} · {count} te necesitan' },
   'sidebar.rail.all': 'Todos',
   'sidebar.rail.add': 'Añadir repositorio',
-  // Opens the drawer that lists every repository by name.
-  'sidebar.rail.expand': 'Mostrar repositorios',
-  'sidebar.rail.filter': 'Filtrar repositorios',
-  'sidebar.rail.noMatch': 'Ningún repositorio coincide.',
+  // Widens the rail to show each repository's name beside its tile (a toggle); {key} is a keyboard shortcut.
+  'sidebar.rail.names': 'Mostrar los nombres de los repositorios ({key})',
   'sidebar.rail.palette': 'Paleta de comandos ({key})',
   'sidebar.rail.shortcuts': 'Atajos de teclado ({key})',
 
