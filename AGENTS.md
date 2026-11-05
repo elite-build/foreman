@@ -9,7 +9,7 @@ This is the repository-wide guide for coding agents. `CLAUDE.md` delegates here.
 3. Search with `rg` for the closest existing implementation, its callers and tests. Reuse business logic, hooks, utilities, API clients and services rather than adding parallel implementations.
 4. For any UI task, follow the design-system workflow below **before writing JSX or CSS**.
 5. Make the smallest coherent change, run the applicable checks, and report what changed, what was verified and any remaining limitations. Do not introduce speculative abstractions, unrelated refactors or dependencies to solve a local problem.
-6. Before reversing an established choice, check [docs/decisions.md](docs/decisions.md) for why it was made. When the user asks for a pull request, follow [.claude/skills/create-pr/SKILL.md](.claude/skills/create-pr/SKILL.md), whichever agent you are.
+6. Before reversing an established choice, check [docs/decisions.md](docs/decisions.md) for why it was made. When the user asks for a pull request, follow [.claude/skills/create-pr/SKILL.md](.claude/skills/create-pr/SKILL.md); when they ask for a release, follow [.claude/skills/create-release/SKILL.md](.claude/skills/create-release/SKILL.md), whichever agent you are.
 
 ## UI: the design system comes first
 
@@ -133,7 +133,7 @@ There is no CI workflow and no Dependabot configuration; both were removed to st
 
 ### Documentation authority
 
-Keep this file as the agent entry point and `docs/design-system.md` as the single UI catalogue. `CLAUDE.md` should continue to delegate here. Repository skills live in `.claude/skills/` (currently `create-pr`); this file points to each, so agents other than Claude find them too. There are no nested agent instructions or Cursor rule files. [docs/decisions.md](docs/decisions.md) records direction choices that would otherwise be lost, with a deliberately high bar for adding one. Legacy class tables and design plans are historical context, not permission to bypass current UI rules. When source, docs and guards disagree, inspect the actual behaviour and report any unresolved conflict; do not invent commands or silently relax a requirement.
+Keep this file as the agent entry point and `docs/design-system.md` as the single UI catalogue. `CLAUDE.md` should continue to delegate here. Repository skills live in `.claude/skills/` (currently `create-pr` and `create-release`); this file points to each, so agents other than Claude find them too. There are no nested agent instructions or Cursor rule files. [docs/decisions.md](docs/decisions.md) records direction choices that would otherwise be lost, with a deliberately high bar for adding one. Legacy class tables and design plans are historical context, not permission to bypass current UI rules. When source, docs and guards disagree, inspect the actual behaviour and report any unresolved conflict; do not invent commands or silently relax a requirement.
 
 ## Checks
 
