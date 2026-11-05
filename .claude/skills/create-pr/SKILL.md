@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Use this skill when the user asks you to open, create or raise a pull request for the current branch of this repository. It covers the checks to run, a self-review of the diff, before-and-after screenshots for UI changes, the PR title and body, the release note the changelog is built from, and reading the PR back. Not for reviewing someone else's PR, replying to review comments, or cutting a release.
+description: Use this skill when the user asks you to open, create or raise a pull request for the current branch of this repository. It covers the checks to run, a self-review of the diff, before-and-after screenshots for UI changes, the PR title and body, the release note the changelog is built from, and reading the PR back. Not for reviewing someone else's PR, replying to review comments, or cutting a release (create-release does that).
 ---
 
 # Open a pull request
