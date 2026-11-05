@@ -3851,6 +3851,20 @@ export const en = {
   'toolRow.task.toolUses': { one: '{count} tool use', other: '{count} tool uses' },
   // What a running task is doing: {tool} is a tool's name.
   'toolRow.task.using': 'Using {tool}',
+  // A path in a tool call opens: the chip's tooltip and menu, by kind of file (shared/fileOpen.ts).
+  'toolRow.open.browser': 'Open in your browser',
+  'toolRow.open.image': 'Open in your image viewer',
+  'toolRow.open.pdf': 'Open in your PDF reader',
+  'toolRow.open.media': 'Open in your media player',
+  'toolRow.open.document': 'Open with your default app',
+  'toolRow.open.revealExplorer': 'Show in File Explorer',
+  'toolRow.open.revealFinder': 'Reveal in Finder',
+  'toolRow.open.revealFolder': 'Show in folder',
+  'toolRow.open.programNote': "Foreman doesn't run programs or open archives from the chat",
+  'toolRow.open.moreHint': 'Right-click for more',
+  'toolRow.open.menu': 'File actions',
+  'toolRow.open.preview': 'Preview in Foreman',
+  'openFile.missing': "{name} isn't there any more. It may have been moved or deleted.",
   // Short durations: "45s", "3m 12s", "1h 5m".
   'duration.seconds': '{s}s',
   'duration.minutes': '{m}m {s}s',

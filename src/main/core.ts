@@ -110,6 +110,7 @@ import { wsPath } from '../shared/workspacePath'
 import { localOnly, workspaceTarget } from './runtime'
 import { OpenInService } from './openIn'
 import { isOpenInChoice } from '../shared/openIn'
+import { fileOpenKind, opensInDefaultApp } from '../shared/fileOpen'
 import { defaultOnboarding, isOnboardingMilestone, migrateOnboarding, withMilestone, type OnboardingMilestone } from '../shared/onboarding'
 import { DiffSelectionService } from './diffSelections'
 import { LimitResumeService } from './limitResume'
@@ -2934,6 +2935,7 @@ export class Core {
       await (agent ? this.models.refresh(agent) : this.models.refreshAll())
     },
     openPath: (path) => this.host.openPath(path),
+    openFile: (target, how) => this.openFile(target, how === 'reveal' ? 'reveal' : 'open'),
     openInEditor: (path) => this.openInEditor(path),
     openInApps: (refresh) => this.openIn.apps(Boolean(refresh)),
     openInIcons: () => this.openIn.icons(),
@@ -3141,6 +3143,23 @@ export class Core {
   private requireMobile(): MobileService {
     if (!this.mobile) throw new Error('Mobile access is starting. Try again.')
     return this.mobile
+  }
+
+  /**
+   * A file named in the chat. Only the kinds in opensInDefaultApp reach the OS's own open, which would run a program or
+   * a script; text and code go to the editor, and programs, archives and folders are shown selected in their folder.
+   */
+  private async openFile(target: string, how: 'open' | 'reveal'): Promise<void> {
+    if (typeof target !== 'string' || !path.isAbsolute(target)) throw new Error('Open needs a full path')
+    const found = await stat(target).catch(() => null)
+    if (!found) throw new Error(mainT(this.store.state.settings)('openFile.missing', { name: path.basename(target) }))
+    const kind = fileOpenKind(target)
+    if (how === 'reveal' || kind === 'reveal' || found.isDirectory()) {
+      if (this.host.revealPath) return this.host.revealPath(target)
+      return this.host.openPath(path.dirname(target))
+    }
+    if (opensInDefaultApp(kind)) return this.host.openPath(target)
+    return this.openInEditor(target)
   }
 
   /** #14: the default app from Settings; a file opens in it (terminals get the file's folder). */

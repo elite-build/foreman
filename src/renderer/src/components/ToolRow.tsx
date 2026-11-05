@@ -23,6 +23,7 @@ import { t as storeT, useT } from '../i18n'
 import { useWindowVisible } from '../store'
 import { Pressable, Spinner } from '../ui'
 import { Markdown } from './Markdown'
+import { fullPath, OpenFileChip, type FileAccess } from './OpenFileChip'
 
 export type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 type Input = Record<string, unknown>
@@ -61,6 +62,8 @@ interface Described {
   icon: LucideIcon
   label: string
   file?: string
+  // The path as the tool was given it, for opening the file (OpenFileChip).
+  target?: unknown
   code?: string
   meta?: ReactNode
 }
@@ -71,7 +74,7 @@ export function describe(item: ToolItem, root: Root, t: TFunction = storeT): Des
   switch (item.name) {
     case 'Read': {
       const lines = done ? countLines(item.output) : 0
-      return { icon: FileText, label: lines ? t('toolRow.readLines', { count: lines }) : t('toolRow.read'), file: relative(i.file_path, root) }
+      return { icon: FileText, label: lines ? t('toolRow.readLines', { count: lines }) : t('toolRow.read'), file: relative(i.file_path, root), target: i.file_path }
     }
     case 'Edit':
     case 'MultiEdit': {
@@ -85,6 +88,7 @@ export function describe(item: ToolItem, root: Root, t: TFunction = storeT): Des
         icon: FilePen,
         label: t('toolRow.edit'),
         file: relative(i.file_path, root),
+        target: i.file_path,
         meta: known ? (
           <>
             <span className="add">+{added}</span> <span className="del">-{removed}</span>
@@ -93,7 +97,7 @@ export function describe(item: ToolItem, root: Root, t: TFunction = storeT): Des
       }
     }
     case 'Write':
-      return { icon: FilePlus, label: t('toolRow.write'), file: relative(i.file_path, root), meta: i.content !== undefined ? t('toolRow.lines', { count: countLines(i.content) }) : undefined }
+      return { icon: FilePlus, label: t('toolRow.write'), file: relative(i.file_path, root), target: i.file_path, meta: i.content !== undefined ? t('toolRow.lines', { count: countLines(i.content) }) : undefined }
     case 'Bash':
       return { icon: SquareTerminal, label: String(i.description ?? t('toolRow.runCommand')), code: String(i.command ?? '') }
     case 'Grep': {
@@ -223,8 +227,21 @@ export function taskActivity(task: TaskProgress, t: TFunction = storeT): string 
 /**
  * One tool call in the log. Memo'd, with what it shows worked out once per change to the call: a long chat has hundreds.
  * `expandByDefault` is the Expand tool calls setting (⌃O), read once by the chat rather than by every row.
+ * `files` lets a finished call's path open the file (OpenFileChip); without it (a cloud workspace) the path is text.
  */
-export const ToolRow = memo(function ToolRow({ item, workspacePath, forceOpen = false, expandByDefault }: { item: ToolItem; workspacePath: Root; forceOpen?: boolean; expandByDefault: boolean }) {
+export const ToolRow = memo(function ToolRow({
+  item,
+  workspacePath,
+  files,
+  forceOpen = false,
+  expandByDefault
+}: {
+  item: ToolItem
+  workspacePath: Root
+  files?: FileAccess | null
+  forceOpen?: boolean
+  expandByDefault: boolean
+}) {
   const t = useT()
   // null until the user opens or closes this row; until then it follows the setting (⌃O).
   const [toggled, setToggled] = useState<boolean | null>(null)
@@ -238,16 +255,35 @@ export const ToolRow = memo(function ToolRow({ item, workspacePath, forceOpen = 
   const Icon = d.icon
   const input = (item.input ?? {}) as Input
   const activity = task?.status === 'running' ? taskActivity(task, t) : ''
+  const toggle = () => setToggled(!open)
+  const icon = busy ? <span className="tool-icon"><Spinner size={14} /></span> : <Icon size={14} className="tool-icon" />
+  // A path opens once the call has finished (never a file still being written); a failed call's file may be there.
+  const path = d.file && files && !busy ? fullPath(d.target, files.root) : null
   return (
     <div className={`tool ${failed ? 'error' : item.status}`} data-tool={item.id}>
-      <Pressable className="tool-row" aria-expanded={open} onClick={() => setToggled(!open)}>
-        {busy ? <span className="tool-icon"><Spinner size={14} /></span> : <Icon size={14} className="tool-icon" />}
-        <span className="tool-label">{d.label}</span>
-        {d.file && <span className="file-chip mono">{d.file}</span>}
-        {d.code && <code className="tool-code">{d.code}</code>}
-        {d.meta && <span className="tool-meta">{d.meta}</span>}
-        {task && <TaskMeta task={task} />}
-      </Pressable>
+      {path && files ? (
+        // The path is a button of its own between the row's two halves, which both expand it: a button can't hold one.
+        <div className="tool-line">
+          <Pressable className="tool-row" aria-expanded={open} onClick={toggle}>
+            {icon}
+            <span className="tool-label">{d.label}</span>
+            {d.meta && <span className="sr-only">{d.meta}</span>}
+          </Pressable>
+          <OpenFileChip path={path} label={d.file!} access={files} />
+          <Pressable className="tool-row tool-row-rest" aria-hidden="true" tabIndex={-1} onClick={toggle}>
+            {d.meta && <span className="tool-meta">{d.meta}</span>}
+          </Pressable>
+        </div>
+      ) : (
+        <Pressable className="tool-row" aria-expanded={open} onClick={toggle}>
+          {icon}
+          <span className="tool-label">{d.label}</span>
+          {d.file && <span className="file-chip mono">{d.file}</span>}
+          {d.code && <code className="tool-code">{d.code}</code>}
+          {d.meta && <span className="tool-meta">{d.meta}</span>}
+          {task && <TaskMeta task={task} />}
+        </Pressable>
+      )}
       {activity && <div className="task-activity">{activity}</div>}
       {open && (
         <div className="tool-body">

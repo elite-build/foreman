@@ -14,11 +14,14 @@ export type ChipButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'typ
   expanded?: boolean
   // Fully rounded, for status pills in headers (the phone and cloud pills). Any tone can be a pill.
   pill?: boolean
+  // A file path that acts (opens the file): the inline-code look a path has everywhere (raised fill, small radius,
+  // monospace, the text colour), so it reads as a path, not a link; the control edge and hover fill show on hover.
+  path?: boolean
   ref?: Ref<HTMLButtonElement>
 }
 
-export function ChipButton({ tone = 'neutral', pressed, haspopup, expanded, pill, className, ref, 'aria-haspopup': ariaHaspopup, 'aria-expanded': ariaExpanded, ...rest }: ChipButtonProps) {
-  const cls = ['ui-chip-btn', tone !== 'neutral' && `ui-chip-btn--${tone}`, pill && 'ui-chip-btn--pill', className].filter(Boolean).join(' ')
+export function ChipButton({ tone = 'neutral', pressed, haspopup, expanded, pill, path, className, ref, 'aria-haspopup': ariaHaspopup, 'aria-expanded': ariaExpanded, ...rest }: ChipButtonProps) {
+  const cls = ['ui-chip-btn', tone !== 'neutral' && `ui-chip-btn--${tone}`, pill && 'ui-chip-btn--pill', path && 'ui-chip-btn--path', className].filter(Boolean).join(' ')
   return (
     <button
       {...rest}
