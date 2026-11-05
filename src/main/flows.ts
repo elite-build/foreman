@@ -42,7 +42,7 @@ import { fillTemplate, templatePlaceholders } from '../shared/promptTemplates'
 import { isMemoryPath } from '../shared/memoryPaths'
 import { GLOBAL_ACTIVE_CAP } from '../shared/schedule'
 import type { PrFacts } from '../shared/board'
-import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, ContextUsage, TurnOutcome } from '../shared/types'
+import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, ContextUsage, MessageOrigin, TurnOutcome } from '../shared/types'
 import { fingerprintOf, SHOWN_CHANGED } from './schedules'
 
 const sha = (data: unknown) => createHash('sha256').update(JSON.stringify(data)).digest('hex')
@@ -242,10 +242,12 @@ export interface FlowServiceDeps {
   /** A new tab in the workspace, on this loadout. Returns its id. */
   createSession(workspaceId: string, loadout: Loadout, options?: { title?: string }): string
   /** Send a message as the turn with this id, unattended for that turn (narrowed by its persona; a decide step's options offer the decide tool). Queued behind a running turn. */
-  deliver(sessionId: string, text: string, options: { turnId: string; unattended: { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[] } }): Promise<void>
+  // `origin`: the message says which run, step and iteration sent it (MessageOrigin), for its receipt and the Lineage tab.
+  deliver(sessionId: string, text: string, options: { turnId: string; unattended: { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[] }; origin?: MessageOrigin }): Promise<void>
   cancel(sessionId: string): Promise<void>
   /** The repository's checks in the workspace, never approving a command (one needing consent comes back as such). */
-  startChecks(workspaceId: string): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }>
+  // `by`: the run and step that started them, kept on the check run (WorkspaceChecks.startedBy).
+  startChecks(workspaceId: string, by?: { flowRun: string; step: string }): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }>
   cancelChecks(workspaceId: string): Promise<void>
   /** The failing checks' output, as a fix message carries it. */
   checksResults(workspaceId: string): Promise<string>
@@ -749,7 +751,7 @@ export class FlowService {
     // Who reviewed which tree, for the findings' words; and whether its persona expects findings or `done`.
     if (step.kind === 'review') this.reviews.set(record.turnId, { reviewer: 'error' in loadout ? { agent: 'claude', model: defaultModel('claude'), fast: false } : loadout, tree: reviewTree ?? '', expects: applied.endsWith.length > 0 })
     this.persist()
-    await this.deps.deliver(sessionId, text, { turnId: record.turnId, unattended: mark })
+    await this.deps.deliver(sessionId, text, { turnId: record.turnId, unattended: mark, origin: { kind: 'flow', runId: run.id, step: step.name, iteration: record.iteration } })
   }
 
   /** Send the tab's compact command and wait for that turn to end. False when the run moved on meanwhile. */
@@ -771,7 +773,7 @@ export class FlowService {
     // The tree the checks read.
     this.startTree(run, record, await this.treeNow(ws))
     if (!this.current(run, record)) return
-    const started = await this.deps.startChecks(ws)
+    const started = await this.deps.startChecks(ws, { flowRun: run.id, step: record.name })
     if (!isActiveRun(run)) return
     if (started.kind === 'not-configured') return this.finish(run, 'failed', 'No checks are configured for this repository.')
     if (started.kind === 'consent') {

@@ -51,7 +51,8 @@ import { catalogAgent } from '../shared/agentCatalog'
 import type { AgentKind } from '../shared/agents'
 import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint } from './checkpoints'
 import { alertsAfterRewind } from '../shared/sensitive'
-import { endCheckpointId, sensitiveAlert, startCheckpointId, turnDelta } from './turnDelta'
+import { checkpointTrees, endCheckpointId, sensitiveAlert, startCheckpointId, turnDelta } from './turnDelta'
+import { isMemoryPath } from '../shared/memoryPaths'
 import { attachFromData, attachmentNote } from './files'
 import type { Environment } from './environment'
 import { IntegrationBridge } from './integrationBridge'
@@ -67,6 +68,9 @@ import { pendingKey, type ClaudeMirror } from './claudeMirror'
 import { HISTORY_ONLY_REASON, wsPath } from '../shared/workspacePath'
 import type { TurnReports } from './agentReports'
 import { hasReportTools } from '../shared/agentReports'
+
+// At most this many memory paths on one turn's end item.
+const MAX_TURN_MEMORY_WRITES = 20
 
 /** Per-message choices carried from send to the turn that carries it. */
 interface TurnExtras {
@@ -1445,6 +1449,12 @@ export class SessionService {
     // checkpoint, and that isn't worth a sensitive-path alert.
     const delta: TurnDelta | 'unavailable' = await turnDelta(this.checkpointTarget(ws), sessionId, turnId)
     if (!ws.cloud || delta !== 'unavailable') await this.raiseSensitiveAlert(ws, sessionId, turnId, delta)
+    // What the lenses read per turn (docs/loops-and-graphs.md): the window as the turn ended, the memory files its
+    // changes wrote, and the trees of its checkpoints. Best-effort: a cloud turn with no checkpoints keeps no trees.
+    const usage = session.contextUsage
+    const memoryFiles = (usage?.breakdown?.memoryFiles ?? []).map((f) => f.path)
+    const memoryWrites = delta === 'unavailable' ? [] : delta.files.map((f) => f.path).filter((p) => isMemoryPath(p, memoryFiles)).slice(0, MAX_TURN_MEMORY_WRITES)
+    const tree = ws.cloud && delta === 'unavailable' ? {} : await checkpointTrees(this.checkpointTarget(ws), sessionId, turnId)
     this.emit(sessionId, {
       kind: 'turn-end',
       id: `turn-end:${turnId}`,
@@ -1455,7 +1465,10 @@ export class SessionService {
       delta: delta === 'unavailable' ? undefined : delta,
       suggestions: outcome === 'completed' && suggestions?.length ? suggestions : undefined,
       ...(limit ? { limit } : {}),
-      ...(interrupted ? { interrupted } : {})
+      ...(interrupted ? { interrupted } : {}),
+      ...(usage && usage.limit > 0 ? { usage } : {}),
+      ...(memoryWrites.length ? { memoryWrites } : {}),
+      ...(tree.start || tree.end ? { tree } : {})
     })
     // A scheduled run is unattended for its one turn only; after that the chat is an ordinary one.
     session.unattended = undefined

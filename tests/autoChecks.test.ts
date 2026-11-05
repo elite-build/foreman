@@ -77,6 +77,8 @@ describe('checks after a completed turn', () => {
     await waitFor(() => expect(t.runs()).toBe(before + 1))
     await waitFor(() => expect(t.ws.checks).toMatchObject({ running: false, results: [{ name: 'test', status: 'passed' }] }))
     expect(t.ws.autoChecks).toBeUndefined()
+    // The run says checks after a turn started it (WorkspaceChecks.startedBy).
+    expect(t.ws.checks?.startedBy).toBe('auto')
   })
 
   it('does nothing when the setting is off, or the turn did not complete', async () => {

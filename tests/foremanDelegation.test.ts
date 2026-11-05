@@ -10,7 +10,8 @@ describe('CLI-backed Foreman delegation', () => {
       { slot: 3, agent: 'opencode' }, { slot: 4, agent: 'cursor' }
     ], repositories: [{ id: 'r' }] })
     await r.service.call('start_task', { prompt: 'Research the problem', loadout: 1 }, r.scope)
-    expect(r.createWorkspace).toHaveBeenLastCalledWith('r', expect.objectContaining({ prompt: 'Research the problem', loadout: r.state.settings.loadouts[0], branch: { kind: 'new', name: undefined } }))
+    // The new workspace records the coordinating chat and its running turn (Workspace.startedBy).
+    expect(r.createWorkspace).toHaveBeenLastCalledWith('r', expect.objectContaining({ prompt: 'Research the problem', loadout: r.state.settings.loadouts[0], branch: { kind: 'new', name: undefined } }), { startedBy: { sessionId: 's', turnId: 'own', via: 'delegation' } })
     expect(r.setupOutcome).not.toHaveBeenCalled()
     const research = r.state.workspaces[1]
     expect(await r.service.call('get_task_status', { workspaceId: research.id }, r.scope)).toMatchObject({ state: 'setting-up', setupHeld: false })
@@ -29,8 +30,15 @@ describe('CLI-backed Foreman delegation', () => {
     const child = r.state.workspaces[2]
     child.state = 'ready'
     const handoff = await r.service.call('send_task', { workspaceId: child.id, sessionId: r.state.sessions[2].id, prompt: 'Revise the plan with this finding.' }, r.scope) as { turn: string }
-    expect(r.deliver).toHaveBeenCalledWith(r.state.sessions[2].id, 'Revise the plan with this finding.', expect.objectContaining({ mode: 'queue', via: 'cli' }))
+    // The queued message says which chat sent it (MessageOrigin delegation).
+    expect(r.deliver).toHaveBeenCalledWith(r.state.sessions[2].id, 'Revise the plan with this finding.', expect.objectContaining({ mode: 'queue', via: 'cli', origin: { kind: 'delegation', sessionId: 's', turnId: 'own' } }))
     expect(await r.service.call('cancel_turn', { turnId: handoff.turn }, r.scope)).toMatchObject({ outcome: 'cancelled', was: 'queued' })
+  })
+
+  it('a workspace the assistant starts records its thread', async () => {
+    const r = delegationRig()
+    await r.service.call('start_task', { prompt: 'Research', loadout: 1, repoId: 'r' }, { readOnly: false, assistantThread: 'thread-1' })
+    expect(r.createWorkspace).toHaveBeenLastCalledWith('r', expect.objectContaining({ prompt: 'Research' }), { startedBy: { sessionId: 'thread-1', via: 'assistant' } })
   })
 
   it('requires the repo opt-in, refuses cross-repo targets, and never accepts bypass flags', async () => {

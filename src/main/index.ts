@@ -711,7 +711,7 @@ async function main(): Promise<void> {
     armLimitResume: (sessionId, turnId) => started.limitResume.arm(sessionId, turnId),
     cancelLimitResume: (sessionId) => started.limitResume.cancel(sessionId),
     firstTurn: (workspaceId) => started.firstTurn(workspaceId),
-    createWorkspace: (repoId, options) => started.api.createWorkspace(repoId, options),
+    createWorkspace: (repoId, options, extra) => started.createWorkspaceFor(repoId, options, extra),
     setupOutcome: (workspaceId) => started.setupOutcome(workspaceId),
     startHeldMessage: (workspaceId) => started.startHeldMessage(workspaceId),
     runChecks: (workspaceId) => started.checks.runForCli(workspaceId),

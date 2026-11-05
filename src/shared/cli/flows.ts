@@ -287,3 +287,14 @@ export const flowRunGoing = (state: FlowRunState): boolean => state === 'startin
 
 /** `foreman flow run --wait` exit codes: 0 completed, 1 anything else it ended as. */
 export const flowRunExit = (state: FlowRunState): number => (state === 'completed' ? 0 : 1)
+
+/** `foreman flow draft <workspace>`: a flow drafted from the workspace's lineage, and whether `--save` kept it. */
+export interface FlowDraftResult {
+  workspace: { id: string; name: string }
+  toml: string
+  leftOut: import('../lineage').LineageLeftOut[]
+  saved?: boolean
+  flow?: { id: string; name: string }
+  problems?: string[]
+  text: string
+}

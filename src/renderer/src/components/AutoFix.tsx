@@ -217,7 +217,7 @@ export function AutoFixDialog({ workspaceId, onClose }: { workspaceId: string; o
 }
 
 /** Under a message Foreman sent itself: who sent it and why. */
-export function AutoFixReceipt({ origin }: { origin: MessageOrigin }) {
+export function AutoFixReceipt({ origin }: { origin: Extract<MessageOrigin, { kind: 'auto-fix' }> }) {
   const t = useT()
   const checks = origin.checks.length > 2 ? `${origin.checks.slice(0, 2).join(', ')} +${origin.checks.length - 2}` : origin.checks.join(', ')
   return (

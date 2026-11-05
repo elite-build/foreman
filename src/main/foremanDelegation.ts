@@ -1,6 +1,6 @@
 import { DELEGATION_TOOLS, delegationTool, type DelegationToolName } from '../shared/foremanDelegation'
 import { frozenReason } from '../shared/transfer'
-import type { Workspace } from '../shared/types'
+import type { Workspace, WorkspaceStartedBy } from '../shared/types'
 import type { NewResult } from '../shared/cli/workspaces'
 import type { CliHost } from './cli/host'
 import type { CliContext } from './cli/methods'
@@ -11,6 +11,8 @@ export interface DelegationScope {
   workspaceId?: string
   sessionId?: string
   readOnly: boolean
+  // The assistant's thread, when the assistant runs the tool (its Run card): a workspace it starts records it.
+  assistantThread?: string
   // MCP refreshes the grant and live read-only state at each async boundary/poll.
   refresh?(): DelegationScope
   signal?: AbortSignal
@@ -89,6 +91,13 @@ export class ForemanDelegation {
     return parsed
   }
 
+  /** The coordinating chat and its running turn, when a workspace agent calls (Workspace.startedBy, a message's origin). */
+  private coordinator(scope: DelegationScope): { sessionId: string; turnId?: string } | undefined {
+    if (!scope.sessionId) return undefined
+    const turnId = this.host.state().sessions.find((s) => s.id === scope.sessionId)?.turnId
+    return { sessionId: scope.sessionId, ...(turnId ? { turnId } : {}) }
+  }
+
   private task(workspaceId: string, scope: DelegationScope) {
     const ws = this.target(workspaceId, scope)
     return {
@@ -123,10 +132,13 @@ export class ForemanDelegation {
         const repo = this.host.state().repos.find((r) => r.id === repoId)!
         // Do not expose arbitrary flags, paths, attachments, consent, or --start-anyway.
         const params = { prompt: p.prompt, loadout: p.loadout, repo: repo.id, cwd: repo.rootPath, branch: p.branch, base: p.baseBranch, noWait: true }
+        // Who started it: the coordinating chat and its turn, or the assistant's thread.
+        const from = this.coordinator(current)
+        const startedBy: WorkspaceStartedBy | undefined = from ? { ...from, via: 'delegation' } : current.assistantThread ? { sessionId: current.assistantThread, via: 'assistant' } : undefined
         const guardedHost: CliHost = { ...this.host, createWorkspace: (id, options) => {
           this.current(scope, true)
           if (id !== repo.id) throw new Error('Repository changed during delegation.')
-          return this.host.createWorkspace(id, options)
+          return this.host.createWorkspace(id, options, startedBy ? { startedBy } : undefined)
         } }
         const context: CliContext = { request: { method: 'new', params } as CliContext['request'], caller: undefined, signal: scope.signal, progress: () => {} }
         const result = await WORKSPACE_METHODS.new.handle(guardedHost, params, context) as NewResult
@@ -139,7 +151,9 @@ export class ForemanDelegation {
         const tabs = this.host.state().sessions.filter((s) => s.workspaceId === ws.id && !s.closedAt)
         const tab = tabs.findIndex((s) => s.id === p.sessionId) + 1
         if (!tab) throw new Error('The target chat is no longer open.')
-        return send(this.host, { workspace: ws.id, tab, args: [p.prompt], cwd: ws.path ?? '' }, { literal: true })
+        // The queued message says which chat sent it (its receipt, and the Lineage tab's "delegated by").
+        const from = this.coordinator(current)
+        return send(this.host, { workspace: ws.id, tab, args: [p.prompt], cwd: ws.path ?? '' }, { literal: true, ...(from ? { origin: { kind: 'delegation' as const, ...from } } : {}) })
       }
       case 'get_turn_result': {
         const p = DELEGATION_TOOLS.get_turn_result.schema.parse(args)

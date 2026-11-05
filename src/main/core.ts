@@ -84,7 +84,11 @@ import { listWorkspaceDir, readImageAtCommit, readWorkspaceImage } from './fileB
 import { agentBaseEnv, bundledClaudeExecutable, findOnPath, interactiveShell, isWindows, setScriptShell, shellQuote } from './platform'
 import { detectShells, listWslDistros, realProbe } from './shells'
 import { isScriptShellChoice, isShellChoice, resolveShell, type ShellLaunch } from '../shared/shells'
-import { mainT } from './i18n'
+import { mainLocale, mainT } from './i18n'
+import { lineageInput, type LineageSources } from './lineage'
+import { draftFlowFromLineage, lineageGraph, lineageOutline, LINEAGE_LENSES } from '../shared/lineage'
+import { flowMermaid } from '../shared/flowGraph'
+import { createT } from '../shared/i18n'
 import { PtyManager, typeWhenQuiet } from './pty'
 import { existingFolder, TerminalRestore } from './terminalRestore'
 import { collectDiagnostics } from './reportProblem'
@@ -135,7 +139,7 @@ import type { HelperLaunch } from './speech/local'
 import { linearIssue, linearMyIssues } from './linear'
 import { slackChannels, slackManifest, slackManifestUrl, slackPeople, slackUserByEmail, type SlackPerson } from './slack'
 import { findLinearLink, linearBranch, linearIntakeFile, type LinearIssue } from '../shared/linearLink'
-import type { LinearLinkInfo } from '../shared/types'
+import type { LinearLinkInfo, MessageOrigin, WorkspaceStartedBy } from '../shared/types'
 import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
@@ -258,6 +262,8 @@ interface InternalStart {
   flowRun?: { runId: string; step: string; persona?: TurnPersona }
   // A flow run's workspace step: the workspace is the run's, and its first chat waits for the steps after it.
   flowWorkspace?: { runId: string }
+  // The chat (or assistant thread) that started it: delegation, or `foreman new`/`run` from inside a turn.
+  startedBy?: WorkspaceStartedBy
   onChat?: (workspaceId: string, sessionId: string) => void
 }
 
@@ -645,7 +651,7 @@ export class Core {
     this.limitResume = new LimitResumeService({
       sessions: () => this.store.state.sessions,
       readChat: (sessionId) => this.store.readChat(sessionId),
-      send: (sessionId, text) => this.sessions.deliver(sessionId, text, { mode: 'queue' }),
+      send: (sessionId, text, origin) => this.sessions.deliver(sessionId, text, { mode: 'queue', origin }),
       flush: () => store.flush(),
       changed,
       now: () => Date.now(),
@@ -694,10 +700,10 @@ export class Core {
         this.sessions.createSession(workspaceId, { agent: loadout.agent, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false, ...(options?.title ? { title: options.title } : {}) }).id,
       deliver: async (sessionId, text, options) => {
         this.sessions.markUnattended(options.turnId, options.unattended)
-        await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId })
+        await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId, ...(options.origin ? { origin: options.origin } : {}) })
       },
       cancel: (sessionId) => this.sessions.cancel(sessionId),
-      startChecks: (workspaceId) => this.startFlowChecks(workspaceId),
+      startChecks: (workspaceId, by) => this.startFlowChecks(workspaceId, by),
       cancelChecks: (workspaceId) => this.checks.cancel(workspaceId),
       checksResults: (workspaceId) => this.failingChecksText(workspaceId),
       readChat: (sessionId) => this.store.readChat(sessionId),
@@ -1326,10 +1332,11 @@ export class Core {
    * Imported issue/PR text goes as a file next to the message, never into its instructions.
    */
   private sendTemplated(message: FirstMessage) {
-    const { sessionId, text, templateId, intake, files } = message
-    if (!intake && !files?.length) return templateId ? this.sessions.send(sessionId, text, { templateId }) : this.sessions.send(sessionId, text)
+    const { sessionId, text, templateId, intake, files, origin } = message
+    const options = { ...(templateId ? { templateId } : {}), ...(origin ? { origin } : {}) }
+    if (!intake && !files?.length) return Object.keys(options).length ? this.sessions.send(sessionId, text, options) : this.sessions.send(sessionId, text)
     return this.attachFirst(sessionId, intake, files).then(async (attachments) => {
-      const sent = await this.sessions.send(sessionId, text, { ...(templateId ? { templateId } : {}), attachments })
+      const sent = await this.sessions.send(sessionId, text, { ...options, attachments })
       this.dropStaged(files)
       return sent
     })
@@ -1565,6 +1572,18 @@ export class Core {
   /** What agents in a repository get from Integrations, for schedule fingerprints ([] when nothing, so older schedules stay approved). */
   private integrationFingerprint(repoId: string): string[] {
     return this.integrations.fingerprints(repoId)
+  }
+
+  /** What a workspace's lineage is read from: the store's records, its flow runs and the templates' names. */
+  private lineageSources(): LineageSources {
+    const state = this.store.state
+    return {
+      workspaces: state.workspaces,
+      sessions: state.sessions,
+      readChat: (id) => this.store.readChat(id),
+      flowRuns: state.flowRuns ?? [],
+      templateNames: Object.fromEntries(state.settings.promptTemplates.map((t) => [t.id, t.name]))
+    }
   }
 
   /** Flows are an experiment (Settings → Experimental → Flows): while it is off, every flow method refuses. */
@@ -1808,10 +1827,10 @@ export class Core {
   }
 
   /** A checks step: after any check run already going here, the repository's checks, never approving a command. */
-  private async startFlowChecks(workspaceId: string): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }> {
+  private async startFlowChecks(workspaceId: string, by?: { flowRun: string; step: string }): Promise<{ kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'started'; done: Promise<CheckResult[]> }> {
     while (this.checks.isRunning(workspaceId)) await new Promise((r) => setTimeout(r, 500))
     try {
-      const started = await this.checks.start(workspaceId, { approve: false })
+      const started = await this.checks.start(workspaceId, { approve: false, ...(by ? { startedBy: by } : {}) })
       return started.kind === 'consent' ? { kind: 'consent', names: started.items.map((i) => i.name) } : started
     } catch (err) {
       if (err instanceof ChecksError && err.code === 'not-configured') return { kind: 'not-configured' }
@@ -1981,6 +2000,11 @@ export class Core {
   }
 
   /** The chat and turn that a new workspace's first message started, once it has (give up after `timeoutMs`). */
+  /** A new workspace from the command line or delegation: as the window makes one, recording who started it when known. */
+  createWorkspaceFor(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy }): Promise<Workspace> {
+    return this.createFromOptions(repoId, options, extra?.startedBy ? { startedBy: extra.startedBy } : undefined)
+  }
+
   async firstTurn(workspaceId: string, timeoutMs = 15_000): Promise<{ session: string; turn: string } | undefined> {
     const deadline = Date.now() + timeoutMs
     for (;;) {
@@ -2055,7 +2079,13 @@ export class Core {
     if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step, ...(internal.flowRun.persona ? { persona: internal.flowRun.persona } : {}) }
     internal?.onChat?.(workspaceId, session.id)
     if (prompt?.trim() || files?.length) {
-      this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}) })
+      // A schedule's run and a flow run's first step say so on the message (MessageOrigin).
+      const origin: MessageOrigin | undefined = internal?.scheduled
+        ? { kind: 'schedule', scheduleId: internal.scheduled.scheduleId, occurrenceId: internal.scheduled.occurrenceId }
+        : internal?.flowRun
+          ? { kind: 'flow', runId: internal.flowRun.runId, step: internal.flowRun.step, iteration: 1 }
+          : undefined
+      this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}), ...(origin ? { origin } : {}) })
       this.sendFirstMessages()
     }
     return session.id
@@ -2096,9 +2126,10 @@ export class Core {
     if (internal?.scheduled) ws.scheduled = internal.scheduled
     if (internal?.flowRun) ws.flowRun = { runId: internal.flowRun.runId }
     if (internal?.flowWorkspace) ws.flowRun = { runId: internal.flowWorkspace.runId }
+    if (internal?.startedBy) ws.startedBy = internal.startedBy
     const integrations = this.startingIntegrations(repoId, options?.integrations)
     if (integrations) ws.integrations = integrations
-    if (internal?.scheduled || internal?.flowRun || internal?.flowWorkspace || integrations) this.store.save()
+    if (internal?.scheduled || internal?.flowRun || internal?.flowWorkspace || internal?.startedBy || integrations) this.store.save()
     this.startChat(ws.id, options?.prompt, options?.loadout, options?.templateId, intake, internal, options?.attachments)
     return ws
   }
@@ -2878,6 +2909,17 @@ export class Core {
       this.flowsOn()
       return this.flows.list(repoId)
     },
+    workspaceLineage: async (workspaceId, lens) => {
+      this.flowsOn()
+      if (!LINEAGE_LENSES.includes(lens)) throw new Error('A lens is run, context, memory or data.')
+      const locale = mainLocale(this.store.state.settings)
+      const graph = lineageGraph(await lineageInput(this.lineageSources(), workspaceId), lens, { t: createT(locale), locale })
+      return { graph, outline: lineageOutline(graph), mermaid: flowMermaid(graph), gaps: graph.gaps }
+    },
+    lineageFlowDraft: async (workspaceId) => {
+      this.flowsOn()
+      return draftFlowFromLineage(lineageGraph(await lineageInput(this.lineageSources(), workspaceId), 'run'))
+    },
     armLimitResume: async (sessionId, turnId) => {
       await this.limitResume.arm(sessionId, turnId)
     },
@@ -3150,7 +3192,8 @@ export class Core {
     // The Git panel asks right after the diff it shows changed the totals: that diff's snapshot serves.
     checksStatus: (workspaceId) => this.checks.status(workspaceId, { since: Date.now() - VIEW_REUSE_MS }),
     runChecks: async (workspaceId, approve) => {
-      const start = await this.checks.start(workspaceId, { approve })
+      // The Git panel, the phone, `foreman checks approve` and an agent's run_checks tool all come here.
+      const start = await this.checks.start(workspaceId, { approve, startedBy: 'user' })
       if (start.kind === 'consent') return { started: false, consent: start.items }
       // Progress and the result arrive through state events.
       void start.done.catch(() => undefined)

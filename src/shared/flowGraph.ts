@@ -46,6 +46,8 @@ export interface FlowGraphEdge {
   taken?: boolean
   // A data edge into a step whose tree moved.
   moved?: boolean
+  // Lineage (shared/lineage.ts): inferred from message text or timing rather than read from a record; drawn dashed.
+  reconstructed?: boolean
 }
 
 export interface FlowGraphLoop {
@@ -498,7 +500,7 @@ function mermaidOf(graph: FlowGraph, compact: boolean): string {
     const from = ids.get(e.from)
     const to = ids.get(e.to)
     if (!from || !to) continue
-    const arrow = e.taken === false ? '-.->' : '-->'
+    const arrow = e.taken === false || e.reconstructed ? '-.->' : '-->'
     lines.push(`  ${from} ${arrow}${!compact && e.label ? `|${edgeLabel(e.label)}|` : ''} ${to}`)
   }
   return lines.join('\n')

@@ -1,7 +1,7 @@
 // `foreman flow …`: flows (docs/loops-and-graphs.md). Starting a run approves what it will do, so `flow run` asks the
 // app for the approval summary first, prints it, asks, and sends the fingerprint back as `shown`: the app refuses when it
 // no longer matches, as the Run dialog does. `--wait` then follows the run step by step until it ends.
-import { flowEndText, flowRunExit, flowRunGoing, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowRunResult, type FlowRunRow, type FlowRunStartedResult, type FlowWaitResult } from '../../shared/cli/flows'
+import { flowEndText, flowRunExit, flowRunGoing, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowDraftResult, type FlowRunResult, type FlowRunRow, type FlowRunStartedResult, type FlowWaitResult } from '../../shared/cli/flows'
 import { CliError, usageError } from '../client'
 import type { Context, Run } from '../command'
 import { EXIT_DISCONNECTED } from '../protocol'
@@ -149,6 +149,15 @@ function byRun(method: 'flow-status' | 'flow-stop', usage: string): Run {
   }
 }
 
+/** `foreman flow draft <workspace> [--save [--name <name>]]`: a flow drafted from a workspace's lineage. */
+const draft: Run = async (ctx) => {
+  noMoreWords(ctx, 1, 'foreman flow draft <workspace> [--save] [--name <name>]')
+  if (!ctx.args[0]) throw usageError('Name a workspace. `foreman status` lists them.')
+  const result = await ctx.send<FlowDraftResult>('flow-draft', { workspace: ctx.args[0], cwd: ctx.cwd, ...(ctx.opts.save ? { save: true } : {}), ...(str(ctx.opts.name) ? { name: str(ctx.opts.name) } : {}) })
+  printText(ctx, result)
+  if (result.saved === false) process.exitCode = 1
+}
+
 export const flowRunners: Record<string, Run> = {
   'flow list': list,
   'flow show': show,
@@ -157,5 +166,6 @@ export const flowRunners: Record<string, Run> = {
   'flow run': run,
   'flow runs': runs,
   'flow status': byRun('flow-status', 'foreman flow status <run> [--lens context|memory|data]'),
-  'flow stop': byRun('flow-stop', 'foreman flow stop <run>')
+  'flow stop': byRun('flow-stop', 'foreman flow stop <run>'),
+  'flow draft': draft
 }

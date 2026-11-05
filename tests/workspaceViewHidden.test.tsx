@@ -183,3 +183,18 @@ describe('the terminal panel', () => {
     expect(document.querySelectorAll('.terminal-stand-in')).toHaveLength(1)
   })
 })
+
+describe('the Lineage tab', () => {
+  it('is offered beside Changes, Commits, Files and Checks only while Flows are on', async () => {
+    render(<Host hidden={false} />)
+    expect(document.querySelector('[role="tab"]')).not.toBeNull()
+    const tabs = () => [...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent?.trim())
+    expect(tabs()).not.toContain('Lineage')
+    fakeState.snapshot = { ...fakeState.snapshot, settings: { ...fakeState.snapshot.settings, flows: true } }
+    act(() => seen.listeners.forEach((l) => l()))
+    expect(tabs()).toContain('Lineage')
+    fakeState.snapshot = { ...fakeState.snapshot, settings: { ...fakeState.snapshot.settings, flows: false } }
+    act(() => seen.listeners.forEach((l) => l()))
+    expect(tabs()).not.toContain('Lineage')
+  })
+})

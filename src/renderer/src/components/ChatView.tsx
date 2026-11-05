@@ -741,7 +741,7 @@ const ChatRow = memo(function ChatRow({
               </div>
             )}
           </article>
-          {item.origin && <AutoFixReceipt origin={item.origin} />}
+          {item.origin?.kind === 'auto-fix' && <AutoFixReceipt origin={item.origin} />}
           {item.added && item.added.length > 0 && <ContextReceipt parts={item.added} />}
         </div>
       )

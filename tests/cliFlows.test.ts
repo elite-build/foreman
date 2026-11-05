@@ -176,8 +176,8 @@ async function failure(promise: Promise<unknown>): Promise<CliCodedError> {
 // ---- the command table ----
 
 describe('the flow command table', () => {
-  it('declares list, show, add, remove, run, runs, status and stop beside the schedules, each with help and an example', () => {
-    expect(FLOW_COMMANDS.map(commandName)).toEqual(['flow list', 'flow show', 'flow add', 'flow remove', 'flow run', 'flow runs', 'flow status', 'flow stop'])
+  it('declares list, show, add, remove, run, runs, status, stop and draft beside the schedules, each with help and an example', () => {
+    expect(FLOW_COMMANDS.map(commandName)).toEqual(['flow list', 'flow show', 'flow add', 'flow remove', 'flow run', 'flow runs', 'flow status', 'flow stop', 'flow draft'])
     for (const spec of FLOW_COMMANDS) {
       const name = commandName(spec)
       expect(COMMANDS, name).toContain(spec)
@@ -192,7 +192,8 @@ describe('the flow command table', () => {
   })
 
   it('puts the reads in the read tier and run, stop, add and remove in act, like run and send', () => {
-    expect(Object.fromEntries(FLOW_COMMANDS.map((c) => [commandName(c), c.tier]))).toEqual({ 'flow list': 'read', 'flow show': 'read', 'flow add': 'act', 'flow remove': 'act', 'flow run': 'act', 'flow runs': 'read', 'flow status': 'read', 'flow stop': 'act' })
+    // flow draft saves a personal flow with --save, as flow add does.
+    expect(Object.fromEntries(FLOW_COMMANDS.map((c) => [commandName(c), c.tier]))).toEqual({ 'flow list': 'read', 'flow show': 'read', 'flow add': 'act', 'flow remove': 'act', 'flow run': 'act', 'flow runs': 'read', 'flow status': 'read', 'flow stop': 'act', 'flow draft': 'act' })
     expect(Object.fromEntries(Object.entries(FLOW_METHODS).map(([m, d]) => [m, d.tier]))).toEqual({ 'flow-list': 'read', 'flow-show': 'read', 'flow-add': 'act', 'flow-remove': 'act', 'flow-run': 'act', 'flow-runs': 'read', 'flow-status': 'read', 'flow-wait': 'read', 'flow-stop': 'act' })
     expect(FLOW_COMMANDS.find((c) => commandName(c) === 'flow run')?.noAssistant).toBeTruthy()
   })

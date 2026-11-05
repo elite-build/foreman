@@ -690,6 +690,26 @@ ended. ${FLOWS_OFF_NOTE}`,
     details: `Cancels the current turn, check run or gate and ends the run as stopped, as Stop run in the Flow tab does. The
 workspace stays. ${FLOWS_OFF_NOTE}`,
     tier: 'act'
+  },
+  {
+    path: ['flow', 'draft'],
+    group: 'settings',
+    summary: 'Draft a flow from what was done in a workspace',
+    usage: 'foreman flow draft <workspace> [--save] [--name <name>]',
+    args: [{ name: 'workspace', required: true, help: 'A name, id or branch from `foreman status`, or "." for the one you’re in' }],
+    options: {
+      save: { type: 'boolean', help: 'Save the draft as a personal flow instead of printing it' },
+      name: { type: 'string', value: '<name>', help: 'With --save, the name to save it under', default: 'From <workspace>' }
+    },
+    examples: ['foreman flow draft . > flow.toml', 'foreman flow draft lisbon --save --name "Fix, review, ship"'],
+    exitCodes: { 1: 'With --save, the draft isn’t a flow; its problems are listed and nothing is saved' },
+    details: `Prints the flow the Lineage tab's "Make a flow from this…" drafts: each turn a turn step (the template it used,
+else prompt = "{{task}}"), the check run a checks step, a review a read-only review step on the reviewer's model, findings
+sent back an address step in a review-until-clean loop of at most 2, a pull request opened by hand a pr-check gate and a
+turn that runs \`foreman git pr create\`, and auto-fix a wait on CI with a fix step. Steps follow the order things
+happened, and a comment at the top lists what the draft leaves out. A draft runs nothing: edit it, then save it with
+--save (or \`foreman flow add\`). ${FLOWS_OFF_NOTE}`,
+    tier: 'act'
   }
 ]
 

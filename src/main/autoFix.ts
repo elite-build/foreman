@@ -24,7 +24,7 @@ export interface AutoFixDeps {
   // The PR's label for the dialog ("PR #42", "MR !87").
   prLabel?: (ws: Workspace) => string | undefined
   // The Fix errors path, for exactly this failure: 'stale' when the PR has moved on since.
-  send: (ws: Workspace, sessionId: string, failure: { sha: string; checks: string[] }, options: { turnId: string; origin: MessageOrigin }) => Promise<FixSendResult>
+  send: (ws: Workspace, sessionId: string, failure: { sha: string; checks: string[] }, options: { turnId: string; origin: Extract<MessageOrigin, { kind: 'auto-fix' }> }) => Promise<FixSendResult>
   cancelTurn: (turnId: string) => Promise<unknown>
   turnStatus: (turnId: string) => Promise<TurnStatus | null>
   // The worktree's HEAD, or null when it can't be read.
@@ -162,7 +162,7 @@ export class AutoFixService {
     autoFix.stopped = { reason, at: this.iso(), ...(detail ? { detail } : {}) }
   }
 
-  private async dispatch(workspaceId: string, attempt: AutoFixAttempt, origin: MessageOrigin): Promise<void> {
+  private async dispatch(workspaceId: string, attempt: AutoFixAttempt, origin: Extract<MessageOrigin, { kind: 'auto-fix' }>): Promise<void> {
     const ws = this.deps.store.state.workspaces.find((w) => w.id === workspaceId)
     if (!ws?.autoFix) return
     // The cap starts with the send: a turn that never ends is stopped at maxMinutes.

@@ -112,7 +112,9 @@ function harness(
   const state = options.state ?? { flowRuns: [] as FlowRun[] }
   let clock = Date.parse('2026-11-05T10:00:00Z')
   const flushed: FlowRun[][] = []
-  const sent: { sessionId: string; text: string; turnId: string; unattended?: unknown; persona?: unknown }[] = []
+  const sent: { sessionId: string; text: string; turnId: string; unattended?: unknown; persona?: unknown; origin?: unknown }[] = []
+  // Who each check run was started by, as the service names it.
+  const checksBy: unknown[] = []
   const chats = new Map<string, ChatItem[]>()
   const gates: Gate[] = []
   const checks = [...(options.checks ?? [])]
@@ -151,10 +153,11 @@ function harness(
     launch,
     createSession: vi.fn<FlowServiceDeps['createSession']>(() => `s-new-${++n}`),
     deliver: async (sessionId, text, o) => {
-      sent.push({ sessionId, text, turnId: o.turnId, unattended: o.unattended })
+      sent.push({ sessionId, text, turnId: o.turnId, unattended: o.unattended, ...(o.origin ? { origin: o.origin } : {}) })
     },
     cancel: vi.fn(async () => {}),
-    startChecks: async () => {
+    startChecks: async (_ws, by) => {
+      checksBy.push(by)
       const status = checks.shift() ?? 'passed'
       return { kind: 'started', done: Promise.resolve([{ name: 'Tests', command: 'npm test', status, startedAt: '', logPath: '', fingerprint: { tree: '', command: '', source: 'local' } } as CheckResult]) }
     },
@@ -194,6 +197,7 @@ function harness(
     state,
     flushed,
     sent,
+    checksBy,
     gates,
     prepared,
     launch,
@@ -262,6 +266,9 @@ describe('running a flow', () => {
     expect(fix.text.indexOf('Answer from')).toBeLessThan(fix.text.indexOf('Check results'))
     // The developer persona is shown the task as well.
     expect(h.run().steps.at(-1)).toMatchObject({ name: 'fix', persona: 'developer', shown: ['task', 'build.answer', 'checks.results'] })
+    // The message says which run, step and pass sent it, and the check run which run and step started it.
+    expect(fix.origin).toEqual({ kind: 'flow', runId: h.run().id, step: 'fix', iteration: 1 })
+    expect(h.checksBy).toEqual([{ flowRun: h.run().id, step: 'checks' }])
     await h.endTurn()
     // Checks passed: the gate asks in the latest tab, showing the diff and the check results.
     expect(h.run().state).toBe('waiting')

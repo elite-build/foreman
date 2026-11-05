@@ -8,7 +8,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { DEFAULT_CHECK_TIMEOUT_MS, isFailure, isStale } from '../shared/checks'
-import type { CheckCommand, CheckConsentItem, CheckFingerprint, CheckResult, CheckRow, ChecksStatus, Workspace } from '../shared/types'
+import type { CheckCommand, CheckConsentItem, CheckFingerprint, CheckResult, CheckRow, CheckStartedBy, ChecksStatus, Workspace } from '../shared/types'
 import type { ChecksCliResult } from '../cli/protocol'
 import { sharedWorkingTree, snapshotWorkingTree } from './checkpoints'
 import { workspaceTarget } from './runtime'
@@ -145,7 +145,7 @@ export class ChecksService {
    * or the hashes of the commands the user was shown: only those are approved, and a command that changed since,
    * or was never shown, comes back for consent. `done` settles when all have run.
    */
-  async start(workspaceId: string, options: { approve?: boolean | string[]; timeoutMs?: number } = {}): Promise<CheckStart> {
+  async start(workspaceId: string, options: { approve?: boolean | string[]; timeoutMs?: number; startedBy?: CheckStartedBy } = {}): Promise<CheckStart> {
     const ws = this.deps.workspace(workspaceId)
     // Frozen for a hand-off: nothing may run here.
     const frozen = frozenReason(ws)
@@ -168,7 +168,7 @@ export class ChecksService {
       // Running checks is the user's doing: a sleeping sandbox wakes.
       const tree = await snapshotWorkingTree(workspaceTarget(ws, { wake: true }))
       const names = new Set(checks.map((c) => c.name))
-      ws.checks = { running: true, results: (ws.checks?.results ?? []).filter((r) => names.has(r.name)) }
+      ws.checks = { running: true, results: (ws.checks?.results ?? []).filter((r) => names.has(r.name)), ...(options.startedBy ? { startedBy: options.startedBy } : {}) }
       this.deps.changed()
       active.done = this.execute(ws, checks, tree, active, options.timeoutMs ?? this.deps.timeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS)
       return { kind: 'started', done: active.done }
@@ -289,7 +289,7 @@ export class ChecksService {
       return { ...base, outcome: 'busy', results: [], message: 'An agent is working in this workspace. Run the checks again when its turn ends.' }
     }
     if (!this.configured(ws).length) return { ...base, outcome: 'not-configured', results: [], message: 'No checks are configured for this repository.' }
-    const started = await this.start(workspaceId)
+    const started = await this.start(workspaceId, { startedBy: 'cli' })
     if (started.kind === 'consent') {
       const names = started.items.map((i) => i.name).join(', ')
       return { ...base, outcome: 'error', results: [], message: `New or changed check commands need approval first (${names}). Open the Git panel in Foreman and choose Run checks.` }

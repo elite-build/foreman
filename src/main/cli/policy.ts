@@ -45,6 +45,16 @@ export function startRefusal(host: CliHost, caller: TurnCaller | undefined): str
   return 'Agents in this repository can’t start workspaces or queue messages. The user can allow it in Repository settings → Actions → “Let agents start workspaces and queue messages”.'
 }
 
+/**
+ * The chat and turn a call came from, when it carries a turn token that checks: who a workspace it starts was started
+ * by (Workspace.startedBy), and the origin of a message it queues. Undefined for a person at a terminal.
+ */
+export function callerTurn(host: CliHost, caller: TurnCaller | undefined): { sessionId: string; turnId: string } | undefined {
+  if (!caller?.token) return undefined
+  const who = host.identifyCaller(caller)
+  return who?.kind === 'turn' ? { sessionId: who.session.id, turnId: who.turnId } : undefined
+}
+
 function sameToken(given: unknown, expected: string): boolean {
   if (typeof given !== 'string') return false
   const a = Buffer.from(given)

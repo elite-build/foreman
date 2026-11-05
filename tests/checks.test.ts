@@ -112,6 +112,24 @@ describe('running checks', () => {
   })
 })
 
+describe('who started a run', () => {
+  it('keeps what the caller says started it, and `foreman checks` says the command line', async () => {
+    const { service, ws } = await setup([check('ok', 'echo fine')])
+    const user = await service.start('ws1', { approve: true, startedBy: 'user' })
+    if (user.kind === 'started') await user.done
+    expect(ws.checks?.startedBy).toBe('user')
+    const flow = await service.start('ws1', { startedBy: { flowRun: 'run-1', step: 'checks' } })
+    if (flow.kind === 'started') await flow.done
+    expect(ws.checks?.startedBy).toEqual({ flowRun: 'run-1', step: 'checks' })
+    expect((await service.runForCli('ws1')).outcome).toBe('passed')
+    expect(ws.checks?.startedBy).toBe('cli')
+    // A run with nobody named keeps nothing from the run before it.
+    const unnamed = await service.start('ws1')
+    if (unnamed.kind === 'started') await unnamed.done
+    expect(ws.checks?.startedBy).toBeUndefined()
+  })
+})
+
 describe('consent', () => {
   it('asks once for a new command, then not again, and asks again when it changes', async () => {
     const { service, config, ws } = await setup([check('test', 'echo one')])

@@ -11,13 +11,13 @@ foreman · drives the running Foreman app
 
 Work           run, wait, send, cancel, resume-at, checks, status, report, review, decide, ask,
                new, approvals, approve, deny, stopped
-Workspaces     export, import, ws (21 commands: foreman help ws)
+Workspaces     export, import, ws (22 commands: foreman help ws)
 Chats          tabs, tab new|set|close|reopen|fork, chat, queue, rewind, resume-now, mcp, slash,
                search
 Git & PRs      git (18 commands: foreman help git), diff, commits, comments, base-moved, ack-ci
 Repositories   repos, repo (22 commands: foreman help repo)
 Settings       templates, settings, env, keys, github, gitlab, loadouts, review-model, models,
-               agents, commands, schedules, flow list|show|add|remove|run|runs|status|stop,
+               agents, commands, schedules, flow (9 commands: foreman help flow),
                persona list|show|add|remove, connections,
                slack rules|people|deliveries|answer|resend, linear issues, backup, git-backup
 Remote         cloud (12 commands: foreman help cloud)
@@ -1239,6 +1239,42 @@ Common options:
 
 Examples:
   foreman ws usage api
+```
+
+### foreman workspace lineage
+
+```text
+What happened in a workspace, through a lens, with where each step came from
+
+Usage:
+  foreman workspace lineage <workspace> [--lens run|context|memory|data] [--mermaid]
+
+Arguments:
+  <workspace>        A name, id or branch from `foreman status`, or "." for the one you’re in
+
+Options:
+      --lens <lens>  Which graph to print: the turns and what linked them, what each turn was shown, what outlived a turn, or the trees each turn worked on (one of: run, context, memory, data) (default: run)
+      --mermaid      Print the graph as Mermaid flowchart source instead
+
+Common options:
+      --json         Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet        Hide progress lines and notes
+  -y, --yes          Answer yes to confirmations
+  -h, --help         Show this command’s help
+
+Examples:
+  foreman ws lineage .
+  foreman ws lineage lisbon --lens data
+  foreman ws lineage . --mermaid > lineage.mmd
+  foreman ws lineage . --json
+
+The Lineage tab's outline: each chat turn (chat, turn number, model, how it ended, what it changed), check run, CI
+run and the pull request, in the order they happened, with what links them: forked from, handed off, findings sent,
+compare sibling, auto-fix, delegated by, a flow run's step, checks after a turn, a scheduled run. Each link says the
+record it comes from ("recorded: Session.forkedFrom") or, where it was inferred from a message's words or from timing,
+"(inferred)" and the record it would need. Gaps lists the records this workspace's history lacks. Reads the
+workspace's chats and the ones they link to, one hop away. Flows are experimental: this answers "Flows are off" until
+Settings → Experimental → Flows is on.
 ```
 
 ### foreman workspace spotlight
@@ -5360,6 +5396,43 @@ Examples:
 
 Cancels the current turn, check run or gate and ends the run as stopped, as Stop run in the Flow tab does. The
 workspace stays. Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+```
+
+### foreman flow draft
+
+```text
+Draft a flow from what was done in a workspace
+
+Usage:
+  foreman flow draft <workspace> [--save] [--name <name>]
+
+Arguments:
+  <workspace>        A name, id or branch from `foreman status`, or "." for the one you’re in
+
+Options:
+      --save         Save the draft as a personal flow instead of printing it
+      --name <name>  With --save, the name to save it under (default: From <workspace>)
+
+Common options:
+      --json         Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet        Hide progress lines and notes
+  -y, --yes          Answer yes to confirmations
+  -h, --help         Show this command’s help
+
+Examples:
+  foreman flow draft . > flow.toml
+  foreman flow draft lisbon --save --name "Fix, review, ship"
+
+Exit codes:
+  1  With --save, the draft isn’t a flow; its problems are listed and nothing is saved
+  Every code: foreman help exit-codes
+
+Prints the flow the Lineage tab's "Make a flow from this…" drafts: each turn a turn step (the template it used,
+else prompt = "{{task}}"), the check run a checks step, a review a read-only review step on the reviewer's model, findings
+sent back an address step in a review-until-clean loop of at most 2, a pull request opened by hand a pr-check gate and a
+turn that runs `foreman git pr create`, and auto-fix a wait on CI with a fix step. Steps follow the order things
+happened, and a comment at the top lists what the draft leaves out. A draft runs nothing: edit it, then save it with
+--save (or `foreman flow add`). Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman persona list

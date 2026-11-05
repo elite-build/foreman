@@ -9,14 +9,15 @@ import { sendReceiptText } from '../../shared/tabs'
 import type { ArchivedRow, NewParams, NewResult, SetupVerb, WorkspaceKind, WsAdoptParams, WsAdoptResult, WsAlertsResult, WsArchiveResult, WsChangeResult, WsDockerResult, WsForgetResult, WsIntegrationsParams, WsIntegrationsResult, WsListResult, WsNoteParams, WsNoteResult, WsOpenResult, WsPathResult, WsReportsResult, WsSetupResult, WsSetupSummary, WsShowResult, WsSpotlightResult, WsUnarchiveResult, WsUsageResult } from '../../shared/cli/workspaces'
 import { checksState, pullRequestUrl, statusRows, statusTable } from '../../shared/status'
 import type { DockerListing, DockerRemoval } from '../../shared/docker'
-import type { ArchivePreview, CreateWorkspaceOptions, Repo, Session, Workspace, WorkspaceStatus } from '../../shared/types'
+import type { ArchivePreview, CreateWorkspaceOptions, Repo, Session, Workspace, WorkspaceStartedBy, WorkspaceStatus } from '../../shared/types'
 import type { RepoIntegrationService } from '../../shared/integrations'
 import { wsPath } from '../../shared/workspacePath'
 import { CliCodedError, type CliHost } from './host'
 import { columns, flagParam, invalid, numberParam, paramsObject, textList, textParam, type MethodDef } from './kit'
 import { chosenIntegrations, integrationRows, integrationsText, switchedIntegrations } from './workspaceIntegrations'
 import type { CliContext } from './methods'
-import { startRefusal } from './policy'
+import { wsLineage } from './lineage'
+import { callerTurn, startRefusal } from './policy'
 import { findByRef, notFound, plural, refused } from './refs'
 import { findTab, findWorkspace, resolveRepo } from './resolve'
 import { tabRows, tabsText } from './tabs'
@@ -31,6 +32,12 @@ function refuseStart(host: CliHost, ctx: CliContext): void {
 }
 
 const fromAgent = (ctx: CliContext): boolean => Boolean(ctx.caller?.token)
+
+/** A workspace started from inside a turn records that chat and turn (Workspace.startedBy); a person's has none. */
+export function startedByCaller(host: CliHost, ctx: CliContext | undefined): { startedBy: WorkspaceStartedBy } | undefined {
+  const from = ctx && callerTurn(host, ctx.caller)
+  return from ? { startedBy: { ...from, via: 'cli' } } : undefined
+}
 
 /** The live workspace the command names. */
 function liveOf(host: CliHost, p: Record<string, unknown>): Workspace {
@@ -542,7 +549,7 @@ async function startNew(host: CliHost, params: unknown, ctx: CliContext): Promis
     ...(attachments.length ? { attachments } : {}),
     ...(cloud ? { location: 'cloud' as const } : {}),
     ...(integrations ? { integrations } : {})
-  })
+  }, startedByCaller(host, ctx))
   if (flagParam(p, 'open')) host.reveal(ws.id)
   const result: NewResult = { repo: repo.name, prompt, workspace: { id: ws.id, name: ws.name, branch: ws.branch, ...(ws.path ? { path: ws.path } : {}) }, ...(ws.cloud ? { cloud: true } : {}), text: '' }
   if (ws.pullRequest) result.pullRequest = ws.pullRequest
@@ -582,6 +589,8 @@ export const WORKSPACE_METHODS: Record<string, MethodDef> = {
   'ws-setup': { tier: 'act', handle: async (host, params) => setup(host, params) },
   'ws-note': { tier: 'act', handle: async (host, params, ctx) => note(host, params, ctx) },
   'ws-usage': { tier: 'read', handle: async (host, params) => usage(host, params) },
+  // Behind the Flows switch: the workspace's history through a lens (cli/lineage.ts).
+  'ws-lineage': wsLineage,
   // Switching one on from an agent turn needs the repository's opt-in, like starting a turn.
   'ws-integrations': { tier: 'act', handle: async (host, params, ctx) => integrations(host, params, ctx) },
   'ws-spotlight': { tier: 'act', handle: async (host, params) => spotlight(host, params) },

@@ -377,7 +377,7 @@ export class AssistantService {
       try {
         if (run.delegation) {
           if (!this.delegation) throw new Error('Foreman delegation is unavailable.')
-          output = JSON.stringify(await this.delegation.call(run.delegation.name, run.delegation.args, { readOnly: false }))
+          output = JSON.stringify(await this.delegation.call(run.delegation.name, run.delegation.args, { readOnly: false, assistantThread: threadId }))
         } else {
           if (!this.foremanActions) throw new Error('Foreman actions are unavailable.')
           output = JSON.stringify(await this.foremanActions.call(run.action!.name, { workspaceId: run.action!.workspaceId }, { readOnly: false }))

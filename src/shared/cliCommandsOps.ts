@@ -326,6 +326,26 @@ connection doesn't allow. From inside an agent turn, switching one on needs the 
     tier: 'read'
   },
   {
+    path: ['workspace', 'lineage'],
+    group: 'workspaces',
+    summary: 'What happened in a workspace, through a lens, with where each step came from',
+    usage: 'foreman workspace lineage <workspace> [--lens run|context|memory|data] [--mermaid]',
+    args: [WORKSPACE_ARG],
+    options: {
+      lens: { type: 'string', value: '<lens>', choices: ['run', 'context', 'memory', 'data'], help: 'Which graph to print: the turns and what linked them, what each turn was shown, what outlived a turn, or the trees each turn worked on', default: 'run' },
+      mermaid: { type: 'boolean', help: 'Print the graph as Mermaid flowchart source instead' }
+    },
+    examples: ['foreman ws lineage .', 'foreman ws lineage lisbon --lens data', 'foreman ws lineage . --mermaid > lineage.mmd', 'foreman ws lineage . --json'],
+    details: `The Lineage tab's outline: each chat turn (chat, turn number, model, how it ended, what it changed), check run, CI
+run and the pull request, in the order they happened, with what links them: forked from, handed off, findings sent,
+compare sibling, auto-fix, delegated by, a flow run's step, checks after a turn, a scheduled run. Each link says the
+record it comes from ("recorded: Session.forkedFrom") or, where it was inferred from a message's words or from timing,
+"(inferred)" and the record it would need. Gaps lists the records this workspace's history lacks. Reads the
+workspace's chats and the ones they link to, one hop away. Flows are experimental: this answers "Flows are off" until
+Settings → Experimental → Flows is on.`,
+    tier: 'read'
+  },
+  {
     path: ['workspace', 'spotlight'],
     group: 'workspaces',
     summary: 'Mirror a workspace’s changes into the repository folder',
