@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
+import { checkPush, forbiddenInCommit } from '../scripts/check-push.mjs'
 import { candidateFiles, checkRepository, forbiddenPath } from '../scripts/check-repository.mjs'
 
 test('reject private/export-only material while retaining runtime assets and test mocks', () => {
@@ -38,6 +39,49 @@ test('reject a tracked dangling link instead of silently omitting it from the sc
     assert.ok(!candidates.includes('deleted.txt'))
     assert.ok(candidates.includes('dangling'), 'tracked broken links must reach the policy check')
     assert.ok(checkRepository(root).includes('Symlink needs explicit export review: dangling'))
+  } finally {
+    assert.ok(realpathSync(root).startsWith(output + path.sep))
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the pre-push hook keeps a mock out of a pushed branch until the branch takes it out', () => {
+  const workspace = realpathSync(process.cwd())
+  mkdirSync(path.join(workspace, 'out'), { recursive: true })
+  const output = realpathSync(path.join(workspace, 'out'))
+  const root = mkdtempSync(path.join(output, 'push-fixture-'))
+  const repo = path.join(root, 'repo')
+  const remote = path.join(root, 'remote.git')
+  const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  const put = (file, from) => {
+    mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
+    if (from) copyFileSync(from, path.join(repo, file))
+    else writeFileSync(path.join(repo, file), 'x\n')
+  }
+  try {
+    mkdirSync(repo)
+    git(root, 'init', '--quiet', '--bare', remote)
+    git(repo, 'init', '--quiet')
+    for (const file of ['.githooks/pre-push', 'scripts/check-push.mjs', 'scripts/publication-paths.mjs', 'scripts/pr-screens.mjs']) put(file, file)
+    chmodSync(path.join(repo, '.githooks', 'pre-push'), 0o755)
+    git(repo, 'config', 'core.hooksPath', '.githooks')
+    git(repo, 'remote', 'add', 'origin', remote)
+    put('src/app.ts')
+    put('mocks/flows/index.html')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '--quiet', '-m', 'Work with a mock')
+
+    assert.throws(() => git(repo, 'push', 'origin', 'HEAD:refs/heads/feature'), e => /refs\/heads\/feature: mocks\/flows\/index\.html/.test(e.stderr))
+    assert.throws(() => git(remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/feature'), 'nothing reached the remote')
+    // The screenshot branch never merges, and a deletion sends no files.
+    git(repo, 'push', '--quiet', 'origin', 'HEAD:refs/heads/pr-screenshots')
+    assert.deepEqual(checkPush(`(delete) ${'0'.repeat(40)} refs/heads/old ${'1'.repeat(40)}\n`, repo), [])
+
+    git(repo, 'rm', '-r', '--quiet', '--cached', '--', 'mocks')
+    git(repo, 'commit', '--quiet', '-m', 'Take the mocks out of the branch')
+    git(repo, 'push', '--quiet', 'origin', 'HEAD:refs/heads/feature')
+    assert.deepEqual(forbiddenInCommit('refs/heads/feature', remote), [])
+    assert.ok(existsSync(path.join(repo, 'mocks', 'flows', 'index.html')), 'the workspace keeps its copy')
   } finally {
     assert.ok(realpathSync(root).startsWith(output + path.sep))
     rmSync(root, { recursive: true, force: true })

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Pre-push: refuse a push whose commit holds a design mock or another path the publication policy forbids
+# (scripts/check-push.mjs), so none reaches a pull request or main. A branch may carry mocks until it's pushed.
+# Enabled by `npm install` (scripts/postinstall.mjs sets core.hooksPath to .githooks). POSIX sh: Git Bash and macOS.
+# Needs only Node and git, not node_modules. Git passes the refs being pushed on stdin.
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Push blocked: Node is needed to check it for mocks (scripts/check-push.mjs). See README.md for setup." >&2
+  exit 1
+fi
+
+exec node scripts/check-push.mjs

@@ -21,6 +21,7 @@ git diff --stat origin/main...HEAD
 ```
 
 - Uncommitted work that belongs to the change: commit it with a message in the repository's style (an outcome, in plain words: "Keep a Claude turn going when a follow-up cuts off its request"). Leave unrelated files alone and say so.
+- Mocks never go into a PR. If the branch holds any (`mocks/`, `mockups/`, `mock*.html`, `design/`), take them out with `git rm -r --cached -- <path>`, add the path to `$(git rev-parse --git-path info/exclude)` so the workspace keeps its copy untracked, and commit. The `pre-push` hook refuses the push in step 7 otherwise.
 - Do not rename the branch; Foreman names it.
 - If `origin/main` has moved and touches the same files, merge it in now so the checks run on what will merge, and mention the merge in your report.
 
