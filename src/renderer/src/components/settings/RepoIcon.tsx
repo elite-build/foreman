@@ -2,6 +2,7 @@
 import { icons, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { PlainKey } from '../../../../shared/i18n'
+import { POPULAR_REPO_ICONS } from '../../../../shared/repoIcons'
 import type { Repo, RepoIcon } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api } from '../../store'
@@ -133,14 +134,7 @@ export function RepoIconPicker({ repo }: { repo: Repo }) {
 }
 
 // Shown before searching.
-const POPULAR_ICONS = [
-  'Code', 'Terminal', 'Globe', 'Rocket', 'Package', 'Box', 'Database', 'Server', 'Cloud', 'Cpu', 'Smartphone', 'Monitor',
-  'Laptop', 'BookOpen', 'FileCode', 'Folder', 'GitBranch', 'Zap', 'Flame', 'Leaf', 'Star', 'Heart', 'Coffee', 'Puzzle',
-  'Layers', 'Shield', 'Lock', 'Bot', 'Brain', 'Gamepad2', 'Music', 'Camera', 'Image', 'Palette', 'Wrench', 'Cog',
-  'Atom', 'Sparkles', 'Store', 'ShoppingCart', 'Wallet', 'ChartLine', 'Map', 'Compass', 'Mail', 'MessageSquare',
-  'Calendar', 'Users', 'House', 'Truck', 'Plane', 'Anchor', 'Feather', 'PenTool', 'Blocks', 'Container', 'Webhook',
-  'Workflow', 'Braces', 'FlaskConical'
-].filter((name) => ICONS[name])
+const POPULAR_ICONS = POPULAR_REPO_ICONS.filter((name) => ICONS[name])
 
 const SEARCH_LIMIT = 120
 

@@ -193,6 +193,29 @@ async function runtimeGit(rt: WorkspaceRuntime, args: string[], opts: GitOptions
   throw new GitError(`git ${args[0]} failed: ${r.stderr.trim() || `exit code ${r.code}`}`, args, r.code, r.stderr)
 }
 
+/** A blob's bytes (`git cat-file blob`), for binary files that git()'s text output would mangle. */
+export function gitBlob(cwd: string, oid: string, timeoutMs = 20_000): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    withSlot((done) => {
+      try {
+        execFile(
+          'git',
+          ['cat-file', 'blob', oid],
+          { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, windowsHide: true },
+          (err, stdout) => {
+            done()
+            if (err) reject(new GitError(`git cat-file failed: ${err.message}`, ['cat-file', 'blob', oid], null, ''))
+            else resolve(stdout)
+          }
+        )
+      } catch (err) {
+        done()
+        reject(err)
+      }
+    })
+  })
+}
+
 /** Run git and return trimmed stdout. */
 export async function gitOut(cwd: GitTarget, args: string[], opts: GitOptions = {}): Promise<string> {
   return (await git(cwd, args, opts)).stdout.trim()
