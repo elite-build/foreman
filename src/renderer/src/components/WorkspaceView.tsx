@@ -71,6 +71,8 @@ import { refreshOpenInApps } from '../openIn'
 import { runningStep } from '../../../shared/setupSteps'
 import { CloudBanner, CloudPill, useCloudStatusPoll, useWakeOnOpen } from './cloud/CloudBits'
 import { editorViewsFor, shownEditorView, type WorkspacePanelView } from '../editorLayout'
+import { FlowRunPanel, useWorkspaceFlowRun } from './FlowRunPanel'
+import { LineagePanel, useLineageOn } from './LineagePanel'
 import './editor/editor.css'
 
 /** The fork shortcut as shown in menus. */
@@ -495,7 +497,11 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const [picking, setPicking] = useState(false)
   const [commitFile, setCommitFile] = useState<CommitFile | null>(null)
   const [commitsReload, setCommitsReload] = useState(0)
-  const [panelTab, setPanelTab] = useState<WorkspacePanelView>('changes')
+  // 'flow': the Flow tab, shown beside the others only while the workspace belongs to a flow run (not in the Editor layout yet).
+  // 'lineage': the Lineage tab, shown while Flows are on (Settings → Experimental), not in the Editor layout yet either.
+  const [panelTab, setPanelTab] = useState<WorkspacePanelView | 'flow' | 'lineage'>('changes')
+  const flowRun = useWorkspaceFlowRun(workspaceId)
+  const lineageOn = useLineageOn()
   // The Editor layout's activity bar holds the tab instead (one for every workspace); asking for one shows the sidebar.
   const showPanelTab = (tab: WorkspacePanelView) => (editor ? showEditorSidebar(tab) : setPanelTab(tab))
   // #19: the Files tab mounts the first time it's opened; Refresh there re-reads its folders.
@@ -518,7 +524,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const shownTab = useStore((s) => s.activeSession[workspaceId])
   const sessions = surfaces.archived ? archivedTabs(allSessions, workspaceId, shownTab) : openSessions(snapshot, workspaceId)
   const editorPanel = editor ? shownEditorView(editorView, editorViewsFor(surfaces)) : null
-  const activeTab: WorkspacePanelView = editorPanel && editorPanel !== 'workspaces' ? editorPanel : panelTab
+  const activeTab: WorkspacePanelView | 'flow' | 'lineage' = editorPanel && editorPanel !== 'workspaces' ? editorPanel : (panelTab === 'flow' && !flowRun) || (panelTab === 'lineage' && !lineageOn) ? 'changes' : panelTab
   if (activeTab === 'files' && !filesSeen) setFilesSeen(true)
   const running = allSessions.some((s) => s.workspaceId === workspaceId && s.status === 'running')
   const hasWorktree = surfaces.worktree
@@ -967,11 +973,13 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
     />
   )
   const checksView = <ChecksView workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} shown={!hidden} />
-  const panelViewName: Record<WorkspacePanelView, string> = {
+  const panelViewName: Record<WorkspacePanelView | 'flow' | 'lineage', string> = {
     changes: t('workspaceView.panel.changes'),
     commits: t('commits.tab'),
     files: t('files.tab'),
-    checks: t('workspaceView.panel.checks')
+    checks: t('workspaceView.panel.checks'),
+    flow: t('flowRun.panel.tab'),
+    lineage: t('lineage.tab')
   }
   const editorGrid = [panelShown && `${panel.size}px`, 'minmax(360px, 1fr)', rightPanelOpen && `${chatPanel.size}px`].filter(Boolean)
   if (!panelLeft) editorGrid.reverse()
@@ -1139,7 +1147,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 </div>
               </section>
             ) : (
-              <Tabs className="panel-tabs-root" variant="underline" value={panelTab} onChange={(v) => setPanelTab(v as WorkspacePanelView)}>
+              <Tabs className="panel-tabs-root" variant="underline" value={activeTab} onChange={(v) => setPanelTab(v as WorkspacePanelView | 'flow' | 'lineage')}>
                 <TabList label={t('workspaceView.panel.tabs')}>
                   <Tab value="changes">
                     {t('workspaceView.panel.changes')} {diff?.files.length ? <span className="faint">{diff.files.length}</span> : null}
@@ -1155,6 +1163,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                     {git.status?.pr?.checks.some((c) => c.state === 'failure') && <Status compact tone="error" label={t('workspaceView.panel.checksFailing')} />}
                     {git.status?.pr?.checks.some((c) => c.state === 'pending') && <Status compact tone="warn" label={t('workspaceView.panel.checksPending')} />}
                   </Tab>
+                  {flowRun && <Tab value="flow">{t('flowRun.panel.tab')}</Tab>}
+                  {lineageOn && <Tab value="lineage">{t('lineage.tab')}</Tab>}
                   <span className="spacer" />
                   {panelActions}
                 </TabList>
@@ -1166,6 +1176,16 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                     {filesView}
                   </TabPanel>
                   <TabPanel value="checks">{checksView}</TabPanel>
+                  {flowRun && (
+                    <TabPanel value="flow">
+                      <FlowRunPanel workspaceId={workspaceId} />
+                    </TabPanel>
+                  )}
+                  {lineageOn && (
+                    <TabPanel value="lineage">
+                      <LineagePanel workspaceId={workspaceId} />
+                    </TabPanel>
+                  )}
                 </div>
               </Tabs>
             )}

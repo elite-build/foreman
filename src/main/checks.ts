@@ -8,7 +8,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { DEFAULT_CHECK_TIMEOUT_MS, isFailure, isStale } from '../shared/checks'
-import type { CheckCommand, CheckConsentItem, CheckFingerprint, CheckResult, CheckRow, ChecksStatus, Workspace } from '../shared/types'
+import type { CheckCommand, CheckConsentItem, CheckFingerprint, CheckResult, CheckRow, CheckStartedBy, ChecksStatus, Workspace } from '../shared/types'
 import type { ChecksCliResult } from '../cli/protocol'
 import { sharedWorkingTree, snapshotWorkingTree } from './checkpoints'
 import { workspaceTarget } from './runtime'
@@ -46,7 +46,12 @@ interface ActiveRun {
   interruptNote?: string
   current?: RunningScript
   done?: Promise<CheckResult[]>
+  // What started it, from the moment it is taken (the workspace's record says so only once the tree is read).
+  startedBy?: CheckStartedBy
 }
+
+const sameStarter = (a: CheckStartedBy | undefined, b: CheckStartedBy): boolean =>
+  typeof a === 'object' && typeof b === 'object' ? a.flowRun === b.flowRun && a.step === b.step : a === b
 
 export const commandHash = (command: string): string => createHash('sha256').update(command).digest('hex')
 
@@ -145,7 +150,7 @@ export class ChecksService {
    * or the hashes of the commands the user was shown: only those are approved, and a command that changed since,
    * or was never shown, comes back for consent. `done` settles when all have run.
    */
-  async start(workspaceId: string, options: { approve?: boolean | string[]; timeoutMs?: number } = {}): Promise<CheckStart> {
+  async start(workspaceId: string, options: { approve?: boolean | string[]; timeoutMs?: number; startedBy?: CheckStartedBy } = {}): Promise<CheckStart> {
     const ws = this.deps.workspace(workspaceId)
     // Frozen for a hand-off: nothing may run here.
     const frozen = frozenReason(ws)
@@ -160,7 +165,7 @@ export class ChecksService {
       const unshown = checks.filter((c) => consent.some((i) => i.name === c.name) && !shown.has(commandHash(c.command)))
       if (unshown.length) return { kind: 'consent', items: consent.filter((i) => unshown.some((c) => c.name === i.name)) }
     }
-    const active: ActiveRun = { cancelled: false, interrupted: false }
+    const active: ActiveRun = { cancelled: false, interrupted: false, ...(options.startedBy ? { startedBy: options.startedBy } : {}) }
     // Taken before the first await so two starts can't both get through.
     this.runs.set(workspaceId, active)
     try {
@@ -168,7 +173,7 @@ export class ChecksService {
       // Running checks is the user's doing: a sleeping sandbox wakes.
       const tree = await snapshotWorkingTree(workspaceTarget(ws, { wake: true }))
       const names = new Set(checks.map((c) => c.name))
-      ws.checks = { running: true, results: (ws.checks?.results ?? []).filter((r) => names.has(r.name)) }
+      ws.checks = { running: true, results: (ws.checks?.results ?? []).filter((r) => names.has(r.name)), ...(options.startedBy ? { startedBy: options.startedBy } : {}) }
       this.deps.changed()
       active.done = this.execute(ws, checks, tree, active, options.timeoutMs ?? this.deps.timeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS)
       return { kind: 'started', done: active.done }
@@ -248,9 +253,25 @@ export class ChecksService {
     return ran
   }
 
-  async cancel(workspaceId: string): Promise<void> {
+  /**
+   * Start once the check run going here (someone else's) ends, unless `wanted` says the caller gave up meanwhile:
+   * then nothing starts. A flow's checks step waits this way, and Stop on its run must not start them afterwards.
+   */
+  async startWhenFree(workspaceId: string, options: { approve?: boolean | string[]; timeoutMs?: number; startedBy?: CheckStartedBy }, wanted: () => boolean, pollMs = 500): Promise<CheckStart | { kind: 'abandoned' }> {
+    while (this.runs.has(workspaceId)) {
+      if (!wanted()) return { kind: 'abandoned' }
+      await new Promise((r) => setTimeout(r, pollMs))
+    }
+    // No await between this look and start taking the workspace, so nothing slips in.
+    if (!wanted()) return { kind: 'abandoned' }
+    return this.start(workspaceId, options)
+  }
+
+  /** Cancel the check run going here; with `only`, just when that is what started it (a flow's Stop leaves yours alone). */
+  async cancel(workspaceId: string, only?: CheckStartedBy): Promise<void> {
     const active = this.runs.get(workspaceId)
     if (!active) return
+    if (only !== undefined && !sameStarter(active.startedBy, only)) return
     active.cancelled = true
     await active.current?.kill()
   }
@@ -289,7 +310,7 @@ export class ChecksService {
       return { ...base, outcome: 'busy', results: [], message: 'An agent is working in this workspace. Run the checks again when its turn ends.' }
     }
     if (!this.configured(ws).length) return { ...base, outcome: 'not-configured', results: [], message: 'No checks are configured for this repository.' }
-    const started = await this.start(workspaceId)
+    const started = await this.start(workspaceId, { startedBy: 'cli' })
     if (started.kind === 'consent') {
       const names = started.items.map((i) => i.name).join(', ')
       return { ...base, outcome: 'error', results: [], message: `New or changed check commands need approval first (${names}). Open the Git panel in Foreman and choose Run checks.` }

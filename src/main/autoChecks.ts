@@ -116,7 +116,7 @@ export class AutoChecks {
       this.auto.add(workspaceId)
       let started
       try {
-        started = await this.deps.checks.start(workspaceId)
+        started = await this.deps.checks.start(workspaceId, { startedBy: 'auto' })
       } catch (err) {
         this.auto.delete(workspaceId)
         throw err

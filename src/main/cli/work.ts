@@ -8,11 +8,11 @@ import { findLayeredTemplate } from '../../shared/repoTemplates'
 import { readRepoTemplates } from '../repoTemplates'
 import { sendReceiptText, tabModelText } from '../../shared/tabs'
 import { checksState, pullRequestUrl, statusRows } from '../../shared/status'
-import type { CreateWorkspaceOptions, Repo, TurnStatus } from '../../shared/types'
+import type { CreateWorkspaceOptions, MessageOrigin, Repo, TurnStatus, WorkspaceStartedBy } from '../../shared/types'
 import { clockTime, dayOf } from '../../shared/usageLimit'
-import type { CancelParams, CancelResult, ChecksCliResult, ChecksParams, ReportParams, ReportResult, ResumeAtParams, ResumeAtResult, RunParams, RunResult, SendParams, SendResult, StatusResult, WaitParams, WaitResult } from '../../cli/protocol'
+import type { CancelParams, CancelResult, ChecksCliResult, ChecksParams, DecideParams, DecideResult, ReportParams, ReportResult, ResumeAtParams, ResumeAtResult, RunParams, RunResult, SendParams, SendResult, StatusResult, WaitParams, WaitResult } from '../../cli/protocol'
 import { HISTORY_ONLY_REASON, wsPath } from '../../shared/workspacePath'
-import { isBlocker, isReportKind, type TurnCaller } from '../../shared/agentReports'
+import { decisionProblem, isBlocker, isReportKind, type TurnCaller } from '../../shared/agentReports'
 import type { CliHost } from './host'
 import { chosenIntegrations } from './workspaceIntegrations'
 import { findTab, findWorkspace, resolveRepo, resolveWorkspace } from './resolve'
@@ -22,7 +22,7 @@ import { findTab, findWorkspace, resolveRepo, resolveWorkspace } from './resolve
  * --tab it refuses and lists them. It never steers a running turn, and a message
  * that waits is queued under the id of the turn it will start, so the receipt holds.
  */
-export async function send(host: CliHost, params: SendParams, options: { literal?: boolean } = {}): Promise<SendResult> {
+export async function send(host: CliHost, params: SendParams, options: { literal?: boolean; origin?: MessageOrigin } = {}): Promise<SendResult> {
   const state = host.state()
   const ws = findWorkspace(state, params.workspace, params.cwd)
   if (ws.heldMessage) throw new Error(`${ws.name}: setup failed and its first message is held. Open the workspace and choose Start anyway first.`)
@@ -44,7 +44,7 @@ export async function send(host: CliHost, params: SendParams, options: { literal
   if (!text) throw new Error('Say what to send: a template name with its values, or the message.')
   if (/^\/\S+$/.test(text)) throw new Error('Foreman’s /commands run in the app, not from the command line.')
 
-  const receipt = await host.deliver(session.id, text, { mode: 'queue', templateId, via: 'cli' })
+  const receipt = await host.deliver(session.id, text, { mode: 'queue', templateId, via: 'cli', ...(options.origin ? { origin: options.origin } : {}) })
   if (!receipt.turnId || receipt.disposition === 'handled') throw new Error('Foreman handled that message itself; no turn was started.')
   return {
     workspace: { id: ws.id, name: ws.name },
@@ -114,7 +114,7 @@ export function status(host: CliHost): StatusResult {
   return statusRows({ snapshot, approvals: host.approvals(), unread: {}, unreadSessions: {} }, names)
 }
 
-export async function run(host: CliHost, params: RunParams): Promise<RunResult> {
+export async function run(host: CliHost, params: RunParams, extra?: { startedBy?: WorkspaceStartedBy }): Promise<RunResult> {
   const state = host.state()
   // The repo's own templates join the user's once we know which repo is meant.
   let repo: Repo | undefined
@@ -164,7 +164,7 @@ export async function run(host: CliHost, params: RunParams): Promise<RunResult> 
     branch: { kind: 'new', name: params.branch?.trim() || undefined },
     loadout,
     ...(integrations ? { integrations } : {})
-  })
+  }, extra)
   if (params.open) host.reveal(ws.id)
   result.workspace = { id: ws.id, name: ws.name, branch: ws.branch, path: wsPath(ws) }
   if (ws.pullRequest) result.pullRequest = ws.pullRequest
@@ -248,4 +248,21 @@ export function report(host: CliHost, params: ReportParams, caller?: TurnCaller)
   else if (isBlocker(saved.kind)) lines.push('The user sees it on Home as “agent says” until they reply or dismiss it.')
   else if (saved.kind === 'review') lines.push('Foreman added a row on the user’s Home. Nothing starts until they open it.')
   return { ...result, message: lines.join(' ') }
+}
+
+/**
+ * `foreman decide <option>`: in a flow's decide step, the turn says which option it decided on, as the decide tool does.
+ * Only a call carrying that turn's token counts, and only for an option the step names: anything else is refused.
+ */
+export function decide(host: CliHost, params: DecideParams, caller?: TurnCaller): DecideResult {
+  const option = typeof params?.option === 'string' ? params.option.trim() : ''
+  if (!option) throw new Error('Say which option you decided on: foreman decide <option>.')
+  const who = host.identifyCaller(caller)
+  if (who?.kind !== 'turn') throw new Error(who?.kind === 'bad-token' ? 'The turn token wasn’t recognised, so nothing was recorded. Only a flow’s decide step decides, from inside its turn.' : 'Only a flow’s decide step decides, from inside its turn; this call carries no turn token. Nothing was recorded.')
+  if (!who.live) throw new Error('That turn has ended, so nothing was recorded.')
+  const problem = decisionProblem(who.session.unattended, option)
+  if (problem) throw new Error(problem)
+  const { added } = host.recordReport({ workspaceId: who.ws.id, sessionId: who.session.id, turnId: who.turnId, kind: 'decide', text: option, via: 'cli' })
+  const base = { workspace: { id: who.ws.id, name: who.ws.name }, session: who.session.id, turn: who.turnId, decided: option }
+  return added ? { ...base, message: `Decided “${option}”. End your turn now: the flow goes on from there.` } : { ...base, duplicate: true, message: 'Already decided; nothing changed.' }
 }

@@ -37,6 +37,26 @@ export function turnDelta(dir: GitTarget, sessionId: string, turnId: string): Pr
   return checkpointDelta(dir, startCheckpointId(sessionId, turnId), endCheckpointId(sessionId, turnId))
 }
 
+/** How many characters of a tree hash a turn's record keeps (the flow run's step records keep as many). */
+export const TURN_TREE_CHARS = 12
+
+/**
+ * The working tree's hash at a turn's start and end checkpoints (a checkpoint's tree is the working tree it saved), short.
+ * Either side is left out when its checkpoint is missing or can't be read; never throws.
+ */
+export async function checkpointTrees(dir: GitTarget, sessionId: string, turnId: string): Promise<{ start?: string; end?: string }> {
+  const treeOf = async (id: string) => {
+    try {
+      const r = await git(dir, ['rev-parse', '-q', '--verify', `${CHECKPOINT_REF_PREFIX}${id}^{tree}`], { allowFail: true })
+      return r.code === 0 ? r.stdout.trim().slice(0, TURN_TREE_CHARS) || undefined : undefined
+    } catch {
+      return undefined
+    }
+  }
+  const [start, end] = await Promise.all([treeOf(startCheckpointId(sessionId, turnId)), treeOf(endCheckpointId(sessionId, turnId))])
+  return { ...(start ? { start } : {}), ...(end ? { end } : {}) }
+}
+
 /**
  * The alert for a finished turn, or null when no sensitive file changed. It
  * compares the whole worktree between the turn's checkpoints (other tabs and the

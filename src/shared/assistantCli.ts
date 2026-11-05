@@ -78,6 +78,17 @@ export function refusalFor(spec: CommandSpec): string | undefined {
   return undefined
 }
 
+// ---- flows the assistant drafts and starts ----
+
+const FLOW_NOTES: Record<string, string> = {
+  'flow add': 'To save a flow you drafted, pass the whole TOML as one argument with --toml (not a file: you can’t write one). The Run card shows the document, and nothing is saved until the user clicks Run; a flow with problems is not saved and the result lists them.',
+  'persona add': 'To save a persona you drafted, pass the whole markdown as one word, --markdown=<document> (it starts with ---, so the = form is the only one that takes it), not a file. The Run card shows it, and nothing is saved until the user clicks Run.',
+  'flow run': 'You may propose it with --repo and every --input the flow asks for (foreman flow show lists them). It starts only when the user clicks Run, and its output says what the run approved. Never propose it unless the user asked to start the flow.'
+}
+
+/** What cli_help adds under a flow command the assistant drafts or starts flows with; undefined for every other command. */
+export const flowNote = (spec: CommandSpec): string | undefined => FLOW_NOTES[commandName(spec)]
+
 // ---- answering what an agent waits on ----
 
 const ANSWERS = new Set(['approve', 'deny'])
@@ -86,7 +97,7 @@ const ANSWERS = new Set(['approve', 'deny'])
 export const answersRequest = (spec: CommandSpec): boolean => ANSWERS.has(commandName(spec))
 
 /** What cli_help adds under `approve` and `deny`: the assistant proposes only the plain, one-shot form. */
-export const ANSWER_NOTE = 'You may propose only a plain approve or deny, by the request’s full id from the approvals tool (never the start of it). `--always` and `--edits` give an agent standing permission, so the user presses those buttons on the approval panel; never propose them.'
+export const ANSWER_NOTE = 'You may propose only a plain approve or deny, by the request’s full id from the approvals tool (never the start of it). `--always` and `--edits` give an agent standing permission, so the user presses those buttons on the approval panel; never propose them. A flow’s gate is answered with approve and one of `--continue`, `--send-back --note "…"` or `--stop`; deny doesn’t answer it.'
 
 /**
  * Why the assistant may not propose this `approve` or `deny`, in a sentence; undefined when it may. Only the plain one-shot

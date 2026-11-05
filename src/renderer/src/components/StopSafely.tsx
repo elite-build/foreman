@@ -98,6 +98,7 @@ function useWorkspacePath(): (workspaceId: string) => string {
 function waitingText(t: RendererT, waiting: WaitingOn, root: string): string {
   if (waiting.kind === 'plan') return t('stop.waiting.plan')
   if (waiting.kind === 'question') return t('stop.waiting.question')
+  if (waiting.kind === 'gate' || waiting.kind === 'pick') return t('flowRun.state.waiting')
   const label = t('stop.waiting.tool', { tool: waiting.tool ?? '' })
   const detail = waiting.tool ? toolSummary(waiting.tool, waiting.input, root) : ''
   return detail ? `${label}: ${detail}` : label

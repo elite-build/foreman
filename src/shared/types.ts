@@ -21,6 +21,8 @@ import type { DirListing } from './fileTree'
 import type { ImagePreview } from './imageInfo'
 import type { OpenInChoice, OpenInDetection, OpenInTarget } from './openIn'
 import type { SavedCommand } from './savedCommands'
+import type { FlowGateShow, FlowListing, FlowPickChoice, FlowRun, FlowRunPreview, FlowRunStart, FlowRunSummary, FlowSource } from './flows'
+import type { PersonaList, PersonaListing, TurnPersona } from './personas'
 import type { DockerLeft, DockerListing, DockerPreview, DockerRemoval } from './docker'
 import type { CloudProviderId, PlanLimits, ProviderCapabilities } from './cloud'
 
@@ -161,7 +163,12 @@ export interface WorkspaceChecks {
   results: CheckResult[]
   // The working tree changed since the results were recorded (kept current when the tree is looked at).
   stale?: boolean
+  // What started this run (docs/loops-and-graphs.md, "What isn't recorded yet"). Absent on runs from before it was kept.
+  startedBy?: CheckStartedBy
 }
+
+/** Who started a check run: the Git panel (or the phone), checks after a turn, a flow's checks step, or `foreman checks`. */
+export type CheckStartedBy = 'user' | 'auto' | { flowRun: string; step: string } | 'cli'
 
 /** A check command waiting for approval before its first run. */
 export interface CheckConsentItem {
@@ -477,6 +484,8 @@ export interface HeldMessage {
   intake?: IntakeFile
   // Files chosen with the message (absolute paths), copied into the workspace when it is sent.
   files?: string[]
+  // Foreman sends it for a schedule or a flow run's first step; the message carries it as its receipt.
+  origin?: MessageOrigin
 }
 
 /** A Linear issue as New workspace shows it, read with the repository's Linear connection. */
@@ -598,6 +607,10 @@ export interface Workspace {
   transfer?: WorkspaceTransfer
   // Created by a schedule: which one, and the run's occurrence id.
   scheduled?: { scheduleId: string; occurrenceId: string }
+  // Created by a flow run (docs/loops-and-graphs.md): the run it belongs to.
+  flowRun?: { runId: string }
+  // Started by another chat (a workspace agent's start_task, `foreman new`/`run` from inside a turn) or the assistant.
+  startedBy?: WorkspaceStartedBy
   // Integrations switched on or off for this workspace's turns; absent services follow the repository's defaults.
   integrations?: import('./integrations').WorkspaceIntegrations
   createdAt: string
@@ -616,7 +629,7 @@ export interface Workspace {
 }
 
 /** Why a workspace was archived: by hand, after its scheduled run completed, or after its pull request was merged. */
-export type ArchiveReason = { kind: 'manual' } | { kind: 'run'; scheduleId: string } | { kind: 'merged'; number: number }
+export type ArchiveReason = { kind: 'manual' } | { kind: 'run'; scheduleId: string } | { kind: 'merged'; number: number } | { kind: 'flow'; runId: string }
 
 /** What deleting an archived workspace would lose that isn't anywhere else, for the delete dialog and the cleanup. */
 export interface ArchivedWork {
@@ -634,12 +647,25 @@ export interface ArchivedWork {
 /** What happens to a scheduled run's workspace once the run completes. A run that fails, stops or needs you is always kept. */
 export type AfterRun = 'keep' | 'archive' | 'delete-unchanged'
 
+/**
+ * A flow a schedule starts instead of a template (docs/loops-and-graphs.md): which flow, where it came from, its name as it
+ * was when scheduled, and the values for its inputs (a scheduled run can't ask, so every input is filled in here).
+ */
+export interface ScheduleFlow {
+  flowId: string
+  flowSource: FlowSource
+  flowName: string
+  inputs: Record<string, string>
+}
+
 /** A template run later, on a cadence the user approved (R-5). Claude only, permission mode auto; never starts anything while Foreman is closed. */
 export interface Schedule {
   id: string
-  templateId: string
+  // What it runs: a template (every schedule made before flows), or a flow. One of the two is set.
+  templateId?: string
   // As it was when scheduled, for rows that outlive the template.
-  templateName: string
+  templateName?: string
+  flow?: ScheduleFlow
   repoId: string
   baseBranch: string
   recurrence: 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly'
@@ -671,10 +697,11 @@ export interface Schedule {
   createdAt: string
 }
 
-/** What the Schedule dialog sends. */
+/** What the Schedule dialog sends: a template or a flow, one of the two. */
 export interface ScheduleRequest {
-  templateId: string
-  templateName: string
+  templateId?: string
+  templateName?: string
+  flow?: ScheduleFlow
   repoId: string
   baseBranch: string
   recurrence: Schedule['recurrence']
@@ -692,18 +719,26 @@ export interface ScheduleRequest {
 }
 
 export interface ScheduleFingerprint {
+  // A flow schedule: its templates' texts and revisions.
   template: string
   setup: string
+  // A flow schedule: with the commands its script steps run.
   checks: string
   mcp: string
+  // A flow schedule only: the flow document and its personas, as its run approval has them (FlowFingerprint).
+  flow?: string
+  personas?: string
 }
 
 /** What a schedule's fingerprint stands for, in words: what the approval covers besides the cadence. */
 export interface ScheduleSummary {
-  templateName: string
+  // A template schedule's template; a flow schedule has `flow` instead.
+  templateName?: string
   // The template file's revision (a repo template's git blob SHA); personal templates have none.
   templateRev?: string
-  templateSource: 'personal' | 'repo'
+  templateSource?: 'personal' | 'repo'
+  // A flow schedule: what a run of the flow approves, as its Run dialog shows it.
+  flow?: FlowRunSummary
   repoName: string
   baseBranch: string
   // The repo's setup script as the run would use it ('' when there is none).
@@ -733,6 +768,8 @@ export interface Occurrence {
   reason?: string
   workspaceId?: string
   sessionId?: string
+  // A flow schedule's occurrence: the flow run it started, which says how it ends.
+  flowRunId?: string
 }
 
 export interface WorkspaceNote {
@@ -823,6 +860,17 @@ export interface CreateWorkspaceOptions {
   location?: 'local' | 'cloud'
   // Integrations switched on or off for this workspace (absent: the repository's defaults).
   integrations?: import('./integrations').WorkspaceIntegrations
+}
+
+/**
+ * Who started a workspace (docs/loops-and-graphs.md, "What isn't recorded yet"): a workspace agent's delegation tool,
+ * the `foreman` command run from inside a turn, or the assistant. `sessionId` is the coordinating chat; for the
+ * assistant it is the assistant thread. Absent when a person started it (and on workspaces from before it was kept).
+ */
+export interface WorkspaceStartedBy {
+  sessionId: string
+  turnId?: string
+  via: 'delegation' | 'cli' | 'assistant'
 }
 
 export interface AdoptWorktreeOptions {
@@ -928,7 +976,10 @@ export interface Session {
   outputStyle?: string
   // A scheduled run: nobody is there to answer, so tools run in auto mode and any approval or question stops it.
   // #17: an auto review's reviewer turn is unattended the same way (its approvals are denied and the review stops).
-  unattended?: { occurrenceId: string } | { autoReviewId: string }
+  // A flow run's turn step is unattended the same way, for that one turn (its approvals stop the run for the human).
+  // A flow step's persona rides along for that turn: its instructions, read-only and the MCP servers it keeps. A decide
+  // step's turn carries the options it picks from: only then is Foreman's `decide` tool offered.
+  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[] }
   // #17: this tab is an auto review's read-only reviewer; its turns never start another review.
   autoReview?: { reviewId: string }
   // Closed tabs stay restorable until the workspace is archived.
@@ -945,6 +996,9 @@ export interface Session {
   nativeFork?: boolean
   // Forked from another tab (after one of its turns, or its latest; `before`: from just before that turn's message, #16 Edit and resend).
   forkedFrom?: { sessionId: string; turnId?: string; before?: boolean }
+  // Started from another tab by a hand-off (second opinion, review, continue): which tab, after which turn, the sections
+  // it was given and their hashes as previewed, and when (docs/loops-and-graphs.md, "What isn't recorded yet").
+  handedOffFrom?: HandedOffFrom
   // A fork with no agent conversation to branch: its next message carries the visible history. Cleared once the agent started.
   // O1 'switch': the tab was switched to an agent with no conversation of its own here.
   seedHistory?: boolean | 'switch'
@@ -1144,6 +1198,8 @@ export interface Settings {
   autoRunAfterSetup: boolean
   forkToNewTab: boolean
   showResourceUsage: boolean
+  // Flows (docs/loops-and-graphs.md): off by default; off, nothing about flows appears and repo flow files are ignored.
+  flows: boolean
   // Keep diagnostics (docs/telemetry.md): the event log, performance samples and crash dumps in the data folder.
   diagnostics: boolean
   // Advanced
@@ -1269,7 +1325,8 @@ export interface ContextPart {
   // #20 'mcp': the repo MCP servers this turn got, shown only when the set changed since the tab's last turn.
   // 'integrations': which GitHub, Linear or Slack account this turn uses, when that changed since the tab's last turn,
   // and the user's own same-service MCP servers switched off here.
-  kind: 'instructions' | 'note' | 'comments' | 'attachments' | 'history' | 'foreman' | 'catch-up' | 'mcp' | 'integrations'
+  // 'persona': a flow step's persona, its instructions appended to the system prompt for that turn.
+  kind: 'instructions' | 'note' | 'comments' | 'attachments' | 'history' | 'foreman' | 'catch-up' | 'mcp' | 'integrations' | 'persona'
   // The short form for the receipt line: "note r3", "2 review comments".
   label: string
   // Characters added (bytes for attachments; the number of servers for 'mcp'; of accounts and servers for 'integrations').
@@ -1351,6 +1408,12 @@ export type ChatItem =
       limit?: UsageLimit
       // Cloud workspaces: with outcome `interrupted`, what cut the turn off (see TurnInterruption).
       interrupted?: TurnInterruption
+      // The tab's context window as the turn ended, when the agent said (docs/loops-and-graphs.md, "Context graph").
+      usage?: ContextUsage
+      // Agent memory files this turn's changes wrote (shared/memoryPaths.ts isMemoryPath), when there were any.
+      memoryWrites?: string[]
+      // The working tree's short hash at the turn's start and end checkpoints, when they could be read.
+      tree?: { start?: string; end?: string }
     }
 
 /** #11: what a failed turn's error said about a usage limit. No `resetAt`: the reset time is unknown. */
@@ -1437,12 +1500,22 @@ export type ApprovalRequest = {
     }
   | { kind: 'plan'; plan: string }
   | { kind: 'question'; questions: Question[] }
+  // A flow's gate step (docs/loops-and-graphs.md): planned, so it waits for a person instead of stopping the run.
+  | { kind: 'gate'; flowRunId: string; flowName: string; step: string; ask: string; show: FlowGateShow[] }
+  // A flow's pick step: the person chooses one of the sibling results; the run goes on in the chosen one's workspace.
+  | { kind: 'pick'; flowRunId: string; flowName: string; step: string; ask: string; choices: FlowPickChoice[] }
 )
+
+/** What an agent's turn can ask for: every approval kind but a flow's gate and pick, which Foreman asks itself. */
+export type AgentApprovalRequest = Exclude<ApprovalRequest, { kind: 'gate' | 'pick' }>
 
 export type ApprovalResponse =
   | { kind: 'tool'; allow: boolean; alternate?: boolean; message?: string }
   | { kind: 'plan'; approve: boolean; feedback?: string; handOff?: boolean }
   | { kind: 'question'; answers?: Record<string, string>; skipped?: boolean }
+  | { kind: 'gate'; answer: 'continued' | 'sent-back' | 'stopped'; note?: string }
+  // null: nothing was chosen, and the run stops.
+  | { kind: 'pick'; chosen: string | null }
 
 export interface DiffLine {
   type: 'add' | 'del' | 'ctx'
@@ -1720,15 +1793,23 @@ export interface AutoReview {
   dismissed?: boolean
 }
 
-/** #5: a message Foreman sent itself, and why (shown as a receipt under it). */
-export interface MessageOrigin {
-  kind: 'auto-fix'
-  sha: string
-  checks: string[]
-  // This fix's count on the head commit: "1 of 2".
-  n: number
-  of: number
-}
+/**
+ * #5: a message Foreman sent itself, and why (shown as a receipt under it): auto-fix CI, a workspace agent's
+ * send_task (delegation), a flow run's step, a schedule's run, or a resume armed after a usage limit.
+ */
+export type MessageOrigin =
+  | {
+      kind: 'auto-fix'
+      sha: string
+      checks: string[]
+      // This fix's count on the head commit: "1 of 2".
+      n: number
+      of: number
+    }
+  | { kind: 'delegation'; sessionId: string; turnId?: string }
+  | { kind: 'flow'; runId: string; step: string; iteration: number }
+  | { kind: 'schedule'; scheduleId: string; occurrenceId: string }
+  | { kind: 'limit-resume' }
 
 export interface PrWatch {
   ci?: CiWatch
@@ -2015,6 +2096,8 @@ export interface AppSnapshot {
   // Scheduled templates and their recent runs (R-5).
   schedules: Schedule[]
   occurrences: Occurrence[]
+  // Flow runs (docs/loops-and-graphs.md): in flight and the last finished ones. Empty while Flows are off.
+  flowRuns?: FlowRun[]
   // Hand-offs to and from other Macs, including ones left unresolved (P-4).
   transfers: Transfer[]
   pairedDevices: PairedDevice[]
@@ -2250,6 +2333,18 @@ export interface TurnStatus {
 
 /** Why a new chat is being started from another one. */
 export type HandOffKind = 'second-opinion' | 'review' | 'continue'
+
+/** Where a handed-off chat came from (Session.handedOffFrom). */
+export interface HandedOffFrom {
+  sessionId: string
+  kind: HandOffKind
+  // The source's turn the hand-off was taken after: the answer's turn, else the task's.
+  turnId?: string
+  sections: ('task' | 'answer' | 'diff')[]
+  // Each section's hash as the dialog previewed it.
+  hashes?: { task?: string; answer?: string; diff?: string }
+  at: string
+}
 
 /** What a new chat would be given, as the source chat and the files stood when the dialog opened. */
 export interface HandOffPreview {
@@ -2643,6 +2738,29 @@ export interface Api {
   resumeSchedule(id: string): Promise<void>
   deleteSchedule(id: string): Promise<void>
   stopScheduledRun(occurrenceId: string): Promise<void>
+  // Flows (docs/loops-and-graphs.md), behind Settings → Experimental → Flows: each refuses while it is off.
+  // Built-in starters, repository files (only `repoId`'s when given) and personal flows, each with its problems.
+  listFlows(repoId?: string): Promise<FlowListing[]>
+  // Saves the document as a personal flow (a new one without `id`); a flow with errors isn't saved and its problems come back.
+  savePersonalFlow(input: { id?: string; toml: string }): Promise<{ flow: FlowListing } | { problems: string[] }>
+  deletePersonalFlow(id: string): Promise<void>
+  // Personas (who a flow's step is), behind the same switch: built-in, a repository's .foreman/personas and .claude/agents
+  // files (only `repoId`'s when given) and personal ones, with the MCP servers repositories propose; saving and deleting
+  // personal ones as with flows.
+  listPersonas(repoId?: string): Promise<PersonaList>
+  savePersonalPersona(input: { id?: string; markdown: string }): Promise<{ persona: PersonaListing } | { problems: string[] }>
+  deletePersonalPersona(id: string): Promise<void>
+  // Running a flow: what starting it would approve (and the inputs it asks for), starting it with the fingerprint that
+  // was shown (refused when it changed since), stopping a run, and the runs (one repository's when given).
+  flowRunPreview(input: { flowId: string; repoId: string; baseBranch: string }): Promise<FlowRunPreview>
+  startFlowRun(input: FlowRunStart): Promise<FlowRun>
+  stopFlowRun(runId: string): Promise<void>
+  listFlowRuns(repoId?: string): Promise<FlowRun[]>
+  // A workspace's lineage (docs/loops-and-graphs.md, "Recovering graphs from what happened"), behind the same switch: its
+  // history through one lens (the graph, its outline, its Mermaid source and the records it lacks), and a draft flow
+  // made from it with what the draft leaves out. Both read only.
+  workspaceLineage(workspaceId: string, lens: import('./lineage').LineageLens): Promise<import('./lineage').WorkspaceLineage>
+  lineageFlowDraft(workspaceId: string): Promise<import('./lineage').LineageFlowDraft>
   // #11: tick "Resume at …" on the latest turn's limit card; untick / Cancel / Dismiss; "Resume now" on a missed one.
   armLimitResume(sessionId: string, turnId: string): Promise<void>
   cancelLimitResume(sessionId: string): Promise<void>
@@ -2899,7 +3017,7 @@ export const API_METHODS = [
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
-  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
+  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'listPersonas', 'savePersonalPersona', 'deletePersonalPersona', 'flowRunPreview', 'startFlowRun', 'stopFlowRun', 'listFlowRuns', 'workspaceLineage', 'lineageFlowDraft', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',

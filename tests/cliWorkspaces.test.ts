@@ -316,6 +316,14 @@ describe('new', () => {
     expect(calls).toEqual([])
   })
 
+  it('records the chat and turn that started it from inside a turn, and nothing for a person', async () => {
+    const extras: unknown[] = []
+    const capture = { createWorkspace: async (_repoId: string, _options: unknown, extra?: unknown) => (extras.push(extra), created) }
+    await newRig({ ...turnHost(true), ...capture }).call('new', base, 'tok')
+    await newRig(capture).call('new', base)
+    expect(extras).toEqual([{ startedBy: { sessionId: 's1', turnId: 't', via: 'cli' } }, undefined])
+  })
+
   it('holds the first message when setup fails, unless started anyway', async () => {
     const started: string[] = []
     const { call } = newRig({ setupOutcome: async () => ({ failed: true, held: true, logTail: 'npm ERR!' }), startHeldMessage: async (id) => void started.push(id) })
@@ -347,6 +355,7 @@ describe('policy and the socket', () => {
     new: 'new',
     'ws-list': 'workspace list',
     'ws-show': 'workspace show',
+    'ws-lineage': 'workspace lineage',
     'ws-path': 'workspace path',
     'ws-open': 'workspace open',
     'ws-rename': 'workspace rename',
@@ -591,5 +600,16 @@ describe('the command table', () => {
     expect(() => parseCommandArgs(archive, ['api', '--tab', '2'])).toThrow('doesn’t take --tab')
     const created = WORKSPACE_COMMANDS.find((c) => commandName(c) === 'new')!
     expect(parseCommandArgs(created, ['Do it', '--attach', 'a.md', '--attach', 'b.md', '-l', '2', '-o']).opts).toMatchObject({ attach: ['a.md', 'b.md'], loadout: '2', open: true })
+  })
+})
+
+describe('provenance from inside a turn', () => {
+  it('foreman send from a turn says which chat sent it; a person’s send has no origin', async () => {
+    const sent: unknown[] = []
+    const deliver: CliHost['deliver'] = async (_session, _text, options) => (sent.push(options.origin), { disposition: 'started', turnId: 'turn-2' })
+    const params = { workspace: 'lisbon', tab: 1, args: ['Look again'], cwd: '/' }
+    await METHODS.send.handle(rig({ host: { ...turnHost(true), deliver } }).host, params, ctx('tok'))
+    await METHODS.send.handle(rig({ host: { deliver } }).host, params, ctx())
+    expect(sent).toEqual([{ kind: 'delegation', sessionId: 's1', turnId: 't' }, undefined])
   })
 })

@@ -1,16 +1,19 @@
 // `foreman schedules …`: Automations → Schedules from the command line. Saving a schedule approves the template and the
 // repository's setup, checks and MCP servers as they are now, so `preview` prints exactly what the Schedule dialog implies and
 // `add`/`edit`/`approve` send the fingerprint back as `shown`: the service refuses when it no longer matches, as the window does.
+// With Flows on, a schedule may start a flow instead (`--flow <name>` with `--input key=value`): its preview is the flow run's
+// approval, and every input is filled in when it is saved, because a scheduled run can't ask.
 import { modelsFor } from '../../shared/agents'
 import { pickerModels } from '../../shared/modelVisibility'
 import { templatePlaceholders } from '../../shared/promptTemplates'
 import { findLayeredTemplate } from '../../shared/repoTemplates'
-import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, parseDate, parseTime, previewRuns, validTimezone, weekdaysText, WEEKDAY_NAMES } from '../../shared/schedule'
+import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, parseDate, parseTime, previewRuns, scheduleName, validTimezone, weekdaysText, WEEKDAY_NAMES } from '../../shared/schedule'
 import { pullRequestUrl } from '../../shared/status'
 import type { OccurrenceRow, ScheduleRow, SchedulePreviewResult, SchedulesApproveResult, SchedulesChangeResult, SchedulesListResult, SchedulesRemoveResult, SchedulesRunsResult, SchedulesSaveResult, SchedulesStopRunResult } from '../../shared/cli/schedules'
-import type { AppSnapshot, Occurrence, PromptTemplate, Repo, Schedule, ScheduleFingerprint, ScheduleFingerprintView, ScheduleRequest } from '../../shared/types'
+import type { AppSnapshot, Occurrence, PromptTemplate, Repo, Schedule, ScheduleFingerprint, ScheduleFingerprintView, ScheduleFlow, ScheduleRequest } from '../../shared/types'
 import { changedParts, scheduleProblem } from '../schedules'
 import { resolveLoadout } from './agents'
+import { findFlow, flowPreviewLines, flowsOn } from './flows'
 import type { CliHost } from './host'
 import { columns, invalid, numberParam, paramsObject, textList, textParam, type MethodDef } from './kit'
 import { ambiguous, durationText, findByRef, firstLine, notFound, refused, type RefSpec } from './refs'
@@ -39,8 +42,8 @@ export function cadenceOf(s: Pick<Schedule, 'recurrence' | 'startDate' | 'weekda
 
 const scheduleSpec: RefSpec<Schedule> = {
   id: (s) => s.id,
-  names: (s) => [s.templateName],
-  describe: (s) => `${s.templateName} (${s.recurrence}, id ${s.id})`
+  names: (s) => [scheduleName(s)],
+  describe: (s) => `${scheduleName(s)} (${s.recurrence}, id ${s.id})`
 }
 
 // ---- rows ----
@@ -53,8 +56,9 @@ function scheduleRow(snapshot: AppSnapshot, s: Schedule): ScheduleRow {
   const next = s.nextRunAt ? formatRun(Date.parse(s.nextRunAt), s.timezone) : undefined
   return {
     id: s.id,
-    template: s.templateName,
-    templateId: s.templateId,
+    template: scheduleName(s),
+    ...(s.templateId ? { templateId: s.templateId } : {}),
+    ...(s.flow ? { flow: { id: s.flow.flowId, name: s.flow.flowName, source: s.flow.flowSource, inputs: s.flow.inputs } } : {}),
     repo: snapshot.repos.find((r) => r.id === s.repoId)?.name ?? s.repoId,
     repoId: s.repoId,
     base: s.baseBranch,
@@ -88,7 +92,8 @@ function occurrenceRow(snapshot: AppSnapshot, o: Occurrence): OccurrenceRow {
   return {
     id: o.id,
     scheduleId: o.scheduleId,
-    template: schedule?.templateName ?? '(removed)',
+    template: schedule ? scheduleName(schedule) : '(removed)',
+    ...(o.flowRunId ? { flowRun: o.flowRunId } : {}),
     plannedAt: o.plannedAt,
     ...(o.startedAt ? { startedAt: o.startedAt } : {}),
     ...(o.endedAt ? { endedAt: o.endedAt } : {}),
@@ -133,13 +138,41 @@ function fingerprintParam(raw: unknown): ScheduleFingerprint | undefined {
   if (raw === undefined || raw === null) return undefined
   const f = raw as Record<string, unknown>
   if (typeof raw !== 'object' || (['template', 'setup', 'checks', 'mcp'] as const).some((k) => typeof f[k] !== 'string')) throw invalid('shown must be the fingerprint a preview returned.')
-  return { template: f.template as string, setup: f.setup as string, checks: f.checks as string, mcp: f.mcp as string }
+  if ((['flow', 'personas'] as const).some((k) => f[k] !== undefined && typeof f[k] !== 'string')) throw invalid('shown must be the fingerprint a preview returned.')
+  return { template: f.template as string, setup: f.setup as string, checks: f.checks as string, mcp: f.mcp as string, ...(typeof f.flow === 'string' ? { flow: f.flow } : {}), ...(typeof f.personas === 'string' ? { personas: f.personas } : {}) }
 }
 
 interface Built {
   request: ScheduleRequest
   repo: Repo
-  template: PromptTemplate
+  template?: PromptTemplate
+}
+
+function inputsParam(raw: unknown): Record<string, string> | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw !== 'object' || Array.isArray(raw) || Object.values(raw).some((v) => typeof v !== 'string')) throw invalid('inputs must be names and text values.')
+  return raw as Record<string, string>
+}
+
+/**
+ * The flow a schedule would start, with a value for every input it asks for (`given` over what an edited schedule had):
+ * a scheduled run can't ask, so a missing one is refused here, naming it, as an input the flow doesn't have is.
+ */
+async function flowTarget(host: CliHost, repo: Repo, query: string | undefined, given: Record<string, string> | undefined, existing?: ScheduleFlow): Promise<ScheduleFlow> {
+  flowsOn(host)
+  const flows = await host.api.listFlows(repo.id)
+  const listing = query?.trim() ? findFlow(flows, query) : flows.find((f) => f.id === existing?.flowId)
+  if (!listing) throw notFound(`The flow “${existing?.flowName ?? query ?? ''}” isn’t there any more; pass --flow to choose another.`, '`foreman flow list` lists them.')
+  if (listing.problems.length) throw invalid(`“${listing.name}” has problems, so it can’t run: ${listing.problems.join(' ')}`, '`foreman flow show` prints it.')
+  const preview = await host.api.flowRunPreview({ flowId: listing.id, repoId: repo.id, baseBranch: repo.defaultBranch || 'main' })
+  const asked = preview.inputs
+  const values = { ...(listing.id === existing?.flowId ? existing.inputs : {}), ...(given ?? {}) }
+  const unknown = Object.keys(given ?? {}).filter((k) => !asked.some((i) => i.name === k))
+  const askedText = asked.map((i) => `${i.name}${i.description ? ` (${i.description})` : ''}`).join(', ')
+  if (unknown.length) throw invalid(`“${listing.name}” has no input ${unknown.map((u) => `“${u}”`).join(', ')}. ${asked.length ? `It asks for: ${askedText}.` : 'It asks for none.'}`)
+  const missing = asked.filter((i) => !values[i.name]?.trim())
+  if (missing.length) throw invalid(`A scheduled run can’t ask for values, and “${listing.name}” asks for ${missing.map((i) => `${i.name}${i.description ? ` (${i.description})` : ''}`).join(', ')}.`, `Give each with --input ${missing[0].name}=<value>.`)
+  return { flowId: listing.id, flowSource: listing.source, flowName: listing.name, inputs: Object.fromEntries(asked.map((i) => [i.name, values[i.name].trim()])) }
 }
 
 /**
@@ -154,18 +187,28 @@ async function buildRequest(host: CliHost, snapshot: AppSnapshot, p: Record<stri
   const personal = snapshot.settings.promptTemplates
   const fromRepo = snapshot.repoTemplates[repo.id] ?? []
   const templateQuery = textParam(p, 'template', { optional: true })
+  const flowQuery = textParam(p, 'flow', { optional: true })
+  const given = inputsParam(p.inputs)
+  if (templateQuery?.trim() && flowQuery?.trim()) throw invalid('A schedule runs a template or a flow: give one of them, not both.')
   let template: PromptTemplate | undefined
-  if (templateQuery?.trim()) {
+  let flow: ScheduleFlow | undefined
+  if (flowQuery?.trim() || (existing?.flow && !templateQuery?.trim())) flow = await flowTarget(host, repo, flowQuery, given, existing?.flow)
+  else if (given && Object.keys(given).length) throw invalid('--input goes with a flow: a scheduled template has no values to fill in.')
+  if (flow) {
+    // A flow's steps say their own agents.
+  } else if (templateQuery?.trim()) {
     const found = findLayeredTemplate(personal, fromRepo, templateQuery)
     if ('error' in found) throw found.error.includes('matches several') ? ambiguous(found.error) : notFound(found.error, '`foreman templates` lists them.')
     template = found.template
   } else if (existing) {
     template = [...personal, ...Object.values(snapshot.repoTemplates).flat()].find((t) => t.id === existing.templateId)
     if (!template) throw notFound(`The template “${existing.templateName}” no longer exists; pass --template to choose another.`)
-  } else throw invalid('Name the template to schedule.', '`foreman templates` lists them.')
-  const placeholders = templatePlaceholders(template.body)
-  if (placeholders.length) throw invalid(`“${template.name}” has placeholders to fill in each time (${placeholders.map((x) => `{{${x}}}`).join(', ')}). A scheduled run can’t ask, so write them out first.`, `\`foreman templates edit ${template.name}\` changes the text, or save a copy without placeholders.`)
-  if (!template.body.trim()) throw invalid(`“${template.name}” is empty.`)
+  } else throw invalid('Name the template to schedule, or a flow with --flow.', '`foreman templates` and `foreman flow list` list them.')
+  if (template) {
+    const placeholders = templatePlaceholders(template.body)
+    if (placeholders.length) throw invalid(`“${template.name}” has placeholders to fill in each time (${placeholders.map((x) => `{{${x}}}`).join(', ')}). A scheduled run can’t ask, so write them out first.`, `\`foreman templates edit ${template.name}\` changes the text, or save a copy without placeholders.`)
+    if (!template.body.trim()) throw invalid(`“${template.name}” is empty.`)
+  }
 
   const recurrenceText = textParam(p, 'recurrence', { optional: true }) ?? existing?.recurrence
   if (!recurrenceText) throw invalid(`Say how often: ${RECURRENCES.join(', ')}.`)
@@ -187,14 +230,14 @@ async function buildRequest(host: CliHost, snapshot: AppSnapshot, p: Record<stri
   const dayOfMonth = dayGiven ?? existing?.dayOfMonth ?? startDay?.d
   const maxMinutes = numberParam(p, 'maxMinutes') ?? existing?.maxMinutes ?? DEFAULT_MAX_MINUTES
   const modelGiven = textParam(p, 'model', { optional: true })
-  const modelWanted = modelGiven ?? existing?.model ?? defaultModel(host)
-  if (!modelWanted) throw invalid('Foreman has no Claude model to offer yet; pass --model.', '`foreman models refresh claude`')
+  if (flow && modelGiven !== undefined) throw invalid('A flow’s steps say their own agents and models, so --model doesn’t go with --flow.')
+  const modelWanted = flow ? '' : modelGiven ?? (existing?.model || defaultModel(host))
+  if (!flow && !modelWanted) throw invalid('Foreman has no Claude model to offer yet; pass --model.', '`foreman models refresh claude`')
   // A Claude model Foreman can name; an unchanged saved one stays as it is, even if the list moved on.
-  const model = modelGiven === undefined && existing ? existing.model : resolveLoadout(host, { agent: 'claude', model: modelWanted }).loadout.model
+  const model = flow ? '' : modelGiven === undefined && existing?.model ? existing.model : resolveLoadout(host, { agent: 'claude', model: modelWanted }).loadout.model
 
   const request: ScheduleRequest = {
-    templateId: template.id,
-    templateName: template.name,
+    ...(flow ? { flow } : { templateId: template!.id, templateName: template!.name }),
     repoId: repo.id,
     baseBranch: (textParam(p, 'base', { optional: true }) ?? existing?.baseBranch ?? repo.defaultBranch ?? 'main').trim(),
     recurrence,
@@ -224,8 +267,21 @@ function previewFrom(request: ScheduleRequest, view: ScheduleFingerprintView): S
   const cadence = `${cadenceOf(request as Pick<Schedule, 'recurrence' | 'startDate' | 'weekdays' | 'dayOfMonth' | 'time'>)} (${request.timezone})`
   const s = view.summary
   const setup = s.setupScript.trim() ? firstLine(s.setupScript, 100) + (s.setupScript.trim().includes('\n') ? ' …' : '') : '(none)'
+  if (s.flow && request.flow) {
+    // A flow schedule: what each run of the flow approves, as `foreman flow run` prints it, with the cadence.
+    const flowLines = flowPreviewLines(s.flow, request.flow.inputs)
+    const lines = [
+      `Schedule the flow “${s.flow.flowName}”`,
+      `Runs ${cadence}${request.recurrence === 'once' ? '' : `, from ${request.startDate}`}`,
+      `Next: ${nextRuns.join('; ') || '(none)'}`,
+      ...flowLines.slice(1),
+      'Limit: the flow’s loop bounds; a gate or a pick waits for you, and the schedule’s next run is skipped while this one is going.',
+      'Runs only while Foreman is open. A run that is late is skipped, never replayed; two failed runs in a row pause the schedule; a change to the flow, its templates or personas, the setup, checks or MCP servers pauses it until you approve again.'
+    ]
+    return { request, fingerprint: view.fingerprint, summary: s, cadence, nextRuns, text: lines.join('\n') }
+  }
   const lines = [
-    `Schedule “${s.templateName}”${s.templateRev ? ` (template revision ${s.templateRev.slice(0, 7)})` : ''}${s.templateSource === 'repo' ? ', a repository template' : ''}`,
+    `Schedule “${s.templateName ?? ''}”${s.templateRev ? ` (template revision ${s.templateRev.slice(0, 7)})` : ''}${s.templateSource === 'repo' ? ', a repository template' : ''}`,
     `Repository: ${s.repoName}, each run starts from ${s.baseBranch} in a fresh workspace`,
     `Runs ${cadence}${request.recurrence === 'once' ? '' : `, from ${request.startDate}`}`,
     `Next: ${nextRuns.join('; ') || '(none)'}`,
@@ -247,9 +303,9 @@ const list: MethodDef = {
   async handle(host): Promise<SchedulesListResult> {
     const snapshot = host.snapshot()
     const rows = snapshot.schedules.map((s) => scheduleRow(snapshot, s))
-    if (!rows.length) return { schedules: rows, text: 'No schedules. `foreman schedules add <template> --every …` makes one.' }
+    if (!rows.length) return { schedules: rows, text: 'No schedules. `foreman schedules add <template> --every …` (or `--flow <flow>`) makes one.' }
     const when = (r: ScheduleRow) => (r.running.length ? 'running now' : r.state === 'paused' ? `paused: ${firstLine(r.pausedReason ?? '', 70)}` : r.state === 'finished' ? 'finished' : `next ${r.next ?? ''}`)
-    const lines = columns([['ID', 'TEMPLATE', 'REPO', 'CADENCE', 'STATE'], ...rows.map((r) => [short(r.id), r.template, r.repo, `${r.cadence} (${r.timezone})`, when(r)])])
+    const lines = columns([['ID', 'TEMPLATE', 'REPO', 'CADENCE', 'STATE'], ...rows.map((r) => [short(r.id), r.flow ? `${r.template} (flow)` : r.template, r.repo, `${r.cadence} (${r.timezone})`, when(r)])])
     return { schedules: rows, text: lines.join('\n') }
   }
 }
@@ -294,7 +350,7 @@ const edit: MethodDef = {
 
 /** The request a saved schedule stands for, to ask what it would approve now. */
 function requestOf(s: Schedule): ScheduleRequest {
-  return { templateId: s.templateId, templateName: s.templateName, repoId: s.repoId, baseBranch: s.baseBranch, recurrence: s.recurrence, startDate: s.startDate, weekdays: s.weekdays, ...(s.dayOfMonth !== undefined ? { dayOfMonth: s.dayOfMonth } : {}), time: s.time, timezone: s.timezone, agent: 'claude', model: s.model, maxMinutes: s.maxMinutes, ...(s.afterRun ? { afterRun: s.afterRun, afterRunDeleteBranch: s.afterRunDeleteBranch } : {}) }
+  return { ...(s.flow ? { flow: s.flow } : { templateId: s.templateId, templateName: s.templateName }), repoId: s.repoId, baseBranch: s.baseBranch, recurrence: s.recurrence, startDate: s.startDate, weekdays: s.weekdays, ...(s.dayOfMonth !== undefined ? { dayOfMonth: s.dayOfMonth } : {}), time: s.time, timezone: s.timezone, agent: 'claude', model: s.model, maxMinutes: s.maxMinutes, ...(s.afterRun ? { afterRun: s.afterRun, afterRunDeleteBranch: s.afterRunDeleteBranch } : {}) }
 }
 
 const approve: MethodDef = {
@@ -314,7 +370,7 @@ const approve: MethodDef = {
         needsConfirmation: true,
         changed,
         preview,
-        text: `${changed.length ? `Since you approved “${s.templateName}”, ${changed.join(' and ')} changed.` : `Nothing has changed since you approved “${s.templateName}”.`}${s.pausedReason ? ` ${s.pausedReason}` : ''}\n\n${preview.text}\n\nNothing is approved yet. Approve it with the fingerprint above (\`--yes\`).`
+        text: `${changed.length ? `Since you approved “${scheduleName(s)}”, ${changed.join(' and ')} changed.` : `Nothing has changed since you approved “${scheduleName(s)}”.`}${s.pausedReason ? ` ${s.pausedReason}` : ''}\n\n${preview.text}\n\nNothing is approved yet. Approve it with the fingerprint above (\`--yes\`).`
       }
     }
     await host.api.approveSchedule(s.id, shown)
@@ -335,9 +391,9 @@ function lifecycle(verb: 'pause' | 'resume' | 'remove'): MethodDef {
       else if (verb === 'resume') await host.api.resumeSchedule(s.id)
       else {
         const running = snapshot.occurrences.filter((o) => o.scheduleId === s.id && ACTIVE.includes(o.state))
-        if (running.length) throw refused(`“${s.templateName}” has a run going. Stop it first: \`foreman schedules stop-run ${short(running[0].id)}\`.`)
+        if (running.length) throw refused(`“${scheduleName(s)}” has a run going. Stop it first: \`foreman schedules stop-run ${short(running[0].id)}\`.`)
         await host.api.deleteSchedule(s.id)
-        return { removed: scheduleRow(snapshot, s), text: `Removed the schedule “${s.templateName}” and its run history.` }
+        return { removed: scheduleRow(snapshot, s), text: `Removed the schedule “${scheduleName(s)}” and its run history.` }
       }
       const after = host.snapshot()
       const row = scheduleRow(after, after.schedules.find((x) => x.id === s.id) ?? s)
@@ -360,7 +416,7 @@ const runs: MethodDef = {
       .slice(-limit)
       .reverse()
       .map((o) => occurrenceRow(snapshot, o))
-    if (!rows.length) return { runs: rows, text: only ? `“${only.templateName}” hasn’t run yet.` : 'No scheduled runs yet.' }
+    if (!rows.length) return { runs: rows, text: only ? `“${scheduleName(only)}” hasn’t run yet.` : 'No scheduled runs yet.' }
     const zone = (r: OccurrenceRow) => snapshot.schedules.find((s) => s.id === r.scheduleId)?.timezone ?? 'UTC'
     const lines = columns([['RUN', 'TEMPLATE', 'STARTED', 'OUTCOME', 'TOOK', 'WORKSPACE', 'PR'], ...rows.map((r) => [short(r.id), r.template, formatRun(Date.parse(r.startedAt ?? r.plannedAt), zone(r)), `${r.state}${r.reason && r.state !== 'completed' ? `: ${firstLine(r.reason, 50)}` : ''}`, r.durationMs !== undefined ? durationText(r.durationMs) : '', r.workspace?.name ?? '', r.pr ? `#${r.pr.number}` : ''])])
     return { runs: rows, text: lines.join('\n') }
@@ -375,7 +431,8 @@ const stopRun: MethodDef = {
     const o = findByRef(snapshot.occurrences, textParam(p, 'occurrence'), 'scheduled run', { id: (x) => x.id, names: (x) => [x.id], describe: (x) => `${x.state}, id ${x.id}` })
     if (!ACTIVE.includes(o.state)) throw refused(`That run isn’t going (it ${o.state === 'completed' ? 'completed' : `is ${o.state}`}).`)
     await host.api.stopScheduledRun(o.id)
-    return { occurrence: o.id, text: `Stopping the run of “${snapshot.schedules.find((s) => s.id === o.scheduleId)?.templateName ?? 'the schedule'}”; it ends as stopped.` }
+    const schedule = snapshot.schedules.find((s) => s.id === o.scheduleId)
+    return { occurrence: o.id, text: `Stopping the run of “${schedule ? scheduleName(schedule) : 'the schedule'}”; it ends as stopped.` }
   }
 }
 

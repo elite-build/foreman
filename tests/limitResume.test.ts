@@ -51,9 +51,9 @@ async function setup(script: Script = limitThenOk()) {
   service = new LimitResumeService({
     sessions: () => h.store.state.sessions,
     readChat: (id) => h.store.readChat(id),
-    send: (id, text) => {
+    send: (id, text, origin) => {
       log.push(`send:${text}`)
-      return h.sessions.deliver(id, text, { mode: 'queue' })
+      return h.sessions.deliver(id, text, { mode: 'queue', origin })
     },
     flush: () => {
       log.push(`flush:${h.store.state.sessions.find((s) => s.id === h.session.id)?.limitResume ? 'armed' : 'none'}`)
@@ -236,6 +236,8 @@ describe('at the reset time', () => {
     await until(() => t.ended.length === 2)
     const users = (await t.store.readChat(t.session.id)).filter((i) => i.kind === 'user')
     expect(users.map((u) => (u as { text: string }).text)).toEqual(['Persist the sidebar filters', RESUME_TEXT])
+    // The resumed message says why Foreman sent it.
+    expect(users.map((u) => (u.kind === 'user' ? u.origin : undefined))).toEqual([undefined, { kind: 'limit-resume' }])
     expect(t.session.limitResume).toBeUndefined()
     await t.service.tick()
     expect(t.log.filter((l) => l.startsWith('send'))).toHaveLength(1)

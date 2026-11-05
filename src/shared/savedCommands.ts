@@ -143,6 +143,17 @@ export function findCommand(personal: SavedCommand[], fromRepo: SavedCommand[], 
   return [...repo, ...all].find((c) => c.id === id)
 }
 
+/**
+ * The command a flow's script step names, as a workspace in `repoId` offers it: by id, else by name (any case), else by
+ * the name's slug. This repository's commands (yours, then the repository's own) come before yours for all repositories.
+ */
+export function commandNamed(personal: SavedCommand[], fromRepo: SavedCommand[], repoId: string, name: string): SavedCommand | undefined {
+  const { repo, all } = commandsForRepo(personal, fromRepo, repoId)
+  const list = [...repo, ...all]
+  const wanted = name.trim().toLowerCase()
+  return list.find((c) => c.id === name.trim()) ?? list.find((c) => c.name.trim().toLowerCase() === wanted) ?? list.find((c) => commandSlug(c.name) === commandSlug(name))
+}
+
 /** A repo command this computer hasn't approved (new, or its text changed). Your own commands never ask. */
 export const needsApproval = (c: SavedCommand): boolean => c.source === 'repo' && !c.approved
 

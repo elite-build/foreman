@@ -1,5 +1,6 @@
 // The approval commands: approvals, approve, deny and stopped. Each one sends a request and prints the `text` of
-// the answer (or the JSON with --json); `stopped dismiss --all` asks first.
+// the answer (or the JSON with --json); `stopped dismiss --all` asks first. A flow's gate is answered with approve and
+// one of --continue, --send-back [--note] and --stop; a flow's pick with --pick <step> (or --stop).
 import { usageError } from '../client'
 import type { Run } from '../command'
 
@@ -24,11 +25,22 @@ function answersOf(values: unknown): Record<string, string> | undefined {
   return answers
 }
 
+/** A gate's answer: one of --continue, --send-back and --stop; --note only with --send-back. */
+function gateOf(opts: Record<string, unknown>): 'continue' | 'send-back' | 'stop' | undefined {
+  const given = (['continue', 'send-back', 'stop'] as const).filter((flag) => opts[flag])
+  if (given.length > 1) throw usageError('Give one of --continue, --send-back and --stop.')
+  if (opts.note !== undefined && given[0] !== 'send-back') throw usageError('--note goes with --send-back.')
+  return given[0]
+}
+
 const approve: Run = async (ctx) => {
   const [id, ...extra] = ctx.args
   if (!id) throw usageError('Name a request. `foreman approvals` lists their ids.')
   if (extra.length) throw usageError('foreman approve takes one request id.')
   const { opts } = ctx
+  const gate = gateOf(opts)
+  const pick = str(opts.pick)
+  if (pick !== undefined && gate !== undefined) throw usageError('Give --pick on its own: it answers a flow’s pick.')
   const result = await ctx.send<{ text: string }>('approve', {
     id,
     always: opts.always,
@@ -36,7 +48,10 @@ const approve: Run = async (ctx) => {
     message: str(opts.message),
     plan: opts.plan,
     feedback: str(opts.feedback),
-    answers: answersOf(opts.answer)
+    answers: answersOf(opts.answer),
+    gate,
+    note: str(opts.note),
+    pick
   })
   ctx.print(result, () => result.text)
 }

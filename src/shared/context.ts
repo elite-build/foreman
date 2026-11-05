@@ -37,6 +37,9 @@ export interface AssembledAdditions {
   repoMcp?: string[]
   // Integrations: services whose account changed since the tab's last turn, and the user's own servers newly switched off.
   integrations?: { changed: IdentityChange[]; ownOff: string[] }
+  // A flow step's persona: the instructions appended to the system prompt, whether it held the turn read-only, and the
+  // MCP servers it kept (undefined: it narrowed none).
+  persona?: { name: string; text: string; readOnly?: boolean; mcp?: string[] }
 }
 
 const SERVICE_LABEL: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
@@ -62,6 +65,10 @@ export function contextParts(a: AssembledAdditions, t: TFunction = enT): Context
       source: t('context.foreman.source'),
       detail: a.foremanCommands?.length ? a.foremanCommands.join(', ') : undefined
     })
+  }
+  if (a.persona) {
+    const detail = [a.persona.readOnly ? t('context.persona.readOnly') : '', a.persona.mcp ? t('context.persona.mcp', { names: a.persona.mcp.join(', ') || '—' }) : ''].filter(Boolean).join(' · ')
+    parts.push({ kind: 'persona', label: t('context.persona.label', { name: a.persona.name }), size: a.persona.text.length, unit: 'chars', source: t('context.persona.source'), ...(detail ? { detail } : {}) })
   }
   if (a.noteText && a.noteRevision !== undefined) {
     parts.push({ kind: 'note', label: t('chat.noteTag', { revision: a.noteRevision }), size: a.noteText.length, unit: 'chars', source: t('context.note.source'), revision: a.noteRevision })

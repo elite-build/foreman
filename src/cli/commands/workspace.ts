@@ -238,6 +238,14 @@ const startNew: Run = async (ctx) => {
   }
 }
 
+/** `foreman workspace lineage <workspace> [--lens …] [--mermaid]`: the history through a lens, or its diagram's source. */
+const lineage: Run = async (ctx) => {
+  if (ctx.args.length > 1) throw usageError('foreman workspace lineage takes one workspace.')
+  const workspace = needWorkspace(ctx.args[0])
+  const result = await ctx.send<{ text: string }>('ws-lineage', { workspace, cwd: ctx.cwd, ...(str(ctx.opts.lens) ? { lens: str(ctx.opts.lens) } : {}), ...(ctx.opts.mermaid ? { mermaid: true } : {}) })
+  ctx.print(result, () => result.text)
+}
+
 export const workspaceRunners: Record<string, Run> = {
   new: startNew,
   'workspace list': list,
@@ -256,6 +264,7 @@ export const workspaceRunners: Record<string, Run> = {
   'workspace setup': setup,
   'workspace note': note,
   'workspace usage': simple('ws-usage', noParams),
+  'workspace lineage': lineage,
   'workspace integrations': integrations,
   'workspace spotlight': spotlight,
   'workspace docker': verbed('ws-docker', ['list', 'remove', 'dismiss'], 'docker', false),

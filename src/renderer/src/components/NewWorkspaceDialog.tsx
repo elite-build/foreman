@@ -20,6 +20,7 @@ import { LinearIssuesButton, LinearLine, useHasLinear, useLinearIntake } from '.
 import { useT, type RendererT } from '../i18n'
 import { RepoIconView } from './Sidebar'
 import { IntegrationsMenu, useWorkspaceTools } from './WorkspaceIntegrations'
+import { FlowApproval, FlowInputFields, FlowPicker, FlowRunGraph, flowStartReady, flowTitle, useFlowPreview, useRunnableFlows } from './automations/FlowStartFields'
 import type { WorkspaceIntegrations } from '../../../shared/integrations'
 import { RunsOnField, useCloudReadiness, type RunsOnLocation } from './cloud/RunsOn'
 import { providerLabel, providerRegion, repoCloud, type CloudProviderId } from '../../../shared/cloud'
@@ -444,6 +445,9 @@ function WorkspaceModelSelect({
 
 // 'folder': work directly in the repository folder, on one of its branches.
 type Mode = 'new' | 'existing' | 'folder'
+// What the workspace starts with (offered only while Flows are on; otherwise always a message): a first message, a
+// template, a flow run (docs/loops-and-graphs.md), or an issue or pull request link.
+type StartWith = 'message' | 'template' | 'flow' | 'link'
 
 export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initialTemplateId }: { repoId: string; initialPrompt?: string; initialTemplateId?: string }) {
   const t = useT()
@@ -469,6 +473,13 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const [direct, setDirect] = useState('')
   const directTaken = useStore((s) => s.snapshot!.workspaces.find((w) => w.repoId === repoId && w.direct && w.state !== 'archived'))
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
+  // Start with (Flows on): Message and Template are today's first message; Flow starts a flow run from the base branch.
+  const flowsOn = Boolean(settings.flows)
+  const [startWith, setStartWith] = useState<StartWith>('message')
+  const startsFlow = flowsOn && startWith === 'flow'
+  const [linkText, setLinkText] = useState('')
+  const [flowId, setFlowId] = useState<string | undefined>()
+  const [flowValues, setFlowValues] = useState<Record<string, string>>({})
   // The template the message was written from; kept while it is edited, dropped when it is cleared.
   const [templateId, setTemplateId] = useState<string | undefined>(initialTemplateId)
   const promptInput = useRef<HTMLTextAreaElement>(null)
@@ -497,8 +508,13 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const [files, setFiles] = useState<PendingFile[]>([])
   const [dragging, setDragging] = useState(false)
   const branches = useBranches(repo)
+  const flows = useRunnableFlows(repoId, startsFlow)
+  const chosenFlow = startsFlow ? flows?.find((f) => f.id === flowId) : undefined
+  const { preview: flowPreview, error: flowError } = useFlowPreview(chosenFlow?.id, repoId, base)
+  // Start with › Issue or PR: the link field is what the link detection reads; otherwise the first message is.
+  const linkSource = flowsOn && startWith === 'link' ? linkText : prompt
   // A GitHub issue or PR link (O2: or a GitLab MR or issue) in the first message: one line says what it is; the PR's base becomes the base branch.
-  const link = useMemo(() => findScmLink(prompt), [prompt])
+  const link = useMemo(() => (startsFlow ? null : findScmLink(linkSource)), [linkSource, startsFlow])
   const linkUrl = link?.url
   const [linkInfo, setLinkInfo] = useState<{ url: string; info?: GithubLinkInfo; error?: string } | null>(null)
   useEffect(() => {
@@ -577,6 +593,20 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     setRunSetup(false)
     setLocation('local')
     setIntegrations({})
+    setFlowId(undefined)
+    setFlowValues({})
+  }
+
+  const changeStartWith = (next: StartWith) => {
+    setStartWith(next)
+    // A template is picked from today's picker, opened; a flow runs in a new worktree from the base branch, here.
+    if (next === 'template') setTemplatesOpen(true)
+    if (next === 'flow') {
+      setMode('new')
+      setBranchKind('new')
+      setLocation('local')
+      setTerminalAgent(null)
+    }
   }
 
   const browse = async () => {
@@ -624,18 +654,33 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     // At the running limit a cloud workspace is refused until one is put to sleep.
     !(inCloud && readiness?.block === 'limit')
 
-  const submit = async () => {
+  const flowReady = Boolean(chosenFlow) && flowStartReady(flowPreview, flowValues) && Boolean(base.trim()) && !working
+
+  /** Start with › Flow: the flow run, from this repository and base branch, exactly as its approval card shows it. */
+  const startFlow = async () => {
+    if (!chosenFlow || !flowPreview || !flowReady) return
+    setWorking(true)
+    const run = await attempt(() => api.startFlowRun({ flowId: chosenFlow.id, source: chosenFlow.source, repoId: repo.id, baseBranch: base, inputs: flowValues, shown: flowPreview.fingerprint }))
+    if (!run) return setWorking(false)
+    showToast(t('flowRun.dialog.started', { name: flowTitle(chosenFlow, t) }))
+    close()
+  }
+
+  // `only`: Create workspace only (Start with › Flow): the workspace the form describes, with no first message.
+  const submit = async (only = false) => {
     if (!canSubmit || working) return
     setWorking(true)
+    // Issue or PR: the link, then anything written under it.
+    const source = flowsOn && startWith === 'link' ? [linkText.trim(), prompt.trim()].filter(Boolean).join('\n\n') : prompt
     // G1: a Terminal agent takes no first message; it gets its terminal tab once the workspace exists.
-    const text = terminalAgent ? undefined : (link ? fillIssuePlaceholders(prompt.trim(), link) : prompt.trim()) || undefined
+    const text = terminalAgent || only ? undefined : (link ? fillIssuePlaceholders(source.trim(), link) : source.trim()) || undefined
     // The link is only sent once it has been read, so a typo'd URL doesn't block creating the workspace.
     // A cloud workspace checks the pull request out in its sandbox when it's on the repository's own GitHub remote (main says so otherwise).
     const githubUrl = resolved && !(resolved.kind === 'pr' && resolved.problem && mode === 'new') ? linkUrl : undefined
     // A Linear issue goes along once it has been read (a problem, like another workspace's issue, leaves it out).
-    const linearIssue = linear?.info?.issue ? linear.ref : undefined
+    const linearIssue = !only && linear?.info?.issue ? linear.ref : undefined
     const fromTemplate = text ? templateId : undefined
-    const attachments = terminalAgent || !files.length ? undefined : files.map((f) => f.path)
+    const attachments = terminalAgent || only || !files.length ? undefined : files.map((f) => f.path)
     // The template's start model is applied by the app when no model was chosen here.
     const sendLoadout = templateModel ? undefined : loadout
     // Every switchable integration as it was shown, so later changes to the defaults don't flip this workspace.
@@ -672,12 +717,13 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.defaultPrevented) return
     const modDown = mac ? e.metaKey : e.ctrlKey
     const tag = (e.target as HTMLElement).tagName
+    const go = () => void (startsFlow ? startFlow() : submit())
     if (modDown && !e.altKey && !e.shiftKey) {
       e.preventDefault()
-      void submit()
+      go()
     } else if (!modDown && !e.altKey && !e.shiftKey && tag !== 'TEXTAREA' && tag !== 'BUTTON' && tag !== 'SELECT') {
       e.preventDefault()
-      void submit()
+      go()
     }
   }
 
@@ -713,7 +759,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     <Dialog title={t('palette.newWorkspace')} className="nw-modal" onClose={close} headerExtra={<RepoChip repos={repos} repo={repo} onChange={changeRepo} />}>
       <div className="nw-body" onKeyDown={onKeyDown}>
         <div className="nw-settings">
-          {readiness?.offer && (
+          {readiness?.offer && !startsFlow && (
             <RunsOnField
               repo={repo}
               readiness={readiness}
@@ -726,6 +772,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
               }}
             />
           )}
+          {!startsFlow && (
           <Segmented
             plain
             className="nw-mode"
@@ -738,8 +785,15 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
             ]}
             onChange={setMode}
           />
+          )}
 
-          {mode === 'new' ? (
+          {startsFlow ? (
+            <div className="dlg-group">
+              <span className="dlg-label">{t('newWorkspace.base.startFrom')}</span>
+              <BranchPicker key={`flow-base-${repo.id}`} branches={branches.list} value={base} onChange={setBase} home={home} label={t('newWorkspace.base.startFrom')} />
+              <small className="nw-hint">{fetchHint}</small>
+            </div>
+          ) : mode === 'new' ? (
             <>
               <div className="dlg-group">
                 <span className="dlg-label">{branchKind === 'existing' ? t('newWorkspace.base.label') : t('newWorkspace.base.startFrom')}</span>
@@ -851,6 +905,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
             </>
           )}
 
+          {!startsFlow && (
           <WorkspaceModelSelect
             value={templateModel ?? loadout}
             onChange={(choice) => {
@@ -866,7 +921,8 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
             }}
             note={templateModel && chosenTemplate ? t('newWorkspace.model.fromTemplate', { name: chosenTemplate.name }) : undefined}
           />
-          {offerTools && (
+          )}
+          {offerTools && !startsFlow && (
             <Field label={t('workspaceIntegrations.label')} description={t('workspaceIntegrations.help')}>
               {(control) => (
                 <IntegrationsMenu
@@ -882,7 +938,52 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
         </div>
 
         <div className="nw-message">
+          {flowsOn && (
+            <Segmented
+              className="nw-start-with"
+              label={t('newWorkspace.startWith.label')}
+              value={startWith}
+              options={[
+                { value: 'message', label: t('newWorkspace.startWith.message') },
+                { value: 'template', label: t('newWorkspace.startWith.template') },
+                { value: 'flow', label: t('newWorkspace.startWith.flow') },
+                { value: 'link', label: t('newWorkspace.startWith.link') }
+              ]}
+              onChange={changeStartWith}
+            />
+          )}
+          {startsFlow ? (
+            <div className="nw-flow">
+              {flows === null ? (
+                <Status tone="off" role="status" label={t('newWorkspace.flow.loading')} />
+              ) : flows.length === 0 ? (
+                <Status tone="off" role="status" label={t('newWorkspace.flow.none')} />
+              ) : (
+                <FlowPicker
+                  legend={t('newWorkspace.flow.label')}
+                  flows={flows}
+                  value={flowId}
+                  onChange={(id) => {
+                    setFlowId(id)
+                    setFlowValues({})
+                  }}
+                />
+              )}
+              {chosenFlow && (
+                <>
+                  <FlowInputFields preview={flowPreview} values={flowValues} onChange={setFlowValues} />
+                  <FlowRunGraph flow={chosenFlow} />
+                  <FlowApproval flow={chosenFlow} summary={flowPreview?.summary} error={flowError} />
+                </>
+              )}
+            </div>
+          ) : (
           <div className="nw-prompt">
+            {flowsOn && startWith === 'link' && (
+              <Field label={t('newWorkspace.startWith.linkLabel')} description={t('newWorkspace.startWith.linkHelp')} className="nw-link">
+                {(control) => <TextInput {...control} spellCheck={false} autoComplete="off" value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="https://github.com/owner/repo/pull/123" />}
+              </Field>
+            )}
             <div className="nw-prompt-head">
               <label htmlFor={promptId}>
                 {t.rich('newWorkspace.prompt.label', { optional: <span className="nw-optional">{t('newWorkspace.prompt.optional')}</span> })}
@@ -968,15 +1069,29 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
               </>
             )}
           </div>
+          )}
 
           <div className="nw-actions">
-            {inCloud && readiness && <span className="nw-footnote">{remoteFootnote(t, readiness.provider, repoCloud(repo).region, readiness.view)}</span>}
+            {inCloud && readiness && !startsFlow && <span className="nw-footnote">{remoteFootnote(t, readiness.provider, repoCloud(repo).region, readiness.view)}</span>}
             <Button onClick={close}>{t('common.cancel')}</Button>
-            <Button variant="primary" disabled={!canSubmit || working} onClick={() => void submit()}>
-              {working && <Spinner size={13} />}
-              {submitLabel}
-              <Kbd>{mac ? '⌘↵' : 'Ctrl+Enter'}</Kbd>
-            </Button>
+            {startsFlow ? (
+              <>
+                <Button disabled={!canSubmit || working} onClick={() => void submit(true)}>
+                  {t('newWorkspace.flow.createOnly')}
+                </Button>
+                <Button variant="primary" disabled={!flowReady} onClick={() => void startFlow()}>
+                  {working && <Spinner size={13} />}
+                  {t('flowRun.dialog.start')}
+                  <Kbd>{mac ? '⌘↵' : 'Ctrl+Enter'}</Kbd>
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" disabled={!canSubmit || working} onClick={() => void submit()}>
+                {working && <Spinner size={13} />}
+                {submitLabel}
+                <Kbd>{mac ? '⌘↵' : 'Ctrl+Enter'}</Kbd>
+              </Button>
+            )}
           </div>
         </div>
       </div>

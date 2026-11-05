@@ -718,7 +718,8 @@ async function main(): Promise<void> {
     armLimitResume: (sessionId, turnId) => started.limitResume.arm(sessionId, turnId),
     cancelLimitResume: (sessionId) => started.limitResume.cancel(sessionId),
     firstTurn: (workspaceId) => started.firstTurn(workspaceId),
-    createWorkspace: (repoId, options) => started.api.createWorkspace(repoId, options),
+    createWorkspace: (repoId, options, extra) => started.createWorkspaceFor(repoId, options, extra),
+    startFlowRun: async (input, origin) => started.startFlowRunFrom(input, origin),
     setupOutcome: (workspaceId) => started.setupOutcome(workspaceId),
     startHeldMessage: (workspaceId) => started.startHeldMessage(workspaceId),
     runChecks: (workspaceId) => started.checks.runForCli(workspaceId),
@@ -785,6 +786,8 @@ async function main(): Promise<void> {
   void core.autoReview.resume().catch((err: unknown) => console.error('Auto review:', err))
   core.baseWatch.start()
   core.schedules.start()
+  // Flow runs that were in flight when Foreman closed are uncertain, never retried.
+  core.flows.start()
   // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).
   core.autoArchive.start()
   // #11: an armed usage-limit resume whose time came while Foreman was closed, or the computer asleep, asks instead of sending.

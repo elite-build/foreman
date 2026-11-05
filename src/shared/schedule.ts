@@ -13,6 +13,11 @@ export const MISSED_GRACE_MS = 5 * 60_000
 export const GLOBAL_ACTIVE_CAP = 2
 export const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const
 
+/** What a schedule runs, by name: its flow's, else its template's (as each was when scheduled). */
+export function scheduleName(s: Pick<Schedule, 'templateName' | 'flow'>): string {
+  return s.flow?.flowName ?? s.templateName ?? ''
+}
+
 export interface ScheduleSpec {
   recurrence: Schedule['recurrence']
   startDate: string

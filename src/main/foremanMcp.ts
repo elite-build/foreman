@@ -4,11 +4,11 @@ import { PassThrough } from 'node:stream'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { FOREMAN_TOOLS, type ForemanToolName } from '../shared/foremanTools'
+import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, type ForemanToolName } from '../shared/foremanTools'
 import type { Session } from '../shared/types'
 import type { McpLaunch } from './agents/types'
 import type { ForemanActions } from './foremanActions'
-import { DELEGATION_TOOLS, type DelegationToolName } from '../shared/foremanDelegation'
+import { DELEGATION_TOOLS, delegationToolNames } from '../shared/foremanDelegation'
 import type { ForemanDelegation } from './foremanDelegation'
 import type { ForemanCli } from './foremanCli'
 import { FOREMAN_CLI_TOOL } from '../shared/foremanCli'
@@ -19,6 +19,8 @@ interface Deps {
   session(id: string): Session | undefined
   launch(): { command: string; args: string[]; env: Record<string, string> } | null
   socket(): string | null
+  // Settings → Experimental → Flows: off, the flow delegation tools aren't offered at all.
+  flowsOn?(): boolean
 }
 
 /** Local capabilities, never the CLI's optional/cooperative caller identity. */
@@ -104,7 +106,7 @@ export class ForemanMcp {
         return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
       }
     })
-    if (this.delegation) for (const name of Object.keys(DELEGATION_TOOLS) as DelegationToolName[]) {
+    if (this.delegation) for (const name of delegationToolNames(Boolean(this.deps.flowsOn?.()))) {
       const definition = DELEGATION_TOOLS[name]
       if (readOnly && !definition.readOnly) continue
       server.registerTool(name, {
@@ -120,6 +122,22 @@ export class ForemanMcp {
         }
       })
     }
+    // A flow's decide step only: the turn's mark names its options (Session.unattended), so no other turn is offered it.
+    const grant = this.grants.get(grantId)
+    const marked = grant && this.deps.session(grant.sessionId)?.unattended
+    if (marked && 'decide' in marked && marked.decide?.length) server.registerTool(FLOW_DECIDE_TOOL.name, {
+      description: `${FLOW_DECIDE_TOOL.description} The options: ${marked.decide.join(', ')}.`,
+      inputSchema: FLOW_DECIDE_TOOL.schema,
+      annotations: { readOnlyHint: true }
+    }, async (args) => {
+      try {
+        const scope = this.scope(grantId)
+        const result = this.deps.actions.decide(scope.sessionId, args.option)
+        return { content: [{ type: 'text' as const, text: result.message }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
+      }
+    })
     for (const name of Object.keys(FOREMAN_TOOLS) as ForemanToolName[]) {
       const definition = FOREMAN_TOOLS[name]
       if (readOnly && !definition.readOnly) continue

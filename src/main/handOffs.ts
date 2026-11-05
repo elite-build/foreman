@@ -18,7 +18,7 @@ import {
   type ContextSection
 } from '../shared/handOff'
 import { reviewInstructions } from '../shared/prompts'
-import type { Attachment, ChatItem, HandOffKind, HandOffPreview, HandOffRequest, HandOffResult, Loadout } from '../shared/types'
+import type { Attachment, ChatItem, HandedOffFrom, HandOffKind, HandOffPreview, HandOffRequest, HandOffResult, Loadout } from '../shared/types'
 import { workspaceDiffPatch, workspaceDiffStat, workspaceDiffText } from './diff'
 import { attachFromData } from './files'
 import { workspaceTarget } from './runtime'
@@ -142,6 +142,16 @@ export class HandOffService {
       sections.push({ kind: 'diff', label: now.diff.stat ? `Diff stat against ${now.diff.baseRef}` : `Diff against ${now.diff.baseRef}`, text: now.diff.text })
     }
 
+    // Where the new chat came from, kept on it: the source, the turn it was taken after, the sections and their hashes.
+    const afterTurn = (request.answer ? now.answer?.turnId : undefined) ?? request.taskTurnId
+    const handedOffFrom: HandedOffFrom = {
+      sessionId: sourceId,
+      kind: request.kind,
+      ...(afterTurn ? { turnId: afterTurn } : {}),
+      sections: sections.map((s) => s.kind),
+      hashes: { ...(request.taskTurnId ? { task: request.expect.task } : {}), ...(request.answer ? { answer: request.expect.answer } : {}), ...(request.diff ? { diff: request.expect.diff } : {}) },
+      at: new Date().toISOString()
+    }
     const assembled = assembleHandOff(request.message, sections)
     const attachments: Attachment[] = []
     if (request.kind === 'review') {
@@ -160,6 +170,9 @@ export class HandOffService {
         title: request.kind === 'continue' ? (source.title ? `${source.title} (continued)` : 'Continued chat') : TITLES[request.kind],
         // #16: enforced by the session (refused for an agent that can't enforce it).
         readOnly: request.readOnly || undefined,
+        prepare: (target) => {
+          target.handedOffFrom = handedOffFrom
+        },
         // The last look, right before the tab is created: the attachments above took a moment.
         guard: async () => {
           if (request.kind !== 'continue') return

@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AgentKind } from '../../shared/agents'
 import type { HostTurnInfo, HostWaiting } from '../../shared/agentHost'
-import type { ApprovalRequest, ChatItem, ContextUsage } from '../../shared/types'
+import type { AgentApprovalRequest, ApprovalRequest, ChatItem, ContextUsage } from '../../shared/types'
 import type { ChatAppend } from '../../shared/chatAppend'
 import type { TurnRequest, TurnResult } from '../agents/types'
 import type { ReportKind } from '../../shared/agentReports'
@@ -54,7 +54,7 @@ export type HostEventBody =
 export type HostEvent = HostEventBody & { seq: number; turnId: string; at: string }
 
 // An approval request before the app gives it its own id and session.
-export type NewApproval = ApprovalRequest extends infer R ? (R extends ApprovalRequest ? Omit<R, 'id' | 'sessionId'> : never) : never
+export type NewApproval = AgentApprovalRequest extends infer R ? (R extends AgentApprovalRequest ? Omit<R, 'id' | 'sessionId'> : never) : never
 
 export interface HostApproval {
   id: string

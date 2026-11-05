@@ -1,4 +1,4 @@
-// Automations: a library of prompt templates and saved commands. Each template card says when it runs and how its last
+// Automations: a library of prompt templates and saved commands (and flows, while Settings → Experimental → Flows is on). Each template card says when it runs and how its last
 // run went; the side panel lists the schedules, or the selected template or schedule. Covers the workspace area like
 // Settings, so open workspaces stay mounted.
 import { ArrowLeft, CalendarClock, Play, Plus, RotateCcw, Zap } from 'lucide-react'
@@ -12,6 +12,7 @@ import { ActionRow, Button, IconButton, LinkButton, Status, Tab, TabList, TabPan
 import { cadenceText, nextPill } from '../ScheduleDialogs'
 import { saveSettings, useSettings } from '../settings/controls'
 import { CommandsSection } from './CommandsSection'
+import { FlowsSection } from './FlowsSection'
 import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview, TemplateDetail } from './details'
 import '../settings/settings.css'
 import './automations.css'
@@ -61,6 +62,7 @@ export function AutomationsView() {
             <TextInput type="search" className="auto-search" aria-label={t('automations.search')} placeholder={t('automations.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
           <TabPanel value="all" className="auto-lib-scroll">
+            <FlowsSection query={query} />
             <TemplateShelf query={query} />
             <CommandsSection query={query} />
           </TabPanel>

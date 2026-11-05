@@ -1,7 +1,7 @@
 // Claude Code through the Claude Agent SDK.
 import { FOREMAN_TOOLS, foremanToolArgs, type ForemanToolName } from '../../shared/foremanTools'
-import { DELEGATION_TOOLS, type DelegationToolName } from '../../shared/foremanDelegation'
-import { FOREMAN_CLI_TOOL } from '../../shared/foremanCli'
+import { DELEGATION_TOOLS, delegationToolNames } from '../../shared/foremanDelegation'
+import { ASSISTANT_CLI_ARGS } from '../../shared/foremanCli'
 import {
   createSdkMcpServer,
   query,
@@ -102,7 +102,7 @@ const text = (value: string) => ({ content: [{ type: 'text' as const, text: valu
 /** The assistant's tools on its own MCP server. They read, search, offer the user a button, or propose a command the user must click to run. */
 export function assistantTools(tools: AssistantTools & Partial<OperatorTools>) {
   const base = [
-    ...tools.delegate ? (Object.keys(DELEGATION_TOOLS) as DelegationToolName[]).map((name) => tool(
+    ...tools.delegate ? delegationToolNames(Boolean(tools.flowsOn)).map((name) => tool(
       name,
       DELEGATION_TOOLS[name].description + (DELEGATION_TOOLS[name].readOnly ? '' : ' Proposes the action; the user must click Run before it executes.'),
       (DELEGATION_TOOLS[name].schema as z.ZodObject<z.ZodRawShape>).shape,
@@ -144,7 +144,7 @@ export function assistantTools(tools: AssistantTools & Partial<OperatorTools>) {
     tool(
       'run_foreman',
       'CLI escape hatch: prefer dedicated Foreman tools whenever they cover the task. Propose a `foreman` command as its words after "foreman" (for example ["settings","set","appearance.theme","dark"]). It does not run: the user sees the command with Run and Cancel, and it runs only when they click Run; its output then comes back as a message. Check the options with cli_help first. Never put a secret in it.',
-      FOREMAN_CLI_TOOL.schema.shape,
+      ASSISTANT_CLI_ARGS.shape,
       async (args) => text(tools.runForeman(args.args))
     )
   ]

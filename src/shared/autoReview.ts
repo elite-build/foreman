@@ -259,7 +259,7 @@ const SEVERITY_WORD: Record<AutoReviewSeverity, string> = { high: 'High', medium
  * The message "Send to worker…" sends, shown in full before it goes. It says where the findings came from and that
  * they are an opinion; a stale review says the files changed since.
  */
-export function findingsMessage(review: AutoReview, findings: AutoReviewFinding[]): string {
+export function findingsMessage(review: Pick<AutoReview, 'reviewer' | 'tree' | 'stale'>, findings: (Omit<AutoReviewFinding, 'id'> & { id?: string })[]): string {
   const reviewer = modelInfo(review.reviewer.agent, review.reviewer.model).label
   const head =
     `An auto review (${reviewer}, read-only) of this workspace's diff at tree ${review.tree.slice(0, 7)} found ${findings.length === 1 ? 'this' : 'these'}. ` +

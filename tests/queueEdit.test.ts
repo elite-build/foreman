@@ -194,6 +194,32 @@ describe('editing a queued message in place', () => {
     expect(session.queue).toEqual([])
     agent.release()
   })
+
+  it('refuses editing, moving, sending now or deleting a running flow’s next step, naming the flow, and allows it once the run ends', async () => {
+    const { sessions, session, ws, store } = await setupSessions()
+    const agent = firstTurnHeld(ws)
+    const run = { id: 'run-1', flow: { id: 'f', name: 'Fix until green', source: 'built-in' }, state: 'running', steps: [] } as unknown as NonNullable<typeof store.state.flowRuns>[number]
+    store.state.flowRuns = [run]
+    await sessions.deliver(session.id, 'first')
+    // As FlowService delivers a step: the turn marked unattended for the run, then queued with its origin.
+    sessions.markUnattended('flow-turn', { flowRunId: 'run-1', step: 'fix' })
+    await sessions.deliver(session.id, 'Fix the checks.', { mode: 'queue', turnId: 'flow-turn', origin: { kind: 'flow', runId: 'run-1', step: 'fix', iteration: 1 } })
+    await sessions.deliver(session.id, 'mine', { mode: 'queue' })
+    const [step, mine] = session.queue
+    const refusal = 'This message is the next step of the flow “Fix until green”, so it can’t be changed, moved, sent now or deleted. Stop the run to take it back.'
+    expect(() => sessions.editQueued(session.id, step.id, 'something else', session.queueRevision!)).toThrow(refusal)
+    expect(() => sessions.moveQueued(session.id, step.id, 'down', session.queueRevision!)).toThrow(refusal)
+    expect(() => sessions.removeQueued(session.id, step.id)).toThrow(refusal)
+    await expect(sessions.steerQueued(session.id, step.id)).rejects.toThrow(refusal)
+    expect(session.queue.map((m) => m.text)).toEqual(['Fix the checks.', 'mine'])
+    // Your own message beside it is yours to change.
+    expect(sessions.editQueued(session.id, mine.id, 'mine, edited', session.queueRevision!).ok).toBe(true)
+    // Once the run has ended, the message is an ordinary one.
+    run.state = 'stopped'
+    sessions.removeQueued(session.id, step.id)
+    expect(session.queue.map((m) => m.text)).toEqual(['mine, edited'])
+    agent.release()
+  })
 })
 
 describe('edit against dispatch', () => {

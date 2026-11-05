@@ -1,11 +1,12 @@
 import { Copy, ImageDown, TriangleAlert } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { useT } from '../i18n'
+import { useT, type RendererT } from '../i18n'
 import { showToast } from '../store'
 import { onAppearanceChange } from '../theme'
 import { cachedRender, readThemeTokens, renderMermaid, svgElement, type RenderResult } from './mermaidRender'
 import {
   checkMermaidSource,
+  type SourceCheck,
   MERMAID_MAX_CHARS,
   MERMAID_RENDER_TIMEOUT_MS,
   MERMAID_VIEW_KEY,
@@ -64,21 +65,13 @@ function useDiagramTheme(enabled: boolean): ReturnType<typeof readThemeTokens> |
 }
 
 /**
- * A ```mermaid block (#18): the diagram, or the source one click away. It renders once,
- * after the fence closes (`complete`), never per streamed token; until then, and if
- * rendering fails, it shows the code (`children`, the highlighted <pre>).
+ * A diagram's render once `complete`, in the current theme, again when the theme changes: seeded from the cache, so a
+ * remounted view shows its picture without a "Rendering" flash. A theme change keeps the old picture until the new one.
  */
-export function MermaidBlock({ source, complete, children }: { source: string; complete: boolean; children: ReactNode }) {
-  const t = useT()
-  const [choice, setChoice] = useState<View>(loadView)
-  const choose = (view: View) => {
-    setChoice(view)
-    saveView(view)
-  }
+export function useMermaid(source: string, complete: boolean): { result: RenderResult | undefined; check: SourceCheck } {
   const theme = useDiagramTheme(complete)
   const key = theme ? themeKey(theme.tokens, theme.dark) : ''
   const check = checkMermaidSource(source)
-  // Seeded from the cache, so a remounted chat shows its diagrams without a "Rendering" flash.
   const [rendered, setRendered] = useState<{ source: string; key: string; result: RenderResult } | null>(() => {
     const hit = key ? cachedRender(source, key) : undefined
     return hit ? { source, key, result: hit } : null
@@ -96,21 +89,31 @@ export function MermaidBlock({ source, complete, children }: { source: string; c
     // `theme` changes exactly when `key` does.
   }, [complete, source, key, check.ok])
 
-  // A theme change keeps the old picture up until the new one is ready.
-  const result = rendered?.source === source ? rendered.result : undefined
-  const failure: string | null = !complete
-    ? null
-    : !check.ok
-      ? check.reason === 'empty'
-        ? t('mermaid.empty')
-        : t('mermaid.tooBig', { chars: check.chars.toLocaleString(t.locale), max: MERMAID_MAX_CHARS.toLocaleString(t.locale) })
-      : result && !result.ok
-        ? result.kind === 'timeout'
-          ? t('mermaid.timeout', { seconds: MERMAID_RENDER_TIMEOUT_MS / 1000 })
-          : result.kind === 'load'
-            ? t('mermaid.loadFailed')
-            : mermaidErrorDetail(result.error)
-        : null
+  return { result: rendered?.source === source ? rendered.result : undefined, check }
+}
+
+/** Why a complete diagram can't be shown, in words; null while it can (or is still rendering). */
+export function mermaidFailure(t: RendererT, complete: boolean, check: SourceCheck, result: RenderResult | undefined): string | null {
+  if (!complete) return null
+  if (!check.ok) return check.reason === 'empty' ? t('mermaid.empty') : t('mermaid.tooBig', { chars: check.chars.toLocaleString(t.locale), max: MERMAID_MAX_CHARS.toLocaleString(t.locale) })
+  if (!result || result.ok) return null
+  return result.kind === 'timeout' ? t('mermaid.timeout', { seconds: MERMAID_RENDER_TIMEOUT_MS / 1000 }) : result.kind === 'load' ? t('mermaid.loadFailed') : mermaidErrorDetail(result.error)
+}
+
+/**
+ * A ```mermaid block (#18): the diagram, or the source one click away. It renders once,
+ * after the fence closes (`complete`), never per streamed token; until then, and if
+ * rendering fails, it shows the code (`children`, the highlighted <pre>).
+ */
+export function MermaidBlock({ source, complete, children }: { source: string; complete: boolean; children: ReactNode }) {
+  const t = useT()
+  const [choice, setChoice] = useState<View>(loadView)
+  const choose = (view: View) => {
+    setChoice(view)
+    saveView(view)
+  }
+  const { result, check } = useMermaid(source, complete)
+  const failure = mermaidFailure(t, complete, check, result)
   const canShowDiagram = complete && failure === null
   const view: View = canShowDiagram ? choice : 'code'
   const svg = result?.ok ? result.svg : null
@@ -168,7 +171,7 @@ export function MermaidBlock({ source, complete, children }: { source: string; c
 }
 
 /** The sanitised SVG, put in as DOM nodes (never as an HTML string). */
-function DiagramView({ svg, label }: { svg: string; label: string }) {
+export function DiagramView({ svg, label }: { svg: string; label: string }) {
   const ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const el = svgElement(svg)

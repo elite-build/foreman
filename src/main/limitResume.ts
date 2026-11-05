@@ -6,15 +6,15 @@
 //  - at the reset time plus a small buffer it goes through the tab's normal send path; the tab's queue is left alone;
 //  - any send, queue, steer, rewind, restore, model change, close or archive in that tab removes it first;
 //  - if Foreman was closed or the computer asleep at that time, it is marked missed and asks instead of sending late.
-import type { ChatItem, LimitResume, Session } from '../shared/types'
+import type { ChatItem, LimitResume, MessageOrigin, Session } from '../shared/types'
 import { MISSED_GRACE_MS } from '../shared/schedule'
 import { READS_RESET_TIME, RESUME_BUFFER_MS, RESUME_TEXT } from '../shared/usageLimit'
 
 export interface LimitResumeDeps {
   sessions(): Session[]
   readChat(sessionId: string): Promise<ChatItem[]>
-  /** The tab's normal send path, through its queue. */
-  send(sessionId: string, text: string): Promise<unknown>
+  /** The tab's normal send path, through its queue; the message carries `origin` as its receipt. */
+  send(sessionId: string, text: string, origin: MessageOrigin): Promise<unknown>
   /** Write everything to disk now (not debounced). */
   flush(): void
   changed(): void
@@ -168,7 +168,7 @@ export class LimitResumeService {
     delete session.limitResume
     this.persist()
     try {
-      await this.deps.send(session.id, resume.text)
+      await this.deps.send(session.id, resume.text, { kind: 'limit-resume' })
     } catch (err) {
       // Something else may have happened in the tab meanwhile; only an empty slot takes it back.
       if (session.limitResume || session.closedAt) return

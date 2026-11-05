@@ -16,6 +16,7 @@ import {
   teachText,
   TURN_ENV,
   type AgentReport,
+  type RecordedKind,
   type ReportKind,
   type TeachText,
   type TurnCaller
@@ -60,7 +61,7 @@ export interface RecordInput {
   workspaceId: string
   sessionId?: string
   turnId?: string
-  kind: ReportKind | 'review'
+  kind: RecordedKind
   text: string
   link?: string
   via: AgentReport['via']

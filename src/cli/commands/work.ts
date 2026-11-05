@@ -9,7 +9,7 @@ import { waitText } from '../format'
 import { commaList } from './automationKit'
 import type { ReposListResult } from '../../shared/cli/repos'
 import type { AskResult } from '../../main/cli/ask'
-import { CHECKS_EXIT, EXIT_DISCONNECTED, EXIT_SETUP_HELD, WAIT_EXIT, type CancelResult, type ChecksCliResult, type ReportParams, type ReportResult, type ResumeAtResult, type RunResult, type SendResult, type StatusResult, type TemplateSummary, type WaitResult } from '../protocol'
+import { CHECKS_EXIT, EXIT_DISCONNECTED, EXIT_SETUP_HELD, WAIT_EXIT, type CancelResult, type ChecksCliResult, type DecideParams, type DecideResult, type ReportParams, type ReportResult, type ResumeAtResult, type RunResult, type SendResult, type StatusResult, type TemplateSummary, type WaitResult } from '../protocol'
 
 const str = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
 
@@ -93,6 +93,14 @@ function reporter(review: boolean): Run {
     const reported = await ctx.send<ReportResult>('report', { kind: kind as ReportParams['kind'], text, link: str(ctx.opts.link), cwd: ctx.cwd })
     ctx.print(reported, () => reported.message)
   }
+}
+
+/** `foreman decide <option>`: a flow's decide step's turn says which option it decided on. */
+const decide: Run = async (ctx) => {
+  const option = ctx.args.join(' ').trim()
+  if (!option) throw usageError('Say which option you decided on: foreman decide <option>')
+  const decided = await ctx.send<DecideResult>('decide', { option } satisfies DecideParams)
+  ctx.print(decided, () => decided.message)
 }
 
 const checks: Run = async (ctx) => {
@@ -214,6 +222,7 @@ export const workRunners: Record<string, Run> = {
   ask,
   report: reporter(false),
   review: reporter(true),
+  decide,
   templates,
   repos
 }

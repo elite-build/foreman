@@ -508,6 +508,18 @@ export async function restoreArchived(workspaceId: string): Promise<boolean> {
   return true
 }
 
+/**
+ * Open one turn of a chat (the Lineage tab's outline): its tab, scrolled to the turn's message. A closed tab in a live
+ * workspace is reopened first.
+ */
+export async function openTurn(workspaceId: string, sessionId: string, turnId: string): Promise<void> {
+  const session = state.snapshot?.sessions.find((s) => s.id === sessionId)
+  if (session?.closedAt && !(await attempt(() => api.reopenSession(workspaceId, sessionId)))) return
+  setState({ chatJump: { sessionId, itemId: `user:${turnId}`, nonce: ++jumpCounter } })
+  selectWorkspace(workspaceId)
+  selectSession(workspaceId, sessionId)
+}
+
 export function clearChatJump(nonce: number): void {
   if (state.chatJump?.nonce === nonce) setState({ chatJump: null })
 }

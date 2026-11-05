@@ -13,7 +13,7 @@
 // Only Node built-ins and git, like scripts/release.mjs.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs'
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -117,6 +117,39 @@ function screens(cwd, args) {
  * Run `fn` with a temporary detached worktree of `root` at `ref` whose node_modules links to `root`'s, then remove the
  * worktree whatever happens. Cleanup problems are reported, not thrown, so they never hide `fn`'s own error.
  */
+/**
+ * Remove the link at `link` and nothing it points to. On Windows it is a junction: `rmSync` won't take it without
+ * `recursive`, which would empty the folder it points to, so it goes with `rmdirSync` (a junction is removed as an
+ * empty directory); elsewhere a symbolic link goes with `unlinkSync`. Throws when `link` is there but isn't a link.
+ * Nothing there is fine.
+ */
+export function removeLink(link) {
+  let stats
+  try {
+    stats = lstatSync(link)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return
+    throw error
+  }
+  if (!stats.isSymbolicLink()) throw new Error(`${link} is not a link, so it was left alone`)
+  if (process.platform !== 'win32') return unlinkSync(link)
+  try {
+    rmdirSync(link)
+  } catch {
+    // A file symbolic link rather than a junction.
+    unlinkSync(link)
+  }
+}
+
+const present = (file) => {
+  try {
+    lstatSync(file)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function withBaseWorktree(root, ref, fn) {
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   const parent = mkdtempSync(path.join(os.tmpdir(), 'foreman-pr-base-'))
@@ -131,20 +164,24 @@ export function withBaseWorktree(root, ref, fn) {
     const problems = []
     // The link itself, before the worktree goes: never what it points to.
     try {
-      rmSync(link, { force: true })
+      removeLink(link)
     } catch (error) {
       problems.push(`could not remove the node_modules link: ${error instanceof Error ? error.message : error}`)
     }
-    try {
-      if (existsSync(worktree)) git('worktree', 'remove', '--force', worktree)
-    } catch (error) {
-      problems.push(`could not remove the worktree ${worktree}: ${error instanceof Error ? error.message : error}`)
-    }
-    try {
-      git('worktree', 'prune')
-      rmSync(parent, { recursive: true, force: true })
-    } catch (error) {
-      problems.push(`could not clean up ${parent}: ${error instanceof Error ? error.message : error}`)
+    // Only once the link is gone: removing the worktree (git, or rmSync) would follow it into the checkout's node_modules.
+    if (present(link)) problems.push(`left ${parent} in place: its node_modules link to ${modules} is still there`)
+    else {
+      try {
+        if (existsSync(worktree)) git('worktree', 'remove', '--force', worktree)
+      } catch (error) {
+        problems.push(`could not remove the worktree ${worktree}: ${error instanceof Error ? error.message : error}`)
+      }
+      try {
+        git('worktree', 'prune')
+        rmSync(parent, { recursive: true, force: true })
+      } catch (error) {
+        problems.push(`could not clean up ${parent}: ${error instanceof Error ? error.message : error}`)
+      }
     }
     if (existsSync(modules) && !existsSync(path.join(modules, '.package-lock.json'))) problems.push(`${modules} looks emptied: run npm ci`)
     for (const p of problems) console.error(`pr-screens: ${p}`)

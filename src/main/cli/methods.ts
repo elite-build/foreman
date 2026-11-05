@@ -4,7 +4,7 @@ import type { TurnCaller } from '../../shared/agentReports'
 import { templatePlaceholders, templateSlug } from '../../shared/promptTemplates'
 import { qualifiedName } from '../../shared/repoTemplates'
 import { readRepoTemplates } from '../repoTemplates'
-import type { CancelParams, ChecksParams, ExportParams, ImportParams, ReportParams, RepoSummary, ResumeAtParams, RunParams, SendParams, TemplateSummary, WaitParams, WaitResult } from '../../cli/protocol'
+import type { CancelParams, ChecksParams, DecideParams, ExportParams, ImportParams, ReportParams, RepoSummary, ResumeAtParams, RunParams, SendParams, TemplateSummary, WaitParams, WaitResult } from '../../cli/protocol'
 import { appMethods } from './app'
 import { ASK_METHODS } from './ask'
 import { APPROVAL_METHODS } from './approvals'
@@ -13,21 +13,24 @@ import { GIT_METHODS } from './git'
 import { REPOS_METHODS } from './repos'
 import { TAB_METHODS } from './tabs'
 import { statusWords, waitWords, wantsWords } from './words'
-import { WORKSPACE_METHODS } from './workspaces'
+import { startedByCaller, WORKSPACE_METHODS } from './workspaces'
 import { AGENTS_METHODS } from './agents'
 import { COMMANDS_METHODS } from './commands'
 import { DATA_METHODS } from './data'
 import { ENV_METHODS } from './env'
+import { FLOW_METHODS } from './flows'
+import { LINEAGE_METHODS } from './lineage'
+import { PERSONA_METHODS } from './personas'
 import { INTEGRATIONS_METHODS } from './integrations'
 import { REPO_SETTINGS_METHODS } from './repoSettings'
 import { SCHEDULES_METHODS } from './schedules'
 import { SETTINGS_METHODS } from './settings'
 import { TEMPLATES_METHODS } from './templates'
 import type { CliHost } from './host'
-import type { AnyCliRequest, Tier } from './policy'
+import { callerTurn, type AnyCliRequest, type Tier } from './policy'
 import { importCommand, exportCommand } from './portability'
 import { resolveRepo } from './resolve'
-import { cancel, checks, report, resumeAt, run, send, status, waitForTurn } from './work'
+import { cancel, checks, decide, report, resumeAt, run, send, status, waitForTurn } from './work'
 
 /** What a handler gets besides its parameters. */
 export interface CliContext {
@@ -82,10 +85,19 @@ export const METHODS: Record<string, CliMethod> = {
   },
   // A report is how an agent talks to the user; it changes nothing about Foreman's setup.
   report: { tier: 'read', handle: async (host, params, ctx) => report(host, params as ReportParams, ctx.caller) },
+  // A flow's decide step says which option it took, like a report: it records, and changes nothing else.
+  decide: { tier: 'read', handle: async (host, params, ctx) => decide(host, params as DecideParams, ctx.caller) },
   // app-info, doctor, cli-status and cli-install are in app.ts.
   ...appMethods,
-  run: { tier: 'act', handle: async (host, params) => run(host, params as RunParams) },
-  send: { tier: 'act', handle: async (host, params) => send(host, params as SendParams) },
+  // From inside a turn, the workspace records the chat that started it, and a queued message the chat that sent it.
+  run: { tier: 'act', handle: async (host, params, ctx) => run(host, params as RunParams, startedByCaller(host, ctx)) },
+  send: {
+    tier: 'act',
+    handle: async (host, params, ctx) => {
+      const from = callerTurn(host, ctx.caller)
+      return send(host, params as SendParams, from ? { origin: { kind: 'delegation', ...from } } : {})
+    }
+  },
   'resume-at': { tier: 'act', handle: async (host, params) => resumeAt(host, params as ResumeAtParams) },
   cancel: { tier: 'act', handle: async (host, params) => cancel(host, params as CancelParams) },
   // Running checks executes the repository's commands, yet agents may call it today (it answers "busy" during
@@ -103,6 +115,11 @@ export const METHODS: Record<string, CliMethod> = {
   ...TEMPLATES_METHODS,
   ...COMMANDS_METHODS,
   ...SCHEDULES_METHODS,
+  // Flows (docs/loops-and-graphs.md): reads in read, run/stop/add/remove in act; flow-run is under the start policy (policy.ts).
+  ...FLOW_METHODS,
+  ...LINEAGE_METHODS,
+  // Personas (who a flow's step is): reads in read, add/remove of personal ones in act.
+  ...PERSONA_METHODS,
   ...INTEGRATIONS_METHODS,
   ...DATA_METHODS,
   // Workspaces, chat tabs and approvals (plan §7).
