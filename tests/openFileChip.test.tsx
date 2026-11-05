@@ -34,15 +34,15 @@ afterEach(cleanup)
 describe('a path in a tool call', () => {
   it('opens a page in the browser on click, and shows it in its folder on Ctrl-click', async () => {
     const user = userEvent.setup()
-    row(write('C:\\Users\\yatin\\mocks\\index.html'))
-    const chip = screen.getByRole('button', { name: 'C:\\Users\\yatin\\mocks\\index.html' })
+    row(write('C:\\Users\\me\\site\\index.html'))
+    const chip = screen.getByRole('button', { name: 'C:\\Users\\me\\site\\index.html' })
     expect(chip.getAttribute('title')).toBe('Open in your browser · Right-click for more')
     await user.click(chip)
-    expect(fakeApi.openFile).toHaveBeenLastCalledWith('C:\\Users\\yatin\\mocks\\index.html', 'open')
+    expect(fakeApi.openFile).toHaveBeenLastCalledWith('C:\\Users\\me\\site\\index.html', 'open')
     await user.keyboard('{Control>}')
     await user.click(chip)
     await user.keyboard('{/Control}')
-    expect(fakeApi.openFile).toHaveBeenLastCalledWith('C:\\Users\\yatin\\mocks\\index.html', 'reveal')
+    expect(fakeApi.openFile).toHaveBeenLastCalledWith('C:\\Users\\me\\site\\index.html', 'reveal')
   })
 
   it('opens from the keyboard, and leaves the row to expand the call', async () => {
@@ -108,7 +108,7 @@ describe('a path in a tool call', () => {
 
   it('names the Mac file manager on a Mac', () => {
     fakeState.snapshot.platform = 'darwin'
-    row(write('/Users/yatin/app/Foreman.dmg'), { workspaceId: 'w1', root: '/Users/yatin/app', preview: true })
+    row(write('/Users/me/app/Foreman.dmg'), { workspaceId: 'w1', root: '/Users/me/app', preview: true })
     expect(screen.getByRole('button', { name: 'Foreman.dmg' }).getAttribute('title')).toMatch(/^Reveal in Finder/)
   })
 

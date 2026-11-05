@@ -113,7 +113,7 @@ export function Gallery2a() {
           <ChipButton haspopup="menu" expanded>Picker, open</ChipButton>
           <ChipButton haspopup="dialog">Picker, closed</ChipButton>
           <ChipButton disabled>Disabled</ChipButton>
-          <ChipButton path title="Open in your browser">mocks/index.html</ChipButton>
+          <ChipButton path title="Open in your browser">site/index.html</ChipButton>
           <ChipButton pill haspopup="dialog">
             <Status tone="warn" label="iPhone: pairing" />
           </ChipButton>

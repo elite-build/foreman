@@ -14,7 +14,7 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('fileOpenKind', () => {
   it('sends things to look at to the OS default app', () => {
-    expect(fileOpenKind('C:\\mocks\\index.html')).toBe('browser')
+    expect(fileOpenKind('C:\\site\\index.html')).toBe('browser')
     expect(fileOpenKind('/tmp/shots/v4-1.PNG')).toBe('image')
     expect(fileOpenKind('logo.svg')).toBe('image')
     expect(fileOpenKind('report.pdf')).toBe('pdf')
@@ -40,10 +40,10 @@ describe('fileOpenKind', () => {
   })
 
   it('knows a full path on Windows and elsewhere', () => {
-    expect(isAbsolutePath('C:\\Users\\yatin\\a.png')).toBe(true)
+    expect(isAbsolutePath('C:\\Users\\me\\a.png')).toBe(true)
     expect(isAbsolutePath('c:/a.png')).toBe(true)
     expect(isAbsolutePath('\\\\server\\share\\a.png')).toBe(true)
-    expect(isAbsolutePath('/Users/yatin/a.png')).toBe(true)
+    expect(isAbsolutePath('/Users/me/a.png')).toBe(true)
     expect(isAbsolutePath('src/a.png')).toBe(false)
   })
 })
