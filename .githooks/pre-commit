@@ -1,5 +1,7 @@
 #!/bin/sh
-# Pre-commit: the design-system check (tests/designSystem.test.ts, tests/contrast.test.ts).
+# Pre-commit: the new-component ordering rule (scripts/check-new-components.mjs --staged: a component added to ui/ on this
+# branch can't be used by feature code on the same branch) and the design-system check (tests/designSystem.test.ts,
+# tests/contrast.test.ts).
 # Runs only when the commit touches the renderer, the i18n catalogues or those tests; anything else commits at once.
 # Enabled by `npm install` (scripts/postinstall.mjs sets core.hooksPath to .githooks). POSIX sh: Git Bash and macOS.
 # It checks the working tree.
@@ -11,6 +13,13 @@ if ! printf '%s\n' "$staged" | grep -Eq '^(src/renderer/|src/shared/i18n/|tests/
 fi
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if printf '%s\n' "$staged" | grep -q '^src/renderer/' && ! node scripts/check-new-components.mjs --staged; then
+  echo ""
+  echo "Commit blocked: a new component is used before it is in the design system (above)."
+  echo "Commit the component to ui/ on its own branch and merge it first; then use it from a branch based on that."
+  exit 1
+fi
 
 echo "pre-commit: design-system check (npx vitest run tests/designSystem.test.ts tests/contrast.test.ts)"
 if output=$(npx --no-install vitest run tests/designSystem.test.ts tests/contrast.test.ts 2>&1); then
