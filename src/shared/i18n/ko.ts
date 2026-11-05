@@ -2121,6 +2121,7 @@ export const ko: Catalogue = {
   'palette.viewArchived': '보관된 워크스페이스 보기',
   'palette.toggleTheme': '라이트/다크 테마 전환',
   'palette.toggleSidebar': '사이드바 전환',
+  'palette.toggleRepoNames': '저장소 이름 표시 전환',
   'palette.toggleSidePanel': '측면 패널 전환',
   'palette.zen': '젠 모드',
   'palette.toggleTerminal': '터미널 패널 전환',
@@ -2590,10 +2591,8 @@ export const ko: Catalogue = {
   'sidebar.rail.needYou': { other: '{label} · {count}개 확인 필요' },
   'sidebar.rail.all': '전체',
   'sidebar.rail.add': '저장소 추가',
-  // Opens the drawer that lists every repository by name.
-  'sidebar.rail.expand': '저장소 보기',
-  'sidebar.rail.filter': '저장소 필터',
-  'sidebar.rail.noMatch': '일치하는 저장소가 없습니다.',
+  // Widens the rail to show each repository's name beside its tile (a toggle); {key} is a keyboard shortcut.
+  'sidebar.rail.names': '저장소 이름 보기 ({key})',
   'sidebar.rail.palette': '명령 팔레트({key})',
   'sidebar.rail.shortcuts': '키보드 단축키({key})',
 

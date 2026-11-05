@@ -323,7 +323,7 @@ const GITHUB_REPOS: GithubRepo[] = [
 export const SCREENS = [
   'home',
   'home-board',
-  'repo-drawer',
+  'repo-names',
   'workspace-chat',
   'context-usage',
   'composer-queue',

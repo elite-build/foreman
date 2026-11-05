@@ -2121,6 +2121,7 @@ export const ja: Catalogue = {
   'palette.viewArchived': 'アーカイブ済みのワークスペースを表示',
   'palette.toggleTheme': 'ライト / ダークテーマを切り替え',
   'palette.toggleSidebar': 'サイドバーの表示を切り替え',
+  'palette.toggleRepoNames': 'リポジトリ名の表示を切り替え',
   'palette.toggleSidePanel': 'サイドパネルの表示を切り替え',
   'palette.zen': 'Zen モード',
   'palette.toggleTerminal': 'ターミナルパネルの表示を切り替え',
@@ -2590,10 +2591,8 @@ export const ja: Catalogue = {
   'sidebar.rail.needYou': { other: '{label} · {count}件が要対応' },
   'sidebar.rail.all': 'すべて',
   'sidebar.rail.add': 'リポジトリを追加',
-  // Opens the drawer that lists every repository by name.
-  'sidebar.rail.expand': 'リポジトリを表示',
-  'sidebar.rail.filter': 'リポジトリを絞り込む',
-  'sidebar.rail.noMatch': '一致するリポジトリはありません。',
+  // Widens the rail to show each repository's name beside its tile (a toggle); {key} is a keyboard shortcut.
+  'sidebar.rail.names': 'リポジトリ名を表示（{key}）',
   'sidebar.rail.palette': 'コマンドパレット（{key}）',
   'sidebar.rail.shortcuts': 'キーボードショートカット（{key}）',
 

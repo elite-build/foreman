@@ -2121,6 +2121,7 @@ export const zhCN: Catalogue = {
   'palette.viewArchived': '查看已归档的工作区',
   'palette.toggleTheme': '切换浅色 / 深色主题',
   'palette.toggleSidebar': '切换侧边栏',
+  'palette.toggleRepoNames': '切换仓库名称显示',
   'palette.toggleSidePanel': '切换侧面板',
   'palette.zen': '禅模式',
   'palette.toggleTerminal': '切换终端面板',
@@ -2590,10 +2591,8 @@ export const zhCN: Catalogue = {
   'sidebar.rail.needYou': { other: '{label} · {count} 个需要你处理' },
   'sidebar.rail.all': '全部',
   'sidebar.rail.add': '添加仓库',
-  // Opens the drawer that lists every repository by name.
-  'sidebar.rail.expand': '显示仓库',
-  'sidebar.rail.filter': '筛选仓库',
-  'sidebar.rail.noMatch': '没有匹配的仓库。',
+  // Widens the rail to show each repository's name beside its tile (a toggle); {key} is a keyboard shortcut.
+  'sidebar.rail.names': '显示仓库名称 ({key})',
   'sidebar.rail.palette': '命令面板 ({key})',
   'sidebar.rail.shortcuts': '键盘快捷键 ({key})',
 

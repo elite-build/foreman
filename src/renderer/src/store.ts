@@ -87,6 +87,8 @@ interface State {
   // What the sidebar lists: one repository (null = all), a filter and a search.
   sidebarView: SidebarView
   leftPanelOpen: boolean
+  // The repository rail shows each repository's name and state beside its tile (wide), not just the tiles.
+  railNames: boolean
   rightPanelOpen: boolean
   // The Tiles layout: the workspaces on screen in tile order, how many tiles there are, and the one opened full size.
   tiles: string[]
@@ -222,6 +224,7 @@ let state: State = {
   unreadSessions: {},
   sidebarView: { repo: loadPref('sidebarRepo', null), filter: loadPref('sidebarFilter', 'all'), query: '', showFinished: loadPref('showFinished', false) },
   leftPanelOpen: loadPref('leftPanelOpen', true),
+  railNames: loadPref('railNames', false),
   tiles: loadPref<string[]>('tiles', []),
   tileCount: tileCountOf(loadPref('tileCount', DEFAULT_TILE_COUNT)),
   tileZoom: null,
@@ -1069,6 +1072,12 @@ export function toggleRightPanel(): void {
 export function toggleLeftPanel(): void {
   savePref('leftPanelOpen', !state.leftPanelOpen)
   setState({ leftPanelOpen: !state.leftPanelOpen })
+}
+
+/** Widens the repository rail to show each repository's name beside its tile, or narrows it back to the tiles. */
+export function toggleRailNames(): void {
+  savePref('railNames', !state.railNames)
+  setState({ railNames: !state.railNames })
 }
 
 /** Shows or hides the terminal panel. Inside a closed side panel, showing it opens the side panel too. */

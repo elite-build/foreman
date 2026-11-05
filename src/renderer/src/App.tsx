@@ -28,7 +28,7 @@ import { WorkspaceView } from './components/WorkspaceView'
 import { TilesView } from './components/tiles/TilesView'
 import { EditorViews } from './components/editor/EditorViews'
 import { StatusBar } from './components/editor/StatusBar'
-import { editorViewsFor, RAIL_WIDTH, shownEditorView } from './editorLayout'
+import { editorViewsFor, RAIL_NAMES_WIDTH, RAIL_WIDTH, shownEditorView } from './editorLayout'
 import { workspaceSurfaces } from './archivedView'
 import './components/workspace.css'
 import { CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/AddRepository'
@@ -65,6 +65,7 @@ import {
   showToast,
   toggleBottomPanel,
   toggleLeftPanel,
+  toggleRailNames,
   toggleRightPanel,
   toggleTerminalFullscreen,
   toggleAssistant,
@@ -87,6 +88,7 @@ const shortcutActions: ShortcutActions = {
     void attempt(() => api.updateSettings({ theme: dark ? 'light' : 'dark' }))
   },
   toggleLeftPanel,
+  toggleRailNames,
   toggleRightPanel,
   toggleBottomPanel,
   toggleZen,
@@ -196,9 +198,11 @@ export function App() {
   const editorView = useStore((s) => s.editorView)
   const tileZoom = useStore((s) => s.tileZoom)
   const windowWidth = useWindowWidth()
-  // Leave the chat column 420px, plus the side panel's narrowest width when it's open. The default and the minimum make
-  // room for the repository rail (68px) beside a list as wide as it was beside the old 52px one.
-  const sidebar = usePanelSize('sidebar', 328, 276,Math.min(480, windowWidth - 420 - (rightPanelOpen ? 280 : 0)))
+  // The rail with its names shown is wider; the list beside it keeps its width, so the sidebar grows by the difference.
+  const railNames = useStore((s) => s.railNames)
+  const railExtra = railNames ? RAIL_NAMES_WIDTH - RAIL_WIDTH : 0
+  // Leave the chat column 420px, plus the side panel's narrowest width when it's open. The size includes the rail's tiles.
+  const sidebar = usePanelSize('sidebar', 312, 260, Math.min(480, windowWidth - 420 - railExtra - (rightPanelOpen ? 280 : 0)))
   // Workspaces stay mounted once opened so terminals and scroll positions survive switching. A hidden one holds what it
   // read and skips these renders, so it costs nothing per store event (WorkspaceView); its terminals still run.
   const [opened, setOpened] = useState<string[]>([])
@@ -225,7 +229,7 @@ export function App() {
   const editorViews = editorViewsFor(onScreen ? workspaceSurfaces(onScreen) : null)
   const shownView = shownEditorView(editorView, editorViews)
   const listShown = leftPanelOpen && (!editor || shownView === 'workspaces')
-  const sidebarWidth = listShown ? sidebar.size : RAIL_WIDTH
+  const sidebarWidth = (listShown ? sidebar.size : RAIL_WIDTH) + railExtra
   // The main area reaches the window's left edge (where macOS draws the traffic lights).
   const mainFirst = editor ? sidebarRight : !leftPanelOpen || sidebarRight
 

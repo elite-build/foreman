@@ -36,6 +36,7 @@ import {
   timeAgo,
   toggleBottomPanel,
   toggleLeftPanel,
+  toggleRailNames,
   toggleRightPanel,
   toggleZen,
   useStore
@@ -186,6 +187,7 @@ export function CommandPalette() {
       })
     })
     list.push({ id: 'left', label: t('palette.toggleSidebar'), group: t('palette.group.general'), hint: shortcutHint('panel.left', platform), run: close(toggleLeftPanel) })
+    list.push({ id: 'rail-names', label: t('palette.toggleRepoNames'), group: t('palette.group.general'), hint: shortcutHint('panel.railNames', platform), run: close(toggleRailNames) })
     list.push({ id: 'right', label: t('palette.toggleSidePanel'), group: t('palette.group.general'), hint: shortcutHint('panel.right', platform), run: close(toggleRightPanel) })
     list.push({ id: 'zen', label: t('palette.zen'), group: t('palette.group.general'), hint: shortcutHint('zen.toggle', platform), run: close(toggleZen) })
     list.push({ id: 'bottom', label: t('palette.toggleTerminal'), group: t('palette.group.general'), hint: shortcutHint('panel.bottom', platform), run: close(toggleBottomPanel) })
