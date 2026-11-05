@@ -11,11 +11,8 @@
   "src/renderer/src/components/autoReview.css": {
     "9": 7
   },
-  "src/renderer/src/components/automations/AutomationsView.tsx": {
-    "9": 1
-  },
   "src/renderer/src/components/automations/automations.css": {
-    "9": 14
+    "9": 7
   },
   "src/renderer/src/components/cloud/cloud.css": {
     "9": 10

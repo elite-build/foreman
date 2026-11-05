@@ -1,40 +1,34 @@
-// Automations: prompt templates and the schedules that run them, on a week calendar. Covers the
-// workspace area like Settings, so open workspaces stay mounted.
-import { CalendarClock, ChevronLeft, ChevronRight, Play, Plus, RotateCcw, Zap, ArrowLeft } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Locale } from '../../../../shared/i18n'
-import { formatDate, formatDateTime } from '../../../../shared/i18n/time'
+// Automations: a library of prompt templates and saved commands. Each template card says when it runs and how its last
+// run went; the side panel lists the schedules, or the selected template or schedule. Covers the workspace area like
+// Settings, so open workspaces stay mounted.
+import { ArrowLeft, CalendarClock, Play, Plus, RotateCcw, Zap } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { DEFAULT_PROMPT_TEMPLATES, newTemplateId, templateName } from '../../../../shared/promptTemplates'
 import { qualifiedName } from '../../../../shared/repoTemplates'
-import type { PromptTemplate } from '../../../../shared/types'
-import { useT } from '../../i18n'
+import type { Occurrence, PromptTemplate, Schedule } from '../../../../shared/types'
+import { useT, type RendererT } from '../../i18n'
 import { closeAutomations, openScheduleDialog, selectAutomation, useStore } from '../../store'
-import { ActionRow, Button, CardButton, IconButton, LinkButton, type CardLook, type StatusTone } from '../../ui'
+import { ActionRow, Button, IconButton, LinkButton, Status, Tab, TabList, TabPanel, Tabs, TextInput, type StatusTone } from '../../ui'
+import { cadenceText, nextPill } from '../ScheduleDialogs'
 import { saveSettings, useSettings } from '../settings/controls'
-import { DAY_MS, hourRange, minuteOfDay, startOfWeek, weekBlocks, type CalendarBlock } from './calendar'
-import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, TemplateDetail } from './details'
 import { CommandsSection } from './CommandsSection'
+import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview, TemplateDetail } from './details'
 import '../settings/settings.css'
 import './automations.css'
 
-const HOUR_PX = 40
-// A run's block takes the edge of its state; a planned one (no run yet) takes a neutral edge.
-const RUN_STRIPE: Record<StatusTone, CardLook['stripe']> = { ok: 'ok', info: 'info', warn: 'warn', error: 'warn', off: 'muted' }
-const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
-const hhmm = (at: number, locale: Locale) => formatDateTime(at, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+type Shelf = 'all' | 'templates' | 'commands'
 
 export function AutomationsView() {
   const t = useT()
   const selected = useStore((s) => s.automations?.selected ?? null)
-  const schedules = useStore((s) => s.snapshot!.schedules)
-  const occurrences = useStore((s) => s.snapshot!.occurrences)
-  const [week, setWeek] = useState(0)
-  // Re-render each minute so the now line and planned runs move on.
-  const [now, setNow] = useState(() => Date.now())
+  const toCommands = useStore((s) => s.automations?.scrollTo === 'commands')
+  const [shelf, setShelf] = useState<Shelf>('all')
+  const [query, setQuery] = useState('')
+
+  // Edit commands… (terminal panel, ⌘K) lands on Commands: CommandsSection scrolls to itself once it's shown.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000)
-    return () => clearInterval(timer)
-  }, [])
+    if (toCommands && shelf === 'templates') setShelf('commands')
+  }, [toCommands, shelf])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -48,117 +42,37 @@ export function AutomationsView() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selected])
 
-  const weekStart = startOfWeek(now, week)
-  const blocks = useMemo(() => weekBlocks(schedules, occurrences, weekStart, now), [schedules, occurrences, weekStart, now])
-  const selectedSchedule = selected?.startsWith('s:') ? selected.slice(2) : null
-
   return (
     <div className="automations-view">
       <header className="titlebar drag auto-head">
         <span className="auto-title" role="heading" aria-level={1}>
           <Zap size={15} /> {t('automations.title')}
         </span>
-        <div className="auto-week-nav">
-          <IconButton label={t('automations.week.previous')} onClick={() => setWeek(week - 1)}>
-            <ChevronLeft size={14} />
-          </IconButton>
-          <Button size="sm" disabled={week === 0} onClick={() => setWeek(0)}>
-            {t('automations.week.this')}
-          </Button>
-          <IconButton label={t('automations.week.next')} onClick={() => setWeek(week + 1)}>
-            <ChevronRight size={14} />
-          </IconButton>
-          <span className="muted">{t('automations.week.of', { date: formatDate(weekStart, t.locale, { month: 'long', day: 'numeric' }) })}</span>
-        </div>
-        <span className="faint small auto-head-hint">{t('automations.week.hint', { zone: ZONE })}</span>
+        <span className="faint small auto-head-hint">{t('automations.openHint')}</span>
       </header>
       <div className="auto-body">
-        <WeekCalendar blocks={blocks} weekStart={weekStart} now={now} selectedSchedule={selectedSchedule} empty={!schedules.length} />
-        <aside className="auto-side" aria-label={t('automations.side.label')}>{selected ? <SelectedDetail selected={selected} /> : <TemplateList />}</aside>
-      </div>
-    </div>
-  )
-}
-
-function WeekCalendar({ blocks, weekStart, now, selectedSchedule, empty }: { blocks: CalendarBlock[]; weekStart: number; now: number; selectedSchedule: string | null; empty: boolean }) {
-  const t = useT()
-  const schedules = useStore((s) => s.snapshot!.schedules)
-  const names = useMemo(() => new Map(schedules.map((s) => [s.id, s.templateName])), [schedules])
-  const scroller = useRef<HTMLDivElement>(null)
-  const { first, last } = hourRange(blocks)
-  const hours = Array.from({ length: last - first }, (_, i) => first + i)
-  const days = Array.from({ length: 7 }, (_, i) => new Date(weekStart + i * DAY_MS + DAY_MS / 2))
-  const today = now >= weekStart && now < startOfWeek(weekStart, 1) ? new Date(now).getDay() : -1
-  const top = (at: number) => ((minuteOfDay(at) - first * 60) * HOUR_PX) / 60
-
-  // Open on the first run of the week, or 08:00.
-  useLayoutEffect(() => {
-    const earliest = Math.min(8 * 60, ...blocks.map((b) => minuteOfDay(b.start)))
-    scroller.current?.scrollTo({ top: Math.max(0, ((earliest - first * 60) * HOUR_PX) / 60 - HOUR_PX / 2) })
-    // Only when the week changes, not on every snapshot.
-  }, [weekStart])
-
-  return (
-    <div className="auto-cal">
-      <div className="auto-days">
-        <span />
-        {days.map((d) => (
-          <span key={d.getTime()} className={d.getDay() === today ? 'today' : ''}>
-            {formatDate(d, t.locale, { weekday: 'short' })} <strong>{d.getDate()}</strong>
-          </span>
-        ))}
-      </div>
-      <div className="auto-grid-scroll" ref={scroller}>
-        <div className="auto-grid" style={{ height: hours.length * HOUR_PX }}>
-          <div className="auto-hours">
-            {hours.map((h) => (
-              <span key={h} style={{ top: (h - first) * HOUR_PX }}>
-                {String(h).padStart(2, '0')}:00
-              </span>
-            ))}
+        <Tabs value={shelf} onChange={(v) => setShelf(v as Shelf)} className="auto-lib">
+          <div className="auto-lib-bar">
+            <TabList label={t('automations.show')}>
+              <Tab value="all">{t('automations.all')}</Tab>
+              <Tab value="templates">{t('automations.templates')}</Tab>
+              <Tab value="commands">{t('commands.section')}</Tab>
+            </TabList>
+            <TextInput type="search" className="auto-search" aria-label={t('automations.search')} placeholder={t('automations.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
-          {days.map((d, i) => (
-            <div key={d.getTime()} className={`auto-col ${d.getDay() === today ? 'today' : ''}`} style={{ backgroundSize: `100% ${HOUR_PX}px` }}>
-              {d.getDay() === today && top(now) >= 0 && <div className="auto-now" style={{ top: top(now) }} />}
-              {blocks
-                .filter((b) => b.day === i)
-                .map((b) => {
-                  const o = b.occurrence
-                  const name = names.get(b.scheduleId) ?? t('automations.cal.deletedSchedule')
-                  const status = o ? `${t(RUN_LABEL[o.state])}${o.reason ? ` · ${o.reason}` : ''}` : t('automations.cal.planned')
-                  return (
-                    <CardButton
-                      key={b.id}
-                      size="sm"
-                      className="auto-block"
-                      stripe={o ? RUN_STRIPE[runStatusTone(o)] : 'neutral'}
-                      selected={selectedSchedule === b.scheduleId}
-                      aria-current={selectedSchedule === b.scheduleId ? 'true' : undefined}
-                      style={{
-                        top: top(b.start),
-                        height: Math.max(20, (b.minutes * HOUR_PX) / 60 - 2),
-                        left: `calc(${(b.lane / b.lanes) * 100}% + 3px)`,
-                        width: `calc(${100 / b.lanes}% - 6px)`
-                      }}
-                      title={`${name} · ${hhmm(b.start, t.locale)} · ${status}`}
-                      onClick={() => selectAutomation(`s:${b.scheduleId}`)}
-                    >
-                      <span className="auto-block-name">{name}</span>
-                      <span className="auto-block-time">{hhmm(b.start, t.locale)}</span>
-                    </CardButton>
-                  )
-                })}
-            </div>
-          ))}
-        </div>
+          <TabPanel value="all" className="auto-lib-scroll">
+            <TemplateShelf query={query} />
+            <CommandsSection query={query} />
+          </TabPanel>
+          <TabPanel value="templates" className="auto-lib-scroll">
+            <TemplateShelf query={query} />
+          </TabPanel>
+          <TabPanel value="commands" className="auto-lib-scroll">
+            <CommandsSection query={query} />
+          </TabPanel>
+        </Tabs>
+        <aside className="auto-side" aria-label={t('automations.side.label')}>{selected ? <SelectedDetail selected={selected} /> : <ScheduleOverview />}</aside>
       </div>
-      {empty && (
-        <div className="auto-cal-empty">
-          <CalendarClock size={20} />
-          <strong>{t('automations.cal.emptyTitle')}</strong>
-          <span className="muted small">{t('automations.cal.emptyHint')}</span>
-        </div>
-      )}
     </div>
   )
 }
@@ -170,14 +84,14 @@ function SelectedDetail({ selected }: { selected: string }) {
   const template = useStore((s) =>
     selected.startsWith('t:') ? (s.snapshot!.settings.promptTemplates.find((t) => t.id === id) ?? Object.values(s.snapshot!.repoTemplates).flat().find((t) => t.id === id)) : undefined
   )
-  // Deleted elsewhere: back to the list.
+  // Deleted elsewhere: back to the schedules.
   useEffect(() => {
     if (!schedule && !template) selectAutomation(null)
   }, [schedule, template])
   return (
     <>
       <Button size="sm" className="set-back auto-back" icon={<ArrowLeft size={13} />} onClick={() => selectAutomation(null)}>
-        {t('automations.templates')}
+        {t('automations.template.schedules')}
       </Button>
       {schedule && <ScheduleDetail key={schedule.id} schedule={schedule} />}
       {template && <TemplateDetail key={template.id} template={template} />}
@@ -185,14 +99,17 @@ function SelectedDetail({ selected }: { selected: string }) {
   )
 }
 
-function TemplateList() {
+/** Personal templates, then each repository's, as cards; `query` keeps those whose name or prompt contains it. */
+function TemplateShelf({ query }: { query: string }) {
   const t = useT()
   const templates = useSettings().promptTemplates
   const byRepo = useStore((s) => s.snapshot!.repoTemplates)
   const repos = useStore((s) => s.snapshot!.repos)
-  const schedules = useStore((s) => s.snapshot!.schedules)
   const missingDefaults = DEFAULT_PROMPT_TEMPLATES.filter((d) => !templates.some((t) => t.id === d.id))
-  const count = (id: string) => schedules.filter((s) => s.templateId === id && s.state !== 'finished').length
+  const needle = query.trim().toLowerCase()
+  const hit = (tpl: PromptTemplate, title: string) => !needle || `${title}\n${tpl.body}`.toLowerCase().includes(needle)
+  const mine = templates.filter((x) => hit(x, templateName(x, t)))
+  const shared = repos.map((r) => ({ repo: r, list: (byRepo[r.id] ?? []).filter((x) => hit(x, qualifiedName(x, templates))) })).filter((g) => g.list.length)
 
   const add = () => {
     const id = newTemplateId()
@@ -200,7 +117,7 @@ function TemplateList() {
   }
 
   return (
-    <>
+    <section aria-label={t('automations.templates')}>
       <div className="auto-side-head">
         <span>{t('automations.templates')}</span>
         <span className="auto-side-tools">
@@ -217,32 +134,45 @@ function TemplateList() {
       <p className="faint small auto-side-note">
         {t.rich('automations.templatesNote', { placeholder: <code key="placeholder">{'{{placeholder}}'}</code> })}
       </p>
-      {templates.length === 0 && <p className="faint small auto-side-note">{t('automations.noTemplates')}</p>}
-      {templates.map((x) => (
-        <TemplateRow key={x.id} template={x} sub={count(x.id) ? t('automations.scheduleCount', { count: count(x.id) }) : x.body.trim() ? x.body : t('automations.emptyTemplate')} />
-      ))}
-      {repos
-        .filter((r) => byRepo[r.id]?.length)
-        .map((r) => (
-          <div key={r.id}>
-            <div className="auto-side-head sub">{t('automations.fromRepo', { repo: r.name })}</div>
-            {byRepo[r.id].map((x) => (
-              <TemplateRow key={x.id} template={x} title={qualifiedName(x, templates)} sub={count(x.id) ? t('automations.scheduleCount', { count: count(x.id) }) : x.file ?? ''} />
+      {!needle && templates.length === 0 && <p className="faint small auto-side-note">{t('automations.noTemplates')}</p>}
+      {needle && !mine.length && !shared.length && <p className="faint small auto-side-note">{t('automations.noMatches', { query: query.trim() })}</p>}
+      {mine.length > 0 && (
+        <div className="auto-cards">
+          {mine.map((x) => (
+            <TemplateCard key={x.id} template={x} title={templateName(x, t)} />
+          ))}
+        </div>
+      )}
+      {shared.map(({ repo, list }) => (
+        <div key={repo.id}>
+          <div className="auto-side-head sub">{t('automations.fromRepo', { repo: repo.name })}</div>
+          <div className="auto-cards">
+            {list.map((x) => (
+              <TemplateCard key={x.id} template={x} title={qualifiedName(x, templates)} />
             ))}
           </div>
-        ))}
-      <CommandsSection />
-    </>
+        </div>
+      ))}
+    </section>
   )
 }
 
-function TemplateRow({ template: tpl, title, sub }: { template: PromptTemplate; title?: string; sub: string }) {
+/** A template as a card: its name, the start of its prompt, when it runs, and the state of its runs. */
+function TemplateCard({ template: tpl, title }: { template: PromptTemplate; title: string }) {
   const t = useT()
+  const selected = useStore((s) => s.automations?.selected === `t:${tpl.id}`)
+  const allSchedules = useStore((s) => s.snapshot!.schedules)
+  const occurrences = useStore((s) => s.snapshot!.occurrences)
+  const schedules = allSchedules.filter((x) => x.templateId === tpl.id && x.state !== 'finished')
+  const status = runsStatus(schedules, occurrences, t)
   const empty = !tpl.body.trim()
   return (
     <ActionRow
+      card
+      className="auto-card"
+      selected={selected}
       onPress={() => selectAutomation(`t:${tpl.id}`)}
-      primaryProps={{ className: 'auto-tpl-main' }}
+      primaryProps={{ className: 'auto-card-main' }}
       actions={
         <>
           <IconButton label={t('automations.schedule')} disabled={empty} onClick={() => openScheduleDialog({ templateId: tpl.id })}>
@@ -254,8 +184,32 @@ function TemplateRow({ template: tpl, title, sub }: { template: PromptTemplate; 
         </>
       }
     >
-      <span className="auto-row-title">{title ?? templateName(tpl, t)}</span>
-      <span className="auto-row-sub">{sub}</span>
+      <span className="auto-row-title">{title}</span>
+      <span className="auto-card-body">{empty ? t('automations.emptyTemplate') : tpl.body}</span>
+      <span className="auto-card-foot">
+        <span className="auto-card-when">{whenText(schedules, t)}</span>
+        {status && <Status tone={status.tone} label={status.label} />}
+      </span>
     </ActionRow>
   )
+}
+
+/** "On demand", one schedule's cadence ("Weekdays at 09:00"), or how many schedules and the soonest run. */
+function whenText(schedules: Schedule[], t: RendererT): string {
+  if (!schedules.length) return t('automations.onDemand')
+  if (schedules.length === 1) return cadenceText(schedules[0], t, t.locale)
+  const count = t('automations.scheduleCount', { count: schedules.length })
+  const next = schedules.filter((s) => s.state === 'active' && s.nextRunAt).sort((a, b) => a.nextRunAt!.localeCompare(b.nextRunAt!))[0]
+  return next ? `${count} · ${t('automations.schedule.next', { time: nextPill(Date.parse(next.nextRunAt!), next.timezone, t.locale) })}` : count
+}
+
+/** What a template's schedules are doing: a run in progress, a pause, or how the latest run ended. None for on-demand. */
+function runsStatus(schedules: Schedule[], occurrences: Occurrence[], t: RendererT): { tone: StatusTone; label: string } | null {
+  const ids = new Set(schedules.map((s) => s.id))
+  const runs = occurrences.filter((o) => ids.has(o.scheduleId) && o.state !== 'skipped')
+  const live = runs.find((o) => o.state === 'running' || o.state === 'starting')
+  if (live) return { tone: runStatusTone(live), label: t(RUN_LABEL[live.state]) }
+  if (schedules.some((s) => s.state === 'paused')) return { tone: 'warn', label: t('automations.schedule.paused') }
+  const last = runs[runs.length - 1]
+  return last ? { tone: runStatusTone(last), label: t('automations.schedule.lastRun', { state: t(RUN_LABEL[last.state]) }) } : null
 }

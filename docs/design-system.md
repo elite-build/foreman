@@ -160,7 +160,7 @@ Replace the hand-drawn card frames: the loadout's slot and model cards, the Home
   - `ghost`: the copy that follows the pointer: raised fill, shadow, tilted, `pointer-events: none`. Position (fixed) and size it with CSS or `style`.
   - `tone="danger"`: the edge goes red (dropping here removes the item).
   - `drop` (`before` / `after`): a `--selected-mark` line on that edge, for reordering.
-  - `stripe` (`neutral` (a plain edge: an automation with no run yet) / `ok` / `warn` / `info` / `muted`): a 3px leading edge in a status colour (steps that run in parallel, a calendar block's state). State is also said in words (a title, a label).
+  - `stripe` (`neutral` (a plain edge) / `ok` / `warn` / `info` / `muted`): a 3px leading edge in a status colour (setup steps that run in parallel, a tile that needs you). State is also said in words (a title, a label).
   - `size` (`md` 10px corner, `sm` 7px).
 - Motion: transitions only, which Reduce Motion ends. A feature's own entrance animation (the loadout's equip pop) stays in its CSS and is ended the same way by `ui/tokens.css`. Under forced colours `selected` and `target` get a `Highlight` outline.
 - Layout (grid, padding, size, position) is the caller's; the element qualifier trick (`button.card-class`, a doubled class) is still needed against `.ui-pressable`'s `display` and `padding`, which load after feature CSS.
