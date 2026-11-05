@@ -97,7 +97,7 @@ function FlowCard({ flow, onOpen, onRun }: { flow: FlowListing; onOpen: () => vo
       }
     >
       <span className="auto-row-title">{flowTitle(flow, t)}</span>
-      <span className="auto-card-foot">
+      <span className="auto-card-foot flow-card-tags">
         <SourceTags flow={flow} />
       </span>
       {flow.summary && <span className="auto-card-body">{summaryText(flow, t)}</span>}

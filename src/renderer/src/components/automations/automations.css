@@ -370,6 +370,18 @@ div.auto-card {
   min-width: 0;
 }
 
+/* A repository flow's tags (its repository, its file and revision) wrap, and the file name breaks, rather than run past
+   the card's edge. */
+.auto-card-foot.flow-card-tags {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.flow-card-tags .ui-tag {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* A flow card with its recent runs under it. */
 .flow-item {
   display: flex;
