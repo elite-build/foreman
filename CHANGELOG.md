@@ -2,6 +2,36 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.15 (2026-11-06)
+
+### Added
+
+- **Flows**, off by default under **Settings → Experimental**: write a graph of agent steps with loops and gates once, run it from **Automations**, **New workspace**, a schedule, the assistant or the `foreman flow` command, and watch it through a **Flow** tab with Run, Context, Memory and Data lenses. ([#88](https://github.com/elite-build/foreman/pull/88))
+- **Personas** for flow steps (architect, developer, QA engineer, designer built in; your own beside the flows), setting a step's instructions, read-only, what it is shown and how it ends. ([#88](https://github.com/elite-build/foreman/pull/88))
+- Gates: a flow step where you decide, with **Continue**, **Send back with a note** and **Stop**, in Needs you and on the phone. ([#88](https://github.com/elite-build/foreman/pull/88))
+- A **Lineage** tab on every workspace (with Flows on) that draws how its chats, turns, checks and pull request came about, and **Make a flow from this** to turn that history into a draft flow. ([#88](https://github.com/elite-build/foreman/pull/88))
+- Click a file path in the chat to open it: pages open in your browser, pictures in your image viewer and code in your editor. **Ctrl-click** (**⌘-click** on Mac) shows the file in File Explorer or Finder, and right-click offers **Preview in Foreman** and **Copy path**. Programs and archives are only shown in their folder, never run. ([#86](https://github.com/elite-build/foreman/pull/86))
+- Repositories in the sidebar get their own icon when they're added: the project's app icon or logo, its organisation's avatar, or a fitting icon, chosen once; one you pick or remove in **Repository settings → Misc** is kept. ([#87](https://github.com/elite-build/foreman/pull/87))
+
+### Changed
+
+- The repository rail shows tiles alone, and **Show repository names** (Ctrl+Shift+N, ⌘⇧N on macOS) widens it beside the workspace list to show each repository's name and what is going on in it; pressing it again narrows it. It replaces the Repositories drawer, which covered the list. ([#89](https://github.com/elite-build/foreman/pull/89))
+- A repository that needs you shows a ▲ and a count on its tile in the rail. ([#89](https://github.com/elite-build/foreman/pull/89))
+
+### Fixed
+
+- `npm run pr:screens` no longer empties `node_modules` on Windows. ([#88](https://github.com/elite-build/foreman/pull/88))
+
+### Security
+
+- follow-redirects updated to 1.16.2, fixing [GHSA-mrwp-f3q8-3g9p](https://github.com/advisories/GHSA-mrwp-f3q8-3g9p) (credentials could follow a cross-origin redirect). ([#90](https://github.com/elite-build/foreman/pull/90))
+
+### Development
+
+- Agents asked to cut a release follow a new `create-release` skill, which writes the release's `CHANGELOG.md` entry from the merged PRs' release notes and uses it as the GitHub release's text. ([#83](https://github.com/elite-build/foreman/pull/83))
+- A commit that uses a new design-system component before that component is on `main` is now blocked by the pre-commit hook, and agents are told to ask for the component first. ([#84](https://github.com/elite-build/foreman/pull/84))
+- Pushing a branch that still holds a design mock (`mocks/`, `mockups/`, `mock*.html`) is refused, so mocks stay in the workspace and never reach a pull request or `main`. ([#85](https://github.com/elite-build/foreman/pull/85))
+
 ## 1.0.2 (2026-10-27)
 
 ### Added
