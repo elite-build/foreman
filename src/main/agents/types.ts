@@ -67,6 +67,9 @@ export interface TurnRequest {
   // #16: enforced read-only. Claude stays in plan mode (leaving it, and edit tools, are always refused);
   // Codex runs in its read-only sandbox. Only sent to agents that support it (see AGENTS.supportsReadOnly).
   readOnly?: boolean
+  // Claude only: a flow persona's scoped writes (globs relative to cwd). File tools may write only inside them and every
+  // shell is refused, each refusal a message the agent reads and carries on from (never an approval that stops the turn).
+  writeScope?: string[]
   // The agent's conversation to continue, if any.
   resume?: string
   // With `resume`: fork the conversation after this message (after a rewind).

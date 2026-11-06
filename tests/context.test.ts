@@ -139,3 +139,48 @@ describe('a flow step’s persona', () => {
     expect((await sentUsers(h))[1].added?.map((p) => p.kind)).toEqual(['instructions'])
   })
 })
+
+describe('a flow step’s scoped writes', () => {
+  it('reach the turn as its write scope, told to the agent, and never on a read-only turn', async () => {
+    const { h, requests } = await rig()
+    h.sessions.markUnattended('turn-pm', { flowRunId: 'run-1', step: 'requirements', persona: { name: 'product-manager', instructions: 'Decide what to build.', writes: ['docs/features/**'] } })
+    await h.sessions.send(h.session.id, 'write the requirements', { turnId: 'turn-pm' })
+    await settled(h)
+    expect(requests[0].writeScope).toEqual(['docs/features/**'])
+    expect(requests[0].readOnly).toBeUndefined()
+    expect(requests[0].systemPromptAppend).toContain('This step may only write files inside docs/features/** (relative to the workspace root).')
+
+    h.sessions.markUnattended('turn-ro', { flowRunId: 'run-1', step: 'look', persona: { name: 'looker', instructions: 'Look.', readOnly: true, writes: ['docs/**'] } })
+    await h.sessions.send(h.session.id, 'look', { turnId: 'turn-ro' })
+    await settled(h)
+    expect(requests[1].writeScope).toBeUndefined()
+    expect(requests[1].readOnly).toBe(true)
+  })
+})
+
+describe('an attended flow step (read-only on Codex)', () => {
+  it('waits for a person at an approval instead of being denied, and says so to the flow', async () => {
+    const waiting: boolean[] = []
+    const approvals: { id: string }[] = []
+    const stopped: string[] = []
+    let answer: unknown
+    registerDriver(
+      fakeDriver(async (_req, cb, signal) => {
+        answer = await cb.approveTool({ kind: 'tool', toolName: 'Bash', input: { command: 'ls' } }, signal)
+        cb.finished({ ok: true })
+      })
+    )
+    const h = await setupSessions({
+      events: { attendedApproval: (_s, w) => void waiting.push(w), approval: (r) => void approvals.push(r), unattendedStopped: (_s, what) => void stopped.push(what) }
+    })
+    h.sessions.markUnattended('turn-review', { flowRunId: 'run-1', step: 'review', attended: true })
+    await h.sessions.send(h.session.id, 'review it', { turnId: 'turn-review' })
+    await vi.waitFor(() => expect(approvals).toHaveLength(1))
+    expect(waiting).toEqual([true])
+    expect(stopped).toEqual([])
+    await h.sessions.respondApproval(approvals[0].id, { kind: 'tool', allow: true })
+    await settled(h)
+    expect(answer).toMatchObject({ allow: true })
+    expect(waiting).toEqual([true, false])
+  })
+})

@@ -1,7 +1,7 @@
 // Flows (docs/loops-and-graphs.md): the TOML reader, the graph checks, the starters and the pure helpers.
 import { describe, expect, it } from 'vitest'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
-import { flowFacts, flowFingerprintInputs, flowSummary, loopsContaining, nextStep, parseFlow, validateFlow, type Flow, type FlowParse } from '../src/shared/flows'
+import { countedLoopRedirect, flowFacts, flowFingerprintInputs, flowSummary, loopsContaining, nextStep, parseFlow, validateFlow, type Flow, type FlowParse } from '../src/shared/flows'
 import { createT } from '../src/shared/i18n'
 
 function ok(parsed: FlowParse): Flow {
@@ -269,5 +269,65 @@ describe('helpers', () => {
     const changed = ok(parseFlow(fixUntilGreen.replace('iterations = 4', 'iterations = 5'), 'built-in'))
     expect(flowFingerprintInputs(changed)).not.toBe(flowFingerprintInputs(flow))
     expect(flowFingerprintInputs(flow)).not.toContain('built-in')
+  })
+})
+
+// A counted loop (docs/loops-and-graphs.md, "Loops"): rounds of review and revise, three times, then a gate.
+const COUNTED = `name = "Rounds"
+[start]
+step = "draft"
+[steps.draft]
+kind = "turn"
+prompt = "Draft it."
+[steps.review]
+kind = "turn"
+prompt = "Review it."
+[steps.revise]
+kind = "turn"
+same_tab = "draft"
+context = ["review.answer"]
+[steps.show]
+kind = "gate"
+show = ["revise.answer"]
+[edges]
+draft = "review"
+review = "revise"
+revise = "review"
+[loops.rounds]
+over = ["review", "revise"]
+times = 3
+then = "show"
+at_most = { iterations = 3 }
+`
+
+describe('counted loops', () => {
+  it('reads times and then, and their then step is reached and may read the loop’s steps', () => {
+    const parsed = parseFlow(COUNTED, 'personal')
+    const flow = ok(parsed)
+    expect(flow.loops[0]).toEqual({ name: 'rounds', over: ['review', 'revise'], at_most: { iterations: 3 }, times: 3, then: 'show' })
+    expect(parsed.warnings).toEqual([])
+    // times alone is a bound.
+    expect(problems(parseFlow(COUNTED.replace('at_most = { iterations = 3 }\n', ''), 'personal'))).toEqual([])
+  })
+
+  it('refuses a bad times, one without the other, a then that isn’t a step or is inside the loop', () => {
+    expect(problems(parseFlow(COUNTED.replace('times = 3', 'times = 0'), 'personal'))).toEqual(['The loop “rounds” has `times`, which is how many passes it runs: a whole number, 1 or more.'])
+    expect(problems(parseFlow(COUNTED.replace('then = "show"\n', ''), 'personal'))).toEqual(['The loop “rounds” needs both `times` and `then` (the step the run goes on to after its last pass), or neither.'])
+    expect(problems(parseFlow(COUNTED.replace('then = "show"', 'then = "nowhere"'), 'personal'))).toContain('The loop “rounds” goes on to “nowhere” after its last pass, which isn’t a step of the flow.')
+    expect(problems(parseFlow(COUNTED.replace('then = "show"', 'then = "revise"'), 'personal'))).toContain('The loop “rounds” goes on to “revise” after its last pass, but that is one of its own steps: name a step outside the loop.')
+  })
+
+  it('redirects the edge that would start the next pass, or leave, once the passes are done', () => {
+    const flow = ok(parseFlow(COUNTED, 'personal'))
+    expect(countedLoopRedirect(flow, 'revise', 'review', () => 2)).toBeUndefined()
+    expect(countedLoopRedirect(flow, 'revise', 'review', () => 3)).toBe('show')
+    expect(countedLoopRedirect(flow, 'review', 'revise', () => 3)).toBeUndefined()
+    expect(countedLoopRedirect(flow, 'draft', 'review', () => 3)).toBeUndefined()
+  })
+
+  it('reads writes on a turn step, and refuses a path outside the workspace', () => {
+    const flow = ok(parseFlow(COUNTED.replace('prompt = "Draft it."', 'prompt = "Draft it."\nwrites = ["docs/**"]'), 'personal'))
+    expect(flow.steps[0]).toMatchObject({ writes: ['docs/**'] })
+    expect(problems(parseFlow(COUNTED.replace('prompt = "Draft it."', 'prompt = "Draft it."\nwrites = ["../x"]'), 'personal'))).toEqual(['Step “draft” writes to “../x”, which isn’t a path inside the workspace: write globs relative to its root, such as docs/features/**.'])
   })
 })

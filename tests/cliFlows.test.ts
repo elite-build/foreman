@@ -296,7 +296,7 @@ describe('flow methods', () => {
     expect(byName['Lost persona'].cantRun).toContain('The persona “missing” (step “work”) isn’t here')
     expect(byName['flow-bad'].problems.length).toBeGreaterThan(0)
     expect(result.text.split('\n')[0]).toMatch(/^NAME\s+SOURCE\s+FILE\s+REV\s+STEPS\s+LOOPS\s+GATES\s+PERSONAS$/)
-    expect(result.text).toContain('  can’t run: Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: work (Codex).')
+    expect(result.text).toContain('  can’t run: Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet (review and decide steps may run on Codex). Not Claude: work (Codex).')
     expect(flowRunPreview).toHaveBeenCalledWith({ flowId: 'flow-codex', repoId: 'r1', baseBranch: 'develop' })
     expect(result.text).not.toContain('supported yet')
     expect(result.text).toContain('  problem: ')
@@ -359,7 +359,7 @@ describe('flow methods', () => {
       const { call } = rig({ api: { flowRunPreview: async () => preview({ notClaude: [{ step: 'try', agent: 'Codex' }] }) } })
       const err = await failure(call('flow-run', { flow: 'tidy', cwd: root, inputs: { task: 'x' } }))
       expect(err.code).toBe('not-supported')
-      expect(err.message).toContain('these agent steps aren’t on Claude: try (Codex)')
+      expect(err.message).toContain('these turn steps aren’t on Claude: try (Codex)')
     })
 
     it('starts what was shown and answers with the run, its workspace and its first turn; --open brings it forward', async () => {

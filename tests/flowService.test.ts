@@ -1251,3 +1251,105 @@ lint = "again"
     expect(steps.find((s) => s.name === 'again')).toMatchObject({ tree: { end: 'ffffffffffff' } })
   })
 })
+
+// Review and revise three times, then a gate (docs/loops-and-graphs.md, "Loops": counted).
+const ROUNDS = `name = "Rounds"
+
+[start]
+step = "draft"
+
+[steps.draft]
+kind = "turn"
+prompt = "Draft it."
+
+[steps.review]
+kind = "turn"
+prompt = "Review it."
+
+[steps.revise]
+kind = "turn"
+same_tab = "draft"
+context = ["review.answer"]
+
+[steps.show]
+kind = "gate"
+ask = "Here it is."
+
+[edges]
+draft = "review"
+review = "revise"
+revise = "review"
+show = { continued = "done", stopped = "done" }
+
+[loops.rounds]
+over = ["review", "revise"]
+times = 3
+then = "show"
+at_most = { iterations = 5 }
+`
+
+describe('counted loops', () => {
+  it('a 3-times loop runs exactly 3 passes, then goes on to its `then` instead of another', async () => {
+    const h = harness(ROUNDS)
+    await h.start({})
+    for (let i = 0; i < 7; i++) await h.endTurn()
+    expect(names(h.run())).toEqual(['draft', 'review', 'revise', 'review', 'revise', 'review', 'revise', 'show'])
+    expect(h.run().state).toBe('waiting')
+    expect(h.run().loops.rounds).toMatchObject({ pass: 1, entries: 3, open: false })
+    expect(h.run().bounds?.rounds).toMatchObject({ times: 3, then: 'show', iterations: 5 })
+    expect(h.run().steps.filter((s) => s.name === 'review').map((s) => s.loops)).toEqual([{ rounds: 1 }, { rounds: 2 }, { rounds: 3 }])
+    h.gates[0].resolve({ kind: 'gate', answer: 'continued' })
+    await settle()
+    expect(h.run().state).toBe('completed')
+  })
+
+  it('`at_most` lower than `times` still stops the run, naming the bound', async () => {
+    const h = harness(ROUNDS.replace('iterations = 5', 'iterations = 2'))
+    await h.start({})
+    for (let i = 0; i < 5; i++) await h.endTurn()
+    expect(h.run()).toMatchObject({ state: 'stopped', reason: 'Stopped: the loop “rounds” reached its bound of 2 iterations.' })
+    expect(names(h.run())).toEqual(['draft', 'review', 'revise', 'review', 'revise'])
+  })
+})
+
+describe('read-only steps on Codex, and scoped writes', () => {
+  const codex: Loadout = { agent: 'codex', model: 'gpt-6-astra', fast: false }
+  const claude: Loadout = { agent: 'claude', model: 'claude-sonnet-5', fast: false }
+
+  it('a review on Codex runs attended: its approvals wait for you, and the run waits with them', async () => {
+    const h = harness(REVIEWED.replace('kind = "review"\n', 'kind = "review"\nloadout = 2\n'), { loadouts: [claude, codex] })
+    await h.start({})
+    expect(h.run().state).toBe('running')
+    await h.endTurn('completed', 'Built it.')
+    const review = h.sent.at(-1)!
+    expect(review.unattended).toEqual({ flowRunId: h.run().id, step: 'review', persona: { readOnly: true }, attended: true })
+    expect(h.deps.createSession).toHaveBeenLastCalledWith('ws-1', codex, { title: 'Review · review' })
+    h.service.attendedApproval(review.sessionId, true)
+    expect(h.run().state).toBe('waiting')
+    h.service.attendedApproval(review.sessionId, false)
+    expect(h.run().state).toBe('running')
+    await h.endTurn('completed', findingsBlock([]))
+    expect(h.run()).toMatchObject({ state: 'completed' })
+  })
+
+  it('a turn step on Codex still refuses the start; a review on Cursor can’t be held read-only', () => {
+    const h = harness(GREEN, { loadouts: [codex] })
+    expect(() => h.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: { task: 'x' }, shown: h.prepared.fingerprint })).toThrow(/review and decide steps may run on Codex\)\. Not Claude: build \(Codex\)/)
+    const cursor = harness(REVIEWED.replace('kind = "review"\n', 'kind = "review"\nloadout = 2\n'), { loadouts: [claude, { agent: 'cursor', model: 'auto', fast: false }] })
+    expect(() => cursor.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: cursor.prepared.fingerprint })).toThrow(/Not Claude: review \(Cursor\)/)
+  })
+
+  it('a persona’s scoped writes reach its turn, and refuse a loadout that isn’t Claude', async () => {
+    const pm = parsePersona('---\nname: pm\nwrites: [docs/features/**]\n---\nDecide what to build.', 'personal')
+    if (!('persona' in pm)) throw new Error(pm.problems.join(' '))
+    const toml = PLANNED.replace('persona = "architect"', 'persona = "pm"')
+    const h = harness(toml, { personas: { pm: pm.persona, developer: STARTER_PERSONAS.developer } })
+    await h.start({})
+    expect(h.sent[0].persona).toEqual({ name: 'pm', instructions: 'Decide what to build.', writes: ['docs/features/**'] })
+    expect(h.run().steps[0].detail).toBe('persona: pm · writes only docs/features/**')
+    const refused = harness(toml, { personas: { pm: pm.persona, developer: STARTER_PERSONAS.developer }, loadouts: [codex] })
+    expect(() => refused.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: refused.prepared.fingerprint })).toThrow(
+      'The step “plan” may only write inside docs/features/** (persona “pm”), which only Claude can be held to; this step runs on Codex.'
+    )
+  })
+})

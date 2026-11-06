@@ -542,3 +542,38 @@ describe('Foreman app tools in a Claude turn', () => {
     expect(cb.approveTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'mcp__foreman-app__run_checks' }), signal)
   })
 })
+
+describe('a flow step with scoped writes', () => {
+  const scoped: TurnRequest = { ...request, approvals: 'auto', writeScope: ['docs/features/**'] }
+  const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
+
+  it('decides file tools and shells in a hook before any permission mode, and the turn carries on', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(scoped, cb).run()
+    const options = sdk.query.mock.calls[0][0].options
+    const hook = options.hooks.PreToolUse[0].hooks[0]
+    const signal = new AbortController().signal
+    expect(await hook(pre('Write', { file_path: '/repo/docs/features/search/requirements.md' }), 'u1', { signal })).toMatchObject({ hookSpecificOutput: { permissionDecision: 'allow' } })
+    expect(await hook(pre('Edit', { file_path: 'src/index.ts' }), 'u1', { signal })).toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: expect.stringContaining('may only write inside docs/features/**') }
+    })
+    expect(await hook(pre('Bash', { command: 'rm -rf src' }), 'u1', { signal })).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } })
+    expect(await hook(pre('Read', { file_path: 'src/index.ts' }), 'u1', { signal })).toEqual({})
+    // The permission prompt says the same, should a call get there; neither asks anyone.
+    expect(await options.canUseTool('Edit', { file_path: 'src/index.ts' }, { signal })).toMatchObject({ behavior: 'deny' })
+    expect(await options.canUseTool('Bash', { command: 'ls' }, { signal })).toMatchObject({ behavior: 'deny' })
+    expect(cb.approveTool).not.toHaveBeenCalled()
+    claude.push(assistant('Wrote the requirements.'), result)
+    await run
+    expect(cb.finished).toHaveBeenCalledWith({ ok: true })
+  })
+
+  it('adds no hook to a turn without scoped writes', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn(request, callbacks()).run()
+    expect(sdk.query.mock.calls[0][0].options.hooks).toBeUndefined()
+    claude.push(result)
+    await run
+  })
+})

@@ -137,6 +137,24 @@ You are a senior code reviewer.`
   })
 })
 
+describe('scoped writes on a persona', () => {
+  it('reads writes as globs inside the workspace, shows it in the document, and refuses a path outside', () => {
+    const pm = read('---\nname: product-manager\nloadout: 2\nwrites: [docs/features/**, "notes/*.md"]\n---\nDecide what to build.')
+    expect(pm.writes).toEqual(['docs/features/**', 'notes/*.md'])
+    expect(personaMarkdown(pm)).toContain('writes: ["docs/features/**", "notes/*.md"]')
+    expect(read(personaMarkdown(pm)).writes).toEqual(pm.writes)
+    expect(validatePersona(pm)).toEqual([])
+    for (const bad of ['/etc/**', '../outside/**', 'C:/work/**', 'docs//a.md'])
+      expect(problemsOf(`---\nname: x\nwrites: [${JSON.stringify(bad)}]\n---\n`)).toEqual([`“${bad}” in writes isn’t a path inside the workspace: write globs relative to its root, such as docs/features/**.`])
+    expect(problemsOf('---\nname: x\nwrites: docs/**\n---\n')).toEqual(['“writes” should be a list, like [a, b].'])
+  })
+
+  it('warns that writes does nothing on a read-only persona', () => {
+    const parsed = parsePersona('---\nname: x\nread_only: true\nwrites: [docs/**]\n---\n', 'personal')
+    expect('persona' in parsed && parsed.warnings).toEqual(['writes has no effect: the persona is read-only, so it writes nothing.'])
+  })
+})
+
 describe('applying a persona to a step: narrowing only', () => {
   const qa = read(QA)
   const step = { name: 'qa' }
@@ -170,6 +188,19 @@ describe('applying a persona to a step: narrowing only', () => {
     // No persona list: every server, unless the step itself narrows.
     expect(applyPersona(step, qa).mcp).toBeUndefined()
     expect(applyPersona({ ...step, mcp: [] }, undefined).mcp).toEqual([])
+  })
+
+  it('scopes writes to the persona’s globs; a step may narrow them, never widen them, and read-only drops them', () => {
+    const pm = read('---\nname: pm\nwrites: [docs/features/**]\n---\n')
+    expect(applyPersona(step, pm)).toMatchObject({ readOnly: false, writes: ['docs/features/**'], problems: [] })
+    expect(applyPersona({ ...step, writes: ['docs/features/search/**'] }, pm)).toMatchObject({ writes: ['docs/features/search/**'], problems: [] })
+    const wider = applyPersona({ ...step, writes: ['docs/**', 'docs/features/a.md'] }, pm)
+    expect(wider.writes).toEqual(['docs/features/a.md'])
+    expect(wider.problems).toEqual(['Step “qa” writes to docs/**, outside what its persona “pm” may write (docs/features/**). A step can only narrow it.'])
+    // A persona with none: the step may scope its own; a read-only turn writes nothing at all.
+    expect(applyPersona({ ...step, writes: ['notes/**'] }, undefined).writes).toEqual(['notes/**'])
+    expect(applyPersona({ ...step, read_only: true }, pm).writes).toBeUndefined()
+    expect(applyPersona(step, qa).writes).toBeUndefined()
   })
 
   it('falls back to a subagent’s agent and model when the step names none', () => {

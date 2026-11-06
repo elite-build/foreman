@@ -607,6 +607,7 @@ export class Core {
         // #17: a worker's completed turn may make a review owed (only where the repo opted in); a reviewer's settles its review.
         this.autoReview.turnEnded(sessionId, outcome)
       },
+      attendedApproval: (sessionId, waiting) => this.flows.attendedApproval(sessionId, waiting),
       unattendedStopped: (sessionId, what) => {
         this.schedules.needsHuman(sessionId, what)
         this.flows.needsHuman(sessionId, what)
@@ -1861,7 +1862,7 @@ export class Core {
   private flowRunSummary(prepared: PreparedFlow, repo: Repo, baseBranch: string): FlowRunSummary {
     const { flow } = prepared
     const parts = this.repoApprovalParts(repo)
-    const { problems, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
+    const { problems, notClaude, attended } = flowRunProblems(prepared, this.store.state.settings.loadouts)
     const personas = Object.values(prepared.personas).flatMap((p) => (p ? [personaRef(p)] : []))
     return {
       flowName: flow.name,
@@ -1882,6 +1883,7 @@ export class Core {
       mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
       integrations: this.integrationLines(repo.id),
       notClaude,
+      ...(attended.length ? { attended } : {}),
       ...(flow.loops.some((l) => l.at_most.cost !== undefined) ? { costBound: true } : {}),
       // The non-Claude turns have their own line in the dialog.
       problems: problems.filter((p) => !(notClaude.length && p.startsWith('Unattended turns'))),

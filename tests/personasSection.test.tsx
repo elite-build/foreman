@@ -138,10 +138,12 @@ describe('Personas on Automations', () => {
     // Keep only some MCP servers: all of the repositories' to start with, then one taken off.
     await u.click(within(dialog).getByRole('switch', { name: 'Keep only some MCP servers' }))
     await u.click(within(within(dialog).getByRole('group', { name: 'MCP servers' })).getByRole('checkbox', { name: 'github' }))
+    // It edits (read-only is off), so it may be scoped to some paths.
+    await u.type(within(dialog).getByRole('textbox', { name: 'Writes only to' }), 'docs/features/**, notes/*.md')
     await u.type(within(dialog).getByRole('textbox', { name: 'Instructions' }), 'Look at the screens.')
     // The document it saves, shown under Source.
     const source = within(dialog).getByRole('textbox', { name: 'Persona (markdown)', hidden: true }) as HTMLTextAreaElement
-    expect(source.value).toBe('---\nname: designer-2\nloadout: 1\nshows: [task, diff, checks.results]\nends_with: [findings]\nmcp: [docs]\n---\nLook at the screens.\n')
+    expect(source.value).toBe('---\nname: designer-2\nloadout: 1\nshows: [task, diff, checks.results]\nends_with: [findings]\nmcp: [docs]\nwrites: ["docs/features/**", "notes/*.md"]\n---\nLook at the screens.\n')
     await u.click(within(dialog).getByRole('button', { name: 'Save' }))
     expect(fakeApi.savePersonalPersona).toHaveBeenCalledWith({ id: undefined, markdown: source.value })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())

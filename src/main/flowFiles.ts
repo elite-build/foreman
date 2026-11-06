@@ -173,5 +173,5 @@ export function withPersonas(listing: FlowListing, personas: readonly PersonaLis
 
 /** How a flow's approval names a persona: its name, where it comes from and its revision. */
 export function personaRef(p: Persona): FlowPersonaRef {
-  return { name: p.name, source: p.source, ...(p.file ? { file: p.file } : {}), ...(p.rev ? { rev: p.rev } : {}), ...(p.read_only ? { readOnly: true } : {}) }
+  return { name: p.name, source: p.source, ...(p.file ? { file: p.file } : {}), ...(p.rev ? { rev: p.rev } : {}), ...(p.read_only ? { readOnly: true } : {}), ...(!p.read_only && p.writes?.length ? { writes: [...p.writes] } : {}) }
 }

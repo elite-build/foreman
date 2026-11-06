@@ -152,7 +152,7 @@ function modelOf(flow: Flow | undefined, run: FlowRun | undefined): Model {
   if (flow) return { flow, name: flow.name, start: flow.start, steps: flow.steps, edges: flow.edges, loops: flow.loops }
   const steps: FlowStep[] = []
   for (const r of run?.steps ?? []) if (!steps.some((s) => s.name === r.name)) steps.push({ name: r.name, kind: r.kind } as FlowStep)
-  const loops: FlowLoop[] = Object.entries(run?.bounds ?? {}).map(([name, b]) => ({ name, over: b.over, at_most: { iterations: b.iterations, minutes: b.minutes, cost: b.cost } }))
+  const loops: FlowLoop[] = Object.entries(run?.bounds ?? {}).map(([name, b]) => ({ name, over: b.over, at_most: { iterations: b.iterations, minutes: b.minutes, cost: b.cost }, ...(b.times && b.then ? { times: b.times, then: b.then } : {}) }))
   return { name: run?.flow.name ?? '', start: run?.steps[0]?.name, steps, edges: null, loops }
 }
 
@@ -241,6 +241,7 @@ export function flowGraph(flow: Flow | undefined, run: FlowRun | undefined, lens
     const minutes = run ? Math.floor(pass ? pass.minutesUsed : inLoop.reduce((n, s) => n + (s.minutes ?? 0), 0)) : undefined
     const parts = [loop.name]
     if (pass && pass.pass > 1) parts.push(t('flowGraph.loop.pass', { pass: pass.pass }))
+    if (loop.times && loop.then) parts.push(t('flowGraph.loop.times', { times: loop.times, then: loop.then }))
     if (iterations) parts.push(maxIterations !== undefined ? t('flowGraph.loop.iterationOf', { iteration: iterations, max: maxIterations }) : t('flowGraph.loop.iteration', { iteration: iterations }))
     else if (maxIterations !== undefined) parts.push(t('flowGraph.loop.atMostIterations', { max: maxIterations }))
     if (maxMinutes !== undefined) parts.push(minutes !== undefined ? t('flowGraph.loop.minutesOf', { minutes, max: maxMinutes }) : t('flowGraph.loop.atMostMinutes', { max: maxMinutes }))

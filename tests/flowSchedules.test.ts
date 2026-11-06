@@ -210,7 +210,7 @@ describe('a flow schedule in core', () => {
     const { core: c, store, req } = await core()
     await expect(c.api.saveSchedule({ ...req, flow: { ...req.flow!, inputs: {} } })).rejects.toThrow('A scheduled run can’t ask for values, so fill in “task” first.')
     store.state.settings.loadouts = [{ agent: 'codex', model: 'gpt-5.5', fast: false }]
-    await expect(c.api.saveSchedule(req)).rejects.toThrow(/Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet\. Not Claude: build \(Codex\)/)
+    await expect(c.api.saveSchedule(req)).rejects.toThrow(/Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet \(review and decide steps may run on Codex\)\. Not Claude: build \(Codex\)/)
     expect(store.state.schedules ?? []).toHaveLength(0)
     await c.api.updateSettings({ flows: false })
     await expect(c.api.saveSchedule(req)).rejects.toThrow('Flows are off')

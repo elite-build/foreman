@@ -44,6 +44,9 @@ export interface Persona {
   ends_with?: PersonaEnd[]
   // The only MCP servers the step keeps of what the repository and integrations give; never adds one.
   mcp?: string[]
+  // Scoped writes: path globs relative to the workspace root (docs/features/**). Set, and not read-only, the step's
+  // turn may edit files only inside them and gets no shell; Foreman refuses the rest (Claude only).
+  writes?: string[]
   // A Claude Code subagent's `tools`, kept as written: Foreman doesn't apply it.
   tools?: string
   instructions: string
@@ -88,6 +91,8 @@ export interface TurnPersona {
   instructions?: string
   readOnly?: boolean
   mcp?: string[]
+  // The only paths the turn may write (globs relative to the workspace root): file tools elsewhere and every shell are refused.
+  writes?: string[]
 }
 
 export type PersonaParse = { persona: Persona; warnings: string[] } | { problems: string[]; warnings: string[] }
@@ -192,7 +197,7 @@ function scalar(raw: string): FrontValue {
 // ---- reading ----
 
 const NAME = /^[A-Za-z0-9][\w-]*$/
-const FIELDS = ['name', 'description', 'loadout', 'agent', 'model', 'read_only', 'shows', 'ends_with', 'mcp']
+const FIELDS = ['name', 'description', 'loadout', 'agent', 'model', 'read_only', 'shows', 'ends_with', 'mcp', 'writes']
 // A Claude Code subagent file is read for its name, description, model and tools; anything else in it is left alone.
 
 /** Claude Code's model aliases (sonnet, opus, haiku, fable) as the model Foreman runs; `inherit` or nothing: the step's. */
@@ -283,7 +288,25 @@ export function parsePersona(markdown: string, source: PersonaSource, t: TFuncti
   if (ends) persona.ends_with = ends
   const mcp = list<string>('mcp')
   if (mcp) persona.mcp = mcp
+  const writes = list<string>('writes')
+  if (writes) {
+    for (const glob of writes) if (!isWriteGlob(glob)) problems.push(t('personas.problem.writes', { value: glob }))
+    if (writes.length) persona.writes = writes
+    if (writes.length && persona.read_only) warnings.push(t('personas.problem.writesReadOnly'))
+  }
   return problems.length ? { problems, warnings } : { persona, warnings }
+}
+
+/** A `writes` glob: a path inside the workspace, relative to its root, with forward slashes and no `..`. */
+export function isWriteGlob(glob: string): boolean {
+  const g = glob.trim()
+  if (!g || g.startsWith('/') || g.includes('\\') || /^[A-Za-z]:/.test(g)) return false
+  return g.split('/').every((part) => part !== '..' && part !== '')
+}
+
+/** Whether `glob` is inside one of `allowed`: the same glob, or under a folder one of them opens with `/**`. */
+export function writeGlobWithin(glob: string, allowed: readonly string[]): boolean {
+  return allowed.some((a) => a === glob || (a.endsWith('/**') && glob.startsWith(a.slice(0, -2))) || a === '**')
 }
 
 /** A persona's own problems in words (the parser's rules), for a persona built in code rather than read. */
@@ -306,6 +329,7 @@ export function personaMarkdown(p: Omit<Persona, 'source'> & { source?: PersonaS
   if (p.shows?.length) lines.push(`shows: ${yamlList(p.shows)}`)
   if (p.ends_with?.length) lines.push(`ends_with: ${yamlList(p.ends_with)}`)
   if (p.mcp) lines.push(`mcp: ${yamlList(p.mcp)}`)
+  if (p.writes?.length) lines.push(`writes: ${yamlList(p.writes)}`)
   lines.push('---')
   return `${lines.join('\n')}\n${p.instructions.trim()}\n`
 }
@@ -338,6 +362,7 @@ export interface PersonaStep {
   context?: string[]
   read_only?: boolean
   mcp?: string[]
+  writes?: string[]
 }
 
 /** A step with its persona applied: what runs. */
@@ -352,6 +377,8 @@ export interface AppliedPersona {
   context: string[]
   // The servers the step may keep (undefined: every one the repository and integrations give).
   mcp?: string[]
+  // The only paths its turn may write, when the persona or the step scopes them and it isn't read-only.
+  writes?: string[]
   // The facts the persona is expected to end with.
   endsWith: PersonaEnd[]
   // Where the step tried to loosen what the persona allows: refused.
@@ -385,5 +412,14 @@ export function applyPersona(step: PersonaStep, persona: Persona | undefined, t:
     if (extra.length) problems.push(t('flows.problem.personaMcp', { step: step.name, persona: persona.name, servers: extra.join(', ') }))
     out.mcp = step.mcp ? step.mcp.filter((s) => allowed.includes(s)) : [...allowed]
   } else if (step.mcp) out.mcp = [...step.mcp]
+  // Scoped writes: a step may narrow the persona's area, never widen it (and a persona with none, the step may scope).
+  if (persona?.writes?.length) {
+    const allowed = persona.writes
+    const extra = (step.writes ?? []).filter((g) => !writeGlobWithin(g, allowed))
+    if (extra.length) problems.push(t('flows.problem.personaWrites', { step: step.name, persona: persona.name, globs: extra.join(', '), allowed: allowed.join(', ') }))
+    const kept = (step.writes ?? []).filter((g) => writeGlobWithin(g, allowed))
+    out.writes = step.writes?.length ? kept : [...allowed]
+  } else if (step.writes?.length) out.writes = [...step.writes]
+  if (out.readOnly) delete out.writes
   return out
 }

@@ -7,6 +7,7 @@ import {
   query,
   tool,
   type CanUseTool,
+  type HookCallback,
   type McpSdkServerConfigWithInstance,
   type PermissionMode as SdkPermissionMode,
   type McpServerStatus,
@@ -29,6 +30,7 @@ import type { AgentStatus, ChatItem, McpServerInfo, SlashCommandInfo, TaskProgre
 import { bundledClaudeExecutable } from '../platform'
 import { trackedClaudeSpawn } from './claudeSpawn'
 import { claudeContextUsage } from '../../shared/contextUsage'
+import { writeScopeDecision } from '../../shared/permissions'
 import { claudeLimit, type RateLimitEventInfo } from '../../shared/usageLimit'
 import {
   looksLikeAuthError,
@@ -213,6 +215,19 @@ function operatorTools(tools: Partial<OperatorTools>) {
     out.push(tool('attention', 'Recent history of what needed the user: turns that ended, requests that waited. Reading it marks nothing seen.', {}, async () => text(await run())))
   }
   return out
+}
+
+/**
+ * The PreToolUse hook a turn with scoped writes gets: Foreman's decision for file tools and shells (writeScopeDecision),
+ * nothing for any other tool, which the turn's permission mode decides as usual.
+ */
+export function writeScopeHook(writes: string[], root: string): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== 'PreToolUse') return {}
+    const decided = writeScopeDecision(input.tool_name, input.tool_input, writes, root)
+    if (!decided) return {}
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decided.allow ? 'allow' : 'deny', permissionDecisionReason: decided.allow ? 'Inside the area this flow step may write.' : decided.message } }
+  }
 }
 
 function permissionModeFor(approvals: ApprovalPolicy, planMode: boolean): SdkPermissionMode {
@@ -456,6 +471,9 @@ class ClaudeTurn implements AgentTurn {
               // Questions go through our own tool so the app can render them. Read-only also drops leaving plan mode and writing.
               disallowedTools: [...(req.readOnly ? ['AskUserQuestion', ...READ_ONLY_DENIED] : ['AskUserQuestion']), ...disabledMcpTools(req.disabledMcp)],
               mcpServers: { ...repoMcpConfig(req.mcpServers), ...inProcessMcpConfig(req.inProcessMcp), foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] }) },
+              // A flow persona's scoped writes, decided before any permission mode: inside the area allowed, elsewhere
+              // and every shell refused with words the agent reads (subagents' calls too). The turn goes on either way.
+              hooks: req.writeScope?.length ? { PreToolUse: [{ hooks: [writeScopeHook(req.writeScope, req.cwd)] }] } : undefined,
               // A one-line "what it's doing now" for running subagents.
               agentProgressSummaries: true,
               extraArgs: req.chrome ? { chrome: null } : undefined,
@@ -529,6 +547,12 @@ class ClaudeTurn implements AgentTurn {
 
     // #16: enforced, not advisory. Plain plan mode can be left after the plan is approved; read-only never asks, it refuses.
     if (this.req.readOnly && READ_ONLY_DENIED.includes(toolName)) return { behavior: 'deny', message: READ_ONLY_REFUSAL }
+
+    // A flow persona's scoped writes: decided here too, should a call reach the permission prompt past the hook.
+    if (this.req.writeScope?.length) {
+      const scoped = writeScopeDecision(toolName, input, this.req.writeScope, this.req.cwd)
+      if (scoped) return scoped.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: scoped.message }
+    }
 
     if (toolName === 'ExitPlanMode') {
       const review = await this.cb.reviewPlan(String(input.plan ?? ''), signal)

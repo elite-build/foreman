@@ -979,7 +979,8 @@ export interface Session {
   // A flow run's turn step is unattended the same way, for that one turn (its approvals stop the run for the human).
   // A flow step's persona rides along for that turn: its instructions, read-only and the MCP servers it keeps. A decide
   // step's turn carries the options it picks from: only then is Foreman's `decide` tool offered.
-  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[] }
+  // A flow's read-only step on another agent (Codex) is `attended`: an approval it asks for waits in Needs you, never denied.
+  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true }
   // #17: this tab is an auto review's read-only reviewer; its turns never start another review.
   autoReview?: { reviewId: string }
   // Closed tabs stay restorable until the workspace is archived.

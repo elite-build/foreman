@@ -127,6 +127,15 @@ describe('persona methods', () => {
     expect((await failure(call('persona-show', { persona: 'nobody', cwd: root }))).code).toBe('not-found')
   })
 
+  it('show: a persona with scoped writes says where it may write, with no shell', async () => {
+    const { call } = rig({ personas: [personal('persona-pm', '---\nname: pm\nwrites: [docs/features/**]\n---\nDecide what to build.\n')] })
+    const shown = await call<PersonaShowResult>('persona-show', { persona: 'pm', cwd: root })
+    expect(shown.persona).toMatchObject({ readOnly: false, writes: ['docs/features/**'] })
+    expect(shown.text).toContain('What it is: writes only docs/features/**')
+    expect(shown.text).toContain('Writes: only docs/features/**, and no shell (Claude steps only)')
+    expect(personaRefText({ name: 'pm', source: 'built-in', writes: ['docs/features/**'] })).toBe('pm (built-in, writes only docs/features/**)')
+  })
+
   it('add: saves a personal persona, or lists its problems and saves nothing', async () => {
     const { call, calls } = rig()
     const saved = await call<PersonaAddResult>('persona-add', { markdown: MINE.replace('qa-engineer', 'finder') })

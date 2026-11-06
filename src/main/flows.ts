@@ -19,6 +19,7 @@ import { readOnlyEnforcement } from '../shared/permissions'
 import { applyPersona, personaMarkdown, type Persona, type TurnPersona } from '../shared/personas'
 import { FAILED_STATUSES } from '../shared/checks'
 import {
+  countedLoopRedirect,
   FLOW_COMPACT_ABOVE,
   FLOW_DONE,
   FLOW_WAIT_MINUTES,
@@ -156,12 +157,13 @@ function loadoutStep(flow: Flow, step: AgentStep): AgentStep {
 }
 
 /** Every reason the flow can't start, in words; empty when it can. */
-export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { problems: string[]; notClaude: { step: string; agent: string }[] } {
+export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { problems: string[]; notClaude: { step: string; agent: string }[]; attended: { step: string; agent: string }[] } {
   const { flow } = prepared
   const problems: string[] = []
   const first = flow.steps.find((s) => s.name === flow.start)
   if (first && first.kind !== 'turn' && first.kind !== 'workspace') problems.push('A flow run starts with a turn or a workspace step: one of them makes the run’s workspace.')
   const notClaude: { step: string; agent: string }[] = []
+  const attended: { step: string; agent: string }[] = []
   for (const step of flow.steps) {
     if (step.kind === 'script' && !prepared.commands?.[step.command])
       problems.push(`The command “${step.command}” (step “${step.name}”) isn’t saved for this repository: a script step runs one of your saved commands or one from the repository’s settings.`)
@@ -180,19 +182,26 @@ export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { 
       continue
     }
     const label = AGENTS[loadout.agent]?.label ?? loadout.agent
-    if (loadout.agent !== 'claude') notClaude.push({ step: step.name, agent: label })
+    // A review or decide is read-only by construction, so it may run on Codex, attended; a turn step is Claude only.
+    if (loadout.agent !== 'claude') {
+      if (step.kind !== 'turn' && canReview(loadout.agent)) attended.push({ step: step.name, agent: label })
+      else notClaude.push({ step: step.name, agent: label })
+    }
+    const writes = step.kind === 'turn' ? applyPersona(step, persona).writes : undefined
+    if (writes?.length && loadout.agent !== 'claude')
+      problems.push(`The step “${step.name}” may only write inside ${writes.join(', ')}${persona?.writes?.length ? ` (persona “${persona.name}”)` : ''}, which only Claude can be held to; this step runs on ${label}.`)
     if (step.kind === 'review' && !canReview(loadout.agent)) problems.push(`The review step “${step.name}” runs on ${label}, which can’t be held to read-only: reviews run on Claude Code or Codex.`)
     else if ((step.kind !== 'turn' || applyPersona(step, persona).readOnly) && !readOnlyEnforcement(loadout.agent))
       problems.push(`The step “${step.name}” is read-only${persona?.read_only ? ` (persona “${persona.name}”)` : step.kind === 'decide' ? ' (a decide step only decides)' : ''}, which ${label} can’t enforce.`)
     if (persona?.source === 'claude-agents' && loadout.agent !== 'claude') problems.push(`The persona “${persona.name}” (step “${step.name}”) is a Claude Code subagent, for Claude steps only; this step runs on ${label}.`)
   }
   if (notClaude.length) problems.push(notClaudeProblem(notClaude))
-  return { problems, notClaude }
+  return { problems, notClaude, attended }
 }
 
 /** Why a flow with turns on other agents can't run unattended, naming them (a run preview lists them apart, as `notClaude`). */
 export function notClaudeProblem(notClaude: { step: string; agent: string }[]): string {
-  return `Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: ${notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`
+  return `Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet (review and decide steps may run on Codex). Not Claude: ${notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`
 }
 
 /** The values a run asks for: the flow's inputs, then any other {{placeholder}} in the templates its steps name. */
@@ -449,7 +458,7 @@ export class FlowService {
       startedAt: this.iso(),
       steps: [],
       loops: {},
-      bounds: Object.fromEntries(flow.loops.map((l) => [l.name, { over: [...l.over], ...l.at_most }]))
+      bounds: Object.fromEntries(flow.loops.map((l) => [l.name, { over: [...l.over], ...l.at_most, ...(l.times && l.then ? { times: l.times, then: l.then } : {}) }]))
     }
     this.prepared.set(run.id, prepared)
     this.record(run)
@@ -471,8 +480,10 @@ export class FlowService {
   private advance(run: FlowRun, from: string, fact: string | undefined): void {
     const flow = this.prepared.get(run.id)?.flow
     if (!flow || !isActiveRun(run)) return
-    const next = nextStep(flow, from, fact)
+    let next = nextStep(flow, from, fact)
     if (next === null) return this.finish(run, 'stopped', `Stopped: nothing in the flow follows “${from}” when it ends with “${fact}”.`)
+    // A counted loop whose passes are done goes on to its `then`, instead of another pass or its way out.
+    next = countedLoopRedirect(flow, from, next, (loop) => (run.loops[loop.name]?.open ? run.loops[loop.name].entries ?? 0 : 0)) ?? next
     if (next === FLOW_DONE) return this.finish(run, 'completed')
     void this.enter(run, next)
   }
@@ -503,6 +514,8 @@ export class FlowService {
       if (!pass || !pass.open) run.loops[loop.name] = { pass: (pass?.pass ?? 0) + 1, open: true, iterations: 1, startedAt: this.iso(now), minutesUsed: 0, costUsed: 0, visited: [name] }
       else if (pass.visited.includes(name)) Object.assign(pass, { iterations: pass.iterations + 1, visited: [name] })
       else pass.visited.push(name)
+      // A counted loop counts the entries of its first step: the passes `times` says.
+      if (loop.times && name === loop.over[0]) run.loops[loop.name].entries = (run.loops[loop.name].entries ?? 0) + 1
       const { iterations, minutes, cost } = loop.at_most
       const current = run.loops[loop.name]
       if (iterations !== undefined && current.iterations > iterations) return this.finish(run, 'stopped', `Stopped: the loop “${loop.name}” reached its bound of ${iterations} iteration${iterations === 1 ? '' : 's'}.`)
@@ -674,11 +687,24 @@ export class FlowService {
     if (readOnly) record.readOnly = true
     if (persona) details.push(`persona: ${persona.name}${readOnly ? ' (read-only)' : ''}`)
     else if (readOnly && step.kind === 'turn') details.push('read-only')
+    // Scoped writes: only a turn that can change files has them (a read-only one writes nothing).
+    const writes = !readOnly && applied.writes?.length ? applied.writes : undefined
+    if (writes) details.push(`writes only ${writes.join(', ')}`)
     const limits: TurnPersona | undefined =
-      persona || readOnly || applied.mcp
-        ? { ...(persona ? { name: persona.name, instructions: persona.instructions } : {}), ...(readOnly ? { readOnly: true } : {}), ...(applied.mcp ? { mcp: applied.mcp } : {}) }
+      persona || readOnly || applied.mcp || writes
+        ? {
+            ...(persona ? { name: persona.name, instructions: persona.instructions } : {}),
+            ...(readOnly ? { readOnly: true } : {}),
+            ...(applied.mcp ? { mcp: applied.mcp } : {}),
+            ...(writes ? { writes: [...writes] } : {})
+          }
         : undefined
-    const mark = { flowRunId: run.id, step: step.name, ...(limits ? { persona: limits } : {}), ...(step.kind === 'decide' ? { decide: [...step.options] } : {}) }
+    const mark: { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true } = {
+      flowRunId: run.id,
+      step: step.name,
+      ...(limits ? { persona: limits } : {}),
+      ...(step.kind === 'decide' ? { decide: [...step.options] } : {})
+    }
     const body = this.body(run, prepared, step)
 
     if (!run.workspaceId) {
@@ -760,6 +786,8 @@ export class FlowService {
     if (!this.current(run, record)) return
     const loadout = stepLoadout(loadoutStep(flow, step), this.deps.loadouts(), persona)
     if (!('error' in loadout)) record.model = loadout.model
+    // A read-only step on another agent (a review or decide on Codex) is attended: an approval it asks for waits for you.
+    if (!('error' in loadout) && loadout.agent !== 'claude' && step.kind !== 'turn') mark.attended = true
     if (!sessionId) {
       if ('error' in loadout) throw new Error(loadout.error)
       if (step.kind === 'review' && !canReview(loadout.agent)) throw new Error(`The review step “${step.name}” can’t run on ${AGENTS[loadout.agent]?.label ?? loadout.agent}: it can’t be held to read-only.`)
@@ -1174,6 +1202,21 @@ export class FlowService {
     const edge = flow.edges[record.name]
     const route = fact === 'undecided' && edge && typeof edge !== 'string' && !Object.hasOwn(edge, 'undecided') && Object.hasOwn(edge, 'findings') ? 'findings' : fact
     this.complete(run, record, fact, route)
+  }
+
+  /**
+   * An attended step (a read-only step on Codex) asked for an approval, which waits in Needs you: the run waits with it,
+   * and that time counts against no loop's minutes; answered, the run goes on.
+   */
+  attendedApproval(sessionId: string, waiting: boolean): void {
+    for (const run of this.runs) {
+      if (run.state !== (waiting ? 'running' : 'waiting')) continue
+      const record = run.steps.at(-1)
+      if (!record || !isAgentKind(record.kind) || record.state !== 'running' || record.sessionId !== sessionId) continue
+      run.state = waiting ? 'waiting' : 'running'
+      this.persist()
+      return
+    }
   }
 
   /** An unattended turn asked for an approval or a question: the run stops here for the human. */

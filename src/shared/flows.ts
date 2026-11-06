@@ -4,7 +4,7 @@
 // here runs a step.
 import { parse } from 'smol-toml'
 import { createT, type TFunction } from './i18n'
-import { applyPersona, type Persona, type PersonaSource } from './personas'
+import { applyPersona, isWriteGlob, type Persona, type PersonaSource } from './personas'
 import { templatePlaceholders } from './promptTemplates'
 import type { ScheduleFingerprint } from './types'
 
@@ -53,6 +53,8 @@ interface AgentStepFields {
   // Narrowing only (see applyPersona): read-only on, or fewer of the persona's MCP servers.
   read_only?: boolean
   mcp?: string[]
+  // Narrowing only: the paths a turn step may write, inside its persona's `writes` (see applyPersona).
+  writes?: string[]
 }
 
 export type FlowStep = { name: string } & (
@@ -77,6 +79,10 @@ export interface FlowLoop {
   iteration?: FlowIteration
   // compact-when-full: the share of the context window (a percentage) above which the tab is compacted first.
   compact_above?: number
+  // A counted loop: its steps run exactly `times` passes (each entry of its first step is one), then the run goes on to
+  // `then` instead of starting another or taking an edge out. `at_most` still bounds it.
+  times?: number
+  then?: string
 }
 
 export interface Flow {
@@ -116,6 +122,8 @@ export interface FlowPersonaRef {
   file?: string
   rev?: string
   readOnly?: boolean
+  // The only paths its turns may write (scoped writes).
+  writes?: string[]
 }
 
 /** A flow as the Automations page lists it, from any source. */
@@ -154,7 +162,7 @@ const isTable = (v: unknown): v is Table => typeof v === 'object' && v !== null 
 const STEP_NAME = /^[A-Za-z0-9][\w-]*$/
 
 const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
-  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab', 'read_only', 'mcp'],
+  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab', 'read_only', 'mcp', 'writes'],
   checks: [],
   script: ['command'],
   review: ['persona', 'loadout', 'agent', 'model', 'context', 'read_only', 'mcp'],
@@ -317,6 +325,11 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     }
     const mcp = list('mcp')
     if (mcp) out.mcp = mcp
+    const writes = STEP_FIELDS[k].includes('writes') ? list('writes') : undefined
+    if (writes) {
+      for (const glob of writes) if (!isWriteGlob(glob)) problems.push(t('flows.problem.writes', { step: name, value: glob }))
+      out.writes = writes
+    }
     return out
   }
   let step: FlowStep
@@ -385,7 +398,7 @@ function loopFrom(name: string, body: unknown, problems: string[], warnings: str
     problems.push(t('flows.problem.loopShape', { loop: name }))
     return undefined
   }
-  for (const field of Object.keys(body)) if (!['over', 'at_most', 'iteration', 'compact_above'].includes(field)) warnings.push(t('flows.problem.loopUnknownField', { loop: name, field }))
+  for (const field of Object.keys(body)) if (!['over', 'at_most', 'iteration', 'compact_above', 'times', 'then'].includes(field)) warnings.push(t('flows.problem.loopUnknownField', { loop: name, field }))
   const before = problems.length
   const over = Array.isArray(body.over) && body.over.every((x) => typeof x === 'string') ? (body.over as string[]) : null
   if (!over) problems.push(t('flows.problem.loopOver', { loop: name }))
@@ -414,8 +427,26 @@ function loopFrom(name: string, body: unknown, problems: string[], warnings: str
     if (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 100) compactAbove = v
     else problems.push(t('flows.problem.loopCompactAbove', { loop: name }))
   }
+  let times: number | undefined
+  if (body.times !== undefined) {
+    if (typeof body.times === 'number' && Number.isInteger(body.times) && body.times >= 1) times = body.times
+    else problems.push(t('flows.problem.loopTimes', { loop: name }))
+  }
+  let then: string | undefined
+  if (body.then !== undefined) {
+    if (typeof body.then === 'string' && body.then.trim()) then = body.then.trim()
+    else problems.push(t('flows.problem.loopThen', { loop: name }))
+  }
+  if ((body.times === undefined) !== (body.then === undefined)) problems.push(t('flows.problem.loopThen', { loop: name }))
   if (problems.length !== before) return undefined
-  return { name, over: over ?? [], at_most, ...(iteration ? { iteration } : {}), ...(compactAbove !== undefined ? { compact_above: compactAbove } : {}) }
+  return {
+    name,
+    over: over ?? [],
+    at_most,
+    ...(iteration ? { iteration } : {}),
+    ...(compactAbove !== undefined ? { compact_above: compactAbove } : {}),
+    ...(times !== undefined && then ? { times, then } : {})
+  }
 }
 
 // ---- the graph ----
@@ -496,11 +527,26 @@ function stable(value: unknown): string {
   return JSON.stringify(value)
 }
 
-/** The steps an edge leaving `name` can lead to (never `done`, never a name that isn't a step). */
+/** The steps an edge leaving `name` can lead to (never `done`, never a name that isn't a step), and a counted loop's `then`. */
 function successors(flow: Flow, names: Set<string>, name: string): string[] {
   const edge = flow.edges[name]
   const targets = edge === undefined ? [] : typeof edge === 'string' ? [edge] : Object.values(edge)
+  for (const loop of flow.loops) if (loop.then && loop.over.includes(name)) targets.push(loop.then)
   return targets.filter((x) => names.has(x))
+}
+
+/**
+ * Where a counted loop sends the run instead of `next` as it leaves `from`: its `then`, once its passes are done (an edge
+ * that would start pass N+1, or leave its steps, after the Nth). `entries` counts the loop's first step in this pass.
+ */
+export function countedLoopRedirect(flow: Flow, from: string, next: string, entries: (loop: FlowLoop) => number): string | undefined {
+  for (const loop of flow.loops) {
+    if (!loop.times || !loop.then || !loop.over.includes(from)) continue
+    const leaving = !loop.over.includes(next)
+    const restarting = next === loop.over[0]
+    if ((leaving || restarting) && entries(loop) >= loop.times) return loop.then
+  }
+  return undefined
 }
 
 /** Every step reachable from `name` by one edge or more (so `name` itself only when it is on a cycle). */
@@ -617,7 +663,9 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
       if (loop.over.some((s) => loop.over.some((other) => !reachableFrom(flow, names, s, within).has(other)))) error(t('flows.problem.loopDisconnected', { loop: loop.name }))
     }
     const { iterations, minutes, cost } = loop.at_most
-    if (iterations === undefined && minutes === undefined && cost === undefined) error(t('flows.problem.loopBound', { loop: loop.name }))
+    if (iterations === undefined && minutes === undefined && cost === undefined && loop.times === undefined) error(t('flows.problem.loopBound', { loop: loop.name }))
+    if (loop.then && loop.then !== FLOW_DONE && !names.has(loop.then)) error(t('flows.problem.loopThenUnknown', { loop: loop.name, step: loop.then }))
+    else if (loop.then && loop.over.includes(loop.then)) error(t('flows.problem.loopThenInside', { loop: loop.name, step: loop.then }))
   }
 
   if (personas) for (const problem of flowPersonaProblems(flow, personas, t)) error(problem)
@@ -712,6 +760,8 @@ export interface FlowRunLoop {
   costUsed?: number
   // The loop's steps entered in this iteration; entering one again starts the next iteration.
   visited: string[]
+  // A counted loop: how many times its first step was entered in this pass.
+  entries?: number
 }
 
 /** What a run's approval covers, part by part, so a refusal can say which part changed. */
@@ -761,7 +811,7 @@ export interface FlowRun {
   steps: FlowRunStep[]
   loops: Record<string, FlowRunLoop>
   // Each loop's steps and bounds as the flow said when the run started, so a run can be shown without its file.
-  bounds?: Record<string, { over: string[]; iterations?: number; minutes?: number; cost?: number }>
+  bounds?: Record<string, { over: string[]; iterations?: number; minutes?: number; cost?: number; times?: number; then?: string }>
   // A gate's "Send back" note, carried to the next step's message and then cleared.
   note?: string
   // The gate the note came from, named in the message that carries it.
@@ -788,8 +838,10 @@ export interface FlowRunSummary {
   commands?: { name: string; command: string }[]
   mcpServers: string[]
   integrations: string[]
-  // Agent steps whose agent isn't Claude: they refuse the run.
+  // Turn steps whose agent isn't Claude: they refuse the run.
   notClaude: { step: string; agent: string }[]
+  // Review and decide steps on Codex: read-only and attended (an approval they ask for waits for you).
+  attended?: { step: string; agent: string }[]
   // A loop bounds cost, which only counts turns whose agent says what they cost (Claude).
   costBound?: boolean
   // Other reasons it can't start (a template that doesn't exist, a loadout slot that isn't set).
