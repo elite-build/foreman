@@ -124,7 +124,11 @@ describe('O8 context sizes', () => {
     // The plain alias isn't the [1m] model, so the table's 1M entry doesn't apply.
     expect(knownContextWindow(claude('opus', { aliases: ['claude-opus-5-5', 'claude-opus-5-5[1m]'] }))).toBeUndefined()
     expect(knownContextWindow(claude('claude-opus-4-7'))).toBeUndefined()
-    expect(knownContextWindow({ id: 'gpt-6.1-sol', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 475_000 })).toBe(475_000)
+    expect(knownContextWindow({ id: 'gpt-6.1-sol', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 200_000 })).toBe(500_000)
+    // Codex's own working window wins over the table, and makes a model the table lacks known.
+    expect(knownContextWindow({ id: 'gpt-6.1-sol', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 520_000, contextReported: true })).toBe(520_000)
+    expect(knownContextWindow({ id: 'gpt-6-astra', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 272_000, contextReported: true })).toBe(272_000)
+    expect(knownContextWindow({ id: 'gpt-6-astra', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 200_000 })).toBeUndefined()
     expect(knownContextWindow({ id: 'anthropic/x', agent: 'opencode', label: '', efforts: [], supportsFast: false, contextWindow: 200_000 })).toBeUndefined()
   })
 
