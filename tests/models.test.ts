@@ -1,6 +1,9 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { toModelInfo } from '../src/main/agents/claude'
-import { toCodexModelInfo, type CodexModel } from '../src/main/agents/codex'
+import { codexContextWindows, toCodexModelInfo, type CodexModel } from '../src/main/agents/codex'
 import { toCursorModelInfo } from '../src/main/agents/cursor'
 import { defaultModel, modelInfo, modelsFor, setModelCatalog } from '../src/shared/agents'
 
@@ -49,6 +52,31 @@ describe('Codex model list', () => {
     const m = toCodexModelInfo({ ...base, model: 'gpt-5.5', displayName: 'GPT-5.5', serviceTiers: [], isDefault: false })
     expect(m.label).toBe('GPT-5.5')
     expect(m.supportsFast).toBe(false)
+  })
+
+  it('uses the working window Codex reports, else the built-in table or the generic fallback', () => {
+    const windows = new Map([['gpt-6-astra', 272_000]])
+    expect(toCodexModelInfo({ ...base, model: 'gpt-6-astra' }, windows)).toMatchObject({ contextWindow: 272_000, contextReported: true })
+    const listed = toCodexModelInfo(base, windows)
+    expect(listed.contextWindow).toBe(500_000)
+    expect(listed.contextReported).toBeUndefined()
+    expect(toCodexModelInfo({ ...base, model: 'gpt-7-new' }).contextWindow).toBe(200_000)
+  })
+
+  it('reads working windows from Codex’s model cache, skipping bad entries', async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'codex-home-'))
+    try {
+      expect((await codexContextWindows(home)).size).toBe(0)
+      await writeFile(
+        path.join(home, 'models_cache.json'),
+        JSON.stringify({ models: [{ slug: 'gpt-6-astra', context_window: 272_000, max_context_window: 872_000 }, { slug: 'gpt-6.1-sol', context_window: 500_000 }, { slug: 'broken', context_window: '1' }, { context_window: 9 }] })
+      )
+      expect([...(await codexContextWindows(home))]).toEqual([['gpt-6-astra', 272_000], ['gpt-6.1-sol', 500_000]])
+      await writeFile(path.join(home, 'models_cache.json'), '{not json')
+      expect((await codexContextWindows(home)).size).toBe(0)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
   })
 })
 

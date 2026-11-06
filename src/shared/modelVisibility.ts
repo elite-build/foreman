@@ -89,12 +89,14 @@ export function modelUses(
 }
 
 /**
- * The context window when someone actually knows it: Foreman's model table
- * (by id, or by the id Claude Code resolved an alias to), or Claude Code's own
- * "[1m]" marker. Otherwise undefined, shown as "context unknown"; ModelInfo's
- * contextWindow is a working fallback there, not a fact.
+ * The context window when someone actually knows it: the agent's own report
+ * (Codex's working window), Foreman's model table (by id, or by the id Claude
+ * Code resolved an alias to), or Claude Code's own "[1m]" marker. Otherwise
+ * undefined, shown as "context unknown"; ModelInfo's contextWindow is a working
+ * fallback there, not a fact.
  */
 export function knownContextWindow(model: ModelInfo): number | undefined {
+  if (model.contextReported) return model.contextWindow
   const resolved = model.aliases?.[0]
   const listed = MODELS.find((m) => m.agent === model.agent && (m.id === model.id || m.id === resolved))
   if (listed) return listed.contextWindow

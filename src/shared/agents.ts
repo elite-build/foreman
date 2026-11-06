@@ -42,6 +42,8 @@ export interface ModelInfo {
   defaultEffort?: EffortLevel
   supportsFast: boolean
   contextWindow: number
+  // The agent gave contextWindow itself (Codex's working window), so it is a fact rather than a fallback.
+  contextReported?: boolean
   hidden?: boolean
 }
 
@@ -166,9 +168,9 @@ export const MODELS: ModelInfo[] = [
   { id: 'claude-opus-5-5[1m]', agent: 'claude', label: 'Opus 5.5', efforts: CLAUDE_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 1_000_000 },
   { id: 'claude-sonnet-5-5[1m]', agent: 'claude', label: 'Sonnet 5.5', efforts: CLAUDE_EFFORTS, defaultEffort: 'high', supportsFast: false, contextWindow: 1_000_000 },
   { id: 'claude-haiku-5-5', agent: 'claude', label: 'Haiku 5.5', efforts: [], supportsFast: false, contextWindow: 200_000 },
-  { id: 'gpt-6.1-sol', agent: 'codex', label: 'GPT-6.1 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 475_000 },
-  { id: 'gpt-6-sol', agent: 'codex', label: 'GPT-6 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 400_000 },
-  { id: 'gpt-5.5', agent: 'codex', label: 'GPT-5.5', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 400_000 },
+  { id: 'gpt-6.1-sol', agent: 'codex', label: 'GPT-6.1 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 500_000 },
+  { id: 'gpt-6-sol', agent: 'codex', label: 'GPT-6 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
+  { id: 'gpt-5.5', agent: 'codex', label: 'GPT-5.5', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
   { id: 'auto', agent: 'cursor', label: 'Auto', efforts: [], supportsFast: false, contextWindow: 200_000 },
   { id: 'grok-4.7', agent: 'cursor', label: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'high', supportsFast: true, contextWindow: 256_000 },
   { id: 'composer-2.5', agent: 'cursor', label: 'Composer 2.5', efforts: [], supportsFast: true, contextWindow: 200_000 }
