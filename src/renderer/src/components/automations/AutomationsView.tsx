@@ -1,7 +1,7 @@
 // Automations: a library of prompt templates and saved commands (and flows, while Settings → Experimental → Flows is on). Each template card says when it runs and how its last
-// run went; the side panel lists the schedules, or the selected template or schedule. Covers the workspace area like
-// Settings, so open workspaces stay mounted.
-import { ArrowLeft, CalendarClock, Play, Plus, RotateCcw, Zap } from 'lucide-react'
+// run went; the side panel lists the schedules, or the selected schedule. A template opens as its own page in place of
+// the library, with breadcrumbs back. Covers the workspace area like Settings, so open workspaces stay mounted.
+import { ArrowLeft, CalendarClock, ChevronRight, Play, Plus, RotateCcw, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { DEFAULT_PROMPT_TEMPLATES, newTemplateId, templateName } from '../../../../shared/promptTemplates'
 import { qualifiedName } from '../../../../shared/repoTemplates'
@@ -13,7 +13,7 @@ import { cadenceText, nextPill } from '../ScheduleDialogs'
 import { saveSettings, useSettings } from '../settings/controls'
 import { CommandsSection } from './CommandsSection'
 import { FlowsSection } from './FlowsSection'
-import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview, TemplateDetail } from './details'
+import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview, TemplatePage } from './details'
 import '../settings/settings.css'
 import './automations.css'
 
@@ -25,6 +25,14 @@ export function AutomationsView() {
   const toCommands = useStore((s) => s.automations?.scrollTo === 'commands')
   const [shelf, setShelf] = useState<Shelf>('all')
   const [query, setQuery] = useState('')
+  // A template opens as its own page over the library; a schedule still opens in the side panel.
+  const template = useSelectedTemplate(selected)
+  const scheduleId = selected?.startsWith('s:') ? selected.slice(2) : null
+
+  // A template deleted elsewhere (or a stale id): back to the library.
+  useEffect(() => {
+    if (selected?.startsWith('t:') && !template) selectAutomation(null)
+  }, [selected, template])
 
   // Edit commands… (terminal panel, ⌘K) lands on Commands: CommandsSection scrolls to itself once it's shown.
   useEffect(() => {
@@ -34,7 +42,8 @@ export function AutomationsView() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
-      if ((e.target as Element | null)?.closest?.('.modal, input, textarea, select')) return
+      // In a field (the Rich prompt too), Escape belongs to the field, not to going back.
+      if ((e.target as Element | null)?.closest?.('.modal, input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
       e.preventDefault()
       if (selected) selectAutomation(null)
       else closeAutomations()
@@ -46,12 +55,40 @@ export function AutomationsView() {
   return (
     <div className="automations-view">
       <header className="titlebar drag auto-head">
-        <span className="auto-title" role="heading" aria-level={1}>
-          <Zap size={15} /> {t('automations.title')}
-        </span>
+        {template ? (
+          <nav className="auto-crumbs" aria-label={t('automations.page.where')}>
+            <span className="auto-title">
+              <Zap size={15} />
+            </span>
+            <LinkButton onClick={() => selectAutomation(null)}>{t('automations.title')}</LinkButton>
+            <ChevronRight size={12} aria-hidden />
+            <LinkButton
+              onClick={() => {
+                setShelf('templates')
+                selectAutomation(null)
+              }}
+            >
+              {t('automations.templates')}
+            </LinkButton>
+            <ChevronRight size={12} aria-hidden />
+            <span className="auto-crumb-here" aria-current="page">
+              {templateName(template, t)}
+            </span>
+          </nav>
+        ) : (
+          <span className="auto-title" role="heading" aria-level={1}>
+            <Zap size={15} /> {t('automations.title')}
+          </span>
+        )}
         <span className="faint small auto-head-hint">{t('automations.openHint')}</span>
       </header>
-      <div className="auto-body">
+      {template && (
+        <div className="auto-body">
+          <TemplatePage key={template.id} template={template} />
+        </div>
+      )}
+      {/* Hidden, not unmounted, under a template's page: Back finds the library scrolled where it was. */}
+      <div className="auto-body" hidden={Boolean(template)}>
         <Tabs value={shelf} onChange={(v) => setShelf(v as Shelf)} className="auto-lib">
           <div className="auto-lib-bar">
             <TabList label={t('automations.show')}>
@@ -73,30 +110,31 @@ export function AutomationsView() {
             <CommandsSection query={query} />
           </TabPanel>
         </Tabs>
-        <aside className="auto-side" aria-label={t('automations.side.label')}>{selected ? <SelectedDetail selected={selected} /> : <ScheduleOverview />}</aside>
+        <aside className="auto-side" aria-label={t('automations.side.label')}>{scheduleId ? <SelectedSchedule id={scheduleId} /> : <ScheduleOverview />}</aside>
       </div>
     </div>
   )
 }
 
-function SelectedDetail({ selected }: { selected: string }) {
+/** The template "t:<id>" names, personal or from a repository; undefined for a schedule, nothing, or one deleted elsewhere. */
+function useSelectedTemplate(selected: string | null): PromptTemplate | undefined {
+  const id = selected?.startsWith('t:') ? selected.slice(2) : null
+  return useStore((s) => (id ? (s.snapshot!.settings.promptTemplates.find((x) => x.id === id) ?? Object.values(s.snapshot!.repoTemplates).flat().find((x) => x.id === id)) : undefined))
+}
+
+function SelectedSchedule({ id }: { id: string }) {
   const t = useT()
-  const id = selected.slice(2)
-  const schedule = useStore((s) => (selected.startsWith('s:') ? s.snapshot!.schedules.find((x) => x.id === id) : undefined))
-  const template = useStore((s) =>
-    selected.startsWith('t:') ? (s.snapshot!.settings.promptTemplates.find((t) => t.id === id) ?? Object.values(s.snapshot!.repoTemplates).flat().find((t) => t.id === id)) : undefined
-  )
+  const schedule = useStore((s) => s.snapshot!.schedules.find((x) => x.id === id))
   // Deleted elsewhere: back to the schedules.
   useEffect(() => {
-    if (!schedule && !template) selectAutomation(null)
-  }, [schedule, template])
+    if (!schedule) selectAutomation(null)
+  }, [schedule])
   return (
     <>
       <Button size="sm" className="set-back auto-back" icon={<ArrowLeft size={13} />} onClick={() => selectAutomation(null)}>
         {t('automations.template.schedules')}
       </Button>
       {schedule && <ScheduleDetail key={schedule.id} schedule={schedule} />}
-      {template && <TemplateDetail key={template.id} template={template} />}
     </>
   )
 }

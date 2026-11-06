@@ -1,23 +1,24 @@
-// A personal template's fields: name, prompt, and the optional start model and follow-up.
-import { Trash2 } from 'lucide-react'
+// A personal template's fields: name, prompt, and the optional start model and follow-up. Deleting is on the template's
+// page (its ⋯ menu), not here.
 import { useEffect, useRef, type ChangeEvent } from 'react'
 import { effortLabel, modelInfo } from '../../../../shared/agents'
 import type { Loadout, PromptTemplate, TemplateFollowUp, TemplateStartModel } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
-import { Checkbox, IconButton, Select, TextArea, TextInput } from '../../ui'
+import { Checkbox, Select, TextArea, TextInput } from '../../ui'
 import { useDraft, useSettings } from '../settings/controls'
 import { FieldModeToggle, RichField, useFieldMode } from '../MarkdownField'
 
 export function TemplateEditor({
   template,
   autoFocus,
-  onChange,
-  onRemove
+  promptRows = 4,
+  onChange
 }: {
   template: PromptTemplate
   autoFocus: boolean
+  // The Markdown prompt's height; a template's own page gives it more.
+  promptRows?: number
   onChange: (patch: Partial<PromptTemplate>) => void
-  onRemove: () => void
 }) {
   const t = useT()
   const nameRef = useRef<HTMLInputElement>(null)
@@ -45,9 +46,6 @@ export function TemplateEditor({
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
           {...name}
         />
-        <IconButton label={t('automations.editor.delete', { name: template.name })} onClick={onRemove}>
-          <Trash2 size={13} />
-        </IconButton>
       </div>
       <div className="field-mode-row">
         <FieldModeToggle value={fieldMode} onChange={setFieldMode} />
@@ -68,7 +66,7 @@ export function TemplateEditor({
         <TextArea
           className="tpl-body"
           aria-label={t('automations.editor.prompt', { name: template.name })}
-          rows={4}
+          rows={promptRows}
           placeholder={t('automations.editor.promptPlaceholder', { example: '{{placeholder}}' })}
           {...body}
         />

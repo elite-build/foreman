@@ -233,6 +233,8 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     return '.settings-view'
   },
   automations: () => (openAutomations(), '.automations-view'),
+  // A built-in template open as its own page.
+  'automations-template': () => (openAutomations('t:default-fix-bug'), '.automations-view .auto-page'),
   // Flows on: the built-in and repository flows with their runs, then the personas.
   'automations-flows': async () => {
     openAutomations()

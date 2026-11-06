@@ -527,6 +527,7 @@ export const SCREENS = [
   'settings-integrations',
   'settings-devices',
   'automations',
+  'automations-template',
   // With Settings → Experimental → Flows on: the Flows and Personas sections, a run's Flow tab and the Lineage tab.
   'automations-flows',
   'workspace-flow',
