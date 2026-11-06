@@ -99,7 +99,7 @@ Open the PR as [create-pr](../create-pr/SKILL.md) steps 6 and 7 describe, with:
 - **Lead**: the version, and that only the version fields and `CHANGELOG.md` change.
 - **What changed**: the new `CHANGELOG.md` entry, quoted, so the reviewer approves the notes as well as the bump.
 - **Verification**: the checks from above.
-- **Compatibility**: whether the release will carry installers or be source-only (step 9), and why.
+- **Compatibility**: that the release carries the installers and update files (step 9), so installed copies can update themselves.
 - **Release note**: `None: release bump; its notes are the CHANGELOG.md entry it adds.`
 
 Read it back with `gh pr view` as create-pr says.
@@ -155,7 +155,6 @@ If it fails, read `gh run view <run-id> --log-failed`:
 
 **Notes.** Replace the generated list of PR titles with the `CHANGELOG.md` entry from step 4, without its `## <version>` heading. Add these after it when they apply:
 
-- `## Distribution`: for a source-only release, "This is a source-only release. Installers and automatic-update assets are omitted under the repository's current distribution policy (docs/maintenance.md)."
 - `## Known validation findings`: each check that failed in step 5 that the user chose to release with, in a sentence.
 - `**Full changelog**: https://github.com/elite-build/foreman/compare/v<last>...v<version>`
 
@@ -165,14 +164,7 @@ Write it to a temporary file as UTF-8 **without a BOM**, with LF line endings: P
 gh release edit v<version> --notes-file <file>
 ```
 
-**Assets.** Read step 4 of "Releases" in docs/maintenance.md. While it says installer redistribution isn't cleared (or that the Windows installer is unsigned, or that a private reporting channel isn't verified), the release is **source-only**. Delete every asset the workflow attached: the installers, `latest.yml`, `latest-mac.yml`, the macOS zip, the blockmaps and `SHA256SUMS.txt`.
-
-```sh
-gh release view v<version> --json assets --jq '.assets[].name' |
-  while read -r name; do gh release delete-asset v<version> "$name" --yes; done
-```
-
-GitHub adds the tag's source archives to every release by itself. Keep the assets only when maintenance.md says distribution is cleared, and then keep all of them: an installed copy updates from `latest*.yml` and the installers they name.
+**Assets.** Installers are cleared for distribution (step 4 of "Releases" in docs/maintenance.md), so keep every asset the workflow attached and delete none: the DMG, the Windows installer, the macOS zip, the blockmaps, `latest.yml`, `latest-mac.yml` and `SHA256SUMS.txt`. An installed copy updates from `latest*.yml` and the installers they name, so a release without them stops self-updating. Compare the asset names with the previous release's (`gh release view v<last> --json assets --jq '.assets[].name'`); if one is missing, or maintenance.md no longer says installers are cleared, stop and ask before publishing. GitHub adds the tag's source archives to every release by itself.
 
 Then read the draft back:
 
@@ -181,11 +173,11 @@ gh release view v<version> --json name,tagName,isDraft,isPrerelease,body,assets
 gh release view v<version> --json body --jq .body | head -c 3 | od -c
 ```
 
-Check that the name is `Foreman <version>`; it's still a draft; it's a prerelease exactly when the version has a suffix; the body starts with your first heading, not a BOM, holds no generated "What's Changed" list or placeholder, and its notes match `CHANGELOG.md`; and the assets are what the policy allows.
+Check that the name is `Foreman <version>`; it's still a draft; it's a prerelease exactly when the version has a suffix; the body starts with your first heading, not a BOM, holds no generated "What's Changed" list or placeholder, and its notes match `CHANGELOG.md`; and every asset is still attached.
 
 ## 10. Publish
 
-Before publishing, say in two or three lines what is about to go out: the version, the notes' headings, source-only or with installers, and anything that deviated. Ask first if anything did (see the top of this file).
+Before publishing, say in two or three lines what is about to go out: the version, the notes' headings, the assets attached, and anything that deviated. Ask first if anything did (see the top of this file).
 
 ```sh
 gh release edit v<version> --draft=false --latest     # a release
@@ -201,4 +193,4 @@ gh api repos/elite-build/foreman/releases/latest --jq .tag_name    # v<version>,
 
 ## 11. Report
 
-Report the release's URL, the version and the bump PR, the checks and their results, how the bump PR was merged (approval or bypass), the build run's URL and any rerun, whether it went out source-only or with installers, the notes you wrote without a PR note, and anything still open (a gap in `CHANGELOG.md`, a failing check released anyway).
+Report the release's URL, the version and the bump PR, the checks and their results, how the bump PR was merged (approval or bypass), the build run's URL and any rerun, the assets it went out with, the notes you wrote without a PR note, and anything still open (a gap in `CHANGELOG.md`, a failing check released anyway).
