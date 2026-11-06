@@ -12,7 +12,8 @@ import { Spinner } from './Spinner'
 // Interactive (onSelect given): one tab stop with a roving focus over the nodes (and the edges, with selectableEdges).
 // Arrows move to the nearest item that way, preferring one connected to the current item; Home and End go to the first
 // and last node; Enter and Space select; Escape clears the selection. Otherwise it is a picture: role="img" with `label`,
-// no tab stops. A thumbnail is a tiny picture with no text, hidden from assistive tech unless the caller says otherwise.
+// no tab stops of its own (one that overflows its viewport is a named region, one stop, so it can be scrolled). A
+// thumbnail is a tiny picture with no text, hidden from assistive tech unless the caller says otherwise.
 
 export type GraphSide = 'left' | 'right' | 'top' | 'bottom'
 export type GraphShape = 'card' | 'pill' | 'gate' | 'square'
@@ -41,13 +42,14 @@ export type GraphNode = {
   // The tone in words, read with the node's name. Required in practice whenever `tone` is set on an interactive graph.
   toneLabel?: string
   mark?: GraphMark
-  // The mark in words ("+ new", "~ edited"): drawn as a badge on the top edge and read with the name.
+  // The mark in words ("+ new", "~ edited"): drawn as a badge on the top edge and read with the name. Required with
+  // `mark` (added and changed differ only in colour without it): a mark without it throws in development.
   markLabel?: string
-  // A short count on the top edge ("×3").
+  // A short count on the top edge ("×3"), read with the name.
   badge?: string
   // Not on the path being shown: no fill, muted text.
   dim?: boolean
-  // The accessible name, when the default (title, detail, toneLabel, markLabel) isn't right.
+  // The accessible name, when the default (title, detail, toneLabel, markLabel, badge) isn't right.
   label?: string
 }
 
@@ -69,7 +71,7 @@ export type GraphEdge = {
   // strong: the path taken. faint: not reached.
   weight?: 'normal' | 'strong' | 'faint'
   mark?: GraphMark
-  // The mark in words, drawn beside the label and read with the name.
+  // The mark in words, drawn beside the label and read with the name. Required with `mark`, as on nodes.
   markLabel?: string
   // The accessible name, when the default (label, markLabel, the from and to nodes' titles) isn't right.
   name?: string
@@ -86,7 +88,11 @@ export type GraphNote = {
   // An icon before the title (decorative).
   icon?: ReactNode
   tone?: 'running' | 'error'
+  // The tone in words, drawn as a badge on the top edge. Required with `tone`: without it the state is only a colour.
+  toneLabel?: string
   mark?: GraphMark
+  // The mark in words, drawn as a badge on the top edge. Required with `mark`, as on nodes.
+  markLabel?: string
 }
 
 export type GraphLabels = {
@@ -140,6 +146,9 @@ const HALO = 5
 const MARKERS = ['normal', 'strong', 'faint', 'added', 'changed', 'removed', 'selected']
 
 const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z))
+const round = (z: number) => Math.round(z * 100) / 100
+// How long Ctrl + wheel zooming rests before the new zoom is announced, so a gesture is said once, not at every step.
+const SAY_AFTER_WHEEL = 500
 
 const GLYPHS: Record<Exclude<GraphTone, 'running'>, GlyphName> = { ok: 'ok', waiting: 'warn', error: 'error', off: 'off' }
 
@@ -213,6 +222,16 @@ function nearest(items: Item[], from: Item, key: string): Item | undefined {
 
 const sanitize = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, '')
 
+// Dev only: a mark or a note's tone without its words is a state shown by colour alone, so fail where it is made.
+function checkWords(nodes: GraphNode[], edges: GraphEdge[], notes: GraphNote[]): void {
+  for (const n of nodes) if (n.mark && !n.markLabel) throw new Error(`Graph node "${n.id}" has a mark but no markLabel`)
+  for (const e of edges) if (e.mark && !e.markLabel) throw new Error(`Graph edge "${e.id}" has a mark but no markLabel`)
+  for (const n of notes) {
+    if (n.mark && !n.markLabel) throw new Error(`Graph note "${n.id}" has a mark but no markLabel`)
+    if (n.tone && !n.toneLabel) throw new Error(`Graph note "${n.id}" has a tone but no toneLabel`)
+  }
+}
+
 export function Graph({
   label,
   width,
@@ -233,12 +252,15 @@ export function Graph({
   ref,
   ...rest
 }: GraphProps) {
+  if (import.meta.env.DEV) checkWords(nodes, edges, notes)
   const interactive = Boolean(onSelect) && !thumbnail
   const edgesSelectable = interactive && selectableEdges
   const uid = sanitize(useId())
   const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const layerRef = useRef<HTMLDivElement>(null)
+  const zoomInRef = useRef<HTMLButtonElement>(null)
+  const zoomOutRef = useRef<HTMLButtonElement>(null)
   const els = useRef(new Map<string, HTMLElement>())
 
   // ---- zoom ----
@@ -259,18 +281,40 @@ export function Graph({
     fit = Math.min(1, fit)
   }
   const scale = requested === 'fit' ? fit : clampZoom(requested)
+  // A picture bigger than its viewport scrolls. Chromium makes such a scroller a tab stop anyway (with no name), so it is
+  // one on purpose: a named region the arrow keys scroll. An interactive graph's buttons are its stops instead.
+  const scrolls = !interactive && !thumbnail && box !== null && (width * scale > box.width + 1 || height * scale > box.height + 1)
   const scaleRef = useRef(scale)
   scaleRef.current = scale
 
+  // The zoom a person asked for is said by a visually hidden live region. The percentage in the toolbar isn't live, so a
+  // 'fit' that follows the viewport's width (a window or panel being resized) says nothing.
+  const [said, setSaid] = useState('')
+  const sayTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(sayTimer.current), [])
+  const say = (z: number, wait: number) => {
+    clearTimeout(sayTimer.current)
+    if (!labels) return
+    const text = labels.zoomValue(Math.round(z * 100))
+    if (wait) sayTimer.current = setTimeout(() => setSaid(text), wait)
+    else setSaid(text)
+  }
+
   // Zooming keeps the graph point under `clientX, clientY` where it was (the pointer, or the viewport's centre).
   const anchor = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null)
-  const setZoom = (next: number | 'fit', around?: { clientX: number; clientY: number }) => {
+  const setZoom = (next: number | 'fit', around?: { clientX: number; clientY: number }, sayAfter = 0) => {
     const canvas = canvasRef.current
     if (around && canvas) {
       const rect = canvas.getBoundingClientRect()
       const current = scaleRef.current
       anchor.current = { x: (around.clientX - rect.left) / current, y: (around.clientY - rect.top) / current, ...around }
     }
+    const target = next === 'fit' ? fit : next
+    // The button at the end this reaches turns off: keep keyboard focus in the toolbar, on the other one.
+    const active = document.activeElement
+    if (target >= ZOOM_MAX - 0.001 && active === zoomInRef.current) zoomOutRef.current?.focus()
+    if (target <= ZOOM_MIN + 0.001 && active === zoomOutRef.current) zoomInRef.current?.focus()
+    say(target, sayAfter)
     if (!onZoomChange) setOwnZoom(next)
     onZoomChange?.(next)
   }
@@ -294,8 +338,10 @@ export function Graph({
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      const next = Math.round(clampZoom(scaleRef.current * Math.exp(-e.deltaY * 0.002)) * 100) / 100
-      if (next !== scaleRef.current) setZoomRef.current(next, { clientX: e.clientX, clientY: e.clientY })
+      // A fitted graph can be below the smallest zoom: zooming out from there stays put, never jumps up to it.
+      const current = scaleRef.current
+      const next = round(Math.min(ZOOM_MAX, Math.max(Math.min(ZOOM_MIN, current), current * Math.exp(-e.deltaY * 0.002))))
+      if (next !== current && Math.sign(next - current) === -Math.sign(e.deltaY)) setZoomRef.current(next, { clientX: e.clientX, clientY: e.clientY }, SAY_AFTER_WHEEL)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -305,8 +351,14 @@ export function Graph({
     const rect = viewportRef.current?.getBoundingClientRect()
     return rect ? { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 } : undefined
   }
-  const zoomIn = () => setZoom(ZOOM_STEPS.find((s) => s > scale + 0.001) ?? ZOOM_MAX, centre())
-  const zoomOut = () => setZoom([...ZOOM_STEPS].reverse().find((s) => s < scale - 0.001) ?? ZOOM_MIN, centre())
+  const atMax = scale >= ZOOM_MAX - 0.001
+  const atMin = scale <= ZOOM_MIN + 0.001
+  const zoomIn = () => {
+    if (!atMax) setZoom(ZOOM_STEPS.find((s) => s > scale + 0.001) ?? ZOOM_MAX, centre())
+  }
+  const zoomOut = () => {
+    if (!atMin) setZoom([...ZOOM_STEPS].reverse().find((s) => s < scale - 0.001) ?? ZOOM_MIN, centre())
+  }
 
   // ---- geometry ----
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
@@ -429,7 +481,7 @@ export function Graph({
   const edgeVariant = (e: GraphEdge, isSelected: boolean) => (isSelected ? 'selected' : (e.mark ?? e.weight ?? 'normal'))
   const showTools = Boolean(labels) && !thumbnail
 
-  const nodeName = (n: GraphNode) => n.label ?? [n.title, n.detail, n.toneLabel, n.markLabel].filter(Boolean).join(', ')
+  const nodeName = (n: GraphNode) => n.label ?? [n.title, n.detail, n.toneLabel, n.markLabel, n.badge].filter(Boolean).join(', ')
   const edgeName = (e: GraphEdge, from: GraphNode, to: GraphNode) => e.name ?? [e.label, e.markLabel, from.title, to.title].filter(Boolean).join(', ')
 
   const renderNode = (n: GraphNode) => {
@@ -557,6 +609,9 @@ export function Graph({
       <div
         ref={viewportRef}
         className="ui-graph__viewport"
+        role={scrolls ? 'region' : undefined}
+        aria-label={scrolls ? label : undefined}
+        tabIndex={scrolls ? 0 : undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endPan}
@@ -615,6 +670,20 @@ export function Graph({
                     {note.title}
                   </span>
                   {note.detail && <span className="ui-graph__note-detail">{note.detail}</span>}
+                  {((note.mark && note.markLabel) || (note.tone && note.toneLabel)) && (
+                    <span className="ui-graph__badges">
+                      {note.mark && note.markLabel && (
+                        <span className="ui-graph__badge" data-mark={note.mark}>
+                          {note.markLabel}
+                        </span>
+                      )}
+                      {note.tone && note.toneLabel && (
+                        <span className="ui-graph__badge" data-tone={note.tone}>
+                          {note.toneLabel}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
               ))}
             {nodes.map(renderNode)}
@@ -625,13 +694,14 @@ export function Graph({
       </div>
       {showTools && labels && (
         <div className="ui-graph__tools">
-          <IconButton label={labels.zoomOut} onClick={zoomOut} disabled={scale <= ZOOM_MIN + 0.001}>
+          <IconButton ref={zoomOutRef} label={labels.zoomOut} onClick={zoomOut} disabled={atMin}>
             <ZoomOut size={14} />
           </IconButton>
-          <span className="ui-graph__zoom" aria-live="polite">
-            {labels.zoomValue(Math.round(scale * 100))}
+          <span className="ui-graph__zoom">{labels.zoomValue(Math.round(scale * 100))}</span>
+          <span className="ui-graph__said" aria-live="polite">
+            {said}
           </span>
-          <IconButton label={labels.zoomIn} onClick={zoomIn} disabled={scale >= ZOOM_MAX - 0.001}>
+          <IconButton ref={zoomInRef} label={labels.zoomIn} onClick={zoomIn} disabled={atMax}>
             <ZoomIn size={14} />
           </IconButton>
           <span className="ui-graph__sep" aria-hidden="true" />

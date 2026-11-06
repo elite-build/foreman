@@ -229,8 +229,8 @@ const TAKEN = new Set(['start>plan', 'plan>plan-check', 'plan-check>implement', 
 const RUN_NODES: GraphNode[] = FLOW_NODES.map((n) => ({ ...n, ...RUN_STATE[n.id] }))
 const RUN_EDGES: GraphEdge[] = FLOW_EDGES.map((e) => ({ ...e, weight: TAKEN.has(e.id) ? 'strong' : 'faint' }))
 const RUN_NOTES: GraphNote[] = [
-  { ...FLOW_NOTES[0], detail: 'pass 3 of 4 · 10 of 45 min', tone: 'running' },
-  { ...FLOW_NOTES[1], detail: 'stopped: 2 of 2 passes used', tone: 'error' }
+  { ...FLOW_NOTES[0], detail: 'pass 3 of 4 · 10 of 45 min', tone: 'running', toneLabel: 'running' },
+  { ...FLOW_NOTES[1], detail: '2 of 2 passes used', tone: 'error', toneLabel: 'stopped' }
 ]
 
 // The assistant's proposal: a new security review, qa edited, qa → done removed.
@@ -240,11 +240,11 @@ const PROPOSAL_NODES: GraphNode[] = [
 ]
 const PROPOSAL_EDGES: GraphEdge[] = [
   ...FLOW_EDGES.map((e): GraphEdge => (e.id === 'qa>done' ? { ...e, mark: 'removed', markLabel: 'removed' } : e)),
-  edge('qa>security', 'qa', 'right', 'security', 'left', { label: 'clean', mark: 'added' }),
-  edge('security>done', 'security', 'bottom', 'done', 'top', { label: 'clean', mark: 'added', fromOffset: 30 }),
-  edge('security>address', 'security', 'bottom', 'address', 'right', { label: 'findings', mark: 'added', fromOffset: -30 })
+  edge('qa>security', 'qa', 'right', 'security', 'left', { label: 'clean', mark: 'added', markLabel: '+ new' }),
+  edge('security>done', 'security', 'bottom', 'done', 'top', { label: 'clean', mark: 'added', markLabel: '+ new', fromOffset: 30 }),
+  edge('security>address', 'security', 'bottom', 'address', 'right', { label: 'findings', mark: 'added', markLabel: '+ new', fromOffset: -30 })
 ]
-const PROPOSAL_NOTES: GraphNote[] = [FLOW_NOTES[0], { ...FLOW_NOTES[1], x: 742, y: 404, width: 176, detail: 'at most 3 passes (was 2)', mark: 'changed' }]
+const PROPOSAL_NOTES: GraphNote[] = [FLOW_NOTES[0], { ...FLOW_NOTES[1], x: 742, y: 404, width: 176, detail: 'at most 3 passes (was 2)', mark: 'changed', markLabel: '~ edited' }]
 
 function GraphDemo() {
   const [selected, setSelected] = useState<string | null>('qa')
