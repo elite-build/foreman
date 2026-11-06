@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Checkbox } from '../Checkbox'
+import { CodeEditor, type CodeEditorMark, type CodeEditorToken } from '../CodeEditor'
 import { Field } from '../Field'
 import { FileInput } from '../FileInput'
 import { MaskedValue } from '../MaskedValue'
@@ -42,6 +43,50 @@ const options = [
   { value: 'three', label: 'A very long option label that the select has to cope with', group: 'Group' }
 ]
 
+// A tiny TOML tokenizer, enough for the sample: [tables], keys, strings, numbers, booleans and comments.
+function tokenizeToml(line: string): CodeEditorToken[] {
+  const out: CodeEditorToken[] = []
+  const table = /^(\s*)(\[[^\]]*\]+)(.*)$/.exec(line)
+  if (table) return [{ text: table[1] }, { text: table[2], kind: 'title' }, ...tokenizeToml(table[3])]
+  const pattern = /(#.*$)|("(?:[^"\\]|\\.)*"?)|\b(true|false)\b|(-?\b\d+(?:\.\d+)?\b)|((?<=^\s*|[{,]\s*)[\w.-]+(?=\s*=))/g
+  let at = 0
+  for (let m = pattern.exec(line); m; m = pattern.exec(line)) {
+    if (m.index > at) out.push({ text: line.slice(at, m.index) })
+    const kind = m[1] ? 'comment' : m[2] ? 'string' : m[3] ? 'keyword' : m[4] ? 'number' : 'property'
+    out.push({ text: m[0], kind })
+    at = m.index + m[0].length
+    if (!m[0]) pattern.lastIndex++
+  }
+  if (at < line.length) out.push({ text: line.slice(at) })
+  return out
+}
+
+const FLOW = [
+  '# Research, then implement, then review',
+  '[steps.implement]',
+  'kind = "turn"',
+  'persona = "developer"',
+  'prompt = "Implement the plan."',
+  '',
+  '[steps.qa]',
+  'kind = "review"',
+  'persona = "qa-engineer"',
+  'context = ["diff", "checks.result"]',
+  '',
+  '[loops.qa-until-clean]',
+  'over = ["qa", "address", "checks"]',
+  'at_most = { iterations = 2 }',
+  'same_tab = true',
+  '[edges]',
+  'qa = { clean = "done", findings = "address", because = "a deliberately long line that scrolls sideways instead of wrapping" }'
+].join('\n')
+
+const FLOW_MARKS: CodeEditorMark[] = [
+  { line: 10, tone: 'error', from: 20, to: 35, message: '"checks.result" isn\'t something a step can be shown. Did you mean checks.results?' },
+  { line: 14, tone: 'warn', from: 11, to: 29, message: 'This loop has no time limit.' }
+]
+const markLabel = (m: CodeEditorMark) => `Line ${m.line}, ${m.tone === 'error' ? 'problem' : 'warning'}: ${m.message}`
+
 const maskedLabels = { copy: 'Copy API key', reveal: 'Reveal API key', hide: 'Hide API key', edit: 'Edit API key', remove: 'Remove API key' }
 
 export function Gallery2b() {
@@ -52,6 +97,8 @@ export function Gallery2b() {
   const [tree, setTree] = useState<string | undefined>('main')
   const [conn, setConn] = useState<string | undefined>(undefined)
   const [prefix, setPrefix] = useState<string | undefined>('custom')
+  const [flow, setFlow] = useState(FLOW)
+  const [caretLine, setCaretLine] = useState(1)
 
   return (
     <div style={{ padding: 16, maxWidth: 760 }}>
@@ -95,6 +142,25 @@ export function Gallery2b() {
         <TextArea aria-label="Invalid" aria-invalid="true" defaultValue="needs fixing" />
         <TextArea aria-label="Read only" readOnly defaultValue="read only" />
         <TextArea aria-label="Disabled" disabled defaultValue="disabled" />
+      </Section>
+
+      <Section title="CodeEditor: a highlighted range, an error and a warning; read only">
+        <Field label="research-then-implement.toml" description={`Caret on line ${caretLine}.`}>
+          {(c) => (
+            <CodeEditor
+              {...c}
+              value={flow}
+              onChange={setFlow}
+              tokenize={tokenizeToml}
+              highlight={{ from: 7, to: 10 }}
+              marks={FLOW_MARKS}
+              markLabel={markLabel}
+              onCaretLine={setCaretLine}
+              rows={18}
+            />
+          )}
+        </Field>
+        <CodeEditor aria-label="Read-only TOML" readOnly value={'[steps.checks]\nkind = "checks"\nretries = 2'} tokenize={tokenizeToml} rows={3} />
       </Section>
 
       <Section title="Range">

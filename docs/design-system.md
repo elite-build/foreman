@@ -11,7 +11,7 @@ The **Components** sections below are the authoritative catalogue of purposes, v
 | Requirement | Catalogue entries to inspect | Runnable example source |
 | --- | --- | --- |
 | Actions, cards and feedback | Button, IconButton, LinkButton, ChipButton, Pressable, ActionRow, Card/CardButton, Tag, Status, Glyph, Spinner, Countdown, Meter, Stepper, Callout, Kbd, MediaThumb | `ui/gallery/2a.tsx` |
-| Labelled inputs and choices | Field/useField, TextInput, TextArea, Range, FileInput, Checkbox, Select, MaskedValue, Switch, RadioList, RadioCards | `ui/gallery/2b.tsx` |
+| Labelled inputs and choices | Field/useField, TextInput, TextArea, CodeEditor, Range, FileInput, Checkbox, Select, MaskedValue, Switch, RadioList, RadioCards | `ui/gallery/2b.tsx` |
 | Navigation and action menus | Segmented, Tabs and parts, Menu and parts, ContextMenu, SplitButton, Disclosure | `ui/gallery/2c.tsx` |
 | Overlays, pickers and structure | Dialog/Sheet, Popover, HoverCard, Listbox, Combobox, Tree/TreeItem, Graph, Resizer | `ui/gallery/2d.tsx` |
 | Brief emphasis after navigation | Flash (`flash`, `flashTargets` in `ui/flash.ts`) | Flash section below and `tests/ui/flash.test.tsx` |
@@ -334,6 +334,38 @@ Replaces `.nw-thumb`.
 - `Checkbox` indeterminate is set from a prop in an effect, because there is no HTML attribute for it.
 - `Checkbox`, `RadioList` and `Range` draw the native control with `accent-color: var(--selected-mark)`, so a checked box and a radio dot are neutral ink with the browser's own contrasting tick. A focused `TextInput` / `Select` / `TextArea` edge is `--focus-ring`.
 - Selected state in a card or switch is `data-selected` / `aria-checked`; under forced colours the chosen card gets a `Highlight` outline and the switch is drawn with system colours.
+
+### CodeEditor
+
+A code pane for a short structured file a person edits by hand (a flow's TOML): a line-number gutter, syntax colours, a highlighted line range (the step selected elsewhere, such as on a graph) and problem marks on their lines, a shape in the gutter and a squiggle under the columns. Added because a flow was edited in a `TextArea mono` with its problems listed underneath and nothing tying a problem to its line.
+
+- **Why nothing existing fit.** `TextArea` is one native textarea: it can't number lines, colour part of its text or mark a column range, and a variant that drew all that would change what every TextArea is (its `resize`, wrapping, `bare` composer use and padding would all have to give way). The rich Markdown editor (`components/RichMarkdown.tsx`) is content: a contentEditable document that reflows prose and owns its own model, not a code field, and is a named exception to the guard rather than a component to build on. Highlighted code blocks (`hljs`) are read-only rendering with no caret. `Field` / `Callout` / `Status` can list problems, but under the control, with no link back to a line. Composing a `TextArea` with a separate gutter isn't possible from feature code (the gutter has to scroll and lay out with the text, and feature CSS can't draw it).
+- **Responsibility, kept narrow.** Drawing a text value as code and reporting where the caret is. It doesn't parse, validate, format, fold, complete, find or indent; the feature tokenizes (`tokenize`), validates (`marks`) and decides what is highlighted. It is meant for files of up to a few hundred lines: every keystroke redraws the copy.
+- Props: `value` and `onChange(value)` (controlled), `readOnly`, `tokenize(line)` (returns `{ text, kind? }[]` that join back to the line exactly, or the line is drawn plain; `kind` is `keyword` / `string` / `number` / `comment` / `title` / `property`, coloured by the matching `--code-*` token), `highlight` (`{ from, to }`, 1-based lines, both included, or `null`), `marks` (`{ line, tone: 'error' | 'warn', message, from?, to? }[]`: 1-based line; 1-based columns, `from` included and `to` not, `to` defaulting to the end of the line; without `from` the line gets its gutter shape only), `markLabel(mark)` (what a screen reader hears for a mark: a translated sentence with the line and the tone in words, such as "Line 40, problem: …"; required whenever `marks` is passed, because the shapes that tell the tone are hidden from assistive tech, so marks without it don't type-check), `revealLine` (scrolls that line into view, centred, when the number changes and the line is out of view; to reveal the same line again, change it), `onCaretLine(line)` (the caret's 1-based line on select, key up and click, every time, so the feature can follow it to a step), `rows` (visible lines, default 12; a height from `className` wins), `className` (layout, on the frame), `ref` (the textarea), and every other native textarea prop, including the `Field` binding (`id`, `aria-describedby`, `aria-invalid`).
+- **Built on a native `<textarea>`**, so typing, IME, undo, selection, the context menu and screen readers are the browser's. Spellcheck, autocorrect and autocapitalise are off unless `spellCheck` is passed. Tab moves focus on, as it does everywhere (there is no indentation on Tab, so the field never traps the keyboard). PageUp and PageDown (with Shift, extending the selection) move the caret by the lines in view, at the same column, and scroll as far, on every platform as in code editors; past the first or last line they go to the start or end of the text. The component handles them because the textarea, sized to the whole text, would page by its own height. It takes the same accessible-name check as `TextArea`: without a `Field`, label, `aria-label` or `aria-labelledby` it throws in development.
+- **How it draws.** Behind the textarea sits an `aria-hidden` copy of its text, laid out glyph for glyph (one font, size, line height, tab size and padding), that draws the colours and squiggles; the textarea's own text is transparent over it, and its caret (`--text`) stays visible. Selected text is the textarea's own, in `--code-fg` (which is `--text`) on the opaque `--selected-bg` (a pair the contrast test checks), which covers the copy: selected code loses its syntax colours, as no see-through wash could keep every `--code-*` colour at 4.5:1. While an IME composes, the textarea shows its own text in `--code-fg` and the copy's text steps back, so the browser draws the composition underline and the active clause; syntax colours return when the text is committed. The gutter is beside it, also `aria-hidden`. Both sit in one scroller, sized to the text, so they scroll together; when an edit or a page moves the caret out of view the scroller follows it. Other caret moves are the browser's to scroll; the scroller's `scroll-padding-inline-start` (the gutter's width and the code's padding) keeps that reveal clear of the gutter, and the component brings a caret back out from under it after any move (on select and key up) where the browser didn't. **Lines never wrap**: a long line scrolls sideways under the gutter, which stays put. Text follows Settings → Accessibility → Content text size (`--text-content-code`), in `--mono` with the ligature setting.
+- **Highlight.** Neutral: the gutter rows take `--selected-tint`, a 3px `--selected-border` edge and `--text-soft` numbers, and the code gets a `--selected-border` hairline above and below the range. Not a tint over the code: on `--code-bg` the tint takes `--code-comment` under 4.5:1. Lines carry `data-highlight` (`start`, `end`, `both`, or empty in between).
+- **Marks.** Never colour alone: an error is the ◆ `Glyph` in `--red` and a red wavy underline, a warning the ▲ in `--amber` and an amber one; a line with both shows the diamond. The gutter shapes are hidden from assistive tech; instead every mark's `markLabel`, in line order, is an item of a visually hidden list that the textarea's `aria-describedby` points at, after the `Field`'s own help and error. Marks aren't announced when they change: say so in a live region (a `Field` error, `showToast`) when it matters.
+- Frame: `--code-bg`, a `--border-control` edge, `--radius-md`, resizable up and down; focus is the 2px `--focus-ring` with a `--bg` band, on the frame while the textarea has focus; `aria-invalid` turns the edge `--red`; `disabled` dims it. Read-only keeps the same surface (the code colours are only checked on `--code-bg`); say it is read-only in words nearby if it matters.
+- **Forced colours:** no syntax colours. The textarea shows its own text in `CanvasText`, the copy keeps only its squiggles (`CanvasText`), the gutter its numbers and shapes, and the highlighted range a `Highlight` edge in the gutter. Nothing moves, so Reduce Motion has nothing to stop.
+
+```tsx
+<Field label={file.name} error={problems.length ? t('flows.cantSave', { count: problems.length }) : undefined}>
+  {(c) => (
+    <CodeEditor
+      {...c}
+      value={toml}
+      onChange={setToml}
+      tokenize={tokenizeToml}
+      highlight={selectedStep && stepLines(selectedStep)}
+      marks={problems.map((p) => ({ line: p.line, tone: p.severity, message: p.message, from: p.from, to: p.to }))}
+      markLabel={(m) => t(m.tone === 'error' ? 'flows.editor.problem' : 'flows.editor.warning', { line: m.line, message: m.message })}
+      revealLine={revealedLine}
+      onCaretLine={(line) => selectStepAt(line)}
+    />
+  )}
+</Field>
+```
 
 ### Segmented
 
