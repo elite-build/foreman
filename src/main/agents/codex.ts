@@ -602,9 +602,27 @@ function codexLabel(name: string): string {
   return name.replace(/(\d)-([A-Za-z])/g, '$1 $2')
 }
 
-export function toCodexModelInfo(m: CodexModel): ModelInfo {
+/**
+ * The working context window Codex uses for each model, by slug. `model/list` leaves it out, so it comes from the
+ * model cache Codex keeps in its home folder; empty when that can't be read.
+ */
+export async function codexContextWindows(home: string): Promise<Map<string, number>> {
+  try {
+    const cache = JSON.parse(await readFile(path.join(home, 'models_cache.json'), 'utf8')) as { models?: { slug?: unknown; context_window?: unknown }[] }
+    const windows = new Map<string, number>()
+    for (const m of Array.isArray(cache.models) ? cache.models : []) {
+      if (typeof m?.slug === 'string' && typeof m.context_window === 'number' && m.context_window > 0) windows.set(m.slug, m.context_window)
+    }
+    return windows
+  } catch {
+    return new Map()
+  }
+}
+
+export function toCodexModelInfo(m: CodexModel, windows: Map<string, number> = new Map()): ModelInfo {
   const efforts = m.supportedReasoningEfforts.map((e) => toEffort(e.reasoningEffort)).filter((e): e is EffortLevel => Boolean(e))
   const id = m.model || m.id
+  const reported = windows.get(id)
   return {
     id,
     agent: 'codex',
@@ -613,7 +631,8 @@ export function toCodexModelInfo(m: CodexModel): ModelInfo {
     efforts,
     defaultEffort: toEffort(m.defaultReasoningEffort),
     supportsFast: Boolean(m.serviceTiers?.some((t) => t.id === 'priority')),
-    contextWindow: modelInfo('codex', id).contextWindow,
+    contextWindow: reported ?? modelInfo('codex', id).contextWindow,
+    contextReported: reported !== undefined || undefined,
     hidden: m.hidden || undefined,
     isDefault: m.isDefault || undefined
   }
@@ -673,7 +692,9 @@ function listCodexModels(options: OneShotOptions): Promise<ModelList> {
         models.push(...page.data)
         cursor = page.nextCursor
       } while (cursor)
-      finish(null, { models: models.map(toCodexModelInfo) })
+      // Read after model/list, so a cache it refreshed is the one read.
+      const windows = await codexContextWindows(codexHome(env))
+      finish(null, { models: models.map((m) => toCodexModelInfo(m, windows)) })
     })().catch((err: Error) => finish(err))
   })
 }
