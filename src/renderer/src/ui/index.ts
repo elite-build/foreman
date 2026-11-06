@@ -67,6 +67,19 @@ export { HoverCard, type HoverCardProps, type HoverCardTriggerProps } from './Ho
 export { Listbox, type ListboxProps, type ListboxOption } from './Listbox'
 export { Combobox, type ComboboxProps } from './Combobox'
 export { Tree, TreeItem, type TreeProps, type TreeItemProps, type TreeNodeRow } from './Tree'
+export {
+  Graph,
+  type GraphProps,
+  type GraphNode,
+  type GraphEdge,
+  type GraphEnd,
+  type GraphNote,
+  type GraphLabels,
+  type GraphSide,
+  type GraphShape,
+  type GraphTone,
+  type GraphMark
+} from './Graph'
 export { Resizer, type ResizerProps } from './Resizer'
 
 // Behaviour with a look
