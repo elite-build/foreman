@@ -2,6 +2,29 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.16 (2026-11-07)
+
+### Added
+
+- Ten built-in personas and eleven built-in flows, from **Test first** to **From an idea to a feature** (product manager, UX designer, developer and QA, with you deciding after each) and **Is this feature worth building?** (a report drafted by Opus and reviewed three times by Fable and a Codex model, with a consensus each round). ([#99](https://github.com/elite-build/foreman/pull/99))
+- A persona can be allowed to write only inside chosen folders, such as `docs/features/`, with the shell off; a loop can run a set number of rounds and then move on; a flow can open its own draft pull request; a gate can show the file it asks about. ([#99](https://github.com/elite-build/foreman/pull/99))
+
+### Changed
+
+- Clicking a template in **Automations** opens it as its own page, with a wide prompt beside its schedules and recent runs; **Duplicate** and **Delete** are in its **⋯** menu. ([#93](https://github.com/elite-build/foreman/pull/93))
+- Read-only review and decide steps in a flow can run on a Codex model, including GPT-6 Astra. ([#99](https://github.com/elite-build/foreman/pull/99))
+
+### Fixed
+
+- The **turns stopped when Foreman closed** warning on Home shows only on the repository those turns belong to, and **Review and retry…** lists and dismisses only that repository's turns. ([#94](https://github.com/elite-build/foreman/pull/94))
+- Codex models show the context window Codex actually works with (272K for GPT-6 Astra instead of 200K), so the **context** meter and a flow's compact-when-full loop use the right size. ([#95](https://github.com/elite-build/foreman/pull/95))
+- After a pull request merges, a workspace where work carries on for another PR offers **Create PR** again instead of **Archive and delete branch**. ([#96](https://github.com/elite-build/foreman/pull/96))
+- A save of `state.json` could lose its temporary file to a flush at the same moment; each write now has its own. ([#99](https://github.com/elite-build/foreman/pull/99))
+
+### Development
+
+- Releases keep their installers and update files, so installed copies can update themselves from every release. ([#92](https://github.com/elite-build/foreman/pull/92))
+
 ## 1.0.15 (2026-11-06)
 
 ### Added
