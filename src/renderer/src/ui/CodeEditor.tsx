@@ -4,8 +4,10 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ChangeEvent,
   type ComponentPropsWithRef,
+  type CompositionEvent,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
@@ -23,15 +25,18 @@ export type CodeEditorToken = { text: string; kind?: CodeEditorTokenKind }
 // squiggle under that range (`to` defaults to the end of the line); without `from` the line gets its gutter mark only.
 export type CodeEditorMark = { line: number; tone: 'error' | 'warn'; message: string; from?: number; to?: number }
 
-export type CodeEditorProps = Omit<ComponentPropsWithRef<'textarea'>, 'value' | 'defaultValue' | 'onChange' | 'children' | 'wrap' | 'rows' | 'className' | 'ref'> & {
+// Marks come with `markLabel`: what a screen reader hears for each, in the user's language, with the line and the tone
+// in words ("Line 40, problem: …"). The gutter shapes and squiggles are hidden from assistive tech, so it is the only
+// place the tone is told.
+type CodeEditorMarkProps = { marks?: undefined; markLabel?: undefined } | { marks: CodeEditorMark[]; markLabel: (mark: CodeEditorMark) => string }
+
+export type CodeEditorProps = Omit<ComponentPropsWithRef<'textarea'>, 'value' | 'defaultValue' | 'onChange' | 'children' | 'wrap' | 'rows' | 'className' | 'ref'> &
+  CodeEditorMarkProps & {
   value: string
   onChange?: (value: string) => void
   readOnly?: boolean
   // Lines to show as the current range (1-based, both included): the step selected elsewhere.
   highlight?: { from: number; to: number } | null
-  marks?: CodeEditorMark[]
-  // What a screen reader hears for a mark, in the user's language ("Line 40, problem: …"). Default: "40: <message>".
-  markLabel?: (mark: CodeEditorMark) => string
   tokenize?: (line: string) => CodeEditorToken[]
   // Scrolls this line into view whenever the number changes.
   revealLine?: number
@@ -48,7 +53,6 @@ type Segment = { text: string; kind?: CodeEditorTokenKind; squiggle?: Tone }
 type LineMarks = { tone: Tone; ranges: { from: number; to: number; tone: Tone }[] }
 
 const NO_MARKS: CodeEditorMark[] = []
-const defaultMarkLabel = (mark: CodeEditorMark) => `${mark.line}: ${mark.message}`
 
 // The textarea's own line breaks: its value API turns CRLF and CR into LF, so the drawn lines split the same way.
 const splitLines = (text: string) => text.split(/\r\n|\r|\n/)
@@ -82,6 +86,19 @@ function segments(line: string, tokenize: CodeEditorProps['tokenize'], marks: Li
     col += token.text.length
   }
   return out
+}
+
+// The offset `count` lines up (negative) or down from `caret`, at the same column or the end of a shorter line; past the
+// first or last line, the start or end of the text, as a textarea's own PageUp and PageDown go.
+function linesAway(text: string, caret: number, count: number): number {
+  const starts = [0]
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1)
+  const from = lineOf(text, caret) - 1
+  const to = from + count
+  if (to < 0) return 0
+  if (to >= starts.length) return text.length
+  const end = to + 1 < starts.length ? starts[to + 1] - 1 : text.length
+  return Math.min(starts[to] + caret - starts[from], end)
 }
 
 // Scrolls `scroller` so a band from `top` of `height` px is inside it: centred when it was out of view, left alone when not.
@@ -130,7 +147,7 @@ export function CodeEditor({
   readOnly,
   highlight,
   marks = NO_MARKS,
-  markLabel = defaultMarkLabel,
+  markLabel,
   tokenize,
   revealLine,
   onCaretLine,
@@ -143,6 +160,9 @@ export function CodeEditor({
   onKeyUp,
   onClick,
   onScroll,
+  onKeyDown,
+  onCompositionStart,
+  onCompositionEnd,
   ...rest
 }: CodeEditorProps) {
   const [own, setRef] = useOwnRef<HTMLTextAreaElement>(ref)
@@ -151,6 +171,8 @@ export function CodeEditor({
   const gutterRef = useRef<HTMLDivElement>(null)
   const codeRef = useRef<HTMLDivElement>(null)
   const problemsId = `${useId()}-problems`
+  // While an IME composes, the textarea shows its own text, so the browser draws the composition's underline and clause.
+  const [composing, setComposing] = useState(false)
 
   const lines = useMemo(() => splitLines(value), [value])
   const byLine = useMemo(() => {
@@ -170,30 +192,51 @@ export function CodeEditor({
     return n === band.from && n === band.to ? 'both' : n === band.from ? 'start' : n === band.to ? 'end' : ''
   }
 
-  // Keeps the caret in view after an edit: the textarea never scrolls itself, so the scroller around it has to.
-  const revealCaret = () => {
+  // Keeps the caret in view: the textarea never scrolls itself, so the scroller around it has to. After an edit or a
+  // page (`driven`) it follows the caret down and across, with a line height of room ahead. After any other move the
+  // browser has scrolled already, but it may leave the caret under the sticky gutter (the scroller's scroll-padding is
+  // meant to stop that), so this only brings it back out, with the code's own padding of room.
+  const revealCaret = (driven: boolean) => {
     const area = own.current
     const scroller = scrollerRef.current
     const caret = area && caretOf(area)
     if (!area || !scroller || caret === null) return
     const line = codeRef.current?.children[lineOf(area.value, caret) - 1]
     if (!(line instanceof HTMLElement)) return
-    revealBand(scroller, line.offsetTop, line.offsetHeight, false)
+    if (driven) revealBand(scroller, line.offsetTop, line.offsetHeight, false)
     const lineStart = caret > 0 ? area.value.lastIndexOf('\n', caret - 1) + 1 : 0
     const x = columnX(line, caret - lineStart)
     if (x === null) return
     // In the scroller's terms: past the sticky gutter and the code's own padding.
     const gutter = gutterRef.current?.offsetWidth ?? 0
     const at = gutter + line.offsetLeft + x
-    const margin = line.offsetHeight
+    const margin = driven ? line.offsetHeight : line.offsetLeft
     if (at < scroller.scrollLeft + gutter + margin) scroller.scrollLeft = Math.max(0, at - gutter - margin)
-    else if (at > scroller.scrollLeft + scroller.clientWidth - margin) scroller.scrollLeft = at - scroller.clientWidth + margin
+    else if (driven && at > scroller.scrollLeft + scroller.clientWidth - margin) scroller.scrollLeft = at - scroller.clientWidth + margin
   }
 
-  // Only after the text changes: moving the caret without typing is the browser's to scroll.
   useLayoutEffect(() => {
-    if (own.current && own.current === own.current.ownerDocument.activeElement) revealCaret()
+    if (own.current && own.current === own.current.ownerDocument.activeElement) revealCaret(true)
   }, [value])
+
+  // PageUp and PageDown move the caret (Shift: the selection's moving end) by the lines in view, at the same column,
+  // and scroll as far. Left to itself the textarea would page by its own height, which is the whole text's.
+  const page = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    const area = e.currentTarget
+    const scroller = scrollerRef.current
+    const lineHeight = (codeRef.current?.firstElementChild as HTMLElement | null)?.offsetHeight
+    if (!scroller || !lineHeight) return
+    e.preventDefault()
+    const count = Math.max(1, Math.floor(scroller.clientHeight / lineHeight) - 1) * (e.key === 'PageUp' ? -1 : 1)
+    const backward = area.selectionDirection === 'backward'
+    const anchor = backward ? area.selectionEnd : area.selectionStart
+    const from = backward ? area.selectionStart : area.selectionEnd
+    const to = linesAway(area.value, from, count)
+    if (e.shiftKey) area.setSelectionRange(Math.min(anchor, to), Math.max(anchor, to), to < anchor ? 'backward' : 'forward')
+    else area.setSelectionRange(to, to)
+    scroller.scrollTop = Math.max(0, scroller.scrollTop + (lineOf(area.value, to) - lineOf(area.value, from)) * lineHeight)
+    revealCaret(true)
+  }
 
   useEffect(() => {
     const line = revealLine ? codeRef.current?.children[revealLine - 1] : undefined
@@ -212,6 +255,7 @@ export function CodeEditor({
       data-invalid={rest['aria-invalid'] && rest['aria-invalid'] !== 'false' ? '' : undefined}
       data-readonly={readOnly ? '' : undefined}
       data-disabled={rest.disabled ? '' : undefined}
+      data-composing={composing ? '' : undefined}
       style={{ '--ui-code-editor-rows': rows, '--ui-code-editor-digits': digits } as CSSProperties}
     >
       <div className="ui-code-editor__scroller" ref={scrollerRef}>
@@ -259,11 +303,25 @@ export function CodeEditor({
               onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange?.(e.target.value)}
               onSelect={(e: SyntheticEvent<HTMLTextAreaElement>) => {
                 onSelect?.(e)
+                revealCaret(false)
                 reportCaret()
+              }}
+              onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
+                onKeyDown?.(e)
+                if (!e.defaultPrevented && (e.key === 'PageUp' || e.key === 'PageDown') && !e.altKey && !e.ctrlKey && !e.metaKey) page(e)
               }}
               onKeyUp={(e: KeyboardEvent<HTMLTextAreaElement>) => {
                 onKeyUp?.(e)
+                revealCaret(false)
                 reportCaret()
+              }}
+              onCompositionStart={(e: CompositionEvent<HTMLTextAreaElement>) => {
+                onCompositionStart?.(e)
+                setComposing(true)
+              }}
+              onCompositionEnd={(e: CompositionEvent<HTMLTextAreaElement>) => {
+                onCompositionEnd?.(e)
+                setComposing(false)
               }}
               onClick={(e: MouseEvent<HTMLTextAreaElement>) => {
                 onClick?.(e)
@@ -277,7 +335,7 @@ export function CodeEditor({
                 if (area.scrollTop || area.scrollLeft) {
                   area.scrollTop = 0
                   area.scrollLeft = 0
-                  revealCaret()
+                  revealCaret(true)
                 }
               }}
             />
@@ -287,7 +345,7 @@ export function CodeEditor({
       {ordered.length > 0 && (
         <ul id={problemsId} className="ui-code-editor__problems">
           {ordered.map((m, i) => (
-            <li key={i}>{markLabel(m)}</li>
+            <li key={i}>{markLabel ? markLabel(m) : m.message}</li>
           ))}
         </ul>
       )}

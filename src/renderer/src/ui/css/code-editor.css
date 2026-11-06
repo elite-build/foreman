@@ -19,6 +19,8 @@
   font-variant-ligatures: var(--code-ligatures);
   line-height: 1.6;
   tab-size: 4;
+  /* The gutter's width: its rows' 3px edge, 4px and 10px padding, 10px shape and 4px gap, the numbers, and its 1px rule. */
+  --ui-code-editor-gutter: calc(var(--ui-code-editor-digits, 2) * 1ch + 32px);
 }
 :where(.ui-code-editor) {
   width: 100%;
@@ -43,6 +45,8 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* The browser's own caret reveal stops short of the sticky gutter and the code's 12px padding. */
+  scroll-padding-inline-start: calc(var(--ui-code-editor-gutter) + 12px);
 }
 /* Gutter and text side by side; as wide as the longest line, and at least the scroller. */
 .ui-code-editor__sheet {
@@ -59,6 +63,8 @@
   position: sticky;
   left: 0;
   z-index: 1;
+  box-sizing: border-box;
+  width: var(--ui-code-editor-gutter);
   padding: 8px 0;
   border-right: 1px solid var(--border);
   background: var(--code-bg);
@@ -127,9 +133,19 @@
   color: var(--text-muted);
   opacity: 1;
 }
-/* See-through, so the drawn text shows under the selection. */
+/* Selected text is the textarea's own, in --code-fg on the opaque --selected-bg (4.5:1, checked), which covers the
+   drawn copy and its syntax colours: no wash over them could keep every --code-* colour at 4.5:1. */
 .ui-code-editor__input::selection {
-  background: color-mix(in srgb, var(--text) 24%, transparent);
+  background: var(--selected-bg);
+  color: var(--code-fg);
+}
+/* While an IME composes, the textarea draws its own text, so the browser's composition underline and clause show; the
+   copy steps back (its squiggles and the highlight stay) until the text is committed. */
+.ui-code-editor[data-composing] .ui-code-editor__input {
+  color: var(--code-fg);
+}
+.ui-code-editor[data-composing] .ui-code-editor__code,
+.ui-code-editor[data-composing] .ui-code-editor__token[data-kind] {
   color: transparent;
 }
 
@@ -203,7 +219,9 @@
 /* Forced colours: no syntax colours. The textarea shows its own text in the system colour, the drawn copy keeps only
    its squiggles, the gutter its numbers and shapes, and the highlighted range a Highlight edge. */
 @media (forced-colors: active) {
-  .ui-code-editor__code {
+  /* The tokens' own colours would otherwise win over the inherited transparent, and forced-color-adjust is inherited. */
+  .ui-code-editor__code,
+  .ui-code-editor__token[data-kind] {
     forced-color-adjust: none;
     color: transparent;
   }

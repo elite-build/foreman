@@ -25,7 +25,7 @@ function Controlled(props: Partial<CodeEditorProps> & { initial?: string; onValu
   return (
     <CodeEditor
       aria-label="Flow"
-      {...rest}
+      {...(rest as CodeEditorProps)}
       value={value}
       onChange={(v) => {
         setValue(v)
@@ -105,10 +105,11 @@ describe('CodeEditor', () => {
     expect(items).toEqual(['Line 4, problem: "checks.result" is not a step output.', 'Line 6, warning: Nothing points here.'])
   })
 
-  it('without markLabel, a mark is read as its line number and message; without marks there is no list', () => {
-    render(<CodeEditor aria-label="Flow" value={TOML} onChange={() => {}} marks={[{ line: 2, tone: 'error', message: 'Unknown kind.' }]} />)
-    expect(description(area())).toBe('2: Unknown kind.')
-    cleanup()
+  it('takes marks only with a markLabel, which carries the tone in words; without marks there is no list', () => {
+    // The gutter shape is hidden from assistive tech, so marks without a label (and so without their tone) don't compile.
+    // @ts-expect-error marks need markLabel
+    const unlabelled = <CodeEditor aria-label="Flow" value={TOML} onChange={() => {}} marks={[{ line: 2, tone: 'error', message: 'Unknown kind.' }]} />
+    expect(unlabelled).toBeTruthy()
     render(<CodeEditor aria-label="Flow" value={TOML} onChange={() => {}} />)
     expect(area().hasAttribute('aria-describedby')).toBe(false)
     expect(screen.queryByRole('list')).toBeNull()
@@ -120,7 +121,7 @@ describe('CodeEditor', () => {
       { line: 4, tone: 'warn', message: 'meh', from: 1, to: 8 },
       { line: 6, tone: 'warn', message: 'later' }
     ]
-    const { container } = render(<CodeEditor aria-label="Flow" value={TOML} tokenize={tokenize} onChange={() => {}} marks={marks} />)
+    const { container } = render(<CodeEditor aria-label="Flow" value={TOML} tokenize={tokenize} onChange={() => {}} marks={marks} markLabel={(m) => m.message} />)
     const gutter = container.querySelector('.ui-code-editor__gutter')!
     expect(gutter.getAttribute('aria-hidden')).toBe('true')
     expect(container.querySelector('.ui-code-editor__code')!.getAttribute('aria-hidden')).toBe('true')
@@ -196,6 +197,89 @@ describe('CodeEditor', () => {
     } finally {
       delete (Range.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect
     }
+  })
+
+  it('brings a caret moved without typing out from under the sticky gutter', () => {
+    // The same layout as above: a 40px gutter, 12px of padding, 8px a character.
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) {
+      return (Number(this.dataset.line ?? 1) - 1) * 20
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(20)
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockReturnValue(12)
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(40)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100)
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200)
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: Range) {
+        return { left: this.startOffset * 8, right: this.endOffset * 8, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }
+      }
+    })
+    try {
+      const { container } = render(<Controlled initial={`${'k'.repeat(100)}\nshort`} />)
+      const scroller = container.querySelector('.ui-code-editor__scroller') as HTMLElement
+      const box = area()
+      box.focus()
+      // Scrolled sideways, Home puts the caret at column 0: the whole start of the line comes back.
+      scroller.scrollLeft = 300
+      box.setSelectionRange(0, 0)
+      fireEvent.keyUp(box, { key: 'Home' })
+      expect(scroller.scrollLeft).toBe(0)
+      // A caret clear of the gutter and padding (column 40: 40 + 12 + 320px, past 300 + 40 + 12) leaves the scroll alone.
+      scroller.scrollLeft = 300
+      box.setSelectionRange(40, 40)
+      fireEvent.select(box)
+      expect(scroller.scrollLeft).toBe(300)
+      // ArrowLeft to column 33 (40 + 12 + 264px) would sit under them: it scrolls just far enough.
+      box.setSelectionRange(33, 33)
+      fireEvent.keyUp(box, { key: 'ArrowLeft' })
+      expect(scroller.scrollLeft).toBe(264)
+    } finally {
+      delete (Range.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect
+    }
+  })
+
+  it('pages the caret by the lines in view, at the same column, and Shift extends the selection', () => {
+    // Lines are 20px tall and the scroller shows 100px: five lines, so a page is four.
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) {
+      return (Number(this.dataset.line ?? 1) - 1) * 20
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(20)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100)
+    const lines = Array.from({ length: 60 }, (_, i) => `line${i + 1} = ${i}`)
+    const text = lines.join('\n')
+    const at = (line: number, col: number) => lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0) + col
+    const onCaretLine = vi.fn()
+    const { container } = render(<Controlled initial={text} onCaretLine={onCaretLine} />)
+    const scroller = container.querySelector('.ui-code-editor__scroller') as HTMLElement
+    const box = area()
+    box.focus()
+    box.setSelectionRange(at(2, 3), at(2, 3))
+    expect(fireEvent.keyDown(box, { key: 'PageDown' })).toBe(false)
+    expect([box.selectionStart, box.selectionEnd]).toEqual([at(6, 3), at(6, 3)])
+    expect(scroller.scrollTop).toBe(80)
+    fireEvent.keyUp(box, { key: 'PageDown' })
+    expect(onCaretLine).toHaveBeenLastCalledWith(6)
+    // Shift+PageUp twice: the selection grows back from line 6 to line 2, then to the start of the text.
+    fireEvent.keyDown(box, { key: 'PageUp', shiftKey: true })
+    expect([box.selectionStart, box.selectionEnd, box.selectionDirection]).toEqual([at(2, 3), at(6, 3), 'backward'])
+    fireEvent.keyDown(box, { key: 'PageUp', shiftKey: true })
+    expect([box.selectionStart, box.selectionEnd]).toEqual([0, at(6, 3)])
+    expect(scroller.scrollTop).toBe(0)
+    // Past the last line, the end of the text; with a modifier, the key is left alone.
+    box.setSelectionRange(at(58, 1), at(58, 1))
+    fireEvent.keyDown(box, { key: 'PageDown' })
+    expect(box.selectionStart).toBe(text.length)
+    expect(fireEvent.keyDown(box, { key: 'PageUp', ctrlKey: true })).toBe(true)
+    expect(box.selectionStart).toBe(text.length)
+  })
+
+  it('shows the textarea its own text while an IME composes', () => {
+    const { container } = render(<Controlled />)
+    fireEvent.compositionStart(area())
+    expect(frame(container).hasAttribute('data-composing')).toBe(true)
+    fireEvent.compositionEnd(area())
+    expect(frame(container).hasAttribute('data-composing')).toBe(false)
   })
 
   it("reports the caret's line on select, key up and click", () => {
