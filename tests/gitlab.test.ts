@@ -231,6 +231,13 @@ describe('GitLab actions', () => {
     expect(calls.map((c) => c.body)).toEqual([{ title: 'Move invoices' }])
   })
 
+  it('opens a merge request for a flow’s pr step, a draft marked in its title', async () => {
+    const { fetch, calls } = fakeFetch({ [`POST ${P}/merge_requests`]: { json: { iid: 91, web_url: 'https://gitlab.acme.dev/acme/ledger-api/-/merge_requests/91' } } })
+    const provider = gitlabProvider(HOST, 'acme/ledger-api', 't', fetch)
+    expect(await provider.createPullRequest(ws(), { title: 'Move invoices', body: 'Why and how.', draft: true })).toEqual({ number: 91, url: 'https://gitlab.acme.dev/acme/ledger-api/-/merge_requests/91' })
+    expect(calls[0].body).toEqual({ source_branch: 'yatin/invoice-migration', target_branch: 'main', title: 'Draft: Move invoices', description: 'Why and how.' })
+  })
+
   it('retries the pipeline once (GitLab reruns only its failed jobs), and reads a failed job’s log', async () => {
     const log = Array.from({ length: 1500 }, (_, i) => `line ${i}`).join('\n')
     const { fetch, calls } = fakeFetch({ [`POST ${P}/pipelines/4182/retry`]: { json: {} }, [`GET ${P}/jobs/99101/trace`]: { text: log } })

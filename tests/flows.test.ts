@@ -103,7 +103,7 @@ context = "diff"`,
       )
     )
     expect(bad).toEqual([
-      'Step “a” has an unknown kind “dance”. Use one of: turn, checks, script, review, decide, workspace, wait, gate, pick.',
+      'Step “a” has an unknown kind “dance”. Use one of: turn, checks, script, review, decide, workspace, wait, gate, pick, pr.',
       'Step “b” needs “command”.',
       'Step “c”: “on” should be one of: ci, review.',
       'Step “d”: “options” should be a list of text.',
@@ -299,6 +299,45 @@ times = 3
 then = "show"
 at_most = { iterations = 3 }
 `
+
+describe('pr steps and the files a gate shows', () => {
+  const PR = `name = "Ship"
+[inputs]
+issue = "The issue"
+[start]
+step = "build"
+[steps.build]
+kind = "turn"
+prompt = "Fix {{issue}}"
+[steps.look]
+kind = "gate"
+show = ["docs/features/{{slug}}/requirements.md", "docs/features/*/design.md", "diff"]
+[steps.open]
+kind = "pr"
+draft = false
+title = "Fix {{issue}}"
+body = "What happened:\\n{{ledger}}"
+[edges]
+build = "look"
+look = { continued = "open", stopped = "done" }
+open = { opened = "done", failed = "done" }
+`
+
+  it('reads a pr step, its facts, and takes the ledger as no input; a file a gate shows may name inputs', () => {
+    const flow = ok(parseFlow(PR, 'personal'))
+    expect(flow.steps.find((s) => s.name === 'open')).toEqual({ name: 'open', kind: 'pr', draft: false, title: 'Fix {{issue}}', body: 'What happened:\n{{ledger}}' })
+    expect(flowFacts(flow.steps.find((s) => s.name === 'open')!)).toEqual(['opened', 'failed'])
+    expect(flow.inputs).toEqual({ issue: 'The issue', slug: '' })
+    expect(validateFlow(flow)).toEqual([])
+  })
+
+  it('refuses a pr draft that isn’t true or false, and a gate file outside the workspace', () => {
+    expect(problems(parseFlow(PR.replace('draft = false', 'draft = "yes"'), 'personal'))).toEqual(['Step “open”: “draft” should be true or false.'])
+    expect(problems(parseFlow(PR.replace('"docs/features/*/design.md"', '"../secrets/key.txt"'), 'personal'))).toEqual([
+      'The gate “look” shows “../secrets/key.txt”, which isn’t a path inside the workspace: give a path relative to its root, such as docs/features/search/requirements.md.'
+    ])
+  })
+})
 
 describe('counted loops', () => {
   it('reads times and then, and their then step is reached and may read the loop’s steps', () => {

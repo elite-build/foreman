@@ -5465,7 +5465,7 @@ Exit codes:
 Prints the flow the Lineage tab's "Make a flow from this…" drafts: each turn a turn step (the template it used,
 else prompt = "{{task}}"), the check run a checks step, a review a read-only review step on the reviewer's model, findings
 sent back an address step in a review-until-clean loop of at most 2, a pull request opened by hand a pr-check gate and a
-turn that runs `foreman git pr create`, and auto-fix a wait on CI with a fix step. Steps follow the order things
+pr step (a draft pull request, no agent), and auto-fix a wait on CI with a fix step. Steps follow the order things
 happened, and a comment at the top lists what the draft leaves out. A draft runs nothing: edit it, then save it with
 --save (or `foreman flow add`). Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```

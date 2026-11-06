@@ -9,6 +9,7 @@ import { newMergeRequestUrl, scmForRemote, type GitlabHost, type ScmTarget } fro
 import { wsPath } from '../shared/workspacePath'
 import { gh, ghAs, ghAvailable, githubLogin, jobLog, mergeMethod, pullRequest, sandboxGh, type PrResult } from './github'
 import {
+  createMergeRequest,
   discussions,
   GitlabApi,
   gitlabPullRequest,
@@ -43,6 +44,8 @@ export interface ScmProvider {
   failureLog(ws: Workspace, check: PrCheck): Promise<string>
   // The page that creates a pull request for the branch (after it's pushed).
   newPullRequestUrl(ws: Workspace): Promise<string>
+  // Open a pull request (merge request) for the pushed branch against its base: a flow's pr step.
+  createPullRequest(ws: Workspace, options: { title: string; body: string; draft: boolean }): Promise<{ number: number; url: string }>
 }
 
 /**
@@ -101,8 +104,19 @@ export function githubProvider(account: string | undefined): ScmProvider {
     newPullRequestUrl: async (ws) => {
       const url = JSON.parse(await as(ws, ['repo', 'view', '--json', 'url'])).url as string
       return `${url}/compare/${encodeURIComponent(ws.baseBranch)}...${encodeURIComponent(ws.branch)}?expand=1`
+    },
+    createPullRequest: async (ws, { title, body, draft }) => {
+      const out = await as(ws, ['pr', 'create', '--base', ws.baseBranch, '--head', ws.branch, '--title', title, '--body', body, ...(draft ? ['--draft'] : [])], 60_000)
+      return openedPullRequest(out)
     }
   }
+}
+
+/** The pull request `gh pr create` printed: its page's address, the number at its end. */
+export function openedPullRequest(output: string): { number: number; url: string } {
+  const url = output.match(/https?:\/\/\S+\/pull\/(\d+)/)
+  if (!url) throw new Error(`gh didn’t say which pull request it opened: ${output.trim().split('\n').at(-1) ?? ''}`)
+  return { number: Number(url[1]), url: url[0] }
 }
 
 /** A GitLab project through the REST API. A checked-out MR is read by its !iid in its own project. */
@@ -138,7 +152,8 @@ export function gitlabProvider(host: GitlabHost, projectPath: string, token: str
       const log = `${check.name} failed.${check.url ? ` Details: ${check.url}` : ''}`
       return check.jobId ? jobTrace(api, projectOf(ws), check.jobId).catch(() => log) : log
     },
-    newPullRequestUrl: async (ws) => newMergeRequestUrl(await projectWebUrl(api, projectPath), ws.branch, ws.baseBranch)
+    newPullRequestUrl: async (ws) => newMergeRequestUrl(await projectWebUrl(api, projectPath), ws.branch, ws.baseBranch),
+    createPullRequest: (ws, options) => createMergeRequest(api, projectPath, { source: ws.branch, target: ws.baseBranch, ...options })
   }
 }
 

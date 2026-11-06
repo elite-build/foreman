@@ -16,7 +16,7 @@ export const MAX_FLOW_BYTES = 64 * 1024
 export const MAX_PERSONAL_FLOWS = 100
 export const MAX_REPO_FLOWS = 50
 
-export const FLOW_STEP_KINDS = ['turn', 'checks', 'script', 'review', 'decide', 'workspace', 'wait', 'gate', 'pick'] as const
+export const FLOW_STEP_KINDS = ['turn', 'checks', 'script', 'review', 'decide', 'workspace', 'wait', 'gate', 'pick', 'pr'] as const
 export type FlowStepKind = (typeof FLOW_STEP_KINDS)[number]
 
 export const FLOW_ITERATIONS = ['same-tab', 'compact-when-full', 'fresh-with-summary'] as const
@@ -35,6 +35,12 @@ export const FLOW_COMPACT_ABOVE = 70
 
 /** Where a flow came from: shipped with Foreman, a file in the repository, or kept in state.json. */
 export type FlowSource = 'built-in' | 'repo' | 'personal'
+
+/** A `pr` step's title or body may carry the run ledger here, beside the flow's inputs. */
+export const FLOW_LEDGER_PLACEHOLDER = 'ledger'
+
+/** A file a gate shows is cut to this. */
+export const MAX_GATE_FILE_BYTES = 8 * 1024
 
 /** The end of a run: an edge may point here instead of at a step. */
 export const FLOW_DONE = 'done'
@@ -67,6 +73,8 @@ export type FlowStep = { name: string } & (
   | { kind: 'wait'; on: (typeof FLOW_WAITS)[number]; at_most?: { minutes: number } }
   | { kind: 'gate'; show?: string[]; ask?: string }
   | { kind: 'pick'; over: string[] }
+  // Opens the pull request for the run's workspace branch, as the Git panel's Push and a host's create do; no agent.
+  | { kind: 'pr'; draft?: boolean; title?: string; body?: string }
 )
 
 /** A plain next step, or a table keyed by a fact of the step it leaves. Either names a step or `done`. */
@@ -170,7 +178,8 @@ const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
   workspace: ['from'],
   wait: ['on', 'at_most'],
   gate: ['show', 'ask'],
-  pick: ['over']
+  pick: ['over'],
+  pr: ['draft', 'title', 'body']
 }
 
 const TOP_FIELDS = ['name', 'description', 'made_from', 'start', 'steps', 'edges', 'loops', 'after', 'inputs']
@@ -261,8 +270,16 @@ export function flowFromObject(raw: unknown, source: FlowSource, t: TFunction = 
     else problems.push(t('flows.problem.inputs'))
   }
   for (const step of steps) {
-    const texts = step.kind === 'turn' || step.kind === 'decide' ? [step.prompt] : step.kind === 'gate' ? [step.ask] : []
-    for (const body of texts) for (const placeholder of body ? templatePlaceholders(body) : []) if (!(placeholder in inputs)) inputs[placeholder] = ''
+    const texts =
+      step.kind === 'turn' || step.kind === 'decide'
+        ? [step.prompt]
+        : step.kind === 'gate'
+          ? [step.ask, ...(step.show ?? []).filter(isShowPath)]
+          : step.kind === 'pr'
+            ? [step.title, step.body]
+            : []
+    for (const body of texts)
+      for (const placeholder of body ? templatePlaceholders(body) : []) if (!(placeholder in inputs) && !(step.kind === 'pr' && placeholder === FLOW_LEDGER_PLACEHOLDER)) inputs[placeholder] = ''
   }
 
   if (problems.length) return { problems, warnings }
@@ -389,6 +406,18 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     case 'pick':
       step = { name, kind: k, over: list('over', true) ?? [] }
       break
+    case 'pr': {
+      step = { name, kind: k }
+      if (body.draft !== undefined) {
+        if (typeof body.draft === 'boolean') step.draft = body.draft
+        else problems.push(t('flows.problem.fieldBool', { step: name, field: 'draft' }))
+      }
+      const title = text('title')
+      const prBody = text('body')
+      if (title) step.title = title
+      if (prBody) step.body = prBody
+      break
+    }
   }
   return problems.length === before ? step : undefined
 }
@@ -473,7 +502,20 @@ export function flowFacts(step: FlowStep): string[] {
       return [...step.over]
     case 'workspace':
       return ['ready', 'failed']
+    case 'pr':
+      return ['opened', 'failed']
   }
+}
+
+/** A gate's `show` entry that names a file (it has a slash): a path relative to the workspace, `{{inputs}}` and `*` allowed. */
+export function isShowPath(ref: string): boolean {
+  return ref.includes('/')
+}
+
+/** A file a gate shows stays inside the workspace: relative, forward slashes, no `..`. */
+export function showPathProblem(ref: string): boolean {
+  const p = ref.trim()
+  return !p || p.startsWith('/') || /^[A-Za-z]:/.test(p) || p.includes(String.fromCharCode(92)) || p.split('/').some((part) => part === '..' || part === '')
 }
 
 /**
@@ -628,6 +670,11 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
   }
   const sources = (step: FlowStep, refs: string[] | undefined) => {
     for (const ref of refs ?? []) {
+      // A gate may show a file by its path; nothing else takes one.
+      if (step.kind === 'gate' && isShowPath(ref)) {
+        if (showPathProblem(ref)) error(t('flows.problem.showPath', { step: step.name, ref }))
+        continue
+      }
       const dot = ref.indexOf('.')
       if (dot > 0) reference(step, ref.slice(0, dot), ref)
       else if (!(FLOW_CONTEXT_SOURCES as readonly string[]).includes(ref)) error(t('flows.problem.contextSource', { step: step.name, ref, sources: FLOW_CONTEXT_SOURCES.join(', ') }))
@@ -676,10 +723,14 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
 
 // ---- runs ----
 
-/** Something a gate shows the person deciding, in words ("Tests failed, Types passed"); `step` names whose answer. */
+/**
+ * Something a gate shows the person deciding, in words ("Tests failed, Types passed"); `step` names whose answer. A
+ * `file` is a file in the workspace by its path (a glob means the newest match), its content cut to MAX_GATE_FILE_BYTES.
+ */
 export interface FlowGateShow {
-  kind: 'diff' | 'checks.results' | 'review.findings' | 'step.answer'
+  kind: 'diff' | 'checks.results' | 'review.findings' | 'step.answer' | 'file'
   step?: string
+  path?: string
   summary: string
 }
 
@@ -805,6 +856,8 @@ export interface FlowRun {
   workspaceId?: string
   // Every workspace the run made, in order (a workspace step makes another; a pick moves `workspaceId` among them).
   workspaces?: string[]
+  // The pull request a `pr` step opened, which a later `wait` reads.
+  pullRequest?: { number: number; url: string }
   // The first message as sent: the run's task, which a step's `task` context carries.
   task?: string
   current?: { step: string; iteration: number }

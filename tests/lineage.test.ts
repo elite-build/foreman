@@ -183,7 +183,7 @@ describe('Make a flow from this…', () => {
     expect(flow.steps.find((s) => s.name === 'review')).toMatchObject({ kind: 'review', read_only: true, agent: 'codex', model: 'gpt-6.1-sol' })
     expect(flow.steps.find((s) => s.name === 'address')).toMatchObject({ kind: 'turn', context: ['review.findings'], same_tab: 'turn-1' })
     expect(flow.steps.find((s) => s.name === 'wait-ci')).toMatchObject({ kind: 'wait', on: 'ci' })
-    expect(flow.steps.find((s) => s.name === 'open-pr')).toMatchObject({ kind: 'turn', prompt: expect.stringContaining('foreman git pr create') })
+    expect(flow.steps.find((s) => s.name === 'open-pr')).toEqual({ name: 'open-pr', kind: 'pr' })
     expect(flow.edges).toMatchObject({
       'turn-1': 'turn-2',
       review: { clean: 'review-2', findings: 'address' },

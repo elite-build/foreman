@@ -1353,3 +1353,87 @@ describe('read-only steps on Codex, and scoped writes', () => {
     )
   })
 })
+
+// Open a draft pull request after a look, then wait on its CI (docs/loops-and-graphs.md, "Steps": pr).
+const SHIPPED = `name = "Shipped"
+
+[inputs]
+issue = "The issue"
+slug = "The feature's folder"
+
+[start]
+step = "build"
+
+[steps.build]
+kind = "turn"
+prompt = "Fix {{issue}}"
+
+[steps.look]
+kind = "gate"
+show = ["docs/features/{{slug}}/requirements.md", "docs/features/*/design.md"]
+ask = "Open a draft PR?"
+
+[steps.open]
+kind = "pr"
+title = "Fix {{issue}}"
+body = "Steps so far:\\n{{ledger}}"
+
+[steps.ci]
+kind = "wait"
+on = "ci"
+
+[edges]
+build = "look"
+look = { continued = "open", stopped = "done" }
+open = { opened = "ci" }
+ci = { green = "done" }
+`
+
+describe('pr steps and the files a gate shows', () => {
+  it('a gate shows files by path, inputs filled; the pr step opens the pull request, keeps its number, and the wait reads it', async () => {
+    const h = harness(SHIPPED)
+    const read = vi.fn<NonNullable<FlowServiceDeps['readShownFile']>>(async (_ws, path) => (path.includes('*') ? { path: 'docs/features/search/design.md', text: '# Design', cut: false } : { missing: `No file matches ${path} in the workspace` }))
+    const open = vi.fn<NonNullable<FlowServiceDeps['openPullRequest']>>(async () => ({ kind: 'opened', number: 42, url: 'https://github.com/acme/api/pull/42' }))
+    h.deps.readShownFile = read
+    h.deps.openPullRequest = open
+    await h.start({ issue: 'the login bug', slug: 'login' })
+    await h.endTurn('completed', 'Fixed it.')
+    expect(read).toHaveBeenCalledWith('ws-1', 'docs/features/login/requirements.md')
+    expect(showOf(h.gates[0].request)).toEqual([
+      { kind: 'file', path: 'docs/features/login/requirements.md', summary: '(No file matches docs/features/login/requirements.md in the workspace)' },
+      { kind: 'file', path: 'docs/features/search/design.md', summary: '# Design' }
+    ])
+    h.gates[0].resolve({ kind: 'gate', answer: 'continued' })
+    await settle()
+    // No agent: the pull request is opened for the workspace, a draft by default, the ledger in its body.
+    expect(open).toHaveBeenCalledTimes(1)
+    const [ws, options] = open.mock.calls[0]
+    expect(ws).toBe('ws-1')
+    expect(options).toMatchObject({ draft: true, title: 'Fix the login bug' })
+    expect(options.body).toContain('Steps so far:\n- build (turn, run 1) · completed')
+    expect(h.run().pullRequest).toEqual({ number: 42, url: 'https://github.com/acme/api/pull/42' })
+    expect(h.run().steps.find((s) => s.name === 'open')).toMatchObject({ fact: 'opened', detail: 'Opened #42 (draft)' })
+    expect(h.deps.pullRequest).toHaveBeenCalledWith('ws-1')
+    expect(h.run().state).toBe('completed')
+  })
+
+  it('a pr step that can’t open one fails the run with the reason, unless the flow branches on failed', async () => {
+    const h = harness(SHIPPED)
+    h.deps.openPullRequest = async () => ({ kind: 'failed', reason: 'This repository has no remote, so there is nowhere to open a pull request.' })
+    await h.start({ issue: 'x', slug: 'y' })
+    await h.endTurn()
+    h.gates[0].resolve({ kind: 'gate', answer: 'continued' })
+    await settle()
+    expect(h.run()).toMatchObject({ state: 'failed', reason: 'The pr step “open” couldn’t open a pull request: This repository has no remote, so there is nowhere to open a pull request.' })
+    expect(h.run().pullRequest).toBeUndefined()
+
+    const routed = harness(SHIPPED.replace('open = { opened = "ci" }', 'open = { opened = "ci", failed = "done" }'))
+    routed.deps.openPullRequest = async () => ({ kind: 'failed', reason: 'gh isn’t signed in' })
+    await routed.start({ issue: 'x', slug: 'y' })
+    await routed.endTurn()
+    routed.gates[0].resolve({ kind: 'gate', answer: 'continued' })
+    await settle()
+    expect(routed.run().state).toBe('completed')
+    expect(routed.run().steps.at(-1)).toMatchObject({ name: 'open', fact: 'failed', detail: 'Not opened: gh isn’t signed in' })
+  })
+})
