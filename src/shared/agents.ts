@@ -170,8 +170,6 @@ export const MODELS: ModelInfo[] = [
   { id: 'claude-haiku-5-5', agent: 'claude', label: 'Haiku 5.5', efforts: [], supportsFast: false, contextWindow: 200_000 },
   { id: 'gpt-6.1-sol', agent: 'codex', label: 'GPT-6.1 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 500_000 },
   { id: 'gpt-6-sol', agent: 'codex', label: 'GPT-6 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
-  // Its context window isn't published here; GPT-6 Sol's stands in.
-  { id: 'gpt-6-astra', agent: 'codex', label: 'GPT-6 Astra', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
   { id: 'gpt-5.5', agent: 'codex', label: 'GPT-5.5', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
   { id: 'auto', agent: 'cursor', label: 'Auto', efforts: [], supportsFast: false, contextWindow: 200_000 },
   { id: 'grok-4.7', agent: 'cursor', label: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'high', supportsFast: true, contextWindow: 256_000 },
