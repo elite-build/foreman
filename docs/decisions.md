@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-06: A template opens as its own page in Automations, not in the side panel
+
+**Decision.** Clicking a template replaces the library with the template's page: breadcrumbs and Back (or Escape), the prompt and its options on the left, Run now, Schedule…, ⋯ (Duplicate, Delete), schedules and recent runs on the right. The side panel keeps the schedules. The library stays mounted, so Back finds it as it was.
+
+**Why.** In the 340px panel the prompt was about 320px wide and four rows tall, with everything stacked under it.
+
+**Turned down.** A dialog like New workspace (hides the runs, turns autosave into Save/Cancel). A template list beside the editor (a new Schedules tab and a moved overview). Tabs per template, a live preview of the run, the template drawn as a small flow, and a card that expands in the grid (more to build or too short for a long prompt).
+
+**Revisit when.** People edit templates one after another often enough that Back, then pick, gets in the way: the list beside the editor was the runner-up.
+
 ## 2026-11-06: The repository rail widens in place to show names; nothing opens over the list
 
 **Decision.** The rail is tiles alone (52px). One toggle (Ctrl/⌘+Shift+N) widens it beside the workspace list to show each repository's name and what is going on in it, and narrows it back; the choice is remembered. The drawer that covered the list is gone.

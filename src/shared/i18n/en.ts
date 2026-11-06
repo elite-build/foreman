@@ -5062,7 +5062,6 @@ export const en = {
   // The template editor.
   'automations.editor.name': 'Template name',
   // {name} is the template's name.
-  'automations.editor.delete': 'Delete {name}',
   'automations.editor.prompt': '{name} prompt',
   // {example} is {{placeholder}}.
   'automations.editor.promptPlaceholder': 'The prompt to insert. Use {example} for the parts you fill in each time.',
@@ -6035,6 +6034,11 @@ export const en = {
   'a11y.agent.started': '{name} started working',
   'a11y.agent.stopped': '{name} stopped',
   'automations.side.label': 'Schedules and details',
+  'automations.page.where': 'Where you are',
+  'automations.page.backTitle': 'Back to the library',
+  'automations.page.more': 'More for {name}',
+  'automations.page.duplicate': 'Duplicate',
+  'automations.page.copyName': '{name} (copy)',
   'bottomPanel.label': 'Terminal and scripts',
   'chat.log.heading': 'Chat: {title}',
   'chat.message.agentReplyAt': '{name}, reply to your {time} message',

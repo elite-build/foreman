@@ -77,6 +77,10 @@ div.automations-entry {
   min-height: 0;
   display: flex;
 }
+/* The library stays mounted under a template's page, so Back finds it as it was. */
+.auto-body[hidden] {
+  display: none;
+}
 
 /* ---- library ---- */
 
@@ -216,6 +220,78 @@ div.auto-card {
   margin: 0 0 6px;
 }
 
+/* ---- a template's page ---- */
+
+/* The title bar's breadcrumbs: Automations › Templates › the template. */
+.auto-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.auto-crumbs > svg {
+  flex: none;
+  color: var(--text-faint);
+}
+.auto-crumb-here {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+/* The page scrolls as one; its width decides whether the side column sits beside the prompt or under it. */
+.auto-page-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  container-type: inline-size;
+}
+.auto-page {
+  display: grid;
+  grid-template-columns: minmax(0, 680px) minmax(260px, 300px);
+  align-items: start;
+  gap: 32px;
+  padding: 14px 32px 40px;
+}
+.auto-page-main,
+.auto-page-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.auto-page-main {
+  gap: 10px;
+}
+/* Level with the eyebrow, below the Back button. */
+.auto-page-side {
+  padding-top: 34px;
+}
+.auto-page-back {
+  align-self: flex-start;
+  margin-left: -8px;
+}
+.auto-page-title {
+  margin: 0;
+  font-size: var(--text-display-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.auto-page .tpl-followup-row {
+  flex-wrap: wrap;
+}
+@container (max-width: 820px) {
+  .auto-page {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 14px 20px 40px;
+  }
+  .auto-page-side {
+    padding-top: 0;
+  }
+}
+
 /* ---- detail ---- */
 
 .auto-detail {
@@ -240,12 +316,6 @@ div.auto-card {
   align-items: center;
   gap: 6px;
   margin: 4px 0;
-}
-.auto-detail .tpl-head {
-  flex-wrap: wrap;
-}
-.auto-detail .tpl-followup-row {
-  flex-wrap: wrap;
 }
 .auto-h2 {
   margin: 14px 0 0;
