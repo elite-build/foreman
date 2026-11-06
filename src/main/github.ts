@@ -690,7 +690,11 @@ export async function gitStatus(
   const onBase = ws.branch === ws.baseBranch
   const found: PrResult | undefined = hasRemote && !onBase ? await lookup(ws) : undefined
   const installed = await (options.available ?? ghAvailable)()
-  const pr = found?.kind === 'ok' ? found.pr : undefined
+  // A merged PR stops describing the branch once work goes on after it (the next PR from the same chat): the next
+  // step is that work's own PR, not Archive. Until then a lookup still finds the merged one.
+  const movedOn =
+    found?.kind === 'ok' && found.pr.state === 'MERGED' && (entries.length > 0 || (await workAfter(at, found.headRefOid, vsBase ? base : undefined)))
+  const pr = found?.kind === 'ok' && !movedOn ? found.pr : undefined
   // gh missing has its own row; anything else that failed is worth saying.
   const prProblem = installed && (found?.kind === 'auth-error' || found?.kind === 'unavailable') ? { kind: found.kind, message: found.message } : undefined
   const status = {
@@ -712,6 +716,16 @@ export async function gitStatus(
   }
   const primary = primaryAction(status, rules)
   return { ...status, primary: options.scm?.kind === 'gitlab' ? gitlabPrimary(primary) : primary }
+}
+
+/**
+ * Whether the branch has commits of its own that a pull request's head doesn't: neither in it nor from the base. Merge
+ * commits don't count, so bringing the base in after a merge isn't new work. An unknown head says no.
+ */
+async function workAfter(at: GitTarget, head: string, base?: string): Promise<boolean> {
+  if (!head) return false
+  const r = await git(at, ['rev-list', '--count', '--no-merges', 'HEAD', `^${head}`, ...(base ? [`^${base}`] : [])], { allowFail: true })
+  return r.code === 0 && Number(r.stdout.trim()) > 0
 }
 
 /** Merge method the repository allows, preferring squash. */
