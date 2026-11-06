@@ -22,6 +22,10 @@ Notable changes to Foreman, newest first. Versions follow [semver](https://semve
 
 - `npm run pr:screens` no longer empties `node_modules` on Windows. ([#88](https://github.com/elite-build/foreman/pull/88))
 
+### Security
+
+- follow-redirects updated to 1.16.2, fixing [GHSA-mrwp-f3q8-3g9p](https://github.com/advisories/GHSA-mrwp-f3q8-3g9p) (credentials could follow a cross-origin redirect). ([#90](https://github.com/elite-build/foreman/pull/90))
+
 ### Development
 
 - Agents asked to cut a release follow a new `create-release` skill, which writes the release's `CHANGELOG.md` entry from the merged PRs' release notes and uses it as the GitHub release's text. ([#83](https://github.com/elite-build/foreman/pull/83))
