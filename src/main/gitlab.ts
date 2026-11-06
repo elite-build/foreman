@@ -503,6 +503,13 @@ export async function markReady(api: GitlabApi, projectPath: string, iid: number
   await api.send('PUT', `${project(projectPath)}/merge_requests/${iid}`, { title: next })
 }
 
+/** Open a merge request for a pushed branch (a flow's pr step); a draft's title starts with "Draft:", as GitLab marks one. */
+export async function createMergeRequest(api: GitlabApi, projectPath: string, o: { source: string; target: string; title: string; body: string; draft: boolean }): Promise<{ number: number; url: string }> {
+  const title = o.draft && !/^draft:/i.test(o.title) ? `Draft: ${o.title}` : o.title
+  const mr = await api.send<{ iid: number; web_url: string }>('POST', `${project(projectPath)}/merge_requests`, { source_branch: o.source, target_branch: o.target, title, description: o.body })
+  return { number: mr.iid, url: mr.web_url }
+}
+
 /** Retry a pipeline: GitLab reruns only its failed and canceled jobs. */
 export async function retryPipeline(api: GitlabApi, projectPath: string, pipelineId: number): Promise<void> {
   await api.send('POST', `${project(projectPath)}/pipelines/${pipelineId}/retry`)

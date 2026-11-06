@@ -280,3 +280,16 @@ pick = { "ship it" = "done", "needs \\"work\\" [now]" = "work" }
     }
   })
 })
+
+describe('a counted loop in the graph', () => {
+  it('titles the loop with its passes and the step after them', () => {
+    const parsed = parseFlow(
+      'name = "R"\n[start]\nstep = "a"\n[steps.a]\nkind = "turn"\nprompt = "x"\n[steps.b]\nkind = "turn"\nprompt = "y"\n[steps.g]\nkind = "gate"\n[edges]\na = "b"\nb = "a"\n[loops.rounds]\nover = ["a", "b"]\ntimes = 3\nthen = "g"\n',
+      'personal'
+    )
+    if (!('flow' in parsed)) throw new Error(parsed.problems.join(' '))
+    expect(flowGraph(parsed.flow, undefined, 'run').loops[0].title).toBe('rounds · 3 times, then g')
+    // The then step is reached through the loop, not left unreachable.
+    expect(parsed.warnings).toEqual([])
+  })
+})

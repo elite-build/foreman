@@ -2,7 +2,7 @@
 // workspaces, sessions, comments, chat items, check results. state.json keeps
 // preferences, the model catalog, templates and the repository list. The
 // in-memory `state` object stays the working copy; save() writes both.
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync, writeFileSync, renameSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -462,16 +462,30 @@ export class Store {
     return JSON.stringify(rest, null, 2)
   }
 
+  // Every write of state.json, in order, and the newest one that has landed. A debounced save and a synchronous
+  // flush can overlap (a flow run flushes before it launches while a save is in flight): each writes its own
+  // temporary file, and a save that finishes after a newer flush throws its file away rather than putting older
+  // state over newer.
+  private writes = 0
+  private landed = 0
+
   private writeState(): Promise<void> {
     if (this.closed) return Promise.resolve()
     // `store.save`: every debounced save, with the row sync (synchronous SQLite) and the state.json write inside it.
     return perf.timed('store.save', async () => {
       this.db.syncRows(this.state)
-      const tmp = `${this.statePath}.tmp`
+      const seq = ++this.writes
+      const tmp = `${this.statePath}.${seq}.tmp`
       try {
         await writeFile(tmp, this.preferences())
+        if (this.landed > seq || this.closed) {
+          await rm(tmp, { force: true })
+          return
+        }
         await renameWithRetry(tmp, this.statePath)
+        this.landed = Math.max(this.landed, seq)
       } catch (error) {
+        await rm(tmp, { force: true }).catch(() => undefined)
         // A save that was in flight when the store closed (quit, or a test's teardown) has nowhere to land; the
         // synchronous flush on close already wrote the state.
         if (!this.closed) throw error
@@ -485,9 +499,11 @@ export class Store {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
     this.db.syncRows(this.state)
-    const tmp = `${this.statePath}.tmp`
+    const seq = ++this.writes
+    const tmp = `${this.statePath}.${seq}.tmp`
     writeFileSync(tmp, this.preferences())
     renameSyncWithRetry(tmp, this.statePath)
+    this.landed = Math.max(this.landed, seq)
   }
 
   /** Flush and let go of foreman.db (app quit, or a test finishing). */

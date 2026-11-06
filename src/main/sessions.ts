@@ -99,6 +99,8 @@ export interface SessionEvents {
   settled?(workspaceId: string): void
   // A scheduled (unattended) run asked for an approval or a question and was stopped for the human.
   unattendedStopped?(sessionId: string, what: string): void
+  // A flow's attended step (a read-only step on Codex) asked for an approval (waiting) or got its answer.
+  attendedApproval?(sessionId: string, waiting: boolean): void
   // #11: something happened in this tab (a send, queue or steer, a rewind or restore, a model change, close or archive): an armed usage-limit resume is moot.
   activity?(sessionId: string): void
 }
@@ -831,6 +833,17 @@ export class SessionService {
     return how
   }
 
+  /**
+   * A flow step's scoped writes for this turn: its persona's globs, unless the turn is read-only. Only Claude can be held
+   * to them (a hook refuses file tools elsewhere and every shell); on another agent the turn is refused.
+   */
+  private writeScope(session: Session): string[] | undefined {
+    const writes = this.turnPersona(session)?.writes
+    if (!writes?.length || this.readOnly(session)) return undefined
+    if (session.agent !== 'claude') throw new Error(`This flow step may only write inside ${writes.join(', ')}, which only Claude can be held to`)
+    return writes
+  }
+
   private approvalPolicy(session: Session): ApprovalPolicy {
     // A scheduled run is always Claude's auto mode, whatever the app's setting says; what auto won't approve stops the run.
     if (session.unattended) return 'auto'
@@ -1101,7 +1114,9 @@ export class SessionService {
     const integ = this.integrationsFor(session, ws)
     // A flow step's persona: its instructions follow the rest, for this turn only; its MCP list keeps fewer servers.
     const persona = this.turnPersona(session)
-    const personaText = persona?.name && persona.instructions?.trim() ? `This turn is a step of a Foreman flow, run as the persona “${persona.name}”. Its instructions:\n${persona.instructions.trim()}` : ''
+    const scope = this.writeScope(session)
+    const scopeText = scope ? `\n\nThis step may only write files inside ${scope.join(', ')} (relative to the workspace root). Foreman refuses writes anywhere else and gives this turn no shell; read with Read, Grep and Glob.` : ''
+    const personaText = persona?.name && persona.instructions?.trim() ? `This turn is a step of a Foreman flow, run as the persona “${persona.name}”. Its instructions:\n${persona.instructions.trim()}${scopeText}` : scopeText.trim()
     const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '') + (personaText ? `\n\n${personaText}` : '')
     const integServers = persona?.mcp ? Object.fromEntries(Object.entries(integ.servers).filter(([name]) => persona.mcp!.includes(name))) : integ.servers
 
@@ -1164,6 +1179,7 @@ export class SessionService {
         planMode: session.planMode || this.readOnly(session) === 'plan',
         approvals: this.approvalPolicy(session),
         readOnly: this.readOnly(session) ? true : undefined,
+        writeScope: scope,
         resume: session.agentSessionId,
         resumeAt: session.resumeAt,
         systemPromptAppend,
@@ -1938,9 +1954,18 @@ export class SessionService {
     const full = { id, sessionId, ...request } as AgentApprovalRequest
     const session = this.session(sessionId)
     const ws = this.workspaces.workspace(session.workspaceId)
-    if (session.unattended) return this.denyUnattended(session, full)
+    // A flow's attended step (read-only on Codex) waits for a person like any chat; every other unattended turn is denied.
+    const attended = Boolean(session.unattended && 'flowRunId' in session.unattended && session.unattended.attended)
+    if (session.unattended && !attended) return this.denyUnattended(session, full)
     return new Promise((resolve) => {
-      this.approvals.set(id, { request: full, resolve })
+      const settle = attended
+        ? (response: ApprovalResponse) => {
+            this.events.attendedApproval?.(sessionId, false)
+            resolve(response)
+          }
+        : resolve
+      this.approvals.set(id, { request: full, resolve: settle })
+      if (attended) this.events.attendedApproval?.(sessionId, true)
       signal.addEventListener('abort', () => this.cancelApproval(id), { once: true })
       this.events.approval(full)
       const t = this.t()

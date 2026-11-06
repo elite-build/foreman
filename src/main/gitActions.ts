@@ -127,20 +127,7 @@ export class GitActions {
     // GitHub work runs as the repository's connection (gh's active account when unset). Here gh is asked afresh who
     // that is, so a gh auth switch run outside Foreman counts for this push; the provider below then reads the same answer.
     const account = ws.cloud ? this.workspaces.accountFor(repo.id) : await this.workspaces.accountForFresh(repo.id)
-    // GitHub off here: git's own credentials, as without Foreman. A connection that can't be used refuses.
-    // A cloud workspace's git pushes as the repository's connection, the token only in that command's environment.
-    const pushEnv = async () => {
-      if (ws.cloud) {
-        const env = cloudSandboxes().githubEnv(ws)
-        return env.GH_TOKEN ? { ...env, ...credentialHelperEnv() } : undefined
-      }
-      try {
-        return account ? await githubEnvAsync(account) : undefined
-      } catch (err) {
-        if (err instanceof GithubUnavailable && !err.blocked) return undefined
-        throw err
-      }
-    }
+    const pushEnv = () => this.pushEnv(ws, account)
     // O2: the host's own calls (gh for GitHub, the REST API for GitLab).
     const { provider } = await this.resolve(ws)
     const gitlab = provider.kind === 'gitlab'
@@ -254,6 +241,44 @@ export class GitActions {
       case 'archive':
         // The renderer opens the archive dialog for this one.
         return
+    }
+  }
+
+  /**
+   * GitHub off here: git's own credentials, as without Foreman. A connection that can't be used refuses. A cloud
+   * workspace's git pushes as the repository's connection, the token only in that command's environment.
+   */
+  private async pushEnv(ws: Workspace, account: string | undefined): Promise<Record<string, string> | undefined> {
+    if (ws.cloud) {
+      const env = cloudSandboxes().githubEnv(ws)
+      return env.GH_TOKEN ? { ...env, ...credentialHelperEnv() } : undefined
+    }
+    try {
+      return account ? await githubEnvAsync(account) : undefined
+    } catch (err) {
+      if (err instanceof GithubUnavailable && !err.blocked) return undefined
+      throw err
+    }
+  }
+
+  /**
+   * A flow's pr step: push the branch as the panel's Push does (the repository's account, git's own credentials for
+   * GitLab) and open its pull request through the host, with no agent. The title defaults to the last commit's subject.
+   */
+  async openPullRequest(workspaceId: string, options: { draft: boolean; title?: string; body?: string }): Promise<{ number: number; url: string }> {
+    const ws = this.workspaces.workspace(workspaceId)
+    const repo = this.workspaces.repo(ws.repoId)
+    if (!repo.hasOrigin) throw new Error('This repository has no remote, so there is nowhere to open a pull request.')
+    try {
+      const account = ws.cloud ? this.workspaces.accountFor(repo.id) : await this.workspaces.accountForFresh(repo.id)
+      const { provider } = await this.resolve(ws)
+      const at = workspaceTarget(ws, { wake: true })
+      const hasUpstream = (await git(at, ['rev-parse', '--abbrev-ref', '@{upstream}'], { allowFail: true })).code === 0
+      await git(at, hasUpstream ? ['push'] : ['push', '-u', repo.remote || 'origin', 'HEAD'], { timeoutMs: 120_000, env: provider.kind === 'gitlab' ? undefined : await this.pushEnv(ws, account) })
+      const title = options.title?.trim() || (await gitOut(at, ['log', '-1', '--format=%s']).catch(() => '')).trim() || ws.branch
+      return await provider.createPullRequest(ws, { title, body: options.body ?? '', draft: options.draft })
+    } finally {
+      this.prs.invalidate(workspaceId)
     }
   }
 

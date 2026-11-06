@@ -723,7 +723,7 @@ workspace stays. ${FLOWS_OFF_NOTE}`,
     details: `Prints the flow the Lineage tab's "Make a flow from this…" drafts: each turn a turn step (the template it used,
 else prompt = "{{task}}"), the check run a checks step, a review a read-only review step on the reviewer's model, findings
 sent back an address step in a review-until-clean loop of at most 2, a pull request opened by hand a pr-check gate and a
-turn that runs \`foreman git pr create\`, and auto-fix a wait on CI with a fix step. Steps follow the order things
+pr step (a draft pull request, no agent), and auto-fix a wait on CI with a fix step. Steps follow the order things
 happened, and a comment at the top lists what the draft leaves out. A draft runs nothing: edit it, then save it with
 --save (or \`foreman flow add\`). ${FLOWS_OFF_NOTE}`,
     tier: 'admin'
@@ -737,7 +737,7 @@ const PERSONA_REF = { name: 'persona', required: true, help: 'A persona’s name
 const PERSONA_SOURCES = `A step names a persona with persona = "…" in its flow. The name means your personal persona first, then the
 repository's .foreman/personas/<name>.md, then its Claude Code subagent .claude/agents/<name>.md (Claude steps only; its
 name, description and model are read, its tools aren't applied), then the built-in one (architect, developer,
-qa-engineer, designer).`
+qa-engineer, designer, product-manager, ux-designer, security-reviewer, docs-writer, researcher, research-reviewer).`
 
 export const PERSONA_COMMANDS: CommandSpec[] = [
   {

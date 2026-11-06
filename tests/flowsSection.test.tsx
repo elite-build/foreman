@@ -178,7 +178,7 @@ describe('Flows on Automations', () => {
     expect(within(runs).getByRole('button', { name: 'lisbon' })).toBeTruthy()
     await u.click(screen.getByRole('button', { name: 'Run Fix until green…' }))
     const dialog = screen.getByRole('dialog', { name: 'Run Fix until green' })
-    await waitFor(() => expect(within(dialog).getByText('These turn steps aren’t on Claude, so the flow can’t run unattended: review (Cursor)')).toBeTruthy())
+    await waitFor(() => expect(within(dialog).getByText('These turn steps aren’t on Claude, so the flow can’t run unattended (review and decide steps may run on Codex): review (Cursor)')).toBeTruthy())
     expect(within(dialog).getByText('The cost bound applies to Claude turns only: other agents don’t say what a turn cost.')).toBeTruthy()
     expect((within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement).disabled).toBe(true)
   })

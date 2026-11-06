@@ -237,19 +237,26 @@ export function GatePanel({ request, workspaceId }: { request: GateRequest; work
         <p className="gate-ask">{request.ask}</p>
         {request.show.length > 0 && (
           <ul className="gate-show">
-            {request.show.map((item, n) => (
-              <li key={n}>
-                <span className="faint">{label(item.kind, item.step)}:</span> {item.summary}
-                {item.kind === 'checks.results' && (
-                  <>
-                    {' '}
-                    <LinkButton size="sm" onClick={() => showChecksPanel(workspaceId)}>
-                      {t('flowRun.gate.openChecks')}
-                    </LinkButton>
-                  </>
-                )}
-              </li>
-            ))}
+            {request.show.map((item, n) =>
+              item.kind === 'file' ? (
+                // A file the flow shows by its path: its content, read-only, labelled by the path.
+                <li key={n}>
+                  <Field label={t('flowRun.gate.show.file', { path: item.path ?? '' })}>{(c) => <TextArea {...c} mono readOnly rows={8} value={item.summary} />}</Field>
+                </li>
+              ) : (
+                <li key={n}>
+                  <span className="faint">{label(item.kind, item.step)}:</span> {item.summary}
+                  {item.kind === 'checks.results' && (
+                    <>
+                      {' '}
+                      <LinkButton size="sm" onClick={() => showChecksPanel(workspaceId)}>
+                        {t('flowRun.gate.openChecks')}
+                      </LinkButton>
+                    </>
+                  )}
+                </li>
+              )
+            )}
           </ul>
         )}
         <Field label={t('flowRun.gate.note')}>{(c) => <TextArea {...c} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>

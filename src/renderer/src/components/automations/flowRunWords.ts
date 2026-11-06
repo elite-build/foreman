@@ -52,5 +52,6 @@ export const STEP_KIND: Record<FlowStepKind, PlainKey> = {
   workspace: 'flowRun.kind.workspace',
   wait: 'flowRun.kind.wait',
   gate: 'flowRun.kind.gate',
-  pick: 'flowRun.kind.pick'
+  pick: 'flowRun.kind.pick',
+  pr: 'flowRun.kind.pr'
 }

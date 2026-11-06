@@ -21,6 +21,8 @@ export interface PersonaRow {
   endsWith: string[]
   // The MCP servers it keeps; absent: every one the repository and integrations give.
   mcp?: string[]
+  // Scoped writes: the only paths its turns may write (and no shell), when it isn't read-only.
+  writes?: string[]
   // Another persona of the same name a step uses instead (yours over the repository's over the built-in one).
   shadowedBy?: string
   problems: string[]

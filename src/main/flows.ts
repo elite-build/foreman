@@ -19,11 +19,14 @@ import { readOnlyEnforcement } from '../shared/permissions'
 import { applyPersona, personaMarkdown, type Persona, type TurnPersona } from '../shared/personas'
 import { FAILED_STATUSES } from '../shared/checks'
 import {
+  countedLoopRedirect,
   FLOW_COMPACT_ABOVE,
   FLOW_DONE,
+  FLOW_LEDGER_PLACEHOLDER,
   FLOW_WAIT_MINUTES,
   flowFingerprintInputs,
   isActiveRun,
+  isShowPath,
   loopsContaining,
   nextStep,
   stepPersona,
@@ -156,12 +159,13 @@ function loadoutStep(flow: Flow, step: AgentStep): AgentStep {
 }
 
 /** Every reason the flow can't start, in words; empty when it can. */
-export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { problems: string[]; notClaude: { step: string; agent: string }[] } {
+export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { problems: string[]; notClaude: { step: string; agent: string }[]; attended: { step: string; agent: string }[] } {
   const { flow } = prepared
   const problems: string[] = []
   const first = flow.steps.find((s) => s.name === flow.start)
   if (first && first.kind !== 'turn' && first.kind !== 'workspace') problems.push('A flow run starts with a turn or a workspace step: one of them makes the run’s workspace.')
   const notClaude: { step: string; agent: string }[] = []
+  const attended: { step: string; agent: string }[] = []
   for (const step of flow.steps) {
     if (step.kind === 'script' && !prepared.commands?.[step.command])
       problems.push(`The command “${step.command}” (step “${step.name}”) isn’t saved for this repository: a script step runs one of your saved commands or one from the repository’s settings.`)
@@ -180,19 +184,26 @@ export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { 
       continue
     }
     const label = AGENTS[loadout.agent]?.label ?? loadout.agent
-    if (loadout.agent !== 'claude') notClaude.push({ step: step.name, agent: label })
+    // A review or decide is read-only by construction, so it may run on Codex, attended; a turn step is Claude only.
+    if (loadout.agent !== 'claude') {
+      if (step.kind !== 'turn' && canReview(loadout.agent)) attended.push({ step: step.name, agent: label })
+      else notClaude.push({ step: step.name, agent: label })
+    }
+    const writes = step.kind === 'turn' ? applyPersona(step, persona).writes : undefined
+    if (writes?.length && loadout.agent !== 'claude')
+      problems.push(`The step “${step.name}” may only write inside ${writes.join(', ')}${persona?.writes?.length ? ` (persona “${persona.name}”)` : ''}, which only Claude can be held to; this step runs on ${label}.`)
     if (step.kind === 'review' && !canReview(loadout.agent)) problems.push(`The review step “${step.name}” runs on ${label}, which can’t be held to read-only: reviews run on Claude Code or Codex.`)
     else if ((step.kind !== 'turn' || applyPersona(step, persona).readOnly) && !readOnlyEnforcement(loadout.agent))
       problems.push(`The step “${step.name}” is read-only${persona?.read_only ? ` (persona “${persona.name}”)` : step.kind === 'decide' ? ' (a decide step only decides)' : ''}, which ${label} can’t enforce.`)
     if (persona?.source === 'claude-agents' && loadout.agent !== 'claude') problems.push(`The persona “${persona.name}” (step “${step.name}”) is a Claude Code subagent, for Claude steps only; this step runs on ${label}.`)
   }
   if (notClaude.length) problems.push(notClaudeProblem(notClaude))
-  return { problems, notClaude }
+  return { problems, notClaude, attended }
 }
 
 /** Why a flow with turns on other agents can't run unattended, naming them (a run preview lists them apart, as `notClaude`). */
 export function notClaudeProblem(notClaude: { step: string; agent: string }[]): string {
-  return `Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet. Not Claude: ${notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`
+  return `Unattended turns are Claude only, as scheduled runs are: nobody can answer another agent’s approvals yet (review and decide steps may run on Codex). Not Claude: ${notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`
 }
 
 /** The values a run asks for: the flow's inputs, then any other {{placeholder}} in the templates its steps name. */
@@ -222,6 +233,12 @@ export type FlowCommandStart =
 
 /** A checks step's start: `abandoned` when the step stopped while another check run held the workspace, so nothing started. */
 export type FlowChecksStart = { kind: 'consent'; names: string[] } | { kind: 'not-configured' } | { kind: 'abandoned' } | { kind: 'started'; done: Promise<CheckResult[]> }
+
+/** A pr step's pull request: opened (its number and page), or why it couldn't be. */
+export type FlowPullRequestOpen = { kind: 'opened'; number: number; url: string } | { kind: 'failed'; reason: string }
+
+/** A file a gate shows: the path it resolved to and its content (cut), or why there is none. */
+export type FlowShownFile = { path: string; text: string; cut: boolean } | { missing: string }
 
 /** What a pull request says, as a wait step reads it through the PR cache. */
 export type FlowPullRequest = { kind: 'facts'; facts: Pick<PrFacts, 'checks' | 'review'> } | { kind: 'no-pr' } | { kind: 'unknown'; message: string }
@@ -278,6 +295,13 @@ export interface FlowServiceDeps {
   cancelCommand(workspaceId: string): Promise<void>
   /** A wait step: the workspace's pull request as the PR cache has it now (it keeps its own pauses and back-off). */
   pullRequest(workspaceId: string): Promise<FlowPullRequest>
+  /**
+   * A pr step: push the workspace's branch and open its pull request, as the Git panel pushes (the repository's account)
+   * and the host creates one; never an agent. Draft unless told otherwise; the title defaults to the last commit's.
+   */
+  openPullRequest?(workspaceId: string, options: { draft: boolean; title?: string; body?: string }): Promise<FlowPullRequestOpen>
+  /** A gate's file: the path (inputs filled; a `*` means the newest match) read in the workspace, cut to a size limit. */
+  readShownFile?(workspaceId: string, path: string): Promise<FlowShownFile>
   /** A workspace step: a new workspace from the base branch, or a copy of a step's end (its end checkpoint, else its workspace now). */
   newWorkspace(run: FlowRun, from?: { workspaceId: string; sessionId?: string; turnId?: string }): Promise<{ workspaceId: string; sessionId?: string; failed?: string }>
   /** How full a tab's context window is, when its agent says (with what fills it, when Claude says). */
@@ -449,7 +473,7 @@ export class FlowService {
       startedAt: this.iso(),
       steps: [],
       loops: {},
-      bounds: Object.fromEntries(flow.loops.map((l) => [l.name, { over: [...l.over], ...l.at_most }]))
+      bounds: Object.fromEntries(flow.loops.map((l) => [l.name, { over: [...l.over], ...l.at_most, ...(l.times && l.then ? { times: l.times, then: l.then } : {}) }]))
     }
     this.prepared.set(run.id, prepared)
     this.record(run)
@@ -471,8 +495,10 @@ export class FlowService {
   private advance(run: FlowRun, from: string, fact: string | undefined): void {
     const flow = this.prepared.get(run.id)?.flow
     if (!flow || !isActiveRun(run)) return
-    const next = nextStep(flow, from, fact)
+    let next = nextStep(flow, from, fact)
     if (next === null) return this.finish(run, 'stopped', `Stopped: nothing in the flow follows “${from}” when it ends with “${fact}”.`)
+    // A counted loop whose passes are done goes on to its `then`, instead of another pass or its way out.
+    next = countedLoopRedirect(flow, from, next, (loop) => (run.loops[loop.name]?.open ? run.loops[loop.name].entries ?? 0 : 0)) ?? next
     if (next === FLOW_DONE) return this.finish(run, 'completed')
     void this.enter(run, next)
   }
@@ -503,6 +529,8 @@ export class FlowService {
       if (!pass || !pass.open) run.loops[loop.name] = { pass: (pass?.pass ?? 0) + 1, open: true, iterations: 1, startedAt: this.iso(now), minutesUsed: 0, costUsed: 0, visited: [name] }
       else if (pass.visited.includes(name)) Object.assign(pass, { iterations: pass.iterations + 1, visited: [name] })
       else pass.visited.push(name)
+      // A counted loop counts the entries of its first step: the passes `times` says.
+      if (loop.times && name === loop.over[0]) run.loops[loop.name].entries = (run.loops[loop.name].entries ?? 0) + 1
       const { iterations, minutes, cost } = loop.at_most
       const current = run.loops[loop.name]
       if (iterations !== undefined && current.iterations > iterations) return this.finish(run, 'stopped', `Stopped: the loop “${loop.name}” reached its bound of ${iterations} iteration${iterations === 1 ? '' : 's'}.`)
@@ -542,6 +570,8 @@ export class FlowService {
           return await this.gate(run, flow, step, record)
         case 'pick':
           return await this.pick(run, step, record)
+        case 'pr':
+          return await this.pr(run, flow, step, record)
       }
     } catch (err) {
       this.finish(run, 'failed', err instanceof Error ? err.message : String(err))
@@ -674,11 +704,24 @@ export class FlowService {
     if (readOnly) record.readOnly = true
     if (persona) details.push(`persona: ${persona.name}${readOnly ? ' (read-only)' : ''}`)
     else if (readOnly && step.kind === 'turn') details.push('read-only')
+    // Scoped writes: only a turn that can change files has them (a read-only one writes nothing).
+    const writes = !readOnly && applied.writes?.length ? applied.writes : undefined
+    if (writes) details.push(`writes only ${writes.join(', ')}`)
     const limits: TurnPersona | undefined =
-      persona || readOnly || applied.mcp
-        ? { ...(persona ? { name: persona.name, instructions: persona.instructions } : {}), ...(readOnly ? { readOnly: true } : {}), ...(applied.mcp ? { mcp: applied.mcp } : {}) }
+      persona || readOnly || applied.mcp || writes
+        ? {
+            ...(persona ? { name: persona.name, instructions: persona.instructions } : {}),
+            ...(readOnly ? { readOnly: true } : {}),
+            ...(applied.mcp ? { mcp: applied.mcp } : {}),
+            ...(writes ? { writes: [...writes] } : {})
+          }
         : undefined
-    const mark = { flowRunId: run.id, step: step.name, ...(limits ? { persona: limits } : {}), ...(step.kind === 'decide' ? { decide: [...step.options] } : {}) }
+    const mark: { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true } = {
+      flowRunId: run.id,
+      step: step.name,
+      ...(limits ? { persona: limits } : {}),
+      ...(step.kind === 'decide' ? { decide: [...step.options] } : {})
+    }
     const body = this.body(run, prepared, step)
 
     if (!run.workspaceId) {
@@ -749,7 +792,9 @@ export class FlowService {
       this.startTree(run, record, capture.tree)
       const patch = capture.text.trim() ? truncateBytes(capture.text, MAX_REVIEW_DIFF_BYTES) + (capture.cut || Buffer.byteLength(capture.text) > MAX_REVIEW_DIFF_BYTES ? '\n[Diff truncated at the size limit.]' : '') : 'No changes against the base branch.'
       sections = [...sections, { id: 'diff', label: `Diff against ${capture.baseRef}`, text: patch }]
-      text = this.compose(run, record, autoReviewPrompt(this.deps.reviewPrompt(run.workspaceId)), sections)
+      // The step's own prompt (what to look for) leads the review's instructions.
+      const ask = step.prompt ? this.fill(run, step.prompt.trim()) : ''
+      text = this.compose(run, record, [ask, autoReviewPrompt(this.deps.reviewPrompt(run.workspaceId))].filter(Boolean).join('\n\n'), sections)
       details.push(`read tree ${capture.tree.slice(0, 7)} (${capture.files} file${capture.files === 1 ? '' : 's'}, +${capture.additions} −${capture.deletions})`)
     } else {
       text = this.compose(run, record, body, sections)
@@ -760,6 +805,8 @@ export class FlowService {
     if (!this.current(run, record)) return
     const loadout = stepLoadout(loadoutStep(flow, step), this.deps.loadouts(), persona)
     if (!('error' in loadout)) record.model = loadout.model
+    // A read-only step on another agent (a review or decide on Codex) is attended: an approval it asks for waits for you.
+    if (!('error' in loadout) && loadout.agent !== 'claude' && step.kind !== 'turn') mark.attended = true
     if (!sessionId) {
       if ('error' in loadout) throw new Error(loadout.error)
       if (step.kind === 'review' && !canReview(loadout.agent)) throw new Error(`The review step “${step.name}” can’t run on ${AGENTS[loadout.agent]?.label ?? loadout.agent}: it can’t be held to read-only.`)
@@ -894,6 +941,49 @@ export class FlowService {
     }
   }
 
+  /**
+   * A pr step: the workspace's branch is pushed and its pull request opened, with no agent (the flow's gate before it is
+   * the person's look). `opened` keeps the number on the run, where a later wait finds the pull request; `failed` says
+   * why, and with no edge for it the run fails.
+   */
+  private async pr(run: FlowRun, flow: Flow, step: Extract<FlowStep, { kind: 'pr' }>, record: FlowRunStep): Promise<void> {
+    const ws = run.workspaceId
+    if (!ws) throw new Error(`The pr step “${step.name}” needs the run’s workspace, which a turn or workspace step makes first.`)
+    this.startTree(run, record, await this.treeNow(ws))
+    const draft = step.draft ?? true
+    const title = step.title ? (await this.withLedger(run, step.title)).replace(/\s+/g, ' ').trim() : undefined
+    const body = step.body ? await this.withLedger(run, step.body) : undefined
+    if (!this.current(run, record)) return
+    const opened: FlowPullRequestOpen = this.deps.openPullRequest
+      ? await this.deps.openPullRequest(ws, { draft, ...(title ? { title } : {}), ...(body !== undefined ? { body } : {}) }).catch((err: unknown) => ({ kind: 'failed' as const, reason: err instanceof Error ? err.message : String(err) }))
+      : { kind: 'failed', reason: 'Foreman can’t open pull requests here.' }
+    if (!this.current(run, record)) return
+    this.count(run, record, (this.deps.now() - Date.parse(record.startedAt)) / 60_000)
+    if (opened.kind === 'opened') {
+      run.pullRequest = { number: opened.number, url: opened.url }
+      record.detail = `Opened #${opened.number}${draft ? ' (draft)' : ''}`
+      return this.complete(run, record, 'opened')
+    }
+    record.detail = `Not opened: ${opened.reason}`
+    const edge = flow.edges[step.name]
+    if (!edge || typeof edge === 'string' || !Object.hasOwn(edge, 'failed')) {
+      Object.assign(record, { state: 'failed', fact: 'failed', endedAt: this.iso() })
+      return this.finish(run, 'failed', `The pr step “${step.name}” couldn’t open a pull request: ${opened.reason}`)
+    }
+    this.complete(run, record, 'failed')
+  }
+
+  /** A pr step's text: the run's inputs filled in, and `{{ledger}}` as the run ledger. */
+  private async withLedger(run: FlowRun, text: string): Promise<string> {
+    const marker = `{{${FLOW_LEDGER_PLACEHOLDER}}}`
+    if (!text.includes(marker)) return this.fill(run, text)
+    const ledger = await this.ledger(run)
+    return text
+      .split(marker)
+      .map((part) => this.fill(run, part))
+      .join(ledger)
+  }
+
   /** A workspace step: the steps after it work in a new workspace, from the base branch or from a step's end. */
   private async workspace(run: FlowRun, flow: Flow, step: Extract<FlowStep, { kind: 'workspace' }>, record: FlowRunStep): Promise<void> {
     let from: { workspaceId: string; sessionId?: string; turnId?: string } | undefined
@@ -986,6 +1076,11 @@ export class FlowService {
         const from = ref.slice(0, -'.findings'.length)
         const review = run.steps.filter((s) => s.name === from && s.kind === 'review' && s.fact).at(-1)
         show.push({ kind: 'review.findings', step: from, summary: review?.detail?.split(' · ').at(-1) ?? 'No review has run in this flow.' })
+      } else if (isShowPath(ref)) {
+        // A file in the workspace by its path, inputs filled in; a glob shows the newest match.
+        const path = this.fill(run, ref)
+        const file = run.workspaceId && this.deps.readShownFile ? await this.deps.readShownFile(run.workspaceId, path).catch((err: unknown) => ({ missing: err instanceof Error ? err.message : String(err) })) : { missing: 'Foreman can’t read files here.' }
+        show.push('missing' in file ? { kind: 'file', path, summary: `(${file.missing})` } : { kind: 'file', path: file.path, summary: file.text + (file.cut ? '\n[Cut at the size limit.]' : '') })
       }
     }
     if (!isActiveRun(run)) return
@@ -1174,6 +1269,21 @@ export class FlowService {
     const edge = flow.edges[record.name]
     const route = fact === 'undecided' && edge && typeof edge !== 'string' && !Object.hasOwn(edge, 'undecided') && Object.hasOwn(edge, 'findings') ? 'findings' : fact
     this.complete(run, record, fact, route)
+  }
+
+  /**
+   * An attended step (a read-only step on Codex) asked for an approval, which waits in Needs you: the run waits with it,
+   * and that time counts against no loop's minutes; answered, the run goes on.
+   */
+  attendedApproval(sessionId: string, waiting: boolean): void {
+    for (const run of this.runs) {
+      if (run.state !== (waiting ? 'running' : 'waiting')) continue
+      const record = run.steps.at(-1)
+      if (!record || !isAgentKind(record.kind) || record.state !== 'running' || record.sessionId !== sessionId) continue
+      run.state = waiting ? 'waiting' : 'running'
+      this.persist()
+      return
+    }
   }
 
   /** An unattended turn asked for an approval or a question: the run stops here for the human. */

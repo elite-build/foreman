@@ -14,7 +14,16 @@ import { FlowLensDiagram } from '../FlowDiagram'
 
 export const STARTER_NAME: Record<FlowStarter['id'], PlainKey> = {
   'fix-until-green': 'automations.flows.starter.fixUntilGreen',
-  'research-then-implement': 'automations.flows.starter.researchThenImplement'
+  'research-then-implement': 'automations.flows.starter.researchThenImplement',
+  'test-first': 'automations.flows.starter.testFirst',
+  'issue-to-draft-pr': 'automations.flows.starter.issueToDraftPr',
+  'second-opinion': 'automations.flows.starter.secondOpinion',
+  'two-reviewers': 'automations.flows.starter.twoReviewers',
+  'keep-branch-fresh': 'automations.flows.starter.keepBranchFresh',
+  'flaky-test-triage': 'automations.flows.starter.flakyTestTriage',
+  'document-what-changed': 'automations.flows.starter.documentWhatChanged',
+  'worth-building': 'automations.flows.starter.worthBuilding',
+  'idea-to-feature': 'automations.flows.starter.ideaToFeature'
 }
 
 /** A flow's title: a built-in starter's in the app's language, otherwise the name in its file. */
@@ -148,7 +157,8 @@ export function FlowRunGraph({ flow }: { flow: FlowListing }) {
 /** Where a persona a run approves comes from: built-in, personal (and when it was saved), or its file and revision. */
 function personaWhere(p: FlowPersonaRef, t: RendererT): string {
   const base = p.source === 'built-in' ? t('automations.flows.builtIn') : p.source === 'personal' ? t('automations.flows.personal') : t('automations.flows.fileRev', { file: p.file ?? '', rev: p.rev?.slice(0, 7) ?? '' })
-  return p.readOnly ? `${base} · ${t('automations.personas.readOnly')}` : base
+  if (p.readOnly) return `${base} · ${t('automations.personas.readOnly')}`
+  return p.writes?.length ? `${base} · ${t('automations.personas.writesOnly', { globs: p.writes.join(', ') })}` : base
 }
 
 const AFTER: Record<FlowAfter, PlainKey> = {
@@ -214,6 +224,11 @@ export function FlowApproval({ flow, summary, error }: { flow: Pick<FlowListing,
       {summary?.costBound && (
         <Callout tone="info" role="note">
           {t('flowRun.dialog.costBound')}
+        </Callout>
+      )}
+      {summary && summary.attended && summary.attended.length > 0 && (
+        <Callout tone="info" role="note">
+          {t('flowRun.dialog.attended', { steps: summary.attended.map((n) => `${n.step} (${n.agent})`).join(', ') })}
         </Callout>
       )}
       {summary && summary.notClaude.length > 0 && (

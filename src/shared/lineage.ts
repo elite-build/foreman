@@ -675,7 +675,6 @@ export function lineageOutline(graph: LineageGraph): LineageOutlineEntry[] {
 const tomlString = (text: string) => JSON.stringify(text)
 const FIX_PROMPT = 'CI failed on the pull request. Read the failing checks and fix them.'
 const ADDRESS_PROMPT = 'Address the review’s findings.'
-const PR_PROMPT = 'Run `foreman git pr create` to open a pull request for this branch.'
 
 interface DraftStep {
   name: string
@@ -690,7 +689,7 @@ interface DraftStep {
  * A draft flow from a run-lens lineage: each turn a `turn` step (the template it used, else `prompt = "{{task}}"`),
  * the check run a `checks` step, a review a read-only `review` step on the reviewer's model, findings sent back an
  * `address` step in a loop `review-until-clean` of at most two, a pull request opened by hand a `pr-check` gate and a
- * turn that runs `foreman git pr create`, and auto-fix a `wait` on CI with a `fix` in a loop. Edges follow the order
+ * `pr` step (a draft, no agent), and auto-fix a `wait` on CI with a `fix` in a loop. Edges follow the order
  * things happened; what it can't carry is listed in a comment at the top. A draft to edit, never something that runs.
  */
 export function draftFlowFromLineage(graph: LineageGraph): LineageFlowDraft {
@@ -713,8 +712,6 @@ export function draftFlowFromLineage(graph: LineageGraph): LineageFlowDraft {
   let fixStep: { wait: string; fix: string; of: number } | undefined
   let turns = 0
   let usedTask = false
-  // The tab of the latest turn step: a turn the draft adds after it (opening the pull request) continues there.
-  let lastTab: string | undefined
 
   for (const n of items) {
     const d = n.draft!
@@ -730,7 +727,6 @@ export function draftFlowFromLineage(graph: LineageGraph): LineageFlowDraft {
       }
       if (same) lines.push(`same_tab = ${tomlString(same)}`)
       else if (d.sessionId) tabStep.set(d.sessionId, name)
-      lastTab = same ?? name
       steps.push({ name, lines })
     } else if (d.role === 'review') {
       const name = nameFor('review')
@@ -768,7 +764,7 @@ export function draftFlowFromLineage(graph: LineageGraph): LineageFlowDraft {
       const gate = nameFor('pr-check')
       const open = nameFor('open-pr')
       steps.push({ name: gate, lines: ['kind = "gate"', 'show = ["diff"]', `ask = ${tomlString('Open a pull request for this?')}`], edge: () => `{ continued = ${tomlString(open)}, stopped = "done" }` })
-      steps.push({ name: open, lines: ['kind = "turn"', `prompt = ${tomlString(PR_PROMPT)}`, ...(lastTab ? [`same_tab = ${tomlString(lastTab)}`] : [])] })
+      steps.push({ name: open, lines: ['kind = "pr"'] })
     }
   }
   if (fixStep) loops.push(`[loops.fix-ci]\nover = [${tomlString(fixStep.wait)}, ${tomlString(fixStep.fix)}]\nat_most = { iterations = ${Math.max(1, fixStep.of)} }`)

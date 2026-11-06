@@ -85,17 +85,14 @@ describe('listPersonas', () => {
     const dir = await repoWith({ [`${PERSONA_DIR}/reviewer.md`]: REVIEWER })
     const list = listPersonas([{ id: 'r1', rootPath: dir }], [personal('persona-1', REVIEWER.replace('name: reviewer', 'name: mine')), personal('persona-2', 'broken')])
     expect(list.map((p) => [p.source, p.name])).toEqual([
-      ['built-in', 'architect'],
-      ['built-in', 'developer'],
-      ['built-in', 'qa-engineer'],
-      ['built-in', 'designer'],
+      ...['architect', 'developer', 'qa-engineer', 'designer', 'product-manager', 'ux-designer', 'security-reviewer', 'docs-writer', 'researcher', 'research-reviewer'].map((name) => ['built-in', name]),
       ['repo', 'reviewer'],
       ['personal', 'mine'],
       ['personal', 'persona-2']
     ])
     expect(list[0]).toMatchObject({ id: 'built-in:architect', problems: [] })
-    expect(list[5]).toMatchObject({ id: 'persona-1', rev: '2026-11-05T01:00:00.000Z', persona: { source: 'personal' } })
-    expect(list[6].problems.length).toBeGreaterThan(0)
+    expect(list[11]).toMatchObject({ id: 'persona-1', rev: '2026-11-05T01:00:00.000Z', persona: { source: 'personal' } })
+    expect(list[12].problems.length).toBeGreaterThan(0)
     // One repository's files only.
     expect(listPersonas([{ id: 'r1', rootPath: dir }], [], undefined, 'other').filter((p) => p.source === 'repo')).toEqual([])
   })

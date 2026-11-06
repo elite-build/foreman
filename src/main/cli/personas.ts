@@ -38,7 +38,7 @@ const shadowText = (id: string) => (id.startsWith('persona-') ? 'your personal p
 
 /** "read-only · plan": what it may do and what it ends with. */
 function factsText(r: PersonaRow): string {
-  return [r.readOnly ? 'read-only' : 'edits', ...(r.endsWith.length ? [`ends with ${r.endsWith.join(', ')}`] : []), ...(r.source === 'claude-agents' ? ['Claude steps only'] : [])].join(' · ')
+  return [r.readOnly ? 'read-only' : r.writes?.length ? `writes only ${r.writes.join(', ')}` : 'edits', ...(r.endsWith.length ? [`ends with ${r.endsWith.join(', ')}`] : []), ...(r.source === 'claude-agents' ? ['Claude steps only'] : [])].join(' · ')
 }
 
 export function personaRow(p: PersonaListing, repos: Repo[], all: PersonaListing[] = []): PersonaRow {
@@ -60,6 +60,7 @@ export function personaRow(p: PersonaListing, repos: Repo[], all: PersonaListing
     shows: persona?.shows ?? [],
     endsWith: persona?.ends_with ?? [],
     ...(persona?.mcp ? { mcp: persona.mcp } : {}),
+    ...(persona?.writes?.length && !persona.read_only ? { writes: persona.writes } : {}),
     ...(over ? { shadowedBy: over.id } : {}),
     problems: p.problems,
     warnings: p.warnings
@@ -103,6 +104,7 @@ const show: MethodDef = {
       lines.push(`What it is: ${factsText(row)}`)
       lines.push(`Shows: ${row.shows.length ? row.shows.join(', ') : '(only what each step’s context names)'}`)
       lines.push(`Loadout: ${row.loadout !== undefined ? `loadout ${row.loadout}` : row.model ? `${row.agent ?? 'claude'} ${row.model}` : 'the step’s own, else loadout 1'}`)
+      if (row.writes?.length) lines.push(`Writes: only ${row.writes.join(', ')}, and no shell (Claude steps only)`)
       lines.push(`MCP servers: ${row.mcp ? (row.mcp.length ? `only ${row.mcp.join(', ')}` : 'none') : 'every one the repository and integrations give'}`)
       if (found.persona?.tools) lines.push(`Tools (not applied): ${found.persona.tools}`)
     }

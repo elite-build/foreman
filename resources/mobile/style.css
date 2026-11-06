@@ -135,6 +135,7 @@ svg.i.sm{width:15px;height:15px}
 .req .rb{padding:11px 13px}
 .req .rb>p{margin:0 0 8px;font-size:15px}
 .req .why{color:var(--m);font-size:14px}
+.req pre.file{white-space:pre-wrap;word-break:break-word;max-height:40vh;overflow:auto;font-size:12px;margin:4px 0 8px}
 .cmd{font:12.5px/1.5 ui-monospace,Menlo,monospace;background:var(--code);color:var(--codet);padding:9px 11px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;margin:0}
 .plan-body{font-size:14.5px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:hidden;position:relative}
 .plan-body.clip::after{content:"";position:absolute;left:0;right:0;bottom:0;height:60px;background:linear-gradient(transparent,var(--bg))}

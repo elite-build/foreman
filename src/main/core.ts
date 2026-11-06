@@ -40,6 +40,7 @@ import { listPersonas, personalPersonaListing } from './personaFiles'
 import { findPersona, MAX_PERSONA_BYTES, MAX_PERSONAL_PERSONAS, parsePersona, type Persona, type PersonaList, type PersonaListing, type TurnPersona } from '../shared/personas'
 import { isActiveRun, MAX_FLOW_BYTES, MAX_PERSONAL_FLOWS, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunOrigin, type FlowRunPreview, type FlowRunStart, type FlowRunSummary } from '../shared/flows'
 import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowChecksStart, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
+import { readShownFile } from './flowShowFiles'
 import { DEFAULT_CHECK_TIMEOUT_MS, isFailure } from '../shared/checks'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
 import { commandInputWithStatus, commandNamed, findCommand, needsApproval, parseSavedCommands, statusShell, type SavedCommand } from '../shared/savedCommands'
@@ -607,6 +608,7 @@ export class Core {
         // #17: a worker's completed turn may make a review owed (only where the repo opted in); a reviewer's settles its review.
         this.autoReview.turnEnded(sessionId, outcome)
       },
+      attendedApproval: (sessionId, waiting) => this.flows.attendedApproval(sessionId, waiting),
       unattendedStopped: (sessionId, what) => {
         this.schedules.needsHuman(sessionId, what)
         this.flows.needsHuman(sessionId, what)
@@ -734,6 +736,19 @@ export class Core {
         await running.script.kill()
       },
       pullRequest: (workspaceId) => this.flowPullRequest(workspaceId),
+      // A pr step: the Git panel's push, then the host's create, as the repository's account; never an agent.
+      openPullRequest: async (workspaceId, options) => {
+        try {
+          return { kind: 'opened', ...(await this.git.openPullRequest(workspaceId, options)) }
+        } catch (err) {
+          return { kind: 'failed', reason: err instanceof Error ? err.message : String(err) }
+        }
+      },
+      readShownFile: async (workspaceId, file) => {
+        const ws = this.workspaces.workspace(workspaceId)
+        if (ws.cloud) return { missing: 'A gate can’t show a file from a cloud workspace’s sandbox yet' }
+        return readShownFile(wsPath(ws), file)
+      },
       newWorkspace: (run, from) => this.flowWorkspace(run, from),
       contextUsage: (sessionId) => this.store.state.sessions.find((s) => s.id === sessionId)?.contextUsage,
       // The agents with a /compact of their own (Claude Code, Codex): it goes as a message, as the composer sends it.
@@ -1861,7 +1876,7 @@ export class Core {
   private flowRunSummary(prepared: PreparedFlow, repo: Repo, baseBranch: string): FlowRunSummary {
     const { flow } = prepared
     const parts = this.repoApprovalParts(repo)
-    const { problems, notClaude } = flowRunProblems(prepared, this.store.state.settings.loadouts)
+    const { problems, notClaude, attended } = flowRunProblems(prepared, this.store.state.settings.loadouts)
     const personas = Object.values(prepared.personas).flatMap((p) => (p ? [personaRef(p)] : []))
     return {
       flowName: flow.name,
@@ -1882,6 +1897,7 @@ export class Core {
       mcpServers: (readSharedLayer(repo.rootPath).mcp ?? []).map((server) => server.name),
       integrations: this.integrationLines(repo.id),
       notClaude,
+      ...(attended.length ? { attended } : {}),
       ...(flow.loops.some((l) => l.at_most.cost !== undefined) ? { costBound: true } : {}),
       // The non-Claude turns have their own line in the dialog.
       problems: problems.filter((p) => !(notClaude.length && p.startsWith('Unattended turns'))),

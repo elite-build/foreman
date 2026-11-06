@@ -100,6 +100,15 @@ describe('a flow’s gate', () => {
   })
 })
 
+describe('a file a gate shows', () => {
+  it('shows its content read-only, labelled by its path', () => {
+    render(<GatePanel request={{ ...GATE, show: [{ kind: 'file', path: 'docs/features/search/requirements.md', summary: '# Search\nFind things fast.' }] }} workspaceId="ws-1" />)
+    const file = screen.getByRole('textbox', { name: 'File docs/features/search/requirements.md' }) as HTMLTextAreaElement
+    expect(file.value).toBe('# Search\nFind things fast.')
+    expect(file.readOnly).toBe(true)
+  })
+})
+
 const PICK = {
   id: 'p1',
   sessionId: 's1',

@@ -4,7 +4,7 @@
 // here runs a step.
 import { parse } from 'smol-toml'
 import { createT, type TFunction } from './i18n'
-import { applyPersona, type Persona, type PersonaSource } from './personas'
+import { applyPersona, isWriteGlob, type Persona, type PersonaSource } from './personas'
 import { templatePlaceholders } from './promptTemplates'
 import type { ScheduleFingerprint } from './types'
 
@@ -16,7 +16,7 @@ export const MAX_FLOW_BYTES = 64 * 1024
 export const MAX_PERSONAL_FLOWS = 100
 export const MAX_REPO_FLOWS = 50
 
-export const FLOW_STEP_KINDS = ['turn', 'checks', 'script', 'review', 'decide', 'workspace', 'wait', 'gate', 'pick'] as const
+export const FLOW_STEP_KINDS = ['turn', 'checks', 'script', 'review', 'decide', 'workspace', 'wait', 'gate', 'pick', 'pr'] as const
 export type FlowStepKind = (typeof FLOW_STEP_KINDS)[number]
 
 export const FLOW_ITERATIONS = ['same-tab', 'compact-when-full', 'fresh-with-summary'] as const
@@ -36,6 +36,12 @@ export const FLOW_COMPACT_ABOVE = 70
 /** Where a flow came from: shipped with Foreman, a file in the repository, or kept in state.json. */
 export type FlowSource = 'built-in' | 'repo' | 'personal'
 
+/** A `pr` step's title or body may carry the run ledger here, beside the flow's inputs. */
+export const FLOW_LEDGER_PLACEHOLDER = 'ledger'
+
+/** A file a gate shows is cut to this. */
+export const MAX_GATE_FILE_BYTES = 8 * 1024
+
 /** The end of a run: an edge may point here instead of at a step. */
 export const FLOW_DONE = 'done'
 
@@ -53,18 +59,23 @@ interface AgentStepFields {
   // Narrowing only (see applyPersona): read-only on, or fewer of the persona's MCP servers.
   read_only?: boolean
   mcp?: string[]
+  // Narrowing only: the paths a turn step may write, inside its persona's `writes` (see applyPersona).
+  writes?: string[]
 }
 
 export type FlowStep = { name: string } & (
   | ({ kind: 'turn'; template?: string; prompt?: string; same_tab?: string } & AgentStepFields)
   | { kind: 'checks' }
   | { kind: 'script'; command: string }
-  | ({ kind: 'review' } & AgentStepFields)
+  // A review's prompt leads its instructions (what to look for), before the code review preferences and the diff.
+  | ({ kind: 'review'; prompt?: string } & AgentStepFields)
   | ({ kind: 'decide'; options: string[]; prompt?: string } & AgentStepFields)
   | { kind: 'workspace'; from?: string }
   | { kind: 'wait'; on: (typeof FLOW_WAITS)[number]; at_most?: { minutes: number } }
   | { kind: 'gate'; show?: string[]; ask?: string }
   | { kind: 'pick'; over: string[] }
+  // Opens the pull request for the run's workspace branch, as the Git panel's Push and a host's create do; no agent.
+  | { kind: 'pr'; draft?: boolean; title?: string; body?: string }
 )
 
 /** A plain next step, or a table keyed by a fact of the step it leaves. Either names a step or `done`. */
@@ -77,6 +88,10 @@ export interface FlowLoop {
   iteration?: FlowIteration
   // compact-when-full: the share of the context window (a percentage) above which the tab is compacted first.
   compact_above?: number
+  // A counted loop: its steps run exactly `times` passes (each entry of its first step is one), then the run goes on to
+  // `then` instead of starting another or taking an edge out. `at_most` still bounds it.
+  times?: number
+  then?: string
 }
 
 export interface Flow {
@@ -116,6 +131,8 @@ export interface FlowPersonaRef {
   file?: string
   rev?: string
   readOnly?: boolean
+  // The only paths its turns may write (scoped writes).
+  writes?: string[]
 }
 
 /** A flow as the Automations page lists it, from any source. */
@@ -154,15 +171,16 @@ const isTable = (v: unknown): v is Table => typeof v === 'object' && v !== null 
 const STEP_NAME = /^[A-Za-z0-9][\w-]*$/
 
 const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
-  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab', 'read_only', 'mcp'],
+  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab', 'read_only', 'mcp', 'writes'],
   checks: [],
   script: ['command'],
-  review: ['persona', 'loadout', 'agent', 'model', 'context', 'read_only', 'mcp'],
+  review: ['persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
   decide: ['options', 'persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
   workspace: ['from'],
   wait: ['on', 'at_most'],
   gate: ['show', 'ask'],
-  pick: ['over']
+  pick: ['over'],
+  pr: ['draft', 'title', 'body']
 }
 
 const TOP_FIELDS = ['name', 'description', 'made_from', 'start', 'steps', 'edges', 'loops', 'after', 'inputs']
@@ -253,8 +271,16 @@ export function flowFromObject(raw: unknown, source: FlowSource, t: TFunction = 
     else problems.push(t('flows.problem.inputs'))
   }
   for (const step of steps) {
-    const texts = step.kind === 'turn' || step.kind === 'decide' ? [step.prompt] : step.kind === 'gate' ? [step.ask] : []
-    for (const body of texts) for (const placeholder of body ? templatePlaceholders(body) : []) if (!(placeholder in inputs)) inputs[placeholder] = ''
+    const texts =
+      step.kind === 'turn' || step.kind === 'decide' || step.kind === 'review'
+        ? [step.prompt]
+        : step.kind === 'gate'
+          ? [step.ask, ...(step.show ?? []).filter(isShowPath)]
+          : step.kind === 'pr'
+            ? [step.title, step.body]
+            : []
+    for (const body of texts)
+      for (const placeholder of body ? templatePlaceholders(body) : []) if (!(placeholder in inputs) && !(step.kind === 'pr' && placeholder === FLOW_LEDGER_PLACEHOLDER)) inputs[placeholder] = ''
   }
 
   if (problems.length) return { problems, warnings }
@@ -317,6 +343,11 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     }
     const mcp = list('mcp')
     if (mcp) out.mcp = mcp
+    const writes = STEP_FIELDS[k].includes('writes') ? list('writes') : undefined
+    if (writes) {
+      for (const glob of writes) if (!isWriteGlob(glob)) problems.push(t('flows.problem.writes', { step: name, value: glob }))
+      out.writes = writes
+    }
     return out
   }
   let step: FlowStep
@@ -337,9 +368,12 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     case 'script':
       step = { name, kind: k, command: text('command', true) ?? '' }
       break
-    case 'review':
+    case 'review': {
       step = { name, kind: k, ...agent() }
+      const prompt = text('prompt')
+      if (prompt) step.prompt = prompt
       break
+    }
     case 'decide': {
       step = { name, kind: k, options: list('options', true) ?? [], ...agent() }
       const prompt = text('prompt')
@@ -376,6 +410,18 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     case 'pick':
       step = { name, kind: k, over: list('over', true) ?? [] }
       break
+    case 'pr': {
+      step = { name, kind: k }
+      if (body.draft !== undefined) {
+        if (typeof body.draft === 'boolean') step.draft = body.draft
+        else problems.push(t('flows.problem.fieldBool', { step: name, field: 'draft' }))
+      }
+      const title = text('title')
+      const prBody = text('body')
+      if (title) step.title = title
+      if (prBody) step.body = prBody
+      break
+    }
   }
   return problems.length === before ? step : undefined
 }
@@ -385,7 +431,7 @@ function loopFrom(name: string, body: unknown, problems: string[], warnings: str
     problems.push(t('flows.problem.loopShape', { loop: name }))
     return undefined
   }
-  for (const field of Object.keys(body)) if (!['over', 'at_most', 'iteration', 'compact_above'].includes(field)) warnings.push(t('flows.problem.loopUnknownField', { loop: name, field }))
+  for (const field of Object.keys(body)) if (!['over', 'at_most', 'iteration', 'compact_above', 'times', 'then'].includes(field)) warnings.push(t('flows.problem.loopUnknownField', { loop: name, field }))
   const before = problems.length
   const over = Array.isArray(body.over) && body.over.every((x) => typeof x === 'string') ? (body.over as string[]) : null
   if (!over) problems.push(t('flows.problem.loopOver', { loop: name }))
@@ -414,8 +460,26 @@ function loopFrom(name: string, body: unknown, problems: string[], warnings: str
     if (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 100) compactAbove = v
     else problems.push(t('flows.problem.loopCompactAbove', { loop: name }))
   }
+  let times: number | undefined
+  if (body.times !== undefined) {
+    if (typeof body.times === 'number' && Number.isInteger(body.times) && body.times >= 1) times = body.times
+    else problems.push(t('flows.problem.loopTimes', { loop: name }))
+  }
+  let then: string | undefined
+  if (body.then !== undefined) {
+    if (typeof body.then === 'string' && body.then.trim()) then = body.then.trim()
+    else problems.push(t('flows.problem.loopThen', { loop: name }))
+  }
+  if ((body.times === undefined) !== (body.then === undefined)) problems.push(t('flows.problem.loopThen', { loop: name }))
   if (problems.length !== before) return undefined
-  return { name, over: over ?? [], at_most, ...(iteration ? { iteration } : {}), ...(compactAbove !== undefined ? { compact_above: compactAbove } : {}) }
+  return {
+    name,
+    over: over ?? [],
+    at_most,
+    ...(iteration ? { iteration } : {}),
+    ...(compactAbove !== undefined ? { compact_above: compactAbove } : {}),
+    ...(times !== undefined && then ? { times, then } : {})
+  }
 }
 
 // ---- the graph ----
@@ -442,7 +506,20 @@ export function flowFacts(step: FlowStep): string[] {
       return [...step.over]
     case 'workspace':
       return ['ready', 'failed']
+    case 'pr':
+      return ['opened', 'failed']
   }
+}
+
+/** A gate's `show` entry that names a file (it has a slash): a path relative to the workspace, `{{inputs}}` and `*` allowed. */
+export function isShowPath(ref: string): boolean {
+  return ref.includes('/')
+}
+
+/** A file a gate shows stays inside the workspace: relative, forward slashes, no `..`. */
+export function showPathProblem(ref: string): boolean {
+  const p = ref.trim()
+  return !p || p.startsWith('/') || /^[A-Za-z]:/.test(p) || p.includes(String.fromCharCode(92)) || p.split('/').some((part) => part === '..' || part === '')
 }
 
 /**
@@ -496,11 +573,26 @@ function stable(value: unknown): string {
   return JSON.stringify(value)
 }
 
-/** The steps an edge leaving `name` can lead to (never `done`, never a name that isn't a step). */
+/** The steps an edge leaving `name` can lead to (never `done`, never a name that isn't a step), and a counted loop's `then`. */
 function successors(flow: Flow, names: Set<string>, name: string): string[] {
   const edge = flow.edges[name]
   const targets = edge === undefined ? [] : typeof edge === 'string' ? [edge] : Object.values(edge)
+  for (const loop of flow.loops) if (loop.then && loop.over.includes(name)) targets.push(loop.then)
   return targets.filter((x) => names.has(x))
+}
+
+/**
+ * Where a counted loop sends the run instead of `next` as it leaves `from`: its `then`, once its passes are done (an edge
+ * that would start pass N+1, or leave its steps, after the Nth). `entries` counts the loop's first step in this pass.
+ */
+export function countedLoopRedirect(flow: Flow, from: string, next: string, entries: (loop: FlowLoop) => number): string | undefined {
+  for (const loop of flow.loops) {
+    if (!loop.times || !loop.then || !loop.over.includes(from)) continue
+    const leaving = !loop.over.includes(next)
+    const restarting = next === loop.over[0]
+    if ((leaving || restarting) && entries(loop) >= loop.times) return loop.then
+  }
+  return undefined
 }
 
 /** Every step reachable from `name` by one edge or more (so `name` itself only when it is on a cycle). */
@@ -582,6 +674,11 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
   }
   const sources = (step: FlowStep, refs: string[] | undefined) => {
     for (const ref of refs ?? []) {
+      // A gate may show a file by its path; nothing else takes one.
+      if (step.kind === 'gate' && isShowPath(ref)) {
+        if (showPathProblem(ref)) error(t('flows.problem.showPath', { step: step.name, ref }))
+        continue
+      }
       const dot = ref.indexOf('.')
       if (dot > 0) reference(step, ref.slice(0, dot), ref)
       else if (!(FLOW_CONTEXT_SOURCES as readonly string[]).includes(ref)) error(t('flows.problem.contextSource', { step: step.name, ref, sources: FLOW_CONTEXT_SOURCES.join(', ') }))
@@ -617,7 +714,9 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
       if (loop.over.some((s) => loop.over.some((other) => !reachableFrom(flow, names, s, within).has(other)))) error(t('flows.problem.loopDisconnected', { loop: loop.name }))
     }
     const { iterations, minutes, cost } = loop.at_most
-    if (iterations === undefined && minutes === undefined && cost === undefined) error(t('flows.problem.loopBound', { loop: loop.name }))
+    if (iterations === undefined && minutes === undefined && cost === undefined && loop.times === undefined) error(t('flows.problem.loopBound', { loop: loop.name }))
+    if (loop.then && loop.then !== FLOW_DONE && !names.has(loop.then)) error(t('flows.problem.loopThenUnknown', { loop: loop.name, step: loop.then }))
+    else if (loop.then && loop.over.includes(loop.then)) error(t('flows.problem.loopThenInside', { loop: loop.name, step: loop.then }))
   }
 
   if (personas) for (const problem of flowPersonaProblems(flow, personas, t)) error(problem)
@@ -628,10 +727,14 @@ export function validateFlow(flow: Flow, t: TFunction = enT, personas?: PersonaL
 
 // ---- runs ----
 
-/** Something a gate shows the person deciding, in words ("Tests failed, Types passed"); `step` names whose answer. */
+/**
+ * Something a gate shows the person deciding, in words ("Tests failed, Types passed"); `step` names whose answer. A
+ * `file` is a file in the workspace by its path (a glob means the newest match), its content cut to MAX_GATE_FILE_BYTES.
+ */
 export interface FlowGateShow {
-  kind: 'diff' | 'checks.results' | 'review.findings' | 'step.answer'
+  kind: 'diff' | 'checks.results' | 'review.findings' | 'step.answer' | 'file'
   step?: string
+  path?: string
   summary: string
 }
 
@@ -712,6 +815,8 @@ export interface FlowRunLoop {
   costUsed?: number
   // The loop's steps entered in this iteration; entering one again starts the next iteration.
   visited: string[]
+  // A counted loop: how many times its first step was entered in this pass.
+  entries?: number
 }
 
 /** What a run's approval covers, part by part, so a refusal can say which part changed. */
@@ -755,13 +860,15 @@ export interface FlowRun {
   workspaceId?: string
   // Every workspace the run made, in order (a workspace step makes another; a pick moves `workspaceId` among them).
   workspaces?: string[]
+  // The pull request a `pr` step opened, which a later `wait` reads.
+  pullRequest?: { number: number; url: string }
   // The first message as sent: the run's task, which a step's `task` context carries.
   task?: string
   current?: { step: string; iteration: number }
   steps: FlowRunStep[]
   loops: Record<string, FlowRunLoop>
   // Each loop's steps and bounds as the flow said when the run started, so a run can be shown without its file.
-  bounds?: Record<string, { over: string[]; iterations?: number; minutes?: number; cost?: number }>
+  bounds?: Record<string, { over: string[]; iterations?: number; minutes?: number; cost?: number; times?: number; then?: string }>
   // A gate's "Send back" note, carried to the next step's message and then cleared.
   note?: string
   // The gate the note came from, named in the message that carries it.
@@ -788,8 +895,10 @@ export interface FlowRunSummary {
   commands?: { name: string; command: string }[]
   mcpServers: string[]
   integrations: string[]
-  // Agent steps whose agent isn't Claude: they refuse the run.
+  // Turn steps whose agent isn't Claude: they refuse the run.
   notClaude: { step: string; agent: string }[]
+  // Review and decide steps on Codex: read-only and attended (an approval they ask for waits for you).
+  attended?: { step: string; agent: string }[]
   // A loop bounds cost, which only counts turns whose agent says what they cost (Claude).
   costBound?: boolean
   // Other reasons it can't start (a template that doesn't exist, a loadout slot that isn't set).

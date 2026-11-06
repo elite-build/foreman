@@ -285,7 +285,7 @@ function requestHtml(a) {
     // A flow's gate: what it shows, a note for Send back, and Stop · Send back · Continue.
     const gateNote = '<textarea class="note" data-note="' + id + '" placeholder="Send back with a note…">' + safe(state.notes[a.id] || '') + '</textarea>'
     return '<div class="req"><div class="rh">' + icon('chat', 'sm') + safe(a.flowName) + ' · ' + safe(a.step) + '</div><div class="rb">' +
-      '<p class="why">' + safe(a.ask) + '</p>' + a.show.map((x) => '<p class="why">' + safe(x.summary) + '</p>').join('') + gateNote + '</div>' +
+      '<p class="why">' + safe(a.ask) + '</p>' + a.show.map((x) => x.kind === 'file' ? '<p class="why"><b>' + safe(x.path || '') + '</b></p><pre class="file">' + safe(x.summary) + '</pre>' : '<p class="why">' + safe(x.summary) + '</p>').join('') + gateNote + '</div>' +
       '<div class="acts"><button class="no" data-action="gstop:' + id + '">Stop</button><button class="alt" data-action="gback:' + id + '">Send back</button><button class="yes" data-action="gcont:' + id + '">Continue</button></div></div>'
   }
   if (a.kind === 'pick') {

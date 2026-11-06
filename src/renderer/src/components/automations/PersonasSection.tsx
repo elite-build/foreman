@@ -31,7 +31,7 @@ const END_LABEL: Record<PersonaEnd, PlainKey> = {
 /** "read-only · ends with plan": what a persona may do and how it should end. */
 function factsText(p: Persona, t: RendererT): string {
   return [
-    p.read_only ? t('automations.personas.readOnly') : t('automations.personas.edits'),
+    p.read_only ? t('automations.personas.readOnly') : p.writes?.length ? t('automations.personas.writesOnly', { globs: p.writes.join(', ') }) : t('automations.personas.edits'),
     ...(p.ends_with?.length ? [t('automations.personas.endsWith', { list: p.ends_with.join(', ') })] : []),
     ...(p.loadout ? [t('automations.personas.loadout', { n: p.loadout })] : []),
     ...(p.source === 'claude-agents' ? [t('automations.personas.claudeOnly')] : [])
@@ -186,12 +186,15 @@ function PersonaDialog({
   const initial = useMemo(() => formOf(editing), [editing])
   const [form, setForm] = useState<Form | null>(initial)
   const [refused, setRefused] = useState<string[] | null>(null)
+  // The writes field as typed (a comma, half a glob), while the form keeps the globs it reads as.
+  const [writesText, setWritesText] = useState<string | null>(null)
   const [seen, setSeen] = useState(editing)
   // A different persona (Copy to personal) starts over.
   if (seen !== editing) {
     setSeen(editing)
     setForm(initial)
     setRefused(null)
+    setWritesText(null)
   }
 
   const markdown = form ? personaMarkdown(form) : listing?.markdown ?? ''
@@ -273,6 +276,25 @@ function PersonaDialog({
               )}
             </Row>
             <ToggleRow label={t('automations.personas.field.readOnly')} help={t('automations.personas.field.readOnlyHelp')} checked={Boolean(form.read_only)} disabled={!editable} onChange={(on) => set({ read_only: on || undefined })} />
+            {!form.read_only && (
+              <Row label={t('automations.personas.field.writes')} help={t('automations.personas.field.writesHelp')}>
+                {(c) => (
+                  <TextInput
+                    {...c}
+                    mono
+                    spellCheck={false}
+                    readOnly={!editable}
+                    placeholder="docs/features/**"
+                    value={writesText ?? (form.writes ?? []).join(', ')}
+                    onChange={(e) => {
+                      setWritesText(e.target.value)
+                      const globs = e.target.value.split(',').map((g) => g.trim()).filter(Boolean)
+                      set({ writes: globs.length ? globs : undefined })
+                    }}
+                  />
+                )}
+              </Row>
+            )}
             <Row label={t('automations.personas.field.shows')} help={t('automations.personas.field.showsHelp')} stacked>
               <div role="group" aria-label={t('automations.personas.field.shows')} className="persona-choices">
                 {PERSONA_SHOWS.map((s) => (

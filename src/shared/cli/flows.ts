@@ -237,10 +237,11 @@ export interface FlowStopResult {
 
 // ---- words both sides print ----
 
-const GATE_SHOW_LABEL: Record<FlowGateShow['kind'], string> = { diff: 'Changes', 'checks.results': 'Checks', 'review.findings': 'Review findings', 'step.answer': 'Answer' }
+const GATE_SHOW_LABEL: Record<FlowGateShow['kind'], string> = { diff: 'Changes', 'checks.results': 'Checks', 'review.findings': 'Review findings', 'step.answer': 'Answer', file: 'File' }
 
-/** "Changes: 3 files changed, +40 −2", "Answer from implement: …". */
+/** "Changes: 3 files changed, +40 −2", "Answer from implement: …"; a file by its path, its lines beneath. */
 export function gateShowText(show: FlowGateShow): string {
+  if (show.kind === 'file') return `File ${show.path ?? ''}:\n${show.summary.split('\n').map((line) => `      ${line}`).join('\n')}`
   return `${show.kind === 'step.answer' && show.step ? `Answer from ${show.step}` : GATE_SHOW_LABEL[show.kind]}: ${show.summary}`
 }
 

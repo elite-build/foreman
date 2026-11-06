@@ -423,7 +423,7 @@ export function lensText(row: FlowRunRow, lens: 'context' | 'memory' | 'data'): 
 /** "qa-engineer (built-in, read-only)", "reviewer (.claude/agents/reviewer.md at 1a2b3c4)". */
 export function personaRefText(ref: FlowPersonaRef): string {
   const where = ref.source === 'built-in' ? 'built-in' : ref.source === 'personal' ? `personal${ref.rev ? `, saved ${ref.rev.slice(0, 10)}` : ''}` : `${ref.file ?? ref.source}${ref.rev ? ` at ${ref.rev.slice(0, 7)}` : ''}`
-  return `${ref.name} (${where}${ref.readOnly ? ', read-only' : ''})`
+  return `${ref.name} (${where}${ref.readOnly ? ', read-only' : ref.writes?.length ? `, writes only ${ref.writes.join(', ')}` : ''})`
 }
 
 /** The approval the Run dialog shows, in lines (a flow schedule's preview prints them too). */
@@ -442,7 +442,8 @@ export function flowPreviewLines(s: FlowRunSummary, inputs: Record<string, strin
     `Repository MCP servers: ${s.mcpServers.length ? s.mcpServers.join(', ') : '(none)'}`,
     ...(s.integrations.length ? [`Integrations: ${s.integrations.join('; ')}`] : []),
     ...(Object.keys(inputs).length ? [`Inputs: ${Object.entries(inputs).map(([k, v]) => `${k} = ${JSON.stringify(firstLine(v, 60))}`).join(', ')}`] : []),
-    'Unattended turns are Claude only. Each turn step runs in auto mode, and any approval or question stops the run and leaves it for you. Gates and picks wait for your answer. The run works in a new workspace, and is refused if anything above changes before it starts.',
+    'Unattended turns are Claude only. Each turn step runs in auto mode, and any approval or question stops the run and leaves it for you; a review or decide step on Codex runs read-only, and an approval it asks for waits for you. Gates and picks wait for your answer. The run works in a new workspace, and is refused if anything above changes before it starts.',
+    ...(s.attended?.length ? [`Attended on Codex (read-only): ${s.attended.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []),
     ...(s.costBound ? ['A cost bound applies to Claude turns only: other agents don’t say what a turn cost.'] : [])
   ]
   return lines
@@ -478,7 +479,7 @@ const run: MethodDef = {
     const baseBranch = textParam(p, 'base', { optional: true })?.trim() || repo.defaultBranch || 'main'
     const preview = await host.api.flowRunPreview({ flowId: listing.id, repoId: repo.id, baseBranch })
     const s = preview.summary
-    const reasons = [...(s.notClaude.length ? [`Unattended turns are Claude only; these agent steps aren’t on Claude: ${s.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []), ...s.problems]
+    const reasons = [...(s.notClaude.length ? [`Unattended turns are Claude only (review and decide steps may run on Codex); these turn steps aren’t on Claude: ${s.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []), ...s.problems]
     if (reasons.length) throw new CliCodedError('not-supported', `Can’t run “${s.flowName}”: ${reasons.join(' ')}`)
     const given = inputsParam(p.inputs)
     const asked = preview.inputs

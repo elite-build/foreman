@@ -195,7 +195,7 @@ export class ForemanDelegation {
         // What a run approves now (the Run dialog's summary): a step it can't carry out unattended refuses the start.
         const preview = await this.host.api.flowRunPreview({ flowId: listing.id, repoId, baseBranch })
         const s = preview.summary
-        const reasons = [...(s.notClaude.length ? [`Unattended turns are Claude only; these agent steps aren’t on Claude: ${s.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []), ...s.problems]
+        const reasons = [...(s.notClaude.length ? [`Unattended turns are Claude only (review and decide steps may run on Codex); these turn steps aren’t on Claude: ${s.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []), ...s.problems]
         if (reasons.length) throw new Error(`Can’t start “${s.flowName}”: ${reasons.join(' ')}`)
         const given = p.inputs ?? {}
         const unknown = Object.keys(given).filter((k) => !preview.inputs.some((i) => i.name === k))
