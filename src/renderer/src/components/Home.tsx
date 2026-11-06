@@ -290,7 +290,7 @@ export function Home() {
           ) : board ? (
             <>
               <ReconnectedLine />
-              <StoppedLine />
+              <StoppedLine repoId={repoId} />
               <DockerLeftLines />
               <HomeBoard items={items} repoNames={repoNames} now={now} />
             </>
@@ -298,7 +298,7 @@ export function Home() {
             <>
               {/* #1: turns a quit or crash stopped, one line until each is retried or dismissed. */}
               <ReconnectedLine />
-              <StoppedLine />
+              <StoppedLine repoId={repoId} />
               {/* G3 · O18: Docker containers an archive couldn't remove. */}
               <DockerLeftLines />
               <Callout

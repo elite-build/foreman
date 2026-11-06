@@ -220,6 +220,13 @@ export function liveStops(record: StopRecord | undefined, workspaces: Workspace[
   return addStops(undefined, record.turns.filter((t) => live(t.workspaceId)), record.checks.filter((c) => live(c.workspaceId)))
 }
 
+/** Only the entries in one repository's workspaces (Home showing a repository); all of them without one. */
+export function stopsInRepo(record: StopRecord | undefined, workspaces: Workspace[], repoId: string | null | undefined): StopRecord | undefined {
+  if (!record || !repoId) return record
+  const inRepo = (id: string) => workspaces.some((w) => w.id === id && w.repoId === repoId)
+  return addStops(undefined, record.turns.filter((t) => inRepo(t.workspaceId)), record.checks.filter((c) => inRepo(c.workspaceId)))
+}
+
 /** Home's one line: how many turns and check runs, why, and when (the latest). */
 export function stopSummary(record: StopRecord | undefined): { turns: number; checks: number; cause: StopCause | 'mixed'; at: string } | null {
   if (!record || (!record.turns.length && !record.checks.length)) return null

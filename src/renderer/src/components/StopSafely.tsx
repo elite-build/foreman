@@ -3,7 +3,7 @@
 // Nothing here retries a turn by itself: Retry shows the message, then sends it on a second click.
 import { CircleDot, CirclePause, CircleStop, Cloud, Hourglass, Moon, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { quitWaitEscape, stopSummary, type QuitChecks, type QuitPlan, type QuitTurn, type StopReviewChecks, type StopReviewRow, type StopReviewTurn, type WaitingOn } from '../../../shared/stopSafely'
+import { quitWaitEscape, stopsInRepo, stopSummary, type QuitChecks, type QuitPlan, type QuitTurn, type StopReviewChecks, type StopReviewRow, type StopReviewTurn, type WaitingOn } from '../../../shared/stopSafely'
 import { useT, type RendererT } from '../i18n'
 import { api, attempt, bridge, openSettingsPage, runChecks, selectSession, selectWorkspace, useStore } from '../store'
 import { useLimitLabel } from './cloud/CloudBits'
@@ -20,6 +20,8 @@ interface StopUi {
   // "Quit when turns finish" was chosen; the bar shows until it quits or is cancelled.
   draining: boolean
   review: boolean
+  // The repository Home was showing when the review opened; undefined for all of them.
+  reviewRepo?: string
 }
 
 let ui: StopUi = { quit: false, draining: false, review: false }
@@ -40,19 +42,19 @@ function useUi(): StopUi {
   )
 }
 
-export function openStopReview(): void {
-  setUi({ review: true })
+export function openStopReview(repoId?: string | null): void {
+  setUi({ review: true, reviewRepo: repoId ?? undefined })
 }
 
 /** Mounted once in App: listens for Quit and shows whichever part is open. */
 export function StopSafely() {
-  const { quit, draining, review } = useUi()
+  const { quit, draining, review, reviewRepo } = useUi()
   useEffect(() => bridge.onEvent((event) => event.type === 'quit-requested' && setUi({ quit: true })), [])
   return (
     <>
       {quit && <QuitSheet />}
       {draining && !quit && <QuitBar />}
-      {review && <StoppedReview />}
+      {review && <StoppedReview repoId={reviewRepo} />}
     </>
   )
 }
@@ -380,11 +382,17 @@ function QuitBar() {
 const HOME_LINE = { quit: 'stop.home.quit', crash: 'stop.home.crash', mixed: 'stop.home.mixed' } as const
 const REVIEW_TITLE = { quit: 'stop.review.title.quit', crash: 'stop.review.title.crash', mixed: 'stop.review.title.mixed' } as const
 
-/** Home: "4 turns stopped when Foreman quit · Review and retry…", one line until each is retried or dismissed. */
-export function StoppedLine() {
-  const t = useT()
+/** The stop record as Home sees it: only the shown repository's entries, or all of them. */
+function useStopRecord(repoId: string | null | undefined) {
   const record = useStore((s) => s.snapshot?.stopRecord)
-  const summary = stopSummary(record)
+  const workspaces = useStore((s) => s.snapshot?.workspaces)
+  return stopsInRepo(record, workspaces ?? [], repoId)
+}
+
+/** Home: "4 turns stopped when Foreman quit · Review and retry…", one line until each is retried or dismissed. */
+export function StoppedLine({ repoId }: { repoId?: string | null }) {
+  const t = useT()
+  const summary = stopSummary(useStopRecord(repoId))
   if (!summary) return null
   const text = summary.turns ? t(HOME_LINE[summary.cause], { count: summary.turns }) : t('stop.home.checksOnly', { count: summary.checks })
   return (
@@ -392,7 +400,7 @@ export function StoppedLine() {
       tone="warn"
       role="status"
       actions={
-        <Button onClick={openStopReview}>
+        <Button onClick={() => openStopReview(repoId)}>
           {t('stop.home.review')}
         </Button>
       }
@@ -529,11 +537,12 @@ function ReviewChecksRow({ row }: { row: StopReviewChecks }) {
 }
 
 /** One row per stopped tab: its message, last step and partial changes, with Open and Retry. Nothing replays by itself. */
-function StoppedReview() {
+function StoppedReview({ repoId }: { repoId?: string }) {
   const t = useT()
   const record = useStore((s) => s.snapshot?.stopRecord)
+  const workspaces = useStore((s) => s.snapshot?.workspaces)
   const root = useWorkspacePath()
-  const [rows, setRows] = useState<StopReviewRow[] | null>(null)
+  const [allRows, setRows] = useState<StopReviewRow[] | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
   useEffect(() => {
     let live = true
@@ -542,8 +551,15 @@ function StoppedReview() {
       live = false
     }
   }, [record])
+  const repoOf = (id: string) => workspaces?.find((w) => w.id === id)?.repoId
+  const rows = repoId ? (allRows?.filter((r) => repoOf(r.workspaceId) === repoId) ?? null) : allRows
   const close = () => setUi({ review: false })
-  const summary = stopSummary(record)
+  // Opened from one repository's Home: Dismiss all clears only what it lists.
+  const dismissAll = async () => {
+    if (repoId) await Promise.all((rows ?? []).map((r) => api.dismissStopped(r.key)))
+    else await api.dismissStopped()
+  }
+  const summary = stopSummary(stopsInRepo(record, workspaces ?? [], repoId))
   const cause = summary?.cause ?? 'quit'
   const when = summary ? formatWhen(summary.at, t.locale) : ''
   return (
@@ -558,7 +574,7 @@ function StoppedReview() {
             <Button
               className="stop-left"
               onClick={() => {
-                void attempt(() => api.dismissStopped())
+                void attempt(dismissAll)
                 close()
               }}
             >
