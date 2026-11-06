@@ -1,0 +1,631 @@
+/* Graph: nodes (HTML) over an SVG edge layer, both in one layer scaled with `zoom`, so every size below is in graph
+   units and scales with the picture. The viewport scrolls; the toolbar floats over its bottom-right corner. */
+.ui-graph {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.ui-graph__viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  /* A scrollbar that comes and goes would change the width 'fit' measures, and fit again. */
+  scrollbar-gutter: stable;
+  padding: 16px;
+  background-color: var(--bg-panel);
+  background-image: radial-gradient(var(--border-strong) 1px, transparent 1.3px);
+  background-size: 18px 18px;
+}
+.ui-graph__viewport {
+  scroll-padding: 16px;
+}
+/* The toolbar floats over the bottom-right corner: room under the graph, and scrolling into view stops above it. */
+.ui-graph[data-tools] .ui-graph__viewport {
+  padding-bottom: 48px;
+  scroll-padding-bottom: 48px;
+}
+/* A picture larger than its viewport is a scrollable region, one tab stop. */
+.ui-graph__viewport:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.ui-graph__viewport[data-panning] {
+  cursor: grabbing;
+}
+.ui-graph__canvas {
+  position: relative;
+  width: max-content;
+  margin: 0 auto;
+}
+.ui-graph__layer {
+  position: relative;
+  color: var(--text);
+  font-family: var(--font);
+}
+
+/* ---- edges ---- */
+.ui-graph__edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.ui-graph__path {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.4;
+}
+.ui-graph__edge[data-line='dashed'] .ui-graph__path {
+  stroke-dasharray: 5 3;
+}
+.ui-graph__edge[data-line='dotted'] .ui-graph__path {
+  stroke-dasharray: 2 4;
+  stroke-width: 1.8;
+}
+/* Strong: the path taken (heavier and solid, not only darker). Faint: not reached, still 3:1. */
+.ui-graph__edge[data-weight='strong'] .ui-graph__path {
+  stroke: var(--text);
+  stroke-width: 2.4;
+}
+.ui-graph__edge[data-weight='faint'] .ui-graph__path {
+  stroke: var(--border-control);
+  stroke-width: 1.2;
+}
+/* A proposed change: the colour, a heavier line, and (removed) a dash; the words are in the label. */
+.ui-graph__edge[data-mark='added'] .ui-graph__path {
+  stroke: var(--green);
+  stroke-width: 2.2;
+  stroke-dasharray: none;
+}
+.ui-graph__edge[data-mark='changed'] .ui-graph__path {
+  stroke: var(--amber);
+  stroke-width: 2.2;
+}
+.ui-graph__edge[data-mark='removed'] .ui-graph__path {
+  stroke: var(--red);
+  stroke-width: 1.6;
+  stroke-dasharray: 6 4;
+}
+.ui-graph__edge[data-selected] .ui-graph__path {
+  stroke: var(--selected-mark);
+  stroke-width: 2.4;
+}
+.ui-graph__edge-halo {
+  fill: none;
+  stroke: var(--selected-tint);
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+/* The line's click target: wider than the line, invisible. */
+.ui-graph__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.ui-graph__arrow {
+  fill: var(--text-muted);
+}
+.ui-graph__arrow[data-variant='strong'],
+.ui-graph__arrow[data-variant='selected'] {
+  fill: var(--text);
+}
+.ui-graph__arrow[data-variant='faint'] {
+  fill: var(--border-control);
+}
+.ui-graph__arrow[data-variant='added'] {
+  fill: var(--green);
+}
+.ui-graph__arrow[data-variant='changed'] {
+  fill: var(--amber);
+}
+.ui-graph__arrow[data-variant='removed'] {
+  fill: var(--red);
+}
+
+/* An edge's label: a pill at the curve's middle. A button when edges are selectable. */
+.ui-graph__label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  margin: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+button.ui-graph__label {
+  border-color: var(--border-control);
+  cursor: pointer;
+}
+button.ui-graph__label:hover {
+  background: var(--bg-hover);
+}
+.ui-graph__label[data-weight='strong'] {
+  color: var(--text);
+  font-weight: 600;
+}
+.ui-graph__label[data-mark='added'] {
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 600;
+}
+.ui-graph__label[data-mark='changed'] {
+  border-color: var(--amber);
+  color: var(--amber);
+  font-weight: 600;
+}
+.ui-graph__label[data-mark='removed'] {
+  color: var(--red);
+}
+.ui-graph__label[data-mark='removed'] .ui-graph__label-text {
+  text-decoration: line-through;
+}
+.ui-graph__label-mark {
+  font-weight: 600;
+}
+.ui-graph__label[data-selected] {
+  background: var(--selected-bg);
+  border-color: var(--selected-border);
+  box-shadow: 0 0 0 calc(1px / var(--ui-graph-scale)) var(--selected-border);
+  color: var(--text);
+}
+/* An unlabelled selectable edge's handle: a dot at its middle, shown on hover, focus and while selected. */
+.ui-graph__handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  border: 1.5px solid var(--border-control);
+  border-radius: var(--radius-full);
+  opacity: 0;
+  cursor: pointer;
+}
+.ui-graph__handle:hover,
+.ui-graph__handle:focus-visible,
+.ui-graph__handle[data-selected] {
+  opacity: 1;
+}
+.ui-graph__handle[data-selected] {
+  background: var(--selected-mark);
+  border-color: var(--selected-mark);
+}
+
+/* ---- nodes ---- */
+.ui-graph__node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.ui-graph__node[data-shape='gate'] {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+}
+.ui-graph__node[data-shape='square'] {
+  border-radius: var(--radius-sm);
+}
+.ui-graph__node[data-shape='pill'] {
+  align-items: center;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+}
+button.ui-graph__node {
+  cursor: pointer;
+}
+/* The outline is drawn in SVG (a gate's cut corners can't be a CSS border), under the text. */
+.ui-graph__frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.ui-graph__node > :not(.ui-graph__frame) {
+  position: relative;
+}
+.ui-graph__shape {
+  fill: var(--bg);
+  stroke: var(--border-control);
+  stroke-width: 1.2;
+}
+.ui-graph__node[data-shape='card'] .ui-graph__shape {
+  rx: var(--radius-lg);
+}
+.ui-graph__node[data-shape='square'] .ui-graph__shape {
+  rx: var(--radius-sm);
+}
+.ui-graph__node[data-shape='pill'] .ui-graph__shape {
+  fill: var(--bg-raised);
+}
+button.ui-graph__node:hover .ui-graph__shape {
+  fill: var(--bg-hover);
+}
+/* Selected: the neutral fill and a second outline standing off the shape, so it shows whatever the tone's colour. */
+.ui-graph__node[data-selected] .ui-graph__shape {
+  fill: var(--selected-bg);
+}
+/* Divided by the zoom, like the focus ring, so it stays 2px on screen when the graph is drawn small. */
+.ui-graph__halo {
+  fill: none;
+  stroke: var(--selected-border);
+  stroke-width: calc(2px / var(--ui-graph-scale));
+}
+.ui-graph__node[data-shape='card'] .ui-graph__halo {
+  rx: calc(var(--radius-lg) + 5px);
+}
+.ui-graph__node[data-shape='square'] .ui-graph__halo {
+  rx: calc(var(--radius-sm) + 5px);
+}
+/* Tones: a heavier outline in the state's colour; the glyph's shape and the toneLabel carry the state. */
+.ui-graph__node[data-tone='running'] .ui-graph__shape {
+  stroke: var(--blue);
+  stroke-width: 2.4;
+}
+.ui-graph__node[data-tone='waiting'] .ui-graph__shape {
+  stroke: var(--amber);
+  stroke-width: 2.4;
+}
+.ui-graph__node[data-tone='error'] .ui-graph__shape {
+  stroke: var(--red);
+  stroke-width: 2.4;
+}
+/* Not reached: a dashed outline and quieter words (still 4.5:1: no opacity). */
+.ui-graph__node[data-tone='off'] .ui-graph__shape {
+  stroke-dasharray: 4 3;
+}
+.ui-graph__node[data-tone='off'] .ui-graph__title {
+  color: var(--text-soft);
+}
+/* Dim: off the path being shown. The canvas shows through and the words go muted. */
+.ui-graph__node[data-dim]:not([data-selected]) .ui-graph__shape {
+  fill: none;
+}
+.ui-graph__node[data-dim] .ui-graph__title,
+.ui-graph__node[data-dim] .ui-graph__detail {
+  color: var(--text-muted);
+}
+/* Marks win over tones: a proposal is about the step, not a run. */
+.ui-graph__node[data-mark='added'] .ui-graph__shape {
+  stroke: var(--green);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+.ui-graph__node[data-mark='changed'] .ui-graph__shape {
+  stroke: var(--amber);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+.ui-graph__node[data-mark='removed'] .ui-graph__shape {
+  stroke: var(--red);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 3;
+}
+.ui-graph__node[data-mark='removed'] .ui-graph__title {
+  text-decoration: line-through;
+}
+
+/* The three lines. Each keeps to one line and ends in an ellipsis. */
+.ui-graph__kicker,
+.ui-graph__title,
+.ui-graph__detail {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-graph__kicker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 15px;
+}
+.ui-graph__kicker > svg {
+  flex: none;
+}
+.ui-graph__node[data-tone] .ui-graph__kicker {
+  padding-right: 14px;
+}
+.ui-graph__title {
+  font-family: var(--mono);
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 18px;
+}
+.ui-graph__node[data-shape='pill'] .ui-graph__title {
+  font-family: var(--font);
+  font-size: var(--text-sm);
+  color: var(--text-soft);
+}
+.ui-graph__detail {
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  line-height: 15px;
+}
+
+/* The state's glyph, top right; on a pill it sits on the corner. */
+.ui-graph__node > .ui-graph__status {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+}
+.ui-graph__node[data-shape='pill'] > .ui-graph__status {
+  top: -5px;
+  right: -3px;
+}
+.ui-graph__status[data-tone='running'] {
+  color: var(--blue);
+}
+
+/* Badges straddle the top edge, at the right, on nodes and notes. */
+.ui-graph__node > .ui-graph__badges,
+.ui-graph__note > .ui-graph__badges {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+.ui-graph__node[data-shape='pill'] > .ui-graph__badges {
+  right: 14px;
+}
+.ui-graph__badge {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ui-graph__badge[data-tone='running'] {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+.ui-graph__badge[data-tone='waiting'],
+.ui-graph__badge[data-mark='changed'] {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.ui-graph__badge[data-tone='error'],
+.ui-graph__badge[data-mark='removed'] {
+  border-color: var(--red);
+  color: var(--red);
+}
+.ui-graph__badge[data-mark='added'] {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* Focus: the blue ring with a --bg band, outside the shape (the canvas has room around every node). Its sizes are
+   divided by the zoom, so the ring is 2px on screen however small the graph is drawn. */
+.ui-graph__node:focus-visible,
+.ui-graph__label:focus-visible,
+.ui-graph__handle:focus-visible {
+  outline: calc(2px / var(--ui-graph-scale)) solid var(--focus-ring);
+  outline-offset: calc(2px / var(--ui-graph-scale));
+  box-shadow: 0 0 0 calc(2px / var(--ui-graph-scale)) var(--bg);
+}
+/* Outside the selected halo, which stands 5 graph units off the shape. */
+.ui-graph__node[data-selected]:focus-visible {
+  outline-offset: calc(5px + 3px / var(--ui-graph-scale));
+}
+
+/* ---- notes ---- */
+.ui-graph__note {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-lg);
+}
+.ui-graph__note-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ui-graph__note-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-muted);
+}
+.ui-graph__note-detail {
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+}
+.ui-graph__note[data-tone='running'] {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
+}
+.ui-graph__note[data-tone='running'] .ui-graph__note-detail {
+  color: var(--blue);
+  font-weight: 600;
+}
+.ui-graph__note[data-tone='error'] {
+  border-color: var(--red);
+  box-shadow: 0 0 0 1px var(--red);
+}
+.ui-graph__note[data-tone='error'] .ui-graph__note-detail {
+  color: var(--red);
+  font-weight: 600;
+}
+.ui-graph__note[data-mark='added'] {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green);
+}
+.ui-graph__note[data-mark='changed'] {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px var(--amber);
+}
+.ui-graph__note[data-mark='changed'] .ui-graph__note-detail {
+  color: var(--amber);
+  font-weight: 600;
+}
+.ui-graph__note[data-mark='removed'] {
+  border: 1.5px dashed var(--red);
+}
+
+/* ---- toolbar ---- */
+.ui-graph__tools {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 8px var(--shadow);
+}
+.ui-graph__zoom {
+  min-width: 4ch;
+  padding: 0 4px;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+/* Says the zoom a person chose; visually hidden (the percentage beside it is what is seen). */
+.ui-graph__said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.ui-graph__sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 3px;
+  background: var(--border);
+}
+
+/* ---- thumbnail: shapes and lines only, heavier so they read when tiny ---- */
+.ui-graph--thumbnail .ui-graph__viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 4px;
+  background: none;
+  scrollbar-gutter: auto;
+  display: flex;
+  align-items: center;
+}
+.ui-graph--thumbnail {
+  pointer-events: none;
+}
+/* A thumbnail is drawn at a fifth of its size or less: these come out at about a pixel. */
+.ui-graph--thumbnail .ui-graph__path {
+  stroke-width: 6;
+}
+.ui-graph--thumbnail .ui-graph__shape {
+  stroke-width: 6;
+}
+
+/* ---- forced colours: system colours for every line, Highlight for what is selected ----
+   Chromium doesn't force an SVG's fill and stroke, so each rule here is at least as specific as the one it overrides
+   above (a tone's or mark's outline, a weighted or marked line, an arrowhead's variant, the hover fill), and comes
+   after it. The width and dash that tell those apart stay. */
+@media (forced-colors: active) {
+  .ui-graph__viewport {
+    background-image: none;
+  }
+  .ui-graph__shape,
+  .ui-graph__node[data-tone] .ui-graph__shape,
+  .ui-graph__node[data-mark] .ui-graph__shape,
+  .ui-graph__node[data-selected] .ui-graph__shape {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  button.ui-graph__node:hover .ui-graph__shape {
+    fill: Canvas;
+  }
+  .ui-graph__path,
+  .ui-graph__edge[data-weight] .ui-graph__path,
+  .ui-graph__edge[data-mark] .ui-graph__path {
+    stroke: CanvasText;
+  }
+  .ui-graph__edge[data-weight='faint']:not([data-mark]) .ui-graph__path {
+    stroke: GrayText;
+  }
+  .ui-graph__arrow,
+  .ui-graph__arrow[data-variant] {
+    fill: CanvasText;
+  }
+  .ui-graph__arrow[data-variant='faint'] {
+    fill: GrayText;
+  }
+  /* Last, and as specific as anything above: the selection wins. */
+  .ui-graph__halo,
+  .ui-graph__edge[data-selected] .ui-graph__path,
+  .ui-graph__edge[data-selected][data-weight] .ui-graph__path,
+  .ui-graph__edge[data-selected][data-mark] .ui-graph__path {
+    stroke: Highlight;
+  }
+  .ui-graph__arrow[data-variant='selected'] {
+    fill: Highlight;
+  }
+  .ui-graph__edge-halo {
+    stroke: none;
+  }
+  .ui-graph__label[data-selected],
+  .ui-graph__handle[data-selected] {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+  .ui-graph__handle {
+    opacity: 1;
+  }
+}
