@@ -20,6 +20,7 @@ import {
   quitNeedsAsking,
   quitPlan,
   reviewFromChat,
+  stopsInRepo,
   stopSummary,
   type QuitPlanInput,
   type StoppedTurn
@@ -129,6 +130,16 @@ describe('stop record', () => {
     expect(dismissStop(record, 't22')).toBeUndefined()
     expect(dismissStop(record)).toBeUndefined()
     expect(addStops(undefined, [], [])).toBeUndefined()
+  })
+
+  it('keeps only one repository’s entries for that repository’s Home, and all of them without one', () => {
+    const record = addStops(undefined, [turn('t1', 'quit', 'a'), turn('t2', 'quit', 'b')], [{ workspaceId: 'b', cause: 'quit', at: '2026-01-01T01:00:00Z' }])
+    const workspaces = [ws('a', { repoId: 'r1' }), ws('b', { repoId: 'r2' })]
+    expect(stopsInRepo(record, workspaces, undefined)).toBe(record)
+    expect(stopsInRepo(record, workspaces, 'r1')).toEqual({ turns: [record!.turns[0]], checks: [] })
+    expect(stopSummary(stopsInRepo(record, workspaces, 'r2'))).toMatchObject({ turns: 1, checks: 1 })
+    // A repository with no stopped work shows no line.
+    expect(stopsInRepo(record, workspaces, 'r3')).toBeUndefined()
   })
 
   it('reads a stopped turn’s message, last step and partial changes from its chat', () => {
