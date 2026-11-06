@@ -1,0 +1,238 @@
+/* CodeEditor: a native textarea over a drawn copy of its text (gutter, token colours, highlighted range, squiggles).
+   The two must lay out glyph for glyph, so they share one font, size, line height and tab size from the frame, the same
+   left and top padding, and never wrap. Both sit in one scroller, sized to the text, so they scroll together. Layout
+   defaults sit in :where() so a feature's own width or height rule wins regardless of load order. */
+
+.ui-code-editor {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: vertical;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-family: var(--mono);
+  font-size: var(--text-content-code);
+  font-variant-ligatures: var(--code-ligatures);
+  line-height: 1.6;
+  tab-size: 4;
+}
+:where(.ui-code-editor) {
+  width: 100%;
+  /* `rows` lines, the 8px padding above and below, and the 1px border. */
+  height: calc(var(--ui-code-editor-rows, 12) * 1lh + 18px);
+  min-height: calc(3lh + 18px);
+}
+.ui-code-editor:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+  border-color: var(--focus-ring);
+}
+.ui-code-editor[data-invalid] {
+  border-color: var(--red);
+}
+.ui-code-editor[data-disabled] {
+  opacity: 0.6;
+}
+
+.ui-code-editor__scroller {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+/* Gutter and text side by side; as wide as the longest line, and at least the scroller. */
+.ui-code-editor__sheet {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+/* The gutter stays put while long lines scroll sideways under it. */
+.ui-code-editor__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 8px 0;
+  border-right: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text-muted);
+  user-select: none;
+}
+.ui-code-editor__gutter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 1lh;
+  padding: 0 10px 0 4px;
+  border-left: 3px solid transparent;
+}
+.ui-code-editor__mark {
+  display: inline-flex;
+  flex: none;
+  width: 10px;
+}
+.ui-code-editor__mark .ui-glyph {
+  width: 10px;
+  height: 10px;
+}
+.ui-code-editor__number {
+  min-width: calc(var(--ui-code-editor-digits, 2) * 1ch);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-code-editor__body {
+  position: relative;
+  min-width: 0;
+}
+/* The drawn copy. Its right padding is wider than the textarea's, so the textarea always has room for the caret. */
+.ui-code-editor__code {
+  padding: 8px 24px 8px 12px;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+}
+.ui-code-editor__line {
+  height: 1lh;
+}
+.ui-code-editor__input {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  font: inherit;
+  letter-spacing: inherit;
+  tab-size: inherit;
+  white-space: pre;
+  overflow: hidden;
+  resize: none;
+  outline: none;
+}
+.ui-code-editor__input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+/* See-through, so the drawn text shows under the selection. */
+.ui-code-editor__input::selection {
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+  color: transparent;
+}
+
+/* Token colours: each --code-* is 4.5:1 on --code-bg. No weight or slant, which could move a glyph off the caret. */
+.ui-code-editor__token[data-kind='keyword'] {
+  color: var(--code-keyword);
+}
+.ui-code-editor__token[data-kind='string'] {
+  color: var(--code-string);
+}
+.ui-code-editor__token[data-kind='number'] {
+  color: var(--code-number);
+}
+.ui-code-editor__token[data-kind='comment'] {
+  color: var(--code-comment);
+}
+.ui-code-editor__token[data-kind='title'] {
+  color: var(--code-title);
+}
+.ui-code-editor__token[data-kind='property'] {
+  color: var(--code-property);
+}
+
+/* The highlighted range: neutral. The gutter gets the selected tint, a 3px edge and stronger numbers; the code gets a
+   hairline above and below the range, not a tint, which would take the comment colour under 4.5:1. */
+.ui-code-editor__gutter-row[data-highlight] {
+  border-left-color: var(--selected-border);
+  background: var(--selected-tint);
+  color: var(--text-soft);
+}
+.ui-code-editor__line[data-highlight='start'] {
+  box-shadow: inset 0 1px 0 var(--selected-border);
+}
+.ui-code-editor__line[data-highlight='end'] {
+  box-shadow: inset 0 -1px 0 var(--selected-border);
+}
+.ui-code-editor__line[data-highlight='both'] {
+  box-shadow:
+    inset 0 1px 0 var(--selected-border),
+    inset 0 -1px 0 var(--selected-border);
+}
+
+/* Problems: the gutter shape (diamond, triangle) says which; the squiggle says where. */
+.ui-code-editor__token[data-squiggle] {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1px;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+.ui-code-editor__token[data-squiggle='error'] {
+  text-decoration-color: var(--red);
+}
+.ui-code-editor__token[data-squiggle='warn'] {
+  text-decoration-color: var(--amber);
+}
+
+/* Read by screen readers through the textarea's aria-describedby; not drawn. */
+.ui-code-editor__problems {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  list-style: none;
+}
+
+/* Forced colours: no syntax colours. The textarea shows its own text in the system colour, the drawn copy keeps only
+   its squiggles, the gutter its numbers and shapes, and the highlighted range a Highlight edge. */
+@media (forced-colors: active) {
+  .ui-code-editor__code {
+    forced-color-adjust: none;
+    color: transparent;
+  }
+  .ui-code-editor__token[data-squiggle] {
+    text-decoration-color: CanvasText;
+  }
+  .ui-code-editor__line[data-highlight] {
+    box-shadow: none;
+  }
+  .ui-code-editor__input {
+    color: CanvasText;
+    caret-color: CanvasText;
+  }
+  .ui-code-editor__input::selection {
+    background: Highlight;
+    color: HighlightText;
+  }
+  .ui-code-editor__gutter-row {
+    forced-color-adjust: none;
+    border-left-color: Canvas;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .ui-code-editor__gutter-row[data-highlight] {
+    border-left-color: Highlight;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .ui-code-editor__gutter-row .ui-glyph {
+    color: CanvasText;
+  }
+}
