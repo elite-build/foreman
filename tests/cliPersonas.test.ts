@@ -107,7 +107,7 @@ describe('persona methods', () => {
   it('list: each persona with its source and what it is, and one another comes before', async () => {
     const { call } = rig()
     const result = await call<PersonaListResult>('persona-list', { cwd: root })
-    expect(result.personas.map((p) => `${p.source}:${p.name}`)).toEqual(['built-in:architect', 'built-in:developer', 'built-in:qa-engineer', 'built-in:designer', 'personal:qa-engineer'])
+    expect(result.personas.map((p) => `${p.source}:${p.name}`)).toEqual([...['architect', 'developer', 'qa-engineer', 'designer', 'product-manager', 'ux-designer', 'security-reviewer', 'docs-writer', 'researcher', 'research-reviewer'].map((name) => `built-in:${name}`), 'personal:qa-engineer'])
     expect(result.personas.find((p) => p.id === 'built-in:qa-engineer')).toMatchObject({ readOnly: true, loadout: 3, endsWith: ['review', 'done'], shadowedBy: 'persona-qa' })
     expect(result.text.split('\n')[0]).toMatch(/^NAME\s+SOURCE\s+FILE\s+REV\s+WHAT IT IS$/)
     expect(result.text).toMatch(/architect\s+built-in\s+read-only · ends with plan/)
@@ -118,7 +118,7 @@ describe('persona methods', () => {
     const { call } = rig()
     const mine = await call<PersonaShowResult>('persona-show', { persona: 'qa-engineer', cwd: root })
     expect(mine.persona).toMatchObject({ id: 'persona-qa', source: 'personal' })
-    expect(mine.usedBy).toEqual(['Fix until green', 'Research then implement', 'Checked'])
+    expect(mine.usedBy).toEqual(['Fix until green', 'Research then implement', 'Test first, then make it pass', 'Issue to draft pull request', 'Second opinion, then pick', 'Two reviewers must agree', 'Document what changed', 'From an idea to a feature', 'Checked'])
     expect(mine.text).toContain('What it is: read-only · ends with findings')
     expect(mine.text).toContain('MCP servers: every one the repository and integrations give')
     expect(mine.markdown).toBe(MINE)

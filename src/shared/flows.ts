@@ -67,7 +67,8 @@ export type FlowStep = { name: string } & (
   | ({ kind: 'turn'; template?: string; prompt?: string; same_tab?: string } & AgentStepFields)
   | { kind: 'checks' }
   | { kind: 'script'; command: string }
-  | ({ kind: 'review' } & AgentStepFields)
+  // A review's prompt leads its instructions (what to look for), before the code review preferences and the diff.
+  | ({ kind: 'review'; prompt?: string } & AgentStepFields)
   | ({ kind: 'decide'; options: string[]; prompt?: string } & AgentStepFields)
   | { kind: 'workspace'; from?: string }
   | { kind: 'wait'; on: (typeof FLOW_WAITS)[number]; at_most?: { minutes: number } }
@@ -173,7 +174,7 @@ const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
   turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab', 'read_only', 'mcp', 'writes'],
   checks: [],
   script: ['command'],
-  review: ['persona', 'loadout', 'agent', 'model', 'context', 'read_only', 'mcp'],
+  review: ['persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
   decide: ['options', 'persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
   workspace: ['from'],
   wait: ['on', 'at_most'],
@@ -271,7 +272,7 @@ export function flowFromObject(raw: unknown, source: FlowSource, t: TFunction = 
   }
   for (const step of steps) {
     const texts =
-      step.kind === 'turn' || step.kind === 'decide'
+      step.kind === 'turn' || step.kind === 'decide' || step.kind === 'review'
         ? [step.prompt]
         : step.kind === 'gate'
           ? [step.ask, ...(step.show ?? []).filter(isShowPath)]
@@ -367,9 +368,12 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     case 'script':
       step = { name, kind: k, command: text('command', true) ?? '' }
       break
-    case 'review':
+    case 'review': {
       step = { name, kind: k, ...agent() }
+      const prompt = text('prompt')
+      if (prompt) step.prompt = prompt
       break
+    }
     case 'decide': {
       step = { name, kind: k, options: list('options', true) ?? [], ...agent() }
       const prompt = text('prompt')

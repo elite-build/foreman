@@ -14,7 +14,16 @@ import { FlowLensDiagram } from '../FlowDiagram'
 
 export const STARTER_NAME: Record<FlowStarter['id'], PlainKey> = {
   'fix-until-green': 'automations.flows.starter.fixUntilGreen',
-  'research-then-implement': 'automations.flows.starter.researchThenImplement'
+  'research-then-implement': 'automations.flows.starter.researchThenImplement',
+  'test-first': 'automations.flows.starter.testFirst',
+  'issue-to-draft-pr': 'automations.flows.starter.issueToDraftPr',
+  'second-opinion': 'automations.flows.starter.secondOpinion',
+  'two-reviewers': 'automations.flows.starter.twoReviewers',
+  'keep-branch-fresh': 'automations.flows.starter.keepBranchFresh',
+  'flaky-test-triage': 'automations.flows.starter.flakyTestTriage',
+  'document-what-changed': 'automations.flows.starter.documentWhatChanged',
+  'worth-building': 'automations.flows.starter.worthBuilding',
+  'idea-to-feature': 'automations.flows.starter.ideaToFeature'
 }
 
 /** A flow's title: a built-in starter's in the app's language, otherwise the name in its file. */

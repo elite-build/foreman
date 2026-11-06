@@ -65,8 +65,8 @@ describe('the flow API', () => {
     const saved = await core.api.savePersonalFlow({ toml: GOOD.replace('Fix until green', 'Mine') })
     expect('flow' in saved && saved.flow).toMatchObject({ source: 'personal', name: 'Mine', summary: { steps: 6, loops: 2, gates: 1 } })
     const list = await core.api.listFlows()
-    expect(list.map((f) => `${f.source}:${f.name}`)).toEqual(['built-in:Fix until green', 'built-in:Research then implement', 'repo:Team flow', 'personal:Mine'])
-    expect(list[2]).toMatchObject({ repoId: repo.id, file: '.foreman/flows/team.toml' })
+    expect(list.map((f) => `${f.source}:${f.name}`)).toEqual([...FLOW_STARTERS.map((s) => `built-in:${(s.toml.match(/^name = "(.*)"/) ?? [])[1]}`), 'repo:Team flow', 'personal:Mine'])
+    expect(list[FLOW_STARTERS.length]).toMatchObject({ repoId: repo.id, file: '.foreman/flows/team.toml' })
     expect((await core.api.listFlows(repo.id)).filter((f) => f.source === 'repo')).toHaveLength(1)
     await expect(core.api.listFlows('no-such-repo')).rejects.toThrow()
     expect(store.state.personalFlows).toHaveLength(1)
@@ -216,9 +216,9 @@ describe('the persona API', () => {
     const repo = await core.api.addRepo(root)
 
     const listed = await core.api.listPersonas()
-    expect(listed.personas.map((p) => `${p.source}:${p.name}`)).toEqual(['built-in:architect', 'built-in:developer', 'built-in:qa-engineer', 'built-in:designer', 'repo:reviewer', 'claude-agents:helper'])
+    expect(listed.personas.map((p) => `${p.source}:${p.name}`)).toEqual([...['architect', 'developer', 'qa-engineer', 'designer', 'product-manager', 'ux-designer', 'security-reviewer', 'docs-writer', 'researcher', 'research-reviewer'].map((name) => `built-in:${name}`), 'repo:reviewer', 'claude-agents:helper'])
     expect(listed.mcpServers).toEqual(['docs'])
-    expect((await core.api.listPersonas(repo.id)).personas).toHaveLength(6)
+    expect((await core.api.listPersonas(repo.id)).personas).toHaveLength(12)
 
     const refused = await core.api.savePersonalPersona({ markdown: 'no settings' })
     expect('problems' in refused && refused.problems[0]).toContain('between two --- lines')

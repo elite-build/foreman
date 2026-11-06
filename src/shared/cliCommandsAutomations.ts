@@ -737,7 +737,7 @@ const PERSONA_REF = { name: 'persona', required: true, help: 'A persona’s name
 const PERSONA_SOURCES = `A step names a persona with persona = "…" in its flow. The name means your personal persona first, then the
 repository's .foreman/personas/<name>.md, then its Claude Code subagent .claude/agents/<name>.md (Claude steps only; its
 name, description and model are read, its tools aren't applied), then the built-in one (architect, developer,
-qa-engineer, designer).`
+qa-engineer, designer, product-manager, ux-designer, security-reviewer, docs-writer, researcher, research-reviewer).`
 
 export const PERSONA_COMMANDS: CommandSpec[] = [
   {

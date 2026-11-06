@@ -5496,7 +5496,7 @@ end with. A file that isn't a persona is listed with its problems, and one that 
 says so. A step names a persona with persona = "…" in its flow. The name means your personal persona first, then the
 repository's .foreman/personas/<name>.md, then its Claude Code subagent .claude/agents/<name>.md (Claude steps only; its
 name, description and model are read, its tools aren't applied), then the built-in one (architect, developer,
-qa-engineer, designer). Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
+qa-engineer, designer, product-manager, ux-designer, security-reviewer, docs-writer, researcher, research-reviewer). Flows are experimental: every flow command answers “Flows are off” until Settings → Experimental → Flows is on (`foreman settings set experimental.flows on`).
 ```
 
 ### foreman persona show

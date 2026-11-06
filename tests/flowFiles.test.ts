@@ -106,20 +106,21 @@ describe('listFlows', () => {
       { id: 'flow-2', toml: 'name = "Broken"', createdAt: '2026-11-05T00:00:00.000Z', updatedAt: '2026-11-05T00:00:00.000Z' }
     ]
     const list = listFlows([{ id: 'r1', rootPath: dir }], personal)
-    expect(list.map((f) => [f.source, f.name])).toEqual([
-      ['built-in', 'Fix until green'],
-      ['built-in', 'Research then implement'],
+    const builtIn = list.length - 4
+    expect(list.slice(0, builtIn).map((f) => f.name)).toEqual(['Fix until green', 'Research then implement', 'Test first, then make it pass', 'Issue to draft pull request', 'Second opinion, then pick', 'Two reviewers must agree', 'Keep a long-lived branch fresh', 'Flaky test triage', 'Document what changed', 'Is this feature worth building?', 'From an idea to a feature'])
+    expect(list.slice(0, builtIn).every((f) => f.source === 'built-in' && !f.problems.length && !f.warnings.length)).toBe(true)
+    expect(list.slice(builtIn).map((f) => [f.source, f.name])).toEqual([
       ['repo', 'bad'],
       ['repo', 'Team flow'],
       ['personal', 'My research'],
       ['personal', 'flow-2']
     ])
     expect(list[0]).toMatchObject({ id: 'built-in:fix-until-green', starter: 'fix-until-green', summary: { steps: 6, loops: 2, gates: 1 }, problems: [] })
-    expect(list[2].problems).toHaveLength(1)
-    expect(list[2].summary).toBeUndefined()
-    expect(list[3]).toMatchObject({ repoId: 'r1', file: '.foreman/flows/mine.toml', rev: expect.stringMatching(/^[0-9a-f]{40}$/) })
-    expect(list[4]).toMatchObject({ id: 'flow-1', rev: '2026-11-05T01:00:00.000Z', summary: { steps: 7 } })
-    expect(list[5].problems.length).toBeGreaterThan(0)
+    expect(list[builtIn].problems).toHaveLength(1)
+    expect(list[builtIn].summary).toBeUndefined()
+    expect(list[builtIn + 1]).toMatchObject({ repoId: 'r1', file: '.foreman/flows/mine.toml', rev: expect.stringMatching(/^[0-9a-f]{40}$/) })
+    expect(list[builtIn + 2]).toMatchObject({ id: 'flow-1', rev: '2026-11-05T01:00:00.000Z', summary: { steps: 7 } })
+    expect(list[builtIn + 3].problems.length).toBeGreaterThan(0)
     // One repository's files only.
     expect(listFlows([{ id: 'r1', rootPath: dir }], [], undefined, 'other').filter((f) => f.source === 'repo')).toEqual([])
   })

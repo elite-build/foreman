@@ -792,7 +792,9 @@ export class FlowService {
       this.startTree(run, record, capture.tree)
       const patch = capture.text.trim() ? truncateBytes(capture.text, MAX_REVIEW_DIFF_BYTES) + (capture.cut || Buffer.byteLength(capture.text) > MAX_REVIEW_DIFF_BYTES ? '\n[Diff truncated at the size limit.]' : '') : 'No changes against the base branch.'
       sections = [...sections, { id: 'diff', label: `Diff against ${capture.baseRef}`, text: patch }]
-      text = this.compose(run, record, autoReviewPrompt(this.deps.reviewPrompt(run.workspaceId)), sections)
+      // The step's own prompt (what to look for) leads the review's instructions.
+      const ask = step.prompt ? this.fill(run, step.prompt.trim()) : ''
+      text = this.compose(run, record, [ask, autoReviewPrompt(this.deps.reviewPrompt(run.workspaceId))].filter(Boolean).join('\n\n'), sections)
       details.push(`read tree ${capture.tree.slice(0, 7)} (${capture.files} file${capture.files === 1 ? '' : 's'}, +${capture.additions} −${capture.deletions})`)
     } else {
       text = this.compose(run, record, body, sections)

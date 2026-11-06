@@ -210,10 +210,26 @@ describe('applying a persona to a step: narrowing only', () => {
 })
 
 describe('the starters', () => {
-  it('each read, and the architect, QA and designer are read-only', () => {
+  it('each read with no warnings, and the architect, QA, designer and the reviewers are read-only', () => {
+    for (const s of PERSONA_STARTERS) {
+      const parsed = parsePersona(s.markdown, 'built-in')
+      expect('persona' in parsed && parsed.warnings, s.name).toEqual([])
+      expect(validatePersona(read(s.markdown, 'built-in')), s.name).toEqual([])
+    }
     const personas = PERSONA_STARTERS.map((s) => read(s.markdown, 'built-in'))
-    expect(personas.map((p) => p.name)).toEqual(['architect', 'developer', 'qa-engineer', 'designer'])
-    expect(personas.map((p) => Boolean(p.read_only))).toEqual([true, false, true, true])
+    expect(personas.map((p) => p.name)).toEqual(['architect', 'developer', 'qa-engineer', 'designer', 'product-manager', 'ux-designer', 'security-reviewer', 'docs-writer', 'researcher', 'research-reviewer'])
+    expect(personas.map((p) => Boolean(p.read_only))).toEqual([true, false, true, true, false, false, true, false, false, true])
+    // The ones that write are scoped to the documents they own.
+    expect(Object.fromEntries(personas.filter((p) => p.writes).map((p) => [p.name, p.writes]))).toEqual({
+      'product-manager': ['docs/features/**'],
+      'ux-designer': ['docs/features/**'],
+      'docs-writer': ['docs/**'],
+      researcher: ['docs/research/**']
+    })
+    expect(personas.find((p) => p.name === 'product-manager')).toMatchObject({ loadout: 2, shows: ['task', 'tree', 'note'], ends_with: ['done'] })
+    expect(personas.find((p) => p.name === 'security-reviewer')).toMatchObject({ shows: ['diff', 'checks.results'], ends_with: ['review', 'done'] })
+    expect(personas.find((p) => p.name === 'research-reviewer')).toMatchObject({ shows: ['task'], ends_with: ['findings'] })
+    expect(personas.find((p) => p.name === 'researcher')).toMatchObject({ loadout: 1 })
     expect(personas.find((p) => p.name === 'architect')).toMatchObject({ shows: ['task', 'tree'], ends_with: ['plan'] })
     expect(personas.find((p) => p.name === 'developer')).toMatchObject({ shows: ['task', 'checks.results'], ends_with: ['done'] })
     expect(personas.find((p) => p.name === 'designer')).toMatchObject({ shows: ['diff', 'note'], ends_with: ['findings'] })

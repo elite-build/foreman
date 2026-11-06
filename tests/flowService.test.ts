@@ -3,13 +3,13 @@
 // (iterations, minutes, cost) stop the run naming the bound; the iteration policies; Stop, needs-you, the fingerprint
 // and the start refusals; `[after]`; uncertain after a restart.
 import { describe, expect, it, vi } from 'vitest'
-import { FlowService, flowFingerprintOf, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowServiceDeps, type PreparedFlow } from '../src/main/flows'
+import { FlowService, flowFingerprintOf, flowRunProblems, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowServiceDeps, type PreparedFlow } from '../src/main/flows'
 import { SHOWN_CHANGED } from '../src/main/schedules'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
 import { parseFlow, type FlowRun } from '../src/shared/flows'
 import { parsePersona, type Persona } from '../src/shared/personas'
 import { PERSONA_STARTERS } from '../src/shared/personaStarters'
-import type { Loadout } from '../src/shared/agents'
+import { DEFAULT_LOADOUTS, type Loadout } from '../src/shared/agents'
 import type { ApprovalRequest, ApprovalResponse, ChatItem, CheckResult, Session, TurnOutcome } from '../src/shared/types'
 import { ForemanActions } from '../src/main/foremanActions'
 
@@ -474,8 +474,15 @@ describe('running a flow', () => {
     const loadouts: Loadout[] = [1, 2, 3].map(() => ({ agent: 'claude', model: 'claude-sonnet-5', fast: false }))
     for (const starter of FLOW_STARTERS) {
       const h = harness(starter.toml, { loadouts })
-      await h.start({ task: 'x' })
-      expect(h.run().state).toBe('running')
+      await h.start(Object.fromEntries(Object.keys(h.prepared.flow.inputs).map((name) => [name, 'x'])))
+      expect(h.run().state, starter.id).toBe('running')
+    }
+  })
+
+  it('every built-in starter can start with the default loadouts and the built-in personas (its saved commands saved)', () => {
+    for (const starter of FLOW_STARTERS) {
+      const h = harness(starter.toml)
+      expect(flowRunProblems(h.prepared, DEFAULT_LOADOUTS), starter.id).toEqual({ problems: [], notClaude: [], attended: expect.any(Array) })
     }
   })
 
@@ -1435,5 +1442,91 @@ describe('pr steps and the files a gate shows', () => {
     await settle()
     expect(routed.run().state).toBe('completed')
     expect(routed.run().steps.at(-1)).toMatchObject({ name: 'open', fact: 'failed', detail: 'Not opened: gh isn’t signed in' })
+  })
+})
+
+
+describe('the built-in flows', () => {
+  const tomlOf = (id: string) => FLOW_STARTERS.find((s) => s.id === id)!.toml
+
+  it('second opinion: builds the plan in two workspaces, one after the other, then asks which to go on with', async () => {
+    const h = harness(tomlOf('second-opinion'), { loadouts: DEFAULT_LOADOUTS })
+    let made = 0
+    vi.mocked(h.deps.newWorkspace).mockImplementation(async () => ({ workspaceId: `ws-${String.fromCharCode(97 + made++)}`, sessionId: `s-ws${made}` }))
+    await h.start({ task: 'a search box' })
+    await h.endTurn('completed', 'The plan.')
+    h.gates[0].resolve({ kind: 'gate', answer: 'continued' })
+    await settle()
+    await h.endTurn('completed', 'Built it one way.')
+    await settle()
+    await h.endTurn('completed', 'Built it another way.')
+    await settle()
+    expect(names(h.run())).toEqual(['plan', 'plan-check', 'workspace-a', 'implement-a', 'checks-a', 'workspace-b', 'implement-b', 'checks-b', 'choose'])
+    // Both from the end of the plan.
+    expect(h.deps.newWorkspace).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(h.deps.newWorkspace).mock.calls.map((c) => c[1])).toEqual([
+      { workspaceId: 'ws-1', sessionId: 's-1', turnId: 't-first' },
+      { workspaceId: 'ws-1', sessionId: 's-1', turnId: 't-first' }
+    ])
+    const pick = h.gates.at(-1)!.request
+    expect(pick.kind === 'pick' ? pick.choices.map((c) => [c.step, c.workspaceId]) : []).toEqual([
+      ['implement-a', 'ws-a'],
+      ['implement-b', 'ws-b']
+    ])
+    h.gates.at(-1)!.resolve({ kind: 'pick', chosen: 'implement-b' })
+    await settle()
+    // QA reviews the chosen one, on the Codex loadout: attended.
+    expect(h.run()).toMatchObject({ workspaceId: 'ws-b', current: { step: 'review' } })
+    expect(h.sent.at(-1)!.unattended).toMatchObject({ step: 'review', attended: true })
+  })
+
+  it('is this worth building: three rounds of two reviews, a consensus and a revision, then the report and the consensus', async () => {
+    const h = harness(tomlOf('worth-building'), { loadouts: DEFAULT_LOADOUTS })
+    const read = vi.fn<NonNullable<FlowServiceDeps['readShownFile']>>(async (_ws, path) => ({ path: path.replace('*', 'search'), text: `# ${path}`, cut: false }))
+    h.deps.readShownFile = read
+    await h.start({ idea: 'search' })
+    expect(h.sent[0].persona).toMatchObject({ name: 'researcher', writes: ['docs/research/**'] })
+    await h.endTurn('completed', 'The report.')
+    for (let round = 0; round < 3; round++) {
+      await h.endTurn('completed', findingsBlock([{ severity: 'medium', file: 'docs/research/search/report.md', line: 1, title: 'No evidence', body: 'Say where it comes from.' }]))
+      await h.endTurn('completed', findingsBlock([]))
+      await h.endTurn('completed', 'The consensus.')
+      await h.endTurn('completed', 'Revised.')
+    }
+    const rounds = ['review-a', 'review-b', 'consensus', 'revise']
+    expect(names(h.run())).toEqual(['structure', ...rounds, ...rounds, ...rounds, 'show'])
+    // The second reviewer is on the Codex loadout, attended; neither is shown the other's review, the consensus both.
+    const sentTo = (step: string) => h.sent.filter((m) => (m.unattended as { step?: string } | undefined)?.step === step)
+    expect(sentTo('review-b')[0].unattended).toMatchObject({ attended: true })
+    // A review's own prompt leads its instructions, before the findings format.
+    const review = sentTo('review-a')[0].text
+    expect(review.startsWith('Review the research report, docs/research/<slug>/report.md in the diff below, for soundness.')).toBe(true)
+    expect(review).toContain('foreman-findings')
+    expect(sentTo('review-b')[0].text).not.toContain('Answer from “review-a”')
+    expect(sentTo('consensus')[0].text).toContain('## Answer from “review-a”')
+    expect(sentTo('consensus')[0].text).toContain('## Answer from “review-b”')
+    expect(h.run().steps.filter((s) => s.name === 'revise').every((s) => s.sessionId === 's-1')).toBe(true)
+    expect(showOf(h.gates[0].request)).toEqual([
+      { kind: 'file', path: 'docs/research/search/report.md', summary: '# docs/research/*/report.md' },
+      { kind: 'file', path: 'docs/research/search/consensus.md', summary: '# docs/research/*/consensus.md' }
+    ])
+  })
+
+  it('from an idea to a feature: the requirements go round at the gate in the same tab, then the designer writes only under docs/features', async () => {
+    const h = harness(tomlOf('idea-to-feature'), { loadouts: DEFAULT_LOADOUTS })
+    h.deps.readShownFile = async (_ws, path) => ({ path: path.replace('*', 'search'), text: '# Requirements', cut: false })
+    await h.start({ idea: 'search the docs' })
+    expect(h.sent[0].persona).toMatchObject({ name: 'product-manager', writes: ['docs/features/**'] })
+    await h.endTurn('completed', 'Wrote the requirements.')
+    expect(showOf(h.gates[0].request)).toEqual([{ kind: 'file', path: 'docs/features/search/requirements.md', summary: '# Requirements' }])
+    h.gates[0].resolve({ kind: 'gate', answer: 'sent-back', note: 'Leave out the admin view.' })
+    await settle()
+    expect(h.sent.at(-1)).toMatchObject({ sessionId: 's-1' })
+    expect(h.sent.at(-1)!.text).toContain('Leave out the admin view.')
+    await h.endTurn('completed', 'Trimmed.')
+    h.gates[1].resolve({ kind: 'gate', answer: 'continued' })
+    await settle()
+    expect(h.sent.at(-1)!.unattended).toMatchObject({ step: 'design', persona: { name: 'ux-designer', writes: ['docs/features/**'] } })
+    expect(h.run().loops['requirements-rounds']).toMatchObject({ iterations: 2, open: false })
   })
 })
