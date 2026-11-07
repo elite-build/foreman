@@ -2,6 +2,17 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.17 (2026-11-07)
+
+### Added
+
+- With **Flows** on, a flow opens as its own page on **Automations**. Its graph is drawn at a readable size with zoom and full screen, a selected step's details sit beside it, and **Assistant**, **Steps**, **TOML** and **Problems** tabs sit under it. The assistant proposes changes you see on the graph and apply only if you want them. ([#101](https://github.com/elite-build/foreman/pull/101))
+
+### Changed
+
+- The **Flow** and **Lineage** tabs draw readable graphs you can click to open a step's chat or checks. The **Flow** tab answers a waiting gate and says why a run stopped. ([#101](https://github.com/elite-build/foreman/pull/101))
+- The **Run** dialog shows what to do beside what the run does, step by step. Each flow card shows its graph, and **Flows** can list every flow's runs. ([#101](https://github.com/elite-build/foreman/pull/101))
+
 ## 1.0.16 (2026-11-07)
 
 ### Added
