@@ -2,7 +2,7 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
-## 1.0.18 (2026-11-07)
+## 1.0.18 (2026-11-08)
 
 ### Added
 
