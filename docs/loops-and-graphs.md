@@ -192,17 +192,28 @@ A persona is a markdown file with frontmatter, the shape Claude Code already use
 ```md
 ---
 name: qa-engineer
-loadout: 3                 # Sonnet 5.5 by default; a step may override
+description: Reviews the change against what was asked; finds problems, never fixes them.
+loadout: 3                 # Codex by default (slot 3): read-only, attended, no shell in a review; a step may override
 read_only: true
 shows: [diff, checks.results]
-ends_with: [review, done]
+ends_with: [findings]
 ---
-You are the QA engineer on this change. You don't fix; you find. Read the diff and the check
-results, run the tests that cover the changed files, and report what a reviewer would want to
-know, with file and line, through `foreman review`. Say `done` only when you found nothing.
+You are the QA engineer on this change. You find problems; you don't fix them, and you don't run anything.
+Read the diff for what changed, the check results for what already ran and failed, and whatever the step names as the ask
+(the task, or requirements.md and design.md); read the changed files and their tests with Read, Grep and Glob.
+Don't run tests or commands: the check results are the only run you get, and asking for one stops the review.
+Report what was asked for and isn't done, what is done wrong, and what the tests don't cover: only discrete problems this
+change introduces, each with file and line and what a fix would be.
+End with the `foreman-findings` block, one object per problem; `[]` when you looked and found nothing. Nothing else you
+write is a verdict.
+If the diff is empty or you can't tell what was asked, make that your one finding, severity high, titled "Blocked: …".
 ```
 
-Ten personas ship as starters, each a few lines. The first four: **architect** (read-only, plan mode, shown the task and the tree, ends with a plan at a gate), **developer** (edits, shown the plan and the checks, ends with `done`), **qa-engineer** (above), **designer** (read-only, shown before-and-after screens, ends with findings). Six more came with the starter flows that use them: **product-manager** (decides whether and what to build, never how; writes only `docs/features/**`), **ux-designer** (turns requirements into a design specification; writes only `docs/features/**`), **security-reviewer** (read-only, reports through `foreman review`), **docs-writer** (writes only `docs/**`, never code or CHANGELOG.md), **researcher** (writes a report under `docs/research/**` and revises it in place) and **research-reviewer** (read-only, reviews a report alone). The starter flow "Research then implement" uses the first four:
+Every persona body follows [persona-template.md](persona-template.md): the role and what it doesn't do, what it reads,
+what it produces, and a fixed ending by step kind, so a review step reads a fact back (the findings block) and a turn
+reports by whichever channel it has.
+
+Ten personas ship as starters, each a few lines. The first four: **architect** (read-only, plan mode, shown the task and the tree, ends with a plan at a gate), **developer** (edits, shown the plan and the checks, ends with `done`), **qa-engineer** (above), **designer** (read-only, shown before-and-after screens, ends with findings). Six more came with the starter flows that use them: **product-manager** (decides whether and what to build, never how; writes only `docs/features/**`), **ux-designer** (turns requirements into a design specification; writes only `docs/features/**`), **security-reviewer** (read-only, ends with findings), **docs-writer** (writes only `docs/**`, never code or CHANGELOG.md), **researcher** (writes a report under `docs/research/**` and revises it in place) and **research-reviewer** (read-only, reviews a report alone). The starter flow "Research then implement" uses the first four:
 
 ```toml
 [steps.plan]

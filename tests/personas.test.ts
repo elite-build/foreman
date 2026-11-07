@@ -10,10 +10,11 @@ import { PERSONA_STARTERS } from '../src/shared/personaStarters'
 
 const QA = `---
 name: qa-engineer
-loadout: 3                 # Sonnet 5.5 by default; a step may override
+description: Reviews the change against what was asked; finds problems, never fixes them.
+loadout: 3                 # Codex by default (slot 3): read-only, attended, no shell in a review; a step may override
 read_only: true
 shows: [diff, checks.results]
-ends_with: [review, done]
+ends_with: [findings]
 ---
 You are the QA engineer on this change.
 `
@@ -54,11 +55,12 @@ describe('reading a persona', () => {
   it('reads the page’s qa-engineer as written', () => {
     expect(read(QA)).toEqual({
       name: 'qa-engineer',
+      description: 'Reviews the change against what was asked; finds problems, never fixes them.',
       source: 'personal',
       loadout: 3,
       read_only: true,
       shows: ['diff', 'checks.results'],
-      ends_with: ['review', 'done'],
+      ends_with: ['findings'],
       instructions: 'You are the QA engineer on this change.'
     })
   })
@@ -160,7 +162,7 @@ describe('applying a persona to a step: narrowing only', () => {
   const step = { name: 'qa' }
 
   it('gives the step the persona’s loadout, read-only and what it is shown', () => {
-    expect(applyPersona(step, qa)).toEqual({ loadout: 3, readOnly: true, context: ['diff', 'checks.results'], endsWith: ['review', 'done'], problems: [] })
+    expect(applyPersona(step, qa)).toEqual({ loadout: 3, readOnly: true, context: ['diff', 'checks.results'], endsWith: ['findings'], problems: [] })
   })
 
   it('lets the step override the loadout and add to what it is shown, without repeating a source', () => {
@@ -227,14 +229,14 @@ describe('the starters', () => {
       researcher: ['docs/research/**']
     })
     expect(personas.find((p) => p.name === 'product-manager')).toMatchObject({ loadout: 2, shows: ['task', 'tree', 'note'], ends_with: ['done'] })
-    expect(personas.find((p) => p.name === 'security-reviewer')).toMatchObject({ shows: ['diff', 'checks.results'], ends_with: ['review', 'done'] })
+    expect(personas.find((p) => p.name === 'security-reviewer')).toMatchObject({ shows: ['diff', 'checks.results'], ends_with: ['findings'] })
     expect(personas.find((p) => p.name === 'research-reviewer')).toMatchObject({ shows: ['task'], ends_with: ['findings'] })
     expect(personas.find((p) => p.name === 'researcher')).toMatchObject({ loadout: 1 })
     expect(personas.find((p) => p.name === 'architect')).toMatchObject({ shows: ['task', 'tree'], ends_with: ['plan'] })
     expect(personas.find((p) => p.name === 'developer')).toMatchObject({ shows: ['task', 'checks.results'], ends_with: ['done'] })
     expect(personas.find((p) => p.name === 'designer')).toMatchObject({ shows: ['diff', 'note'], ends_with: ['findings'] })
     // The qa-engineer is the page's file, as written there.
-    expect(PERSONA_STARTERS.find((s) => s.name === 'qa-engineer')!.markdown.startsWith(QA.split('\n').slice(0, 7).join('\n'))).toBe(true)
+    expect(PERSONA_STARTERS.find((s) => s.name === 'qa-engineer')!.markdown.startsWith(QA.split('\n').slice(0, 9).join('\n'))).toBe(true)
   })
 
   it('cover every persona the starter flows name', () => {

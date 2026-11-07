@@ -98,7 +98,7 @@ describe('Personas on Automations', () => {
     await waitFor(() => expect(within(section).getByText('architect')).toBeTruthy())
     expect(within(section).getByText('read-only · ends with plan')).toBeTruthy()
     expect(within(section).getByText('edits · ends with done')).toBeTruthy()
-    expect(within(section).getByText('read-only · ends with review, done · loadout 3')).toBeTruthy()
+    expect(within(section).getByText('read-only · ends with findings · loadout 3')).toBeTruthy()
     expect(within(section).getByText('Claude subagent · foreman')).toBeTruthy()
     expect(within(section).getByText('.claude/agents/helper.md @ abcdef1')).toBeTruthy()
     expect(within(section).getByText('edits · Claude steps only')).toBeTruthy()
