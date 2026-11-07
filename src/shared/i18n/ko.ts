@@ -6146,4 +6146,6 @@ export const ko: Catalogue = {
   'flowStudio.suggest.gate': '배포 전에 확인 단계를 넣어 줘',
   'flowStudio.suggest.cheaper': '수정 루프를 더 일찍 멈추게 해 줘',
   'flowRun.panel.stoppedTitle': '멈춘 이유',
+  'flowStudio.stepsTab': '단계',
+  'flowStudio.exitsLine': '출구: {exits}',
 }

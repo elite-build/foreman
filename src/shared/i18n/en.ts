@@ -6876,4 +6876,6 @@ export const en = {
   'flowStudio.suggest.gate': 'Add a gate before shipping',
   'flowStudio.suggest.cheaper': 'Make the fix loop stop sooner',
   'flowRun.panel.stoppedTitle': 'Why it stopped',
+  'flowStudio.stepsTab': 'Steps',
+  'flowStudio.exitsLine': 'Exits: {exits}',
 } as const satisfies Record<string, Message>

@@ -729,6 +729,24 @@ div.auto-card {
   gap: 4px 10px;
   min-width: 0;
 }
+/* The Steps tab: the graph as a list, a CardButton (ui/) per step. */
+.flow-studio-outline {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-studio-outline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 /* The Assistant tab: the conversation scrolls, the message box stays at the bottom. */
 .flow-studio-assistant {
   height: 100%;

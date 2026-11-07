@@ -6146,4 +6146,6 @@ export const fr: Catalogue = {
   'flowStudio.suggest.gate': 'Ajoute une validation avant la livraison',
   'flowStudio.suggest.cheaper': 'Arrête plus tôt la boucle de correction',
   'flowRun.panel.stoppedTitle': 'Pourquoi elle s’est arrêtée',
+  'flowStudio.stepsTab': 'Étapes',
+  'flowStudio.exitsLine': 'Sorties : {exits}',
 }

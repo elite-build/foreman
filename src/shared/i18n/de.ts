@@ -6146,4 +6146,6 @@ export const de: Catalogue = {
   'flowStudio.suggest.gate': 'Vor dem Ausliefern eine Prüfung einbauen',
   'flowStudio.suggest.cheaper': 'Die Korrekturschleife früher beenden',
   'flowRun.panel.stoppedTitle': 'Warum er angehalten hat',
+  'flowStudio.stepsTab': 'Schritte',
+  'flowStudio.exitsLine': 'Ausgänge: {exits}',
 }

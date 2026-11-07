@@ -15,7 +15,7 @@ import { flowTomlBlocks, problemLine, stepAtLine, tokenizeFlowToml } from '../..
 import type { ChatItem } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
 import { api, attempt, loadAssistant, openFlowDraft, selectAutomation, showToast, useStore, type FlowDraftOpen } from '../../store'
-import { Button, Callout, Card, ChipButton, CodeEditor, Field, IconButton, LinkButton, MenuButton, MenuItem, Resizer, Select, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, type CodeEditorMark } from '../../ui'
+import { Button, Callout, Card, CardButton, ChipButton, CodeEditor, Field, IconButton, LinkButton, MenuButton, MenuItem, Resizer, Select, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, type CodeEditorMark } from '../../ui'
 import { Composer, Conversation, GateLine } from '../assistant/AssistantView'
 import { FlowGraphView, useSettled } from '../FlowDiagram'
 import { FlowChangeList } from './FlowChanges'
@@ -23,7 +23,7 @@ import { flowTitle, SourceTags, STARTER_NAME } from './FlowStartFields'
 import { RunFlowDialog } from './FlowsSection'
 import { STEP_KIND } from './flowRunWords'
 
-type PanelTab = 'assistant' | 'toml' | 'problems'
+type PanelTab = 'assistant' | 'steps' | 'toml' | 'problems'
 const EMPTY: ChatItem[] = []
 const PANEL_MIN = 160
 const PANEL_MAX = 720
@@ -63,7 +63,7 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
   const [starter, setStarter] = useState<FlowStarter['id'] | ''>(listing ? '' : draft ? '' : FLOW_STARTERS[0].id)
   const [refused, setRefused] = useState<string[] | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const [tab, setTab] = useState<PanelTab>(draft?.describe ? 'assistant' : 'assistant')
+  const [tab, setTab] = useState<PanelTab>('assistant')
   const [panel, setPanel] = useState(300)
   const [reveal, setReveal] = useState<number | undefined>(undefined)
   const [proposal, setProposal] = useState<FlowProposal | null>(null)
@@ -287,11 +287,15 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
             <Tab value="assistant">
               <Sparkles size={13} aria-hidden /> {t('assistant.title')}
             </Tab>
+            <Tab value="steps">{t('flowStudio.stepsTab')}</Tab>
             <Tab value="toml">{t('automations.flows.toml')}</Tab>
             <Tab value="problems">{t('flowStudio.problemsTab', { count: problems.length + warnings.length })}</Tab>
           </TabList>
           <TabPanel value="assistant" keepMounted className="flow-studio-tabpanel">
             <StudioAssistant toml={toml} source={source} editable={editable} describe={Boolean(draft?.describe)} ask={ask} proposal={proposal} resolved={resolved} onShow={setProposal} onApply={apply} onDismiss={(p) => setResolved((r) => ({ ...r, [p.proposalId]: 'dismissed' }))} />
+          </TabPanel>
+          <TabPanel value="steps" className="flow-studio-tabpanel">
+            {flow ? <StepOutline flow={proposed ?? flow} selected={selected} onSelect={choose} /> : <p className="faint small">{t('flowStudio.noGraph')}</p>}
           </TabPanel>
           <TabPanel value="toml" className="flow-studio-tabpanel">
             <CodeEditor
@@ -348,6 +352,33 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
       </div>
       {running && saved.listing && <RunFlowDialog flow={saved.listing} onClose={() => setRunning(false)} />}
     </div>
+  )
+}
+
+/**
+ * The graph as a list (its accessible equivalent, as the Flow and Lineage tabs have theirs): each step in the file's
+ * order with its kind, who does it and where its exits go; choosing one selects it, as clicking it on the graph does.
+ */
+function StepOutline({ flow, selected, onSelect }: { flow: Flow; selected: string | null; onSelect: (id: string) => void }) {
+  const t = useT()
+  return (
+    <ol className="flow-studio-outline" aria-label={t('flowStudio.stepsTab')}>
+      {flow.steps.map((step) => {
+        const id = `step:${step.name}`
+        const out = flow.edges[step.name]
+        const exits = out === undefined ? [t('flowGraph.end.done')] : typeof out === 'string' ? [out === FLOW_DONE ? t('flowGraph.end.done') : out] : Object.entries(out).map(([fact, to]) => `${fact} → ${to === FLOW_DONE ? t('flowGraph.end.done') : to}`)
+        const persona = stepPersona(flow, step)
+        return (
+          <li key={step.name}>
+            <CardButton className="flow-studio-outline-step" selected={selected === id} aria-pressed={selected === id} onClick={() => onSelect(id)}>
+              <strong>{step.name}</strong>
+              <span className="faint small">{[t(STEP_KIND[step.kind]), persona].filter(Boolean).join(' · ')}</span>
+              <span className="small">{t('flowStudio.exitsLine', { exits: exits.join(', ') })}</span>
+            </CardButton>
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 

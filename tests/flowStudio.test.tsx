@@ -124,3 +124,17 @@ describe('the flow studio', () => {
     expect((screen.getByRole('textbox', { name: 'Flow (TOML)' }) as HTMLTextAreaElement).value).toBe(longer)
   })
 })
+
+describe('the flow studio’s Steps tab', () => {
+  it('lists the graph’s steps with their exits, and choosing one selects it as on the graph', async () => {
+    const u = userEvent.setup()
+    render(<FlowStudio id="new" draft={{ toml: FIX }} />)
+    await u.click(screen.getByRole('tab', { name: 'Steps' }))
+    const outline = screen.getByRole('list', { name: 'Steps' })
+    const checks = within(outline).getByRole('button', { name: /^checks/ })
+    expect(checks.textContent).toContain('Exits: passed → review, failed → fix')
+    await u.click(checks)
+    expect(checks.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('complementary', { name: 'Selected on the graph' })).toBeTruthy()
+  })
+})
