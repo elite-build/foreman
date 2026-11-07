@@ -30,6 +30,8 @@ export default defineConfig({
     build: { rolldownOptions: { output: { format: 'cjs', entryFileNames: '[name].cjs' } } }
   },
   renderer: {
-    plugins: [react(), thirdPartyPackages()]
+    plugins: [react(), thirdPartyPackages()],
+    // In a Foreman workspace, serve from its reserved port block: Vite's default 5173 can fall inside a range Windows reserves (Hyper-V/WinNAT), which fails with EACCES.
+    server: { port: Number(process.env.FOREMAN_PORT) || undefined }
   }
 })
