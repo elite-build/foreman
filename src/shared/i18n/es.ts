@@ -6191,4 +6191,5 @@ export const es: Catalogue = {
   'flowStudio.suggest.explain': 'Explica este flujo',
   'flowStudio.suggest.gate': 'Añade una revisión antes de publicar',
   'flowStudio.suggest.cheaper': 'Haz que el bucle de corrección pare antes',
+  'flowRun.panel.stoppedTitle': 'Por qué se detuvo',
 }

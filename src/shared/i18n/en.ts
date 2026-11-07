@@ -6875,4 +6875,5 @@ export const en = {
   'flowStudio.suggest.explain': 'Explain this flow',
   'flowStudio.suggest.gate': 'Add a gate before shipping',
   'flowStudio.suggest.cheaper': 'Make the fix loop stop sooner',
+  'flowRun.panel.stoppedTitle': 'Why it stopped',
 } as const satisfies Record<string, Message>

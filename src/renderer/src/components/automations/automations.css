@@ -468,6 +468,16 @@ div.auto-card {
   overflow-wrap: anywhere;
 }
 
+/* A flow card's thumbnail of its run graph (Graph, ui/): a fixed strip the picture fits into. */
+.flow-card-thumb {
+  display: block;
+  height: 72px;
+  min-width: 0;
+}
+.flow-card-thumb .flow-card-thumb-graph {
+  height: 100%;
+}
+
 /* A flow card with its recent runs under it. */
 .flow-item {
   display: flex;

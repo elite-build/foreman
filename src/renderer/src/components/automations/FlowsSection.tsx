@@ -12,6 +12,7 @@ import { useT } from '../../i18n'
 import { api, attempt, openFlowDraft, selectAutomation, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
 import { ActionRow, Button, Dialog, Field, LinkButton, Segmented, Select, Status } from '../../ui'
 import { FlowApproval, FlowInputFields, FlowStepOutline, flowStartReady, flowTitle, SourceTags, summaryText, useFlowPreview } from './FlowStartFields'
+import { FlowLensDiagram } from '../FlowDiagram'
 import { RUN_STATE, RUN_TONE } from './flowRunWords'
 import { PersonasSection } from './PersonasSection'
 
@@ -99,6 +100,7 @@ function FlowCard({ flow, onOpen, onRun }: { flow: FlowListing; onOpen: () => vo
         </Button>
       }
     >
+      <FlowThumbnail flow={flow} />
       <span className="auto-row-title">{flowTitle(flow, t)}</span>
       <span className="auto-card-foot flow-card-tags">
         <SourceTags flow={flow} />
@@ -111,6 +113,18 @@ function FlowCard({ flow, onOpen, onRun }: { flow: FlowListing; onOpen: () => vo
         </span>
       )}
     </ActionRow>
+  )
+}
+
+/** The flow's run graph as a small picture on its card (no words: the card says what it is); nothing when it doesn't read. */
+function FlowThumbnail({ flow }: { flow: FlowListing }) {
+  const t = useT()
+  const parsed = useMemo(() => (flow.problems.length ? undefined : parseFlow(flow.toml, flow.source, t)), [flow, t])
+  if (!parsed || !('flow' in parsed)) return null
+  return (
+    <span className="flow-card-thumb" aria-hidden="true">
+      <FlowLensDiagram flow={parsed.flow} lens="run" thumbnail className="flow-card-thumb-graph" />
+    </span>
   )
 }
 

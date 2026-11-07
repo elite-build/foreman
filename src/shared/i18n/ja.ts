@@ -6145,4 +6145,5 @@ export const ja: Catalogue = {
   'flowStudio.suggest.explain': 'このフローを説明して',
   'flowStudio.suggest.gate': '出荷前に確認を入れて',
   'flowStudio.suggest.cheaper': '修正ループを早めに止めて',
+  'flowRun.panel.stoppedTitle': '停止した理由',
 }

@@ -78,7 +78,15 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
         <p className="faint small">{t('lineage.empty')}</p>
       ) : (
         <>
-          <FlowGraphView graph={lineage.graph} direction="tall" />
+          <FlowGraphView
+            graph={lineage.graph}
+            direction="tall"
+            onSelect={(id) => {
+              const ref = lineage.outline.find((e) => e.id === id?.replace(/#\d+$/, ''))?.ref
+              if (ref?.kind === 'turn') void openTurn(ref.workspaceId, ref.sessionId, ref.turnId)
+              else if (ref?.kind === 'checks') showChecksPanel(ref.workspaceId)
+            }}
+          />
           {lineage.gaps.length > 0 && (
             <Callout tone="info" role="note" title={t('lineage.gaps.title')}>
               <p>{t('lineage.gaps.intro')}</p>

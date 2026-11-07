@@ -34,6 +34,7 @@ export const fakeState: Record<string, any> = {
     integrations: { connections: [] }
   },
   chats: {},
+  approvals: [],
   composerFill: null,
   rightPanelOpen: false,
   archiveRuns: {}

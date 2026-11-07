@@ -8,9 +8,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { FLOW_LENSES, LENS_WORD, flowGraph, type FlowLens } from '../../../shared/flowGraph'
 import { FLOW_COMPACT_ABOVE, currentLoopBounds, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
 import { formatCompact } from '../../../shared/i18n/time'
+import type { ApprovalRequest } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
 import { api, attempt, selectSession, selectWorkspace, showChecksPanel, timeAgo, useStore } from '../store'
-import { Button, Card, CardButton, Meter, Segmented, Status, Tag } from '../ui'
+import { Button, Callout, Card, CardButton, Meter, Segmented, Status, Tag } from '../ui'
 import { RUN_STATE, RUN_TONE, STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import { FlowLensDiagram } from './FlowDiagram'
 import './flowRun.css'
@@ -93,7 +94,7 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
               .join(' · ')}
           </span>
         ))}
-        {run.reason && <span className="small">{run.reason}</span>}
+        {run.reason && (active || run.state === 'completed') && <span className="small">{run.reason}</span>}
         <span className="faint small">{t('flowRun.panel.started', { when: timeAgo(run.startedAt) })}</span>
         {active && (
           <span>
@@ -103,8 +104,10 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
           </span>
         )}
       </div>
+      <GateCard runId={run.id} />
+      {!active && run.state !== 'completed' && run.reason && <StoppedCard workspaceId={workspaceId} run={run} />}
       <Segmented<FlowLens> small label={t('flowRun.lens.label')} value={lens} onChange={setLens} options={FLOW_LENSES.map((l) => ({ value: l, label: t(LENS_WORD[l]) }))} />
-      <FlowLensDiagram flow={flow} run={run} lens={lens} workspaceNames={names} direction="TB" />
+      <FlowLensDiagram flow={flow} run={run} lens={lens} workspaceNames={names} direction="TB" onSelect={(id) => id && openStep(workspaceId, run, id)} />
       {lens === 'context' && <ContextRows run={run} />}
       {lens === 'memory' && <MemoryRows run={run} flow={flow} />}
       {lens === 'data' && <DataRows run={run} />}
@@ -120,6 +123,72 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
         <p className="faint small">{t('flowRun.panel.empty')}</p>
       )}
     </div>
+  )
+}
+
+/** A step selected on the graph opens what it stands for, as its card does: its latest turn, the checks, its workspace. */
+function openStep(workspaceId: string, run: FlowRun, nodeId: string): void {
+  const name = nodeId.replace(/^step:/, '')
+  const step = [...run.steps].reverse().find((s) => s.name === name)
+  if (!step) return
+  const where = step.workspaceId ?? workspaceId
+  if (step.kind === 'checks') showChecksPanel(where)
+  else if (step.kind === 'workspace' && step.workspaceId) selectWorkspace(step.workspaceId)
+  else if (step.sessionId) selectSession(where, step.sessionId)
+}
+
+/**
+ * The gate this run waits at, answered here as on the approval panel: Continue, Send back (the panel takes a note) or
+ * Stop. Nothing when it waits for nothing.
+ */
+function GateCard({ runId }: { runId: string }) {
+  const t = useT()
+  const gate = useStore((s) => s.approvals.find((a): a is Extract<ApprovalRequest, { kind: 'gate' }> => a.kind === 'gate' && a.flowRunId === runId))
+  if (!gate) return null
+  const answer = (choice: 'continued' | 'sent-back' | 'stopped') => void attempt(() => api.respondApproval(gate.id, { kind: 'gate', answer: choice }))
+  return (
+    <Callout
+      tone="warn"
+      role="status"
+      title={t('flowRun.gate.heading', { flow: gate.flowName, step: gate.step })}
+      actions={
+        <>
+          <Button size="sm" variant="primary" onClick={() => answer('continued')}>
+            {t('flowRun.gate.continue')}
+          </Button>
+          <Button size="sm" onClick={() => answer('sent-back')}>
+            {t('flowRun.gate.sendBack')}
+          </Button>
+          <Button size="sm" onClick={() => answer('stopped')}>
+            {t('flowRun.gate.stop')}
+          </Button>
+        </>
+      }
+    >
+      {gate.ask}
+    </Callout>
+  )
+}
+
+/** Why a run stopped short, with the way to what stopped it: the checks, when the last step was a checks step. */
+function StoppedCard({ workspaceId, run }: { workspaceId: string; run: FlowRun }) {
+  const t = useT()
+  const last = run.steps.at(-1)
+  return (
+    <Callout
+      tone={run.state === 'failed' ? 'error' : 'warn'}
+      role="status"
+      title={t('flowRun.panel.stoppedTitle')}
+      actions={
+        last?.kind === 'checks' ? (
+          <Button size="sm" onClick={() => showChecksPanel(last.workspaceId ?? workspaceId)}>
+            {t('flowRun.panel.openChecks')}
+          </Button>
+        ) : undefined
+      }
+    >
+      {run.reason}
+    </Callout>
   )
 }
 

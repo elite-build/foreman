@@ -73,7 +73,8 @@ describe('the Lineage tab', () => {
     render(<LineagePanel workspaceId="w1" />)
     const outline = await screen.findByRole('list', { name: 'What happened, in order' })
     expect(fakeApi.workspaceLineage).toHaveBeenCalledWith('w1', 'run')
-    expect(await screen.findByRole('img', { name: 'lisbon · Run' })).toBeTruthy()
+    // Selectable: a node opens what it stands for, as the outline's entries do.
+    expect(await screen.findByRole('group', { name: 'lisbon · Run' })).toBeTruthy()
     const review = within(outline).getByRole('button', { name: /^Code review · T1/ })
     expect(review.textContent).toContain('handed off (review) from Login bug · T1 (inferred)')
     expect(review.textContent).toContain('needs: Session.handedOffFrom')
@@ -92,7 +93,7 @@ describe('the Lineage tab', () => {
     await screen.findByRole('list', { name: 'What happened, in order' })
     await user.click(screen.getByRole('radio', { name: 'Data' }))
     await waitFor(() => expect(fakeApi.workspaceLineage).toHaveBeenLastCalledWith('w1', 'data'))
-    expect(await screen.findByRole('img', { name: 'lisbon · Data' })).toBeTruthy()
+    expect(await screen.findByRole('group', { name: 'lisbon · Data' })).toBeTruthy()
   })
 
   it('Make a flow from this… opens the draft in the flow studio with what it leaves out, saving nothing', async () => {

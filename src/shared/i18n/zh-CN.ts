@@ -6146,4 +6146,5 @@ export const zhCN: Catalogue = {
   'flowStudio.suggest.explain': '解释这个流程',
   'flowStudio.suggest.gate': '在交付前加一道确认',
   'flowStudio.suggest.cheaper': '让修复循环早点停止',
+  'flowRun.panel.stoppedTitle': '停止原因',
 }
