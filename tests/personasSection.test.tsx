@@ -78,6 +78,19 @@ describe('Personas on Automations', () => {
     expect(fakeApi.listPersonas).not.toHaveBeenCalled()
   })
 
+  it('has its own tab, showing only the personas and saying when a search matches none', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    render(<AutomationsView />)
+    await u.click(screen.getByRole('tab', { name: 'Personas' }))
+    const section = await screen.findByRole('region', { name: 'Personas' })
+    await waitFor(() => expect(within(section).getByText('architect')).toBeTruthy())
+    expect(screen.queryByRole('region', { name: 'Flows' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Templates' })).toBeNull()
+    await u.type(screen.getByRole('searchbox'), 'zzz')
+    expect(within(screen.getByRole('region', { name: 'Personas' })).getByText('Nothing matches “zzz”.')).toBeTruthy()
+  })
+
   it('lists each persona with its source and what it is, after the flows', async () => {
     setSnapshot(true)
     render(<AutomationsView />)

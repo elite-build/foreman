@@ -4342,6 +4342,7 @@ export const zhCN: Catalogue = {
   'automations.show': '显示',
   'automations.all': '全部',
   'automations.search': '搜索模板和命令',
+  'automations.searchWithFlows': '搜索自动化',
   'automations.noMatches': '没有与“{query}”匹配的内容。',
   'automations.onDemand': '按需',
   'automations.overview.empty': '还没有计划任务。打开一个模板，然后选择“计划…”，即可在全新的工作区中每个工作日早上、每周一或仅一次运行它。',

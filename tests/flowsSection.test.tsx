@@ -68,6 +68,22 @@ describe('Flows on Automations', () => {
     expect(screen.queryByRole('region', { name: 'Flows' })).toBeNull()
     expect(screen.queryByText('New flow')).toBeNull()
     expect(fakeApi.listFlows).not.toHaveBeenCalled()
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands'])
+  })
+
+  it('has its own tab, beside Personas, showing only the flows and saying when a search matches none', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    render(<AutomationsView />)
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands', 'Flows', 'Personas'])
+    expect(screen.getByRole('searchbox', { name: 'Search automations' })).toBeTruthy()
+    await u.click(screen.getByRole('tab', { name: 'Flows' }))
+    const section = await screen.findByRole('region', { name: 'Flows' })
+    await waitFor(() => expect(within(section).getByText('Fix until green')).toBeTruthy())
+    expect(screen.queryByRole('region', { name: 'Personas' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Templates' })).toBeNull()
+    await u.type(screen.getByRole('searchbox'), 'zzz')
+    expect(within(screen.getByRole('region', { name: 'Flows' })).getByText('Nothing matches “zzz”.')).toBeTruthy()
   })
 
   it('lists each flow with its source, its shape and its problems when the switch is on', async () => {

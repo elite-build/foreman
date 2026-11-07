@@ -1,4 +1,5 @@
-// Automations: a library of prompt templates and saved commands (and flows, while Settings → Experimental → Flows is on). Each template card says when it runs and how its last
+// Automations: a library of prompt templates and saved commands (and flows and personas, each with its own tab, while
+// Settings → Experimental → Flows is on). Each template card says when it runs and how its last
 // run went; the side panel lists the schedules, or the selected schedule. A template opens as its own page in place of
 // the library, with breadcrumbs back. Covers the workspace area like Settings, so open workspaces stay mounted.
 import { ArrowLeft, CalendarClock, ChevronRight, Play, Plus, RotateCcw, Zap } from 'lucide-react'
@@ -18,7 +19,7 @@ import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview
 import '../settings/settings.css'
 import './automations.css'
 
-type Shelf = 'all' | 'templates' | 'commands'
+type Shelf = 'all' | 'templates' | 'commands' | 'flows' | 'personas'
 
 export function AutomationsView() {
   const t = useT()
@@ -26,12 +27,14 @@ export function AutomationsView() {
   const toCommands = useStore((s) => s.automations?.scrollTo === 'commands')
   const [shelf, setShelf] = useState<Shelf>('all')
   const [query, setQuery] = useState('')
+  const flowsOn = useStore((s) => Boolean(s.snapshot?.settings.flows))
   // A template opens as its own page over the library; a schedule still opens in the side panel.
   const template = useSelectedTemplate(selected)
   const flowId = selected?.startsWith('f:') ? selected.slice(2) : null
   const flowDraft = useStore((s) => s.automations?.flowDraft)
   const page = Boolean(template || flowId)
   const scheduleId = selected?.startsWith('s:') ? selected.slice(2) : null
+  const search = flowsOn ? t('automations.searchWithFlows') : t('automations.search')
 
   // A template deleted elsewhere (or a stale id): back to the library.
   useEffect(() => {
@@ -40,8 +43,13 @@ export function AutomationsView() {
 
   // Edit commands… (terminal panel, ⌘K) lands on Commands: CommandsSection scrolls to itself once it's shown.
   useEffect(() => {
-    if (toCommands && shelf === 'templates') setShelf('commands')
+    if (toCommands && shelf !== 'all' && shelf !== 'commands') setShelf('commands')
   }, [toCommands, shelf])
+
+  // Flows turned off in Settings while their tab (or Personas) was open: back to All.
+  useEffect(() => {
+    if (!flowsOn && (shelf === 'flows' || shelf === 'personas')) setShelf('all')
+  }, [flowsOn, shelf])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -115,8 +123,10 @@ export function AutomationsView() {
               <Tab value="all">{t('automations.all')}</Tab>
               <Tab value="templates">{t('automations.templates')}</Tab>
               <Tab value="commands">{t('commands.section')}</Tab>
+              {flowsOn && <Tab value="flows">{t('automations.flows')}</Tab>}
+              {flowsOn && <Tab value="personas">{t('automations.personas')}</Tab>}
             </TabList>
-            <TextInput type="search" className="auto-search" aria-label={t('automations.search')} placeholder={t('automations.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
+            <TextInput type="search" className="auto-search" aria-label={search} placeholder={search} value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
           <TabPanel value="all" className="auto-lib-scroll">
             <FlowsSection query={query} />
@@ -129,6 +139,16 @@ export function AutomationsView() {
           <TabPanel value="commands" className="auto-lib-scroll">
             <CommandsSection query={query} />
           </TabPanel>
+          {flowsOn && (
+            <TabPanel value="flows" className="auto-lib-scroll">
+              <FlowsSection query={query} show="flows" />
+            </TabPanel>
+          )}
+          {flowsOn && (
+            <TabPanel value="personas" className="auto-lib-scroll">
+              <FlowsSection query={query} show="personas" />
+            </TabPanel>
+          )}
         </Tabs>
         <aside className="auto-side" aria-label={t('automations.side.label')}>{scheduleId ? <SelectedSchedule id={scheduleId} /> : <ScheduleOverview />}</aside>
       </div>

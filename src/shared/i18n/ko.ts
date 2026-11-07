@@ -4342,6 +4342,7 @@ export const ko: Catalogue = {
   'automations.show': '표시',
   'automations.all': '전체',
   'automations.search': '템플릿 및 명령 검색',
+  'automations.searchWithFlows': '자동화 검색',
   'automations.noMatches': '“{query}”와 일치하는 항목이 없습니다.',
   'automations.onDemand': '필요할 때',
   'automations.overview.empty': '아직 예약된 항목이 없습니다. 템플릿을 열고 예약…을 선택하면 평일 아침마다, 매주 월요일마다, 또는 한 번만 새 워크스페이스에서 실행할 수 있습니다.',

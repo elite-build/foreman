@@ -1,7 +1,8 @@
 // Flows on Automations (docs/loops-and-graphs.md), shown only while Settings → Experimental → Flows is on: the built-in,
 // repository and personal flows as cards, each opening as its own page in the flow studio (FlowStudio.tsx).
 // Run… starts a flow in a new workspace after showing what the run approves; each flow lists its recent runs. The
-// Personas section (who a flow's step is) follows, with the flows that name each one.
+// Personas section (who a flow's step is) follows on All, with the flows that name each one; the Flows and Personas tabs
+// show one each.
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FLOW_STARTERS } from '../../../../shared/flowStarters'
@@ -16,12 +17,15 @@ import { FlowLensDiagram } from '../FlowDiagram'
 import { RUN_STATE, RUN_TONE } from './flowRunWords'
 import { PersonasSection } from './PersonasSection'
 
-export function FlowsSection({ query }: { query: string }) {
+/** Both sections (the All tab), or one for its own tab. Personas still lists the flows, to say which name each persona. */
+type FlowsShow = 'both' | 'flows' | 'personas'
+
+export function FlowsSection({ query, show = 'both' }: { query: string; show?: FlowsShow }) {
   const on = useStore((s) => Boolean(s.snapshot?.settings.flows))
-  return on ? <FlowList query={query} /> : null
+  return on ? <FlowList query={query} show={show} /> : null
 }
 
-function FlowList({ query }: { query: string }) {
+function FlowList({ query, show }: { query: string; show: FlowsShow }) {
   const t = useT()
   const repos = useStore((s) => s.snapshot!.repos)
   const [flows, setFlows] = useState<FlowListing[]>([])
@@ -43,7 +47,7 @@ function FlowList({ query }: { query: string }) {
 
   return (
     <>
-      {(!needle || shown.length > 0) && (
+      {show !== 'personas' && (show === 'flows' || !needle || shown.length > 0) && (
         <section aria-label={t('automations.flows')}>
           <div className="auto-side-head">
             <span>{t('automations.flows')}</span>
@@ -68,6 +72,7 @@ function FlowList({ query }: { query: string }) {
           ) : (
             <>
               <p className="faint small auto-side-note">{t('automations.flows.note')}</p>
+              {needle && !shown.length && <p className="faint small auto-side-note">{t('automations.noMatches', { query: query.trim() })}</p>}
               <div className="auto-cards">
                 {shown.map((flow) => (
                   <div key={flow.id} className="flow-item">
@@ -81,7 +86,7 @@ function FlowList({ query }: { query: string }) {
           {running && <RunFlowDialog flow={running} onClose={() => setRunning(null)} />}
         </section>
       )}
-      <PersonasSection query={query} usedBy={usedBy} onChanged={() => void load()} />
+      {show !== 'flows' && <PersonasSection query={query} alone={show === 'personas'} usedBy={usedBy} onChanged={() => void load()} />}
     </>
   )
 }

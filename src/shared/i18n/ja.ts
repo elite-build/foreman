@@ -4342,6 +4342,7 @@ export const ja: Catalogue = {
   'automations.show': '表示',
   'automations.all': 'すべて',
   'automations.search': 'テンプレートとコマンドを検索',
+  'automations.searchWithFlows': '自動化を検索',
   'automations.noMatches': '「{query}」に一致するものはありません。',
   'automations.onDemand': '必要なときに実行',
   'automations.overview.empty': 'スケジュールはまだありません。テンプレートを開いて「スケジュール…」を選ぶと、平日の毎朝、毎週月曜、または1回だけ、新しいワークスペースで実行できます。',
