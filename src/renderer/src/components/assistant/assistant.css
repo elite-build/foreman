@@ -315,3 +315,11 @@
   border-top: 1px solid var(--border);
   color: var(--text-soft);
 }
+
+/* A flow proposal (FlowProposalCard): a Card (ui/) of stacked lines. */
+.assistant-flow-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}

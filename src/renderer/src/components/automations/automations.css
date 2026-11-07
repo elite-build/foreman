@@ -432,6 +432,22 @@ div.auto-card {
   margin: 0;
   padding-left: 18px;
 }
+/* What a proposal changes (FlowChanges.tsx): a line per change, its Tag (ui/) first. */
+.flow-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-change {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 /* The run graph above the document: its words, then the diagram (FlowDiagram's Card). */
 .flow-preview {
   display: flex;
@@ -494,6 +510,80 @@ div.auto-card {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Every flow's runs (Flows › Runs): a plain table; Status, LinkButton (ui/) draw themselves. */
+.flow-runs-table {
+  width: calc(100% - 20px);
+  margin: 4px 10px 14px;
+  border-collapse: collapse;
+}
+.flow-runs-table td:first-child {
+  min-width: 140px;
+}
+.flow-runs-table th,
+.flow-runs-table td {
+  padding: 6px 12px 6px 0;
+  text-align: start;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.flow-runs-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The Run dialog: what to do beside what the run does, one column when the window is narrow. */
+.flow-run-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .flow-run-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.flow-run-heading {
+  margin: 0;
+}
+.flow-run-foot-note {
+  margin-right: auto;
+}
+/* What a run does, step by step (FlowStepOutline): an icon, then the step's name and who does it; a loop after its steps. */
+.flow-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-outline-step,
+.flow-outline-loop {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.flow-outline-icon {
+  flex: none;
+  margin-top: 2px;
+}
+.flow-outline-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.flow-outline-loop {
+  padding-left: 22px;
 }
 
 /* ---- personas (beside flows) ---- */

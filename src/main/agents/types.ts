@@ -43,6 +43,8 @@ export interface AssistantTools {
   cliHelp(query: string): string
   cliStatus(): Promise<string>
   runForeman(args: string[]): string
+  // The flow studio's draft is in the turn's context: propose a new version of it (shown to the user, never applied here).
+  proposeFlow?(toml: string, summary: string): string
 }
 
 /**

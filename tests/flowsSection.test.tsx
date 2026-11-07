@@ -184,6 +184,62 @@ describe('Flows on Automations', () => {
   })
 })
 
+describe('every flow’s runs', () => {
+  it('switches the section to a table of runs, newest first, with their state, workspace, cost and where they stopped', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    fakeState.snapshot = {
+      ...fakeState.snapshot,
+      workspaces: [{ id: 'ws-1', name: 'lisbon', state: 'ready' }],
+      flowRuns: [
+        { id: 'old', flow: { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in', starter: 'fix-until-green' }, repoId: 'r1', baseBranch: 'main', inputs: {}, fingerprint: {}, state: 'stopped', reason: 'Stopped by you.', startedAt: '2026-11-05T10:00:00.000Z', endedAt: '2026-11-05T10:12:00.000Z', workspaceId: 'ws-1', steps: [{ name: 'implement', kind: 'turn', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:00:00.000Z', costUsd: 0.5 }, { name: 'fix', kind: 'turn', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:05:00.000Z', costUsd: 0.25 }], loops: {} },
+        { id: 'new', flow: { id: 'repo:r1:.foreman/flows/team.toml', name: 'Team flow', source: 'repo' }, repoId: 'r1', baseBranch: 'main', inputs: {}, fingerprint: {}, state: 'running', startedAt: '2026-11-06T10:00:00.000Z', current: { step: 'checks', iteration: 2 }, steps: [], loops: {} }
+      ]
+    }
+    render(<AutomationsView />)
+    await screen.findByRole('button', { name: 'Run Fix until green…' })
+    await u.click(screen.getByRole('radio', { name: 'Runs' }))
+    const table = screen.getByRole('table', { name: 'Every flow’s runs, newest first' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]).getByText('Team flow')).toBeTruthy()
+    expect(within(rows[0]).getByText('Running')).toBeTruthy()
+    expect(within(rows[1]).getByText('Fix until green')).toBeTruthy()
+    expect(within(rows[1]).getByText('Stopped by you.')).toBeTruthy()
+    expect(within(rows[1]).getByText('$0.75')).toBeTruthy()
+    expect(within(rows[1]).getByText('took 12m 00s')).toBeTruthy()
+    expect(within(rows[1]).getByRole('button', { name: 'lisbon' })).toBeTruthy()
+  })
+})
+
+describe('the Run dialog', () => {
+  it('lays out what to do beside what the run does, and marks the step that keeps it from starting', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    fakeApi.listFlows = vi.fn(async () => [{ ...LISTINGS[0], toml: FLOW_STARTERS[0].toml }])
+    fakeApi.listBranches = vi.fn(async () => [])
+    fakeApi.flowRunPreview = vi.fn(async () => ({
+      fingerprint: {},
+      inputs: [{ name: 'task', description: 'What to build or fix' }],
+      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [{ step: 'review', agent: 'Cursor' }], problems: [] }
+    }))
+    render(<AutomationsView />)
+    await u.click(await screen.findByRole('button', { name: 'Run Fix until green…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Run Fix until green' })
+    expect(within(dialog).getByRole('region', { name: 'What to do' })).toBeTruthy()
+    const does = within(dialog).getByRole('region', { name: 'What the run does' })
+    const outline = within(does).getByRole('list', { name: 'What the run does, step by step' })
+    expect(within(outline).getByText('implement')).toBeTruthy()
+    expect(within(outline).getByText(/fix-until-green repeats checks, fix: at most 4 iterations · at most 45 min/)).toBeTruthy()
+    await waitFor(() => expect(within(outline).getByText('Runs on Cursor: flows run Claude only')).toBeTruthy())
+    expect(within(dialog).queryByText(/These turn steps aren’t on Claude/)).toBeNull()
+    expect(within(dialog).getByText('It can’t start yet: see what’s marked.')).toBeTruthy()
+    expect((within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement).disabled).toBe(true)
+    // The task gets room to write.
+    expect(within(dialog).getByRole('textbox', { name: 'task' }).tagName).toBe('TEXTAREA')
+  })
+})
+
 describe('a flow’s run graph in its dialog', () => {
   it('shows a built-in flow’s run graph, read-only, above its TOML; a file that isn’t a flow has none', async () => {
     const u = userEvent.setup()

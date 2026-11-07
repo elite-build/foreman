@@ -110,7 +110,7 @@ function openWorkspace(f: Fixture, sessionId = f.chatId): void {
 }
 
 // The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
-const FLOW_SCREENS: readonly string[] = ['automations-flows', 'workspace-flow', 'workspace-lineage']
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run-dialog', 'workspace-flow', 'workspace-lineage']
 
 /** Flows on or off. A setting, so it outlives the page, like the window layout. */
 async function flowsSetting(on: boolean): Promise<void> {
@@ -240,6 +240,22 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openAutomations()
     if (!(await waitFor(() => document.querySelectorAll('.automations-view .flow-item').length >= 3))) return null
     return '.automations-view .flow-runs'
+  },
+  // The same section switched to every flow's runs, as a table.
+  'automations-flow-runs': async () => {
+    openAutomations()
+    const runs = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.automations-view [role="radio"]')].find((r) => r.textContent === 'Runs') ?? null)
+    if (!runs) return null
+    runs.click()
+    return '.automations-view .flow-runs-table tbody tr'
+  },
+  // Run… on the first flow: what to do beside what the run does.
+  'automations-flow-run-dialog': async () => {
+    openAutomations()
+    const run = await waitFor(() => document.querySelector<HTMLButtonElement>('.automations-view .flow-item button[aria-label^="Run "]:not(:disabled)'))
+    if (!run) return null
+    run.click()
+    return '[role="dialog"] .flow-outline'
   },
   // A completed run's Flow tab (Run lens), and the same workspace's Lineage tab (Run lens).
   'workspace-flow': (f) => flowTab(f, 'flow'),

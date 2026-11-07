@@ -3,7 +3,7 @@
 // when that can't run it, the gate says why and what to do, and saved threads stay readable.
 import { ArrowUp, Check, CircleAlert, Plug, Plus, RotateCw, Settings2, Sparkles, Square, Trash2, TriangleAlert } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { agentName, assistantToolName, settingEntry, type AssistantGate, type AssistantThreadSummary } from '../../../../shared/assistant'
+import { agentName, assistantToolName, settingEntry, type AssistantGate, type FlowProposal, type AssistantThreadSummary } from '../../../../shared/assistant'
 import { modelInfo } from '../../../../shared/agents'
 import type { ChatItem } from '../../../../shared/types'
 import { formatClock, formatDateTime } from '../../../../shared/i18n/time'
@@ -23,6 +23,7 @@ import {
 import { ActionRow, Button, CardButton, Callout, IconButton, Spinner, Status, TextArea } from '../../ui'
 import { Markdown } from '../Markdown'
 import { ForemanRunRow, wrapForemanCode } from './ForemanRun'
+import { FlowProposalCard } from './FlowProposalCard'
 import './assistant.css'
 
 const EMPTY: ChatItem[] = []
@@ -263,6 +264,7 @@ function ToolRow({ item, t, threadId }: { item: Extract<ChatItem, { kind: 'tool'
   const name = assistantToolName(item.name)
   // A proposed command shows as its own row (Run, Cancel, output), not as the agent's tool call.
   if (name === 'foreman') return <ForemanRunRow threadId={threadId} item={item} />
+  if (name === 'flow-proposal') return <FlowProposalCard proposal={item.input as FlowProposal} />
   if (name === 'run_foreman') return null
   const input = (item.input ?? {}) as { id?: string; query?: string }
   if (name === 'show_setting') {
