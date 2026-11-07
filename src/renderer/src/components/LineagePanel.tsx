@@ -11,7 +11,7 @@ import type { PlainKey } from '../../../shared/i18n'
 import { useT } from '../i18n'
 import { api, attempt, openTurn, showChecksPanel, showToast, useStore } from '../store'
 import { Button, Callout, Card, CardButton, Dialog, Field, Segmented, Spinner, Tag, TextArea } from '../ui'
-import { FlowDiagram } from './FlowDiagram'
+import { FlowGraphView } from './FlowDiagram'
 import './flowRun.css'
 
 const GAP_WORD: Record<LineageGap, PlainKey> = {
@@ -74,7 +74,7 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
         <p className="faint small">{t('lineage.empty')}</p>
       ) : (
         <>
-          <FlowDiagram source={lineage.mermaid} label={lineage.graph.title} className="flow-diagram-natural" />
+          <FlowGraphView graph={lineage.graph} direction="tall" />
           {lineage.gaps.length > 0 && (
             <Callout tone="info" role="note" title={t('lineage.gaps.title')}>
               <p>{t('lineage.gaps.intro')}</p>

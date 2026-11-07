@@ -59,13 +59,16 @@ export interface FlowLayoutOptions {
   start?: string
 }
 
-/** Node sizes in graph units: a step (or a tree), an end, and what a lens adds above the steps. */
-export const FLOW_LAYOUT_SIZE = { step: { width: 140, height: 62 }, end: { width: 76, height: 30 }, side: { width: 140, height: 46 }, note: { width: 176, height: 40 } } as const
+/**
+ * Node sizes in graph units: a step (or a tree), an end, what a lens adds above the steps, and a loop's note. Tall
+ * layouts (a side panel) use narrower steps so two columns fit its width.
+ */
+export const FLOW_LAYOUT_SIZE = { step: { width: 140, height: 62 }, tallStep: { width: 132, height: 62 }, end: { width: 76, height: 30 }, side: { width: 140, height: 46 }, note: { width: 200, height: 52 } } as const
 
 // One grid cell along the path and across it, per direction, and the margin left for arcs over the first row.
 const GRID = {
   wide: { along: 210, across: 134, marginAlong: 24, marginAcross: 44 },
-  tall: { along: 106, across: 210, marginAlong: 24, marginAcross: 64 }
+  tall: { along: 106, across: 186, marginAlong: 24, marginAcross: 50 }
 } as const
 
 // The sides of a cell named by the path: next and previous along it, outer and inner across it (away from and toward
@@ -82,7 +85,8 @@ const PORT_SPACING = 24
 /** A source or memory node only read and written by steps: drawn above the steps, not on the path. */
 const isSatellite = (n: FlowGraphNode, edges: readonly FlowGraphEdge[]) => (n.kind === 'source' || n.kind === 'memory') && edges.every((e) => (e.from !== n.id && e.to !== n.id) || e.kind !== 'fact')
 
-const sizeOf = (n: FlowGraphNode, satellite: boolean) => (n.kind === 'end' ? FLOW_LAYOUT_SIZE.end : satellite ? FLOW_LAYOUT_SIZE.side : FLOW_LAYOUT_SIZE.step)
+const stepSize = (direction: FlowLayoutDirection) => (direction === 'tall' ? FLOW_LAYOUT_SIZE.tallStep : FLOW_LAYOUT_SIZE.step)
+const sizeOf = (n: FlowGraphNode, satellite: boolean, direction: FlowLayoutDirection) => (n.kind === 'end' ? FLOW_LAYOUT_SIZE.end : satellite ? { ...FLOW_LAYOUT_SIZE.side, width: stepSize(direction).width } : stepSize(direction))
 
 export function layoutFlowGraph(graph: FlowGraph, options: FlowLayoutOptions = {}): FlowLayout {
   const direction = options.direction ?? 'wide'
@@ -211,9 +215,9 @@ export function layoutFlowGraph(graph: FlowGraph, options: FlowLayoutOptions = {
   const nodes: FlowLayoutNode[] = []
   for (const [id, p] of placed) {
     const n = byId.get(p.of)!
-    const size = sizeOf(n, satellites.has(p.of))
+    const size = sizeOf(n, satellites.has(p.of), direction)
     const c = cell(p.rank, lane.get(id)!)
-    const box = FLOW_LAYOUT_SIZE.step
+    const box = stepSize(direction)
     nodes.push({ id, of: p.of, x: c.x + (box.width - size.width) / 2, y: c.y + (box.height - size.height) / 2, width: size.width, height: size.height })
   }
   nodes.sort((a, b) => (direction === 'wide' ? a.x - b.x || a.y - b.y : a.y - b.y || a.x - b.x))
@@ -273,28 +277,25 @@ export function layoutFlowGraph(graph: FlowGraph, options: FlowLayoutOptions = {
     back: l.back
   }))
 
-  // ---- loop notes: wide, in a row past the last lane under each loop's first step; tall, in rows after the last step,
-  // so a side panel doesn't widen. Never on top of one another. ----
+  // ---- loop notes: wide, in a row past the last lane under each loop's first step; tall, one per row after the last
+  // step, as wide as the columns, so a side panel doesn't widen. Never on top of one another. ----
   const notes: FlowLayoutNote[] = []
   const noteSize = FLOW_LAYOUT_SIZE.note
   const lastRank = Math.max(0, ...[...placed.values()].map((p) => p.rank))
-  const rowWidth = cell(0, maxLane).x + FLOW_LAYOUT_SIZE.step.width
+  const left = cell(0, minLane).x
+  const columns = cell(0, maxLane).x + stepSize(direction).width - left
   for (const loop of graph.loops) {
     const members = loop.over.map((s) => `step:${s}`).filter((id) => placed.has(id))
     if (!members.length) continue
-    const first = Math.min(...members.map((id) => placed.get(id)!.rank))
-    const c = direction === 'wide' ? cell(first, maxLane + 1) : cell(lastRank + 1, minLane)
     const prev = notes.at(-1)
-    if (prev && direction === 'wide') c.x = Math.max(c.x, prev.x + prev.width + NOTE_GAP)
-    if (prev && direction === 'tall') {
-      c.x = prev.x + prev.width + NOTE_GAP
-      c.y = prev.y
-      if (c.x + noteSize.width > rowWidth) {
-        c.x = cell(0, minLane).x
-        c.y = prev.y + prev.height + NOTE_GAP
-      }
+    if (direction === 'wide') {
+      const first = Math.min(...members.map((id) => placed.get(id)!.rank))
+      const c = cell(first, maxLane + 1)
+      notes.push({ loop: loop.name, x: prev ? Math.max(c.x, prev.x + prev.width + NOTE_GAP) : c.x, y: c.y, width: noteSize.width, height: noteSize.height })
+    } else {
+      const y = prev ? prev.y + prev.height + NOTE_GAP : cell(lastRank + 1, minLane).y
+      notes.push({ loop: loop.name, x: left, y, width: Math.max(noteSize.width, columns), height: noteSize.height })
     }
-    notes.push({ loop: loop.name, x: c.x, y: c.y, width: noteSize.width, height: noteSize.height })
   }
 
   const right = Math.max(0, ...nodes.map((n) => n.x + n.width), ...notes.map((n) => n.x + n.width))

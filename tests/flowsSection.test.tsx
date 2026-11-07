@@ -254,11 +254,10 @@ describe('a flow’s run graph in its dialog', () => {
     // Above the document.
     const editor = within(dialog).getByRole('textbox', { name: 'Flow (TOML)' })
     expect(picture.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // The wide Flows dialog keeps the run graph left to right.
-    expect(mermaid.sources.at(-1)).toContain('flowchart LR')
-    expect(mermaid.sources.at(-1)).toContain('subgraph')
-    // Nothing in a run's state: a flow on its own has no run.
-    expect(mermaid.sources.at(-1)).not.toContain('not yet')
+    // Its steps are drawn with a note per loop and its bounds; nothing in a run's state, as a flow on its own has no run.
+    expect(within(picture).getByText('implement')).toBeTruthy()
+    expect(within(picture).getByText('fix-until-green')).toBeTruthy()
+    expect(picture.querySelector('.ui-graph__node[data-tone]')).toBeNull()
     await u.click(within(dialog).getByRole('button', { name: 'Close' }))
 
     await u.click(screen.getByRole('button', { name: /^broken/ }))

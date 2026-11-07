@@ -126,8 +126,8 @@ async function flowTab(f: Fixture, tab: 'flow' | 'lineage'): Promise<string | nu
   const button = await waitFor(element(`.side-panel [role="tab"][data-tab-value="${tab}"]`))
   if (!button) return null
   button.click()
-  // Mermaid renders after the panel mounts (a lazily loaded chunk); the Spinner stands in until the SVG is there.
-  return '.side-panel .flow-run .flow-diagram .mmd-view svg'
+  // The graph is drawn once the tab has read the run (the Flow tab) or the history (Lineage).
+  return '.side-panel .flow-run .ui-graph .ui-graph__node'
 }
 
 // Each screen: get there, and name what shows it has rendered.

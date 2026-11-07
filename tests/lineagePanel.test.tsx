@@ -73,7 +73,7 @@ describe('the Lineage tab', () => {
     render(<LineagePanel workspaceId="w1" />)
     const outline = await screen.findByRole('list', { name: 'What happened, in order' })
     expect(fakeApi.workspaceLineage).toHaveBeenCalledWith('w1', 'run')
-    await waitFor(() => expect(mermaid.sources.at(-1)).toContain('accTitle: lisbon · Run'))
+    expect(await screen.findByRole('img', { name: 'lisbon · Run' })).toBeTruthy()
     const review = within(outline).getByRole('button', { name: /^Code review · T1/ })
     expect(review.textContent).toContain('handed off (review) from Login bug · T1 (inferred)')
     expect(review.textContent).toContain('needs: Session.handedOffFrom')
@@ -92,7 +92,7 @@ describe('the Lineage tab', () => {
     await screen.findByRole('list', { name: 'What happened, in order' })
     await user.click(screen.getByRole('radio', { name: 'Data' }))
     await waitFor(() => expect(fakeApi.workspaceLineage).toHaveBeenLastCalledWith('w1', 'data'))
-    await waitFor(() => expect(mermaid.sources.at(-1)).toContain('accTitle: lisbon · Data'))
+    expect(await screen.findByRole('img', { name: 'lisbon · Data' })).toBeTruthy()
   })
 
   it('Make a flow from this… shows the draft read-only, what it leaves out, and saves or copies it', async () => {
