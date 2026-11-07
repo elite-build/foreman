@@ -2,6 +2,23 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.18 (2026-11-07)
+
+### Added
+
+- With **Flows** on, **Automations** has **Flows** and **Personas** tabs beside **Templates** and **Commands**. ([#104](https://github.com/elite-build/foreman/pull/104))
+- Choose a flow run's models: **Faster**, **Balanced** or **Best** for the whole run, a model and effort per persona under **Who works on it**, or per step on **Steps**. Your choices are remembered per flow, and **Save to the flow** keeps them in a personal flow. A flow step can also set `effort` in its flow file. ([#105](https://github.com/elite-build/foreman/pull/105))
+
+### Changed
+
+- Running a flow opens a **Run a flow** page in **Automations**, with its inputs, models and approval in tabs beside the flow's graph; **Run** on a flow and the **Flow** tab in **New workspace** open it. ([#105](https://github.com/elite-build/foreman/pull/105))
+- The built-in personas end the way a flow reads them, so a clean review no longer counts as undecided and a reviewer no longer tries to run tests in a step without a shell. ([#106](https://github.com/elite-build/foreman/pull/106))
+
+### Development
+
+- `docs/persona-template.md` is the template every built-in persona follows, with the review that produced it. ([#106](https://github.com/elite-build/foreman/pull/106))
+- `npm run dev` in a Foreman workspace serves the renderer from the workspace's reserved port, so it no longer fails with `EACCES` when Windows has reserved port 5173. ([#103](https://github.com/elite-build/foreman/pull/103))
+
 ## 1.0.17 (2026-11-07)
 
 ### Added
