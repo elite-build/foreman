@@ -14,13 +14,12 @@ import { FLOW_STARTERS, type FlowStarter } from '../../../../shared/flowStarters
 import { flowTomlBlocks, problemLine, stepAtLine, tokenizeFlowToml } from '../../../../shared/flowToml'
 import type { ChatItem } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
-import { api, attempt, loadAssistant, openFlowDraft, selectAutomation, showToast, useStore, type FlowDraftOpen } from '../../store'
+import { api, attempt, loadAssistant, openFlowDraft, openFlowRun, selectAutomation, showToast, type FlowDraftOpen, useStore } from '../../store'
 import { Button, Callout, Card, CardButton, ChipButton, CodeEditor, Field, IconButton, LinkButton, MenuButton, MenuItem, Resizer, Select, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, type CodeEditorMark } from '../../ui'
 import { Composer, Conversation, GateLine } from '../assistant/AssistantView'
 import { FlowGraphView, useSettled } from '../FlowDiagram'
 import { FlowChangeList } from './FlowChanges'
 import { flowTitle, SourceTags, STARTER_NAME } from './FlowStartFields'
-import { RunFlowDialog } from './FlowsSection'
 import { STEP_KIND } from './flowRunWords'
 
 type PanelTab = 'assistant' | 'steps' | 'toml' | 'problems'
@@ -70,7 +69,6 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
   // What became of each proposal, wherever it was answered (its card, or the bar over the graph).
   const [resolved, setResolved] = useState<Record<string, 'applied' | 'dismissed'>>({})
   const [ask, setAsk] = useState<{ text: string; at: number } | undefined>(undefined)
-  const [running, setRunning] = useState(false)
   const dirty = toml !== saved.toml
 
   const parsed = useMemo(() => parseFlow(toml, source, t), [toml, source, t])
@@ -188,7 +186,7 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
           </Field>
         )}
         <span className="flow-studio-actions">
-          <Button size="sm" icon={<Play size={12} />} disabled={!saved.listing || dirty || problems.length > 0} title={!saved.listing || dirty ? t('flowStudio.saveFirst') : undefined} onClick={() => setRunning(true)}>
+          <Button size="sm" icon={<Play size={12} />} disabled={!saved.listing || dirty || problems.length > 0} title={!saved.listing || dirty ? t('flowStudio.saveFirst') : undefined} onClick={() => saved.listing && openFlowRun(saved.listing.id, { repoId: saved.listing.repoId })}>
             {t('automations.flows.run')}
           </Button>
           {editable ? (
@@ -350,7 +348,6 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
           </TabPanel>
         </Tabs>
       </div>
-      {running && saved.listing && <RunFlowDialog flow={saved.listing} onClose={() => setRunning(false)} />}
     </div>
   )
 }

@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-07: A flow starts from its own page, where a run chooses its models
+
+**Decision.** Run a flow is a page in Automations (flow, base branch, estimate and Start over Task, Models, Steps and Approves tabs beside the graph), replacing the Run dialog and the flow form in New workspace. A run may choose each agent step's model and effort: a tier, a person's choice for their steps, or one step. Only what differs from the flow is sent, checked by the flow's own agent rules, and kept on the run; it isn't part of the approved fingerprint.
+
+**Why.** The dialog stacked the picker, inputs, a clipped graph and the approval in one scroll, and a flow's models could only be changed by editing it.
+
+**Turned down.** Models in the fingerprint (they arrive with the start, so there is nothing to approve ahead). One model for every step (too coarse for planners and reviewers). A price-based estimate (no price table to keep current).
+
+**Revisit when.** Schedules, `start_flow` or the CLI need to choose models too.
+
 ## 2026-11-06: A flow is drawn on a selectable graph laid out by Foreman, and edited with the assistant beside it
 
 **Decision.** Flows, runs and lineage are drawn with a `Graph` component from `ui/` and a layout in `src/shared/flowLayout.ts` (main path along one axis, a loop's body folded under the step it returns to), not with Mermaid. A step or exit can be selected to open it; the outline stays the full keyboard and screen-reader equivalent. The assistant proposes a whole new flow document (`propose_flow`), shown as its changes, and changes nothing until the user applies it. Nothing is dragged.

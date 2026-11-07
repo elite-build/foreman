@@ -48,6 +48,9 @@ export const FLOW_DONE = 'done'
 /** Context a step can be shown that belongs to no single step. Anything else is `step.section`. */
 export const FLOW_CONTEXT_SOURCES = ['task', 'diff', 'tree', 'note', 'ledger', 'attachments', 'comments'] as const
 
+/** The effort levels a step may name (agents.ts EffortLevel); which of them a model takes is the model's. */
+export const FLOW_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+
 /** Who runs an agent step and what it is shown: the parts `turn`, `review` and `decide` share. */
 interface AgentStepFields {
   persona?: string
@@ -55,6 +58,8 @@ interface AgentStepFields {
   loadout?: number
   agent?: string
   model?: string
+  // The thinking effort its turns run at (an EffortLevel); otherwise the loadout's, else the model's default.
+  effort?: string
   context?: string[]
   // Narrowing only (see applyPersona): read-only on, or fewer of the persona's MCP servers.
   read_only?: boolean
@@ -171,11 +176,11 @@ const isTable = (v: unknown): v is Table => typeof v === 'object' && v !== null 
 const STEP_NAME = /^[A-Za-z0-9][\w-]*$/
 
 const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
-  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'context', 'same_tab', 'read_only', 'mcp', 'writes'],
+  turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'effort', 'context', 'same_tab', 'read_only', 'mcp', 'writes'],
   checks: [],
   script: ['command'],
-  review: ['persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
-  decide: ['options', 'persona', 'loadout', 'agent', 'model', 'prompt', 'context', 'read_only', 'mcp'],
+  review: ['persona', 'loadout', 'agent', 'model', 'effort', 'prompt', 'context', 'read_only', 'mcp'],
+  decide: ['options', 'persona', 'loadout', 'agent', 'model', 'effort', 'prompt', 'context', 'read_only', 'mcp'],
   workspace: ['from'],
   wait: ['on', 'at_most'],
   gate: ['show', 'ask'],
@@ -335,6 +340,11 @@ function stepFrom(name: string, body: unknown, problems: string[], warnings: str
     if (agentName) out.agent = agentName
     const model = text('model')
     if (model) out.model = model
+    const effort = text('effort')
+    if (effort) {
+      if ((FLOW_EFFORTS as readonly string[]).includes(effort)) out.effort = effort
+      else problems.push(t('flows.problem.effort', { step: name, value: effort, efforts: FLOW_EFFORTS.join(', ') }))
+    }
     const context = list('context')
     if (context) out.context = context
     if (body.read_only !== undefined) {
@@ -786,8 +796,9 @@ export interface FlowRunStep {
   moved?: true
   // What its turn cost, when the agent says (Claude's result items), in USD.
   costUsd?: number
-  // The model its turn ran on (an agent step).
+  // The model its turn ran on (an agent step), and the effort, when one was chosen for it.
   model?: string
+  effort?: string
   // How full the tab's context window was when its turn ended, as the agent said (Claude per turn; others a total).
   usage?: { used: number; limit: number }
   // The memory files the agent's context breakdown named (Claude), as it named them.
@@ -869,6 +880,8 @@ export interface FlowRun {
   loops: Record<string, FlowRunLoop>
   // Each loop's steps and bounds as the flow said when the run started, so a run can be shown without its file.
   bounds?: Record<string, { over: string[]; iterations?: number; minutes?: number; cost?: number; times?: number; then?: string }>
+  // The models chosen for this run's agent steps when it started (FlowRunStart.models); the rest ran as the flow says.
+  models?: FlowModelChoices
   // A gate's "Send back" note, carried to the next step's message and then cleared.
   note?: string
   // The gate the note came from, named in the message that carries it.
@@ -912,6 +925,35 @@ export interface FlowRunPreview {
   summary: FlowRunSummary
   // The values a run asks for: the flow's [inputs] and its templates' {{placeholders}}.
   inputs: { name: string; description: string }[]
+  // Each agent step a run can choose a model for, with the one the flow gives it.
+  models?: FlowStepModel[]
+}
+
+/** The agent, model and effort one agent step runs on. */
+export interface FlowStepChoice {
+  agent: string
+  model: string
+  effort?: string
+}
+
+/** A run's own choices, by agent step name; a step not named runs as the flow says. */
+export type FlowModelChoices = Record<string, FlowStepChoice>
+
+/**
+ * An agent step whose model a run can choose (one that doesn't continue another step's tab), with what the flow gives
+ * it and where that comes from: the step itself, its persona, a loadout slot, or loadout 1 by default.
+ */
+export interface FlowStepModel {
+  step: string
+  kind: 'turn' | 'review' | 'decide'
+  persona?: string
+  // The turn steps that continue its tab, and so run on its model.
+  follows?: string[]
+  // Whether it is held read-only (a review or decide always is), which is what lets it run on Codex.
+  readOnly: boolean
+  choice: FlowStepChoice
+  from: 'step' | 'persona' | 'slot' | 'default'
+  slot?: number
 }
 
 export interface FlowRunStart {
@@ -922,6 +964,8 @@ export interface FlowRunStart {
   inputs: Record<string, string>
   // The fingerprint the caller showed; the run is refused when it is no longer what would run.
   shown: FlowFingerprint
+  // Models chosen for this run, by agent step; checked as a step's own agent and model would be.
+  models?: FlowModelChoices
 }
 
 /** The active run a workspace belongs to (its current workspace, or another the run made), else its latest run. */

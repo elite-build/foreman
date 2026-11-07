@@ -1,19 +1,15 @@
-// What starting a flow shows wherever it starts (docs/loops-and-graphs.md, "Running a flow"): the Run dialog on
-// Automations, New workspace's Start with › Flow, and a flow schedule. The flow's name and source, a picker of the
-// repository's runnable flows, one field per input, its run graph, and the approval card (the flow file, templates,
+// What starting a flow shows wherever it starts (docs/loops-and-graphs.md, "Running a flow"): the Run a flow page and a
+// flow schedule. The flow's name and source, a picker of the repository's runnable flows, one field per input, and the
+// approval card (the flow file, templates,
 // personas, setup, checks, MCP servers, integrations, what a completed run does with its workspaces) with the Claude-only
 // rule and why it can't start. Feature compositions of ui/ pieces only; the caller owns the dialog and what Start does.
-import { Bot, Clock, Eye, FolderGit2, GitPullRequest, ListChecks, Repeat, Shuffle, Split, SquareTerminal, UserCheck, type LucideIcon } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import { modelWords } from '../../../../shared/flowGraph'
+import { useEffect, useState } from 'react'
 import { FLOW_AFTER, parseFlow, stepPersona, type FlowAfter, type FlowListing, type FlowLoop, type FlowPersonaRef, type FlowRunPreview, type FlowRunSummary, type FlowStep, type FlowStepKind } from '../../../../shared/flows'
 import type { FlowStarter } from '../../../../shared/flowStarters'
 import type { PlainKey } from '../../../../shared/i18n'
 import { useT, type RendererT } from '../../i18n'
 import { api, useStore } from '../../store'
 import { Callout, Card, Field, RadioCards, Status, Tag, TextArea, TextInput, type RadioCardOption } from '../../ui'
-import { FlowLensDiagram } from '../FlowDiagram'
-import { STEP_KIND } from './flowRunWords'
 
 export const STARTER_NAME: Record<FlowStarter['id'], PlainKey> = {
   'fix-until-green': 'automations.flows.starter.fixUntilGreen',
@@ -73,8 +69,8 @@ export function ProblemList({ items }: { items: string[] }) {
   )
 }
 
-/** The flows a run in this repository may start: built-in, the repository's and personal ones that read as flows. Null while loading. */
-export function useRunnableFlows(repoId: string | undefined, on = true): FlowListing[] | null {
+/** The flows a run in this repository may start: built-in, the repository's and personal ones that read as flows. Null while loading; `reload` asks again. */
+export function useRunnableFlows(repoId: string | undefined, on = true, reload = 0): FlowListing[] | null {
   const [flows, setFlows] = useState<FlowListing[] | null>(null)
   useEffect(() => {
     if (!repoId || !on) return
@@ -87,7 +83,7 @@ export function useRunnableFlows(repoId: string | undefined, on = true): FlowLis
     return () => {
       live = false
     }
-  }, [repoId, on])
+  }, [repoId, on, reload])
   return flows
 }
 
@@ -137,65 +133,6 @@ export function FlowInputFields({ preview, values, onChange }: { preview: FlowRu
   )
 }
 
-const KIND_ICON: Record<FlowStepKind, LucideIcon> = { pr: GitPullRequest, turn: Bot, review: Eye, checks: ListChecks, gate: UserCheck, script: SquareTerminal, decide: Split, workspace: FolderGit2, wait: Clock, pick: Shuffle }
-
-/** A loop's bounds in words: "at most 4 iterations · at most 45 min". */
-function loopBounds(loop: FlowLoop, t: RendererT): string {
-  const { iterations, minutes, cost } = loop.at_most
-  return [iterations !== undefined ? t('flowGraph.loop.atMostIterations', { max: iterations }) : null, minutes !== undefined ? t('flowGraph.loop.atMostMinutes', { max: minutes }) : null, cost !== undefined ? t('flowGraph.loop.atMostCost', { max: cost.toFixed(2) }) : null]
-    .filter(Boolean)
-    .join(' · ')
-}
-
-/**
- * What a run does, step by step, in the file's order: each step's kind, who does it and on what, and each loop after
- * the last of its steps with its bounds. A step that keeps the run from starting (not on Claude) says so on its line.
- */
-export function FlowStepOutline({ flow, notClaude = [] }: { flow: FlowListing; notClaude?: FlowRunSummary['notClaude'] }) {
-  const t = useT()
-  const loadouts = useStore((s) => s.snapshot?.settings.loadouts)
-  const parsed = useMemo(() => parseFlow(flow.toml, flow.source, t), [flow.toml, flow.source, t])
-  if (!('flow' in parsed)) return null
-  const { steps, loops } = parsed.flow
-  const who = (step: FlowStep) => {
-    if (!('context' in step || step.kind === 'turn' || step.kind === 'review' || step.kind === 'decide')) return []
-    const agentStep = step as Extract<FlowStep, { kind: 'turn' | 'review' | 'decide' }>
-    const persona = stepPersona(parsed.flow, step)
-    const slot = agentStep.loadout ? loadouts?.[agentStep.loadout - 1] : undefined
-    const model = agentStep.model ?? slot?.model
-    return [persona, model ? modelWords(model) : agentStep.agent].filter((x): x is string => Boolean(x))
-  }
-  const lastOf = (loop: FlowLoop) => steps.reduce((last, s, i) => (loop.over.includes(s.name) ? i : last), -1)
-  return (
-    <ol className="flow-outline" aria-label={t('flowRun.outline.label')}>
-      {steps.map((step, i) => {
-        const Icon = KIND_ICON[step.kind]
-        const refused = notClaude.find((n) => n.step === step.name)
-        return (
-          <Fragment key={step.name}>
-            <li className="flow-outline-step">
-              <Icon size={14} aria-hidden className="flow-outline-icon" />
-              <span className="flow-outline-text">
-                <code>{step.name}</code>
-                <span className="faint small">{[t(STEP_KIND[step.kind]), ...who(step)].join(' · ')}</span>
-                {refused && <Status tone="error" label={t('flowRun.outline.notClaude', { agent: refused.agent })} />}
-              </span>
-            </li>
-            {loops
-              .filter((loop) => lastOf(loop) === i)
-              .map((loop) => (
-                <li key={`loop:${loop.name}`} className="flow-outline-loop small">
-                  <Repeat size={12} aria-hidden />
-                  <span>{t('flowRun.outline.loop', { loop: loop.name, steps: loop.over.join(', '), bounds: loopBounds(loop, t) })}</span>
-                </li>
-              ))}
-          </Fragment>
-        )
-      })}
-    </ol>
-  )
-}
-
 /** "6 steps · 2 loops · 1 gate · architect, developer": a flow picker card's line. */
 function pickerLine(flow: FlowListing, t: RendererT): string {
   const personas = flow.summary?.personas ?? []
@@ -207,19 +144,6 @@ export function FlowPicker({ flows, value, onChange, legend }: { flows: FlowList
   const t = useT()
   const options: RadioCardOption<string>[] = flows.map((flow) => ({ value: flow.id, label: flowTitle(flow, t), description: pickerLine(flow, t) }))
   return <RadioCards className="flow-picker" layout="stack" legend={legend} value={value} onChange={onChange} options={options} />
-}
-
-/** The flow's run graph, read-only, as the Flows dialog draws it. */
-export function FlowRunGraph({ flow }: { flow: FlowListing }) {
-  const t = useT()
-  const parsed = useMemo(() => parseFlow(flow.toml, flow.source, t), [flow.toml, flow.source, t])
-  if (!('flow' in parsed)) return null
-  return (
-    <div className="flow-preview">
-      <span className="small">{t('automations.flows.preview')}</span>
-      <FlowLensDiagram flow={parsed.flow} lens="run" />
-    </div>
-  )
 }
 
 /** Where a persona a run approves comes from: built-in, personal (and when it was saved), or its file and revision. */

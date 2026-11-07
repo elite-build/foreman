@@ -113,62 +113,26 @@ describe('Flows on Automations', () => {
     expect(storeModule.openFlowDraft).toHaveBeenCalledWith({ toml: FLOW_STARTERS[0].toml, describe: true })
   })
 
-  it('Run… shows what starting the flow approves, asks for its inputs, and starts it with the fingerprint shown', async () => {
+  it('Run… opens the Run a flow page on the flow, in its repository', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
-    const fingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
-    fakeApi.listBranches = vi.fn(async () => [{ name: 'main', local: true, remote: true, isDefault: true }, { name: 'dev', local: true, remote: false, isDefault: false }])
-    fakeApi.flowRunPreview = vi.fn(async () => ({
-      fingerprint,
-      inputs: [{ name: 'task', description: 'What to build' }],
-      summary: {
-        flowName: 'Team flow', flowSource: 'repo', flowFile: '.foreman/flows/team.toml', flowRev: 'abcdef1234567890', repoName: 'foreman', baseBranch: 'main',
-        steps: 3, loops: 1, gates: 1, personas: [{ name: 'developer', source: 'repo', file: '.foreman/personas/developer.md', rev: '1234567abcdef' }, { name: 'qa-engineer', source: 'built-in', readOnly: true }], templates: [], setupScript: 'npm ci', checks: [{ name: 'Tests', command: 'npm test' }],
-        mcpServers: [], integrations: [], notClaude: [], problems: []
-      }
-    }))
-    fakeApi.startFlowRun = vi.fn(async () => ({ id: 'run' }))
     render(<AutomationsView />)
     await u.click(await screen.findByRole('button', { name: 'Run Team flow…' }))
-    const dialog = screen.getByRole('dialog', { name: 'Run Team flow' })
-    await waitFor(() => expect(within(dialog).getByText('What starting it approves')).toBeTruthy())
-    expect(fakeApi.flowRunPreview).toHaveBeenCalledWith({ flowId: 'repo:r1:.foreman/flows/team.toml', repoId: 'r1', baseBranch: 'main' })
-    // A repository's flow runs in its repository, so there is no repository to pick.
-    expect(within(dialog).queryByRole('combobox', { name: 'Repository' })).toBeNull()
-    // Each persona with where it comes from and its revision: what the run approves.
-    expect(within(dialog).getByText('developer (.foreman/personas/developer.md @ 1234567), qa-engineer (Built-in · read-only)')).toBeTruthy()
-    expect(within(dialog).getByText('Tests')).toBeTruthy()
-    expect(within(dialog).getByText(/Unattended turns are Claude only/)).toBeTruthy()
-    const start = within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement
-    expect(start.disabled).toBe(true)
-    await u.type(within(dialog).getByRole('textbox', { name: 'task' }), 'add a button')
-    await u.click(start)
-    expect(fakeApi.startFlowRun).toHaveBeenCalledWith({ flowId: 'repo:r1:.foreman/flows/team.toml', source: 'repo', repoId: 'r1', baseBranch: 'main', inputs: { task: 'add a button' }, shown: fingerprint })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(storeModule.openFlowRun).toHaveBeenCalledWith('repo:r1:.foreman/flows/team.toml', { repoId: 'r1' })
+    await u.click(screen.getByRole('button', { name: 'Run Fix until green…' }))
+    expect(storeModule.openFlowRun).toHaveBeenLastCalledWith('built-in:fix-until-green', { repoId: undefined })
   })
 
-  it('a flow that can’t run says why, and Start stays off; a cost bound says it counts Claude turns only; each flow lists its runs', async () => {
-    const u = userEvent.setup()
+  it('each flow lists its runs: how it ended, why, and its workspace', async () => {
     setSnapshot(true)
     fakeState.snapshot = { ...fakeState.snapshot, workspaces: [{ id: 'ws-1', name: 'lisbon', state: 'ready' }], flowRuns: [
       { id: 'run', flow: { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in' }, repoId: 'r1', baseBranch: 'main', inputs: {}, fingerprint: {}, state: 'stopped', reason: 'Stopped by you.', startedAt: '2026-11-05T10:00:00.000Z', workspaceId: 'ws-1', steps: [], loops: {} }
     ] }
-    fakeApi.listBranches = vi.fn(async () => [])
-    fakeApi.flowRunPreview = vi.fn(async () => ({
-      fingerprint: {},
-      inputs: [],
-      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [{ step: 'review', agent: 'Cursor' }], problems: [], costBound: true }
-    }))
     render(<AutomationsView />)
     const runs = await screen.findByRole('list', { name: 'Runs of Fix until green' })
     expect(within(runs).getByText('Stopped')).toBeTruthy()
     expect(within(runs).getByText('Stopped by you.')).toBeTruthy()
     expect(within(runs).getByRole('button', { name: 'lisbon' })).toBeTruthy()
-    await u.click(screen.getByRole('button', { name: 'Run Fix until green…' }))
-    const dialog = screen.getByRole('dialog', { name: 'Run Fix until green' })
-    await waitFor(() => expect(within(dialog).getByText('These turn steps aren’t on Claude, so the flow can’t run unattended (review and decide steps may run on Codex): review (Cursor)')).toBeTruthy())
-    expect(within(dialog).getByText('The cost bound applies to Claude turns only: other agents don’t say what a turn cost.')).toBeTruthy()
-    expect((within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
 
@@ -197,33 +161,5 @@ describe('every flow’s runs', () => {
     expect(within(rows[1]).getByText('$0.75')).toBeTruthy()
     expect(within(rows[1]).getByText('took 12m 00s')).toBeTruthy()
     expect(within(rows[1]).getByRole('button', { name: 'lisbon' })).toBeTruthy()
-  })
-})
-
-describe('the Run dialog', () => {
-  it('lays out what to do beside what the run does, and marks the step that keeps it from starting', async () => {
-    const u = userEvent.setup()
-    setSnapshot(true)
-    fakeApi.listFlows = vi.fn(async () => [{ ...LISTINGS[0], toml: FLOW_STARTERS[0].toml }])
-    fakeApi.listBranches = vi.fn(async () => [])
-    fakeApi.flowRunPreview = vi.fn(async () => ({
-      fingerprint: {},
-      inputs: [{ name: 'task', description: 'What to build or fix' }],
-      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [{ step: 'review', agent: 'Cursor' }], problems: [] }
-    }))
-    render(<AutomationsView />)
-    await u.click(await screen.findByRole('button', { name: 'Run Fix until green…' }))
-    const dialog = screen.getByRole('dialog', { name: 'Run Fix until green' })
-    expect(within(dialog).getByRole('region', { name: 'What to do' })).toBeTruthy()
-    const does = within(dialog).getByRole('region', { name: 'What the run does' })
-    const outline = within(does).getByRole('list', { name: 'What the run does, step by step' })
-    expect(within(outline).getByText('implement')).toBeTruthy()
-    expect(within(outline).getByText(/fix-until-green repeats checks, fix: at most 4 iterations · at most 45 min/)).toBeTruthy()
-    await waitFor(() => expect(within(outline).getByText('Runs on Cursor: flows run Claude only')).toBeTruthy())
-    expect(within(dialog).queryByText(/These turn steps aren’t on Claude/)).toBeNull()
-    expect(within(dialog).getByText('It can’t start yet: see what’s marked.')).toBeTruthy()
-    expect((within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement).disabled).toBe(true)
-    // The task gets room to write.
-    expect(within(dialog).getByRole('textbox', { name: 'task' }).tagName).toBe('TEXTAREA')
   })
 })

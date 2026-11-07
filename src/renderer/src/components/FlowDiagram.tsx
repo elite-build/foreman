@@ -59,11 +59,13 @@ export interface FlowGraphViewProps {
   selectableEdges?: boolean
   // A tiny picture with no text (the flows list's cards).
   thumbnail?: boolean
+  // The line under a node's name, by node id ("step:<name>"), instead of who runs it (the Run a flow page's models).
+  details?: Record<string, string>
   className?: string
 }
 
 /** The Graph's props for a flow graph: nodes and edges placed by the layout, worded for this locale. */
-export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirection, start: string | undefined, t: RendererT) {
+export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirection, start: string | undefined, t: RendererT, details?: Record<string, string>) {
   return useMemo(() => {
     const layout = layoutFlowGraph(graph, { direction, ...(start ? { start } : {}) })
     const byId = new Map(graph.nodes.map((n) => [n.id, n]))
@@ -89,7 +91,7 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
               )
             }
           : {}),
-        ...(detailOf(n, graph.lens) ? { detail: detailOf(n, graph.lens) } : {}),
+        ...((details?.[n.id] ?? detailOf(n, graph.lens)) ? { detail: details?.[n.id] ?? detailOf(n, graph.lens) } : {}),
         ...(tone && n.state ? { tone, toneLabel: t(STATE_WORD[n.state]) } : {}),
         ...(n.state === 'not-yet' ? { dim: true } : {}),
         ...(n.runs && n.runs > 1 ? { badge: `×${n.runs}` } : {}),
@@ -123,7 +125,7 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
       }
     })
     return { width: layout.width, height: layout.height, nodes, edges, notes }
-  }, [graph, direction, start, t])
+  }, [graph, direction, start, t, details])
 }
 
 /** The toolbar's words. */
@@ -139,9 +141,9 @@ export function useGraphLabels(): GraphLabels {
 const FIT_AT_LEAST = 0.7
 
 /** A flow graph as the design system's Graph, with a full-screen view that opens in a dialog. */
-export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, selectableEdges, thumbnail, className }: FlowGraphViewProps) {
+export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, selectableEdges, thumbnail, details, className }: FlowGraphViewProps) {
   const t = useT()
-  const props = useFlowGraphProps(graph, direction, start, t)
+  const props = useFlowGraphProps(graph, direction, start, t, details)
   const labels = useGraphLabels()
   const [full, setFull] = useState(false)
   // The zoom follows the width while that keeps the words readable, else 100% and it scrolls; once the toolbar (or
@@ -200,6 +202,7 @@ export function FlowLensDiagram({
   selected,
   onSelect,
   thumbnail,
+  details,
   className
 }: {
   flow?: Flow
@@ -210,12 +213,13 @@ export function FlowLensDiagram({
   selected?: string | null
   onSelect?: (id: string | null) => void
   thumbnail?: boolean
+  details?: Record<string, string>
   className?: string
 }) {
   const t = useT()
   const graph = useMemo(() => flowGraph(flow, run, lens, { t, locale: t.locale, workspaceNames }), [flow, run, lens, t, workspaceNames])
   const start = flow?.start ? `step:${flow.start}` : run?.steps[0] ? `step:${run.steps[0].name}` : undefined
-  return <FlowGraphView graph={graph} direction={direction === 'TB' ? 'tall' : 'wide'} start={start} selected={selected} onSelect={onSelect} thumbnail={thumbnail} className={className} />
+  return <FlowGraphView graph={graph} direction={direction === 'TB' ? 'tall' : 'wide'} start={start} selected={selected} onSelect={onSelect} thumbnail={thumbnail} details={details} className={className} />
 }
 
 /** `value`, once it has stayed the same for `ms` (a flow being typed is drawn when the typing pauses). */

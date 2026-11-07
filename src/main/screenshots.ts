@@ -531,7 +531,8 @@ export const SCREENS = [
   // With Settings → Experimental → Flows on: the Flows and Personas sections, a run's Flow tab and the Lineage tab.
   'automations-flows',
   'automations-flow-runs',
-  'automations-flow-run-dialog',
+  'automations-flow-run',
+  'automations-flow-run-models',
   'automations-flow-studio',
   'automations-flow-studio-step',
   'workspace-flow',
