@@ -5663,7 +5663,7 @@ export const ja: Catalogue = {
   'flows.problem.unreachable': 'ステップ「{step}」は開始から到達できないため、実行されません。',
   'flows.problem.tooLarge': 'ファイルが {kb} KB を超えているため、読み込みませんでした。',
   'flows.problem.tooMany': '個人用フローは最大 {max} 個までです。',
-  // ---- Running a flow (docs/loops-and-graphs.md): the Run dialog, the Flow tab, gates and run states ----
+  // ---- Running a flow (docs/loops-and-graphs.md): the Run a flow page, the Flow tab, gates and run states ----
   'automations.flows.run': '実行…',
   'automations.flows.runNamed': '{name} を実行…',
   'automations.flows.runs': '{name} の実行',

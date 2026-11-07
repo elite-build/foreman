@@ -5663,7 +5663,7 @@ export const de: Catalogue = {
   'flows.problem.unreachable': 'Schritt „{step}“ ist vom Start aus nicht erreichbar und läuft daher nie.',
   'flows.problem.tooLarge': 'Die Datei ist größer als {kb} KB und wurde nicht gelesen.',
   'flows.problem.tooMany': 'Es kann höchstens {max} persönliche Flows geben.',
-  // ---- Running a flow (docs/loops-and-graphs.md): the Run dialog, the Flow tab, gates and run states ----
+  // ---- Running a flow (docs/loops-and-graphs.md): the Run a flow page, the Flow tab, gates and run states ----
   'automations.flows.run': 'Ausführen…',
   'automations.flows.runNamed': '{name} ausführen…',
   'automations.flows.runs': 'Läufe von {name}',

@@ -1,6 +1,6 @@
 // `foreman flow …`: flows (docs/loops-and-graphs.md) from the command line, behind Settings → Experimental → Flows like the
 // window's Flows section. Starting a run approves what it will do, so `flow-run` without `shown` answers with the same
-// approval summary the Run dialog shows, and with the fingerprint sent back it starts exactly that: the service refuses
+// approval summary the Run a flow page shows, and with the fingerprint sent back it starts exactly that: the service refuses
 // when it changed meanwhile. A gate is answered with `foreman approve <id> --continue | --send-back | --stop`, a pick with
 // `foreman approve <id> --pick <step>` (approvals.ts).
 import { flowSummary, isActiveRun, parseFlow, type FlowFingerprint, type FlowListing, type FlowPersonaRef, type FlowRun, type FlowRunPreview, type FlowRunSummary } from '../../shared/flows'
@@ -426,7 +426,7 @@ export function personaRefText(ref: FlowPersonaRef): string {
   return `${ref.name} (${where}${ref.readOnly ? ', read-only' : ref.writes?.length ? `, writes only ${ref.writes.join(', ')}` : ''})`
 }
 
-/** The approval the Run dialog shows, in lines (a flow schedule's preview prints them too). */
+/** The approval the Run a flow page shows, in lines (a flow schedule's preview prints them too). */
 export function flowPreviewLines(s: FlowRunSummary, inputs: Record<string, string>): string[] {
   const where = s.flowSource === 'repo' ? `the repository file ${s.flowFile}${s.flowRev ? ` at ${s.flowRev.slice(0, 7)}` : ''}` : s.flowSource === 'built-in' ? 'built into Foreman' : `a personal flow${s.flowRev ? `, saved ${s.flowRev.slice(0, 10)}` : ''}`
   const setup = s.setupScript.trim() ? firstLine(s.setupScript, 100) + (s.setupScript.trim().includes('\n') ? ' …' : '') : '(none)'

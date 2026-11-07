@@ -496,7 +496,7 @@ div.auto-card {
 .flow-run-reason {
   flex-basis: 100%;
 }
-/* The Run dialog's approval summary: a Card (ui/) holding a two-column list of what the run approves. */
+/* The approval summary (Run a flow, a flow schedule): a Card (ui/) holding a two-column list of what the run approves. */
 .flow-run-summary {
   display: flex;
   flex-direction: column;

@@ -1863,7 +1863,7 @@ export class Core {
     return { flow, ref, templates, personas, commands, fingerprint }
   }
 
-  /** What starting a flow in this repository would approve now, and the values it asks for (the Run dialog). */
+  /** What starting a flow in this repository would approve now, and the values it asks for (the Run a flow page). */
   private flowRunPreview(input: { flowId: string; repoId: string; baseBranch: string }): FlowRunPreview {
     this.flowsOn()
     const repo = this.workspaces.repo(input?.repoId)
@@ -1872,7 +1872,7 @@ export class Core {
     return { fingerprint: prepared.fingerprint, summary: this.flowRunSummary(prepared, repo, input.baseBranch), inputs: flowRunInputs(prepared), models: flowStepModels(prepared, this.store.state.settings.loadouts) }
   }
 
-  /** A prepared flow's approval in parts, as the Run dialog, New workspace's Start with and a flow schedule show it. */
+  /** A prepared flow's approval in parts, as the Run a flow page and a flow schedule show it. */
   private flowRunSummary(prepared: PreparedFlow, repo: Repo, baseBranch: string): FlowRunSummary {
     const { flow } = prepared
     const parts = this.repoApprovalParts(repo)
@@ -2105,7 +2105,7 @@ export class Core {
   }
 
   /**
-   * A flow schedule's run: the flow started as its Run dialog starts it, from the schedule's base branch with its inputs,
+   * A flow schedule's run: the flow started as the Run a flow page starts it, from the schedule's base branch with its inputs,
    * on exactly what the schedule was approved on (the run is refused, and the occurrence fails, when that changed). The
    * run says it came from this occurrence; the occurrence follows the run to its end.
    */

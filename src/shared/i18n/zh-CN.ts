@@ -5664,7 +5664,7 @@ export const zhCN: Catalogue = {
   'flows.problem.unreachable': '步骤“{step}”从起点无法到达，因此永远不会运行。',
   'flows.problem.tooLarge': '文件大于 {kb} KB，因此未读取。',
   'flows.problem.tooMany': '个人流程最多只能有 {max} 个。',
-  // ---- Running a flow (docs/loops-and-graphs.md): the Run dialog, the Flow tab, gates and run states ----
+  // ---- Running a flow (docs/loops-and-graphs.md): the Run a flow page, the Flow tab, gates and run states ----
   'automations.flows.run': '运行…',
   'automations.flows.runNamed': '运行 {name}…',
   'automations.flows.runs': '{name} 的运行',

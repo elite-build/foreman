@@ -560,7 +560,7 @@ const FLOW_REF = { name: 'flow', required: true, help: 'A flow’s name, id, bui
 const RUN_REF = { name: 'run', required: true, help: 'A run’s id from `foreman flow runs` (four characters or more)' }
 
 const FLOW_RUN_DETAILS = `A flow is a graph of steps (agent turns, check runs, gates) with loops that end on their edges or a bound. flow run
-prints what starting it approves, as the Run dialog does: the flow file and its revision, the templates its steps name,
+prints what starting it approves, as the Run a flow page does: the flow file and its revision, the templates its steps name,
 personas, the repository's setup script, checks, MCP servers and integrations, and the inputs you gave. It starts only
 after you answer yes in a terminal or pass --yes, and exactly what was shown: if any of it changed meanwhile, the run is
 refused (exit 7). The run works in a new workspace from --base (the repository's base branch by default), and the command

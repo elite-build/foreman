@@ -888,7 +888,7 @@ export interface FlowRun {
   noteFrom?: string
 }
 
-/** What starting a flow would approve, as the Run dialog shows it. */
+/** What starting a flow would approve, as the Run a flow page shows it. */
 export interface FlowRunSummary {
   flowName: string
   flowSource: FlowSource

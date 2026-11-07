@@ -5663,7 +5663,7 @@ export const ko: Catalogue = {
   'flows.problem.unreachable': '단계 “{step}”은(는) 시작에서 도달할 수 없어 실행되지 않습니다.',
   'flows.problem.tooLarge': '파일이 {kb}KB보다 커서 읽지 않았습니다.',
   'flows.problem.tooMany': '개인 플로는 최대 {max}개까지 만들 수 있습니다.',
-  // ---- Running a flow (docs/loops-and-graphs.md): the Run dialog, the Flow tab, gates and run states ----
+  // ---- Running a flow (docs/loops-and-graphs.md): the Run a flow page, the Flow tab, gates and run states ----
   'automations.flows.run': '실행…',
   'automations.flows.runNamed': '{name} 실행…',
   'automations.flows.runs': '{name} 실행 기록',

@@ -5663,7 +5663,7 @@ export const ptBR: Catalogue = {
   'flows.problem.unreachable': 'A etapa “{step}” não pode ser alcançada a partir do início, então nunca é executada.',
   'flows.problem.tooLarge': 'O arquivo é maior que {kb} KB, então não foi lido.',
   'flows.problem.tooMany': 'Pode haver no máximo {max} fluxos pessoais.',
-  // ---- Running a flow (docs/loops-and-graphs.md): the Run dialog, the Flow tab, gates and run states ----
+  // ---- Running a flow (docs/loops-and-graphs.md): the Run a flow page, the Flow tab, gates and run states ----
   'automations.flows.run': 'Executar…',
   'automations.flows.runNamed': 'Executar {name}…',
   'automations.flows.runs': 'Execuções de {name}',

@@ -6394,7 +6394,7 @@ export const en = {
   'flows.problem.unreachable': 'Step “{step}” can’t be reached from the start, so it never runs.',
   'flows.problem.tooLarge': 'The file is larger than {kb} KB, so it wasn’t read.',
   'flows.problem.tooMany': 'There can be at most {max} personal flows.',
-  // ---- Running a flow (docs/loops-and-graphs.md): the Run dialog, the Flow tab, gates and run states ----
+  // ---- Running a flow (docs/loops-and-graphs.md): the Run a flow page, the Flow tab, gates and run states ----
   'automations.flows.run': 'Run…',
   'automations.flows.runNamed': 'Run {name}…',
   'automations.flows.runs': 'Runs of {name}',

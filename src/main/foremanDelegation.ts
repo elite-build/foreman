@@ -192,7 +192,7 @@ export class ForemanDelegation {
         const repo = this.host.state().repos.find((r) => r.id === repoId)!
         const listing = await this.flow(p.flowId, repoId)
         const baseBranch = p.baseBranch?.trim() || repo.defaultBranch || 'main'
-        // What a run approves now (the Run dialog's summary): a step it can't carry out unattended refuses the start.
+        // What a run approves now (the Run a flow page's summary): a step it can't carry out unattended refuses the start.
         const preview = await this.host.api.flowRunPreview({ flowId: listing.id, repoId, baseBranch })
         const s = preview.summary
         const reasons = [...(s.notClaude.length ? [`Unattended turns are Claude only (review and decide steps may run on Codex); these turn steps aren’t on Claude: ${s.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ')}.`] : []), ...s.problems]

@@ -5709,7 +5709,7 @@ export const es: Catalogue = {
   'flows.problem.unreachable': 'El paso “{step}” no se puede alcanzar desde el inicio, así que nunca se ejecuta.',
   'flows.problem.tooLarge': 'El archivo supera los {kb} KB, así que no se leyó.',
   'flows.problem.tooMany': 'Puede haber como máximo {max} flujos personales.',
-  // ---- Running a flow (docs/loops-and-graphs.md): the Run dialog, the Flow tab, gates and run states ----
+  // ---- Running a flow (docs/loops-and-graphs.md): the Run a flow page, the Flow tab, gates and run states ----
   'automations.flows.run': 'Ejecutar…',
   'automations.flows.runNamed': 'Ejecutar {name}…',
   'automations.flows.runs': 'Ejecuciones de {name}',
