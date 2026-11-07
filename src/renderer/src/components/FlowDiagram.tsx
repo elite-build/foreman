@@ -144,19 +144,40 @@ export function FlowGraphView({ graph, direction = 'wide', start, selected, onSe
   const props = useFlowGraphProps(graph, direction, start, t)
   const labels = useGraphLabels()
   const [full, setFull] = useState(false)
-  // Whether it starts fitted to its width: measured once, before the graph is drawn (its zoom is a starting value).
+  // The zoom follows the width while that keeps the words readable, else 100% and it scrolls; once the toolbar (or
+  // Ctrl + wheel) sets a zoom, that holds. The width is the graph's own, watched, so a panel opening beside it counts.
+  const [chosen, setChosen] = useState<number | 'fit' | null>(null)
   const [box, setBox] = useState<HTMLDivElement | null>(null)
-  const [fits, setFits] = useState<boolean | null>(null)
+  const [width, setWidth] = useState(0)
   useEffect(() => {
-    if (!box || fits !== null) return
-    const width = box.getBoundingClientRect().width - 40
-    setFits(width > 0 && props.width > 0 ? width / props.width >= FIT_AT_LEAST : direction === 'tall')
-  }, [box, fits, props.width, direction])
+    if (!box || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [box])
+  // The selected step stays in view when the graph narrows (an inspector opening beside it) or the selection moves.
+  useEffect(() => {
+    if (!box || !selected) return
+    box.querySelector('[aria-pressed="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [box, selected, width])
+  const fitsReadably = width <= 0 || props.width <= 0 || (width - 40) / props.width >= FIT_AT_LEAST
+  const zoom = chosen ?? (fitsReadably ? 'fit' : 1)
   if (thumbnail) return <Graph {...props} label={graph.title} thumbnail className={className} />
-  if (fits === null) return <div ref={setBox} className={['flow-graph', className].filter(Boolean).join(' ')} />
   return (
     <>
-      <Graph {...props} label={graph.title} labels={labels} zoom={fits ? 'fit' : 1} onFullScreen={() => setFull(true)} selected={selected} onSelect={onSelect} selectableEdges={selectableEdges} className={['flow-graph', className].filter(Boolean).join(' ')} />
+      <Graph
+        {...props}
+        ref={setBox}
+        label={graph.title}
+        labels={labels}
+        zoom={zoom}
+        onZoomChange={setChosen}
+        onFullScreen={() => setFull(true)}
+        selected={selected}
+        onSelect={onSelect}
+        selectableEdges={selectableEdges}
+        className={['flow-graph', className].filter(Boolean).join(' ')}
+      />
       {full && (
         <Dialog title={graph.title} onClose={() => setFull(false)} size="xl" closeOnBackdrop>
           <Graph {...props} label={graph.title} labels={labels} selected={selected} onSelect={onSelect} selectableEdges={selectableEdges} className="flow-graph-full" />
