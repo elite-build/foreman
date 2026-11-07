@@ -6,11 +6,11 @@
 import { GitBranch } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { LENS_WORD } from '../../../shared/flowGraph'
-import { LINEAGE_LENSES, leftOutText, type LineageFlowDraft, type LineageGap, type LineageLens, type LineageOutlineEntry, type WorkspaceLineage } from '../../../shared/lineage'
+import { LINEAGE_LENSES, leftOutText, type LineageGap, type LineageLens, type LineageOutlineEntry, type WorkspaceLineage } from '../../../shared/lineage'
 import type { PlainKey } from '../../../shared/i18n'
 import { useT } from '../i18n'
-import { api, attempt, openTurn, showChecksPanel, showToast, useStore } from '../store'
-import { Button, Callout, Card, CardButton, Dialog, Field, Segmented, Spinner, Tag, TextArea } from '../ui'
+import { api, attempt, openFlowDraft, openTurn, showChecksPanel, useStore } from '../store'
+import { Button, Callout, Card, CardButton, Segmented, Spinner, Tag } from '../ui'
 import { FlowGraphView } from './FlowDiagram'
 import './flowRun.css'
 
@@ -46,7 +46,11 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
   const history = useHistoryKey(workspaceId)
   const key = `${workspaceId}|${lens}|${history}`
   const [read, setRead] = useState<{ key: string; lineage?: WorkspaceLineage; failed?: string }>()
-  const [drafting, setDrafting] = useState(false)
+  // "Make a flow from this…": the draft opens in the flow studio, with what it leaves out as notes; nothing is saved.
+  const makeFlow = async () => {
+    const draft = await attempt(() => api.lineageFlowDraft(workspaceId))
+    if (draft) openFlowDraft({ toml: draft.toml, notes: draft.leftOut.map((item) => leftOutText(item, t)) })
+  }
   useEffect(() => {
     let live = true
     api
@@ -86,7 +90,7 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
             </Callout>
           )}
           <span>
-            <Button size="sm" onClick={() => setDrafting(true)}>
+            <Button size="sm" onClick={() => void makeFlow()}>
               <GitBranch size={12} aria-hidden /> {t('lineage.makeFlow')}
             </Button>
           </span>
@@ -99,7 +103,6 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
           </ol>
         </>
       )}
-      {drafting && <DraftDialog workspaceId={workspaceId} onClose={() => setDrafting(false)} />}
     </div>
   )
 }
@@ -160,72 +163,4 @@ function OutlineEntry({ entry }: { entry: LineageOutlineEntry }) {
       </CardButton>
     )
   return <Card className="flow-step">{body}</Card>
-}
-
-/** "Make a flow from this…": the draft, what it leaves out, and Save as personal flow, Copy TOML or Cancel. */
-function DraftDialog({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }) {
-  const t = useT()
-  const [draft, setDraft] = useState<LineageFlowDraft>()
-  const [problems, setProblems] = useState<string[] | null>(null)
-  useEffect(() => {
-    let live = true
-    void attempt(() => api.lineageFlowDraft(workspaceId)).then((d) => live && d && setDraft(d))
-    return () => {
-      live = false
-    }
-  }, [workspaceId])
-  const save = async () => {
-    if (!draft) return
-    const result = await attempt(() => api.savePersonalFlow({ toml: draft.toml }))
-    if (!result) return
-    if ('problems' in result) return setProblems(result.problems)
-    showToast(t('lineage.draft.saved', { name: result.flow.name }))
-    onClose()
-  }
-  const copy = () => {
-    if (draft) void navigator.clipboard.writeText(draft.toml).then(() => showToast(t('lineage.draft.copied')))
-  }
-  const footer = (
-    <>
-      <Button onClick={onClose}>{t('common.cancel')}</Button>
-      <Button disabled={!draft} onClick={copy}>
-        {t('lineage.draft.copy')}
-      </Button>
-      <Button variant="primary" disabled={!draft} onClick={() => void save()}>
-        {t('lineage.draft.save')}
-      </Button>
-    </>
-  )
-  return (
-    <Dialog title={t('lineage.draft.title')} onClose={onClose} size="lg" footer={footer}>
-      <div className="flow-run">
-        <p className="small">{t('lineage.draft.intro')}</p>
-        {!draft ? (
-          <Spinner label={t('lineage.draft.reading')} />
-        ) : (
-          <>
-            {draft.leftOut.length > 0 && (
-              <Callout tone="info" role="note" title={t('lineage.draft.leftOutTitle')}>
-                <ul>
-                  {draft.leftOut.map((item) => (
-                    <li key={item.kind}>{leftOutText(item, t)}</li>
-                  ))}
-                </ul>
-              </Callout>
-            )}
-            <Field label={t('lineage.draft.toml')}>{(c) => <TextArea {...c} mono rows={16} spellCheck={false} readOnly value={draft.toml} />}</Field>
-            {problems && (
-              <Callout tone="error" role="status" title={t('lineage.draft.problems')}>
-                <ul>
-                  {problems.map((p, i) => (
-                    <li key={i}>{p}</li>
-                  ))}
-                </ul>
-              </Callout>
-            )}
-          </>
-        )}
-      </div>
-    </Dialog>
-  )
 }

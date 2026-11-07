@@ -55,6 +55,8 @@ export interface FlowGraphViewProps {
   start?: string
   selected?: string | null
   onSelect?: (id: string | null) => void
+  // Exits can be selected too (the flow studio's inspector).
+  selectableEdges?: boolean
   // A tiny picture with no text (the flows list's cards).
   thumbnail?: boolean
   className?: string
@@ -133,20 +135,31 @@ export function useGraphLabels(): GraphLabels {
   }, [t])
 }
 
+// The smallest zoom a graph starts fitted at: below it the words get too small to read, so it starts at 100% and scrolls.
+const FIT_AT_LEAST = 0.7
+
 /** A flow graph as the design system's Graph, with a full-screen view that opens in a dialog. */
-export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, thumbnail, className }: FlowGraphViewProps) {
+export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, selectableEdges, thumbnail, className }: FlowGraphViewProps) {
   const t = useT()
   const props = useFlowGraphProps(graph, direction, start, t)
   const labels = useGraphLabels()
   const [full, setFull] = useState(false)
+  // Whether it starts fitted to its width: measured once, before the graph is drawn (its zoom is a starting value).
+  const [box, setBox] = useState<HTMLDivElement | null>(null)
+  const [fits, setFits] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!box || fits !== null) return
+    const width = box.getBoundingClientRect().width - 40
+    setFits(width > 0 && props.width > 0 ? width / props.width >= FIT_AT_LEAST : direction === 'tall')
+  }, [box, fits, props.width, direction])
   if (thumbnail) return <Graph {...props} label={graph.title} thumbnail className={className} />
+  if (fits === null) return <div ref={setBox} className={['flow-graph', className].filter(Boolean).join(' ')} />
   return (
     <>
-      {/* Tall graphs live in the side panel: they start fitted to its width (never above 100%), as wide ones scroll across. */}
-      <Graph {...props} label={graph.title} labels={labels} zoom={direction === 'tall' ? 'fit' : 1} onFullScreen={() => setFull(true)} selected={selected} onSelect={onSelect} className={['flow-graph', className].filter(Boolean).join(' ')} />
+      <Graph {...props} label={graph.title} labels={labels} zoom={fits ? 'fit' : 1} onFullScreen={() => setFull(true)} selected={selected} onSelect={onSelect} selectableEdges={selectableEdges} className={['flow-graph', className].filter(Boolean).join(' ')} />
       {full && (
         <Dialog title={graph.title} onClose={() => setFull(false)} size="xl" closeOnBackdrop>
-          <Graph {...props} label={graph.title} labels={labels} selected={selected} onSelect={onSelect} className="flow-graph-full" />
+          <Graph {...props} label={graph.title} labels={labels} selected={selected} onSelect={onSelect} selectableEdges={selectableEdges} className="flow-graph-full" />
         </Dialog>
       )}
     </>

@@ -13,6 +13,7 @@ import { cadenceText, nextPill } from '../ScheduleDialogs'
 import { saveSettings, useSettings } from '../settings/controls'
 import { CommandsSection } from './CommandsSection'
 import { FlowsSection } from './FlowsSection'
+import { FlowStudio } from './FlowStudio'
 import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview, TemplatePage } from './details'
 import '../settings/settings.css'
 import './automations.css'
@@ -27,6 +28,9 @@ export function AutomationsView() {
   const [query, setQuery] = useState('')
   // A template opens as its own page over the library; a schedule still opens in the side panel.
   const template = useSelectedTemplate(selected)
+  const flowId = selected?.startsWith('f:') ? selected.slice(2) : null
+  const flowDraft = useStore((s) => s.automations?.flowDraft)
+  const page = Boolean(template || flowId)
   const scheduleId = selected?.startsWith('s:') ? selected.slice(2) : null
 
   // A template deleted elsewhere (or a stale id): back to the library.
@@ -55,7 +59,18 @@ export function AutomationsView() {
   return (
     <div className="automations-view">
       <header className="titlebar drag auto-head">
-        {template ? (
+        {flowId ? (
+          <nav className="auto-crumbs" aria-label={t('automations.page.where')}>
+            <span className="auto-title">
+              <Zap size={15} />
+            </span>
+            <LinkButton onClick={() => selectAutomation(null)}>{t('automations.title')}</LinkButton>
+            <ChevronRight size={12} aria-hidden />
+            <span className="auto-crumb-here" aria-current="page">
+              {t('automations.flows')}
+            </span>
+          </nav>
+        ) : template ? (
           <nav className="auto-crumbs" aria-label={t('automations.page.where')}>
             <span className="auto-title">
               <Zap size={15} />
@@ -87,8 +102,13 @@ export function AutomationsView() {
           <TemplatePage key={template.id} template={template} />
         </div>
       )}
+      {flowId && (
+        <div className="auto-body">
+          <FlowStudio key={flowId === 'new' ? `new:${flowDraft?.toml.length ?? 0}:${flowDraft?.notes?.length ?? 0}` : flowId} id={flowId} draft={flowId === 'new' ? flowDraft : undefined} />
+        </div>
+      )}
       {/* Hidden, not unmounted, under a template's page: Back finds the library scrolled where it was. */}
-      <div className="auto-body" hidden={Boolean(template)}>
+      <div className="auto-body" hidden={page}>
         <Tabs value={shelf} onChange={(v) => setShelf(v as Shelf)} className="auto-lib">
           <div className="auto-lib-bar">
             <TabList label={t('automations.show')}>

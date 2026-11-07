@@ -95,35 +95,11 @@ describe('the Lineage tab', () => {
     expect(await screen.findByRole('img', { name: 'lisbon · Data' })).toBeTruthy()
   })
 
-  it('Make a flow from this… shows the draft read-only, what it leaves out, and saves or copies it', async () => {
+  it('Make a flow from this… opens the draft in the flow studio with what it leaves out, saving nothing', async () => {
     const user = userEvent.setup()
-    const writeText = vi.fn(async () => undefined)
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     render(<LineagePanel workspaceId="w1" />)
     await user.click(await screen.findByRole('button', { name: 'Make a flow from this…' }))
-    const dialog = await screen.findByRole('dialog', { name: 'A flow from this workspace' })
-    const toml = (await within(dialog).findByRole('textbox', { name: 'Flow file (TOML)' })) as HTMLTextAreaElement
-    expect(toml.readOnly).toBe(true)
-    expect(toml.value).toBe(DRAFT.toml)
-    expect(within(dialog).getByText('2 forks of chats (a flow doesn’t fork a tab)')).toBeTruthy()
-    await user.click(within(dialog).getByRole('button', { name: 'Copy TOML' }))
-    expect(writeText).toHaveBeenCalledWith(DRAFT.toml)
-    await user.click(within(dialog).getByRole('button', { name: 'Save as personal flow' }))
-    expect(fakeApi.savePersonalFlow).toHaveBeenCalledWith({ toml: DRAFT.toml })
-    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('Saved “From lisbon” to your flows'))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  })
-
-  it('Cancel closes the draft without saving, and problems keep it open', async () => {
-    const user = userEvent.setup()
-    fakeApi.savePersonalFlow = vi.fn(async () => ({ problems: ['A step is missing.'] }))
-    render(<LineagePanel workspaceId="w1" />)
-    await user.click(await screen.findByRole('button', { name: 'Make a flow from this…' }))
-    const dialog = await screen.findByRole('dialog')
-    await within(dialog).findByRole('textbox', { name: 'Flow file (TOML)' })
-    await user.click(within(dialog).getByRole('button', { name: 'Save as personal flow' }))
-    expect(await within(dialog).findByText('A step is missing.')).toBeTruthy()
-    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(storeModule.openFlowDraft).toHaveBeenCalledWith({ toml: DRAFT.toml, notes: expect.arrayContaining(['2 forks of chats (a flow doesn’t fork a tab)']) }))
+    expect(fakeApi.savePersonalFlow).not.toHaveBeenCalled()
   })
 })

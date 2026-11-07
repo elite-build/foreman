@@ -586,6 +586,165 @@ div.auto-card {
   padding-left: 22px;
 }
 
+/* ---- the flow studio (FlowStudio.tsx): a flow as its own page ---- */
+/* The page: its title and actions, the graph with the inspector beside it, and the resizable panel under them. */
+.flow-studio {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 20px 0;
+}
+.flow-studio-head {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.flow-studio-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin-right: auto;
+}
+.flow-studio-title .auto-page-title {
+  margin: 0;
+}
+.flow-studio-tags,
+.flow-studio-actions,
+.flow-studio-proposal-actions,
+.flow-studio-inspector-actions,
+.flow-studio-suggestions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-studio-starter {
+  width: 240px;
+}
+.flow-studio-canvas {
+  flex: 1;
+  min-height: 220px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.flow-studio-canvas[data-inspecting] {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+}
+.flow-studio-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.flow-studio-graph .flow-graph.flow-studio-graph-view {
+  flex: 1;
+  max-height: none;
+}
+.flow-studio-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 4px 12px 14px;
+  border-left: 1px solid var(--border);
+}
+.flow-studio-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.flow-studio-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.flow-studio-prompt {
+  white-space: pre-wrap;
+}
+.flow-studio-exits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-studio-panel {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+.flow-studio-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.flow-studio-tabpanel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 0 12px;
+}
+.flow-studio-tabpanel[hidden] {
+  display: none;
+}
+.flow-studio-code {
+  height: 100%;
+}
+.flow-studio-problem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-studio-problem {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+/* The Assistant tab: the conversation scrolls, the message box stays at the bottom. */
+.flow-studio-assistant {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.flow-studio-assistant-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.flow-studio-assistant-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 72ch;
+}
+.flow-studio-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
 /* ---- personas (beside flows) ---- */
 
 /* The persona editor: settings rows (Row, ToggleRow from settings/controls) stacked, the instructions beneath. */

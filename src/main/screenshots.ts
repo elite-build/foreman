@@ -532,6 +532,8 @@ export const SCREENS = [
   'automations-flows',
   'automations-flow-runs',
   'automations-flow-run-dialog',
+  'automations-flow-studio',
+  'automations-flow-studio-step',
   'workspace-flow',
   'workspace-lineage',
   'assistant',

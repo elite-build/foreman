@@ -148,7 +148,8 @@ interface State {
   composerFill: { sessionId: string; text: string; templateId?: string; attachments?: Attachment[]; snippet?: TerminalSnippet; edited?: EditedFrom; nonce: number } | null
   settingsPage: SettingsPage | null
   // The Automations page (templates and schedules), with the template ("t:<id>") or schedule ("s:<id>") it shows.
-  automations: { selected: string | null; scrollTo?: 'commands' } | null
+  // `selected`: "t:<template>", "s:<schedule>", "f:<flow id>", or "f:new" with `flowDraft` (a flow not saved yet).
+  automations: { selected: string | null; scrollTo?: 'commands'; flowDraft?: FlowDraftOpen } | null
   // Phone pill → Network setup…: same-Wi-Fi address and private (Tailscale) access.
   phoneSetupOpen: boolean
   // Help → Report a problem… / ⌘K (O20).
@@ -1507,6 +1508,19 @@ export function showSettingFromAssistant(id: string): void {
 
 export function selectAutomation(selected: string | null): void {
   if (state.automations) setState({ automations: { selected } })
+}
+
+/** A flow not saved yet, as the flow studio opens it: its document, and notes on how it was made (a lineage draft's leftovers). */
+export interface FlowDraftOpen {
+  toml: string
+  notes?: string[]
+  // Ask the assistant to describe the flow first (New flow).
+  describe?: boolean
+}
+
+/** Open the flow studio on a draft that isn't saved yet: a new flow, a copy of a read-only one, or one drafted from a workspace. */
+export function openFlowDraft(draft: FlowDraftOpen): void {
+  setState({ automations: { selected: 'f:new', flowDraft: draft }, settingsPage: null, overlay: null, assistantOpen: false })
 }
 
 export function openReportProblem(open: boolean, about?: string): void {

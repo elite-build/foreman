@@ -110,7 +110,7 @@ function openWorkspace(f: Fixture, sessionId = f.chatId): void {
 }
 
 // The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
-const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run-dialog', 'workspace-flow', 'workspace-lineage']
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run-dialog', 'automations-flow-studio', 'automations-flow-studio-step', 'workspace-flow', 'workspace-lineage']
 
 /** Flows on or off. A setting, so it outlives the page, like the window layout. */
 async function flowsSetting(on: boolean): Promise<void> {
@@ -256,6 +256,18 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     if (!run) return null
     run.click()
     return '[role="dialog"] .flow-outline'
+  },
+  // A built-in flow opened as its own page: the graph, and the Assistant under it.
+  'automations-flow-studio': () => (openAutomations('f:built-in:research-then-implement'), '.flow-studio .ui-graph__node'),
+  // The same with a step selected: the inspector beside the graph, and its block in the TOML tab.
+  'automations-flow-studio-step': async () => {
+    openAutomations('f:built-in:research-then-implement')
+    const step = await waitFor(() => [...document.querySelectorAll<HTMLButtonElement>('.flow-studio .ui-graph__node')].find((n) => n.querySelector('.ui-graph__title')?.textContent === 'checks') ?? null)
+    if (!step) return null
+    step.click()
+    const toml = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.flow-studio [role="tab"]')].find((tab) => tab.textContent?.includes('TOML')) ?? null)
+    toml?.click()
+    return '.flow-studio-inspector'
   },
   // A completed run's Flow tab (Run lens), and the same workspace's Lineage tab (Run lens).
   'workspace-flow': (f) => flowTab(f, 'flow'),
