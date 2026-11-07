@@ -99,3 +99,13 @@
   text-align: start;
   vertical-align: top;
 }
+
+/* A flow drawn with the design system's Graph (FlowDiagram.tsx): it grows to the graph, up to a height, then scrolls;
+   full screen gives it most of the window. */
+.flow-graph {
+  max-height: 560px;
+  min-width: 0;
+}
+.flow-graph-full {
+  height: 72vh;
+}

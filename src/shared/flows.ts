@@ -11,7 +11,7 @@ import type { ScheduleFingerprint } from './types'
 const enT = createT('en')
 
 export const FLOW_DIR = '.foreman/flows'
-export const MAX_FLOW_BYTES = 64 * 1024
+export { MAX_FLOW_BYTES } from './flowLimits'
 // How many personal flows one person keeps, as personas are capped (MAX_PERSONAL_PERSONAS).
 export const MAX_PERSONAL_FLOWS = 100
 export const MAX_REPO_FLOWS = 50

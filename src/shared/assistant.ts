@@ -5,6 +5,8 @@ import { catalogAgent, isAgentEnabled } from './agentCatalog'
 import { DEFAULT_MODEL, type AgentKind, type EffortLevel } from './agents'
 import { SETTINGS, type SettingEntry } from './settingsRegistry'
 import type { AgentStatus, ChatItem, Settings } from './types'
+import type { FlowChange } from './flowDiff'
+import type { FlowSource } from './flows'
 
 /** The agents that can run the assistant. Others need an adapter that proves tool isolation first. */
 export const ASSISTANT_AGENTS: readonly AgentKind[] = ['claude']
@@ -300,6 +302,35 @@ export function runFollowUp(args: string[], exitCode: number, output: string): s
 export interface AssistantContext {
   workspaceId?: string
   sessionId?: string
+  // The flow the user is editing (the flow studio's draft): the assistant may propose a new version of it.
+  flow?: AssistantFlowDraft
+}
+
+/** A flow draft as the window sends it: the document as it is now, and where the flow comes from. */
+export interface AssistantFlowDraft {
+  toml: string
+  source: FlowSource
+}
+
+/** A new version of the draft the assistant proposed: shown with Apply and Discard, applied only by the user. */
+export interface FlowProposal {
+  proposalId: string
+  // The whole proposed document, and the draft it was proposed against.
+  toml: string
+  base: string
+  // The assistant's one-line reason.
+  summary: string
+  changes: FlowChange[]
+}
+
+/** A proposal as an item in the thread: a tool row the window draws as a proposal card. */
+export function flowProposalItem(turnId: string, proposal: FlowProposal): Extract<ChatItem, { kind: 'tool' }> {
+  return { kind: 'tool', id: `flow-proposal:${proposal.proposalId}`, turnId, name: 'flow-proposal', input: proposal, status: 'done' }
+}
+
+/** The proposal an item carries, if it is one. */
+export function flowProposalOf(item: ChatItem): FlowProposal | undefined {
+  return item.kind === 'tool' && item.name === 'flow-proposal' ? (item.input as FlowProposal) : undefined
 }
 
 /** A request id is a whole UUID: the assistant never shows or proposes the start of one. */

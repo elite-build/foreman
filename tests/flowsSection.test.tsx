@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Flows on Automations: absent (and never asked for) while Settings → Experimental → Flows is off; on, each flow is a
-// card with its source and shape, and the dialog checks a new personal flow as it is typed.
+// card with its source and shape that opens the flow studio (tests/flowStudio.test.tsx), and New flow opens a draft.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
 import type { FlowListing } from '../src/shared/flows'
 import { AutomationsView } from '../src/renderer/src/components/automations/AutomationsView'
-import { fakeApi, fakeState, resetFake } from './rendererStore'
+import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
 
@@ -87,42 +87,14 @@ describe('Flows on Automations', () => {
     expect(regions.indexOf('Flows')).toBeLessThan(regions.indexOf('Templates'))
   })
 
-  it('opens a new flow from a starter, checks it as it is typed, and saves it as personal', async () => {
-    const u = userEvent.setup()
-    setSnapshot(true)
-    fakeApi.savePersonalFlow = vi.fn(async () => ({ flow: LISTINGS[2] }))
-    render(<AutomationsView />)
-    await u.click(await screen.findByRole('button', { name: /New flow/ }))
-    const dialog = screen.getByRole('dialog', { name: 'New flow' })
-    const editor = within(dialog).getByRole('textbox', { name: 'Flow (TOML)' }) as HTMLTextAreaElement
-    expect(editor.value).toContain('name = "Fix until green"')
-    expect(within(dialog).getByText('No problems found.')).toBeTruthy()
-    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Start from' }), 'research-then-implement')
-    expect(editor.value).toContain('name = "Research then implement"')
-
-    await u.clear(editor)
-    await u.type(editor, 'name = "x"')
-    expect(within(dialog).getByText('This flow can’t be saved yet')).toBeTruthy()
-    expect((within(dialog).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true)
-
-    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Start from' }), 'fix-until-green')
-    await u.click(within(dialog).getByRole('button', { name: 'Save' }))
-    expect(fakeApi.savePersonalFlow).toHaveBeenCalledWith({ id: undefined, toml: expect.stringContaining('Fix until green') })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  })
-
-  it('shows a built-in flow read-only, with Copy to personal opening an editable copy', async () => {
+  it('opens a flow as its own page from its card, and New flow as a draft that asks for a description', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
     await u.click(await screen.findByRole('button', { name: /^Fix until green/ }))
-    const dialog = screen.getByRole('dialog', { name: 'Fix until green' })
-    expect((within(dialog).getByRole('textbox', { name: 'Flow (TOML)' }) as HTMLTextAreaElement).readOnly).toBe(true)
-    expect(within(dialog).queryByRole('button', { name: 'Save' })).toBeNull()
-    await u.click(within(dialog).getByRole('button', { name: 'Copy to personal' }))
-    const copy = screen.getByRole('dialog', { name: 'New flow' })
-    expect((within(copy).getByRole('textbox', { name: 'Flow (TOML)' }) as HTMLTextAreaElement).readOnly).toBe(false)
-    expect((within(copy).getByRole('textbox', { name: 'Flow (TOML)' }) as HTMLTextAreaElement).value).toBe('name = "Fix until green"')
+    expect(storeModule.selectAutomation).toHaveBeenCalledWith('f:built-in:fix-until-green')
+    await u.click(screen.getByRole('button', { name: /New flow/ }))
+    expect(storeModule.openFlowDraft).toHaveBeenCalledWith({ toml: FLOW_STARTERS[0].toml, describe: true })
   })
 
   it('Run… shows what starting the flow approves, asks for its inputs, and starts it with the fingerprint shown', async () => {
@@ -184,30 +156,58 @@ describe('Flows on Automations', () => {
   })
 })
 
-describe('a flow’s run graph in its dialog', () => {
-  it('shows a built-in flow’s run graph, read-only, above its TOML; a file that isn’t a flow has none', async () => {
+describe('every flow’s runs', () => {
+  it('switches the section to a table of runs, newest first, with their state, workspace, cost and where they stopped', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
-    mermaid.sources.length = 0
-    fakeApi.listFlows = vi.fn(async () => [{ ...LISTINGS[0], toml: FLOW_STARTERS[0].toml }, LISTINGS[2]])
+    fakeState.snapshot = {
+      ...fakeState.snapshot,
+      workspaces: [{ id: 'ws-1', name: 'lisbon', state: 'ready' }],
+      flowRuns: [
+        { id: 'old', flow: { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in', starter: 'fix-until-green' }, repoId: 'r1', baseBranch: 'main', inputs: {}, fingerprint: {}, state: 'stopped', reason: 'Stopped by you.', startedAt: '2026-11-05T10:00:00.000Z', endedAt: '2026-11-05T10:12:00.000Z', workspaceId: 'ws-1', steps: [{ name: 'implement', kind: 'turn', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:00:00.000Z', costUsd: 0.5 }, { name: 'fix', kind: 'turn', iteration: 1, state: 'completed', startedAt: '2026-11-05T10:05:00.000Z', costUsd: 0.25 }], loops: {} },
+        { id: 'new', flow: { id: 'repo:r1:.foreman/flows/team.toml', name: 'Team flow', source: 'repo' }, repoId: 'r1', baseBranch: 'main', inputs: {}, fingerprint: {}, state: 'running', startedAt: '2026-11-06T10:00:00.000Z', current: { step: 'checks', iteration: 2 }, steps: [], loops: {} }
+      ]
+    }
     render(<AutomationsView />)
-    await u.click(await screen.findByRole('button', { name: /^Fix until green/ }))
-    const dialog = screen.getByRole('dialog', { name: 'Fix until green' })
-    expect(within(dialog).getByText('Run graph')).toBeTruthy()
-    const picture = await within(dialog).findByRole('img', { name: 'Fix until green · Run' })
-    // Above the document.
-    const editor = within(dialog).getByRole('textbox', { name: 'Flow (TOML)' })
-    expect(picture.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // The wide Flows dialog keeps the run graph left to right.
-    expect(mermaid.sources.at(-1)).toContain('flowchart LR')
-    expect(mermaid.sources.at(-1)).toContain('subgraph')
-    // Nothing in a run's state: a flow on its own has no run.
-    expect(mermaid.sources.at(-1)).not.toContain('not yet')
-    await u.click(within(dialog).getByRole('button', { name: 'Close' }))
+    await screen.findByRole('button', { name: 'Run Fix until green…' })
+    await u.click(screen.getByRole('radio', { name: 'Runs' }))
+    const table = screen.getByRole('table', { name: 'Every flow’s runs, newest first' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]).getByText('Team flow')).toBeTruthy()
+    expect(within(rows[0]).getByText('Running')).toBeTruthy()
+    expect(within(rows[1]).getByText('Fix until green')).toBeTruthy()
+    expect(within(rows[1]).getByText('Stopped by you.')).toBeTruthy()
+    expect(within(rows[1]).getByText('$0.75')).toBeTruthy()
+    expect(within(rows[1]).getByText('took 12m 00s')).toBeTruthy()
+    expect(within(rows[1]).getByRole('button', { name: 'lisbon' })).toBeTruthy()
+  })
+})
 
-    await u.click(screen.getByRole('button', { name: /^broken/ }))
-    const broken = screen.getByRole('dialog', { name: 'Edit flow' })
-    expect(within(broken).queryByText('Run graph')).toBeNull()
-    expect(within(broken).queryByRole('img')).toBeNull()
+describe('the Run dialog', () => {
+  it('lays out what to do beside what the run does, and marks the step that keeps it from starting', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    fakeApi.listFlows = vi.fn(async () => [{ ...LISTINGS[0], toml: FLOW_STARTERS[0].toml }])
+    fakeApi.listBranches = vi.fn(async () => [])
+    fakeApi.flowRunPreview = vi.fn(async () => ({
+      fingerprint: {},
+      inputs: [{ name: 'task', description: 'What to build or fix' }],
+      summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [{ step: 'review', agent: 'Cursor' }], problems: [] }
+    }))
+    render(<AutomationsView />)
+    await u.click(await screen.findByRole('button', { name: 'Run Fix until green…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Run Fix until green' })
+    expect(within(dialog).getByRole('region', { name: 'What to do' })).toBeTruthy()
+    const does = within(dialog).getByRole('region', { name: 'What the run does' })
+    const outline = within(does).getByRole('list', { name: 'What the run does, step by step' })
+    expect(within(outline).getByText('implement')).toBeTruthy()
+    expect(within(outline).getByText(/fix-until-green repeats checks, fix: at most 4 iterations · at most 45 min/)).toBeTruthy()
+    await waitFor(() => expect(within(outline).getByText('Runs on Cursor: flows run Claude only')).toBeTruthy())
+    expect(within(dialog).queryByText(/These turn steps aren’t on Claude/)).toBeNull()
+    expect(within(dialog).getByText('It can’t start yet: see what’s marked.')).toBeTruthy()
+    expect((within(dialog).getByRole('button', { name: 'Start flow' }) as HTMLButtonElement).disabled).toBe(true)
+    // The task gets room to write.
+    expect(within(dialog).getByRole('textbox', { name: 'task' }).tagName).toBe('TEXTAREA')
   })
 })

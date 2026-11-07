@@ -2,6 +2,7 @@
 import { FOREMAN_TOOLS, foremanToolArgs, type ForemanToolName } from '../../shared/foremanTools'
 import { DELEGATION_TOOLS, delegationToolNames } from '../../shared/foremanDelegation'
 import { ASSISTANT_CLI_ARGS } from '../../shared/foremanCli'
+import { MAX_FLOW_BYTES } from '../../shared/flowLimits'
 import {
   createSdkMcpServer,
   query,
@@ -148,7 +149,13 @@ export function assistantTools(tools: AssistantTools & Partial<OperatorTools>) {
       'CLI escape hatch: prefer dedicated Foreman tools whenever they cover the task. Propose a `foreman` command as its words after "foreman" (for example ["settings","set","appearance.theme","dark"]). It does not run: the user sees the command with Run and Cancel, and it runs only when they click Run; its output then comes back as a message. Check the options with cli_help first. Never put a secret in it.',
       ASSISTANT_CLI_ARGS.shape,
       async (args) => text(tools.runForeman(args.args))
-    )
+    ),
+    ...tools.proposeFlow ? [tool(
+      'propose_flow',
+      'Propose a new version of the flow the user is editing: the WHOLE TOML document and a one-line summary of why. It is checked like a saved flow; with problems it comes back with them and nothing is shown. Otherwise the user sees it as a proposal (what it adds, changes and removes, on the graph) and applies or discards it. Nothing is saved or changed by this call.',
+      { toml: z.string().min(1).max(MAX_FLOW_BYTES), summary: z.string().min(1).max(300) },
+      async (args) => text(tools.proposeFlow!(args.toml, args.summary))
+    )] : []
   ]
   return [...base, ...operatorTools(tools)]
 }

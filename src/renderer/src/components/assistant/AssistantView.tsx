@@ -3,7 +3,7 @@
 // when that can't run it, the gate says why and what to do, and saved threads stay readable.
 import { ArrowUp, Check, CircleAlert, Plug, Plus, RotateCw, Settings2, Sparkles, Square, Trash2, TriangleAlert } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { agentName, assistantToolName, settingEntry, type AssistantGate, type AssistantThreadSummary } from '../../../../shared/assistant'
+import { agentName, assistantToolName, settingEntry, type AssistantGate, type FlowProposal, type AssistantThreadSummary } from '../../../../shared/assistant'
 import { modelInfo } from '../../../../shared/agents'
 import type { ChatItem } from '../../../../shared/types'
 import { formatClock, formatDateTime } from '../../../../shared/i18n/time'
@@ -23,6 +23,7 @@ import {
 import { ActionRow, Button, CardButton, Callout, IconButton, Spinner, Status, TextArea } from '../../ui'
 import { Markdown } from '../Markdown'
 import { ForemanRunRow, wrapForemanCode } from './ForemanRun'
+import { FlowProposalCard } from './FlowProposalCard'
 import './assistant.css'
 
 const EMPTY: ChatItem[] = []
@@ -166,9 +167,17 @@ function Welcome({ onPick }: { onPick: (text: string) => void }) {
   )
 }
 
-function Conversation({ items, title }: { items: ChatItem[]; title: string }) {
+/** What draws a flow proposal in a conversation: the flow studio passes one with Apply and Discard. */
+export type ProposalRenderer = (proposal: FlowProposal) => ReactNode
+
+/**
+ * A thread's items. `threadId` defaults to the Assistant view's; the flow studio passes its own thread and draws
+ * proposals itself (`renderProposal`).
+ */
+export function Conversation({ items, title, threadId: own, renderProposal }: { items: ChatItem[]; title: string; threadId?: string | null; renderProposal?: ProposalRenderer }) {
   const t = useT()
-  const threadId = useStore((s) => s.assistantThreadId)
+  const viewThread = useStore((s) => s.assistantThreadId)
+  const threadId = own === undefined ? viewThread : own
   const end = useRef<HTMLDivElement>(null)
   const last = items[items.length - 1]
   useLayoutEffect(() => {
@@ -179,7 +188,7 @@ function Conversation({ items, title }: { items: ChatItem[]; title: string }) {
       {/* The title is the level 1 heading; the conversation is level 2, and each message below it level 3. */}
       <h2 className="sr-only">{t('a11y.assistant.conversation', { title })}</h2>
       {items.map((item, index) => (
-        <Item key={item.id} item={item} t={t} threadId={threadId} askedAt={askedAt(items, index)} />
+        <Item key={item.id} item={item} t={t} threadId={threadId} askedAt={askedAt(items, index)} renderProposal={renderProposal} />
       ))}
       <div ref={end} />
     </div>
@@ -195,7 +204,7 @@ function askedAt(items: ChatItem[], index: number): string | undefined {
   return undefined
 }
 
-function Item({ item, t, threadId, askedAt }: { item: ChatItem; t: RendererT; threadId: string | null; askedAt?: string }): ReactNode {
+function Item({ item, t, threadId, askedAt, renderProposal }: { item: ChatItem; t: RendererT; threadId: string | null; askedAt?: string; renderProposal?: ProposalRenderer }): ReactNode {
   const time = askedAt ? formatClock(askedAt, t.locale) : undefined
   const headingId = useId()
   switch (item.kind) {
@@ -216,7 +225,7 @@ function Item({ item, t, threadId, askedAt }: { item: ChatItem; t: RendererT; th
         </article>
       )
     case 'tool':
-      return <ToolRow item={item} t={t} threadId={threadId} />
+      return <ToolRow item={item} t={t} threadId={threadId} renderProposal={renderProposal} />
     case 'notice':
       if (item.level !== 'error') return <div className="assistant-note faint small">{item.text}</div>
       return (
@@ -259,10 +268,11 @@ const TOOL_LABELS = {
   cli_status: 'assistant.tool.cliStatus'
 } as const
 
-function ToolRow({ item, t, threadId }: { item: Extract<ChatItem, { kind: 'tool' }>; t: RendererT; threadId: string | null }) {
+function ToolRow({ item, t, threadId, renderProposal }: { item: Extract<ChatItem, { kind: 'tool' }>; t: RendererT; threadId: string | null; renderProposal?: ProposalRenderer }) {
   const name = assistantToolName(item.name)
   // A proposed command shows as its own row (Run, Cancel, output), not as the agent's tool call.
   if (name === 'foreman') return <ForemanRunRow threadId={threadId} item={item} />
+  if (name === 'flow-proposal') return renderProposal ? renderProposal(item.input as FlowProposal) : <FlowProposalCard proposal={item.input as FlowProposal} />
   if (name === 'run_foreman') return null
   const input = (item.input ?? {}) as { id?: string; query?: string }
   if (name === 'show_setting') {
@@ -287,7 +297,27 @@ function ToolRow({ item, t, threadId }: { item: Extract<ChatItem, { kind: 'tool'
 
 // ---- composer ----
 
-function Composer({ disabled, running, threadId, useAlternative }: { disabled: boolean; running: boolean; threadId: string | null; useAlternative: boolean }) {
+/**
+ * The message box. The Assistant view sends into its own thread; the flow studio passes `onSend` (its thread, with the
+ * draft as context), its own `placeholder`, and `draft` to put words in the box (Ask the assistant about a step).
+ */
+export function Composer({
+  disabled,
+  running,
+  threadId,
+  useAlternative,
+  onSend,
+  placeholder,
+  draft
+}: {
+  disabled: boolean
+  running: boolean
+  threadId: string | null
+  useAlternative: boolean
+  onSend?: (text: string) => Promise<boolean>
+  placeholder?: string
+  draft?: { text: string; at: number }
+}) {
   const t = useT()
   const sendKey = useStore((s) => s.snapshot!.settings.messageSendKey)
   const mac = useStore((s) => s.snapshot!.platform === 'darwin')
@@ -299,10 +329,16 @@ function Composer({ disabled, running, threadId, useAlternative }: { disabled: b
     if (!disabled) box.current?.focus()
   }, [disabled, threadId])
 
+  useEffect(() => {
+    if (!draft) return
+    setText(draft.text)
+    box.current?.focus()
+  }, [draft])
+
   const send = async () => {
     if (disabled || running || sending || !text.trim()) return
     setSending(true)
-    const ok = await sendToAssistant(text, useAlternative)
+    const ok = onSend ? await onSend(text) : await sendToAssistant(text, useAlternative)
     setSending(false)
     if (ok) setText('')
   }
@@ -315,8 +351,8 @@ function Composer({ disabled, running, threadId, useAlternative }: { disabled: b
         rows={2}
         value={text}
         disabled={disabled}
-        aria-label={disabled ? t('assistant.composer.unavailable') : threadId ? t('assistant.composer.followUp') : t('assistant.composer.placeholder')}
-        placeholder={disabled ? t('assistant.composer.unavailable') : threadId ? t('assistant.composer.followUp') : t('assistant.composer.placeholder')}
+        aria-label={disabled ? t('assistant.composer.unavailable') : (placeholder ?? (threadId ? t('assistant.composer.followUp') : t('assistant.composer.placeholder')))}
+        placeholder={disabled ? t('assistant.composer.unavailable') : (placeholder ?? (threadId ? t('assistant.composer.followUp') : t('assistant.composer.placeholder')))}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
@@ -439,7 +475,7 @@ function Gate({ gate, onUseAlternative }: { gate: AssistantGate; onUseAlternativ
 }
 
 /** Above the composer of a saved thread when the assistant can't run now. */
-function GateLine({ gate, onUseAlternative }: { gate: AssistantGate; onUseAlternative: () => void }) {
+export function GateLine({ gate, onUseAlternative }: { gate: AssistantGate; onUseAlternative: () => void }) {
   const t = useT()
   const copy = gateCopy(gate, t)
   return (

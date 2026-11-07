@@ -35,6 +35,8 @@ export interface FlowGraphNode {
   series?: number[]
   // Data lens: its latest start tree isn't where the step before it ended.
   moved?: boolean
+  // A proposal (flowDiff.ts proposalGraph): what it does to this node.
+  mark?: 'added' | 'changed' | 'removed'
 }
 
 export interface FlowGraphEdge {
@@ -48,6 +50,8 @@ export interface FlowGraphEdge {
   moved?: boolean
   // Lineage (shared/lineage.ts): inferred from message text or timing rather than read from a record; drawn dashed.
   reconstructed?: boolean
+  // A proposal (flowDiff.ts proposalGraph): what it does to this edge.
+  mark?: 'added' | 'changed' | 'removed'
 }
 
 export interface FlowGraphLoop {
@@ -62,6 +66,8 @@ export interface FlowGraphLoop {
   maxMinutes?: number
   cost?: number
   maxCost?: number
+  // A proposal (flowDiff.ts proposalGraph): what it does to this loop.
+  mark?: 'added' | 'changed' | 'removed'
 }
 
 export interface FlowGraph {

@@ -9,6 +9,7 @@ import {
   capText,
   commandLine,
   dataBlock,
+  flowProposalItem,
   foremanRunItem,
   MAX_ASSISTANT_MESSAGE,
   readSettings,
@@ -20,6 +21,8 @@ import {
   threadSummary,
   threadTitle,
   type AssistantContext,
+  type AssistantFlowDraft,
+  type FlowProposal,
   type AssistantGate,
   type AssistantState,
   type AssistantThread,
@@ -28,7 +31,9 @@ import {
   type PendingRun
 } from '../shared/assistant'
 import { ANSWER_NOTE, answerRefusal, answersRequest, cliLine, flowNote, refusalFor, searchCommands } from '../shared/assistantCli'
-import { assistantSystemPrompt, viewingLine } from '../shared/assistantGuide'
+import { assistantSystemPrompt, flowDraftLines, viewingLine } from '../shared/assistantGuide'
+import { diffFlows } from '../shared/flowDiff'
+import { MAX_FLOW_BYTES, parseFlow } from '../shared/flows'
 import { AGENTS, type AgentKind } from '../shared/agents'
 import { COMMANDS, commandName } from '../shared/cliCommands'
 import { lastTurns, renderChat } from '../shared/cli/tabs'
@@ -116,25 +121,33 @@ export class AssistantService {
     }
   }
 
-  /** The context a window sent, kept only as far as the app's records agree: a workspace that exists, and a chat that is open in it. */
+  /**
+   * The context a window sent, kept only as far as the app's records agree: a workspace that exists, and a chat that is
+   * open in it. A flow draft (the flow studio's) is kept while Flows are on and it is a document of a flow's size.
+   */
   private contextFor(raw: AssistantContext | undefined): AssistantContext | undefined {
     if (!raw || typeof raw !== 'object') return undefined
-    const { workspaces, sessions } = this.deps.store.state
+    const { workspaces, sessions, settings } = this.deps.store.state
+    const draft = raw.flow
+    const flow = settings.flows && draft && typeof draft.toml === 'string' && draft.toml.length <= MAX_FLOW_BYTES && (['built-in', 'repo', 'personal'] as const).includes(draft.source) ? { toml: draft.toml, source: draft.source } : undefined
     const session = typeof raw.sessionId === 'string' ? sessions.find((s) => s.id === raw.sessionId && !s.closedAt) : undefined
     const workspaceId = typeof raw.workspaceId === 'string' ? raw.workspaceId : session?.workspaceId
     const workspace = workspaceId ? workspaces.find((w) => w.id === workspaceId && w.state !== 'archived') : undefined
-    if (!workspace) return undefined
-    return { workspaceId: workspace.id, ...(session && session.workspaceId === workspace.id ? { sessionId: session.id } : {}) }
+    if (!workspace) return flow ? { flow } : undefined
+    return { workspaceId: workspace.id, ...(session && session.workspaceId === workspace.id ? { sessionId: session.id } : {}), ...(flow ? { flow } : {}) }
   }
 
-  /** The line for the end of the turn's system prompt. */
+  /** The lines for the end of the turn's system prompt: where the user is, and the flow they are editing. */
   private viewing(context: AssistantContext | undefined): string | undefined {
-    if (!context?.workspaceId) return undefined
+    const lines: string[] = []
     const { workspaces, sessions } = this.deps.store.state
-    const workspace = workspaces.find((w) => w.id === context.workspaceId)
-    if (!workspace) return undefined
-    const session = context.sessionId ? sessions.find((s) => s.id === context.sessionId) : undefined
-    return viewingLine({ workspace: { id: workspace.id, name: workspace.name }, ...(session ? { chat: { id: session.id, title: session.title || 'New chat' } } : {}) })
+    const workspace = context?.workspaceId ? workspaces.find((w) => w.id === context.workspaceId) : undefined
+    if (workspace) {
+      const session = context?.sessionId ? sessions.find((s) => s.id === context.sessionId) : undefined
+      lines.push(viewingLine({ workspace: { id: workspace.id, name: workspace.name }, ...(session ? { chat: { id: session.id, title: session.title || 'New chat' } } : {}) }))
+    }
+    if (context?.flow) lines.push(flowDraftLines(context.flow))
+    return lines.length ? lines.join('\n') : undefined
   }
 
   private async gate(refresh: boolean, override?: AgentKind): Promise<AssistantGate> {
@@ -437,6 +450,27 @@ export class AssistantService {
   // ---- tools ----
 
   /**
+   * propose_flow: a new version of the flow draft the user is editing. A document that doesn't read as a flow goes back
+   * to the assistant with its problems; one that does is shown in the thread with what it changes, and changes nothing
+   * until the user applies it.
+   */
+  private proposeFlow(threadId: string | undefined, turnId: string | undefined, draft: AssistantFlowDraft, toml: string, summary: string): string {
+    const thread = threadId && turnId ? this.threads.get(threadId) : undefined
+    if (!thread || !turnId || thread.turnId !== turnId) return 'There is no active conversation to propose this in.'
+    if (toml.length > MAX_FLOW_BYTES) return `The document is over ${MAX_FLOW_BYTES} bytes. Keep the flow smaller.`
+    const next = parseFlow(toml, 'personal')
+    if (!('flow' in next)) return `Not proposed: the document has problems. Fix them and call propose_flow again.\n${next.problems.map((p) => `- ${p}`).join('\n')}`
+    const base = parseFlow(draft.toml, 'personal')
+    const changes = 'flow' in base ? diffFlows(base.flow, next.flow) : []
+    if ('flow' in base && !changes.length) return 'That is the same flow as the draft: nothing to propose.'
+    const proposal: FlowProposal = { proposalId: randomUUID(), toml, base: draft.toml, summary: summary.trim().slice(0, 300), changes }
+    this.emit(thread.id, flowProposalItem(turnId, proposal))
+    const readOnly = draft.source !== 'personal' ? ' This flow is read-only where it is: applying it makes a personal copy.' : ''
+    const warnings = next.warnings.length ? `\nWarnings (it still reads): ${next.warnings.join(' ')}` : ''
+    return `Shown to the user with Apply and Discard; nothing changes until they apply it.${readOnly} ${changes.length ? `${changes.length} changes.` : 'The draft had problems, so this replaces it.'}${warnings}`
+  }
+
+  /**
    * The tools of one turn. `threadId` and `turnId` say where a proposed command is recorded (without them none can be);
    * `context` is what the window showed, which the state tools default to.
    */
@@ -476,6 +510,7 @@ export class AssistantService {
           return err instanceof Error ? err.message : String(err)
         }
       } } : {}),
+      ...(context.flow ? { proposeFlow: (toml: string, summary: string) => this.proposeFlow(threadId, turnId, context.flow!, toml, summary) } : {}),
       searchSettings: (query) => {
         const found = searchSettings(query, platform)
         if (!found.length) return `No setting matches "${query}". Try other words, or answer from the guide.`

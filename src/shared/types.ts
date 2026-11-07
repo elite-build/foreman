@@ -2942,7 +2942,7 @@ export interface Api {
   assistantItems(threadId: string): Promise<ChatItem[]>
   // A message into a thread, or a new one (null). `useAlternative`: run on the alternative agent the gate offered, for this thread.
   // `context` is what the window shows (the workspace and chat the user is in); tools default to it. Optional, and only for this turn.
-  assistantSend(threadId: string | null, text: string, useAlternative?: boolean, context?: { workspaceId?: string; sessionId?: string }): Promise<{ threadId: string }>
+  assistantSend(threadId: string | null, text: string, useAlternative?: boolean, context?: import('./assistant').AssistantContext): Promise<{ threadId: string }>
   assistantCancel(threadId: string): Promise<void>
   assistantDeleteThread(threadId: string): Promise<void>
   assistantClearHistory(): Promise<void>

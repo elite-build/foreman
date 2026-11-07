@@ -1,7 +1,7 @@
 // The Foreman assistant: when it may run, what it may read, how it finds settings,
 // and its service (threads, turns, tools) over a fake agent.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { assistantGate, readSettings, READABLE_SETTINGS, searchSettings, settingEntry, threadTitle, type GateInput } from '../src/shared/assistant'
+import { assistantGate, flowProposalOf, readSettings, READABLE_SETTINGS, searchSettings, settingEntry, threadTitle, type GateInput } from '../src/shared/assistant'
 import { assistantSystemPrompt } from '../src/shared/assistantGuide'
 import { SETTINGS } from '../src/shared/settingsRegistry'
 import { DEFAULT_LOADOUTS } from '../src/shared/agents'
@@ -10,6 +10,7 @@ import { AssistantService, gateError } from '../src/main/assistant'
 import type { AgentDriver, TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import { Store } from '../src/main/store'
 import { tempDir } from './helpers'
+import { FLOW_STARTERS } from '../src/shared/flowStarters'
 
 const status = (agent: AgentStatus['agent'], ready: boolean, installed = true): AgentStatus => ({ agent, installed, ready })
 const claudeReady = { claude: status('claude', true), codex: status('codex', false) }
@@ -327,5 +328,48 @@ describe('assistant items stay apart from workspace chats', () => {
     expect(store.db.sweepOrphans()).toBe(0)
     expect(service.items(threadId).length).toBeGreaterThan(0)
     expect(await store.readChat(threadId)).toEqual([] as ChatItem[])
+  })
+})
+
+describe('assistant and the flow studio', () => {
+  const RESEARCH = FLOW_STARTERS.find((s) => s.id === 'research-then-implement')!.toml
+  const ONE_MORE_PASS = RESEARCH.replace('at_most = { iterations = 2 }', 'at_most = { iterations = 3 }')
+
+  it('tells the turn about the draft only while Flows are on', async () => {
+    const { service, store, turns } = await rig()
+    const off = await service.send(null, 'Explain this flow', false, { context: { flow: { toml: RESEARCH, source: 'built-in' } } })
+    expect(turns[0].request.assistant?.systemPrompt).not.toContain('flow studio')
+    expect(turns[0].request.assistant?.tools.proposeFlow).toBeUndefined()
+    turns[0].finish()
+    await service.settled(off.threadId)
+    store.state.settings.flows = true
+    await service.send(null, 'Explain this flow', false, { context: { flow: { toml: RESEARCH, source: 'built-in' } } })
+    const prompt = turns[1].request.assistant!.systemPrompt
+    expect(prompt).toContain('flow studio')
+    expect(prompt).toContain('read-only')
+    expect(prompt).toContain('<data note="The flow document')
+    expect(prompt).toContain('[loops.qa-until-clean]')
+    expect(turns[1].request.assistant?.tools.proposeFlow).toBeTypeOf('function')
+  })
+
+  it('shows a proposal with what it changes, and changes nothing', async () => {
+    const { service, store, turns } = await rig()
+    store.state.settings.flows = true
+    const { threadId } = await service.send(null, 'Give QA one more pass', false, { context: { flow: { toml: RESEARCH, source: 'personal' } } })
+    const answer = turns[0].request.assistant!.tools.proposeFlow!(ONE_MORE_PASS, 'One more QA pass')
+    expect(answer).toMatch(/nothing changes until they apply it/)
+    const proposal = service.items(threadId).map(flowProposalOf).find(Boolean)!
+    expect(proposal).toMatchObject({ toml: ONE_MORE_PASS, base: RESEARCH, summary: 'One more QA pass', changes: [{ on: 'loop', op: 'changed', loop: 'qa-until-clean', fields: ['at_most'] }] })
+    expect(store.state.personalFlows ?? []).toEqual([])
+  })
+
+  it('sends problems back instead of showing them, and refuses a proposal that changes nothing', async () => {
+    const { service, store, turns } = await rig()
+    store.state.settings.flows = true
+    const { threadId } = await service.send(null, 'Break it', false, { context: { flow: { toml: RESEARCH, source: 'personal' } } })
+    const tools = turns[0].request.assistant!.tools
+    expect(tools.proposeFlow!('name = "x"\n[start]\nstep = "nowhere"', 'bad')).toMatch(/^Not proposed: the document has problems/)
+    expect(tools.proposeFlow!(RESEARCH, 'same')).toMatch(/same flow as the draft/)
+    expect(service.items(threadId).some((i) => flowProposalOf(i))).toBe(false)
   })
 })

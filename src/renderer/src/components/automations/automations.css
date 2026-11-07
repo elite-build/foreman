@@ -432,6 +432,22 @@ div.auto-card {
   margin: 0;
   padding-left: 18px;
 }
+/* What a proposal changes (FlowChanges.tsx): a line per change, its Tag (ui/) first. */
+.flow-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-change {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 /* The run graph above the document: its words, then the diagram (FlowDiagram's Card). */
 .flow-preview {
   display: flex;
@@ -450,6 +466,16 @@ div.auto-card {
   flex: 0 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* A flow card's thumbnail of its run graph (Graph, ui/): a fixed strip the picture fits into. */
+.flow-card-thumb {
+  display: block;
+  height: 72px;
+  min-width: 0;
+}
+.flow-card-thumb .flow-card-thumb-graph {
+  height: 100%;
 }
 
 /* A flow card with its recent runs under it. */
@@ -494,6 +520,257 @@ div.auto-card {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Every flow's runs (Flows › Runs): a plain table; Status, LinkButton (ui/) draw themselves. */
+.flow-runs-table {
+  width: calc(100% - 20px);
+  margin: 4px 10px 14px;
+  border-collapse: collapse;
+}
+.flow-runs-table td:first-child {
+  min-width: 140px;
+}
+.flow-runs-table th,
+.flow-runs-table td {
+  padding: 6px 12px 6px 0;
+  text-align: start;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.flow-runs-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The Run dialog: what to do beside what the run does, one column when the window is narrow. */
+.flow-run-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .flow-run-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.flow-run-heading {
+  margin: 0;
+}
+.flow-run-foot-note {
+  margin-right: auto;
+}
+/* What a run does, step by step (FlowStepOutline): an icon, then the step's name and who does it; a loop after its steps. */
+.flow-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-outline-step,
+.flow-outline-loop {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.flow-outline-icon {
+  flex: none;
+  margin-top: 2px;
+}
+.flow-outline-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.flow-outline-loop {
+  padding-left: 22px;
+}
+
+/* ---- the flow studio (FlowStudio.tsx): a flow as its own page ---- */
+/* The page: its title and actions, the graph with the inspector beside it, and the resizable panel under them. */
+.flow-studio {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 20px 0;
+}
+.flow-studio-head {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.flow-studio-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin-right: auto;
+}
+.flow-studio-title .auto-page-title {
+  margin: 0;
+}
+.flow-studio-tags,
+.flow-studio-actions,
+.flow-studio-proposal-actions,
+.flow-studio-inspector-actions,
+.flow-studio-suggestions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-studio-starter {
+  width: 240px;
+}
+.flow-studio-canvas {
+  flex: 1;
+  min-height: 220px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.flow-studio-canvas[data-inspecting] {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+}
+.flow-studio-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.flow-studio-graph .flow-graph.flow-studio-graph-view {
+  flex: 1;
+  max-height: none;
+}
+.flow-studio-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 4px 12px 14px;
+  border-left: 1px solid var(--border);
+}
+.flow-studio-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.flow-studio-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.flow-studio-prompt {
+  white-space: pre-wrap;
+}
+.flow-studio-exits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-studio-panel {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+.flow-studio-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.flow-studio-tabpanel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 0 12px;
+}
+.flow-studio-tabpanel[hidden] {
+  display: none;
+}
+.flow-studio-code {
+  height: 100%;
+}
+.flow-studio-problem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-studio-problem {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+/* The Steps tab: the graph as a list, a CardButton (ui/) per step. */
+.flow-studio-outline {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-studio-outline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* The Assistant tab: the conversation scrolls, the message box stays at the bottom. */
+.flow-studio-assistant {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.flow-studio-assistant-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.flow-studio-assistant-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 72ch;
+}
+.flow-studio-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
 /* ---- personas (beside flows) ---- */

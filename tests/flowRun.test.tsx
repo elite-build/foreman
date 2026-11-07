@@ -236,11 +236,11 @@ describe('the Flow tab’s diagram and its four lenses', () => {
     const user = userEvent.setup()
     render(<FlowRunPanel workspaceId="ws-1" />)
     // Run: the diagram of the run (drawn from its records: the flow isn't listed here), and nothing more than the steps.
-    expect(await screen.findByRole('img', { name: 'Green · Run' })).toBeTruthy()
-    expect(mermaid.sources.at(-1)).toContain('accTitle: Green · Run')
-    // The side panel scrolls down, so the diagram reads top to bottom rather than shrinking to a strip.
-    expect(mermaid.sources.at(-1)!.startsWith('flowchart TB\n')).toBe(true)
-    expect(mermaid.sources.at(-1)).toContain('● completed · 4m 02s')
+    expect(await screen.findByRole('group', { name: 'Green · Run' })).toBeTruthy()
+    // The side panel scrolls down, so the graph reads top to bottom rather than shrinking to a strip.
+    const graphNode = (title: string) => [...document.querySelectorAll<HTMLElement>('.ui-graph__node')].find((n) => n.querySelector('.ui-graph__title')?.textContent === title)
+    expect(Number.parseFloat(graphNode('fix')!.style.top)).toBeGreaterThan(Number.parseFloat(graphNode('build')!.style.top))
+    expect(graphNode('build')!.dataset.tone).toBe('ok')
     const lenses = screen.getByRole('radiogroup', { name: 'Show the flow as' })
     expect(within(lenses).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Run', 'Context', 'Memory', 'Data'])
     const steps = () => within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem')
@@ -248,8 +248,8 @@ describe('the Flow tab’s diagram and its four lenses', () => {
 
     // Context: what each turn was shown and how full its window was.
     await user.click(within(lenses).getByRole('radio', { name: 'Context' }))
-    expect(await screen.findByRole('img', { name: 'Green · Context' })).toBeTruthy()
-    expect(mermaid.sources.at(-1)).toContain('window 84K of 1M')
+    expect(await screen.findByRole('group', { name: 'Green · Context' })).toBeTruthy()
+    expect(graphNode('fix')!.textContent).toContain('window 84K of 1M')
     const context = screen.getByRole('list', { name: 'What each turn was shown' })
     const rows = within(context).getAllByRole('listitem')
     expect(rows.map((r) => within(r).getByText(/^(build|fix)$/).textContent)).toEqual(['build', 'fix'])
@@ -261,7 +261,7 @@ describe('the Flow tab’s diagram and its four lenses', () => {
 
     // Memory: the ledger, what outlives a step with its reads and writes, and each card's memory writes.
     await user.click(within(lenses).getByRole('radio', { name: 'Memory' }))
-    expect(await screen.findByRole('img', { name: 'Green · Memory' })).toBeTruthy()
+    expect(await screen.findByRole('group', { name: 'Green · Memory' })).toBeTruthy()
     const ledger = screen.getByRole('table', { name: 'Run ledger' })
     expect(within(ledger).getAllByRole('row')).toHaveLength(4)
     expect(within(ledger).getByText('build.answer, checks.results')).toBeTruthy()
@@ -272,8 +272,8 @@ describe('the Flow tab’s diagram and its four lenses', () => {
 
     // Data: each step's trees, with Moved in words where the tree moved.
     await user.click(within(lenses).getByRole('radio', { name: 'Data' }))
-    expect(await screen.findByRole('img', { name: 'Green · Data' })).toBeTruthy()
-    expect(mermaid.sources.at(-1)).toContain('|moved|')
+    expect(await screen.findByRole('group', { name: 'Green · Data' })).toBeTruthy()
+    expect([...document.querySelectorAll('.ui-graph__label')].some((l) => l.textContent === 'moved')).toBe(true)
     const data = screen.getByRole('list', { name: 'Trees each step worked on' })
     const fix = within(data).getAllByRole('listitem')[2]
     expect(within(fix).getByText('bbbbbbb → ccccccc')).toBeTruthy()
@@ -295,8 +295,51 @@ describe('the Flow tab’s diagram and its four lenses', () => {
       }
     ])
     render(<FlowRunPanel workspaceId="ws-1" />)
-    await waitFor(() => expect(mermaid.sources.some((s) => s.includes('ship<br/>· gate<br/>◌ not yet'))).toBe(true))
+    const graphNode = (title: string) => [...document.querySelectorAll<HTMLElement>('.ui-graph__node')].find((n) => n.querySelector('.ui-graph__title')?.textContent === title)
+    // A step not yet run is drawn dim with its state; the exit the run didn't take is faint.
+    await waitFor(() => expect(graphNode('ship')?.dataset.tone).toBe('off'))
+    expect(graphNode('ship')!.dataset.dim).toBe('true')
     expect(fakeApi.listFlows).toHaveBeenCalledWith('r1')
-    expect(mermaid.sources.at(-1)).toContain('-.->|passed|')
+    const passed = [...document.querySelectorAll<HTMLElement>('.ui-graph__label')].find((l) => l.textContent === 'passed')!
+    expect(passed.dataset.weight).toBe('faint')
+  })
+})
+
+describe('the Flow tab’s graph, gate and stop', () => {
+  beforeEach(() => {
+    fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [RUN] }
+    fakeState.approvals = []
+  })
+  afterEach(() => {
+    fakeState.approvals = []
+  })
+
+  it('opens what a step stands for when it is selected on the graph', async () => {
+    const user = userEvent.setup()
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    const graph = await screen.findByRole('group', { name: 'Green · Run' })
+    await user.click(within(graph).getByRole('button', { name: /^checks/ }))
+    expect(storeModule.showChecksPanel).toHaveBeenCalledWith('ws-1')
+    await user.click(within(graph).getByRole('button', { name: /^fix/ }))
+    expect(storeModule.selectSession).toHaveBeenCalledWith('ws-1', 's1')
+  })
+
+  it('answers the gate the run waits at, and says why a run stopped with a way to the checks', async () => {
+    const user = userEvent.setup()
+    fakeApi.respondApproval = vi.fn(async () => undefined)
+    fakeState.approvals = [{ id: 'g1', kind: 'gate', flowRunId: 'run', flowName: 'Green', step: 'ship', ask: 'Ship it?', show: [], sessionId: '', workspaceId: 'ws-1' }]
+    const view = render(<FlowRunPanel workspaceId="ws-1" />)
+    expect(await screen.findByText('Green waits for you at ship')).toBeTruthy()
+    expect(screen.getByText('Ship it?')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(fakeApi.respondApproval).toHaveBeenCalledWith('g1', { kind: 'gate', answer: 'continued' })
+
+    fakeState.approvals = []
+    fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [{ ...RUN, state: 'stopped', reason: 'The loop “green” reached its 4 iterations.', steps: RUN.steps.slice(0, 2) }] }
+    view.rerender(<FlowRunPanel workspaceId="ws-1" />)
+    expect(await screen.findByText('Why it stopped')).toBeTruthy()
+    expect(screen.getByText('The loop “green” reached its 4 iterations.')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Open the checks' }))
+    expect(storeModule.showChecksPanel).toHaveBeenCalledWith('ws-1')
   })
 })

@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-06: A flow is drawn on a selectable graph laid out by Foreman, and edited with the assistant beside it
+
+**Decision.** Flows, runs and lineage are drawn with a `Graph` component from `ui/` and a layout in `src/shared/flowLayout.ts` (main path along one axis, a loop's body folded under the step it returns to), not with Mermaid. A step or exit can be selected to open it; the outline stays the full keyboard and screen-reader equivalent. The assistant proposes a whole new flow document (`propose_flow`), shown as its changes, and changes nothing until the user applies it. Nothing is dragged.
+
+**Why.** Mermaid's layout, shrunk into a dialog, was unreadable, and changing a flow meant writing TOML by hand.
+
+**Turned down.** Keeping Mermaid at a larger size (overlapping loops still cross, nothing can be selected). A drag-and-drop canvas (a new interaction model). The assistant editing the file directly (it would change things the user didn't review).
+
+**Revisit when.** People want to draw flows rather than describe them.
+
 ## 2026-11-06: A template opens as its own page in Automations, not in the side panel
 
 **Decision.** Clicking a template replaces the library with the template's page: breadcrumbs and Back (or Escape), the prompt and its options on the left, Run now, Schedule…, ⋯ (Duplicate, Delete), schedules and recent runs on the right. The side panel keeps the schedules. The library stays mounted, so Back finds it as it was.
@@ -75,6 +85,8 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 **Revisit when.** An agent can return a typed verdict the harness verifies, not a sentence.
 
 ## 2026-11-06: A flow is edited as an outline and shown as a diagram, not drawn on a canvas
+
+**Superseded** by 2026-11-06: A flow is drawn on a selectable graph laid out by Foreman, and edited with the assistant beside it.
 
 **Decision.** A flow is a TOML file; the app edits it as a list of steps with forms, and draws it with the Mermaid renderer the chat already has, with a Run · Context · Memory · Data lens switch. The diagram is a picture of the outline and opens nothing itself; the outline carries every fact and is what the keyboard and a screen reader use. Flows are off by default, behind Settings → Experimental → Flows, and off means none of it is shown.
 

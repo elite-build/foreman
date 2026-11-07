@@ -110,7 +110,7 @@ function openWorkspace(f: Fixture, sessionId = f.chatId): void {
 }
 
 // The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
-const FLOW_SCREENS: readonly string[] = ['automations-flows', 'workspace-flow', 'workspace-lineage']
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run-dialog', 'automations-flow-studio', 'automations-flow-studio-step', 'workspace-flow', 'workspace-lineage']
 
 /** Flows on or off. A setting, so it outlives the page, like the window layout. */
 async function flowsSetting(on: boolean): Promise<void> {
@@ -126,8 +126,8 @@ async function flowTab(f: Fixture, tab: 'flow' | 'lineage'): Promise<string | nu
   const button = await waitFor(element(`.side-panel [role="tab"][data-tab-value="${tab}"]`))
   if (!button) return null
   button.click()
-  // Mermaid renders after the panel mounts (a lazily loaded chunk); the Spinner stands in until the SVG is there.
-  return '.side-panel .flow-run .flow-diagram .mmd-view svg'
+  // The graph is drawn once the tab has read the run (the Flow tab) or the history (Lineage).
+  return '.side-panel .flow-run .ui-graph .ui-graph__node'
 }
 
 // Each screen: get there, and name what shows it has rendered.
@@ -240,6 +240,34 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openAutomations()
     if (!(await waitFor(() => document.querySelectorAll('.automations-view .flow-item').length >= 3))) return null
     return '.automations-view .flow-runs'
+  },
+  // The same section switched to every flow's runs, as a table.
+  'automations-flow-runs': async () => {
+    openAutomations()
+    const runs = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.automations-view [role="radio"]')].find((r) => r.textContent === 'Runs') ?? null)
+    if (!runs) return null
+    runs.click()
+    return '.automations-view .flow-runs-table tbody tr'
+  },
+  // Run… on the first flow: what to do beside what the run does.
+  'automations-flow-run-dialog': async () => {
+    openAutomations()
+    const run = await waitFor(() => document.querySelector<HTMLButtonElement>('.automations-view .flow-item button[aria-label^="Run "]:not(:disabled)'))
+    if (!run) return null
+    run.click()
+    return '[role="dialog"] .flow-outline'
+  },
+  // A built-in flow opened as its own page: the graph, and the Assistant under it.
+  'automations-flow-studio': () => (openAutomations('f:built-in:research-then-implement'), '.flow-studio .ui-graph__node'),
+  // The same with a step selected: the inspector beside the graph, and its block in the TOML tab.
+  'automations-flow-studio-step': async () => {
+    openAutomations('f:built-in:research-then-implement')
+    const step = await waitFor(() => [...document.querySelectorAll<HTMLButtonElement>('.flow-studio .ui-graph__node')].find((n) => n.querySelector('.ui-graph__title')?.textContent === 'checks') ?? null)
+    if (!step) return null
+    step.click()
+    const toml = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.flow-studio [role="tab"]')].find((tab) => tab.textContent?.includes('TOML')) ?? null)
+    toml?.click()
+    return '.flow-studio-inspector'
   },
   // A completed run's Flow tab (Run lens), and the same workspace's Lineage tab (Run lens).
   'workspace-flow': (f) => flowTab(f, 'flow'),

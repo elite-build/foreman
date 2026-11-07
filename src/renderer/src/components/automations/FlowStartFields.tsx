@@ -3,14 +3,17 @@
 // repository's runnable flows, one field per input, its run graph, and the approval card (the flow file, templates,
 // personas, setup, checks, MCP servers, integrations, what a completed run does with its workspaces) with the Claude-only
 // rule and why it can't start. Feature compositions of ui/ pieces only; the caller owns the dialog and what Start does.
-import { useEffect, useMemo, useState } from 'react'
-import { FLOW_AFTER, parseFlow, type FlowAfter, type FlowListing, type FlowPersonaRef, type FlowRunPreview, type FlowRunSummary } from '../../../../shared/flows'
+import { Bot, Clock, Eye, FolderGit2, GitPullRequest, ListChecks, Repeat, Shuffle, Split, SquareTerminal, UserCheck, type LucideIcon } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { modelWords } from '../../../../shared/flowGraph'
+import { FLOW_AFTER, parseFlow, stepPersona, type FlowAfter, type FlowListing, type FlowLoop, type FlowPersonaRef, type FlowRunPreview, type FlowRunSummary, type FlowStep, type FlowStepKind } from '../../../../shared/flows'
 import type { FlowStarter } from '../../../../shared/flowStarters'
 import type { PlainKey } from '../../../../shared/i18n'
 import { useT, type RendererT } from '../../i18n'
 import { api, useStore } from '../../store'
-import { Callout, Card, Field, RadioCards, Tag, TextInput, type RadioCardOption } from '../../ui'
+import { Callout, Card, Field, RadioCards, Status, Tag, TextArea, TextInput, type RadioCardOption } from '../../ui'
 import { FlowLensDiagram } from '../FlowDiagram'
+import { STEP_KIND } from './flowRunWords'
 
 export const STARTER_NAME: Record<FlowStarter['id'], PlainKey> = {
   'fix-until-green': 'automations.flows.starter.fixUntilGreen',
@@ -115,16 +118,81 @@ export function flowStartReady(preview: FlowRunPreview | null, values: Record<st
   return preview.inputs.every((i) => values[i.name]?.trim())
 }
 
-/** One text field per input the flow asks for: its [inputs] and its templates' {{placeholders}}. */
+/** One field per input the flow asks for: its [inputs] and its templates' {{placeholders}}; the task gets room to write. */
 export function FlowInputFields({ preview, values, onChange }: { preview: FlowRunPreview | null; values: Record<string, string>; onChange: (values: Record<string, string>) => void }) {
   return (
     <>
       {(preview?.inputs ?? []).map((input) => (
         <Field key={input.name} label={input.name} description={input.description || undefined}>
-          {(c) => <TextInput {...c} value={values[input.name] ?? ''} onChange={(e) => onChange({ ...values, [input.name]: e.target.value })} />}
+          {(c) =>
+            input.name === 'task' ? (
+              <TextArea {...c} rows={5} value={values[input.name] ?? ''} onChange={(e) => onChange({ ...values, [input.name]: e.target.value })} />
+            ) : (
+              <TextInput {...c} value={values[input.name] ?? ''} onChange={(e) => onChange({ ...values, [input.name]: e.target.value })} />
+            )
+          }
         </Field>
       ))}
     </>
+  )
+}
+
+const KIND_ICON: Record<FlowStepKind, LucideIcon> = { pr: GitPullRequest, turn: Bot, review: Eye, checks: ListChecks, gate: UserCheck, script: SquareTerminal, decide: Split, workspace: FolderGit2, wait: Clock, pick: Shuffle }
+
+/** A loop's bounds in words: "at most 4 iterations · at most 45 min". */
+function loopBounds(loop: FlowLoop, t: RendererT): string {
+  const { iterations, minutes, cost } = loop.at_most
+  return [iterations !== undefined ? t('flowGraph.loop.atMostIterations', { max: iterations }) : null, minutes !== undefined ? t('flowGraph.loop.atMostMinutes', { max: minutes }) : null, cost !== undefined ? t('flowGraph.loop.atMostCost', { max: cost.toFixed(2) }) : null]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
+ * What a run does, step by step, in the file's order: each step's kind, who does it and on what, and each loop after
+ * the last of its steps with its bounds. A step that keeps the run from starting (not on Claude) says so on its line.
+ */
+export function FlowStepOutline({ flow, notClaude = [] }: { flow: FlowListing; notClaude?: FlowRunSummary['notClaude'] }) {
+  const t = useT()
+  const loadouts = useStore((s) => s.snapshot?.settings.loadouts)
+  const parsed = useMemo(() => parseFlow(flow.toml, flow.source, t), [flow.toml, flow.source, t])
+  if (!('flow' in parsed)) return null
+  const { steps, loops } = parsed.flow
+  const who = (step: FlowStep) => {
+    if (!('context' in step || step.kind === 'turn' || step.kind === 'review' || step.kind === 'decide')) return []
+    const agentStep = step as Extract<FlowStep, { kind: 'turn' | 'review' | 'decide' }>
+    const persona = stepPersona(parsed.flow, step)
+    const slot = agentStep.loadout ? loadouts?.[agentStep.loadout - 1] : undefined
+    const model = agentStep.model ?? slot?.model
+    return [persona, model ? modelWords(model) : agentStep.agent].filter((x): x is string => Boolean(x))
+  }
+  const lastOf = (loop: FlowLoop) => steps.reduce((last, s, i) => (loop.over.includes(s.name) ? i : last), -1)
+  return (
+    <ol className="flow-outline" aria-label={t('flowRun.outline.label')}>
+      {steps.map((step, i) => {
+        const Icon = KIND_ICON[step.kind]
+        const refused = notClaude.find((n) => n.step === step.name)
+        return (
+          <Fragment key={step.name}>
+            <li className="flow-outline-step">
+              <Icon size={14} aria-hidden className="flow-outline-icon" />
+              <span className="flow-outline-text">
+                <code>{step.name}</code>
+                <span className="faint small">{[t(STEP_KIND[step.kind]), ...who(step)].join(' · ')}</span>
+                {refused && <Status tone="error" label={t('flowRun.outline.notClaude', { agent: refused.agent })} />}
+              </span>
+            </li>
+            {loops
+              .filter((loop) => lastOf(loop) === i)
+              .map((loop) => (
+                <li key={`loop:${loop.name}`} className="flow-outline-loop small">
+                  <Repeat size={12} aria-hidden />
+                  <span>{t('flowRun.outline.loop', { loop: loop.name, steps: loop.over.join(', '), bounds: loopBounds(loop, t) })}</span>
+                </li>
+              ))}
+          </Fragment>
+        )
+      })}
+    </ol>
   )
 }
 
@@ -171,7 +239,7 @@ const AFTER: Record<FlowAfter, PlainKey> = {
  * What starting the flow approves, part by part, then the rules that hold for every run (Claude only, the cost bound)
  * and why it can't start. `flow` gives the source line its file and revision.
  */
-export function FlowApproval({ flow, summary, error }: { flow: Pick<FlowListing, 'source' | 'file' | 'rev'>; summary: FlowRunSummary | undefined; error?: string | null }) {
+export function FlowApproval({ flow, summary, error, stepsShown }: { flow: Pick<FlowListing, 'source' | 'file' | 'rev'>; summary: FlowRunSummary | undefined; error?: string | null; stepsShown?: boolean }) {
   const t = useT()
   const none = t('flowRun.dialog.none')
   return (
@@ -218,12 +286,8 @@ export function FlowApproval({ flow, summary, error }: { flow: Pick<FlowListing,
       )}
       {summary && (
         <Callout tone="info" role="note">
-          {t('flowRun.dialog.claudeOnly')}
-        </Callout>
-      )}
-      {summary?.costBound && (
-        <Callout tone="info" role="note">
-          {t('flowRun.dialog.costBound')}
+          <p>{t('flowRun.dialog.claudeOnly')}</p>
+          {summary.costBound && <p>{t('flowRun.dialog.costBound')}</p>}
         </Callout>
       )}
       {summary && summary.attended && summary.attended.length > 0 && (
@@ -231,7 +295,7 @@ export function FlowApproval({ flow, summary, error }: { flow: Pick<FlowListing,
           {t('flowRun.dialog.attended', { steps: summary.attended.map((n) => `${n.step} (${n.agent})`).join(', ') })}
         </Callout>
       )}
-      {summary && summary.notClaude.length > 0 && (
+      {summary && summary.notClaude.length > 0 && !stepsShown && (
         <Callout tone="warn" role="status">
           {t('flowRun.dialog.notClaude', { steps: summary.notClaude.map((n) => `${n.step} (${n.agent})`).join(', ') })}
         </Callout>
