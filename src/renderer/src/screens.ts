@@ -110,7 +110,7 @@ function openWorkspace(f: Fixture, sessionId = f.chatId): void {
 }
 
 // The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
-const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run-dialog', 'automations-flow-studio', 'automations-flow-studio-step', 'workspace-flow', 'workspace-lineage']
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run', 'automations-flow-run-models', 'automations-flow-studio', 'automations-flow-studio-step', 'workspace-flow', 'workspace-lineage']
 
 /** Flows on or off. A setting, so it outlives the page, like the window layout. */
 async function flowsSetting(on: boolean): Promise<void> {
@@ -249,13 +249,15 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     runs.click()
     return '.automations-view .flow-runs-table tbody tr'
   },
-  // Run… on the first flow: what to do beside what the run does.
-  'automations-flow-run-dialog': async () => {
-    openAutomations()
-    const run = await waitFor(() => document.querySelector<HTMLButtonElement>('.automations-view .flow-item button[aria-label^="Run "]:not(:disabled)'))
-    if (!run) return null
-    run.click()
-    return '[role="dialog"] .flow-outline'
+  // Run a flow on a built-in flow: the bar, the tabs and the graph with each step's model.
+  'automations-flow-run': () => (openAutomations('r:built-in:research-then-implement'), '.frp .ui-graph__node'),
+  // The same on its Models tab: the tiers, and a model and effort per person.
+  'automations-flow-run-models': async () => {
+    openAutomations('r:built-in:research-then-implement')
+    const tab = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.frp [role="tab"]')].find((t) => t.textContent?.startsWith('Models')) ?? null)
+    if (!tab) return null
+    tab.click()
+    return '.frp-people'
   },
   // A built-in flow opened as its own page: the graph, and the Assistant under it.
   'automations-flow-studio': () => (openAutomations('f:built-in:research-then-implement'), '.flow-studio .ui-graph__node'),

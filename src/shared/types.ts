@@ -737,7 +737,7 @@ export interface ScheduleSummary {
   // The template file's revision (a repo template's git blob SHA); personal templates have none.
   templateRev?: string
   templateSource?: 'personal' | 'repo'
-  // A flow schedule: what a run of the flow approves, as its Run dialog shows it.
+  // A flow schedule: what a run of the flow approves, as the Run a flow page shows it.
   flow?: FlowRunSummary
   repoName: string
   baseBranch: string

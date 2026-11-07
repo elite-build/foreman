@@ -1,6 +1,6 @@
 // `foreman flow …`: flows (docs/loops-and-graphs.md). Starting a run approves what it will do, so `flow run` asks the
 // app for the approval summary first, prints it, asks, and sends the fingerprint back as `shown`: the app refuses when it
-// no longer matches, as the Run dialog does. `--wait` then follows the run step by step until it ends.
+// no longer matches, as the Run a flow page does. `--wait` then follows the run step by step until it ends.
 import { flowEndText, flowRunExit, flowRunGoing, flowStepText, gateWaitText, pickWaitText, type FlowAddResult, type FlowDraftResult, type FlowRunResult, type FlowRunRow, type FlowRunStartedResult, type FlowWaitResult } from '../../shared/cli/flows'
 import { CliError, usageError } from '../client'
 import type { Context, Run } from '../command'

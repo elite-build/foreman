@@ -148,8 +148,9 @@ interface State {
   composerFill: { sessionId: string; text: string; templateId?: string; attachments?: Attachment[]; snippet?: TerminalSnippet; edited?: EditedFrom; nonce: number } | null
   settingsPage: SettingsPage | null
   // The Automations page (templates and schedules), with the template ("t:<id>") or schedule ("s:<id>") it shows.
-  // `selected`: "t:<template>", "s:<schedule>", "f:<flow id>", or "f:new" with `flowDraft` (a flow not saved yet).
-  automations: { selected: string | null; scrollTo?: 'commands'; flowDraft?: FlowDraftOpen } | null
+  // `selected`: "t:<template>", "s:<schedule>", "f:<flow id>", "f:new" with `flowDraft` (a flow not saved yet), or
+  // "r:<flow id>" with `flowRun` (the Run a flow page, set up for a repository and base branch).
+  automations: { selected: string | null; scrollTo?: 'commands'; flowDraft?: FlowDraftOpen; flowRun?: FlowRunOpen } | null
   // Phone pill → Network setup…: same-Wi-Fi address and private (Tailscale) access.
   phoneSetupOpen: boolean
   // Help → Report a problem… / ⌘K (O20).
@@ -1521,6 +1522,17 @@ export interface FlowDraftOpen {
 /** Open the flow studio on a draft that isn't saved yet: a new flow, a copy of a read-only one, or one drafted from a workspace. */
 export function openFlowDraft(draft: FlowDraftOpen): void {
   setState({ automations: { selected: 'f:new', flowDraft: draft }, settingsPage: null, overlay: null, assistantOpen: false })
+}
+
+/** Where the Run a flow page starts: the repository and base branch it was opened for (New workspace's, or none). */
+export interface FlowRunOpen {
+  repoId?: string
+  baseBranch?: string
+}
+
+/** Open the Run a flow page on a flow (or on none: the page offers the repository's flows). */
+export function openFlowRun(flowId: string | null, at: FlowRunOpen = {}): void {
+  setState({ automations: { selected: `r:${flowId ?? ''}`, flowRun: at }, settingsPage: null, overlay: null, assistantOpen: false })
 }
 
 export function openReportProblem(open: boolean, about?: string): void {

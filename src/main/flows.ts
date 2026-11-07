@@ -13,7 +13,8 @@
 //  - at most GLOBAL_ACTIVE_CAP runs at once, nothing new while Foreman quits, and after a crash runs that were in flight
 //    are uncertain and never retried; a completed run's `[after]` archives or deletes the workspaces it made.
 import { randomUUID } from 'node:crypto'
-import { AGENTS, defaultModel, type AgentKind, type Loadout } from '../shared/agents'
+import { AGENTS, defaultModel, type AgentKind, type EffortLevel, type Loadout } from '../shared/agents'
+import { flowModelProblems } from '../shared/flowModels'
 import { autoReviewPrompt, canReview, findingsMessage, parseFindings } from '../shared/autoReview'
 import { readOnlyEnforcement } from '../shared/permissions'
 import { applyPersona, personaMarkdown, type Persona, type TurnPersona } from '../shared/personas'
@@ -34,6 +35,9 @@ import {
   type FlowAfter,
   type FlowFingerprint,
   type FlowGateShow,
+  type FlowModelChoices,
+  type FlowStepChoice,
+  type FlowStepModel,
   type FlowPickChoice,
   type FlowRun,
   type FlowRunOrigin,
@@ -127,22 +131,62 @@ export function assertFlowFingerprintShown(shown: FlowFingerprint | undefined, n
 }
 
 /**
- * The agent and model an agent step runs on: its loadout slot, its agent and model, else its persona's default (a slot,
- * or an agent and model), else loadout 1.
+ * The agent and model an agent step runs on: the run's choice for it, else its loadout slot, its agent and model, else
+ * its persona's default (a slot, or an agent and model), else loadout 1. A step's own `effort` replaces the loadout's.
  */
-export function stepLoadout(step: AgentStep, loadouts: Loadout[], persona?: Persona): Loadout | { error: string } {
-  const own = step.loadout !== undefined || Boolean(step.agent) || Boolean(step.model)
+export function stepLoadout(step: AgentStep, loadouts: Loadout[], persona?: Persona, choice?: FlowStepChoice): Loadout | { error: string } {
+  if (choice) {
+    if (!Object.hasOwn(AGENTS, choice.agent)) return { error: `The agent “${choice.agent}” chosen for step “${step.name}” isn’t one Foreman knows.` }
+    return { agent: choice.agent as AgentKind, model: choice.model, ...(choice.effort ? { effort: choice.effort as EffortLevel } : {}), fast: false }
+  }
+  const own = ownsLoadout(step)
   const s = persona ? applyPersona(step, persona) : step
   const whose = !own && persona ? `persona “${persona.name}”, step “${step.name}”` : `step “${step.name}”`
+  const effort = step.effort ? { effort: step.effort as EffortLevel } : {}
   if (s.loadout !== undefined) {
     const slot = loadouts[s.loadout - 1]
-    return slot ?? { error: `Loadout ${s.loadout} (${whose}) isn’t set in Settings.` }
+    return slot ? { ...slot, ...effort } : { error: `Loadout ${s.loadout} (${whose}) isn’t set in Settings.` }
   }
   const first = loadouts[0] ?? { agent: 'claude' as const, model: defaultModel('claude'), fast: false }
-  if (!s.agent && !s.model) return first
+  if (!s.agent && !s.model) return { ...first, ...effort }
   const agent = (s.agent ?? first.agent) as AgentKind
   if (!Object.hasOwn(AGENTS, agent)) return { error: `The agent “${s.agent}” (${whose}) isn’t one Foreman knows.` }
-  return { agent, model: s.model ?? (agent === first.agent ? first.model : defaultModel(agent)), fast: false }
+  return { agent, model: s.model ?? (agent === first.agent ? first.model : defaultModel(agent)), ...effort, fast: false }
+}
+
+const ownsLoadout = (step: AgentStep): boolean => step.loadout !== undefined || Boolean(step.agent) || Boolean(step.model)
+
+/** Each agent step a run can choose a model for (not one continuing another's tab), with what the flow gives it. */
+export function flowStepModels(prepared: PreparedFlow, loadouts: Loadout[]): FlowStepModel[] {
+  const { flow } = prepared
+  const out: FlowStepModel[] = []
+  for (const step of flow.steps) {
+    if (!isAgentStep(step) || loadoutStep(flow, step) !== step || (step.kind === 'turn' && step.same_tab && !ownsLoadout(step))) continue
+    const { name: personaName, persona } = personaOf(prepared, step)
+    const loadout = stepLoadout(step, loadouts, persona)
+    if ('error' in loadout) continue
+    const applied = applyPersona(step, persona)
+    const from: FlowStepModel['from'] = ownsLoadout(step)
+      ? step.loadout !== undefined
+        ? 'slot'
+        : 'step'
+      : persona && (persona.loadout !== undefined || persona.agent || persona.model)
+        ? 'persona'
+        : 'default'
+    const slot = from === 'step' ? undefined : (applied.loadout ?? (from === 'default' ? 1 : undefined))
+    const follows = flow.steps.filter((s) => s.kind === 'turn' && s.same_tab === step.name && !ownsLoadout(s)).map((s) => s.name)
+    out.push({
+      step: step.name,
+      kind: step.kind,
+      ...(personaName ? { persona: personaName } : {}),
+      ...(follows.length ? { follows } : {}),
+      readOnly: step.kind !== 'turn' || applied.readOnly,
+      choice: { agent: loadout.agent, model: loadout.model, ...(loadout.effort ? { effort: loadout.effort } : {}) },
+      from,
+      ...(slot !== undefined ? { slot } : {})
+    })
+  }
+  return out
 }
 
 /** The persona a step runs as where the flow runs, by the name it (or the step whose tab it continues) gives. */
@@ -159,9 +203,9 @@ function loadoutStep(flow: Flow, step: AgentStep): AgentStep {
 }
 
 /** Every reason the flow can't start, in words; empty when it can. */
-export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { problems: string[]; notClaude: { step: string; agent: string }[]; attended: { step: string; agent: string }[] } {
+export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[], models?: FlowModelChoices): { problems: string[]; notClaude: { step: string; agent: string }[]; attended: { step: string; agent: string }[] } {
   const { flow } = prepared
-  const problems: string[] = []
+  const problems: string[] = [...flowModelProblems(flow, models)]
   const first = flow.steps.find((s) => s.name === flow.start)
   if (first && first.kind !== 'turn' && first.kind !== 'workspace') problems.push('A flow run starts with a turn or a workspace step: one of them makes the run’s workspace.')
   const notClaude: { step: string; agent: string }[] = []
@@ -178,7 +222,7 @@ export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[]): { 
     if (step.kind === 'turn' && !step.template && !step.prompt && !step.same_tab && step.name === flow.start) problems.push(`The first step “${step.name}” has no prompt or template to send.`)
     // A step that continues another's tab runs on that tab's agent.
     if (step.kind === 'turn' && step.same_tab) continue
-    const loadout = stepLoadout(step, loadouts, persona)
+    const loadout = stepLoadout(step, loadouts, persona, models?.[step.name])
     if ('error' in loadout) {
       problems.push(loadout.error)
       continue
@@ -442,12 +486,13 @@ export class FlowService {
   // ---- starting ----
 
   /** Start a run of what the caller showed. Throws, starting nothing, when it can't. */
-  begin(input: { flowId: string; repoId: string; baseBranch: string; inputs: Record<string, string>; shown: FlowFingerprint; origin?: FlowRunOrigin }): FlowRun {
+  begin(input: { flowId: string; repoId: string; baseBranch: string; inputs: Record<string, string>; shown: FlowFingerprint; models?: FlowModelChoices; origin?: FlowRunOrigin }): FlowRun {
     if (this.deps.paused?.()) throw new Error('Foreman is quitting, so nothing new starts.')
     const prepared = this.deps.prepare(input.flowId, input.repoId)
     if ('error' in prepared) throw new Error(prepared.error)
     assertFlowFingerprintShown(input.shown, prepared.fingerprint)
-    const { problems } = flowRunProblems(prepared, this.deps.loadouts())
+    const models = input.models && Object.keys(input.models).length ? input.models : undefined
+    const { problems } = flowRunProblems(prepared, this.deps.loadouts(), models)
     if (problems.length) throw new Error(problems.join(' '))
     const baseBranch = input.baseBranch?.trim()
     if (!baseBranch) throw new Error('Pick a base branch.')
@@ -469,6 +514,7 @@ export class FlowService {
       baseBranch,
       inputs: values,
       fingerprint: prepared.fingerprint,
+      ...(models ? { models: Object.fromEntries(Object.entries(models).map(([k, c]) => [k, { agent: c.agent, model: c.model, ...(c.effort ? { effort: c.effort } : {}) }])) } : {}),
       state: 'starting',
       startedAt: this.iso(),
       steps: [],
@@ -732,9 +778,10 @@ export class FlowService {
       if (noteRevision !== undefined) record.noteRevision = noteRevision
       if (details.length) record.detail = details.join(' · ')
       if (!isActiveRun(run)) return
-      const loadout = stepLoadout(step, this.deps.loadouts(), persona)
+      const loadout = stepLoadout(step, this.deps.loadouts(), persona, run.models?.[step.name])
       if ('error' in loadout) throw new Error(loadout.error)
       record.model = loadout.model
+      if (loadout.effort) record.effort = loadout.effort
       run.task = text
       this.persist()
       const launched = await this.deps.launch(run, { text, loadout, step: step.name, ...(limits ? { persona: limits } : {}) }, {
@@ -803,8 +850,12 @@ export class FlowService {
     if (notSent.length) details.push(`not sent yet: ${notSent.join(', ')}`)
     if (details.length) record.detail = details.join(' · ')
     if (!this.current(run, record)) return
-    const loadout = stepLoadout(loadoutStep(flow, step), this.deps.loadouts(), persona)
-    if (!('error' in loadout)) record.model = loadout.model
+    const owner = loadoutStep(flow, step)
+    const loadout = stepLoadout(owner, this.deps.loadouts(), persona, run.models?.[owner.name])
+    if (!('error' in loadout)) {
+      record.model = loadout.model
+      if (loadout.effort) record.effort = loadout.effort
+    }
     // A read-only step on another agent (a review or decide on Codex) is attended: an approval it asks for waits for you.
     if (!('error' in loadout) && loadout.agent !== 'claude' && step.kind !== 'turn') mark.attended = true
     if (!sessionId) {

@@ -1,18 +1,16 @@
 // Flows on Automations (docs/loops-and-graphs.md), shown only while Settings → Experimental → Flows is on: the built-in,
 // repository and personal flows as cards, each opening as its own page in the flow studio (FlowStudio.tsx).
-// Run… starts a flow in a new workspace after showing what the run approves; each flow lists its recent runs. The
-// Personas section (who a flow's step is) follows on All, with the flows that name each one; the Flows and Personas tabs
-// show one each.
+// Run… opens the Run a flow page (FlowRunPage.tsx) on it; each flow lists its recent runs. The Personas section (who a
+// flow's step is) follows on All, with the flows that name each one; the Flows and Personas tabs show one each.
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FLOW_STARTERS } from '../../../../shared/flowStarters'
 import { durationWords } from '../../../../shared/flowGraph'
 import { parseFlow, type FlowListing, type FlowRun } from '../../../../shared/flows'
-import type { BranchInfo } from '../../../../shared/types'
 import { useT } from '../../i18n'
-import { api, attempt, openFlowDraft, selectAutomation, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
-import { ActionRow, Button, Dialog, Field, LinkButton, Segmented, Select, Status } from '../../ui'
-import { FlowApproval, FlowInputFields, FlowStepOutline, flowStartReady, flowTitle, SourceTags, summaryText, useFlowPreview } from './FlowStartFields'
+import { api, attempt, openFlowDraft, openFlowRun, selectAutomation, selectWorkspace, timeAgo, useStore } from '../../store'
+import { ActionRow, Button, LinkButton, Segmented, Status } from '../../ui'
+import { flowTitle, SourceTags, summaryText } from './FlowStartFields'
 import { FlowLensDiagram } from '../FlowDiagram'
 import { RUN_STATE, RUN_TONE } from './flowRunWords'
 import { PersonasSection } from './PersonasSection'
@@ -29,7 +27,6 @@ function FlowList({ query, show }: { query: string; show: FlowsShow }) {
   const t = useT()
   const repos = useStore((s) => s.snapshot!.repos)
   const [flows, setFlows] = useState<FlowListing[]>([])
-  const [running, setRunning] = useState<FlowListing | null>(null)
   const [view, setView] = useState<'flows' | 'runs'>('flows')
   const load = useCallback(async () => {
     const list = await attempt(() => api.listFlows())
@@ -76,14 +73,13 @@ function FlowList({ query, show }: { query: string; show: FlowsShow }) {
               <div className="auto-cards">
                 {shown.map((flow) => (
                   <div key={flow.id} className="flow-item">
-                    <FlowCard flow={flow} onOpen={() => selectAutomation(`f:${flow.id}`)} onRun={() => setRunning(flow)} />
+                    <FlowCard flow={flow} onOpen={() => selectAutomation(`f:${flow.id}`)} onRun={() => openFlowRun(flow.id, { repoId: flow.repoId })} />
                     <FlowRuns flow={flow} />
                   </div>
                 ))}
               </div>
             </>
           )}
-          {running && <RunFlowDialog flow={running} onClose={() => setRunning(null)} />}
         </section>
       )}
       {show !== 'flows' && <PersonasSection query={query} alone={show === 'personas'} usedBy={usedBy} onChanged={() => void load()} />}
@@ -222,106 +218,5 @@ function FlowRunsTable({ flows }: { flows: FlowListing[] }) {
         })}
       </tbody>
     </table>
-  )
-}
-
-/**
- * Run…: the repository (for a personal or built-in flow), the base branch, the flow's inputs, and what starting it
- * approves (FlowStartFields): the flow file and its revision, templates, personas, setup, checks, MCP servers and
- * integrations. Starting sends back the fingerprint shown here, so a run is refused when any of it changed meanwhile.
- */
-export function RunFlowDialog({ flow, onClose }: { flow: FlowListing; onClose: () => void }) {
-  const t = useT()
-  const repos = useStore((s) => s.snapshot!.repos)
-  const fixedRepo = flow.source === 'repo' ? flow.repoId : undefined
-  const [repoId, setRepoId] = useState(fixedRepo ?? repos[0]?.id ?? '')
-  const repo = repos.find((r) => r.id === repoId)
-  const [base, setBase] = useState(repo?.defaultBranch ?? 'main')
-  const [branches, setBranches] = useState<BranchInfo[] | null>(null)
-  const [values, setValues] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState(false)
-  const { preview, error } = useFlowPreview(flow.id, repoId, base)
-
-  useEffect(() => {
-    if (!repoId) return
-    let live = true
-    setBranches(null)
-    api
-      .listBranches(repoId)
-      .then((list) => live && setBranches(list))
-      .catch(() => live && setBranches([]))
-    return () => {
-      live = false
-    }
-  }, [repoId])
-
-  const ready = flowStartReady(preview, values) && Boolean(base.trim()) && !busy
-  const name = flowTitle(flow, t)
-
-  const start = async () => {
-    if (!preview) return
-    setBusy(true)
-    const run = await attempt(() => api.startFlowRun({ flowId: flow.id, source: flow.source, repoId, baseBranch: base, inputs: values, shown: preview.fingerprint }))
-    setBusy(false)
-    if (!run) return
-    showToast(t('flowRun.dialog.started', { name }))
-    onClose()
-  }
-
-  const branchOptions = [...new Set([base, ...(branches ?? []).map((b) => b.name)])].map((b) => ({ value: b, label: b }))
-  const summary = preview?.summary
-  const blocked = summary && (summary.notClaude.length > 0 || summary.problems.length > 0)
-  // The outline marks a step that isn't on Claude; a file it can't read leaves that to the approval's own callout.
-  const outlined = useMemo(() => 'flow' in parseFlow(flow.toml, flow.source, t), [flow.toml, flow.source, t])
-
-  return (
-    <Dialog
-      title={t('flowRun.dialog.title', { name })}
-      onClose={onClose}
-      size="xl"
-      footer={
-        <>
-          <span className="faint small flow-run-foot-note">{blocked ? t('flowRun.dialog.blocked') : t('scheduleDialog.onlyWhileOpen')}</span>
-          <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={!ready} onClick={() => void start()}>
-            {t('flowRun.dialog.start')}
-          </Button>
-        </>
-      }
-    >
-      <div className="flow-run-columns">
-        <section className="flow-dialog" aria-labelledby="flow-run-what">
-          <h3 id="flow-run-what" className="flow-run-heading">
-            {t('flowRun.dialog.whatToDo')}
-          </h3>
-          {!fixedRepo && (
-            <Field label={t('flowRun.dialog.repo')}>
-              {(c) => (
-                <Select
-                  {...c}
-                  value={repoId}
-                  options={repos.map((r) => ({ value: r.id, label: r.name }))}
-                  onChange={(id) => {
-                    setRepoId(id)
-                    setBase(repos.find((r) => r.id === id)?.defaultBranch ?? 'main')
-                  }}
-                />
-              )}
-            </Field>
-          )}
-          <Field label={t('flowRun.dialog.base')} description={branches === null ? t('flowRun.dialog.loadingBranches') : t('flowRun.dialog.newWorkspace', { branch: base })}>
-            {(c) => <Select {...c} value={base} options={branchOptions} onChange={setBase} />}
-          </Field>
-          <FlowInputFields preview={preview} values={values} onChange={setValues} />
-        </section>
-        <section className="flow-dialog" aria-labelledby="flow-run-does">
-          <h3 id="flow-run-does" className="flow-run-heading">
-            {t('flowRun.dialog.whatItDoes')}
-          </h3>
-          <FlowStepOutline flow={flow} notClaude={summary?.notClaude} />
-          <FlowApproval flow={flow} summary={summary} error={error} stepsShown={outlined} />
-        </section>
-      </div>
-    </Dialog>
   )
 }

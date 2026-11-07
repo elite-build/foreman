@@ -14,6 +14,7 @@ import { cadenceText, nextPill } from '../ScheduleDialogs'
 import { saveSettings, useSettings } from '../settings/controls'
 import { CommandsSection } from './CommandsSection'
 import { FlowsSection } from './FlowsSection'
+import { FlowRunPage } from './FlowRunPage'
 import { FlowStudio } from './FlowStudio'
 import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview, TemplatePage } from './details'
 import '../settings/settings.css'
@@ -32,7 +33,10 @@ export function AutomationsView() {
   const template = useSelectedTemplate(selected)
   const flowId = selected?.startsWith('f:') ? selected.slice(2) : null
   const flowDraft = useStore((s) => s.automations?.flowDraft)
-  const page = Boolean(template || flowId)
+  // Run a flow: "r:<flow id>", or "r:" for the repository's first flow.
+  const running = selected?.startsWith('r:') ? selected.slice(2) : null
+  const runAt = useStore((s) => s.automations?.flowRun)
+  const page = Boolean(template || flowId || running !== null)
   const scheduleId = selected?.startsWith('s:') ? selected.slice(2) : null
   const search = flowsOn ? t('automations.searchWithFlows') : t('automations.search')
 
@@ -67,7 +71,20 @@ export function AutomationsView() {
   return (
     <div className="automations-view">
       <header className="titlebar drag auto-head">
-        {flowId ? (
+        {running !== null ? (
+          <nav className="auto-crumbs" aria-label={t('automations.page.where')}>
+            <span className="auto-title">
+              <Zap size={15} />
+            </span>
+            <LinkButton onClick={() => selectAutomation(null)}>{t('automations.title')}</LinkButton>
+            <ChevronRight size={12} aria-hidden />
+            <span>{t('automations.flows')}</span>
+            <ChevronRight size={12} aria-hidden />
+            <span className="auto-crumb-here" aria-current="page">
+              {t('flowRunPage.title')}
+            </span>
+          </nav>
+        ) : flowId ? (
           <nav className="auto-crumbs" aria-label={t('automations.page.where')}>
             <span className="auto-title">
               <Zap size={15} />
@@ -108,6 +125,11 @@ export function AutomationsView() {
       {template && (
         <div className="auto-body">
           <TemplatePage key={template.id} template={template} />
+        </div>
+      )}
+      {running !== null && (
+        <div className="auto-body">
+          <FlowRunPage key={selected ?? ''} flowId={running || null} repoId={runAt?.repoId} baseBranch={runAt?.baseBranch} />
         </div>
       )}
       {flowId && (

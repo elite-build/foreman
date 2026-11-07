@@ -10,7 +10,7 @@ import { templateById } from '../../../shared/repoTemplates'
 import { chooseStartLoadout } from '../../../shared/startModel'
 import type { Attachment, BranchInfo, Repo, WorktreeInfo } from '../../../shared/types'
 import { rankItems } from '../fuzzy'
-import { adoptWorktree, api, attempt, availableAgents, bridge, createWorkspace, getState, openNewWorkspace, openSettingsPage, showToast, timeAgo, useStore } from '../store'
+import { adoptWorktree, api, attempt, availableAgents, bridge, createWorkspace, getState, openFlowRun, openNewWorkspace, openSettingsPage, showToast, timeAgo, useStore } from '../store'
 import { useAgentStatuses } from '../agentReadiness'
 import { agentReadiness } from '../../../shared/agentReadiness'
 import { openTerminalAgent } from './agents/TerminalAgents'
@@ -20,7 +20,6 @@ import { LinearIssuesButton, LinearLine, useHasLinear, useLinearIntake } from '.
 import { useT, type RendererT } from '../i18n'
 import { RepoIconView } from './Sidebar'
 import { IntegrationsMenu, useWorkspaceTools } from './WorkspaceIntegrations'
-import { FlowApproval, FlowInputFields, FlowPicker, FlowRunGraph, flowStartReady, flowTitle, useFlowPreview, useRunnableFlows } from './automations/FlowStartFields'
 import type { WorkspaceIntegrations } from '../../../shared/integrations'
 import { RunsOnField, useCloudReadiness, type RunsOnLocation } from './cloud/RunsOn'
 import { providerLabel, providerRegion, repoCloud, type CloudProviderId } from '../../../shared/cloud'
@@ -473,13 +472,11 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const [direct, setDirect] = useState('')
   const directTaken = useStore((s) => s.snapshot!.workspaces.find((w) => w.repoId === repoId && w.direct && w.state !== 'archived'))
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
-  // Start with (Flows on): Message and Template are today's first message; Flow starts a flow run from the base branch.
+  // Start with (Flows on): Message and Template are today's first message; Flow opens the Run a flow page for this repository and base branch.
   const flowsOn = Boolean(settings.flows)
   const [startWith, setStartWith] = useState<StartWith>('message')
   const startsFlow = flowsOn && startWith === 'flow'
   const [linkText, setLinkText] = useState('')
-  const [flowId, setFlowId] = useState<string | undefined>()
-  const [flowValues, setFlowValues] = useState<Record<string, string>>({})
   // The template the message was written from; kept while it is edited, dropped when it is cleared.
   const [templateId, setTemplateId] = useState<string | undefined>(initialTemplateId)
   const promptInput = useRef<HTMLTextAreaElement>(null)
@@ -508,9 +505,6 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const [files, setFiles] = useState<PendingFile[]>([])
   const [dragging, setDragging] = useState(false)
   const branches = useBranches(repo)
-  const flows = useRunnableFlows(repoId, startsFlow)
-  const chosenFlow = startsFlow ? flows?.find((f) => f.id === flowId) : undefined
-  const { preview: flowPreview, error: flowError } = useFlowPreview(chosenFlow?.id, repoId, base)
   // Start with › Issue or PR: the link field is what the link detection reads; otherwise the first message is.
   const linkSource = flowsOn && startWith === 'link' ? linkText : prompt
   // A GitHub issue or PR link (O2: or a GitLab MR or issue) in the first message: one line says what it is; the PR's base becomes the base branch.
@@ -593,8 +587,6 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     setRunSetup(false)
     setLocation('local')
     setIntegrations({})
-    setFlowId(undefined)
-    setFlowValues({})
   }
 
   const changeStartWith = (next: StartWith) => {
@@ -654,16 +646,10 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     // At the running limit a cloud workspace is refused until one is put to sleep.
     !(inCloud && readiness?.block === 'limit')
 
-  const flowReady = Boolean(chosenFlow) && flowStartReady(flowPreview, flowValues) && Boolean(base.trim()) && !working
-
-  /** Start with › Flow: the flow run, from this repository and base branch, exactly as its approval card shows it. */
-  const startFlow = async () => {
-    if (!chosenFlow || !flowPreview || !flowReady) return
-    setWorking(true)
-    const run = await attempt(() => api.startFlowRun({ flowId: chosenFlow.id, source: chosenFlow.source, repoId: repo.id, baseBranch: base, inputs: flowValues, shown: flowPreview.fingerprint }))
-    if (!run) return setWorking(false)
-    showToast(t('flowRun.dialog.started', { name: flowTitle(chosenFlow, t) }))
+  /** Start with › Flow: the Run a flow page, for this repository and base branch (the flow, its models and inputs are chosen there). */
+  const openRunPage = () => {
     close()
+    openFlowRun(null, { repoId: repo.id, baseBranch: base })
   }
 
   // `only`: Create workspace only (Start with › Flow): the workspace the form describes, with no first message.
@@ -717,7 +703,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.defaultPrevented) return
     const modDown = mac ? e.metaKey : e.ctrlKey
     const tag = (e.target as HTMLElement).tagName
-    const go = () => void (startsFlow ? startFlow() : submit())
+    const go = () => (startsFlow ? openRunPage() : void submit())
     if (modDown && !e.altKey && !e.shiftKey) {
       e.preventDefault()
       go()
@@ -954,28 +940,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
           )}
           {startsFlow ? (
             <div className="nw-flow">
-              {flows === null ? (
-                <Status tone="off" role="status" label={t('newWorkspace.flow.loading')} />
-              ) : flows.length === 0 ? (
-                <Status tone="off" role="status" label={t('newWorkspace.flow.none')} />
-              ) : (
-                <FlowPicker
-                  legend={t('newWorkspace.flow.label')}
-                  flows={flows}
-                  value={flowId}
-                  onChange={(id) => {
-                    setFlowId(id)
-                    setFlowValues({})
-                  }}
-                />
-              )}
-              {chosenFlow && (
-                <>
-                  <FlowInputFields preview={flowPreview} values={flowValues} onChange={setFlowValues} />
-                  <FlowRunGraph flow={chosenFlow} />
-                  <FlowApproval flow={chosenFlow} summary={flowPreview?.summary} error={flowError} />
-                </>
-              )}
+              <p className="small">{t('newWorkspace.flow.openPage')}</p>
             </div>
           ) : (
           <div className="nw-prompt">
@@ -1079,9 +1044,8 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                 <Button disabled={!canSubmit || working} onClick={() => void submit(true)}>
                   {t('newWorkspace.flow.createOnly')}
                 </Button>
-                <Button variant="primary" disabled={!flowReady} onClick={() => void startFlow()}>
-                  {working && <Spinner size={13} />}
-                  {t('flowRun.dialog.start')}
+                <Button variant="primary" disabled={!base.trim()} onClick={openRunPage}>
+                  {t('newWorkspace.flow.open')}
                   <Kbd>{mac ? '⌘↵' : 'Ctrl+Enter'}</Kbd>
                 </Button>
               </>

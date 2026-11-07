@@ -1,5 +1,5 @@
 // A flow run's states in words and tones (docs/loops-and-graphs.md), shared by Automations, the workspace's Flow tab
-// and the Run dialog. State is never colour alone: each tone goes with these words in a Status.
+// and the Run a flow page. State is never colour alone: each tone goes with these words in a Status.
 import type { FlowRun, FlowRunStep, FlowStepKind } from '../../../../shared/flows'
 import type { PlainKey } from '../../../../shared/i18n'
 import type { StatusTone } from '../../ui'

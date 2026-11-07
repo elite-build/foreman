@@ -3,10 +3,10 @@
 // (iterations, minutes, cost) stop the run naming the bound; the iteration policies; Stop, needs-you, the fingerprint
 // and the start refusals; `[after]`; uncertain after a restart.
 import { describe, expect, it, vi } from 'vitest'
-import { FlowService, flowFingerprintOf, flowRunProblems, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowServiceDeps, type PreparedFlow } from '../src/main/flows'
+import { FlowService, flowFingerprintOf, flowRunProblems, flowStepModels, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowServiceDeps, type PreparedFlow } from '../src/main/flows'
 import { SHOWN_CHANGED } from '../src/main/schedules'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
-import { parseFlow, type FlowRun } from '../src/shared/flows'
+import { parseFlow, type FlowModelChoices, type FlowRun } from '../src/shared/flows'
 import { parsePersona, type Persona } from '../src/shared/personas'
 import { PERSONA_STARTERS } from '../src/shared/personaStarters'
 import { DEFAULT_LOADOUTS, type Loadout } from '../src/shared/agents'
@@ -209,8 +209,8 @@ function harness(
       const turnId = sent.at(-1)!.turnId
       reports.set(turnId, [...(reports.get(turnId) ?? []), { kind, text }])
     },
-    start: async (inputs: Record<string, string> = { task: 'add a button' }) => {
-      const started = service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs, shown: prepared.fingerprint })
+    start: async (inputs: Record<string, string> = { task: 'add a button' }, models?: FlowModelChoices) => {
+      const started = service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs, shown: prepared.fingerprint, ...(models ? { models } : {}) })
       await settle()
       return started
     },
@@ -1528,5 +1528,50 @@ describe('the built-in flows', () => {
     await settle()
     expect(h.sent.at(-1)!.unattended).toMatchObject({ step: 'design', persona: { name: 'ux-designer', writes: ['docs/features/**'] } })
     expect(h.run().loops['requirements-rounds']).toMatchObject({ iterations: 2, open: false })
+  })
+})
+
+describe('models chosen for a run', () => {
+  const sonnet: Loadout = { agent: 'claude', model: 'claude-sonnet-5', fast: false }
+
+  it('lists each agent step a run can choose for, with what the flow gives it; a same-tab step follows its tab', () => {
+    const h = harness(REVIEWED, { loadouts: [sonnet] })
+    expect(flowStepModels(h.prepared, [sonnet])).toEqual([
+      { step: 'build', kind: 'turn', follows: ['address'], readOnly: false, choice: { agent: 'claude', model: 'claude-sonnet-5' }, from: 'default', slot: 1 },
+      { step: 'review', kind: 'review', readOnly: true, choice: { agent: 'claude', model: 'claude-sonnet-5' }, from: 'default', slot: 1 }
+    ])
+  })
+
+  it('runs a step on the model and effort chosen for it, records them, and a same-tab step keeps that tab', async () => {
+    const h = harness(REVIEWED, { loadouts: [sonnet] })
+    await h.start({}, { build: { agent: 'claude', model: 'claude-fable-5-1', effort: 'max' }, review: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'high' } })
+    expect(h.launch.mock.calls[0][1].loadout).toEqual({ agent: 'claude', model: 'claude-fable-5-1', effort: 'max', fast: false })
+    expect(h.run().models).toEqual({ build: { agent: 'claude', model: 'claude-fable-5-1', effort: 'max' }, review: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'high' } })
+    expect(h.run().steps[0]).toMatchObject({ name: 'build', model: 'claude-fable-5-1', effort: 'max' })
+    await h.endTurn('completed', 'Built it.')
+    // The review on Codex: read-only and attended, in a tab of its own.
+    expect(h.deps.createSession).toHaveBeenLastCalledWith('ws-1', { agent: 'codex', model: 'gpt-6.1-sol', effort: 'high', fast: false }, { title: 'Review · review' })
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'review', model: 'gpt-6.1-sol', effort: 'high' })
+    await h.endTurn('completed', findingsBlock([{ title: 'A bug' }]))
+    // The address step continues the build's tab, so it is recorded on the build's choice.
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'address', model: 'claude-fable-5-1', effort: 'max' })
+  })
+
+  it('refuses a turn chosen on another agent, a step that isn’t an agent step or follows another’s tab, and an effort that isn’t one', () => {
+    const h = harness(REVIEWED, { loadouts: [sonnet] })
+    expect(() => h.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: h.prepared.fingerprint, models: { build: { agent: 'codex', model: 'gpt-6.1-sol' } } })).toThrow(/Not Claude: build \(Codex\)/)
+    const problems = flowRunProblems(h.prepared, [sonnet], { address: { agent: 'claude', model: 'x' }, nope: { agent: 'claude', model: 'x' }, review: { agent: 'claude', model: 'x', effort: 'loud' } }).problems
+    expect(problems).toEqual([
+      'The step “address” continues “build”’s tab, so it runs on that step’s model: choose it there.',
+      'A model was chosen for “nope”, which isn’t an agent step of this flow.',
+      '“loud” (step “review”) isn’t an effort level: none, low, medium, high, xhigh, max, ultra.'
+    ])
+    expect(h.state.flowRuns).toEqual([])
+  })
+
+  it('a step’s own effort in the flow replaces its loadout’s', async () => {
+    const h = harness(REVIEWED.replace('prompt = "Build it."', 'prompt = "Build it."\neffort = "low"'), { loadouts: [{ ...sonnet, effort: 'high' }] })
+    await h.start({})
+    expect(h.launch.mock.calls[0][1].loadout).toEqual({ ...sonnet, effort: 'low' })
   })
 })

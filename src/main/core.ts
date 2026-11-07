@@ -39,7 +39,7 @@ import { listFlows, personalFlowListing, personaRef } from './flowFiles'
 import { listPersonas, personalPersonaListing } from './personaFiles'
 import { findPersona, MAX_PERSONA_BYTES, MAX_PERSONAL_PERSONAS, parsePersona, type Persona, type PersonaList, type PersonaListing, type TurnPersona } from '../shared/personas'
 import { isActiveRun, MAX_FLOW_BYTES, MAX_PERSONAL_FLOWS, parseFlow, type Flow, type FlowListing, type FlowRun, type FlowRunOrigin, type FlowRunPreview, type FlowRunStart, type FlowRunSummary } from '../shared/flows'
-import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, type FlowChecksStart, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
+import { FlowService, flowFingerprintOf, flowRunInputs, flowRunProblems, flowStepModels, type FlowChecksStart, type FlowCommand, type FlowCommandStart, type FlowPullRequest, type FlowTemplate, type PreparedFlow } from './flows'
 import { readShownFile } from './flowShowFiles'
 import { DEFAULT_CHECK_TIMEOUT_MS, isFailure } from '../shared/checks'
 import { approveCommand, commandLaunch, consentItem, repoCommands, runnableCommand } from './savedCommands'
@@ -1863,16 +1863,16 @@ export class Core {
     return { flow, ref, templates, personas, commands, fingerprint }
   }
 
-  /** What starting a flow in this repository would approve now, and the values it asks for (the Run dialog). */
+  /** What starting a flow in this repository would approve now, and the values it asks for (the Run a flow page). */
   private flowRunPreview(input: { flowId: string; repoId: string; baseBranch: string }): FlowRunPreview {
     this.flowsOn()
     const repo = this.workspaces.repo(input?.repoId)
     const prepared = this.prepareFlow(input.flowId, repo.id)
     if ('error' in prepared) throw new Error(prepared.error)
-    return { fingerprint: prepared.fingerprint, summary: this.flowRunSummary(prepared, repo, input.baseBranch), inputs: flowRunInputs(prepared) }
+    return { fingerprint: prepared.fingerprint, summary: this.flowRunSummary(prepared, repo, input.baseBranch), inputs: flowRunInputs(prepared), models: flowStepModels(prepared, this.store.state.settings.loadouts) }
   }
 
-  /** A prepared flow's approval in parts, as the Run dialog, New workspace's Start with and a flow schedule show it. */
+  /** A prepared flow's approval in parts, as the Run a flow page and a flow schedule show it. */
   private flowRunSummary(prepared: PreparedFlow, repo: Repo, baseBranch: string): FlowRunSummary {
     const { flow } = prepared
     const parts = this.repoApprovalParts(repo)
@@ -1917,7 +1917,7 @@ export class Core {
     this.flowsOn()
     if (!input || typeof input !== 'object') throw new Error('Choose a flow to start.')
     this.workspaces.repo(input.repoId)
-    return this.flows.begin({ flowId: input.flowId, repoId: input.repoId, baseBranch: input.baseBranch, inputs: input.inputs, shown: input.shown, ...(origin ? { origin } : {}) })
+    return this.flows.begin({ flowId: input.flowId, repoId: input.repoId, baseBranch: input.baseBranch, inputs: input.inputs, shown: input.shown, ...(input.models ? { models: input.models } : {}), ...(origin ? { origin } : {}) })
   }
 
   /**
@@ -2105,7 +2105,7 @@ export class Core {
   }
 
   /**
-   * A flow schedule's run: the flow started as its Run dialog starts it, from the schedule's base branch with its inputs,
+   * A flow schedule's run: the flow started as the Run a flow page starts it, from the schedule's base branch with its inputs,
    * on exactly what the schedule was approved on (the run is refused, and the occurrence fails, when that changed). The
    * run says it came from this occurrence; the occurrence follows the run to its end.
    */
