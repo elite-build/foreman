@@ -4388,6 +4388,7 @@ export const es: Catalogue = {
   'automations.show': 'Mostrar',
   'automations.all': 'Todo',
   'automations.search': 'Buscar plantillas y comandos',
+  'automations.searchWithFlows': 'Buscar plantillas, comandos, flujos y personas',
   'automations.noMatches': 'Nada coincide con «{query}».',
   'automations.onDemand': 'A petición',
   'automations.overview.empty': 'Aún no hay nada programado. Abre una plantilla y usa Programar… para ejecutarla en un espacio de trabajo nuevo cada mañana entre semana, cada lunes o una sola vez.',

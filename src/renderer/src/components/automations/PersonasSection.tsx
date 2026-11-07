@@ -42,9 +42,10 @@ type Editing = { listing?: PersonaListing; markdown?: string }
 
 /**
  * The Personas section. `usedBy` names the flows that name a persona (the Flows section has them); `onChanged` lets it
- * list the flows again after a save, since a persona's change can add or clear a flow's problems.
+ * list the flows again after a save, since a persona's change can add or clear a flow's problems. `alone` (its own tab)
+ * says a search matched nothing rather than leaving the tab empty.
  */
-export function PersonasSection({ query, usedBy, onChanged }: { query: string; usedBy: (name: string) => string[]; onChanged: () => void }) {
+export function PersonasSection({ query, alone, usedBy, onChanged }: { query: string; alone?: boolean; usedBy: (name: string) => string[]; onChanged: () => void }) {
   const t = useT()
   const repos = useStore((s) => s.snapshot!.repos)
   const [list, setList] = useState<PersonaList>({ personas: [], mcpServers: [] })
@@ -60,7 +61,7 @@ export function PersonasSection({ query, usedBy, onChanged }: { query: string; u
 
   const needle = query.trim().toLowerCase()
   const shown = needle ? list.personas.filter((p) => `${p.name}\n${p.markdown}`.toLowerCase().includes(needle)) : list.personas
-  if (needle && !shown.length) return null
+  if (needle && !shown.length && !alone) return null
 
   return (
     <section aria-label={t('automations.personas')}>
@@ -73,6 +74,7 @@ export function PersonasSection({ query, usedBy, onChanged }: { query: string; u
         </span>
       </div>
       <p className="faint small auto-side-note">{t('automations.personas.note')}</p>
+      {needle && !shown.length && <p className="faint small auto-side-note">{t('automations.noMatches', { query: query.trim() })}</p>}
       <div className="auto-cards">
         {shown.map((p) => (
           <PersonaRow key={p.id} listing={p} onOpen={() => setOpen({ listing: p })} />

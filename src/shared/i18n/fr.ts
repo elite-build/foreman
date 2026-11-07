@@ -4342,6 +4342,7 @@ export const fr: Catalogue = {
   'automations.show': 'Afficher',
   'automations.all': 'Tout',
   'automations.search': 'Rechercher des modèles et des commandes',
+  'automations.searchWithFlows': 'Rechercher des modèles, des commandes, des flux et des personas',
   'automations.noMatches': 'Rien ne correspond à « {query} ».',
   'automations.onDemand': 'À la demande',
   'automations.overview.empty': 'Rien de planifié pour l’instant. Ouvrez un modèle, puis Planifier… pour le lancer dans un nouvel espace de travail chaque matin en semaine, chaque lundi, ou une seule fois.',

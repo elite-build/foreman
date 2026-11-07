@@ -4976,6 +4976,7 @@ export const en = {
   'automations.show': 'Show',
   'automations.all': 'All',
   'automations.search': 'Search templates and commands',
+  'automations.searchWithFlows': 'Search templates, commands, flows and personas',
   // {query} is what was typed in the search box.
   'automations.noMatches': 'Nothing matches “{query}”.',
   // A template card with no schedule: it runs when you start it.
