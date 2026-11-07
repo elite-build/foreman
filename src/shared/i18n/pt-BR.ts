@@ -4342,7 +4342,7 @@ export const ptBR: Catalogue = {
   'automations.show': 'Mostrar',
   'automations.all': 'Tudo',
   'automations.search': 'Pesquisar modelos e comandos',
-  'automations.searchWithFlows': 'Pesquisar modelos, comandos, fluxos e personas',
+  'automations.searchWithFlows': 'Pesquisar automações',
   'automations.noMatches': 'Nada corresponde a “{query}”.',
   'automations.onDemand': 'Sob demanda',
   'automations.overview.empty': 'Nada agendado ainda. Abra um modelo e clique em Agendar… para executá-lo em um espaço de trabalho novo toda manhã de dia útil, toda segunda-feira ou uma vez.',

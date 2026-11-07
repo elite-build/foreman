@@ -76,7 +76,7 @@ describe('Flows on Automations', () => {
     setSnapshot(true)
     render(<AutomationsView />)
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands', 'Flows', 'Personas'])
-    expect(screen.getByRole('searchbox', { name: 'Search templates, commands, flows and personas' })).toBeTruthy()
+    expect(screen.getByRole('searchbox', { name: 'Search automations' })).toBeTruthy()
     await u.click(screen.getByRole('tab', { name: 'Flows' }))
     const section = await screen.findByRole('region', { name: 'Flows' })
     await waitFor(() => expect(within(section).getByText('Fix until green')).toBeTruthy())

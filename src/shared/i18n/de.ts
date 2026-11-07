@@ -4342,7 +4342,7 @@ export const de: Catalogue = {
   'automations.show': 'Anzeigen',
   'automations.all': 'Alle',
   'automations.search': 'Vorlagen und Befehle durchsuchen',
-  'automations.searchWithFlows': 'Vorlagen, Befehle, Flows und Personas durchsuchen',
+  'automations.searchWithFlows': 'Automationen durchsuchen',
   'automations.noMatches': 'Nichts passt zu „{query}“.',
   'automations.onDemand': 'Bei Bedarf',
   'automations.overview.empty': 'Noch nichts geplant. Öffne eine Vorlage und wähle „Planen…“, um sie jeden Werktagmorgen, jeden Montag oder einmalig in einem frischen Arbeitsbereich auszuführen.',
