@@ -108,7 +108,7 @@ describe('persona methods', () => {
     const { call } = rig()
     const result = await call<PersonaListResult>('persona-list', { cwd: root })
     expect(result.personas.map((p) => `${p.source}:${p.name}`)).toEqual([...['architect', 'developer', 'qa-engineer', 'designer', 'product-manager', 'ux-designer', 'security-reviewer', 'docs-writer', 'researcher', 'research-reviewer'].map((name) => `built-in:${name}`), 'personal:qa-engineer'])
-    expect(result.personas.find((p) => p.id === 'built-in:qa-engineer')).toMatchObject({ readOnly: true, loadout: 3, endsWith: ['review', 'done'], shadowedBy: 'persona-qa' })
+    expect(result.personas.find((p) => p.id === 'built-in:qa-engineer')).toMatchObject({ readOnly: true, loadout: 3, endsWith: ['findings'], shadowedBy: 'persona-qa' })
     expect(result.text.split('\n')[0]).toMatch(/^NAME\s+SOURCE\s+FILE\s+REV\s+WHAT IT IS$/)
     expect(result.text).toMatch(/architect\s+built-in\s+read-only · ends with plan/)
     expect(result.text).toContain('  not used: your personal persona of the same name comes first')
