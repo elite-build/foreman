@@ -306,6 +306,7 @@ describe('Start with (Flows on)', () => {
   const fingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
   const flows = [
     { id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: FLOW_STARTERS[0].toml, summary: { steps: 6, loops: 2, gates: 1, personas: ['developer', 'qa-engineer'] }, problems: [], warnings: [] },
+    { id: 'flow-ship', source: 'personal', name: 'Ship it', toml: 'name = "Ship it"', summary: { steps: 2, loops: 0, gates: 1, personas: [] }, problems: [], warnings: [] },
     { id: 'flow-broken', source: 'personal', name: 'Broken', toml: 'name = "x"', problems: ['No steps.'], warnings: [] }
   ]
   const summary = {
@@ -334,23 +335,51 @@ describe('Start with (Flows on)', () => {
     expect(fakeApi.listFlows).not.toHaveBeenCalled()
   })
 
-  it('Flow: hands over to the Run a flow page for this repository and base branch; nothing starts here', async () => {
+  it('Flow: picks one of the runnable flows, the first already chosen, and hands it over to the Run a flow page; nothing starts here', async () => {
     const user = userEvent.setup()
     flowsOn()
     render(<NewWorkspaceDialog repoId="r1" />)
     const startWith = await screen.findByRole('radiogroup', { name: 'Start with' })
     expect(within(startWith).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Message', 'Template', 'Flow', 'Issue or PR'])
-    await user.click(within(startWith).getByRole('radio', { name: 'Flow' }))
-    expect(screen.getByText(/Flows have their own page/)).toBeTruthy()
-    // The model, source and message belong to a message; the page chooses a flow's models.
-    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
-    expect(screen.queryByRole('radiogroup', { name: 'Workspace source' })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: /First message/ })).toBeNull()
     expect(fakeApi.listFlows).not.toHaveBeenCalled()
+    await user.click(within(startWith).getByRole('radio', { name: 'Flow' }))
+    const picker = await screen.findByRole('group', { name: 'Flow' })
+    // A flow with problems can't run, so it isn't offered.
+    expect(within(picker).getAllByRole('radio')).toHaveLength(2)
+    expect(within(picker).queryByRole('radio', { name: /Broken/ })).toBeNull()
+    expect((within(picker).getByRole('radio', { name: /Fix until green/ }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText(/Its inputs, models and what it approves come next/)).toBeTruthy()
+    // A run makes its own worktrees: the source stays New worktree, the others say why they're off.
+    const source = screen.getByRole('radiogroup', { name: 'Workspace source' })
+    expect(within(source).getByRole('radio', { name: 'New worktree' }).getAttribute('aria-checked')).toBe('true')
+    for (const name of ['Existing worktree', 'Repository folder']) {
+      const option = within(source).getByRole('radio', { name }) as HTMLButtonElement
+      expect(option.disabled).toBe(true)
+      expect(option.title).toBe('A flow run always starts in a new worktree.')
+    }
+    expect(screen.getByText('The run makes its own worktree from main, on a new branch it names, and another for each workspace step in the flow.')).toBeTruthy()
+    // The model and message belong to a message; the page chooses a flow's inputs and models.
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: /First message/ })).toBeNull()
+    await user.click(within(picker).getByRole('radio', { name: /Ship it/ }))
     await user.click(screen.getByRole('button', { name: /Open Run a flow/ }))
     expect(closed()).toHaveBeenCalledWith(null)
-    expect(storeModule.openFlowRun).toHaveBeenCalledWith(null, { repoId: 'r1', baseBranch: 'main' })
+    expect(storeModule.openFlowRun).toHaveBeenCalledWith('flow-ship', { repoId: 'r1', baseBranch: 'main' })
     expect(fakeApi.startFlowRun).not.toHaveBeenCalled()
+  })
+
+  it('Flow: with no runnable flow it says so, and the page can’t be opened without one', async () => {
+    const user = userEvent.setup()
+    flowsOn()
+    fakeApi.listFlows = vi.fn(async () => [flows[2]])
+    render(<NewWorkspaceDialog repoId="r1" />)
+    const flow = within(await screen.findByRole('radiogroup', { name: 'Start with' })).getByRole('radio', { name: 'Flow' })
+    await user.click(flow)
+    expect(await screen.findByText(/no flow that can run/)).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Flow' })).toBeNull()
+    expect((screen.getByRole('button', { name: /Open Run a flow/ }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.keyDown(flow, { key: 'Enter', ctrlKey: true, metaKey: true })
+    expect(storeModule.openFlowRun).not.toHaveBeenCalled()
   })
 
   it('Flow: Create workspace only makes the workspace the form describes, with no first message and no run', async () => {
@@ -370,8 +399,9 @@ describe('Start with (Flows on)', () => {
     render(<NewWorkspaceDialog repoId="r1" />)
     const flow = within(await screen.findByRole('radiogroup', { name: 'Start with' })).getByRole('radio', { name: 'Flow' })
     await user.click(flow)
+    await screen.findByRole('group', { name: 'Flow' })
     fireEvent.keyDown(flow, { key: 'Enter', ctrlKey: true, metaKey: true })
-    await waitFor(() => expect(storeModule.openFlowRun).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(storeModule.openFlowRun).toHaveBeenCalledWith('built-in:fix-until-green', { repoId: 'r1', baseBranch: 'main' }))
   })
 
   it('Issue or PR: a link field the link detection reads, sent with anything written under it', async () => {

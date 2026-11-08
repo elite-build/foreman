@@ -70,7 +70,7 @@ export function FlowRunPage({ flowId, repoId: openRepo, baseBranch: openBase }: 
   const steps = useMemo(() => preview?.models ?? [], [preview])
   const [choices, setChoicesState] = useState<FlowModelChoices>({})
 
-  // The first flow listed when none was named (New workspace's Flow tab), once the list is in.
+  // The first flow listed when none was named, once the list is in.
   useEffect(() => {
     if (!id && flows?.length) setId(flows[0].id)
   }, [id, flows])
