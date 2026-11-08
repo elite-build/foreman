@@ -397,7 +397,15 @@ async function main(): Promise<void> {
   if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId('dev.foreman.app')
   const fixture = screensRoot ? await seedScreens(screensRoot, app.getPath('userData')) : null
   // The demo shows every screen the screenshots do, Flows included, with the computer's own shell in its terminals.
-  if (demoRoot && demoSeed) await seedDemo(demoRoot, (root, dataDir) => seedScreens(root, dataDir, { flows: true, terminalShell: 'auto' }))
+  // A seeding that fails says why and quits; the next launch starts it again.
+  if (demoRoot && demoSeed) {
+    try {
+      await seedDemo(demoRoot, (root, dataDir) => seedScreens(root, dataDir, { flows: true, terminalShell: 'auto' }))
+    } catch (err) {
+      console.error(`[demo] Could not seed the demo data: ${err instanceof Error ? err.message : String(err)}`)
+      return app.exit(1)
+    }
+  }
   const store = new Store(app.getPath('userData'))
   // Diagnostics (docs/telemetry.md, "Evidence"): the event log, the performance samples file and local crash dumps,
   // on while Settings → Experimental → Keep diagnostics is on (core.applySettings). Nothing is uploaded: the crash
