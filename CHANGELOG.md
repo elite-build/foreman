@@ -2,6 +2,19 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.19 (2026-11-08)
+
+### Changed
+
+- New workspace's **Flow** tab lists the repository's flows to pick from, and shows that the run starts in a new worktree. ([#111](https://github.com/elite-build/foreman/pull/111))
+- A flow run's **Flow** tab says where the run is or where it stopped, shows its steps as a row marking what ran, where it is and what it hasn't reached, and **Why it stopped** opens the failed step's chat. ([#110](https://github.com/elite-build/foreman/pull/110))
+
+### Fixed
+
+- A flow run whose agent wasn't signed in now waits for you, and goes on when you sign in and press **Retry** in the step's chat, instead of ending as **Failed**. ([#108](https://github.com/elite-build/foreman/pull/108))
+- An agent in a flow run's workspace can now say which step the run is at and why it stopped or is waiting, instead of guessing. ([#109](https://github.com/elite-build/foreman/pull/109))
+- A run that ended short no longer ends at a cut-off "done · f…" on its graph; the end reads **failed**, **stopped**, **needs you** or **uncertain** in full. ([#110](https://github.com/elite-build/foreman/pull/110))
+
 ## 1.0.18 (2026-11-08)
 
 ### Added
