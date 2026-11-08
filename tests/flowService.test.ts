@@ -214,6 +214,11 @@ function harness(
       await settle()
       return started
     },
+    /** The latest message's turn puts an error notice in its chat (`sign-in`: its agent isn't signed in), as a driver does. */
+    notice: (text: string, action?: 'sign-in' | 'open-settings') => {
+      const last = sent.at(-1)!
+      chats.set(last.sessionId, [...(chats.get(last.sessionId) ?? []), { kind: 'notice', id: `n-${last.turnId}`, turnId: last.turnId, level: 'error', text, ...(action ? { action } : {}) }])
+    },
     /** The latest message's turn ends: its answer and how long it took go in the chat, then the service hears of it. */
     endTurn: async (outcome: TurnOutcome = 'completed', answer = 'I did it.', minutes = 1, costUsd?: number, delta?: { files: { path: string; additions: number; deletions: number }[]; additions: number; deletions: number }) => {
       const last = sent.at(-1)!
@@ -450,6 +455,78 @@ describe('running a flow', () => {
     expect(h.run().reason).toBe('Stopped: it asked for permission to use Bash. Nobody can answer a flow’s turn, so it was denied and left for you.')
     await h.endTurn('cancelled')
     expect(h.run().state).toBe('needs-you')
+  })
+
+  it('a turn that failed because its agent isn’t signed in waits for you, and a Retry in its tab carries the run on', async () => {
+    const h = harness(GREEN, { checks: ['passed'] })
+    await h.start()
+    h.notice('Not logged in · Please run /login', 'sign-in')
+    await h.endTurn('error', '')
+    expect(h.run()).toMatchObject({ state: 'waiting', reason: 'Waiting for you: the “build” turn couldn’t run because its agent isn’t signed in. Sign in, then press Retry in the step’s chat, and the run goes on.' })
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'build', state: 'waiting' })
+    // Waiting counts against nothing and nothing goes missing meanwhile.
+    h.deps.turnStatus = async () => null
+    await h.service.tick()
+    await h.service.tick()
+    expect(h.run().state).toBe('waiting')
+    // Another tab's message isn't the step's.
+    expect(h.service.retryTurn('s-other')).toBeUndefined()
+    // Signed in, Retry in the step's tab: that message is the step's turn, under the step's mark.
+    const retry = h.service.retryTurn('s-1')!
+    expect(retry).toMatchObject({ unattended: { flowRunId: h.run().id, step: 'build', persona: { name: 'developer' } }, origin: { kind: 'flow', runId: h.run().id, step: 'build', iteration: 1 } })
+    expect(h.run().state).toBe('running')
+    expect(h.run().reason).toBeUndefined()
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'build', state: 'running', turnId: retry.turnId })
+    h.sent.push({ sessionId: 's-1', text: 'Build this: add a button', turnId: retry.turnId })
+    h.deps.turnStatus = async () => ({ state: 'running' })
+    h.service.retried(retry.turnId, true)
+    // Only once: a second message in the tab is an ordinary one.
+    expect(h.service.retryTurn('s-1')).toBeUndefined()
+    await h.endTurn('completed', 'Built the button.')
+    // The run went on from the step, and the gate after the checks asks.
+    expect(names(h.run())).toEqual(['build', 'checks', 'ship'])
+    expect(h.run().steps[0]).toMatchObject({ state: 'completed', turnId: retry.turnId })
+    expect(h.run().state).toBe('waiting')
+    h.gates[0].resolve({ kind: 'gate', answer: 'continued' })
+    await settle()
+    expect(h.run().state).toBe('completed')
+  })
+
+  it('a Retry that didn’t go leaves the run waiting as before, and a second sign-in failure waits again', async () => {
+    const h = harness()
+    await h.start()
+    h.notice('Not logged in', 'sign-in')
+    await h.endTurn('error', '')
+    const reason = h.run().reason
+    const refused = h.service.retryTurn('s-1')!
+    h.service.retried(refused.turnId, false)
+    expect(h.run()).toMatchObject({ state: 'waiting', reason })
+    const again = h.service.retryTurn('s-1')!
+    h.sent.push({ sessionId: 's-1', text: 'Build this: add a button', turnId: again.turnId })
+    h.service.retried(again.turnId, true)
+    h.notice('Not logged in', 'sign-in')
+    await h.endTurn('error', '')
+    expect(h.run()).toMatchObject({ state: 'waiting', reason })
+    // Stop ends the wait.
+    await h.service.stopRun(h.run().id)
+    expect(h.run().state).toBe('stopped')
+    expect(h.service.retryTurn('s-1')).toBeUndefined()
+  })
+
+  it('an agent that needs setting up waits the same way; any other error still fails the run', async () => {
+    const setup = harness()
+    await setup.start()
+    setup.notice('Claude Code is not installed or could not be found.', 'open-settings')
+    await setup.endTurn('error', '')
+    expect(setup.run().state).toBe('waiting')
+    expect(setup.run().reason).toContain('its agent needs setting up')
+
+    const plain = harness()
+    await plain.start()
+    plain.notice('Overloaded')
+    await plain.endTurn('error', '')
+    expect(plain.run()).toMatchObject({ state: 'failed', reason: 'The “build” turn ended with an error.' })
+    expect(plain.service.retryTurn('s-1')).toBeUndefined()
   })
 
   it('checks that need approval leave the run for you', async () => {

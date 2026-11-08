@@ -287,6 +287,12 @@ export type FlowShownFile = { path: string; text: string; cut: boolean } | { mis
 /** What a pull request says, as a wait step reads it through the PR cache. */
 export type FlowPullRequest = { kind: 'facts'; facts: Pick<PrFacts, 'checks' | 'review'> } | { kind: 'no-pr' } | { kind: 'unknown'; message: string }
 
+/** What an agent step's turn runs under: unattended for that turn, narrowed by its persona, a decide's options. */
+export type FlowTurnMark = { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true }
+
+/** A message sent again in the tab of a step whose turn couldn't run for want of sign-in: it runs as that step's turn. */
+export type FlowRetry = { turnId: string; unattended: FlowTurnMark; origin: MessageOrigin }
+
 export interface FlowServiceDeps {
   store: { state: { flowRuns?: FlowRun[] }; flush(): void }
   now(): number
@@ -305,7 +311,7 @@ export interface FlowServiceDeps {
   createSession(workspaceId: string, loadout: Loadout, options?: { title?: string }): string
   /** Send a message as the turn with this id, unattended for that turn (narrowed by its persona; a decide step's options offer the decide tool). Queued behind a running turn. */
   // `origin`: the message says which run, step and iteration sent it (MessageOrigin), for its receipt and the Lineage tab.
-  deliver(sessionId: string, text: string, options: { turnId: string; unattended: { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[] }; origin?: MessageOrigin }): Promise<void>
+  deliver(sessionId: string, text: string, options: { turnId: string; unattended: FlowTurnMark; origin?: MessageOrigin }): Promise<void>
   cancel(sessionId: string): Promise<void>
   /** Where a turn is by id (queued, starting, running, ended), or null when no chat knows it: its queued message was removed. */
   turnStatus?(turnId: string): Promise<{ state: string } | null>
@@ -420,6 +426,10 @@ export class FlowService {
   private sent = new Set<string>()
   // A sent turn id → how many looks in a row found no chat that knows it (a message between the queue and its turn isn't missing).
   private missing = new Map<string, number>()
+  // Run id → the mark its current agent step's turn was sent under, so a turn sent again runs under it too.
+  private marks = new Map<string, FlowTurnMark>()
+  // Run id → the agent step's turn that couldn't run because its agent wasn't signed in, and the words the run waits with.
+  private signIn = new Map<string, { turnId: string; reason: string }>()
 
   constructor(private deps: FlowServiceDeps) {}
 
@@ -762,7 +772,7 @@ export class FlowService {
             ...(writes ? { writes: [...writes] } : {})
           }
         : undefined
-    const mark: { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true } = {
+    const mark: FlowTurnMark = {
       flowRunId: run.id,
       step: step.name,
       ...(limits ? { persona: limits } : {}),
@@ -783,6 +793,7 @@ export class FlowService {
       record.model = loadout.model
       if (loadout.effort) record.effort = loadout.effort
       run.task = text
+      this.marks.set(run.id, mark)
       this.persist()
       const launched = await this.deps.launch(run, { text, loadout, step: step.name, ...(limits ? { persona: limits } : {}) }, {
         created: (workspaceId, sessionId) => {
@@ -869,6 +880,7 @@ export class FlowService {
     const turnId = record.turnId
     // Who reviewed which tree, for the findings' words; and whether its persona expects findings or `done`.
     if (step.kind === 'review') this.reviews.set(record.turnId, { reviewer: 'error' in loadout ? { agent: 'claude', model: defaultModel('claude'), fast: false } : loadout, tree: reviewTree ?? '', expects: applied.endsWith.length > 0 })
+    this.marks.set(run.id, mark)
     this.persist()
     await this.deps.deliver(sessionId, text, { turnId, unattended: mark, origin: { kind: 'flow', runId: run.id, step: step.name, iteration: record.iteration } })
     this.sent.add(turnId)
@@ -1257,6 +1269,9 @@ export class FlowService {
     if (outcome !== 'completed') {
       record.state = outcome === 'cancelled' ? 'stopped' : 'failed'
       if (outcome === 'cancelled') return this.finish(run, 'stopped', `Stopped: the “${record.name}” turn was stopped.`)
+      // Its agent wasn't signed in (or set up): nothing it did went wrong, so the run waits for the person to fix that.
+      const setup = items.find((i): i is Extract<ChatItem, { kind: 'notice' }> => i.kind === 'notice' && i.turnId === record.turnId && i.level === 'error' && (i.action === 'sign-in' || i.action === 'open-settings'))
+      if (outcome === 'error' && setup) return this.awaitSignIn(run, record, setup.action === 'sign-in')
       return this.finish(run, 'failed', outcome === 'interrupted' ? `The “${record.name}” turn was interrupted.` : `The “${record.name}” turn ended with an error.`)
     }
     const flow = this.prepared.get(run.id)?.flow
@@ -1344,6 +1359,70 @@ export class FlowService {
     found.record.state = 'stopped'
     found.record.endedAt = this.iso()
     this.finish(found.run, 'needs-you', `Stopped: ${what}. Nobody can answer a flow’s turn, so it was denied and left for you.`)
+  }
+
+  /**
+   * An agent step's turn couldn't run because its agent isn't signed in (or set up). The run waits, counting no loop's
+   * minutes, for the person to sign in and send the message again in the step's tab (the chat's Retry): that turn is the
+   * step's (retryTurn), and the run goes on from it. Stop on the run ends the wait.
+   */
+  private awaitSignIn(run: FlowRun, record: FlowRunStep, signIn: boolean): void {
+    if (!record.turnId || !record.sessionId || !this.marks.has(run.id)) return this.finish(run, 'failed', `The “${record.name}” turn ended with an error.`)
+    const reason = signIn
+      ? `Waiting for you: the “${record.name}” turn couldn’t run because its agent isn’t signed in. Sign in, then press Retry in the step’s chat, and the run goes on.`
+      : `Waiting for you: the “${record.name}” turn couldn’t run because its agent needs setting up. Fix it in Settings, then send the message again in the step’s chat, and the run goes on.`
+    this.signIn.set(run.id, { turnId: record.turnId, reason })
+    record.state = 'waiting'
+    run.state = 'waiting'
+    run.reason = reason
+    this.persist()
+  }
+
+  /**
+   * A message is about to go in this tab: when a run waits there on its agent's sign-in, it is the waiting step's turn,
+   * sent under the step's mark, and the run goes on. Call `retried` once the message went (or didn't).
+   */
+  retryTurn(sessionId: string): FlowRetry | undefined {
+    for (const run of this.runs) {
+      const waiting = this.signIn.get(run.id)
+      const record = run.steps.at(-1)
+      const unattended = this.marks.get(run.id)
+      if (!waiting || run.state !== 'waiting' || !record || record.turnId !== waiting.turnId || record.state !== 'waiting' || record.sessionId !== sessionId || !unattended) continue
+      const turnId = this.id()
+      // Kept until the message has gone, so a refused one waits again with the same words.
+      this.signIn.set(run.id, { turnId, reason: waiting.reason })
+      // A review's reviewer and tree go with its turn.
+      const review = this.reviews.get(waiting.turnId)
+      this.reviews.delete(waiting.turnId)
+      if (review) this.reviews.set(turnId, review)
+      record.state = 'running'
+      record.turnId = turnId
+      delete record.endedAt
+      run.state = 'running'
+      delete run.reason
+      this.persist()
+      return { turnId, unattended, origin: { kind: 'flow', runId: run.id, step: record.name, iteration: record.iteration } }
+    }
+    return undefined
+  }
+
+  /** The message retryTurn made the step's turn went (it can go missing from the queue now), or didn't (the run waits again). */
+  retried(turnId: string, delivered: boolean): void {
+    for (const run of this.runs) {
+      const waiting = this.signIn.get(run.id)
+      const record = run.steps.at(-1)
+      if (!waiting || waiting.turnId !== turnId || run.state !== 'running' || !record || record.turnId !== turnId || record.state !== 'running') continue
+      if (delivered) {
+        this.signIn.delete(run.id)
+        this.sent.add(turnId)
+        return
+      }
+      record.state = 'waiting'
+      run.state = 'waiting'
+      run.reason = waiting.reason
+      this.persist()
+      return
+    }
   }
 
   /** Stop a minute bound that runs out while a step is still going, and fail a step whose turn can no longer come. */
@@ -1446,6 +1525,8 @@ export class FlowService {
     const after = this.prepared.get(run.id)?.flow.after
     this.prepared.delete(run.id)
     this.texts.delete(run.id)
+    this.marks.delete(run.id)
+    this.signIn.delete(run.id)
     for (const step of run.steps) {
       if (!step.turnId) continue
       this.reviews.delete(step.turnId)
