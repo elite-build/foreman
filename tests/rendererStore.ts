@@ -37,6 +37,7 @@ export const fakeState: Record<string, any> = {
   approvals: [],
   composerFill: null,
   rightPanelOpen: false,
+  workspaceFocus: {},
   archiveRuns: {}
 }
 

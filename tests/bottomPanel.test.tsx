@@ -51,7 +51,7 @@ beforeEach(() => {
   store.activeSessionId.mockReturnValue(undefined)
   fakeApi.savedTerminals = vi.fn(async () => null)
   fakeState.autoRun = {}
-  fakeState.terminalFullscreen = null
+  fakeState.workspaceFocus = {}
   fakeState.snapshot.platform = 'linux'
   fakeState.snapshot.repoSettings = { r1: { values: { runScripts: [{ name: 'dev', command: 'npm run dev', default: true }], previewUrls: [] } } }
   fakeState.snapshot.spotlight = {}
@@ -275,9 +275,9 @@ describe('full screen', () => {
   })
 
   it('in full screen it leaves it', () => {
-    fakeState.terminalFullscreen = 'w1'
+    fakeState.workspaceFocus = { w1: 'terminal' }
     render(<BottomPanel workspace={workspace} visible />)
-    expect(within(header()).getByRole('button', { name: 'Exit fullscreen (Ctrl⇧J or Esc)' })).toBeTruthy()
+    expect(within(header()).getByRole('button', { name: 'Exit fullscreen (Ctrl⇧J)' })).toBeTruthy()
   })
 })
 

@@ -103,3 +103,14 @@
 .flow-graph-full {
   height: 72vh;
 }
+/* In the workspace's middle (O3): the graph with room to read it (left to right once it's wide), the steps' cards in columns. */
+.flow-run-focused {
+  padding: 16px 20px;
+}
+.flow-graph.flow-graph-focused {
+  max-height: 68vh;
+}
+.flow-run-focused .flow-run-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}

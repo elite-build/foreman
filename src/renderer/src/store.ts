@@ -44,6 +44,12 @@ export type AgentsSubpage = 'catalog' | 'signin' | 'keys'
 /** The merged header's archive button: archive and keep the branch, or archive and delete it. */
 export type ArchiveChoice = 'archive' | 'delete-branch'
 
+/** What takes a workspace's middle in place of the chat, which moves into the side panel (O3). */
+export type WorkspaceFocus = 'terminal' | 'flow'
+
+const workspaceFocusOf = (raw: unknown): Record<string, WorkspaceFocus> =>
+  raw && typeof raw === 'object' ? Object.fromEntries(Object.entries(raw).filter((e): e is [string, WorkspaceFocus] => e[1] === 'terminal' || e[1] === 'flow')) : {}
+
 /** An archive running in the background, for the sidebar row and the header: the step main last started, or stopped on a failure. */
 export interface ArchiveRun {
   stopped: boolean
@@ -98,8 +104,9 @@ interface State {
   editorView: EditorView
   // The Run / Setup / Terminal panel, wherever the layout puts it.
   bottomPanelOpen: boolean
-  // The workspace whose terminal panel fills its area (O3), until Esc or ⌘⇧J.
-  terminalFullscreen: string | null
+  // By workspace, the terminal or the Flow tab's run in the middle, the chat in the side panel (O3). It stays, across
+  // restarts too, until put back (⌘⇧J for the terminal, ⌘⇧K for the Flow, or their buttons).
+  workspaceFocus: Record<string, WorkspaceFocus>
   // OpenCode is only offered once it is installed.
   opencodeInstalled: boolean
   backgroundArchives: string[]
@@ -233,7 +240,7 @@ let state: State = {
   editorView: editorViewOf(loadPref('editorView', 'workspaces')),
   rightPanelOpen: loadPref('rightPanelOpen', true),
   bottomPanelOpen: loadPref('bottomPanelOpen', true),
-  terminalFullscreen: null,
+  workspaceFocus: workspaceFocusOf(loadPref<unknown>('workspaceFocus', {})),
   opencodeInstalled: false,
   backgroundArchives: [],
   archiveRuns: {},
@@ -1106,17 +1113,32 @@ const terminalInSidePanel = () => state.snapshot?.settings.terminalPlacement !==
 export function showBottomPanel(open = true): void {
   const inSidePanel = terminalInSidePanel()
   savePref('bottomPanelOpen', open)
-  // Hiding the panel also ends its fullscreen.
-  const fullscreen = open ? state.terminalFullscreen : null
+  // Hiding the panel also puts the shown workspace's terminal back from the middle.
+  const shown = state.selectedWorkspaceId
+  if (!open && shown && state.workspaceFocus[shown] === 'terminal') setWorkspaceFocus(shown, null)
   if (open && inSidePanel && !state.rightPanelOpen) {
     savePref('rightPanelOpen', true)
-    setState({ bottomPanelOpen: open, rightPanelOpen: true, terminalFullscreen: fullscreen })
-  } else setState({ bottomPanelOpen: open, terminalFullscreen: fullscreen })
+    setState({ bottomPanelOpen: open, rightPanelOpen: true })
+  } else setState({ bottomPanelOpen: open })
 }
 
-/** The workspace's terminal panel fills the workspace, or goes back to its place (O3). */
-export function toggleTerminalFullscreen(workspaceId: string, on = state.terminalFullscreen !== workspaceId): void {
-  setState({ terminalFullscreen: on ? workspaceId : state.terminalFullscreen === workspaceId ? null : state.terminalFullscreen })
+/** Puts the workspace's terminal or Flow run in its middle, with the chat in the side panel; null puts it back (O3). */
+export function setWorkspaceFocus(workspaceId: string, focus: WorkspaceFocus | null): void {
+  const { [workspaceId]: _, ...rest } = state.workspaceFocus
+  const next = focus ? { ...rest, [workspaceId]: focus } : rest
+  savePref('workspaceFocus', next)
+  setState({ workspaceFocus: next })
+}
+
+/** One of the two in the middle, or back; the other one goes back when this one comes in. */
+export function toggleWorkspaceFocus(workspaceId: string, focus: WorkspaceFocus, on = state.workspaceFocus[workspaceId] !== focus): void {
+  if (on) setWorkspaceFocus(workspaceId, focus)
+  else if (state.workspaceFocus[workspaceId] === focus) setWorkspaceFocus(workspaceId, null)
+}
+
+/** The workspace's terminal panel in its middle, or back in its place (O3). */
+export function toggleTerminalFullscreen(workspaceId: string, on?: boolean): void {
+  toggleWorkspaceFocus(workspaceId, 'terminal', on)
 }
 
 /** Editor layout: the activity bar picked a view. The one already showing hides the sidebar; any other shows it. */

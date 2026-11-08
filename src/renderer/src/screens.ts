@@ -16,6 +16,7 @@ import {
   openSettingsPage,
   selectSession,
   selectWorkspace,
+  setWorkspaceFocus,
   showBottomPanel,
   showChecksPanel,
   showEditorSidebar,
@@ -94,6 +95,8 @@ function baseLayout(): void {
   if (s.railNames) toggleRailNames()
   if (!s.rightPanelOpen) toggleRightPanel()
   showBottomPanel(false)
+  // A terminal or Flow run left in a workspace's middle is kept across restarts, so each screen starts without one.
+  for (const id of Object.keys(s.workspaceFocus)) setWorkspaceFocus(id, null)
   chooseHomeLayout('list')
 }
 
@@ -110,7 +113,7 @@ function openWorkspace(f: Fixture, sessionId = f.chatId): void {
 }
 
 // The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
-const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run', 'automations-flow-run-models', 'automations-flow-studio', 'automations-flow-studio-step', 'new-workspace-flow', 'workspace-flow', 'workspace-lineage']
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run', 'automations-flow-run-models', 'automations-flow-studio', 'automations-flow-studio-step', 'new-workspace-flow', 'workspace-flow', 'workspace-flow-full', 'workspace-lineage']
 
 /** Flows on or off. A setting, so it outlives the page, like the window layout. */
 async function flowsSetting(on: boolean): Promise<void> {
@@ -170,6 +173,13 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     // The shell's prompt.
     if (screen) await sleep(1500)
     return '.terminal .xterm-screen'
+  },
+  // The terminal in the workspace's middle (⌘⇧J), the chat in the side panel's Chat tab (O3).
+  'terminal-full': async (f) => {
+    const shown = await SCREENS.terminal(f)
+    if (!shown) return null
+    setWorkspaceFocus(f.workspaceId, 'terminal')
+    return '.focus-slot .terminal .xterm-screen'
   },
   'file-diff': async (f) => {
     openWorkspace(f)
@@ -283,6 +293,13 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   // A completed run's Flow tab (Run lens), and the same workspace's Lineage tab (Run lens).
   'workspace-flow': (f) => flowTab(f, 'flow'),
   'workspace-lineage': (f) => flowTab(f, 'lineage'),
+  // The same run in the workspace's middle (its full screen), the chat in the side panel's Chat tab (O3).
+  'workspace-flow-full': (f) => {
+    selectWorkspace(f.flowWorkspaceId)
+    selectSession(f.flowWorkspaceId, f.flowChatId)
+    setWorkspaceFocus(f.flowWorkspaceId, 'flow')
+    return '.focus-view .flow-run .ui-graph .ui-graph__node'
+  },
   assistant: () => (openAssistant(), '.assistant-view'),
   'phone-pairing': () => {
     showRepoHome(null)

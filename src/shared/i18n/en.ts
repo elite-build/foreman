@@ -771,7 +771,7 @@ export const en = {
   'terminal.rename': 'Rename terminal',
   // {name} is the tab's name, e.g. "Terminal 2" or "dev server".
   // {key} is the shortcut, ⌘⇧J on macOS and Ctrl+Shift+J elsewhere.
-  'terminal.exitFullscreen': 'Exit fullscreen ({key} or Esc)',
+  'terminal.exitFullscreen': 'Exit fullscreen ({key})',
   'terminal.fullscreen': 'Fullscreen ({key})',
   'terminal.find.label': 'Find in terminal',
   'terminal.find.placeholder': 'Find',
@@ -2454,6 +2454,7 @@ export const en = {
   'shortcuts.zoom': 'Zoom this tab in / out',
   'shortcuts.resetZoom': 'Reset zoom',
   'shortcuts.terminalFullscreen': 'Terminal fullscreen',
+  'shortcuts.flowFullscreen': 'Flow full screen',
   // In the key column: the gesture, not a key.
   'shortcuts.doubleClickTab': 'Double-click a tab',
   'shortcuts.renameIt': 'Rename it',
@@ -4140,6 +4141,7 @@ export const en = {
   'workspaceView.panel.working': 'Working…',
   // Side panel tabs.
   'workspaceView.panel.changes': 'Changes',
+  'workspaceView.panel.chat': 'Chat',
   'workspaceView.panel.checks': 'Checks',
   'workspaceView.resize.terminal': 'Resize terminal panel',
   'workspaceView.resize.side': 'Resize side panel',
@@ -6478,6 +6480,7 @@ export const en = {
   'flowRun.kind.checks': 'Checks',
   'flowRun.kind.gate': 'Gate',
   'flowRun.panel.tab': 'Flow',
+  'flowRun.panel.exitFullScreen': 'Exit full screen ({key})',
   'flowRun.panel.at': 'At {step} · iteration {iteration}',
   'flowRun.panel.loopIterationsMax': '{loop}: iteration {iteration} of at most {max}',
   'flowRun.panel.loopIterations': '{loop}: iteration {iteration}',

@@ -61,6 +61,9 @@ export interface FlowGraphViewProps {
   thumbnail?: boolean
   // The line under a node's name, by node id ("step:<name>"), instead of who runs it (the Run a flow page's models).
   details?: Record<string, string>
+  // The toolbar's full-screen button: by default it opens the graph in a dialog; a function does that instead (the Flow
+  // tab puts its run in the workspace's middle), and null leaves the button out (the run already is in the middle).
+  fullScreen?: (() => void) | null
   className?: string
 }
 
@@ -140,8 +143,8 @@ export function useGraphLabels(): GraphLabels {
 // The smallest zoom a graph starts fitted at: below it the words get too small to read, so it starts at 100% and scrolls.
 const FIT_AT_LEAST = 0.7
 
-/** A flow graph as the design system's Graph, with a full-screen view that opens in a dialog. */
-export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, selectableEdges, thumbnail, details, className }: FlowGraphViewProps) {
+/** A flow graph as the design system's Graph, with a full-screen view that opens in a dialog unless `fullScreen` says. */
+export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, selectableEdges, thumbnail, details, fullScreen, className }: FlowGraphViewProps) {
   const t = useT()
   const props = useFlowGraphProps(graph, direction, start, t, details)
   const labels = useGraphLabels()
@@ -174,7 +177,7 @@ export function FlowGraphView({ graph, direction = 'wide', start, selected, onSe
         labels={labels}
         zoom={zoom}
         onZoomChange={setChosen}
-        onFullScreen={() => setFull(true)}
+        onFullScreen={fullScreen === null ? undefined : (fullScreen ?? (() => setFull(true)))}
         selected={selected}
         onSelect={onSelect}
         selectableEdges={selectableEdges}
@@ -203,6 +206,7 @@ export function FlowLensDiagram({
   onSelect,
   thumbnail,
   details,
+  fullScreen,
   className
 }: {
   flow?: Flow
@@ -214,12 +218,13 @@ export function FlowLensDiagram({
   onSelect?: (id: string | null) => void
   thumbnail?: boolean
   details?: Record<string, string>
+  fullScreen?: (() => void) | null
   className?: string
 }) {
   const t = useT()
   const graph = useMemo(() => flowGraph(flow, run, lens, { t, locale: t.locale, workspaceNames }), [flow, run, lens, t, workspaceNames])
   const start = flow?.start ? `step:${flow.start}` : run?.steps[0] ? `step:${run.steps[0].name}` : undefined
-  return <FlowGraphView graph={graph} direction={direction === 'TB' ? 'tall' : 'wide'} start={start} selected={selected} onSelect={onSelect} thumbnail={thumbnail} details={details} className={className} />
+  return <FlowGraphView graph={graph} direction={direction === 'TB' ? 'tall' : 'wide'} start={start} selected={selected} onSelect={onSelect} thumbnail={thumbnail} details={details} fullScreen={fullScreen} className={className} />
 }
 
 /** `value`, once it has stayed the same for `ms` (a flow being typed is drawn when the typing pauses). */

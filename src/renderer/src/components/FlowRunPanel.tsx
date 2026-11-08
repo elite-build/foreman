@@ -2,7 +2,8 @@
 // belongs to, its loop bounds, Stop, the run drawn as a diagram through one of four lenses (Run · Context · Memory ·
 // Data) with what that lens adds in words, and its steps in run order with their facts. The step list is the diagram's
 // accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
-// workspace it stands for (a run that makes more than one workspace shows it in each).
+// workspace it stands for (a run that makes more than one workspace shows it in each). Its full screen puts it in the
+// workspace's middle, drawn left to right where it has the room, with the chat in the side panel (O3).
 import { Square } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { FLOW_LENSES, LENS_WORD, flowGraph, type FlowLens } from '../../../shared/flowGraph'
@@ -10,7 +11,7 @@ import { FLOW_COMPACT_ABOVE, currentLoopBounds, isActiveRun, parseFlow, runForWo
 import { formatCompact } from '../../../shared/i18n/time'
 import type { ApprovalRequest } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
-import { api, attempt, selectSession, selectWorkspace, showChecksPanel, useStore } from '../store'
+import { api, attempt, selectSession, selectWorkspace, setWorkspaceFocus, showChecksPanel, useStore } from '../store'
 import { Button, Callout, Card, CardButton, Meter, Segmented, Status, Tag } from '../ui'
 import { STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import { FlowLensDiagram } from './FlowDiagram'
@@ -65,19 +66,31 @@ function treesText(step: FlowRunStep, t: RendererT): string | undefined {
 
 const isAgentStep = (step: FlowRunStep) => step.kind === 'turn' || step.kind === 'review' || step.kind === 'decide'
 
-export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
+// The middle's width from which the graph is drawn left to right; narrower, it stays top to bottom as in the side panel.
+const WIDE_ENOUGH = 900
+
+/** `focused`: in the workspace's middle rather than the side panel. */
+export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; focused?: boolean }) {
   const t = useT()
   const run = useWorkspaceFlowRun(workspaceId)
   const [lens, setLens] = useState<FlowLens>('run')
   const flow = useRunFlow(run)
   const workspaces = useStore((s) => s.snapshot?.workspaces)
   const names = useMemo(() => Object.fromEntries((workspaces ?? []).map((w) => [w.id, w.name])), [workspaces])
+  const [box, setBox] = useState<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    if (!focused || !box || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [focused, box])
   if (!run) return null
   const active = isActiveRun(run)
   const bounds = active ? currentLoopBounds(run) : []
   const reason = !!run.reason && (active || run.state === 'completed')
   return (
-    <div className="flow-run">
+    <div ref={setBox} className={focused ? 'flow-run flow-run-focused' : 'flow-run'}>
       {(active || reason) && (
         <div className="flow-run-head">
           {bounds.map((b) => (
@@ -104,7 +117,16 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
       <GateCard runId={run.id} />
       {!active && run.state !== 'completed' && run.reason && <StoppedCard workspaceId={workspaceId} run={run} />}
       <Segmented<FlowLens> small label={t('flowRun.lens.label')} value={lens} onChange={setLens} options={FLOW_LENSES.map((l) => ({ value: l, label: t(LENS_WORD[l]) }))} />
-      <FlowLensDiagram flow={flow} run={run} lens={lens} workspaceNames={names} direction="TB" onSelect={(id) => id && openStep(workspaceId, run, id)} />
+      <FlowLensDiagram
+        flow={flow}
+        run={run}
+        lens={lens}
+        workspaceNames={names}
+        direction={focused && width >= WIDE_ENOUGH ? 'LR' : 'TB'}
+        onSelect={(id) => id && openStep(workspaceId, run, id)}
+        fullScreen={focused ? null : () => setWorkspaceFocus(workspaceId, 'flow')}
+        className={focused ? 'flow-graph-focused' : undefined}
+      />
       {lens === 'context' && <ContextRows run={run} />}
       {lens === 'memory' && <MemoryRows run={run} flow={flow} />}
       {lens === 'data' && <DataRows run={run} />}

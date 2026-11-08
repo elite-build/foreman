@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-08: Full screen puts the terminal or a Flow run in the middle and moves the chat beside it
+
+**Decision.** The terminal's full screen and the Flow tab's take the workspace's middle, and the chat moves to the side panel's first tab, Chat, still whole and usable. It is kept per workspace, across restarts, until put back; Esc doesn't leave it. One of the two at a time, and never a separate window.
+
+**Why.** The terminal's full screen covered the whole workspace, so nothing else could be used until it was left, and a run is something to watch while talking to its chat.
+
+**Turned down.** The terminal or Flow as a chat tab (can't watch and type at once); full screen with a floating chat card, a drawer, reply cards or a mini view (each covers part of the view or shows only pieces of the chat); a new window, which the user ruled out.
+
+**Revisit when.** People want the terminal and a Flow run in the middle together, or the side panel is too narrow for the chat.
+
 ## 2026-11-07: A flow starts from its own page, where a run chooses its models
 
 **Decision.** Run a flow is a page in Automations (flow, base branch, estimate and Start over Task, Models, Steps and Approves tabs beside the graph), replacing the Run dialog and the flow form in New workspace. A run may choose each agent step's model and effort: a tier, a person's choice for their steps, or one step. Only what differs from the flow is sent, checked by the flow's own agent rules, and kept on the run; it isn't part of the approved fingerprint.

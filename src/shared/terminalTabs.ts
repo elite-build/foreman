@@ -383,9 +383,9 @@ export function isFindShortcut(e: Keys, platform: string | undefined): boolean {
   return e.code === 'KeyF' && modOnly(e, platform) && !e.altKey && !e.shiftKey
 }
 
-/** ⌘⇧J (Ctrl+Shift+J): the terminal panel fills the workspace, or goes back. */
+/** ⌘⇧J (Ctrl+Shift+J) puts the terminal in the workspace's middle, or back; ⌘⇧K the Flow run. The app's, not the shell's. */
 export function isFullscreenShortcut(e: Keys, platform: string | undefined): boolean {
-  return e.code === 'KeyJ' && modOnly(e, platform) && !e.altKey && e.shiftKey
+  return (e.code === 'KeyJ' || e.code === 'KeyK') && modOnly(e, platform) && !e.altKey && e.shiftKey
 }
 
 /** ⌘= / ⌘− / ⌘0 in a focused terminal zoom that tab: 1 in, -1 out, 0 back to 100%; null for other keys. */

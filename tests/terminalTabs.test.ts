@@ -219,8 +219,10 @@ describe('keys', () => {
     expect(isFindShortcut(keys('KeyF', { ctrl: true, shift: true }), 'win32')).toBe(false)
   })
 
-  it('⌘⇧J toggles fullscreen (⌘⇧M is Merge PR)', () => {
+  it('⌘⇧J (the terminal) and ⌘⇧K (the Flow) toggle full screen (⌘⇧M is Merge PR)', () => {
     expect(isFullscreenShortcut(keys('KeyJ', { meta: true, shift: true }), 'darwin')).toBe(true)
+    expect(isFullscreenShortcut(keys('KeyK', { ctrl: true, shift: true }), 'win32')).toBe(true)
+    expect(isFullscreenShortcut(keys('KeyK', { ctrl: true }), 'win32')).toBe(false)
     expect(isFullscreenShortcut(keys('KeyJ', { ctrl: true, shift: true }), 'win32')).toBe(true)
     expect(isFullscreenShortcut(keys('KeyJ', { ctrl: true }), 'win32')).toBe(false)
     expect(isFullscreenShortcut(keys('KeyM', { meta: true, shift: true }), 'darwin')).toBe(false)
