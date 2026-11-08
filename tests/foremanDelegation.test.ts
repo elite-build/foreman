@@ -265,4 +265,17 @@ describe('flow delegation: start_flow, get_flow_status and the flows list', () =
     // No tool answers a gate: an agent can only read.
     expect(Object.keys(DELEGATION_TOOLS).some((name) => /approve|answer|gate/.test(name))).toBe(false)
   })
+
+  it('reads the caller’s own run when no runId is given, so a flow step need not be told it', async () => {
+    const r = flowRig()
+    await expect(r.service.call('get_flow_status', {}, r.scope)).rejects.toThrow('isn’t part of a flow run')
+    r.ws.flowRun = { runId: 'run-1' }
+    r.runs[0].workspaceId = 'w'
+    expect(await r.service.call('get_flow_status', {}, r.scope)).toMatchObject({ runId: 'run-1', state: 'running', current: { step: 'build' } })
+    // Its own run needs no opt-in, as with an explicit id.
+    r.allowed.value = false
+    expect(await r.service.call('get_flow_status', {}, r.scope)).toMatchObject({ runId: 'run-1' })
+    // The assistant has no workspace, so it names the run.
+    await expect(r.service.call('get_flow_status', {}, { readOnly: true })).rejects.toThrow('Pass a runId')
+  })
 })

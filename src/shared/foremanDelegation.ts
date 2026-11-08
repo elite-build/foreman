@@ -38,8 +38,8 @@ export const DELEGATION_TOOLS = {
     readOnly: false, schema: z.object({ flowId: id, repoId: id.optional(), baseBranch: id.optional(), inputs: z.record(z.string().min(1).max(100), z.string().max(16_000)).optional() }).strict()
   },
   get_flow_status: {
-    description: 'Inspect a permitted flow run: its state and reason, the step and iteration it is at, its steps so far with their facts and chat/turn IDs, and its workspaces. A run waiting at a gate or pick waits for the user, whom only the user answers. Does not wait; to wait for a step, use wait_for_turn on its turn ID.',
-    readOnly: true, schema: z.object({ runId: id }).strict()
+    description: 'Inspect a permitted flow run: its state and reason, the step and iteration it is at, its steps so far with their facts and chat/turn IDs, and its workspaces. Omit runId to read the run your own workspace belongs to. A run waiting at a gate or pick waits for the user, whom only the user answers. Does not wait; to wait for a step, use wait_for_turn on its turn ID.',
+    readOnly: true, schema: z.object({ runId: id.optional() }).strict()
   }
 } as const
 

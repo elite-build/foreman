@@ -222,7 +222,7 @@ exports[`MCP settings coverage review > requires a settings coverage review when
     "readOnly": true,
   },
   {
-    "description": "Inspect a permitted flow run: its state and reason, the step and iteration it is at, its steps so far with their facts and chat/turn IDs, and its workspaces. A run waiting at a gate or pick waits for the user, whom only the user answers. Does not wait; to wait for a step, use wait_for_turn on its turn ID.",
+    "description": "Inspect a permitted flow run: its state and reason, the step and iteration it is at, its steps so far with their facts and chat/turn IDs, and its workspaces. Omit runId to read the run your own workspace belongs to. A run waiting at a gate or pick waits for the user, whom only the user answers. Does not wait; to wait for a step, use wait_for_turn on its turn ID.",
     "name": "get_flow_status",
     "readOnly": true,
   },

@@ -399,6 +399,8 @@ export class WorkspaceService {
       'Do not commit, push, or open pull requests unless the user asks you to.',
       ws.direct ? 'Do not switch or rename the branch unless the user asks.' : 'Do not rename the branch unless the user asks; Foreman names it from the task.',
       ...(this.state.settings.stackedPrs ? ['You can stack pull requests with `gh stack` when a change is better split into several PRs.'] : []),
+      // Every turn, follow-ups after the step included: a step agent can say where its run is instead of guessing.
+      ...(ws.flowRun ? [`This workspace belongs to the Foreman flow run ${ws.flowRun.runId}. To see which step it is at and why it stopped or waits, call Foreman's get_flow_status without a runId, or run \`foreman flow status ${ws.flowRun.runId}\` from a shell.`] : []),
       ...this.hostContext(ws)
     ].join('\n')
   }

@@ -209,6 +209,9 @@ describe('workspaces', () => {
     // A server the agent starts can end with its turn: it is told to hand the user a runnable block instead.
     expect(service.agentContext(ws)).toContain('can be stopped when your turn ends')
     expect(service.agentContext(ws)).toContain('```bash block')
+    // A flow run's workspace says which run it belongs to, and how to read it.
+    expect(service.agentContext(ws)).not.toContain('flow run')
+    expect(service.agentContext({ ...ws, flowRun: { runId: 'run-7c1e' } })).toContain('flow run run-7c1e. To see which step it is at and why it stopped or waits, call Foreman\'s get_flow_status without a runId')
     // No worktree was added.
     expect((await service.listWorktrees(repo.id)).map((t) => t.workspaceId)).toEqual([ws.id])
 
