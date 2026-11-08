@@ -110,7 +110,7 @@ function openWorkspace(f: Fixture, sessionId = f.chatId): void {
 }
 
 // The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
-const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run', 'automations-flow-run-models', 'automations-flow-studio', 'automations-flow-studio-step', 'workspace-flow', 'workspace-lineage']
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run', 'automations-flow-run-models', 'automations-flow-studio', 'automations-flow-studio-step', 'new-workspace-flow', 'workspace-flow', 'workspace-lineage']
 
 /** Flows on or off. A setting, so it outlives the page, like the window layout. */
 async function flowsSetting(on: boolean): Promise<void> {
@@ -210,6 +210,15 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     if (!existing) return null
     existing.click()
     return '.nw-branch-shelf'
+  },
+  // Flows on: New workspace's Flow tab, the repository's runnable flows listed and the first one chosen.
+  'new-workspace-flow': async (f) => {
+    showRepoHome(null)
+    openNewWorkspace(f.repoId)
+    const flow = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.nw-start-with [role="radio"]')].find((r) => r.textContent === 'Flow'))
+    if (!flow) return null
+    flow.click()
+    return '.nw-flow .flow-picker'
   },
   // Clone GitHub repo, with the fixture's repos listed (main answers githubRepos for the run).
   'clone-repo': () => {
