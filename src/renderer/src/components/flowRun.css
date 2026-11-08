@@ -1,5 +1,5 @@
-/* A flow run's Flow tab: the header lines, the lens switch and diagram, and the steps as a column of cards. Layout only; the Cards, Status and
-   Button (ui/) draw themselves. */
+/* A flow run's Flow tab: the header lines, the lens switch and diagram, and the steps as a column of cards. Layout
+   only; the Cards, Status and Button (ui/) draw themselves. */
 .flow-run {
   display: flex;
   flex-direction: column;

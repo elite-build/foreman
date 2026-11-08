@@ -1,8 +1,7 @@
 // The workspace's Flow tab (docs/loops-and-graphs.md, "Running a flow" and "Showing a graph"): the run this workspace
-// belongs to, its loop bounds, Stop, the run drawn as a
-// diagram through one of four lenses (Run · Context · Memory · Data) with what that lens adds in words, and its steps in
-// run order with their facts. The step list is the
-// diagram's accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
+// belongs to, its loop bounds, Stop, the run drawn as a diagram through one of four lenses (Run · Context · Memory ·
+// Data) with what that lens adds in words, and its steps in run order with their facts. The step list is the diagram's
+// accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
 // workspace it stands for (a run that makes more than one workspace shows it in each).
 import { Square } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
