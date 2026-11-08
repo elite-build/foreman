@@ -9,7 +9,7 @@ import type { FlowStarter } from '../../../../shared/flowStarters'
 import type { PlainKey } from '../../../../shared/i18n'
 import { useT, type RendererT } from '../../i18n'
 import { api, useStore } from '../../store'
-import { Callout, Card, Field, RadioCards, Status, Tag, TextArea, TextInput, type RadioCardOption } from '../../ui'
+import { Callout, Card, Field, RadioCards, Status, Tag, TextArea, type RadioCardOption } from '../../ui'
 
 export const STARTER_NAME: Record<FlowStarter['id'], PlainKey> = {
   'fix-until-green': 'automations.flows.starter.fixUntilGreen',
@@ -114,19 +114,16 @@ export function flowStartReady(preview: FlowRunPreview | null, values: Record<st
   return preview.inputs.every((i) => values[i.name]?.trim())
 }
 
-/** One field per input the flow asks for: its [inputs] and its templates' {{placeholders}}; the task gets room to write. */
+/**
+ * One field per input the flow asks for: its [inputs] and its templates' {{placeholders}}. Each is prose a prompt reads
+ * (a task, an idea, an issue), so each gets room to write.
+ */
 export function FlowInputFields({ preview, values, onChange }: { preview: FlowRunPreview | null; values: Record<string, string>; onChange: (values: Record<string, string>) => void }) {
   return (
     <>
       {(preview?.inputs ?? []).map((input) => (
         <Field key={input.name} label={input.name} description={input.description || undefined}>
-          {(c) =>
-            input.name === 'task' ? (
-              <TextArea {...c} rows={5} value={values[input.name] ?? ''} onChange={(e) => onChange({ ...values, [input.name]: e.target.value })} />
-            ) : (
-              <TextInput {...c} value={values[input.name] ?? ''} onChange={(e) => onChange({ ...values, [input.name]: e.target.value })} />
-            )
-          }
+          {(c) => <TextArea {...c} rows={5} value={values[input.name] ?? ''} onChange={(e) => onChange({ ...values, [input.name]: e.target.value })} />}
         </Field>
       ))}
     </>

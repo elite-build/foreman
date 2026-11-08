@@ -107,6 +107,13 @@ describe('Run a flow', () => {
     await waitFor(() => expect(storeModule.closeAutomations).toHaveBeenCalled())
   })
 
+  it('gives every input room to write, not only the task: an idea is a text area', async () => {
+    fakeApi.flowRunPreview = vi.fn(async () => ({ ...PREVIEW, inputs: [{ name: 'idea', description: 'The idea to turn into a feature' }] }))
+    open()
+    const idea = await screen.findByRole('textbox', { name: 'idea' })
+    expect(idea.tagName).toBe('TEXTAREA')
+  })
+
   it('a tier sets every step: Best puts work on Fable and checking on Opus, and the run carries those', async () => {
     const u = userEvent.setup()
     open()
