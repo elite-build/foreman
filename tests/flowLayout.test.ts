@@ -153,6 +153,28 @@ describe('layoutFlowGraph, lenses and odd shapes', () => {
         }
   })
 
+  it('makes an end as wide as its word, up to a step, so a run’s end isn’t cut short', () => {
+    const end = (label: string, direction: 'wide' | 'tall') => {
+      const graph: FlowGraph = {
+        lens: 'run',
+        title: 'ends',
+        nodes: [
+          { id: 'step:a', kind: 'step', label: 'a', loops: [] },
+          { id: 'end:ended', kind: 'end', label, loops: [] }
+        ],
+        edges: [{ from: 'step:a', to: 'end:ended', kind: 'fact' }],
+        loops: []
+      }
+      const layout = layoutFlowGraph(graph, { direction })
+      expectNoOverlap(layout)
+      return node(layout, 'end:ended').width
+    }
+    expect(end('done', 'wide')).toBe(76)
+    expect(end('a besoin de vous', 'wide')).toBeGreaterThan(120)
+    expect(end('a very long word for where a run ended', 'tall')).toBe(132)
+    expect(end('対応待ち', 'tall')).toBeGreaterThan(76)
+  })
+
   it('handles an empty graph, a self-loop and a node nothing reaches', () => {
     expect(layoutFlowGraph({ lens: 'run', title: '', nodes: [], edges: [], loops: [] })).toMatchObject({ nodes: [], edges: [], notes: [] })
     const graph: FlowGraph = {
