@@ -95,10 +95,14 @@ export class ForemanDelegation {
     return listing
   }
 
-  /** A flow run in a repository this scope may coordinate (the coordinator's, with the opt-in for any but its own workspace). */
-  private async flowRun(runId: string, scope: DelegationScope): Promise<FlowRun> {
+  /** A flow run in a repository this scope may coordinate (the coordinator's, with the opt-in for any but its own workspace).
+   *  No id: the run the coordinator's own workspace belongs to, so a flow step can read its run without being told the id. */
+  private async flowRun(runId: string | undefined, scope: DelegationScope): Promise<FlowRun> {
     this.flowsOn()
-    const run = (await this.host.api.listFlowRuns()).find((r) => r.id === runId)
+    const caller = this.current(scope).workspaceId
+    const id = runId ?? (caller ? this.workspace(caller).flowRun?.runId : undefined)
+    if (!id) throw new Error(caller ? 'This workspace isn’t part of a flow run; pass a runId.' : 'Pass a runId.')
+    const run = (await this.host.api.listFlowRuns()).find((r) => r.id === id)
     if (!run) throw new Error('Flow run not found.')
     const current = this.current(scope)
     if (current.workspaceId) {
@@ -123,7 +127,7 @@ export class ForemanDelegation {
       this.flowsOn()
       await this.flow(parsed.flowId as string, this.startRepo(parsed, current))
     }
-    if (name === 'get_flow_status') await this.flowRun(parsed.runId as string, scope)
+    if (name === 'get_flow_status') await this.flowRun(parsed.runId as string | undefined, scope)
     if (typeof parsed.workspaceId === 'string') {
       this.target(parsed.workspaceId, scope, !definition.readOnly)
       if (name === 'send_task' && !this.host.state().sessions.some((s) => s.id === parsed.sessionId && s.workspaceId === parsed.workspaceId && !s.closedAt)) throw new Error('Choose an open chat in the target workspace.')
