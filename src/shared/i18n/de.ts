@@ -6183,9 +6183,6 @@ export const de: Catalogue = {
   'flowStudio.suggest.gate': 'Vor dem Ausliefern eine Prüfung einbauen',
   'flowStudio.suggest.cheaper': 'Die Korrekturschleife früher beenden',
   'flowRun.panel.stoppedTitle': 'Warum er angehalten hat',
-  'flowRun.panel.progress': 'Wo der Lauf im Flow steht',
-  'flowRun.panel.progressDone': 'erledigt',
-  'flowRun.panel.progressNotYet': 'noch nicht erreicht',
   'flowStudio.stepsTab': 'Schritte',
   'flowStudio.exitsLine': 'Ausgänge: {exits}',
 }

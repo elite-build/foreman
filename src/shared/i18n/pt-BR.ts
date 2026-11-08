@@ -6183,9 +6183,6 @@ export const ptBR: Catalogue = {
   'flowStudio.suggest.gate': 'Adicione uma revisão antes de entregar',
   'flowStudio.suggest.cheaper': 'Faça o loop de correção parar antes',
   'flowRun.panel.stoppedTitle': 'Por que parou',
-  'flowRun.panel.progress': 'Onde a execução está no fluxo',
-  'flowRun.panel.progressDone': 'feito',
-  'flowRun.panel.progressNotYet': 'ainda não alcançada',
   'flowStudio.stepsTab': 'Passos',
   'flowStudio.exitsLine': 'Saídas: {exits}',
 }

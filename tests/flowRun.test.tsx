@@ -149,20 +149,13 @@ describe('a flow’s pick', () => {
 })
 
 describe('the Flow tab', () => {
-  it('says where the run is and its loop bounds, and lists the steps in run order, each opening what it stands for', async () => {
+  it('says its loop bounds, and lists the steps in run order, each opening what it stands for', async () => {
     const user = userEvent.setup()
     render(<FlowRunPanel workspaceId="ws-1" />)
-    expect(screen.getByText('Green')).toBeTruthy()
-    // The row of steps says where it is, so the head doesn't say it again, or when it started.
-    expect(screen.queryByText('At fix · iteration 2')).toBeNull()
-    expect(screen.queryByText(/^Started /)).toBeNull()
+    // The diagram and the steps say where the run is, so there is no head naming the flow, its state or a row of steps.
+    expect(screen.queryByText('Green')).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Where the run is in the flow' })).toBeNull()
     expect(screen.getByText('green: iteration 2 of at most 4 · 7 of 45 min')).toBeTruthy()
-
-    // The row of steps says where the run is at a glance: what ran, and the step it is at.
-    const progress = screen.getByRole('list', { name: 'Where the run is in the flow' })
-    const marks = within(progress).getAllByRole('listitem')
-    expect(marks.map((li) => li.textContent)).toEqual(['build, done', 'checks, done', 'fix, Running'])
-    expect(marks[2].getAttribute('aria-current')).toBe('step')
 
     const list = screen.getByRole('list', { name: 'Steps' })
     const items = within(list).getAllByRole('listitem')
@@ -351,7 +344,7 @@ describe('the Flow tab’s graph, gate and stop', () => {
     expect(storeModule.showChecksPanel).toHaveBeenCalledWith('ws-1')
   })
 
-  it('says where a failed run ended, marks that step and what it never reached, and opens the step’s chat', async () => {
+  it('says how a failed run ended on the graph and at its step, and opens the step’s chat', async () => {
     const user = userEvent.setup()
     fakeApi.listFlows = vi.fn(async () => [
       {
@@ -366,15 +359,9 @@ describe('the Flow tab’s graph, gate and stop', () => {
     const failed: FlowRun = { ...RUN, state: 'failed', current: undefined, endedAt: new Date().toISOString(), reason: 'The “build” turn ended with an error.', steps: [{ ...RUN.steps[0], state: 'failed' }] }
     fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [failed] }
     render(<FlowRunPanel workspaceId="ws-1" />)
-    // The row of steps marks where it ended, so the head doesn't say it again.
-    expect(screen.queryByText(/^Ended at /)).toBeNull()
-    expect(screen.queryByText(/^At /)).toBeNull()
-
-    const progress = screen.getByRole('list', { name: 'Where the run is in the flow' })
-    await waitFor(() => expect(within(progress).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['build, Failed', 'checks, not reached yet']))
-    expect(within(progress).getAllByRole('listitem')[0].getAttribute('aria-current')).toBe('step')
-    // The graph's end says how the run ended, not "done".
-    expect([...document.querySelectorAll('.ui-graph__title')].map((n) => n.textContent)).toContain('failed')
+    // The graph's end says how the run ended, not "done"; the step it ended at says Failed.
+    await waitFor(() => expect([...document.querySelectorAll('.ui-graph__title')].map((n) => n.textContent)).toContain('failed'))
+    expect(within(screen.getByRole('list', { name: 'Steps' })).getByText('Failed')).toBeTruthy()
 
     expect(screen.getByText('The “build” turn ended with an error.')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Open its chat tab' }))

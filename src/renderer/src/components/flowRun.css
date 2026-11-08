@@ -1,4 +1,4 @@
-/* A flow run's Flow tab: the header lines and the steps as a column of cards. Layout only; the Cards, Status and
+/* A flow run's Flow tab: the header lines, the lens switch and diagram, and the steps as a column of cards. Layout only; the Cards, Status and
    Button (ui/) draw themselves. */
 .flow-run {
   display: flex;
@@ -10,12 +10,6 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-.flow-run-title {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 .flow-run-steps {
   display: flex;
