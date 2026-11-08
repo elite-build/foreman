@@ -301,7 +301,7 @@ Caps: a flow run counts as one against the schedule service's app-wide cap of tw
 
 Where it shows: Home's rows get the flow run as the thing that needs you (one row per run, naming the step waiting), the sidebar groups the run's workspaces as Compare siblings are grouped today, and the chat tab a step runs in carries a chip naming the flow, step and iteration, as a scheduled tab says it is unattended. The run's page is the graph, with the lens switch. Across runs, the flow's page counts how often each edge was taken and marks the ones never taken, with time and cost per run, so a flow can be audited and trimmed without reading every run.
 
-Stopping: Stop on the run cancels the current turn and marks the run `stopped`; a step that stopped for a human keeps the run at `needs-you` with the request in Needs you; answering resumes it. Pausing a flow (the user, two failed runs in a row, or a changed fingerprint) follows schedules.
+Stopping: Stop on the run cancels the current turn and marks the run `stopped`; a step that stopped for a human keeps the run at `needs-you` with the request in Needs you; answering resumes it. A turn that fails because its agent isn't signed in (or set up) doesn't fail the run: the run waits for you, naming the step, and the next message sent in that step's tab (the chat's Retry after signing in) runs as the step's turn, under its persona and unattended, and the run goes on from it. Pausing a flow (the user, two failed runs in a row, or a changed fingerprint) follows schedules.
 
 ## Showing a graph
 

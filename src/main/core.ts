@@ -3147,7 +3147,15 @@ export class Core {
     reopenSession: async (workspaceId, sessionId) => this.sessions.reopenSession(workspaceId, sessionId),
     getChat: (sessionId, live) => this.sessions.getChat(sessionId, live === true),
     sendMessage: (sessionId, text, options) => {
-      const sent = this.sessions.send(sessionId, text, options)
+      // A flow step waiting here on its agent's sign-in: this message (the chat's Retry, most often) is the step's turn.
+      const retry = text.trim() && !/^\/\S+$/.test(text.trim()) ? this.flows.retryTurn(sessionId) : undefined
+      if (retry) this.sessions.markUnattended(retry.turnId, retry.unattended)
+      const sent = this.sessions.send(sessionId, text, retry ? { ...options, mode: 'queue', turnId: retry.turnId, origin: retry.origin } : options)
+      if (retry)
+        sent.then(
+          (disposition) => this.flows.retried(retry.turnId, disposition === 'started' || disposition === 'queued'),
+          () => this.flows.retried(retry.turnId, false)
+        )
       // Get started: a message that carries a template (recorded when it is sent, not when the template is inserted).
       if (options?.templateId) sent.then(() => this.recordMilestone('template'), () => undefined)
       return sent
