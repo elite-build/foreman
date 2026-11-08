@@ -6184,9 +6184,6 @@ export const zhCN: Catalogue = {
   'flowStudio.suggest.gate': '在交付前加一道确认',
   'flowStudio.suggest.cheaper': '让修复循环早点停止',
   'flowRun.panel.stoppedTitle': '停止原因',
-  'flowRun.panel.progress': '运行在流程中的位置',
-  'flowRun.panel.progressDone': '已完成',
-  'flowRun.panel.progressNotYet': '尚未到达',
   'flowStudio.stepsTab': '步骤',
   'flowStudio.exitsLine': '出口：{exits}',
 }

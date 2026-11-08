@@ -1,19 +1,18 @@
 // The workspace's Flow tab (docs/loops-and-graphs.md, "Running a flow" and "Showing a graph"): the run this workspace
-// belongs to, its state, where it is (or ended) as a row of its steps, its loop bounds, Stop, the run drawn as a
-// diagram through one of four lenses (Run · Context · Memory · Data) with what that lens adds in words, and its steps in
-// run order with their facts. The step list is the
-// diagram's accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
+// belongs to, its loop bounds, Stop, the run drawn as a diagram through one of four lenses (Run · Context · Memory ·
+// Data) with what that lens adds in words, and its steps in run order with their facts. The step list is the diagram's
+// accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
 // workspace it stands for (a run that makes more than one workspace shows it in each).
 import { Square } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { FLOW_LENSES, LENS_WORD, flowGraph, type FlowLens } from '../../../shared/flowGraph'
-import { FLOW_COMPACT_ABOVE, currentLoopBounds, flowProgress, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
+import { FLOW_COMPACT_ABOVE, currentLoopBounds, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
 import { formatCompact } from '../../../shared/i18n/time'
 import type { ApprovalRequest } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
 import { api, attempt, selectSession, selectWorkspace, showChecksPanel, useStore } from '../store'
-import { Button, Callout, Card, CardButton, Glyph, Meter, Segmented, Status, Stepper, Tag, type GlyphName, type StepperStep, type StepperTone } from '../ui'
-import { RUN_STATE, RUN_TONE, STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
+import { Button, Callout, Card, CardButton, Meter, Segmented, Status, Tag } from '../ui'
+import { STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import { FlowLensDiagram } from './FlowDiagram'
 import './flowRun.css'
 
@@ -76,34 +75,32 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
   if (!run) return null
   const active = isActiveRun(run)
   const bounds = active ? currentLoopBounds(run) : []
+  const reason = !!run.reason && (active || run.state === 'completed')
   return (
     <div className="flow-run">
-      <div className="flow-run-head">
-        <div className="flow-run-title">
-          <strong>{run.flow.name}</strong>
-          <Status tone={RUN_TONE[run.state]} label={t(RUN_STATE[run.state])} />
+      {(active || reason) && (
+        <div className="flow-run-head">
+          {bounds.map((b) => (
+            <span key={b.loop} className="faint small">
+              {[
+                b.maxIterations ? t('flowRun.panel.loopIterationsMax', { loop: b.loop, iteration: b.iteration, max: b.maxIterations }) : t('flowRun.panel.loopIterations', { loop: b.loop, iteration: b.iteration }),
+                b.maxMinutes ? t('flowRun.panel.loopMinutes', { minutes: b.minutes, max: b.maxMinutes }) : null,
+                b.maxCost !== undefined ? t('flowRun.panel.loopCost', { cost: (b.cost ?? 0).toFixed(2), max: b.maxCost.toFixed(2) }) : null
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          ))}
+          {reason && <span className="small">{run.reason}</span>}
+          {active && (
+            <span>
+              <Button size="sm" onClick={() => void attempt(() => api.stopFlowRun(run.id))}>
+                <Square size={12} aria-hidden /> {t('flowRun.panel.stop')}
+              </Button>
+            </span>
+          )}
         </div>
-        {bounds.map((b) => (
-          <span key={b.loop} className="faint small">
-            {[
-              b.maxIterations ? t('flowRun.panel.loopIterationsMax', { loop: b.loop, iteration: b.iteration, max: b.maxIterations }) : t('flowRun.panel.loopIterations', { loop: b.loop, iteration: b.iteration }),
-              b.maxMinutes ? t('flowRun.panel.loopMinutes', { minutes: b.minutes, max: b.maxMinutes }) : null,
-              b.maxCost !== undefined ? t('flowRun.panel.loopCost', { cost: (b.cost ?? 0).toFixed(2), max: b.maxCost.toFixed(2) }) : null
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </span>
-        ))}
-        {run.reason && (active || run.state === 'completed') && <span className="small">{run.reason}</span>}
-        {active && (
-          <span>
-            <Button size="sm" onClick={() => void attempt(() => api.stopFlowRun(run.id))}>
-              <Square size={12} aria-hidden /> {t('flowRun.panel.stop')}
-            </Button>
-          </span>
-        )}
-      </div>
-      <Progress flow={flow} run={run} />
+      )}
       <GateCard runId={run.id} />
       {!active && run.state !== 'completed' && run.reason && <StoppedCard workspaceId={workspaceId} run={run} />}
       <Segmented<FlowLens> small label={t('flowRun.lens.label')} value={lens} onChange={setLens} options={FLOW_LENSES.map((l) => ({ value: l, label: t(LENS_WORD[l]) }))} />
@@ -167,43 +164,6 @@ function GateCard({ runId }: { runId: string }) {
     >
       {gate.ask}
     </Callout>
-  )
-}
-
-const PROGRESS_TONE: Partial<Record<FlowRunStep['state'], StepperTone>> = { completed: 'ok', running: 'info', waiting: 'warn', failed: 'error' }
-const PROGRESS_GLYPH: Partial<Record<FlowRunStep['state'], GlyphName>> = { waiting: 'warn', failed: 'error', stopped: 'off' }
-
-/**
- * Where the run is, at a glance: the steps it ran, the one it is at (or ended at), then the ones it hasn't reached. A
- * state other than done carries its glyph and, where the run is, its word, so it isn't colour alone.
- */
-function Progress({ flow, run }: { flow?: Flow; run: FlowRun }) {
-  const t = useT()
-  const steps = flowProgress(flow, run)
-  if (!steps.length) return null
-  return (
-    <Stepper
-      label={t('flowRun.panel.progress')}
-      statusText={{ done: t('flowRun.panel.progressDone'), upcoming: t('flowRun.panel.progressNotYet') }}
-      steps={steps.map((s): StepperStep => {
-        const name = s.runs > 1 ? `${s.name} ×${s.runs}` : s.name
-        const ran = s.state !== 'not-yet' ? s.state : undefined
-        const tone = ran && PROGRESS_TONE[ran]
-        const glyph = ran && PROGRESS_GLYPH[ran]
-        return {
-          id: s.name,
-          label: (
-            <span title={name}>
-              {name}
-              {s.at && ran && <span className="sr-only">, {t(STEP_STATE[ran])}</span>}
-            </span>
-          ),
-          status: s.at ? 'current' : ran ? 'done' : 'upcoming',
-          ...(tone ? { tone } : {}),
-          ...(glyph ? { icon: <Glyph name={glyph} /> } : {})
-        }
-      })}
-    />
   )
 }
 

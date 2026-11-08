@@ -6229,9 +6229,6 @@ export const es: Catalogue = {
   'flowStudio.suggest.gate': 'Añade una revisión antes de publicar',
   'flowStudio.suggest.cheaper': 'Haz que el bucle de corrección pare antes',
   'flowRun.panel.stoppedTitle': 'Por qué se detuvo',
-  'flowRun.panel.progress': 'Dónde está la ejecución en el flujo',
-  'flowRun.panel.progressDone': 'hecho',
-  'flowRun.panel.progressNotYet': 'aún no alcanzado',
   'flowStudio.stepsTab': 'Pasos',
   'flowStudio.exitsLine': 'Salidas: {exits}',
 }
