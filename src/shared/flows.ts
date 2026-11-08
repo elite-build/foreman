@@ -173,7 +173,8 @@ export interface PersonalFlow {
 type Table = Record<string, unknown>
 
 const isTable = (v: unknown): v is Table => typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Date)
-const STEP_NAME = /^[A-Za-z0-9][\w-]*$/
+/** What a step may be called: letters, digits, - and _, starting with a letter or digit. */
+export const STEP_NAME = /^[A-Za-z0-9][\w-]*$/
 
 const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
   turn: ['template', 'prompt', 'persona', 'loadout', 'agent', 'model', 'effort', 'context', 'same_tab', 'read_only', 'mcp', 'writes'],

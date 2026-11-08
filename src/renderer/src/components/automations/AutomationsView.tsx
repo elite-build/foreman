@@ -33,6 +33,7 @@ export function AutomationsView() {
   const template = useSelectedTemplate(selected)
   const flowId = selected?.startsWith('f:') ? selected.slice(2) : null
   const flowDraft = useStore((s) => s.automations?.flowDraft)
+  const renameFlow = useStore((s) => Boolean(s.automations?.renameFlow))
   // Run a flow: "r:<flow id>", or "r:" for the repository's first flow.
   const running = selected?.startsWith('r:') ? selected.slice(2) : null
   const runAt = useStore((s) => s.automations?.flowRun)
@@ -134,7 +135,7 @@ export function AutomationsView() {
       )}
       {flowId && (
         <div className="auto-body">
-          <FlowStudio key={flowId === 'new' ? `new:${flowDraft?.toml.length ?? 0}:${flowDraft?.notes?.length ?? 0}` : flowId} id={flowId} draft={flowId === 'new' ? flowDraft : undefined} />
+          <FlowStudio key={flowId === 'new' ? `new:${flowDraft?.opened ?? 0}:${flowDraft?.toml.length ?? 0}` : flowId} id={flowId} draft={flowId === 'new' ? flowDraft : undefined} rename={flowId !== 'new' && renameFlow} />
         </div>
       )}
       {/* Hidden, not unmounted, under a template's page: Back finds the library scrolled where it was. */}

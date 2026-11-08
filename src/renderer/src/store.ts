@@ -157,7 +157,7 @@ interface State {
   // The Automations page (templates and schedules), with the template ("t:<id>") or schedule ("s:<id>") it shows.
   // `selected`: "t:<template>", "s:<schedule>", "f:<flow id>", "f:new" with `flowDraft` (a flow not saved yet), or
   // "r:<flow id>" with `flowRun` (the Run a flow page, set up for a repository and base branch).
-  automations: { selected: string | null; scrollTo?: 'commands'; flowDraft?: FlowDraftOpen; flowRun?: FlowRunOpen } | null
+  automations: { selected: string | null; scrollTo?: 'commands'; flowDraft?: FlowDraftOpen; flowRun?: FlowRunOpen; renameFlow?: boolean } | null
   // Phone pill → Network setup…: same-Wi-Fi address and private (Tailscale) access.
   phoneSetupOpen: boolean
   // Help → Report a problem… / ⌘K (O20).
@@ -1539,11 +1539,20 @@ export interface FlowDraftOpen {
   notes?: string[]
   // Ask the assistant to describe the flow first (New flow).
   describe?: boolean
+  // Open with the flow's name selected to type over (a copy, which shouldn't keep its original's name).
+  rename?: boolean
+  // When it was opened, so opening another draft starts the studio afresh.
+  opened?: number
 }
 
 /** Open the flow studio on a draft that isn't saved yet: a new flow, a copy of a read-only one, or one drafted from a workspace. */
 export function openFlowDraft(draft: FlowDraftOpen): void {
-  setState({ automations: { selected: 'f:new', flowDraft: draft }, settingsPage: null, overlay: null, assistantOpen: false })
+  setState({ automations: { selected: 'f:new', flowDraft: { ...draft, opened: Date.now() } }, settingsPage: null, overlay: null, assistantOpen: false })
+}
+
+/** Open a saved personal flow in the flow studio with its name selected to type over (Rename on its card). */
+export function openFlowRename(flowId: string): void {
+  setState({ automations: { selected: `f:${flowId}`, renameFlow: true }, settingsPage: null, overlay: null, assistantOpen: false })
 }
 
 /** Where the Run a flow page starts: the repository and base branch it was opened for (New workspace's, or none). */
