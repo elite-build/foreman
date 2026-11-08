@@ -274,3 +274,33 @@ describe('the persona API', () => {
     await core.shutdown()
   })
 })
+
+describe('a message in the tab of a step waiting on sign-in', () => {
+  it('goes as the step’s turn, under its mark, and tells the run whether it went; a command or another tab is ordinary', async () => {
+    const { core } = await setup()
+    const retry = { turnId: 't-retry', unattended: { flowRunId: 'run-1', step: 'build' }, origin: { kind: 'flow' as const, runId: 'run-1', step: 'build', iteration: 1 } }
+    const retryTurn = vi.spyOn(core.flows, 'retryTurn').mockImplementation((sessionId) => (sessionId === 's-1' ? retry : undefined))
+    const retried = vi.spyOn(core.flows, 'retried').mockImplementation(() => {})
+    const mark = vi.spyOn(core.sessions, 'markUnattended').mockImplementation(() => {})
+    const send = vi.spyOn(core.sessions, 'send').mockResolvedValue('started')
+    await core.api.sendMessage('s-1', 'Build this: add a button')
+    expect(mark).toHaveBeenCalledWith('t-retry', retry.unattended)
+    expect(send).toHaveBeenLastCalledWith('s-1', 'Build this: add a button', { mode: 'queue', turnId: 't-retry', origin: retry.origin })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(retried).toHaveBeenLastCalledWith('t-retry', true)
+
+    // A refused send leaves the run waiting.
+    send.mockRejectedValueOnce(new Error('The workspace is not ready yet'))
+    await expect(core.api.sendMessage('s-1', 'Build this: add a button')).rejects.toThrow('not ready')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(retried).toHaveBeenLastCalledWith('t-retry', false)
+
+    // A slash command isn't a turn, and another tab's message isn't the step's.
+    retryTurn.mockClear()
+    await core.api.sendMessage('s-1', '/model')
+    expect(retryTurn).not.toHaveBeenCalled()
+    await core.api.sendMessage('s-2', 'Hello')
+    expect(send).toHaveBeenLastCalledWith('s-2', 'Hello', undefined)
+    await core.shutdown()
+  })
+})
