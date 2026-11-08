@@ -204,7 +204,7 @@ export function TerminalView({
 
     // ⌘L / Ctrl+L with a selection puts it in the composer. Without one the key goes on as before:
     // ⌘L focuses the composer, and Ctrl+L reaches the shell (clear screen).
-    // In the bottom panel: ⌘F finds, ⌘= ⌘− ⌘0 zoom this tab, and ⌘⇧J is left to the app (fullscreen) rather than reaching the shell.
+    // In the bottom panel: ⌘F finds, ⌘= ⌘− ⌘0 zoom this tab, and ⌘⇧J and ⌘⇧K are left to the app (full screen) rather than reaching the shell.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown' || !source.current) return true
       const platform = getState().snapshot?.platform
