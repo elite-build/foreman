@@ -108,6 +108,7 @@ Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if
 | `npm run dev demo` | The development app on demo data (`src/main/demo.ts`): the screenshot fixture in a folder kept between launches, with no network and no external services. `npm run dev demo reset` seeds it again. |
 | `npm run typecheck` | Strict TypeScript check over source, tests and build/test configs. |
 | `npm test` | Full Vitest suite. A focused run is `npm test -- tests/<name>.test.ts`. |
+| `npm run test:changed` | Only the tests the branch's changes (since `origin/main`, plus uncommitted files) can affect: Vitest's import graph, plus the `check:ui` checks for a renderer or i18n change and any test naming a changed non-module file. For the loop while working; `npm test` is still the check before a pull request. `-- <base ref>` compares with another ref. |
 | `npm run check:ui` | Design-system guard, contrast, i18n, UI and content accessibility checks. Can run after `npm ci --ignore-scripts`, without downloading Electron or building native modules. |
 | `npm run build` | Build main, CLI, Cursor worker, sandbox host/attach, preload and renderer into `out/`. Preload output is CommonJS for Electron's sandbox. |
 | `npm start` | Preview the built Electron app. |

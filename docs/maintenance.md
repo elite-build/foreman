@@ -12,6 +12,7 @@ Two workflows exist, and both run only when someone starts them. **Installers** 
 | --- | --- |
 | `npm run typecheck` | Strict TypeScript checking |
 | `npm test` | Full ordinary test suite |
+| `npm run test:changed` | The tests a branch's changes can affect, for the loop while working; not a substitute for `npm test` |
 | `npm run build` | Production build |
 | `npm run check:ui` | UI, accessibility, contrast, i18n and new-component rules |
 | `npm run check:mcp` | MCP and settings checks |
