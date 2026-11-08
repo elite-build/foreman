@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 // Flows on Automations: absent (and never asked for) while Settings → Experimental → Flows is off; on, each flow is a
-// card with its source and shape that opens the flow studio (tests/flowStudio.test.tsx), and New flow opens a draft.
+// card with its source and shape that opens the flow studio (tests/flowStudio.test.tsx) and a menu that renames it (or a
+// copy), and New flow asks for a name and a start (blank, described, or a copy) before it opens a draft.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FLOW_STARTERS } from '../src/shared/flowStarters'
+import { BLANK_FLOW } from '../src/shared/flowStarters'
 import type { FlowListing } from '../src/shared/flows'
 import { AutomationsView } from '../src/renderer/src/components/automations/AutomationsView'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
@@ -103,14 +104,68 @@ describe('Flows on Automations', () => {
     expect(regions.indexOf('Flows')).toBeLessThan(regions.indexOf('Templates'))
   })
 
-  it('opens a flow as its own page from its card, and New flow as a draft that asks for a description', async () => {
+  it('opens a flow as its own page from its card, and New flow as a blank draft under the name it asks for', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
     await u.click(await screen.findByRole('button', { name: /^Fix until green/ }))
     expect(storeModule.selectAutomation).toHaveBeenCalledWith('f:built-in:fix-until-green')
+
     await u.click(screen.getByRole('button', { name: /New flow/ }))
-    expect(storeModule.openFlowDraft).toHaveBeenCalledWith({ toml: FLOW_STARTERS[0].toml, describe: true })
+    const dialog = screen.getByRole('dialog', { name: 'New flow' })
+    const create = within(dialog).getByRole('button', { name: 'Create' })
+    expect(create.hasAttribute('disabled')).toBe(true)
+    const name = within(dialog).getByRole('textbox', { name: 'Name' })
+    // A name already used is said, not refused.
+    await u.type(name, 'team flow')
+    expect(within(dialog).getByText('A flow is already called this. Both will be listed, told apart by their tags.')).toBeTruthy()
+    expect(create.hasAttribute('disabled')).toBe(false)
+    await u.clear(name)
+    await u.type(name, 'Plan, build, check')
+    expect(within(dialog).queryByText(/already called this/)).toBeNull()
+    expect((within(dialog).getByRole('radio', { name: /Blank/ }) as HTMLInputElement).checked).toBe(true)
+    await u.click(create)
+    expect(storeModule.openFlowDraft).toHaveBeenCalledWith({ toml: BLANK_FLOW.replace('name = "Untitled flow"', 'name = "Plan, build, check"') })
+    expect(screen.queryByRole('dialog', { name: 'New flow' })).toBeNull()
+  })
+
+  it('New flow starts from a description for the assistant, or from a copy of a flow that reads, under the new name', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    render(<AutomationsView />)
+    await u.click(await screen.findByRole('button', { name: /New flow/ }))
+    let dialog = screen.getByRole('dialog', { name: 'New flow' })
+    await u.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Described')
+    await u.click(within(dialog).getByRole('radio', { name: /Describe it/ }))
+    await u.click(within(dialog).getByRole('button', { name: 'Create' }))
+    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: BLANK_FLOW.replace('name = "Untitled flow"', 'name = "Described"'), describe: true })
+
+    await u.click(screen.getByRole('button', { name: /New flow/ }))
+    dialog = screen.getByRole('dialog', { name: 'New flow' })
+    await u.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Mine')
+    await u.click(within(dialog).getByRole('radio', { name: /Copy a flow/ }))
+    // The first flow that reads; the broken personal one isn't offered.
+    expect(within(dialog).getByRole('combobox', { name: 'Flow to copy' }).textContent).toContain('Fix until green · Built-in')
+    // Enter in the name creates it, as Create does.
+    await u.type(within(dialog).getByRole('textbox', { name: 'Name' }), '{Enter}')
+    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: 'name = "Mine"', notes: ['A copy of Fix until green: nothing is saved until you press Save.'] })
+  })
+
+  it('a card’s menu renames a personal flow on its page, and a built-in or repository one as a copy', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    fakeApi.listFlows = vi.fn(async () => [...LISTINGS, { id: 'flow-2', source: 'personal' as const, name: 'Mine', toml: 'name = "Mine"', summary: { steps: 1, loops: 0, gates: 0, personas: [] }, problems: [], warnings: [] }])
+    render(<AutomationsView />)
+    await u.click(await screen.findByRole('button', { name: 'More for Mine' }))
+    await u.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    expect(storeModule.openFlowRename).toHaveBeenCalledWith('flow-2')
+    await u.click(screen.getByRole('button', { name: 'More for Mine' }))
+    await u.click(screen.getByRole('menuitem', { name: 'Duplicate' }))
+    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: 'name = "Mine"', notes: ['A copy of Mine: nothing is saved until you press Save.'], rename: true })
+    await u.click(screen.getByRole('button', { name: 'More for Fix until green' }))
+    expect(screen.queryByRole('menuitem', { name: 'Rename' })).toBeNull()
+    await u.click(screen.getByRole('menuitem', { name: 'Rename a copy…' }))
+    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: 'name = "Fix until green"', notes: ['A copy of Fix until green: nothing is saved until you press Save.'], rename: true })
   })
 
   it('Run… opens the Run a flow page on the flow, in its repository', async () => {

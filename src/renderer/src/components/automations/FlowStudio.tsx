@@ -3,23 +3,27 @@
 // beside it; under it the Assistant (it proposes a whole new document, drawn on the graph with what it adds, changes and
 // removes, applied only when the user says), the TOML (linked both ways: a selected step highlights its block, the caret
 // in a block selects its step; problems on their lines) and the problems. Built-in and repository flows are read-only
-// here; their changes go to a personal copy. Nothing runs from here but Run…, which shows what a run approves.
-import { ArrowUpRight, Copy, MessageSquare, MoreHorizontal, Play, Save, Sparkles, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+// here; their changes go to a personal copy. Nothing runs from here but Run…, which shows what a run approves. The
+// flow's name and description are typed over in place (the pencil, F2, or Rename), and a step selected on the graph is
+// renamed from the inspector, everywhere the flow names it (shared/flowRename.ts).
+import { ArrowUpRight, Copy, MessageSquare, MoreHorizontal, Pencil, Play, Save, Sparkles, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { flowProposalOf, type FlowProposal } from '../../../../shared/assistant'
 import { proposalGraph } from '../../../../shared/flowDiff'
 import { flowGraph } from '../../../../shared/flowGraph'
+import { renameStep, setFlowText, type StepRenamePlace, type StepRenameProblem } from '../../../../shared/flowRename'
 import { FLOW_DONE, loopsContaining, parseFlow, stepPersona, type Flow, type FlowListing, type FlowSource, type FlowStep } from '../../../../shared/flows'
-import { FLOW_STARTERS, type FlowStarter } from '../../../../shared/flowStarters'
+import { BLANK_FLOW } from '../../../../shared/flowStarters'
 import { flowTomlBlocks, problemLine, stepAtLine, tokenizeFlowToml } from '../../../../shared/flowToml'
+import type { PlainKey } from '../../../../shared/i18n'
 import type { ChatItem } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
 import { api, attempt, loadAssistant, openFlowDraft, openFlowRun, selectAutomation, showToast, type FlowDraftOpen, useStore } from '../../store'
-import { Button, Callout, Card, CardButton, ChipButton, CodeEditor, Field, IconButton, LinkButton, MenuButton, MenuItem, Resizer, Select, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, type CodeEditorMark } from '../../ui'
+import { Button, Callout, Card, CardButton, ChipButton, CodeEditor, Field, IconButton, LinkButton, MenuButton, MenuItem, Resizer, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, TextInput, type CodeEditorMark } from '../../ui'
 import { Composer, Conversation, GateLine } from '../assistant/AssistantView'
 import { FlowGraphView, useSettled } from '../FlowDiagram'
 import { FlowChangeList } from './FlowChanges'
-import { flowTitle, SourceTags, STARTER_NAME } from './FlowStartFields'
+import { flowTitle, SourceTags } from './FlowStartFields'
 import { STEP_KIND } from './flowRunWords'
 
 type PanelTab = 'assistant' | 'steps' | 'toml' | 'problems'
@@ -27,8 +31,8 @@ const EMPTY: ChatItem[] = []
 const PANEL_MIN = 160
 const PANEL_MAX = 720
 
-/** "f:<id>" opens a saved flow (read from the flow list); "f:new" a draft that isn't saved yet. */
-export function FlowStudio({ id, draft }: { id: string; draft?: FlowDraftOpen }) {
+/** "f:<id>" opens a saved flow (read from the flow list); "f:new" a draft that isn't saved yet. `rename` opens it with its name selected. */
+export function FlowStudio({ id, draft, rename }: { id: string; draft?: FlowDraftOpen; rename?: boolean }) {
   const t = useT()
   const [listing, setListing] = useState<FlowListing | null | undefined>(id === 'new' ? null : undefined)
   useEffect(() => {
@@ -49,17 +53,18 @@ export function FlowStudio({ id, draft }: { id: string; draft?: FlowDraftOpen })
   }, [id, listing])
   if (listing === undefined) return <Spinner label={t('flowStudio.loading')} />
   if (id !== 'new' && !listing) return null
-  return <Studio key={listing?.id ?? `new:${draft?.toml.length ?? 0}`} listing={listing ?? undefined} draft={draft} />
+  return <Studio key={listing?.id ?? `new:${draft?.toml.length ?? 0}`} listing={listing ?? undefined} draft={draft} rename={rename || draft?.rename} />
 }
 
-function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOpen }) {
+function Studio({ listing, draft, rename }: { listing?: FlowListing; draft?: FlowDraftOpen; rename?: boolean }) {
   const t = useT()
   const editable = !listing || listing.source === 'personal'
   const source: FlowSource = editable ? 'personal' : listing!.source
-  const initial = listing?.toml ?? draft?.toml ?? FLOW_STARTERS[0].toml
+  const initial = listing?.toml ?? draft?.toml ?? BLANK_FLOW
   const [toml, setToml] = useState(initial)
   const [saved, setSaved] = useState<{ id?: string; toml: string; listing?: FlowListing }>(listing ? { id: listing.source === 'personal' ? listing.id : undefined, toml: initial, listing } : { toml: '' })
-  const [starter, setStarter] = useState<FlowStarter['id'] | ''>(listing ? '' : draft ? '' : FLOW_STARTERS[0].id)
+  // The name or the description being typed over in the header.
+  const [naming, setNaming] = useState<'name' | 'description' | null>(rename && editable ? 'name' : null)
   const [refused, setRefused] = useState<string[] | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<PanelTab>('assistant')
@@ -76,7 +81,7 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
   const { warnings } = parsed
   // The graph follows the document once typing pauses; while it doesn't read, the last version that did stays drawn.
   const settled = useSettled(toml, 300)
-  // A document put in whole (an applied proposal, a starter) is drawn at once, not after the pause.
+  // A document put in whole (an applied proposal, a rename) is drawn at once, not after the pause.
   const [whole, setWhole] = useState<string | null>(null)
   const lastGood = useRef<Flow | undefined>(undefined)
   const flow = useMemo(() => {
@@ -95,6 +100,12 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
   const edgeIndex = selected?.startsWith('edge:') ? Number(selected.slice(5)) : undefined
   const edge = edgeIndex !== undefined ? graph.edges[edgeIndex] : undefined
   const name = listing && !dirty ? flowTitle(listing, t) : 'flow' in parsed ? parsed.flow.name : listing ? flowTitle(listing, t) : t('flowStudio.untitled')
+  const description = 'flow' in parsed ? parsed.flow.description : flow?.description
+  // The document as it is now, for an Undo that comes after it may have changed.
+  const current = useRef(toml)
+  current.current = toml
+  const stepName = useRef<HTMLInputElement>(null)
+  const renamable = Boolean(step && editable && !proposed && 'flow' in parsed)
 
   const marks: CodeEditorMark[] = useMemo(
     () => [
@@ -115,6 +126,47 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
     setTab('toml')
     if (block) setReveal(block.from)
   }
+  /** A whole new document from an edit made outside the TOML tab (a rename): drawn at once. */
+  const put = (next: string) => {
+    setWhole(next)
+    setToml(next)
+    setRefused(null)
+  }
+  const setText = (key: 'name' | 'description', value: string) => {
+    setNaming(null)
+    const next = setFlowText(toml, key, value)
+    if (next !== toml) put(next)
+  }
+  const renameSelected = (next: string, from: string, to: string) => {
+    const before = toml
+    put(next)
+    setSelected(`step:${to}`)
+    showToast(t('flowStudio.stepRenamed', { from, to }), 'info', {
+      action: {
+        label: t('flowStudio.undo'),
+        run: () => {
+          if (current.current !== next) return
+          put(before)
+          setSelected(`step:${from}`)
+        }
+      }
+    })
+  }
+  // F2 renames: the selected step when it can be, else the flow. Not while typing in a field or the TOML.
+  useEffect(() => {
+    if (!editable) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2' || e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]'))) return
+      e.preventDefault()
+      if (renamable && stepName.current) {
+        stepName.current.focus()
+        stepName.current.select()
+      } else setNaming('name')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editable, renamable])
+
   const choose = (id: string | null) => {
     setSelected(id)
     const name = id?.startsWith('step:') ? id.slice(5) : undefined
@@ -137,7 +189,8 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
     if (!saved.id) return
     if ((await attempt(async () => (await api.deletePersonalFlow(saved.id!), true))) === true) selectAutomation(null)
   }
-  const copy = (text = toml) => openFlowDraft({ toml: text, notes: [t('flowStudio.copyNote', { name })] })
+  // A copy opens with its name selected: it shouldn't keep its original's.
+  const copy = (text = toml) => openFlowDraft({ toml: text, notes: [t('flowStudio.copyNote', { name })], rename: true })
 
   const apply = (p: FlowProposal) => {
     setProposal(null)
@@ -153,7 +206,38 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
     <div className="flow-studio">
       <header className="flow-studio-head">
         <div className="flow-studio-title">
-          <h1 className="auto-page-title">{name}</h1>
+          {naming === 'name' ? (
+            <InlineText label={t('flowStudio.nameLabel')} initial={'flow' in parsed ? parsed.flow.name : name} required className="flow-studio-name-input" onDone={(v) => setText('name', v)} onCancel={() => setNaming(null)} />
+          ) : (
+            <span className="flow-studio-name">
+              <h1 className="auto-page-title">{name}</h1>
+              {editable && (
+                <IconButton label={t('flowStudio.renameNamed', { name })} onClick={() => setNaming('name')}>
+                  <Pencil size={13} />
+                </IconButton>
+              )}
+            </span>
+          )}
+          {naming === 'description' ? (
+            <InlineText label={t('flowStudio.descriptionLabel')} initial={description ?? ''} className="flow-studio-description-input" onDone={(v) => setText('description', v)} onCancel={() => setNaming(null)} />
+          ) : description ? (
+            <span className="flow-studio-description">
+              <span className="faint small">{description}</span>
+              {editable && (
+                <IconButton label={t('flowStudio.editDescription')} onClick={() => setNaming('description')}>
+                  <Pencil size={12} />
+                </IconButton>
+              )}
+            </span>
+          ) : (
+            editable && (
+              <span>
+                <LinkButton size="sm" onClick={() => setNaming('description')}>
+                  {t('flowStudio.addDescription')}
+                </LinkButton>
+              </span>
+            )
+          )}
           <span className="flow-studio-tags">
             {listing ? <SourceTags flow={saved.listing ?? listing} /> : <Tag>{t('flowStudio.draft')}</Tag>}
             {'flow' in parsed && (
@@ -166,25 +250,6 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
         <span className="flow-studio-status">
           {problems.length > 0 ? <Status tone="error" label={t('automations.flows.problems', { count: problems.length })} /> : dirty && editable ? <Status tone="warn" label={t('flowStudio.unsaved')} /> : null}
         </span>
-        {!listing && !saved.id && (
-          <Field label={t('automations.flows.startFrom')} className="flow-studio-starter">
-            {(c) => (
-              <Select
-                {...c}
-                value={starter}
-                options={[{ value: '', label: t('flowStudio.startFromDraft') }, ...FLOW_STARTERS.map((s) => ({ value: s.id, label: t(STARTER_NAME[s.id]) }))]}
-                onChange={(id) => {
-                  setStarter(id as FlowStarter['id'] | '')
-                  const found = FLOW_STARTERS.find((s) => s.id === id)
-                  const next = found ? found.toml : (draft?.toml ?? FLOW_STARTERS[0].toml)
-                  setWhole(next)
-                  setToml(next)
-                  setRefused(null)
-                }}
-              />
-            )}
-          </Field>
-        )}
         <span className="flow-studio-actions">
           <Button size="sm" icon={<Play size={12} />} disabled={!saved.listing || dirty || problems.length > 0} title={!saved.listing || dirty ? t('flowStudio.saveFirst') : undefined} onClick={() => saved.listing && openFlowRun(saved.listing.id, { repoId: saved.listing.repoId })}>
             {t('automations.flows.run')}
@@ -200,6 +265,9 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
           )}
           {editable && saved.id && (
             <MenuButton look="icon" label={t('flowStudio.more', { name })} trigger={<MoreHorizontal size={14} />}>
+              <MenuItem icon={<Pencil size={14} />} onSelect={() => setNaming('name')}>
+                {t('common.rename')}
+              </MenuItem>
               <MenuItem icon={<Copy size={14} />} onSelect={() => copy()}>
                 {t('flowStudio.duplicate')}
               </MenuItem>
@@ -261,6 +329,7 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
                 <X size={14} />
               </IconButton>
             </div>
+            {step && renamable && <StepName key={step.name} toml={toml} step={step} inputRef={stepName} onRename={(next, to) => renameSelected(next, step.name, to)} />}
             {step && (proposed ?? flow) && (
               <StepFacts
                 flow={(proposed ?? flow)!}
@@ -290,7 +359,7 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
             <Tab value="problems">{t('flowStudio.problemsTab', { count: problems.length + warnings.length })}</Tab>
           </TabList>
           <TabPanel value="assistant" keepMounted className="flow-studio-tabpanel">
-            <StudioAssistant toml={toml} source={source} editable={editable} describe={Boolean(draft?.describe)} ask={ask} proposal={proposal} resolved={resolved} onShow={setProposal} onApply={apply} onDismiss={(p) => setResolved((r) => ({ ...r, [p.proposalId]: 'dismissed' }))} />
+            <StudioAssistant toml={toml} source={source} editable={editable} describe={Boolean(draft?.describe)} focusComposer={naming === null} ask={ask} proposal={proposal} resolved={resolved} onShow={setProposal} onApply={apply} onDismiss={(p) => setResolved((r) => ({ ...r, [p.proposalId]: 'dismissed' }))} />
           </TabPanel>
           <TabPanel value="steps" className="flow-studio-tabpanel">
             {flow ? <StepOutline flow={proposed ?? flow} selected={selected} onSelect={choose} /> : <p className="faint small">{t('flowStudio.noGraph')}</p>}
@@ -348,6 +417,152 @@ function Studio({ listing, draft }: { listing?: FlowListing; draft?: FlowDraftOp
           </TabPanel>
         </Tabs>
       </div>
+    </div>
+  )
+}
+
+/** The flow's name or description typed over in the header: Enter or leaving keeps it, Esc puts it back. */
+function InlineText({ label, initial, required, className, onDone, onCancel }: { label: string; initial: string; required?: boolean; className?: string; onDone: (value: string) => void; onCancel: () => void }) {
+  const t = useT()
+  const [value, setValue] = useState(initial)
+  const [empty, setEmpty] = useState(false)
+  const done = () => {
+    const v = value.trim()
+    if (required && !v) return setEmpty(true)
+    onDone(v)
+  }
+  return (
+    <Field label={label} hideLabel error={empty ? t('flowStudio.nameNeeded') : undefined} className={className}>
+      {(c) => (
+        <TextInput
+          {...c}
+          autoFocus
+          value={value}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => {
+            setValue(e.target.value)
+            setEmpty(false)
+          }}
+          // Leaving an empty name puts the old one back rather than keeping nothing.
+          onBlur={() => (required && !value.trim() ? onCancel() : done())}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              done()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              onCancel()
+            }
+          }}
+        />
+      )}
+    </Field>
+  )
+}
+
+const RENAME_PROBLEM: Record<Exclude<StepRenameProblem, 'taken' | 'unchanged'>, PlainKey> = {
+  empty: 'flowStudio.renameProblem.empty',
+  chars: 'flowStudio.renameProblem.chars',
+  done: 'flowStudio.renameProblem.done',
+  unreadable: 'flowStudio.renameProblem.unreadable'
+}
+const renameProblemText = (problem: StepRenameProblem, step: string, t: RendererT) => (problem === 'taken' ? t('flowStudio.renameProblem.taken', { step }) : t(RENAME_PROBLEM[problem === 'unchanged' ? 'empty' : problem]))
+
+/** Another place a step rename changes, in words: what names the step there. (Its own table is the step itself.) */
+function renamePlaceText(place: StepRenamePlace & { kind: Exclude<StepRenamePlace['kind'], 'step'> }, t: RendererT): string {
+  const owner = place.owner ?? ''
+  switch (place.kind) {
+    case 'start':
+      return t('flowStudio.renamePlace.start')
+    case 'exits':
+      return t('flowStudio.renamePlace.exits')
+    case 'edge':
+      return t('flowStudio.renamePlace.edge', { owner })
+    case 'loop-over':
+      return t('flowStudio.renamePlace.loopOver', { owner })
+    case 'loop-then':
+      return t('flowStudio.renamePlace.loopThen', { owner })
+    case 'context':
+      return t('flowStudio.renamePlace.context', { owner })
+    case 'show':
+      return t('flowStudio.renamePlace.show', { owner })
+    case 'same-tab':
+      return t('flowStudio.renamePlace.sameTab', { owner })
+    case 'workspace-from':
+      return t('flowStudio.renamePlace.workspaceFrom', { owner })
+    case 'pick-over':
+      return t('flowStudio.renamePlace.pickOver', { owner })
+  }
+}
+
+/**
+ * A step's name in the inspector, renamed where it stands: as it is typed, the other places in the flow that name the
+ * step are listed (or why the name can't be used); Enter or leaving applies them all at once, Esc keeps the old name.
+ */
+function StepName({ toml, step, inputRef, onRename }: { toml: string; step: FlowStep; inputRef: RefObject<HTMLInputElement | null>; onRename: (next: string, to: string) => void }) {
+  const t = useT()
+  const [value, setValue] = useState(step.name)
+  const to = value.trim()
+  const result = useMemo(() => (to === step.name ? undefined : renameStep(toml, step.name, to)), [toml, step.name, to])
+  const problem = result && 'problem' in result ? result.problem : undefined
+  // Each other place once: its own table is the step itself.
+  const places = useMemo(() => {
+    if (!result || !('places' in result)) return []
+    const seen = new Set<string>()
+    return result.places.flatMap((p) => {
+      const { kind } = p
+      if (kind === 'step') return []
+      const key = `${kind}:${p.owner ?? ''}`
+      if (seen.has(key)) return []
+      seen.add(key)
+      return [renamePlaceText({ ...p, kind }, t)]
+    })
+  }, [result, t])
+  const apply = () => {
+    if (result && 'toml' in result) onRename(result.toml, to)
+    else setValue(step.name)
+  }
+  return (
+    <div className="flow-studio-step-name">
+      <Field label={t('flowStudio.stepName')} description={t('flowStudio.stepNameHint', { step: step.name })} error={problem ? renameProblemText(problem, to, t) : undefined}>
+        {(c) => (
+          <TextInput
+            {...c}
+            ref={inputRef}
+            mono
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={apply}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                apply()
+              } else if (e.key === 'Escape' && value !== step.name) {
+                e.preventDefault()
+                e.stopPropagation()
+                setValue(step.name)
+              }
+            }}
+          />
+        )}
+      </Field>
+      {result && 'toml' in result && (
+        <div className="flow-studio-rename-places small" role="status">
+          {places.length ? (
+            <>
+              <span>{t('flowStudio.renamePlaces', { count: places.length })}</span>
+              <ul>
+                {places.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <span>{t('flowStudio.renameAlone')}</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -505,6 +720,7 @@ function StudioAssistant({
   source,
   editable,
   describe,
+  focusComposer,
   ask,
   proposal,
   resolved,
@@ -516,6 +732,7 @@ function StudioAssistant({
   source: FlowSource
   editable: boolean
   describe: boolean
+  focusComposer: boolean
   ask?: { text: string; at: number }
   proposal: FlowProposal | null
   resolved: Record<string, 'applied' | 'dismissed'>
@@ -614,7 +831,7 @@ function StudioAssistant({
         )}
       </div>
       {!canSend && gate.state !== 'checking' && <GateLine gate={gate} onUseAlternative={() => undefined} />}
-      <Composer disabled={!canSend} running={running} threadId={threadId} useAlternative={false} onSend={send} placeholder={describe && !items.length ? t('flowStudio.describePlaceholder') : t('flowStudio.askPlaceholder')} draft={ask} />
+      <Composer disabled={!canSend} running={running} threadId={threadId} useAlternative={false} onSend={send} placeholder={describe && !items.length ? t('flowStudio.describePlaceholder') : t('flowStudio.askPlaceholder')} draft={ask} autoFocus={focusComposer} />
     </div>
   )
 }

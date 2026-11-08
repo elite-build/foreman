@@ -544,6 +544,8 @@ export const SCREENS = [
   'automations-flow-run-models',
   'automations-flow-studio',
   'automations-flow-studio-step',
+  'automations-flow-new',
+  'automations-flow-rename',
   'new-workspace-flow',
   'workspace-flow',
   'workspace-flow-full',

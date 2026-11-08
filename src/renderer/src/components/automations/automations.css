@@ -580,8 +580,36 @@ div.auto-card {
   flex-wrap: wrap;
   gap: 6px;
 }
-.flow-studio-starter {
-  width: 240px;
+.flow-studio-name,
+.flow-studio-description,
+.flow-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.flow-studio-name-input {
+  width: min(420px, 100%);
+}
+.flow-studio-description-input {
+  width: min(560px, 100%);
+}
+.flow-studio-step-name {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.flow-studio-rename-places ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.new-flow-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.new-flow-note {
+  margin-right: auto;
 }
 .flow-studio-canvas {
   flex: 1;

@@ -308,7 +308,8 @@ export function Composer({
   useAlternative,
   onSend,
   placeholder,
-  draft
+  draft,
+  autoFocus = true
 }: {
   disabled: boolean
   running: boolean
@@ -317,6 +318,8 @@ export function Composer({
   onSend?: (text: string) => Promise<boolean>
   placeholder?: string
   draft?: { text: string; at: number }
+  // Take focus when it opens or becomes usable; off while the page has someone typing elsewhere (a name).
+  autoFocus?: boolean
 }) {
   const t = useT()
   const sendKey = useStore((s) => s.snapshot!.settings.messageSendKey)
@@ -326,7 +329,9 @@ export function Composer({
   const box = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    if (!disabled) box.current?.focus()
+    if (!disabled && autoFocus) box.current?.focus()
+    // Only on opening, becoming usable or a new thread: not when autoFocus turns back on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, threadId])
 
   useEffect(() => {

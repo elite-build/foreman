@@ -4,6 +4,7 @@
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { chooseHomeLayout } from './components/HomeBoard'
+import { FLOW_STARTERS } from '../../shared/flowStarters'
 import type { WindowLayout } from '../../shared/types'
 import {
   api,
@@ -11,6 +12,7 @@ import {
   openAddRepoDialog,
   openAssistant,
   openAutomations,
+  openFlowDraft,
   openNewWorkspace,
   openPhoneSetup,
   openSettingsPage,
@@ -113,7 +115,7 @@ function openWorkspace(f: Fixture, sessionId = f.chatId): void {
 }
 
 // The screens taken with Settings → Experimental → Flows on; every other screen turns it off, so they look as they did.
-const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run', 'automations-flow-run-models', 'automations-flow-studio', 'automations-flow-studio-step', 'new-workspace-flow', 'workspace-flow', 'workspace-flow-full', 'workspace-lineage']
+const FLOW_SCREENS: readonly string[] = ['automations-flows', 'automations-flow-runs', 'automations-flow-run', 'automations-flow-run-models', 'automations-flow-studio', 'automations-flow-studio-step', 'automations-flow-new', 'automations-flow-rename', 'new-workspace-flow', 'workspace-flow', 'workspace-flow-full', 'workspace-lineage']
 
 /** Flows on or off. A setting, so it outlives the page, like the window layout. */
 async function flowsSetting(on: boolean): Promise<void> {
@@ -290,6 +292,28 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     toml?.click()
     return '.flow-studio-inspector'
   },
+  // New flow: what it is called and where it starts (blank, described, or a copy of a flow).
+  'automations-flow-new': async () => {
+    openAutomations()
+    const button = await waitFor(() => [...document.querySelectorAll<HTMLButtonElement>('.automations-view button')].find((b) => b.textContent?.includes('New flow')) ?? null)
+    if (!button) return null
+    button.click()
+    const name = await waitFor(() => document.querySelector<HTMLInputElement>('.new-flow-form input'))
+    if (!name) return null
+    typeInto(name, 'Plan, build, check')
+    return '.new-flow-form'
+  },
+  // A personal draft with a step being renamed in the inspector: the other places in the flow that follow it.
+  'automations-flow-rename': async () => {
+    openFlowDraft({ toml: FLOW_STARTERS.find((s) => s.id === 'research-then-implement')!.toml })
+    const step = await waitFor(() => [...document.querySelectorAll<HTMLButtonElement>('.flow-studio .ui-graph__node')].find((n) => n.querySelector('.ui-graph__title')?.textContent === 'fix') ?? null)
+    if (!step) return null
+    step.click()
+    const name = await waitFor(() => document.querySelector<HTMLInputElement>('.flow-studio-step-name input'))
+    if (!name) return null
+    typeInto(name, 'repair')
+    return '.flow-studio-rename-places'
+  },
   // A completed run's Flow tab (Run lens), and the same workspace's Lineage tab (Run lens).
   'workspace-flow': (f) => flowTab(f, 'flow'),
   'workspace-lineage': (f) => flowTab(f, 'lineage'),
@@ -395,4 +419,10 @@ export function installScreens(): void {
     },
     probe: (watch) => readWalk(watch)
   }
+}
+
+/** Types into a React-controlled input as a person would: its value set natively, then the input event React listens for. */
+function typeInto(input: HTMLInputElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
 }

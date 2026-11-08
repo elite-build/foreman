@@ -831,3 +831,20 @@ export const FLOW_STARTERS: readonly FlowStarter[] = [
   { id: 'worth-building', toml: WORTH_BUILDING },
   { id: 'idea-to-feature', toml: IDEA_TO_FEATURE }
 ]
+
+/**
+ * Where New flow's Blank starts: the smallest flow that reads, one agent turn on the run's task (a step with no edge out
+ * ends the run). Not a built-in flow; New flow names it before it opens.
+ */
+export const BLANK_FLOW = `name = "Untitled flow"
+
+[inputs]
+task = "What to do"
+
+[start]
+step = "step-1"
+
+[steps.step-1]
+kind = "turn"
+prompt = "{{task}}"
+`

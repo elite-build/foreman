@@ -2,16 +2,18 @@
 // repository and personal flows as cards, each opening as its own page in the flow studio (FlowStudio.tsx).
 // Run… opens the Run a flow page (FlowRunPage.tsx) on it; each flow lists its recent runs. The Personas section (who a
 // flow's step is) follows on All, with the flows that name each one; the Flows and Personas tabs show one each.
-import { Plus } from 'lucide-react'
+// New flow asks for a name and a start first (NewFlowDialog.tsx); a card's ⋯ renames a personal flow, or a copy of
+// a built-in or repository one.
+import { Copy, MoreHorizontal, Pencil, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FLOW_STARTERS } from '../../../../shared/flowStarters'
 import { durationWords } from '../../../../shared/flowGraph'
 import { parseFlow, type FlowListing, type FlowRun } from '../../../../shared/flows'
 import { useT } from '../../i18n'
-import { api, attempt, openFlowDraft, openFlowRun, selectAutomation, selectWorkspace, timeAgo, useStore } from '../../store'
-import { ActionRow, Button, LinkButton, Segmented, Status } from '../../ui'
+import { api, attempt, openFlowDraft, openFlowRename, openFlowRun, selectAutomation, selectWorkspace, timeAgo, useStore } from '../../store'
+import { ActionRow, Button, LinkButton, MenuButton, MenuItem, Segmented, Status } from '../../ui'
 import { flowTitle, SourceTags, summaryText } from './FlowStartFields'
 import { FlowLensDiagram } from '../FlowDiagram'
+import { NewFlowDialog } from './NewFlowDialog'
 import { RUN_STATE, RUN_TONE } from './flowRunWords'
 import { PersonasSection } from './PersonasSection'
 
@@ -28,6 +30,7 @@ function FlowList({ query, show }: { query: string; show: FlowsShow }) {
   const repos = useStore((s) => s.snapshot!.repos)
   const [flows, setFlows] = useState<FlowListing[]>([])
   const [view, setView] = useState<'flows' | 'runs'>('flows')
+  const [creating, setCreating] = useState(false)
   const load = useCallback(async () => {
     const list = await attempt(() => api.listFlows())
     if (list) setFlows(list)
@@ -39,7 +42,6 @@ function FlowList({ query, show }: { query: string; show: FlowsShow }) {
 
   const needle = query.trim().toLowerCase()
   const shown = needle ? flows.filter((f) => `${flowTitle(f, t)}\n${f.toml}`.toLowerCase().includes(needle)) : flows
-  const startNew = () => openFlowDraft({ toml: FLOW_STARTERS[0].toml, describe: true })
   const usedBy = (name: string) => flows.filter((f) => f.summary?.personas.some((p) => p.toLowerCase() === name.toLowerCase())).map((f) => flowTitle(f, t))
 
   return (
@@ -59,7 +61,7 @@ function FlowList({ query, show }: { query: string; show: FlowsShow }) {
                   { value: 'runs', label: t('automations.flows.viewRuns') }
                 ]}
               />
-              <LinkButton size="sm" onClick={startNew}>
+              <LinkButton size="sm" onClick={() => setCreating(true)}>
                 <Plus size={12} aria-hidden /> {t('automations.flows.new')}
               </LinkButton>
             </span>
@@ -82,6 +84,7 @@ function FlowList({ query, show }: { query: string; show: FlowsShow }) {
           )}
         </section>
       )}
+      {creating && <NewFlowDialog flows={flows} onClose={() => setCreating(false)} />}
       {show !== 'flows' && <PersonasSection query={query} alone={show === 'personas'} usedBy={usedBy} onChanged={() => void load()} />}
     </>
   )
@@ -89,6 +92,9 @@ function FlowList({ query, show }: { query: string; show: FlowsShow }) {
 
 function FlowCard({ flow, onOpen, onRun }: { flow: FlowListing; onOpen: () => void; onRun: () => void }) {
   const t = useT()
+  const title = flowTitle(flow, t)
+  // A copy opens with its name selected, so it doesn't keep its original's.
+  const copy = () => openFlowDraft({ toml: flow.toml, notes: [t('flowStudio.copyNote', { name: title })], rename: true })
   return (
     <ActionRow
       card
@@ -96,9 +102,27 @@ function FlowCard({ flow, onOpen, onRun }: { flow: FlowListing; onOpen: () => vo
       onPress={onOpen}
       primaryProps={{ className: 'auto-card-main' }}
       actions={
-        <Button size="sm" disabled={flow.problems.length > 0} onClick={onRun} aria-label={t('automations.flows.runNamed', { name: flowTitle(flow, t) })}>
-          {t('automations.flows.run')}
-        </Button>
+        <span className="flow-card-actions">
+          <Button size="sm" disabled={flow.problems.length > 0} onClick={onRun} aria-label={t('automations.flows.runNamed', { name: title })}>
+            {t('automations.flows.run')}
+          </Button>
+          <MenuButton look="icon" label={t('flowStudio.more', { name: title })} trigger={<MoreHorizontal size={14} />}>
+            {flow.source === 'personal' ? (
+              <>
+                <MenuItem icon={<Pencil size={14} />} onSelect={() => openFlowRename(flow.id)}>
+                  {t('common.rename')}
+                </MenuItem>
+                <MenuItem icon={<Copy size={14} />} onSelect={copy}>
+                  {t('flowStudio.duplicate')}
+                </MenuItem>
+              </>
+            ) : (
+              <MenuItem icon={<Pencil size={14} />} onSelect={copy}>
+                {t('automations.flows.renameCopy')}
+              </MenuItem>
+            )}
+          </MenuButton>
+        </span>
       }
     >
       <FlowThumbnail flow={flow} />
