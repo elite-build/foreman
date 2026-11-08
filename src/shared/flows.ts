@@ -974,6 +974,48 @@ export function runForWorkspace(runs: readonly FlowRun[] | undefined, workspaceI
   return mine.find(isActiveRun) ?? mine.sort((a, b) => a.startedAt.localeCompare(b.startedAt)).at(-1)
 }
 
+/** A step as the run has it so far: its latest state ("not-yet" when it hasn't run), how often it ran, and whether the run is at it. */
+export interface FlowProgressStep {
+  name: string
+  state: FlowRunStepState | 'not-yet'
+  runs: number
+  at: boolean
+}
+
+/**
+ * Where a run is through its flow, read left to right: the steps it ran, in the order it first ran them, then the flow's
+ * steps it hasn't reached, in the order its edges reach them from the start (then any the edges don't reach, in file
+ * order). The run is at its current step while it is active, at its last step when it ended short, and at none once it
+ * completed.
+ */
+export function flowProgress(flow: Flow | undefined, run: FlowRun): FlowProgressStep[] {
+  const order: string[] = []
+  const add = (name: string) => {
+    if (name !== FLOW_DONE && !order.includes(name)) order.push(name)
+  }
+  for (const s of run.steps) add(s.name)
+  if (flow) {
+    const known = new Set(flow.steps.map((s) => s.name))
+    const queue = [flow.start]
+    const seen = new Set<string>()
+    while (queue.length) {
+      const name = queue.shift()!
+      if (!known.has(name) || seen.has(name)) continue
+      seen.add(name)
+      add(name)
+      const out = flow.edges[name]
+      queue.push(...(out === undefined ? [] : typeof out === 'string' ? [out] : Object.values(out)))
+    }
+    for (const s of flow.steps) add(s.name)
+  }
+  const last = run.steps.at(-1)?.name
+  const at = isActiveRun(run) ? (run.current?.step ?? last) : run.state === 'completed' ? undefined : last
+  return order.map((name) => {
+    const mine = run.steps.filter((s) => s.name === name)
+    return { name, state: mine.at(-1)?.state ?? 'not-yet', runs: mine.length, at: name === at }
+  })
+}
+
 /** The loops spanning the run's current step with their bounds: "iteration 2 of at most 4 · 18 of 45 min · $0.40 of $2.00" as numbers. */
 export function currentLoopBounds(run: FlowRun): { loop: string; pass: number; iteration: number; maxIterations?: number; minutes: number; maxMinutes?: number; cost?: number; maxCost?: number }[] {
   const at = run.current?.step

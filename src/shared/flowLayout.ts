@@ -86,7 +86,14 @@ const PORT_SPACING = 24
 const isSatellite = (n: FlowGraphNode, edges: readonly FlowGraphEdge[]) => (n.kind === 'source' || n.kind === 'memory') && edges.every((e) => (e.from !== n.id && e.to !== n.id) || e.kind !== 'fact')
 
 const stepSize = (direction: FlowLayoutDirection) => (direction === 'tall' ? FLOW_LAYOUT_SIZE.tallStep : FLOW_LAYOUT_SIZE.step)
-const sizeOf = (n: FlowGraphNode, satellite: boolean, direction: FlowLayoutDirection) => (n.kind === 'end' ? FLOW_LAYOUT_SIZE.end : satellite ? { ...FLOW_LAYOUT_SIZE.side, width: stepSize(direction).width } : stepSize(direction))
+// An end is as wide as its word needs (about 7.5 units a letter, 13 a CJK character, and its padding), from the least
+// width up to a step's, so "failed" or "a besoin de vous" isn't cut short.
+const endWidth = (label: string, direction: FlowLayoutDirection) => {
+  const text = [...label].reduce((w, c) => w + ((c.codePointAt(0) ?? 0) >= 0x2e80 ? 13 : 7.5), 0)
+  return Math.min(stepSize(direction).width, Math.max(FLOW_LAYOUT_SIZE.end.width, Math.ceil(text + 30)))
+}
+const sizeOf = (n: FlowGraphNode, satellite: boolean, direction: FlowLayoutDirection) =>
+  n.kind === 'end' ? { ...FLOW_LAYOUT_SIZE.end, width: endWidth(n.label, direction) } : satellite ? { ...FLOW_LAYOUT_SIZE.side, width: stepSize(direction).width } : stepSize(direction)
 
 export function layoutFlowGraph(graph: FlowGraph, options: FlowLayoutOptions = {}): FlowLayout {
   const direction = options.direction ?? 'wide'

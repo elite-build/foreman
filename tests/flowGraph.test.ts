@@ -3,7 +3,7 @@
 // loops, taken edges solid and the rest dotted, state as a glyph and a word, labels escaped, never too big to render.
 import { describe, expect, it } from 'vitest'
 import { FLOW_MERMAID_MAX_CHARS, flowGraph, flowMermaid, mermaidLabel, type FlowGraph } from '../src/shared/flowGraph'
-import { parseFlow, type Flow, type FlowRun, type FlowRunStep } from '../src/shared/flows'
+import { flowProgress, parseFlow, type Flow, type FlowRun, type FlowRunStep } from '../src/shared/flows'
 import { MERMAID_MAX_CHARS } from '../src/renderer/src/components/mermaidSource'
 import { createT } from '../src/shared/i18n'
 
@@ -135,14 +135,14 @@ describe('the run lens', () => {
     expect(source).toContain('n3 -.->|sent-back| n2')
     expect(source).toContain('subgraph L0 ["green · iteration 3 of at most 3 · 7 of 30 min"]')
 
-    // A step that hasn't run yet says so; a run that stopped ends at "done · stopped", reached from its last step.
+    // A step that hasn't run yet says so; a run that stopped ends at "stopped", reached from its last step.
     const stopped = aRun({ state: 'stopped', steps: aRun().steps.slice(0, 2).map((s, i) => (i === 1 ? { ...s, state: 'stopped' as const, fact: undefined } : s)) })
     const s = flowGraph(FLOW, stopped, 'run')
     expect(node(s, 'step:ship')!.sublabel).toBe('· gate\n◌ not yet')
     expect(node(s, 'step:checks')!.sublabel).toContain('■ stopped')
-    expect(node(s, 'end:ended')).toMatchObject({ kind: 'end', label: 'done · stopped' })
+    expect(node(s, 'end:ended')).toMatchObject({ kind: 'end', label: 'stopped' })
     expect(edge(s, 'step:checks', 'end:ended')[0]).toMatchObject({ taken: true })
-    expect(flowMermaid(s)).toContain('(["done · stopped"])')
+    expect(flowMermaid(s)).toContain('(["stopped"])')
   })
 
   it('without the flow file, draws what the run did from its records', () => {
@@ -157,6 +157,33 @@ describe('the run lens', () => {
     const g = flowGraph(FLOW, aRun(), 'run', { t: createT('de'), locale: 'de' })
     expect(g.title).toBe('Fix until green · Ablauf')
     expect(node(g, 'step:implement')!.sublabel).toContain('● abgeschlossen')
+  })
+})
+
+// flowProgress (shared/flows.ts) is the Flow tab's row of steps; it is tested here beside the run it reads.
+describe('where a run is through its flow', () => {
+  it('lists the steps the run ran in the order it first ran them, with their latest state, and the step it waits at', () => {
+    expect(flowProgress(FLOW, aRun())).toEqual([
+      { name: 'implement', state: 'completed', runs: 1, at: false },
+      { name: 'checks', state: 'completed', runs: 3, at: false },
+      { name: 'fix', state: 'completed', runs: 2, at: false },
+      { name: 'ship', state: 'waiting', runs: 1, at: true }
+    ])
+  })
+
+  it('a run that ended short is at its last step, then what it never reached in the order the flow’s edges reach it', () => {
+    const failed = aRun({ state: 'failed', current: undefined, steps: [step({ name: 'implement', kind: 'turn' }), step({ name: 'checks', kind: 'checks', fact: 'failed' }), step({ name: 'fix', kind: 'turn', state: 'failed' })] })
+    expect(flowProgress(FLOW, failed).map((s) => [s.name, s.state, s.at])).toEqual([
+      ['implement', 'completed', false],
+      ['checks', 'completed', false],
+      ['fix', 'failed', true],
+      ['ship', 'not-yet', false]
+    ])
+    expect(flowProgress(FLOW, aRun({ state: 'completed', current: undefined })).some((s) => s.at)).toBe(false)
+  })
+
+  it('without the flow file, the steps the run ran in the order it first ran them', () => {
+    expect(flowProgress(undefined, aRun()).map((s) => s.name)).toEqual(['implement', 'checks', 'fix', 'ship'])
   })
 })
 

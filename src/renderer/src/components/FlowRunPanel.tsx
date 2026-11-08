@@ -1,17 +1,18 @@
 // The workspace's Flow tab (docs/loops-and-graphs.md, "Running a flow" and "Showing a graph"): the run this workspace
-// belongs to, where it is, its loop bounds, Stop, the run drawn as a diagram through one of four lenses (Run · Context ·
-// Memory · Data) with what that lens adds in words, and its steps in run order with their facts. The step list is the
+// belongs to, where it is (or ended) in words and as a row of its steps, its loop bounds, Stop, the run drawn as a
+// diagram through one of four lenses (Run · Context · Memory · Data) with what that lens adds in words, and its steps in
+// run order with their facts. The step list is the
 // diagram's accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
 // workspace it stands for (a run that makes more than one workspace shows it in each).
 import { Square } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { FLOW_LENSES, LENS_WORD, flowGraph, type FlowLens } from '../../../shared/flowGraph'
-import { FLOW_COMPACT_ABOVE, currentLoopBounds, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
+import { FLOW_COMPACT_ABOVE, currentLoopBounds, flowProgress, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
 import { formatCompact } from '../../../shared/i18n/time'
 import type { ApprovalRequest } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
 import { api, attempt, selectSession, selectWorkspace, showChecksPanel, timeAgo, useStore } from '../store'
-import { Button, Callout, Card, CardButton, Meter, Segmented, Status, Tag } from '../ui'
+import { Button, Callout, Card, CardButton, Glyph, Meter, Segmented, Status, Stepper, Tag, type GlyphName, type StepperStep, type StepperTone } from '../ui'
 import { RUN_STATE, RUN_TONE, STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import { FlowLensDiagram } from './FlowDiagram'
 import './flowRun.css'
@@ -75,6 +76,7 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
   if (!run) return null
   const active = isActiveRun(run)
   const bounds = active ? currentLoopBounds(run) : []
+  const last = run.steps.at(-1)
   return (
     <div className="flow-run">
       <div className="flow-run-head">
@@ -83,6 +85,8 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
           <Status tone={RUN_TONE[run.state]} label={t(RUN_STATE[run.state])} />
         </div>
         {active && run.current && <span className="small">{t('flowRun.panel.at', { step: run.current.step, iteration: run.current.iteration })}</span>}
+        {!active && run.state !== 'completed' && last && <span className="small">{t('flowRun.panel.endedAt', { step: last.name, iteration: last.iteration, when: timeAgo(run.endedAt ?? last.endedAt ?? last.startedAt) })}</span>}
+        {run.state === 'completed' && run.endedAt && <span className="small">{t('flowRun.panel.finished', { when: timeAgo(run.endedAt) })}</span>}
         {bounds.map((b) => (
           <span key={b.loop} className="faint small">
             {[
@@ -104,6 +108,7 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
           </span>
         )}
       </div>
+      <Progress flow={flow} run={run} />
       <GateCard runId={run.id} />
       {!active && run.state !== 'completed' && run.reason && <StoppedCard workspaceId={workspaceId} run={run} />}
       <Segmented<FlowLens> small label={t('flowRun.lens.label')} value={lens} onChange={setLens} options={FLOW_LENSES.map((l) => ({ value: l, label: t(LENS_WORD[l]) }))} />
@@ -170,10 +175,48 @@ function GateCard({ runId }: { runId: string }) {
   )
 }
 
-/** Why a run stopped short, with the way to what stopped it: the checks, when the last step was a checks step. */
+const PROGRESS_TONE: Partial<Record<FlowRunStep['state'], StepperTone>> = { completed: 'ok', running: 'info', waiting: 'warn', failed: 'error' }
+const PROGRESS_GLYPH: Partial<Record<FlowRunStep['state'], GlyphName>> = { waiting: 'warn', failed: 'error', stopped: 'off' }
+
+/**
+ * Where the run is, at a glance: the steps it ran, the one it is at (or ended at), then the ones it hasn't reached. A
+ * state other than done carries its glyph and, where the run is, its word, so it isn't colour alone.
+ */
+function Progress({ flow, run }: { flow?: Flow; run: FlowRun }) {
+  const t = useT()
+  const steps = flowProgress(flow, run)
+  if (!steps.length) return null
+  return (
+    <Stepper
+      label={t('flowRun.panel.progress')}
+      statusText={{ done: t('flowRun.panel.progressDone'), upcoming: t('flowRun.panel.progressNotYet') }}
+      steps={steps.map((s): StepperStep => {
+        const name = s.runs > 1 ? `${s.name} ×${s.runs}` : s.name
+        const ran = s.state !== 'not-yet' ? s.state : undefined
+        const tone = ran && PROGRESS_TONE[ran]
+        const glyph = ran && PROGRESS_GLYPH[ran]
+        return {
+          id: s.name,
+          label: (
+            <span title={name}>
+              {name}
+              {s.at && ran && <span className="sr-only">, {t(STEP_STATE[ran])}</span>}
+            </span>
+          ),
+          status: s.at ? 'current' : ran ? 'done' : 'upcoming',
+          ...(tone ? { tone } : {}),
+          ...(glyph ? { icon: <Glyph name={glyph} /> } : {})
+        }
+      })}
+    />
+  )
+}
+
+/** Why a run stopped short, with the way to what stopped it: the checks, or the chat of the step it stopped at. */
 function StoppedCard({ workspaceId, run }: { workspaceId: string; run: FlowRun }) {
   const t = useT()
   const last = run.steps.at(-1)
+  const where = last?.workspaceId ?? workspaceId
   return (
     <Callout
       tone={run.state === 'failed' ? 'error' : 'warn'}
@@ -181,8 +224,12 @@ function StoppedCard({ workspaceId, run }: { workspaceId: string; run: FlowRun }
       title={t('flowRun.panel.stoppedTitle')}
       actions={
         last?.kind === 'checks' ? (
-          <Button size="sm" onClick={() => showChecksPanel(last.workspaceId ?? workspaceId)}>
+          <Button size="sm" onClick={() => showChecksPanel(where)}>
             {t('flowRun.panel.openChecks')}
+          </Button>
+        ) : last?.sessionId ? (
+          <Button size="sm" onClick={() => selectSession(where, last.sessionId!)}>
+            {t('flowRun.panel.openTab')}
           </Button>
         ) : undefined
       }
