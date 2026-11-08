@@ -22,6 +22,7 @@
     "screens": "node scripts/screenshots.mjs",
     "pr:screens": "node scripts/pr-screens.mjs",
     "test": "vitest run",
+    "test:changed": "node scripts/test-changed.mjs",
     "check:ui": "vitest run tests/designSystem.test.ts tests/contrast.test.ts tests/i18nCatalogue.test.ts tests/i18n.test.ts tests/ui tests/contentA11y.test.tsx tests/newComponents.test.ts",
     "cloud:smoke": "vitest run tests/cloudVercel.integration.test.ts",
     "docs:cli": "node scripts/cliDocs.mjs",
