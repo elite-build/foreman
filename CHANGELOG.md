@@ -2,6 +2,19 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.20 (2026-11-08)
+
+### Changed
+
+- **Full screen** for the terminal (Ctrl/⌘+Shift+J) and the **Flow** tab's run (its graph's full-screen button, or Ctrl/⌘+Shift+K) now puts it in the middle of the workspace with the chat beside it in the side panel's new **Chat** tab. It stays until you put it back, across restarts, and Esc no longer leaves it. ([#119](https://github.com/elite-build/foreman/pull/119))
+- The **Flow** tab opens on the run's diagram, without the flow's name, state, times and row of steps above it that repeated what the diagram shows. ([#117](https://github.com/elite-build/foreman/pull/117), [#118](https://github.com/elite-build/foreman/pull/118))
+- When you start a flow, every input it asks for (such as the **idea** for **From an idea to a feature**) has a text area to write in, not a one-line box. ([#114](https://github.com/elite-build/foreman/pull/114))
+
+### Development
+
+- `npm run dev demo` opens the development app on demo data (repositories, workspaces, chats, diffs and a flow run) with no network, kept between launches, and starts a flow run each time it opens so you can watch a flow move through its steps and wait at its gate; agents answer from a script. `npm run dev demo reset` starts it again from scratch. ([#113](https://github.com/elite-build/foreman/pull/113), [#116](https://github.com/elite-build/foreman/pull/116))
+- `npm run test:changed` runs only the tests a branch's changes can affect, for a faster loop while working. ([#115](https://github.com/elite-build/foreman/pull/115))
+
 ## 1.0.19 (2026-11-08)
 
 ### Changed
