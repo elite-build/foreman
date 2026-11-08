@@ -1,5 +1,5 @@
 // The workspace's Flow tab (docs/loops-and-graphs.md, "Running a flow" and "Showing a graph"): the run this workspace
-// belongs to, where it is (or ended) in words and as a row of its steps, its loop bounds, Stop, the run drawn as a
+// belongs to, its state, where it is (or ended) as a row of its steps, its loop bounds, Stop, the run drawn as a
 // diagram through one of four lenses (Run · Context · Memory · Data) with what that lens adds in words, and its steps in
 // run order with their facts. The step list is the
 // diagram's accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
@@ -11,7 +11,7 @@ import { FLOW_COMPACT_ABOVE, currentLoopBounds, flowProgress, isActiveRun, parse
 import { formatCompact } from '../../../shared/i18n/time'
 import type { ApprovalRequest } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
-import { api, attempt, selectSession, selectWorkspace, showChecksPanel, timeAgo, useStore } from '../store'
+import { api, attempt, selectSession, selectWorkspace, showChecksPanel, useStore } from '../store'
 import { Button, Callout, Card, CardButton, Glyph, Meter, Segmented, Status, Stepper, Tag, type GlyphName, type StepperStep, type StepperTone } from '../ui'
 import { RUN_STATE, RUN_TONE, STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import { FlowLensDiagram } from './FlowDiagram'
@@ -76,7 +76,6 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
   if (!run) return null
   const active = isActiveRun(run)
   const bounds = active ? currentLoopBounds(run) : []
-  const last = run.steps.at(-1)
   return (
     <div className="flow-run">
       <div className="flow-run-head">
@@ -84,9 +83,6 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
           <strong>{run.flow.name}</strong>
           <Status tone={RUN_TONE[run.state]} label={t(RUN_STATE[run.state])} />
         </div>
-        {active && run.current && <span className="small">{t('flowRun.panel.at', { step: run.current.step, iteration: run.current.iteration })}</span>}
-        {!active && run.state !== 'completed' && last && <span className="small">{t('flowRun.panel.endedAt', { step: last.name, iteration: last.iteration, when: timeAgo(run.endedAt ?? last.endedAt ?? last.startedAt) })}</span>}
-        {run.state === 'completed' && run.endedAt && <span className="small">{t('flowRun.panel.finished', { when: timeAgo(run.endedAt) })}</span>}
         {bounds.map((b) => (
           <span key={b.loop} className="faint small">
             {[
@@ -99,7 +95,6 @@ export function FlowRunPanel({ workspaceId }: { workspaceId: string }) {
           </span>
         ))}
         {run.reason && (active || run.state === 'completed') && <span className="small">{run.reason}</span>}
-        <span className="faint small">{t('flowRun.panel.started', { when: timeAgo(run.startedAt) })}</span>
         {active && (
           <span>
             <Button size="sm" onClick={() => void attempt(() => api.stopFlowRun(run.id))}>
