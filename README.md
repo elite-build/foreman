@@ -42,7 +42,7 @@ Add a local Git repository, review its setup and run commands in repository sett
 
 If `npm run dev` says Electron failed to install, run `node node_modules/electron/install.js`. Set `FOREMAN_DATA_DIR=/some/folder` to keep development state separate from an installed Foreman.
 
-To click through the app without your own repositories or an agent login, run `npm run dev demo`. It opens on demo data: the screenshot fixture (two repositories, three workspaces with chats, diffs, a flow run and its checks) in a folder of its own, kept between launches. Nothing reaches the network, so agents, GitHub, integrations, cloud sandboxes and paired devices stay off. `npm run dev demo reset` starts the demo data again from scratch. `FOREMAN_DEMO_DIR` chooses the folder (default: `Foreman Demo` next to the app's data folder).
+To click through the app without your own repositories or an agent login, run `npm run dev demo`. It opens on demo data: the screenshot fixture (two repositories, three workspaces with chats, diffs, a flow run and its checks) in a folder of its own, kept between launches. Each launch also starts a run of the "Fix until green" flow, so you can watch one go through its steps and loops and stop at its gate for you. Nothing reaches the network: agents answer from a script, and GitHub, integrations, cloud sandboxes and paired devices stay off. `npm run dev demo reset` starts the demo data again from scratch. `FOREMAN_DEMO_DIR` chooses the folder (default: `Foreman Demo` next to the app's data folder).
 
 | Command | Does |
 |---|---|
