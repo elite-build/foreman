@@ -1,18 +1,22 @@
 // @vitest-environment jsdom
 // A workspace switched away from stays mounted (App) so its terminals keep running, but it stops re-rendering on every
 // store event: it holds what it read from the snapshot until it is shown again. Its terminal panel reads the workspace
-// live, is never unmounted by hiding, and keeps following the workspace while hidden.
+// live, is never unmounted by hiding, and keeps following the workspace while hidden. The terminal or the Flow tab's run
+// can take the middle, the chat moving to the side panel's first tab without remounting (O3).
 import './domShims'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useEffect, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceView } from '../src/renderer/src/components/WorkspaceView'
+import * as store from '../src/renderer/src/store'
 import { fakeState, resetFake } from './rendererStore'
 
 const seen = vi.hoisted(() => ({
   listeners: new Set<() => void>(),
   workspaceRenders: 0,
   chats: [] as { id: string; hidden?: boolean; active: boolean }[],
+  chatMounts: 0,
+  flowRun: undefined as { id: string } | undefined,
   panel: { mounts: 0, unmounts: 0, states: [] as string[], visible: [] as boolean[] }
 }))
 
@@ -47,6 +51,7 @@ vi.mock('../src/renderer/src/components/BottomPanel', () => ({
 vi.mock('../src/renderer/src/components/ChatView', () => ({
   ChatView: ({ session, active, hidden }: { session: { id: string }; active: boolean; hidden?: boolean }) => {
     seen.chats.push({ id: session.id, active, hidden })
+    useEffect(() => void seen.chatMounts++, [])
     return null
   }
 }))
@@ -58,6 +63,10 @@ vi.mock('../src/renderer/src/components/NoteBar', () => ({
   }
 }))
 vi.mock('../src/renderer/src/components/WorkspaceBrowser', () => ({ WorkspaceBrowser: () => null }))
+vi.mock('../src/renderer/src/components/FlowRunPanel', () => ({
+  FlowRunPanel: ({ focused }: { focused?: boolean }) => <div data-testid={focused ? 'flow-middle' : 'flow-panel'} />,
+  useWorkspaceFlowRun: () => seen.flowRun
+}))
 vi.mock('../src/renderer/src/components/Changes', () => ({ ChangesList: () => null, FileDiffView: () => null }))
 vi.mock('../src/renderer/src/components/CommitsView', () => ({ CommitsView: () => null, CommitFileView: () => null }))
 vi.mock('../src/renderer/src/components/DiffSourceMenu', () => ({ DiffSourceMenu: () => null }))
@@ -117,6 +126,8 @@ beforeEach(() => {
   resetFake()
   seen.workspaceRenders = 0
   seen.chats = []
+  seen.chatMounts = 0
+  seen.flowRun = undefined
   seen.panel = { mounts: 0, unmounts: 0, states: [], visible: [] }
   Object.assign(fakeState, {
     approvals: [],
@@ -127,7 +138,7 @@ beforeEach(() => {
     rightPanelOpen: true,
     leftPanelOpen: true,
     bottomPanelOpen: true,
-    terminalFullscreen: null,
+    workspaceFocus: {},
     tileZoom: null,
     fileRequest: null,
     chatRequest: null,
@@ -196,5 +207,66 @@ describe('the Lineage tab', () => {
     fakeState.snapshot = { ...fakeState.snapshot, settings: { ...fakeState.snapshot.settings, flows: false } }
     act(() => seen.listeners.forEach((l) => l()))
     expect(tabs()).not.toContain('Lineage')
+  })
+})
+
+describe('the terminal or the Flow in the middle (O3)', () => {
+  const notify = () => act(() => seen.listeners.forEach((l) => l()))
+  const sidePanel = () => document.querySelector('aside.side-panel')!
+  const center = () => document.querySelector('section.center')!
+  const panelTabs = () => [...sidePanel().querySelectorAll('[role="tab"]')].map((t) => t.textContent?.trim())
+  const selectedPanelTab = () => sidePanel().querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim()
+
+  it('the terminal takes the middle and the chat moves to the side panel’s first tab, mounted once throughout', () => {
+    fakeState.workspaceFocus = { w1: 'terminal' }
+    render(<Host hidden={false} />)
+    expect(center().querySelector('.focus-slot .terminal-stand-in')).not.toBeNull()
+    expect(sidePanel().querySelector('.chat-tabs')).not.toBeNull()
+    expect(center().querySelector('.chat-tabs')).toBeNull()
+    expect(panelTabs()[0]).toBe('Chat')
+    expect(selectedPanelTab()).toBe('Chat')
+    // The side panel holds the chat, so its toggle steps aside.
+    expect(screen.queryByRole('button', { name: /Toggle side panel/ })).toBeNull()
+
+    fakeState.workspaceFocus = {}
+    notify()
+    expect(center().querySelector('.chat-tabs')).not.toBeNull()
+    expect(sidePanel().querySelector('.chat-tabs')).toBeNull()
+    expect(panelTabs()).not.toContain('Chat')
+    expect(selectedPanelTab()).toBe('Changes')
+    expect(document.querySelectorAll('.terminal-stand-in')).toHaveLength(1)
+    expect(seen.chatMounts).toBe(1)
+  })
+
+  it('with the side panel closed, the chat still has it', () => {
+    fakeState.rightPanelOpen = false
+    fakeState.workspaceFocus = { w1: 'terminal' }
+    render(<Host hidden={false} />)
+    expect((sidePanel() as HTMLElement).style.display).not.toBe('none')
+    expect(sidePanel().querySelector('.chat-tabs')).not.toBeNull()
+  })
+
+  it('the Flow run takes the middle, leaves the panel’s tabs, and goes back to its tab', () => {
+    seen.flowRun = { id: 'run1' }
+    fakeState.workspaceFocus = { w1: 'flow' }
+    render(<Host hidden={false} />)
+    expect(center().querySelector('[data-testid="flow-middle"]')).not.toBeNull()
+    expect(panelTabs()).not.toContain('Flow')
+    expect(selectedPanelTab()).toBe('Chat')
+    fireEvent.click(screen.getByRole('button', { name: /^Exit full screen/ }))
+    expect(store.setWorkspaceFocus).toHaveBeenCalledWith('w1', null)
+
+    fakeState.workspaceFocus = {}
+    notify()
+    expect(center().querySelector('[data-testid="flow-middle"]')).toBeNull()
+    expect(selectedPanelTab()).toBe('Flow')
+    expect(sidePanel().querySelector('[data-testid="flow-panel"]')).not.toBeNull()
+  })
+
+  it('without a Flow run, a saved Flow choice leaves the chat in the middle', () => {
+    fakeState.workspaceFocus = { w1: 'flow' }
+    render(<Host hidden={false} />)
+    expect(center().querySelector('.chat-tabs')).not.toBeNull()
+    expect(panelTabs()).not.toContain('Chat')
   })
 })

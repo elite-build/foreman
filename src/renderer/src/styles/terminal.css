@@ -1,4 +1,4 @@
-/* ---- terminal upgrades (O3): find, rename, restored tabs, fullscreen ---- */
+/* ---- terminal upgrades (O3): find, rename, restored tabs (in the middle is .focus-slot, workspace-center.css) ---- */
 /* Find in terminal: the chat's find bar, floating at the terminal's top right. */
 .chat-search.term-find {
   position: absolute;
@@ -79,16 +79,6 @@
 }
 .term-restored-actions .mono {
   font-size: var(--text-xs);
-}
-/* Fullscreen: the panel's slot covers the workspace below its title bar, until Esc or ⌘⇧J. */
-.workspace.terminal-full {
-  position: relative;
-}
-.bottom-slot.terminal-fullscreen {
-  position: absolute;
-  inset: var(--titlebar) 0 0 0;
-  z-index: 6;
-  background: var(--bg-panel);
 }
 .setup-log {
   flex: 1;

@@ -76,7 +76,7 @@ function setUp(windowLayout: 'panes' | 'editor', extra: Record<string, unknown> 
     rightPanelOpen: true,
     leftPanelOpen: true,
     bottomPanelOpen: false,
-    terminalFullscreen: null,
+    workspaceFocus: {},
     tileZoom: null,
     fileRequest: null,
     chatRequest: null,

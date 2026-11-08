@@ -101,7 +101,7 @@ beforeEach(() => {
     rightPanelOpen: true,
     leftPanelOpen: true,
     bottomPanelOpen: true,
-    terminalFullscreen: null,
+    workspaceFocus: {},
     tileZoom: null,
     fileRequest: null,
     chatRequest: null,

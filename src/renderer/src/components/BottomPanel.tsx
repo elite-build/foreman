@@ -202,7 +202,7 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
   const [terminals, setTerminals] = useState<TermTab[]>([])
   const [runZoom, setRunZoom] = useState(1)
   const [renaming, setRenaming] = useState<number | null>(null)
-  const fullscreen = useStore((s) => s.terminalFullscreen === workspace.id)
+  const fullscreen = useStore((s) => s.workspaceFocus[workspace.id] === 'terminal')
   const [runs, setRuns] = useState<Record<string, ScriptRun>>({})
   const mod = modKey(platform)
   const ready = workspace.state !== 'creating' && workspace.state !== 'error' && workspace.state !== 'history'
@@ -397,18 +397,6 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
   const startShell = (term: TermTab) => {
     if (term.restored) updateTerminal(term.n, { restored: { ...term.restored, started: true } })
   }
-
-  // Esc leaves fullscreen, unless a terminal, its find bar, a rename or a menu has it (Esc matters to programs in a shell).
-  useEffect(() => {
-    if (!fullscreen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return
-      if ((e.target as Element | null)?.closest?.('.terminal, .term-find, .tab-rename') || document.querySelector('.terminal-menu')) return
-      toggleTerminalFullscreen(workspace.id, false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [fullscreen, workspace.id])
 
   const openPreview = (index: number) => {
     void attempt(() => api.openPreview(workspace.id, index))

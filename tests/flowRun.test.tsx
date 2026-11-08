@@ -325,6 +325,19 @@ describe('the Flow tab’s graph, gate and stop', () => {
     expect(storeModule.selectSession).toHaveBeenCalledWith('ws-1', 's1')
   })
 
+  it('its full screen puts the run in the workspace’s middle, where it has none', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<FlowRunPanel workspaceId="ws-1" />)
+    await user.click(await screen.findByRole('button', { name: 'Full screen' }))
+    expect(storeModule.setWorkspaceFocus).toHaveBeenCalledWith('ws-1', 'flow')
+    // No dialog: the run goes to the middle (O3), where the workspace's header puts it back.
+    expect(screen.queryByRole('dialog')).toBeNull()
+    unmount()
+    render(<FlowRunPanel workspaceId="ws-1" focused />)
+    await screen.findByRole('group', { name: 'Green · Run' })
+    expect(screen.queryByRole('button', { name: 'Full screen' })).toBeNull()
+  })
+
   it('answers the gate the run waits at, and says why a run stopped with a way to the checks', async () => {
     const user = userEvent.setup()
     fakeApi.respondApproval = vi.fn(async () => undefined)

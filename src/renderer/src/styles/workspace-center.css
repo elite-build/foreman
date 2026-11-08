@@ -76,6 +76,33 @@
   min-height: 0;
   position: relative;
 }
+/* O3: the chat renders into one node (.chat-host) that moves between the middle (.chat-slot) and the side panel's Chat
+   tab (.panel-chat), while the terminal (.focus-slot) or the Flow tab's run (.focus-view) takes the middle. */
+.chat-slot,
+.chat-host,
+.panel-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.panel-changes.panel-changes-chat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.focus-slot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.focus-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 .center-empty {
   flex: 1;
   display: flex;

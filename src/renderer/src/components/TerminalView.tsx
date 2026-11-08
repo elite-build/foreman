@@ -135,7 +135,7 @@ export function TerminalView({
   const terminalScreenReader = useStore((s) => s.snapshot?.settings.terminalScreenReader)
   const osScreenReader = useStore((s) => s.snapshot?.screenReader)
   const copyOnSelect = useStore((s) => s.snapshot?.settings.terminalCopyOnSelect ?? false)
-  const fullscreen = useStore((s) => s.terminalFullscreen === workspaceId)
+  const fullscreen = useStore((s) => s.workspaceFocus[workspaceId] === 'terminal')
   const homeDir = useStore((s) => s.snapshot?.homeDir)
   const copyOnSelectRef = useRef(copyOnSelect)
   copyOnSelectRef.current = copyOnSelect

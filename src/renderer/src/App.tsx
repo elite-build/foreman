@@ -68,6 +68,7 @@ import {
   toggleRailNames,
   toggleRightPanel,
   toggleTerminalFullscreen,
+  toggleWorkspaceFocus,
   toggleAssistant,
   toggleZen,
   useStore
@@ -96,6 +97,7 @@ const shortcutActions: ShortcutActions = {
   reportProblem: () => openReportProblem(true),
   toggleAssistant,
   toggleTerminalFullscreen,
+  toggleFlowFullscreen: (workspaceId) => toggleWorkspaceFocus(workspaceId, 'flow'),
   selectWorkspace,
   selectSession,
   newWorkspace(ws) {

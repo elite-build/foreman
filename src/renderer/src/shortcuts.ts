@@ -16,6 +16,7 @@
 //
 // This module is pure (type imports only), so the Node tests can load it; everything an entry does
 // goes through `ctx.actions`, which App.tsx provides.
+import { runForWorkspace } from '../../shared/flows'
 import type { PlainKey } from '../../shared/i18n'
 import type { OnboardingMilestone } from '../../shared/onboarding'
 import type { GitActionKind, Session, Workspace } from '../../shared/types'
@@ -66,6 +67,7 @@ export interface ShortcutActions {
   reportProblem(): void
   toggleAssistant(): void
   toggleTerminalFullscreen(workspaceId: string): void
+  toggleFlowFullscreen(workspaceId: string): void
   selectWorkspace(workspaceId: string): void
   selectSession(workspaceId: string, sessionId: string): void
   newWorkspace(workspace: Workspace | undefined): void
@@ -520,6 +522,16 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   { id: 'terminal.zoomReset', keys: k('mod+Digit0'), group: 'terminal', scope: 'terminal', labelKey: 'shortcuts.resetZoom', handledBy: 'Terminal' },
   // ⌘⇧M is Merge PR, so the fullscreen key is ⌘⇧J.
   { id: 'terminal.fullscreen', keys: k('mod+shift+KeyJ'), group: 'terminal', scope: 'app', labelKey: 'shortcuts.terminalFullscreen', when: inWorkspace, run: (c) => c.actions.toggleTerminalFullscreen(c.ws!.id) },
+  // The Flow tab's run in the workspace's middle, the chat beside it (O3); ⌘⇧K, next to the terminal's ⌘⇧J.
+  {
+    id: 'flow.fullscreen',
+    keys: k('mod+shift+KeyK'),
+    group: 'workspaces',
+    scope: 'app',
+    labelKey: 'shortcuts.flowFullscreen',
+    when: (c) => Boolean(c.ws && c.snapshot.settings.flows && c.snapshot.settings.windowLayout !== 'editor' && runForWorkspace(c.snapshot.flowRuns, c.ws.id)),
+    run: (c) => c.actions.toggleFlowFullscreen(c.ws!.id)
+  },
   { id: 'terminal.rename', keys: k('', ''), display: 'shortcuts.doubleClickTab', group: 'terminal', scope: 'terminal', labelKey: 'shortcuts.renameIt', handledBy: 'Terminal' },
 
   // ---- Files ----

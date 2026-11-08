@@ -1,5 +1,5 @@
 import { TransferBanner } from './HandOffDialogs'
-import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, PanelBottom, PanelLeft, PanelRight, Plus, RefreshCw, RotateCcw, Upload, Users, X } from 'lucide-react'
+import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, PanelBottom, PanelLeft, PanelRight, Plus, RefreshCw, RotateCcw, Upload, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -30,6 +30,7 @@ import {
   openSessions,
   reopenChat,
   selectSession,
+  setWorkspaceFocus,
   showError,
   showToast,
   modKey,
@@ -39,7 +40,8 @@ import {
   toggleRightPanel,
   useStore,
   useWindowVisible,
-  zoomTile
+  zoomTile,
+  type WorkspaceFocus
 } from '../store'
 import { useHeldStore } from '../heldStore'
 import { useActiveSessionId, useStoreMemo } from '../storeMemo'
@@ -456,6 +458,9 @@ function TabMenu({
   )
 }
 
+// The side panel's tabs (Three panes and Tiles), or the view the Editor layout's activity bar picked.
+type PanelTab = WorkspacePanelView | 'flow' | 'lineage' | 'chat'
+
 /**
  * One workspace. Once opened it stays mounted while another is shown (App), so its terminals keep running and its chats
  * keep their place. While hidden it holds what it read from the snapshot, which every `state` event replaces, so a hidden
@@ -475,7 +480,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const rightPanelOpen = useStore((s) => s.rightPanelOpen)
   const leftPanelOpen = useStore((s) => s.leftPanelOpen)
   const bottomPanelOpen = useStore((s) => s.bottomPanelOpen)
-  const terminalFullscreen = useStore((s) => s.terminalFullscreen === workspaceId)
+  const storedFocus = useStore((s) => s.workspaceFocus[workspaceId])
   const sidebarSide = useStore((s) => s.snapshot!.settings.sidebarSide ?? 'left')
   const panelSide = useStore((s) => s.snapshot!.settings.sidePanelSide ?? 'right')
   const placement = useStore((s) => s.snapshot!.settings.terminalPlacement ?? 'panel-bottom')
@@ -499,7 +504,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const [commitsReload, setCommitsReload] = useState(0)
   // 'flow': the Flow tab, shown beside the others only while the workspace belongs to a flow run (not in the Editor layout yet).
   // 'lineage': the Lineage tab, shown while Flows are on (Settings → Experimental), not in the Editor layout yet either.
-  const [panelTab, setPanelTab] = useState<WorkspacePanelView | 'flow' | 'lineage'>('changes')
+  // 'chat': the chat, first in the panel while the terminal or the Flow tab's run is in the middle (O3).
+  const [panelTab, setPanelTab] = useState<PanelTab>('changes')
   const flowRun = useWorkspaceFlowRun(workspaceId)
   const lineageOn = useLineageOn()
   // The Editor layout's activity bar holds the tab instead (one for every workspace); asking for one shows the sidebar.
@@ -524,7 +530,27 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const shownTab = useStore((s) => s.activeSession[workspaceId])
   const sessions = surfaces.archived ? archivedTabs(allSessions, workspaceId, shownTab) : openSessions(snapshot, workspaceId)
   const editorPanel = editor ? shownEditorView(editorView, editorViewsFor(surfaces)) : null
-  const activeTab: WorkspacePanelView | 'flow' | 'lineage' = editorPanel && editorPanel !== 'workspaces' ? editorPanel : (panelTab === 'flow' && !flowRun) || (panelTab === 'lineage' && !lineageOn) ? 'changes' : panelTab
+  // O3: the terminal or the Flow tab's run in the middle, kept until put back. The Flow only while there is a run, and not
+  // in the Editor layout (no Flow tab there yet); an archived workspace has neither.
+  const focus: WorkspaceFocus | undefined = surfaces.archived ? undefined : storedFocus === 'flow' ? (flowRun && !editor ? 'flow' : undefined) : storedFocus === 'terminal' && surfaces.terminal ? 'terminal' : undefined
+  const terminalFocus = focus === 'terminal'
+  // The chat moves to the side panel's first tab, out of the middle's way; the Editor layout has it beside the files already.
+  const chatAside = editor ? undefined : focus
+  const [seenAside, setSeenAside] = useState<WorkspaceFocus | undefined>(undefined)
+  if (seenAside !== chatAside) {
+    setSeenAside(chatAside)
+    // Coming in shows the chat; going back shows the Flow tab again if that's what was in the middle.
+    if (chatAside && !seenAside) setPanelTab('chat')
+    else if (!chatAside && panelTab === 'chat') setPanelTab(seenAside === 'flow' ? 'flow' : 'changes')
+  }
+  const activeTab: PanelTab =
+    editorPanel && editorPanel !== 'workspaces'
+      ? editorPanel
+      : (panelTab === 'flow' && (!flowRun || focus === 'flow')) || (panelTab === 'lineage' && !lineageOn) || (panelTab === 'chat' && !chatAside)
+        ? chatAside
+          ? 'chat'
+          : 'changes'
+        : panelTab
   if (activeTab === 'files' && !filesSeen) setFilesSeen(true)
   const running = allSessions.some((s) => s.workspaceId === workspaceId && s.status === 'running')
   const hasWorktree = surfaces.worktree
@@ -635,6 +661,22 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   // Editor: the chat's width, shared by all workspaces; the files between it and the side panel keep at least 360px.
   const chatPanel = usePanelSize('editor-chat', 380, 300, Math.min(760, windowWidth * 0.5, (containerWidth || windowWidth) - 360))
 
+  // In the middle, the chat's browser tab would be out of view, so the chat shows its chat instead.
+  useEffect(() => {
+    if (chatAside) selectBrowserTab(workspaceId, false)
+  }, [chatAside, workspaceId])
+
+  // O3: the chat (its tabs, bars and body) renders once into a node of its own too, which moves between the middle and the
+  // side panel's Chat tab, so putting the terminal or the Flow in the middle never remounts a chat.
+  const [chatHost] = useState(() => {
+    const el = document.createElement('div')
+    el.className = 'chat-host'
+    return el
+  })
+  const placeChat = useCallback((slot: HTMLDivElement | null) => {
+    if (slot && chatHost.parentElement !== slot) slot.appendChild(chatHost)
+  }, [chatHost])
+
   // The terminal panel renders once into a node of its own, which moves to wherever the layout puts it,
   // so changing the layout never restarts its terminals.
   const [terminalHost] = useState(() => {
@@ -663,7 +705,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
 
   // Editor: the side panel sits beside the activity bar (on the sidebar's side) and the chat on the other.
   const panelLeft = editor ? sidebarSide !== 'right' : panelSide === 'left'
-  const panelShown = editor ? leftPanelOpen && editorPanel !== 'workspaces' : rightPanelOpen
+  // While something is in the middle the side panel holds the chat, so it shows whatever its toggle says.
+  const panelShown = editor ? leftPanelOpen && editorPanel !== 'workspaces' : rightPanelOpen || Boolean(chatAside)
   // Three panes and Tiles: the selected tab of the strip, a file or commit shown in the centre, a Terminal agent tab, or
   // the chat. Editor: the strip is two, the files over the middle and the chats over the chat, each with its own selection.
   const browserShown = browserActive && !openFile && !viewFile && !commitFile && (editor || !agentTab)
@@ -675,9 +718,9 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   // Editor: the terminal is always under the files.
   const termPlacement = editor ? 'below-chat' : placement
   const belowChat = termPlacement === 'below-chat'
-  const terminalShown = terminalFullscreen || (bottomPanelOpen && (belowChat || rightPanelOpen))
-  // Fullscreen (O3) moves the panel into a slot over the whole workspace; the usual slots step aside.
-  const terminalDocked = surfaces.terminal && bottomPanelOpen && !terminalFullscreen
+  const terminalShown = terminalFocus || (bottomPanelOpen && (belowChat || panelShown))
+  // In the middle (O3) the panel moves into the chat's place; the usual slots step aside.
+  const terminalDocked = surfaces.terminal && bottomPanelOpen && !terminalFocus
   const mod = modKey(snapshot.platform)
   const terminalSlot = (size: PanelSize, edge: 'top' | 'bottom', where: string) => (
     <div className={`bottom-slot ${where}`} ref={placeTerminal} style={size.isDefault ? undefined : { flex: `0 0 ${size.size}px` }}>
@@ -851,7 +894,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const agentBodies = hasChat && <TerminalAgentBodies workspaceId={workspaceId} covered={!editor && Boolean(browserShown || openFile || viewFile || commitFile)} hidden={hidden} />
   const fileViews = (
     <>
-      {browser && hasWorktree && <WorkspaceBrowser workspaceId={workspaceId} visible={browserShown && !hidden && !terminalFullscreen} sessions={sessions} activeId={activeId} />}
+      {browser && hasWorktree && <WorkspaceBrowser workspaceId={workspaceId} visible={browserShown && !hidden && !focus} sessions={sessions} activeId={activeId} />}
       {viewFile && !openFile && surfaces.local && (
         <div className="fill">
           <FileViewer workspaceId={workspaceId} workspacePath={wsPath(ws)} path={viewFile.path} line={viewFile.line} />
@@ -973,7 +1016,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
     />
   )
   const checksView = <ChecksView workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} shown={!hidden} />
-  const panelViewName: Record<WorkspacePanelView | 'flow' | 'lineage', string> = {
+  const panelViewName: Record<PanelTab, string> = {
+    chat: t('workspaceView.panel.chat'),
     changes: t('workspaceView.panel.changes'),
     commits: t('commits.tab'),
     files: t('files.tab'),
@@ -987,12 +1031,12 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   return (
     <div
       ref={container}
-      className={`workspace ${panelShown ? 'with-panel' : ''} ${panelLeft ? 'panel-left' : ''} ${terminalFullscreen ? 'terminal-full' : ''} ${editor ? 'editor-arrangement' : ''}`}
+      className={`workspace ${panelShown ? 'with-panel' : ''} ${panelLeft ? 'panel-left' : ''} ${editor ? 'editor-arrangement' : ''}`}
       style={{
         display: hidden ? 'none' : undefined,
         gridTemplateColumns: editor
           ? editorGrid.join(' ')
-          : rightPanelOpen
+          : panelShown
             ? panelLeft
               ? `${panel.size}px minmax(420px, 1fr)`
               : `minmax(420px, 1fr) ${panel.size}px`
@@ -1003,7 +1047,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         <header className="titlebar drag center-header">
           <div className="header-title">
             {sidebarSide === 'left' && sidebarToggle}
-            {toggleAtStart && panelToggle}
+            {toggleAtStart && !chatAside && panelToggle}
             {surfaces.cloud ? <Cloud size={14} className="faint" aria-label={t('cloud.glyph')} /> : <Folder size={14} className="faint" />}
             <span className="header-name" id={headingId} role="heading" aria-level={1}>
               {ws.name}
@@ -1044,7 +1088,12 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 <PanelBottom size={15} />
               </IconButton>
             )}
-            {!toggleAtStart && panelToggle}
+            {focus === 'flow' && (
+              <IconButton label={t('flowRun.panel.exitFullScreen', { key: `${mod}⇧K` })} onClick={() => setWorkspaceFocus(workspaceId, null)}>
+                <Minimize2 size={15} />
+              </IconButton>
+            )}
+            {!toggleAtStart && !chatAside && panelToggle}
             {sidebarSide === 'right' && sidebarToggle}
           </div>
         </header>
@@ -1052,7 +1101,9 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         {ws.transfer && <TransferBanner workspaceId={ws.id} />}
         {surfaces.cloud && <CloudBanner ws={ws} />}
         {ws.state === 'history' && !ws.transfer && <HistoryBanner ws={ws} />}
-        {editor ? (
+        {editor && terminalFocus ? (
+          <div className="focus-slot" ref={placeTerminal} />
+        ) : editor ? (
           <>
             {hasWorktree && (
               <Tabs className="chat-tabs" variant="chat" value={fileTabValue} onChange={onTab}>
@@ -1088,27 +1139,14 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
               )}
             </div>
           </>
+        ) : chatAside === 'terminal' ? (
+          <div className="focus-slot" ref={placeTerminal} />
+        ) : chatAside === 'flow' ? (
+          <div className="focus-view">
+            <FlowRunPanel workspaceId={workspaceId} focused />
+          </div>
         ) : (
-          <>
-            {hasChat && (
-              <Tabs className="chat-tabs" variant="chat" value={tabValue} onChange={onTab}>
-                <TabList label={t('workspaceView.tabs.label')}>
-                  {chatTabs}
-                  {browserTab}
-                  {agentTabs}
-                  {fileTabs}
-                  {previewButton}
-                  {chatButtons}
-                </TabList>
-              </Tabs>
-            )}
-            {chatBars}
-            <div className={`center-body${browserShown && browser?.split ? ' browser-split' : ''}`}>
-              {chats}
-              {agentBodies}
-              {fileViews}
-            </div>
-          </>
+          <div className="chat-slot" ref={placeChat} />
         )}
         {belowChat && terminalDocked && terminalSlot(chatTerminal, 'top', 'below-chat')}
       </section>
@@ -1147,8 +1185,9 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 </div>
               </section>
             ) : (
-              <Tabs className="panel-tabs-root" variant="underline" value={activeTab} onChange={(v) => setPanelTab(v as WorkspacePanelView | 'flow' | 'lineage')}>
+              <Tabs className="panel-tabs-root" variant="underline" value={activeTab} onChange={(v) => setPanelTab(v as PanelTab)}>
                 <TabList label={t('workspaceView.panel.tabs')}>
+                  {chatAside && <Tab value="chat">{t('workspaceView.panel.chat')}</Tab>}
                   <Tab value="changes">
                     {t('workspaceView.panel.changes')} {diff?.files.length ? <span className="faint">{diff.files.length}</span> : null}
                   </Tab>
@@ -1163,12 +1202,13 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                     {git.status?.pr?.checks.some((c) => c.state === 'failure') && <Status compact tone="error" label={t('workspaceView.panel.checksFailing')} />}
                     {git.status?.pr?.checks.some((c) => c.state === 'pending') && <Status compact tone="warn" label={t('workspaceView.panel.checksPending')} />}
                   </Tab>
-                  {flowRun && <Tab value="flow">{t('flowRun.panel.tab')}</Tab>}
+                  {flowRun && focus !== 'flow' && <Tab value="flow">{t('flowRun.panel.tab')}</Tab>}
                   {lineageOn && <Tab value="lineage">{t('lineage.tab')}</Tab>}
                   <span className="spacer" />
                   {panelActions}
                 </TabList>
-                <div className="panel-changes">
+                <div className={activeTab === 'chat' ? 'panel-changes panel-changes-chat' : 'panel-changes'}>
+                  {chatAside && <TabPanel value="chat" keepMounted className="panel-chat" ref={placeChat} />}
                   <TabPanel value="changes">{changesView}</TabPanel>
                   <TabPanel value="commits">{commitsView}</TabPanel>
                   {/* #19: kept mounted once opened, so open folders survive switching tabs. */}
@@ -1176,7 +1216,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                     {filesView}
                   </TabPanel>
                   <TabPanel value="checks">{checksView}</TabPanel>
-                  {flowRun && (
+                  {flowRun && focus !== 'flow' && (
                     <TabPanel value="flow">
                       <FlowRunPanel workspaceId={workspaceId} />
                     </TabPanel>
@@ -1216,8 +1256,32 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
           </div>
         </aside>
       )}
-      {terminalFullscreen && surfaces.terminal && <div className="bottom-slot terminal-fullscreen" ref={placeTerminal} />}
       {createPortal(<LiveBottomPanel workspaceId={workspaceId} visible={!hidden && terminalShown} />, terminalHost)}
+      {/* After the slots, so a chat's layout effects run once its node is in place. */}
+      {!editor &&
+        createPortal(
+          <>
+            {hasChat && (
+              <Tabs className="chat-tabs" variant="chat" value={tabValue} onChange={onTab}>
+                <TabList label={t('workspaceView.tabs.label')}>
+                  {chatTabs}
+                  {browserTab}
+                  {agentTabs}
+                  {fileTabs}
+                  {previewButton}
+                  {chatButtons}
+                </TabList>
+              </Tabs>
+            )}
+            {chatBars}
+            <div className={`center-body${browserShown && browser?.split ? ' browser-split' : ''}`}>
+              {chats}
+              {agentBodies}
+              {fileViews}
+            </div>
+          </>,
+          chatHost
+        )}
 
       {menu && (
         <TabMenu

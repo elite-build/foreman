@@ -106,7 +106,8 @@ describe('matchShortcut', () => {
   })
 
   it('matches modifiers exactly', () => {
-    expect(matchShortcut(event('KeyK', { ctrlKey: true, shiftKey: true }), 'win32')).toBeUndefined()
+    expect(matchShortcut(event('KeyK', { ctrlKey: true, shiftKey: true }), 'win32')?.id).toBe('flow.fullscreen')
+    expect(matchShortcut(event('KeyK', { ctrlKey: true, altKey: true, shiftKey: true }), 'win32')).toBeUndefined()
     expect(matchShortcut(event('KeyB', { ctrlKey: true, altKey: true }), 'win32')?.id).toBe('panel.right')
     expect(matchShortcut(event('KeyB', { ctrlKey: true, shiftKey: true }), 'win32')?.id).toBe('workspace.preview')
     expect(matchShortcut(event('KeyB', { ctrlKey: true }), 'win32')?.id).toBe('panel.left')
