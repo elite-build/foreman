@@ -105,7 +105,7 @@ Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if
 | --- | --- |
 | `npm install` / `npm ci` | Install dependencies (clean reproducible installs use `ci`). Postinstall fixes Unix PTY helper permissions and configures hooks when appropriate. |
 | `npm run dev` | Run the Electron app with electron-vite development builds. |
-| `npm run dev demo` | The development app on demo data (`src/main/demo.ts`): the screenshot fixture in a folder kept between launches, with no network and no external services. `npm run dev demo reset` seeds it again. |
+| `npm run dev demo` | The development app on demo data (`src/main/demo.ts`): the screenshot fixture in a folder kept between launches, with no network and no external services. Agents answer from a script, and each launch starts a flow run you can watch (`src/main/demoRun.ts`). `npm run dev demo reset` seeds it again. |
 | `npm run typecheck` | Strict TypeScript check over source, tests and build/test configs. |
 | `npm test` | Full Vitest suite. A focused run is `npm test -- tests/<name>.test.ts`. |
 | `npm run check:ui` | Design-system guard, contrast, i18n, UI and content accessibility checks. Can run after `npm ci --ignore-scripts`, without downloading Electron or building native modules. |

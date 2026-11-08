@@ -36,6 +36,7 @@ import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
 import { blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
 import { claimDemoFolder, DEMO, demoDataDir, DEMO_RESET, demoFolder, seedDemo } from './demo'
+import { registerDemoAgents, startDemoRun } from './demoRun'
 import { perf } from './perf'
 import { RemoteRouter, type WindowRoute } from './remote/router'
 import { electronUpdateInstaller, type ElectronUpdateInstaller } from './updateInstaller'
@@ -76,6 +77,8 @@ if (demoRoot) {
     process.exit(1)
   }
   blockNetwork((name, value) => app.commandLine.appendSwitch(name, value))
+  // Agents answer from a script (main/demoRun.ts), so the demo's flow run moves with no model behind it.
+  registerDemoAgents()
   console.log(`[demo] ${demoSeed ? 'Seeding' : 'Using'} the demo data in ${demoRoot}`)
 }
 // Separate data folder for development and tests (SWITCHYARD_DATA_DIR is the older name).
@@ -593,8 +596,9 @@ async function main(): Promise<void> {
       installUpdate = true
       app.quit()
     },
-    // O10: start Foreman again as the background agent host (detached, so it outlives this process).
-    agentHost: {
+    // O10: start Foreman again as the background agent host (detached, so it outlives this process). Not in the demo:
+    // its turns stay here, with the scripted agents.
+    agentHost: demoRoot ? undefined : {
       dir: hostDir(app.getPath('userData')),
       spawn: () => {
         const env = { ...process.env }
@@ -820,6 +824,8 @@ async function main(): Promise<void> {
   core.schedules.start()
   // Flow runs that were in flight when Foreman closed are uncertain, never retried.
   core.flows.start()
+  // The demo: a flow run going from the start (main/demoRun.ts).
+  if (demoRoot) void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow run: ${err instanceof Error ? err.message : String(err)}`))
   // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).
   core.autoArchive.start()
   // #11: an armed usage-limit resume whose time came while Foreman was closed, or the computer asleep, asks instead of sending.
