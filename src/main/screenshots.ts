@@ -38,14 +38,19 @@ export function screenshotRoot(): string {
  * run starts reaches the network; and keep the window painting when another window covers it, or captures stall.
  */
 export function screensSwitches(appendSwitch: (name: string, value?: string) => void): void {
+  blockNetwork(appendSwitch)
+  appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+  appendSwitch('disable-backgrounding-occluded-windows')
+  appendSwitch('disable-renderer-backgrounding')
+}
+
+/** Every child process and the page go through a proxy that refuses (the screenshot run and the demo, main/demo.ts). */
+export function blockNetwork(appendSwitch: (name: string, value?: string) => void): void {
   const nowhere = 'http://127.0.0.1:9'
   for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) process.env[name] = nowhere
   delete process.env.NO_PROXY
   delete process.env.no_proxy
   appendSwitch('proxy-server', '127.0.0.1:9')
-  appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
-  appendSwitch('disable-backgrounding-occluded-windows')
-  appendSwitch('disable-renderer-backgrounding')
 }
 
 // ---- the fixture ----
@@ -392,8 +397,11 @@ function flowChecks(): Workspace['checks'] {
   return { running: false, results: [result('Tests', 'npm test'), result('Types', 'npm run typecheck')], startedBy: { flowRun: FLOW_RUN_ID, step: 'checks' } }
 }
 
-/** Two real git repositories, three workspaces (worktrees) and their chats, written into `dataDir` before the app loads it. */
-export async function seedScreens(root: string, dataDir: string): Promise<ScreensFixture> {
+/**
+ * Two real git repositories, three workspaces (worktrees) and their chats, written into `dataDir` before the app loads it.
+ * `overrides` changes the fixture's settings (the demo, main/demo.ts); the screenshot run takes them as they are.
+ */
+export async function seedScreens(root: string, dataDir: string, overrides: Partial<Settings> = {}): Promise<ScreensFixture> {
   seededAt = Date.now()
   const repos = path.join(root, 'repos')
   const worktrees = path.join(root, 'workspaces')
@@ -478,7 +486,7 @@ export async function seedScreens(root: string, dataDir: string): Promise<Screen
     workspacesRoot: worktrees,
     cloneDirectory: repos
   }
-  Object.assign(store.state.settings, settings)
+  Object.assign(store.state.settings, settings, overrides)
   store.close()
   return { repoId: 'repo-atlas', workspaceId: 'ws-lisbon', chatId: 's-lisbon-1', queueChatId: 's-lisbon-2', flowWorkspaceId: 'ws-osaka', flowChatId: IMPLEMENT_TAB, now: seededAt + 30_000 }
 }

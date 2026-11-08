@@ -34,7 +34,8 @@ import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
 import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
-import { runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
+import { blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
+import { claimDemoFolder, DEMO, demoDataDir, DEMO_RESET, demoFolder, seedDemo } from './demo'
 import { perf } from './perf'
 import { RemoteRouter, type WindowRoute } from './remote/router'
 import { electronUpdateInstaller, type ElectronUpdateInstaller } from './updateInstaller'
@@ -63,8 +64,22 @@ protocol.registerSchemesAsPrivileged([{ scheme: PREVIEW_SCHEME, privileges: { st
 // Dev-only screenshot run (FOREMAN_SCREENSHOTS=1, scripts/screenshots.mjs): a throwaway data folder and no network.
 const screensRoot = SCREENSHOTS ? screenshotRoot() : null
 if (screensRoot) screensSwitches((name, value) => app.commandLine.appendSwitch(name, value))
+// Dev-only demo (`npm run dev demo`, main/demo.ts): the screenshot fixture in a data folder kept between launches, and
+// no network. The folder is claimed (or reset) here, before Electron opens files in it; it is seeded once ready.
+const demoRoot = DEMO && !screensRoot && !app.isPackaged ? demoFolder(app.getPath('appData')) : null
+let demoSeed = false
+if (demoRoot) {
+  try {
+    demoSeed = claimDemoFolder(demoRoot, DEMO_RESET) === 'seed'
+  } catch (err) {
+    console.error(`[demo] ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
+  }
+  blockNetwork((name, value) => app.commandLine.appendSwitch(name, value))
+  console.log(`[demo] ${demoSeed ? 'Seeding' : 'Using'} the demo data in ${demoRoot}`)
+}
 // Separate data folder for development and tests (SWITCHYARD_DATA_DIR is the older name).
-const dataDirOverride = (screensRoot && path.join(screensRoot, 'data')) || process.env.FOREMAN_DATA_DIR || process.env.SWITCHYARD_DATA_DIR
+const dataDirOverride = (screensRoot && path.join(screensRoot, 'data')) || (demoRoot && demoDataDir(demoRoot)) || process.env.FOREMAN_DATA_DIR || process.env.SWITCHYARD_DATA_DIR
 if (dataDirOverride) app.setPath('userData', dataDirOverride)
 
 /**
@@ -381,6 +396,16 @@ async function main(): Promise<void> {
   // notifications show Foreman's name and icon instead of Electron's.
   if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId('dev.foreman.app')
   const fixture = screensRoot ? await seedScreens(screensRoot, app.getPath('userData')) : null
+  // The demo shows every screen the screenshots do, Flows included, with the computer's own shell in its terminals.
+  // A seeding that fails says why and quits; the next launch starts it again.
+  if (demoRoot && demoSeed) {
+    try {
+      await seedDemo(demoRoot, (root, dataDir) => seedScreens(root, dataDir, { flows: true, terminalShell: 'auto' }))
+    } catch (err) {
+      console.error(`[demo] Could not seed the demo data: ${err instanceof Error ? err.message : String(err)}`)
+      return app.exit(1)
+    }
+  }
   const store = new Store(app.getPath('userData'))
   // Diagnostics (docs/telemetry.md, "Evidence"): the event log, the performance samples file and local crash dumps,
   // on while Settings → Experimental → Keep diagnostics is on (core.applySettings). Nothing is uploaded: the crash
@@ -605,7 +630,7 @@ async function main(): Promise<void> {
     onChanged: () => undefined, onEnabledChange: () => drawTray()
   })
   core.bindMobile(mobile)
-  if (!screensRoot) await mobile.start()
+  if (!screensRoot && !demoRoot) await mobile.start()
   registerLinks()
 
   const api = core.api as unknown as Record<string, (...args: unknown[]) => unknown>
@@ -669,21 +694,26 @@ async function main(): Promise<void> {
       }
     })
   }
+  // The demo starts nothing that reaches another service: GitHub's pull requests, integrations, cloud sandboxes, paired
+  // computers and phones, the agents' model lists.
+  const online = !demoRoot
   // Cloud workspaces: the turns their hosts kept running while Foreman was closed, taken back or ended at the session
   // cap. Over the network, so after the window is up and never ahead of the rest of launch.
-  void core.cloudTurns.recover().catch((err: unknown) => console.error('Could not reconnect to cloud workspaces:', err))
+  if (online) void core.cloudTurns.recover().catch((err: unknown) => console.error('Could not reconnect to cloud workspaces:', err))
   // #3: the first look is the baseline for history; it also draws the tray. Then open PRs every 60 s.
   core.attention.observe()
   // Phase 4: a screen reader starting or stopping flips terminals set to Automatic.
   app.on('accessibility-support-changed', () => core?.screenReaderChanged())
   // The flag can be stale when the reader was running before Foreman started: re-read it whenever a window gains focus.
   app.on('browser-window-focus', () => core?.screenReaderChanged())
-  core.prPoll.start()
+  if (online) core.prPoll.start()
   for (const url of pendingLinks.splice(0)) receiveLink(url)
   const started = core
   // Integrations: check each connection soon after launch and then every six hours, so a revoked key shows up.
-  setTimeout(() => void started.integrations.checkAll(), 8_000).unref()
-  setInterval(() => void started.integrations.checkAll(), 6 * 60 * 60_000).unref()
+  if (online) {
+    setTimeout(() => void started.integrations.checkAll(), 8_000).unref()
+    setInterval(() => void started.integrations.checkAll(), 6 * 60 * 60_000).unref()
+  }
   // A newer Foreman: an installed build asks soon after start, then on Settings → General → Updates' schedule and when the
   // computer wakes. A development build's version says nothing about the releases, so only Settings' "Check now" asks there.
   if (app.isPackaged) {
@@ -691,8 +721,10 @@ async function main(): Promise<void> {
     powerMonitor.on('resume', () => started.updates.woke())
   }
   // Cloud workspaces: idle sleep every minute (nothing to do without one), and orphans stopped once if Settings say so.
-  started.sandboxes.startIdleTicker()
-  setTimeout(() => void started.sandboxes.stopOrphans().catch(() => undefined), 10_000).unref()
+  if (online) {
+    started.sandboxes.startIdleTicker()
+    setTimeout(() => void started.sandboxes.stopOrphans().catch(() => undefined), 10_000).unref()
+  }
   // The command's launch token, in the data folder for the launcher to read back. If it can't be written, the app still serves, with a token nothing can present.
   const cliToken = await ensureCliToken(app.getPath('userData')).catch((err: unknown) => {
     console.error('Could not write the command-line token:', err)
@@ -779,7 +811,7 @@ async function main(): Promise<void> {
     return null
   })
   void core.refreshAllDiffStats()
-  core.prWatch.start()
+  if (online) core.prWatch.start()
   // #5: fix turns that were running when Foreman closed get their time cap back, or are settled from how they ended.
   void core.autoFix.resume().catch((err: unknown) => console.error('Auto-fix CI:', err))
   // #17: a review that was running when Foreman closed is stopped and says so (its turn is no longer unattended).
@@ -795,10 +827,12 @@ async function main(): Promise<void> {
   limitResume.start()
   powerMonitor.on('resume', () => limitResume.woke())
   core.transfers.recover()
-  void core.applyDeviceListening().catch((err: unknown) => console.error('Hand-offs:', err))
-  // Other computers: background links to the paired ones, for the computer chip and their alerts.
-  core.startComputers()
-  void core.baseWatch.poll()
+  if (online) {
+    void core.applyDeviceListening().catch((err: unknown) => console.error('Hand-offs:', err))
+    // Other computers: background links to the paired ones, for the computer chip and their alerts.
+    core.startComputers()
+    void core.baseWatch.poll()
+  }
   core.data.start()
   core.gitBackup.start()
   core.applySettings()
@@ -811,7 +845,7 @@ async function main(): Promise<void> {
   powerMonitor.on('on-ac', powerChanged)
   powerMonitor.on('on-battery', powerChanged)
   if (process.platform === 'darwin') powerMonitor.on('thermal-state-change', powerChanged)
-  void core.models.refreshAll()
+  if (online) void core.models.refreshAll()
   // The performance meter's samples (docs/telemetry.md): the app's processes every few seconds, written to perf.jsonl
   // while Keep diagnostics is on (applyDiagnostics). A screenshot run measures nothing.
   if (!screensRoot) {

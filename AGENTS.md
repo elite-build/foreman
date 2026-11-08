@@ -87,6 +87,7 @@ There is no mandatory repository `.env` file for building or running the ordinar
 | Setting | Meaning |
 | --- | --- |
 | `FOREMAN_DATA_DIR` | Isolate development/test state from installed app data; `SWITCHYARD_DATA_DIR` is a legacy fallback. Use a disposable folder for manual tests. |
+| `FOREMAN_DEMO`, `FOREMAN_DEMO_RESET`, `FOREMAN_DEMO_DIR` | Set by `npm run dev demo [reset]` (`scripts/dev.mjs`); ignored by an installed build. `FOREMAN_DEMO_DIR` chooses the demo's folder, default `Foreman Demo` beside the app's data folder. A folder with files that isn't a demo's is refused, never deleted. |
 | `FOREMAN_PORT` | First port in a local workspace's reserved block of 10. Use the assigned block for development servers. Cloud workspaces expose sandbox URLs instead. |
 | `FOREMAN_WORKSPACE_ID`, `FOREMAN_WORKSPACE_NAME`, `FOREMAN_WORKSPACE_PATH`, `FOREMAN_ROOT_PATH`, `FOREMAN_DEFAULT_BRANCH` | Context supplied to workspace scripts, terminals and agents; see `WorkspaceService.env` in `src/main/workspaces.ts`. Environment-file and secret layering lives in `src/main/environment.ts`. |
 | `FOREMAN_IS_CLOUD` | Set to `1` for cloud workspaces; their path variables refer to the sandbox. |
@@ -104,6 +105,7 @@ Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if
 | --- | --- |
 | `npm install` / `npm ci` | Install dependencies (clean reproducible installs use `ci`). Postinstall fixes Unix PTY helper permissions and configures hooks when appropriate. |
 | `npm run dev` | Run the Electron app with electron-vite development builds. |
+| `npm run dev demo` | The development app on demo data (`src/main/demo.ts`): the screenshot fixture in a folder kept between launches, with no network and no external services. `npm run dev demo reset` seeds it again. |
 | `npm run typecheck` | Strict TypeScript check over source, tests and build/test configs. |
 | `npm test` | Full Vitest suite. A focused run is `npm test -- tests/<name>.test.ts`. |
 | `npm run check:ui` | Design-system guard, contrast, i18n, UI and content accessibility checks. Can run after `npm ci --ignore-scripts`, without downloading Electron or building native modules. |
