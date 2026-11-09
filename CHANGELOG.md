@@ -2,6 +2,22 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.21 (2026-11-09)
+
+### Added
+
+- **New flow** asks what the flow is called and where it starts: **Blank**, **Describe it**, or a copy of a flow. ([#121](https://github.com/elite-build/foreman/pull/121))
+- Rename a flow, and edit its description, from the top of its page (the pencil, F2, or **Rename** in its menu and on its card); a built-in flow's card offers **Rename a copy…**. ([#121](https://github.com/elite-build/foreman/pull/121))
+- Rename a step from the panel beside the graph; every edge, loop and step that names it follows, with **Undo**. ([#121](https://github.com/elite-build/foreman/pull/121))
+
+### Changed
+
+- The **Flow** tab's **Full screen** is now a button beside **Run** · **Context** · **Memory** · **Data**, where the graph's scroll bar can't cover it, and **Back to the panel** in the same spot puts the run back. ([#123](https://github.com/elite-build/foreman/pull/123))
+
+### Fixed
+
+- A workspace whose pull request merged shows **Archive** again when a test run has only changed a file's line endings, instead of **Create PR**. ([#122](https://github.com/elite-build/foreman/pull/122))
+
 ## 1.0.20 (2026-11-08)
 
 ### Changed
