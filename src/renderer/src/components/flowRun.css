@@ -11,6 +11,14 @@
   flex-direction: column;
   gap: 4px;
 }
+/* The lens switch, with the run's full screen (or the way back) at the row's end. */
+.flow-run-lens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .flow-run-steps {
   display: flex;
   flex-direction: column;

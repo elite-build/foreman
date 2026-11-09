@@ -2,16 +2,17 @@
 // belongs to, its loop bounds, Stop, the run drawn as a diagram through one of four lenses (Run · Context · Memory ·
 // Data) with what that lens adds in words, and its steps in run order with their facts. The step list is the diagram's
 // accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
-// workspace it stands for (a run that makes more than one workspace shows it in each). Its full screen puts it in the
-// workspace's middle, drawn left to right where it has the room, with the chat in the side panel (O3).
-import { Square } from 'lucide-react'
+// workspace it stands for (a run that makes more than one workspace shows it in each). Its full screen, at the end of
+// the lens row rather than on the graph (where the graph's scroll bar could cover it), puts it in the workspace's middle,
+// drawn left to right where it has the room, with the chat in the side panel (O3); there the same button puts it back.
+import { Maximize2, Minimize2, Square } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { FLOW_LENSES, LENS_WORD, flowGraph, type FlowLens } from '../../../shared/flowGraph'
 import { FLOW_COMPACT_ABOVE, currentLoopBounds, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
 import { formatCompact } from '../../../shared/i18n/time'
 import type { ApprovalRequest } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
-import { api, attempt, selectSession, selectWorkspace, setWorkspaceFocus, showChecksPanel, useStore } from '../store'
+import { api, attempt, modKey, selectSession, selectWorkspace, setWorkspaceFocus, showChecksPanel, useStore } from '../store'
 import { Button, Callout, Card, CardButton, Meter, Segmented, Status, Tag } from '../ui'
 import { STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import { FlowLensDiagram } from './FlowDiagram'
@@ -77,6 +78,7 @@ export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; fo
   const flow = useRunFlow(run)
   const workspaces = useStore((s) => s.snapshot?.workspaces)
   const names = useMemo(() => Object.fromEntries((workspaces ?? []).map((w) => [w.id, w.name])), [workspaces])
+  const key = `${modKey(useStore((s) => s.snapshot?.platform))}⇧K`
   const [box, setBox] = useState<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
   useEffect(() => {
@@ -116,7 +118,18 @@ export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; fo
       )}
       <GateCard runId={run.id} />
       {!active && run.state !== 'completed' && run.reason && <StoppedCard workspaceId={workspaceId} run={run} />}
-      <Segmented<FlowLens> small label={t('flowRun.lens.label')} value={lens} onChange={setLens} options={FLOW_LENSES.map((l) => ({ value: l, label: t(LENS_WORD[l]) }))} />
+      <div className="flow-run-lens">
+        <Segmented<FlowLens> small label={t('flowRun.lens.label')} value={lens} onChange={setLens} options={FLOW_LENSES.map((l) => ({ value: l, label: t(LENS_WORD[l]) }))} />
+        {focused ? (
+          <Button size="sm" variant="ghost" icon={<Minimize2 size={12} />} title={t('flowRun.panel.exitFullScreen', { key })} onClick={() => setWorkspaceFocus(workspaceId, null)}>
+            {t('flowRun.panel.backToPanel')}
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" icon={<Maximize2 size={12} />} title={t('flowRun.panel.fullScreenKey', { key })} onClick={() => setWorkspaceFocus(workspaceId, 'flow')}>
+            {t('flowRun.panel.fullScreen')}
+          </Button>
+        )}
+      </div>
       <FlowLensDiagram
         flow={flow}
         run={run}
@@ -124,7 +137,7 @@ export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; fo
         workspaceNames={names}
         direction={focused && width >= WIDE_ENOUGH ? 'LR' : 'TB'}
         onSelect={(id) => id && openStep(workspaceId, run, id)}
-        fullScreen={focused ? null : () => setWorkspaceFocus(workspaceId, 'flow')}
+        fullScreen={null}
         className={focused ? 'flow-graph-focused' : undefined}
       />
       {lens === 'context' && <ContextRows run={run} />}
