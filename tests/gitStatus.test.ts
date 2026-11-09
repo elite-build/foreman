@@ -35,4 +35,24 @@ describe('the next step after the pull request merged', () => {
     await commit(dir, 'next change')
     expect(await status()).toMatchObject({ pr: undefined, primary: { action: 'create-pr' } })
   })
+
+  it('still offers Archive when a tracked file only changed its line endings', async () => {
+    const dir = await makeRepo({ 'notes.md': 'one\ntwo\n' })
+    // As a Windows checkout with autocrlf off sees a test run rewriting a snapshot with CRLF.
+    await git(dir, ['config', 'core.autocrlf', 'false'])
+    await git(dir, ['checkout', '-q', '-b', 'feat'])
+    const head = (await git(dir, ['rev-parse', 'HEAD'])).stdout.trim()
+
+    const ws = { id: 'w1', path: dir, branch: 'feat', baseBranch: 'main' } as Workspace
+    const pr = { number: 89, url: 'u', title: 't', state: 'MERGED', isDraft: false, mergeable: 'UNKNOWN', baseRefName: 'main', checks: [] } as PullRequestInfo
+    const merged: PrResult = { kind: 'ok', pr, headRefOid: head, repo: 'acme/web' }
+    const status = () => gitStatus(ws, true, undefined, 'origin', async () => merged, { available: async () => true })
+
+    await writeFile(path.join(dir, 'notes.md'), 'one\r\ntwo\r\n')
+    expect(await status()).toMatchObject({ uncommitted: 1, pr: { number: 89 }, primary: { action: 'archive' } })
+
+    // A real edit to the same file is the next change.
+    await writeFile(path.join(dir, 'notes.md'), 'one\r\ntwo\r\nthree\r\n')
+    expect(await status()).toMatchObject({ pr: undefined, primary: { action: 'create-pr' } })
+  })
 })
