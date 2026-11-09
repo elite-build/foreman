@@ -22,38 +22,55 @@ Foreman runs on your computer. There is no Foreman account or cloud service: wor
 
 ![The Automations library of templates and commands, with the schedules beside it](docs/images/automations-light.png)
 
-Foreman also has checkpoints you can rewind to, terminals and run scripts, a built-in assistant, the `foreman` command line, GitHub, Linear and Slack integrations, and a phone view for approving requests away from your desk. See the [guide](docs/guide.md) for those.
+**Flows.** Write a way of working down once as a graph of agent steps: loops that run until the checks pass or a review comes back clean, and gates where you decide whether to go on. Start from one of eleven built-in flows, give each step a persona (architect, developer, QA engineer and seven more), or describe who does what and let the assistant draft the flow. Flows are experimental: turn them on in **Settings → Experimental → Flows**.
 
-## Run it
+![A flow's page in Automations: its graph of steps, loops and a gate, with the assistant under it](docs/images/flow-light.png)
 
-Requirements:
+Run a flow from Automations, **New workspace**, a schedule or `foreman flow run`, and follow it on the workspace's **Flow** tab. **Full screen** puts the run in the middle of the workspace with the chat beside it.
 
-- Node.js 22.12+ (22.x) or 24.x, with npm.
+![A flow run's diagram in the middle of the workspace, with its chat beside it](docs/images/flow-run-dark.png)
+
+**Command line.** Most of what you do in the window can also be done from a terminal or a script with the `foreman` command: start workspaces from templates, send messages and wait for turns, answer approvals, open and merge pull requests, run flows, manage repositories, schedules and remote workspaces, and change any setting. Every command takes `--json`, and exit codes are the same for every command, so scripts and CI can rely on them. Agents use it too, from inside a turn, to report progress or ask for a review.
+
+```bash
+foreman run fix-a-bug "the login page loops after sign-in" --repo atlas --wait
+foreman send atlas "also add a test for an expired token"
+foreman approvals
+foreman pr create atlas --draft
+foreman flow run fix-until-green --input task="make the tests pass" --wait
+```
+
+`foreman help` lists the commands by group, and the [command line reference](docs/cli.md) has every one with its options and examples.
+
+Foreman also has checkpoints you can rewind to, terminals and run scripts, file paths in the chat that open in the right app, a built-in assistant, GitHub, Linear and Slack integrations, and a phone view for approving requests away from your desk. See the [guide](docs/guide.md) for those.
+
+## Install
+
+Download Foreman from the [latest release](https://github.com/elite-build/foreman/releases/latest): the `.dmg` for macOS on Apple Silicon, or `Foreman-Setup-<version>.exe` for Windows. It's an ordinary desktop app; you don't need Node.js or a checkout to run it.
+
+- The macOS app is signed and notarized, so it opens without a warning.
+- The Windows installer isn't signed yet, so SmartScreen warns on first run (**More info → Run anyway**). Foreman has been verified on macOS so far; see [Windows](docs/windows.md) for what still needs checking there.
+
+You'll also need:
+
 - Git on your PATH.
 - A login or API key for at least one agent, set in **Settings → Agents**.
 - For GitHub actions, the `gh` CLI with a login, or a token connection in **Settings → Integrations**.
 
+Add a local Git repository, review its setup and run commands in repository settings, then create a workspace and send a prompt. To use the `foreman` command, install it from **Settings → Advanced → foreman command → Install**; Foreman must be running for it to work.
+
+### Build from source
+
+With Node.js 22.12+ (22.x) or 24.x and Git:
+
 ```bash
 npm install
-npm run dev
+npm run dev        # or: npm run dev demo
 ```
 
-Add a local Git repository, review its setup and run commands in repository settings, then create a workspace and send a prompt.
+`npm run dev demo` opens the app on demo data, with no network and no agent login: two repositories, three workspaces with chats and diffs, and a flow run you can watch stop at its gate. `npm run dev demo reset` starts it again from scratch. Set `FOREMAN_DATA_DIR=/some/folder` to keep development state apart from an installed Foreman, and run `npm link` after `npm run build` to put `foreman` on your PATH from the checkout. If `npm run dev` says Electron failed to install, run `node node_modules/electron/install.js`.
 
-If `npm run dev` says Electron failed to install, run `node node_modules/electron/install.js`. Set `FOREMAN_DATA_DIR=/some/folder` to keep development state separate from an installed Foreman.
-
-To click through the app without your own repositories or an agent login, run `npm run dev demo`. It opens on demo data: the screenshot fixture (two repositories, three workspaces with chats, diffs, a flow run and its checks) in a folder of its own, kept between launches. Each launch also starts a run of the "Fix until green" flow, so you can watch one go through its steps and loops and stop at its gate for you. Nothing reaches the network: agents answer from a script, and GitHub, integrations, cloud sandboxes and paired devices stay off. `npm run dev demo reset` starts the demo data again from scratch. `FOREMAN_DEMO_DIR` chooses the folder (default: `Foreman Demo` next to the app's data folder).
-
-| Command | Does |
-|---|---|
-| `npm test` | Unit and integration tests |
-| `npm run typecheck` | TypeScript check |
-| `npm run build` / `npm start` | Build into `out/`, then preview the built app |
-| `npm run dist:mac` / `npm run dist:win` | Build a DMG / NSIS installer into `dist/` |
-
-Releases are described in [docs/maintenance.md](docs/maintenance.md#releases). After editing the SVGs in `build/icons/`, regenerate the icons with `npx electron scripts/render-icons.mjs` on macOS.
-
-Foreman targets macOS and Windows, but has been verified on macOS only so far; see [Windows](docs/windows.md) for what still needs checking.
+`npm test`, `npm run typecheck` and `npm run build` are the checks; `npm run dist:mac` / `npm run dist:win` build an installer into `dist/`. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for the rest, and [docs/maintenance.md](docs/maintenance.md#releases) for releases.
 
 ### Updates
 
@@ -65,7 +82,7 @@ Foreman installs updates itself on Windows, and on macOS only when the app is si
 
 ## Learn more
 
-- [Guide](docs/guide.md): repository configuration, agent tools, integrations, backups, the command line and phone access
+- [Guide](docs/guide.md): repository configuration, agent tools, integrations, backups, the command line, flows and phone access
 - [Command line reference](docs/cli.md)
 - [Design system](docs/design-system.md), [accessibility](docs/accessibility.md) and [performance with many agents](docs/performance.md)
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development conventions
