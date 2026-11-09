@@ -693,7 +693,7 @@ export async function gitStatus(
   // A merged PR stops describing the branch once work goes on after it (the next PR from the same chat): the next
   // step is that work's own PR, not Archive. Until then a lookup still finds the merged one.
   const movedOn =
-    found?.kind === 'ok' && found.pr.state === 'MERGED' && (entries.length > 0 || (await workAfter(at, found.headRefOid, vsBase ? base : undefined)))
+    found?.kind === 'ok' && found.pr.state === 'MERGED' && ((await uncommittedWork(at, entries)) || (await workAfter(at, found.headRefOid, vsBase ? base : undefined)))
   const pr = found?.kind === 'ok' && !movedOn ? found.pr : undefined
   // gh missing has its own row; anything else that failed is worth saying.
   const prProblem = installed && (found?.kind === 'auth-error' || found?.kind === 'unavailable') ? { kind: found.kind, message: found.message } : undefined
@@ -716,6 +716,17 @@ export async function gitStatus(
   }
   const primary = primaryAction(status, rules)
   return { ...status, primary: options.scm?.kind === 'gitlab' ? gitlabPrimary(primary) : primary }
+}
+
+/**
+ * Whether uncommitted changes are work: a new file, or a change to a tracked file beyond its line endings. A test run
+ * rewriting a file's line endings on Windows isn't, and mustn't hide Archive after the merge. An error says yes.
+ */
+async function uncommittedWork(at: GitTarget, entries: string[]): Promise<boolean> {
+  if (!entries.length) return false
+  if (entries.some((e) => e.startsWith('?? '))) return true
+  const r = await git(at, ['diff', 'HEAD', '--ignore-cr-at-eol', '--quiet'], { allowFail: true })
+  return r.code !== 0
 }
 
 /**
