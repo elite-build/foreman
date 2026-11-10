@@ -30,6 +30,8 @@ const WALK = process.env.FOREMAN_SCREENSHOTS_WALK === '1'
 export function screenshotRoot(): string {
   const root = process.env.FOREMAN_SCREENSHOTS_DIR || mkdtempSync(path.join(os.tmpdir(), 'foreman-screens-data-'))
   mkdirSync(root, { recursive: true })
+  // What the run's agent CLIs write relative to where they start (the fixture's `~/.claude-work` account folder) stays in it.
+  process.chdir(root)
   return root
 }
 
