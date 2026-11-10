@@ -35,6 +35,7 @@ The Phase 1 and 2 changes follow these rules. New code should follow them too.
 5. **Pause when the window is hidden.** When the window is minimized or hidden, the store stops notifying components, and clocks and endless animations stop (`src/main/windowVisibility.ts`, `useClock`). Terminal output is batched per 16 ms (`src/main/pty.ts`).
 6. **Limit git and share working-tree snapshots.** Local, CPU-bound git commands run at most `GIT_CONCURRENCY` at once. A read that is already running with the same arguments is shared (`src/main/git.ts`). Diff, checks and turn-end checkpoints share a recent working-tree snapshot (`src/main/checkpoints.ts`). The diff refreshes on events instead of polling.
 7. **No synchronous child processes on main.** Use the async helpers. For example, gh account resolution is async and bounded (`Environment.githubReady`).
+8. **Bound every network client by its view and its buffer.** A phone or browser socket is sent only what its view lets through: a phone views one chat, so it receives only that chat's items, and terminal output goes only to a client viewing everything with Operate (`sentToView` in `src/shared/api.ts`). Each event is serialised once for all connections. Above 4 MB queued for a connection, its `state` events are coalesced to the newest and its terminal output and streamed text are dropped; above 16 MB it is closed with `bye slow`, and the client reconnects and fetches a fresh snapshot (`COALESCE_BYTES` and `DROP_BYTES` in `src/main/api/socket.ts`).
 
 ## Settings
 

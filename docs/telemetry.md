@@ -67,7 +67,7 @@ Four layers, each with one owner and one way out.
 
 `src/main/perf.ts` exports one `perf` meter, as `reportProblem.ts` exports one error log.
 
-- **Counters** `perf.count(name, n = 1)`: integers in a `Map`. Names are dotted and stable: `state.flush`, `state.broadcast`, `event.<type>`, `ipc.<method>`, `git.<subcommand>`, `gh.<subcommand>`, `store.save`, `db.putItem`, `db.readChat`.
+- **Counters** `perf.count(name, n = 1)`: integers in a `Map`. Names are dotted and stable: `state.flush`, `state.broadcast`, `event.<type>`, `ipc.<method>`, `remote.<method>`, `ws.<method>`, `ws.connect`, `git.<subcommand>`, `gh.<subcommand>`, `store.save`, `db.putItem`, `db.readChat`.
 - **Timings** `perf.time(name, ms)` and `perf.timed(name, fn)`: count, total, max per name. Same names as the counters where a duration exists.
 - **Gauges** `perf.gauge(name, value)`: the latest value (`state.bytes`, `git.queue`).
 - **Samples**, every 5 s while the app runs: the main process's `process.cpuUsage()` and `process.memoryUsage()`, the event-loop delay histogram (`perf_hooks.monitorEventLoopDelay`, p50/p99/max with its own 20 ms sampling interval taken off, reset per sample), and every Electron process from `app.getAppMetrics()` by type (Browser is main, Tab is the renderer, then GPU and Utility: CPU share and working set). A ring of the last 120 samples (10 minutes). Electron is reached through what `perf.start` is given in `src/main/index.ts`, so the meter and its tests never import it.
@@ -77,6 +77,16 @@ Four layers, each with one owner and one way out.
 - **The stall watchdog:** when a sample's worst event-loop delay reaches 500 ms (`STALL_MS`), the meter reports a `stall` with that interval's counter and timing deltas, and the event log records it. The deltas say what main was doing when the thread stopped answering.
 
 Instrumented in Phase 1: `flushState` (snapshot time, stringify time, bytes, whether it broadcast), `Host.broadcast` (per event type), `ipcMain.handle('foreman:invoke')` (per method, with duration), `localGit` (per subcommand, with duration and queue depth), `runGh` (per subcommand, with duration), `Store.writeState`, `ForemanDb.putItem` and `readChat`, and the process listing in `processUsage.ts`.
+
+Every call from any client enters the core through `ApiDispatcher` (`src/main/api/dispatch.ts`, [server.md](server.md)), which times it by who asked; the socket that phones and browsers hold (`src/main/api/socket.ts`) counts what it sends:
+
+- `ipc.<method>`: a call from this computer's window, served here. A window call forwarded to another computer, while the window shows it, is no longer timed as `ipc.<method>` on this side; the other computer times it as `remote.<method>`.
+- `remote.<method>`: a paired computer's call, timed on the computer that serves it.
+- `ws.<method>`: a phone's or a browser's call, over its socket or the phone page's HTTP routes.
+- `ws.connect`: a phone or browser socket accepted.
+- `ws.event`: an event sent to one connection.
+- `ws.dropped`: an event not sent to a connection with more than 4 MB queued: terminal output, streamed text, or a held `state` replaced by a newer one.
+- `ws.slow`: a connection closed with `bye slow` for having more than 16 MB queued.
 
 Cost: a `Map` lookup and an integer add per counted event; `performance.now()` twice per timed call; one `getAppMetrics` and one histogram read every 5 s.
 

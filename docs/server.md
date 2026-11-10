@@ -31,25 +31,27 @@ A refused call fails with the error code `refused` and a message that names the 
 A session is what a client holds after signing in. The desktop window holds an implicit local session with every scope. Every other session is a record:
 
 ```ts
-interface ApiSessionRecord {
+interface MobileDevice {     // src/shared/mobile.ts
   id: string                 // random UUID
-  kind: 'phone' | 'browser'  // what signed in; 'computer' sessions come from pairing in src/main/remote/
-  name: string               // "iPhone", "Chrome on Mac"
-  scopes: Scope[]            // ['read'], ['read','operate'] or ['read','operate','admin']
-  transport: 'private' | 'lan'
-  createdAt: string
+  name: string               // "iPhone", "Chrome on Windows"
+  pairedAt: string
+  kind?: 'phone' | 'browser' // absent: a phone; 'computer' sessions come from pairing in src/main/remote/
+  scopes?: Scope[]           // ['read'], ['read','operate'] or ['read','operate','admin']; absent: ['read','operate']
+  transport?: 'private' | 'lan'
   lastSeen?: string
-  push?: …                   // the phone's web push subscription, as today
+  push?: …                   // the phone's web push subscription, as before
 }
 ```
 
-These are today's `MobileDevice` records in `state.json` (`mobileDevices`), extended with `kind` and `scopes`; an existing record without `scopes` is read as `['read', 'operate']`, which is what a phone could do before. The credential stays what it is: a random secret in the vault under `mobile:<id>`, handed to the client once as the `foreman_mobile=<id>.<secret>` HttpOnly cookie. A cookie goes with the WebSocket upgrade from the same origin, so a browser client never handles a token. A client that is not a browser may instead send `Authorization: Bearer <id>.<secret>` on the upgrade.
+These are the `MobileDevice` records in `state.json` (`mobileDevices`), extended with optional `kind` and `scopes`, so no migration is needed: a record without `scopes` is read as `['read', 'operate']`, which is what a phone could do before, and `window` is dropped even from a hand-edited record (`deviceScopes`). The credential stays what it was: a random secret in the vault under `mobile:<id>`, handed to the client once as the `foreman_mobile=<id>.<secret>` HttpOnly, `SameSite=Strict` cookie (`Secure` on the private connection). It is accepted only on the listener of the device's own transport. A cookie goes with the WebSocket upgrade from the same origin, so a browser client never handles a token. A client that is not a browser may instead send `Authorization: Bearer <id>.<secret>` on the upgrade (only there; the HTTP routes take the cookie), with an `Origin` that matches the listener.
 
-**Signing in** is the pairing flow that exists: the desktop shows a QR code or link with a one-time secret, the client opens it, both show a six-digit code, and the person at the desktop approves. The approval now also chooses the scopes, with **Operate** selected: Watch (`read`), Operate (`read`, `operate`), Full control (`read`, `operate`, `admin`). The name and kind come from the client's hello. A Foreman with no window is signed into from a terminal instead: `foreman phone link [--lan | --private] [--browser]` turns the connection on if it is off and prints the one-time link (`/app?pair=…` for a browser), `foreman phone pending` shows who is asking, and `foreman phone approve <code> [--access read|operate|admin]` approves the sign-in only when the code typed is the one the device shows, so the person approving has seen it. `foreman phone status`, `deny` and `revoke <id-or-name>` complete the dialog's set; every one that changes who may sign in is the CLI's `admin` tier, so an agent turn can't call it.
+**Signing in** is the pairing flow that exists: the desktop shows a QR code or link with a one-time secret, good for two minutes, the client opens it, both show a six-digit code, and the person at the desktop approves. The approval now also chooses the scopes, with **Operate** selected: Watch (`read`), Operate (`read`, `operate`), Full control (`read`, `operate`, `admin`). The name and kind come from the client's `POST /api/pair/start`; the dialog's button says **Sign in browser** for a browser.
 
-**Revoking** deletes the record and the vault secret, as today, and now also closes that session's live connections with a `bye` whose reason is `revoked`. A revoked client shows that it is signed out and offers nothing else.
+**Signing in from a terminal.** A Foreman with no window is signed into with `foreman phone` (`src/main/cli/phone.ts`): `link [--lan | --private] [--browser] [--qr]` turns the connection on if it is off and prints the one-time link (`/app?pair=…` for a browser), `pending` shows who is asking, and `approve <code> [--access read|operate|admin]` approves only when the code typed is the one the device shows, so the person approving has seen it; `status`, `deny` and `revoke <id-or-name>` complete the dialog's set. Each one that changes who may sign in is the CLI's `admin` tier, so an agent turn can't call it.
 
-**Expiry.** The private cookie lasts a year and the same-Wi-Fi cookie a day, as today. A session that has not been seen for 90 days is listed as stale in the pairing dialog; it is not removed on its own.
+**Revoking** deletes the record and the vault secret, as before, and now also closes that session's live connections with a `bye` whose reason is `revoked`. A revoked client shows that it is signed out and offers nothing else; one that was offline learns it from the 401 its next request gets.
+
+**Expiry.** The private cookie lasts a year and the same-Wi-Fi cookie a day, as before. `lastSeen` is updated at most once a minute and shown in the pairing dialog and by `foreman phone`; a session is never marked stale or removed on its own.
 
 ## 4. The dispatcher
 
@@ -72,26 +74,26 @@ Callers:
 
 ## 5. The stream
 
-Clients get a snapshot and then changes. The server numbers every broadcast (`seq`, increasing for the life of the process), the welcome says the current `seq`, and the client then calls `getSnapshot`. A `state` event carries a whole `AppSnapshot`, and main already coalesces them to one per microtask and sends none when nothing changed, so a client that misses events heals on the next `state` event, and a client that reconnects simply fetches a fresh snapshot. There is no event log to replay. That is a deliberate choice: Foreman's state fits in one snapshot (about 32 KB for 12 workspaces), the renderer already reconciles unchanged objects, and an event store would be a second source of truth.
+Clients get a snapshot and then changes. The server numbers every broadcast (`seq`, increasing for the life of the process), the welcome says the current `seq`, and the client then reads the state (`getSnapshot` in a browser, `GET /api/state` on the phone). A `state` event carries a whole `AppSnapshot`, and main already coalesces them to one per microtask and sends none when nothing changed, so a client that misses events heals on the next `state` event, and a client that reconnects simply fetches a fresh snapshot. There is no event log to replay. That is a deliberate choice: Foreman's state fits in one snapshot (about 32 KB for 12 workspaces), the renderer already reconciles unchanged objects, and an event store would be a second source of truth.
 
 **What a session is sent** is bounded by its *view*, which the client sets with a `view` frame:
 
 | Event | Sent when |
 | --- | --- |
-| `state`, `approval`, `approval-resolved`, `notify`, `attention-history`, `archive-progress`, `assistant-threads` | Always. |
-| `chat-item`, `chat-append`, `chat-reset`, `assistant-item` | The event's session is in the view (`sessionId`), or the view is `all`. |
+| `state`, `approval`, `approval-resolved`, `notify`, `attention-history`, `archive-progress`, `assistant-threads`, `assistant-item` | Always (an assistant item belongs to a thread, not a chat, so a view can't name it). |
+| `chat-item`, `chat-append`, `chat-reset` | The event's session is in the view (`sessionId`), or the view is `all`. |
 | `pty-data`, `pty-exit`, `pty-state`, `setup-log`, `cloud-build-log`, `clone-progress`, `auto-run` | The view is `all` and the session has `operate`. |
 | Window events (`WINDOW_EVENTS` in `src/shared/remote.ts`: browser panel, navigation, dictation, tour, quit, computer chip) | Never. |
 
 A phone views one chat at a time; the browser client views `all`, like the window.
 
-**Backpressure.** Each connection has an outbound budget. Above 4 MB buffered, the server keeps only the newest `state` event and drops `pty-data` and `chat-append` for that connection; above 16 MB it closes the connection with `bye` reason `slow`, and the client reconnects and fetches a snapshot. The budgets are constants in `src/main/api/socket.ts`, and `tests/apiSocket.test.ts` pins them.
+**Backpressure.** Each connection has an outbound budget. Above 4 MB buffered (`COALESCE_BYTES`), the server holds only the newest `state` event, sent once the buffer drains below it (checked every 100 ms), drops `pty-data` and `chat-append` for that connection, and still sends everything else; above 16 MB (`DROP_BYTES`) it closes the connection with `bye` reason `slow` (close code 1013), and the client reconnects and fetches a snapshot. A reply larger than 16 MB is replaced by a `failed` reply. Each event is serialised once however many connections it goes to. The budgets are constants in `src/main/api/socket.ts`, and `tests/apiSocket.test.ts` pins them.
 
 ## 6. The wire
 
-The WebSocket is served on the phone listeners that exist in `src/main/mobile.ts`: `127.0.0.1:47632` for the private HTTPS connection through Tailscale, and the opt-in same-Wi-Fi address on `47633`. The upgrade is `GET /api/ws`. It passes the same guards as every request: the same-Wi-Fi host and subnet check, an `Origin` that matches the listener, and a valid cookie or bearer credential. There is no WebSocket in the Electron window and no new port.
+The WebSocket is served on the phone listeners that exist in `src/main/mobile.ts`: `127.0.0.1:47632` for the private HTTPS connection through Tailscale, and the opt-in same-Wi-Fi address on `47633`. The upgrade is `GET /api/ws`. It passes the same guards as a `POST`: the same-Wi-Fi host and subnet check, an `Origin` header that is present and matches the listener, and a valid cookie or bearer credential for that listener's transport. A refused upgrade gets a plain HTTP answer (`401` not paired, `403` wrong network or origin, `404` any other path) and the socket is closed. There is no WebSocket in the Electron window and no new port.
 
-The library is `ws` (MIT, already in the dependency tree through the Daytona SDK; Node and Electron ship a WebSocket client but no server). Frames are JSON, one message each, 1 MB maximum inbound, `API_PROTOCOL = 1` in `src/shared/api.ts`:
+The library is `ws` (MIT, now a direct dependency; it was already in the tree through the Daytona SDK, and Node and Electron ship a WebSocket client but no server). Frames are JSON text, one message each, at most `MAX_CLIENT_FRAME_BYTES` (1 MB) inbound, past which `ws` closes the socket with 1009; `API_PROTOCOL = 1` in `src/shared/api.ts`:
 
 ```ts
 // client → server
@@ -111,13 +113,13 @@ The library is `ws` (MIT, already in the dependency tree through the Daytona SDK
 { t: 'pong' }
 ```
 
-Rules: the first frame must be `hello`, within 5 seconds, or the socket closes. A `protocol` other than the server's is refused; a different app `version` is accepted for phones and browsers because the server serves their code, and the welcome carries the version so a client can say so. The server pings every 20 seconds and closes after two missed pongs; the client pings too, so a NAT keeps the path open. A `call` to a method whose scope the session lacks is answered `refused`; a `window` method is answered `unavailable`. Replies are matched by `id`; a connection that closes rejects every pending call. Turning a listener off sends `bye` reason `off` to its connections.
+Rules: the first frame must be `hello`, within 5 seconds (`HELLO_MS`), or the socket closes with 1002. A `protocol` other than the server's is refused with `welcome ok: false, refused: 'protocol'`, the only refusal the server sends today: a bad credential is refused at the upgrade, and `version` and `scope` are reserved (the clients read `credential` and `scope` as signed out, the others as outdated). A different app `version` is accepted for phones and browsers because the server serves their code, and the welcome carries the version so a client can say so. After the hello, a frame the server can't read is ignored. The server pings every 20 seconds (`PING_MS`) and cuts the socket when two pings in a row go unanswered; the clients send a `ping` frame every 25 seconds too, so a NAT keeps the path open. A `call` to a method whose scope the session lacks is answered `refused`; a `window` method is answered `unavailable`. Replies are matched by `id`; a connection that closes rejects every pending call. Turning a listener off, or changing the same-Wi-Fi address, sends `bye` reason `off` to that transport's connections, and quitting sends `shutdown`. A closing handshake that takes longer than 2 seconds (`CLOSE_GRACE_MS`) is cut, so a stalled client can't hold a listener open.
 
 ## 7. The clients
 
 **The window** is unchanged for the user. Under it, `foreman:invoke` goes through the dispatcher.
 
-**The phone** (`resources/mobile/app.js`) opens the socket after it loads and views the chat it shows. It stops polling every 4 seconds: `state`, `approval`, `approval-resolved` and `notify` events refresh the list and the thread at once (debounced to one refresh per 150 ms), `chat-item` and `chat-append` for the viewed chat update the transcript directly so a streaming reply types live, and `archive-progress` shows the step. While the socket is down it shows "Reconnecting" and falls back to a refresh every 30 seconds; on `bye` reason `revoked` it shows the signed-out state. Its actions keep using the HTTP routes, which now dispatch with the session so scopes apply; a phone approved to watch hides what it may not do, and a refusal from the server shows the server's message. The phone stays English-only plain JavaScript, as the design-system document records.
+**The phone** (`resources/mobile/app.js`) opens the socket after it loads and views the chat it shows. It stops polling every 4 seconds: `state`, `approval`, `approval-resolved` and `notify` events refresh the list and the thread at once (debounced to one refresh per 150 ms), `chat-item` and `chat-append` for the viewed chat update the transcript directly so a streaming reply types live, and `archive-progress` shows the step. While the socket is down it shows "Reconnecting…" and falls back to a refresh every 30 seconds, retrying on the backoff below and at once when the page is shown again; after `bye off` it shows "Phone access is off" and tries every 60 seconds. On `bye` reason `revoked`, or a 401 from `GET /api/state` (revoked while it was offline, or an expired cookie), it shows the signed-out state. It opens a chat with `GET /api/chat/<id>?live=1`, which includes the reply still being written, so the `chat-append` events that follow continue it; `GET /api/session` gives its id, name, kind and scopes before the first welcome. Its actions keep using the HTTP routes, which now dispatch with the session so scopes apply; a phone approved to watch hides what it may not do, and a refusal from the server shows the server's message. The phone stays English-only plain JavaScript, as the design-system document records.
 
 **A browser** loads the real renderer at `/app` on either listener, signed in through the same pairing flow with kind `browser`:
 
@@ -135,7 +137,7 @@ Foreman runs without a window when started with `--headless`, or when the last w
 
 The rule is pure and tested in `src/main/headless.ts`: `quitsWhenWindowsClose` (never on macOS; otherwise only with no `--headless`, no keep running and, on Windows, no phone access) and `trayWanted` (any of those three, with phone access counting only on Windows as before). While the tray is wanted it shows even with **Tray icon** off, headed "Foreman" when its attention rows are off. Off macOS, a tray icon that could not be made means closing the last window quits after all, so Foreman is never left running with no way back but starting it again. Starting Foreman again with `--headless` while it runs leaves it as it is (the flag travels as the single-instance request's data); starting it any other way brings the window. `--headless` is taken off Chromium's command line at startup: Chromium reads it as its own headless mode and passes it to the GPU process, and a window opened later would then never show. Quit from the tray asks first when something is running, as Quit always does, by opening the window for the Quit sheet.
 
-Headless means no window, not no Electron: secrets use Electron's `safeStorage`, background agent turns use the Electron agent host, and the embedded browser panel is a `WebContentsView`. A server with no Electron at all would need those three replaced, and `Host` in `core.ts` is the seam for it; it is recorded in `docs/decisions.md` as not now.
+Headless means no window, not no Electron: secrets use Electron's `safeStorage`, background agent turns use the Electron agent host, and the embedded browser panel is a `WebContentsView`. A server with no Electron at all would need those three replaced, and `Host` in `core.ts` is the seam for it; it is recorded in `docs/decisions.md` as not now. It follows that `--headless` still needs a display server where Electron does: on Linux, which Foreman does not support officially, a machine with no screen needs a virtual one.
 
 ## 9. What is not in this design
 
@@ -159,7 +161,7 @@ Headless means no window, not no Electron: secrets use Electron's `safeStorage`,
 | Browser client | `src/renderer/src/bridge.ts`, `src/renderer/src/socketBridge.ts`, `src/renderer/src/store.ts` (bridge import, `client` state, `resyncStore`, the unavailable toast), `src/renderer/src/components/computers/BrowserBanner.tsx`, the browser cases in `DropFolder.tsx` and `composer/Composer.tsx`; serving `/app` and `/assets/*` in `src/main/mobile.ts`; `then` in `resources/mobile/app.js`; `MAX_CLIENT_FRAME_BYTES` in `src/shared/api.ts`; `browser.*` i18n keys. |
 | Headless | `src/main/index.ts` (`--headless`, `closingQuits`, `drawTray`), `src/main/headless.ts` (the pure rule, tested), `src/main/tray.ts` (stays up while wanted), the `keepRunning` setting end to end (`types.ts`, `store.ts`, `settingsSchema.ts`, `settingsRegistry.ts`, i18n, `DataPage.tsx`). |
 | Tests | `tests/apiScopes.test.ts` (every method placed; window set equals the remote sets it replaces; dispatcher refusals), `tests/apiSocket.test.ts` (real `ws` on loopback: hello and refusals, scope and unavailable replies, view filter, backpressure close, revoke, pings), `tests/mobile.test.ts` (routes through the dispatcher, scopes on routes, upgrade guards), `tests/mobile.test.ts` also `/app` (sign-in page, pairing redirect, `then`, CSP, assets and traversal), `tests/socketBridge.test.ts` (jsdom with a fake socket: hello, calls, local refusals, events, reconnect and backoff, resync, revoked, off, outdated, the session check), the bridge end to end against the real server in `tests/apiSocket.test.ts`, `tests/browserResync.test.tsx` (the store's resync and the unavailable toast), the banner in `tests/computers.test.tsx`, `tests/headless.test.ts`, `tests/trayRedraw.test.ts`. |
-| Docs | This file; `docs/guide.md` ("Phones and browsers", headless); `docs/telemetry.md` (`ws.<method>`, `remote.<method>`, `event.sent.<kind>`); `docs/decisions.md`; `docs/cli.md` regenerated. |
+| Docs | This file; `docs/guide.md` ("Mobile access", "In a browser", "Running without a window"); `docs/telemetry.md` (`ipc.<method>`, `remote.<method>`, `ws.<method>`, `ws.connect`, `ws.event`, `ws.dropped`, `ws.slow`); `docs/performance.md` (design rule 8); `docs/decisions.md`; `docs/windows.md` (item 9); `README.md`; `docs/cli.md` regenerated. |
 
 ## 11. Build order
 
@@ -171,3 +173,19 @@ Each slice is one pull-request-sized change that leaves `npm run typecheck`, `np
 4. **Headless.** `--headless`, the setting, the tray rule as a pure function with tests, docs.
 5. **The browser client.** The bridge choice, the socket bridge with reconnect and resync, `/app` served with sign-in, window-only features hidden, tests.
 6. **Docs and review.** Guide, decisions, telemetry, a fresh-eyes review of the whole change and its fixes.
+
+## 12. Checked by hand
+
+The tests above run the server on loopback and the clients against fakes. These are the checks that need real devices and networks. Record a run by replacing its status with the date and platform.
+
+| Check | Status |
+| --- | --- |
+| Pair a phone with each access level, Watch, Operate and Full control, over each connection: Watch offers no actions, and the dialog and `foreman phone` list each with its access. | not yet run |
+| Live updates: with a chat open on the phone, a reply types as the agent writes it and a new approval shows within a second, with no request every 4 seconds in the network log. | not yet run |
+| Revoke while connected, from the dialog and with `foreman phone revoke`: an open phone and an open browser show that they were signed out at once. | not yet run |
+| Start with `--headless`: no window opens, the tray shows, **Show Foreman** opens the window, and starting again with `--headless` leaves it as it is. | run on Windows, 2026-11-10 |
+| Sign a client in from a terminal: `foreman phone link`, `foreman phone pending` and `foreman phone approve <code>`, with the device's side driven by curl. | run on Windows, 2026-11-10 |
+| A browser at `/app` over same Wi-Fi: `foreman phone link --browser --lan`, approve, and the app loads and works within its access. | run on Windows, 2026-11-10 |
+| The browser's reconnect: drop the network, see the **Reconnecting** banner, restore it, and the page catches up without a reload. | not yet run |
+| Phone and browser over private HTTPS (`tailscale serve --bg 47632`). | not yet run |
+| All of the above on macOS. | not yet run |

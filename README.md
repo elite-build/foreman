@@ -42,7 +42,7 @@ foreman flow run fix-until-green --input task="make the tests pass" --wait
 
 `foreman help` lists the commands by group, and the [command line reference](docs/cli.md) has every one with its options and examples.
 
-Foreman also has checkpoints you can rewind to, terminals and run scripts, file paths in the chat that open in the right app, a built-in assistant, GitHub, Linear and Slack integrations, and a phone view for approving requests away from your desk. See the [guide](docs/guide.md) for those.
+Foreman also has checkpoints you can rewind to, terminals and run scripts, file paths in the chat that open in the right app, a built-in assistant, GitHub, Linear and Slack integrations, and a phone view for approving requests away from your desk. The phone view updates live, a browser on another computer can open the whole app with the same sign-in, and Foreman can run without a window, with sign-ins approved from a terminal. See the [guide](docs/guide.md) for those.
 
 ## Install
 
