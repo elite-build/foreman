@@ -7,7 +7,7 @@
 import { APPROVAL_COMMANDS, TAB_COMMANDS, WORKSPACE_COMMANDS } from './cliCommandsOps'
 import { AUTOMATION_COMMANDS } from './cliCommandsAutomations'
 import { CLOUD_COMMANDS, GIT_COMMANDS, REPO_OPS_COMMANDS, WORDS_OPTION } from './cliCommandsGit'
-import { ENV_COMMANDS, REPO_SETTINGS_COMMANDS, SETTINGS_COMMANDS } from './cliCommandsSettings'
+import { ENV_COMMANDS, PHONE_COMMANDS, REPO_SETTINGS_COMMANDS, SETTINGS_COMMANDS } from './cliCommandsSettings'
 
 export type CommandGroup = 'work' | 'workspaces' | 'chats' | 'git' | 'repos' | 'settings' | 'remote' | 'app' | 'agents'
 
@@ -526,6 +526,8 @@ export const COMMANDS: CommandSpec[] = [
   ...SETTINGS_COMMANDS,
   ...REPO_SETTINGS_COMMANDS,
   ...ENV_COMMANDS,
+  // Phones and browsers signing in, for a Foreman with no window to approve them in (docs/server.md).
+  ...PHONE_COMMANDS,
   // Loadouts, models, agents, templates, saved commands, schedules, connections, Slack, backups, usage (phase 1c-B).
   ...AUTOMATION_COMMANDS,
   // Git and pull requests, repository operations, remote workspaces (phase 2-B).

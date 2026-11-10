@@ -21,6 +21,7 @@ import { ENV_METHODS } from './env'
 import { FLOW_METHODS } from './flows'
 import { LINEAGE_METHODS } from './lineage'
 import { PERSONA_METHODS } from './personas'
+import { PHONE_METHODS } from './phone'
 import { INTEGRATIONS_METHODS } from './integrations'
 import { REPO_SETTINGS_METHODS } from './repoSettings'
 import { SCHEDULES_METHODS } from './schedules'
@@ -122,6 +123,8 @@ export const METHODS: Record<string, CliMethod> = {
   ...PERSONA_METHODS,
   ...INTEGRATIONS_METHODS,
   ...DATA_METHODS,
+  // Phones and browsers signing in (docs/server.md): status and pending in read, everything that changes who may sign in in admin.
+  ...PHONE_METHODS,
   // Workspaces, chat tabs and approvals (plan §7).
   ...WORKSPACE_METHODS,
   ...TAB_METHODS,

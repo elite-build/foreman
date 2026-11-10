@@ -15,6 +15,7 @@ import { repoOpsRunners } from './commands/repoOps'
 import { envRunners } from './commands/env'
 import { repoRunners } from './commands/repo'
 import { settingsRunners } from './commands/settings'
+import { phoneRunners } from './commands/phone'
 // Registers the settings-keys help topic when imported.
 import './topics/settingsKeys'
 import { tabRunners } from './commands/tab'
@@ -26,7 +27,7 @@ import { confirm, note, print, wantsJson } from './output'
 import { defaultDataDir, socketPath, type CliProgressFrame } from './protocol'
 
 /** Each command's function, by its path joined with spaces. The hidden `mcp-bridge` isn't here: it never goes through the framework. */
-export const RUNNERS = new Map<string, Run>(Object.entries({ ...workRunners, ...portabilityRunners, ...appRunners, ...workspaceRunners, ...tabRunners, ...approvalRunners, ...settingsRunners, ...repoRunners, ...envRunners, ...automationRunners, ...gitRunners, ...repoOpsRunners, ...cloudRunners }))
+export const RUNNERS = new Map<string, Run>(Object.entries({ ...workRunners, ...portabilityRunners, ...appRunners, ...workspaceRunners, ...tabRunners, ...approvalRunners, ...settingsRunners, ...phoneRunners, ...repoRunners, ...envRunners, ...automationRunners, ...gitRunners, ...repoOpsRunners, ...cloudRunners }))
 
 /** Spec and function for a command; throws for a spec nobody attached a function to (a test keeps that from shipping). */
 export function runnerFor(spec: CommandSpec): Run {
