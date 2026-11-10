@@ -119,6 +119,8 @@ export const METHOD_SCOPES = {
   pickDirectory: 'window', pickFiles: 'window', pickPath: 'window', classifyFolders: 'window', attachFiles: 'window',
   openPath: 'window', openFile: 'window', openInEditor: 'window', openInApps: 'window', openInIcons: 'window', openIn: 'window',
   openRepoSettingsFile: 'window', previewUrl: 'window', openPreview: 'window',
+  // Codex's browser sign-in: its callback and the browser belong to one computer.
+  codexSignIn: 'window', codexSignInCancel: 'window',
   exportWorkspace: 'window', stageImport: 'window', importStaged: 'window', discardImport: 'window',
   // A saved secret's value: set from anywhere with admin, read back only on the computer it belongs to.
   revealEnvVar: 'window', revealAgentKey: 'window', revealProviderKey: 'window'
