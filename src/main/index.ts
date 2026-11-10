@@ -2,7 +2,7 @@ import { ForemanDelegation } from './foremanDelegation'
 import { ForemanCli } from './foremanCli'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, safeStorage, shell, systemPreferences } from 'electron'
 import { randomBytes } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -17,7 +17,7 @@ import { ensureCliToken, startCliServer, type CliHost } from './cliServer'
 import { Core } from './core'
 import { WorkspaceBrowser } from './workspaceBrowser'
 import type { BrowserCommand } from '../shared/browser'
-import { importLoginShellEnv } from './platform'
+import { findOnPath, importLoginShellEnv } from './platform'
 import { SecretStore } from './secrets'
 import { allowPermission } from './speech/permissions'
 import { Store } from './store'
@@ -32,6 +32,7 @@ import { HOST_FLAG, hostArgs, hostDir } from './agentHost/protocol'
 import { readHostBundle, type HostBundle } from './agentHost/sandboxPackage'
 import { AppTray } from './tray'
 import { parseHeadless, quitsWhenWindowsClose, trayWanted, type HeadlessFacts } from './headless'
+import { installNotes, parseDataDir, parseService, readRelaunchNote, RELAUNCH_FILE, relaunchNote, ServiceManager, serviceUpdateDue, systemServiceDeps, type ServiceFacts } from './service'
 import { LINK_SCHEME, linksIn } from '../shared/deepLink'
 import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
@@ -70,7 +71,11 @@ const screensRoot = SCREENSHOTS ? screenshotRoot() : null
 if (screensRoot) screensSwitches((name, value) => app.commandLine.appendSwitch(name, value))
 // Started with --headless (docs/server.md, "Headless"): every service runs and no window opens until one is asked for
 // (the tray, a foreman:// link, `foreman run --open`, starting Foreman again). A screenshot run needs its window.
-const headless = !screensRoot && parseHeadless(process.argv)
+let headless = !screensRoot && parseHeadless(process.argv)
+// Started by the background service (service.ts, `foreman service install`): headless, never quits when a window closes,
+// and installs a downloaded update by itself. Also true when the service started again while this one ran, or when an
+// update this one installed brought it back (the installer starts Foreman with no arguments; see takeRelaunchNote).
+let service = !screensRoot && parseService(process.argv)
 // Chromium reads --headless as its own headless mode and passes it to the GPU process, where no window Foreman opens
 // later could ever show. The flag is Foreman's; take it off Chromium's command line before anything starts.
 if (parseHeadless(process.argv)) app.commandLine.removeSwitch('headless')
@@ -90,8 +95,10 @@ if (demoRoot) {
   registerDemoAgents()
   console.log(`[demo] ${demoSeed ? 'Seeding' : 'Using'} the demo data in ${demoRoot}`)
 }
-// Separate data folder for development and tests (SWITCHYARD_DATA_DIR is the older name).
-const dataDirOverride = (screensRoot && path.join(screensRoot, 'data')) || (demoRoot && demoDataDir(demoRoot)) || process.env.FOREMAN_DATA_DIR || process.env.SWITCHYARD_DATA_DIR
+// Separate data folder for development and tests (SWITCHYARD_DATA_DIR is the older name). --data-dir= is how the background
+// service starts a Foreman installed from one with its own folder, as Task Scheduler can't set environment variables.
+const ownDataDir = parseDataDir(process.argv) || process.env.FOREMAN_DATA_DIR || process.env.SWITCHYARD_DATA_DIR
+const dataDirOverride = (screensRoot && path.join(screensRoot, 'data')) || (demoRoot && demoDataDir(demoRoot)) || ownDataDir
 if (dataDirOverride) app.setPath('userData', dataDirOverride)
 
 /**
@@ -162,7 +169,7 @@ function phoneTray(): boolean {
 /** What decides whether Foreman runs on with no window (headless.ts). */
 function headlessFacts(): HeadlessFacts {
   const settings = core?.settings()
-  return { platform: process.platform, headless, keepRunning: Boolean(settings?.keepRunning), phoneAccess: Boolean(settings?.mobileEnabled || settings?.mobileLanEnabled) }
+  return { platform: process.platform, headless, service, keepRunning: Boolean(settings?.keepRunning), phoneAccess: Boolean(settings?.mobileEnabled || settings?.mobileLanEnabled) }
 }
 
 function drawTray(): void {
@@ -381,17 +388,29 @@ async function main(): Promise<void> {
   // A second instance would corrupt the state file; focus the first one instead. A screenshot run has its own data folder.
   // Whether this one was started headless goes with the request: the running one can't read it from the command line, which
   // no longer has the switch (see removeSwitch above).
-  if (!screensRoot && !app.requestSingleInstanceLock({ headless: parseHeadless(process.argv) })) {
+  if (!screensRoot && !app.requestSingleInstanceLock({ headless: parseHeadless(process.argv), service: parseService(process.argv) })) {
     app.quit()
     return
+  }
+  // Brought back by an update the service's Foreman installed: the service's again, with a window only if one was open.
+  const relaunch = !screensRoot && !demoRoot ? takeRelaunchNote() : null
+  if (relaunch) {
+    service = true
+    headless = headless || !relaunch.window
   }
   // A folder dropped on the taskbar button, shortcut or Dock icon while Foreman runs (O21).
   app.on('second-instance', (_event, argv, workingDirectory, data) => {
     receiveLaunchFolders(launchPaths(argv, { cwd: workingDirectory, skip: [app.getAppPath()] }))
     // #3: Windows hands a foreman:// link to the running app this way.
     for (const url of linksIn(argv)) receiveLink(url)
-    // Starting it again headless (a login item, a script) leaves it as it is; anything else brings the window.
-    if (!(data as { headless?: unknown } | null)?.headless) showWindow()
+    // Starting it again headless (a login item, a script) leaves it as it is; anything else brings the window. The
+    // service starting at login while Foreman was already open makes this one the service's.
+    const asked = data as { headless?: unknown; service?: unknown } | null
+    if (asked?.service === true && !demoRoot) {
+      service = true
+      drawTray()
+    }
+    if (!asked?.headless) showWindow()
   })
   // #3: macOS hands foreman:// links over as open-url, at launch too (before ready).
   app.on('open-url', (event, url) => {
@@ -758,6 +777,12 @@ async function main(): Promise<void> {
   if (app.isPackaged) {
     setTimeout(() => void started.updates.start(), 5_000).unref()
     powerMonitor.on('resume', () => started.updates.woke())
+    // The service's Foreman installs a downloaded update by itself once nobody is using it (service.ts): no window open and
+    // nothing Quit would ask about. A window's update card decides otherwise. Restarting writes the relaunch note.
+    setInterval(() => {
+      const due = serviceUpdateDue({ service, readyVersion: started.updates.readyVersion(), windows: visibleWindows(), busy: started.stopSafely.needsAsking() })
+      if (due) void started.api.restartToUpdate(false).catch((err: unknown) => console.error('Could not restart to install the Foreman update:', err))
+    }, 60_000).unref()
   }
   // Cloud workspaces: idle sleep every minute (nothing to do without one), and orphans stopped once if Settings say so.
   if (online) {
@@ -836,7 +861,9 @@ async function main(): Promise<void> {
       else heapSnapshotMain(file)
       diag.log('heap.snapshot', { target, file })
       return { file }
-    }
+    },
+    // `foreman service`: not in the demo, whose data folder and scripted agents a login item mustn't start.
+    service: demoRoot ? undefined : serviceHost(started)
   }
   // The assistant's Run button runs commands against the same host, in process.
   started.assistant.attachCli(cliHost)
@@ -911,6 +938,68 @@ let updateInstaller: ElectronUpdateInstaller | undefined
 // The update card's Restart: once shut down, run the installer, which starts Foreman again.
 let installUpdate = false
 
+/** Windows someone could be looking at. */
+function visibleWindows(): number {
+  return BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isVisible()).length
+}
+
+/** What the background service is made from (service.ts): this Foreman as it was started, and this computer. */
+function serviceFacts(): ServiceFacts {
+  const env = process.env
+  return {
+    platform: process.platform,
+    home: os.homedir(),
+    execPath: process.execPath,
+    appPath: app.getAppPath(),
+    packaged: app.isPackaged,
+    appImage: env.APPIMAGE,
+    dataDir: ownDataDir ? path.resolve(ownDataDir) : undefined,
+    configHome: env.XDG_CONFIG_HOME,
+    display: { DISPLAY: env.DISPLAY, WAYLAND_DISPLAY: env.WAYLAND_DISPLAY, XAUTHORITY: env.XAUTHORITY },
+    xvfbRun: process.platform === 'linux' ? findOnPath('xvfb-run') : null,
+    user: env.USERDOMAIN && env.USERNAME ? `${env.USERDOMAIN}\\${env.USERNAME}` : os.userInfo().username,
+    tempDir: os.tmpdir()
+  }
+}
+
+/** `foreman service` (cli/service.ts): install, remove and describe the background service for this Foreman. */
+function serviceHost(started: Core): CliHost['service'] {
+  const manager = new ServiceManager({ facts: serviceFacts(), ...systemServiceDeps() })
+  return {
+    status: () => manager.status(),
+    install: () => manager.install(),
+    uninstall: () => manager.uninstall(),
+    get startedByService() {
+      return service
+    },
+    canUpdate: () => !started.updates.view().installUnavailable,
+    notes: () => installNotes(serviceFacts())
+  }
+}
+
+/** Just before the installer runs: how the new version should start, read once by takeRelaunchNote. */
+function writeRelaunchNote(version: string, window: boolean): void {
+  try {
+    writeFileSync(path.join(app.getPath('userData'), RELAUNCH_FILE), relaunchNote(version, window))
+  } catch (err) {
+    console.error('Could not note how Foreman should start after the update:', err)
+  }
+}
+
+/** At startup: the note an update left, if it is for this version and recent. Read once; the file goes either way. */
+function takeRelaunchNote(): ReturnType<typeof readRelaunchNote> {
+  const file = path.join(app.getPath('userData'), RELAUNCH_FILE)
+  if (!existsSync(file)) return null
+  let text: string | null = null
+  try {
+    text = readFileSync(file, 'utf8')
+    rmSync(file, { force: true })
+  } catch {
+    // Unreadable: start as if there were none.
+  }
+  return readRelaunchNote(text, app.getVersion())
+}
+
 /**
  * Closing the last window quits the app unless something wants it to stay (headless.ts: macOS, --headless, Keep running
  * without a window, phone access on Windows). Off macOS it stays only behind a tray icon: one that couldn't be made
@@ -943,8 +1032,12 @@ app.on('before-quit', (event) => {
   cliServer?.close()
   perf.stop()
   diag.log('app.quit')
+  // The service's Foreman comes back after the update as it was: in the background, with a window only if one is open now.
+  const updating = installUpdate && service ? core.updates.readyVersion() : undefined
+  const windowOpen = visibleWindows() > 0
   void Promise.all([core.shutdown(), mobile?.close(), core.bridge.close(), perf.flushed(), diag.flushed()]).finally(() => {
     if (!installUpdate || !updateInstaller) return app.quit()
+    if (updating) writeRelaunchNote(updating, windowOpen)
     // electron-updater quits once the installer is under way. When it can't start one it only reports an error, so
     // quit anyway rather than leave a stopped app open; the update stays downloaded for the next try.
     setTimeout(() => app.quit(), 10_000).unref()

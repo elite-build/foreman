@@ -4,7 +4,7 @@ Foreman already runs loops and graphs of agent work; it just never lets anyone s
 
 This page designs **flows**: a graph of steps the user (or, under the existing opt-in, an agent) writes once and runs many times, with loops that stop on facts Foreman already knows. It deliberately does not stop at the run order. The same flow is read through four graphs, because the run order is the least of what goes wrong when agents work in a chain: what each step is shown (context), what survives from one step or one iteration to the next (memory), and which tree, branch or pull request each step works on (data) are where chains silently break. Every lens is drawn from records Foreman keeps today, so a flow can also be *recovered* from work that was done by hand and turned into one.
 
-Nothing here adds a server, a daemon or an account. Flows run while Foreman is open, on this computer, under the rules the schedule and auto-review services already follow.
+Nothing here adds a server, a daemon or an account. Flows run while Foreman runs, on this computer, under the rules the schedule and auto-review services already follow. Foreman need not have a window open for that: it can run headless, and `foreman service install` starts it so at every login (docs/server.md, "As a service").
 
 ## Status
 
@@ -61,7 +61,7 @@ What none of them give: a model of a step that any of the others can be a node o
 6. **Recover graphs from what happened.** The four lenses are drawn from existing records, so a workspace's history shows as a graph without a flow, and "Make a flow from this" turns a chain done by hand into a file.
 7. **Keep the existing safety rules.** Unattended turns stop for the human on any approval or question; caps, fingerprints, consent for check commands and MCP servers, and the repository opt-in for agents starting work all hold. Foreman writes nothing into the repository.
 
-Not goals: a visual drag-and-drop canvas (see "Showing a graph"), a general workflow engine with expressions, running while Foreman is closed, running across computers (a flow's steps run on the computer that owns the workspace), merging branches automatically.
+Not goals: a visual drag-and-drop canvas (see "Showing a graph"), a general workflow engine with expressions, running while Foreman isn't running at all (it can run with no window, and as a service from login), running across computers (a flow's steps run on the computer that owns the workspace), merging branches automatically.
 
 ## The model
 

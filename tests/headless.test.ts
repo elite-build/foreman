@@ -7,7 +7,7 @@ import { parseHeadless, quitsWhenWindowsClose, trayWanted, type HeadlessFacts } 
 const PLATFORMS: NodeJS.Platform[] = ['darwin', 'win32', 'linux']
 
 function facts(platform: NodeJS.Platform, rest: Partial<HeadlessFacts> = {}): HeadlessFacts {
-  return { platform, headless: false, keepRunning: false, phoneAccess: false, ...rest }
+  return { platform, headless: false, service: false, keepRunning: false, phoneAccess: false, ...rest }
 }
 
 describe('quitsWhenWindowsClose', () => {
@@ -21,10 +21,12 @@ describe('quitsWhenWindowsClose', () => {
     expect(quitsWhenWindowsClose(facts('linux', { phoneAccess: true }))).toBe(true)
   })
 
-  it('never quits when started headless or with Keep running without a window on', () => {
+  it('never quits when started headless, by the service, or with Keep running without a window on', () => {
     for (const platform of PLATFORMS) {
       for (const phoneAccess of [false, true]) {
         expect(quitsWhenWindowsClose(facts(platform, { headless: true, phoneAccess })), `${platform} headless`).toBe(false)
+        // The service's Foreman brought back after an update with its window open: closing that window leaves it running.
+        expect(quitsWhenWindowsClose(facts(platform, { service: true, phoneAccess })), `${platform} service`).toBe(false)
         expect(quitsWhenWindowsClose(facts(platform, { keepRunning: true, phoneAccess })), `${platform} keep running`).toBe(false)
         expect(quitsWhenWindowsClose(facts(platform, { headless: true, keepRunning: true, phoneAccess })), `${platform} both`).toBe(false)
       }
@@ -43,6 +45,7 @@ describe('trayWanted', () => {
   it('shows whenever Foreman may run with no window', () => {
     for (const platform of PLATFORMS) {
       expect(trayWanted(facts(platform, { headless: true })), `${platform} headless`).toBe(true)
+      expect(trayWanted(facts(platform, { service: true })), `${platform} service`).toBe(true)
       expect(trayWanted(facts(platform, { keepRunning: true })), `${platform} keep running`).toBe(true)
     }
   })
@@ -51,10 +54,12 @@ describe('trayWanted', () => {
     // Off macOS there is no Dock icon: an app that stays must have a way back and a way to quit.
     for (const platform of ['win32', 'linux'] as const) {
       for (const headless of [false, true]) {
-        for (const keepRunning of [false, true]) {
-          for (const phoneAccess of [false, true]) {
-            const f = facts(platform, { headless, keepRunning, phoneAccess })
-            if (!quitsWhenWindowsClose(f)) expect(trayWanted(f), JSON.stringify(f)).toBe(true)
+        for (const service of [false, true]) {
+          for (const keepRunning of [false, true]) {
+            for (const phoneAccess of [false, true]) {
+              const f = facts(platform, { headless, service, keepRunning, phoneAccess })
+              if (!quitsWhenWindowsClose(f)) expect(trayWanted(f), JSON.stringify(f)).toBe(true)
+            }
           }
         }
       }
@@ -89,7 +94,7 @@ describe('index.ts and --headless', () => {
   })
 
   it('hands it to the running Foreman with the single-instance request, since the command line it sees has lost it', () => {
-    expect(source).toMatch(/requestSingleInstanceLock\(\{ headless: parseHeadless\(process\.argv\) \}\)/)
+    expect(source).toMatch(/requestSingleInstanceLock\(\{ headless: parseHeadless\(process\.argv\), service: parseService\(process\.argv\) \}\)/)
     expect(source).toMatch(/app\.on\('second-instance', \(_event, argv, workingDirectory, data\)/)
   })
 })
