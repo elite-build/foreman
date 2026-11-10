@@ -139,7 +139,7 @@ export const READABLE_SETTINGS = [
   'deleteBranchOnArchive', 'archiveOnMerge', 'archiveCleanupDays', 'automerge', 'optionalChecksBlock', 'pushAutoSetupRemote', 'openPrIn', 'stackedPrs',
   'claudeAuth', 'codexAuth', 'chromeMode', 'autoPermissionMode', 'autoRunAfterSetup', 'forkToNewTab', 'showResourceUsage', 'flows', 'diagnostics',
   'terminalScrollbackMb', 'terminalCopyOnSelect', 'terminalScreenReader', 'restoreTerminals', 'keepAgentsRunning', 'maxRunningAgents', 'backgroundWaitMinutes', 'keepClearedHistory', 'dailyBackup',
-  'acceptHandOffs', 'mobileEnabled', 'assistantEnabled'
+  'acceptHandOffs', 'mobileEnabled', 'keepRunning', 'assistantEnabled'
 ] as const satisfies readonly (keyof Settings)[]
 
 export type ReadableSetting = (typeof READABLE_SETTINGS)[number]

@@ -16,6 +16,7 @@ import {
   openExportDialog,
   openHandOffDialog,
   openImportDialog,
+  clientKind,
   runChecks,
   openMcpStatus,
   openNewWorkspace,
@@ -118,7 +119,7 @@ export function CommandPalette() {
       }
       if (ws.state === 'history') {
         // History only: no worktree, so no git, editor or preview commands.
-        list.push({ id: 'export', label: t('palette.exportWorkspace'), group: t('palette.group.workspace'), run: close(() => openExportDialog(ws.id)) })
+        if (clientKind === 'window') list.push({ id: 'export', label: t('palette.exportWorkspace'), group: t('palette.group.workspace'), run: close(() => openExportDialog(ws.id)) })
         list.push({ id: 'archive', label: t('palette.archiveWorkspace'), group: t('palette.group.workspace'), run: close(() => openArchiveDialog(ws.id)) })
       } else {
         const git = (label: string, action: GitActionKind) =>
@@ -145,11 +146,11 @@ export function CommandPalette() {
         // A cloud workspace has no folder here: no editor, Open in, reveal, preview or export.
         if (!ws.cloud) {
           list.push({ id: 'open-editor', label: t('palette.openEditor'), group: t('palette.group.workspace'), run: close(() => void attempt(() => api.openInEditor(wsPath(ws)))) })
-          // #14: the ⌘O switcher.
-          list.push({ id: 'open-in', label: t('openIn.command'), detail: t('openIn.commandDetail'), group: t('palette.group.workspace'), hint: shortcutHint('openIn.toggle', platform), run: () => openOverlay('open-in') })
+          // #14: the ⌘O switcher. It opens this computer's apps, so a browser doesn't list it, as it hides the Open in button.
+          if (clientKind === 'window') list.push({ id: 'open-in', label: t('openIn.command'), detail: t('openIn.commandDetail'), group: t('palette.group.workspace'), hint: shortcutHint('openIn.toggle', platform), run: () => openOverlay('open-in') })
           list.push({ id: 'reveal', label: snapshot.platform === 'darwin' ? t('palette.revealFinder') : t('palette.openFolder'), group: t('palette.group.workspace'), run: close(() => void attempt(() => api.openPath(wsPath(ws)))) })
           list.push({ id: 'preview', label: t('palette.openPreview'), group: t('palette.group.workspace'), hint: shortcutHint('workspace.preview', platform), run: close(() => void attempt(() => api.openPreview(ws.id))) })
-          list.push({ id: 'export', label: t('palette.exportWorkspace'), group: t('palette.group.workspace'), run: close(() => openExportDialog(ws.id)) })
+          if (clientKind === 'window') list.push({ id: 'export', label: t('palette.exportWorkspace'), group: t('palette.group.workspace'), run: close(() => openExportDialog(ws.id)) })
         }
         list.push({ id: 'archive', label: t('palette.archiveWorkspace'), group: t('palette.group.workspace'), run: close(() => openArchiveDialog(ws.id)) })
         // O9: saved commands, only inside a workspace that can run them; each opens a new terminal tab there.
@@ -171,7 +172,7 @@ export function CommandPalette() {
     }
     const repoId = ws?.repoId ?? snapshot.repos[0]?.id
     if (repoId) list.push({ id: 'new-ws', label: t('palette.newWorkspace'), group: t('palette.group.general'), hint: shortcutHint('workspace.new', platform), run: close(() => openNewWorkspace(repoId)) })
-    if (snapshot.repos.length) list.push({ id: 'import-ws', label: t('palette.importWorkspace'), group: t('palette.group.general'), detail: t('palette.importWorkspaceDetail'), run: close(() => openImportDialog()) })
+    if (snapshot.repos.length && clientKind === 'window') list.push({ id: 'import-ws', label: t('palette.importWorkspace'), group: t('palette.group.general'), detail: t('palette.importWorkspaceDetail'), run: close(() => openImportDialog()) })
     list.push({ id: 'add-repo', label: t('palette.openProject'), group: t('palette.group.general'), run: close(() => void addRepository()) })
     list.push({ id: 'clone-repo', label: t('palette.openGithubProject'), group: t('palette.group.general'), run: close(() => openAddRepoDialog('clone')) })
     list.push({ id: 'quick-start', label: t('palette.quickStart'), group: t('palette.group.general'), run: close(() => openAddRepoDialog('quick-start')) })

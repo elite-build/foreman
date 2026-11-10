@@ -1,6 +1,6 @@
-// The declarative half of the settings, repository settings, environment, key and token commands
+// The declarative half of the settings, repository settings, environment, key, token and phone commands
 //. Merged into COMMANDS by src/shared/cliCommands.ts; the
-// functions that run them are in src/cli/commands/{settings,repo,env}.ts, keyed by the path joined with spaces.
+// functions that run them are in src/cli/commands/{settings,repo,env,phone}.ts, keyed by the path joined with spaces.
 import type { CommandSpec, OptionSpec } from './cliCommands'
 import { SETTINGS_PAGES } from './settingsSchema'
 
@@ -673,5 +673,105 @@ repo.icon takes emoji:<emoji>, lucide:<name>, or --file with an image.`,
     examples: ['foreman repo integrations', 'foreman repo integrations --repo api --json'],
     details: 'Per service: the choice made here (default, off or a connection), the connection it resolves to, and any problem. Change the choice with `foreman repo settings set integrations.github-account <name|default|off>`.',
     tier: 'read'
+  }
+]
+
+const PHONE_DETAILS = `A phone or a browser signs in with a one-time link: open it there, and it shows a six-digit code. Approving takes
+that code, so whoever approves has seen the device that is asking, and the access it gets: read (watch only), operate
+(work on workspaces and chats, the default) or admin (full control, settings included). This is the pairing dialog's
+Phone section from a terminal, for a Foreman with no window (\`--headless\`). Anything that changes who may sign in is
+refused from inside an agent turn.`
+
+const PHONE_LINK_DETAILS = `Turns the connection on first when it is off: same Wi-Fi listens on the address chosen before, or this
+computer's first private address; private needs the HTTPS address Tailscale Serve gives this computer, set with
+\`foreman settings set devices.mobile-url https://<computer>.<tailnet>.ts.net\`. Without --lan or --private the link is
+private when that address is set, else same Wi-Fi. The link works once and for two minutes. --browser prints the
+link to the full app (\`/app\`) instead of the phone page. --qr also draws the link as a QR code in text, in the
+terminal's own colours; if a camera can't read it, open the link instead.`
+
+export const PHONE_COMMANDS: CommandSpec[] = [
+  {
+    path: ['phone'],
+    group: 'settings',
+    summary: 'Phones and browsers: the connections, who is signed in and who is asking',
+    usage: 'foreman phone [status]',
+    args: [{ name: 'verb', help: 'status (the default)', choices: ['status'] }],
+    options: {},
+    examples: ['foreman phone', 'foreman phone --json'],
+    details: `${PHONE_DETAILS}\n\nAlso: \`foreman phone link\`, \`pending\`, \`approve <code>\`, \`deny\` and \`revoke <device>\`.`,
+    tier: 'read'
+  },
+  {
+    path: ['phone', 'status'],
+    group: 'settings',
+    summary: 'The two connections, the signed-in phones and browsers, and a sign-in waiting for approval',
+    usage: 'foreman phone status [--json]',
+    args: [],
+    options: {},
+    examples: ['foreman phone status', 'foreman phone status --json'],
+    details: 'Each signed-in device with its kind, access, connection, when it was last seen and its id; and a sign-in that is waiting, with its code.',
+    tier: 'read'
+  },
+  {
+    path: ['phone', 'link'],
+    group: 'settings',
+    summary: 'Make a one-time sign-in link for a phone or a browser',
+    usage: 'foreman phone link [--lan | --private] [--browser] [--qr]',
+    args: [],
+    options: {
+      lan: { type: 'boolean', help: 'Same Wi-Fi: plain HTTP on this computer’s private address' },
+      private: { type: 'boolean', help: 'Private HTTPS through Tailscale Serve, from anywhere' },
+      browser: { type: 'boolean', help: 'A link to the full app in a browser, not the phone page' },
+      qr: { type: 'boolean', help: 'Also draw the link as a QR code' }
+    },
+    examples: ['foreman phone link', 'foreman phone link --lan --qr', 'foreman phone link --private --browser'],
+    exitCodes: { 7: '--private with no HTTPS address set, or same Wi-Fi with no network address to listen on' },
+    details: `${PHONE_LINK_DETAILS}\n\n${PHONE_DETAILS}`,
+    tier: 'admin'
+  },
+  {
+    path: ['phone', 'pending'],
+    group: 'settings',
+    summary: 'The sign-in waiting for approval: its name, kind and code',
+    usage: 'foreman phone pending [--json]',
+    args: [],
+    options: {},
+    examples: ['foreman phone pending'],
+    tier: 'read'
+  },
+  {
+    path: ['phone', 'approve'],
+    group: 'settings',
+    summary: 'Approve the waiting sign-in by the code it shows',
+    usage: 'foreman phone approve <code> [--access read|operate|admin]',
+    args: [{ name: 'code', required: true, help: 'The six digits the phone or browser shows' }],
+    options: { access: { type: 'string', value: '<access>', choices: ['read', 'operate', 'admin'], help: 'What it may do: watch, work on workspaces and chats, or everything', default: 'operate' } },
+    examples: ['foreman phone approve 123456', 'foreman phone approve 123456 --access read'],
+    exitCodes: { 8: 'No sign-in is waiting, or its code is not the one given' },
+    details: PHONE_DETAILS,
+    tier: 'admin'
+  },
+  {
+    path: ['phone', 'deny'],
+    group: 'settings',
+    summary: 'Refuse the waiting sign-in',
+    usage: 'foreman phone deny',
+    args: [],
+    options: {},
+    examples: ['foreman phone deny'],
+    exitCodes: { 8: 'No sign-in is waiting' },
+    tier: 'admin'
+  },
+  {
+    path: ['phone', 'revoke'],
+    group: 'settings',
+    summary: 'Sign a phone or a browser out and forget it',
+    usage: 'foreman phone revoke <device> [--yes]',
+    args: [{ name: 'device', required: true, help: 'Its id, the start of the id, or a name only one device has (`foreman phone` lists them)' }],
+    options: {},
+    examples: ['foreman phone revoke iPhone', 'foreman phone revoke 1a2b3c4d --yes'],
+    exitCodes: { 6: 'Not confirmed (no --yes and no terminal, or you answered no)', 8: 'No such device, or the name matches several' },
+    details: 'Its open connections close at once and its credential is deleted; signing in again needs a new link.',
+    tier: 'admin'
   }
 ]

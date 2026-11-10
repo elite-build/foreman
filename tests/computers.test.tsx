@@ -9,6 +9,7 @@ import { DeviceChip } from '../src/renderer/src/components/computers/DeviceChip'
 import { ControlledChip } from '../src/renderer/src/components/computers/ControlledChip'
 import { ControlRequestDialog } from '../src/renderer/src/components/computers/ControlRequestDialog'
 import { RemoteBanner } from '../src/renderer/src/components/computers/RemoteBanner'
+import { BrowserBanner } from '../src/renderer/src/components/computers/BrowserBanner'
 import type { ComputersView } from '../src/shared/remote'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -124,6 +125,37 @@ describe('the remote banner', () => {
     expect(screen.getByRole('alert').textContent).toContain('Lost the connection to MacBook Pro.')
     await user.click(screen.getByRole('button', { name: 'Retry now' }))
     expect(spy('viewComputer')).toHaveBeenCalledWith('mac')
+  })
+})
+
+describe('the browser banner', () => {
+  it('isn’t there in the window, or in a browser while it is live', () => {
+    fakeState.client = null
+    expect(render(<BrowserBanner />).container.innerHTML).toBe('')
+    cleanup()
+    fakeState.client = { kind: 'browser', status: 'live', name: 'Desk' }
+    expect(render(<BrowserBanner />).container.innerHTML).toBe('')
+  })
+
+  it('says why a browser isn’t live, and offers a reload when the computer runs a newer Foreman', async () => {
+    fakeState.client = { kind: 'browser', status: 'reconnecting', name: 'Desk' }
+    render(<BrowserBanner />)
+    expect(screen.getByRole('status').textContent).toContain('Reconnecting to Desk…')
+    cleanup()
+    fakeState.client = { kind: 'browser', status: 'off', name: 'Desk' }
+    render(<BrowserBanner />)
+    expect(screen.getByRole('status').textContent).toContain('Browser access is off on the computer')
+    cleanup()
+    fakeState.client = { kind: 'browser', status: 'signedOut', name: 'Desk' }
+    render(<BrowserBanner />)
+    expect(screen.getByRole('alert').textContent).toContain('This browser was signed out')
+    expect(screen.queryByRole('button')).toBeNull()
+    cleanup()
+    fakeState.client = { kind: 'browser', status: 'outdated', name: 'Desk' }
+    render(<BrowserBanner />)
+    expect(screen.getByRole('alert').textContent).toContain('Foreman was updated. Reload this page.')
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy()
+    fakeState.client = null
   })
 })
 

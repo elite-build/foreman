@@ -289,6 +289,8 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   def('mobile-url', { page: 'devices', field: 'mobileUrl', type: 'string', apply: 'mobile' }),
   def('mobile-lan', { page: 'devices', field: 'mobileLanEnabled', type: 'boolean', apply: 'mobileLan' }),
   def('mobile-lan-address', { page: 'devices', field: 'mobileLanAddress', type: 'string', apply: 'mobileLan' }),
+  // Its row (`keep-running`) sits with the Devices section on Data & devices; the key stays with the devices it serves.
+  def('keep-running', { page: 'devices', field: 'keepRunning', type: 'boolean' }),
 
   // Remote workspaces: the nested `cloud` object, written field by field (patchCloudSettings checks each).
   flag('workspaces', 'cloud-workspaces', 'cloud.enabled'),

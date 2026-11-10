@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { CircleAlert, CircleCheck, Folder, FolderPlus, FolderTree, Info } from 'lucide-react'
 import type { DroppedFolder } from '../../../shared/types'
-import { addDroppedRepositories, api, attempt, bridge, openAddRepoDialog, openMakeRepo, showRepoHome, showToast } from '../store'
+import { addDroppedRepositories, api, attempt, bridge, clientKind, openAddRepoDialog, openMakeRepo, showRepoHome, showToast } from '../store'
 import { t as tNow, useT } from '../i18n'
 import { Button, Dialog, LinkButton } from '../ui'
 import { dropPlan, mightBeFolder, OWN_DROP_SELECTOR, type DropPlan } from './dropPlan'
@@ -19,6 +19,8 @@ export function DropFolder() {
   const [plan, setPlan] = useState<DropPlan | null>(null)
 
   useEffect(() => {
+    // A folder dropped on a browser has no path on the computer, and launch folders are the computer's own.
+    if (clientKind === 'browser') return
     // Ask main what each path is; a drop of only files gets a message instead of the dialog.
     const confirm = async (paths: string[]) => {
       if (!paths.length) return

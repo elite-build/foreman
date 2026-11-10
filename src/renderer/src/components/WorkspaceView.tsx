@@ -21,6 +21,7 @@ import {
   copyTranscript,
   copyWorkspaceLink,
   openExportDialog,
+  clientKind,
   forkChat,
   getState,
   openHandOffTo,
@@ -1072,7 +1073,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
             )}
             {/* Compare, hand-off and Open in need a folder on this computer; a cloud workspace has none. */}
             {surfaces.local && <CompareButton ws={ws} sessionId={activeId} />}
-            {surfaces.exportable && (
+            {/* Export writes a file on the computer and Open in opens its apps: the window's alone, not a browser's. */}
+            {surfaces.exportable && clientKind === 'window' && (
               <Button size="sm" icon={<Upload size={12} />} onClick={() => openExportDialog(ws.id)} title={t('workspaceView.export.title')} aria-label={t('workspaceView.export.label')}>
                 <span className="btn-label">{t('workspaceView.export.label')}</span>
               </Button>
@@ -1082,7 +1084,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 <span className="btn-label">{t('workspaceView.handOff.label')}</span>
               </Button>
             )}
-            {surfaces.local && <OpenMenu ws={ws} />}
+            {surfaces.local && clientKind === 'window' && <OpenMenu ws={ws} />}
             {surfaces.terminal && (
               <IconButton label={t('workspaceView.toggleTerminal', { key: `${mod}⌥J` })} pressed={terminalShown} onClick={toggleBottomPanel}>
                 <PanelBottom size={15} />

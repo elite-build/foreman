@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-10: One dispatcher and scoped sessions serve every client; the window keeps IPC and the server keeps Electron
+
+**Decision.** `Api` and `MainEvent` stay the API; each method is `read`, `operate`, `admin` or `window`; every client calls through `ApiDispatcher`. Phones and browsers use a WebSocket on the phone listeners with the pairing cookie: a snapshot, then live events, no event log. Headless means no window, not no Electron.
+
+**Why.** The T3 Code review traced phone control, a web client and background service to serving clients; its second reviewer said to grow that from the main-process service, not rewrite.
+
+**Turned down.** The renderer over WebSocket (sandbox and IPC stay); exposing the CLI socket (its policy assumes local trust); event sourcing with cursors (the state fits one snapshot); a Rust or Electron-free server (`safeStorage`, the agent host and the browser panel need Electron; nothing measured is Foreman's own code).
+
+**Revisit when.** A machine must serve with no display, state outgrows one snapshot, or users want Foreman where Electron can't run.
+
 ## 2026-11-10: Read-only is offered only where the agent enforces it, so not for OpenCode or other ACP agents
 
 **Decision.** `supportsReadOnly` stays false for OpenCode and the other agents spoken to over ACP. Read-only chats exist for Claude (plan mode, with Foreman refusing edit tools) and Codex (its read-only sandbox), where the agent itself holds the line.

@@ -2,6 +2,7 @@
 // computer, and everything (agents, git, terminals, files) keeps running where it is. This file is the contract the two
 // sides share: what they say to each other over the paired channel (main/remote/), which window calls stay on this
 // computer, and which events cross. Pure, so main, the renderer and the tests read the same rules.
+import { METHOD_SCOPES } from './api'
 import type { Api, MainEvent, Signals } from './types'
 
 /** Bumped when the frames change. Both computers must also run the same Foreman version (every Api call can change). */
@@ -140,10 +141,12 @@ export const UNAVAILABLE_REMOTELY: ReadonlySet<Method> = new Set<Method>([
  */
 export const SECRET_METHODS: ReadonlySet<Method> = new Set<Method>(['revealEnvVar', 'revealAgentKey', 'revealProviderKey'])
 
-/** What a computer refuses from one that controls it: its own screen, local file paths and its secrets' values. */
+/**
+ * What a computer refuses from one that controls it: its own screen, local file paths and its secrets' values, which are
+ * the window scope (shared/api.ts). The sets above are those methods by why; tests/apiScopes.test.ts keeps them equal.
+ */
 export function hostAccepts(method: string): boolean {
-  const m = method as Method
-  return !LOCAL_METHODS.has(m) && !UNAVAILABLE_REMOTELY.has(m) && !SECRET_METHODS.has(m) && m !== 'attachFiles'
+  return (METHOD_SCOPES as Partial<Record<string, string>>)[method] !== 'window'
 }
 
 /** Signals that are about this computer's window (the unread badge, the battery), never forwarded. */

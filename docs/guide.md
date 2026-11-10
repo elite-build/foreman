@@ -122,13 +122,61 @@ The app must be running: the command talks to it over a socket in the data folde
 
 ## Mobile access
 
-Foreman serves a phone-sized attention inbox and workspace view from the Mac or Windows computer where agents run. It offers two separate connections. Both use the same QR pairing, desktop code confirmation and device revocation. Foreman does not expose the desktop API or terminal to the phone.
+Foreman serves a phone-sized attention inbox and workspace view from the Mac or Windows computer where agents run, and the whole app to a browser on another computer (see [In a browser](#in-a-browser)). It offers two separate connections. Both use the same pairing, desktop code confirmation and device revocation, and a paired device can do only what the access approved for it allows.
 
 **Same Wi-Fi, without Tailscale:** Open the device chip at the top of the sidebar and choose the phone item under **Phone**. In the dialog, choose **Same Wi-Fi** and **Show QR code**, and scan it while the phone is on that network. This turns on same-Wi-Fi access for this computer's first private IPv4 address; pick another under **Connection** in the same dialog. Foreman listens only on the selected address, port `47633`, and rejects requests from outside its subnet. This mode uses plain HTTP: use it only on a network you trust. Browser push alerts and service-worker-backed PWA features require HTTPS, so they are unavailable through this local address. If the computer's address changes, select its new address and pair again.
 
 **Private HTTPS away from home:** Install [Tailscale](https://tailscale.com/download) on the computer and phone, sign into the same tailnet, and run `tailscale serve --bg 47632` on the computer. In the phone dialog's **Connection** section, enter the resulting `https://…ts.net` address under **Anywhere (private)** and turn it on, then choose **Anywhere** → **Show QR code** and scan it. Foreman listens only on `127.0.0.1:47632` for this connection. Use **Serve**, not Funnel: Funnel would publish the service on the public internet. Add Foreman to the phone's Home Screen and tap **Enable phone alerts** for generic request and possible-stall notifications. On iPhone, web push needs an installed Home Screen web app.
 
-For either connection, match the six-digit code on the phone and computer before approving the pairing. You can revoke either kind of phone from the same dialog. The phone can answer tool, plan and question requests; read chats, diffs, checks and PR status; send messages; stop runs; create chats and workspaces; and archive workspaces. Check commands that need approval show their command text before running. A possible stall means a running agent has produced no activity for 15 minutes; Foreman never auto-retries it. The computer must be awake and Foreman must be running. On Windows, closing the window leaves Foreman in the tray while either mobile connection is on.
+**Pairing and access.** For either connection, check that the phone and the computer show the same six-digit code, choose under **What it may do**, and approve:
+
+- **Watch:** see workspaces, chats, diffs and checks, and change nothing. The phone shows requests but offers no answers or actions.
+- **Operate** (the default): also answer tool, plan and question requests, send messages, stop runs, create chats and workspaces, and archive workspaces. A phone paired before access levels existed has Operate.
+- **Full control:** also change settings, repositories, keys and integrations. The phone page offers nothing beyond Operate; this level is for a browser.
+
+Something the access doesn't allow is refused with a message that says so ("This phone can watch but not operate. Approve it again with more access."); to change a device's access, revoke it and pair it again. A phone stays signed in for a year over the private connection and a day over same Wi-Fi. The dialog lists every signed-in phone and browser with its access, connection and when it was last seen, and **Revoke** signs one out. Check commands that need approval show their command text before running. A possible stall means a running agent has produced no activity for 15 minutes; Foreman never auto-retries it.
+
+**Live updates.** While the phone page is open it keeps a connection to Foreman, so the inbox and the open chat change as soon as something happens and a reply appears as the agent writes it. If the connection drops, the page says **Reconnecting…**, refreshes every 30 seconds meanwhile, retries at once when you come back to it, and catches up when it reconnects. If phone access is turned off on the computer, it says **Phone access is off** and looks again every minute. A phone revoked while it is open, or whose sign-in expired, is signed out at once and says so; only pairing it again brings it back.
+
+**From a terminal.** The `foreman phone` commands do what the dialog does, for a computer with no window open or a terminal over SSH; `foreman help phone` has every option.
+
+| Command | What it does |
+|---|---|
+| `foreman phone` | Both connections, every signed-in phone and browser with its kind, access, connection and when it was last seen, and a sign-in waiting for approval. Same as `foreman phone status`. |
+| `foreman phone link --lan --qr` | A one-time link, good for two minutes, also drawn as a QR code. Without `--lan` or `--private` it is private when the HTTPS address is set, else same Wi-Fi; a connection that is off is turned on first. `--browser` links to the full app instead of the phone page. |
+| `foreman phone pending` | The device asking to sign in, its kind and the code it shows. |
+| `foreman phone approve 123456 --access read` | Approves the waiting device only if that is the code it shows, with `read` (Watch), `operate` (Operate, the default) or `admin` (Full control). |
+| `foreman phone deny` | Refuses the waiting device. |
+| `foreman phone revoke iPhone` | Signs a device out by its name or id, after asking (`--yes` doesn't ask). |
+
+The commands that change who may sign in are refused from inside an agent turn.
+
+The computer must be awake and Foreman must be running. On Windows, closing the window leaves Foreman in the tray while either mobile connection is on; to keep it running whatever the phone settings, see [Running without a window](#running-without-a-window).
+
+## In a browser
+
+A browser on another computer can show the whole Foreman window, not just the phone page, at `/app` on the address the phone uses (`https://<computer>.<tailnet>.ts.net/app`, or `http://<address>:47633/app` on the same Wi-Fi), with the same sign-in and the same choice of access. To sign one in, choose **Browser** in the phone dialog and **Show sign-in link**, then copy the link into the browser within two minutes; or run `foreman phone link --browser` on the computer (add `--lan` for same Wi-Fi) and open the printed link. Approve the six-digit code the browser then shows with **Sign in browser** in the phone dialog, or with `foreman phone approve <code>`. `/app` without a sign-in only says how to get one. A browser stays signed in as a phone does, is listed in the phone dialog as a browser, and is revoked the same way.
+
+**What works.** Everything the window does, within the access approved: workspaces, chats, approvals, diffs, checks, terminals and flows, and settings with Full control. Something the access doesn't allow is refused with an error that says so.
+
+**What doesn't.** What needs the computer's own screen or files: file pickers (paste a file or drop it on the composer instead, up to about 700 KB), **Open in…**, import and export, the embedded browser panel and its previews, dictation, updates and quitting Foreman. **Import**, **Export** and **Open in…** are hidden; the rest say "Not available in a browser". The device chip lists no other computers, and links open in a new tab.
+
+**If the connection drops,** a banner says **Reconnecting to <computer>…** while the agents keep working there; the page retries, at once when its tab is shown again, and catches up when it is back. What you try meanwhile fails with "Not connected to Foreman". If the browser is revoked or its sign-in expires, the banner says it was signed out, and it needs a new link. If browser access is turned off on the computer, the banner says so and the page reconnects on its own once it is on again. If Foreman on the computer is updated, the banner asks you to reload the page.
+
+## Running without a window
+
+Foreman can run with no window open, so agents, schedules, flows, the `foreman` command, phones, browsers and paired computers keep working while the desktop stays clear. There are two ways:
+
+- **Keep running without a window:** turn it on in **Settings → Data & devices → Devices** (`foreman settings set devices.keep-running on`). Closing the last window then leaves Foreman running instead of quitting it. macOS apps already keep running when their windows close; the setting also keeps Foreman's menu-bar icon up there.
+- **Start it headless:** start Foreman with `--headless` and it opens no window at all.
+  - macOS: `open -a Foreman --args --headless`
+  - Windows (the installer's default folder; use yours if you chose another): `"%LOCALAPPDATA%\Programs\Foreman\Foreman.exe" --headless` from Command Prompt, or `& "$env:LOCALAPPDATA\Programs\Foreman\Foreman.exe" --headless` from PowerShell.
+
+Either way the tray icon (the menu-bar icon on macOS) stays up, even with **Settings → General → Tray icon** off, because it is how you get back: **Show Foreman** or **Open Home** opens the window, as do starting Foreman again, a `foreman://` link and `foreman run --open`. A phone, a browser or another computer can do everything but what needs the window itself, such as file pickers. To stop Foreman, choose **Quit Foreman** from the tray; if agents, checks or run scripts are still going, the window opens to ask first, as Quit always does.
+
+With no screen to approve a sign-in on, approve it from a terminal: `foreman phone link` (with `--browser` for a browser) makes the link, and `foreman phone approve <code>` approves the code the device shows (see [Mobile access](#mobile-access)). `--headless` doesn't turn on phone access by itself; `foreman phone link` turns on the connection it uses.
+
+On Linux, which Foreman does not support officially, `--headless` still starts Electron, and Electron needs a display server: a machine without one needs a virtual one such as Xvfb.
 
 ## Controlling another computer
 

@@ -16,8 +16,8 @@ Chats          tabs, tab new|set|close|reopen|fork, chat, queue, rewind, resume-
                search
 Git & PRs      git (18 commands: foreman help git), diff, commits, comments, base-moved, ack-ci
 Repositories   repos, repo (22 commands: foreman help repo)
-Settings       templates, settings, env, keys, github, gitlab, loadouts, review-model, models,
-               agents, commands, schedules, flow (9 commands: foreman help flow),
+Settings       templates, settings, env, keys, github, gitlab, phone, loadouts, review-model,
+               models, agents, commands, schedules, flow (9 commands: foreman help flow),
                persona list|show|add|remove, connections,
                slack rules|people|deliveries|answer|resend, linear issues, backup, git-backup
 Remote         cloud (12 commands: foreman help cloud)
@@ -4089,6 +4089,204 @@ Exit codes:
 Without --stdin, --from-shell or --remove the key is asked for at a prompt that does not echo. The value is read from standard input or a prompt that does not echo it; it is never printed, logged or put on the command line by this command.
 ```
 
+### foreman phone
+
+```text
+Phones and browsers: the connections, who is signed in and who is asking
+
+Usage:
+  foreman phone [status]
+
+Arguments:
+  <verb>       status (the default) (one of: status) (optional)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman phone
+  foreman phone --json
+
+A phone or a browser signs in with a one-time link: open it there, and it shows a six-digit code. Approving takes
+that code, so whoever approves has seen the device that is asking, and the access it gets: read (watch only), operate
+(work on workspaces and chats, the default) or admin (full control, settings included). This is the pairing dialog's
+Phone section from a terminal, for a Foreman with no window (`--headless`). Anything that changes who may sign in is
+refused from inside an agent turn.
+
+Also: `foreman phone link`, `pending`, `approve <code>`, `deny` and `revoke <device>`.
+```
+
+### foreman phone status
+
+```text
+The two connections, the signed-in phones and browsers, and a sign-in waiting for approval
+
+Usage:
+  foreman phone status [--json]
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman phone status
+  foreman phone status --json
+
+Each signed-in device with its kind, access, connection, when it was last seen and its id; and a sign-in that is waiting, with its code.
+```
+
+### foreman phone link
+
+```text
+Make a one-time sign-in link for a phone or a browser
+
+Usage:
+  foreman phone link [--lan | --private] [--browser] [--qr]
+
+Options:
+      --lan      Same Wi-Fi: plain HTTP on this computer’s private address
+      --private  Private HTTPS through Tailscale Serve, from anywhere
+      --browser  A link to the full app in a browser, not the phone page
+      --qr       Also draw the link as a QR code
+
+Common options:
+      --json     Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet    Hide progress lines and notes
+  -y, --yes      Answer yes to confirmations
+  -h, --help     Show this command’s help
+
+Examples:
+  foreman phone link
+  foreman phone link --lan --qr
+  foreman phone link --private --browser
+
+Exit codes:
+  7  --private with no HTTPS address set, or same Wi-Fi with no network address to listen on
+  Every code: foreman help exit-codes
+
+Turns the connection on first when it is off: same Wi-Fi listens on the address chosen before, or this
+computer's first private address; private needs the HTTPS address Tailscale Serve gives this computer, set with
+`foreman settings set devices.mobile-url https://<computer>.<tailnet>.ts.net`. Without --lan or --private the link is
+private when that address is set, else same Wi-Fi. The link works once and for two minutes. --browser prints the
+link to the full app (`/app`) instead of the phone page. --qr also draws the link as a QR code in text, in the
+terminal's own colours; if a camera can't read it, open the link instead.
+
+A phone or a browser signs in with a one-time link: open it there, and it shows a six-digit code. Approving takes
+that code, so whoever approves has seen the device that is asking, and the access it gets: read (watch only), operate
+(work on workspaces and chats, the default) or admin (full control, settings included). This is the pairing dialog's
+Phone section from a terminal, for a Foreman with no window (`--headless`). Anything that changes who may sign in is
+refused from inside an agent turn.
+```
+
+### foreman phone pending
+
+```text
+The sign-in waiting for approval: its name, kind and code
+
+Usage:
+  foreman phone pending [--json]
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman phone pending
+```
+
+### foreman phone approve
+
+```text
+Approve the waiting sign-in by the code it shows
+
+Usage:
+  foreman phone approve <code> [--access read|operate|admin]
+
+Arguments:
+  <code>                 The six digits the phone or browser shows
+
+Options:
+      --access <access>  What it may do: watch, work on workspaces and chats, or everything (one of: read, operate, admin) (default: operate)
+
+Common options:
+      --json             Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet            Hide progress lines and notes
+  -y, --yes              Answer yes to confirmations
+  -h, --help             Show this command’s help
+
+Examples:
+  foreman phone approve 123456
+  foreman phone approve 123456 --access read
+
+Exit codes:
+  8  No sign-in is waiting, or its code is not the one given
+  Every code: foreman help exit-codes
+
+A phone or a browser signs in with a one-time link: open it there, and it shows a six-digit code. Approving takes
+that code, so whoever approves has seen the device that is asking, and the access it gets: read (watch only), operate
+(work on workspaces and chats, the default) or admin (full control, settings included). This is the pairing dialog's
+Phone section from a terminal, for a Foreman with no window (`--headless`). Anything that changes who may sign in is
+refused from inside an agent turn.
+```
+
+### foreman phone deny
+
+```text
+Refuse the waiting sign-in
+
+Usage:
+  foreman phone deny
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman phone deny
+
+Exit codes:
+  8  No sign-in is waiting
+  Every code: foreman help exit-codes
+```
+
+### foreman phone revoke
+
+```text
+Sign a phone or a browser out and forget it
+
+Usage:
+  foreman phone revoke <device> [--yes]
+
+Arguments:
+  <device>     Its id, the start of the id, or a name only one device has (`foreman phone` lists them)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman phone revoke iPhone
+  foreman phone revoke 1a2b3c4d --yes
+
+Exit codes:
+  6  Not confirmed (no --yes and no terminal, or you answered no)
+  8  No such device, or the name matches several
+  Every code: foreman help exit-codes
+
+Its open connections close at once and its credential is deleted; signing in again needs a new link.
+```
+
 ### foreman loadouts
 
 ```text
@@ -6843,6 +7041,7 @@ Data & devices
   devices.mobile-url          text                mobile url
   devices.mobile-lan          on | off            mobile lan
   devices.mobile-lan-address  text                mobile lan address
+  devices.keep-running        on | off            keep running
 
 Remote workspaces
   cloud.workspaces        on | off               Remote workspaces

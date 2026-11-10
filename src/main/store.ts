@@ -250,7 +250,8 @@ export function defaultSettings(): Settings {
     mobileEnabled: false,
     mobileUrl: '',
     mobileLanEnabled: false,
-    mobileLanAddress: ''
+    mobileLanAddress: '',
+    keepRunning: false
   }
 }
 

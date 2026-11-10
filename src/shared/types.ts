@@ -3,7 +3,7 @@
 import type { PreviewProbe } from './previewProbe'
 import type { AgentKind, EffortLevel, Loadout, ModelInfo } from './agents'
 import type { DevicesInfo, PairedDevice, Transfer, WorkspaceTransfer } from './transfer'
-import type { MobileInfo } from './mobile'
+import type { MobileAccess, MobileInfo } from './mobile'
 import type { GithubLinkInfo } from './githubLink'
 import type { UsageReport } from './usageReport'
 import type { ExportInfo, ExportOptions, ExportSummary, ImportChoice, StageResult } from './portable'
@@ -1251,6 +1251,9 @@ export interface Settings {
   mobileUrl: string
   mobileLanEnabled: boolean
   mobileLanAddress: string
+  // Closing the last window leaves Foreman running behind its tray, so agents, schedules, flows and phones keep working
+  // (docs/server.md, "Headless"; main/headless.ts). Off by default: closing the window quits, as it always has.
+  keepRunning: boolean
   // Cloud workspaces; absent until changed (see shared/cloud.ts cloudSettings for the defaults).
   cloud?: CloudSettings
 }
@@ -2790,7 +2793,8 @@ export interface Api {
   mobileConfigure(enabled: boolean, url: string): Promise<MobileInfo>
   mobileConfigureLan(enabled: boolean, address: string): Promise<MobileInfo>
   mobileStartPairing(mode?: 'private' | 'lan'): Promise<MobileInfo>
-  mobileApprovePairing(id: string, allow: boolean): Promise<MobileInfo>
+  // The approval also chooses what the phone or browser may do: read (Watch), operate (the default) or admin (Full control).
+  mobileApprovePairing(id: string, allow: boolean, access?: MobileAccess): Promise<MobileInfo>
   mobileRevokeDevice(id: string): Promise<MobileInfo>
   // Listen for hand-offs on this Mac (and on which port), or stop.
   setAcceptHandOffs(on: boolean, port?: number): Promise<DevicesInfo>

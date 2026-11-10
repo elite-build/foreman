@@ -1,8 +1,9 @@
 // #3: Foreman's one tray icon (Windows) or menu-bar extra (macOS) while the app runs. It has sections:
 // the attention count and jump list (Settings → General, on by default), and on Windows the phone
-// access that used to have a tray of its own. While Foreman is closed, the background agent host
-// (O10) draws its own; the two never show together, because the host hides its icon once the app
-// attaches. Entries only navigate: there are no Approve buttons here.
+// access that used to have a tray of its own. While Foreman may run with no window (--headless, Keep running without a
+// window) it stays up even with the attention section off: it is how the window comes back and how Foreman is quit.
+// While Foreman is closed, the background agent host (O10) draws its own; the two never show together, because the host
+// hides its icon once the app attaches. Entries only navigate: there are no Approve buttons here.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron'
@@ -57,7 +58,7 @@ export function trayIcon(count: number): Electron.NativeImage {
 
 export class AppTray {
   private tray: Tray | null = null
-  private last: { view: TrayView; attention: boolean; phone: boolean; t: TFunction } | null = null
+  private last: { view: TrayView; attention: boolean; phone: boolean; keep: boolean; t: TFunction } | null = null
   private timer: NodeJS.Timeout | null = null
   // What the image shows now: the badge's text on Windows (redrawn only when it changes); macOS never redraws.
   private drawn: string | null = null
@@ -66,24 +67,24 @@ export class AppTray {
 
   constructor(private options: AppTrayOptions) {}
 
-  /** Whether the icon is up (phone access on Windows keeps the app running behind it). */
+  /** Whether the icon is up (phone access on Windows, --headless or Keep running keep the app running behind it). */
   get shown(): boolean {
     return this.tray !== null
   }
 
   /**
    * Draw (or remove) the icon. `attention`: the setting is on. `phone`: phone access is on (Windows only
-   * has the tray for it). With neither, there is no icon.
+   * has the tray for it). `keep`: Foreman may run with no window (headless.ts, trayWanted). With none, there is no icon.
    */
-  update(view: TrayView, options: { attention: boolean; phone: boolean; t: TFunction }): void {
+  update(view: TrayView, options: { attention: boolean; phone: boolean; keep: boolean; t: TFunction }): void {
     this.last = { view, ...options }
     this.draw()
   }
 
   private draw(): void {
     if (!this.last) return
-    const { view, attention, phone, t } = this.last
-    if (!attention && !phone) return this.destroy()
+    const { view, attention, phone, keep, t } = this.last
+    if (!attention && !phone && !keep) return this.destroy()
     if (!this.tray) {
       try {
         this.drawn = process.platform === 'darwin' ? '' : badgeText(attention ? view.count : 0)
@@ -110,8 +111,8 @@ export class AppTray {
           },
           age
         )
-      : // Phone access alone: the tray it always had.
-        trayMenu({ count: 0, attention: [], working: [] }, { header: () => t('attention.tray.phone'), working: '', next: '', home: t('attention.tray.home'), show: t('attention.tray.show'), quit: t('attention.tray.quit') }, age)
+      : // Phone access or no window alone: the tray phone access always had, headed by the app's name without it.
+        trayMenu({ count: 0, attention: [], working: [] }, { header: () => (phone ? t('attention.tray.phone') : 'Foreman'), working: '', next: '', home: t('attention.tray.home'), show: t('attention.tray.show'), quit: t('attention.tray.quit') }, age)
     const count = attention ? view.count : 0
     const tooltip = count ? `Foreman · ${t('attention.tray.count', { count })}` : 'Foreman'
     // The rows say how long each has waited.

@@ -36,6 +36,7 @@ import {
   openExportDialog,
   openHandOffTo,
   openImportDialog,
+  clientKind,
   openNewWorkspace,
   openOverlay,
   openReportProblem,
@@ -170,7 +171,7 @@ function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: numb
       </MenuGroup>
       <MenuSeparator />
       {/* A cloud workspace has no folder here to export or hand off; its sandbox sleeps and wakes instead. */}
-      {!ws.cloud && <MenuItem onSelect={() => openExportDialog(ws.id)}>{t('sidebar.menu.export')}</MenuItem>}
+      {!ws.cloud && clientKind === 'window' && <MenuItem onSelect={() => openExportDialog(ws.id)}>{t('sidebar.menu.export')}</MenuItem>}
       {ws.state === 'ready' && !ws.transfer && !ws.cloud && <MenuItem onSelect={() => openHandOffTo({ workspaceId: ws.id })}>{t('sidebar.menu.handOff')}</MenuItem>}
       {ws.cloud && ws.state !== 'archived' && ws.cloud.status === 'running' && <MenuItem onSelect={() => void cloudAction('sleep', ws, t)}>{t('cloud.action.sleep')}</MenuItem>}
       {ws.cloud && ws.state !== 'archived' && (ws.cloud.status === 'sleeping' || ws.cloud.status === 'capped') && <MenuItem onSelect={() => void cloudAction('wake', ws, t)}>{t('cloud.action.wake')}</MenuItem>}
@@ -737,9 +738,12 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
               <Button variant="ghost" size="sm" icon={<Archive size={13} />} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
                 {archived ? t('sidebar.archivedCount', { count: archived }) : t('sidebar.archived')}
               </Button>
-              <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
-                {t('sidebar.import')}
-              </Button>
+              {/* A .foreman file is picked on the computer: the window's alone. */}
+              {clientKind === 'window' && (
+                <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
+                  {t('sidebar.import')}
+                </Button>
+              )}
               {/* The running version, always in sight; Settings → General has it in full with Check now. */}
               {snapshot.appVersion && (
                 <Button variant="ghost" size="sm" className="sidebar-version" onClick={() => openSettingsPage({ section: 'general', scrollTo: 'check-for-updates' })} title={t('sidebar.version.title', { version: snapshot.appVersion })}>

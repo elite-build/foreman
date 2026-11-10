@@ -148,9 +148,13 @@ export function DataPage() {
   )
 }
 
-/** Paired computers: who this one can hand work to, whether it listens for hand-offs, and whether paired computers may control it. */
+/**
+ * Paired computers: who this one can hand work to, whether it listens for hand-offs, and whether paired computers may
+ * control it. First, whether Foreman runs on with no window, which is what lets them (and phones) reach it then.
+ */
 function DevicesSection() {
   const t = useT()
+  const settings = useSettings()
   const [info, setInfo] = useState<DevicesInfo | null>(null)
   const [online, setOnline] = useState<Record<string, boolean | 'checking'>>({})
   const [port, setPort] = useState('')
@@ -169,6 +173,14 @@ function DevicesSection() {
       title={t('settings.data.devices')}
       description={t('settings.data.devices.desc')}
     >
+      <ToggleRow
+        id="keep-running"
+        label={t('settings.data.keepRunning')}
+        help={t('settings.data.keepRunning.help')}
+        checked={settings.keepRunning}
+        onChange={(keepRunning) => void saveSettings({ keepRunning })}
+        onReset={settings.keepRunning ? () => void resetSettings(['keepRunning']) : undefined}
+      />
       <ToggleRow
         id="accept-hand-offs"
         label={t('settings.data.devices.accept')}
