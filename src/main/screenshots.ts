@@ -541,6 +541,8 @@ export const SCREENS = [
   'settings-agent-accounts',
   'agent-account-dialog',
   'picker-account',
+  // The Codex tab: its sign-in (the browser button, with the terminal as the fallback).
+  'settings-agents-codex',
   'settings-appearance',
   'settings-cloud',
   'settings-repo',

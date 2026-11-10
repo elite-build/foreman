@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-10: Read-only is offered only where the agent enforces it, so not for OpenCode or other ACP agents
+
+**Decision.** `supportsReadOnly` stays false for OpenCode and the other agents spoken to over ACP. Read-only chats exist for Claude (plan mode, with Foreman refusing edit tools) and Codex (its read-only sandbox), where the agent itself holds the line.
+
+**Why.** An ACP agent runs its own edit and shell tools in its own process and only asks Foreman (`session/request_permission`) when it chooses to. Foreman's path containment covers only the writes an agent routes through `fs/write_text_file`, and plugins or MCP tools can still write. A read-only switch Foreman can't enforce would be a promise it can't keep.
+
+**Turned down.** Refusing permission requests and file writes in Foreman alone (the agent's own tools bypass both); passing OpenCode's `permission` config to deny `edit` and `bash` (not verified, and OpenCode isn't installed where this was decided).
+
+**Revisit when.** An agent-side setting that really blocks writes and commands has been verified for that agent, per turn, including its plugins and MCP tools.
+
 ## 2026-11-08: Full screen puts the terminal or a Flow run in the middle and moves the chat beside it
 
 **Decision.** The terminal's full screen and the Flow tab's take the workspace's middle, and the chat moves to the side panel's first tab, Chat, still whole and usable. It is kept per workspace, across restarts, until put back; Esc doesn't leave it. One of the two at a time, and never a separate window.

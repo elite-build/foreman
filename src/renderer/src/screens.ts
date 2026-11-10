@@ -255,6 +255,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openWorkspace(f)
     return (await openPicker()) ? '.picker-controls .ui-select' : null
   },
+  // The Codex tab, scrolled to its sign-in.
+  'settings-agents-codex': async () => {
+    openSettingsPage({ section: 'agents', agent: 'codex' })
+    const row = await waitFor(() => document.getElementById(rowDomId('agent-codex')))
+    if (!row) return null
+    row.scrollIntoView({ block: 'start' })
+    return '.settings-view'
+  },
   'settings-appearance': () => (openSettingsPage({ section: 'appearance' }), '.settings-view'),
   'settings-accessibility': () => (openSettingsPage({ section: 'accessibility' }), '.settings-view'),
   'settings-cloud': () => (openSettingsPage({ section: 'cloud' }), '.settings-view'),
