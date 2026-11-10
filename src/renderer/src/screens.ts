@@ -240,6 +240,7 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),
+  'settings-agents-codex': () => (openSettingsPage({ section: 'agents', agent: 'codex' }), '.settings-view'),
   'settings-appearance': () => (openSettingsPage({ section: 'appearance' }), '.settings-view'),
   'settings-accessibility': () => (openSettingsPage({ section: 'accessibility' }), '.settings-view'),
   'settings-cloud': () => (openSettingsPage({ section: 'cloud' }), '.settings-view'),

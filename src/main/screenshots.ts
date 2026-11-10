@@ -530,6 +530,8 @@ export const SCREENS = [
   'clone-repo',
   'settings-general',
   'settings-agents',
+  // The Codex tab: its sign-in (the browser button, with the terminal as the fallback).
+  'settings-agents-codex',
   'settings-appearance',
   'settings-cloud',
   'settings-repo',
