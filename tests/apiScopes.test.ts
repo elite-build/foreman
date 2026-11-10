@@ -91,6 +91,24 @@ describe('sentToView', () => {
     expect(sentToView({ type: 'clone-progress', cloneId: 'c', line: 'x' }, all, ['admin'])).toBe(true)
   })
 
+  it('sends a terminal’s own events to a view of its workspace that can operate (#127, the phone’s Terminal tab)', () => {
+    const operate: Scope[] = ['read', 'operate']
+    const events: MainEvent[] = [
+      { type: 'pty-data', ptyId: 'p', data: 'x', workspaceId: 'w' },
+      { type: 'pty-exit', ptyId: 'p', code: 0, workspaceId: 'w' },
+      { type: 'pty-state', ptyId: 'p', asleep: true, workspaceId: 'w' }
+    ]
+    for (const event of events) {
+      expect(sentToView(event, { workspaceId: 'w' }, operate)).toBe(true)
+      expect(sentToView(event, { workspaceId: 'w' }, ['read'])).toBe(false)
+      expect(sentToView(event, { workspaceId: 'other' }, operate)).toBe(false)
+      expect(sentToView(event, { sessionId: 's1' }, operate)).toBe(false)
+    }
+    // Without its workspace it is for a view of everything only; logs that aren't a terminal's stay that way too.
+    expect(sentToView({ type: 'pty-data', ptyId: 'p', data: 'x' }, { workspaceId: 'w' }, operate)).toBe(false)
+    expect(sentToView({ type: 'setup-log', workspaceId: 'w', chunk: 'x' }, { workspaceId: 'w' }, operate)).toBe(false)
+  })
+
   it('never sends a window event, and agrees with what a host forwards', () => {
     expect(sentToView({ type: 'browser-open', workspaceId: 'w', url: 'https://example.com' }, all, WINDOW_SESSION.scopes)).toBe(false)
     expect(sentToView({ type: 'tour' }, all, WINDOW_SESSION.scopes)).toBe(false)
