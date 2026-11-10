@@ -186,6 +186,6 @@ The tests above run the server on loopback and the clients against fakes. These 
 | Start with `--headless`: no window opens, the tray shows, **Show Foreman** opens the window, and starting again with `--headless` leaves it as it is. | run on Windows, 2026-11-10 |
 | Sign a client in from a terminal: `foreman phone link`, `foreman phone pending` and `foreman phone approve <code>`, with the device's side driven by curl. | run on Windows, 2026-11-10 |
 | A browser at `/app` over same Wi-Fi: `foreman phone link --browser --lan`, approve, and the app loads and works within its access. | run on Windows, 2026-11-10 |
-| The browser's reconnect: drop the network, see the **Reconnecting** banner, restore it, and the page catches up without a reload. | not yet run |
+| The browser's reconnect: drop the network, see the **Reconnecting** banner, restore it, and the page catches up without a reload. | run 2026-11-10 on Windows: the app was killed and restarted under the page; the banner showed, and the page reconnected and resynced about 11 s later with no toasts |
 | Phone and browser over private HTTPS (`tailscale serve --bg 47632`). | not yet run |
 | All of the above on macOS. | not yet run |
