@@ -87,6 +87,8 @@ export const METHOD_SCOPES = {
   // Settings, keys and environment.
   updateSettings: 'admin', resetSettings: 'admin', setEnvVars: 'admin', setEnvFiles: 'admin',
   importKeyFromShell: 'admin', setProviderKey: 'admin', setAgentKey: 'admin', importAgentKey: 'admin', importProviderKey: 'admin',
+  // #130: an agent's accounts are setup, like its keys.
+  saveAgentInstance: 'admin', removeAgentInstance: 'admin',
   cloudSetClaudeToken: 'admin', setGithubToken: 'admin', testGitlabHost: 'admin', saveGitlabToken: 'admin', removeGitlabHost: 'admin',
   useGlabToken: 'admin',
 
