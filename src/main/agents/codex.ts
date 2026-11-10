@@ -981,8 +981,9 @@ export const codexDriver: AgentDriver = {
     }
   },
 
-  async slashCommands() {
-    return customPrompts(codexHome(process.env))
+  async slashCommands(_cwd: string, env?: Record<string, string>) {
+    // #130: an account's own folder (its CODEX_HOME) has its own prompts.
+    return customPrompts(codexHome(env ?? process.env))
   }
 }
 

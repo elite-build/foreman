@@ -41,6 +41,8 @@ export async function setupSessions(options: {
   mirror?: ClaudeMirror; events?: Partial<SessionEvents>; dir?: string; saveState?: boolean; template?: (id: string | undefined) => PromptTemplate | undefined; turnHost?: TurnHost
   // Another SessionService on the same store and workspace (an app restart), and extra WorkspaceService methods (gitTarget).
   store?: Store; ws?: Workspace; workspaces?: Record<string, unknown>
+  // #130: what builds a turn's environment (default: an empty one).
+  environment?: { forAgent: (...args: never[]) => Record<string, string> }
 } = {}) {
   const root = await tempDir('foreman-sessions-')
   const store = options.store ?? new Store(root)
@@ -62,7 +64,7 @@ export async function setupSessions(options: {
     ...options.workspaces
   }
   const ended: TurnOutcome[] = []
-  const sessions = new SessionService(store, { forAgent: () => ({}) } as never, workspaces as never, {
+  const sessions = new SessionService(store, (options.environment ?? { forAgent: () => ({}) }) as never, workspaces as never, {
     changed() {},
     item() {},
     reset() {},

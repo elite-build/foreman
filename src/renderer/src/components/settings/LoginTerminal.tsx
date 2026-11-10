@@ -7,7 +7,8 @@ import { Button, IconButton } from '../../ui'
 import { TerminalView } from '../TerminalView'
 
 // #22: `login:<agent id>` runs a catalog agent's own sign-in. 'claude-setup-token' prints a token for cloud workspaces.
-export type LoginCommand = 'claude-login' | 'claude-setup-token' | 'codex-login' | 'gh-login' | `login:${string}`
+// #130: `login-instance:<id>` signs one of Claude's or Codex's other accounts in, in its own config folder.
+export type LoginCommand = 'claude-login' | 'claude-setup-token' | 'codex-login' | 'gh-login' | `login:${string}` | `login-instance:${string}`
 
 interface LoginTerminalProps {
   command: LoginCommand

@@ -47,6 +47,9 @@ export interface ParkedSession {
   forkOnResume?: boolean
   // The last turn this agent ran here: what was said after it goes into the note it gets on its return.
   lastTurnId?: string
+  // #130: the account the conversation ran on, and where it lives; switching back restores both.
+  instanceId?: string
+  conversationKey?: string
 }
 
 // The note a resumed agent gets: each message cut to this, and the newest part of the whole kept.
@@ -174,16 +177,24 @@ export function parkedAfterRewind(parked: Session['parked'], keptTurnIds: Set<st
 
 // ---- the picker and the composer ----
 
-/** What choosing a model does: `apply` at once (same agent, or nothing to carry), or `ask` whether to continue here or open a new chat. */
-export function modelChoiceAction(session: Pick<Session, 'agent'>, hasHistory: boolean, choice: Pick<Loadout, 'agent'>): 'apply' | 'ask' {
-  return choice.agent !== session.agent && hasHistory ? 'ask' : 'apply'
+/**
+ * What choosing a model does: `apply` at once (same agent, or nothing to carry), or `ask` whether to continue here or
+ * open a new chat. #130: another account of the same agent asks too, once the chat has a conversation of its own.
+ */
+export function modelChoiceAction(session: Pick<Session, 'agent' | 'instanceId' | 'agentSessionId'>, hasHistory: boolean, choice: Pick<Loadout, 'agent' | 'instance'>): 'apply' | 'ask' {
+  if (choice.agent !== session.agent) return hasHistory ? 'ask' : 'apply'
+  return hasHistory && session.agentSessionId && (choice.instance ?? undefined) !== (session.instanceId ?? undefined) ? 'ask' : 'apply'
 }
 
-/** Why this chat can't continue with that agent (only a new chat is offered then), or null when it can. */
-export function continueBlock(session: Pick<Session, 'readOnly' | 'importedMode' | 'status' | 'turnId'>, target: AgentKind): 'running' | 'read-only' | 'history' | null {
+/**
+ * Why this chat can't continue with that agent (only a new chat is offered then), or null when it can.
+ * #130 `account`: the agent's rule keeps a chat on its account.
+ */
+export function continueBlock(session: Pick<Session, 'readOnly' | 'importedMode' | 'status' | 'turnId'>, target: AgentKind, accountBlocked = false): 'running' | 'read-only' | 'history' | 'account' | null {
   if (session.importedMode === 'history') return 'history'
   if (session.status === 'running' || session.turnId) return 'running'
   if (session.readOnly && !readOnlyEnforcement(target)) return 'read-only'
+  if (accountBlocked) return 'account'
   return null
 }
 

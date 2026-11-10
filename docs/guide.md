@@ -63,6 +63,14 @@ Developers: `npm run check:mcp` checks CLI settings coverage, the reviewed MCP s
 
 Dedicated tools are the primary interface. `run_foreman` is a CLI escape hatch: pass an argument array such as `["settings", "get", "appearance.theme"]`, not a shell command. Workspace agents can use help and reviewed read-only `settings list/get/keys/search/path` queries, with the CLI's existing sensitive-value filtering. Other commands, writes, file import/export and `settings path --open` are refused; operations already covered by dedicated tools direct the agent to those tools. The assistant retains its existing broader command fallback with Run/Cancel confirmation and command-policy checks. Fallback availability is recorded separately and never counts as dedicated MCP coverage.
 
+## Several accounts for one agent
+
+In **Settings → Agents → Claude Code**, **Codex** or **Cursor**, **Accounts** adds more accounts for that agent beside its default sign-in, such as a work one beside a personal one. A Claude Code or Codex account has its own config folder (passed as `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, so it keeps its own login, settings, MCP servers, custom commands and conversations), its own sign-in method and API key, and optionally its own binary. A Claude Code account can also add launch flags, except those Foreman sets itself (permissions, model, prompts, MCP servers). A Cursor account is an API key of its own. An account without a config folder shares the default one. Keys stay in Foreman's encrypted storage, apart from the default account's.
+
+Choose the account in the model picker's **Account** row, in a chat, a new workspace or a loadout. A workspace's chats then start on the account its first chat used, and the picker shows the account beside the model. Moving a chat that already has a conversation to another account follows the agent's rule under **Accounts**: **Not allowed** (the default) offers a new chat on the other account instead, and **Allowed** starts a new conversation there that gets the earlier messages as text. Accounts that share a config folder always continue the same conversation. A chat whose account was removed stops with a message until you choose another account; it never runs on a different account by itself.
+
+The default account still answers for the model list, the agent's readiness, the assistant and cloud workspaces (a chat in a cloud workspace must use the default account).
+
 ## Integrations
 
 In **Settings → Integrations**, add named GitHub, Linear, Slack and Langfuse connections and choose a default for each service. In **Repository settings → Integrations**, inherit that default, select another connection, or turn a service off. A missing or broken selected connection blocks that service rather than silently using another account.

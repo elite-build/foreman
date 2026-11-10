@@ -11,14 +11,19 @@ import os from 'node:os'
 import path from 'node:path'
 import { binariesFor, catalogAgent, type AcpReported, type CatalogAgent } from '../../shared/agentCatalog'
 import type { AgentKind } from '../../shared/agents'
+import type { AgentInstance } from '../../shared/agentInstances'
 import type { Settings } from '../../shared/types'
 import { createAcpDriver, type AcpAgentConfig, type AcpCommand, type AcpConnector, type AcpLaunchContext } from './acp'
 import { shellQuote } from '../platform'
 import { acpProgramNames, findAcpProgram, findBinary, launchFor } from './catalogDetect'
 import type { AgentDriver } from './types'
 
-/** The executable an agent runs with: the path set in Settings, else undefined (look on PATH). */
-export function executablePathFor(settings: Settings, agent: string): string | undefined {
+/**
+ * The executable an agent runs with: the path set in Settings, else undefined (look on PATH).
+ * #130: an account with a binary of its own runs that one; without, the default account's.
+ */
+export function executablePathFor(settings: Settings, agent: string, instance?: AgentInstance): string | undefined {
+  if (instance?.path) return instance.path
   const legacy: Record<string, string | undefined> = {
     claude: settings.claudeExecutablePath,
     codex: settings.codexExecutablePath,

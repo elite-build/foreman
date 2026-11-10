@@ -109,6 +109,8 @@ export function AuthCards({ value, options, onChange }: { value: AgentAuthMode; 
 interface ApiKeyFieldProps {
   // #22: the agent the key belongs to; it's stored for that agent alone.
   agent: string
+  // #130: one of the agent's other accounts, whose own key this is.
+  instanceId?: string
   label: string
   keyUrl?: string
 }
@@ -119,13 +121,15 @@ interface ApiKeyFieldProps {
  * reveal or copy it. While none is saved, a key of the same name in the shell
  * can be imported; import never replaces a saved key.
  */
-export function ApiKeyField({ agent, label, keyUrl }: ApiKeyFieldProps) {
+export function ApiKeyField({ agent, instanceId, label, keyUrl }: ApiKeyFieldProps) {
   const t = useT()
-  const hint = useStore((s) => s.snapshot!.agentKeyHints?.[agent])
+  const hint = useStore((s) => (instanceId ? s.snapshot!.instanceKeyHints?.[instanceId] : s.snapshot!.agentKeyHints?.[agent]))
   const saved = hint !== undefined
   const catalog = useAgentCatalog()
   const shellVar = catalog.view?.shellKeys[agent]
   const name = catalogAgent(agent)?.name ?? agent
+  // #130: the account the key belongs to, passed only when it isn't the agent's default one.
+  const account: [] | [string] = instanceId ? [instanceId] : []
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
@@ -136,7 +140,7 @@ export function ApiKeyField({ agent, label, keyUrl }: ApiKeyFieldProps) {
     if (!key || busy) return
     setBusy(true)
     try {
-      await api.setAgentKey(agent, key)
+      await api.setAgentKey(agent, key, ...account)
       setValue('')
       setEditing(false)
       showToast(t('agentSettings.key.saved'))
@@ -149,7 +153,7 @@ export function ApiKeyField({ agent, label, keyUrl }: ApiKeyFieldProps) {
 
   const remove = async () => {
     try {
-      await api.setAgentKey(agent, null)
+      await api.setAgentKey(agent, null, ...account)
       showToast(t('agentSettings.key.removed'))
     } catch (err) {
       showToast(t('agentSettings.key.removeFailed', { label, error: message(err) }))
@@ -157,7 +161,7 @@ export function ApiKeyField({ agent, label, keyUrl }: ApiKeyFieldProps) {
   }
 
   const importKey = async () => {
-    const imported = await api.importAgentKey(agent).catch(() => false)
+    const imported = await api.importAgentKey(agent, ...account).catch(() => false)
     showToast(imported ? t('agentCatalog.key.imported', { name: shellVar ?? label }) : t('agentCatalog.key.notImported'))
   }
 
@@ -170,7 +174,7 @@ export function ApiKeyField({ agent, label, keyUrl }: ApiKeyFieldProps) {
   if (saved && !editing) {
     return (
       <div className="ag-key">
-        <MaskedValue label={label} hint={hint} reveal={() => api.revealAgentKey(agent)} onEdit={() => setEditing(true)} onRemove={remove} />
+        <MaskedValue label={label} hint={hint} reveal={() => api.revealAgentKey(agent, ...account)} onEdit={() => setEditing(true)} onRemove={remove} />
         {note}
       </div>
     )

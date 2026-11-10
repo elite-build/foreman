@@ -15,6 +15,7 @@ import { parseSavedCommands } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
 import { DEFAULT_VIEWS, normalizeViews } from '../shared/views'
 import { parseAgentPrefs, parseProviderKeyAgents } from '../shared/agentCatalog'
+import { parseAgentInstances } from '../shared/agentInstances'
 import { defaultFromEditorCommand, isOpenInChoice } from '../shared/openIn'
 import type { PairedDevice, Transfer } from '../shared/transfer'
 import type { MobileDevice } from '../shared/mobile'
@@ -213,6 +214,8 @@ export function defaultSettings(): Settings {
     // #22
     agentPrefs: {},
     providerKeyAgents: {},
+    // #130: only the default account per agent.
+    agentInstances: [],
     envFiles: [],
     cloneDirectory: path.join(os.homedir(), 'foreman', 'repos'),
     autoPermissionMode: false,
@@ -287,6 +290,8 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   // #22: the agent catalog's choices, checked the same way.
   state.settings.agentPrefs = parseAgentPrefs(state.settings.agentPrefs)
   state.settings.providerKeyAgents = parseProviderKeyAgents(state.settings.providerKeyAgents)
+  // #130: accounts checked entry by entry; what an older version or a hand edit left malformed is dropped.
+  state.settings.agentInstances = parseAgentInstances(state.settings.agentInstances)
   // #14: the old Editor command becomes Custom command… unchanged; once, the default app follows from it.
   if (typeof state.settings.editorCommand !== 'string') state.settings.editorCommand = 'code'
   if (!state.migrations.includes('open-in-apps')) {

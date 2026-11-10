@@ -14,6 +14,8 @@ export interface LoadoutRow {
   slot: number
   agent: string
   agentName: string
+  // #130: the agent's account by name, when the slot uses one other than the default.
+  account?: string
   model: string
   // The model's name as the picker shows it (the id when Foreman has no list for the agent yet).
   modelLabel: string

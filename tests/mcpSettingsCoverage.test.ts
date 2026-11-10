@@ -47,7 +47,7 @@ describe('MCP settings coverage review', () => {
       personalDefaults: Object.entries({ ...settings, cloud: cloudSettings(settings) }).sort(([a], [b]) => a.localeCompare(b)).map(([field, value]) => contract({ field, value })),
       repositoryDefaults: Object.entries(defaultRepoSettings()).sort(([a], [b]) => a.localeCompare(b)).map(([field, value]) => contract({ field, value })),
       structuredPersonal: STRUCTURED_SETTINGS.map((field) => ({ field, mcp: field === 'loadouts'
-        ? 'Partial read: list_delegation_options returns slot, agent, model and effort. No settings write adapter.'
+        ? 'Partial read: list_delegation_options returns slot, agent, account (when not the default), model and effort. No settings write adapter.'
         : unavailable })),
       structuredRepository: STRUCTURED_REPO_SETTINGS.map((field) => ({ field, mcp: unavailable })),
       notSettings: NOT_A_SETTING

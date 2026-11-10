@@ -142,6 +142,14 @@ describe('Git configuration backup', () => {
     expect(() => parseGitBackup({ ...raw, repositories: [{ id: 'bad' }] })).toThrow('malformed')
   })
 
+  it('#130: checks a backup’s agent accounts as a load does', async () => {
+    const m = await rig()
+    const good = makeGitBackupFiles(m.store, m.secrets, new Date())
+    const work = { id: 'ai-work0001', agent: 'claude', label: 'Work', home: '/me/.claude-work', auth: 'cli' }
+    const raw = { ...good, 'variable-names': good.variableNames, settings: { ...good.settings, agentInstances: [work, { id: 'nope', agent: 'claude', label: 'X' }, { ...work, args: ['--dangerously-skip-permissions'] }] } }
+    expect(parseGitBackup(raw).settings.agentInstances).toEqual([work])
+  })
+
   it('previews and merges templates, repositories and existing worktrees without running setup', async () => {
     const { source, bare } = await remote()
     const tree = path.join(await tempDir('foreman-backup-tree-'), 'checkout')

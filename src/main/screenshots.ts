@@ -30,6 +30,8 @@ const WALK = process.env.FOREMAN_SCREENSHOTS_WALK === '1'
 export function screenshotRoot(): string {
   const root = process.env.FOREMAN_SCREENSHOTS_DIR || mkdtempSync(path.join(os.tmpdir(), 'foreman-screens-data-'))
   mkdirSync(root, { recursive: true })
+  // What the run's agent CLIs write relative to where they start (the fixture's `~/.claude-work` account folder) stays in it.
+  process.chdir(root)
   return root
 }
 
@@ -484,7 +486,12 @@ export async function seedScreens(root: string, dataDir: string, overrides: Part
     terminalShell: process.platform === 'win32' ? 'cmd' : 'auto',
     restoreTerminals: false,
     workspacesRoot: worktrees,
-    cloneDirectory: repos
+    cloneDirectory: repos,
+    // #130: Claude Code's other accounts (Settings → Agents → Claude Code → Accounts, the picker's Account row).
+    agentInstances: [
+      { id: 'ai-work0001', agent: 'claude', label: 'Work', home: '~/.claude-work', auth: 'cli' },
+      { id: 'ai-client01', agent: 'claude', label: 'Client', auth: 'apiKey' }
+    ]
   }
   Object.assign(store.state.settings, settings, overrides)
   store.close()
@@ -530,6 +537,10 @@ export const SCREENS = [
   'clone-repo',
   'settings-general',
   'settings-agents',
+  // #130: Claude Code's Accounts section, an account's dialog and the picker's Account row.
+  'settings-agent-accounts',
+  'agent-account-dialog',
+  'picker-account',
   // The Codex tab: its sign-in (the browser button, with the terminal as the fallback).
   'settings-agents-codex',
   'settings-appearance',

@@ -598,6 +598,8 @@ export interface Workspace {
   variablesToSet?: string[]
   // An imported history workspace that carries its branch and uncommitted work (a git bundle) for Activate.
   carried?: { branch: string; head: string; checkpointRef: string; files: number; omitted: number }
+  // #130: the account each agent's new chats here start on (an instance id); absent: the agent's default account.
+  agentInstances?: Partial<Record<AgentKind, string>>
   // Human-owned guidance shared by the workspace's tabs. Saving it sends nothing.
   note?: WorkspaceNote
   // Workspaces started together by Compare models share this id (the source workspace included).
@@ -952,6 +954,11 @@ export interface Session {
   planMode: boolean
   // Claude only, when tool approvals are required.
   autoAcceptEdits?: boolean
+  // #130: the agent's account this chat runs on (shared/agentInstances.ts); absent: its default account.
+  instanceId?: string
+  // #130: where agentSessionId's conversation lives (continuationKey), when it was started on an account. Another key
+  // now (the account's config folder changed) starts a new conversation that gets the history as text.
+  conversationKey?: string
   // The agent's own id for the conversation (Claude session, Codex thread).
   agentSessionId?: string
   // Uuid of the last top-level assistant message, used to rewind the conversation.
@@ -1002,7 +1009,8 @@ export interface Session {
   handedOffFrom?: HandedOffFrom
   // A fork with no agent conversation to branch: its next message carries the visible history. Cleared once the agent started.
   // O1 'switch': the tab was switched to an agent with no conversation of its own here.
-  seedHistory?: boolean | 'switch'
+  // #130 'account': the tab moved to another account of its agent, whose conversations are kept elsewhere.
+  seedHistory?: boolean | 'switch' | 'account'
   // O1: the own conversations of agents this tab was switched away from, resumed on switching back.
   parked?: Partial<Record<AgentKind, import('./switchAgent').ParkedSession>>
   // O1: switched back to a parked conversation; the next message carries a note of what was said since this turn (its last). Cleared once the agent started.
@@ -1188,6 +1196,8 @@ export interface Settings {
   hiddenModels: HiddenModels
   // #22: per agent in the catalog (shared/agentCatalog.ts): enabled, Login or API key, executable path. Absent: the catalog's defaults.
   agentPrefs: AgentPrefs
+  // #130: more accounts for Claude, Codex and Cursor (Settings → Agents). Written only by saveAgentInstance and removeAgentInstance.
+  agentInstances: import('./agentInstances').AgentInstance[]
   // #22: provider key (env var) → the agents ticked to get it. OpenCode always gets every key.
   providerKeyAgents: ProviderKeyAgents
   // Environment
@@ -1372,7 +1382,10 @@ export type ChatItem =
       // O1: the agent and model this turn was sent to (a tab can switch agents).
       agent?: AgentKind
       model?: string
+      // #130: the account it was sent to (absent: the agent's default account).
+      instance?: string
       // G4 #12: the user edited this message in the queue after it had started, so it ran as it was before the edit.
+
       editRaced?: true
     }
   | { kind: 'assistant'; id: string; turnId: string; text: string; streaming?: boolean }
@@ -2089,6 +2102,8 @@ export interface AppSnapshot {
   agentKeys: Partial<Record<AgentKeyName, string>>
   // #22: agent id → last four characters of its own saved API key ('' when too short), for every agent with one.
   agentKeyHints: Record<string, string>
+  // #130: account id → last four of its saved API key.
+  instanceKeyHints?: Record<string, string>
   // Repository id → workspace currently mirrored into the repo root.
   spotlight: Record<string, string>
   catalog: ModelCatalogState
@@ -2234,7 +2249,10 @@ export type WorkspacePatch = Partial<Pick<Workspace, 'name' | 'pinned'>> & { sta
 
 export type SessionPatch = Partial<
   Pick<Session, 'title' | 'agent' | 'model' | 'effort' | 'fastMode' | 'planMode' | 'autoAcceptEdits' | 'includeNote'>
->
+> & {
+  // #130: the account to run on (null: the default account). Moving a chat with a conversation follows the agent's rule.
+  instanceId?: string | null
+}
 
 // What became of a sent message: it began a turn, went into the running one,
 // waited in the queue, or was an app command (or empty) and went nowhere.
@@ -2894,7 +2912,8 @@ export interface Api {
   // Approve a repo command's text (shared with checks). Refused if the text changed since `command` was shown.
   approveSavedCommand(workspaceId: string, id: string, command: string): Promise<void>
   // Agents
-  agentStatus(agent: AgentKind): Promise<AgentStatus>
+  // #130: `instanceId` checks one of the agent's other accounts instead of its default one.
+  agentStatus(agent: AgentKind, instanceId?: string): Promise<AgentStatus>
   // Managed ChatGPT sign-in for Codex: runs the CLI's own browser flow and opens the sign-in page. Resolves when it ends
   // (signed in, failed, cancelled or timed out); a second call cancels the first. Never needs the terminal.
   codexSignIn(): Promise<{ ok: boolean; error?: string; cancelled?: boolean }>
@@ -2903,10 +2922,15 @@ export interface Api {
   // what Chat agents declared over ACP, and which key variables the shell has (names only).
   agentCatalog(refresh?: boolean): Promise<AgentCatalogView>
   // #22: an agent's own API key, stored encrypted and passed only to that agent in API-key mode. null removes it.
-  setAgentKey(agent: string, value: string | null): Promise<void>
-  revealAgentKey(agent: string): Promise<string | null>
+  // #130: with `instanceId`, the key of one of the agent's other accounts (passed only to turns on that account).
+  setAgentKey(agent: string, value: string | null, instanceId?: string): Promise<void>
+  revealAgentKey(agent: string, instanceId?: string): Promise<string | null>
   // #22: copy an agent's key from the shell into its own store. Never replaces a saved key; false when nothing was copied.
-  importAgentKey(agent: string): Promise<boolean>
+  importAgentKey(agent: string, instanceId?: string): Promise<boolean>
+  // #130: add (no id) or change one of an agent's other accounts; returns it as saved. Its key is set with setAgentKey.
+  saveAgentInstance(input: import('./agentInstances').AgentInstanceInput): Promise<import('./agentInstances').AgentInstance>
+  // #130: remove an account and its key. Refused while a loadout uses it; chats on it stop with a message until moved.
+  removeAgentInstance(id: string): Promise<void>
   // #22: the agent's own sign-in check, for CLIs that have one; null when it has none or the answer wasn't clear.
   // G1: `source` is set when a credentials probe answered (the file or command it read), not the agent's own status command.
   agentSignInStatus(agent: string): Promise<{ signedIn: boolean; account?: string; output: string; source?: string } | null>
@@ -3027,7 +3051,7 @@ export const API_METHODS = [
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',
   'ptySpawn', 'savedTerminals', 'savedCommandConsent', 'approveSavedCommand', 'detectShells', 'agentStatus', 'codexSignIn', 'codexSignInCancel', 'reportDiagnostics', 'refreshModels',
-  'agentCatalog', 'setAgentKey', 'revealAgentKey', 'importAgentKey', 'agentSignInStatus', 'importProviderKey', 'revealProviderKey', 'terminalAgentRuns',
+  'agentCatalog', 'setAgentKey', 'revealAgentKey', 'importAgentKey', 'saveAgentInstance', 'removeAgentInstance', 'agentSignInStatus', 'importProviderKey', 'revealProviderKey', 'terminalAgentRuns',
   'openPath', 'openFile', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openExternal', 'updateSettings', 'resetSettings', 'recordOnboardingMilestone',
   'attentionHistory', 'markAttentionSeen', 'refreshPullRequest',
   'assistantState', 'assistantItems', 'assistantSend', 'assistantCancel', 'assistantDeleteThread', 'assistantClearHistory', 'assistantConfirmRun', 'assistantCancelRun',

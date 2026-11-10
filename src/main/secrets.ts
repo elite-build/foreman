@@ -25,6 +25,8 @@ interface Vault {
   agents?: Record<string, Record<string, string>>
   // #22: set once the Claude, Codex and Cursor keys have moved out of the user variables.
   agentKeysMigrated?: boolean
+  // #130: an agent account's id → its own API key (env var → key), passed only to turns on that account.
+  instances?: Record<string, Record<string, string>>
 }
 
 // The first version stored four fixed keys at the top level.
@@ -152,6 +154,33 @@ export class SecretStore {
     if (value === null || !value.trim()) delete table[envVar]
     else table[envVar] = value.trim()
     if (!Object.keys(table).length) delete agents[agent]
+    this.save()
+  }
+
+  // ---- #130: per-account keys ----
+
+  /** One account's own keys (env var → key). */
+  instanceKeys(id: string): Record<string, string> {
+    return { ...this.vault.instances?.[id] }
+  }
+
+  instanceKey(id: string, envVar: string): string | undefined {
+    return this.vault.instances?.[id]?.[envVar] || undefined
+  }
+
+  setInstanceKey(id: string, envVar: string, value: string | null): void {
+    const instances = (this.vault.instances ??= {})
+    const table = (instances[id] ??= {})
+    if (value === null || !value.trim()) delete table[envVar]
+    else table[envVar] = value.trim()
+    if (!Object.keys(table).length) delete instances[id]
+    this.save()
+  }
+
+  /** A removed account's keys go with it; nothing else is touched. */
+  forgetInstance(id: string): void {
+    if (!this.vault.instances?.[id]) return
+    delete this.vault.instances[id]
     this.save()
   }
 

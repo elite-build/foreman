@@ -224,6 +224,11 @@ export const SETTINGS: SettingEntry[] = [
   { id: 'chrome-mode', page: a('claude'), titleKey: 'settings.row.chromeMode', title: 'Use Claude Code with Chrome', description: 'Allow Claude Code to control your Chrome browser.', descriptionKey: 'settings.row.chromeMode.desc', keywords: ['browser'] },
   { id: 'agent-codex', page: a('codex'), title: 'Codex', description: 'Sign-in, API key and executable path.', descriptionKey: 'settings.row.agentCodex.desc', keywords: ['openai', 'chatgpt'] },
   { id: 'agent-cursor', page: a('cursor'), title: 'Cursor', description: 'Cursor API key.', descriptionKey: 'settings.row.agentCursor.desc' },
+  // #130
+  { id: 'agent-accounts-claude', page: a('claude'), titleKey: 'settings.row.accountsClaude', title: 'Claude Code accounts', description: 'More accounts for an agent, each with its own sign-in, config folder and key.', descriptionKey: 'settings.row.agentAccounts.desc', keywords: ['work account', 'personal account', 'CLAUDE_CONFIG_DIR', 'instance', 'profile'] },
+  { id: 'agent-accounts-codex', page: a('codex'), titleKey: 'settings.row.accountsCodex', title: 'Codex accounts', description: 'More accounts for an agent, each with its own sign-in, config folder and key.', descriptionKey: 'settings.row.agentAccounts.desc', keywords: ['work account', 'personal account', 'CODEX_HOME', 'instance', 'profile'] },
+  { id: 'agent-accounts-cursor', page: a('cursor'), titleKey: 'settings.row.accountsCursor', title: 'Cursor accounts', description: 'More accounts for an agent, each with its own sign-in, config folder and key.', descriptionKey: 'settings.row.agentAccounts.desc', keywords: ['work account', 'personal account', 'instance', 'profile'] },
+
   // O8
   { id: 'models-claude', page: a('claude'), titleKey: 'settings.row.modelsClaude', title: 'Claude Code models', description: 'Choose which models appear in the model picker, with context sizes.', descriptionKey: 'settings.row.agentModels.desc', keywords: ['hide models', 'model picker', 'context window'] },
   { id: 'models-codex', page: a('codex'), titleKey: 'settings.row.modelsCodex', title: 'Codex models', description: 'Choose which models appear in the model picker, with context sizes.', descriptionKey: 'settings.row.agentModels.desc', keywords: ['hide models', 'model picker', 'context window'] },
