@@ -18,6 +18,7 @@ import { AutomationsView } from './components/automations/AutomationsView'
 import { AssistantView } from './components/assistant/AssistantView'
 import { PhoneSetupDialog } from './components/phone/PhoneSetupDialog'
 import { RemoteBanner } from './components/computers/RemoteBanner'
+import { BrowserBanner } from './components/computers/BrowserBanner'
 import { ControlRequestDialog } from './components/computers/ControlRequestDialog'
 import { ReportProblemDialog } from './components/ReportProblemDialog'
 import { DropFolder } from './components/DropFolder'
@@ -247,6 +248,7 @@ export function App() {
       )}
       <main className="main">
         <RemoteBanner />
+        <BrowserBanner />
         {tiled ? (
           <>
             <TilesView hidden={covered || showHome || Boolean(fullView)} />

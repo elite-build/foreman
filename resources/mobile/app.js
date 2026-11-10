@@ -510,14 +510,21 @@ function backToList() {
   Object.assign(state, { view: 'list', wsId: null, sessionId: null, sheet: null, error: '' })
   render()
 }
+// A link to the full app (/app?pair=…) comes here to pair, as a browser, and goes back once approved. Only /app.
+function pairThen() {
+  return new URLSearchParams(location.search).get('then') === '/app' ? '/app' : null
+}
 async function startPairing(secret) {
   try {
-    const name = /iPhone|iPad|Android/i.exec(navigator.userAgent)?.[0] || 'Phone'
-    const p = await request('POST', '/api/pair/start', { token: secret, name })
+    const then = pairThen()
+    const name = then ? browserName() : /iPhone|iPad|Android/i.exec(navigator.userAgent)?.[0] || 'Phone'
+    const p = await request('POST', '/api/pair/start', then ? { token: secret, name, kind: 'browser' } : { token: secret, name })
     state.pairingId = p.id
     state.pairCode = p.code
     sessionStorage.setItem('pairingId', p.id)
     sessionStorage.setItem('pairCode', p.code)
+    if (then) sessionStorage.setItem('pairThen', then)
+    else sessionStorage.removeItem('pairThen')
     history.replaceState(null, '', '/')
     render()
     pollPair()
@@ -528,12 +535,26 @@ function clearPairing() {
   state.pairCode = null
   sessionStorage.removeItem('pairingId')
   sessionStorage.removeItem('pairCode')
+  sessionStorage.removeItem('pairThen')
+}
+// "Chrome on Mac": what the person approving sees a browser as (src/renderer/src/socketBridge.ts says it the same way).
+function browserName() {
+  const ua = navigator.userAgent
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : ''
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : ''
+  return browser && os ? browser + ' on ' + os : browser || 'Browser'
 }
 async function pollPair() {
   if (!state.pairingId) return
   try {
     const p = await request('GET', '/api/pair/status?id=' + encodeURIComponent(state.pairingId))
-    if (p.state === 'approved') { clearPairing(); await signedIn(); render(); return }
+    if (p.state === 'approved') {
+      // The cookie is set: a browser goes on to the full app it asked for.
+      const then = sessionStorage.getItem('pairThen') === '/app' ? '/app' : null
+      clearPairing()
+      if (then) return location.replace(then)
+      await signedIn(); render(); return
+    }
     if (p.state === 'denied') throw new Error('Pairing was denied on the computer.')
     setTimeout(pollPair, 1800)
   } catch (err) { clearPairing(); fail(err) }

@@ -53,6 +53,8 @@ const api = new Proxy(fakeApi, {
 const known: Record<string, unknown> = {
   api,
   bridge: { pathForFile: () => '', onEvent: () => () => undefined },
+  // The desktop window unless a test says otherwise (a browser's socket bridge: bridge.ts).
+  clientKind: 'window',
   getState: () => fakeState,
   useStore: (selector: (s: typeof fakeState) => unknown) => selector(fakeState),
   // The window is on screen unless a test says otherwise.

@@ -133,6 +133,10 @@ Foreman can run with no window open, so agents, schedules, flows, the `foreman` 
 
 Either way the tray icon (the menu-bar icon on macOS) stays up, even with **Settings → General → Tray icon** off, because it is how you get back: **Show Foreman** or **Open Home** opens the window, as do starting Foreman again, a `foreman://` link and `foreman run --open`. A phone or another computer can do everything but what needs the window itself, such as file pickers. To stop Foreman, choose **Quit Foreman** from the tray; if agents, checks or run scripts are still going, the window opens to ask first, as Quit always does.
 
+### In a browser
+
+A browser on another computer can show the whole Foreman window, not just the phone page, over the same two connections. On the computer running Foreman, run `foreman phone link --browser` (add `--lan` for same Wi-Fi), open the link it prints in the browser within two minutes, and approve the six-digit code it shows, with `foreman phone approve <code>` or in the phone dialog. The browser then opens Foreman at `/app` and stays signed in (a year over the private address, a day over same Wi-Fi) until you revoke it, as a phone is. It works with the access you chose: with Operate it can run workspaces and chats but not change settings, and what only the computer's own window can do (file pickers, Open in…, previews, dictation, updates) says so instead. If the connection drops, a banner says it is reconnecting and the page catches up when it is back; if Foreman on the computer is updated, it asks you to reload the page.
+
 ## Controlling another computer
 
 If you run Foreman on more than one computer, Mac or Windows, one computer's window can show and drive another computer's Foreman. Everything keeps running on the computer it belongs to: agents, worktrees, git, scripts, terminals and checks. The other window only sends what you type and shows what happens. The two computers talk directly over the paired, encrypted channel used for hand-offs, on the same network. There is no server in between.

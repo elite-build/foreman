@@ -7,6 +7,9 @@ import type { Api, MainEvent, Signals } from './types'
 /** Bumped when the frames below change. */
 export const API_PROTOCOL = 1
 
+/** The largest frame a client may send; the server closes the socket past it, so a client checks before sending. */
+export const MAX_CLIENT_FRAME_BYTES = 1024 * 1024
+
 /**
  * read: look. operate: do work in workspaces and chats. admin: change how Foreman is set up, or move data out of it.
  * window: what only makes sense on the computer with the screen. admin includes operate, which includes read; window

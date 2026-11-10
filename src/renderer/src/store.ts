@@ -30,6 +30,8 @@ import type { OnboardingMilestone } from '../../shared/onboarding'
 import { isNotGitRepoError, type GitIdentity } from '../../shared/types'
 import { shareUnchanged } from '../../shared/reconcile'
 import { appendToItems } from '../../shared/chatAppend'
+import { bridge, clientKind, followLanguage, socketBridge } from './bridge'
+import type { SocketStatus } from './socketBridge'
 
 export type Overlay = 'palette' | 'quick-open' | 'search' | 'shortcuts' | 'archived' | 'open-in' | 'ask'
 
@@ -65,14 +67,12 @@ export type SettingsPage = (
   | { section: 'repo'; repoId: string; tab?: RepoSection }
 ) & { scrollTo?: string }
 
-declare global {
-  interface Window {
-    foreman: Bridge
-  }
-}
-
-export const bridge = window.foreman
+// The window's preload bridge, or the socket bridge in a browser (bridge.ts); components import both from here.
+export { bridge, clientKind }
 export const api = bridge.invoke
+
+/** In a browser: how its connection to the computer is (the banner says when it isn't live). Null in the desktop window. */
+export type ClientState = { kind: 'browser'; status: SocketStatus; name: string }
 
 interface State {
   browserTabs: Record<string, { url: string; request: number; active: boolean; split: boolean; state?: BrowserState }>
@@ -144,6 +144,7 @@ interface State {
   pairDialog: 'show' | 'enter' | null
   // Other computers (shared/remote.ts): the computer chip's view, from this computer's main (whichever one the window shows).
   computers: ComputersView | null
+  client: ClientState | null
   // "This repo proposes N MCP servers" for this workspace.
   mcpConsent: string | null
   // Show the Git panel's checks tab for this workspace.
@@ -260,6 +261,7 @@ let state: State = {
   reconcileDialog: null,
   pairDialog: null,
   computers: null,
+  client: socketBridge ? { kind: 'browser', status: socketBridge.status(), name: '' } : null,
   compareArchive: null,
   mcpConsent: null,
   checksPanelRequest: null,
@@ -290,6 +292,8 @@ let state: State = {
   tour: null,
   windowVisible: true
 }
+// The socket bridge's own words (a call only the window can make) follow the language setting too.
+followLanguage(() => state.snapshot?.settings.language)
 const listeners = new Set<() => void>()
 // Hear every change at once, whether or not components are told (a batch waiting for its frame, a hidden window).
 const liveListeners = new Set<() => void>()
@@ -840,10 +844,31 @@ export function viewComputer(deviceId: string | null): Promise<void> {
   return attempt(() => api.viewComputer(deviceId)).then(() => undefined)
 }
 
+/**
+ * A browser came back after its connection dropped: the snapshot replaces the one it had, exactly as a `state` event
+ * would (unchanged objects kept), the approvals waiting replace its list, and the chats it had loaded are read again,
+ * since the items streamed while it was away never reached it.
+ */
+export function resyncStore(snapshot: AppSnapshot, approvals: ApprovalRequest[]): void {
+  receiveEvent({ type: 'state', snapshot })
+  setState({ approvals })
+  for (const sessionId of Object.keys(state.chats)) {
+    void api.getChat(sessionId, true).then(
+      (items) => { if (state.chats[sessionId]) setState({ chats: { ...state.chats, [sessionId]: items } }) },
+      () => undefined
+    )
+  }
+}
+
 export async function initStore(): Promise<void> {
   bridge.onEvent(receiveEvent)
-  // The computer chip: always this computer's view, whichever computer the window shows.
-  void api.computers().then((computers) => setState({ computers }), () => undefined)
+  if (socketBridge) {
+    const sb = socketBridge
+    sb.onStatus((status) => setState({ client: { kind: 'browser', status, name: sb.serverName() } }))
+    sb.onResync(resyncStore)
+  }
+  // The computer chip: always this computer's view, whichever computer the window shows. A browser has none.
+  if (clientKind === 'window') void api.computers().then((computers) => setState({ computers }), () => undefined)
   // A window that has focus is on screen, whatever main last said.
   window.addEventListener('focus', () => setWindowVisible(true))
   const [snapshot, approvals] = await Promise.all([api.getSnapshot(), api.pendingApprovals()])
@@ -884,6 +909,8 @@ export function availableAgents(s: State): Record<AgentKind, boolean> {
 
 let toastCounter = 0
 export function showError(err: unknown): void {
+  // Something only the computer's own window can do, asked in a browser: said plainly, as nothing went wrong.
+  if ((err as { code?: unknown } | null)?.code === 'unavailable') return showToast((err as Error).message, 'info', { report: false })
   showToast(err instanceof Error ? err.message : String(err), 'error')
 }
 

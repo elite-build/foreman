@@ -7,6 +7,7 @@ import { ApiSocketServer, COALESCE_BYTES, DRAIN_MS, DROP_BYTES, HELLO_MS, MAX_IN
 import { perf } from '../src/main/perf'
 import { API_PROTOCOL, type ApiSession, type Scope } from '../src/shared/api'
 import type { MainEvent } from '../src/shared/types'
+import { createSocketBridge, type SocketBridgeOptions } from '../src/renderer/src/socketBridge'
 
 // The phone and browser socket of docs/server.md on a real `ws` pair over loopback: the hello, calls through the
 // dispatcher with the session's scopes, the view filter, backpressure, pings and the goodbyes. Timers are injected, so
@@ -122,7 +123,7 @@ async function harness() {
     return client
   }
 
-  return { server, api, signals, emit, fire, connect, listeners, setQueued: (n: number) => { queued = n } }
+  return { server, api, signals, emit, fire, connect, listeners, port, setQueued: (n: number) => { queued = n } }
 }
 
 const append = (sessionId: string): MainEvent => ({ type: 'chat-append', sessionId, itemId: 'i', from: 0, text: 'hi' })
@@ -361,5 +362,33 @@ describe('pings and goodbyes', () => {
     expect(await a.closed).toBe(1000)
     expect(await b.closed).toBe(1000)
     expect(h.listeners.size).toBe(0)
+  })
+})
+
+describe('the browser’s socket bridge against this server', () => {
+  it('says hello, calls through the dispatcher and hears broadcasts', async () => {
+    const h = await harness()
+    const bridge = createSocketBridge({
+      WebSocket: WebSocket as unknown as SocketBridgeOptions['WebSocket'],
+      location: { protocol: 'http:', host: `127.0.0.1:${h.port}` },
+      document: null,
+      fetch: null,
+      name: 'Chrome on Mac',
+      // No retries after the test closes the server.
+      setTimeout: () => 0,
+      clearTimeout: () => undefined
+    })
+    const events: MainEvent[] = []
+    bridge.onEvent((event) => events.push(event))
+    expect(await bridge.invoke.getSnapshot()).toEqual({ workspaces: [] })
+    expect(bridge.status()).toBe('live')
+    expect(bridge.session()).toMatchObject({ id: 'p1', scopes: ['read', 'operate'] })
+    expect(bridge.serverName()).toBe('Desk')
+    // A browser views everything: a chat it never opened still reaches it.
+    h.emit(append('any-chat'))
+    await vi.waitFor(() => expect(events).toEqual([append('any-chat')]))
+    // The server's own refusal keeps its message and code.
+    await expect(bridge.invoke.updateSettings({})).rejects.toMatchObject({ code: 'refused' })
+    await expect(bridge.invoke.gitStatus('w')).rejects.toMatchObject({ message: 'No such workspace', code: 'failed' })
   })
 })

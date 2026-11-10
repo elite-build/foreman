@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { request as httpRequest } from 'node:http'
 import path from 'node:path'
 import vm from 'node:vm'
@@ -15,9 +16,14 @@ import type { SecretStore } from '../src/main/secrets'
 
 const services: MobileService[] = []
 const sockets: WebSocket[] = []
+const cleanupDirs: string[] = []
 afterEach(async () => {
   for (const ws of sockets.splice(0)) ws.terminate()
   await Promise.all(services.splice(0).map((s) => s.close()))
+  for (const dir of cleanupDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(path.join(path.dirname(dir), 'secret.txt'), { force: true })
+  }
 })
 
 /** What the service needs besides its store, secrets and snapshot: the core's methods behind a dispatcher, and the socket's. */
@@ -430,5 +436,97 @@ describe('paired mobile access', () => {
     service.revoke(state.mobileDevices[0].id)
     await vi.waitFor(() => expect(statuses.at(-1)).toBe('revoked'))
     live.close()
+  })
+  it('serves the renderer at /app to a signed-in browser, sends one without a cookie to pair or to how to sign in', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'foreman-renderer-'))
+    cleanupDirs.push(dir)
+    mkdirSync(path.join(dir, 'assets'))
+    // As the build writes it: the meta tag over several lines.
+    writeFileSync(path.join(dir, 'index.html'), [
+      '<!doctype html><html><head>',
+      '    <meta',
+      '      http-equiv="Content-Security-Policy"',
+      `      content="default-src 'self'; connect-src 'self' ws://localhost:*"`,
+      '    />',
+      '<title>Foreman</title><script type="module" crossorigin src="./assets/index-abc.js"></script></head><body><div id="root"></div></body></html>'
+    ].join('\n'))
+    writeFileSync(path.join(dir, 'assets', 'index-abc.js'), 'console.log(1)')
+    writeFileSync(path.join(path.dirname(dir), 'secret.txt'), 'no')
+    const credentials = new Map<string, string>()
+    const state = { settings: { mobileEnabled: false, mobileUrl: '' }, mobileDevices: [] as MobileDevice[] }
+    const store = { state, save: vi.fn() } as unknown as Store
+    const secrets = {
+      appSecret: (key: string) => credentials.get(key),
+      setAppSecret: (key: string, value: string | null) => value === null ? credentials.delete(key) : credentials.set(key, value)
+    } as unknown as SecretStore
+    const snapshot = { repos: [{ id: 'r1', name: 'secret-repo' }], workspaces: [], sessions: [], settings: { ...state.settings, promptTemplates: [] } } as unknown as AppSnapshot
+    const service = new MobileService({
+      store, secrets, ...serving({} as Api), snapshot: () => snapshot, approvals: () => [], consentNeeded: () => [],
+      appPath: process.cwd(), rendererPath: dir, onChanged: vi.fn(), onEnabledChange: vi.fn()
+    }, 0)
+    services.push(service)
+    const origin = 'https://foreman.example.ts.net'
+    const base = `http://127.0.0.1:${(await service.configure(true, origin)).port}`
+    const get = (url: string, cookie?: string) => fetch(base + url, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : {} })
+
+    // No cookie: how to sign in, and nothing of this computer's work.
+    const signIn = await get('/app')
+    expect(signIn.status).toBe(200)
+    const signInText = await signIn.text()
+    expect(signInText).toContain('foreman phone link --browser')
+    expect(signInText).not.toContain('secret-repo')
+    expect(signInText).not.toContain('index-abc.js')
+    // With a pairing link: the phone page pairs it, as a browser, and comes back to /app.
+    const toPair = await get('/app?pair=abc_123')
+    expect(toPair.status).toBe(302)
+    expect(toPair.headers.get('location')).toBe('/?pair=abc_123&then=/app')
+    // The pairing page goes on to /app only. (Its script has no build step to catch a slip, so it is parsed here.)
+    expect(() => new vm.Script(readFileSync(path.join(process.cwd(), 'resources/mobile/app.js'), 'utf8'))).not.toThrow()
+    expect((await get('/?pair=abc&then=/app')).status).toBe(200)
+    for (const evil of ['/evil', '//evil.example', 'https://evil.example/app']) {
+      const res = await get(`/?pair=abc&then=${encodeURIComponent(evil)}`)
+      expect(res.status).toBe(302)
+      expect(res.headers.get('location')).toBe('/?pair=abc')
+    }
+    expect((await get('/assets/index-abc.js')).status).toBe(401)
+    expect((await get('/app/anything')).status).toBe(404)
+
+    // Signed in as a browser.
+    const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+    const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, name: 'Chrome on Mac', kind: 'browser' }) })
+    const { id } = await started.json() as { id: string }
+    expect(service.info().pending?.kind).toBe('browser')
+    service.approve(id, true)
+    const cookie = (await fetch(base + '/api/pair/status?id=' + id)).headers.get('set-cookie')!.split(';')[0]
+
+    const app = await get('/app', cookie)
+    expect(app.status).toBe(200)
+    const html = await app.text()
+    expect(html).toContain('<script type="module" crossorigin src="./assets/index-abc.js">')
+    // Electron's meta CSP is gone; one header names this page's socket.
+    expect(html).not.toContain('Content-Security-Policy')
+    const csp = app.headers.get('content-security-policy')!
+    expect(csp).toContain("script-src 'self';")
+    expect(csp).toContain("connect-src 'self' wss://foreman.example.ts.net;")
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).not.toContain('ws://localhost')
+    expect(app.headers.get('x-frame-options')).toBe('DENY')
+    expect(app.headers.get('cache-control')).toBe('no-store')
+    expect((await get('/app/', cookie)).headers.get('location')).toBe('/app')
+
+    const asset = await get('/assets/index-abc.js', cookie)
+    expect(asset.status).toBe(200)
+    expect(asset.headers.get('content-type')).toBe('text/javascript; charset=utf-8')
+    expect(asset.headers.get('cache-control')).toContain('immutable')
+    expect(await asset.text()).toBe('console.log(1)')
+    // Sent as written: fetch would tidy the dots away before they reached the server.
+    const raw = (url: string) => new Promise<number>((resolve, reject) => {
+      const req = httpRequest(base + '/', { path: url, headers: { Cookie: cookie } }, (res) => { res.resume(); resolve(res.statusCode ?? 0) })
+      req.on('error', reject)
+      req.end()
+    })
+    for (const bad of ['/assets/../secret.txt', '/assets/..%2fsecret.txt', '/assets/%2e%2e%2fsecret.txt', '/assets/..%5Csecret.txt', '/assets/..\\secret.txt', '/assets/missing.js', '/assets/index-abc.exe']) {
+      expect([400, 404]).toContain(await raw(bad))
+    }
   })
 })

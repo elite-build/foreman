@@ -3,7 +3,7 @@
 import { IntegrationsHome } from './IntegrationsHome'
 import { Plus } from 'lucide-react'
 import { Fragment, useId, useState } from 'react'
-import { api, attempt, markWorkspaceUnread, modKey, openFixCi, openHandOffDialog, openImportDialog, openResolveBase, openNewWorkspace, selectWorkspace, sendUnseenReviews, timeWaited, useStore } from '../store'
+import { api, attempt, clientKind, markWorkspaceUnread, modKey, openFixCi, openHandOffDialog, openImportDialog, openResolveBase, openNewWorkspace, selectWorkspace, sendUnseenReviews, timeWaited, useStore } from '../store'
 import { useClock } from '../clock'
 import { BUCKET_LABEL, liveRepo, oldestFirst, triageAll, type Triage } from '../triage'
 import type { PlainKey } from '../../../shared/i18n'
@@ -266,7 +266,7 @@ export function Home() {
             </div>
             <div className="header-actions">
               {boardEnabled && snapshot.repos.length > 0 && <HomeLayoutControls />}
-              {snapshot.repos.length > 0 && (
+              {snapshot.repos.length > 0 && clientKind === 'window' && (
                 <Button onClick={openImportDialog} title={t('sidebar.import.title')}>
                   {t('sidebar.import')}
                 </Button>

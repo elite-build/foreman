@@ -29,6 +29,24 @@ const STALL_MS = 15 * 60_000
 const PAIR_MS = 2 * 60_000
 const MAX_BODY = 64 * 1024
 
+// What the built renderer's assets folder holds.
+const ASSET_TYPES: Record<string, string> = {
+  '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2', '.woff': 'font/woff',
+  '.ttf': 'font/ttf', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+  '.json': 'application/json', '.wasm': 'application/wasm', '.map': 'application/json'
+}
+
+// /app for a browser that isn't signed in. It says how, and nothing about this computer or its work.
+const SIGN_IN_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Foreman</title>
+<link rel="stylesheet" href="/style.css"></head>
+<body><div class="pair"><div class="logo">F</div><h1>Sign this browser in</h1>
+<p>Foreman opens in a browser once the computer it runs on approves it.</p>
+<div class="steps"><div><b>1</b>In a terminal on that computer, run <code>foreman phone link --browser</code>.</div>
+<div><b>2</b>Open the link it prints in this browser. It works once, for two minutes.</div>
+<div><b>3</b>Approve the code this browser shows: in Foreman’s phone dialog, or with <code>foreman phone approve</code> and the code.</div></div></div></body></html>
+`
+
 type Mode = 'private' | 'lan'
 type Kind = 'phone' | 'browser'
 type Pending = { id: string; name: string; kind: Kind; code: string; mode: Mode; expiresAt: number; state: 'waiting' | 'approved' | 'denied'; deviceId?: string; auth?: string }
@@ -42,6 +60,8 @@ type MobileDeps = {
   approvals(): ApprovalRequest[]
   consentNeeded(workspaceId: string): CheckConsentItem[]
   appPath: string
+  /** The built renderer a browser loads at /app; `<appPath>/out/renderer` unless a test says otherwise. */
+  rendererPath?: string
   onChanged(): void
   onEnabledChange(on: boolean): void
 } & Pick<ApiSocketDeps, 'onEvent' | 'version' | 'platform' | 'name' | 'setTimer'>
@@ -388,6 +408,49 @@ export class MobileService {
     res.end(data)
   }
 
+  private get rendererPath(): string {
+    return this.deps.rendererPath ?? path.join(this.deps.appPath, 'out', 'renderer')
+  }
+
+  /**
+   * `/app`: the real renderer for a signed-in browser (docs/server.md, "A browser"). The built page carries a CSP meta
+   * tag for Electron (`ws://localhost:*`, `foreman-preview:`); a browser applies both a meta tag and a header, and the
+   * stricter wins, so the tag goes and one header says what this page may do here: its own scripts, and the socket.
+   */
+  private async app(res: ServerResponse, mode: Mode): Promise<void> {
+    const html = (await readFile(path.join(this.rendererPath, 'index.html'), 'utf8')).replace(/<meta\s+http-equiv="Content-Security-Policy"[^>]*>\s*/i, '')
+    this.headers(res, mode)
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ${this.socketOrigin(mode)}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`)
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(html)
+  }
+
+  /** `/assets/<name>`: the renderer's hashed scripts, styles and fonts. One name, no folders, so nothing outside is reachable. */
+  private async asset(res: ServerResponse, name: string, mode: Mode): Promise<void> {
+    const type = ASSET_TYPES[path.extname(name).toLowerCase()]
+    if (!/^[\w.@-]+$/.test(name) || name.startsWith('.') || !type) throw new HttpError(404, 'Not found.')
+    let data: Buffer
+    try { data = await readFile(path.join(this.rendererPath, 'assets', name)) } catch { throw new HttpError(404, 'Not found.') }
+    this.headers(res, mode)
+    // The names carry a hash of their contents, so a browser may keep them.
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable')
+    res.writeHead(200, { 'Content-Type': type })
+    res.end(data)
+  }
+
+  /** `/app` for a browser that isn't signed in: how to sign in, and nothing else (English, as the phone page is). */
+  private signIn(res: ServerResponse, mode: Mode): void {
+    this.headers(res, mode)
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(SIGN_IN_PAGE)
+  }
+
+  private redirect(res: ServerResponse, location: string): void {
+    this.headers(res)
+    res.writeHead(302, { Location: location })
+    res.end()
+  }
+
   private state() {
     const snapshot = this.deps.snapshot()
     const approvals = this.deps.approvals()
@@ -458,7 +521,30 @@ export class MobileService {
     this.guardLan(req, mode)
     const url = new URL(req.url ?? '/', 'http://localhost')
     const pathname = url.pathname
-    if (req.method === 'GET' && pathname === '/') return this.staticFile(res, 'index.html', 'text/html; charset=utf-8', mode)
+    if (req.method === 'GET' && pathname === '/') {
+      // After pairing, the page goes on to the full app (a browser signing in) or stays here: no other `then` is kept.
+      const then = url.searchParams.get('then')
+      if (then !== null && then !== '/app') {
+        url.searchParams.delete('then')
+        return this.redirect(res, `/${url.search}`)
+      }
+      return this.staticFile(res, 'index.html', 'text/html; charset=utf-8', mode)
+    }
+    // The full app for a browser (docs/server.md, "A browser"): signed in, it loads; with a pairing link, the phone page
+    // pairs it as a browser and comes back; otherwise it says how to sign in.
+    if (req.method === 'GET' && pathname === '/app/') return this.redirect(res, `/app${url.search}`)
+    if (req.method === 'GET' && pathname === '/app') {
+      if (this.auth(req, mode)) return this.app(res, mode)
+      const pair = url.searchParams.get('pair')
+      if (pair) return this.redirect(res, `/?pair=${encodeURIComponent(pair)}&then=/app`)
+      return this.signIn(res, mode)
+    }
+    if (pathname.startsWith('/app/')) throw new HttpError(404, 'Not found.')
+    const asset = /^\/assets\/([^/]+)$/.exec(pathname)
+    if (req.method === 'GET' && asset) {
+      if (!this.auth(req, mode)) throw new HttpError(401, 'This browser is not signed in.')
+      return this.asset(res, asset[1], mode)
+    }
     const files: Record<string, string> = { '/app.js': 'text/javascript; charset=utf-8', '/live.js': 'text/javascript; charset=utf-8', '/style.css': 'text/css; charset=utf-8', '/sw.js': 'text/javascript; charset=utf-8', '/manifest.webmanifest': 'application/manifest+json', '/icon.svg': 'image/svg+xml', '/icon-192.png': 'image/png', '/icon-512.png': 'image/png' }
     if (req.method === 'GET' && files[pathname]) return this.staticFile(res, pathname.slice(1), files[pathname], mode)
     this.requireOrigin(req, mode)

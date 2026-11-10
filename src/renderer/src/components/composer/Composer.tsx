@@ -11,7 +11,7 @@ import { queueMoveKey, shortTurnId } from '../../../../shared/queueEdit'
 import { templateById } from '../../../../shared/repoTemplates'
 import { composeMessage, editSnippet, snippetAttachmentName, snippetAttachmentText, snippetIsTooLong, TERMINAL_SNIPPET_MAX_CHARS, type TerminalSnippet } from '../../../../shared/terminalSnippet'
 import type { ApprovalRequest, Attachment, PromptTemplate, QueueChangeResult, QueuedMessage, QueueMove, Session, SlashCommandInfo, Workspace } from '../../../../shared/types'
-import { api, attempt, bridge, modKey, newChatWithTemplate, onUiCommand, openCompareDialog, openMcpStatus, requestOpenFile, sendUiCommand, showError, showToast, takeComposerFill, toggleRightPanel, useStore, type EditedFrom } from '../../store'
+import { api, attempt, bridge, clientKind, modKey, newChatWithTemplate, onUiCommand, openCompareDialog, openMcpStatus, requestOpenFile, sendUiCommand, showError, showToast, takeComposerFill, toggleRightPanel, useStore, type EditedFrom } from '../../store'
 import { useT } from '../../i18n'
 import { useStoreMemo } from '../../storeMemo'
 import { ActionRow, Button, Callout, ChipButton, IconButton, Kbd, LinkButton, Listbox, Tag, TextArea } from '../../ui'
@@ -506,8 +506,16 @@ export function Composer({
   const onDrop = async (e: DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    const paths = [...e.dataTransfer.files].map((f) => bridge.pathForFile(f)).filter(Boolean)
+    const files = [...e.dataTransfer.files]
+    const paths = files.map((f) => bridge.pathForFile(f)).filter(Boolean)
     if (paths.length) addAttachments(await attempt(() => api.attachFiles(workspace.id, paths)))
+    // In a browser a file has no path on the computer: its contents go instead, as a pasted screenshot's do.
+    else if (clientKind === 'browser') {
+      for (const file of files.slice(0, 10)) {
+        const added = await attempt(async () => api.attachData(workspace.id, file.name || `dropped-${Date.now()}`, toBase64(await file.arrayBuffer())))
+        if (added) addAttachments([added])
+      }
+    }
   }
 
   // A template with a start model, inserted here, only adds text: offer a chat that starts on that model instead.

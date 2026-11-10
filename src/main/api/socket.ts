@@ -3,7 +3,7 @@
 // signals through the dispatcher, the events the session's view lets through, backpressure, pings and the goodbyes.
 // It never opens a port of its own and knows nothing of cookies, so it can be driven by a test with a plain `ws` pair.
 import type { RawData, WebSocket } from 'ws'
-import { API_PROTOCOL, ApiRefused, sentToView, type ApiByeReason, type ApiServerFrame, type ApiSession, type View } from '../../shared/api'
+import { API_PROTOCOL, ApiRefused, MAX_CLIENT_FRAME_BYTES, sentToView, type ApiByeReason, type ApiServerFrame, type ApiSession, type View } from '../../shared/api'
 import type { MainEvent } from '../../shared/types'
 import { perf } from '../perf'
 import type { ApiDispatcher } from './dispatch'
@@ -19,7 +19,7 @@ export const DROP_BYTES = 16 * 1024 * 1024
 /** A reply larger than this is replaced by an error, as a paired computer's channel does. */
 export const MAX_REPLY_BYTES = 16 * 1024 * 1024
 /** The largest frame a client may send; the `ws` server closes the socket (1009) past it. */
-export const MAX_INBOUND_BYTES = 1024 * 1024
+export const MAX_INBOUND_BYTES = MAX_CLIENT_FRAME_BYTES
 /** How often a connection holding a `state` looks whether its buffer drained. */
 export const DRAIN_MS = 100
 /** How long a closing handshake may take before the socket is cut, so a stalled client can't hold a listener open. */
