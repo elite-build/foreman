@@ -101,7 +101,8 @@ describe('hand-off context', () => {
     expect(line).toBe('~14 KB → OpenAI (Codex)')
     expect(sizeLine(placeSections([{ kind: 'diff', bytes: 50 * 1024 }]), 'claude')).toBe('~50 KB → Anthropic (Claude Code) · 1 as an attachment')
     const base = { requireToolApprovals: true, codexApprovals: 'sandboxed' as const, autoPermissionMode: false }
-    expect(permissionNote('codex', base)).toContain('tools run without approval')
+    expect(permissionNote('codex', base)).toContain('asks before leaving this workspace’s sandbox')
+    expect(permissionNote('codex', { ...base, codexApprovals: 'always' })).toContain('tools run without approval')
     expect(permissionNote('claude', base)).toBe('asks before running tools')
     expect(permissionNote('claude', { ...base, requireToolApprovals: false })).toBe('tools run without approval')
   })

@@ -1,24 +1,13 @@
-// Codex through the Codex SDK, which drives `codex exec --experimental-json`.
-// Every turn is one CLI process; the thread id carries the conversation over.
-import {
-  Codex,
-  type CodexOptions,
-  type ModelReasoningEffort,
-  type McpToolCallItem,
-  type RunStreamedResult,
-  type ThreadEvent,
-  type ThreadItem,
-  type ThreadOptions,
-  type TurnOptions
-} from '@openai/codex-sdk'
-import { execFile, spawn } from 'node:child_process'
+// Codex through `codex app-server`, its JSON-RPC protocol over stdio (see codexAppServer.ts).
+// Every Foreman turn is one app-server process; the thread persists on disk and its id carries the conversation over.
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { modelInfo, type EffortLevel, type ModelInfo } from '../../shared/agents'
-import type { AgentStatus, ChatItem } from '../../shared/types'
+import type { AgentStatus, ChatItem, Question } from '../../shared/types'
 import { isWindows } from '../platform'
 import {
   looksLikeAuthError,
@@ -26,16 +15,18 @@ import {
   type AgentTurn,
   type ModelList,
   type OneShotOptions,
+  type ToolApprovalRequest,
   type TurnCallbacks,
   type TurnRequest,
   type TurnResult
 } from './types'
+import { CodexAppServer, RpcError, type AppServerFactory, type AppServerLaunch, type CodexAppServerLike } from './codexAppServer'
 import { PreviewThrottle } from './previewThrottle'
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 type TextItem = Extract<ChatItem, { kind: 'assistant' | 'thinking' }>
 type Phase = 'started' | 'updated' | 'completed'
-type MapperCallbacks = Pick<TurnCallbacks, 'item' | 'sessionStarted' | 'usage' | 'finished'>
+type MapperCallbacks = Pick<TurnCallbacks, 'item' | 'usage' | 'finished'>
 
 export interface CodexBinary {
   file: string
@@ -43,17 +34,13 @@ export interface CodexBinary {
   pathDirs: string[]
 }
 
-/** The part of an SDK thread a turn uses, so tests can swap in a fake. */
-export interface CodexThreadLike {
-  runStreamed(input: string, options?: TurnOptions): Promise<RunStreamedResult>
-}
-
-export type ThreadOpener = (request: TurnRequest) => CodexThreadLike
-
 const MAX_TOOL_OUTPUT = 20_000
 
-// The SDK has no "none"; minimal is its lowest level.
-const EFFORTS: Record<EffortLevel, ModelReasoningEffort> = {
+// How long stop() waits for Codex to confirm an interrupt before it kills the process.
+const STOP_WAIT_MS = 2_000
+
+// The app-server takes the effort as a string; "minimal" is its lowest level.
+const EFFORTS: Record<EffortLevel, string> = {
   none: 'minimal',
   low: 'low',
   medium: 'medium',
@@ -75,9 +62,8 @@ const TARGET_TRIPLES: Record<string, string> = {
 const BINARY_NAME = isWindows ? 'codex.exe' : 'codex'
 
 /**
- * The CLI that ships with the SDK as a per-platform package, found the same
- * way the SDK does. Packaged apps cannot execute files inside app.asar, so
- * point at the unpacked copy.
+ * The CLI that ships as the `@openai/codex` package, with its per-platform binary in a sibling package.
+ * Packaged apps cannot execute files inside app.asar, so point at the unpacked copy.
  */
 function bundledCodex(): CodexBinary | undefined {
   const target = `${process.platform}-${process.arch}`
@@ -120,13 +106,22 @@ function codexHome(env: Record<string, string | undefined>): string {
   return env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex')
 }
 
+/** The process environment for the CLI: the request's, with the bundled helper tools on PATH. */
+export function codexEnv(env: Record<string, string>, binary?: CodexBinary): Record<string, string> {
+  const out = { ...env }
+  if (binary?.pathDirs.length) {
+    const key = pathKey(out)
+    out[key] = [...binary.pathDirs, out[key]].filter(Boolean).join(path.delimiter)
+  }
+  return out
+}
+
 /**
  * #20: repo MCP servers in Codex's config shape. Each one names everything a same-named server in the
  * user's own config.toml could add, so none of it leaks in: on, in the workspace, and no variables
  * forwarded beyond the declared ones Foreman passes (the same values a Claude tab gets).
- * `codex exec` can't ask, and Codex refuses an MCP call that needs approval under approval policy
- * "never", so the tools of a server you approved run unasked, like Codex's own commands do; in a
- * read-only chat (#16) they stay refused, since a server's tools run outside Codex's sandbox.
+ * The tools of a server you approved run without asking, like Codex's own commands in a chat that never
+ * asks; in a read-only chat (#16) they stay refused, since a server's tools run outside Codex's sandbox.
  */
 export function codexMcpConfig(servers: TurnRequest['mcpServers'], cwd: string, readOnly = false): Record<string, CodexMcpServer> | undefined {
   const entries = Object.entries(servers ?? {})
@@ -145,54 +140,80 @@ type CodexMcpServer = {
   default_tools_approval_mode: 'approve' | 'prompt'
 }
 
-/** SDK client and thread options for a turn. */
-export function codexOptions(req: TurnRequest, binary?: CodexBinary): { client: CodexOptions; thread: ThreadOptions } {
-  const env = { ...req.env }
-  if (binary?.pathDirs.length) {
-    const key = pathKey(env)
-    env[key] = [...binary.pathDirs, env[key]].filter(Boolean).join(path.delimiter)
-  }
-  const config: NonNullable<CodexOptions['config']> = {}
-  // Developer instructions sit beside Codex's own prompt, like Claude's append.
-  const instructions = req.systemPromptAppend.trim()
-  if (instructions) config.developer_instructions = instructions
-  // Codex's "Fast" speed is the priority service tier.
-  if (req.fastMode && modelInfo('codex', req.model).supportsFast) config.service_tier = 'priority'
-  // #20: approved repo servers, as `--config mcp_servers.<name>.…` for this process only. ~/.codex is never written.
+type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+type SandboxPolicy =
+  | { type: 'dangerFullAccess' }
+  | { type: 'readOnly'; networkAccess: boolean }
+  | { type: 'workspaceWrite'; writableRoots: string[]; networkAccess: boolean; excludeTmpdirEnvVar: boolean; excludeSlashTmp: boolean }
+type ApprovalMode = 'never' | 'on-request'
+
+/** What a turn's app-server settings come to: the A3 table of the permissions mapping. */
+export interface CodexSettings {
+  env: Record<string, string>
+  // `config` overrides for the thread (repo MCP servers), like `--config` on the command line.
+  config: Record<string, unknown>
+  approvalPolicy: ApprovalMode
+  sandbox: SandboxMode
+  sandboxPolicy: SandboxPolicy
+  // thread/start and thread/resume parameters.
+  thread: Record<string, unknown>
+}
+
+/**
+ * Launch settings for a turn.
+ *   readOnly:             never ask, read-only sandbox without network (#16, whatever the approval setting)
+ *   never-ask:            never ask, no sandbox
+ *   ask / ask-except-edits: sandboxed (workspace, git folder, network); Codex asks before stepping outside it
+ *   auto (unattended):    never ask, sandboxed
+ */
+export function codexSettings(req: TurnRequest, binary?: CodexBinary): CodexSettings {
+  const env = codexEnv(req.env, binary)
+  const readOnly = Boolean(req.readOnly)
+  const sandbox: SandboxMode = readOnly ? 'read-only' : req.approvals === 'never-ask' ? 'danger-full-access' : 'workspace-write'
+  // In the sandbox, the workspace's git data lives outside it (a worktree's .git is a pointer),
+  // and pushing or opening a PR needs the network.
+  const sandboxPolicy: SandboxPolicy =
+    sandbox === 'read-only'
+      ? { type: 'readOnly', networkAccess: false }
+      : sandbox === 'danger-full-access'
+        ? { type: 'dangerFullAccess' }
+        : { type: 'workspaceWrite', writableRoots: [...(req.extraWritableDirs ?? [])], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
+  const approvalPolicy: ApprovalMode = !readOnly && (req.approvals === 'ask' || req.approvals === 'ask-except-edits') ? 'on-request' : 'never'
+
+  const config: Record<string, unknown> = {}
+  // #20: approved repo servers, as per-thread config. ~/.codex is never written.
   const mcp = codexMcpConfig(req.mcpServers, req.cwd, req.readOnly)
   // Integrations: the user's own same-service servers from ~/.codex/config.toml, off for this turn.
   const off = Object.fromEntries((req.disabledMcp ?? []).filter((name) => !mcp?.[name]).map((name) => [name, { enabled: false }]))
   if (mcp || Object.keys(off).length) config.mcp_servers = { ...off, ...mcp }
-  return {
-    client: { codexPathOverride: binary?.file, env, config },
-    thread: {
-      model: req.model || undefined,
-      workingDirectory: req.cwd,
-      skipGitRepoCheck: true,
-      // #16: a read-only chat runs in Codex's read-only sandbox whatever the approval setting, with nothing writable.
-      sandboxMode: req.readOnly ? 'read-only' : req.approvals === 'never-ask' ? 'danger-full-access' : 'workspace-write',
-      // In the sandbox, the workspace's git data lives outside it (a worktree's .git is a pointer),
-      // and pushing or opening a PR needs the network.
-      additionalDirectories: !req.readOnly && req.extraWritableDirs?.length ? req.extraWritableDirs : undefined,
-      networkAccessEnabled: req.readOnly ? undefined : true,
-      // `codex exec` cannot answer approval prompts, so it must never ask.
-      approvalPolicy: 'never',
-      modelReasoningEffort: req.effort ? EFFORTS[req.effort] : undefined
-    }
+
+  const thread: Record<string, unknown> = {
+    model: req.model || undefined,
+    cwd: req.cwd,
+    approvalPolicy,
+    sandbox,
+    // Developer instructions sit beside Codex's own prompt, like Claude's append.
+    developerInstructions: req.systemPromptAppend.trim() || undefined,
+    // Codex's "Fast" speed is the priority service tier.
+    serviceTier: req.fastMode && modelInfo('codex', req.model).supportsFast ? 'priority' : undefined,
+    config: Object.keys(config).length ? config : undefined
   }
+  return { env, config, approvalPolicy, sandbox, sandboxPolicy, thread }
 }
 
 function clip(text: string): string {
   return text.length > MAX_TOOL_OUTPUT ? `${text.slice(0, MAX_TOOL_OUTPUT)}\n… (truncated)` : text
 }
 
-function mcpOutput(item: McpToolCallItem): string | undefined {
+/** The v2 `mcpToolCall` item's result as text. */
+function mcpOutput(item: WireItem): string | undefined {
   if (item.error) return item.error.message
   if (!item.result) return undefined
-  const parts = (item.result.content as { type: string; text?: string }[]).map((part) =>
-    part.type === 'text' ? part.text ?? '' : `[${part.type}]`
-  )
-  const text = parts.join('\n') || (item.result.structured_content != null ? JSON.stringify(item.result.structured_content, null, 2) : '')
+  const parts = ((item.result.content ?? []) as unknown[]).map((part) => {
+    const p = part as { type?: string; text?: string }
+    return p.type === 'text' ? p.text ?? '' : `[${p.type ?? 'content'}]`
+  })
+  const text = parts.join('\n') || (item.result.structuredContent != null ? JSON.stringify(item.result.structuredContent, null, 2) : '')
   return clip(text)
 }
 
@@ -205,17 +226,42 @@ function needsSettings(text: string): boolean {
 
 function errorText(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err)
-  // The SDK reports a failed process as "Codex Exec exited with code 1: <stderr>".
-  const detail = text.replace(/^Codex Exec exited with [^:]*:\s*/, '').trim()
+  // A process that died reports "Codex app-server exited with code 1: <stderr>"; the stderr is the useful part.
+  const detail = text.replace(/^Codex app-server exited with [^:]*:\s*/, '').trim()
   return (detail || text).slice(-4000)
 }
 
-/** Turns the SDK's event stream into chat items. Separate from the process so tests can feed it events. */
+// ---- the narrow slice of the v2 protocol the mapper reads ----
+
+interface FileChange {
+  path: string
+  kind: { type: 'add' | 'delete' | 'update' }
+}
+
+interface WireItem {
+  type: string
+  id: string
+  [key: string]: any
+}
+
+/** What the app-server says a finished turn was. */
+export interface CodexTurnInfo {
+  id?: string
+  status: string
+  error?: { message?: string } | null
+}
+
+/** Turns the app-server's notifications into chat items. Separate from the process so tests can feed it notifications. */
 export class CodexEventMapper {
   // Set once the turn has reported its outcome.
   done = false
   private previews = new Map<string, TextItem>()
   private tools = new Map<string, ToolItem>()
+  private outputs = new Map<string, string>()
+  private summaryParts = new Map<string, number>()
+  private fileChanges = new Map<string, FileChange[]>()
+  // The proposed plan of the Codex turn that just ran in plan mode.
+  private plan = ''
   // Text previews and progress on running calls (shown, not saved) go out at most every 50 ms, each as it then stands.
   private live = new PreviewThrottle((id) => this.sendPreview(id))
   private errors = new Set<string>()
@@ -229,37 +275,65 @@ export class CodexEventMapper {
     private cb: MapperCallbacks
   ) {}
 
-  handle(event: ThreadEvent): void {
-    switch (event.type) {
-      case 'thread.started':
-        this.cb.sessionStarted(event.thread_id)
+  handle(method: string, params: any): void {
+    switch (method) {
+      case 'item/started':
+        return this.handleItem(params.item, 'started')
+      case 'item/completed':
+        return this.handleItem(params.item, 'completed')
+      case 'item/agentMessage/delta':
+        return this.delta('assistant', params.itemId, params.delta)
+      case 'item/reasoning/summaryTextDelta': {
+        const id = `${this.turnId}:${params.itemId}`
+        const last = this.summaryParts.get(id)
+        this.summaryParts.set(id, params.summaryIndex)
+        // A new summary part starts a new paragraph.
+        const gap = last !== undefined && last !== params.summaryIndex ? '\n\n' : ''
+        return this.delta('thinking', params.itemId, gap + params.delta)
+      }
+      case 'item/commandExecution/outputDelta':
+        return this.commandOutput(params.itemId, params.delta)
+      case 'item/fileChange/patchUpdated':
+        this.fileChanges.set(params.itemId, params.changes ?? [])
         return
-      case 'item.started':
-        return this.handleItem(event.item, 'started')
-      case 'item.updated':
-        return this.handleItem(event.item, 'updated')
-      case 'item.completed':
-        return this.handleItem(event.item, 'completed')
-      case 'turn.completed': {
-        if (this.done) return
-        this.result(true)
-        const used = event.usage.input_tokens
-        if (used > 0) this.cb.usage({ used: Math.min(used, this.contextWindow), limit: this.contextWindow })
-        this.complete({ ok: true })
+      case 'turn/plan/updated': {
+        // A snapshot of the plan rather than a call that runs, so it is never "running".
+        const todos = (params.plan ?? []).map((s: { step: string; status: string }) => ({
+          content: s.step,
+          status: s.status === 'completed' ? ('completed' as const) : s.status === 'inProgress' ? ('in_progress' as const) : ('pending' as const)
+        }))
+        return this.tool({ id: `${this.turnId}:plan:${params.turnId}`, name: 'TodoWrite', input: { todos }, status: 'done' }, 'completed')
+      }
+      case 'thread/tokenUsage/updated': {
+        const last = params.tokenUsage?.last
+        const limit = params.tokenUsage?.modelContextWindow || this.contextWindow
+        const used = (last?.inputTokens ?? 0) + (last?.outputTokens ?? 0)
+        if (used > 0) this.cb.usage({ used: Math.min(used, limit), limit })
         return
       }
-      case 'turn.failed':
-        if (this.done) return
-        this.result(false)
-        this.error(event.error.message)
-        this.complete({ ok: false, error: event.error.message.trim() || 'Codex failed.' })
-        return
-      case 'error':
-        this.error(event.message)
-        return
+      case 'error': {
+        const message = params.error?.message ?? ''
+        // Retries while the connection recovers are not failures, however the server words them.
+        if (params.willRetry) return this.notice('info', message.trim() || 'Reconnecting…')
+        return this.error(message)
+      }
       default:
         return
     }
+  }
+
+  /** The turn ended (after any plan-mode follow-ups): the result item, then `finished`. */
+  completeTurn(turn: CodexTurnInfo): void {
+    if (this.done) return
+    if (turn.status === 'failed') {
+      const message = turn.error?.message ?? ''
+      this.result(false)
+      this.error(message)
+      this.complete({ ok: false, error: message.trim() || 'Codex failed.' })
+      return
+    }
+    this.result(true)
+    this.complete({ ok: true })
   }
 
   /** The CLI died without finishing the turn. Skips the notice if an error was already shown. */
@@ -272,6 +346,18 @@ export class CodexEventMapper {
 
   notice(level: 'info' | 'error', text: string, action?: 'open-settings', id?: string): void {
     this.cb.item({ kind: 'notice', id: id ?? `${this.turnId}:notice:${this.noticeCount++}`, turnId: this.turnId, level, text, action })
+  }
+
+  /** The files an item's patch touches, as the app-server announced them (an approval request names only the item). */
+  fileChange(itemId: string): FileChange[] | undefined {
+    return this.fileChanges.get(itemId)
+  }
+
+  /** The plan the last Codex turn proposed, once. */
+  takePlan(): string {
+    const plan = this.plan
+    this.plan = ''
+    return plan
   }
 
   /** Persist whatever was still streaming and close out unfinished tool calls. */
@@ -287,51 +373,79 @@ export class CodexEventMapper {
     this.complete({ ok: false, error: stopped ? 'Stopped.' : 'Codex ended without a result.' })
   }
 
-  private handleItem(item: ThreadItem, phase: Phase): void {
-    // Item ids restart with every `codex exec` process, so scope them to the turn.
+  private handleItem(item: WireItem | undefined, phase: Phase): void {
+    if (!item) return
+    // Item ids restart with every app-server process, so scope them to the turn.
     const id = `${this.turnId}:${item.id}`
     switch (item.type) {
-      case 'agent_message':
-        return this.text('assistant', id, item.text, phase)
-      case 'reasoning':
-        return this.text('thinking', id, item.text, phase)
-      case 'command_execution': {
-        const failed = item.status === 'failed' || (item.exit_code !== undefined && item.exit_code !== 0)
-        const status = item.status === 'in_progress' ? 'running' : failed ? 'error' : 'done'
-        const output = item.aggregated_output || (failed && item.exit_code ? `Exit code ${item.exit_code}` : '')
+      case 'agentMessage':
+        return this.text('assistant', id, item.text ?? '', phase)
+      case 'plan': {
+        // Plan mode's proposed plan: in the transcript like an answer, and handed to the plan review.
+        const text = String(item.text ?? '')
+        if (phase === 'completed' && text.trim()) this.plan = text
+        return this.text('assistant', id, text, phase)
+      }
+      case 'reasoning': {
+        const text = [...(item.summary ?? [])].join('\n\n') || [...(item.content ?? [])].join('\n\n')
+        return this.text('thinking', id, text, phase)
+      }
+      case 'commandExecution': {
+        const declined = item.status === 'declined'
+        const failed = item.status === 'failed' || declined || (item.exitCode != null && item.exitCode !== 0)
+        const status = item.status === 'inProgress' ? 'running' : failed ? 'error' : 'done'
+        const streamed = this.outputs.get(id) ?? ''
+        const output = item.aggregatedOutput || streamed || (declined ? 'Declined.' : failed && item.exitCode ? `Exit code ${item.exitCode}` : '')
+        if (phase === 'completed') this.outputs.delete(id)
         return this.tool({ id, name: 'Bash', input: { command: item.command }, status, output: clip(output) }, phase)
       }
-      case 'file_change':
-        item.changes.forEach((change, n) => {
-          const failed = item.status === 'failed'
+      case 'fileChange': {
+        const changes: FileChange[] = item.changes ?? []
+        this.fileChanges.set(item.id, changes)
+        const declined = item.status === 'declined'
+        const failed = item.status === 'failed'
+        const status = item.status === 'inProgress' ? 'running' : failed || declined ? 'error' : 'done'
+        changes.forEach((change, n) => {
           this.tool(
             {
               id: `${id}:${n}`,
-              name: change.kind === 'add' ? 'Write' : 'Edit',
+              name: change.kind.type === 'add' ? 'Write' : 'Edit',
               input: { file_path: path.resolve(this.cwd, change.path) },
-              status: failed ? 'error' : 'done',
-              output: failed ? 'The patch could not be applied.' : change.kind === 'delete' ? 'Deleted.' : undefined
+              status,
+              output: declined ? 'Declined.' : failed ? 'The patch could not be applied.' : change.kind.type === 'delete' && status === 'done' ? 'Deleted.' : undefined
             },
             phase
           )
         })
         return
-      case 'mcp_tool_call': {
-        const status = item.status === 'in_progress' ? 'running' : item.status === 'failed' ? 'error' : 'done'
+      }
+      case 'mcpToolCall': {
+        const status = item.status === 'inProgress' ? 'running' : item.status === 'failed' ? 'error' : 'done'
         return this.tool({ id, name: `mcp__${item.server}__${item.tool}`, input: item.arguments, status, output: mcpOutput(item) }, phase)
       }
-      case 'web_search':
+      case 'webSearch':
         return this.tool({ id, name: 'WebSearch', input: { query: item.query }, status: phase === 'completed' ? 'done' : 'running' }, phase)
-      case 'todo_list': {
-        // A snapshot of the plan rather than a call that runs, so it is never "running".
-        const todos = item.items.map((t) => ({ content: t.text, status: t.completed ? ('completed' as const) : ('pending' as const) }))
-        return this.tool({ id, name: 'TodoWrite', input: { todos }, status: 'done' }, phase)
-      }
-      case 'error':
-        return this.error(item.message, id)
       default:
         return
     }
+  }
+
+  private delta(kind: TextItem['kind'], itemId: string, delta: string): void {
+    if (!delta) return
+    const id = `${this.turnId}:${itemId}`
+    const text = (this.previews.get(id)?.text ?? '') + delta
+    this.previews.set(id, { kind, id, turnId: this.turnId, text, streaming: true })
+    this.live.mark(id)
+  }
+
+  private commandOutput(itemId: string, delta: string): void {
+    const id = `${this.turnId}:${itemId}`
+    const tool = this.tools.get(id)
+    if (!tool || !delta) return
+    // Past the cap nothing more is kept: the clip would cut it off anyway.
+    const output = (this.outputs.get(id) ?? '') + delta
+    this.outputs.set(id, output.length > MAX_TOOL_OUTPUT + 1 ? output.slice(0, MAX_TOOL_OUTPUT + 1) : output)
+    this.tool({ id, name: tool.name, input: tool.input, status: 'running', output: clip(this.outputs.get(id)!) }, 'updated')
   }
 
   private text(kind: TextItem['kind'], id: string, text: string, phase: Phase): void {
@@ -344,6 +458,7 @@ export class CodexEventMapper {
     }
     const preview = this.previews.get(id)
     this.previews.delete(id)
+    this.summaryParts.delete(id)
     if (text.trim() || preview) this.cb.item({ kind, id, turnId: this.turnId, text: text || preview?.text || '' })
   }
 
@@ -384,63 +499,360 @@ export class CodexEventMapper {
   }
 }
 
-function openSdkThread(req: TurnRequest): CodexThreadLike {
-  const binary = codexBinary(req.executablePath, req.env)
-  // Checked up front: the SDK writes to the stdin of a process that failed to spawn.
-  if (!binary || !existsSync(binary.file)) {
-    throw new Error(`${NOT_FOUND}${binary ? ` at ${binary.file}` : ''}. Set its path in Settings › Agents › Codex.`)
-  }
-  const { client, thread } = codexOptions(req, binary)
-  const codex = new Codex(client)
-  return req.resume ? codex.resumeThread(req.resume, thread) : codex.startThread(thread)
+// ---- the turn ----
+
+/** One Codex turn in flight: its id once known, and how it ended. */
+interface ActiveTurn {
+  id?: string
+  settled: boolean
+  planMode: boolean
+  completion: Promise<CodexTurnInfo>
+  resolve(turn: CodexTurnInfo): void
+  reject(error: Error): void
+}
+
+const textInput = (text: string) => [{ type: 'text', text, text_elements: [] }]
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms)
+    timer.unref?.()
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
 export class CodexTurn implements AgentTurn {
   private abort = new AbortController()
   private stopped = false
+  // The turn was cut off from outside (not by stop()): Codex reported `interrupted`.
+  private interrupted = false
+  private over = false
   private mapper: CodexEventMapper
+  private server?: CodexAppServerLike
+  private threadId?: string
+  private threadModel = ''
+  // Codex's collaboration mode sticks to the thread for later turns: set once this process (or an earlier one) put it in plan mode.
+  private threadInPlan = false
+  private model: string
+  private planMode: boolean
+  private current?: ActiveTurn
+  // Pending server requests by JSON-RPC id, aborted when the server says it no longer needs the answer.
+  private pending = new Map<number | string, AbortController>()
+  // "Allow edits for this session" was chosen in this turn.
+  private autoEdits = false
 
   constructor(
     private req: TurnRequest,
-    cb: TurnCallbacks,
-    private openThread: ThreadOpener = openSdkThread
+    private cb: TurnCallbacks,
+    private openServer?: AppServerFactory
   ) {
     this.mapper = new CodexEventMapper(req.turnId, req.cwd, modelInfo('codex', req.model).contextWindow, cb)
+    this.model = req.model
+    this.planMode = req.planMode
+  }
+
+  private launch(): AppServerLaunch {
+    const binary = codexBinary(this.req.executablePath, this.req.env)
+    // An injected opener (tests) stands in for the process, so there is no binary to look for.
+    if (!this.openServer && (!binary || !existsSync(binary.file))) {
+      throw new Error(`${NOT_FOUND}${binary ? ` at ${binary.file}` : ''}. Set its path in Settings › Agents › Codex.`)
+    }
+    return { file: binary?.file ?? 'codex', cwd: this.req.cwd, env: codexEnv(this.req.env, binary) }
   }
 
   async run(): Promise<void> {
     try {
       const prompt = await expandCustomPrompt(this.req.prompt, codexHome(this.req.env))
       if (this.stopped) return
-      const { events } = await this.openThread(this.req).runStreamed(prompt, { signal: this.abort.signal })
-      for await (const event of events) {
-        if (this.stopped) break
-        this.mapper.handle(event)
+      const server = (this.openServer ?? CodexAppServer.start)(this.launch())
+      this.server = server
+      server.onNotification((method, params) => this.notification(method, params))
+      server.onRequest((method, params, id) => this.serverRequest(method, params, id))
+      server.onExit((_code, tail) => this.exit(tail))
+      await server.initialize()
+      if (this.stopped) return
+      await this.openThread(server)
+      if (this.stopped) return
+
+      let text = prompt
+      for (;;) {
+        const turn = await this.codexTurn(text)
+        if (this.stopped) return
+        if (turn.status === 'interrupted') {
+          this.interrupted = true
+          return
+        }
+        if (turn.status !== 'completed') return this.mapper.completeTurn(turn)
+        const next = await this.afterPlan()
+        if (this.stopped) return
+        if (next === undefined) return this.mapper.completeTurn(turn)
+        text = next
       }
     } catch (err) {
       if (!this.stopped) this.mapper.crashed(errorText(err))
     } finally {
-      if (this.stopped && !this.mapper.done) this.mapper.notice('info', 'Stopped.')
-      this.mapper.finish(this.stopped)
+      this.over = true
+      if ((this.stopped || this.interrupted) && !this.mapper.done) this.mapper.notice('info', 'Stopped.')
+      this.mapper.finish(this.stopped || this.interrupted)
+      // Never leave a CLI process behind, whatever ended the turn.
+      this.server?.close()
     }
   }
 
   async stop(): Promise<void> {
     if (this.stopped) return
     this.stopped = true
-    // The SDK kills the CLI process when its signal aborts.
     this.abort.abort()
+    const server = this.server
+    const turn = this.current
+    if (server && !server.exited && turn && !turn.settled && this.threadId) {
+      // If the turn id isn't known yet, run() interrupts as soon as turn/start answers.
+      if (turn.id) server.request('turn/interrupt', { threadId: this.threadId, turnId: turn.id }).catch(() => undefined)
+      await withTimeout(turn.completion.catch(() => undefined), STOP_WAIT_MS)
+    }
+    server?.close()
+    this.current?.reject(new Error('Stopped'))
   }
 
-  // `codex exec` reads one prompt per process, so follow-ups are queued instead.
-  steer(_text: string): boolean {
-    return false
+  /** Delivers the message into the Codex turn in flight; false (so it is queued) when there is none to steer. */
+  steer(text: string): boolean {
+    const turn = this.current
+    if (this.stopped || this.over || !this.server || this.server.exited || !turn || turn.settled || !turn.id || !this.threadId) return false
+    this.server.request('turn/steer', { threadId: this.threadId, expectedTurnId: turn.id, input: textInput(text) }).catch((err) => {
+      // The turn may have ended just as the message went out. Say so, with the text, so it isn't lost.
+      this.mapper.notice('error', `Codex did not take your message while working (${errorText(err)}). Send it again: ${text}`)
+    })
+    return true
   }
 
-  async setPlanMode(): Promise<void> {}
+  // Codex's collaboration mode is per turn, so this applies from the next turn this process starts.
+  async setPlanMode(on: boolean): Promise<void> {
+    this.planMode = on
+  }
 
-  // The model is passed per process, so a change applies from the next turn.
-  async setModel(): Promise<void> {}
+  // The model is passed per turn, so a change applies from the next turn.
+  async setModel(model: string): Promise<void> {
+    this.model = model
+  }
+
+  private async openThread(server: CodexAppServerLike): Promise<void> {
+    const { thread } = codexSettings(this.req)
+    type Opened = { thread: { id: string }; model?: string; collaborationMode?: { mode?: string } | null }
+    const opened = this.req.resume ? await server.request<Opened>('thread/resume', { ...thread, threadId: this.req.resume }) : await server.request<Opened>('thread/start', thread)
+    this.threadId = opened.thread.id
+    this.threadModel = opened.model ?? ''
+    // A resumed thread last used in plan mode is still in it; an older thread that reports no mode is not.
+    this.threadInPlan = opened.collaborationMode?.mode === 'plan'
+    this.cb.sessionStarted(opened.thread.id)
+  }
+
+  /** One Codex turn: start it, wait for it to complete. */
+  private async codexTurn(text: string): Promise<CodexTurnInfo> {
+    const server = this.server!
+    let resolve!: (turn: CodexTurnInfo) => void
+    let reject!: (error: Error) => void
+    const completion = new Promise<CodexTurnInfo>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    // Whoever awaits it handles a rejection; this keeps one nobody awaits from being reported as unhandled.
+    completion.catch(() => undefined)
+    const turn: ActiveTurn = {
+      settled: false,
+      planMode: this.planMode,
+      completion,
+      resolve: (t) => {
+        if (turn.settled) return
+        turn.settled = true
+        resolve(t)
+      },
+      reject: (e) => {
+        if (turn.settled) return
+        turn.settled = true
+        reject(e)
+      }
+    }
+    this.current = turn
+    const { approvalPolicy, sandboxPolicy } = codexSettings(this.req)
+    const model = this.model || this.threadModel
+    const effort = this.req.effort ? EFFORTS[this.req.effort] : null
+    // The mode sticks, so leaving plan mode must say so: "default" is sent when the thread is (or was) in plan mode. A thread never put in plan mode gets nothing.
+    const mode = turn.planMode ? 'plan' : this.threadInPlan ? 'default' : undefined
+    if (turn.planMode) this.threadInPlan = true
+    else if (mode) this.threadInPlan = false
+    try {
+      const started = await server.request<{ turn: { id: string } }>('turn/start', {
+        threadId: this.threadId,
+        input: textInput(text),
+        model: this.model || undefined,
+        effort: this.req.effort ? EFFORTS[this.req.effort] : undefined,
+        approvalPolicy,
+        sandboxPolicy,
+        // Experimental field: sent only for plan mode, or to leave it; other turns run exactly as without it.
+        ...(mode ? { collaborationMode: { mode, settings: { model, reasoning_effort: effort, developer_instructions: null } } } : {})
+      })
+      if (!turn.settled) turn.id = started.turn.id
+      // Stopped while the turn was starting: now there is an id to interrupt.
+      if (this.stopped && !turn.settled && this.threadId) server.request('turn/interrupt', { threadId: this.threadId, turnId: started.turn.id }).catch(() => undefined)
+      return await completion
+    } finally {
+      turn.settled = true
+    }
+  }
+
+  /**
+   * After a plan-mode turn that proposed a plan: ask the user. The text of the next Codex turn, or undefined when
+   * the Foreman turn is over (no plan, read-only, kept planning, or handed off).
+   */
+  private async afterPlan(): Promise<string | undefined> {
+    const wasPlan = this.current?.planMode
+    const plan = this.mapper.takePlan()
+    if (!wasPlan || !plan || this.req.readOnly) return undefined
+    let review
+    try {
+      review = await this.cb.reviewPlan(plan, this.abort.signal)
+    } catch {
+      return undefined
+    }
+    if (review.handOff) return undefined
+    const feedback = review.feedback?.trim()
+    if (review.approve) {
+      this.planMode = false
+      this.cb.planModeChanged(false)
+      return feedback ? `Implement the plan.\n\nNotes from the user: ${feedback}` : 'Implement the plan.'
+    }
+    return feedback ? `Revise the plan. The user says: ${feedback}` : undefined
+  }
+
+  // ---- what the app-server sends ----
+
+  private notification(method: string, params: any): void {
+    // Only this thread's events: a sub-agent's thread reports through the same process.
+    if (params?.threadId && this.threadId && params.threadId !== this.threadId) return
+    switch (method) {
+      case 'turn/started':
+        if (this.current && !this.current.settled && !this.current.id) this.current.id = params.turn?.id
+        return
+      case 'turn/completed':
+        this.current?.resolve(params.turn)
+        return
+      case 'serverRequest/resolved':
+        // Answered elsewhere (or no longer needed): the approval asked for it is moot.
+        this.pending.get(params.requestId)?.abort()
+        return
+      default:
+        this.mapper.handle(method, params)
+    }
+  }
+
+  private exit(tail: string): void {
+    if (this.stopped || this.over) return
+    // The process died: a turn waiting for its completion never gets one.
+    this.current?.reject(new Error(tail.trim() || 'Codex app-server exited unexpectedly'))
+  }
+
+  private async serverRequest(method: string, params: any, id: number | string): Promise<unknown> {
+    const own = new AbortController()
+    this.pending.set(id, own)
+    const signal = AbortSignal.any([this.abort.signal, own.signal])
+    try {
+      switch (method) {
+        case 'item/commandExecution/requestApproval':
+          return await this.commandApproval(params, signal)
+        case 'item/fileChange/requestApproval':
+          return await this.fileApproval(params, signal)
+        case 'item/permissions/requestApproval':
+          return await this.permissionsApproval(params, signal)
+        case 'item/tool/requestUserInput':
+          return await this.userInput(params, signal)
+        case 'mcpServer/elicitation/request':
+          this.mapper.notice('info', 'An MCP server asked for input through a form, which Foreman cannot show yet. It was declined.')
+          return { action: 'decline', content: null, _meta: null }
+        default:
+          throw new RpcError(`${method} is not supported by Foreman`, -32601)
+      }
+    } finally {
+      this.pending.delete(id)
+    }
+  }
+
+  /** Asks the user; `cancel` when the question was withdrawn (stop, or Codex no longer needs the answer). */
+  private async ask(request: ToolApprovalRequest, signal: AbortSignal): Promise<'allow' | 'alternate' | 'deny' | 'cancel'> {
+    try {
+      const answer = await this.cb.approveTool(request, signal)
+      if (signal.aborted) return 'cancel'
+      if (!answer.allow) return 'deny'
+      return answer.alternate && request.alternate ? 'alternate' : 'allow'
+    } catch {
+      return 'cancel'
+    }
+  }
+
+  // #16: read-only never asks: every approval is declined, on top of the read-only sandbox and the `never` policy.
+  private async commandApproval(params: any, signal: AbortSignal): Promise<unknown> {
+    if (this.req.readOnly) return { decision: 'decline' }
+    if (this.req.approvals === 'never-ask') return { decision: 'accept' }
+    const decisions: unknown[] | null | undefined = params.availableDecisions
+    const canRemember = !decisions || decisions.includes('acceptForSession')
+    const input: Record<string, unknown> = { command: params.command ?? '', cwd: params.cwd }
+    if (params.additionalPermissions) input.permissions = params.additionalPermissions
+    const answer = await this.ask({ kind: 'tool', toolName: 'Bash', input, reason: params.reason ?? undefined, alternate: canRemember ? 'always-allow' : undefined }, signal)
+    return { decision: answer === 'alternate' ? 'acceptForSession' : answer === 'allow' ? 'accept' : answer === 'deny' ? 'decline' : 'cancel' }
+  }
+
+  private async fileApproval(params: any, signal: AbortSignal): Promise<unknown> {
+    if (this.req.readOnly) return { decision: 'decline' }
+    if (this.req.approvals === 'never-ask' || this.req.approvals === 'ask-except-edits' || this.autoEdits) return { decision: 'accept' }
+    // The request names the item; its files came with item/started.
+    const changes = this.mapper.fileChange(params.itemId) ?? []
+    const files = changes.map((c) => path.resolve(this.req.cwd, c.path))
+    const input: Record<string, unknown> = { file_path: files[0] ?? params.grantRoot ?? this.req.cwd, files }
+    const toolName = changes.length > 0 && changes.every((c) => c.kind.type === 'add') ? 'Write' : 'Edit'
+    const answer = await this.ask({ kind: 'tool', toolName, input, reason: params.reason ?? undefined, alternate: 'edits-for-session' }, signal)
+    if (answer === 'alternate') {
+      this.autoEdits = true
+      this.cb.autoAcceptEdits(true)
+    }
+    return { decision: answer === 'alternate' ? 'acceptForSession' : answer === 'allow' ? 'accept' : answer === 'deny' ? 'decline' : 'cancel' }
+  }
+
+  private async permissionsApproval(params: any, signal: AbortSignal): Promise<unknown> {
+    const none = { permissions: {}, scope: 'turn' }
+    if (this.req.readOnly) return none
+    const requested = (params.permissions ?? {}) as Record<string, unknown>
+    // What was asked for, minus the parts it left null.
+    const granted = Object.fromEntries(Object.entries(requested).filter(([, v]) => v !== null && v !== undefined))
+    if (this.req.approvals === 'never-ask') return { permissions: granted, scope: 'turn' }
+    const answer = await this.ask({ kind: 'tool', toolName: 'Permissions', input: { permissions: requested, cwd: params.cwd }, reason: params.reason ?? undefined }, signal)
+    return answer === 'allow' || answer === 'alternate' ? { permissions: granted, scope: 'turn' } : none
+  }
+
+  private async userInput(params: any, signal: AbortSignal): Promise<unknown> {
+    type Wire = { id: string; header?: string; question: string; options?: { label: string; description?: string }[] | null }
+    const wire: Wire[] = params.questions ?? []
+    const questions: Question[] = wire.map((q) => ({
+      question: q.question,
+      header: q.header || undefined,
+      options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description || undefined }))
+    }))
+    // Like Claude's AskUserQuestion, a read-only chat doesn't ask.
+    let answer: Awaited<ReturnType<TurnCallbacks['ask']>> = { kind: 'question', skipped: true }
+    if (!this.req.readOnly) {
+      try {
+        answer = await this.cb.ask(questions, signal)
+      } catch {
+        // Withdrawn: answer nothing.
+      }
+    }
+    const answers = Object.fromEntries(
+      wire.map((q) => {
+        const given = answer.skipped ? undefined : answer.answers?.[q.question]
+        return [q.id, { answers: given ? [given] : [] }]
+      })
+    )
+    return { answers }
+  }
 }
 
 // ---- custom prompts ($CODEX_HOME/prompts/*.md) ----
@@ -459,7 +871,7 @@ function frontmatter(text: string): { meta: Record<string, string>; body: string
 }
 
 /**
- * `codex exec` does not expand custom prompts the way the TUI does, so
+ * The app-server does not expand custom prompts the way the TUI does, so
  * `/prompts:name args` is expanded here: $1-$9, $ARGUMENTS, $NAME from
  * NAME=value arguments, and $$ for a literal dollar sign.
  */
@@ -555,7 +967,7 @@ export const codexDriver: AgentDriver = {
     const envKey = Boolean(env.CODEX_API_KEY || env.OPENAI_API_KEY)
     const tokens = auth.tokens
     const chatgpt = Boolean(tokens && (tokens.id_token || tokens.access_token || tokens.refresh_token))
-    // `codex exec` prefers CODEX_API_KEY from the environment over a saved login.
+    // Codex prefers CODEX_API_KEY from the environment over a saved login.
     const method = envKey ? 'API key' : chatgpt ? 'ChatGPT login' : auth.OPENAI_API_KEY ? 'API key' : undefined
     const ready = hasAuthFile || envKey
     return {
@@ -638,63 +1050,34 @@ export function toCodexModelInfo(m: CodexModel, windows: Map<string, number> = n
   }
 }
 
+
 /** Asks `codex app-server` for the models this sign-in can use. */
-function listCodexModels(options: OneShotOptions): Promise<ModelList> {
+export async function listCodexModels(options: OneShotOptions, start: AppServerFactory = CodexAppServer.start): Promise<ModelList> {
   const binary = codexBinary(options.executablePath, options.env)
-  if (!binary) return Promise.reject(new Error('Codex is not installed'))
-  const env = { ...options.env }
-  if (binary.pathDirs.length) {
-    const key = pathKey(env)
-    env[key] = [...binary.pathDirs, env[key]].filter(Boolean).join(path.delimiter)
+  if (!binary) throw new Error('Codex is not installed')
+  const env = codexEnv(options.env, binary)
+  const server = start({ file: binary.file, cwd: options.cwd, env })
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    server.close()
+  }, LIST_TIMEOUT_MS)
+  try {
+    await server.initialize()
+    const models: CodexModel[] = []
+    let cursor: string | null = null
+    do {
+      const page: { data: CodexModel[]; nextCursor: string | null } = await server.request('model/list', { cursor, includeHidden: false })
+      models.push(...page.data)
+      cursor = page.nextCursor
+    } while (cursor)
+    // Read after model/list, so a cache it refreshed is the one read.
+    const windows = await codexContextWindows(codexHome(env))
+    return { models: models.map((m) => toCodexModelInfo(m, windows)) }
+  } catch (err) {
+    throw timedOut ? new Error('Codex did not answer in time') : err
+  } finally {
+    clearTimeout(timer)
+    server.close()
   }
-  return new Promise((resolve, reject) => {
-    const child = spawn(binary.file, ['app-server'], { cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true })
-    const replies = new Map<number, (msg: { result?: unknown; error?: { message?: string } }) => void>()
-    let buffer = ''
-    let nextId = 0
-    const finish = (err: Error | null, list?: ModelList) => {
-      clearTimeout(timer)
-      child.kill()
-      if (err) reject(err)
-      else resolve(list!)
-    }
-    const timer = setTimeout(() => finish(new Error('Codex did not answer in time')), LIST_TIMEOUT_MS)
-    const call = (method: string, params: unknown) =>
-      new Promise<unknown>((ok, fail) => {
-        const id = ++nextId
-        replies.set(id, (msg) => (msg.error ? fail(new Error(msg.error.message ?? `${method} failed`)) : ok(msg.result)))
-        child.stdin.write(JSON.stringify({ id, method, params }) + '\n')
-      })
-    child.on('error', (err) => finish(err))
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      buffer += chunk
-      let end: number
-      while ((end = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, end).trim()
-        buffer = buffer.slice(end + 1)
-        if (!line) continue
-        try {
-          const msg = JSON.parse(line) as { id?: number; result?: unknown; error?: { message?: string } }
-          if (typeof msg.id === 'number') replies.get(msg.id)?.(msg)
-        } catch {
-          // Not a protocol line; ignore.
-        }
-      }
-    })
-    void (async () => {
-      await call('initialize', { clientInfo: { name: 'foreman', title: 'Foreman', version: '1.0.0' }, capabilities: null })
-      child.stdin.write(JSON.stringify({ method: 'initialized' }) + '\n')
-      const models: CodexModel[] = []
-      let cursor: string | null = null
-      do {
-        const page = (await call('model/list', { cursor, includeHidden: false })) as { data: CodexModel[]; nextCursor: string | null }
-        models.push(...page.data)
-        cursor = page.nextCursor
-      } while (cursor)
-      // Read after model/list, so a cache it refreshed is the one read.
-      const windows = await codexContextWindows(codexHome(env))
-      finish(null, { models: models.map((m) => toCodexModelInfo(m, windows)) })
-    })().catch((err: Error) => finish(err))
-  })
 }

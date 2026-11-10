@@ -1,6 +1,5 @@
 // #20: repo MCP servers reach Codex and ACP agents (OpenCode, Chat agents) the way they reach Claude.
 import * as acp from '@agentclientprotocol/sdk/unstable'
-import { Codex } from '@openai/codex-sdk'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -10,7 +9,8 @@ import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acpMcpServers, createAcpDriver, type AcpConnector } from '../src/main/agents/acp'
-import { codexBinary, codexMcpConfig, codexOptions, CodexTurn } from '../src/main/agents/codex'
+import { codexBinary, codexMcpConfig, codexSettings, CodexTurn } from '../src/main/agents/codex'
+import { CodexAppServer, type AppServerFactory } from '../src/main/agents/codexAppServer'
 import { registerDriver } from '../src/main/agents/registry'
 import type { McpLaunch, TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import { HostServer } from '../src/main/agentHost/server'
@@ -110,7 +110,10 @@ describe('Codex gets approved repo servers', () => {
   const binary = codexBinary(undefined, {})
   const real = it.runIf(Boolean(binary && existsSync(binary.file)))
 
-  /** One turn of the real Codex CLI (the SDK's bundled build) against the fake endpoint, in a throwaway CODEX_HOME. */
+  /**
+   * One turn of the real Codex CLI (the bundled `codex app-server`) against the fake endpoint, in a throwaway CODEX_HOME.
+   * Only the model endpoint is swapped, on thread/start, so the turn needs no account; mcp_servers is what Foreman built.
+   */
   async function codexTurn(overrides: Partial<TurnRequest>) {
     const home = await tempDir('foreman-codex-home-')
     const work = await tempDir('foreman-codex-ws-')
@@ -119,12 +122,23 @@ describe('Codex gets approved repo servers', () => {
     const servers: Record<string, McpLaunch> = { echo: { command: process.execPath, args: [FIXTURE, calls], env: { ECHO_TOKEN: 'repo-token' } } }
     const env: Record<string, string> = { ...(process.env as Record<string, string>), CODEX_HOME: home, FOREMAN_LEAK_PROBE: 'leaked' }
     const rec = recorder()
-    const turn = new CodexTurn(request(work, { env, mcpServers: servers, model: 'fake-model', ...overrides }), rec.cb, (r) => {
-      const { client, thread } = codexOptions(r, binary)
-      // Only the model endpoint is swapped, so the turn needs no account; mcp_servers is what Foreman built.
-      const config = { ...client.config, model_provider: 'fake', model_providers: { fake: { name: 'fake', base_url: url, wire_api: 'responses' } } }
-      return new Codex({ ...client, config }).startThread(thread)
-    })
+    const swap = { model_provider: 'fake', model_providers: { fake: { name: 'fake', base_url: url, wire_api: 'responses' } } }
+    const open: AppServerFactory = (launch) => {
+      const real = CodexAppServer.start(launch)
+      return {
+        get exited() {
+          return real.exited
+        },
+        initialize: () => real.initialize(),
+        request: (method, params) => real.request(method, method === 'thread/start' ? { ...(params as object), config: { ...(params as { config?: object }).config, ...swap } } : params),
+        notify: (method, params) => real.notify(method, params),
+        onNotification: (handler) => real.onNotification(handler),
+        onRequest: (handler) => real.onRequest(handler),
+        onExit: (handler) => real.onExit(handler),
+        close: () => real.close()
+      }
+    }
+    const turn = new CodexTurn(request(work, { env, mcpServers: servers, model: 'fake-model', executablePath: binary?.file, ...overrides }), rec.cb, open)
     await turn.run()
     const tool = rec.items.findLast((i): i is Extract<ChatItem, { kind: 'tool' }> => i.kind === 'tool')
     return { rec, bodies, tool, home, called: existsSync(calls) ? readFileSync(calls, 'utf8') : null }
@@ -161,14 +175,14 @@ describe('Codex gets approved repo servers', () => {
 describe('Codex launch config', () => {
   it('puts approved servers in the per-process config, closing off what a same-named server in config.toml could add', () => {
     const servers: Record<string, McpLaunch> = { sentry: { command: 'npx', args: ['-y', '@sentry/mcp-server'], env: { SENTRY_TOKEN: 't' } } }
-    const { client } = codexOptions(request('/ws', { mcpServers: servers }))
-    expect(client.config?.mcp_servers).toEqual({
+    const { config, env } = codexSettings(request('/ws', { mcpServers: servers }))
+    expect(config.mcp_servers).toEqual({
       sentry: { command: 'npx', args: ['-y', '@sentry/mcp-server'], env: { SENTRY_TOKEN: 't' }, env_vars: [], cwd: '/ws', enabled: true, default_tools_approval_mode: 'approve' }
     })
     // Where Codex keeps its config doesn't change: Foreman sets no CODEX_HOME of its own.
-    expect(client.env?.CODEX_HOME).toBeUndefined()
-    expect(codexOptions(request('/ws')).client.config).not.toHaveProperty('mcp_servers')
-    expect(codexOptions(request('/ws', { mcpServers: {} })).client.config).not.toHaveProperty('mcp_servers')
+    expect(env.CODEX_HOME).toBeUndefined()
+    expect(codexSettings(request('/ws')).config).not.toHaveProperty('mcp_servers')
+    expect(codexSettings(request('/ws', { mcpServers: {} })).config).not.toHaveProperty('mcp_servers')
   })
 })
 

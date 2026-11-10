@@ -42,7 +42,7 @@ type Sent = TurnRequest & { agent: AgentKind }
  */
 function bothAgents() {
   const requests: Sent[] = []
-  for (const agent of ['claude', 'codex'] as const) {
+  for (const agent of ['claude', 'codex', 'cursor'] as const) {
     registerDriver({
       ...fakeDriver(async (req, cb) => {
         requests.push({ ...req, agent })
@@ -207,12 +207,15 @@ describe('switching agent in a chat', () => {
     expect(hit[0]).toMatchObject({ agent: 'claude', model: first.model })
   })
 
-  it('controls follow the active agent: no plan mode on Codex, and back on Claude it is offered again', async () => {
+  it('controls follow the active agent: Codex keeps plan mode, Cursor has none, and back on Claude it is offered again', async () => {
     bothAgents()
     const h = await setupSessions()
     await h.sessions.updateSession(h.session.id, { planMode: true })
     await say(h, 'plan this')
+    // Codex plans through its app-server's plan collaboration mode, so the chat stays in plan mode.
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    expect(tab(h).planMode).toBe(true)
+    await h.sessions.updateSession(h.session.id, { agent: 'cursor' })
     expect(tab(h).planMode).toBe(false)
     await expect(h.sessions.updateSession(h.session.id, { planMode: true })).rejects.toThrow('Plan mode is not available')
     await h.sessions.updateSession(h.session.id, { agent: 'claude' })
@@ -428,8 +431,11 @@ describe('switching: the pure parts', () => {
   })
 
   it('the Plan control: hidden for an agent without plan mode, greyed in a switched chat, locked when read-only', () => {
-    expect(planControl('codex', { planMode: false, mixed: false })).toBe('hidden')
-    expect(planControl('codex', { planMode: false, mixed: true })).toBe('unavailable')
+    expect(planControl('cursor', { planMode: false, mixed: false })).toBe('hidden')
+    expect(planControl('cursor', { planMode: false, mixed: true })).toBe('unavailable')
+    // Codex plans through the app-server's plan collaboration mode.
+    expect(planControl('codex', { planMode: false, mixed: false })).toBe('off')
+    expect(planControl('codex', { planMode: true, mixed: true })).toBe('on')
     expect(planControl('claude', { planMode: true, mixed: true })).toBe('on')
     expect(planControl('claude', { planMode: false, mixed: false })).toBe('off')
     expect(planControl('claude', { planMode: true, readOnly: true, mixed: false })).toBe('locked')

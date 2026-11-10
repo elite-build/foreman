@@ -4,7 +4,7 @@ import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claudeDriver } from '../src/main/agents/claude'
-import { codexDriver, codexOptions } from '../src/main/agents/codex'
+import { codexDriver, codexSettings } from '../src/main/agents/codex'
 import { registerDriver } from '../src/main/agents/registry'
 import type { TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import { HostClient } from '../src/main/agentHost/client'
@@ -160,16 +160,16 @@ describe('Claude read-only: plan mode it can’t leave', () => {
 describe('Codex read-only: its read-only sandbox', () => {
   const request = (patch: Partial<TurnRequest>): TurnRequest => ({ ...claudeRequest(), model: 'gpt-6.1-sol', cwd: path.resolve('/work/repo'), ...patch })
 
-  it('passes sandbox mode read-only, with nothing writable, whatever the approval setting', () => {
-    for (const approvals of ['never-ask', 'ask'] as const) {
-      const { thread } = codexOptions(request({ approvals, readOnly: true, extraWritableDirs: ['/repo/.git'] }))
-      expect(thread.sandboxMode).toBe('read-only')
-      expect(thread.additionalDirectories).toBeUndefined()
-      expect(thread.networkAccessEnabled).toBeUndefined()
-      expect(thread.approvalPolicy).toBe('never')
+  it('runs in the read-only sandbox with nothing writable and no network, never asking, whatever the approval setting', () => {
+    for (const approvals of ['never-ask', 'ask', 'auto'] as const) {
+      const { sandbox, sandboxPolicy, approvalPolicy, thread } = codexSettings(request({ approvals, readOnly: true, extraWritableDirs: ['/repo/.git'] }))
+      expect(sandbox).toBe('read-only')
+      expect(thread.sandbox).toBe('read-only')
+      expect(sandboxPolicy).toEqual({ type: 'readOnly', networkAccess: false })
+      expect(approvalPolicy).toBe('never')
     }
-    expect(codexOptions(request({ approvals: 'ask' })).thread.sandboxMode).toBe('workspace-write')
-    expect(codexOptions(request({ approvals: 'never-ask' })).thread.sandboxMode).toBe('danger-full-access')
+    expect(codexSettings(request({ approvals: 'ask' })).sandbox).toBe('workspace-write')
+    expect(codexSettings(request({ approvals: 'never-ask' })).sandbox).toBe('danger-full-access')
   })
 })
 

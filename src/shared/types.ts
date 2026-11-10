@@ -2899,6 +2899,10 @@ export interface Api {
   approveSavedCommand(workspaceId: string, id: string, command: string): Promise<void>
   // Agents
   agentStatus(agent: AgentKind): Promise<AgentStatus>
+  // Managed ChatGPT sign-in for Codex: runs the CLI's own browser flow and opens the sign-in page. Resolves when it ends
+  // (signed in, failed, cancelled or timed out); a second call cancels the first. Never needs the terminal.
+  codexSignIn(): Promise<{ ok: boolean; error?: string; cancelled?: boolean }>
+  codexSignInCancel(): Promise<void>
   // #22: the agent catalog: what's installed (PATH and --version, checked once and again on `refresh`; nothing is installed),
   // what Chat agents declared over ACP, and which key variables the shell has (names only).
   agentCatalog(refresh?: boolean): Promise<AgentCatalogView>
@@ -3026,7 +3030,7 @@ export const API_METHODS = [
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',
-  'ptySpawn', 'savedTerminals', 'savedCommandConsent', 'approveSavedCommand', 'detectShells', 'agentStatus', 'reportDiagnostics', 'refreshModels',
+  'ptySpawn', 'savedTerminals', 'savedCommandConsent', 'approveSavedCommand', 'detectShells', 'agentStatus', 'codexSignIn', 'codexSignInCancel', 'reportDiagnostics', 'refreshModels',
   'agentCatalog', 'setAgentKey', 'revealAgentKey', 'importAgentKey', 'agentSignInStatus', 'importProviderKey', 'revealProviderKey', 'terminalAgentRuns',
   'openPath', 'openFile', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openExternal', 'updateSettings', 'resetSettings', 'recordOnboardingMilestone',
   'attentionHistory', 'markAttentionSeen', 'refreshPullRequest',

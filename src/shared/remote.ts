@@ -122,7 +122,8 @@ export const LOCAL_METHODS: ReadonlySet<Method> = new Set<Method>([
 
 /**
  * Calls that need this computer's screen or files and mean nothing for another computer's work: file pickers, Open in…,
- * previews (served from the worktree, which is over there) and import/export files. Refused while another computer is
+ * previews (served from the worktree, which is over there), Codex's browser sign-in (its callback and the browser both
+ * belong to one computer, and Settings would show the other's status) and import/export files. Refused while another computer is
  * shown, with a reason. (Whether a run script's preview URL answers, probePreview, is asked over there: that is where
  * the server runs.)
  */
@@ -130,6 +131,7 @@ export const UNAVAILABLE_REMOTELY: ReadonlySet<Method> = new Set<Method>([
   'pickDirectory', 'pickFiles', 'pickPath', 'classifyFolders',
   'openPath', 'openFile', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openRepoSettingsFile',
   'previewUrl', 'openPreview',
+  'codexSignIn', 'codexSignInCancel',
   'exportWorkspace', 'stageImport', 'importStaged', 'discardImport'
 ])
 
