@@ -66,6 +66,12 @@ import { isAuthError, slackAuthTest } from './slack'
 
 type Fetch = typeof fetch
 
+/** #130: an account's own config folders (CLAUDE_CONFIG_DIR, CODEX_HOME); absent: the default ones. */
+export interface AgentHomes {
+  claude?: string
+  codex?: string
+}
+
 export interface IntegrationDeps {
   store: Store
   secrets: SecretStore
@@ -768,15 +774,18 @@ export class Integrations {
    * .mcp.json) or Codex (~/.codex/config.toml), plus the claude.ai connectors Claude Code may add.
    * Read only; Foreman never edits these files.
    */
-  ownServers(cwd?: string): OwnMcpServer[] {
+  /** #130: `homes` points at an account's own config folders instead of ~/.claude.json and $CODEX_HOME. */
+  ownServers(cwd?: string, homes: AgentHomes = {}): OwnMcpServer[] {
     const home = this.deps.home ?? os.homedir()
     const out: OwnMcpServer[] = []
     const add = (list: OwnMcpServer[]) => {
       for (const s of list) if (!out.some((o) => o.name === s.name && o.from === s.from)) out.push(s)
     }
-    add(this.cached(path.join(home, '.claude.json'), (text) => claudeServers(JSON.parse(text) as Record<string, unknown>)))
+    // Claude Code keeps .claude.json inside CLAUDE_CONFIG_DIR when it's set.
+    add(this.cached(path.join(homes.claude || home, '.claude.json'), (text) => claudeServers(JSON.parse(text) as Record<string, unknown>)))
     if (cwd) add(this.cached(path.join(cwd, '.mcp.json'), (text) => claudeServers(JSON.parse(text) as Record<string, unknown>)))
-    add(this.cached(path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'config.toml'), (text) => codexServers(parseToml(text) as Record<string, unknown>)))
+    add(this.cached(path.join(homes.codex || process.env.CODEX_HOME || path.join(home, '.codex'), 'config.toml'), (text) => codexServers(parseToml(text) as Record<string, unknown>)))
+
     for (const service of INTEGRATION_SERVICES) {
       const name = CLAUDE_AI_CONNECTORS[service]
       if (name) add([{ name, from: 'claude.ai', service }])

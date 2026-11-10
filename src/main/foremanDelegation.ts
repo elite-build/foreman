@@ -1,6 +1,8 @@
 import { DELEGATION_TOOLS, delegationTool, type DelegationToolName } from '../shared/foremanDelegation'
 import { parseFlow, type FlowListing, type FlowRun, type FlowRunOrigin } from '../shared/flows'
 import { frozenReason } from '../shared/transfer'
+import { instanceLabel } from '../shared/agentInstances'
+import type { Loadout } from '../shared/agents'
 import type { Workspace, WorkspaceStartedBy } from '../shared/types'
 import type { NewResult } from '../shared/cli/workspaces'
 import { cantRunIn } from './cli/flows'
@@ -153,6 +155,11 @@ export class ForemanDelegation {
   }
 
   /** The coordinating chat and its running turn, when a workspace agent calls (Workspace.startedBy, a message's origin). */
+  /** #130: a slot's account by name, when it isn't the agent's default one. */
+  private accountOf(l: Loadout): { account?: string } {
+    return l.instance ? { account: instanceLabel(this.host.state().settings.agentInstances, l.agent, l.instance) ?? l.instance } : {}
+  }
+
   private coordinator(scope: DelegationScope): { sessionId: string; turnId?: string } | undefined {
     if (!scope.sessionId) return undefined
     const turnId = this.host.state().sessions.find((s) => s.id === scope.sessionId)?.turnId
@@ -184,7 +191,7 @@ export class ForemanDelegation {
         return {
           delegationEnabled: enabled && !current.readOnly,
           permission: source && !enabled ? OPT_IN : undefined,
-          loadouts: this.host.state().settings.loadouts.map((l, i) => ({ slot: i + 1, agent: l.agent, model: l.model, effort: l.effort })),
+          loadouts: this.host.state().settings.loadouts.map((l, i) => ({ slot: i + 1, agent: l.agent, ...this.accountOf(l), model: l.model, effort: l.effort })),
           repositories: this.host.state().repos.filter((r) => !source || r.id === source.repoId).map((r) => ({ id: r.id, name: r.name })),
           workspaces: this.host.state().workspaces.filter((w) => w.state !== 'archived' && (!source || (w.repoId === source.repoId && (enabled || w.id === source.id)))).map((w) => this.task(w.id, scope)),
           ...(flows ? { flows } : {})

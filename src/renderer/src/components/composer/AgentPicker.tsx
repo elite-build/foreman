@@ -15,13 +15,14 @@ import {
   type Loadout,
   type ModelInfo
 } from '../../../../shared/agents'
+import { accountMoveGuess, DEFAULT_MOVE_RULE, instanceLabel, instancesFor, resolveInstance } from '../../../../shared/agentInstances'
 import { isModelHidden, pickerModels, type HiddenModels } from '../../../../shared/modelVisibility'
 import { PROVIDER_KEYS } from '../../../../shared/providers'
 import type { Session } from '../../../../shared/types'
 import { continueBlock, modelChoiceAction } from '../../../../shared/switchAgent'
 import { api, attempt, availableAgents, getState, modKey, newChat, openSettingsPage, useStore } from '../../store'
 import { t as storeT, useT } from '../../i18n'
-import { ActionRow, ChipButton, Kbd, LinkButton, Popover, Segmented, Switch, TextInput } from '../../ui'
+import { ActionRow, ChipButton, Kbd, LinkButton, Popover, Segmented, Select, Switch, TextInput } from '../../ui'
 import { AgentMonogram } from '../agents/AgentMonogram'
 import { ManageAgentsRow, PickerAgentGroups } from '../agents/PickerAgents'
 import { openTerminalAgent } from '../agents/TerminalAgents'
@@ -70,16 +71,25 @@ export function opencodeModelParts(model: Pick<ModelInfo, 'id' | 'label'>): { pr
   return { provider, providerLabel, name: name || model.id }
 }
 
+/**
+ * #130: the account a choice asks for. On the chat's own agent a choice always names one (none: the default account);
+ * on another agent only an explicit one counts, and otherwise that agent's account follows the workspace.
+ */
+function accountPatch(session: Session, choice: Loadout): { instanceId?: string | null } {
+  if (choice.instance) return { instanceId: choice.instance }
+  return choice.agent === session.agent ? { instanceId: null } : {}
+}
+
 /** Apply a model choice in this tab. O1: with another agent in a chat with history, this continues the chat with that agent. */
 export async function chooseModel(session: Session, choice: Loadout): Promise<void> {
   await attempt(() =>
-    api.updateSession(session.id, { agent: choice.agent, model: choice.model, effort: choice.effort, fastMode: choice.fast })
+    api.updateSession(session.id, { agent: choice.agent, model: choice.model, effort: choice.effort, fastMode: choice.fast, ...accountPatch(session, choice) })
   )
 }
 
 /** O1 "Open a new chat instead": the other agent starts empty in a new tab, and this chat stays as it is. */
 export async function openChatWith(session: Session, choice: Loadout): Promise<void> {
-  await newChat(session.workspaceId, { agent: choice.agent, model: choice.model, effort: choice.effort, fastMode: choice.fast })
+  await newChat(session.workspaceId, { agent: choice.agent, model: choice.model, effort: choice.effort, fastMode: choice.fast, ...accountPatch(session, choice) })
 }
 
 // O1: a loadout shortcut for another agent opens the picker on the same choice the picker offers.
@@ -137,6 +147,9 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
   const chosenOpencode = useStore((s) => s.snapshot!.settings.opencodeModels)
   // O8: models hidden in Settings → Agents; "N hidden · Show" reveals them until the picker closes.
   const hiddenModels = useStore((s) => s.snapshot!.settings.hiddenModels) ?? NO_HIDDEN
+  // #130: the chosen agent's other accounts; with any, an Account row picks one.
+  const instances = useStore((s) => s.snapshot!.settings.agentInstances)
+  const accounts = instancesFor(instances, value.agent)
   const [revealHidden, setRevealHidden] = useState(false)
   const [query, setQuery] = useState('')
   const [agentTab, setAgentTab] = useState<AgentKind>(value.agent)
@@ -166,8 +179,11 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
 
   const choose = (m: ModelInfo) => {
     const same = m.agent === value.agent && isSameModel(m.agent, m.id, value.model)
-    onChoose(same ? value : { agent: m.agent, model: m.id, effort: m.defaultEffort, fast: false })
+    // #130: another model of the same agent stays on the chosen account.
+    const account = m.agent === value.agent && value.instance ? { instance: value.instance } : {}
+    onChoose(same ? value : { agent: m.agent, model: m.id, effort: m.defaultEffort, fast: false, ...account })
   }
+  const missingAccount = resolveInstance(instances, value.agent, value.instance).kind === 'missing'
 
   const openAgentSettings = (agent: string) => {
     onClose()
@@ -284,6 +300,21 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
             onChange={onFast}
           />
         </div>
+        {(accounts.length > 0 || missingAccount) && (
+          <div className="picker-control">
+            <span className="picker-label">{t('agentAccounts.chooser.label')}</span>
+            <Select<string>
+              label={t('agentAccounts.chooser.label')}
+              value={value.instance ?? ''}
+              options={[
+                { value: '', label: t('agentAccounts.default') },
+                ...accounts.map((a) => ({ value: a.id, label: a.label })),
+                ...(missingAccount && value.instance ? [{ value: value.instance, label: t('agentAccounts.chooser.removed'), disabled: true }] : [])
+              ]}
+              onChange={(id) => onChoose({ ...value, instance: id || undefined })}
+            />
+          </div>
+        )}
       </div>
 
       <ManageAgentsRow onClose={onClose} />
@@ -309,12 +340,17 @@ export function AgentPicker({
   const loadouts = useStore((s) => s.snapshot!.settings.loadouts)
   const platform = useStore((s) => s.snapshot!.platform)
   const available = useStore((s) => availableAgents(s))
+  const instances = useStore((s) => s.snapshot!.settings.agentInstances)
+  const moveRule = useStore((s) => s.snapshot!.settings.agentPrefs?.[session.agent]?.moveChats) ?? DEFAULT_MOVE_RULE
   // O1: another agent's model, waiting on "Continue this chat with …" or "Open a new chat instead".
+  // #130: or another account of this chat's agent, waiting the same way.
   const [pending, setPending] = useState<Loadout | null>(null)
   const model = modelInfo(session.agent, session.model)
   const effort = session.effort ?? model.defaultEffort
   const mod = modKey(platform)
-  const blocked = pending ? continueBlock(session, pending.agent) : null
+  const accountMove = pending && pending.agent === session.agent ? accountMoveGuess(instances, session.agent, session.instanceId, pending.instance, moveRule, Boolean(session.agentSessionId)) : null
+  const blocked = pending ? continueBlock(session, pending.agent, accountMove === 'blocked') : null
+  const account = instanceLabel(instances, session.agent, session.instanceId) ?? (session.instanceId ? t('agentAccounts.chooser.removed') : null)
 
   const close = () => {
     setPending(null)
@@ -381,6 +417,7 @@ export function AgentPicker({
             <span className="picker-num">{n + 1}</span>
             <AgentIcon agent={loadout.agent} />
             <span className="picker-row-label">{name}</span>
+            {loadout.instance && <span className="faint small picker-row-meta">{instanceLabel(instances, loadout.agent, loadout.instance) ?? t('agentAccounts.chooser.removed')}</span>}
             {loadout.effort && <span className="faint">{effortLabel(loadout.effort, t)}</span>}
             {loadout.fast && <Zap size={11} className="fast-on" aria-hidden />}
             <span className="spacer" />
@@ -416,6 +453,7 @@ export function AgentPicker({
         <ChipButton {...popover} className="picker-trigger" title={t('agentPicker.triggerTitle', { key: `${mod}/` })}>
           <AgentIcon agent={session.agent} />
           <span>{session.agent === 'opencode' ? opencodeModelParts(model).name : model.label}</span>
+          {account && <span className="faint">{account}</span>}
           {effort && model.efforts.length > 0 && <span className="faint">{effortLabel(effort, t)}</span>}
           {session.fastMode && <Zap size={12} className="fast-on" aria-hidden />}
           <ChevronDown size={12} className="faint" aria-hidden />
@@ -425,7 +463,7 @@ export function AgentPicker({
       <ModelChooser
         inPopover
         onKeyDown={onKeyDown}
-        value={{ agent: session.agent, model: session.model, effort: session.effort, fast: session.fastMode }}
+        value={{ agent: session.agent, model: session.model, effort: session.effort, fast: session.fastMode, ...(session.instanceId ? { instance: session.instanceId } : {}) }}
         onChoose={(choice) => void pick(choice)}
         onEffort={setEffort}
         onFast={setFast}
@@ -445,6 +483,7 @@ export function AgentPicker({
               session={session}
               choice={pending}
               blocked={blocked}
+              carried={accountMove === 'carry'}
               mod={mod}
               onContinue={() => void continueHere(pending)}
               onNewChat={() => void newChatInstead(pending)}
@@ -464,6 +503,7 @@ function SwitchChoice({
   session,
   choice,
   blocked,
+  carried,
   mod,
   onContinue,
   onNewChat
@@ -471,6 +511,8 @@ function SwitchChoice({
   session: Session
   choice: Loadout
   blocked: ReturnType<typeof continueBlock>
+  // #130: moving to another account starts a new conversation there with the history as text.
+  carried?: boolean
   mod: string
   onContinue: () => void
   onNewChat: () => void
@@ -480,6 +522,10 @@ function SwitchChoice({
   const name = choice.agent === 'opencode' ? opencodeModelParts(info).name : info.label
   const agent = AGENTS[choice.agent].label
   const current = AGENTS[session.agent].label
+  // #130: the same agent on another account.
+  const instances = useStore((s) => s.snapshot!.settings.agentInstances)
+  const sameAgent = choice.agent === session.agent
+  const account = instanceLabel(instances, choice.agent, choice.instance) ?? t('agentAccounts.default')
   // Switching back to an agent that ran here resumes its own conversation.
   const native = Boolean(session.parked?.[choice.agent])
   const why =
@@ -489,10 +535,40 @@ function SwitchChoice({
         ? t('switchAgent.choice.blocked.readOnly', { agent })
         : blocked === 'history'
           ? t('switchAgent.choice.blocked.history')
-          : null
+          : blocked === 'account'
+            ? t('agentAccounts.choice.blocked', { agent })
+            : null
+  if (sameAgent) {
+    return (
+      <div className="picker-section switch-choice" role="group" aria-label={t('switchAgent.choice.label')}>
+        <div className="switch-choice-head">{t.rich('agentAccounts.choice.head', { account: <b key="a">{account}</b>, agent })}</div>
+        <ActionRow className="switch-opt" selected={!blocked} disabled={Boolean(blocked)} onPress={onContinue} primaryProps={{ className: 'switch-opt-main' }}>
+          <span className="switch-opt-icon">
+            <ArrowRightLeft size={14} aria-hidden />
+          </span>
+          <span className="switch-opt-text">
+            <span className="switch-opt-title">{t('agentAccounts.choice.continue', { account })}</span>
+            <span className="switch-opt-sub">{why ?? t(carried ? 'agentAccounts.choice.asText' : 'agentAccounts.choice.same', { agent })}</span>
+          </span>
+          {!blocked && <Kbd>↵</Kbd>}
+        </ActionRow>
+        <ActionRow className="switch-opt" onPress={onNewChat} primaryProps={{ className: 'switch-opt-main' }}>
+          <span className="switch-opt-icon">
+            <MessageSquarePlus size={14} aria-hidden />
+          </span>
+          <span className="switch-opt-text">
+            <span className="switch-opt-title">{t('switchAgent.choice.newChat')}</span>
+            <span className="switch-opt-sub">{t('agentAccounts.choice.newChatSub', { account })}</span>
+          </span>
+          <Kbd>{mod}↵</Kbd>
+        </ActionRow>
+      </div>
+    )
+  }
   return (
     <div className="picker-section switch-choice" role="group" aria-label={t('switchAgent.choice.label')}>
       <div className="switch-choice-head">{t.rich('switchAgent.choice.head', { model: <b key="m">{name}</b>, agent, current })}</div>
+
       <ActionRow className="switch-opt" selected={!blocked} disabled={Boolean(blocked)} onPress={onContinue} primaryProps={{ className: 'switch-opt-main' }}>
         <span className="switch-opt-icon">
           <ArrowRightLeft size={14} aria-hidden />

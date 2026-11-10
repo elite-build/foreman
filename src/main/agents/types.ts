@@ -83,6 +83,8 @@ export interface TurnRequest {
   outputStyle?: string
   // Claude Code: drive Chrome through its extension.
   chrome?: boolean
+  // #130 (Claude only): an account's extra launch flags, already checked (shared/agentInstances.ts argsProblem).
+  launchArgs?: string[]
   // Folders outside cwd the agent must be able to write: the repository's git
   // folder, which a worktree's commits, refs and index live in.
   extraWritableDirs?: string[]
@@ -184,7 +186,8 @@ export interface AgentDriver {
   status(env: Record<string, string>, executablePath?: string): Promise<AgentStatus>
   /** The models this agent offers with its current sign-in, straight from the agent. */
   listModels?(options: OneShotOptions): Promise<ModelList>
-  slashCommands?(cwd: string): Promise<{ name: string; description: string }[]>
+  /** #130: `env` is the turn's environment, so an account's config folder is the one read. */
+  slashCommands?(cwd: string, env?: Record<string, string>): Promise<{ name: string; description: string }[]>
   /** Start the agent without a prompt to check its MCP servers. Optional. */
   mcpProbe?(options: OneShotOptions): McpProbe
 }

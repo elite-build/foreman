@@ -26,6 +26,7 @@ import { z } from 'zod'
 import { MAX_FOLLOWUP_CHARS, MAX_FOLLOWUPS, validateFollowups } from '../../shared/followups'
 import { MAX_REPORT_TEXT, REPORT_KINDS } from '../../shared/agentReports'
 import { modelInfo, type EffortLevel, type ModelInfo } from '../../shared/agents'
+import { flagArgs } from '../../shared/agentInstances'
 import type { OperatorTools } from '../../shared/assistant'
 import type { AgentStatus, ChatItem, McpServerInfo, SlashCommandInfo, TaskProgress, UsageLimit } from '../../shared/types'
 import { bundledClaudeExecutable } from '../platform'
@@ -483,7 +484,7 @@ class ClaudeTurn implements AgentTurn {
               hooks: req.writeScope?.length ? { PreToolUse: [{ hooks: [writeScopeHook(req.writeScope, req.cwd)] }] } : undefined,
               // A one-line "what it's doing now" for running subagents.
               agentProgressSummaries: true,
-              extraArgs: req.chrome ? { chrome: null } : undefined,
+              extraArgs: claudeExtraArgs(req),
               additionalDirectories: req.extraWritableDirs?.length ? req.extraWritableDirs : undefined
             }
       })
@@ -1034,16 +1035,26 @@ export const claudeDriver: AgentDriver = {
     }
   },
 
-  slashCommands: (cwd: string) => discoverClaudeCommands(cwd)
+  slashCommands: (cwd: string, env?: Record<string, string>) => discoverClaudeCommands(cwd, os.homedir(), env?.CLAUDE_CONFIG_DIR)
 }
 
-/** Custom commands and skills for a folder: the repo's first, then the home folder's; the first of a name wins. */
-export async function discoverClaudeCommands(cwd: string, home = os.homedir()): Promise<SlashCommandInfo[]> {
+/** The flags a turn adds to Claude Code's: Chrome, then an account's own (#130). Undefined when there are none. */
+export function claudeExtraArgs(req: Pick<TurnRequest, 'chrome' | 'launchArgs'>): Record<string, string | null> | undefined {
+  const args = { ...(req.launchArgs?.length ? flagArgs(req.launchArgs) : {}), ...(req.chrome ? { chrome: null } : {}) }
+  return Object.keys(args).length ? args : undefined
+}
+
+/**
+ * Custom commands and skills for a folder: the repo's first, then the user's; the first of a name wins.
+ * #130: `configDir` is an account's config folder (CLAUDE_CONFIG_DIR), read instead of ~/.claude.
+ */
+export async function discoverClaudeCommands(cwd: string, home = os.homedir(), configDir?: string): Promise<SlashCommandInfo[]> {
+  const user = configDir?.trim() || path.join(home, '.claude')
   const lists = await Promise.all([
     readCommandDir(path.join(cwd, '.claude', 'commands'), 'repo'),
-    readCommandDir(path.join(home, '.claude', 'commands'), 'home'),
+    readCommandDir(path.join(user, 'commands'), 'home'),
     readSkills(path.join(cwd, '.claude', 'skills'), 'repo'),
-    readSkills(path.join(home, '.claude', 'skills'), 'home')
+    readSkills(path.join(user, 'skills'), 'home')
   ])
   const seen = new Set<string>()
   return lists.flat().filter((c) => !seen.has(c.name) && seen.add(c.name))

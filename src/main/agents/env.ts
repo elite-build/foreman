@@ -5,6 +5,7 @@
 // provider keys ticked for it are added here, and nowhere else.
 import { AGENT_CATALOG, allowedProviderKeys, catalogAgent, loginStripVars, usesOwnApiKey } from '../../shared/agentCatalog'
 import type { AgentKind } from '../../shared/agents'
+import { INSTANCE_FIELDS, takesInstances, type AgentInstance } from '../../shared/agentInstances'
 import { PROVIDER_KEYS } from '../../shared/providers'
 import type { Settings } from '../../shared/types'
 import { agentBaseEnv } from '../platform'
@@ -26,8 +27,12 @@ const SHELL_PROVIDER_KEYS = [
   ...new Set([...PROVIDER_KEYS.map((p) => p.envVar), ...AGENT_CATALOG.flatMap(loginStripVars)])
 ].filter((name) => name !== 'GITHUB_TOKEN' && name !== 'GITLAB_TOKEN')
 
-/** Whether the agent runs on an API key now: Claude and Codex by their setting, Cursor and OpenCode always, catalog agents by theirs. */
-export function usesApiKey(agent: string, settings: Settings): boolean {
+/**
+ * Whether the agent runs on an API key now: Claude and Codex by their setting, Cursor and OpenCode always, catalog agents by theirs.
+ * #130: an account other than the default goes by its own method.
+ */
+export function usesApiKey(agent: string, settings: Settings, instance?: AgentInstance): boolean {
+  if (instance) return instance.auth === 'apiKey'
   if (agent === 'claude') return settings.claudeAuth === 'apiKey'
   if (agent === 'codex') return settings.codexAuth === 'apiKey'
   if (agent === 'cursor' || agent === 'opencode') return true
@@ -38,7 +43,8 @@ export function usesApiKey(agent: string, settings: Settings): boolean {
  * @param agent a catalog id: a Full or Chat agent, or a Terminal agent for its terminal tab
  * @param vars the layered variables from Settings → Environment
  * @param providerKeys the shared provider keys (env var → key); OpenCode gets all, others only those ticked for them
- * @param own the agent's own saved keys (#22), passed only to it and only in API-key mode
+ * @param own the agent's own saved keys (#22), passed only to it and only in API-key mode; for an account, that account's
+ * @param instance #130: an account other than the agent's default one
  */
 export function agentEnv(
   agent: string,
@@ -46,7 +52,8 @@ export function agentEnv(
   vars: Record<string, string>,
   providerKeys: Record<string, string> = {},
   extra: Record<string, string> = {},
-  own: Record<string, string> = {}
+  own: Record<string, string> = {},
+  instance?: AgentInstance
 ): Record<string, string> {
   const env = agentBaseEnv()
   const info = catalogAgent(agent)
@@ -56,7 +63,7 @@ export function agentEnv(
   // #22: Chat and Terminal agents lose every provider key in the shell, and their own key's variables.
   if (!full) for (const name of SHELL_PROVIDER_KEYS) delete env[name]
   const layered = { ...vars }
-  const apiKey = usesApiKey(agent, settings)
+  const apiKey = usesApiKey(agent, settings, instance)
   if (!apiKey) for (const name of API_KEY_ONLY[agent as AgentKind] ?? (info ? loginStripVars(info) : [])) delete layered[name]
   // OpenCode's own provider keys sit underneath the user's variables.
   if (agent === 'opencode') Object.assign(env, providerKeys)
@@ -64,9 +71,16 @@ export function agentEnv(
   // #22: the agent's own key, saved for it alone, also underneath the user's variables.
   const keyVar = info?.auth.confirmed ? info.auth.apiKey?.envVar : undefined
   if (apiKey && keyVar && own[keyVar]) env[keyVar] = own[keyVar]
+  // #130: an account's own key and folder win over Settings → Environment, so a key or folder set there for everything
+  // never runs a turn as another account. An account without a folder of its own shares the default one.
+  const fields = instance && takesInstances(agent) ? INSTANCE_FIELDS[agent] : undefined
+  if (fields && apiKey) for (const name of [fields.keyEnv, ...fields.alsoKeys]) delete layered[name]
+  const home = fields?.homeEnv && instance?.home ? { name: fields.homeEnv, value: instance.home } : undefined
+  if (home) delete layered[home.name]
   Object.assign(env, layered)
+  if (home) env[home.name] = home.value
   // `codex exec` reads either name.
-  if (agent === 'codex' && usesApiKey(agent, settings) && env.CODEX_API_KEY) env.OPENAI_API_KEY = env.CODEX_API_KEY
+  if (agent === 'codex' && apiKey && env.CODEX_API_KEY) env.OPENAI_API_KEY = env.CODEX_API_KEY
   return { ...env, ...extra }
 }
 

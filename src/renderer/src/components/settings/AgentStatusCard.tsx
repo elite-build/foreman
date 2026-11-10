@@ -20,8 +20,9 @@ export interface AgentStatusState {
 /**
  * The agent's status, fetched on mount, on refresh, and whenever `key`
  * changes. A key change clears the old answer unless `keepStale` is set.
+ * #130: `instanceId` asks about one of the agent's other accounts, which says nothing about whether the agent is ready.
  */
-export function useAgentStatus(agent: AgentKind, key = '', keepStale = false): AgentStatusState {
+export function useAgentStatus(agent: AgentKind, key = '', keepStale = false, instanceId?: string): AgentStatusState {
   const [status, setStatus] = useState<AgentStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -32,12 +33,12 @@ export function useAgentStatus(agent: AgentKind, key = '', keepStale = false): A
     const id = ++request.current
     setLoading(true)
     try {
-      const next = await api.agentStatus(agent)
+      const next = await api.agentStatus(agent, instanceId)
       if (id !== request.current) return
       setStatus(next)
       setError(null)
       // The picker and the in-chat sign-in card learn the answer too.
-      recordAgentStatus(next)
+      if (!instanceId) recordAgentStatus(next)
     } catch (err) {
       if (id !== request.current) return
       setError(err instanceof Error ? err.message : String(err))
@@ -46,7 +47,7 @@ export function useAgentStatus(agent: AgentKind, key = '', keepStale = false): A
     }
     // The agent picker offers OpenCode only once it's installed.
     if (agent === 'opencode') void refreshOpencode()
-  }, [agent])
+  }, [agent, instanceId])
 
   // When what the answer depends on changes, the old answer no longer applies.
   const first = useRef(true)

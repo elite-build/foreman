@@ -324,6 +324,8 @@ export interface AgentPref {
   auth?: AgentAuthMode
   // A custom executable; empty: the one on PATH.
   path?: string
+  // #130: whether a chat may move to another of this agent's accounts (absent: never).
+  moveChats?: import('./agentInstances').MoveRule
 }
 
 export type AgentPrefs = Record<string, AgentPref>
@@ -435,6 +437,7 @@ export function parseAgentPrefs(value: unknown): AgentPrefs {
     if (typeof r.enabled === 'boolean') pref.enabled = r.enabled
     if (r.auth === 'cli' || r.auth === 'apiKey') pref.auth = r.auth
     if (typeof r.path === 'string' && r.path.trim()) pref.path = r.path.trim()
+    if (r.moveChats === 'never' || r.moveChats === 'as-text') pref.moveChats = r.moveChats
     if (Object.keys(pref).length) out[id] = pref
   }
   return out

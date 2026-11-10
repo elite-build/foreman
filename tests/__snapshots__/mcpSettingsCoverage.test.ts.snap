@@ -327,6 +327,7 @@ exports[`MCP settings coverage review > requires review when defaults, structure
   },
   "personalDefaults": [
     "{"field":"acceptHandOffs","value":false}",
+    "{"field":"agentInstances","value":[]}",
     "{"field":"agentPrefs","value":{}}",
     "{"field":"allowRemoteControl","value":false}",
     "{"field":"alwaysShowContextUsage","value":false}",
@@ -477,7 +478,7 @@ exports[`MCP settings coverage review > requires review when defaults, structure
   "structuredPersonal": [
     {
       "field": "loadouts",
-      "mcp": "Partial read: list_delegation_options returns slot, agent, model and effort. No settings write adapter.",
+      "mcp": "Partial read: list_delegation_options returns slot, agent, account (when not the default), model and effort. No settings write adapter.",
     },
     {
       "field": "reviewModel",
@@ -501,6 +502,10 @@ exports[`MCP settings coverage review > requires review when defaults, structure
     },
     {
       "field": "providerKeyAgents",
+      "mcp": "No dedicated settings read/write tool. CLI fallback does not count as dedicated coverage.",
+    },
+    {
+      "field": "agentInstances",
       "mcp": "No dedicated settings read/write tool. CLI fallback does not count as dedicated coverage.",
     },
     {

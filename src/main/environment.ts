@@ -6,6 +6,7 @@ import { readFileSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentKind } from '../shared/agents'
+import type { AgentInstance } from '../shared/agentInstances'
 import { parseDotenv } from '../shared/envfile'
 import type { EnvFileInfo, EnvScope, EnvVarRow, EnvView, Repo, Settings } from '../shared/types'
 import { agentEnv } from './agents/env'
@@ -106,8 +107,8 @@ export class Environment {
    * connection (Integrations); a repository's own GH_TOKEN wins when it chose no connection, and a
    * chosen connection that can't be used gives no GitHub credentials at all.
    */
-  forAgent(agent: AgentKind, repoId?: string, extra: Record<string, string> = {}): Record<string, string> {
-    return this.forCatalogAgent(agent, repoId, extra)
+  forAgent(agent: AgentKind, repoId?: string, extra: Record<string, string> = {}, instance?: AgentInstance): Record<string, string> {
+    return this.forCatalogAgent(agent, repoId, extra, instance)
   }
 
   /**
@@ -131,14 +132,18 @@ export class Environment {
     clearTimeout(timer)
   }
 
-  /** #22: the same for any catalog agent, including a Terminal agent's terminal tab. Its own key goes only to it. */
-  forCatalogAgent(agent: string, repoId?: string, extra: Record<string, string> = {}): Record<string, string> {
+  /**
+   * #22: the same for any catalog agent, including a Terminal agent's terminal tab. Its own key goes only to it.
+   * #130: on one of the agent's other accounts, that account's key and folder instead of the default account's.
+   */
+  forCatalogAgent(agent: string, repoId?: string, extra: Record<string, string> = {}, instance?: AgentInstance): Record<string, string> {
     const vars = this.vars(repoId)
     const key = repoId ? this.githubKey(repoId) : undefined
     const github = githubEnvOrNone(key)
     // The repository's own GH_TOKEN is already among its variables.
     if (key?.startsWith('env:')) delete github.GH_TOKEN
-    return agentEnv(agent, this.settings(), vars, this.secrets.providerKeys(), { ...github, ...extra }, this.secrets.agentKeys(agent))
+    const own = instance ? this.secrets.instanceKeys(instance.id) : this.secrets.agentKeys(agent)
+    return agentEnv(agent, this.settings(), vars, this.secrets.providerKeys(), { ...github, ...extra }, own, instance)
   }
 
   /** Every variable for a repository (or the user level alone), in layer order. */

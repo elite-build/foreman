@@ -20,6 +20,7 @@ import { AgentCatalogService, LEGACY_AGENT_KEYS } from './agentCatalogService'
 import { AssistantService } from './assistant'
 import { TerminalAgents } from './terminalAgents'
 import { catalogAgent, parseAgentPrefs, parseProviderKeyAgents } from '../shared/agentCatalog'
+import { argsProblem, INSTANCE_FIELDS, MAX_INSTANCE_LABEL, parseAgentInstances, resolveInstance, sameLabel, takesInstances, type AgentInstance, type AgentInstanceInput } from '../shared/agentInstances'
 import { Environment } from './environment'
 import { makeRepository } from './makeRepo'
 import { cloneRepo, githubRepos, gitProtocol, quickStart } from './repoSources'
@@ -425,8 +426,10 @@ export class Core {
       agentEnv: (agent) => this.environment.forCatalogAgent(agent),
       executablePath: (agent) => executablePathFor(store.state.settings, agent),
       shell: () => process.env,
-      keysChanged: (agent) => {
+      keysChanged: (agent, instanceId) => {
         this.broadcastState()
+        // #130: the model lists come from the default account, whose key didn't change.
+        if (instanceId) return
         if (agent === 'claude' || agent === 'codex' || agent === 'cursor' || agent === 'opencode') void this.models.refresh(agent)
       }
     })
@@ -703,7 +706,7 @@ export class Core {
       launch: (run, first, handle) => this.launchFlowRun(run, first, handle),
       // Never in plan mode: nobody is there to review a plan (a read-only step's turn is held in it by its persona mark).
       createSession: (workspaceId, loadout, options) =>
-        this.sessions.createSession(workspaceId, { agent: loadout.agent, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false, ...(options?.title ? { title: options.title } : {}) }).id,
+        this.sessions.createSession(workspaceId, { agent: loadout.agent, instanceId: loadout.instance ?? null, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false, ...(options?.title ? { title: options.title } : {}) }).id,
       deliver: async (sessionId, text, options) => {
         this.sessions.markUnattended(options.turnId, options.unattended)
         await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId, ...(options.origin ? { origin: options.origin } : {}) })
@@ -772,7 +775,7 @@ export class Core {
     this.data = new DataService(store, undefined, this.claudeMirror)
     this.gitBackup = new GitBackupService({
       store, secrets, workspaces: this.workspaces,
-      updateSettings: (patch) => this.api.updateSettings(patch),
+      updateSettings: (patch) => this.restoreSettings(patch),
       startChat: (workspaceId) => { this.startChat(workspaceId) },
       changed
     })
@@ -2206,12 +2209,20 @@ export class Core {
     const template = this.workspaces.template(templateId)
     // Get started: a workspace started from a template (a scheduled run is not the person trying one).
     if (template && !internal?.scheduled && !internal?.flowRun && !internal?.flowWorkspace) this.recordMilestone('template')
-    const chosen = chooseStartLoadout(loadout, template).loadout
+    const start = chooseStartLoadout(loadout, template)
+    const chosen = start.loadout
     const session = this.sessions.createSession(workspaceId, {
       ...(chosen ? { agent: chosen.agent, model: chosen.model, effort: chosen.effort, fastMode: chosen.fast } : {}),
+      // #130: a model chosen for the workspace comes with its account (a template's start model has none of its own).
+      ...(start.source === 'explicit' && chosen ? { instanceId: chosen.instance ?? null } : {}),
       // A scheduled run never starts in plan mode: nobody is there to review a plan.
       ...(internal?.scheduled || internal?.flowRun || internal?.flowWorkspace ? { planMode: false } : {})
     })
+    // #130: the first chat's account is the workspace's pick for that agent's later chats.
+    if (session.instanceId) {
+      const ws = this.workspaces.workspace(workspaceId)
+      ws.agentInstances = { ...ws.agentInstances, [session.agent]: session.instanceId }
+    }
     // Marked before the first message can go, so the run is unattended from its first tool call.
     if (internal?.scheduled) session.unattended = { occurrenceId: internal.scheduled.occurrenceId }
     if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step, ...(internal.flowRun.persona ? { persona: internal.flowRun.persona } : {}) }
@@ -2585,6 +2596,7 @@ export class Core {
       ...this.repoFiles(options.maxAgeMs ?? 0),
       agentKeys,
       agentKeyHints: this.agentCatalog?.keyHints() ?? {},
+      instanceKeyHints: this.agentCatalog?.instanceKeyHints(settings.agentInstances) ?? {},
       spotlight,
       catalog: this.models.state(),
       transfers: this.transfers.view(),
@@ -2664,6 +2676,72 @@ export class Core {
     if (name === 'gh-login') return 'gh auth login'
     const codex = settings.codexExecutablePath || 'codex'
     return `${shellQuote(codex)} login`
+  }
+
+  // ---- #130: an agent's other accounts ----
+
+  /** One of the agent's other accounts, by id; a missing or another agent's one is refused. */
+  private instance(agent: string, id: string): AgentInstance {
+    const resolved = resolveInstance(this.store.state.settings.agentInstances, agent, id)
+    if (resolved.kind !== 'instance') throw new Error(mainT(this.store.state.settings)('agentAccounts.error.gone'))
+    return resolved.instance
+  }
+
+  /** Checks an account as the Accounts dialog sends it; on success, the account as it is saved. */
+  private checkInstance(input: AgentInstanceInput): AgentInstance {
+    const t = mainT(this.store.state.settings)
+    if (!input || typeof input !== 'object' || !takesInstances(input.agent)) throw new Error(t('agentAccounts.error.unsupported'))
+    const fields = INSTANCE_FIELDS[input.agent]
+    const label = typeof input.label === 'string' ? input.label.trim() : ''
+    if (!label || label.length > MAX_INSTANCE_LABEL || /[\0\r\n]/.test(label)) throw new Error(t('agentAccounts.error.label', { max: MAX_INSTANCE_LABEL }))
+    const others = this.store.state.settings.agentInstances.filter((i) => i.agent === input.agent && i.id !== input.id)
+    if (others.some((i) => sameLabel(i.label, label)) || sameLabel(label, t('agentAccounts.default'))) throw new Error(t('agentAccounts.error.exists', { label }))
+    const instance: AgentInstance = { id: input.id ?? `ai-${randomUUID().replace(/-/g, '').slice(0, 8)}`, agent: input.agent, label, auth: fields.login ? (input.auth === 'apiKey' ? 'apiKey' : 'cli') : 'apiKey' }
+    const home = fields.homeEnv && typeof input.home === 'string' ? input.home.trim() : ''
+    if (home) {
+      const expanded = home === '~' || home.startsWith('~/') || home.startsWith('~\\') ? path.join(os.homedir(), home.slice(1)) : home
+      if (!path.isAbsolute(expanded) || /[\0\r\n]/.test(expanded)) throw new Error(t('agentAccounts.error.home'))
+      instance.home = path.resolve(expanded)
+    }
+    const binary = fields.path && typeof input.path === 'string' ? input.path.trim() : ''
+    if (binary) {
+      if (/[\0\r\n]/.test(binary)) throw new Error(t('agentAccounts.error.path'))
+      instance.path = binary
+    }
+    const args = fields.args && Array.isArray(input.args) ? input.args.filter((a) => typeof a === 'string' && a.length > 0) : []
+    if (args.length) {
+      const problem = argsProblem(args)
+      if (problem) throw new Error(t(problem.kind === 'reserved' ? 'agentAccounts.error.argReserved' : 'agentAccounts.error.argNotFlag', { arg: problem.arg }))
+      instance.args = args
+    }
+    return instance
+  }
+
+  /**
+   * #130: a Git backup's settings, accounts first so its loadouts can name them. The backup's accounts replace these;
+   * the keys of any account that goes with them are forgotten (a backup never holds keys).
+   */
+  private async restoreSettings(patch: Partial<Settings>): Promise<Settings> {
+    const { agentInstances, ...rest } = patch
+    if (agentInstances !== undefined) {
+      const next = parseAgentInstances(agentInstances)
+      for (const old of this.store.state.settings.agentInstances) if (!next.some((i) => i.id === old.id)) this.secrets.forgetInstance(old.id)
+      this.store.state.settings.agentInstances = next
+    }
+    return this.api.updateSettings(rest)
+  }
+
+  /** The command an account's sign-in terminal runs: Claude's or Codex's own login, in the account's config folder. */
+  private instanceLogin(id: string): { env: Record<string, string>; command: string } {
+    const found = this.store.state.settings.agentInstances.find((i) => i.id === id)
+    if (!found) throw new Error(mainT(this.store.state.settings)('agentAccounts.error.gone'))
+    const fields = INSTANCE_FIELDS[found.agent]
+    if (!fields.login) throw new Error('Unknown command')
+    const env = agentBaseEnv()
+    if (fields.homeEnv && found.home) env[fields.homeEnv] = found.home
+    const { settings } = this.store.state
+    if (found.agent === 'claude') return { env, command: `${shellQuote(found.path || settings.claudeExecutablePath || bundledClaudeExecutable() || 'claude')} auth login` }
+    return { env, command: `${shellQuote(found.path || settings.codexExecutablePath || 'codex')} login` }
   }
 
   readonly api: Api = {
@@ -3450,6 +3528,11 @@ export class Core {
         if (this.store.state.workspaces.find((w) => w.id === workspaceId)?.cloud) throw new Error(mainT(this.store.state.settings)('cloud.terminal.agentNotInCloud'))
         return this.terminalAgents.start(workspaceId, command ?? '', cols, rows)
       }
+      // #130: signing an account in, in its own config folder.
+      if (kind === 'command' && command?.startsWith('login-instance:')) {
+        const login = this.instanceLogin(command.slice('login-instance:'.length))
+        return this.ptys.spawn('', os.homedir(), login.env, cols, rows, login.command)
+      }
       if (kind === 'command' && command?.startsWith('login:')) {
         const agent = command.slice('login:'.length)
         return this.ptys.spawn('', os.homedir(), this.environment.forCatalogAgent(agent), cols, rows, catalogLoginCommand(agent, executablePathFor(this.store.state.settings, agent)))
@@ -3519,14 +3602,41 @@ export class Core {
     },
     savedTerminals: async (workspaceId) => (this.terminalWorkspace(workspaceId) ? this.terminals.get(workspaceId) : null),
 
-    agentStatus: async (agent) => {
-      return driverFor(agent).status(this.environment.forAgent(agent), executablePathFor(this.store.state.settings, agent))
+    agentStatus: async (agent, instanceId) => {
+      // #130: one of the agent's other accounts, checked with its own folder, key and binary.
+      const instance = instanceId ? this.instance(agent, instanceId) : undefined
+      return driverFor(agent).status(this.environment.forAgent(agent, undefined, {}, instance), executablePathFor(this.store.state.settings, agent, instance))
     },
     // #22
     agentCatalog: (refresh) => this.agentCatalog.view(Boolean(refresh)),
-    setAgentKey: async (agent, value) => this.agentCatalog.setKey(agent, value),
-    revealAgentKey: async (agent) => this.agentCatalog.revealKey(agent),
-    importAgentKey: async (agent) => this.agentCatalog.importKey(agent),
+    setAgentKey: async (agent, value, instanceId) => this.agentCatalog.setKey(agent, value, instanceId ? this.instance(agent, instanceId).id : undefined),
+    revealAgentKey: async (agent, instanceId) => this.agentCatalog.revealKey(agent, instanceId ? this.instance(agent, instanceId).id : undefined),
+    importAgentKey: async (agent, instanceId) => this.agentCatalog.importKey(agent, instanceId ? this.instance(agent, instanceId).id : undefined),
+    saveAgentInstance: async (input) => {
+      const instance = this.checkInstance(input)
+      const { settings } = this.store.state
+      if (input.id) this.instance(instance.agent, input.id)
+      // Codex needs its CODEX_HOME to exist; Claude makes its own, but an empty folder is the same to it.
+      if (instance.home) await mkdir(instance.home, { recursive: true })
+      const kept = settings.agentInstances.filter((i) => i.id !== instance.id)
+      const at = settings.agentInstances.findIndex((i) => i.id === instance.id)
+      settings.agentInstances = at < 0 ? [...kept, instance] : [...kept.slice(0, at), instance, ...kept.slice(at)]
+      this.changed()
+      return instance
+    },
+    removeAgentInstance: async (id) => {
+      const t = mainT(this.store.state.settings)
+      const { settings } = this.store.state
+      const instance = settings.agentInstances.find((i) => i.id === id)
+      if (!instance) return
+      // A loadout on it would start chats on an account that's gone: the slot changes first.
+      const slot = settings.loadouts.findIndex((l) => l.instance === id)
+      if (slot >= 0) throw new Error(t('agentAccounts.error.inUseLoadout', { label: instance.label, slot: slot + 1 }))
+      if (settings.reviewModel.instance === id) throw new Error(t('agentAccounts.error.inUseReview', { label: instance.label }))
+      settings.agentInstances = settings.agentInstances.filter((i) => i.id !== id)
+      this.secrets.forgetInstance(id)
+      this.changed()
+    },
     agentSignInStatus: (agent) => this.agentCatalog.signInStatus(agent),
     importProviderKey: async (envVar) => this.agentCatalog.importProviderKey(envVar),
     revealProviderKey: async (envVar) => this.agentCatalog.revealProviderKey(envVar),
@@ -3666,6 +3776,12 @@ export class Core {
       if ('hiddenModels' in patch) patch = { ...patch, hiddenModels: parseHiddenModels(patch.hiddenModels) }
       // #22
       if ('agentPrefs' in patch) patch = { ...patch, agentPrefs: parseAgentPrefs(patch.agentPrefs) }
+      // #130: accounts are saved one by one (saveAgentInstance), and a loadout names only an account of its agent.
+      if ('agentInstances' in patch) throw new Error('Accounts are changed in Settings → Agents')
+      for (const loadout of [...(patch.loadouts ?? []), ...(patch.reviewModel ? [patch.reviewModel] : [])]) {
+        if (loadout.instance) this.instance(loadout.agent, loadout.instance)
+      }
+
       if ('providerKeyAgents' in patch) patch = { ...patch, providerKeyAgents: parseProviderKeyAgents(patch.providerKeyAgents) }
       // #14
       if ('openInDefault' in patch && !isOpenInChoice(patch.openInDefault)) throw new Error('Unknown app')

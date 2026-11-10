@@ -3,6 +3,7 @@
 import { Check, GripVertical, RefreshCw, TriangleAlert, X, Zap } from 'lucide-react'
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { instanceLabel } from '../../../../shared/agentInstances'
 import {
   AGENT_ORDER,
   AGENTS,
@@ -352,6 +353,10 @@ function CardFace({ loadout, index }: { loadout: Loadout; index: number }) {
   const info = modelInfo(loadout.agent, loadout.model)
   const parts = loadout.agent === 'opencode' ? opencodeModelParts(info) : null
   const effort = info.efforts.length > 0 ? effortLabel(loadout.effort ?? info.defaultEffort, t) : ''
+  // #130: a slot on another of the agent's accounts says which.
+  const instances = useStore((s) => s.snapshot!.settings.agentInstances)
+  const account = loadout.instance ? (instanceLabel(instances, loadout.agent, loadout.instance) ?? t('agentAccounts.chooser.removed')) : null
+  const meta = [parts ? parts.providerLabel : effort, account].filter(Boolean).join(' · ')
   return (
     <>
       {index === 0 && <span className="ml-default">{t('common.default')}</span>}
@@ -365,7 +370,7 @@ function CardFace({ loadout, index }: { loadout: Loadout; index: number }) {
             <TriangleAlert size={10} />
           </span>
         )}
-        <span className="ml-card-meta-text">{parts ? parts.providerLabel : effort}</span>
+        <span className="ml-card-meta-text">{meta}</span>
         {loadout.fast && <Zap size={10} className="fast-on" />}
       </span>
     </>

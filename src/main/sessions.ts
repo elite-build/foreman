@@ -49,6 +49,8 @@ import type { TFunction } from '../shared/i18n'
 import { mainT } from './i18n'
 import { answeredBy, catchUpBlock, isMixed, lastTurnOf, modelDivider, otherAgentTurns, parkedAfterRewind, turnAuthors, type AgentSwitch } from '../shared/switchAgent'
 import { catalogAgent } from '../shared/agentCatalog'
+import { continuationKey, DEFAULT_MOVE_RULE, INSTANCE_FIELDS, instanceMove, resolveInstance, takesInstances, type AgentInstance, type ResolvedInstance } from '../shared/agentInstances'
+import { agentBaseEnv } from './platform'
 import type { AgentKind } from '../shared/agents'
 import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint } from './checkpoints'
 import { alertsAfterRewind } from '../shared/sensitive'
@@ -118,6 +120,8 @@ interface TurnState {
   // How the agent says the turn went; `finished()` alone is not success.
   result?: TurnResult
   mirrorNoticed: boolean
+  // #130: where a conversation the turn starts lives (continuationKey), when it runs on an account.
+  conversationKey?: string
 }
 
 /** O10: what a turn running in the background host adds (see agentHost/client.ts). */
@@ -304,11 +308,15 @@ export class SessionService {
     const agent = patch.agent ?? loadout.agent
     const sameAgent = agent === loadout.agent
     const model = patch.model ?? (sameAgent ? loadout.model : defaultModel(agent))
+    // #130: the account asked for (null: the default one), else the workspace's pick for this agent, else loadout 1's.
+    if (patch.instanceId && resolveInstance(settings.agentInstances, agent, patch.instanceId).kind === 'missing') throw new Error(this.t()('agentAccounts.error.gone'))
+    const instanceId = patch.instanceId !== undefined ? patch.instanceId || undefined : (this.store.state.workspaces.find((w) => w.id === workspaceId)?.agentInstances?.[agent] ?? (sameAgent ? loadout.instance : undefined))
     const session: Session = {
       id: randomUUID(),
       workspaceId,
       title: patch.title,
       agent,
+      ...(instanceId ? { instanceId } : {}),
       model,
       effort: patch.effort ?? (sameAgent && !patch.model ? loadout.effort : modelInfo(agent, model).defaultEffort),
       fastMode: patch.fastMode ?? (sameAgent && !patch.model ? loadout.fast : false),
@@ -344,7 +352,7 @@ export class SessionService {
       if (!turnId) throw new Error('Choose the message to edit')
       const at = forkCutBefore(await this.store.readChat(id), turnId)
       if (at.first) {
-        const fresh = this.createSession(source.workspaceId, { agent: source.agent, model: source.model, effort: source.effort, fastMode: source.fastMode, planMode: source.planMode })
+        const fresh = this.createSession(source.workspaceId, { agent: source.agent, instanceId: source.instanceId ?? null, model: source.model, effort: source.effort, fastMode: source.fastMode, planMode: source.planMode })
         fresh.outputStyle = source.outputStyle
         fresh.readOnly = source.readOnly
         this.changed()
@@ -361,8 +369,10 @@ export class SessionService {
       : cut.resumeFrom
     // O1: in a chat other agents answered part of, Claude's own conversation isn't the whole chat, so the fork carries the history as text.
     const native = source.agent === 'claude' && !source.nativeLineage && !source.forkOnResume && !source.seedHistory && otherAgentTurns(cut.items, 'claude') === 0 && resume
+    // #130: a fork stays on the chat's account.
     const fork = this.createSession(source.workspaceId, {
       agent: source.agent,
+      instanceId: source.instanceId ?? null,
       model: source.model,
       effort: source.effort,
       fastMode: source.fastMode,
@@ -377,6 +387,7 @@ export class SessionService {
       fork.agentSessionId = native.sessionId
       fork.resumeAt = native.messageUuid
       fork.lastAssistantUuid = native.messageUuid
+      fork.conversationKey = source.conversationKey
     } else {
       fork.seedHistory = true
     }
@@ -422,17 +433,26 @@ export class SessionService {
     const session = this.session(id)
     const active = this.turns.get(id)
     // #11: a different agent or model (effort and fast included) makes an armed usage-limit resume moot.
-    const modelChanged = [patch.agent !== undefined && patch.agent !== session.agent, patch.model !== undefined && patch.model !== session.model, patch.effort !== undefined && patch.effort !== session.effort, patch.fastMode !== undefined && patch.fastMode !== session.fastMode].some(Boolean)
+    const modelChanged = [patch.agent !== undefined && patch.agent !== session.agent, patch.model !== undefined && patch.model !== session.model, patch.effort !== undefined && patch.effort !== session.effort, patch.fastMode !== undefined && patch.fastMode !== session.fastMode, patch.instanceId !== undefined && (patch.instanceId ?? undefined) !== session.instanceId].some(Boolean)
     if (patch.agent && patch.agent !== session.agent) {
       // #22: a Terminal agent runs its own CLI in a terminal tab; it can't take a chat over.
       if (!AGENTS[patch.agent]) throw new Error(`${catalogAgent(patch.agent)?.name ?? patch.agent} is a Terminal agent: it runs in its own terminal tab and can’t continue a chat. Open it from the picker’s Terminal group.`)
       if (active || session.turnId || this.starting.has(id)) throw new Error('Wait for this turn to finish before switching agents')
       if (session.importedMode === 'history') throw new Error('This chat was imported as history only. Open a new chat to continue the work.')
       if (session.readOnly && !readOnlyEnforcement(patch.agent)) throw new Error(`This chat is read-only, which ${AGENTS[patch.agent].label} can’t enforce`)
+      // #130: an account asked for with the switch is checked before anything changes (the conversation it would resume, if one is parked).
+      if (patch.instanceId !== undefined) {
+        const back = session.parked?.[patch.agent]
+        const after = { agent: patch.agent, instanceId: back ? back.instanceId : this.workspaces.workspace(session.workspaceId).agentInstances?.[patch.agent], conversationKey: back?.conversationKey, agentSessionId: back?.agentSessionId }
+        if (this.accountMove(after, patch.instanceId ?? undefined).move === 'blocked') throw new Error(this.t()('agentAccounts.error.blocked', { agent: AGENTS[patch.agent].label }))
+      }
+
       // O1: the tab continues with the other agent (the renderer's "Open a new chat instead" doesn't come here).
       await this.switchAgent(session, patch.agent, patch.model ?? defaultModel(patch.agent))
       this.useAgent(session, patch.agent, patch.model ?? defaultModel(patch.agent))
     }
+    // #130: another account of the chat's agent, as the agent's rule allows.
+    if (patch.instanceId !== undefined) await this.moveAccount(session, patch.instanceId ?? undefined)
     if (patch.title !== undefined) {
       session.title = patch.title.trim() || undefined
       session.titleSetByUser = Boolean(session.title)
@@ -510,12 +530,17 @@ export class SessionService {
         resumeAt: session.resumeAt,
         nativeFork: session.nativeFork,
         forkOnResume: session.forkOnResume,
-        lastTurnId: lastTurnOf(items, from)
+        lastTurnId: lastTurnOf(items, from),
+        ...(session.instanceId ? { instanceId: session.instanceId } : {}),
+        ...(session.conversationKey ? { conversationKey: session.conversationKey } : {})
       }
     }
     const back = parked[to]
     delete parked[to]
     session.parked = Object.keys(parked).length ? parked : undefined
+    // #130: back on its own conversation, on the account it ran on; otherwise on the workspace's pick for that agent.
+    session.instanceId = back ? back.instanceId : this.workspaces.workspace(session.workspaceId).agentInstances?.[to]
+    session.conversationKey = back?.conversationKey
     session.agentSessionId = back?.agentSessionId
     session.lastAssistantUuid = back?.lastAssistantUuid
     session.resumeAt = back?.resumeAt
@@ -538,6 +563,113 @@ export class SessionService {
         : `Switched to ${name} · earlier messages passed as text (newest 100k characters)`,
       switched
     })
+  }
+
+  // ---- #130: accounts ----
+
+  /** The account a chat runs on: its agent's default one, one of its others, or one that was removed. */
+  private accountOf(session: Pick<Session, 'agent' | 'instanceId'>): ResolvedInstance {
+    return resolveInstance(this.store.state.settings.agentInstances, session.agent, session.instanceId)
+  }
+
+  /** The account a turn runs on (undefined: the default one). A removed account stops the turn; nothing falls back to another. */
+  private turnAccount(session: Session): AgentInstance | undefined {
+    const resolved = this.accountOf(session)
+    if (resolved.kind === 'missing') throw new Error(this.t()('agentAccounts.error.missing', { agent: AGENTS[session.agent].label }))
+    return resolved.kind === 'instance' ? resolved.instance : undefined
+  }
+
+  /** Where the conversations of a chat's account live (see continuationKey). */
+  private conversationKeyOf(agent: AgentKind, resolved: ResolvedInstance): string {
+    return continuationKey(agent, resolved, os.homedir(), process.platform, agentBaseEnv())
+  }
+
+  /**
+   * #130: the chat goes on with another account of its agent. The same conversation continues where both keep it in
+   * one place, or when there's none yet; otherwise the agent's rule decides: never (refused), or a new conversation on
+   * the other account that gets the earlier messages as text. Choosing an account also makes it the workspace's pick.
+   */
+  private async moveAccount(session: Session, to: string | undefined): Promise<void> {
+    const t = this.t()
+    const { move, target, toKey } = this.accountMove(session, to)
+    if (move === 'same') return
+    if (this.turns.get(session.id) || session.turnId || this.starting.has(session.id)) throw new Error(t('agentAccounts.error.running'))
+    if (session.importedMode === 'history') throw new Error('This chat was imported as history only. Open a new chat to continue the work.')
+    const agent = AGENTS[session.agent].label
+    if (move === 'blocked') throw new Error(t('agentAccounts.error.blocked', { agent }))
+    const items = await this.store.readChat(session.id)
+    const hasHistory = items.some((i) => i.kind === 'user')
+    const hadConversation = Boolean(session.agentSessionId)
+    if (move === 'carry') this.dropConversation(session, hasHistory)
+    session.instanceId = target.kind === 'instance' ? target.instance.id : undefined
+    session.conversationKey = session.agentSessionId ? toKey : undefined
+    this.closeMcpProbe(session.id)
+    const ws = this.workspaces.workspace(session.workspaceId)
+    const picks = { ...ws.agentInstances }
+    if (session.instanceId) picks[session.agent] = session.instanceId
+    else delete picks[session.agent]
+    ws.agentInstances = Object.keys(picks).length ? picks : undefined
+    if (!hasHistory) return
+    const account = target.kind === 'instance' ? target.instance.label : t('agentAccounts.default')
+    this.emit(session.id, {
+      kind: 'notice',
+      id: `account:${randomUUID()}`,
+      level: 'info',
+      // A chat whose agent has no conversation of its own yet only says where it is now.
+      text: t(move === 'carry' ? 'agentAccounts.notice.carried' : hadConversation ? 'agentAccounts.notice.same' : 'agentAccounts.notice.moved', { account, agent })
+    })
+  }
+
+  /** What moving the chat (or how it will be after an agent switch) to that account does; a removed account is refused. */
+  private accountMove(session: Pick<Session, 'agent' | 'instanceId' | 'conversationKey' | 'agentSessionId'>, to: string | undefined): { move: ReturnType<typeof instanceMove>; target: ResolvedInstance; toKey: string } {
+    const { settings } = this.store.state
+    const target = resolveInstance(settings.agentInstances, session.agent, to)
+    if (target.kind === 'missing') throw new Error(this.t()('agentAccounts.error.gone'))
+    const fromKey = session.conversationKey ?? this.conversationKeyOf(session.agent, this.accountOf(session))
+    const toKey = this.conversationKeyOf(session.agent, target)
+    const rule = settings.agentPrefs?.[session.agent]?.moveChats ?? DEFAULT_MOVE_RULE
+    return { move: instanceMove({ from: session.instanceId, to, fromKey, toKey, rule, hasConversation: Boolean(session.agentSessionId) }), target, toKey }
+  }
+
+  /** The agent's own conversation is left behind: the next message starts a new one, given the visible history when there is any. */
+  private dropConversation(session: Session, hasHistory: boolean): void {
+    session.agentSessionId = undefined
+    session.lastAssistantUuid = undefined
+    session.resumeAt = undefined
+    session.nativeFork = undefined
+    session.forkOnResume = undefined
+    session.catchUpSince = undefined
+    session.contextUsage = undefined
+    session.conversationKey = undefined
+    session.seedHistory = hasHistory ? 'account' : undefined
+  }
+
+  /**
+   * #130: a chat whose conversation began where its account no longer keeps it (the account's config folder changed)
+   * can't resume it, so it starts a new conversation there that gets the earlier messages as text.
+   */
+  private checkConversationHome(session: Session, key: string): void {
+    if (!session.agentSessionId || !session.conversationKey || session.conversationKey === key) return
+    this.dropConversation(session, true)
+    this.emit(session.id, { kind: 'notice', id: `account:${randomUUID()}`, level: 'info', text: this.t()('agentAccounts.notice.homeChanged', { agent: AGENTS[session.agent].label }) })
+    this.changed()
+  }
+
+  /** #130: the chat's config folder, for what reads it between turns (custom commands); none for the default account. */
+  private accountFolders(session: Session): Record<string, string> | undefined {
+    const resolved = this.accountOf(session)
+    const home = resolved.kind === 'instance' ? resolved.instance.home : undefined
+    const name = takesInstances(session.agent) ? INSTANCE_FIELDS[session.agent].homeEnv : null
+    return home && name ? { [name]: home } : undefined
+  }
+
+  /** #130: the account a chat title is written on: the chat's own for a Claude chat, else Claude's default account. */
+  private titleAccount(session: Session): { env: Record<string, string>; executablePath?: string } {
+    const resolved = session.agent === 'claude' ? this.accountOf(session) : ({ kind: 'default' } as const)
+    // A removed account writes no title (the turn says why); the fallback title stands in.
+    if (resolved.kind === 'missing') throw new Error('No account for the title')
+    const account = resolved.kind === 'instance' ? resolved.instance : undefined
+    return { env: this.environment.forAgent('claude', undefined, {}, account), executablePath: executablePathFor(this.store.state.settings, 'claude', account) }
   }
 
   async closeSession(id: string): Promise<void> {
@@ -851,9 +983,9 @@ export class SessionService {
     return approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
   }
 
-  private executablePath(session: Session): string | undefined {
-    // #22: Chat agents keep theirs in Settings.agentPrefs.
-    return executablePathFor(this.store.state.settings, session.agent)
+  private executablePath(session: Session, account?: AgentInstance): string | undefined {
+    // #22: Chat agents keep theirs in Settings.agentPrefs. #130: an account may have its own.
+    return executablePathFor(this.store.state.settings, session.agent, account)
   }
 
   // ---- cloud workspaces: the worktree is in a sandbox, so the folder-based steps are skipped or go through it ----
@@ -1032,6 +1164,8 @@ export class SessionService {
       // O1: which agent and model answered it, as a tab can switch agents.
       agent: session.agent,
       model: session.model,
+      // #130: and on which account, so a rewind goes back to it.
+      ...(session.instanceId ? { instance: session.instanceId } : {}),
       // G4 #12: an edit of this queued message arrived after it started.
       ...(this.racedEdits.delete(turnId) ? { editRaced: true as const } : {}),
       resumeFrom:
@@ -1074,6 +1208,11 @@ export class SessionService {
     skipComments = false
   ): Promise<void> {
     const sessionId = session.id
+    // #130: the chat's account; a removed one stops here. A cloud sandbox signs in its own way, as the default account.
+    const account = this.turnAccount(session)
+    if (ws.cloud && session.instanceId) throw new Error(this.t()('agentAccounts.error.cloud'))
+    const conversationKey = this.conversationKeyOf(session.agent, account ? { kind: 'instance', instance: account } : { kind: 'default' })
+    this.checkConversationHome(session, conversationKey)
     // Cloud workspaces: the turn runs in the sandbox's host, for the agents that can run there. Its checkpoint is made in the sandbox.
     if (ws.cloud) {
       if (!this.cloudHost) throw new Error('Cloud workspaces aren’t available')
@@ -1099,7 +1238,9 @@ export class SessionService {
     await githubReady
     const env = ws.cloud
       ? { ...this.workspaces.env(ws), ...this.reports?.turnEnv(sessionId, turnId) }
-      : this.environment.forAgent(session.agent, ws.repoId, { ...this.workspaces.env(ws), ...this.reports?.turnEnv(sessionId, turnId) })
+      : this.environment.forAgent(session.agent, ws.repoId, { ...this.workspaces.env(ws), ...this.reports?.turnEnv(sessionId, turnId) }, account)
+    // #130: an account on an API key with none saved would sign in some other way, so the turn stops instead.
+    if (account?.auth === 'apiKey' && takesInstances(account.agent) && !env[INSTANCE_FIELDS[account.agent].keyEnv]) throw new Error(this.t()('agentAccounts.error.noKey', { account: account.label }))
     const gitDir = ws.cloud ? null : await gitCommonDir(wsPath(ws))
     // Review comments the user left since the last message go along with this one.
     const pending = skipComments ? [] : pendingComments(this.store.state.comments, ws.id)
@@ -1111,7 +1252,7 @@ export class SessionService {
     // #2: "Teach agents Foreman" (a repo setting, fixed when the chat starts) adds how to report, filtered to what this agent can use.
     const taught = this.reports?.teach(session, ws, firstMessage) ?? null
     // Integrations: the accounts this repository uses, Foreman's bridge servers, and the user's own same-service servers switched off.
-    const integ = this.integrationsFor(session, ws)
+    const integ = this.integrationsFor(session, ws, env)
     // A flow step's persona: its instructions follow the rest, for this turn only; its MCP list keeps fewer servers.
     const persona = this.turnPersona(session)
     const scope = this.writeScope(session)
@@ -1126,7 +1267,7 @@ export class SessionService {
     // A fork that can't branch the agent's conversation carries the history it was forked with.
     // O1: a tab switched to this agent carries its history the same way; one switched back to an agent's own conversation carries a note of what was said meanwhile.
     const before = session.seedHistory || session.catchUpSince ? await this.historyBefore(sessionId, message.id) : []
-    const carried = session.seedHistory ? carriedHistory(before, session.seedHistory === 'switch' ? 'switch' : 'fork') : { text: '', cut: false }
+    const carried = session.seedHistory ? carriedHistory(before, session.seedHistory === true ? 'fork' : session.seedHistory) : { text: '', cut: false }
     const historyText = carried.text
     const catchUp = session.catchUpSince ? catchUpBlock(before, session.catchUpSince, session) : { text: '', cut: false }
     const sizes = await Promise.all(attachments.map(async (a) => ({ name: a.name, bytes: await stat(a.path).then((i) => i.size, () => undefined) })))
@@ -1145,7 +1286,7 @@ export class SessionService {
       attachmentText,
       attachments: sizes,
       historyText,
-      historySource: session.seedHistory === 'switch' ? t('context.history.sourceSwitch', { agent: answeredBy(before, session) }) : undefined,
+      historySource: session.seedHistory === 'switch' || session.seedHistory === 'account' ? t('context.history.sourceSwitch', { agent: answeredBy(before, session) }) : undefined,
       historyCut: carried.cut,
       catchUpText: catchUp.text,
       catchUpSource: t('context.catchUp.sourceSince', { agent: AGENTS[session.agent].label }),
@@ -1183,10 +1324,11 @@ export class SessionService {
         resume: session.agentSessionId,
         resumeAt: session.resumeAt,
         systemPromptAppend,
-        executablePath: this.executablePath(session),
+        executablePath: this.executablePath(session, account),
         hostTools: this.hostTools(ws, session, turnId, followups),
         outputStyle: session.outputStyle,
         chrome: this.store.state.settings.chromeMode,
+        launchArgs: session.agent === 'claude' && account?.args?.length ? account.args : undefined,
         extraWritableDirs: gitDir ? [gitDir] : undefined,
         mcpServers: { ...repoMcp.servers, ...integServers, ...appServers },
         inProcessMcp,
@@ -1195,7 +1337,8 @@ export class SessionService {
         forkOnResume: session.forkOnResume && session.agentSessionId ? true : undefined,
         backgroundWait: this.backgroundWait()
       }
-    const state: TurnState = { mirrorNoticed: false }
+    // #130: a conversation started on an account remembers where it lives.
+    const state: TurnState = { mirrorNoticed: false, conversationKey: account || session.conversationKey ? conversationKey : undefined }
     const callbacks = this.turnCallbacks(session, turnId, state)
     const turn = hosted && host
       ? host.createTurn(session, ws, request, callbacks, endCheckpointId(sessionId, turnId))
@@ -1232,7 +1375,7 @@ export class SessionService {
    * same-service servers to switch off (Claude and Codex), lines for the agent's instructions, and what
    * the receipt says changed since the tab's last turn.
    */
-  private integrationsFor(session: Session, ws: Workspace): {
+  private integrationsFor(session: Session, ws: Workspace, env: Record<string, string> = {}): {
     servers: Record<string, McpLaunch>
     disabled: string[]
     notes: string[]
@@ -1246,7 +1389,9 @@ export class SessionService {
       cwd: this.turnCwd(ws),
       supportsMcp: Boolean(AGENTS[session.agent]?.supportsRepoMcp),
       last: session.integrations?.snapshot,
-      choices: ws.integrations
+      choices: ws.integrations,
+      // #130: an account's own config folder holds its own MCP servers.
+      homes: { claude: env.CLAUDE_CONFIG_DIR, codex: env.CODEX_HOME }
     })
     const { claude, codex } = IntegrationBridge.blockedFor(session.agent, turn.blocked)
     const disabled = [...claude, ...codex]
@@ -1275,6 +1420,7 @@ export class SessionService {
           session.seedHistory = undefined
           session.catchUpSince = undefined
           session.agentSessionId = agentSessionId
+          session.conversationKey = state.conversationKey
           session.resumeAt = undefined
           this.changed()
         },
@@ -1410,7 +1556,7 @@ export class SessionService {
     if (this.turns.has(sessionId)) throw new Error('This chat already has a turn')
     session.status = 'running'
     session.turnId = turnId
-    const state: TurnState = { mirrorNoticed: false }
+    const state: TurnState = { mirrorNoticed: false, conversationKey: session.conversationKey }
     const followups = session.agent === 'claude' && this.workspaces.settingsFor(ws.repoId).suggestFollowups !== false
     const context = { hostTools: this.hostTools(ws, session, turnId, followups), sessionStore: this.mirrorFor(session, ws) }
     const { turn, missed } = await open(context, this.turnCallbacks(session, turnId, state))
@@ -1848,8 +1994,7 @@ export class SessionService {
           (await driverFor('claude').oneShot?.(prompt, {
             // The title is written on this computer, also for a cloud workspace (it reads only the message).
             cwd: ws.cloud ? os.tmpdir() : wsPath(ws),
-            env: this.environment.forAgent('claude'),
-            executablePath: this.store.state.settings.claudeExecutablePath || undefined
+            ...this.titleAccount(session)
           })) ?? ''
         title = title.replace(/^["'`]+|["'`.]+$/g, '').split('\n')[0].trim().slice(0, 60)
       } catch {
@@ -1898,6 +2043,11 @@ export class SessionService {
         session.parked = { ...session.parked, [session.agent]: { agentSessionId: session.agentSessionId, lastAssistantUuid: session.lastAssistantUuid, resumeAt: session.resumeAt, nativeFork: session.nativeFork, forkOnResume: session.forkOnResume, lastTurnId: lastTurnOf(items, session.agent) } }
       }
       this.useAgent(session, author.agent, author.model ?? defaultModel(author.agent))
+    }
+    // #130: back on the account the message went to, whose conversation it forks.
+    if (author) {
+      session.instanceId = user.instance
+      session.conversationKey = undefined
     }
     // The next message forks the conversation at the point this turn started from.
     session.agentSessionId = user.resumeFrom?.sessionId
@@ -2055,7 +2205,8 @@ export class SessionService {
       const ws = this.workspaces.workspace(source.workspaceId)
       const attachment = await attachFromData(workspaceTarget(ws, { wake: true }), 'plan.md', Buffer.from(pending.request.plan).toString('base64'))
       await this.handOff(source.id, {
-        model: { agent: source.agent, model: source.model, effort: source.effort, fast: false },
+        // #130: on the chat's own account.
+        model: { agent: source.agent, model: source.model, effort: source.effort, fast: false, ...(source.instanceId ? { instance: source.instanceId } : {}) },
         text: 'Implement the attached plan.',
         attachments: [attachment]
       })
@@ -2091,6 +2242,7 @@ export class SessionService {
     if (request.readOnly && !readOnlyEnforcement(model.agent)) throw new Error(`Read-only isn’t offered for ${AGENTS[model.agent].label}: Foreman can’t enforce it there`)
     const target = this.createSession(ws.id, {
       agent: model.agent,
+      instanceId: model.instance ?? null,
       model: model.model,
       effort: model.effort,
       fastMode: model.fast,
@@ -2157,7 +2309,7 @@ export class SessionService {
     const ws = this.workspaces.workspace(session.workspaceId)
     const builtin = builtinCommands(session.agent, this.t())
     // A cloud workspace's own commands are in its sandbox, where this computer's agent can't list them.
-    const custom = ws.cloud ? [] : ((await driverFor(session.agent).slashCommands?.(wsPath(ws)).catch(() => [])) ?? [])
+    const custom = ws.cloud ? [] : ((await driverFor(session.agent).slashCommands?.(wsPath(ws), this.accountFolders(session)).catch(() => [])) ?? [])
     return [...builtin, ...custom.filter((c) => !builtin.some((b) => b.name === c.name))]
   }
 
@@ -2239,8 +2391,8 @@ export class SessionService {
       const ws = this.workspaces.workspace(session.workspaceId)
       const probe = driverFor(session.agent).mcpProbe!({
         cwd: localOnly(ws, 'Checking MCP servers between turns'),
-        env: this.environment.forAgent(session.agent, ws.repoId, this.workspaces.env(ws)),
-        executablePath: this.executablePath(session),
+        env: this.environment.forAgent(session.agent, ws.repoId, this.workspaces.env(ws), this.turnAccount(session)),
+        executablePath: this.executablePath(session, this.turnAccount(session)),
         mcpServers: AGENTS[session.agent]?.supportsRepoMcp
           ? {
               ...this.repoMcp?.launchable(ws),

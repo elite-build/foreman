@@ -271,6 +271,8 @@ export interface Loadout {
   model: string
   effort?: EffortLevel
   fast: boolean
+  // #130: the agent's account (shared/agentInstances.ts) by id; absent: its default account.
+  instance?: string
 }
 
 /**

@@ -240,6 +240,21 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),
+  // #130: Claude Code's page scrolled to its Accounts section.
+  'settings-agent-accounts': () => claudeAccounts(),
+  // The Work account's dialog: its details, then its sign-in.
+  'agent-account-dialog': async () => {
+    if (!(await claudeAccounts())) return null
+    const edit = await waitFor(element('.ag-account-actions button'))
+    if (!edit) return null
+    edit.click()
+    return '.ag-dialog .ag-account-signin'
+  },
+  // The composer's picker on a Claude chat: the Account row under effort and fast.
+  'picker-account': async (f) => {
+    openWorkspace(f)
+    return (await openPicker()) ? '.picker-controls .ui-select' : null
+  },
   'settings-appearance': () => (openSettingsPage({ section: 'appearance' }), '.settings-view'),
   'settings-accessibility': () => (openSettingsPage({ section: 'accessibility' }), '.settings-view'),
   'settings-cloud': () => (openSettingsPage({ section: 'cloud' }), '.settings-view'),
@@ -342,7 +357,27 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   'gallery-2d': () => showGallery('2d')
 }
 
+/** #130: Settings → Agents → Claude Code, scrolled to its Accounts section. */
+async function claudeAccounts(): Promise<string | null> {
+  openSettingsPage({ section: 'agents', agent: 'claude' })
+  const row = await waitFor(() => document.getElementById(rowDomId('agent-accounts-claude')))
+  if (!row) return null
+  row.closest('section')?.scrollIntoView({ block: 'start' })
+  // Each account's own status check has answered (it runs that account's sign-in check).
+  await waitFor(() => document.querySelectorAll('.ag-account-facts .ui-status').length >= 2, 20_000)
+  return '.ag-account-actions'
+}
+
+/** The composer's model picker, open. */
+async function openPicker(): Promise<boolean> {
+  const trigger = await waitFor(element('.picker-trigger'))
+  if (!trigger) return false
+  trigger.click()
+  return Boolean(await waitFor(element('.picker-panel .picker-controls')))
+}
+
 async function showFlash(page: Parameters<typeof openSettingsPage>[0] & object, rowId: string): Promise<string | null> {
+
   openSettingsPage({ ...page, scrollTo: rowId })
   const lit = await waitFor(() => {
     const found = [...document.querySelectorAll<HTMLElement>('[data-ui-flash]')]

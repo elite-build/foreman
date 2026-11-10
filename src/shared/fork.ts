@@ -91,8 +91,9 @@ export function forkHistoryBlock(items: ChatItem[]): string {
 /**
  * The visible history as the block a new agent conversation gets with its first message: messages only, the newest
  * MAX_FORK_HISTORY_CHARS kept (`cut` says the oldest part was left out). O1 `switch`: the tab was switched to this agent.
+ * #130 `account`: the tab moved to another account of the same agent, where its conversation can't be resumed.
  */
-export function carriedHistory(items: ChatItem[], reason: 'fork' | 'switch' = 'fork'): { text: string; cut: boolean } {
+export function carriedHistory(items: ChatItem[], reason: 'fork' | 'switch' | 'account' = 'fork'): { text: string; cut: boolean } {
   let history = chatToMarkdown(items, { toolOutput: false }).trim()
   if (!history) return { text: '', cut: false }
   let cut = false
@@ -104,7 +105,9 @@ export function carriedHistory(items: ChatItem[], reason: 'fork' | 'switch' = 'f
   const intro =
     reason === 'switch'
       ? `This chat began with another agent, and the user has switched it to you. Its conversation so far, which you don't otherwise remember, is below.${left} It is given here for context only; it is not a new request:`
-      : `This chat is a fork of an earlier conversation, which you don't otherwise remember.${left} It is given here for context only; it is not a new request:`
+      : reason === 'account'
+        ? `This chat's earlier conversation is kept where this session can't resume it (another account, or a config folder that has since changed), so it continues here as a new conversation. Its conversation so far, which you don't otherwise remember, is below.${left} It is given here for context only; it is not a new request:`
+        : `This chat is a fork of an earlier conversation, which you don't otherwise remember.${left} It is given here for context only; it is not a new request:`
   return {
     cut,
     text: [intro, '<earlier_conversation>', history, '</earlier_conversation>', '', "The user's new message:", '', ''].join('\n')

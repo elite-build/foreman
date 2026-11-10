@@ -1,5 +1,6 @@
 import { AGENT_CATALOG, isAgentEnabled } from '../../../../shared/agentCatalog'
 import { AGENT_ORDER, AGENTS } from '../../../../shared/agents'
+import { takesInstances } from '../../../../shared/agentInstances'
 import type { TFunction } from '../../../../shared/i18n'
 import type { AgentKind } from '../../../../shared/types'
 import { useT } from '../../i18n'
@@ -11,6 +12,7 @@ import { isFirstLoadout, setAgentForNewWorkspaces } from '../../agentReadiness'
 import { openSettingsPage, useStore } from '../../store'
 import { AgentIcon } from '../composer/AgentPicker'
 import { RepoMcpAgentRow } from '../McpConsent'
+import { AgentAccounts } from './AgentAccounts'
 import { ApiKeyField, AuthCards, ConfigFileRow, ExecutablePathRow, ExternalLink, useAuthMode, type AuthOption } from './AgentAuth'
 import { AgentStatusBlock, statusView, useAgentStatus } from './AgentStatusCard'
 import { LoginTerminal } from './LoginTerminal'
@@ -60,6 +62,8 @@ export function AgentsPage({ agent }: { agent: string }) {
       {agent === 'codex' && <CodexPanel />}
       {agent === 'cursor' && <CursorPanel />}
       {agent === 'opencode' && <OpencodePanel />}
+      {/* #130: the agent's other accounts. */}
+      {full && takesInstances(full) && <AgentAccounts agent={full} />}
       {/* #20: whether this agent gets the repo's approved MCP servers. */}
       {full && (
         <Section>
