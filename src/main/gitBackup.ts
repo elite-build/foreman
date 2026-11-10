@@ -10,6 +10,7 @@ import type { GitBackupConfig, GitBackupFiles, GitBackupPreview, GitBackupRepo, 
 import { GIT_BACKUP_FOLDER, GIT_BACKUP_VERSION } from '../shared/gitBackup'
 import { normalizeRemoteUrl } from '../shared/portable'
 import { parseHiddenModels } from '../shared/modelVisibility'
+import { parseAgentInstances } from '../shared/agentInstances'
 import type { PromptTemplate, Repo, Settings } from '../shared/types'
 import { git, gitOut, hasRemote, isInsideWorkTree, repoEvidence, revParse, toplevel } from './git'
 import { credentialHelperEnv, gh, githubAccounts, githubEnvAsync, githubSlug } from './github'
@@ -135,7 +136,9 @@ export function parseGitBackup(raw: Record<string, unknown>): Payload {
     if (key === 'reviewModel' && (!object(value) || !str(value.agent) || !str(value.model) || typeof value.fast !== 'boolean'))
       throw new Error('The backup has an invalid review model.')
     // O8: hidden models are checked id by id, as when they're loaded.
-    cleanSettings[key] = key === 'hiddenModels' ? parseHiddenModels(value) : value
+    // #130: accounts are checked like a load's; their keys never travel, so an API-key account needs its key again.
+    cleanSettings[key] = key === 'hiddenModels' ? parseHiddenModels(value) : key === 'agentInstances' ? parseAgentInstances(value) : value
+
   }
   if (new Set(repositories.map((r) => r.id)).size !== repositories.length || new Set(workspaces.map((w) => w.id)).size !== workspaces.length ||
       new Set(templates.map((t) => t.id)).size !== templates.length) throw new Error('The backup contains duplicate IDs.')

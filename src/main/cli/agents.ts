@@ -3,6 +3,7 @@
 // against the agent catalog and the model catalog the snapshot carries (what the picker lists).
 import { AGENT_ORDER, AGENTS, chatAgentKinds, modelInfo, type AgentKind, type EffortLevel, type Loadout, type ModelInfo } from '../../shared/agents'
 import { agentAuthMode, AGENT_CATALOG, catalogAgent, isAgentEnabled, signInMethods, type AgentPrefs } from '../../shared/agentCatalog'
+import { instanceLabel } from '../../shared/agentInstances'
 import { modelUses, setModelHidden, type HiddenModels } from '../../shared/modelVisibility'
 import type { AgentEnabledResult, AgentIdParams, AgentModels, AgentRow, AgentsAuthParams, AgentsAuthResult, AgentsListResult, AgentsPathParams, AgentsPathResult, AgentsStatusResult, LoadoutParams, LoadoutRow, LoadoutsMoveParams, LoadoutsRemoveParams, LoadoutsResult, LoadoutsSetParams, ModelRow, ModelsListParams, ModelsListResult, ModelsRefreshParams, ModelsRefreshResult, ModelsVisibilityResult, ReviewModelResult } from '../../shared/cli/agents'
 import { EFFORT_LEVELS, MAX_LOADOUT_SLOTS } from '../../shared/cli/agents'
@@ -86,7 +87,9 @@ export function resolveLoadout(host: CliHost, p: LoadoutParams, current?: Loadou
   if (p.fast && info && !info.supportsFast) throw invalid(`${info.label} has no fast mode.`)
   const fast = p.fast ?? (same ? current.fast : false)
   if (!isAgentEnabled(agent, host.state().settings.agentPrefs)) notes.push(`${label} is turned off, so new chats can’t use this until you turn it on (\`foreman agents enable ${agent}\`).`)
-  return { loadout: { agent, model, ...(effort ? { effort } : {}), fast }, ...(notes.length ? { note: notes.join(' ') } : {}) }
+  // #130: the slot's account stays while it keeps its agent (accounts are chosen in the app).
+  const instance = current?.agent === agent ? current.instance : undefined
+  return { loadout: { agent, model, ...(effort ? { effort } : {}), fast, ...(instance ? { instance } : {}) }, ...(notes.length ? { note: notes.join(' ') } : {}) }
 }
 
 function slotOf(p: Record<string, unknown>, name: string, count: number): number {
@@ -103,13 +106,16 @@ type Catalog = AppSnapshot['catalog']['agents']
 /** What each agent last listed, read once so a table of slots asks the snapshot once. */
 const catalogOf = (host: CliHost): Catalog => host.snapshot().catalog.agents
 
-function loadoutRow(catalog: Catalog, l: Loadout, slot: number): LoadoutRow {
+/** @param accounts #130: the agents' other accounts, to name a slot's account */
+function loadoutRow(catalog: Catalog, l: Loadout, slot: number, accounts: Settings['agentInstances'] = []): LoadoutRow {
   const label = (catalog[l.agent]?.models ?? []).find((m) => sameModel(m, l.model))?.label ?? modelInfo(l.agent, l.model).label
-  return { slot, agent: l.agent, agentName: AGENTS[l.agent]?.label ?? l.agent, model: l.model, modelLabel: label, ...(l.effort ? { effort: l.effort } : {}), fast: l.fast }
+  // A removed account shows as its id.
+  const account = l.instance ? (instanceLabel(accounts, l.agent, l.instance) ?? l.instance) : undefined
+  return { slot, agent: l.agent, agentName: AGENTS[l.agent]?.label ?? l.agent, ...(account ? { account } : {}), model: l.model, modelLabel: label, ...(l.effort ? { effort: l.effort } : {}), fast: l.fast }
 }
 
 function loadoutsText(rows: LoadoutRow[]): string {
-  const lines = columns([['SLOT', 'AGENT', 'MODEL', 'EFFORT', 'FAST'], ...rows.map((r) => [String(r.slot), r.agent, `${r.model}${r.modelLabel && r.modelLabel !== r.model ? ` (${r.modelLabel})` : ''}`, r.effort ?? '', r.fast ? 'fast' : ''])])
+  const lines = columns([['SLOT', 'AGENT', 'MODEL', 'EFFORT', 'FAST'], ...rows.map((r) => [String(r.slot), r.account ? `${r.agent} (${r.account})` : r.agent, `${r.model}${r.modelLabel && r.modelLabel !== r.model ? ` (${r.modelLabel})` : ''}`, r.effort ?? '', r.fast ? 'fast' : ''])])
   return `${lines.join('\n')}\nSlot 1 is the default for new chats.`
 }
 
@@ -117,7 +123,7 @@ async function saveLoadouts(host: CliHost, next: Loadout[], note: string | undef
   const saved = await host.api.updateSettings({ loadouts: next })
   const catalog = catalogOf(host)
   const final = saved?.loadouts ?? next
-  const rows = final.map((l, i) => loadoutRow(catalog, l, i + 1))
+  const rows = final.map((l, i) => loadoutRow(catalog, l, i + 1, host.state().settings.agentInstances))
   return { loadouts: rows, ...(note ? { note } : {}), text: `${verb}\n${loadoutsText(rows)}${note ? `\n${note}` : ''}` }
 }
 
@@ -125,7 +131,7 @@ const loadoutsList: MethodDef = {
   tier: 'read',
   async handle(host): Promise<LoadoutsResult> {
     const catalog = catalogOf(host)
-    const rows = host.state().settings.loadouts.map((l, i) => loadoutRow(catalog, l, i + 1))
+    const rows = host.state().settings.loadouts.map((l, i) => loadoutRow(catalog, l, i + 1, host.state().settings.agentInstances))
     return { loadouts: rows, text: loadoutsText(rows) }
   }
 }
@@ -170,7 +176,7 @@ const loadoutsMove: MethodDef = {
     const current = host.state().settings.loadouts
     const from = slotOf(p, 'from', current.length)
     const to = slotOf(p, 'to', current.length)
-    if (from === to) return { loadouts: current.map((l, i) => loadoutRow(catalogOf(host), l, i + 1)), text: `Slot ${from} is already there.` }
+    if (from === to) return { loadouts: current.map((l, i) => loadoutRow(catalogOf(host), l, i + 1, host.state().settings.agentInstances)), text: `Slot ${from} is already there.` }
     const next = current.slice()
     const [moved] = next.splice(from - 1, 1)
     next.splice(to - 1, 0, moved)
@@ -179,7 +185,7 @@ const loadoutsMove: MethodDef = {
 }
 
 function reviewResult(host: CliHost, l: Loadout, note?: string, verb = ''): ReviewModelResult {
-  const { slot: _slot, ...row } = loadoutRow(catalogOf(host), l, 0)
+  const { slot: _slot, ...row } = loadoutRow(catalogOf(host), l, 0, host.state().settings.agentInstances)
   const text = `${verb}${verb ? '\n' : ''}Review model: ${row.agent} ${row.model}${row.modelLabel !== row.model ? ` (${row.modelLabel})` : ''}${row.effort ? `, effort ${row.effort}` : ''}${row.fast ? ', fast' : ''}`
   return { reviewModel: row, ...(note ? { note } : {}), text: `${text}${note ? `\n${note}` : ''}` }
 }

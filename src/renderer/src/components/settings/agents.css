@@ -253,6 +253,28 @@ button.ag-link {
 .ag-dialog {
   height: min(600px, calc(100vh - 64px));
 }
+/* #130: Settings → Agents → Accounts. */
+.ag-account-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ag-account-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ag-account-form,
+.ag-account-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ag-account-signin {
+  margin-top: 20px;
+}
+
 .ag-dialog-note {
   margin-right: auto;
   font-size: var(--text-sm);

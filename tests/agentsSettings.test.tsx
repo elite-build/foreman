@@ -381,3 +381,80 @@ describe('more migrated pages', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
+
+describe('#130: an agent’s other accounts', () => {
+  const work = { id: 'ai-work0001', agent: 'claude' as const, label: 'Work', home: '/me/.claude-work', auth: 'cli' as const }
+  beforeEach(() => {
+    fakeState.snapshot.settings.agentInstances = [work]
+    fakeState.snapshot.settings.agentPrefs = {}
+    fakeState.snapshot.instanceKeyHints = {}
+    fakeApi.agentStatus = vi.fn(async () => ({ agent: 'claude', installed: true, ready: true }))
+  })
+  afterEach(() => {
+    delete fakeState.snapshot.settings.agentInstances
+    delete fakeState.snapshot.instanceKeyHints
+  })
+
+  it('lists them with named Edit and Remove buttons, and asks for each account’s own status', async () => {
+    const { AgentAccounts } = await import('../src/renderer/src/components/settings/AgentAccounts')
+    fakeApi.removeAgentInstance = vi.fn(async () => undefined)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+    render(<AgentAccounts agent="claude" />)
+    expect(screen.getByText('Default account')).toBeTruthy()
+    expect(screen.getByText('Work')).toBeTruthy()
+    expect(screen.getByText('/me/.claude-work')).toBeTruthy()
+    await waitFor(() => expect(fakeApi.agentStatus).toHaveBeenCalledWith('claude', 'ai-work0001'))
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(confirm).toHaveBeenCalled()
+    await waitFor(() => expect(fakeApi.removeAgentInstance).toHaveBeenCalledWith('ai-work0001'))
+    confirm.mockRestore()
+  })
+
+  it('adds one from a named dialog, sending only what was filled in', async () => {
+    const { AgentAccounts } = await import('../src/renderer/src/components/settings/AgentAccounts')
+    fakeApi.saveAgentInstance = vi.fn(async (input) => ({ ...input, id: 'ai-pers0001' }))
+    const user = userEvent.setup()
+    render(<AgentAccounts agent="claude" />)
+    await user.click(screen.getByRole('button', { name: 'Add account' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add a Claude Code account' })
+    const create = within(dialog).getByRole('button', { name: 'Add account' }) as HTMLButtonElement
+    expect(create.disabled).toBe(true)
+    await user.type(within(dialog).getByLabelText('Name'), 'Personal')
+    await user.type(within(dialog).getByLabelText('Config folder'), '~/.claude-personal')
+    await user.type(within(dialog).getByLabelText('Launch flags'), '--debug')
+    await user.click(create)
+    await waitFor(() =>
+      expect(fakeApi.saveAgentInstance).toHaveBeenCalledWith({ agent: 'claude', label: 'Personal', auth: 'cli', home: '~/.claude-personal', args: ['--debug'] })
+    )
+  })
+
+  it('saves the moving rule as the agent’s preference', async () => {
+    const { AgentAccounts } = await import('../src/renderer/src/components/settings/AgentAccounts')
+    const user = userEvent.setup()
+    render(<AgentAccounts agent="claude" />)
+    await user.selectOptions(screen.getByLabelText('Moving a chat to another account'), 'as-text')
+    await waitFor(() => expect(fakeApi.updateSettings).toHaveBeenCalledWith({ agentPrefs: { claude: { moveChats: 'as-text' } } }))
+  })
+
+  it('the model picker offers the account of the chosen agent, and keeps it across a model change', async () => {
+    const { ModelChooser } = await import('../src/renderer/src/components/composer/AgentPicker')
+    const { setModelCatalog } = await import('../src/shared/agents')
+    setModelCatalog({ claude: [{ id: 'm1', label: 'Model 1', agent: 'claude', efforts: [], supportsFast: false }, { id: 'm2', label: 'Model 2', agent: 'claude', efforts: [], supportsFast: false }] } as never)
+    fakeState.snapshot.catalog = { agents: { claude: { fetchedAt: 'now' } }, outputStyles: [] }
+    const onChoose = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = render(<ModelChooser value={{ agent: 'claude', model: 'm1', fast: false }} onChoose={onChoose} onEffort={vi.fn()} onFast={vi.fn()} onClose={vi.fn()} />)
+    await user.selectOptions(screen.getByLabelText('Account'), 'ai-work0001')
+    expect(onChoose).toHaveBeenLastCalledWith({ agent: 'claude', model: 'm1', fast: false, instance: 'ai-work0001' })
+    rerender(<ModelChooser value={{ agent: 'claude', model: 'm1', fast: false, instance: 'ai-work0001' }} onChoose={onChoose} onEffort={vi.fn()} onFast={vi.fn()} onClose={vi.fn()} />)
+    await user.click(screen.getByText('Model 2'))
+    expect(onChoose).toHaveBeenLastCalledWith(expect.objectContaining({ agent: 'claude', model: 'm2', instance: 'ai-work0001' }))
+    cleanup()
+    // An agent without other accounts has no Account row.
+    fakeState.snapshot.settings.agentInstances = []
+    render(<ModelChooser value={{ agent: 'claude', model: 'm1', fast: false }} onChoose={onChoose} onEffort={vi.fn()} onFast={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.queryByLabelText('Account')).toBeNull()
+    setModelCatalog({})
+  })
+})

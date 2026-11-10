@@ -135,9 +135,12 @@ export function assertFlowFingerprintShown(shown: FlowFingerprint | undefined, n
  * its persona's default (a slot, or an agent and model), else loadout 1. A step's own `effort` replaces the loadout's.
  */
 export function stepLoadout(step: AgentStep, loadouts: Loadout[], persona?: Persona, choice?: FlowStepChoice): Loadout | { error: string } {
+  // #130: a step on loadout 1's agent runs on loadout 1's account, as it takes its model.
+  const first = loadouts[0] ?? { agent: 'claude' as const, model: defaultModel('claude'), fast: false }
+  const account = (agent: string) => (agent === first.agent && first.instance ? { instance: first.instance } : {})
   if (choice) {
     if (!Object.hasOwn(AGENTS, choice.agent)) return { error: `The agent “${choice.agent}” chosen for step “${step.name}” isn’t one Foreman knows.` }
-    return { agent: choice.agent as AgentKind, model: choice.model, ...(choice.effort ? { effort: choice.effort as EffortLevel } : {}), fast: false }
+    return { agent: choice.agent as AgentKind, model: choice.model, ...(choice.effort ? { effort: choice.effort as EffortLevel } : {}), fast: false, ...account(choice.agent) }
   }
   const own = ownsLoadout(step)
   const s = persona ? applyPersona(step, persona) : step
@@ -147,11 +150,10 @@ export function stepLoadout(step: AgentStep, loadouts: Loadout[], persona?: Pers
     const slot = loadouts[s.loadout - 1]
     return slot ? { ...slot, ...effort } : { error: `Loadout ${s.loadout} (${whose}) isn’t set in Settings.` }
   }
-  const first = loadouts[0] ?? { agent: 'claude' as const, model: defaultModel('claude'), fast: false }
   if (!s.agent && !s.model) return { ...first, ...effort }
   const agent = (s.agent ?? first.agent) as AgentKind
   if (!Object.hasOwn(AGENTS, agent)) return { error: `The agent “${s.agent}” (${whose}) isn’t one Foreman knows.` }
-  return { agent, model: s.model ?? (agent === first.agent ? first.model : defaultModel(agent)), ...effort, fast: false }
+  return { agent, model: s.model ?? (agent === first.agent ? first.model : defaultModel(agent)), ...effort, fast: false, ...account(agent) }
 }
 
 const ownsLoadout = (step: AgentStep): boolean => step.loadout !== undefined || Boolean(step.agent) || Boolean(step.model)

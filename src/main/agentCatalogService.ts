@@ -10,6 +10,7 @@ import {
   type CatalogAgent
 } from '../shared/agentCatalog'
 import type { AgentKind } from '../shared/agents'
+import { INSTANCE_FIELDS, type AgentInstance } from '../shared/agentInstances'
 import { PROVIDER_KEYS } from '../shared/providers'
 import { AGENT_KEYS, type AgentKeyName, type AgentStatus, type AppSnapshot, type Settings } from '../shared/types'
 import { acpReported } from './agents/catalogDrivers'
@@ -35,7 +36,8 @@ export interface AgentCatalogDeps {
   // The user's shell environment, for "Import from shell" (names are reported, values never leave main).
   shell(): Record<string, string | undefined>
   // A key changed: send a fresh snapshot, and let the agent list its models again.
-  keysChanged(agent: string): void
+  // #130: `instanceId` when the key was one of the agent's other accounts'.
+  keysChanged(agent: string, instanceId?: string): void
   detectDeps?: () => DetectDeps
   // G1: what the credentials probes read (tests inject a fake home).
   probeDeps?: (agent: string) => ProbeDeps
@@ -99,6 +101,16 @@ export class AgentCatalogService {
     return out
   }
 
+  /** #130: account id → last four of its saved key, for every account with one. */
+  instanceKeyHints(instances: AgentInstance[]): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const instance of instances) {
+      const hint = hintOf(this.deps.secrets.instanceKey(instance.id, INSTANCE_FIELDS[instance.agent].keyEnv))
+      if (hint !== undefined) out[instance.id] = hint
+    }
+    return out
+  }
+
   private async check(): Promise<void> {
     const deps = this.deps.detectDeps?.() ?? realDetectDeps()
     const checked = await Promise.all(
@@ -148,25 +160,31 @@ export class AgentCatalogService {
     return envVar
   }
 
-  setKey(agent: string, value: string | null): void {
-    this.deps.secrets.setAgentKey(agent, this.keyVar(agent), value)
-    this.deps.keysChanged(agent)
+  /** #130: `instanceId` (checked by the caller to be one of this agent's accounts) is that account's key instead. */
+  setKey(agent: string, value: string | null, instanceId?: string): void {
+    if (instanceId) this.deps.secrets.setInstanceKey(instanceId, this.keyVar(agent), value)
+    else this.deps.secrets.setAgentKey(agent, this.keyVar(agent), value)
+    this.deps.keysChanged(agent, instanceId)
   }
 
-  revealKey(agent: string): string | null {
-    return this.deps.secrets.agentKey(agent, this.keyVar(agent)) ?? null
+  revealKey(agent: string, instanceId?: string): string | null {
+    const envVar = this.keyVar(agent)
+    return (instanceId ? this.deps.secrets.instanceKey(instanceId, envVar) : this.deps.secrets.agentKey(agent, envVar)) ?? null
   }
 
-  /** Copies the agent's key from the shell into its own store. Never replaces a saved key. */
-  importKey(agent: string): boolean {
+  /** Copies the agent's key from the shell into its own store (or an account's, #130). Never replaces a saved key. */
+  importKey(agent: string, instanceId?: string): boolean {
     const envVar = this.keyVar(agent)
     const shell = this.deps.shell()
     const value = shell[envVar] ?? (agent === 'codex' ? shell.OPENAI_API_KEY : undefined)
-    if (!value?.trim() || this.deps.secrets.agentKey(agent, envVar)) return false
-    this.deps.secrets.setAgentKey(agent, envVar, value)
-    this.deps.keysChanged(agent)
+    const saved = instanceId ? this.deps.secrets.instanceKey(instanceId, envVar) : this.deps.secrets.agentKey(agent, envVar)
+    if (!value?.trim() || saved) return false
+    if (instanceId) this.deps.secrets.setInstanceKey(instanceId, envVar, value)
+    else this.deps.secrets.setAgentKey(agent, envVar, value)
+    this.deps.keysChanged(agent, instanceId)
     return true
   }
+
 
   /** G1: a saved provider key, for Reveal and Copy (main hands it to the window that asked, like an agent's own key). */
   revealProviderKey(envVar: string): string | null {

@@ -32,7 +32,7 @@ import {
   type ToolCost,
   type WorkspaceIntegrations
 } from '../shared/integrations'
-import type { Integrations } from './integrations'
+import type { AgentHomes, Integrations } from './integrations'
 import { LANGFUSE_TOOLS, langfuseCall, LangfuseError } from './langfuse'
 import { isAuthError, slackPost } from './slack'
 
@@ -133,7 +133,8 @@ export class IntegrationBridge {
    * use, the user's own same-service servers to switch off, and the identity snapshot.
    * `agent` decides only whether MCP is passed at all (supportsMcp) and how own servers are named.
    */
-  forTurn(input: { sessionId: string; workspaceId: string; repoId: string; cwd: string; supportsMcp: boolean; last?: IntegrationSnapshot[]; choices?: WorkspaceIntegrations }, probe = false): TurnIntegrations {
+  // #130: `homes` are the config folders of the turn's account (CLAUDE_CONFIG_DIR, CODEX_HOME), whose own servers count.
+  forTurn(input: { sessionId: string; workspaceId: string; repoId: string; cwd: string; supportsMcp: boolean; last?: IntegrationSnapshot[]; choices?: WorkspaceIntegrations; homes?: AgentHomes }, probe = false): TurnIntegrations {
     if (!probe) this.endSession(input.sessionId)
     const { integrations } = this.deps
     const servers: Record<string, McpLaunch> = {}
@@ -144,7 +145,7 @@ export class IntegrationBridge {
     const offHere: string[] = []
     const repoChoices = integrations.repoChoices(input.repoId)
     const allowOwn = repoChoices?.allowOwnMcp ?? []
-    const own = integrations.ownServers(input.cwd)
+    const own = integrations.ownServers(input.cwd, input.homes)
     const launch = this.deps.launch()
     const socket = this.deps.socket()
     for (const service of INTEGRATION_SERVICES) {
