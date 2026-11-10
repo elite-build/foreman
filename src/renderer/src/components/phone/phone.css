@@ -42,6 +42,7 @@
 }
 .phone-qr-side {
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
@@ -49,6 +50,18 @@
 }
 .phone-qr-side p {
   margin: 0;
+}
+/* A browser's sign-in link beside the QR code: the link takes the row, the copy button its own size. */
+.phone-link {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+.phone-link-url {
+  flex: 1;
+  min-width: 0;
 }
 .phone-code {
   font-family: var(--mono);

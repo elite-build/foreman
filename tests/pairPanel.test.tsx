@@ -56,6 +56,34 @@ describe('PairPanel', () => {
     expect(fakeApi.mobileApprovePairing).toHaveBeenLastCalledWith('p1', true, 'operate')
   })
 
+  it('gives a browser the link to open at /app, to copy, beside the QR code a phone scans', async () => {
+    const user = userEvent.setup()
+    const pairing = { mode: 'private' as const, url: 'https://desk.example.ts.net/?pair=SECRET', qr: 'data:image/png;base64,', expiresAt: Date.now() + 60_000 }
+    fakeApi.mobileStartPairing = vi.fn(async () => ({ ...info, pending: undefined, pairing }))
+    const onInfo = vi.fn()
+    render(<PairPanel info={{ ...info, pending: undefined }} onInfo={onInfo} />)
+    const what = screen.getByRole('radiogroup', { name: 'What is signing in' })
+    expect(within(what).getByRole('radio', { name: 'Phone' }).getAttribute('aria-checked')).toBe('true')
+    await user.click(within(what).getByRole('radio', { name: 'Browser' }))
+    await user.click(screen.getByRole('button', { name: 'Show sign-in link' }))
+    expect(fakeApi.mobileStartPairing).toHaveBeenCalledWith('private')
+    expect(onInfo).toHaveBeenCalled()
+
+    cleanup()
+    render(<PairPanel info={{ ...info, pending: undefined, pairing }} onInfo={vi.fn()} />)
+    // A phone scans the code; nothing to copy.
+    expect(screen.getByText('Scan with your phone’s camera')).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Sign-in link for a browser' })).toBeNull()
+    await user.click(screen.getByRole('radio', { name: 'Browser' }))
+    const link = screen.getByRole('textbox', { name: 'Sign-in link for a browser' }) as HTMLInputElement
+    expect(link.value).toBe('https://desk.example.ts.net/app?pair=SECRET')
+    expect(link.readOnly).toBe(true)
+    expect(screen.getByText(/must reach this computer at this address/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Copy link' }))
+    expect(await navigator.clipboard.readText()).toBe('https://desk.example.ts.net/app?pair=SECRET')
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy()
+  })
+
   it('lists each paired device with its kind and access, a record without scopes as Operate', () => {
     render(<PairPanel info={info} onInfo={vi.fn()} />)
     const rows = within(screen.getByRole('list', { name: 'Paired phones' })).getAllByRole('listitem')

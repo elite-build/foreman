@@ -170,7 +170,7 @@ describe('the browser socket bridge', () => {
 
   it('on a drop rejects what is pending, reconnects on the backoff, and resyncs after the next welcome', async () => {
     const { bridge, statuses, fire, last } = harness()
-    const resynced: [AppSnapshot, ApprovalRequest[]][] = []
+    const resynced: [AppSnapshot | null, ApprovalRequest[]][] = []
     bridge.onResync((s, a) => resynced.push([s, a]))
     last().open()
     last().welcome()
@@ -207,6 +207,43 @@ describe('the browser socket bridge', () => {
     last().drop()
     fire(BACKOFF_MS[0])
     expect(FakeSocket.all).toHaveLength(4)
+  })
+
+  it('keeps a state event that came while the resync was fetched, and replays approval events over the fetched list', async () => {
+    const { bridge, fire, last } = harness()
+    const resynced: [AppSnapshot | null, ApprovalRequest[]][] = []
+    const events: MainEvent[] = []
+    bridge.onResync((s, a) => resynced.push([s, a]))
+    bridge.onEvent((e) => events.push(e))
+    last().open()
+    last().welcome()
+    last().drop()
+    fire(BACKOFF_MS[0])
+    last().open()
+    last().welcome()
+    const [snap, appr] = last().sent.filter((f) => f.t === 'call')
+    // Ahead of the answers: a whole state, and an approval resolved, which the fetched list may still hold.
+    const state: MainEvent = { type: 'state', snapshot: { workspaces: ['newer'] } as unknown as AppSnapshot }
+    const resolved: MainEvent = { type: 'approval-resolved', id: 'a1' }
+    last().frame({ t: 'event', seq: 5, event: state })
+    last().frame({ t: 'event', seq: 6, event: resolved })
+    last().frame({ t: 'reply', id: snap.id, ok: true, value: { workspaces: ['older'] } })
+    last().frame({ t: 'reply', id: appr.id, ok: true, value: [{ id: 'a1' }] })
+    await flush()
+    // The fetched snapshot is not applied over the state event; the list is, and then the resolution again.
+    expect(resynced).toEqual([[null, [{ id: 'a1' }]]])
+    expect(events).toEqual([state, resolved, resolved])
+
+    // A resync with nothing arriving meanwhile applies what it fetched.
+    last().drop()
+    fire(BACKOFF_MS[0])
+    last().open()
+    last().welcome()
+    const [snap2, appr2] = last().sent.filter((f) => f.t === 'call')
+    last().frame({ t: 'reply', id: snap2.id, ok: true, value: { workspaces: ['w'] } })
+    last().frame({ t: 'reply', id: appr2.id, ok: true, value: [] })
+    await flush()
+    expect(resynced.at(-1)).toEqual([{ workspaces: ['w'] }, []])
   })
 
   it('pings every 25 s while live', () => {

@@ -146,8 +146,8 @@ export function CommandPalette() {
         // A cloud workspace has no folder here: no editor, Open in, reveal, preview or export.
         if (!ws.cloud) {
           list.push({ id: 'open-editor', label: t('palette.openEditor'), group: t('palette.group.workspace'), run: close(() => void attempt(() => api.openInEditor(wsPath(ws)))) })
-          // #14: the ⌘O switcher.
-          list.push({ id: 'open-in', label: t('openIn.command'), detail: t('openIn.commandDetail'), group: t('palette.group.workspace'), hint: shortcutHint('openIn.toggle', platform), run: () => openOverlay('open-in') })
+          // #14: the ⌘O switcher. It opens this computer's apps, so a browser doesn't list it, as it hides the Open in button.
+          if (clientKind === 'window') list.push({ id: 'open-in', label: t('openIn.command'), detail: t('openIn.commandDetail'), group: t('palette.group.workspace'), hint: shortcutHint('openIn.toggle', platform), run: () => openOverlay('open-in') })
           list.push({ id: 'reveal', label: snapshot.platform === 'darwin' ? t('palette.revealFinder') : t('palette.openFolder'), group: t('palette.group.workspace'), run: close(() => void attempt(() => api.openPath(wsPath(ws)))) })
           list.push({ id: 'preview', label: t('palette.openPreview'), group: t('palette.group.workspace'), hint: shortcutHint('workspace.preview', platform), run: close(() => void attempt(() => api.openPreview(ws.id))) })
           if (clientKind === 'window') list.push({ id: 'export', label: t('palette.exportWorkspace'), group: t('palette.group.workspace'), run: close(() => openExportDialog(ws.id)) })

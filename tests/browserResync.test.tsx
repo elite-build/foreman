@@ -17,7 +17,7 @@ const bridge = vi.hoisted(() => {
 
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { ApiRefused } from '../src/shared/api'
-import { clientKind, flushStore, getState, initStore, loadChat, resyncStore, showError } from '../src/renderer/src/store'
+import { clientKind, endTour, flushStore, getState, initStore, loadChat, resyncStore, showError } from '../src/renderer/src/store'
 
 const at = new Date().toISOString()
 const workspace = (id: string, name: string) => ({ id, repoId: 'r1', name, branch: name, baseBranch: 'main', path: `/w/${name}`, state: 'ready' })
@@ -59,6 +59,33 @@ describe('a browser resyncing the store', () => {
     expect(state.approvals.map((a) => a.id)).toEqual(['a-new'])
     await vi.waitFor(() => expect(getState().chats.s1?.map((i) => i.id)).toEqual(['u1', 'a1']))
     expect(bridge.invoke.getChat).toHaveBeenCalledWith('s1', true)
+  })
+
+  it('keeps the snapshot it has when the resync brings none (a newer state came first), and still takes the approvals', () => {
+    const had = getState().snapshot
+    resyncStore(null, [])
+    flushStore()
+    expect(getState().snapshot).toBe(had)
+    expect(getState().approvals).toEqual([])
+  })
+
+  it('closes the tour quietly when marking it seen is refused, and says any other failure', async () => {
+    bridge.invoke.updateSettings = vi.fn(async () => {
+      throw new ApiRefused('refused', 'This browser can operate but not change how Foreman is set up.')
+    })
+    endTour()
+    await vi.waitFor(() => expect(bridge.invoke.updateSettings).toHaveBeenCalledWith({ tourSeen: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    flushStore()
+    expect(getState().toast?.text ?? '').not.toContain('not change how Foreman is set up')
+    bridge.invoke.updateSettings = vi.fn(async () => {
+      throw new Error('Disk full')
+    })
+    endTour()
+    await vi.waitFor(() => {
+      flushStore()
+      expect(getState().toast).toMatchObject({ text: 'Disk full', kind: 'error' })
+    })
   })
 
   it('shows a refusal for want of the window as information, without the Report link', () => {

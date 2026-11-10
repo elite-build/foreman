@@ -165,6 +165,29 @@ describe('ApiDispatcher', () => {
     expect(calls).toEqual([{ method: 'archiveWorkspace', args: ['w', false] }])
   })
 
+  it('tells a session without admin who is paired but no pairing link or code, and leaves the window untimed when asked', async () => {
+    const mobile = { devices: [{ id: 'd1' }], pairing: { mode: 'lan', url: 'http://x/?pair=SECRET', qr: 'data:', expiresAt: 1 }, pending: { id: 'p', code: '123456' } }
+    const devices = { paired: [{ id: 'c1' }], pairing: { code: '654321', expiresAt: '' } }
+    const timed = vi.spyOn(perf, 'timed')
+    const dispatcher = new ApiDispatcher({ api: { mobileInfo: async () => mobile, devicesInfo: async () => devices }, signals: {}, perfPrefix: (s) => (s.kind === 'window' ? null : 'ws') })
+    try {
+      for (const scopes of [['read'], ['read', 'operate']] as Scope[][]) {
+        expect(await dispatcher.invoke(phone(scopes), 'mobileInfo', [])).toEqual({ devices: [{ id: 'd1' }] })
+        expect(await dispatcher.invoke(phone(scopes), 'devicesInfo', [])).toEqual({ paired: [{ id: 'c1' }] })
+      }
+      expect(await dispatcher.invoke(phone(['read', 'operate', 'admin']), 'mobileInfo', [])).toEqual(mobile)
+      expect(await dispatcher.invoke(computerSession('c1', 'Desk'), 'devicesInfo', [])).toEqual(devices)
+      expect(timed.mock.calls.map((c) => c[0])).toEqual(['ws.mobileInfo', 'ws.devicesInfo', 'ws.mobileInfo', 'ws.devicesInfo', 'ws.mobileInfo', 'ws.devicesInfo'])
+      // The window's IPC handler times its own calls, so its dispatcher doesn't.
+      expect(await dispatcher.invoke(WINDOW_SESSION, 'mobileInfo', [])).toEqual(mobile)
+      expect(timed).toHaveBeenCalledTimes(6)
+    } finally {
+      timed.mockRestore()
+    }
+    // What the core returned is left as it was.
+    expect(mobile.pending.code).toBe('123456')
+  })
+
   it('drops signals that are unknown or out of scope, without a word', () => {
     const { calls, dispatcher } = make()
     dispatcher.signal(WINDOW_SESSION, 'ptyWrite', ['p', 'a'])

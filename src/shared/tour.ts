@@ -43,9 +43,12 @@ export function tourSteps(present: (target: string) => boolean, steps: readonly 
 /**
  * Whether the tour opens by itself. Only once, on a first launch: someone who already has
  * repositories when this version arrives has found their way around (see the store migration).
+ * Never in a browser (docs/server.md, "A browser"): the tour is the computer's welcome, and
+ * marking it seen is a settings change that a browser approved to operate may not make, so it
+ * would come back on every load. Help → Welcome tour still opens it there.
  */
-export function tourStartsOnLaunch(settings: { tourSeen: boolean }): boolean {
-  return !settings.tourSeen
+export function tourStartsOnLaunch(settings: { tourSeen: boolean }, client: 'window' | 'browser' = 'window'): boolean {
+  return client === 'window' && !settings.tourSeen
 }
 
 export interface Rect {

@@ -1,14 +1,26 @@
-// Pair a phone: choose how it reaches this computer, scan the QR code, confirm the code and what it may do.
-import { Globe, Monitor, QrCode, Smartphone, Wifi } from 'lucide-react'
+// Pair a phone or sign a browser in: choose how it reaches this computer, scan the QR code (a phone) or open the link
+// (a browser), confirm the code and what it may do.
+import { Check, Copy, Globe, Monitor, QrCode, Smartphone, Wifi } from 'lucide-react'
 import { useState } from 'react'
 import { timeAgo } from '../../../../shared/i18n/time'
 import { deviceAccess, type MobileAccess, type MobileInfo } from '../../../../shared/mobile'
 import { useT } from '../../i18n'
 import { api, attempt, openPhoneSetup } from '../../store'
-import { Button, LinkButton, RadioCards, RadioList, Spinner, Tag } from '../../ui'
+import { Button, IconButton, LinkButton, RadioCards, RadioList, Segmented, Spinner, Tag, TextInput } from '../../ui'
 import { phoneStatus } from './status'
 
 type Mode = 'lan' | 'private'
+type Client = 'phone' | 'browser'
+
+/**
+ * The link a browser opens: the same one-time secret at /app, which the server sends through the phone page's pairing
+ * as a browser and then on to the full app (docs/server.md, "A browser").
+ */
+export function browserLink(pairingUrl: string): string {
+  const url = new URL(pairingUrl)
+  url.pathname = '/app'
+  return url.toString()
+}
 
 export function PairPanel({ info, onInfo, compact }: { info: MobileInfo | null; onInfo: (next: MobileInfo) => void; compact?: boolean }) {
   const t = useT()
@@ -16,6 +28,8 @@ export function PairPanel({ info, onInfo, compact }: { info: MobileInfo | null; 
   const [busy, setBusy] = useState(false)
   // Operate is what a phone could always do; Watch and Full control are the narrower and the wider choice.
   const [access, setAccess] = useState<MobileAccess>('operate')
+  const [client, setClient] = useState<Client>('phone')
+  const [copied, setCopied] = useState(false)
   const lanAddress = info?.lan.address || info?.lan.candidates[0]?.address || ''
   // Private access needs its Tailscale address first, which the setup dialog asks for.
   const needsSetup = mode === 'private' && !info?.enabled
@@ -35,6 +49,12 @@ export function PairPanel({ info, onInfo, compact }: { info: MobileInfo | null; 
     if (next) onInfo(next)
     setAccess('operate')
   }
+  const copyLink = (link: string) => {
+    void navigator.clipboard.writeText(link).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
   const revoke = async (id: string) => {
     const next = await attempt(() => api.mobileRevokeDevice(id))
     if (next) onInfo(next)
@@ -44,6 +64,16 @@ export function PairPanel({ info, onInfo, compact }: { info: MobileInfo | null; 
 
   return (
     <div className={`phone-pair ${compact ? 'compact' : ''}`}>
+      <Segmented<Client>
+        label={t('phone.client')}
+        small
+        value={client}
+        onChange={setClient}
+        options={[
+          { value: 'phone', label: t('phone.kind.phone') },
+          { value: 'browser', label: t('phone.kind.browser') }
+        ]}
+      />
       <RadioCards<Mode>
         legend={t('phone.modes')}
         hideLegend
@@ -88,6 +118,17 @@ export function PairPanel({ info, onInfo, compact }: { info: MobileInfo | null; 
                 </Button>
               </div>
             </>
+          ) : info?.pairing && info.pairing.mode === mode && client === 'browser' ? (
+            <>
+              <strong>{t('phone.browser.open')}</strong>
+              <div className="phone-link">
+                <TextInput className="phone-link-url" aria-label={t('phone.browser.link')} mono readOnly value={browserLink(info.pairing.url)} onFocus={(e) => e.currentTarget.select()} />
+                <IconButton label={copied ? t('phone.browser.copied') : t('phone.browser.copy')} onClick={() => copyLink(browserLink(info.pairing!.url))}>
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                </IconButton>
+              </div>
+              <p className="muted small">{t('phone.browser.reach')}</p>
+            </>
           ) : info?.pairing && info.pairing.mode === mode ? (
             <>
               <strong>{t('phone.scan')}</strong>
@@ -106,7 +147,7 @@ export function PairPanel({ info, onInfo, compact }: { info: MobileInfo | null; 
               <strong>{phoneStatus(info) === 'paired' ? t('phone.addAnother') : t('phone.pairQuick')}</strong>
               {!compact && <p className="muted small">{t('phone.pairPitch')}</p>}
               <Button size="sm" variant="primary" icon={busy ? <Spinner size={13} /> : <QrCode size={13} />} disabled={busy || !info || (mode === 'lan' && !lanAddress)} onClick={() => void showQr()}>
-                {t('phone.showQr')}
+                {client === 'browser' ? t('phone.browser.show') : t('phone.showQr')}
               </Button>
               {mode === 'lan' && info && !lanAddress && <p className="faint small">{t('phone.noLan')}</p>}
               {mode === 'lan' && !compact && <p className="faint small">{t('phone.lanNote')}</p>}

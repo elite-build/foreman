@@ -647,7 +647,7 @@ async function main(): Promise<void> {
   core.addLaunchFolders(pendingLaunchFolders.splice(0))
   const api = core.api as unknown as Record<string, (...args: unknown[]) => unknown>
   const signals = core.signals as unknown as Record<string, (...args: unknown[]) => void>
-  // One dispatcher for every client here: the window with its own session, phones and browsers with their device's.
+  // The dispatcher phones and browsers call through with their device's session; the window has its own (below).
   const dispatcher = new ApiDispatcher({ api, signals })
   mobile = new MobileService({
     // The same 3 s reuse of repository files as the window's snapshot: the phone's stall check runs every minute.
@@ -686,8 +686,10 @@ async function main(): Promise<void> {
   const routed = core
   // The window's own calls and signals reach the core through the dispatcher with the window's session, which holds
   // every scope; the router decides first whether they go to another computer instead.
-  const windowApi = Object.fromEntries(API_METHODS.map((m) => [m, (...args: unknown[]) => dispatcher.invoke(WINDOW_SESSION, m, args)]))
-  const windowSignals = Object.fromEntries(SIGNAL_METHODS.map((m) => [m, (...args: unknown[]) => dispatcher.signal(WINDOW_SESSION, m, args)]))
+  // Not timed there: the handler below times every window call as `ipc.<method>`, the ones routed to another computer too.
+  const windowDispatcher = new ApiDispatcher({ api, signals, perfPrefix: () => null })
+  const windowApi = Object.fromEntries(API_METHODS.map((m) => [m, (...args: unknown[]) => windowDispatcher.invoke(WINDOW_SESSION, m, args)]))
+  const windowSignals = Object.fromEntries(SIGNAL_METHODS.map((m) => [m, (...args: unknown[]) => windowDispatcher.signal(WINDOW_SESSION, m, args)]))
   router = new RemoteRouter({
     remote: routed.remote,
     local: windowApi,
@@ -702,9 +704,9 @@ async function main(): Promise<void> {
     if (!API_METHODS.includes(method)) throw new Error('Unknown API method')
     const fn = api[method]
     if (typeof fn !== 'function') throw new Error(`Unknown method ${String(method)}`)
-    // While the window shows another computer, most go there (remote/router.ts); the rest are timed by the dispatcher
-    // as `ipc.<method>`.
-    return routes.invoke(method, args)
+    // Every call from the window, by method, with how long main took to answer (`ipc.getDiff`, `ipc.gitStatus`).
+    // While the window shows another computer, most go there (remote/router.ts).
+    return perf.timed(`ipc.${method}`, () => routes.invoke(method, args))
   })
   ipcMain.on('foreman:send', (event, method: keyof Signals, args: unknown[]) => {
     if (!workspaceBrowsers.has(event.sender.id) || event.senderFrame !== event.sender.mainFrame) return

@@ -847,10 +847,10 @@ export function viewComputer(deviceId: string | null): Promise<void> {
 /**
  * A browser came back after its connection dropped: the snapshot replaces the one it had, exactly as a `state` event
  * would (unchanged objects kept), the approvals waiting replace its list, and the chats it had loaded are read again,
- * since the items streamed while it was away never reached it.
+ * since the items streamed while it was away never reached it. No snapshot: a `state` event newer than it came first.
  */
-export function resyncStore(snapshot: AppSnapshot, approvals: ApprovalRequest[]): void {
-  receiveEvent({ type: 'state', snapshot })
+export function resyncStore(snapshot: AppSnapshot | null, approvals: ApprovalRequest[]): void {
+  if (snapshot) receiveEvent({ type: 'state', snapshot })
   setState({ approvals })
   for (const sessionId of Object.keys(state.chats)) {
     void api.getChat(sessionId, true).then(
@@ -1484,7 +1484,12 @@ export function goToTourStep(index: number): void {
 /** Finished or skipped: it doesn't open by itself again. */
 export function endTour(): void {
   setState({ tour: null })
-  if (state.snapshot && !state.snapshot.settings.tourSeen) void attempt(() => api.updateSettings({ tourSeen: true }))
+  if (!state.snapshot || state.snapshot.settings.tourSeen) return
+  // A browser approved to operate may not change settings: the tour closes quietly there, and doesn't open by itself
+  // in a browser anyway (tourStartsOnLaunch). Any other failure says so.
+  void api.updateSettings({ tourSeen: true }).catch((err: unknown) => {
+    if ((err as { code?: unknown } | null)?.code !== 'refused') showError(err)
+  })
 }
 
 export function closeAssistant(): void {

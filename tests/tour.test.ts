@@ -52,6 +52,11 @@ describe('tour steps', () => {
     expect(tourStartsOnLaunch({ tourSeen: false })).toBe(true)
     expect(tourStartsOnLaunch({ tourSeen: true })).toBe(false)
   })
+
+  it('never opens by itself in a browser, where marking it seen needs admin', () => {
+    expect(tourStartsOnLaunch({ tourSeen: false }, 'window')).toBe(true)
+    expect(tourStartsOnLaunch({ tourSeen: false }, 'browser')).toBe(false)
+  })
 })
 
 describe('tour card placement', () => {

@@ -62,8 +62,11 @@ export interface SocketBridge extends Bridge {
   session(): ApiSession | null
   /** The computer's name, from the last welcome. */
   serverName(): string
-  /** After a reconnect: a fresh snapshot and the approvals waiting, for the store to apply in place of what it missed. */
-  onResync(listener: (snapshot: AppSnapshot, approvals: ApprovalRequest[]) => void): () => void
+  /**
+   * After a reconnect: a fresh snapshot and the approvals waiting, for the store to apply in place of what it missed.
+   * The snapshot is null when a `state` event came while it was being fetched: that event is as new or newer.
+   */
+  onResync(listener: (snapshot: AppSnapshot | null, approvals: ApprovalRequest[]) => void): () => void
 }
 
 /** "Chrome on Windows" from a user agent, or "Browser". */
@@ -94,7 +97,9 @@ export function createSocketBridge(options: SocketBridgeOptions = {}): SocketBri
   let waiting: (() => void)[] = []
   const statusListeners = new Set<(status: SocketStatus) => void>()
   const eventListeners = new Set<(event: MainEvent) => void>()
-  const resyncListeners = new Set<(snapshot: AppSnapshot, approvals: ApprovalRequest[]) => void>()
+  const resyncListeners = new Set<(snapshot: AppSnapshot | null, approvals: ApprovalRequest[]) => void>()
+  // While a resync is being fetched: how many `state` events came, and the approval events, in order (see resync).
+  let resyncing: { states: number; approvals: MainEvent[] } | null = null
   let current: SocketStatus = 'connecting'
   let socket: SocketLike | null = null
   let started = false, live = false, welcomed = false, greeted = false, stopped = false, off = false, paused = false
@@ -203,16 +208,29 @@ export function createSocketBridge(options: SocketBridgeOptions = {}): SocketBri
       if (frame.ok) p.resolve(frame.value)
       else p.reject(Object.assign(new Error(frame.error || 'Foreman could not complete the request.'), { code: frame.code ?? 'failed' }))
     } else if (frame.t === 'event') {
+      if (resyncing && frame.event.type === 'state') resyncing.states++
+      if (resyncing && (frame.event.type === 'approval' || frame.event.type === 'approval-resolved')) resyncing.approvals.push(frame.event)
       for (const l of eventListeners) l(frame.event)
     } else if (frame.t === 'bye') bye = frame.reason
   }
 
+  /**
+   * Events keep arriving while the answers are on their way, and the server may have computed an answer before an event
+   * that arrives ahead of it. A `state` event is the whole snapshot and main sends another on any later change, so when
+   * one came meanwhile it is kept and the fetched snapshot, possibly older, is not applied: applying it would leave a
+   * stale state up until something next changed. Approval events change the list one at a time, so the fetched list is
+   * applied and the ones that came meanwhile are replayed over it, in order (the store applies each idempotently).
+   */
   async function resync(): Promise<void> {
+    const seen = (resyncing = { states: 0, approvals: [] })
     try {
       const [snapshot, approvals] = await Promise.all([call('getSnapshot', []) as Promise<AppSnapshot>, call('pendingApprovals', []) as Promise<ApprovalRequest[]>])
-      for (const l of resyncListeners) l(snapshot, approvals)
+      for (const l of resyncListeners) l(seen.states ? null : snapshot, approvals)
+      for (const event of seen.approvals) for (const l of eventListeners) l(event)
     } catch {
       // Dropped again before the answer: the next welcome resyncs.
+    } finally {
+      if (resyncing === seen) resyncing = null
     }
   }
 

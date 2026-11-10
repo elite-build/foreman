@@ -3812,6 +3812,14 @@ export const en = {
   // What kind of device a paired row is, read out for its icon.
   'phone.kind.phone': 'Phone',
   'phone.kind.browser': 'Browser',
+  // Pairing: whether a phone or a browser signs in. A browser gets the link to open at /app, to copy, beside the QR code.
+  'phone.client': 'What is signing in',
+  'phone.browser.show': 'Show sign-in link',
+  'phone.browser.open': 'Open this link in the browser',
+  'phone.browser.link': 'Sign-in link for a browser',
+  'phone.browser.copy': 'Copy link',
+  'phone.browser.copied': 'Copied',
+  'phone.browser.reach': 'The browser must reach this computer at this address. The link works once, for two minutes. Then confirm the matching code on both screens.',
   'phone.setup.intro': 'Use your phone to review agents and respond while this computer is awake. It talks to this computer directly; nothing goes through a server.',
   'phone.setup.connection': 'Connection',
   'phone.setup.lanHelp': "This computer's local address. The phone must be on the same network. It uses plain HTTP, so use only a network you trust; phone alerts need private HTTPS.",

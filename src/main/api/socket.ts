@@ -226,6 +226,10 @@ export class ApiSocketServer {
       const value = await this.deps.dispatcher.invoke(conn.session, method, args)
       frame = { t: 'reply', id, ok: true, value: value === undefined ? null : value }
     } catch (err) {
+      // The core's own message, never its stack: the words the window shows for the same failure. They can name a path
+      // on this computer (a git error, a missing file), which the phone's HTTP routes hide behind a generic 500. Here they
+      // stay, because a socket session already reads those paths in every snapshot (each workspace's folder) and a
+      // browser is the same renderer as the window, whose messages say what to fix; a stack trace is never sent.
       frame = err instanceof ApiRefused
         ? { t: 'reply', id, ok: false, error: err.message, code: err.code }
         : { t: 'reply', id, ok: false, error: err instanceof Error ? err.message : String(err), code: 'failed' }

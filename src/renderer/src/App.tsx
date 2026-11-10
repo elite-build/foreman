@@ -36,6 +36,7 @@ import { CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/
 import { Overlays } from './components/Overlays'
 import { Announcer, ToastHost } from './components/Announcer'
 import { Tour } from './components/Tour'
+import { tourStartsOnLaunch } from '../../shared/tour'
 import { sendSetupSelectionToChat } from './components/SetupLog'
 import { equipLoadout } from './components/composer/AgentPicker'
 import { runGitAction } from './components/GitPanel'
@@ -47,6 +48,7 @@ import {
   api,
   openReportProblem,
   attempt,
+  clientKind,
   closeChat,
   closeBrowserTab,
   focusBrowserAddress,
@@ -211,8 +213,8 @@ export function App() {
   const [opened, setOpened] = useState<string[]>([])
   if (selectedId && !opened.includes(selectedId)) setOpened([...opened, selectedId])
   useShortcuts()
-  // A first launch opens the welcome tour once; finishing or skipping it sets tourSeen.
-  const tourPending = snapshot?.settings.tourSeen === false
+  // A first launch opens the welcome tour once (in the window, not a browser); finishing or skipping it sets tourSeen.
+  const tourPending = snapshot ? tourStartsOnLaunch(snapshot.settings, clientKind) : false
   useEffect(() => {
     if (tourPending) startTour()
   }, [tourPending])
