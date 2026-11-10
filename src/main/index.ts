@@ -104,7 +104,8 @@ function migrateFromSwitchyard(): void {
   }
 }
 
-// Listeners besides the window: the command-line server forwards long jobs' events as progress.
+// Listeners besides the window: the command-line server forwards long jobs' events as progress, and the phone and browser
+// sockets (api/socket.ts) send each session what its view lets through.
 const eventListeners = new Set<(event: MainEvent) => void>()
 
 function broadcast(event: MainEvent): void {
@@ -627,20 +628,28 @@ async function main(): Promise<void> {
   let hostBundle: HostBundle | null | undefined
   core.sandboxes.hostBundle = () => (hostBundle === undefined ? (hostBundle = readHostBundle(here, app.getVersion())) : hostBundle)
   core.addLaunchFolders(pendingLaunchFolders.splice(0))
+  const api = core.api as unknown as Record<string, (...args: unknown[]) => unknown>
+  const signals = core.signals as unknown as Record<string, (...args: unknown[]) => void>
+  // One dispatcher for every client here: the window with its own session, phones and browsers with their device's.
+  const dispatcher = new ApiDispatcher({ api, signals })
   mobile = new MobileService({
     // The same 3 s reuse of repository files as the window's snapshot: the phone's stall check runs every minute.
-    store, secrets, api: core.api, snapshot: () => core!.snapshot({ maxAgeMs: 3000 }),
+    store, secrets, dispatcher, snapshot: () => core!.snapshot({ maxAgeMs: 3000 }),
     approvals: () => core!.sessions.pendingApprovals(),
     consentNeeded: (workspaceId) => core!.checks.consentNeeded(workspaceId),
     appPath: app.getAppPath(),
-    onChanged: () => undefined, onEnabledChange: () => drawTray()
+    onChanged: () => undefined, onEnabledChange: () => drawTray(),
+    // The phone sockets hear every broadcast, as the command line does, and filter it by each session's view.
+    onEvent: (listener) => {
+      eventListeners.add(listener)
+      return () => void eventListeners.delete(listener)
+    },
+    version: app.getVersion(), platform: process.platform, name: () => core!.devices.self().name
   })
   core.bindMobile(mobile)
   if (!screensRoot && !demoRoot) await mobile.start()
   registerLinks()
 
-  const api = core.api as unknown as Record<string, (...args: unknown[]) => unknown>
-  const signals = core.signals as unknown as Record<string, (...args: unknown[]) => void>
   // Only the trusted desktop main frame can call any privileged IPC channel.
   const desktopSender = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) => {
     const browser = workspaceBrowsers.get(event.sender.id)
@@ -660,7 +669,6 @@ async function main(): Promise<void> {
   const routed = core
   // The window's own calls and signals reach the core through the dispatcher with the window's session, which holds
   // every scope; the router decides first whether they go to another computer instead.
-  const dispatcher = new ApiDispatcher({ api, signals })
   const windowApi = Object.fromEntries(API_METHODS.map((m) => [m, (...args: unknown[]) => dispatcher.invoke(WINDOW_SESSION, m, args)]))
   const windowSignals = Object.fromEntries(SIGNAL_METHODS.map((m) => [m, (...args: unknown[]) => dispatcher.signal(WINDOW_SESSION, m, args)]))
   router = new RemoteRouter({

@@ -3784,6 +3784,17 @@ export const en = {
   'phone.device.seen': 'seen {when}',
   'phone.device.notSeen': 'not seen yet',
   'phone.device.revoke': 'Revoke',
+  // Pairing: what the person at the desktop lets a phone or browser do. Each choice has a one-line description.
+  'phone.access': 'What it may do',
+  'phone.access.read': 'Watch',
+  'phone.access.readDesc': 'See workspaces, chats, diffs and checks. Change nothing.',
+  'phone.access.operate': 'Operate',
+  'phone.access.operateDesc': 'Also send messages, answer approvals, run checks and archive.',
+  'phone.access.admin': 'Full control',
+  'phone.access.adminDesc': 'Also change settings, repositories, keys and integrations.',
+  // What kind of device a paired row is, read out for its icon.
+  'phone.kind.phone': 'Phone',
+  'phone.kind.browser': 'Browser',
   'phone.setup.intro': 'Use your phone to review agents and respond while this computer is awake. It talks to this computer directly; nothing goes through a server.',
   'phone.setup.connection': 'Connection',
   'phone.setup.lanHelp': "This computer's local address. The phone must be on the same network. It uses plain HTTP, so use only a network you trust; phone alerts need private HTTPS.",

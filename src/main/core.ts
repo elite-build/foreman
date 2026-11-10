@@ -2949,7 +2949,7 @@ export class Core {
     mobileConfigure: (enabled, url) => this.requireMobile().configure(enabled, url),
     mobileConfigureLan: (enabled, address) => this.requireMobile().configureLan(enabled, address),
     mobileStartPairing: (mode) => this.requireMobile().startPairing(mode),
-    mobileApprovePairing: async (id, allow) => this.requireMobile().approve(id, allow),
+    mobileApprovePairing: async (id, allow, access) => this.requireMobile().approve(id, allow, access),
     mobileRevokeDevice: async (id) => this.requireMobile().revoke(id),
     devicesInfo: async () => this.devicesInfo(),
     setAcceptHandOffs: async (on, port) => {

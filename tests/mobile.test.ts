@@ -1,14 +1,62 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { request as httpRequest } from 'node:http'
 import webpush from 'web-push'
+import { WebSocket } from 'ws'
+import { ApiDispatcher } from '../src/main/api/dispatch'
 import { MobileService } from '../src/main/mobile'
-import type { Api, AppSnapshot, ApprovalRequest, Repo, Session, Workspace } from '../src/shared/types'
+import { API_PROTOCOL } from '../src/shared/api'
+import type { Api, AppSnapshot, ApprovalRequest, MainEvent, Repo, Session, Workspace } from '../src/shared/types'
 import type { MobileDevice } from '../src/shared/mobile'
 import type { Store } from '../src/main/store'
 import type { SecretStore } from '../src/main/secrets'
 
 const services: MobileService[] = []
-afterEach(async () => { await Promise.all(services.splice(0).map((s) => s.close())) })
+const sockets: WebSocket[] = []
+afterEach(async () => {
+  for (const ws of sockets.splice(0)) ws.terminate()
+  await Promise.all(services.splice(0).map((s) => s.close()))
+})
+
+/** What the service needs besides its store, secrets and snapshot: the core's methods behind a dispatcher, and the socket's. */
+function serving(api: Partial<Api>) {
+  const listeners = new Set<(event: MainEvent) => void>()
+  return {
+    dispatcher: new ApiDispatcher({ api: api as Record<string, (...args: unknown[]) => unknown>, signals: {} }),
+    onEvent: (listener: (event: MainEvent) => void) => {
+      listeners.add(listener)
+      return () => void listeners.delete(listener)
+    },
+    version: '1.2.3', platform: 'test', name: () => 'Desk',
+    emit: (event: MainEvent) => { for (const l of listeners) l(event) }
+  }
+}
+
+type Frame = Record<string, unknown> & { t: string }
+
+/** Opens /api/ws with these headers: the HTTP status it was refused with, or the open socket and its frames. */
+function upgrade(url: string, headers: Record<string, string>): Promise<{ status: number } | { ws: WebSocket; next: () => Promise<Frame>; closed: Promise<number> }> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, { headers })
+    sockets.push(ws)
+    const frames: Frame[] = []
+    const waiters: ((frame: Frame) => void)[] = []
+    ws.on('message', (data) => {
+      const frame = JSON.parse(String(data)) as Frame
+      const waiter = waiters.shift()
+      if (waiter) waiter(frame)
+      else frames.push(frame)
+    })
+    const closed = new Promise<number>((done) => ws.on('close', (code) => done(code)))
+    ws.on('error', () => undefined)
+    ws.once('unexpected-response', (req, res) => {
+      resolve({ status: res.statusCode ?? 0 })
+      req.destroy()
+    })
+    ws.once('open', () => resolve({ ws, closed, next: () => new Promise<Frame>((done) => { const f = frames.shift(); if (f) done(f); else waiters.push(done) }) }))
+    ws.once('error', reject)
+  })
+}
+const hello = { t: 'hello', protocol: API_PROTOCOL, version: '1.2.3', client: { kind: 'phone', name: 'iPhone' } }
 
 describe('paired mobile access', () => {
   it('requires desktop approval, an authenticated cookie, and the expected origin for mutations', async () => {
@@ -36,7 +84,7 @@ describe('paired mobile access', () => {
     const needed = [{ name: 'test', command: 'npm test', source: 'local' as const }]
     const snapshot = { repos: [], workspaces: [], sessions: [], settings: { ...state.settings, promptTemplates: [] } } as unknown as AppSnapshot
     const service = new MobileService({
-      store, secrets, api, snapshot: () => snapshot, approvals: () => approvals,
+      store, secrets, ...serving(api), snapshot: () => snapshot, approvals: () => approvals,
       consentNeeded: () => needed,
       appPath: process.cwd(), onChanged: vi.fn(), onEnabledChange: vi.fn()
     }, 0)
@@ -144,7 +192,7 @@ describe('paired mobile access', () => {
     const sendMessage = vi.fn(async () => 'queued' as const)
     const snapshot = { repos: [], workspaces: [], sessions: [], settings: { ...state.settings, promptTemplates: [] } } as unknown as AppSnapshot
     const service = new MobileService({
-      store, secrets, api: { sendMessage } as unknown as Api, snapshot: () => snapshot,
+      store, secrets, ...serving({ sendMessage } as unknown as Api), snapshot: () => snapshot,
       approvals: () => [], consentNeeded: () => [], appPath: process.cwd(),
       onChanged: vi.fn(), onEnabledChange: vi.fn()
     }, 0, 0, () => [{ name: 'test LAN', address: '127.0.0.1', netmask: '255.0.0.0' }])
@@ -189,6 +237,10 @@ describe('paired mobile access', () => {
       body: JSON.stringify({ text: 'Please continue' })
     })).status).toBe(200)
     expect(sendMessage).toHaveBeenCalledOnce()
+    const lanSocket = await upgrade(origin.replace('http:', 'ws:') + '/api/ws', { Cookie: auth, Origin: origin })
+    if (!('ws' in lanSocket)) throw new Error(`Refused with ${lanSocket.status}`)
+    lanSocket.ws.send(JSON.stringify(hello))
+    expect(await lanSocket.next()).toMatchObject({ t: 'welcome', ok: true })
 
     const privateInfo = await service.configure(true, 'https://foreman.example.ts.net')
     const privateBase = `http://127.0.0.1:${privateInfo.port}`
@@ -200,7 +252,101 @@ describe('paired mobile access', () => {
       body: JSON.stringify({ token: privateToken, name: 'Wrong transport' })
     })).status).toBe(410)
     await service.configureLan(false, '127.0.0.1')
+    // Turning the listener off ends its sockets.
+    expect(await lanSocket.next()).toEqual({ t: 'bye', reason: 'off' })
+    expect(await lanSocket.closed).toBe(1000)
     expect((await fetch(privateBase + '/')).status).toBe(200)
     service.revoke(service.info().devices[0].id)
+  })
+
+  it('applies the access chosen at pairing to the routes and the socket, and checks the upgrade like a POST', async () => {
+    const credentials = new Map<string, string>()
+    const state = { settings: { mobileEnabled: false, mobileUrl: '' }, mobileDevices: [] as MobileDevice[] }
+    const store = { state, save: vi.fn() } as unknown as Store
+    const secrets = {
+      appSecret: (key: string) => credentials.get(key),
+      setAppSecret: (key: string, value: string | null) => value === null ? credentials.delete(key) : credentials.set(key, value)
+    } as unknown as SecretStore
+    const sendMessage = vi.fn(async () => 'queued' as const)
+    const cancel = vi.fn(async () => undefined)
+    const getChat = vi.fn(async () => ({ items: [] }))
+    const snapshot = { repos: [], workspaces: [], sessions: [], settings: { ...state.settings, promptTemplates: [] } } as unknown as AppSnapshot
+    const serve = serving({ sendMessage, cancel, getChat } as unknown as Api)
+    const service = new MobileService({
+      store, secrets, ...serve, snapshot: () => snapshot, approvals: () => [], consentNeeded: () => [],
+      appPath: process.cwd(), onChanged: vi.fn(), onEnabledChange: vi.fn()
+    }, 0)
+    services.push(service)
+    const origin = 'https://foreman.example.ts.net'
+    const base = `http://127.0.0.1:${(await service.configure(true, origin)).port}`
+    const pair = async (body: Record<string, unknown>, access?: 'read' | 'operate' | 'admin') => {
+      const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+      const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...body }) })
+      if (started.status !== 200) return { status: started.status, cookie: '' }
+      const { id } = await started.json() as { id: string }
+      const kind = service.info().pending?.kind
+      service.approve(id, true, access)
+      const cookie = (await fetch(base + '/api/pair/status?id=' + id)).headers.get('set-cookie')!.split(';')[0]
+      return { status: 200, cookie, kind }
+    }
+    const send = (cookie: string) => fetch(base + '/api/chat/chat-1/send', {
+      method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Go on' })
+    })
+
+    // Watch: reads answer, work is refused with the dispatcher's reason.
+    const watcher = await pair({ name: 'Watcher' }, 'read')
+    expect(watcher.kind).toBe('phone')
+    expect(state.mobileDevices[0]).toMatchObject({ name: 'Watcher', kind: 'phone', scopes: ['read'] })
+    expect((await fetch(base + '/api/state', { headers: { Cookie: watcher.cookie } })).status).toBe(200)
+    expect((await fetch(base + '/api/chat/chat-1', { headers: { Cookie: watcher.cookie } })).status).toBe(200)
+    const refused = await send(watcher.cookie)
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toEqual({ error: 'This phone can watch but not operate. Approve it again with more access.', code: 'refused' })
+    expect((await fetch(base + '/api/chat/chat-1/stop', { method: 'POST', headers: { Cookie: watcher.cookie, Origin: origin } })).status).toBe(403)
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(cancel).not.toHaveBeenCalled()
+
+    // No access named: Operate, as every phone could before.
+    const operator = await pair({ name: 'Operator' })
+    expect(state.mobileDevices[1]).toMatchObject({ kind: 'phone', scopes: ['read', 'operate'] })
+    expect((await send(operator.cookie)).status).toBe(200)
+    // A browser says so, and anything else is not a kind.
+    expect((await pair({ name: 'Chrome', kind: 'browser' }, 'admin')).kind).toBe('browser')
+    expect(state.mobileDevices[2]).toMatchObject({ kind: 'browser', scopes: ['read', 'operate', 'admin'] })
+    expect((await pair({ name: 'Toaster', kind: 'toaster' })).status).toBe(400)
+    // A record saved before scopes existed operates.
+    state.mobileDevices.push({ id: 'old-phone', name: 'Old', pairedAt: '2026-01-01T00:00:00Z', transport: 'private' })
+    credentials.set('mobile:old-phone', 'old-secret')
+    expect((await send('foreman_mobile=old-phone.old-secret')).status).toBe(200)
+    expect(sendMessage).toHaveBeenCalledTimes(2)
+
+    // The upgrade: the path, the origin (required) and the credential, by cookie or bearer.
+    const ws = base.replace('http:', 'ws:') + '/api/ws'
+    expect(await upgrade(ws, { Cookie: 'foreman_mobile=nobody.wrong', Origin: origin })).toEqual({ status: 401 })
+    expect(await upgrade(ws, { Cookie: watcher.cookie, Origin: 'https://evil.example' })).toEqual({ status: 403 })
+    expect(await upgrade(ws, { Cookie: watcher.cookie })).toEqual({ status: 403 })
+    expect(await upgrade(base.replace('http:', 'ws:') + '/api/other', { Cookie: watcher.cookie, Origin: origin })).toEqual({ status: 404 })
+    const live = await upgrade(ws, { Cookie: watcher.cookie, Origin: origin })
+    if (!('ws' in live)) throw new Error(`Refused with ${live.status}`)
+    live.ws.send(JSON.stringify(hello))
+    expect(await live.next()).toMatchObject({ t: 'welcome', ok: true, session: { id: state.mobileDevices[0].id, kind: 'phone', name: 'Watcher', scopes: ['read'] }, version: '1.2.3', name: 'Desk' })
+    live.ws.send(JSON.stringify({ t: 'call', id: 1, method: 'sendMessage', args: ['chat-1', 'hi'] }))
+    expect(await live.next()).toMatchObject({ t: 'reply', id: 1, ok: false, code: 'refused' })
+    serve.emit({ type: 'notify', workspaceId: 'w', sessionId: 'chat-1', title: 't', body: 'b' })
+    expect(await live.next()).toMatchObject({ t: 'event', event: { type: 'notify' } })
+    const bearer = await upgrade(ws, { Authorization: `Bearer ${operator.cookie.slice('foreman_mobile='.length)}`, Origin: origin })
+    if (!('ws' in bearer)) throw new Error(`Refused with ${bearer.status}`)
+    bearer.ws.send(JSON.stringify(hello))
+    expect(await bearer.next()).toMatchObject({ t: 'welcome', ok: true, session: { name: 'Operator', scopes: ['read', 'operate'] } })
+    expect(service.connections).toBe(2)
+
+    // Revoking ends the live socket at once, and only that device's.
+    service.revoke(state.mobileDevices[0].id)
+    expect(await live.next()).toEqual({ t: 'bye', reason: 'revoked' })
+    expect(await live.closed).toBe(1000)
+    await vi.waitFor(() => expect(service.connections).toBe(1))
+    // Quitting says goodbye to the rest.
+    await service.close()
+    expect(await bearer.next()).toEqual({ t: 'bye', reason: 'shutdown' })
   })
 })

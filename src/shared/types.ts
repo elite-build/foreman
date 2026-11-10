@@ -3,7 +3,7 @@
 import type { PreviewProbe } from './previewProbe'
 import type { AgentKind, EffortLevel, Loadout, ModelInfo } from './agents'
 import type { DevicesInfo, PairedDevice, Transfer, WorkspaceTransfer } from './transfer'
-import type { MobileInfo } from './mobile'
+import type { MobileAccess, MobileInfo } from './mobile'
 import type { GithubLinkInfo } from './githubLink'
 import type { UsageReport } from './usageReport'
 import type { ExportInfo, ExportOptions, ExportSummary, ImportChoice, StageResult } from './portable'
@@ -2772,7 +2772,8 @@ export interface Api {
   mobileConfigure(enabled: boolean, url: string): Promise<MobileInfo>
   mobileConfigureLan(enabled: boolean, address: string): Promise<MobileInfo>
   mobileStartPairing(mode?: 'private' | 'lan'): Promise<MobileInfo>
-  mobileApprovePairing(id: string, allow: boolean): Promise<MobileInfo>
+  // The approval also chooses what the phone or browser may do: read (Watch), operate (the default) or admin (Full control).
+  mobileApprovePairing(id: string, allow: boolean, access?: MobileAccess): Promise<MobileInfo>
   mobileRevokeDevice(id: string): Promise<MobileInfo>
   // Listen for hand-offs on this Mac (and on which port), or stop.
   setAcceptHandOffs(on: boolean, port?: number): Promise<DevicesInfo>

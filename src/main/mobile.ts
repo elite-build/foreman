@@ -1,16 +1,23 @@
 // A narrow HTTP surface for a paired phone. Private HTTPS is proxied from the
 // loopback listener; nearby phones can opt into a separate LAN listener.
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+// Every route that reaches the core goes through the dispatcher with the device's session, so the access chosen at
+// pairing applies; `/api/ws` on either listener upgrades to the socket in api/socket.ts (docs/server.md).
+import { createServer, STATUS_CODES, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import QRCode from 'qrcode'
 import webpush from 'web-push'
+import { WebSocketServer } from 'ws'
+import { ApiRefused } from '../shared/api'
 import { triageAll } from '../shared/triage'
 import { phoneRecent, prGlyph } from '../shared/attention'
 import { isGitlabWorkspace } from '../shared/scm'
-import type { MobileDevice, MobileInfo } from '../shared/mobile'
+import { ACCESS_SCOPES, deviceSession, MOBILE_ACCESS, type MobileAccess, type MobileDevice, type MobileInfo } from '../shared/mobile'
 import type { Api, AppSnapshot, ApprovalRequest, ApprovalResponse, CheckConsentItem, MainEvent } from '../shared/types'
+import type { ApiDispatcher } from './api/dispatch'
+import { ApiSocketServer, MAX_INBOUND_BYTES, type ApiSocketDeps } from './api/socket'
 import { mainT } from './i18n'
 import { lanAddresses, onSameLan } from './lan'
 import type { Store } from './store'
@@ -23,19 +30,21 @@ const PAIR_MS = 2 * 60_000
 const MAX_BODY = 64 * 1024
 
 type Mode = 'private' | 'lan'
-type Pending = { id: string; name: string; code: string; mode: Mode; expiresAt: number; state: 'waiting' | 'approved' | 'denied'; deviceId?: string; auth?: string }
+type Kind = 'phone' | 'browser'
+type Pending = { id: string; name: string; kind: Kind; code: string; mode: Mode; expiresAt: number; state: 'waiting' | 'approved' | 'denied'; deviceId?: string; auth?: string }
 type Pairing = { mode: Mode; token: string; expiresAt: number; url: string; qr: string }
 type MobileDeps = {
   store: Store
   secrets: SecretStore
-  api: Api
+  // Every call a phone makes goes through the dispatcher with the device's session, so its scopes apply.
+  dispatcher: ApiDispatcher
   snapshot(): AppSnapshot
   approvals(): ApprovalRequest[]
   consentNeeded(workspaceId: string): CheckConsentItem[]
   appPath: string
   onChanged(): void
   onEnabledChange(on: boolean): void
-}
+} & Pick<ApiSocketDeps, 'onEvent' | 'version' | 'platform' | 'name' | 'setTimer'>
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message) }
@@ -56,9 +65,18 @@ export class MobileService {
   private vapid: { publicKey: string; privateKey: string } | null = null
   private boundPort = MOBILE_PORT
   private boundLanPort = MOBILE_LAN_PORT
+  // /api/ws on both listeners: the upgrade is checked here, then the socket server owns the connection.
+  private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_INBOUND_BYTES })
+  private sockets: ApiSocketServer
 
   constructor(private deps: MobileDeps, private port = MOBILE_PORT, private lanPort = MOBILE_LAN_PORT, private getLanAddresses = lanAddresses) {
     this.deps.store.state.mobileDevices ??= []
+    this.sockets = new ApiSocketServer(deps)
+  }
+
+  /** Live sockets, for the tests. */
+  get connections(): number {
+    return this.sockets.connections
   }
 
   async start(): Promise<void> {
@@ -78,6 +96,7 @@ export class MobileService {
     this.timer = null
     this.pairing = null
     this.pending.clear()
+    this.sockets.close('shutdown')
     await Promise.all([this.closePrivate(), this.closeLan()])
   }
 
@@ -85,9 +104,15 @@ export class MobileService {
     await new Promise<void>((resolve) => server ? server.close(() => resolve()) : resolve())
   }
 
+  /** Says `bye` to the sockets of a transport's devices; a listener's close() would otherwise wait for them. */
+  private closeSockets(mode: Mode, reason: 'revoked' | 'off'): void {
+    for (const d of this.deps.store.state.mobileDevices ?? []) if ((d.transport ?? 'private') === mode) this.sockets.closeSession(d.id, reason)
+  }
+
   private async closePrivate(): Promise<void> {
     const server = this.privateServer
     this.privateServer = null
+    this.closeSockets('private', 'off')
     await this.closeServer(server)
     this.stopTimerWhenIdle()
   }
@@ -95,6 +120,7 @@ export class MobileService {
   private async closeLan(): Promise<void> {
     const server = this.lanServer
     this.lanServer = null
+    this.closeSockets('lan', 'off')
     await this.closeServer(server)
     this.stopTimerWhenIdle()
   }
@@ -112,9 +138,12 @@ export class MobileService {
 
   private async listen(mode: Mode, address: string, port: number): Promise<{ server: Server; port: number }> {
     const server = createServer((req, res) => void this.handle(req, res, mode).catch((err: unknown) => {
+      // A call the device's scopes don't allow, or one only the computer's own window can make: 403 with the reason.
+      if (err instanceof ApiRefused) return this.json(res, 403, { error: err.message, code: err.code })
       const status = err instanceof HttpError ? err.status : 500
       this.json(res, status, { error: status === 500 ? 'Foreman could not complete that request.' : (err as Error).message })
     }))
+    server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(req, socket, head, mode))
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
       server.listen(port, address, () => { server.off('error', reject); resolve() })
@@ -168,6 +197,8 @@ export class MobileService {
       const bound = await this.listen('lan', address, this.lanPort)
       this.lanServer = bound.server
       this.boundLanPort = bound.port
+      // The old address's sockets go with its listener; their origin no longer matches anyway.
+      if (old) this.closeSockets('lan', 'off')
       await this.closeServer(old)
     } else if (!enabled) { await this.closeLan(); this.cancelWaiting('lan') }
     this.deps.store.state.settings.mobileLanEnabled = enabled
@@ -194,7 +225,7 @@ export class MobileService {
       },
       devices: (this.deps.store.state.mobileDevices ?? []).map(({ push: _push, ...d }) => d),
       pairing: this.pairing ? { mode: this.pairing.mode, url: this.pairing.url, qr: this.pairing.qr, expiresAt: this.pairing.expiresAt } : undefined,
-      pending: pending ? { id: pending.id, name: pending.name, code: pending.code, mode: pending.mode, expiresAt: pending.expiresAt } : undefined
+      pending: pending ? { id: pending.id, name: pending.name, kind: pending.kind, code: pending.code, mode: pending.mode, expiresAt: pending.expiresAt } : undefined
     }
   }
 
@@ -208,14 +239,16 @@ export class MobileService {
     return this.info()
   }
 
-  approve(id: string, allow: boolean): MobileInfo {
+  /** The person at the desktop approves (choosing what the device may do, Operate by default) or denies a pairing. */
+  approve(id: string, allow: boolean, access: MobileAccess = 'operate'): MobileInfo {
+    if (!MOBILE_ACCESS.includes(access)) throw new Error('Choose what this device may do.')
     const p = this.pending.get(id)
     if (!p || p.state !== 'waiting' || p.expiresAt <= Date.now()) throw new Error('That pairing request expired.')
     if (allow) {
       p.deviceId = randomUUID()
       p.auth = token()
       this.deps.secrets.setAppSecret(`mobile:${p.deviceId}`, p.auth)
-      this.deps.store.state.mobileDevices!.push({ id: p.deviceId, name: p.name, pairedAt: new Date().toISOString(), transport: p.mode })
+      this.deps.store.state.mobileDevices!.push({ id: p.deviceId, name: p.name, kind: p.kind, scopes: [...ACCESS_SCOPES[access]], pairedAt: new Date().toISOString(), transport: p.mode })
       this.deps.store.save()
       p.state = 'approved'
     } else p.state = 'denied'
@@ -227,6 +260,8 @@ export class MobileService {
     this.deps.store.state.mobileDevices = (this.deps.store.state.mobileDevices ?? []).filter((d) => d.id !== id)
     this.deps.secrets.setAppSecret(`mobile:${id}`, null)
     this.deps.store.save()
+    // Its open sockets end now, not at their next request: the credential they signed in with is gone.
+    this.sockets.closeSession(id, 'revoked')
     return this.info()
   }
 
@@ -311,9 +346,14 @@ export class MobileService {
       return value as Record<string, unknown>
     } catch { throw new HttpError(400, 'Invalid request.') }
   }
-  private auth(req: IncomingMessage, mode: Mode): MobileDevice | null {
+  /**
+   * The paired device a request comes from, by its cookie. A socket upgrade with no cookie may instead carry the same
+   * `<id>.<secret>` as `Authorization: Bearer`, for a client that is not a browser.
+   */
+  private auth(req: IncomingMessage, mode: Mode, bearer = false): MobileDevice | null {
     const cookie = /(?:^|;\s*)foreman_mobile=([^;]+)/.exec(req.headers.cookie ?? '')?.[1]
-    const [id, credential] = cookie?.split('.') ?? []
+    const presented = cookie ?? (bearer ? /^Bearer ([^\s]+)$/.exec(req.headers.authorization ?? '')?.[1] : undefined)
+    const [id, credential] = presented?.split('.') ?? []
     if (!id || !credential) return null
     const device = (this.deps.store.state.mobileDevices ?? []).find((d) => d.id === id)
     const secret = device && this.deps.secrets.appSecret(`mobile:${id}`)
@@ -325,7 +365,10 @@ export class MobileService {
     return device
   }
   private requireOrigin(req: IncomingMessage, mode: Mode): void {
-    if (req.method !== 'POST') return
+    if (req.method === 'POST') this.checkOrigin(req, mode)
+  }
+  /** The page's own origin, or nothing: what a POST and a socket upgrade must both show. */
+  private checkOrigin(req: IncomingMessage, mode: Mode): void {
     const origin = req.headers.origin
     const expected = mode === 'private' ? this.deps.store.state.settings.mobileUrl : `http://${this.deps.store.state.settings.mobileLanAddress}:${this.boundLanPort}`
     if (!origin || origin !== expected) throw new HttpError(403, 'Wrong origin.')
@@ -365,13 +408,47 @@ export class MobileService {
     return { ...glyph, provider: isGitlabWorkspace(ws, repo, snapshot.settings?.gitlabHosts ?? []) ? 'gitlab' : glyph.provider }
   }
 
-  private async handle(req: IncomingMessage, res: ServerResponse, mode: Mode): Promise<void> {
-    if (mode === 'lan') {
-      const host = this.getLanAddresses().find((candidate) => candidate.address === this.deps.store.state.settings.mobileLanAddress)
-      if (!host || req.headers.host !== `${host.address}:${this.boundLanPort}` || !onSameLan(req.socket.remoteAddress ?? '', host)) {
-        throw new HttpError(403, 'This connection must come from the selected local network.')
-      }
+  /** Same Wi-Fi only: the request names the selected address and comes from its network. */
+  private guardLan(req: IncomingMessage, mode: Mode): void {
+    if (mode !== 'lan') return
+    const host = this.getLanAddresses().find((candidate) => candidate.address === this.deps.store.state.settings.mobileLanAddress)
+    if (!host || req.headers.host !== `${host.address}:${this.boundLanPort}` || !onSameLan(req.socket.remoteAddress ?? '', host)) {
+      throw new HttpError(403, 'This connection must come from the selected local network.')
     }
+  }
+
+  /**
+   * `GET /api/ws`: the same guards as a POST (the network, the origin, which a browser always sends on an upgrade, and the
+   * device's credential), then the socket server takes it with the device's session. A refusal is a plain HTTP answer.
+   */
+  private upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, mode: Mode): void {
+    socket.on('error', () => undefined)
+    let device: MobileDevice | null
+    try {
+      if (new URL(req.url ?? '/', 'http://localhost').pathname !== '/api/ws') throw new HttpError(404, 'Not found.')
+      this.guardLan(req, mode)
+      this.checkOrigin(req, mode)
+      device = this.auth(req, mode, true)
+      if (!device) throw new HttpError(401, 'This device is not paired.')
+    } catch (err) {
+      const status = err instanceof HttpError ? err.status : 500
+      const body = JSON.stringify({ error: err instanceof HttpError ? err.message : 'Foreman could not complete that request.' })
+      socket.once('finish', () => socket.destroy())
+      const head = [`HTTP/1.1 ${status} ${STATUS_CODES[status] ?? ''}`, 'Connection: close', 'Cache-Control: no-store', 'Content-Type: application/json; charset=utf-8', `Content-Length: ${Buffer.byteLength(body)}`]
+      socket.end(`${head.join('\r\n')}\r\n\r\n${body}`)
+      return
+    }
+    const session = deviceSession(device)
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.sockets.attach(ws, session))
+  }
+
+  /** A call from a paired device, under its session: the dispatcher refuses what its scopes don't allow. */
+  private call<K extends keyof Api>(device: MobileDevice, method: K, ...args: Parameters<Api[K]>): Promise<Awaited<ReturnType<Api[K]>>> {
+    return this.deps.dispatcher.invoke(deviceSession(device), method, args) as Promise<Awaited<ReturnType<Api[K]>>>
+  }
+
+  private async handle(req: IncomingMessage, res: ServerResponse, mode: Mode): Promise<void> {
+    this.guardLan(req, mode)
     const url = new URL(req.url ?? '/', 'http://localhost')
     const pathname = url.pathname
     if (req.method === 'GET' && pathname === '/') return this.staticFile(res, 'index.html', 'text/html; charset=utf-8')
@@ -384,8 +461,12 @@ export class MobileService {
       if (!pairing || pairing.mode !== mode || pairing.expiresAt <= Date.now() || !same(String(body.token ?? ''), pairing.token)) throw new HttpError(410, 'This pairing link expired. Show a new QR code in Foreman.')
       this.pairing = null
       const id = token()
-      const name = typeof body.name === 'string' ? body.name.trim().slice(0, 50) : 'Phone'
-      const pending: Pending = { id, name: name || 'Phone', mode, code: String(randomInt(0, 1_000_000)).padStart(6, '0'), expiresAt: Date.now() + PAIR_MS, state: 'waiting' }
+      // A phone unless it says it is a browser (docs/server.md, "Sessions"); the person approving sees which.
+      if (body.kind !== undefined && body.kind !== 'phone' && body.kind !== 'browser') throw new HttpError(400, 'Invalid request.')
+      const kind: Kind = body.kind ?? 'phone'
+      const fallback = kind === 'browser' ? 'Browser' : 'Phone'
+      const name = typeof body.name === 'string' ? body.name.trim().slice(0, 50) : fallback
+      const pending: Pending = { id, name: name || fallback, kind, mode, code: String(randomInt(0, 1_000_000)).padStart(6, '0'), expiresAt: Date.now() + PAIR_MS, state: 'waiting' }
       this.pending.set(id, pending)
       this.deps.onChanged()
       return this.json(res, 200, { id, code: pending.code, expiresAt: pending.expiresAt })
@@ -404,7 +485,7 @@ export class MobileService {
     if (req.method === 'GET' && pathname === '/api/state') return this.json(res, 200, this.state())
     // G2: Home → Recent, for the phone. History only: reading it marks nothing seen and resolves nothing.
     if (req.method === 'GET' && pathname === '/api/recent') {
-      const history = await this.deps.api.attentionHistory()
+      const history = await this.call(device, 'attentionHistory')
       return this.json(res, 200, { events: phoneRecent(history.events, this.deps.snapshot().workspaces.filter((w) => w.state !== 'archived')), seenAt: history.seenAt ?? null })
     }
     if (mode === 'lan' && (pathname === '/api/push-key' || pathname === '/api/push')) throw new HttpError(403, 'Phone alerts need a private HTTPS connection.')
@@ -419,27 +500,27 @@ export class MobileService {
       return this.json(res, 200, { ok: true })
     }
     const chat = /^\/api\/chat\/([^/]+)$/.exec(pathname)
-    if (req.method === 'GET' && chat) return this.json(res, 200, await this.deps.api.getChat(chat[1]))
+    if (req.method === 'GET' && chat) return this.json(res, 200, await this.call(device, 'getChat', chat[1]))
     const send = /^\/api\/chat\/([^/]+)\/send$/.exec(pathname)
     if (req.method === 'POST' && send) {
       const body = await this.body(req)
       if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 100_000) throw new HttpError(400, 'Enter a message under 100,000 characters.')
-      const disposition = await this.deps.api.sendMessage(send[1], body.text, { mode: 'queue' })
+      const disposition = await this.call(device, 'sendMessage', send[1], body.text, { mode: 'queue' })
       return this.json(res, 200, { disposition })
     }
     // G4 #11: tick (or untick) a usage-limit failure's "Resume at …" from the phone; the same rules as the window's card.
     const resumeAt = /^\/api\/chat\/([^/]+)\/resume-at$/.exec(pathname)
     if (req.method === 'POST' && resumeAt) {
       const body = await this.body(req)
-      if (body.cancel === true) await this.deps.api.cancelLimitResume(resumeAt[1])
+      if (body.cancel === true) await this.call(device, 'cancelLimitResume', resumeAt[1])
       else {
         if (typeof body.turnId !== 'string') throw new HttpError(400, 'Which turn?')
-        await this.deps.api.armLimitResume(resumeAt[1], body.turnId)
+        await this.call(device, 'armLimitResume', resumeAt[1], body.turnId)
       }
       return this.json(res, 200, { ok: true })
     }
     const stop = /^\/api\/chat\/([^/]+)\/stop$/.exec(pathname)
-    if (req.method === 'POST' && stop) { await this.deps.api.cancel(stop[1]); return this.json(res, 200, { ok: true }) }
+    if (req.method === 'POST' && stop) { await this.call(device, 'cancel', stop[1]); return this.json(res, 200, { ok: true }) }
     const approval = /^\/api\/approval\/([^/]+)$/.exec(pathname)
     if (req.method === 'POST' && approval) {
       const body = await this.body(req)
@@ -454,13 +535,13 @@ export class MobileService {
       // A flow's pick: one of the results it offered, or none (the run stops).
       else if (pending.kind === 'pick') response = { kind: 'pick', chosen: typeof body.chosen === 'string' && pending.choices.some((c) => c.step === body.chosen) ? body.chosen : null }
       else response = { kind: 'question', answers: typeof body.answers === 'object' && body.answers && !Array.isArray(body.answers) ? Object.fromEntries(Object.entries(body.answers).filter(([, v]) => typeof v === 'string').map(([k, v]) => [k, String(v).slice(0, 2000)])) : undefined, skipped: body.skipped === true }
-      await this.deps.api.respondApproval(approval[1], response, 'phone')
+      await this.call(device, 'respondApproval', approval[1], response, 'phone')
       return this.json(res, 200, { ok: true })
     }
     const diff = /^\/api\/workspace\/([^/]+)\/diff$/.exec(pathname)
-    if (req.method === 'GET' && diff) return this.json(res, 200, await this.deps.api.getDiff(diff[1], 'all'))
+    if (req.method === 'GET' && diff) return this.json(res, 200, await this.call(device, 'getDiff', diff[1], 'all'))
     const checks = /^\/api\/workspace\/([^/]+)\/checks$/.exec(pathname)
-    if (req.method === 'GET' && checks) return this.json(res, 200, await this.deps.api.checksStatus(checks[1]))
+    if (req.method === 'GET' && checks) return this.json(res, 200, await this.call(device, 'checksStatus', checks[1]))
     if (req.method === 'POST' && checks) {
       const body = await this.body(req)
       if (body.approve === true) {
@@ -469,16 +550,16 @@ export class MobileService {
           throw new HttpError(409, 'Check commands changed. Review them again before approving.')
         }
       }
-      return this.json(res, 200, await this.deps.api.runChecks(checks[1], body.approve === true))
+      return this.json(res, 200, await this.call(device, 'runChecks', checks[1], body.approve === true))
     }
     const git = /^\/api\/workspace\/([^/]+)\/git$/.exec(pathname)
-    if (req.method === 'GET' && git) return this.json(res, 200, await this.deps.api.gitStatus(git[1]))
+    if (req.method === 'GET' && git) return this.json(res, 200, await this.call(device, 'gitStatus', git[1]))
     const newChat = /^\/api\/workspace\/([^/]+)\/chat$/.exec(pathname)
-    if (req.method === 'POST' && newChat) return this.json(res, 200, await this.deps.api.createSession(newChat[1]))
+    if (req.method === 'POST' && newChat) return this.json(res, 200, await this.call(device, 'createSession', newChat[1]))
     const archive = /^\/api\/workspace\/([^/]+)\/archive$/.exec(pathname)
     if (req.method === 'POST' && archive) {
       // #1: refuses while an agent runs; a failed checkpoint or archive script deletes nothing.
-      const outcome = await this.deps.api.archiveWorkspace(archive[1], false)
+      const outcome = await this.call(device, 'archiveWorkspace', archive[1], false)
       if (!outcome.ok) throw new HttpError(409, outcome.step === 'checkpoint' ? `Couldn’t save the uncommitted changes (${outcome.detail}). Nothing was deleted.` : `The archive script failed (${outcome.detail}). Nothing was deleted.`)
       return this.json(res, 200, { ok: true })
     }
@@ -488,7 +569,7 @@ export class MobileService {
       if (!this.deps.snapshot().repos.some((r) => r.id === repoId)) throw new HttpError(400, 'Choose a repository.')
       const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 100_000) : ''
       if (!prompt) throw new HttpError(400, 'Enter a first message.')
-      const ws = await this.deps.api.createWorkspace(repoId, { prompt })
+      const ws = await this.call(device, 'createWorkspace', repoId, { prompt })
       return this.json(res, 200, { id: ws.id })
     }
     throw new HttpError(404, 'Not found.')
