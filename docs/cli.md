@@ -6843,6 +6843,7 @@ Data & devices
   devices.mobile-url          text                mobile url
   devices.mobile-lan          on | off            mobile lan
   devices.mobile-lan-address  text                mobile lan address
+  devices.keep-running        on | off            keep running
 
 Remote workspaces
   cloud.workspaces        on | off               Remote workspaces

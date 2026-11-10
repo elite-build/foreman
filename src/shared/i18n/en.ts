@@ -3632,6 +3632,9 @@ export const en = {
   'settings.data.devices.or': ' or ',
   'settings.data.devices.off': "Off: no other computer can connect. It is also on briefly while a pairing code is showing.",
   'settings.data.devices.acceptDetail': "Foreman has to be open on this computer for a hand-off to arrive. Only computers you have paired can connect.",
+  'settings.data.keepRunning': 'Keep running without a window',
+  'settings.data.keepRunning.help': 'Closing the last window leaves Foreman running in the system tray or menu bar. Open the window again or quit Foreman from there.',
+  'settings.row.keepRunning.desc': 'Foreman stays in the tray when its last window closes, so agents, schedules, flows and phones keep working.',
   'settings.data.devices.port': 'Port',
   'settings.data.devices.portHelp': 'Change it only if another program uses this one.',
   // Beside a paired Mac's name.

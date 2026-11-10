@@ -120,7 +120,18 @@ Foreman serves a phone-sized attention inbox and workspace view from the Mac or 
 
 **Private HTTPS away from home:** Install [Tailscale](https://tailscale.com/download) on the computer and phone, sign into the same tailnet, and run `tailscale serve --bg 47632` on the computer. In the phone dialog's **Connection** section, enter the resulting `https://…ts.net` address under **Anywhere (private)** and turn it on, then choose **Anywhere** → **Show QR code** and scan it. Foreman listens only on `127.0.0.1:47632` for this connection. Use **Serve**, not Funnel: Funnel would publish the service on the public internet. Add Foreman to the phone's Home Screen and tap **Enable phone alerts** for generic request and possible-stall notifications. On iPhone, web push needs an installed Home Screen web app.
 
-For either connection, match the six-digit code on the phone and computer before approving the pairing. You can revoke either kind of phone from the same dialog. The phone can answer tool, plan and question requests; read chats, diffs, checks and PR status; send messages; stop runs; create chats and workspaces; and archive workspaces. Check commands that need approval show their command text before running. A possible stall means a running agent has produced no activity for 15 minutes; Foreman never auto-retries it. The computer must be awake and Foreman must be running. On Windows, closing the window leaves Foreman in the tray while either mobile connection is on.
+For either connection, match the six-digit code on the phone and computer before approving the pairing. You can revoke either kind of phone from the same dialog. The phone can answer tool, plan and question requests; read chats, diffs, checks and PR status; send messages; stop runs; create chats and workspaces; and archive workspaces. Check commands that need approval show their command text before running. A possible stall means a running agent has produced no activity for 15 minutes; Foreman never auto-retries it. The computer must be awake and Foreman must be running. On Windows, closing the window leaves Foreman in the tray while either mobile connection is on; to keep it running whatever the phone settings, see [Running without a window](#running-without-a-window).
+
+## Running without a window
+
+Foreman can run with no window open, so agents, schedules, flows, the `foreman` command, phones and paired computers keep working while the desktop stays clear. There are two ways:
+
+- **Keep running without a window:** turn it on in **Settings → Data & devices → Devices** (`foreman settings set devices.keep-running on`). Closing the last window then leaves Foreman running instead of quitting it. macOS apps already keep running when their windows close; the setting also keeps Foreman's menu-bar icon up there.
+- **Start it headless:** start Foreman with `--headless` and it opens no window at all.
+  - macOS: `open -a Foreman --args --headless`
+  - Windows (the installer's default folder; use yours if you chose another): `"%LOCALAPPDATA%\Programs\Foreman\Foreman.exe" --headless` from Command Prompt, or `& "$env:LOCALAPPDATA\Programs\Foreman\Foreman.exe" --headless` from PowerShell.
+
+Either way the tray icon (the menu-bar icon on macOS) stays up, even with **Settings → General → Tray icon** off, because it is how you get back: **Show Foreman** or **Open Home** opens the window, as do starting Foreman again, a `foreman://` link and `foreman run --open`. A phone or another computer can do everything but what needs the window itself, such as file pickers. To stop Foreman, choose **Quit Foreman** from the tray; if agents, checks or run scripts are still going, the window opens to ask first, as Quit always does.
 
 ## Controlling another computer
 

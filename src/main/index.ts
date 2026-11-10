@@ -31,6 +31,7 @@ import { spawn } from 'node:child_process'
 import { HOST_FLAG, hostArgs, hostDir } from './agentHost/protocol'
 import { readHostBundle, type HostBundle } from './agentHost/sandboxPackage'
 import { AppTray } from './tray'
+import { parseHeadless, quitsWhenWindowsClose, trayWanted, type HeadlessFacts } from './headless'
 import { LINK_SCHEME, linksIn } from '../shared/deepLink'
 import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
@@ -67,6 +68,12 @@ protocol.registerSchemesAsPrivileged([{ scheme: PREVIEW_SCHEME, privileges: { st
 // Dev-only screenshot run (FOREMAN_SCREENSHOTS=1, scripts/screenshots.mjs): a throwaway data folder and no network.
 const screensRoot = SCREENSHOTS ? screenshotRoot() : null
 if (screensRoot) screensSwitches((name, value) => app.commandLine.appendSwitch(name, value))
+// Started with --headless (docs/server.md, "Headless"): every service runs and no window opens until one is asked for
+// (the tray, a foreman:// link, `foreman run --open`, starting Foreman again). A screenshot run needs its window.
+const headless = !screensRoot && parseHeadless(process.argv)
+// Chromium reads --headless as its own headless mode and passes it to the GPU process, where no window Foreman opens
+// later could ever show. The flag is Foreman's; take it off Chromium's command line before anything starts.
+if (parseHeadless(process.argv)) app.commandLine.removeSwitch('headless')
 // Dev-only demo (`npm run dev demo`, main/demo.ts): the screenshot fixture in a data folder kept between launches, and
 // no network. The folder is claimed (or reset) here, before Electron opens files in it; it is seeded once ready.
 const demoRoot = DEMO && !screensRoot && !app.isPackaged ? demoFolder(app.getPath('appData')) : null
@@ -152,11 +159,18 @@ function phoneTray(): boolean {
   return process.platform === 'win32' && Boolean(settings?.mobileEnabled || settings?.mobileLanEnabled)
 }
 
+/** What decides whether Foreman runs on with no window (headless.ts). */
+function headlessFacts(): HeadlessFacts {
+  const settings = core?.settings()
+  return { platform: process.platform, headless, keepRunning: Boolean(settings?.keepRunning), phoneAccess: Boolean(settings?.mobileEnabled || settings?.mobileLanEnabled) }
+}
+
 function drawTray(): void {
   if (!core || screensRoot) return
   const settings = core.settings()
   const t = mainT(settings)
-  appTray.update(trayView, { attention: settings.trayIcon !== false, phone: phoneTray(), t })
+  // With no window wanted the tray stays up even with Settings → General → Tray icon off: it is the way back and the way to quit.
+  appTray.update(trayView, { attention: settings.trayIcon !== false, phone: phoneTray(), keep: trayWanted(headlessFacts()), t })
 }
 
 /** A tray entry: show the window, then go where it says. Never answers or sends anything. */
@@ -365,16 +379,19 @@ function createWindow(): BrowserWindow {
 
 async function main(): Promise<void> {
   // A second instance would corrupt the state file; focus the first one instead. A screenshot run has its own data folder.
-  if (!screensRoot && !app.requestSingleInstanceLock()) {
+  // Whether this one was started headless goes with the request: the running one can't read it from the command line, which
+  // no longer has the switch (see removeSwitch above).
+  if (!screensRoot && !app.requestSingleInstanceLock({ headless: parseHeadless(process.argv) })) {
     app.quit()
     return
   }
   // A folder dropped on the taskbar button, shortcut or Dock icon while Foreman runs (O21).
-  app.on('second-instance', (_event, argv, workingDirectory) => {
+  app.on('second-instance', (_event, argv, workingDirectory, data) => {
     receiveLaunchFolders(launchPaths(argv, { cwd: workingDirectory, skip: [app.getAppPath()] }))
     // #3: Windows hands a foreman:// link to the running app this way.
     for (const url of linksIn(argv)) receiveLink(url)
-    showWindow()
+    // Starting it again headless (a login item, a script) leaves it as it is; anything else brings the window.
+    if (!(data as { headless?: unknown } | null)?.headless) showWindow()
   })
   // #3: macOS hands foreman:// links over as open-url, at launch too (before ready).
   app.on('open-url', (event, url) => {
@@ -694,10 +711,11 @@ async function main(): Promise<void> {
     if (SIGNAL_METHODS.includes(method)) routes.signal(method, args)
   })
 
+  // The menu needs no window (macOS shows it with none); headless, the first window is made when something asks for it.
   installMenu()
-  const win = createWindow()
+  const win = headless ? null : createWindow()
   // A screenshot run starts none of what follows (sockets, network, timers, schedules); it captures its screens and quits.
-  if (screensRoot && fixture) {
+  if (screensRoot && fixture && win) {
     const screensCore = core
     return void runScreens({
       win,
@@ -891,12 +909,19 @@ let updateInstaller: ElectronUpdateInstaller | undefined
 // The update card's Restart: once shut down, run the installer, which starts Foreman again.
 let installUpdate = false
 
-/** Closing the last window quits the app (not on macOS, nor on Windows while the tray keeps phone access up). */
+/**
+ * Closing the last window quits the app unless something wants it to stay (headless.ts: macOS, --headless, Keep running
+ * without a window, phone access on Windows). Off macOS it stays only behind a tray icon: one that couldn't be made
+ * would leave Foreman running with no way back to it but starting it again.
+ */
 function closingQuits(): boolean {
-  return process.platform !== 'darwin' && !(appTray.shown && phoneTray())
+  return quitsWhenWindowsClose(headlessFacts()) || (process.platform !== 'darwin' && !appTray.shown)
 }
 
-/** #1: something is running, so the window shows the Quit sheet instead of quitting. */
+/**
+ * #1: something is running, so the window shows the Quit sheet instead of quitting. With no window (headless, or the
+ * last one closed), Quit from the tray opens one to ask: the person who asked to quit sees the question.
+ */
 function askToQuit(): void {
   const win = showWindow()
   const send = () => win.webContents.send('foreman:event', { type: 'quit-requested' } satisfies MainEvent)

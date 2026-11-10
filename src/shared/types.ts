@@ -1241,6 +1241,9 @@ export interface Settings {
   mobileUrl: string
   mobileLanEnabled: boolean
   mobileLanAddress: string
+  // Closing the last window leaves Foreman running behind its tray, so agents, schedules, flows and phones keep working
+  // (docs/server.md, "Headless"; main/headless.ts). Off by default: closing the window quits, as it always has.
+  keepRunning: boolean
   // Cloud workspaces; absent until changed (see shared/cloud.ts cloudSettings for the defaults).
   cloud?: CloudSettings
 }
