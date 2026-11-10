@@ -170,6 +170,13 @@ svg.i.sm{width:15px;height:15px}
 .round.send{background:var(--acc);color:var(--onacc)}
 .round.stop{background:var(--t);color:var(--bg)}
 .round.stop i{width:12px;height:12px;border-radius:3px;background:currentColor}
+/* while a turn runs: queue or steer the next message (its label says which, the pressed state too), and what is queued */
+.cmp .mode{flex:none;height:38px;padding:0 13px;border-radius:19px;background:var(--bg2);border:1px solid var(--line);font-size:13.5px;font-weight:650;color:var(--m)}
+.cmp .mode.on{background:var(--t);border-color:var(--t);color:var(--bg)}
+.queue{margin:0 2px 8px}
+.qrow{display:flex;align-items:center;gap:12px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:14px}
+.qrow .qt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--m)}
+.qrow .linkish{margin:0;font-size:13.5px;flex:none;padding:4px 0}
 .foot .hint{font-size:12px;color:var(--f);text-align:center;margin:0 0 6px}
 .foot .hint.watch{font-size:13px;color:var(--m);margin:4px 0}
 .pad .hint{font-size:13px;color:var(--m);text-align:center}
@@ -193,6 +200,22 @@ svg.i.sm{width:15px;height:15px}
 .ln.add{background:var(--add)}.ln.add .tx{color:var(--g)}
 .ln.del{background:var(--del)}.ln.del .tx{color:var(--r)}
 .cut{padding:8px 12px;color:var(--m);font-size:12.5px}
+/* diff comments: a line of the new side is a button that opens one; a comment stays in view while the code scrolls sideways */
+button.ln{width:100%;border-radius:0}
+.file .cn{display:flex;align-items:center;gap:3px;font-size:12px;color:var(--m);flex:none}
+/* said to a screen reader, not shown */
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.cmt{position:sticky;left:0;margin:4px 8px 6px;padding:8px 11px;border-radius:12px;background:var(--bg2);white-space:normal;font:13.5px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t)}
+.cmt.mine{background:var(--bg3)}
+.cmt .ch{font-size:12px;color:var(--m)}
+.cmt p{margin:3px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.cmt .linkish{font-size:13px}
+.cmt.new textarea{min-height:72px;font-size:16px;background:var(--bg)}
+.cmt .row{display:flex;gap:8px;margin-top:8px}
+.cmt .row .btn{flex:1;height:40px;margin:0;font-size:14.5px}
+/* a terminal, read-only: its last output as plain text, wrapped to the screen */
+.filters.terms{padding-top:10px}
+.term{font:12px/1.45 ui-monospace,Menlo,monospace;background:var(--code);color:var(--codet);padding:10px 12px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 10px}
 .card{border:1px solid var(--line);border-radius:16px;margin-bottom:10px;overflow:hidden}
 .ck{display:flex;gap:11px;align-items:center;padding:12px 13px;border-bottom:1px solid var(--line)}
 .ck:last-child{border:0}

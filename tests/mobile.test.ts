@@ -371,6 +371,123 @@ describe('paired mobile access', () => {
     expect(await bearer.next()).toEqual({ t: 'bye', reason: 'shutdown' })
   })
 
+  it('gives the phone the window’s actions: steering, the queue, diff comments, usage, terminal output and Resume now (#127)', async () => {
+    const credentials = new Map<string, string>()
+    const state = { settings: { mobileEnabled: false, mobileUrl: '' }, mobileDevices: [] as MobileDevice[] }
+    const store = { state, save: vi.fn() } as unknown as Store
+    const secrets = {
+      appSecret: (key: string) => credentials.get(key),
+      setAppSecret: (key: string, value: string | null) => value === null ? credentials.delete(key) : credentials.set(key, value)
+    } as unknown as SecretStore
+    const usage = { tabs: { 'chat-1': { turns: 3, agentMs: 600_000, costUsd: 1.5 } }, total: { turns: 3, agentMs: 600_000, costUsd: 1.5, partial: false } }
+    const terminals = [{ id: 'p1', kind: 'script', command: 'npm run dev', startedAt: '2026-11-10T10:00:00Z', text: 'ready on :5173' }]
+    const api = {
+      sendMessage: vi.fn(async () => 'steered' as const), steerQueued: vi.fn(async () => undefined), removeQueued: vi.fn(async () => undefined),
+      resumeLimitNow: vi.fn(async () => undefined), addComment: vi.fn(async () => undefined), deleteComment: vi.fn(async () => undefined),
+      updateComment: vi.fn(async () => undefined), workspaceUsage: vi.fn(async () => usage), terminalOutput: vi.fn(async () => terminals)
+    }
+    const at = '2026-11-10T10:00:00Z'
+    const comment = (id: string, author: 'user' | 'agent', commentState: string, workspaceId = 'ws-1') => ({ id, workspaceId, file: 'src/a.ts', line: 4, body: 'Why?', author, state: commentState, createdAt: at })
+    const snapshot = {
+      repos: [{ id: 'repo-1', name: 'Repo' }],
+      workspaces: [{ id: 'ws-1', repoId: 'repo-1', name: 'Work', branch: 'b', state: 'ready', status: 'in-progress', createdAt: at }],
+      sessions: [
+        { id: 'chat-1', workspaceId: 'ws-1', agent: 'claude', model: 'opus', status: 'running', turnId: 't', turnStartedAt: new Date().toISOString(), lastActivityAt: new Date().toISOString(), queue: [{ id: 'q1', text: 'Then run the tests', attachments: [] }], contextUsage: { used: 84_000, limit: 200_000, breakdown: { categories: [] } } },
+        { id: 'chat-2', workspaceId: 'ws-1', agent: 'cursor', model: 'auto', status: 'idle', queue: [] }
+      ],
+      // Shown: yours still pending and the agent's still open, in a workspace the phone lists; not sent, resolved or elsewhere.
+      comments: [comment('c-mine', 'user', 'pending'), comment('c-agent', 'agent', 'open'), comment('c-sent', 'user', 'sent'), comment('c-done', 'agent', 'resolved'), comment('c-gone', 'user', 'pending', 'ws-archived')],
+      settings: { ...state.settings, promptTemplates: [], followUpMode: 'steer' }
+    } as unknown as AppSnapshot
+    const serve = serving(api as unknown as Api)
+    const service = new MobileService({
+      store, secrets, ...serve, snapshot: () => snapshot, approvals: () => [], consentNeeded: () => [],
+      appPath: process.cwd(), onChanged: vi.fn(), onEnabledChange: vi.fn()
+    }, 0)
+    services.push(service)
+    const origin = 'https://foreman.example.ts.net'
+    const base = `http://127.0.0.1:${(await service.configure(true, origin)).port}`
+    const pair = async (access: 'read' | 'operate') => {
+      const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+      const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, name: access }) })
+      const { id } = await started.json() as { id: string }
+      service.approve(id, true, access)
+      return (await fetch(base + '/api/pair/status?id=' + id)).headers.get('set-cookie')!.split(';')[0]
+    }
+    const phone = await pair('operate')
+    const post = (path: string, body: unknown, cookie = phone) => fetch(base + path, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const get = (path: string, cookie = phone) => fetch(base + path, { headers: { Cookie: cookie } })
+
+    // What the page needs to offer them.
+    const model = await (await get('/api/state')).json() as { sessions: Record<string, unknown>[]; comments: { id: string }[]; followUpMode: string }
+    expect(model.followUpMode).toBe('steer')
+    expect(model.sessions[0]).toMatchObject({ canSteer: true, queued: 1, queue: [{ id: 'q1', text: 'Then run the tests' }], context: { used: 84_000, limit: 200_000 } })
+    expect(model.sessions[1]).toMatchObject({ canSteer: false, queue: [], context: null })
+    expect(model.comments).toEqual([
+      { id: 'c-mine', workspaceId: 'ws-1', file: 'src/a.ts', line: 4, side: 'new', body: 'Why?', author: 'user', state: 'pending' },
+      { id: 'c-agent', workspaceId: 'ws-1', file: 'src/a.ts', line: 4, side: 'new', body: 'Why?', author: 'agent', state: 'open' }
+    ])
+
+    // Steering: the phone says which; anything else queues.
+    const steered = await post('/api/chat/chat-1/send', { text: 'Use the other file', mode: 'steer' })
+    expect(await steered.json()).toEqual({ disposition: 'steered' })
+    expect(api.sendMessage).toHaveBeenLastCalledWith('chat-1', 'Use the other file', { mode: 'steer' })
+    await post('/api/chat/chat-1/send', { text: 'Later', mode: 'sideways' })
+    expect(api.sendMessage).toHaveBeenLastCalledWith('chat-1', 'Later', { mode: 'queue' })
+    // A queued message: sent into the turn now, or deleted.
+    expect((await post('/api/chat/chat-1/queued/q1', { action: 'steer' })).status).toBe(200)
+    expect(api.steerQueued).toHaveBeenCalledWith('chat-1', 'q1')
+    expect((await post('/api/chat/chat-1/queued/q1', { action: 'remove' })).status).toBe(200)
+    expect(api.removeQueued).toHaveBeenCalledWith('chat-1', 'q1')
+    expect((await post('/api/chat/chat-1/queued/q1', { action: 'edit' })).status).toBe(400)
+    // A missed limit resume: Resume now.
+    expect((await post('/api/chat/chat-1/resume-at', { now: true })).status).toBe(200)
+    expect(api.resumeLimitNow).toHaveBeenCalledWith('chat-1')
+
+    // Diff comments: on a line, checked; yours deleted while pending, the agent's resolved while open, nothing else.
+    expect((await post('/api/workspace/ws-1/comment', { file: 'src/a.ts', line: 4, body: '  Rename this  ' })).status).toBe(200)
+    expect(api.addComment).toHaveBeenCalledWith('ws-1', 'src/a.ts', 4, 'Rename this')
+    for (const bad of [{ file: 'src/a.ts', line: 0, body: 'x' }, { file: 'src/a.ts', line: 1.5, body: 'x' }, { file: '', line: 1, body: 'x' }, { file: 'src/a.ts', line: 1, body: '  ' }]) {
+      expect((await post('/api/workspace/ws-1/comment', bad)).status).toBe(400)
+    }
+    expect(api.addComment).toHaveBeenCalledTimes(1)
+    expect((await post('/api/comment/c-mine', { action: 'delete' })).status).toBe(200)
+    expect(api.deleteComment).toHaveBeenCalledWith('c-mine')
+    expect((await post('/api/comment/c-agent', { action: 'resolve' })).status).toBe(200)
+    expect(api.updateComment).toHaveBeenCalledWith('c-agent', { state: 'resolved' })
+    for (const [id, action] of [['c-agent', 'delete'], ['c-sent', 'delete'], ['c-mine', 'resolve'], ['c-done', 'resolve'], ['nope', 'delete']]) {
+      expect((await post('/api/comment/' + id, { action })).status).toBe(409)
+    }
+    expect((await post('/api/comment/c-mine', { action: 'edit' })).status).toBe(400)
+    expect(api.deleteComment).toHaveBeenCalledTimes(1)
+    expect(api.updateComment).toHaveBeenCalledTimes(1)
+
+    // Usage and terminal output.
+    expect(await (await get('/api/workspace/ws-1/usage')).json()).toEqual(usage)
+    expect(await (await get('/api/workspace/ws-1/terminals')).json()).toEqual(terminals)
+    expect(api.terminalOutput).toHaveBeenCalledWith('ws-1')
+
+    // A phone that may only watch reads usage, but neither comments nor reads terminals (their output is operate's).
+    const watcher = await pair('read')
+    expect((await get('/api/workspace/ws-1/usage', watcher)).status).toBe(200)
+    expect((await get('/api/workspace/ws-1/terminals', watcher)).status).toBe(403)
+    expect((await post('/api/workspace/ws-1/comment', { file: 'src/a.ts', line: 4, body: 'x' }, watcher)).status).toBe(403)
+    expect((await post('/api/chat/chat-1/queued/q1', { action: 'steer' }, watcher)).status).toBe(403)
+    expect(api.terminalOutput).toHaveBeenCalledTimes(1)
+
+    // On its Terminal tab the phone views the workspace, and gets that workspace's terminal output live and no other.
+    const live = await upgrade(base.replace('http:', 'ws:') + '/api/ws', { Cookie: phone, Origin: origin })
+    if (!('ws' in live)) throw new Error(`Refused with ${live.status}`)
+    live.ws.send(JSON.stringify(hello))
+    expect(await live.next()).toMatchObject({ t: 'welcome', ok: true })
+    live.ws.send(JSON.stringify({ t: 'view', view: { workspaceId: 'ws-1' } }))
+    live.ws.send(JSON.stringify({ t: 'ping' }))
+    expect(await live.next()).toEqual({ t: 'pong' })
+    serve.emit({ type: 'pty-data', ptyId: 'p2', data: 'elsewhere', workspaceId: 'ws-2' })
+    serve.emit({ type: 'pty-data', ptyId: 'p1', data: 'compiled', workspaceId: 'ws-1' })
+    expect(await live.next()).toMatchObject({ t: 'event', event: { type: 'pty-data', ptyId: 'p1', data: 'compiled' } })
+  })
+
   it('serves the phone page’s own live.js a welcome, its calls and the broadcasts of the chat it views', async () => {
     const credentials = new Map<string, string>()
     const state = { settings: { mobileEnabled: false, mobileUrl: '' }, mobileDevices: [] as MobileDevice[] }

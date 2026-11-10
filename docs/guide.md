@@ -130,13 +130,20 @@ Foreman serves a phone-sized attention inbox and workspace view from the Mac or 
 
 **Pairing and access.** For either connection, check that the phone and the computer show the same six-digit code, choose under **What it may do**, and approve:
 
-- **Watch:** see workspaces, chats, diffs and checks, and change nothing. The phone shows requests but offers no answers or actions.
-- **Operate** (the default): also answer tool, plan and question requests, send messages, stop runs, create chats and workspaces, and archive workspaces. A phone paired before access levels existed has Operate.
+- **Watch:** see workspaces, chats, diffs, checks, comments and usage, and change nothing. The phone shows requests but offers no answers or actions.
+- **Operate** (the default): also answer tool, plan and question requests, send, queue and steer messages, stop runs, comment on the diff, read terminals, create chats and workspaces, and archive workspaces. A phone paired before access levels existed has Operate.
 - **Full control:** also change settings, repositories, keys and integrations. The phone page offers nothing beyond Operate; this level is for a browser.
 
 Something the access doesn't allow is refused with a message that says so ("This phone can watch but not operate. Approve it again with more access."); to change a device's access, revoke it and pair it again. A phone stays signed in for a year over the private connection and a day over same Wi-Fi. The dialog lists every signed-in phone and browser with its access, connection and when it was last seen, and **Revoke** signs one out. Check commands that need approval show their command text before running. A possible stall means a running agent has produced no activity for 15 minutes; Foreman never auto-retries it.
 
 **Live updates.** While the phone page is open it keeps a connection to Foreman, so the inbox and the open chat change as soon as something happens and a reply appears as the agent writes it. If the connection drops, the page says **Reconnecting…**, refreshes every 30 seconds meanwhile, retries at once when you come back to it, and catches up when it reconnects. If phone access is turned off on the computer, it says **Phone access is off** and looks again every minute. A phone revoked while it is open, or whose sign-in expired, is signed out at once and says so; only pairing it again brings it back.
+
+**What a phone can do in a workspace.**
+
+- **Queue or steer.** While the agent works, the button beside the message box says whether your message waits for the turn to end (**Queue**) or goes into it now (**Steer**). It starts at the computer's **Follow-up behavior** setting; tap it to change it for that chat. Agents that can't take a message mid-turn only queue. Queued messages are listed above the box, each with **Send now** (into the running turn) and **Delete**.
+- **Comment on the diff.** In **Changes**, tap a line of the new version to comment on it. Your comments wait under their lines and go with your next message, as comments written on the computer do; **Delete** takes one back. An agent's open comment can be marked **Resolve**.
+- **Read terminals.** **Terminal** shows the workspace's terminals, run scripts included, as plain text: the last 500 lines of each, following its output while it prints, with whether it still runs or how it ended. Typing stays on the computer. A full-screen program (an editor, `top`) reads as jumbled text.
+- **See usage.** The workspace menu (**⋯**) shows how full the open chat's context is, and the turns, agent time and cost of the chat and of the workspace. After a usage limit, a missed **Resume at …** offers **Resume now** and **Dismiss**.
 
 **From a terminal.** The `foreman phone` commands do what the dialog does, for a computer with no window open or a terminal over SSH; `foreman help phone` has every option.
 
