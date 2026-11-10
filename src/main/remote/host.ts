@@ -3,8 +3,10 @@
 // A background link (the other computer's chip and alerts) needs only the pairing; taking control needs the setting on,
 // and, when the person here asked to be asked, their Allow. An Allow lasts until they disconnect it or Foreman restarts.
 import { randomUUID } from 'node:crypto'
+import { computerSession } from '../../shared/api'
 import { hostAccepts, hostForwards, LOCAL_SIGNALS, REMOTE_PROTOCOL, sameSummary, type ClientFrame, type ComputerController, type ComputerSummary, type ControlRequest, type RemoteHello, type RemoteMode, type RemoteWelcome, type ServerFrame } from '../../shared/remote'
 import { API_METHODS, SIGNAL_METHODS, type MainEvent } from '../../shared/types'
+import { ApiDispatcher } from '../api/dispatch'
 import type { Channel } from './channel'
 
 /** How long the person here has to answer before the request is turned down. */
@@ -56,8 +58,12 @@ export class RemoteHost {
   private approved = new Set<string>()
   private unsubscribe: (() => void) | null = null
   private lastSummary: ComputerSummary | undefined
+  // Calls and signals reach the core through the dispatcher, with a computer session: the same rules as every client.
+  private dispatcher: ApiDispatcher
 
-  constructor(private deps: RemoteHostDeps) {}
+  constructor(private deps: RemoteHostDeps) {
+    this.dispatcher = new ApiDispatcher({ api: deps.api, signals: deps.signals })
+  }
 
   private get timer() {
     return this.deps.setTimer ?? defaultTimer
@@ -113,22 +119,25 @@ export class RemoteHost {
     if (frame.t === 'signal') {
       const method = frame.method as (typeof SIGNAL_METHODS)[number]
       if (link.mode !== 'control' || !SIGNAL_METHODS.includes(method) || LOCAL_SIGNALS.has(method)) return
-      this.deps.signals[method]?.(...(Array.isArray(frame.args) ? frame.args : []))
+      this.dispatcher.signal(this.session(link), method, frame.args)
       return
     }
     if (frame.t !== 'call' || typeof frame.id !== 'number') return
     const refuse = (error: string) => this.send(link, { t: 'reply', id: frame.id, ok: false, error })
     if (link.mode !== 'control') return refuse('This computer hasn’t let you take control.')
     const method = frame.method as (typeof API_METHODS)[number]
+    // Checked here as well as in the dispatcher so the other computer keeps hearing the words it always has.
     if (!API_METHODS.includes(method) || !hostAccepts(method)) return refuse('That can only be done on the computer itself.')
-    const fn = this.deps.api[method]
-    if (typeof fn !== 'function') return refuse(`Unknown method ${method}`)
     try {
-      const value = await fn(...(Array.isArray(frame.args) ? frame.args : []))
+      const value = await this.dispatcher.invoke(this.session(link), method, frame.args)
       this.send(link, { t: 'reply', id: frame.id, ok: true, value: value === undefined ? null : value })
     } catch (err) {
       refuse(err instanceof Error ? err.message : String(err))
     }
+  }
+
+  private session(link: Link) {
+    return computerSession(link.deviceId, this.deps.deviceName(link.deviceId))
   }
 
   private setMode(link: Link, mode: RemoteMode): void {

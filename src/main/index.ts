@@ -9,6 +9,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Server } from 'node:net'
 import { API_METHODS, SIGNAL_METHODS, type Api, type MainEvent, type Signals } from '../shared/types'
+import { WINDOW_SESSION } from '../shared/api'
+import { ApiDispatcher } from './api/dispatch'
 import { socketPath } from '../cli/protocol'
 import { shimPath } from './cliInstall'
 import { ensureCliToken, startCliServer, type CliHost } from './cliServer'
@@ -656,10 +658,15 @@ async function main(): Promise<void> {
   ipcMain.handle('foreman:browser-select', (event, workspaceId: string) => browserSender(event, workspaceId).selectElement(workspaceId))
   ipcMain.handle('foreman:browser-capture', (event, workspaceId: string) => browserSender(event, workspaceId).capture(workspaceId))
   const routed = core
+  // The window's own calls and signals reach the core through the dispatcher with the window's session, which holds
+  // every scope; the router decides first whether they go to another computer instead.
+  const dispatcher = new ApiDispatcher({ api, signals })
+  const windowApi = Object.fromEntries(API_METHODS.map((m) => [m, (...args: unknown[]) => dispatcher.invoke(WINDOW_SESSION, m, args)]))
+  const windowSignals = Object.fromEntries(SIGNAL_METHODS.map((m) => [m, (...args: unknown[]) => dispatcher.signal(WINDOW_SESSION, m, args)]))
   router = new RemoteRouter({
     remote: routed.remote,
-    local: api,
-    localSignals: signals,
+    local: windowApi,
+    localSignals: windowSignals,
     selfName: () => routed.devices.self().name,
     readFile: (file) => readFile(file),
     t: () => mainT(routed.settings())
@@ -670,9 +677,9 @@ async function main(): Promise<void> {
     if (!API_METHODS.includes(method)) throw new Error('Unknown API method')
     const fn = api[method]
     if (typeof fn !== 'function') throw new Error(`Unknown method ${String(method)}`)
-    // Every call from the window, by method, with how long main took to answer (`ipc.getDiff`, `ipc.gitStatus`).
-    // While the window shows another computer, most go there (remote/router.ts).
-    return perf.timed(`ipc.${method}`, () => routes.invoke(method, args))
+    // While the window shows another computer, most go there (remote/router.ts); the rest are timed by the dispatcher
+    // as `ipc.<method>`.
+    return routes.invoke(method, args)
   })
   ipcMain.on('foreman:send', (event, method: keyof Signals, args: unknown[]) => {
     if (!workspaceBrowsers.has(event.sender.id) || event.senderFrame !== event.sender.mainFrame) return
