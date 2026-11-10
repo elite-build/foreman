@@ -75,10 +75,10 @@ export function agentEnv(
   // never runs a turn as another account. An account without a folder of its own shares the default one.
   const fields = instance && takesInstances(agent) ? INSTANCE_FIELDS[agent] : undefined
   if (fields && apiKey) for (const name of [fields.keyEnv, ...fields.alsoKeys]) delete layered[name]
-  const home = fields?.homeEnv && instance?.home ? { name: fields.homeEnv, value: instance.home } : undefined
-  if (home) delete layered[home.name]
+  const home = fields?.homeEnv && instance?.home ? { names: [fields.homeEnv, ...fields.alsoHomeEnv], value: instance.home } : undefined
+  if (home) for (const name of home.names) delete layered[name]
   Object.assign(env, layered)
-  if (home) env[home.name] = home.value
+  if (home) for (const name of home.names) env[name] = home.value
   // `codex exec` reads either name.
   if (agent === 'codex' && apiKey && env.CODEX_API_KEY) env.OPENAI_API_KEY = env.CODEX_API_KEY
   return { ...env, ...extra }

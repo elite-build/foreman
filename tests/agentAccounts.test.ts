@@ -27,8 +27,10 @@ const keyed: AgentInstance = { id: 'ai-keyed001', agent: 'claude', label: 'Keyed
 
 describe('a turn’s environment on an account', () => {
   it('points the agent at the account’s config folder, over one set in Settings → Environment', () => {
-    const env = agentEnv('claude', settings(), { CLAUDE_CONFIG_DIR: '/everyone' }, {}, {}, {}, work)
+    const env = agentEnv('claude', settings(), { CLAUDE_CONFIG_DIR: '/everyone', CLAUDE_SECURESTORAGE_CONFIG_DIR: '/everyone' }, {}, {}, {}, work)
     expect(env.CLAUDE_CONFIG_DIR).toBe('/accounts/claude-work')
+    // Claude Code's secure storage follows the folder too, or every account would share one login.
+    expect(env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe('/accounts/claude-work')
     expect(agentEnv('codex', settings(), {}, {}, {}, {}, { ...work, agent: 'codex', home: '/accounts/codex-work' }).CODEX_HOME).toBe('/accounts/codex-work')
     // Without a folder of its own it shares the default one, as the default account does.
     expect(agentEnv('claude', settings(), { CLAUDE_CONFIG_DIR: '/everyone' }, {}, {}, {}, keyed).CLAUDE_CONFIG_DIR).toBe('/everyone')

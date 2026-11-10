@@ -36,6 +36,8 @@ export const DEFAULT_MOVE_RULE: MoveRule = 'never'
 export interface InstanceFields {
   // The variable that points the agent at its config folder, or null when it has none.
   homeEnv: 'CLAUDE_CONFIG_DIR' | 'CODEX_HOME' | null
+  // Others that would keep its sign-in somewhere else, set to the same folder (Claude Code's secure storage).
+  alsoHomeEnv: string[]
   // The default config folder, relative to the home directory.
   defaultHome: string | null
   path: boolean
@@ -49,9 +51,9 @@ export interface InstanceFields {
 
 /** What each agent's accounts can hold. Cursor's SDK takes only an API key: a Cursor account is a key. */
 export const INSTANCE_FIELDS: Record<InstanceAgent, InstanceFields> = {
-  claude: { homeEnv: 'CLAUDE_CONFIG_DIR', defaultHome: '.claude', path: true, args: true, login: true, keyEnv: 'ANTHROPIC_API_KEY', alsoKeys: ['ANTHROPIC_AUTH_TOKEN'] },
-  codex: { homeEnv: 'CODEX_HOME', defaultHome: '.codex', path: true, args: false, login: true, keyEnv: 'CODEX_API_KEY', alsoKeys: ['OPENAI_API_KEY', 'AI_GATEWAY_API_KEY'] },
-  cursor: { homeEnv: null, defaultHome: null, path: false, args: false, login: false, keyEnv: 'CURSOR_API_KEY', alsoKeys: [] }
+  claude: { homeEnv: 'CLAUDE_CONFIG_DIR', alsoHomeEnv: ['CLAUDE_SECURESTORAGE_CONFIG_DIR'], defaultHome: '.claude', path: true, args: true, login: true, keyEnv: 'ANTHROPIC_API_KEY', alsoKeys: ['ANTHROPIC_AUTH_TOKEN'] },
+  codex: { homeEnv: 'CODEX_HOME', alsoHomeEnv: [], defaultHome: '.codex', path: true, args: false, login: true, keyEnv: 'CODEX_API_KEY', alsoKeys: ['OPENAI_API_KEY', 'AI_GATEWAY_API_KEY'] },
+  cursor: { homeEnv: null, alsoHomeEnv: [], defaultHome: null, path: false, args: false, login: false, keyEnv: 'CURSOR_API_KEY', alsoKeys: [] }
 }
 
 export const INSTANCE_AGENTS = Object.keys(INSTANCE_FIELDS) as InstanceAgent[]

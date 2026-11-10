@@ -2738,7 +2738,7 @@ export class Core {
     const fields = INSTANCE_FIELDS[found.agent]
     if (!fields.login) throw new Error('Unknown command')
     const env = agentBaseEnv()
-    if (fields.homeEnv && found.home) env[fields.homeEnv] = found.home
+    if (fields.homeEnv && found.home) for (const name of [fields.homeEnv, ...fields.alsoHomeEnv]) env[name] = found.home
     const { settings } = this.store.state
     if (found.agent === 'claude') return { env, command: `${shellQuote(found.path || settings.claudeExecutablePath || bundledClaudeExecutable() || 'claude')} auth login` }
     return { env, command: `${shellQuote(found.path || settings.codexExecutablePath || 'codex')} login` }
