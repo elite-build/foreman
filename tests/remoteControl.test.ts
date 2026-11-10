@@ -459,7 +459,7 @@ describe('remote rules', () => {
     expect(localWhileViewing({ type: 'computers', view: {} as ComputersView })).toBe(true)
     expect(localWhileViewing({ type: 'browser-open', workspaceId: 'w', url: 'x' })).toBe(false)
     for (const m of ['sendMessage', 'respondApproval', 'gitAction', 'ptySpawn', 'updateSettings', 'attachData']) expect(hostAccepts(m)).toBe(true)
-    for (const m of ['quitNow', 'openPath', 'pickDirectory', 'attachFiles', 'viewComputer', 'computers', 'sttStart', 'openExternal']) expect(hostAccepts(m)).toBe(false)
+    for (const m of ['quitNow', 'openPath', 'pickDirectory', 'attachFiles', 'viewComputer', 'computers', 'sttStart', 'openExternal', 'codexSignIn', 'codexSignInCancel']) expect(hostAccepts(m)).toBe(false)
     // Keys can be set from another computer, never read back.
     for (const m of ['revealEnvVar', 'revealAgentKey', 'revealProviderKey']) expect(hostAccepts(m)).toBe(false)
     for (const m of ['setAgentKey', 'setProviderKey', 'setEnvVars']) expect(hostAccepts(m)).toBe(true)

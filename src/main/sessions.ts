@@ -847,7 +847,7 @@ export class SessionService {
   private approvalPolicy(session: Session): ApprovalPolicy {
     // A scheduled run is always Claude's auto mode, whatever the app's setting says; what auto won't approve stops the run.
     if (session.unattended) return 'auto'
-    // Codex can't ask mid-turn: "sandboxed" keeps it to the workspace, "always" lifts the sandbox.
+    // Codex: "sandboxed" keeps it to the workspace and it asks before stepping outside, "always" lifts the sandbox.
     return approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
   }
 

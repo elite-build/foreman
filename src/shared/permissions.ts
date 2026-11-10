@@ -25,9 +25,9 @@ export interface ApprovalSettings {
   autoPermissionMode: boolean
 }
 
-/** The policy a chat of this agent runs with. Codex can't ask mid-turn, so it is sandboxed or unrestricted. */
+/** The policy a chat of this agent runs with. Codex is unrestricted ("always") or sandboxed and asks before leaving the sandbox ("sandboxed"). */
 export function approvalPolicyFor(agent: AgentKind, settings: ApprovalSettings, autoAcceptEdits = false): ApprovalPolicy {
-  if (agent === 'codex') return settings.codexApprovals === 'always' ? 'never-ask' : 'ask'
+  if (agent === 'codex') return settings.codexApprovals === 'always' ? 'never-ask' : autoAcceptEdits ? 'ask-except-edits' : 'ask'
   if (!settings.requireToolApprovals) return 'never-ask'
   if (settings.autoPermissionMode) return 'auto'
   return autoAcceptEdits ? 'ask-except-edits' : 'ask'

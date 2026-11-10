@@ -299,7 +299,7 @@ describe('G1 · ACP session modes and the Plan chip', () => {
     expect(missingCapabilities('gemini', modes)).toContain('steer')
     expect(supportsPlan('gemini', modes)).toBe(true)
     expect(supportsPlan('claude')).toBe(true)
-    expect(supportsPlan('codex', modes)).toBe(false)
+    expect(supportsPlan('cursor', modes)).toBe(false)
     expect(planControl('gemini', { planMode: true, mixed: false, modes })).toBe('on')
     expect(planControl('gemini', { planMode: false, mixed: false })).toBe('hidden')
   })

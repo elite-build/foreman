@@ -14,6 +14,8 @@ import { PROVIDER_KEYS } from '../shared/providers'
 import { tailLines } from '../shared/setupLog'
 import { type AgentKeyName, type Api, type AppSnapshot, type CheckResult, type CreateWorkspaceOptions, type EnvScope, type GitlabConnection, type GitlabHostRow, type GitStatus, type HeldMessage, type IntakeFile, type MainEvent, type Occurrence, type PromptTemplate, type Repo, type Schedule, type ScheduleFingerprint, type ScheduleFingerprintView, type Settings, type Signals, type Workspace } from '../shared/types'
 import { driverFor } from './agents/registry'
+import { codexBinary } from './agents/codex'
+import { startCodexSignIn, type CodexSignIn } from './agents/codexLogin'
 import { catalogLoginCommand, executablePathFor, setAgentRuntimeDir } from './agents/catalogDrivers'
 import { onAcpModes } from './agents/acp'
 import { AgentCatalogService, LEGACY_AGENT_KEYS } from './agentCatalogService'
@@ -2654,6 +2656,29 @@ export class Core {
     return token
   }
 
+  // The ChatGPT sign-in in progress, if any: there is one at a time, and a new one replaces it.
+  private codexSignInRun: CodexSignIn | undefined
+
+  private async runCodexSignIn(): Promise<{ ok: boolean; error?: string; cancelled?: boolean }> {
+    const t = mainT(this.store.state.settings)
+    const env = this.environment.forAgent('codex')
+    const binary = codexBinary(this.store.state.settings.codexExecutablePath, env)
+    if (!binary) return { ok: false, error: t('agentSettings.codex.signInNotFound') }
+    const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+    const launchEnv = binary.pathDirs.length ? { ...env, [pathKey]: [...binary.pathDirs, env[pathKey] ?? ''].filter(Boolean).join(path.delimiter) } : env
+    this.codexSignInRun?.cancel()
+    const signIn = startCodexSignIn({ file: binary.file, cwd: os.homedir(), env: launchEnv }, (url) => this.api.openExternal(url))
+    this.codexSignInRun = signIn
+    try {
+      const result = await signIn.done
+      if (result.ok) return { ok: true }
+      if (result.cancelled) return { ok: false, cancelled: true }
+      return { ok: false, error: result.timedOut ? t('agentSettings.codex.signInTimedOut') : result.error }
+    } finally {
+      if (this.codexSignInRun === signIn) this.codexSignInRun = undefined
+    }
+  }
+
   private loginCommand(name: string): string {
     const { settings } = this.store.state
     if (name === 'claude-login' || name === 'claude-mcp' || name === 'claude-setup-token') {
@@ -2662,7 +2687,8 @@ export class Core {
       return name === 'claude-mcp' ? `${shellQuote(claude)} /mcp` : `${shellQuote(claude)} auth login`
     }
     if (name === 'gh-login') return 'gh auth login'
-    const codex = settings.codexExecutablePath || 'codex'
+    // The bundled CLI when no path is set, as status and turns use; a bare `codex` only when none is bundled.
+    const codex = codexBinary(settings.codexExecutablePath, this.environment.forAgent('codex'))?.file ?? 'codex'
     return `${shellQuote(codex)} login`
   }
 
@@ -3457,7 +3483,9 @@ export class Core {
       if (kind === 'command') {
         if (!command || !(LOGIN_COMMANDS as readonly string[]).includes(command)) throw new Error('Unknown command')
         const cwd = (workspaceId ? this.workspaces.workspace(workspaceId).path : undefined) ?? os.homedir()
-        return this.ptys.spawn(workspaceId, cwd, agentBaseEnv(), cols, rows, this.loginCommand(command))
+        // Codex's login reads CODEX_HOME like its status does, so it gets the agent's environment (Settings → Environment).
+        const env = command === 'codex-login' ? this.environment.forAgent('codex') : agentBaseEnv()
+        return this.ptys.spawn(workspaceId, cwd, env, cols, rows, this.loginCommand(command))
       }
       const ws = this.workspaces.workspace(workspaceId)
       // A frozen workspace runs no scripts or snippets (a plain shell stays the user's own).
@@ -3521,6 +3549,10 @@ export class Core {
 
     agentStatus: async (agent) => {
       return driverFor(agent).status(this.environment.forAgent(agent), executablePathFor(this.store.state.settings, agent))
+    },
+    codexSignIn: () => this.runCodexSignIn(),
+    codexSignInCancel: async () => {
+      this.codexSignInRun?.cancel()
     },
     // #22
     agentCatalog: (refresh) => this.agentCatalog.view(Boolean(refresh)),
@@ -3826,6 +3858,7 @@ export class Core {
     this.data.stop()
     this.gitBackup.stop()
     this.ptys.killAll()
+    this.codexSignInRun?.cancel()
     this.terminals.flush(true)
     await this.checks.shutdown()
     await this.spotlight.stopAll(this.store.state.repos)

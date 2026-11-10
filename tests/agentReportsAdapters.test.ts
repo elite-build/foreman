@@ -3,7 +3,7 @@
 import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claudeDriver, foremanReportTools } from '../src/main/agents/claude'
-import { codexOptions } from '../src/main/agents/codex'
+import { codexSettings } from '../src/main/agents/codex'
 import { createAcpDriver } from '../src/main/agents/acp'
 import type { AgentDriver, TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import { HostClient } from '../src/main/agentHost/client'
@@ -88,9 +88,9 @@ describe('turn identity reaches the agent process', () => {
     ])
   })
 
-  it('Codex: in the SDK client env', () => {
-    const { client } = codexOptions({ ...fakeRequest('t1', 'go'), env: { ...IDENTITY, PATH: '/bin' } } as TurnRequest)
-    expect(client.env).toMatchObject(IDENTITY)
+  it('Codex: in the app-server process env', () => {
+    const { env } = codexSettings({ ...fakeRequest('t1', 'go'), env: { ...IDENTITY, PATH: '/bin' } } as TurnRequest)
+    expect(env).toMatchObject(IDENTITY)
   })
 
   it('OpenCode and other ACP agents: in the spawned process env', async () => {

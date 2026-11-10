@@ -3724,7 +3724,7 @@ export const en = {
   'settings.account.codexApprovals': 'Codex tool approvals',
   'settings.account.codexApprovals.always': 'Full access (default)',
   'settings.account.codexApprovals.sandboxed': 'Sandboxed',
-  'settings.account.codexApprovals.helpSandboxed': 'Codex can change files in the workspace and use the network, nothing else. Its sandbox keeps git data read-only, so Codex can’t commit, push or open pull requests in this mode.',
+  'settings.account.codexApprovals.helpSandboxed': 'Codex works in a sandbox: it can change files in the workspace and use the network, and it asks you before anything outside it. Its sandbox keeps git data read-only, so Codex asks before it commits, pushes or opens pull requests.',
   'settings.account.codexApprovals.helpAlways': 'No sandbox: Codex runs commands and edits files without asking, so it can commit, push and open pull requests.',
   'settings.account.github.desc': 'How Foreman authenticates GitHub operations on this computer.',
   'settings.account.github.auth': 'GitHub authentication',
@@ -4182,7 +4182,7 @@ export const en = {
   'workspaceView.compare.label': 'Compare…',
   // ---- What a chat can do without asking (dialogs that start a chat), after "Claude Code: " ----
   'permissions.codex.always': 'tools run without approval, with no sandbox (Codex approval policy “never”)',
-  'permissions.codex.sandboxed': 'tools run without approval, limited to this workspace (Codex approval policy “never”, sandboxed)',
+  'permissions.codex.sandboxed': 'asks before leaving this workspace’s sandbox (Codex approval policy “on-request”, sandboxed)',
   'permissions.neverAsk': 'tools run without approval',
   'permissions.auto': 'tools are approved automatically by auto permission mode',
   'permissions.askExceptEdits': 'asks before running tools, except file edits',
@@ -4808,6 +4808,15 @@ export const en = {
   'agentSettings.claude.keyDesc': 'Pay per use with an Anthropic API key',
   'agentSettings.codex.loginDesc': 'Sign in with your ChatGPT account',
   'agentSettings.codex.keyDesc': 'Pay per use with an OpenAI API key',
+  // Codex's browser sign-in: the button, what it does, the waiting state, and how it can fail ({error} is the reason).
+  'agentSettings.codex.signInChatgpt': 'Sign in with ChatGPT',
+  'agentSettings.codex.signInHelp': 'Opens ChatGPT in your browser to sign in.',
+  'agentSettings.codex.signInWaiting': 'Finish signing in in your browser…',
+  'agentSettings.codex.signInError': 'Couldn’t sign in: {error}',
+  'agentSettings.codex.signInFailed': 'Sign-in didn’t finish.',
+  'agentSettings.codex.signInNotFound': 'Codex couldn’t be found. Set its path below.',
+  'agentSettings.codex.signInTimedOut': 'Sign-in timed out after 10 minutes. Try again.',
+  'agentSettings.codex.useTerminal': 'Use a terminal instead',
   // {docs} is a link whose text is agentSettings.chrome.docs.
   'agentSettings.chrome.help': 'Allow Claude Code to control your Chrome browser. To use this feature, first install the Claude Code Chrome extension. View {docs} to learn more.',
   'agentSettings.chrome.docs': 'the docs',
