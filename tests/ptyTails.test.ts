@@ -1,5 +1,5 @@
-// #127: a phone reads a workspace's terminals. Main keeps the end of each terminal's output, as plain text, from its start
-// until its tab closes, and names the workspace on its events so a phone viewing that workspace gets them.
+// #127: a phone reads a workspace's terminals. Main keeps what each terminal shows (#164: as a screen, so it reads as the
+// window's tab does), as plain text, from its start until its tab closes, and names the workspace on its events so a phone viewing that workspace gets them.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Proc = { data: (d: string) => void; exit: (e: { exitCode: number }) => void; write: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; kill: ReturnType<typeof vi.fn> }
@@ -27,7 +27,7 @@ vi.mock('node-pty', () => ({
   }
 }))
 
-import { PTY_FLUSH_MS, PtyManager, PtyTails, tailText } from '../src/main/pty'
+import { PTY_FLUSH_MS, PtyManager, PtyTails } from '../src/main/pty'
 
 beforeEach(() => {
   fake.procs.length = 0
@@ -35,34 +35,49 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
-describe('tailText', () => {
-  it('reads raw output as plain lines: no colours or cursor codes, a progress bar as drawn last', () => {
-    expect(tailText('\x1b[32mok\x1b[0m 3 passed\r\nbuilding 10%\rbuilding 100%\r\n', false)).toBe('ok 3 passed\nbuilding 100%')
+describe('what a terminal reads as', () => {
+  const read = (chunks: string[], cols = 80, rows = 24) => {
+    const tails = new PtyTails()
+    tails.open('t', 'w', 'shell', undefined, cols, rows)
+    for (const c of chunks) tails.push('t', c)
+    return tails.list('w')[0].text
+  }
+
+  it('drops colours and titles, and shows a progress line as drawn last', () => {
+    expect(read(['\x1b]0;~/repo\x07\x1b[32mok\x1b[0m 3 passed\r\nbuilding 10%\rbuilding 100%\r\n'])).toBe('ok 3 passed\nbuilding 100%')
+    // An escape code split between two chunks, or still arriving, never shows.
+    expect(read(['done \x1b[3', '2mok\r\n\x1b]0;tit'])).toBe('done ok')
   })
 
-  it('leaves out a first line the size limit cut into, and an escape code still arriving', () => {
-    expect(tailText('[0mhalf a line\nwhole line\n', true)).toBe('whole line')
-    expect(tailText('done\n\x1b[3', false)).toBe('done')
-    expect(tailText('done\n\x1b]0;tit', false)).toBe('done')
+  it('follows a repaint by cursor moves, as ConPTY sends, and a full-screen program', () => {
+    // Row 2, column 3 of a 3-row screen: the stream stripped of its codes would read "threeO" on the last line.
+    expect(read(['one\r\ntwo\r\nthree\x1b[2;3HO'], 80, 3)).toBe('one\ntwO\nthree')
+    // Quitting less brings back the shell, not the page it drew.
+    expect(read(['$ less log\r\n\x1b[?1049h\x1b[Hpage of the log\x1b[?1049l$ '])).toBe('$ less log\n$')
   })
 
-  it('keeps the last lines only', () => {
-    expect(tailText('a\nb\nc\nd', false, 2)).toBe('c\nd')
+  it('wraps at the tab’s width, and at its new width once resized', () => {
+    const tails = new PtyTails()
+    tails.open('t', 'w', 'shell', undefined, 4, 24)
+    tails.push('t', 'abcdefgh\r\n')
+    tails.resize('t', 6, 24)
+    tails.push('t', 'abcdefgh')
+    expect(tails.list('w')[0].text).toBe('abcd\nefgh\nabcdef\ngh')
   })
 })
 
 describe('PtyTails', () => {
   it('keeps the end of each terminal’s output, per workspace, until it is forgotten', () => {
-    const tails = new PtyTails(10)
+    const tails = new PtyTails(2)
     tails.open('t1', 'w1', 'shell')
     tails.open('t2', 'w1', 'script', 'npm run dev')
     tails.open('t3', 'w2', 'shell')
-    tails.push('t1', '0123456789\nabc')
+    tails.push('t1', 'zero\r\none\r\nabc')
     tails.push('t1', 'def')
-    tails.push('t2', 'ready\n')
+    tails.push('t2', 'ready\r\n')
     tails.push('gone', 'ignored')
     const list = tails.list('w1')
-    expect(list.map((t) => [t.id, t.kind, t.command, t.text])).toEqual([['t1', 'shell', undefined, 'abcdef'], ['t2', 'script', 'npm run dev', 'ready']])
+    expect(list.map((t) => [t.id, t.kind, t.command, t.text])).toEqual([['t1', 'shell', undefined, 'one\nabcdef'], ['t2', 'script', 'npm run dev', 'ready']])
     expect(list[0].startedAt).toMatch(/^\d{4}-/)
     expect(list[0]).not.toHaveProperty('code')
     tails.forget('t1')
@@ -73,7 +88,7 @@ describe('PtyTails', () => {
   })
 
   it('keeps an ended terminal with its exit code, and only the newest few ended ones of a workspace', () => {
-    const tails = new PtyTails(1000, 500, 2)
+    const tails = new PtyTails(500, 2)
     for (const id of ['a', 'b', 'c', 'live']) tails.open(id, 'w1', 'script', 'make')
     tails.open('other', 'w2', 'script', 'make')
     tails.ended('other', 0)

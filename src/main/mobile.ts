@@ -16,7 +16,7 @@ import { triageAll } from '../shared/triage'
 import { phoneRecent, prGlyph } from '../shared/attention'
 import { isGitlabWorkspace } from '../shared/scm'
 import { ACCESS_SCOPES, deviceSession, MOBILE_ACCESS, type MobileAccess, type MobileDevice, type MobileInfo } from '../shared/mobile'
-import type { Api, AppSnapshot, ApprovalRequest, ApprovalResponse, CheckConsentItem, MainEvent } from '../shared/types'
+import type { Api, AppSnapshot, ApprovalRequest, ApprovalResponse, CheckConsentItem, DiffSelection, MainEvent } from '../shared/types'
 import type { ApiDispatcher } from './api/dispatch'
 import { ApiSocketServer, MAX_INBOUND_BYTES, type ApiSocketDeps } from './api/socket'
 import { mainT } from './i18n'
@@ -678,14 +678,22 @@ export class MobileService {
     if (req.method === 'GET' && usage) return this.json(res, 200, await this.call(device, 'workspaceUsage', usage[1]))
     const terminals = /^\/api\/workspace\/([^/]+)\/terminals$/.exec(pathname)
     if (req.method === 'GET' && terminals) return this.json(res, 200, await this.call(device, 'terminalOutput', terminals[1]))
-    // #127: a comment on a line of the diff (its new side), sent with the next message as one written in the window is.
+    // #127: a comment on a line of the diff, sent with the next message as one written in the window is. #164: a removed
+    // line has only its old number, so it goes (side 'old', with `quote`, the line as shown) as a one-line selection on the
+    // old side, which is how the window comments on removed lines and how the agent is told which line was meant.
     const comment = /^\/api\/workspace\/([^/]+)\/comment$/.exec(pathname)
     if (req.method === 'POST' && comment) {
       const body = await this.body(req)
       const text = typeof body.body === 'string' ? body.body.trim() : ''
       if (typeof body.file !== 'string' || !body.file || body.file.length > 1000 || !Number.isInteger(body.line) || (body.line as number) < 1) throw new HttpError(400, 'Invalid request.')
+      if (body.side !== undefined && body.side !== 'new' && body.side !== 'old') throw new HttpError(400, 'Invalid request.')
+      if (body.side === 'old' && (typeof body.quote !== 'string' || body.quote.length > 10_000)) throw new HttpError(400, 'Invalid request.')
       if (!text || text.length > 10_000) throw new HttpError(400, 'Write a comment under 10,000 characters.')
-      await this.call(device, 'addComment', comment[1], body.file, body.line as number, text)
+      const line = body.line as number
+      if (body.side === 'old') {
+        const selection: DiffSelection = { action: 'comment', side: 'old', start: line, end: line, lines: [body.quote as string], scope: 'all', at: new Date().toISOString() }
+        await this.call(device, 'addComment', comment[1], body.file, line, text, selection)
+      } else await this.call(device, 'addComment', comment[1], body.file, line, text)
       return this.json(res, 200, { ok: true })
     }
     // #127: delete one of your comments still waiting to go, or resolve one the agent left.
