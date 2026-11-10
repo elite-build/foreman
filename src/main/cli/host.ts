@@ -9,6 +9,7 @@ import type { PerfReport } from '../../shared/perf'
 import type { DiagnosticsBundle } from '../../shared/diagnostics'
 import type { CallerIdentity, RecordInput } from '../agentReports'
 import type { FlowRun, FlowRunOrigin, FlowRunStart } from '../../shared/flows'
+import type { ServiceState } from '../service'
 
 export interface CliHost {
   state(): { repos: Repo[]; workspaces: Workspace[]; sessions: Session[]; settings: Settings }
@@ -74,6 +75,21 @@ export interface CliHost {
   diagnostics?(): Promise<DiagnosticsBundle>
   profile?(options: { target: 'main' | 'renderer'; seconds: number }): Promise<{ file: string; ms: number }>
   heapSnapshot?(options: { target: 'main' | 'renderer' }): Promise<{ file: string }>
+  // The background service (src/main/service.ts), for `foreman service`. Absent (tests, the demo): the commands say
+  // this Foreman can't install one.
+  service?: ServiceHost
+}
+
+export interface ServiceHost {
+  status(): Promise<ServiceState>
+  install(): Promise<ServiceState>
+  uninstall(): Promise<ServiceState>
+  // This Foreman was started by the service.
+  startedByService: boolean
+  // This copy can download and install an update by itself (main/updateInstaller.ts).
+  canUpdate(): boolean
+  // What install changes for this copy, said after installing: a development build, Linux's display. Empty when nothing.
+  notes(): string[]
 }
 
 /**

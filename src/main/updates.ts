@@ -244,6 +244,11 @@ export class UpdateCheck {
     return this.phase.state === 'ready' || this.phase.state === 'waiting'
   }
 
+  /** The downloaded update's version, unless it was skipped: what the background service installs by itself (service.ts). */
+  readyVersion(): string | undefined {
+    return this.ready() && this.found && this.found.version !== this.deps.skipped() ? this.found.version : undefined
+  }
+
   /** "Restart when agents finish" started (true) or was cancelled (false). */
   setWaiting(on: boolean): void {
     if (!this.ready()) return

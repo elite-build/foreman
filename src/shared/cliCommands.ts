@@ -169,6 +169,62 @@ which), and an option the step doesn't name is refused. A turn that ends without
 const REVIEW_DETAILS = `foreman review adds a row on Home asking the user to look at something; it starts nothing.
 Like foreman report it is for agents: see \`foreman help report\` and \`foreman help agents\`.`
 
+const SERVICE_DETAILS = `The background service starts Foreman with no window (\`--headless\`) when you log in: a launchd agent on
+macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of which needs an administrator. Schedules,
+flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
+and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
+service started installs a downloaded update by itself once nothing is running and no window is open, then starts
+again as it was (Settings → General → Updates decides whether updates download). Installing and removing never start
+or stop the Foreman running now, and both are refused from inside an agent turn. On Linux, Foreman needs a display, as
+Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.`
+
+const SERVICE_COMMANDS: CommandSpec[] = [
+  {
+    path: ['service'],
+    group: 'app',
+    summary: 'The background service: whether Foreman starts with no window when you log in',
+    usage: 'foreman service [status]',
+    args: [{ name: 'verb', help: 'status (the default)', choices: ['status'] }],
+    options: {},
+    examples: ['foreman service', 'foreman service --json'],
+    details: `${SERVICE_DETAILS}\n\nAlso: \`foreman service install\` and \`foreman service uninstall\`.`,
+    tier: 'read'
+  },
+  {
+    path: ['service', 'status'],
+    group: 'app',
+    summary: 'Whether the background service is installed, what it starts, and whether this Foreman is it',
+    usage: 'foreman service status [--json]',
+    args: [],
+    options: {},
+    examples: ['foreman service status', 'foreman service status --json'],
+    details: SERVICE_DETAILS,
+    tier: 'read'
+  },
+  {
+    path: ['service', 'install'],
+    group: 'app',
+    summary: 'Start Foreman with no window when you log in, so schedules and flows run without the app open',
+    usage: 'foreman service install [--json]',
+    args: [],
+    options: {},
+    examples: ['foreman service install'],
+    exitCodes: { 1: 'This Foreman can’t install a service (macOS running it from a disk image, the demo), or the system refused' },
+    details: `Installing again replaces the service, so it starts the copy of Foreman that ran the command.\n\n${SERVICE_DETAILS}`,
+    tier: 'admin'
+  },
+  {
+    path: ['service', 'uninstall'],
+    group: 'app',
+    summary: 'Stop starting Foreman when you log in; the Foreman running now keeps running',
+    usage: 'foreman service uninstall [--json]',
+    args: [],
+    options: {},
+    examples: ['foreman service uninstall'],
+    tier: 'admin'
+  }
+]
+
 export const COMMANDS: CommandSpec[] = [
   {
     path: ['run'],
@@ -484,6 +540,7 @@ export const COMMANDS: CommandSpec[] = [
     details: 'macOS links /usr/local/bin/foreman and may ask for your password. Linux falls back to ~/.local/bin when /usr/local/bin is not writable. Windows adds the launcher’s folder to your user PATH.',
     tier: 'admin'
   },
+  ...SERVICE_COMMANDS,
   {
     path: ['completion'],
     group: 'app',

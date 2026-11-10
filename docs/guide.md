@@ -165,18 +165,27 @@ A browser on another computer can show the whole Foreman window, not just the ph
 
 ## Running without a window
 
-Foreman can run with no window open, so agents, schedules, flows, the `foreman` command, phones, browsers and paired computers keep working while the desktop stays clear. There are two ways:
+Foreman can run with no window open, so agents, schedules, flows, the `foreman` command, phones, browsers and paired computers keep working while the desktop stays clear. There are three ways:
 
 - **Keep running without a window:** turn it on in **Settings → Data & devices → Devices** (`foreman settings set devices.keep-running on`). Closing the last window then leaves Foreman running instead of quitting it. macOS apps already keep running when their windows close; the setting also keeps Foreman's menu-bar icon up there.
 - **Start it headless:** start Foreman with `--headless` and it opens no window at all.
   - macOS: `open -a Foreman --args --headless`
   - Windows (the installer's default folder; use yours if you chose another): `"%LOCALAPPDATA%\Programs\Foreman\Foreman.exe" --headless` from Command Prompt, or `& "$env:LOCALAPPDATA\Programs\Foreman\Foreman.exe" --headless` from PowerShell.
+- **As a background service:** run `foreman service install` once, and Foreman starts headless every time you log in, so schedules and flows run without anyone opening the app. See [Starting with your login](#starting-with-your-login).
 
 Either way the tray icon (the menu-bar icon on macOS) stays up, even with **Settings → General → Tray icon** off, because it is how you get back: **Show Foreman** or **Open Home** opens the window, as do starting Foreman again, a `foreman://` link and `foreman run --open`. A phone, a browser or another computer can do everything but what needs the window itself, such as file pickers. To stop Foreman, choose **Quit Foreman** from the tray; if agents, checks or run scripts are still going, the window opens to ask first, as Quit always does.
 
 With no screen to approve a sign-in on, approve it from a terminal: `foreman phone link` (with `--browser` for a browser) makes the link, and `foreman phone approve <code>` approves the code the device shows (see [Mobile access](#mobile-access)). `--headless` doesn't turn on phone access by itself; `foreman phone link` turns on the connection it uses.
 
 On Linux, which Foreman does not support officially, `--headless` still starts Electron, and Electron needs a display server: a machine without one needs a virtual one such as Xvfb.
+
+### Starting with your login
+
+`foreman service install` registers the Foreman that runs it to start with no window whenever you log in: a launchd agent on macOS (`~/Library/LaunchAgents/dev.foreman.app.service.plist`), a Task Scheduler task named **Foreman** on Windows, and a systemd user unit on Linux (`~/.config/systemd/user/foreman.service`). None of them needs an administrator. Foreman must be running to install it (open it once, or start it with `--headless`), and installing doesn't start or stop anything: it takes effect at the next login. `foreman service` says whether it is installed, what it starts, and whether the running Foreman is the one it started; `foreman service uninstall` removes it and leaves the running Foreman alone. Run `foreman service install` again after moving Foreman to another folder; `foreman service` says when the service starts a different copy.
+
+The service's Foreman works like any headless Foreman: the tray icon opens the window, closing the window leaves it running, and **Quit Foreman** stops it until the next login. launchd and systemd start it again if it crashes. It also updates itself: when **Settings → General → Updates** downloads a new version (the default), the service's Foreman installs it once no agents, checks or run scripts are going and no window is open, then starts again in the background. With a window open, the update card asks as usual, and Foreman still comes back as the service's after the restart. A schedule due during the minute or so of the restart is missed, as it always is while Foreman isn't running.
+
+On macOS, open Foreman from the Applications folder before installing: an app opened from the disk image runs from a temporary copy. On Linux, the unit takes the display the running Foreman has, or runs it under `xvfb-run` when there is none; `loginctl enable-linger` lets systemd start it at boot with nobody logged in.
 
 ## Controlling another computer
 
