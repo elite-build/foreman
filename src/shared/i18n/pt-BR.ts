@@ -3326,6 +3326,7 @@ export const ptBR: Catalogue = {
   'phone.checkCode': 'Confira se o mesmo código aparece em {device}.',
   'phone.deny': 'Negar',
   'phone.pairPhone': 'Parear celular',
+  'phone.signInBrowser': 'Entrar no navegador',
   'phone.scan': 'Escaneie com a câmera do celular',
   'phone.expires': 'O código expira em dois minutos. Depois confirme o código correspondente nas duas telas.',
   'phone.setupPrivate': 'Configurar acesso privado',

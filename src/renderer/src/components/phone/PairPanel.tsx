@@ -84,7 +84,7 @@ export function PairPanel({ info, onInfo, compact }: { info: MobileInfo | null; 
                   {t('phone.deny')}
                 </Button>
                 <Button size="sm" variant="primary" onClick={() => void approve(true)}>
-                  {t('phone.pairPhone')}
+                  {info.pending.kind === 'browser' ? t('phone.signInBrowser') : t('phone.pairPhone')}
                 </Button>
               </div>
             </>

@@ -48,6 +48,14 @@ describe('PairPanel', () => {
     expect(fakeApi.mobileApprovePairing).toHaveBeenLastCalledWith('p1', true, 'read')
   })
 
+  it('says the browser is signed in, not paired, when a browser asks', async () => {
+    const user = userEvent.setup()
+    render(<PairPanel info={{ ...info, pending: { ...info.pending!, name: 'Chrome on Mac', kind: 'browser' } }} onInfo={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Pair phone' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Sign in browser' }))
+    expect(fakeApi.mobileApprovePairing).toHaveBeenLastCalledWith('p1', true, 'operate')
+  })
+
   it('lists each paired device with its kind and access, a record without scopes as Operate', () => {
     render(<PairPanel info={info} onInfo={vi.fn()} />)
     const rows = within(screen.getByRole('list', { name: 'Paired phones' })).getAllByRole('listitem')

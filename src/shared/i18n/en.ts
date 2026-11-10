@@ -3766,6 +3766,7 @@ export const en = {
   'phone.checkCode': 'Check that the same code shows on {device}.',
   'phone.deny': 'Deny',
   'phone.pairPhone': 'Pair phone',
+  'phone.signInBrowser': 'Sign in browser',
   'phone.scan': 'Scan with your phone’s camera',
   'phone.expires': 'The code expires after two minutes. Then confirm the matching code on both screens.',
   'phone.setupPrivate': 'Set up private access',

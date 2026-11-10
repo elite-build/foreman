@@ -26,14 +26,16 @@ const state = {
   drafts: {}, notes: {}, answers: {}, others: {}, picks: {}, replying: new Set(), fullPlans: new Set(),
   openTools: new Set(), openFiles: new Set(), limit: 120,
   error: '', pairingId: sessionStorage.getItem('pairingId'), pairCode: sessionStorage.getItem('pairCode'),
-  lastKey: '', busy: false, recent: null
+  lastKey: '', busy: false, recent: null,
+  // What this phone may do (GET /api/session, then each welcome), the live connection's status, and why it signed out.
+  scopes: null, live: null, signedOut: '', archiving: null
 }
 
 async function request(method, path, body) {
   const response = await fetch(path, { method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
   let value
   try { value = await response.json() } catch { value = {} }
-  if (!response.ok) throw new Error(value.error || 'Foreman could not complete the request.')
+  if (!response.ok) throw Object.assign(new Error(value.error || 'Foreman could not complete the request.'), { status: response.status, code: value.code })
   return value
 }
 let toastTimer
@@ -43,7 +45,15 @@ function toast(text) {
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => toastEl.classList.remove('on'), 2400)
 }
-function fail(err) { state.error = err.message || String(err); render() }
+// A call this phone's access doesn't allow: the server's own words, as a toast rather than an error on the page.
+function fail(err) {
+  if (err.code === 'refused') return toast(err.message)
+  state.error = err.message || String(err)
+  render()
+}
+// A phone approved to watch sees everything and is offered nothing that would change it; operate and above, everything.
+const canAct = () => !state.scopes || state.scopes.includes('operate') || state.scopes.includes('admin')
+const WATCH_ONLY = '<p class="hint watch">This phone can watch. Approve it again with more access to act.</p>'
 
 // ---------- model helpers ----------
 const ws = () => state.model?.workspaces.find((w) => w.id === state.wsId)
@@ -97,7 +107,13 @@ function statusLine(w, s, approvals) {
 }
 
 // ---------- rendering ----------
-function banner() { return state.error ? '<div class="banner err" role="alert">' + safe(state.error) + '</div>' : '' }
+// The thin line under the header while the live connection is down; hidden while it is live (or still connecting).
+const LIVE_TEXT = { reconnecting: 'Reconnecting…', off: 'Phone access is off', outdated: 'Foreman was updated. Reload this page.' }
+function liveLine() {
+  const text = state.model ? LIVE_TEXT[state.live] || '' : ''
+  return '<div id="live" class="liveline" role="status"' + (text ? '' : ' hidden') + '>' + safe(text) + '</div>'
+}
+function banner() { return liveLine() + (state.error ? '<div class="banner err" role="alert">' + safe(state.error) + '</div>' : '') }
 function screen(view) {
   return '<div class="view">' + (view.top ? '<header class="top">' + view.top + banner() + '</header>' : banner()) +
     '<main id="scroller">' + view.body + '</main>' + (view.foot ? '<footer class="foot">' + view.foot + '</footer>' : '') + '</div>' + (view.over || '')
@@ -119,6 +135,7 @@ function render() {
   placeScroll(key === state.lastKey, top, atBottom)
   state.lastKey = key
   sizeDraft()
+  syncView()
 }
 function placeScroll(same, top, atBottom) {
   const sc = document.getElementById('scroller')
@@ -138,6 +155,7 @@ function paint() {
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 90
   sc.innerHTML = current().body
   placeScroll(true, top, atBottom)
+  syncView()
 }
 
 // ---------- list ----------
@@ -200,7 +218,7 @@ function listView() {
     '<label class="search">' + icon('search', 'sm') + '<input id="search" type="search" placeholder="Search workspaces" autocomplete="off" value="' + safe(state.query) + '"></label>' +
     '<div class="filters">' + chip('all', 'All') + chip('need', 'Needs you' + (need ? ' · ' + need : '')) + chip('working', 'Working' + (working ? ' · ' + working : '')) + chip('recent', 'Recent') +
     (m.repos.length > 1 ? m.repos.map((r) => chip('repo:' + r.id, safe(r.name))).join('') : '') + '</div>'
-  return { top, body: listBody(), over: '<button class="fab" data-action="sheet:new">' + icon('plus') + 'New</button>' + sheetHtml() }
+  return { top, body: listBody(), over: (canAct() ? '<button class="fab" data-action="sheet:new">' + icon('plus') + 'New</button>' : '') + sheetHtml() }
 }
 
 // ---------- thread ----------
@@ -225,10 +243,10 @@ function limitPart(i, s) {
   if (!i.limit || !s) return ''
   const armed = s.limitResume && s.limitResume.turnId === i.turnId ? s.limitResume : null
   if (armed && armed.missed) return '<div class="sys err">Missed ' + hhmm(Date.parse(armed.resetAt)) + '. Resume or dismiss it in Foreman.</div>'
-  if (armed) return '<div class="sys">Resumes at ' + hhmm(Date.parse(armed.at)) + ' · sends “' + safe(armed.text) + '” once <button class="linkish" data-action="unresume:' + safe(i.turnId) + '">Cancel</button></div>'
+  if (armed) return '<div class="sys">Resumes at ' + hhmm(Date.parse(armed.at)) + ' · sends “' + safe(armed.text) + '” once' + (canAct() ? ' <button class="linkish" data-action="unresume:' + safe(i.turnId) + '">Cancel</button>' : '') + '</div>'
   const at = i.limit.resetAt ? Date.parse(i.limit.resetAt) : NaN
   if (s.agent !== 'claude' || !i.limit.source || !(at > Date.now())) return '<div class="sys">Reset time unknown</div>'
-  const latest = s.lastTurn && s.lastTurn.turnId === i.turnId && s.status !== 'running' && !s.queued
+  const latest = canAct() && s.lastTurn && s.lastTurn.turnId === i.turnId && s.status !== 'running' && !s.queued
   const from = i.limit.from === 'event' ? 'from Claude’s rate-limit event' : 'from Claude: “…' + safe(i.limit.source) + '”'
   return '<div class="sys">' + (latest ? '<button class="linkish" data-action="resume-at:' + safe(i.turnId) + '">Resume at ' + hhmm(at) + '</button>' : 'Resets ' + hhmm(at)) + ' · ' + from + '</div>'
 }
@@ -258,10 +276,15 @@ function chatHtml(s) {
   const approvals = state.model.approvals.filter((a) => a.sessionId === s.id)
   if (s.status === 'running' && !approvals.length) out += '<div class="typing" aria-label="Agent is working"><i></i><i></i><i></i></div>'
   out += approvals.map(requestHtml).join('')
-  if (!items.length && !approvals.length && s.status !== 'running') out = '<div class="empty"><b>New chat</b>Send a message to start ' + safe(agentName(s.agent)) + '.</div>'
+  if (!items.length && !approvals.length && s.status !== 'running') out = '<div class="empty"><b>New chat</b>' + (canAct() ? 'Send a message to start ' + safe(agentName(s.agent)) + '.' : 'Nothing has been said here yet.') + '</div>'
   return '<div class="msgs">' + out + '</div>'
 }
+// Watching: the request as it stands, without its answers (the action row is each card's last part).
 function requestHtml(a) {
+  const html = requestCard(a)
+  return canAct() ? html : html.slice(0, html.indexOf('<div class="acts">')) + '</div>'
+}
+function requestCard(a) {
   const id = safe(a.id)
   const replying = state.replying.has(a.id)
   const note = '<textarea class="note" data-note="' + id + '" placeholder="' + (a.kind === 'plan' ? 'What should change in the plan?' : 'Tell the agent what to do instead…') + '">' + safe(state.notes[a.id] || '') + '</textarea>'
@@ -285,7 +308,7 @@ function requestHtml(a) {
     // A flow's gate: what it shows, a note for Send back, and Stop · Send back · Continue.
     const gateNote = '<textarea class="note" data-note="' + id + '" placeholder="Send back with a note…">' + safe(state.notes[a.id] || '') + '</textarea>'
     return '<div class="req"><div class="rh">' + icon('chat', 'sm') + safe(a.flowName) + ' · ' + safe(a.step) + '</div><div class="rb">' +
-      '<p class="why">' + safe(a.ask) + '</p>' + a.show.map((x) => x.kind === 'file' ? '<p class="why"><b>' + safe(x.path || '') + '</b></p><pre class="file">' + safe(x.summary) + '</pre>' : '<p class="why">' + safe(x.summary) + '</p>').join('') + gateNote + '</div>' +
+      '<p class="why">' + safe(a.ask) + '</p>' + a.show.map((x) => x.kind === 'file' ? '<p class="why"><b>' + safe(x.path || '') + '</b></p><pre class="file">' + safe(x.summary) + '</pre>' : '<p class="why">' + safe(x.summary) + '</p>').join('') + (canAct() ? gateNote : '') + '</div>' +
       '<div class="acts"><button class="no" data-action="gstop:' + id + '">Stop</button><button class="alt" data-action="gback:' + id + '">Send back</button><button class="yes" data-action="gcont:' + id + '">Continue</button></div></div>'
   }
   if (a.kind === 'pick') {
@@ -334,9 +357,10 @@ function checksHtml() {
   if (!c) return '<div class="empty">Loading checks…</div>'
   if (!c.configured && !c.rows.length) return '<div class="empty"><b>No checks configured</b>Add checks for this repository in Foreman on your computer.</div>'
   const mark = (r) => r.result?.status === 'running' || (c.running && !r.result) ? ['run', 'clock'] : r.result?.status === 'passed' ? ['ok', 'check'] : r.result ? ['bad', 'x'] : ['', 'minus']
-  return '<div class="pad">' + (state.checkConsent ? '<div class="consent"><p>Approve these check commands?</p><pre class="cmd">' + safe(state.checkConsent.map((x) => x.name + ': ' + x.command).join('\n')) + '</pre><button class="btn pri" data-action="approve-checks">Approve and run</button></div>' : '') +
+  const run = !canAct() ? (c.running ? '<p class="hint">Checks are running…</p>' : '') : '<button class="btn dark" data-action="run-checks"' + (c.running ? ' disabled' : '') + '>' + (c.running ? 'Checks are running…' : 'Run checks') + '</button>'
+  return '<div class="pad">' + (state.checkConsent && canAct() ? '<div class="consent"><p>Approve these check commands?</p><pre class="cmd">' + safe(state.checkConsent.map((x) => x.name + ': ' + x.command).join('\n')) + '</pre><button class="btn pri" data-action="approve-checks">Approve and run</button></div>' : '') +
     '<div class="card">' + c.rows.map((r) => { const [cls, ic] = mark(r); return '<div class="ck"><span class="st ' + cls + '">' + icon(ic, 'sm') + '</span><span class="nm"><b>' + safe(r.name) + '</b><small>' + safe(r.command) + '</small></span><span class="tm">' + (r.result?.durationMs ? secs(r.result.durationMs) : r.stale && r.result ? 'stale' : r.result ? '' : 'not run') + '</span></div>' }).join('') + '</div>' +
-    '<button class="btn dark" data-action="run-checks"' + (c.running ? ' disabled' : '') + '>' + (c.running ? 'Checks are running…' : 'Run checks') + '</button></div>'
+    run + '</div>'
 }
 function prHtml() {
   const g = state.git
@@ -378,18 +402,18 @@ function threadView() {
       const draft = state.drafts[s.id] || ''
       const running = s.status === 'running'
       body += chatHtml(s)
-      foot = (s.queued ? '<p class="hint">' + s.queued + ' message' + (s.queued === 1 ? '' : 's') + ' queued for the next turn</p>' : '') +
+      foot = (s.queued ? '<p class="hint">' + s.queued + ' message' + (s.queued === 1 ? '' : 's') + ' queued for the next turn</p>' : '') + (!canAct() ? WATCH_ONLY :
         '<div class="cmp"><textarea id="draft" rows="1" placeholder="Message ' + safe(agentName(s.agent)) + '" enterkeyhint="send">' + safe(draft) + '</textarea>' +
         '<button class="round send" data-action="send" aria-label="Send"' + (running && !draft.trim() ? ' hidden' : '') + '>' + icon('up') + '</button>' +
-        '<button class="round stop" data-action="stop" aria-label="Stop the agent"' + (running && !draft.trim() ? '' : ' hidden') + '><i></i></button></div>'
-    } else body += '<div class="empty"><b>No chat yet</b><button class="btn pri" style="margin-top:14px" data-action="new-chat">Start a chat</button></div>'
+        '<button class="round stop" data-action="stop" aria-label="Stop the agent"' + (running && !draft.trim() ? '' : ' hidden') + '><i></i></button></div>')
+    } else body += '<div class="empty"><b>No chat yet</b>' + (canAct() ? '<button class="btn pri" style="margin-top:14px" data-action="new-chat">Start a chat</button>' : '') + '</div>'
   } else body += state.tab === 'changes' ? diffHtml() : state.tab === 'checks' ? checksHtml() : prHtml()
   return { top, body, foot, over: sheetHtml() }
 }
 
 // ---------- sheets ----------
 function sheetHtml() {
-  if (!state.sheet) return ''
+  if (!state.sheet || (state.sheet === 'new' && !canAct())) return ''
   let inner = ''
   if (state.sheet === 'new') {
     const repos = state.model.repos
@@ -407,11 +431,13 @@ function sheetHtml() {
     const waiting = new Set(state.model.approvals.map((a) => a.sessionId))
     inner = '<h3>' + safe(w?.name || 'Workspace') + ' <button data-action="close">Done</button></h3><p class="sub mono">' + safe(w?.branch || '') + '</p><div class="menu">' +
       (sessions.length > 1 ? '<div class="grp">Chats</div>' + sessions.map((s) => '<button data-action="session:' + safe(s.id) + '">' + icon('chat') + '<span>' + safe(s.title || agentName(s.agent) + ' · ' + s.model) + '</span><span class="meta">' + (waiting.has(s.id) ? 'needs you' : s.status === 'running' ? 'working' : s.waitingForSlot ? 'queued' : '') + '</span>' + (s.id === state.sessionId ? icon('check', 'on') : '') + '</button>').join('') + '<div class="grp">Actions</div>' : '') +
-      '<button data-action="new-chat">' + icon('plus') + 'New chat</button><button data-action="refresh">' + icon('refresh') + 'Refresh</button><button class="danger" data-action="archive">' + icon('archive') + 'Archive workspace</button></div>'
+      (canAct() ? '<button data-action="new-chat">' + icon('plus') + 'New chat</button>' : '') + '<button data-action="refresh">' + icon('refresh') + 'Refresh</button>' +
+      (canAct() ? '<button class="danger" data-action="archive">' + icon('archive') + 'Archive workspace</button>' : '') + '</div>'
   } else if (state.sheet === 'device') {
     const https = location.protocol === 'https:'
     inner = '<h3>This phone <button data-action="close">Done</button></h3><div class="menu">' +
       '<div class="kv" style="border:0"><span>Connection</span><b>' + (https ? 'Private HTTPS' : 'Same Wi-Fi') + '</b></div>' +
+      (state.scopes ? '<div class="kv" style="border:0"><span>Access</span><b>' + (state.scopes.includes('admin') ? 'Full control' : canAct() ? 'Operate' : 'Watch') + '</b></div>' : '') +
       (https ? '<button data-action="enable-push">' + icon('bell') + 'Enable phone alerts</button>' : '<p class="sub">Same-Wi-Fi access works only while you are nearby, and cannot send alerts. Pair through the private HTTPS address for alerts and access away from home.</p>') +
       '<p class="sub" style="margin-top:12px">To unpair, revoke this phone from the phone button in Foreman on your computer.</p></div>'
   }
@@ -425,7 +451,8 @@ function pairView() {
     '<div class="wait"><span class="typing"><i></i><i></i><i></i></span>Waiting for approval · expires in 2 minutes</div></div>' }
 }
 function unpairedView() {
-  return { body: '<div class="pair"><div class="logo">F</div><h1>Pair this phone</h1><p>Control your Foreman agents from here.</p>' +
+  return { body: '<div class="pair"><div class="logo">F</div><h1>Pair this phone</h1>' +
+    (state.signedOut ? '<p class="banner info" role="status">' + safe(state.signedOut) + '</p>' : '<p>Control your Foreman agents from here.</p>') +
     '<div class="steps"><div><b>1</b>Open Foreman on your computer.</div><div><b>2</b>Click the phone button at the top of the sidebar.</div><div><b>3</b>Scan the QR code with this phone’s camera.</div></div>' +
     '<button class="btn dark" data-action="retry">I’ve paired, try again</button></div>' }
 }
@@ -436,9 +463,26 @@ async function refresh() {
     state.model = await request('GET', '/api/state')
     state.error = ''
   } catch (err) {
-    if (err.message.includes('not paired')) state.model = null
+    if (err.status === 401 || err.message.includes('not paired')) {
+      // Revoked while the socket was down, or the cookie expired: nothing live is left to keep.
+      stopLive()
+      state.model = null
+      state.scopes = null
+    }
     state.error = err.message
   }
+}
+// What this phone may do. The welcome says it again on every connection; this covers the first render.
+async function loadSession() {
+  try { state.scopes = (await request('GET', '/api/session')).scopes } catch {}
+}
+// Paired (just now, or on an earlier visit): the model, the access, then the live connection.
+async function signedIn() {
+  await refresh()
+  if (!state.model) return
+  state.signedOut = ''
+  await loadSession()
+  startLive()
 }
 async function loadTab() {
   if (state.view !== 'thread' || !state.wsId) return
@@ -446,7 +490,8 @@ async function loadTab() {
   try {
     if (state.tab === 'chat' && state.sessionId) {
       const id = state.sessionId
-      const chat = await request('GET', '/api/chat/' + encodeURIComponent(id))
+      // `live`: with the reply still being written, so chat-append has the streaming item to continue.
+      const chat = await request('GET', '/api/chat/' + encodeURIComponent(id) + '?live=1')
       if (id === state.sessionId) { state.chat = chat; state.chatFor = id }
     }
     if (state.tab === 'changes') state.diff = await request('GET', wsPath + '/diff')
@@ -488,7 +533,7 @@ async function pollPair() {
   if (!state.pairingId) return
   try {
     const p = await request('GET', '/api/pair/status?id=' + encodeURIComponent(state.pairingId))
-    if (p.state === 'approved') { clearPairing(); await refresh(); render(); return }
+    if (p.state === 'approved') { clearPairing(); await signedIn(); render(); return }
     if (p.state === 'denied') throw new Error('Pairing was denied on the computer.')
     setTimeout(pollPair, 1800)
   } catch (err) { clearPairing(); fail(err) }
@@ -546,6 +591,117 @@ async function send() {
   } finally { state.busy = false }
 }
 
+// ---------- live ----------
+// Foreman's events replace the old 4-second poll. A poll every 30 seconds stands in only while the socket is down.
+let live = null, viewed, fallback = null, roundTimer = null, roundRunning = false
+const due = { refresh: false, tab: false, paint: false }
+const tabWanted = () => state.view === 'thread' && (state.tab === 'chat' || (state.tab === 'checks' && state.checks?.running))
+const ARCHIVE_STEP = { stop: 'stopping agents', checkpoint: 'saving changes', diff: 'saving the diff', script: 'running the archive script', docker: 'removing containers', remove: 'removing the folder', sandbox: 'stopping the sandbox' }
+
+function startLive() {
+  if (live || !state.model || !window.ForemanLive) return
+  viewed = undefined
+  live = window.ForemanLive.connect({
+    url: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/ws',
+    client: { kind: 'phone', name: /iPhone|iPad|Android/i.exec(navigator.userAgent)?.[0] || 'Phone' },
+    onStatus: liveStatus,
+    // Whatever happened while the socket was down is in a fresh state and chat.
+    onWelcome: (welcome) => { state.scopes = welcome.session.scopes; soon({ refresh: true, tab: true }) },
+    onEvent: liveEvent
+  })
+  syncView()
+}
+function stopLive() {
+  if (live) live.close()
+  live = null
+  state.live = null
+  clearInterval(fallback)
+  fallback = null
+}
+function liveStatus(status) {
+  state.live = status
+  if (status === 'revoked') {
+    stopLive()
+    Object.assign(state, { model: null, scopes: null, view: 'list', wsId: null, sessionId: null, sheet: null, error: '', signedOut: 'This phone was signed out. Pair it again to use Foreman here.' })
+    return render()
+  }
+  if (status === 'live') { clearInterval(fallback); fallback = null }
+  else if (!fallback) fallback = setInterval(poll, 30000)
+  // In place, so a status change never takes focus from the composer.
+  const line = document.getElementById('live')
+  const text = LIVE_TEXT[status] || ''
+  if (line) { line.textContent = text; line.hidden = !text }
+}
+async function poll() {
+  if (state.pairingId || !state.model || document.hidden) return
+  await refresh()
+  if (state.view === 'list' && state.filter === 'recent') await loadRecent()
+  if (tabWanted()) await loadTab()
+  paint()
+}
+// One round of reloads per 150 ms however many events ask for one; one asked for while a round runs follows it.
+function soon(what) {
+  for (const k of Object.keys(what)) if (what[k]) due[k] = true
+  if (!roundTimer && !roundRunning) roundTimer = setTimeout(round, 150)
+}
+async function round() {
+  roundTimer = null
+  roundRunning = true
+  const again = due.refresh, tab = due.tab
+  due.refresh = due.tab = due.paint = false
+  try {
+    if (again) {
+      await refresh()
+      if (state.view === 'list' && state.filter === 'recent') await loadRecent()
+    }
+    if ((tab || again) && tabWanted()) await loadTab()
+    paint()
+  } finally {
+    roundRunning = false
+    if (due.refresh || due.tab || due.paint) roundTimer = setTimeout(round, 150)
+  }
+}
+function liveEvent(event) {
+  const t = event.type
+  if (t === 'state' || t === 'approval' || t === 'approval-resolved' || t === 'notify' || t === 'attention-history') return soon({ refresh: true })
+  if (t === 'archive-progress') return archiveStep(event)
+  // The rest belong to the open chat; before its first load there is nothing to put them in (the load brings them).
+  if (event.sessionId !== state.sessionId || state.view !== 'thread' || state.tab !== 'chat' || state.chatFor !== state.sessionId) return
+  // Whole items go in as they are, so the transcript follows without fetching the chat again.
+  if (t === 'chat-reset') { state.chat = event.items; soon({ paint: true }) }
+  else if (t === 'chat-item') { putItem(event.item); soon({ paint: true }) }
+  else if (t === 'chat-append' && appendTo(event)) soon({ paint: true })
+}
+function putItem(item) {
+  for (let i = state.chat.length - 1; i >= 0; i--) if (state.chat[i].id === item.id) { state.chat[i] = item; return }
+  state.chat.push(item)
+}
+// shared/chatAppend.ts: an append continues a streaming reply holding exactly `from` characters. One that doesn't line
+// up (missed, or the chat loaded mid-stream) is skipped; the whole item, resent every 2 s and once saved, puts it right.
+function appendTo(e) {
+  for (let i = state.chat.length - 1; i >= 0; i--) {
+    const item = state.chat[i]
+    if (item.id !== e.itemId) continue
+    if ((item.kind !== 'assistant' && item.kind !== 'thinking') || item.streaming !== true || item.text.length !== e.from) return false
+    state.chat[i] = { ...item, text: item.text + e.text }
+    return true
+  }
+  return false
+}
+// The steps of an archive this phone started, or of the workspace it shows.
+function archiveStep(e) {
+  if (e.workspaceId !== state.archiving && !(state.view === 'thread' && state.wsId === e.workspaceId)) return
+  const step = e.progress.status === 'running' && ARCHIVE_STEP[e.progress.step]
+  if (step) toast('Archiving: ' + step + '…')
+}
+// The socket is sent the open chat's items and nothing of the others.
+function syncView() {
+  const id = state.model && state.view === 'thread' && state.tab === 'chat' ? state.sessionId : null
+  if (!live || id === viewed) return
+  viewed = id
+  live.setView(id ? { sessionId: id } : {})
+}
+
 // ---------- events ----------
 root.addEventListener('input', (event) => {
   const el = event.target
@@ -578,7 +734,7 @@ root.addEventListener('click', async (event) => {
     return a
   }
   try {
-    if (name === 'retry') { await refresh(); return render() }
+    if (name === 'retry') { await signedIn(); return render() }
     if (name === 'filter') { state.filter = arg; render(); if (arg === 'recent') { await loadRecent(); render() } return }
     if (name === 'open') { const a = state.model.approvals.find((x) => state.model.sessions.some((s) => s.id === x.sessionId && s.workspaceId === arg)); return openThread(arg, a?.sessionId || null) }
     if (name === 'back') { if (history.state?.thread) history.back(); else backToList(); return }
@@ -676,7 +832,8 @@ root.addEventListener('click', async (event) => {
     if (name === 'refresh') { state.sheet = null; await refresh(); await loadTab(); return render() }
     if (name === 'archive') {
       if (!confirm('Archive this workspace? The branch is kept.')) return
-      await request('POST', '/api/workspace/' + encodeURIComponent(state.wsId) + '/archive', {})
+      state.archiving = state.wsId
+      try { await request('POST', '/api/workspace/' + encodeURIComponent(state.wsId) + '/archive', {}) } finally { state.archiving = null }
       toast('Archived')
       await refresh()
       if (history.state?.thread) history.back()
@@ -703,14 +860,7 @@ window.addEventListener('popstate', () => { if (state.view === 'thread') backToL
   const secret = new URLSearchParams(location.search).get('pair')
   if (secret) await startPairing(secret)
   else if (state.pairingId) { render(); pollPair() }
-  else { await refresh(); render() }
-  setInterval(async () => {
-    if (state.pairingId || !state.model || document.hidden) return
-    await refresh()
-    if (state.view === 'list' && state.filter === 'recent') await loadRecent()
-    if (state.view === 'thread' && (state.tab === 'chat' || (state.tab === 'checks' && state.checks?.running))) await loadTab()
-    paint()
-  }, 4000)
+  else { await signedIn(); render() }
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden || state.pairingId || !state.model) return
     await refresh(); await loadTab(); paint()

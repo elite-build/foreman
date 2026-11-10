@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import path from 'node:path'
+import vm from 'node:vm'
 import webpush from 'web-push'
 import { WebSocket } from 'ws'
 import { ApiDispatcher } from '../src/main/api/dispatch'
@@ -94,6 +97,10 @@ describe('paired mobile access', () => {
     const base = `http://127.0.0.1:${info.port}`
     expect(info.port).toBeGreaterThan(0)
     expect((await fetch(base + '/api/state')).status).toBe(401)
+    // The page may open its socket: same origin, named as wss: too for WebKit that doesn't read 'self' as covering it.
+    const page = await fetch(base + '/')
+    expect(page.headers.get('content-security-policy')).toContain("connect-src 'self' wss://foreman.example.ts.net;")
+    expect((await fetch(base + '/live.js')).headers.get('content-type')).toBe('text/javascript; charset=utf-8')
 
     const pairing = await service.startPairing()
     const token = new URL(pairing.pairing!.url).searchParams.get('pair')
@@ -201,7 +208,9 @@ describe('paired mobile access', () => {
     const info = await service.configureLan(true, '127.0.0.1')
     const origin = `http://127.0.0.1:${info.lan.port}`
     expect(info.lan.enabled).toBe(true)
-    expect((await fetch(origin + '/')).status).toBe(200)
+    const lanPage = await fetch(origin + '/')
+    expect(lanPage.status).toBe(200)
+    expect(lanPage.headers.get('content-security-policy')).toContain(`connect-src 'self' ws://127.0.0.1:${info.lan.port};`)
     const wrongHost = await new Promise<number>((resolve, reject) => {
       const req = httpRequest(origin + '/api/state', { headers: { Host: 'other.example' } }, (res) => { res.resume(); resolve(res.statusCode ?? 0) })
       req.on('error', reject)
@@ -299,6 +308,11 @@ describe('paired mobile access', () => {
     expect(state.mobileDevices[0]).toMatchObject({ name: 'Watcher', kind: 'phone', scopes: ['read'] })
     expect((await fetch(base + '/api/state', { headers: { Cookie: watcher.cookie } })).status).toBe(200)
     expect((await fetch(base + '/api/chat/chat-1', { headers: { Cookie: watcher.cookie } })).status).toBe(200)
+    // The page asks what it may do, and a phone that may only watch is told so (the route itself is a read).
+    const watching = await fetch(base + '/api/session', { headers: { Cookie: watcher.cookie } })
+    expect(watching.status).toBe(200)
+    expect(await watching.json()).toEqual({ id: state.mobileDevices[0].id, name: 'Watcher', kind: 'phone', scopes: ['read'] })
+    expect((await fetch(base + '/api/session')).status).toBe(401)
     const refused = await send(watcher.cookie)
     expect(refused.status).toBe(403)
     expect(await refused.json()).toEqual({ error: 'This phone can watch but not operate. Approve it again with more access.', code: 'refused' })
@@ -309,6 +323,7 @@ describe('paired mobile access', () => {
     // No access named: Operate, as every phone could before.
     const operator = await pair({ name: 'Operator' })
     expect(state.mobileDevices[1]).toMatchObject({ kind: 'phone', scopes: ['read', 'operate'] })
+    expect(await (await fetch(base + '/api/session', { headers: { Cookie: operator.cookie } })).json()).toMatchObject({ name: 'Operator', scopes: ['read', 'operate'] })
     expect((await send(operator.cookie)).status).toBe(200)
     // A browser says so, and anything else is not a kind.
     expect((await pair({ name: 'Chrome', kind: 'browser' }, 'admin')).kind).toBe('browser')
@@ -348,5 +363,72 @@ describe('paired mobile access', () => {
     // Quitting says goodbye to the rest.
     await service.close()
     expect(await bearer.next()).toEqual({ t: 'bye', reason: 'shutdown' })
+  })
+
+  it('serves the phone page’s own live.js a welcome, its calls and the broadcasts of the chat it views', async () => {
+    const credentials = new Map<string, string>()
+    const state = { settings: { mobileEnabled: false, mobileUrl: '' }, mobileDevices: [] as MobileDevice[] }
+    const store = { state, save: vi.fn() } as unknown as Store
+    const secrets = {
+      appSecret: (key: string) => credentials.get(key),
+      setAppSecret: (key: string, value: string | null) => value === null ? credentials.delete(key) : credentials.set(key, value)
+    } as unknown as SecretStore
+    const getChat = vi.fn(async (_id: string, live?: boolean) => [{ id: 'i1', kind: 'assistant', text: live ? 'Writ' : '', streaming: true }])
+    const snapshot = { repos: [], workspaces: [], sessions: [], settings: { ...state.settings, promptTemplates: [] } } as unknown as AppSnapshot
+    const serve = serving({ getChat } as unknown as Api)
+    const service = new MobileService({
+      store, secrets, ...serve, snapshot: () => snapshot, approvals: () => [], consentNeeded: () => [],
+      appPath: process.cwd(), onChanged: vi.fn(), onEnabledChange: vi.fn()
+    }, 0)
+    services.push(service)
+    const origin = 'https://foreman.example.ts.net'
+    const base = `http://127.0.0.1:${(await service.configure(true, origin)).port}`
+    const token = new URL((await service.startPairing()).pairing!.url).searchParams.get('pair')
+    const started = await fetch(base + '/api/pair/start', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, name: 'iPhone' }) })
+    const { id } = await started.json() as { id: string }
+    service.approve(id, true)
+    const cookie = (await fetch(base + '/api/pair/status?id=' + id)).headers.get('set-cookie')!.split(';')[0]
+    // The page's chat route can include the reply being written, which chat-append then continues.
+    expect(await (await fetch(base + '/api/chat/chat-1?live=1', { headers: { Cookie: cookie } })).json()).toEqual([expect.objectContaining({ text: 'Writ' })])
+    expect(getChat).toHaveBeenLastCalledWith('chat-1', true)
+
+    // live.js as the page loads it, with `ws` as its WebSocket; a browser sends the page's cookie and origin itself.
+    const window: Record<string, unknown> = {}
+    vm.runInNewContext(readFileSync(path.join(process.cwd(), 'resources/mobile/live.js'), 'utf8'), { window })
+    class PageSocket extends WebSocket {
+      constructor(url: string) {
+        super(url, { headers: { Cookie: cookie, Origin: origin } })
+        sockets.push(this)
+      }
+    }
+    type Live = { setView(view: unknown): void; call(method: string, args: unknown[]): Promise<unknown>; close(): void }
+    const statuses: string[] = []
+    const events: MainEvent[] = []
+    let scopes: string[] = []
+    const live = (window.ForemanLive as { connect(options: Record<string, unknown>): Live }).connect({
+      url: base.replace('http:', 'ws:') + '/api/ws', WebSocket: PageSocket, setTimeout, clearTimeout, document: null,
+      client: { kind: 'phone', name: 'iPhone' },
+      onStatus: (s: string) => statuses.push(s),
+      onWelcome: (w: { session: { scopes: string[] } }) => { scopes = w.session.scopes },
+      onEvent: (event: MainEvent) => events.push(event)
+    })
+    await vi.waitFor(() => expect(statuses).toEqual(['connecting', 'live']))
+    expect(scopes).toEqual(['read', 'operate'])
+    expect(await live.call('getChat', ['chat-1', true])).toEqual([expect.objectContaining({ id: 'i1' })])
+
+    serve.emit({ type: 'state', snapshot })
+    await vi.waitFor(() => expect(events).toEqual([{ type: 'state', snapshot }]))
+    // The chat it views, and no other's. A call after the view frame is answered after the server read it.
+    live.setView({ sessionId: 'chat-1' })
+    await live.call('getChat', ['chat-1'])
+    serve.emit({ type: 'chat-append', sessionId: 'chat-2', itemId: 'x', from: 0, text: 'other' })
+    serve.emit({ type: 'chat-append', sessionId: 'chat-1', itemId: 'i1', from: 4, text: 'ing' })
+    await vi.waitFor(() => expect(events).toHaveLength(2))
+    expect(events[1]).toEqual({ type: 'chat-append', sessionId: 'chat-1', itemId: 'i1', from: 4, text: 'ing' })
+
+    // Revoked on the desktop: the page hears it and stops.
+    service.revoke(state.mobileDevices[0].id)
+    await vi.waitFor(() => expect(statuses.at(-1)).toBe('revoked'))
+    live.close()
   })
 })

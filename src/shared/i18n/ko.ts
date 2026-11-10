@@ -3326,6 +3326,7 @@ export const ko: Catalogue = {
   'phone.checkCode': '{device}에 같은 코드가 표시되는지 확인하세요.',
   'phone.deny': '거부',
   'phone.pairPhone': '휴대폰 페어링',
+  'phone.signInBrowser': '브라우저 로그인',
   'phone.scan': '휴대폰 카메라로 스캔하세요',
   'phone.expires': '코드는 2분 후에 만료됩니다. 그런 다음 두 화면에서 일치하는 코드를 확인하세요.',
   'phone.setupPrivate': '비공개 접근 셋업',

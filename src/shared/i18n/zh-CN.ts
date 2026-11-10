@@ -3326,6 +3326,7 @@ export const zhCN: Catalogue = {
   'phone.checkCode': '请确认 {device} 上显示的是相同的代码。',
   'phone.deny': '拒绝',
   'phone.pairPhone': '配对手机',
+  'phone.signInBrowser': '登录浏览器',
   'phone.scan': '用手机相机扫描',
   'phone.expires': '代码将在两分钟后过期。之后请在两个屏幕上确认相同的代码。',
   'phone.setupPrivate': '配置私有访问',

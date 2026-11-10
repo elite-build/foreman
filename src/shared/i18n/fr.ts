@@ -3326,6 +3326,7 @@ export const fr: Catalogue = {
   'phone.checkCode': 'Vérifiez que le même code s’affiche sur {device}.',
   'phone.deny': 'Refuser',
   'phone.pairPhone': 'Associer un téléphone',
+  'phone.signInBrowser': 'Connecter le navigateur',
   'phone.scan': 'Scannez avec l’appareil photo de votre téléphone',
   'phone.expires': 'Le code expire au bout de deux minutes. Confirmez ensuite le code identique sur les deux écrans.',
   'phone.setupPrivate': 'Configurer l’accès privé',

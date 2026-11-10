@@ -319,12 +319,19 @@ export class MobileService {
     }))
   }
 
-  private headers(res: ServerResponse): void {
+  private headers(res: ServerResponse, mode?: Mode): void {
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Referrer-Policy', 'no-referrer')
     res.setHeader('X-Frame-Options', 'DENY')
-    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'")
+    // Current browsers let 'self' cover the page's own ws: and wss: origin; older WebKit needs the socket's origin named.
+    const socket = mode ? ` ${this.socketOrigin(mode)}` : ''
+    res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'${socket}; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'`)
+  }
+  /** Where the page opens /api/ws: the private HTTPS address as wss:, or the same-Wi-Fi listener as ws:. */
+  private socketOrigin(mode: Mode): string {
+    const settings = this.deps.store.state.settings
+    return mode === 'private' ? settings.mobileUrl.replace(/^https:/, 'wss:') : `ws://${settings.mobileLanAddress}:${this.boundLanPort}`
   }
   private json(res: ServerResponse, status: number, value: unknown): void {
     if (res.headersSent) return
@@ -373,10 +380,10 @@ export class MobileService {
     const expected = mode === 'private' ? this.deps.store.state.settings.mobileUrl : `http://${this.deps.store.state.settings.mobileLanAddress}:${this.boundLanPort}`
     if (!origin || origin !== expected) throw new HttpError(403, 'Wrong origin.')
   }
-  private async staticFile(res: ServerResponse, name: string, mime: string): Promise<void> {
+  private async staticFile(res: ServerResponse, name: string, mime: string, mode: Mode): Promise<void> {
     const file = path.join(this.deps.appPath, 'resources', 'mobile', name)
     const data = await readFile(file)
-    this.headers(res)
+    this.headers(res, mode)
     res.writeHead(200, { 'Content-Type': mime })
     res.end(data)
   }
@@ -451,9 +458,9 @@ export class MobileService {
     this.guardLan(req, mode)
     const url = new URL(req.url ?? '/', 'http://localhost')
     const pathname = url.pathname
-    if (req.method === 'GET' && pathname === '/') return this.staticFile(res, 'index.html', 'text/html; charset=utf-8')
-    const files: Record<string, string> = { '/app.js': 'text/javascript; charset=utf-8', '/style.css': 'text/css; charset=utf-8', '/sw.js': 'text/javascript; charset=utf-8', '/manifest.webmanifest': 'application/manifest+json', '/icon.svg': 'image/svg+xml', '/icon-192.png': 'image/png', '/icon-512.png': 'image/png' }
-    if (req.method === 'GET' && files[pathname]) return this.staticFile(res, pathname.slice(1), files[pathname])
+    if (req.method === 'GET' && pathname === '/') return this.staticFile(res, 'index.html', 'text/html; charset=utf-8', mode)
+    const files: Record<string, string> = { '/app.js': 'text/javascript; charset=utf-8', '/live.js': 'text/javascript; charset=utf-8', '/style.css': 'text/css; charset=utf-8', '/sw.js': 'text/javascript; charset=utf-8', '/manifest.webmanifest': 'application/manifest+json', '/icon.svg': 'image/svg+xml', '/icon-192.png': 'image/png', '/icon-512.png': 'image/png' }
+    if (req.method === 'GET' && files[pathname]) return this.staticFile(res, pathname.slice(1), files[pathname], mode)
     this.requireOrigin(req, mode)
     if (req.method === 'POST' && pathname === '/api/pair/start') {
       const body = await this.body(req)
@@ -483,6 +490,11 @@ export class MobileService {
     const device = this.auth(req, mode)
     if (!device) throw new HttpError(401, 'This phone is not paired.')
     if (req.method === 'GET' && pathname === '/api/state') return this.json(res, 200, this.state())
+    // Who this device signed in as and what it may do, so the page offers only that. Any paired device may ask.
+    if (req.method === 'GET' && pathname === '/api/session') {
+      const { id, name, kind, scopes } = deviceSession(device)
+      return this.json(res, 200, { id, name, kind, scopes })
+    }
     // G2: Home → Recent, for the phone. History only: reading it marks nothing seen and resolves nothing.
     if (req.method === 'GET' && pathname === '/api/recent') {
       const history = await this.call(device, 'attentionHistory')
@@ -500,7 +512,8 @@ export class MobileService {
       return this.json(res, 200, { ok: true })
     }
     const chat = /^\/api\/chat\/([^/]+)$/.exec(pathname)
-    if (req.method === 'GET' && chat) return this.json(res, 200, await this.call(device, 'getChat', chat[1]))
+    // `?live=1`: with the reply still being written, which the socket's chat-append events then continue.
+    if (req.method === 'GET' && chat) return this.json(res, 200, await this.call(device, 'getChat', chat[1], url.searchParams.get('live') === '1'))
     const send = /^\/api\/chat\/([^/]+)\/send$/.exec(pathname)
     if (req.method === 'POST' && send) {
       const body = await this.body(req)

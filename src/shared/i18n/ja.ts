@@ -3326,6 +3326,7 @@ export const ja: Catalogue = {
   'phone.checkCode': '{device} に同じコードが表示されていることを確認してください。',
   'phone.deny': '拒否',
   'phone.pairPhone': 'スマートフォンをペアリング',
+  'phone.signInBrowser': 'ブラウザーをサインイン',
   'phone.scan': 'スマートフォンのカメラでスキャン',
   'phone.expires': 'コードの有効期限は2分です。その後、両方の画面に表示される一致したコードを確認してください。',
   'phone.setupPrivate': 'プライベートアクセスを設定',

@@ -3372,6 +3372,7 @@ export const es: Catalogue = {
   'phone.checkCode': 'Comprueba que aparece el mismo código en {device}.',
   'phone.deny': 'Denegar',
   'phone.pairPhone': 'Vincular teléfono',
+  'phone.signInBrowser': 'Iniciar sesión en el navegador',
   'phone.scan': 'Escanéalo con la cámara de tu teléfono',
   'phone.expires': 'El código caduca a los dos minutos. Después, confirma el código coincidente en ambas pantallas.',
   'phone.setupPrivate': 'Configurar el acceso privado',
