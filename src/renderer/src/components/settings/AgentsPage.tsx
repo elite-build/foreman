@@ -13,6 +13,7 @@ import { AgentIcon } from '../composer/AgentPicker'
 import { RepoMcpAgentRow } from '../McpConsent'
 import { ApiKeyField, AuthCards, ConfigFileRow, ExecutablePathRow, ExternalLink, useAuthMode, type AuthOption } from './AgentAuth'
 import { AgentStatusBlock, statusView, useAgentStatus } from './AgentStatusCard'
+import { CodexSignIn } from './CodexSignIn'
 import { LoginTerminal } from './LoginTerminal'
 import { ModelVisibility } from './ModelVisibility'
 import { OpencodePanel } from './OpencodePanel'
@@ -153,13 +154,11 @@ function CodexPanel() {
           {auth.mode === 'apiKey' ? (
             <ApiKeyField agent="codex" label={t('agentCatalog.agent.keyLabel', { agent: 'OpenAI' })} keyUrl="https://platform.openai.com/api-keys" />
           ) : (
-            <LoginTerminal
-              command="codex-login"
-              commandLabel="codex login"
-              buttonLabel={view?.connected ? t('agentCatalog.agent.signInAgain') : t('agentCatalog.signin.signIn')}
-              primary={view !== null && !view.connected}
-              onDone={() => void state.refresh()}
-            />
+            <>
+              <CodexSignIn connected={view?.connected === true} onSignedIn={() => void state.refresh()} />
+              {/* Sign-in in the browser is the way in; the terminal stays for a machine where it can't open one. */}
+              <LoginTerminal command="codex-login" commandLabel="codex login" buttonLabel={t('agentSettings.codex.useTerminal')} onDone={() => void state.refresh()} />
+            </>
           )}
         </div>
       </Row>

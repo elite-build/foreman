@@ -6,7 +6,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disabledMcpTools } from '../src/main/agents/claude'
-import { codexOptions } from '../src/main/agents/codex'
+import { codexSettings } from '../src/main/agents/codex'
 import type { TurnRequest } from '../src/main/agents/types'
 import { Environment } from '../src/main/environment'
 import { accountTokenAsync, forgetAccountTokens, ghActiveAccount, ghActiveAccountAsync, githubEnv, githubEnvOrNone, GithubUnavailable, setGithubIdentities } from '../src/main/github'
@@ -190,7 +190,7 @@ describe('agents switch the user’s own same-service servers off', () => {
 
   it('Codex turns them off for the turn without touching its own config, and keeps Foreman’s servers on', () => {
     const req = { turnId: 't', prompt: '', cwd: '/w', env: {}, model: 'gpt', fastMode: false, planMode: false, approvals: 'auto', systemPromptAppend: '', mcpServers: { 'foreman-linear': { command: '/app', args: ['cli.js', 'mcp-bridge', 'linear'], env: { FOREMAN_BRIDGE_GRANT: 'g' } } }, disabledMcp: ['linear'] } as unknown as TurnRequest
-    const servers = codexOptions(req).client.config!.mcp_servers as Record<string, Record<string, unknown>>
+    const servers = codexSettings(req).config.mcp_servers as Record<string, Record<string, unknown>>
     expect(servers.linear).toEqual({ enabled: false })
     expect(servers['foreman-linear']).toMatchObject({ command: '/app', enabled: true })
   })

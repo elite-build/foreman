@@ -39,7 +39,7 @@
     "@cursor/sdk": "^1.0.37",
     "@daytonaio/sdk": "^0.226.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@openai/codex-sdk": "^0.163.0",
+    "@openai/codex": "^0.163.0",
     "@vercel/sandbox": "^3.9.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-serialize": "^0.14.0",

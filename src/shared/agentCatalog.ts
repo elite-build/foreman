@@ -134,7 +134,7 @@ export const AGENT_CATALOG: CatalogAgent[] = [
   {
     id: 'codex', name: 'Codex', monogram: 'Cx', level: 'full', binaries: ['codex'], versionArgs: ['--version'],
     auth: { login: { args: ['login'] }, apiKey: { envVar: 'CODEX_API_KEY', alsoStrip: ['AI_GATEWAY_API_KEY', 'OPENAI_BASE_URL'], keyUrl: 'https://platform.openai.com/api-keys' }, confirmed: true },
-    capabilities: FULL_CAPS({}), docsUrl: 'https://github.com/openai/codex', defaultEnabled: true
+    capabilities: FULL_CAPS({ plan: true, steer: true }), docsUrl: 'https://github.com/openai/codex', defaultEnabled: true
   },
   {
     id: 'cursor', name: 'Cursor', monogram: 'Cu', level: 'full', binaries: ['cursor-agent'], versionArgs: ['--version'],

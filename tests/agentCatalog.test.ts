@@ -126,7 +126,7 @@ describe('agent registry', () => {
 describe('capability-based controls', () => {
   it('hides Plan, steering and Restore for agents that can’t do them', () => {
     expect(agentControls('claude')).toEqual({ plan: true, steer: true, restore: true })
-    expect(agentControls('codex')).toEqual({ plan: false, steer: false, restore: true })
+    expect(agentControls('codex')).toEqual({ plan: true, steer: true, restore: true })
     expect(agentControls('gemini')).toEqual({ plan: false, steer: false, restore: false })
     expect(agentControls('qwen').restore).toBe(false)
   })

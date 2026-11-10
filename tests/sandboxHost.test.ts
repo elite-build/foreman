@@ -290,6 +290,12 @@ describe('sandbox host drivers and settings', () => {
     }
     expect(pinned('^1.8.0')).toBe('1.8.0')
   })
+
+  it('installs the Codex CLI, which the host resolves at run time (never imports), so it is not part of the bundle check', () => {
+    // Codex runs through `codex app-server`: the sandbox needs the CLI package (and its platform binary), not a JS SDK.
+    expect(SANDBOX_DEPENDENCIES).toContain('@openai/codex')
+    expect(SANDBOX_DEPENDENCIES).not.toContain('@openai/codex-sdk')
+  })
 })
 
 // Only after `npm run build`: what gets uploaded imports nothing the sandbox doesn't have.

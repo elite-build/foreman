@@ -8,7 +8,9 @@ import { builtinModules } from 'node:module'
 import path from 'node:path'
 import { dependencies } from '../../../package.json'
 
-export const SANDBOX_DEPENDENCIES = ['@agentclientprotocol/sdk', '@anthropic-ai/claude-agent-sdk', '@modelcontextprotocol/sdk', '@openai/codex-sdk', 'zod'] as const
+// `@openai/codex` is the Codex CLI (its platform binary arrives as an optional dependency): codex.ts resolves it with
+// require.resolve and runs `codex app-server`, so no bundle imports it.
+export const SANDBOX_DEPENDENCIES = ['@agentclientprotocol/sdk', '@anthropic-ai/claude-agent-sdk', '@modelcontextprotocol/sdk', '@openai/codex', 'zod'] as const
 
 /** "^1.8.0" → "1.8.0". */
 export function pinned(range: string): string {

@@ -64,7 +64,7 @@ const SHARED_COMMANDS: CommandId[] = ['clear', 'compact']
 
 const COMMAND_IDS: Record<FullAgentId, CommandId[]> = {
   claude: [...SHARED_COMMANDS, 'plan', 'fastOpus', 'mcpStatus'],
-  codex: [...SHARED_COMMANDS, 'fast', 'repoMcpStatus'],
+  codex: [...SHARED_COMMANDS, 'plan', 'fast', 'repoMcpStatus'],
   cursor: ['clear', 'repoMcpStatus'],
   opencode: ['clear', 'repoMcpStatus']
 }
@@ -99,8 +99,8 @@ export const AGENTS: Record<AgentKind, AgentInfo> = {
     kind: 'codex',
     label: 'Codex',
     effortLabel: effortAxisLabel('codex'),
-    supportsPlanMode: false,
-    supportsSteering: false,
+    supportsPlanMode: true,
+    supportsSteering: true,
     supportsReadOnly: true,
     supportsRepoMcp: repoMcpSupport('codex').supported,
     builtinCommands: builtinCommands('codex')
