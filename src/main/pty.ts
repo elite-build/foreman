@@ -3,11 +3,11 @@
 import { randomUUID } from 'node:crypto'
 import nodePty from 'node-pty'
 import type { ShellLaunch } from '../shared/shells'
-import { cleanTerminalText } from '../shared/terminalSnippet'
 import type { TerminalOutput, Workspace } from '../shared/types'
 import type { CloudLaunch, CloudPtyBackend } from './cloud/terminal'
 import { interactiveShell, scriptInTerminal, shellSnippet } from './platform'
 import { trackProcess } from './processRoots'
+import { TerminalScreen } from './terminalScreen'
 
 // `workspaceId`: the terminal's, so its events can go to a phone viewing that workspace (#127).
 export interface PtyEvents {
@@ -72,35 +72,35 @@ export class PtyOutput {
   }
 }
 
-// #127: how much of a terminal's output is kept for a phone to read, and how many ended terminals a workspace keeps.
-export const PTY_TAIL_CHARS = 64 * 1024
+// #127: how many lines of a terminal's output are kept for a phone to read, and how many ended terminals a workspace keeps.
 export const PTY_TAIL_LINES = 500
 export const PTY_ENDED_KEPT = 4
 
-type Tail = { workspaceId: string; kind: PtyKindTag; command?: string; startedAt: string; raw: string; cut: boolean; code?: number }
+type Tail = { workspaceId: string; kind: PtyKindTag; command?: string; startedAt: string; screen: TerminalScreen; code?: number }
 
 /**
- * #127: the end of each terminal's output, as it came, so a phone can read a workspace's terminals without the window.
- * A terminal is kept from its start until its tab is closed (`forget`); an ended one stays, as the window's tab does, but
- * only the newest PTY_ENDED_KEPT per workspace, since nothing closes tabs while no window is open.
+ * #127: what each terminal shows, so a phone can read a workspace's terminals without the window. #164: kept as a screen
+ * (terminalScreen.ts) rather than raw output, so a progress line, a repaint by ConPTY or a full-screen program reads as
+ * the window's tab shows it, not as the jumble its escape codes make once stripped. A terminal is kept from its start
+ * until its tab is closed (`forget`); an ended one stays, as the window's tab does, but only the newest PTY_ENDED_KEPT
+ * per workspace, since nothing closes tabs while no window is open.
  */
 export class PtyTails {
   private tails = new Map<string, Tail>()
 
-  constructor(private maxChars = PTY_TAIL_CHARS, private maxLines = PTY_TAIL_LINES, private endedKept = PTY_ENDED_KEPT) {}
+  constructor(private maxLines = PTY_TAIL_LINES, private endedKept = PTY_ENDED_KEPT) {}
 
-  open(id: string, workspaceId: string, kind: PtyKindTag, command?: string): void {
-    this.tails.set(id, { workspaceId, kind, command, startedAt: new Date().toISOString(), raw: '', cut: false })
+  open(id: string, workspaceId: string, kind: PtyKindTag, command?: string, cols = 80, rows = 24): void {
+    this.tails.set(id, { workspaceId, kind, command, startedAt: new Date().toISOString(), screen: new TerminalScreen(cols, rows, this.maxLines) })
   }
 
   push(id: string, data: string): void {
-    const tail = this.tails.get(id)
-    if (!tail) return
-    tail.raw += data
-    if (tail.raw.length > this.maxChars) {
-      tail.raw = tail.raw.slice(-this.maxChars)
-      tail.cut = true
-    }
+    this.tails.get(id)?.screen.write(data)
+  }
+
+  /** The tab's size changed: later output wraps and moves at the new width, as the window's does. */
+  resize(id: string, cols: number, rows: number): void {
+    this.tails.get(id)?.screen.resize(cols, rows)
   }
 
   ended(id: string, code: number): void {
@@ -122,21 +122,10 @@ export class PtyTails {
   /** A workspace's terminals, oldest first, each with the end of its output as plain text. */
   list(workspaceId: string): TerminalOutput[] {
     return [...this.tails].filter(([, t]) => t.workspaceId === workspaceId).map(([id, t]) => ({
-      id, kind: t.kind, ...(t.command ? { command: t.command } : {}), startedAt: t.startedAt, text: tailText(t.raw, t.cut, this.maxLines),
+      id, kind: t.kind, ...(t.command ? { command: t.command } : {}), startedAt: t.startedAt, text: t.screen.text(this.maxLines).text,
       ...(t.code !== undefined ? { code: t.code } : {})
     }))
   }
-}
-
-/**
- * Raw terminal output as lines of plain text. A first line the size limit cut into, and an escape code still arriving at
- * the end, are left out; then colours and cursor codes go, so a full-screen program's screen reads as jumbled text.
- */
-export function tailText(raw: string, cut: boolean, maxLines = PTY_TAIL_LINES): string {
-  const whole = cut ? raw.slice(raw.indexOf('\n') + 1) : raw
-  // eslint-disable-next-line no-control-regex
-  const done = whole.replace(/\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[PX^_][^\x1b]*)?$/, '')
-  return cleanTerminalText(done).split('\n').slice(-maxLines).join('\n')
 }
 
 export class PtyManager {
@@ -197,7 +186,7 @@ export class PtyManager {
     const kind: PtyKindTag = snippet ? 'snippet' : script ? 'script' : 'shell'
     this.ptys.set(id, { proc, workspaceId, kind, command: script, startedAt: new Date().toISOString(), untrack })
     this.owners.set(id, workspaceId)
-    this.tails.open(id, workspaceId, kind, script)
+    this.tails.open(id, workspaceId, kind, script, cols, rows)
     // The renderer buffers output that arrives before it listens, so this is the tab's first line.
     if (!script && shell?.notice) this.received(id,`[2m${shell.notice}[22m
 `)
@@ -221,7 +210,7 @@ export class PtyManager {
     const kind: PtyKindTag = launch.script ? (launch.snippet ? 'snippet' : 'script') : 'shell'
     // Before it opens: a sandbox can answer at once.
     this.owners.set(id, ws.id)
-    this.tails.open(id, ws.id, kind, launch.script)
+    this.tails.open(id, ws.id, kind, launch.script, cols, rows)
     let proc: PtyProcess
     try {
       proc = this.cloud.open(id, ws, Math.max(cols, 2), Math.max(rows, 2), launch, {
@@ -254,6 +243,7 @@ export class PtyManager {
   }
 
   resize(id: string, cols: number, rows: number): void {
+    this.tails.resize(id, Math.max(cols, 2), Math.max(rows, 2))
     try {
       this.ptys.get(id)?.proc.resize(Math.max(cols, 2), Math.max(rows, 2))
     } catch {

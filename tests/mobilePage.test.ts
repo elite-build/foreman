@@ -77,11 +77,13 @@ describe('the phone page (#127)', () => {
     await start()
     const mode = button('Steer')
     expect(mode.getAttribute('aria-pressed')).toBe('true')
-    expect(within(app()).getByText('1 diff comment will go with this message')).toBeTruthy()
+    // #164: a steered message doesn't take your diff comments; the next turn's first message does.
+    expect(within(app()).getByText('1 diff comment waits for the next turn, not this message')).toBeTruthy()
     // Switched for this chat, in place (the draft keeps its focus).
     fireEvent.click(mode)
     expect(mode.textContent).toBe('Queue')
     expect(mode.getAttribute('aria-pressed')).toBe('false')
+    expect(within(app()).getByText('1 diff comment will go with this message')).toBeTruthy()
     const draft = app().querySelector<HTMLTextAreaElement>('#draft')!
     expect(draft.placeholder).toBe('Queue a follow-up…')
     fireEvent.input(draft, { target: { value: 'Also update the docs' } })
@@ -115,13 +117,19 @@ describe('the phone page (#127)', () => {
     expect(within(app()).getByText('Rename this')).toBeTruthy()
     expect(within(app()).getByText('Other comments')).toBeTruthy()
     expect(within(app()).getByText('Left a TODO')).toBeTruthy()
-    // Only the new side takes a comment: line 4 as added, not the removed line 4.
-    expect(within(app()).getAllByRole('button', { name: /^Comment on line/ }).map((b) => b.getAttribute('aria-label'))).toEqual(['Comment on line 3', 'Comment on line 4'])
+    // Every line takes a comment: on its new number, and (#164) a removed line on its old one.
+    expect(within(app()).getAllByRole('button', { name: /^Comment on/ }).map((b) => b.getAttribute('aria-label'))).toEqual(['Comment on line 3', 'Comment on removed line 4', 'Comment on line 4'])
     fireEvent.click(button('Comment on line 4'))
     const box = within(app()).getByRole('textbox', { name: 'Comment on line 4' })
     fireEvent.input(box, { target: { value: 'Should be 4?' } })
     fireEvent.click(button('Add comment'))
-    await waitFor(() => expect(posted('/api/workspace/ws-1/comment')).toEqual([{ file: 'src/a.ts', line: 4, body: 'Should be 4?' }]))
+    await waitFor(() => expect(posted('/api/workspace/ws-1/comment')).toEqual([{ file: 'src/a.ts', line: 4, side: 'new', body: 'Should be 4?' }]))
+    // A removed line's comment quotes the line, so the agent knows which one was meant.
+    fireEvent.click(button('Comment on removed line 4'))
+    fireEvent.input(within(app()).getByRole('textbox', { name: 'Comment on removed line 4' }), { target: { value: 'Keep this one' } })
+    fireEvent.click(button('Add comment'))
+    await waitFor(() => expect(posted('/api/workspace/ws-1/comment')).toHaveLength(2))
+    expect(posted('/api/workspace/ws-1/comment')[1]).toEqual({ file: 'src/a.ts', line: 4, side: 'old', quote: 'const b = 2', body: 'Keep this one' })
     fireEvent.click(button('Delete'))
     fireEvent.click(button('Resolve'))
     await waitFor(() => expect([...posted('/api/comment/c-mine'), ...posted('/api/comment/c-agent')]).toEqual([{ action: 'delete' }, { action: 'resolve' }]))
