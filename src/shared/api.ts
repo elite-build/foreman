@@ -76,7 +76,8 @@ export const METHOD_SCOPES = {
   updateComment: 'operate', deleteComment: 'operate',
 
   // Terminals, schedules, flows and cloud sandboxes.
-  ptySpawn: 'operate', approveSavedCommand: 'operate',
+  // terminalOutput: what a terminal printed, as its live output is (sentToView), only to whoever can act on it.
+  ptySpawn: 'operate', approveSavedCommand: 'operate', terminalOutput: 'operate',
   saveSchedule: 'operate', approveSchedule: 'operate', pauseSchedule: 'operate', resumeSchedule: 'operate', deleteSchedule: 'operate',
   stopScheduledRun: 'operate', savePersonalFlow: 'operate', deletePersonalFlow: 'operate', savePersonalPersona: 'operate',
   deletePersonalPersona: 'operate', startFlowRun: 'operate', stopFlowRun: 'operate',
@@ -173,11 +174,12 @@ export function computerSession(deviceId: string, name: string): ApiSession {
 
 // ---- the stream ----
 
-/** What a client shows: one chat (a phone), or everything (the window, a browser). */
+/** What a client shows: one chat or one workspace's terminals (a phone), or everything (the window, a browser). */
 export type View = { all: true } | { sessionId?: string; workspaceId?: string }
 
-// always: every session. chat: the event's chat is in the view. terminal: the whole view and operate (terminal output and
-// logs are only of use to whoever can act on them). window: never (hostForwards decides; the test keeps the two in step).
+// always: every session. chat: the event's chat is in the view. terminal: operate, and the whole view or (#127, a terminal's
+// own events) the view of its workspace; terminal output and logs are only of use to whoever can act on them.
+// window: never (hostForwards decides; the test keeps the two in step).
 type Reach = 'always' | 'chat' | 'terminal' | 'window'
 
 const EVENT_REACH = {
@@ -212,7 +214,9 @@ export function sentToView(event: MainEvent, view: View, scopes: readonly Scope[
     case 'chat':
       return all || ('sessionId' in event && 'sessionId' in view && view.sessionId === event.sessionId)
     case 'terminal':
-      return all && holds(scopes, 'operate')
+      if (!holds(scopes, 'operate')) return false
+      return all || ((event.type === 'pty-data' || event.type === 'pty-exit' || event.type === 'pty-state') &&
+        event.workspaceId !== undefined && 'workspaceId' in view && view.workspaceId === event.workspaceId)
     default:
       return false
   }

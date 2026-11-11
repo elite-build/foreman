@@ -144,6 +144,21 @@ const cliInstall: Run = async (ctx) => {
   ctx.print(status, () => statusText(status))
 }
 
+/** `foreman service [status|install|uninstall]`: the app does the work and the wording (src/main/cli/service.ts). */
+const service =
+  (method: string, usage: string): Run =>
+  async (ctx) => {
+    if (ctx.args.length) throw usageError(`${usage} takes no more words.`, usage)
+    const result = await ctx.send<{ text: string }>(method)
+    ctx.print(result, () => result.text)
+  }
+
+const serviceStatus: Run = async (ctx) => {
+  if (ctx.args.length > 1 || (ctx.args[0] !== undefined && ctx.args[0] !== 'status')) throw usageError('foreman service takes no words, or just “status”.', 'foreman service [status]')
+  const result = await ctx.send<{ text: string }>('service-status')
+  ctx.print(result, () => result.text)
+}
+
 const completion: Run = async (ctx) => {
   const [shell] = ctx.args
   if (!shell) throw usageError(`Name a shell: foreman completion ${SHELLS.join('|')}`)
@@ -167,6 +182,10 @@ export const appRunners: Record<string, Run> = {
   doctor,
   'cli status': cliStatus,
   'cli install': cliInstall,
+  service: serviceStatus,
+  'service status': service('service-status', 'foreman service status'),
+  'service install': service('service-install', 'foreman service install'),
+  'service uninstall': service('service-uninstall', 'foreman service uninstall'),
   completion,
   help
 }

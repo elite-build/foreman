@@ -1056,6 +1056,20 @@ export interface DiffStat {
 // #22: 'agent' runs a Terminal agent's own CLI in the worktree (`command` is its catalog id).
 export type PtyKind = 'shell' | 'run' | 'command' | 'snippet' | 'saved' | 'agent'
 
+/**
+ * A workspace's terminal as a phone reads it (#127): what runs in it and the end of its output as plain text. Read-only;
+ * typing stays in the window. `code` is set once its process ended (the window keeps the tab until it is closed).
+ */
+export interface TerminalOutput {
+  id: string
+  kind: 'shell' | 'script' | 'snippet'
+  // A run script's or snippet's source; absent for a shell.
+  command?: string
+  startedAt: string
+  text: string
+  code?: number
+}
+
 export type ThemeSetting = 'system' | 'light' | 'dark'
 // The window's layout: one workspace with its side panel (panes), several workspaces' chats side by side (tiles), or
 // an editor's arrangement (editor): views picked from an activity bar, files in the centre, the chat beside them.
@@ -2220,10 +2234,11 @@ export type MainEvent =
   | { type: 'setup-log'; workspaceId: string; chunk: string; step?: number; runId?: string }
   // A repository's cloud base build: a chunk of its output (setup-log is per workspace; a build is per repository).
   | { type: 'cloud-build-log'; repoId: string; buildId: string; chunk: string }
-  | { type: 'pty-data'; ptyId: string; data: string }
-  | { type: 'pty-exit'; ptyId: string; code: number }
+  // `workspaceId` (#127): the terminal's, so a phone viewing that workspace gets its terminals' events and no others.
+  | { type: 'pty-data'; ptyId: string; data: string; workspaceId?: string }
+  | { type: 'pty-exit'; ptyId: string; code: number; workspaceId?: string }
   // A cloud terminal went read-only (its sandbox is asleep or unreachable; `reason` says which) or live again.
-  | { type: 'pty-state'; ptyId: string; asleep: boolean; reason?: string }
+  | { type: 'pty-state'; ptyId: string; asleep: boolean; reason?: string; workspaceId?: string }
   // sessionId is empty for notices about the workspace as a whole; `action` is what clicking it opens (agent-access:
   // Settings at Agents on this computer).
   // `kind` (O13b) says what it is, since title and body are in the user's language: a turn that finished or was
@@ -2952,6 +2967,8 @@ export interface Api {
   detectShells(): Promise<ShellDetection>
   // A workspace's terminal tabs saved before the last restart (O3); null when none were saved or restore is off.
   savedTerminals(workspaceId: string): Promise<SavedTerminalTab[] | null>
+  // #127: a workspace's open terminals with the end of their output, for a phone (which reads them and types nothing).
+  terminalOutput(workspaceId: string): Promise<TerminalOutput[]>
   // O9: a saved command `id` offered in this workspace. null: it may run now (ptySpawn kind 'saved'); otherwise the
   // approval a repo command needs first (new, or its text changed).
   savedCommandConsent(workspaceId: string, id: string): Promise<CheckConsentItem | null>
@@ -3097,7 +3114,7 @@ export const API_METHODS = [
   'agentAccessInfo', 'agentAccessConfigure', 'agentAccessApprove', 'agentAccessDeny', 'agentAccessRevoke',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',
-  'ptySpawn', 'savedTerminals', 'savedCommandConsent', 'approveSavedCommand', 'detectShells', 'agentStatus', 'codexSignIn', 'codexSignInCancel', 'reportDiagnostics', 'refreshModels',
+  'ptySpawn', 'savedTerminals', 'terminalOutput', 'savedCommandConsent', 'approveSavedCommand', 'detectShells', 'agentStatus', 'codexSignIn', 'codexSignInCancel', 'reportDiagnostics', 'refreshModels',
   'agentCatalog', 'setAgentKey', 'revealAgentKey', 'importAgentKey', 'saveAgentInstance', 'removeAgentInstance', 'agentSignInStatus', 'importProviderKey', 'revealProviderKey', 'terminalAgentRuns',
   'openPath', 'openFile', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openExternal', 'updateSettings', 'resetSettings', 'recordOnboardingMilestone',
   'attentionHistory', 'markAttentionSeen', 'refreshPullRequest',

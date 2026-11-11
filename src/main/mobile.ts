@@ -10,12 +10,13 @@ import path from 'node:path'
 import QRCode from 'qrcode'
 import webpush from 'web-push'
 import { WebSocketServer } from 'ws'
+import { AGENTS } from '../shared/agents'
 import { ApiRefused } from '../shared/api'
 import { triageAll } from '../shared/triage'
 import { phoneRecent, prGlyph } from '../shared/attention'
 import { isGitlabWorkspace } from '../shared/scm'
 import { ACCESS_SCOPES, deviceSession, MOBILE_ACCESS, type MobileAccess, type MobileDevice, type MobileInfo } from '../shared/mobile'
-import type { Api, AppSnapshot, ApprovalRequest, ApprovalResponse, CheckConsentItem, MainEvent } from '../shared/types'
+import type { Api, AppSnapshot, ApprovalRequest, ApprovalResponse, CheckConsentItem, DiffSelection, MainEvent } from '../shared/types'
 import type { ApiDispatcher } from './api/dispatch'
 import { ApiSocketServer, MAX_INBOUND_BYTES, type ApiSocketDeps } from './api/socket'
 import { mainT } from './i18n'
@@ -456,6 +457,7 @@ export class MobileService {
     const approvals = this.deps.approvals()
     const waiting = new Set(approvals.map((a) => a.sessionId))
     const rows = triageAll({ snapshot, approvals, unread: {}, unreadSessions: {} }, null)
+    const shown = new Set(rows.map((t) => t.ws.id))
     return {
       repos: snapshot.repos.map((r) => ({ id: r.id, name: r.name })),
       workspaces: rows.map((t) => {
@@ -464,9 +466,15 @@ export class MobileService {
         const stalledSince = stalledSession?.lastActivityAt ?? stalledSession?.turnStartedAt
         return { id: t.ws.id, repoId: t.ws.repoId, name: t.ws.name, branch: t.ws.branch, state: t.ws.state, bucket: stalled && t.bucket === 'working' ? 'attention' : t.bucket, label: stalled && t.bucket === 'working' ? 'Possible stall' : t.label, detail: stalled && t.bucket === 'working' ? `${stalledSession!.agent} · no activity for ${Math.floor((Date.now() - new Date(stalledSince!).getTime()) / 60_000)} min` : t.detail, sessionId: stalledSession?.id ?? t.sessionId, facts: t.facts, stalled, stalledSince, since: t.since, pr: this.prGlyph(t.ws, snapshot), checks: t.ws.checks ? { running: t.ws.checks.running, stale: t.ws.checks.stale, results: t.ws.checks.results.map((r) => ({ name: r.name, status: r.status })) } : null }
       }),
-      sessions: snapshot.sessions.filter((s) => !s.closedAt).map((s) => ({ id: s.id, workspaceId: s.workspaceId, title: s.title, agent: s.agent, model: s.model, status: s.status, waitingForSlot: s.waitingForSlot, turnStartedAt: s.turnStartedAt, lastActivityAt: s.lastActivityAt, lastTurn: s.lastTurn, queued: s.queue.length, limitResume: s.limitResume })),
+      // #127: whether a running turn takes a message now (steering), what waits in the queue, and how full the context is.
+      sessions: snapshot.sessions.filter((s) => !s.closedAt).map((s) => ({ id: s.id, workspaceId: s.workspaceId, title: s.title, agent: s.agent, model: s.model, status: s.status, waitingForSlot: s.waitingForSlot, turnStartedAt: s.turnStartedAt, lastActivityAt: s.lastActivityAt, lastTurn: s.lastTurn, queued: s.queue.length, queue: s.queue.map((q) => ({ id: q.id, text: q.text })), canSteer: AGENTS[s.agent]?.supportsSteering === true, context: s.contextUsage ? { used: s.contextUsage.used, limit: s.contextUsage.limit } : null, limitResume: s.limitResume })),
       approvals,
-      templates: snapshot.settings.promptTemplates.map((t) => ({ id: t.id, name: t.name, body: t.body }))
+      templates: snapshot.settings.promptTemplates.map((t) => ({ id: t.id, name: t.name, body: t.body })),
+      // The window's "Follow-up behavior" setting: what a message sent during a turn does unless the phone says otherwise.
+      followUpMode: snapshot.settings.followUpMode,
+      // #127: the diff comments that still do something: yours waiting for your next message, and the agent's still open.
+      comments: (snapshot.comments ?? []).filter((c) => (c.author === 'user' ? c.state === 'pending' : c.state === 'open') && shown.has(c.workspaceId))
+        .map((c) => ({ id: c.id, workspaceId: c.workspaceId, file: c.file, line: c.line, side: c.selection?.side ?? 'new', body: c.body, author: c.author, authorLabel: c.authorLabel, state: c.state }))
     }
   }
 
@@ -604,14 +612,26 @@ export class MobileService {
     if (req.method === 'POST' && send) {
       const body = await this.body(req)
       if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 100_000) throw new HttpError(400, 'Enter a message under 100,000 characters.')
-      const disposition = await this.call(device, 'sendMessage', send[1], body.text, { mode: 'queue' })
+      // #127: `steer` puts it into the running turn when the agent can take it there; otherwise it waits in the queue.
+      const disposition = await this.call(device, 'sendMessage', send[1], body.text, { mode: body.mode === 'steer' ? 'steer' : 'queue' })
       return this.json(res, 200, { disposition })
+    }
+    // #127: a queued message sent into the running turn now, or taken out of the queue.
+    const queued = /^\/api\/chat\/([^/]+)\/queued\/([^/]+)$/.exec(pathname)
+    if (req.method === 'POST' && queued) {
+      const body = await this.body(req)
+      if (body.action === 'steer') await this.call(device, 'steerQueued', queued[1], queued[2])
+      else if (body.action === 'remove') await this.call(device, 'removeQueued', queued[1], queued[2])
+      else throw new HttpError(400, 'Invalid request.')
+      return this.json(res, 200, { ok: true })
     }
     // G4 #11: tick (or untick) a usage-limit failure's "Resume at …" from the phone; the same rules as the window's card.
     const resumeAt = /^\/api\/chat\/([^/]+)\/resume-at$/.exec(pathname)
     if (req.method === 'POST' && resumeAt) {
       const body = await this.body(req)
       if (body.cancel === true) await this.call(device, 'cancelLimitResume', resumeAt[1])
+      // #127: a missed resume's "Resume now", as the window's card has it.
+      else if (body.now === true) await this.call(device, 'resumeLimitNow', resumeAt[1])
       else {
         if (typeof body.turnId !== 'string') throw new HttpError(400, 'Which turn?')
         await this.call(device, 'armLimitResume', resumeAt[1], body.turnId)
@@ -653,6 +673,43 @@ export class MobileService {
     }
     const git = /^\/api\/workspace\/([^/]+)\/git$/.exec(pathname)
     if (req.method === 'GET' && git) return this.json(res, 200, await this.call(device, 'gitStatus', git[1]))
+    // #127: what the workspace's chats used (turns, agent time, cost), and its terminals' output (operate, as their live output is).
+    const usage = /^\/api\/workspace\/([^/]+)\/usage$/.exec(pathname)
+    if (req.method === 'GET' && usage) return this.json(res, 200, await this.call(device, 'workspaceUsage', usage[1]))
+    const terminals = /^\/api\/workspace\/([^/]+)\/terminals$/.exec(pathname)
+    if (req.method === 'GET' && terminals) return this.json(res, 200, await this.call(device, 'terminalOutput', terminals[1]))
+    // #127: a comment on a line of the diff, sent with the next message as one written in the window is. #164: a removed
+    // line has only its old number, so it goes (side 'old', with `quote`, the line as shown) as a one-line selection on the
+    // old side, which is how the window comments on removed lines and how the agent is told which line was meant.
+    const comment = /^\/api\/workspace\/([^/]+)\/comment$/.exec(pathname)
+    if (req.method === 'POST' && comment) {
+      const body = await this.body(req)
+      const text = typeof body.body === 'string' ? body.body.trim() : ''
+      if (typeof body.file !== 'string' || !body.file || body.file.length > 1000 || !Number.isInteger(body.line) || (body.line as number) < 1) throw new HttpError(400, 'Invalid request.')
+      if (body.side !== undefined && body.side !== 'new' && body.side !== 'old') throw new HttpError(400, 'Invalid request.')
+      if (body.side === 'old' && (typeof body.quote !== 'string' || body.quote.length > 10_000)) throw new HttpError(400, 'Invalid request.')
+      if (!text || text.length > 10_000) throw new HttpError(400, 'Write a comment under 10,000 characters.')
+      const line = body.line as number
+      if (body.side === 'old') {
+        const selection: DiffSelection = { action: 'comment', side: 'old', start: line, end: line, lines: [body.quote as string], scope: 'all', at: new Date().toISOString() }
+        await this.call(device, 'addComment', comment[1], body.file, line, text, selection)
+      } else await this.call(device, 'addComment', comment[1], body.file, line, text)
+      return this.json(res, 200, { ok: true })
+    }
+    // #127: delete one of your comments still waiting to go, or resolve one the agent left.
+    const commentAction = /^\/api\/comment\/([^/]+)$/.exec(pathname)
+    if (req.method === 'POST' && commentAction) {
+      const body = await this.body(req)
+      const found = (this.deps.snapshot().comments ?? []).find((c) => c.id === commentAction[1])
+      if (body.action === 'delete') {
+        if (!found || found.author !== 'user' || found.state !== 'pending') throw new HttpError(409, 'This comment was already sent or removed.')
+        await this.call(device, 'deleteComment', found.id)
+      } else if (body.action === 'resolve') {
+        if (!found || found.author !== 'agent' || found.state !== 'open') throw new HttpError(409, 'This comment was already resolved.')
+        await this.call(device, 'updateComment', found.id, { state: 'resolved' })
+      } else throw new HttpError(400, 'Invalid request.')
+      return this.json(res, 200, { ok: true })
+    }
     const newChat = /^\/api\/workspace\/([^/]+)\/chat$/.exec(pathname)
     if (req.method === 'POST' && newChat) return this.json(res, 200, await this.call(device, 'createSession', newChat[1]))
     const archive = /^\/api\/workspace\/([^/]+)\/archive$/.exec(pathname)

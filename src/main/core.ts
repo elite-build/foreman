@@ -1115,15 +1115,15 @@ export class Core {
     })
     setAgentRuntimeDir(path.join(store.dir, 'agent-runtime'))
     this.ptys = new PtyManager({
-      data: (ptyId, data) => {
+      data: (ptyId, data, workspaceId) => {
         this.terminalAgents?.output(ptyId)
-        host.broadcast({ type: 'pty-data', ptyId, data })
+        host.broadcast({ type: 'pty-data', ptyId, data, ...(workspaceId ? { workspaceId } : {}) })
       },
-      exit: (ptyId, code) => {
+      exit: (ptyId, code, workspaceId) => {
         this.terminalAgents?.exited(ptyId, code)
-        host.broadcast({ type: 'pty-exit', ptyId, code })
+        host.broadcast({ type: 'pty-exit', ptyId, code, ...(workspaceId ? { workspaceId } : {}) })
       },
-      state: (ptyId, asleep, reason) => host.broadcast({ type: 'pty-state', ptyId, asleep, ...(reason ? { reason } : {}) })
+      state: (ptyId, asleep, reason, workspaceId) => host.broadcast({ type: 'pty-state', ptyId, asleep, ...(reason ? { reason } : {}), ...(workspaceId ? { workspaceId } : {}) })
     }, new CloudPtyBackend({
       // Phase 4: cloud workspaces' terminal tabs, a PTY in the sandbox.
       sandboxes: this.sandboxes,
@@ -3752,6 +3752,7 @@ export class Core {
       return detectShells(probe, custom, wslExe ? await listWslDistros(wslExe) : { distros: [] })
     },
     savedTerminals: async (workspaceId) => (this.terminalWorkspace(workspaceId) ? this.terminals.get(workspaceId) : null),
+    terminalOutput: async (workspaceId) => (this.terminalWorkspace(workspaceId) ? this.ptys.outputOf(workspaceId) : []),
 
     agentStatus: async (agent, instanceId) => {
       // #130: one of the agent's other accounts, checked with its own folder, key and binary.

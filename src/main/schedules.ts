@@ -1,4 +1,5 @@
-// Scheduled templates (R-5). A timer, not a daemon: runs happen only while Foreman is open.
+// Scheduled templates (R-5). A timer, not a daemon: runs happen only while Foreman runs, which needn't mean a window is open
+// (headless, or the background service from login: service.ts, `foreman service install`).
 // The rules, in the order they matter:
 //  - a run is recorded (and flushed to disk) before anything launches, and the next planned time moves on in the same write;
 //  - a run that is late is missed and skipped, never replayed;

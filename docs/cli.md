@@ -21,8 +21,8 @@ Settings       templates, settings, env, keys, github, gitlab, phone, agent-acce
                flow (9 commands: foreman help flow), persona list|show|add|remove, connections,
                slack rules|people|deliveries|answer|resend, linear issues, backup, git-backup
 Remote         cloud (12 commands: foreman help cloud)
-App            app info|perf|diagnostics|profile|heap, doctor, cli status|install, completion,
-               help, data, usage, attention
+App            app info|perf|diagnostics|profile|heap, doctor, cli status|install, service,
+               completion, help, data, usage, attention
 
 foreman help <command>   options, examples and exit codes       foreman help exit-codes | agents | settings-keys | environment
 Every command takes --json. Inside an agent turn, foreman report and foreman review are the commands to know.
@@ -6911,6 +6911,118 @@ Examples:
   foreman cli install
 
 macOS links /usr/local/bin/foreman and may ask for your password. Linux falls back to ~/.local/bin when /usr/local/bin is not writable. Windows adds the launcher’s folder to your user PATH.
+```
+
+### foreman service
+
+```text
+The background service: whether Foreman starts with no window when you log in
+
+Usage:
+  foreman service [status]
+
+Arguments:
+  <verb>       status (the default) (one of: status) (optional)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman service
+  foreman service --json
+
+The background service starts Foreman with no window (`--headless`) when you log in: a launchd agent on
+macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of which needs an administrator. Schedules,
+flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
+and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
+service started installs a downloaded update by itself once nothing is running and no window is open, then starts
+again as it was (Settings → General → Updates decides whether updates download). Installing and removing never start
+or stop the Foreman running now, and both are refused from inside an agent turn. On Linux, Foreman needs a display, as
+Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
+
+Also: `foreman service install` and `foreman service uninstall`.
+```
+
+### foreman service status
+
+```text
+Whether the background service is installed, what it starts, and whether this Foreman is it
+
+Usage:
+  foreman service status [--json]
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman service status
+  foreman service status --json
+
+The background service starts Foreman with no window (`--headless`) when you log in: a launchd agent on
+macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of which needs an administrator. Schedules,
+flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
+and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
+service started installs a downloaded update by itself once nothing is running and no window is open, then starts
+again as it was (Settings → General → Updates decides whether updates download). Installing and removing never start
+or stop the Foreman running now, and both are refused from inside an agent turn. On Linux, Foreman needs a display, as
+Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
+```
+
+### foreman service install
+
+```text
+Start Foreman with no window when you log in, so schedules and flows run without the app open
+
+Usage:
+  foreman service install [--json]
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman service install
+
+Exit codes:
+  1  This Foreman can’t install a service (macOS running it from a disk image, the demo), or the system refused
+  Every code: foreman help exit-codes
+
+Installing again replaces the service, so it starts the copy of Foreman that ran the command.
+
+The background service starts Foreman with no window (`--headless`) when you log in: a launchd agent on
+macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of which needs an administrator. Schedules,
+flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
+and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
+service started installs a downloaded update by itself once nothing is running and no window is open, then starts
+again as it was (Settings → General → Updates decides whether updates download). Installing and removing never start
+or stop the Foreman running now, and both are refused from inside an agent turn. On Linux, Foreman needs a display, as
+Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
+```
+
+### foreman service uninstall
+
+```text
+Stop starting Foreman when you log in; the Foreman running now keeps running
+
+Usage:
+  foreman service uninstall [--json]
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman service uninstall
 ```
 
 ### foreman completion

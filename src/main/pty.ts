@@ -3,16 +3,18 @@
 import { randomUUID } from 'node:crypto'
 import nodePty from 'node-pty'
 import type { ShellLaunch } from '../shared/shells'
-import type { Workspace } from '../shared/types'
+import type { TerminalOutput, Workspace } from '../shared/types'
 import type { CloudLaunch, CloudPtyBackend } from './cloud/terminal'
 import { interactiveShell, scriptInTerminal, shellSnippet } from './platform'
 import { trackProcess } from './processRoots'
+import { TerminalScreen } from './terminalScreen'
 
+// `workspaceId`: the terminal's, so its events can go to a phone viewing that workspace (#127).
 export interface PtyEvents {
-  data(ptyId: string, data: string): void
-  exit(ptyId: string, code: number): void
+  data(ptyId: string, data: string, workspaceId?: string): void
+  exit(ptyId: string, code: number, workspaceId?: string): void
   // A cloud terminal went read-only (its sandbox is asleep or unreachable) or live again.
-  state?(ptyId: string, asleep: boolean, reason?: string): void
+  state?(ptyId: string, asleep: boolean, reason?: string, workspaceId?: string): void
 }
 
 /** A terminal's process: node-pty's here, or a cloud PTY. */
@@ -70,16 +72,89 @@ export class PtyOutput {
   }
 }
 
+// #127: how many lines of a terminal's output are kept for a phone to read, and how many ended terminals a workspace keeps.
+export const PTY_TAIL_LINES = 500
+export const PTY_ENDED_KEPT = 4
+
+type Tail = { workspaceId: string; kind: PtyKindTag; command?: string; startedAt: string; screen: TerminalScreen; code?: number }
+
+/**
+ * #127: what each terminal shows, so a phone can read a workspace's terminals without the window. #164: kept as a screen
+ * (terminalScreen.ts) rather than raw output, so a progress line, a repaint by ConPTY or a full-screen program reads as
+ * the window's tab shows it, not as the jumble its escape codes make once stripped. A terminal is kept from its start
+ * until its tab is closed (`forget`); an ended one stays, as the window's tab does, but only the newest PTY_ENDED_KEPT
+ * per workspace, since nothing closes tabs while no window is open.
+ */
+export class PtyTails {
+  private tails = new Map<string, Tail>()
+
+  constructor(private maxLines = PTY_TAIL_LINES, private endedKept = PTY_ENDED_KEPT) {}
+
+  open(id: string, workspaceId: string, kind: PtyKindTag, command?: string, cols = 80, rows = 24): void {
+    this.tails.set(id, { workspaceId, kind, command, startedAt: new Date().toISOString(), screen: new TerminalScreen(cols, rows, this.maxLines) })
+  }
+
+  push(id: string, data: string): void {
+    this.tails.get(id)?.screen.write(data)
+  }
+
+  /** The tab's size changed: later output wraps and moves at the new width, as the window's does. */
+  resize(id: string, cols: number, rows: number): void {
+    this.tails.get(id)?.screen.resize(cols, rows)
+  }
+
+  ended(id: string, code: number): void {
+    const tail = this.tails.get(id)
+    if (!tail) return
+    tail.code = code
+    const ended = [...this.tails].filter(([, t]) => t.workspaceId === tail.workspaceId && t.code !== undefined)
+    for (const [old] of ended.slice(0, Math.max(0, ended.length - this.endedKept))) this.tails.delete(old)
+  }
+
+  forget(id: string): void {
+    this.tails.delete(id)
+  }
+
+  forgetWorkspace(workspaceId: string): void {
+    for (const [id, tail] of this.tails) if (tail.workspaceId === workspaceId) this.tails.delete(id)
+  }
+
+  /** A workspace's terminals, oldest first, each with the end of its output as plain text. */
+  list(workspaceId: string): TerminalOutput[] {
+    return [...this.tails].filter(([, t]) => t.workspaceId === workspaceId).map(([id, t]) => ({
+      id, kind: t.kind, ...(t.command ? { command: t.command } : {}), startedAt: t.startedAt, text: t.screen.text(this.maxLines).text,
+      ...(t.code !== undefined ? { code: t.code } : {})
+    }))
+  }
+}
+
 export class PtyManager {
   private ptys = new Map<string, { proc: PtyProcess; workspaceId: string; kind: PtyKindTag; command?: string; startedAt?: string; cloud?: true; untrack?: () => void }>()
   private output: PtyOutput
+  // Each terminal's workspace, kept until its exit has gone out (its last output is flushed after it leaves `ptys`).
+  private owners = new Map<string, string>()
+  private tails = new PtyTails()
 
   constructor(
     private events: PtyEvents,
     private cloud?: CloudPtyBackend,
     batching: { flushMs?: number; maxChars?: number } = {}
   ) {
-    this.output = new PtyOutput((id, data) => this.events.data(id, data), batching.flushMs, batching.maxChars)
+    this.output = new PtyOutput((id, data) => this.events.data(id, data, this.owners.get(id)), batching.flushMs, batching.maxChars)
+  }
+
+  /** Output as it arrives: kept for a phone to read, and on its way to the window in batches. */
+  private received(id: string, data: string): void {
+    this.tails.push(id, data)
+    this.output.push(id, data)
+  }
+
+  /** A terminal ended: what it printed goes out first, then its exit. */
+  private ended(id: string, code: number): void {
+    this.output.flush(id)
+    this.tails.ended(id, code)
+    this.events.exit(id, code, this.owners.get(id))
+    this.owners.delete(id)
   }
 
   /**
@@ -108,21 +183,22 @@ export class PtyManager {
     const id = randomUUID()
     // Show resource usage counts the tab's shell, and what runs in it, against its workspace.
     const untrack = trackProcess(proc.pid, workspaceId, script && !snippet ? 'script' : 'terminal')
-    this.ptys.set(id, { proc, workspaceId, kind: snippet ? 'snippet' : script ? 'script' : 'shell', command: script, startedAt: new Date().toISOString(), untrack })
+    const kind: PtyKindTag = snippet ? 'snippet' : script ? 'script' : 'shell'
+    this.ptys.set(id, { proc, workspaceId, kind, command: script, startedAt: new Date().toISOString(), untrack })
+    this.owners.set(id, workspaceId)
+    this.tails.open(id, workspaceId, kind, script, cols, rows)
     // The renderer buffers output that arrives before it listens, so this is the tab's first line.
-    if (!script && shell?.notice) this.output.push(id,`[2m${shell.notice}[22m
+    if (!script && shell?.notice) this.received(id,`[2m${shell.notice}[22m
 `)
     const typeIn = !script && shell?.input ? typeWhenQuiet(proc, shell.input) : undefined
     proc.onData((data) => {
       typeIn?.()
-      this.output.push(id, data)
+      this.received(id, data)
     })
     proc.onExit(({ exitCode }) => {
       untrack()
       this.ptys.delete(id)
-      // Everything it printed goes out before it ends.
-      this.output.flush(id)
-      this.events.exit(id, exitCode)
+      this.ended(id, exitCode)
     })
     return id
   }
@@ -131,19 +207,28 @@ export class PtyManager {
   spawnCloud(ws: Workspace, cols: number, rows: number, launch: CloudLaunch): string {
     if (!this.cloud) throw new Error('Cloud terminals aren’t available')
     const id = randomUUID()
-    const proc = this.cloud.open(id, ws, Math.max(cols, 2), Math.max(rows, 2), launch, {
-      data: (data) => this.output.push(id, data),
-      exit: (code) => {
-        this.ptys.delete(id)
-        this.output.flush(id)
-        this.events.exit(id, code)
-      },
-      state: (asleep, reason) => {
-        this.output.flush(id)
-        this.events.state?.(id, asleep, reason)
-      }
-    })
     const kind: PtyKindTag = launch.script ? (launch.snippet ? 'snippet' : 'script') : 'shell'
+    // Before it opens: a sandbox can answer at once.
+    this.owners.set(id, ws.id)
+    this.tails.open(id, ws.id, kind, launch.script, cols, rows)
+    let proc: PtyProcess
+    try {
+      proc = this.cloud.open(id, ws, Math.max(cols, 2), Math.max(rows, 2), launch, {
+        data: (data) => this.received(id, data),
+        exit: (code) => {
+          this.ptys.delete(id)
+          this.ended(id, code)
+        },
+        state: (asleep, reason) => {
+          this.output.flush(id)
+          this.events.state?.(id, asleep, reason, ws.id)
+        }
+      })
+    } catch (err) {
+      this.owners.delete(id)
+      this.tails.forget(id)
+      throw err
+    }
     this.ptys.set(id, { proc, workspaceId: ws.id, kind, command: launch.script, startedAt: new Date().toISOString(), cloud: true })
     return id
   }
@@ -158,6 +243,7 @@ export class PtyManager {
   }
 
   resize(id: string, cols: number, rows: number): void {
+    this.tails.resize(id, Math.max(cols, 2), Math.max(rows, 2))
     try {
       this.ptys.get(id)?.proc.resize(Math.max(cols, 2), Math.max(rows, 2))
     } catch {
@@ -165,7 +251,14 @@ export class PtyManager {
     }
   }
 
+  /** #127: a workspace's terminals and the end of what each printed, for a phone. */
+  outputOf(workspaceId: string): TerminalOutput[] {
+    return this.tails.list(workspaceId)
+  }
+
+  /** The window closes a tab (an ended one too) by killing it, so its output is let go here. */
   kill(id: string): void {
+    this.tails.forget(id)
     const entry = this.ptys.get(id)
     if (!entry) return
     this.ptys.delete(id)
@@ -195,6 +288,7 @@ export class PtyManager {
 
   killWorkspace(workspaceId: string): void {
     for (const [id, entry] of this.ptys) if (entry.workspaceId === workspaceId) this.kill(id)
+    this.tails.forgetWorkspace(workspaceId)
   }
 
   killAll(): void {

@@ -23,6 +23,7 @@ import { LINEAGE_METHODS } from './lineage'
 import { PERSONA_METHODS } from './personas'
 import { PHONE_METHODS } from './phone'
 import { AGENT_ACCESS_METHODS } from './agentAccess'
+import { SERVICE_METHODS } from './service'
 import { INTEGRATIONS_METHODS } from './integrations'
 import { REPO_SETTINGS_METHODS } from './repoSettings'
 import { SCHEDULES_METHODS } from './schedules'
@@ -132,6 +133,8 @@ export const METHODS: Record<string, CliMethod> = {
   ...PHONE_METHODS,
   // Agents on this computer signing in (docs/agent-access.md §9): the same tiers as the phone's.
   ...AGENT_ACCESS_METHODS,
+  // The background service that starts Foreman at login (src/main/service.ts): status in read, install and uninstall in admin.
+  ...SERVICE_METHODS,
   // Workspaces, chat tabs and approvals (plan §7).
   ...WORKSPACE_METHODS,
   ...TAB_METHODS,

@@ -28,7 +28,10 @@ const state = {
   error: '', pairingId: sessionStorage.getItem('pairingId'), pairCode: sessionStorage.getItem('pairCode'),
   lastKey: '', busy: false, recent: null,
   // What this phone may do (GET /api/session, then each welcome), the live connection's status, and why it signed out.
-  scopes: null, live: null, signedOut: '', archiving: null
+  scopes: null, live: null, signedOut: '', archiving: null,
+  // #127: queue or steer, per chat, when it differs from the computer's setting; the diff line being commented on and
+  // its draft; the workspace's terminals and the one shown; the workspace's usage, read when its menu opens.
+  sendMode: {}, commenting: null, commentDraft: '', terms: null, term: null, usage: null
 }
 
 async function request(method, path, body) {
@@ -60,6 +63,18 @@ const ws = () => state.model?.workspaces.find((w) => w.id === state.wsId)
 const repoOf = (w) => state.model.repos.find((r) => r.id === w.repoId)
 const sessionsOf = (w) => state.model.sessions.filter((s) => s.workspaceId === w.id)
 const approvalsOf = (w) => state.model.approvals.filter((a) => state.model.sessions.some((s) => s.id === a.sessionId && s.workspaceId === w.id))
+const commentsOf = (id) => (state.model.comments || []).filter((c) => c.workspaceId === id)
+// What a message sent while this chat's turn runs does: this phone's choice for the chat, else the computer's setting.
+const modeFor = (s) => s.canSteer ? state.sendMode[s.id] || state.model.followUpMode || 'queue' : 'queue'
+// #164: your pending diff comments go with the message that starts the next turn; one steered into a running turn
+// doesn't take them (Foreman adds them when a turn starts), so the note says which this message will be.
+function commentsNote(s) {
+  const n = commentsOf(s.workspaceId).filter((c) => c.author === 'user').length
+  if (!n) return ''
+  const what = n + ' diff comment' + (n === 1 ? '' : 's')
+  return s.status === 'running' && modeFor(s) === 'steer' ? what + (n === 1 ? ' waits' : ' wait') + ' for the next turn, not this message' : what + ' will go with this message'
+}
+const MODE_TITLE = { steer: 'Sends into the running turn. Tap to queue this message instead.', queue: 'Waits until this turn ends. Tap to steer this message instead.' }
 function ring(w, approvals = approvalsOf(w)) {
   if (approvals.length) return 'need'
   if (w.stalled) return 'stall'
@@ -140,8 +155,9 @@ function render() {
 function placeScroll(same, top, atBottom) {
   const sc = document.getElementById('scroller')
   if (!sc) return
-  const chat = state.view === 'thread' && state.tab === 'chat'
-  if (chat && (!same || atBottom)) sc.scrollTop = sc.scrollHeight
+  // A chat and a terminal follow what is added at the bottom while the reader is there.
+  const follow = state.view === 'thread' && (state.tab === 'chat' || state.tab === 'terminal')
+  if (follow && (!same || atBottom)) sc.scrollTop = sc.scrollHeight
   else sc.scrollTop = same ? top : 0
 }
 // Background refreshes must not steal focus from what the user is typing.
@@ -242,7 +258,9 @@ function hhmm(ms) { return new Date(ms).toLocaleTimeString([], { hour: '2-digit'
 function limitPart(i, s) {
   if (!i.limit || !s) return ''
   const armed = s.limitResume && s.limitResume.turnId === i.turnId ? s.limitResume : null
-  if (armed && armed.missed) return '<div class="sys err">Missed ' + hhmm(Date.parse(armed.resetAt)) + '. Resume or dismiss it in Foreman.</div>'
+  // #127: Resume now or Dismiss, as the window's card offers them.
+  if (armed && armed.missed) return '<div class="sys err">' + (armed.failed ? 'The resume at ' + hhmm(Date.parse(armed.resetAt)) + ' failed: ' + safe(armed.failed) : 'Missed ' + hhmm(Date.parse(armed.resetAt))) + '.' +
+    (canAct() ? ' <button class="linkish" data-action="resume-now">Resume now</button> · <button class="linkish" data-action="unresume:' + safe(i.turnId) + '">Dismiss</button>' : '') + '</div>'
   if (armed) return '<div class="sys">Resumes at ' + hhmm(Date.parse(armed.at)) + ' · sends “' + safe(armed.text) + '” once' + (canAct() ? ' <button class="linkish" data-action="unresume:' + safe(i.turnId) + '">Cancel</button>' : '') + '</div>'
   const at = i.limit.resetAt ? Date.parse(i.limit.resetAt) : NaN
   if (s.agent !== 'claude' || !i.limit.source || !(at > Date.now())) return '<div class="sys">Reset time unknown</div>'
@@ -332,26 +350,60 @@ function diffHtml() {
   if (!d) return '<div class="empty">Loading changes…</div>'
   if (!d.files.length) return '<div class="empty"><b>No changes yet</b>Nothing differs from ' + safe(d.baseRef || 'the base branch') + '.</div>'
   const add = d.files.reduce((n, f) => n + f.additions, 0), del = d.files.reduce((n, f) => n + f.deletions, 0)
+  const comments = commentsOf(state.wsId)
   const file = (f) => {
     const open = state.openFiles.has(f.path)
     const slash = f.path.lastIndexOf('/')
+    const mine = comments.filter((c) => c.file === f.path)
     let body = ''
     if (open) {
       if (f.binary) body = '<div class="cut">Binary file</div>'
       else {
         let budget = 400
+        const placed = new Set()
+        const line = (l) => {
+          // #127: a line takes a comment on its new side's number, as in the window's diff; #164: a removed line on its old one.
+          const side = l.type === 'del' ? 'old' : 'new'
+          const no = side === 'old' ? l.oldNo : l.newNo
+          const here = no == null ? [] : mine.filter((c) => (c.side === 'old' ? 'old' : 'new') === side && c.line === no)
+          here.forEach((c) => placed.add(c.id))
+          const cells = '<span class="no">' + (l.type === 'add' ? '' : l.oldNo ?? '') + '</span><span class="no">' + (l.type === 'del' ? '' : l.newNo ?? '') + '</span><span class="tx">' + (l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' ') + safe(l.text) + '</span>'
+          const label = (side === 'old' ? 'Comment on removed line ' : 'Comment on line ') + no
+          const row = no != null && canAct() ? '<button class="ln ' + l.type + '" data-action="cmt:' + safe(f.path) + '|' + side + '|' + no + '" aria-label="' + label + '">' + cells + '</button>' : '<div class="ln ' + l.type + '">' + cells + '</div>'
+          const writing = state.commenting && state.commenting.file === f.path && state.commenting.side === side && state.commenting.line === no
+          return row + here.map(commentHtml).join('') + (writing ? commentBox(label) : '')
+        }
         body = '<div class="hunks">' + f.hunks.map((h) => {
           if (budget <= 0) return ''
           const lines = h.lines.slice(0, budget)
           budget -= lines.length
-          return '<div class="hh">' + safe(h.header) + '</div>' + lines.map((l) => '<div class="ln ' + l.type + '"><span class="no">' + (l.type === 'add' ? '' : l.oldNo ?? '') + '</span><span class="no">' + (l.type === 'del' ? '' : l.newNo ?? '') + '</span><span class="tx">' + (l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' ') + safe(l.text) + '</span></div>').join('')
+          return '<div class="hh">' + safe(h.header) + '</div>' + lines.map(line).join('')
         }).join('') + (budget <= 0 ? '<div class="cut">Diff shortened. Open it on your computer for the rest.</div>' : '') + '</div>'
+        // Comments on lines this diff doesn't show (past the cut, or no longer changed), under the file.
+        const rest = mine.filter((c) => !placed.has(c.id))
+        if (rest.length) body += '<div class="cmts-rest"><div class="hh">Other comments</div>' + rest.map(commentHtml).join('') + '</div>'
       }
     }
-    return '<div class="file' + (open ? ' open' : '') + '"><button data-action="file:' + safe(f.path) + '">' + icon('chev', 'sm chev') + '<span class="p"><bdi>' + safe(f.path.slice(0, slash + 1)) + '<b>' + safe(f.path.slice(slash + 1)) + '</b></bdi></span><span class="n"><span class="a">+' + f.additions + '</span> <span class="d">−' + f.deletions + '</span></span></button>' + body + '</div>'
+    const count = mine.length ? '<span class="cn">' + icon('chat', 'sm') + mine.length + '<span class="vh"> comment' + (mine.length === 1 ? '' : 's') + '</span></span>' : ''
+    return '<div class="file' + (open ? ' open' : '') + '"><button data-action="file:' + safe(f.path) + '">' + icon('chev', 'sm chev') + '<span class="p"><bdi>' + safe(f.path.slice(0, slash + 1)) + '<b>' + safe(f.path.slice(slash + 1)) + '</b></bdi></span>' + count + '<span class="n"><span class="a">+' + f.additions + '</span> <span class="d">−' + f.deletions + '</span></span></button>' + body + '</div>'
   }
+  const pending = comments.filter((c) => c.author === 'user').length
   return '<div class="pad"><div class="sum"><span>' + d.files.length + ' file' + (d.files.length === 1 ? '' : 's') + ' vs ' + safe(d.baseRef) + '</span><span class="mono"><span class="a">+' + add + '</span> <span class="d">−' + del + '</span></span></div>' +
-    (d.truncated ? '<div class="banner info" style="margin:0 0 8px">This diff was too large to send in full.</div>' : '') + d.files.map(file).join('') + '</div>'
+    (d.truncated ? '<div class="banner info" style="margin:0 0 8px">This diff was too large to send in full.</div>' : '') +
+    (canAct() && d.files.length ? '<p class="hint">' + (pending ? pending + ' comment' + (pending === 1 ? '' : 's') + ' will go with your next message.' : 'Tap a line to comment. Comments go with your next message.') + '</p>' : '') +
+    d.files.map(file).join('') + '</div>'
+}
+// A diff comment: yours, waiting for your next message (Delete), or the agent's, open (Resolve).
+function commentHtml(c) {
+  const mine = c.author === 'user'
+  const where = c.side === 'old' ? 'removed line ' + c.line : 'line ' + c.line
+  const act = !canAct() ? '' : mine ? '<button class="linkish" data-action="cdel:' + safe(c.id) + '">Delete</button>' : '<button class="linkish" data-action="cres:' + safe(c.id) + '">Resolve</button>'
+  return '<div class="cmt' + (mine ? ' mine' : '') + '"><div class="ch"><b>' + (mine ? 'You' : safe(c.authorLabel || 'Agent')) + '</b> · ' + where + (mine ? ' · goes with your next message' : '') + '</div>' +
+    '<p>' + safe(c.body) + '</p>' + act + '</div>'
+}
+function commentBox(label) {
+  return '<div class="cmt new"><textarea data-comment placeholder="' + label + '…" aria-label="' + label + '">' + safe(state.commentDraft) + '</textarea>' +
+    '<div class="row"><button class="btn" data-action="cmt-cancel">Cancel</button><button class="btn pri" data-action="cmt-save">Add comment</button></div></div>'
 }
 function checksHtml() {
   const c = state.checks
@@ -394,7 +446,9 @@ function threadView() {
     '<span class="av md ' + ring(w, approvals) + '" style="background:' + colorFor(w.name) + '">' + initial(w.name) + '</span>' +
     '<span class="tt"><b>' + safe(w.name) + '</b><small class="' + st.cls + '">' + safe(sub) + '</small></span>' +
     '<button class="icon-btn" data-action="sheet:menu" aria-label="Workspace actions">' + icon('more') + '</button></div>' +
-    '<div class="subtabs">' + tab('chat', 'Chat') + tab('changes', 'Changes' + (state.diff?.files.length ? ' <span class="n">' + state.diff.files.length + '</span>' : '')) + tab('checks', 'Checks ' + checkMark) + tab('pr', 'PR' + (state.git?.pr ? ' <span class="n">#' + safe(state.git.pr.number) + '</span>' : '')) + '</div>'
+    '<div class="subtabs">' + tab('chat', 'Chat') + tab('changes', 'Changes' + (state.diff?.files.length ? ' <span class="n">' + state.diff.files.length + '</span>' : '')) + tab('checks', 'Checks ' + checkMark) + tab('pr', 'PR' + (state.git?.pr ? ' <span class="n">#' + safe(state.git.pr.number) + '</span>' : '')) +
+    // Terminal output goes only to a phone that may operate (docs/server.md), so a watching phone has no tab for it.
+    (canAct() ? tab('terminal', 'Terminal' + (state.terms?.length ? ' <span class="n">' + state.terms.length + '</span>' : '')) : '') + '</div>'
   const elsewhere = approvals.find((a) => a.sessionId !== state.sessionId)
   let body = elsewhere ? '<div style="padding:8px 12px 0"><button class="other-req" data-action="session:' + safe(elsewhere.sessionId) + '">' + icon('lock', 'sm') + 'Another chat in this workspace needs you' + icon('chev', 'sm') + '</button></div>' : ''
   let foot = ''
@@ -403,13 +457,47 @@ function threadView() {
       const draft = state.drafts[s.id] || ''
       const running = s.status === 'running'
       body += chatHtml(s)
-      foot = (s.queued ? '<p class="hint">' + s.queued + ' message' + (s.queued === 1 ? '' : 's') + ' queued for the next turn</p>' : '') + (!canAct() ? WATCH_ONLY :
-        '<div class="cmp"><textarea id="draft" rows="1" placeholder="Message ' + safe(agentName(s.agent)) + '" enterkeyhint="send">' + safe(draft) + '</textarea>' +
+      const note = commentsNote(s)
+      const mode = modeFor(s)
+      foot = queueHtml(s, running) + (!canAct() ? WATCH_ONLY :
+        (note ? '<p class="hint" id="comments-note">' + safe(note) + '</p>' : '') +
+        '<div class="cmp">' +
+        // #127: while a turn runs, whether this message steers it or waits for it to end (an agent that can't steer always waits).
+        (s.canSteer ? '<button class="mode' + (mode === 'steer' ? ' on' : '') + '" data-action="mode" aria-pressed="' + (mode === 'steer') + '" title="' + MODE_TITLE[mode] + '"' + (running ? '' : ' hidden') + '>' + (mode === 'steer' ? 'Steer' : 'Queue') + '</button>' : '') +
+        '<textarea id="draft" rows="1" placeholder="' + (running ? (mode === 'steer' ? 'Steer the agent…' : 'Queue a follow-up…') : 'Message ' + safe(agentName(s.agent))) + '" enterkeyhint="send">' + safe(draft) + '</textarea>' +
         '<button class="round send" data-action="send" aria-label="Send"' + (running && !draft.trim() ? ' hidden' : '') + '>' + icon('up') + '</button>' +
         '<button class="round stop" data-action="stop" aria-label="Stop the agent"' + (running && !draft.trim() ? '' : ' hidden') + '><i></i></button></div>')
     } else body += '<div class="empty"><b>No chat yet</b>' + (canAct() ? '<button class="btn pri" style="margin-top:14px" data-action="new-chat">Start a chat</button>' : '') + '</div>'
-  } else body += state.tab === 'changes' ? diffHtml() : state.tab === 'checks' ? checksHtml() : prHtml()
+  } else body += state.tab === 'changes' ? diffHtml() : state.tab === 'checks' ? checksHtml() : state.tab === 'terminal' ? termHtml() : prHtml()
   return { top, body, foot, over: sheetHtml() }
+}
+// #127: what waits for the turn to end, each sent into it now (an agent that can steer, while it runs) or deleted.
+function queueHtml(s, running) {
+  const queue = s.queue || []
+  if (!queue.length) return ''
+  const shown = queue.slice(0, 3)
+  const row = (q) => '<div class="qrow"><span class="qt">' + safe(firstLine(q.text) || q.text) + '</span>' +
+    (canAct() ? (s.canSteer && running ? '<button class="linkish" data-action="qsteer:' + safe(q.id) + '">Send now</button>' : '') + '<button class="linkish" data-action="qremove:' + safe(q.id) + '">Delete</button>' : '') + '</div>'
+  return '<div class="queue" role="group" aria-label="Queued messages"><p class="hint">Queued · sent when the agent finishes</p>' + shown.map(row).join('') +
+    (queue.length > shown.length ? '<p class="hint">and ' + (queue.length - shown.length) + ' more</p>' : '') + '</div>'
+}
+// #127: a workspace's terminals, read-only: the end of each one's output, as plain text, following it while it prints.
+function termName(t, list) {
+  if (t.kind === 'shell') return 'Terminal ' + (list.filter((x) => x.kind === 'shell').indexOf(t) + 1)
+  const line = firstLine(t.command) || (t.kind === 'snippet' ? 'Snippet' : 'Run')
+  return line.length > 32 ? line.slice(0, 31) + '…' : line
+}
+function termHtml() {
+  const list = state.terms
+  if (!list) return '<div class="empty">Loading terminals…</div>'
+  if (!list.length) return '<div class="empty"><b>No terminals open</b>Terminals opened in Foreman on your computer show here.</div>'
+  const t = list.find((x) => x.id === state.term) || list[list.length - 1]
+  state.term = t.id
+  const chips = list.length > 1 ? '<div class="filters terms">' + list.map((x) => '<button class="' + (x.id === t.id ? 'on' : '') + '" data-action="term:' + safe(x.id) + '" aria-pressed="' + (x.id === t.id) + '">' + safe(termName(x, list)) + (x.code !== undefined ? ' · ended' : '') + '</button>').join('') + '</div>' : ''
+  const status = t.code === undefined ? '<span class="chip g">Running</span>' : '<span class="chip' + (t.code ? ' r' : '') + '">Ended' + (t.code ? ' · exit ' + safe(t.code) : '') + '</span>'
+  return chips + '<div class="pad"><div class="sum"><span>' + safe(termName(t, list)) + '</span>' + status + '</div>' +
+    (t.text ? '<pre class="term">' + safe(t.text) + '</pre>' : '<div class="empty" style="padding:28px 10px">No output yet.</div>') +
+    '<p class="hint">Read-only here. Type in it in Foreman on your computer.</p></div>'
 }
 
 // ---------- sheets ----------
@@ -433,7 +521,7 @@ function sheetHtml() {
     inner = '<h3>' + safe(w?.name || 'Workspace') + ' <button data-action="close">Done</button></h3><p class="sub mono">' + safe(w?.branch || '') + '</p><div class="menu">' +
       (sessions.length > 1 ? '<div class="grp">Chats</div>' + sessions.map((s) => '<button data-action="session:' + safe(s.id) + '">' + icon('chat') + '<span>' + safe(s.title || agentName(s.agent) + ' · ' + s.model) + '</span><span class="meta">' + (waiting.has(s.id) ? 'needs you' : s.status === 'running' ? 'working' : s.waitingForSlot ? 'queued' : '') + '</span>' + (s.id === state.sessionId ? icon('check', 'on') : '') + '</button>').join('') + '<div class="grp">Actions</div>' : '') +
       (canAct() ? '<button data-action="new-chat">' + icon('plus') + 'New chat</button>' : '') + '<button data-action="refresh">' + icon('refresh') + 'Refresh</button>' +
-      (canAct() ? '<button class="danger" data-action="archive">' + icon('archive') + 'Archive workspace</button>' : '') + '</div>'
+      (canAct() ? '<button class="danger" data-action="archive">' + icon('archive') + 'Archive workspace</button>' : '') + '</div>' + usageHtml(w)
   } else if (state.sheet === 'device') {
     const https = location.protocol === 'https:'
     inner = '<h3>This phone <button data-action="close">Done</button></h3><div class="menu">' +
@@ -443,6 +531,29 @@ function sheetHtml() {
       '<p class="sub" style="margin-top:12px">To unpair, revoke this phone from the phone button in Foreman on your computer.</p></div>'
   }
   return '<div class="dim" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>' + inner + '</div>'
+}
+
+// #127: how full the open chat's context is, and what the chat and the workspace used (turns, agent time, cost).
+const tokens = (n) => n >= 1000 ? Math.round(n / 1000) + 'k' : String(n)
+function took(ms) {
+  const m = Math.round(ms / 60000)
+  return m < 1 ? secs(ms) : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min'
+}
+function spent(u) {
+  const cost = typeof u.costUsd === 'number' ? '$' + u.costUsd.toFixed(2) : u.costNote ? safe(u.costNote) : ''
+  return u.turns + ' turn' + (u.turns === 1 ? '' : 's') + ' · ' + took(u.agentMs) + (cost ? ' · ' + cost : '')
+}
+function usageHtml(w) {
+  const s = w && state.model.sessions.find((x) => x.id === state.sessionId)
+  const u = state.usage && state.usage.workspaceId === w?.id ? state.usage.value : null
+  const kv = (k, v) => '<div class="kv"><span>' + k + '</span><b>' + v + '</b></div>'
+  let rows = ''
+  if (s?.context && s.context.limit) rows += kv('Context', Math.round(s.context.used / s.context.limit * 100) + '% · ' + tokens(s.context.used) + ' of ' + tokens(s.context.limit))
+  const tab = u && s ? u.tabs[s.id] : null
+  if (tab && tab.turns) rows += kv('This chat', spent(tab))
+  if (u && u.total.turns) rows += kv('Workspace', spent(u.total) + (u.total.partial && typeof u.total.costUsd === 'number' ? ' (some chats have no cost)' : ''))
+  if (!rows) rows = state.usage ? '<p class="sub">Nothing used yet.</p>' : '<p class="sub">Loading usage…</p>'
+  return '<div class="menu usage"><div class="grp">Usage</div>' + rows + '</div>'
 }
 
 // ---------- pairing ----------
@@ -498,11 +609,24 @@ async function loadTab() {
     if (state.tab === 'changes') state.diff = await request('GET', wsPath + '/diff')
     if (state.tab === 'checks') state.checks = await request('GET', wsPath + '/checks')
     if (state.tab === 'pr') state.git = await request('GET', wsPath + '/git')
+    if (state.tab === 'terminal') {
+      const id = state.wsId
+      const terms = await request('GET', wsPath + '/terminals')
+      if (id === state.wsId) state.terms = terms
+    }
+  } catch (err) { state.error = err.message }
+}
+// The menu's usage: read when it opens, kept with the workspace it is for.
+async function loadUsage() {
+  const id = state.wsId
+  try {
+    const value = await request('GET', '/api/workspace/' + encodeURIComponent(id) + '/usage')
+    if (id === state.wsId) state.usage = { workspaceId: id, value }
   } catch (err) { state.error = err.message }
 }
 function openThread(id, sessionId = null, push = true) {
   if (push && state.view !== 'thread') history.pushState({ thread: id }, '')
-  Object.assign(state, { view: 'thread', wsId: id, sessionId, tab: 'chat', chat: [], chatFor: null, diff: null, checks: null, git: null, checkConsent: null, sheet: null, limit: 120, error: '' })
+  Object.assign(state, { view: 'thread', wsId: id, sessionId, tab: 'chat', chat: [], chatFor: null, diff: null, checks: null, git: null, checkConsent: null, sheet: null, limit: 120, error: '', commenting: null, commentDraft: '', terms: null, term: null, usage: null })
   state.openFiles.clear()
   render()
   void loadTab().then(render)
@@ -597,16 +721,35 @@ function syncComposer() {
   const stop = s?.status === 'running' && empty
   root.querySelector('.round.send')?.toggleAttribute('hidden', stop)
   root.querySelector('.round.stop')?.toggleAttribute('hidden', !stop)
+  root.querySelector('.cmp .mode')?.toggleAttribute('hidden', s?.status !== 'running')
+}
+// Queue ↔ steer for this chat's next message, changed in place so the draft keeps its focus and keyboard.
+function flipMode(button) {
+  const s = state.model.sessions.find((x) => x.id === state.sessionId)
+  if (!s?.canSteer) return
+  const mode = modeFor(s) === 'steer' ? 'queue' : 'steer'
+  state.sendMode[s.id] = mode
+  button.textContent = mode === 'steer' ? 'Steer' : 'Queue'
+  button.title = MODE_TITLE[mode]
+  button.classList.toggle('on', mode === 'steer')
+  button.setAttribute('aria-pressed', String(mode === 'steer'))
+  const draft = document.getElementById('draft')
+  if (draft) draft.placeholder = mode === 'steer' ? 'Steer the agent…' : 'Queue a follow-up…'
+  const note = document.getElementById('comments-note')
+  if (note) note.textContent = commentsNote(s)
 }
 async function send() {
   const id = state.sessionId
   const text = (state.drafts[id] || '').trim()
   if (!text || state.busy) return
+  const s = state.model.sessions.find((x) => x.id === id)
   state.busy = true
   try {
-    const result = await request('POST', '/api/chat/' + encodeURIComponent(id) + '/send', { text })
+    // Steering applies only to a running turn; otherwise the message starts one (or waits, the server decides).
+    const result = await request('POST', '/api/chat/' + encodeURIComponent(id) + '/send', { text, mode: s ? modeFor(s) : 'queue' })
     state.drafts[id] = ''
     if (result.disposition === 'queued') toast('Queued for the next turn')
+    else if (result.disposition === 'steered') toast('Sent to the running agent')
     await refresh()
     await loadTab()
     render()
@@ -615,9 +758,11 @@ async function send() {
 
 // ---------- live ----------
 // Foreman's events replace the old 4-second poll. A poll every 30 seconds stands in only while the socket is down.
-let live = null, viewed, fallback = null, roundTimer = null, roundRunning = false
+let live = null, viewed, fallback = null, roundTimer = null, roundRunning = false, termTimer = null
 const due = { refresh: false, tab: false, paint: false }
-const tabWanted = () => state.view === 'thread' && (state.tab === 'chat' || (state.tab === 'checks' && state.checks?.running))
+const tabWanted = () => state.view === 'thread' && (state.tab === 'chat' || state.tab === 'terminal' || (state.tab === 'checks' && state.checks?.running))
+// A busy terminal prints many times a second; what it printed is read again at most once a second.
+const TERM_EVERY_MS = 1000
 const ARCHIVE_STEP = { stop: 'stopping agents', checkpoint: 'saving changes', diff: 'saving the diff', script: 'running the archive script', docker: 'removing containers', remove: 'removing the folder', sandbox: 'stopping the sandbox' }
 
 function startLive() {
@@ -687,6 +832,12 @@ function liveEvent(event) {
   const t = event.type
   if (t === 'state' || t === 'approval' || t === 'approval-resolved' || t === 'notify' || t === 'attention-history') return soon({ refresh: true })
   if (t === 'archive-progress') return archiveStep(event)
+  // #127: the shown workspace's terminals printed, ended or slept: read them again, no more than once a second.
+  if (t === 'pty-data' || t === 'pty-exit' || t === 'pty-state') {
+    if (event.workspaceId !== state.wsId || state.view !== 'thread' || state.tab !== 'terminal' || termTimer) return
+    termTimer = setTimeout(() => { termTimer = null; soon({ tab: true }) }, TERM_EVERY_MS)
+    return
+  }
   // The rest belong to the open chat; before its first load there is nothing to put them in (the load brings them).
   if (event.sessionId !== state.sessionId || state.view !== 'thread' || state.tab !== 'chat' || state.chatFor !== state.sessionId) return
   // Whole items go in as they are, so the transcript follows without fetching the chat again.
@@ -716,12 +867,14 @@ function archiveStep(e) {
   const step = e.progress.status === 'running' && ARCHIVE_STEP[e.progress.step]
   if (step) toast('Archiving: ' + step + '…')
 }
-// The socket is sent the open chat's items and nothing of the others.
+// The socket is sent the open chat's items and nothing of the others; on the Terminal tab, that workspace's terminals.
 function syncView() {
-  const id = state.model && state.view === 'thread' && state.tab === 'chat' ? state.sessionId : null
-  if (!live || id === viewed) return
-  viewed = id
-  live.setView(id ? { sessionId: id } : {})
+  const thread = state.model && state.view === 'thread'
+  const view = thread && state.tab === 'chat' && state.sessionId ? { sessionId: state.sessionId } : thread && state.tab === 'terminal' ? { workspaceId: state.wsId } : {}
+  const key = JSON.stringify(view)
+  if (!live || key === viewed) return
+  viewed = key
+  live.setView(view)
 }
 
 // ---------- events ----------
@@ -731,6 +884,7 @@ root.addEventListener('input', (event) => {
   else if (el.id === 'search') { state.query = el.value; document.getElementById('scroller').innerHTML = listBody() }
   else if (el.id === 'prompt') state.newPrompt = el.value
   else if (el.dataset.note) state.notes[el.dataset.note] = el.value
+  else if (el.dataset.comment !== undefined) state.commentDraft = el.value
   else if (el.dataset.other) {
     const [id, qi] = el.dataset.other.split('|')
     state.others[id + '|' + qi] = el.value
@@ -743,6 +897,8 @@ root.addEventListener('keydown', (event) => {
     void send().catch(fail)
   }
 })
+// Tapping Queue/Steer must not take focus from the draft (on a phone that would close the keyboard).
+root.addEventListener('pointerdown', (event) => { if (event.target.closest('.cmp .mode')) event.preventDefault() })
 root.addEventListener('click', async (event) => {
   const button = event.target.closest('[data-action]')
   if (!button || button.disabled) return
@@ -760,7 +916,7 @@ root.addEventListener('click', async (event) => {
     if (name === 'filter') { state.filter = arg; render(); if (arg === 'recent') { await loadRecent(); render() } return }
     if (name === 'open') { const a = state.model.approvals.find((x) => state.model.sessions.some((s) => s.id === x.sessionId && s.workspaceId === arg)); return openThread(arg, a?.sessionId || null) }
     if (name === 'back') { if (history.state?.thread) history.back(); else backToList(); return }
-    if (name === 'sheet') { state.sheet = arg; return render() }
+    if (name === 'sheet') { state.sheet = arg; render(); if (arg === 'menu') { await loadUsage(); if (state.sheet === 'menu') render() } return }
     if (name === 'close') { state.sheet = null; return render() }
     if (name === 'tab') { state.tab = arg; state.error = ''; render(); await loadTab(); return render() }
     if (name === 'session') { state.sessionId = arg; state.tab = 'chat'; state.chat = []; state.chatFor = null; state.sheet = null; state.limit = 120; render(); await loadTab(); return render() }
@@ -813,11 +969,50 @@ root.addEventListener('click', async (event) => {
       return await respond(a.id, { kind: 'question', answers, skipped: name === 'skip' }, name === 'skip' ? 'Skipped' : 'Answer sent')
     }
     if (name === 'send') return await send()
-    if (name === 'resume-at' || name === 'unresume') {
-      await request('POST', '/api/chat/' + encodeURIComponent(state.sessionId) + '/resume-at', name === 'unresume' ? { cancel: true } : { turnId: arg })
-      toast(name === 'unresume' ? 'Resume cancelled' : 'Resume armed')
+    if (name === 'mode') return flipMode(button)
+    if (name === 'resume-at' || name === 'unresume' || name === 'resume-now') {
+      await request('POST', '/api/chat/' + encodeURIComponent(state.sessionId) + '/resume-at', name === 'unresume' ? { cancel: true } : name === 'resume-now' ? { now: true } : { turnId: arg })
+      toast(name === 'unresume' ? 'Resume cancelled' : name === 'resume-now' ? 'Resuming' : 'Resume armed')
       await refresh(); await loadTab(); return render()
     }
+    // #127: a queued message sent into the running turn now, or deleted.
+    if (name === 'qsteer' || name === 'qremove') {
+      await request('POST', '/api/chat/' + encodeURIComponent(state.sessionId) + '/queued/' + encodeURIComponent(arg), { action: name === 'qsteer' ? 'steer' : 'remove' })
+      toast(name === 'qsteer' ? 'Sent to the running agent' : 'Deleted from the queue')
+      await refresh(); await loadTab(); return render()
+    }
+    // #127: diff comments: start one on a line, write it, add it; delete yours or resolve the agent's.
+    if (name === 'cmt') {
+      // `<file>|<side>|<line>`; the file may hold a | itself, so it is read from the end. A removed line's text goes along.
+      const parts = arg.split('|')
+      const line = Number(parts.pop())
+      const side = parts.pop() === 'old' ? 'old' : 'new'
+      const file = parts.join('|')
+      const shown = state.diff?.files.find((f) => f.path === file)?.hunks.flatMap((h) => h.lines).find((l) => side === 'old' ? l.type === 'del' && l.oldNo === line : l.type !== 'del' && l.newNo === line)
+      state.commenting = { file, side, line, quote: side === 'old' ? shown?.text ?? '' : undefined }
+      state.commentDraft = ''
+      render()
+      root.querySelector('[data-comment]')?.focus()
+      return
+    }
+    if (name === 'cmt-cancel') { state.commenting = null; state.commentDraft = ''; return render() }
+    if (name === 'cmt-save') {
+      const at = state.commenting
+      const body = state.commentDraft.trim()
+      if (!at) return
+      if (!body) { root.querySelector('[data-comment]')?.focus(); throw new Error('Write the comment first.') }
+      await request('POST', '/api/workspace/' + encodeURIComponent(state.wsId) + '/comment', { file: at.file, line: at.line, side: at.side, quote: at.quote, body })
+      state.commenting = null
+      state.commentDraft = ''
+      toast('Comment added. It goes with your next message.')
+      await refresh(); return render()
+    }
+    if (name === 'cdel' || name === 'cres') {
+      await request('POST', '/api/comment/' + encodeURIComponent(arg), { action: name === 'cdel' ? 'delete' : 'resolve' })
+      toast(name === 'cdel' ? 'Comment deleted' : 'Comment resolved')
+      await refresh(); return render()
+    }
+    if (name === 'term') { state.term = arg; return render() }
     if (name === 'stop') {
       if (!confirm('Stop this agent run?')) return
       await request('POST', '/api/chat/' + encodeURIComponent(state.sessionId) + '/stop')

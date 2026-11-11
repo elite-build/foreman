@@ -347,6 +347,22 @@ describe('UpdateCheck: downloading and installing', () => {
     expect(updates.view().notice).toBeUndefined()
   })
 
+  it('readyVersion: the downloaded version the background service would install, never one that was skipped', async () => {
+    const fake = fakeInstaller()
+    const { updates } = rig({ mode: 'download', installer: fake.installer })
+    await flush()
+    await updates.check()
+    expect(updates.readyVersion()).toBeUndefined()
+    await fake.finish()
+    expect(updates.readyVersion()).toBe('0.2.0')
+    // Later only hides the card; the service still installs it.
+    updates.dismiss(false)
+    expect(updates.readyVersion()).toBe('0.2.0')
+    updates.dismiss(true)
+    expect(updates.ready()).toBe(true)
+    expect(updates.readyVersion()).toBeUndefined()
+  })
+
   it('waiting for agents to restart, and cancelling that wait', async () => {
     const fake = fakeInstaller()
     const { updates } = rig({ mode: 'download', installer: fake.installer })
