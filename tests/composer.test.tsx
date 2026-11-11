@@ -205,6 +205,26 @@ describe('the queue', () => {
     await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Edit queued message' })).toBeNull())
   })
 
+  it('says an outside agent queued a message, not `foreman send`, and keeps its turn for `foreman wait`', async () => {
+    const user = userEvent.setup()
+    const outside = { id: 'q3', text: 'from outside', attachments: [], turnId: 'turn-abcdef12', via: 'cli', origin: { kind: 'outside', grantId: 'g1', name: 'Claude Code' } }
+    const script = { id: 'q4', text: 'from a script', attachments: [], turnId: 'turn-12345678', via: 'cli' }
+    renderComposer({ queue: [outside, script] })
+    await user.click(within(screen.getAllByRole('listitem')[0]).getByRole('button', { name: 'Edit' }))
+    const row = screen.getAllByRole('listitem')[0]
+    expect(row.textContent).toContain('Outside agent')
+    expect(row.textContent).toContain('queued by Claude Code (outside agent) · editing')
+    expect(row.textContent).not.toContain('foreman send')
+    expect(row.textContent).toContain('foreman wait')
+    await user.keyboard('{Escape}')
+    // A script's message still says `foreman send` queued it.
+    await user.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: 'Edit' }))
+    const scripted = screen.getAllByRole('listitem')[1]
+    expect(scripted.textContent).toContain('CLI')
+    expect(scripted.textContent).toContain('foreman send')
+    expect(scripted.textContent).not.toContain('outside agent')
+  })
+
   it('Escape cancels the edit without saving and without stopping the agent', async () => {
     fakeApi.editQueued = vi.fn(async () => ({ ok: true }))
     fakeApi.cancel = vi.fn(async () => undefined)

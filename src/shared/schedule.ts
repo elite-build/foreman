@@ -18,6 +18,11 @@ export function scheduleName(s: Pick<Schedule, 'templateName' | 'flow'>): string
   return s.flow?.flowName ?? s.templateName ?? ''
 }
 
+/** An outside agent's proposal (docs/agent-access.md §7): paused, never approved, and only approving it lets it run. */
+export function isProposedSchedule(s: Pick<Schedule, 'pausedKind'>): boolean {
+  return s.pausedKind === 'proposed'
+}
+
 export interface ScheduleSpec {
   recurrence: Schedule['recurrence']
   startDate: string

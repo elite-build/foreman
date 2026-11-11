@@ -577,3 +577,52 @@ describe('a flow step with scoped writes', () => {
     await run
   })
 })
+
+describe('a turn capped below Never ask (docs/agent-access.md §3)', () => {
+  const capped: TurnRequest = { ...request, approvals: 'ask-except-edits', capped: { ceiling: 'ask-except-edits', gitDir: '/repos/app/.git' } }
+  const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
+
+  it('asks before a file tool writes agent or git configuration, even where edits go ahead, and leaves the rest to the mode', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    cb.approveTool.mockResolvedValue({ kind: 'tool', allow: true })
+    const run = claudeDriver.createTurn(capped, cb).run()
+    const options = sdk.query.mock.calls[0][0].options
+    const hook = options.hooks.PreToolUse[0].hooks[0]
+    const signal = new AbortController().signal
+    for (const file_path of ['/repo/.claude/settings.json', '.codex/config.toml', '/repo/.mcp.json', '/repo/.foreman/settings.toml', '/repo/.git', '/repos/app/.git/hooks/pre-commit']) {
+      expect(await hook(pre('Write', { file_path }), 'u1', { signal })).toMatchObject({ hookSpecificOutput: { permissionDecision: 'ask', permissionDecisionReason: expect.stringContaining('outside agent') } })
+    }
+    expect(await hook(pre('Edit', { file_path: '/repo/src/index.ts' }), 'u1', { signal })).toEqual({})
+    expect(await hook(pre('Read', { file_path: '/repo/.claude/settings.json' }), 'u1', { signal })).toEqual({})
+    // The hook's ask reaches the person.
+    expect(await options.canUseTool('Write', { file_path: '/repo/.claude/settings.json' }, { signal })).toMatchObject({ behavior: 'allow' })
+    expect(cb.approveTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'Write' }), signal)
+    // Its permission mode is the capped policy; the git folder isn't a writable directory.
+    expect(options.permissionMode).toBe('acceptEdits')
+    expect(options.additionalDirectories).toBeUndefined()
+    expect(options.settings?.permissions).toBeUndefined()
+    claude.push(result)
+    await run
+  })
+
+  it('asks before running `foreman` at an Auto ceiling', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...request, approvals: 'auto', capped: { ceiling: 'auto' } }, callbacks()).run()
+    const options = sdk.query.mock.calls[0][0].options
+    expect(options.permissionMode).toBe('auto')
+    expect(options.settings).toEqual({ permissions: { ask: ['Bash(foreman:*)'] } })
+    claude.push(result)
+    await run
+  })
+
+  it('adds neither hook nor rule to an uncapped turn', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...request, approvals: 'auto' }, callbacks()).run()
+    const options = sdk.query.mock.calls[0][0].options
+    expect(options.hooks).toBeUndefined()
+    expect(options.settings).toBeUndefined()
+    claude.push(result)
+    await run
+  })
+})

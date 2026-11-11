@@ -9,6 +9,7 @@ import type { PerfReport } from '../../shared/perf'
 import type { DiagnosticsBundle } from '../../shared/diagnostics'
 import type { CallerIdentity, RecordInput } from '../agentReports'
 import type { FlowRun, FlowRunOrigin, FlowRunStart } from '../../shared/flows'
+import type { TurnCap } from '../../shared/agentAccess'
 
 export interface CliHost {
   state(): { repos: Repo[]; workspaces: Workspace[]; sessions: Session[]; settings: Settings }
@@ -32,13 +33,14 @@ export interface CliHost {
   cancelTurn(turnId: string): Promise<TurnStatus | null>
   // A chat's running turn waits on another turn: its agent slot is lent until the returned function is called (Sessions.lendSlot).
   lendSlot?(sessionId: string): () => void
-  // G4 #11: tick (or untick) the turn's "Resume at …" from the command line; the same rules as the card.
-  armLimitResume?(sessionId: string, turnId: string): Promise<LimitResume>
+  // G4 #11: tick (or untick) the turn's "Resume at …" from the command line; the same rules as the card. `cap`: from a capped turn.
+  armLimitResume?(sessionId: string, turnId: string, cap?: TurnCap): Promise<LimitResume>
   cancelLimitResume?(sessionId: string): void
   // The chat and turn a new workspace's first message started (undefined if none started).
   firstTurn(workspaceId: string): Promise<{ session: string; turn: string } | undefined>
-  // `startedBy`: the chat (or assistant thread) that started it, when the call came from one.
-  createWorkspace(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy }): Promise<Workspace>
+  // `startedBy`: the chat (or assistant thread) that started it, when the call came from one. `cap`: that turn's cap, which
+  // the first message carries (docs/agent-access.md §4).
+  createWorkspace(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy; cap?: TurnCap }): Promise<Workspace>
   // Delegation's start_flow: a flow run as the Run a flow page starts one, recording who started it (the run's origin). Absent:
   // the tool says starting a flow is unavailable.
   startFlowRun?(input: FlowRunStart, origin?: FlowRunOrigin): Promise<FlowRun>
@@ -49,8 +51,11 @@ export interface CliHost {
   checkConsent?(workspaceId: string): CheckConsentItem[]
   // Waits for setup to settle after creation.
   setupOutcome(workspaceId: string): Promise<{ failed: boolean; held: boolean; logTail: string }>
-  // Sends the first message that a failed setup held back.
-  startHeldMessage(workspaceId: string): Promise<void>
+  // Sends the first message that a failed setup held back. `cap`: asked for from a capped turn, which lowers the message's own.
+  startHeldMessage(workspaceId: string, cap?: TurnCap): Promise<void>
+  // docs/agent-access.md §4: the Api as a command from a capped turn calls it, every call that starts or queues a turn
+  // carrying the cap. Absent (tests, an older host): a capped turn's command that would start one is refused.
+  capped?(cap: TurnCap): Api
   // Runs the workspace's checks (same definitions and records as the Git panel). Answers "busy" at once when an agent turn is active there.
   runChecks(workspaceId: string): Promise<ChecksCliResult>
   // Export and import (the same service the Workspace menu uses).

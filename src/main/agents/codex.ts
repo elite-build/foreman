@@ -7,6 +7,8 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { modelInfo, type EffortLevel, type ModelInfo } from '../../shared/agents'
+import { isCeilingProtected } from '../../shared/agentAccess'
+import { workspaceRelative } from '../../shared/permissions'
 import type { AgentStatus, ChatItem, Question } from '../../shared/types'
 import { isWindows } from '../platform'
 import {
@@ -122,13 +124,21 @@ export function codexEnv(env: Record<string, string>, binary?: CodexBinary): Rec
  * forwarded beyond the declared ones Foreman passes (the same values a Claude tab gets).
  * The tools of a server you approved run without asking, like Codex's own commands in a chat that never
  * asks; in a read-only chat (#16) they stay refused, since a server's tools run outside Codex's sandbox.
+ * docs/agent-access.md §3: in a turn capped below Never ask (`capped`) they prompt too: Codex asks before each
+ * (Ask, Ask except edits) or refuses it, as its approval policy is `never` (Auto). Foreman's own `foreman-app`
+ * server is the exception: its tools carry the turn's cap and refuse what the cap doesn't allow.
  */
-export function codexMcpConfig(servers: TurnRequest['mcpServers'], cwd: string, readOnly = false): Record<string, CodexMcpServer> | undefined {
+export function codexMcpConfig(servers: TurnRequest['mcpServers'], cwd: string, readOnly = false, capped = false): Record<string, CodexMcpServer> | undefined {
   const entries = Object.entries(servers ?? {})
   if (!entries.length) return undefined
-  const approval = readOnly ? 'prompt' : 'approve'
-  return Object.fromEntries(entries.map(([name, s]) => [name, { command: s.command, args: s.args, env: { ...s.env }, env_vars: [], cwd, enabled: true, default_tools_approval_mode: approval }]))
+  const approval = (name: string): CodexMcpServer['default_tools_approval_mode'] => (readOnly || (capped && name !== FOREMAN_APP_SERVER) ? 'prompt' : 'approve')
+  return Object.fromEntries(entries.map(([name, s]) => [name, { command: s.command, args: s.args, env: { ...s.env }, env_vars: [], cwd, enabled: true, default_tools_approval_mode: approval(name) }]))
 }
+
+// The turn's own Foreman server (src/main/foremanMcp.ts), which enforces a capped turn's cap itself.
+const FOREMAN_APP_SERVER = 'foreman-app'
+// The id Codex gives the question it asks before an MCP tool call that needs approval.
+const MCP_APPROVAL_QUESTION = 'mcp_tool_call_approval'
 
 type CodexMcpServer = {
   command: string
@@ -165,6 +175,8 @@ export interface CodexSettings {
  *   never-ask:            never ask, no sandbox
  *   ask / ask-except-edits: sandboxed (workspace, git folder, network); Codex asks before stepping outside it
  *   auto (unattended):    never ask, sandboxed
+ *   capped below Never ask (docs/agent-access.md §3): no network in the sandbox, so reaching Foreman's CLI socket, or
+ *                         anything else on the network, asks to leave the sandbox (Ask) or fails (Auto)
  */
 export function codexSettings(req: TurnRequest, binary?: CodexBinary): CodexSettings {
   const env = codexEnv(req.env, binary)
@@ -177,12 +189,12 @@ export function codexSettings(req: TurnRequest, binary?: CodexBinary): CodexSett
       ? { type: 'readOnly', networkAccess: false }
       : sandbox === 'danger-full-access'
         ? { type: 'dangerFullAccess' }
-        : { type: 'workspaceWrite', writableRoots: [...(req.extraWritableDirs ?? [])], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
+        : { type: 'workspaceWrite', writableRoots: [...(req.extraWritableDirs ?? [])], networkAccess: !req.capped, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
   const approvalPolicy: ApprovalMode = !readOnly && (req.approvals === 'ask' || req.approvals === 'ask-except-edits') ? 'on-request' : 'never'
 
   const config: Record<string, unknown> = {}
   // #20: approved repo servers, as per-thread config. ~/.codex is never written.
-  const mcp = codexMcpConfig(req.mcpServers, req.cwd, req.readOnly)
+  const mcp = codexMcpConfig(req.mcpServers, req.cwd, req.readOnly, Boolean(req.capped))
   // Integrations: the user's own same-service servers from ~/.codex/config.toml, off for this turn.
   const off = Object.fromEntries((req.disabledMcp ?? []).filter((name) => !mcp?.[name]).map((name) => [name, { enabled: false }]))
   if (mcp || Object.keys(off).length) config.mcp_servers = { ...off, ...mcp }
@@ -199,6 +211,14 @@ export function codexSettings(req: TurnRequest, binary?: CodexBinary): CodexSett
     config: Object.keys(config).length ? config : undefined
   }
   return { env, config, approvalPolicy, sandbox, sandboxPolicy, thread }
+}
+
+/** The path is the root or below it (case-folded on Windows-style paths). */
+function insideRoot(file: string, root: string): boolean {
+  const slash = (p: string) => p.split(String.fromCharCode(92)).join('/').replace(/\/+$/, '')
+  const [f, r] = [slash(file), slash(root)]
+  const fold = /^[A-Za-z]:\//.test(r) || /^[A-Za-z]:\//.test(f)
+  return (fold ? f.toLowerCase() === r.toLowerCase() : f === r) || workspaceRelative(file, root) !== null
 }
 
 function clip(text: string): string {
@@ -803,10 +823,15 @@ export class CodexTurn implements AgentTurn {
 
   private async fileApproval(params: any, signal: AbortSignal): Promise<unknown> {
     if (this.req.readOnly) return { decision: 'decline' }
-    if (this.req.approvals === 'never-ask' || this.req.approvals === 'ask-except-edits' || this.autoEdits) return { decision: 'accept' }
     // The request names the item; its files came with item/started.
     const changes = this.mapper.fileChange(params.itemId) ?? []
     const files = changes.map((c) => path.resolve(this.req.cwd, c.path))
+    // docs/agent-access.md §3: a turn capped below Never ask goes ahead only with writes inside the workspace that aren't
+    // agent or git configuration, even where edits would go ahead; anything else asks.
+    const capped = this.req.capped
+    const targets: string[] = files.length ? files : params.grantRoot ? [path.resolve(this.req.cwd, String(params.grantRoot))] : []
+    const guarded = Boolean(capped) && (!targets.length || targets.some((f) => !insideRoot(f, this.req.cwd) || isCeilingProtected(f, this.req.cwd, capped?.gitDir)))
+    if (!guarded && (this.req.approvals === 'never-ask' || this.req.approvals === 'ask-except-edits' || this.autoEdits)) return { decision: 'accept' }
     const input: Record<string, unknown> = { file_path: files[0] ?? params.grantRoot ?? this.req.cwd, files }
     const toolName = changes.length > 0 && changes.every((c) => c.kind.type === 'add') ? 'Write' : 'Edit'
     const answer = await this.ask({ kind: 'tool', toolName, input, reason: params.reason ?? undefined, alternate: 'edits-for-session' }, signal)
@@ -831,6 +856,15 @@ export class CodexTurn implements AgentTurn {
   private async userInput(params: any, signal: AbortSignal): Promise<unknown> {
     type Wire = { id: string; header?: string; question: string; options?: { label: string; description?: string }[] | null }
     const wire: Wire[] = params.questions ?? []
+    // Codex asks before an MCP tool whose server prompts (a capped turn's, docs/agent-access.md §3) as a question. It is
+    // a tool approval, the user's to answer, so it is asked as one: never as a question an outside agent may answer.
+    const approval = wire.find((q) => q.id.startsWith(MCP_APPROVAL_QUESTION))
+    if (approval) {
+      const decided = this.req.readOnly ? 'deny' : await this.ask({ kind: 'tool', toolName: 'MCP', input: { question: approval.question } }, signal)
+      const allow = (approval.options ?? []).find((o) => /^allow$/i.test(o.label.trim())) ?? approval.options?.[0]
+      const given = decided === 'allow' || decided === 'alternate' ? allow?.label : undefined
+      return { answers: Object.fromEntries(wire.map((q) => [q.id, { answers: q === approval && given ? [given] : [] }])) }
+    }
     const questions: Question[] = wire.map((q) => ({
       question: q.question,
       header: q.header || undefined,

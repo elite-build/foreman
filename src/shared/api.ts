@@ -28,7 +28,9 @@ export const METHOD_SCOPES = {
   getSnapshot: 'read', githubRepos: 'read', githubAccounts: 'read', remoteUrl: 'read', listBranches: 'read', listRemotes: 'read',
   previewFilesToCopy: 'read', detectRepoIcon: 'read', listWorktrees: 'read', whichBinary: 'read', resourceUsage: 'read',
   githubStatus: 'read', gitlabHosts: 'read', usageReport: 'read', dataInfo: 'read', gitBackupStatus: 'read', devicesInfo: 'read',
-  mobileInfo: 'read', pingDevice: 'read', baseWatchSupport: 'read', detectShells: 'read',
+  mobileInfo: 'read', pingDevice: 'read',
+  // Agents on this computer: what it holds has no codes, so a watching phone may read it as it is.
+  agentAccessInfo: 'read', baseWatchSupport: 'read', detectShells: 'read',
 
   // Settings reads: what is configured, never a secret's value.
   envView: 'read', opencodeProviders: 'read', agentStatus: 'read', agentCatalog: 'read', agentSignInStatus: 'read', refreshModels: 'read',
@@ -106,6 +108,8 @@ export const METHOD_SCOPES = {
   setAcceptHandOffs: 'admin', showPairingCode: 'admin', cancelPairingCode: 'admin', pairWith: 'admin', unpairDevice: 'admin',
   setRemoteControl: 'admin', startHandOffTo: 'admin', reconcileHandOff: 'admin',
   mobileConfigure: 'admin', mobileConfigureLan: 'admin', mobileStartPairing: 'admin', mobileApprovePairing: 'admin', mobileRevokeDevice: 'admin',
+  // Who may sign in from an agent on this computer (docs/agent-access.md §9).
+  agentAccessConfigure: 'admin', agentAccessApprove: 'admin', agentAccessDeny: 'admin', agentAccessRevoke: 'admin',
   assistantConfirmRun: 'admin',
 
   // The window: the app itself (quitting, updates, diagnostics, the command line), dictation, links, the computer chip.
@@ -179,6 +183,8 @@ type Reach = 'always' | 'chat' | 'terminal' | 'window'
 const EVENT_REACH = {
   state: 'always', approval: 'always', 'approval-resolved': 'always', notify: 'always', 'attention-history': 'always',
   'archive-progress': 'always', 'assistant-threads': 'always',
+  // Agents on this computer: the same as agentAccessInfo (read), which holds no codes.
+  'agent-access': 'always',
   // The assistant's items carry a thread, not a chat session, so a view can't name them: every session gets them,
   // as it gets the thread list. (The phone shows no assistant; a browser views all anyway.)
   'assistant-item': 'always',

@@ -274,6 +274,8 @@ export function lineageGraph(input: LineageInput, lens: LineageLens, options: Li
     if (turn) return turnNode(turn)
     return node({ id: `chat:${sessionId}`, kind: 'source', label: assistant ? t('lineage.node.assistant') : t('lineage.node.chatElsewhere'), loops: [] })
   }
+  /** An outside agent signed in to Foreman (docs/agent-access.md §7): one node per sign-in, named as it called itself. */
+  const outsideNode = (grantId: string, name: string): LineageNode => node({ id: `outside:${grantId}`, kind: 'source', label: t('lineage.node.outside', { name }), loops: [] })
 
   const own = input.sessions.filter((s) => s.workspaceId === ws.id)
   const ownTurns = own.flatMap(turnsOf).sort((a, b) => time(a.at) - time(b.at))
@@ -385,6 +387,7 @@ export function lineageGraph(input: LineageInput, lens: LineageLens, options: Li
         const from = sourceNode(origin.sessionId, origin.turnId, turn.at)
         edge({ from: from.id, to: target.id, kind: 'fact', label: t('lineage.edge.delegatedBy'), recorded: 'MessageOrigin' })
       }
+      if (origin?.kind === 'outside') edge({ from: outsideNode(origin.grantId, origin.name).id, to: target.id, kind: 'fact', label: t('lineage.edge.sentBy'), recorded: 'MessageOrigin' })
       if (origin?.kind === 'flow') flowEdge(origin.runId, origin.step, origin.iteration, target, 'MessageOrigin')
       if (origin?.kind === 'schedule') scheduleEdge(target, 'MessageOrigin')
       if (origin?.kind === 'limit-resume') omit('limitResume')
@@ -399,8 +402,10 @@ export function lineageGraph(input: LineageInput, lens: LineageLens, options: Li
         if (turn && !turn.user.origin) flowEdge(run.id, step.name, step.iteration, turnNode(turn), 'FlowRun.steps')
       }
 
-    // Who started the workspace: another chat (delegation, `foreman` from a turn) or the assistant.
-    if (ws.startedBy && firstTurn) {
+    // Who started the workspace: another chat (delegation, `foreman` from a turn), the assistant, or an outside agent.
+    if (ws.startedBy?.via === 'outside' && firstTurn) {
+      edge({ from: outsideNode(ws.startedBy.grantId, ws.startedBy.name).id, to: turnNode(firstTurn).id, kind: 'fact', label: t('lineage.edge.startedBy'), recorded: 'Workspace.startedBy' })
+    } else if (ws.startedBy && ws.startedBy.via !== 'outside' && firstTurn) {
       const from = sourceNode(ws.startedBy.sessionId, ws.startedBy.turnId, firstTurn.at, ws.startedBy.via === 'assistant')
       edge({ from: from.id, to: turnNode(firstTurn).id, kind: 'fact', label: t('lineage.edge.delegatedBy'), recorded: 'Workspace.startedBy' })
       omit('delegation')

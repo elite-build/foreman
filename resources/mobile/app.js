@@ -267,7 +267,8 @@ function chatHtml(s) {
   for (const i of shown) {
     if (i.kind === 'tool') { tools.push(i); continue }
     flush()
-    if (i.kind === 'user') out += '<div class="me">' + safe(i.text) + '</div>'
+    // docs/agent-access.md §7: a message an outside agent sent says who sent it.
+    if (i.kind === 'user') out += (i.origin && i.origin.kind === 'outside' ? '<div class="sys">Sent by ' + safe(i.origin.name) + ' (outside agent)</div>' : '') + '<div class="me">' + safe(i.text) + '</div>'
     else if (i.kind === 'assistant') { if (i.text.trim()) out += '<div class="ag">' + md(i.text) + '</div>' }
     else if (i.kind === 'notice') out += '<div class="sys' + (i.level === 'error' ? ' err' : '') + '">' + safe(i.text) + '</div>'
     else if (i.kind === 'turn-end') out += turnEnd(i, s) + '<div class="gap"></div>'

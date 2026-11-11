@@ -1,16 +1,17 @@
 // Schedule… on a template: when it runs, on what, and what a run is allowed to do. Saving is the
 // approval. With Flows on, a schedule may start a flow instead (its picker, inputs and approval card, as Run… shows
-// them). Also the Home card that lists running and upcoming schedules.
-import { useId, useMemo, useState } from 'react'
+// them). A schedule an outside agent proposed opens as what it proposes, with Approve (docs/agent-access.md §7). Also the
+// Home card that lists running and upcoming schedules.
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import { modelsFor } from '../../../shared/agents'
 import { pickerModels, type HiddenModels } from '../../../shared/modelVisibility'
 import type { Locale, PlainKey, TFunction } from '../../../shared/i18n'
 import { scheduleFingerprintOfFlow } from '../../../shared/flows'
-import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, MAX_DURATION_CHOICES, nextRuns, parseDate, previewRuns, scheduleName, specProblem, weekdayShort, weekdaysText } from '../../../shared/schedule'
+import { dateInZone, DEFAULT_MAX_MINUTES, formatRun, isProposedSchedule, MAX_DURATION_CHOICES, nextRuns, parseDate, previewRuns, scheduleName, specOf, specProblem, weekdayShort, weekdaysText } from '../../../shared/schedule'
 import { t as storeT, useT } from '../i18n'
 import { api, attempt, openScheduleDialog, selectWorkspace, timeAgo, uiLocale, useStore } from '../store'
 import type { AfterRun, Occurrence, Schedule } from '../../../shared/types'
-import { Button, Callout, Checkbox, ChipButton, Dialog, Field, LinkButton, RadioList, Segmented, Select, Tag, TextInput } from '../ui'
+import { Button, Callout, Card, Checkbox, ChipButton, Dialog, Field, LinkButton, RadioList, Segmented, Select, Tag, TextInput } from '../ui'
 import { LimitResumeRows, useLimitResumes } from './LimitResume'
 import { FlowApproval, FlowInputFields, FlowPicker, flowStartReady, flowTitle, useFlowPreview, useRunnableFlows } from './automations/FlowStartFields'
 
@@ -88,6 +89,9 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
   const [afterRun, setAfterRun] = useState<AfterRun>(existing?.afterRun ?? 'keep')
   const [afterRunDeleteBranch, setAfterRunDeleteBranch] = useState(Boolean(existing?.afterRunDeleteBranch))
   const [busy, setBusy] = useState(false)
+  // A proposal opens as what it proposes; "Change before approving" opens the form, where saving approves the changes.
+  const proposal = existing && isProposedSchedule(existing) ? existing : undefined
+  const [changing, setChanging] = useState(false)
   const close = () => openScheduleDialog(null)
   const changeStartDate = (value: string) => {
     setStartDate(value)
@@ -110,6 +114,31 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
   const placeholders = !runsFlow && template ? /\{\{[^}]+\}\}/.test(template.body) : false
   // A flow schedule while Flows are off: shown, not editable, saying where the switch is.
   if (existing?.flow && !flowsOn) return <FlowsOffScheduleDialog schedule={existing} onClose={close} />
+  if (proposal && !changing) {
+    // A flow's proposal is approved only once its run approval has loaded and could start, as saving a flow schedule
+    // (flowStartReady), and always with the fingerprint shown, so nothing is approved unseen.
+    const approvable = !proposal.flow || Boolean(chosenFlow && flowStartReady(flowPreview, flowValues))
+    const approve = async () => {
+      if (!approvable) return
+      setBusy(true)
+      const shown = proposal.flow ? scheduleFingerprintOfFlow(flowPreview!.fingerprint) : undefined
+      const done = await attempt(async () => (await api.approveSchedule(proposal.id, shown), true))
+      setBusy(false)
+      if (done) close()
+    }
+    return (
+      <ProposedScheduleDialog
+        schedule={proposal}
+        repoName={repo?.name}
+        busy={busy}
+        approvable={approvable}
+        flowApproval={proposal.flow && chosenFlow ? <FlowApproval flow={chosenFlow} summary={flowPreview?.summary} error={flowError} /> : null}
+        onApprove={() => void approve()}
+        onChange={() => setChanging(true)}
+        onClose={close}
+      />
+    )
+  }
   if (!template && !runsFlow) return null
 
   const changed = existing?.pausedKind === 'changed' || existing?.pausedKind === 'failures'
@@ -158,7 +187,11 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
         </>
       }
     >
-      {existing?.pausedReason && (
+      {proposal ? (
+        <Callout tone="warn" role="status">
+          {t('scheduleDialog.proposal.notice', { name: proposal.proposedBy?.name ?? '' })}
+        </Callout>
+      ) : existing?.pausedReason && (
         <Callout tone="error" role="alert">
           {existing.pausedReason}
         </Callout>
@@ -334,6 +367,104 @@ export function ScheduleDialog(props: { templateId: string } | { scheduleId: str
   )
 }
 
+/**
+ * An outside agent's proposal (docs/agent-access.md §7), as it would run: when, on what, the model, the time limit and what
+ * happens after a run (a flow: its inputs and what each run approves). Approve is the ordinary approval, which records the
+ * fingerprint; nothing ran before it.
+ */
+function ProposedScheduleDialog({ schedule: s, repoName, busy, approvable, flowApproval, onApprove, onChange, onClose }: {
+  schedule: Schedule
+  repoName: string | undefined
+  busy: boolean
+  // False until a flow's run approval has loaded and could start.
+  approvable: boolean
+  flowApproval: ReactNode
+  onApprove: () => void
+  onChange: () => void
+  onClose: () => void
+}) {
+  const t = useT()
+  const runs = previewRuns(specOf(s), Date.now(), 3, t, t.locale)
+  const model = modelsFor('claude').find((m) => m.id === s.model)?.label ?? s.model
+  const duration = s.maxMinutes >= 60 ? t('scheduleDialog.durationHours', { hours: s.maxMinutes / 60 }) : t('scheduleDialog.durationMinutes', { minutes: s.maxMinutes })
+  const after = t(s.afterRun === 'archive' ? 'scheduleDialog.afterRun.archive' : s.afterRun === 'delete-unchanged' ? 'scheduleDialog.afterRun.deleteUnchanged' : 'scheduleDialog.afterRun.keep')
+  const inputs = Object.entries(s.flow?.inputs ?? {})
+  return (
+    <Dialog
+      title={t('scheduleDialog.title', { name: scheduleName(s) })}
+      onClose={onClose}
+      size="lg"
+      className="dlg schedule-modal"
+      headerExtra={<span className="faint small">{t('scheduleDialog.onlyWhileOpen')}</span>}
+      footer={
+        <>
+          <Button variant="danger" className="dlg-start" disabled={busy} onClick={() => void attempt(async () => (await api.deleteSchedule(s.id), openScheduleDialog(null), true))}>
+            {t('scheduleDialog.delete')}
+          </Button>
+          <Button disabled={busy} onClick={onChange}>
+            {t('scheduleDialog.proposal.change')}
+          </Button>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" disabled={busy || !approvable} onClick={onApprove}>
+            {t('scheduleDialog.approve')}
+          </Button>
+        </>
+      }
+    >
+      <Callout tone="warn" role="status">
+        {t('scheduleDialog.proposal.notice', { name: s.proposedBy?.name ?? '' })}
+      </Callout>
+      <Card className="flow-run-summary">
+        <dl className="flow-run-facts">
+          <dt className="faint">{t('scheduleDialog.proposal.when')}</dt>
+          <dd>{`${cadenceText(s, t, t.locale)} · ${s.timezone}`}</dd>
+          <dt className="faint">{s.recurrence === 'once' ? t('scheduleDialog.nextRun') : t('scheduleDialog.nextRuns')}</dt>
+          <dd>{runs.length ? runs.map((r) => r.label).join('; ') : t('scheduleDialog.problem.pastOnce')}</dd>
+          <dt className="faint">{t('scheduleDialog.repoBase')}</dt>
+          <dd>{`${repoName ?? t('automations.schedule.repoRemoved')} / ${s.baseBranch}`}</dd>
+          {s.flow ? (
+            <>
+              <dt className="faint">{t('automations.schedule.flow')}</dt>
+              <dd>{s.flow.flowName}</dd>
+              {inputs.length > 0 && (
+                <>
+                  <dt className="faint">{t('scheduleDialog.proposal.inputs')}</dt>
+                  <dd>{inputs.map(([name, value]) => `${name}: ${value}`).join(' · ')}</dd>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <dt className="faint">{t('automations.schedule.template')}</dt>
+              <dd>{scheduleName(s)}</dd>
+              <dt className="faint">{t('scheduleDialog.model')}</dt>
+              <dd>{t('scheduleDialog.modelClaude', { model })}</dd>
+              <dt className="faint">{t('scheduleDialog.maxDuration')}</dt>
+              <dd>{duration}</dd>
+              <dt className="faint">{t('scheduleDialog.afterRun')}</dt>
+              <dd>{s.afterRunDeleteBranch ? `${after} · ${t('scheduleDialog.afterRun.deleteBranch')}` : after}</dd>
+            </>
+          )}
+        </dl>
+      </Card>
+      {s.flow ? (
+        <>
+          {flowApproval}
+          <Callout tone="info" role="note">
+            {t('scheduleDialog.flow.limits')}
+          </Callout>
+        </>
+      ) : (
+        <Callout>
+          <div>{t.rich('scheduleDialog.rules.run', { freshWorkspace: <b>{t('scheduleDialog.rules.freshWorkspace')}</b>, auto: <b>{t('scheduleDialog.rules.auto')}</b>, stopsTheRun: <b>{t('scheduleDialog.rules.stopsTheRun')}</b> })}</div>
+          <div>{t('scheduleDialog.rules.limits')}</div>
+          <div>{t('scheduleDialog.rules.pauses')}</div>
+        </Callout>
+      )}
+    </Dialog>
+  )
+}
+
 /** A flow schedule while Flows are off: what it is and when it runs, read-only, and where to turn Flows back on. */
 function FlowsOffScheduleDialog({ schedule, onClose }: { schedule: Schedule; onClose: () => void }) {
   const t = useT()
@@ -426,7 +557,9 @@ export function ScheduledCard({ repoId }: { repoId?: string }) {
                   ? t('scheduledCard.runningFor', { minutes: Math.max(0, Math.round((Date.now() - Date.parse(run.startedAt ?? run.plannedAt)) / 60_000)), max: s.maxMinutes })
                   : attention
                     ? attention.reason
-                    : s.state === 'paused'
+                    : isProposedSchedule(s)
+                      ? t('automations.schedule.proposedBy', { name: s.proposedBy?.name ?? '' })
+                      : s.state === 'paused'
                       ? s.pausedReason
                       : s.state === 'finished'
                         ? `${last?.reason ?? finishedStatus} · ${sub}`

@@ -7,7 +7,7 @@
 //    the CI watch and this never ask twice, and the cache's back-off after an auth failure or rate
 //    limit holds. What it learns lands in `prInfo` (the row's PR glyph). It never opts anything into
 //    CI or review notifications: those stay with the user's own switches (prWatch.ts).
-import type { ApprovalRequest, ApprovalResponse, AppSnapshot, Workspace } from '../shared/types'
+import type { ApprovalRequest, ApprovalResponse, ApprovalVia, AppSnapshot, Workspace } from '../shared/types'
 import type { TriageInput } from '../shared/triage'
 import {
   appendEvent,
@@ -168,10 +168,10 @@ export class AttentionService {
 }
 
 /** An answered approval, as history: who asked, for what, whether it was allowed, and (G2) where it was answered. */
-export function approvalDraft(request: ApprovalRequest, response: ApprovalResponse, workspaceId: string, via?: 'window' | 'phone'): EventDraft {
+export function approvalDraft(request: ApprovalRequest, response: ApprovalResponse, workspaceId: string, via?: ApprovalVia, by?: string): EventDraft {
   const allowed = response.kind === 'tool' ? response.allow : response.kind === 'plan' ? response.approve : response.kind === 'gate' ? response.answer === 'continued' : response.kind === 'pick' ? response.chosen !== null : !response.skipped
   const label = request.kind === 'tool' ? request.toolName : request.kind
-  return { kind: 'approval-answered', workspaceId, sessionId: request.sessionId, topic: `approval:${request.sessionId}`, key: `${label}:${allowed}`, label, allowed, ...(via ? { via } : {}) }
+  return { kind: 'approval-answered', workspaceId, sessionId: request.sessionId, topic: `approval:${request.sessionId}`, key: `${label}:${allowed}`, label, allowed, ...(via ? { via } : {}), ...(via === 'outside' && by ? { by } : {}) }
 }
 
 export interface PrPollDeps {

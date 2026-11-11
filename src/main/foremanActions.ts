@@ -1,3 +1,4 @@
+import { runsCodeRefusal, type TurnCap } from '../shared/agentAccess'
 import { decisionProblem } from '../shared/agentReports'
 import { FOREMAN_TOOLS, foremanToolArgs, foremanToolName, type ForemanToolName } from '../shared/foremanTools'
 import type { Api, Session, Workspace } from '../shared/types'
@@ -11,7 +12,8 @@ export interface ForemanActionDeps {
   record?(input: RecordInput): { added: boolean }
 }
 
-export interface ForemanScope { workspaceId?: string; readOnly: boolean }
+// `cap`: an outside agent's, or a capped turn's (docs/agent-access.md §4); below Never ask it may not run checks.
+export interface ForemanScope { workspaceId?: string; readOnly: boolean; cap?: TurnCap }
 
 /** Shared domain entry point. Callers cannot supply consent or expand their own scope. */
 export class ForemanActions {
@@ -28,6 +30,10 @@ export class ForemanActions {
       const frozen = frozenReason(workspace)
       if (frozen) throw new Error(frozen)
       if (workspace.state !== 'ready') throw new Error('The workspace must be ready before running this action.')
+    }
+    if (tool === 'run_checks') {
+      const refusal = runsCodeRefusal(scope.cap)
+      if (refusal) throw new Error(refusal)
     }
     return { name: tool, workspace }
   }

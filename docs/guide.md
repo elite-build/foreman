@@ -1,6 +1,6 @@
 # Foreman guide
 
-How to configure repositories, the tools Foreman gives agents, integrations, backups, the `foreman` command and phone access. For setup, see the [README](../README.md).
+How to configure repositories, the tools Foreman gives agents, integrations, backups, the `foreman` command, phone access and agents you run yourself. For setup, see the [README](../README.md).
 
 ## Repository configuration
 
@@ -57,7 +57,7 @@ For example, configure loadouts 1–4 as Claude Code/Fable, Codex/Astra, OpenCod
 
 The assistant has the same delegation tools across the user's repositories. Reads are immediate; starting, sending and cancelling tasks, and starting a flow, each use its existing Run/Cancel cards with the exact arguments shown. Start and send mutations do not run autonomously from the assistant. Its user-confirmed actions follow the CLI's user policy; workspace agents still require the repository opt-in.
 
-The server uses Foreman's existing local socket/Windows named pipe and bundled CLI bridge; no separate installation or listening HTTP port is needed. It is available only while Foreman is open and is not provisioned to agents running in cloud sandboxes. The assistant can inspect cloud workspace state through the existing services; background check reads do not wake sleeping sandboxes. External MCP clients and settings mutations are outside this tool set.
+The server uses Foreman's existing local socket/Windows named pipe and bundled CLI bridge; no separate installation or listening HTTP port is needed. It is available only while Foreman is open and is not provisioned to agents running in cloud sandboxes. The assistant can inspect cloud workspace state through the existing services; background check reads do not wake sleeping sandboxes. Settings mutations are outside this tool set. A Claude Code or Codex session you start yourself can use these tools too, over its own sign-in; see [Agents on this computer](#agents-on-this-computer).
 
 Developers: `npm run check:mcp` checks CLI settings coverage, the reviewed MCP settings contract, and MCP/delegation behavior. New or changed settings require an explicit MCP coverage review; see [Keeping MCP coverage in sync with CLI settings](mcp-settings-coverage.md). This check records unavailable settings honestly and does not imply full CLI parity.
 
@@ -174,9 +174,66 @@ Foreman can run with no window open, so agents, schedules, flows, the `foreman` 
 
 Either way the tray icon (the menu-bar icon on macOS) stays up, even with **Settings → General → Tray icon** off, because it is how you get back: **Show Foreman** or **Open Home** opens the window, as do starting Foreman again, a `foreman://` link and `foreman run --open`. A phone, a browser or another computer can do everything but what needs the window itself, such as file pickers. To stop Foreman, choose **Quit Foreman** from the tray; if agents, checks or run scripts are still going, the window opens to ask first, as Quit always does.
 
-With no screen to approve a sign-in on, approve it from a terminal: `foreman phone link` (with `--browser` for a browser) makes the link, and `foreman phone approve <code>` approves the code the device shows (see [Mobile access](#mobile-access)). `--headless` doesn't turn on phone access by itself; `foreman phone link` turns on the connection it uses.
+With no screen to approve a sign-in on, approve it from a terminal: `foreman phone link` (with `--browser` for a browser) makes the link, and `foreman phone approve <code>` approves the code the device shows (see [Mobile access](#mobile-access)). `--headless` doesn't turn on phone access by itself; `foreman phone link` turns on the connection it uses. An agent on this computer signing in is approved with `foreman agent-access approve` (see [Agents on this computer](#agents-on-this-computer)).
 
 On Linux, which Foreman does not support officially, `--headless` still starts Electron, and Electron needs a display server: a machine without one needs a virtual one such as Xvfb.
+
+## Agents on this computer
+
+A Claude Code or Codex session you start yourself, outside Foreman, can sign in to Foreman over MCP and use its tools: list repositories and workspaces, start tasks with your loadouts, send messages, wait for turns and read the replies, answer its own workers' questions and propose schedules. You approve each sign-in in Foreman and choose what it may do. Foreman listens on `127.0.0.1` only, so nothing on another computer can reach it, and nothing goes through a relay. The design and its reasons are in [agent-access.md](agent-access.md).
+
+**Turn it on** in **Settings → Data & devices → Agents on this computer** with **Let agents on this computer connect**, or `foreman settings set devices.agent-access on`. It is off by default. Foreman then listens at `http://127.0.0.1:47634/mcp`; change the port in the same section (`devices.agent-access-port`). If another program holds the port, the setting turns itself off and the section says why. Turning it off closes the listener and drops sign-ins that are still waiting; approved agents stay signed in and carry on once it is on again. Neither setting is copied by Git configuration backup, so a restore never opens the listener on another computer.
+
+**Add Foreman to the agent.** The section shows the address and a command to copy for each agent; `foreman agent-access status` prints the same.
+
+- **Claude Code:** `claude mcp add --scope user --transport http foreman http://127.0.0.1:47634/mcp`, then type `/mcp` in a session and choose **Authenticate**. Without `--scope user` it is added to the current project only.
+- **Codex:** `codex mcp add foreman --url http://127.0.0.1:47634/mcp`, then `codex mcp login foreman`.
+
+Use your own port if you changed it. Neither setup has been run by hand yet against a current release of Claude Code or Codex (the checks are in [agent-access.md](agent-access.md#13-checked-by-hand)): until it has, it isn't confirmed that each accepts Foreman's plain-`http` loopback sign-in, or which Codex release is the oldest that works. Older Codex releases needed their remote MCP client turned on in `~/.codex/config.toml`.
+
+**Signing in.** The agent opens a page in your browser that says what the sign-in calls itself and shows a six-digit code. Foreman shows a notification (at most one a minute) and lists the sign-in under **Agents on this computer**, with where it will return to (such as `127.0.0.1:53682`). Type the code from the browser page there, choose a level (**Ask** is selected) and click **Approve**; the page sends the agent back signed in within a few seconds. **Deny** refuses it. Foreman never shows the code itself: any program on this computer, and any other user of it, can reach a loopback port, so typing the code from the page you opened is what ties the sign-in to the agent you started. Three wrong codes deny a sign-in, one left waiting expires after five minutes, and at most three wait at once.
+
+From a terminal, `foreman agent-access approve` asks for the code at a prompt. With several sign-ins waiting it asks which one, or you name it: `foreman agent-access approve <id> --level auto`. It refuses when there is no terminal, so an agent's shell tool, which usually has none, doesn't approve its own sign-in by accident; there is no `--code` and no `--yes`. `foreman agent-access pending` lists what waits and `foreman agent-access deny [<id>]` refuses one. This is how to approve while Foreman runs `--headless`. A phone or browser with Full control can approve in Settings too.
+
+A sign-in doesn't expire by itself. Restarting Foreman ends the agent's hour-long access token, and it gets another without asking you.
+
+**Access levels.** A level is two things: the tools the agent may call, and the most permissive mode any turn it starts or messages may run in. That ceiling is carried down: a turn the agent started that starts more work, through delegation or the `foreman` command, passes it on, and it never rises on the way. It only ever lowers a turn's mode: a chat never runs above what your own settings would give it, and a read-only chat stays read-only.
+
+| Level | What it may do |
+| --- | --- |
+| **Read only** | Look at repositories, workspaces, chats, turns, checks, questions and schedules. It starts nothing. |
+| **Ask** (the default) | Also start and message work, cancel turns, run checks you have already approved and answer its workers' questions. Every tool those turns use asks you first. |
+| **Ask except edits** | As Ask, but the turns edit files in the workspace without asking; anything else asks. |
+| **Auto** | As Ask, with the turns in auto mode. It may also propose schedules. |
+| **Never ask** | As Auto, with the turns running as your own settings allow. |
+
+Each agent holds a level as closely as it can, and work on an agent that can't hold it is refused:
+
+| Agent | Ask | Ask except edits | Auto | Never ask |
+| --- | --- | --- | --- | --- |
+| Claude | every tool asks, but reads | edits in the workspace go ahead, the rest asks | auto mode's classifier decides | your settings |
+| Codex | sandboxed to the workspace with no network; asks before leaving the sandbox, before writing a file outside the workspace and before another MCP server's tool; commands inside the sandbox don't ask | the same as Ask | sandboxed with no network and never asks: what needs to leave the sandbox fails | your settings |
+| Cursor, OpenCode and other ACP agents | refused | refused | refused | your settings |
+
+Cursor never asks before running a tool, and an ACP agent asks only when it chooses to, so Foreman can't hold either below Never ask: `start_task` with such a loadout, or `send_task` to such a chat, is refused with a message naming the agent. `list_delegation_options` says which levels each loadout's agent can be held to.
+
+Below Never ask, a turn the agent caused must ask before it writes the files that configure agents or git: `.claude/`, `.codex/`, `.cursor/`, `.foreman/`, `.switchyard/`, `.mcp.json` and the git folder, so it can't raise its next turn's mode or plant a git hook. A Codex turn held this way can't write the git folder from its sandbox, so committing asks to leave the sandbox (Ask) or fails (Auto); commit from Foreman instead. At Auto, a Claude turn's `foreman` shell commands always ask.
+
+**What a level doesn't protect.** A level bounds what comes through Foreman: the tools the agent calls and the turns they cause. It doesn't bound the agent itself. A Claude Code or Codex session running as you, with a shell, can read every file you can, Foreman's own state and the worktrees included, and can run `foreman` commands as you. Against that, the agent's own permission settings are the boundary, as they are without Foreman. A level is for an agent whose own tools are limited, or that is meant to work through Foreman's, and for holding Foreman's side of the work to a mode you chose. The typed code stops a cooperating agent approving itself by accident; it doesn't contain a hostile one that has a shell.
+
+**Known gaps.** Writes that never reach Foreman as a tool call or an approval aren't caught: a Codex turn held below Never ask writing `.claude/`, `.codex/`, `.foreman/` or `.mcp.json` inside the workspace from its sandbox (a later Claude turn in that workspace would load what it wrote), and a Claude turn's shell commands at Auto, which auto mode's classifier judges. The rule that makes `foreman` commands ask covers Bash, not yet PowerShell.
+
+**The tools.** Every level gets `list_delegation_options`, `get_task_status`, `get_turn_result`, `wait_for_turn`, `get_workspace_status`, `get_check_results`, `list_questions`, `list_schedules`, and `get_flow_status` while Flows are on. The levels above Read only add `start_task`, `send_task`, `cancel_turn`, `run_checks` (Never ask only: checks run your workspace's code with your full rights, so code a capped turn wrote would run uncapped), `answer_question` and `schedule_task`. They are the tools in [Foreman tools for agents and the assistant](#foreman-tools-for-agents-and-the-assistant), across every repository, as the assistant has them: `start_task` needs a `repoId`, and the workspace tools a `workspaceId`. The agent doesn't need **Let agents start workspaces and queue messages**, but a turn it starts that delegates further does. It isn't offered `start_flow`, since a flow run approves its setup, checks and commands, which is yours to approve; `open_preview`, which opens a panel on your screen; or `run_foreman`. It can't change settings, keys, integrations or repositories, and it can't answer a tool or plan approval, a gate or a pick.
+
+**Questions.** When a turn the agent started (or one that turn started) asks a question, `list_questions` shows it and `answer_question` answers it, keyed by each question's text; a question it leaves out is answered "(no answer)". Questions from any other turn are yours.
+
+**Schedules.** At Auto or Never ask, `schedule_task` proposes a schedule that runs a template or a flow from `list_schedules`, on Claude: a template needs a Claude model, and a flow takes values for its inputs and no model. Only those two levels may propose, since a scheduled run is unattended and runs in auto mode. A proposal runs nothing. It waits in Automations as "Proposed by Claude Code (outside agent)"; open it to see when it would run, the model, the time limit and what happens after each run, then approve it, or choose **Change before approving**. Pausing or resuming it is refused until it is approved, and you can delete it as any schedule. `foreman schedules approve` approves it from a terminal.
+
+**Who did what.** A message the agent sent says "Sent by Claude Code (outside agent)" in the chat, the phone's transcript and the queue, and a question it answered is listed in Home's **Recent** card as answered "by Claude Code (outside agent)". A workspace's **Lineage** tab shows the agent as a node of its own, with the workspaces it started and the messages it sent.
+
+**Revoking.** **Revoke** beside a signed-in agent, or `foreman agent-access revoke <id-or-name>`, ends its sign-in. Its next call is refused, the messages it queued are dropped (a new workspace's first message too), and turns it started finish under their level. What it already wrote in a chat stays there. It can sign in again with a new approval. To change an agent's level, revoke it and approve it again.
+
+**ChatGPT isn't supported.** ChatGPT calls its connectors from OpenAI's servers, which can't reach an address on your computer, and a public endpoint would need security work of its own. To reach Foreman from elsewhere, use the [phone and browser access](#mobile-access).
 
 ## Controlling another computer
 

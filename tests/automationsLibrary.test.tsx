@@ -170,6 +170,25 @@ describe('the Automations library', () => {
     await u.click(within(rows[1]).getByRole('button'))
     expect(spy('selectAutomation')).toHaveBeenCalledWith('s:s1')
   })
+
+  it('lists an outside agent’s proposal as proposed by it, with the action that reviews and approves it', async () => {
+    const u = userEvent.setup()
+    const proposal = schedule('s3', 't1', { templateName: 'Nightly audit', state: 'paused', pausedKind: 'proposed', pausedReason: 'Proposed by Claude Code (outside agent).', proposedBy: { grantId: 'g1', name: 'Claude Code' }, nextRunAt: undefined, approved: undefined, approvedAt: undefined })
+    setSnapshot({ schedules: [proposal] })
+    render(<AutomationsView />)
+    const row = within(screen.getByRole('list', { name: 'Schedules' })).getByRole('listitem')
+    expect(within(row).getByText('Weekdays at 09:00 · Proposed by Claude Code (outside agent)')).toBeTruthy()
+    await u.click(within(row).getByRole('button', { name: 'Review and approve…' }))
+    expect(spy('openScheduleDialog')).toHaveBeenCalledWith({ scheduleId: 's3' })
+    expect(spy('selectAutomation')).not.toHaveBeenCalled()
+    // Its own panel says the same, and offers the same action.
+    cleanup()
+    fakeState.automations = { selected: 's:s3' }
+    render(<AutomationsView />)
+    expect(screen.getByRole('status').textContent).toBe('Proposed by Claude Code (outside agent). It runs nothing until you review and approve it.')
+    await u.click(screen.getByRole('button', { name: 'Review and approve…' }))
+    expect(spy('openScheduleDialog')).toHaveBeenLastCalledWith({ scheduleId: 's3' })
+  })
 })
 
 describe('a template’s own page', () => {

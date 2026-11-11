@@ -23,7 +23,7 @@ import type { Repo, Workspace, WorkspaceCloud } from '../../shared/types'
 import { CliCodedError, type CliHost } from './host'
 import { flagParam, invalid, numberParam, paramsObject, textParam, type MethodDef } from './kit'
 import type { CliContext } from './methods'
-import { startRefusal } from './policy'
+import { apiFor, startRefusal } from './policy'
 import { refused } from './refs'
 import { findTab, findWorkspace } from './resolve'
 import { repoOf, snapshotOf } from './repos'
@@ -125,7 +125,7 @@ async function continueTurn(host: CliHost, params: unknown, ctx: CliContext): Pr
   const refusal = startRefusal(host, ctx.caller)
   if (refusal) throw refused(refusal)
   const { tab, session } = findTab(host.state().sessions, ws, numberParam(p, 'tab'))
-  const receipt = await host.api.cloudContinue(session.id)
+  const receipt = await apiFor(host, ctx).cloudContinue(session.id)
   if (!receipt.turnId || receipt.disposition === 'handled') throw new CliCodedError('failed', 'Foreman handled that itself; no turn was started.')
   return { workspace: { id: ws.id, name: ws.name }, tab, session: session.id, turn: receipt.turnId, disposition: receipt.disposition, text: sendReceiptText(receipt.disposition, tab, session, receipt.turnId) }
 }

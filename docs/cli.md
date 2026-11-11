@@ -16,9 +16,9 @@ Chats          tabs, tab new|set|close|reopen|fork, chat, queue, rewind, resume-
                search
 Git & PRs      git (18 commands: foreman help git), diff, commits, comments, base-moved, ack-ci
 Repositories   repos, repo (22 commands: foreman help repo)
-Settings       templates, settings, env, keys, github, gitlab, phone, loadouts, review-model,
-               models, agents, commands, schedules, flow (9 commands: foreman help flow),
-               persona list|show|add|remove, connections,
+Settings       templates, settings, env, keys, github, gitlab, phone, agent-access, loadouts,
+               review-model, models, agents, commands, schedules,
+               flow (9 commands: foreman help flow), persona list|show|add|remove, connections,
                slack rules|people|deliveries|answer|resend, linear issues, backup, git-backup
 Remote         cloud (12 commands: foreman help cloud)
 App            app info|perf|diagnostics|profile|heap, doctor, cli status|install, completion,
@@ -4287,6 +4287,173 @@ Exit codes:
 Its open connections close at once and its credential is deleted; signing in again needs a new link.
 ```
 
+### foreman agent-access
+
+```text
+Agents on this computer: the address, how to add it, who is signed in and who is asking
+
+Usage:
+  foreman agent-access [status]
+
+Arguments:
+  <verb>       status (the default) (one of: status) (optional)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman agent-access
+  foreman agent-access --json
+
+Claude Code, Codex and other MCP clients on this computer sign in to Foreman over a loopback address
+(docs/agent-access.md). Each sign-in waits for the person at the computer, who types the six-digit code its
+browser page shows and chooses its level: read (look only), ask (the default), ask-except-edits, auto or
+never-ask, the most permissive mode any turn it causes may run in. A level bounds what an agent does through
+Foreman, not what it can do with its own shell and files. This is Settings → Data & devices → Agents on this
+computer from a terminal; turn it on with `foreman settings set devices.agent-access on`. Anything that changes
+who may sign in is refused from inside an agent turn.
+
+Also: `foreman agent-access pending`, `approve [<id>]`, `deny [<id>]` and `revoke <id-or-name>`.
+```
+
+### foreman agent-access status
+
+```text
+Whether agents may connect, the address and setup commands, the signed-in agents and the sign-ins waiting
+
+Usage:
+  foreman agent-access status [--json]
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman agent-access status
+  foreman agent-access status --json
+
+The address, the commands that add it to Claude Code (`--scope user`, so every project has it) and Codex, each signed-in agent with its level, when it was approved and last used, and the sign-ins waiting. Never a code.
+```
+
+### foreman agent-access pending
+
+```text
+The sign-ins waiting for approval: what each calls itself, where it returns and when it expires
+
+Usage:
+  foreman agent-access pending [--json]
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman agent-access pending
+```
+
+### foreman agent-access approve
+
+```text
+Approve a waiting sign-in with the code its browser page shows, typed at the prompt
+
+Usage:
+  foreman agent-access approve [<id>] [--level read|ask|ask-except-edits|auto|never-ask]
+
+Arguments:
+  <id>                 Which sign-in: its id, the start of one, or its name; asked when several wait (optional)
+
+Options:
+      --level <level>  What it may do through Foreman (one of: read, ask, ask-except-edits, auto, never-ask) (default: ask)
+
+Common options:
+      --json           Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet          Hide progress lines and notes
+  -y, --yes            Answer yes to confirmations
+  -h, --help           Show this command’s help
+
+Examples:
+  foreman agent-access approve
+  foreman agent-access approve --level read
+
+Exit codes:
+  6  No terminal to type the code on
+  7  The code was wrong (the third wrong code denies the sign-in)
+  8  No sign-in is waiting, or the id matches none or several
+  Every code: foreman help exit-codes
+
+The code is asked for at a prompt and never taken from the command line, so a script or an agent's shell, which has no terminal, can't approve. There is no --code and no --yes.
+
+Claude Code, Codex and other MCP clients on this computer sign in to Foreman over a loopback address
+(docs/agent-access.md). Each sign-in waits for the person at the computer, who types the six-digit code its
+browser page shows and chooses its level: read (look only), ask (the default), ask-except-edits, auto or
+never-ask, the most permissive mode any turn it causes may run in. A level bounds what an agent does through
+Foreman, not what it can do with its own shell and files. This is Settings → Data & devices → Agents on this
+computer from a terminal; turn it on with `foreman settings set devices.agent-access on`. Anything that changes
+who may sign in is refused from inside an agent turn.
+```
+
+### foreman agent-access deny
+
+```text
+Refuse a waiting sign-in
+
+Usage:
+  foreman agent-access deny [<id>]
+
+Arguments:
+  <id>         Which sign-in, when several wait: its id, the start of one, or its name (optional)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman agent-access deny
+  foreman agent-access deny 1a2b3c4d
+
+Exit codes:
+  8  No sign-in is waiting, or the id matches none or several
+  Every code: foreman help exit-codes
+```
+
+### foreman agent-access revoke
+
+```text
+End an agent’s sign-in
+
+Usage:
+  foreman agent-access revoke <id-or-name> [--yes]
+
+Arguments:
+  <agent>      Its id, the start of the id, or a name only one signed-in agent has (`foreman agent-access` lists them)
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman agent-access revoke "Claude Code"
+  foreman agent-access revoke 1a2b3c4d --yes
+
+Exit codes:
+  6  Not confirmed (no --yes and no terminal, or you answered no)
+  8  No such agent, or the name matches several
+  Every code: foreman help exit-codes
+
+Its next call is refused and the messages it queued are dropped; turns it started finish under their level. It can sign in again with a new approval.
+```
+
 ### foreman loadouts
 
 ```text
@@ -7042,6 +7209,8 @@ Data & devices
   devices.mobile-lan          on | off            mobile lan
   devices.mobile-lan-address  text                mobile lan address
   devices.keep-running        on | off            keep running
+  devices.agent-access        on | off            agent access
+  devices.agent-access-port   integer 1024-65535  agent access port
 
 Remote workspaces
   cloud.workspaces        on | off               Remote workspaces

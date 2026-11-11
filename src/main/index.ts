@@ -14,6 +14,7 @@ import { ApiDispatcher } from './api/dispatch'
 import { socketPath } from '../cli/protocol'
 import { shimPath } from './cliInstall'
 import { ensureCliToken, startCliServer, type CliHost } from './cliServer'
+import { resolveLoadout } from './cli/agents'
 import { Core } from './core'
 import { WorkspaceBrowser } from './workspaceBrowser'
 import type { BrowserCommand } from '../shared/browser'
@@ -22,6 +23,8 @@ import { SecretStore } from './secrets'
 import { allowPermission } from './speech/permissions'
 import { Store } from './store'
 import { MobileService } from './mobile'
+import { AgentAccessService } from './agentAccess/server'
+import { OutsideTools } from './agentAccess/tools'
 import { captureConsoleErrors, errorLine, errorLog, osName, rendererErrorLine } from './reportProblem'
 import { diag, installProcessHandlers } from './diagnosticsLog'
 import { buildDiagnostics } from './diagnostics'
@@ -60,6 +63,7 @@ let router: RemoteRouter | null = null
 const afterLoad: MainEvent[] = []
 let cliServer: Server | null = null
 let mobile: MobileService | null = null
+let agentAccess: AgentAccessService | null = null
 
 app.setName('Foreman')
 // #19: the file viewer's sandboxed HTML/PDF previews load from foreman-preview:// (main/previewProtocol.ts).
@@ -665,6 +669,12 @@ async function main(): Promise<void> {
   })
   core.bindMobile(mobile)
   if (!screensRoot && !demoRoot) await mobile.start()
+  // Agents on this computer (docs/agent-access.md): a loopback listener of its own, never the phone's.
+  // Revoking a sign-in drops what its tree queued (docs/agent-access.md §4).
+  // Its changes reach every window, phone and browser, and a sign-in that starts waiting raises a notification.
+  agentAccess = new AgentAccessService({ store, secrets, onChanged: () => core?.agentAccessChanged(), onRevoked: (grantId) => core?.agentGrantRevoked(grantId) })
+  core.bindAgentAccess(agentAccess)
+  if (!screensRoot && !demoRoot) await agentAccess.start()
   registerLinks()
 
   // Only the trusted desktop main frame can call any privileged IPC channel.
@@ -786,13 +796,15 @@ async function main(): Promise<void> {
     deliver: (sessionId, text, options) => started.sessions.deliver(sessionId, text, options),
     cancelTurn: (turnId) => started.sessions.cancelTurn(turnId),
     lendSlot: (sessionId) => started.sessions.lendSlot(sessionId),
-    armLimitResume: (sessionId, turnId) => started.limitResume.arm(sessionId, turnId),
+    armLimitResume: (sessionId, turnId, cap) => started.limitResume.arm(sessionId, turnId, cap),
     cancelLimitResume: (sessionId) => started.limitResume.cancel(sessionId),
     firstTurn: (workspaceId) => started.firstTurn(workspaceId),
     createWorkspace: (repoId, options, extra) => started.createWorkspaceFor(repoId, options, extra),
     startFlowRun: async (input, origin) => started.startFlowRunFrom(input, origin),
     setupOutcome: (workspaceId) => started.setupOutcome(workspaceId),
-    startHeldMessage: (workspaceId) => started.startHeldMessage(workspaceId),
+    startHeldMessage: (workspaceId, cap) => started.startHeldMessage(workspaceId, cap),
+    // docs/agent-access.md §4: a capped turn's `foreman` command starts what it starts under that turn's cap.
+    capped: (cap) => started.cappedApi(cap),
     runChecks: (workspaceId) => started.checks.runForCli(workspaceId),
     exportInfo: (workspaceId) => started.portability.exportInfo(workspaceId),
     exportWorkspace: (workspaceId, options) => started.portability.exportWorkspace(workspaceId, options),
@@ -844,6 +856,25 @@ async function main(): Promise<void> {
   const delegation = new ForemanDelegation(cliHost)
   started.assistant.delegation = delegation
   started.foremanMcp.delegation = delegation
+  // Agents on this computer call the same tools over the loopback endpoint (docs/agent-access.md §7).
+  const outside = agentAccess
+  outside?.setMcpHandler(new OutsideTools({
+    grant: (id) => outside.grant(id),
+    delegation,
+    actions: started.foremanActions,
+    approvals: () => started.sessions.pendingApprovals(),
+    session: (id) => store.state.sessions.find((s) => s.id === id),
+    workspace: (id) => store.state.workspaces.find((w) => w.id === id),
+    answerQuestion: (id, response, name) => started.answerAsOutside(id, response, name),
+    flowsOn: () => Boolean(store.state.settings.flows),
+    schedules: {
+      snapshot: () => cliHost.snapshot(),
+      listFlows: (repoId) => started.api.listFlows(repoId),
+      // The model checked as `foreman schedules add --model` checks it.
+      claudeModel: (model) => resolveLoadout(cliHost, { agent: 'claude', model }).loadout.model,
+      propose: (input, by) => started.proposeSchedule(input, by)
+    }
+  }).handle)
   cliServer = await startCliServer(socketPath(app.getPath('userData')), cliHost).catch((err: unknown) => {
     // The app works without it; only the `foreman` command needs it.
     console.error('Could not start the command-line socket:', err)
@@ -943,7 +974,7 @@ app.on('before-quit', (event) => {
   cliServer?.close()
   perf.stop()
   diag.log('app.quit')
-  void Promise.all([core.shutdown(), mobile?.close(), core.bridge.close(), perf.flushed(), diag.flushed()]).finally(() => {
+  void Promise.all([core.shutdown(), mobile?.close(), agentAccess?.close(), core.bridge.close(), perf.flushed(), diag.flushed()]).finally(() => {
     if (!installUpdate || !updateInstaller) return app.quit()
     // electron-updater quits once the installer is under way. When it can't start one it only reports an error, so
     // quit anyway rather than leave a stopped app open; the update stays downloaded for the next try.

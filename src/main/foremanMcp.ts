@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, type ForemanToolName } from '../shared/foremanTools'
 import type { Session } from '../shared/types'
+import type { TurnCap } from '../shared/agentAccess'
 import type { McpLaunch } from './agents/types'
 import type { ForemanActions } from './foremanActions'
 import { DELEGATION_TOOLS, delegationToolNames } from '../shared/foremanDelegation'
@@ -13,7 +14,8 @@ import type { ForemanDelegation } from './foremanDelegation'
 import type { ForemanCli } from './foremanCli'
 import { FOREMAN_CLI_TOOL } from '../shared/foremanCli'
 
-interface Grant { id: string; sessionId: string; workspaceId: string; readOnly: boolean }
+// `cap`: the turn's own (docs/agent-access.md §4), which its start_task and send_task pass on.
+interface Grant { id: string; sessionId: string; workspaceId: string; readOnly: boolean; cap?: TurnCap }
 interface Deps {
   actions: ForemanActions
   session(id: string): Session | undefined
@@ -53,7 +55,7 @@ export class ForemanMcp {
   }
 
   private grant(session: Session): Grant {
-    const grant: Grant = { id: randomUUID(), sessionId: session.id, workspaceId: session.workspaceId, readOnly: Boolean(session.readOnly || session.planMode) }
+    const grant: Grant = { id: randomUUID(), sessionId: session.id, workspaceId: session.workspaceId, readOnly: Boolean(session.readOnly || session.planMode), ...(session.turnCap ? { cap: session.turnCap } : {}) }
     this.grants.set(grant.id, grant)
     return grant
   }
@@ -62,7 +64,7 @@ export class ForemanMcp {
     const grant = this.grants.get(id)
     const session = grant && this.deps.session(grant.sessionId)
     if (!grant || !session || session.closedAt || session.workspaceId !== grant.workspaceId) throw new Error('Foreman access for this turn has ended. Start a new turn.')
-    return { workspaceId: grant.workspaceId, sessionId: grant.sessionId, readOnly: grant.readOnly || Boolean(session.readOnly || session.planMode) }
+    return { workspaceId: grant.workspaceId, sessionId: grant.sessionId, readOnly: grant.readOnly || Boolean(session.readOnly || session.planMode), ...(grant.cap ? { cap: grant.cap } : {}) }
   }
 
   attach(conn: net.Socket, params: { grant: string; service: string }, rest: string): void {

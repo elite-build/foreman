@@ -88,6 +88,10 @@ export interface TurnRequest {
   // Folders outside cwd the agent must be able to write: the repository's git
   // folder, which a worktree's commits, refs and index live in.
   extraWritableDirs?: string[]
+  // docs/agent-access.md §3: the turn is capped below Never ask. Writing agent or git configuration (CEILING_PROTECTED_PATHS,
+  // and `gitDir`, the git common directory, then left out of extraWritableDirs) asks even where edits would go ahead;
+  // Claude at an Auto ceiling also asks before running `foreman`.
+  capped?: { ceiling: ApprovalPolicy; gitDir?: string }
   // Claude only: mirror the transcript here (and resume from it when it holds the whole session).
   sessionStore?: SessionStore
   // With `resume`: continue as a new session id (an import made as a copy), instead of the same one.

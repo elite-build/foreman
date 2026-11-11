@@ -20,6 +20,7 @@ import { DEFAULT_TILE_COUNT, tileCountOf, type TileCount } from './tiles'
 import { editorViewOf, pickEditorView, type EditorView } from './editorLayout'
 import type { AttentionEvent } from '../../shared/attention'
 import type { ComputersView } from '../../shared/remote'
+import type { AgentAccessInfo } from '../../shared/agentAccess'
 import { routeLink, workspaceLink, type LinkRoute } from '../../shared/deepLink'
 import { createT, resolveLocale, type Locale } from '../../shared/i18n'
 import { timeAgo as formatAgo, timeWaited as formatWaited } from '../../shared/i18n/time'
@@ -585,6 +586,8 @@ function notify(event: Extract<MainEvent, { type: 'notify' }>): void {
       window.focus()
       // G4 O17: a keep-awake cutoff opens its setting.
       if (event.action === 'keep-awake') return openSettingsPage({ section: 'general', scrollTo: 'keep-awake' })
+      // A sign-in from an agent on this computer is waiting: Settings → Data & devices → Agents on this computer.
+      if (event.action === 'agent-access') return openSettingsPage({ section: 'data', scrollTo: 'agent-access' })
       openSettingsPage(null)
       selectWorkspace(event.workspaceId)
       if (event.sessionId) selectSession(event.workspaceId, event.sessionId)
@@ -795,6 +798,9 @@ function handleEvent(event: MainEvent): void {
       assistantThreadsSeen++
       if (state.assistant) setState({ assistant: { ...state.assistant, threads: event.threads } })
       return
+    case 'agent-access':
+      for (const listener of agentAccessListeners) listener(event.info)
+      return
     // Cloud workspaces: a repository's base build streams its output to whoever shows its log.
     case 'cloud-build-log':
       for (const listener of buildLogListeners) listener(event.repoId, event.buildId, event.chunk)
@@ -812,6 +818,13 @@ function handleEvent(event: MainEvent): void {
 }
 
 const buildLogListeners = new Set<(repoId: string, buildId: string, chunk: string) => void>()
+const agentAccessListeners = new Set<(info: AgentAccessInfo) => void>()
+
+/** Agents on this computer: the new state whenever a sign-in starts, ends or is approved or revoked, or the listener moves. */
+export function onAgentAccess(listener: (info: AgentAccessInfo) => void): () => void {
+  agentAccessListeners.add(listener)
+  return () => agentAccessListeners.delete(listener)
+}
 
 /** Cloud workspaces: chunks of a repository's cloud computer build as they arrive (the repository's own record keeps the tail). */
 export function onCloudBuildLog(listener: (repoId: string, buildId: string, chunk: string) => void): () => void {

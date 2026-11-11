@@ -9,12 +9,13 @@
 import type { ChatItem, LimitResume, MessageOrigin, Session } from '../shared/types'
 import { MISSED_GRACE_MS } from '../shared/schedule'
 import { READS_RESET_TIME, RESUME_BUFFER_MS, RESUME_TEXT } from '../shared/usageLimit'
+import { lowerCap, type TurnCap } from '../shared/agentAccess'
 
 export interface LimitResumeDeps {
   sessions(): Session[]
   readChat(sessionId: string): Promise<ChatItem[]>
-  /** The tab's normal send path, through its queue; the message carries `origin` as its receipt. */
-  send(sessionId: string, text: string, origin: MessageOrigin): Promise<unknown>
+  /** The tab's normal send path, through its queue; the message carries `origin` as its receipt, and `cap` (docs/agent-access.md §4). */
+  send(sessionId: string, text: string, origin: MessageOrigin, cap?: TurnCap): Promise<unknown>
   /** Write everything to disk now (not debounced). */
   flush(): void
   changed(): void
@@ -91,15 +92,21 @@ export class LimitResumeService {
 
   // ---- what the human does ----
 
-  /** Tick "Resume at …" on the card of the tab's latest turn. */
-  async arm(sessionId: string, turnId: string): Promise<LimitResume> {
+  /**
+   * Tick "Resume at …" on the card of the tab's latest turn. The resume carries the stopped turn's cap, lowered by `cap`
+   * when a capped turn armed it (`foreman resume-at`; docs/agent-access.md §4).
+   */
+  async arm(sessionId: string, turnId: string, cap?: TurnCap): Promise<LimitResume> {
     const session = this.session(sessionId)
     if (session.closedAt) throw new Error('This chat is closed')
     if (!READS_RESET_TIME.includes(session.agent)) throw new Error('This agent doesn’t say when its limits reset')
     if (session.status === 'running' || session.turnId || session.lastTurn?.turnId !== turnId || session.lastTurn.outcome !== 'error') {
       throw new Error('Something newer happened in this chat, so there’s nothing to resume.')
     }
-    const end = (await this.deps.readChat(sessionId)).find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end' && i.turnId === turnId)
+    const chat = await this.deps.readChat(sessionId)
+    const end = chat.find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end' && i.turnId === turnId)
+    const stopped = chat.find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === turnId && !i.steered)
+    const carried = lowerCap(stopped?.cap, cap)
     const limit = end?.limit
     if (!limit?.resetAt || !limit.source) throw new Error('The error didn’t say when the limit resets.')
     const now = this.deps.now()
@@ -112,7 +119,8 @@ export class LimitResumeService {
       source: limit.source,
       ...(limit.from ? { from: limit.from } : {}),
       text: RESUME_TEXT,
-      armedAt: new Date(now).toISOString()
+      armedAt: new Date(now).toISOString(),
+      ...(carried ? { cap: carried } : {})
     }
     session.limitResume = resume
     this.persist()
@@ -127,16 +135,31 @@ export class LimitResumeService {
     this.persist()
   }
 
+  /**
+   * docs/agent-access.md §4, "Revoking": an armed or missed resume whose cap names a revoked sign-in is cleared, so
+   * nothing that sign-in's tree asked for starts later. Returns how many were.
+   */
+  dropFromGrant(grantId: string): number {
+    let dropped = 0
+    for (const { session, resume } of this.list()) {
+      if (resume.cap?.grantId !== grantId) continue
+      delete session.limitResume
+      dropped++
+    }
+    if (dropped) this.persist()
+    return dropped
+  }
+
   /** Something happened in the tab first: the resume would land on top of something newer. */
   activity(sessionId: string): void {
     this.cancel(sessionId)
   }
 
-  /** "Resume now" on a missed one: the same single send, now. */
-  async resumeNow(sessionId: string): Promise<void> {
+  /** "Resume now" on a missed one: the same single send, now. `cap`: asked for from a capped turn (`foreman resume-now`), which lowers the resume's own. */
+  async resumeNow(sessionId: string, cap?: TurnCap): Promise<void> {
     const session = this.session(sessionId)
     if (!session.limitResume) throw new Error('There’s no resume waiting in this chat.')
-    await this.fire(session)
+    await this.fire(session, cap)
   }
 
   // ---- the clock ----
@@ -162,13 +185,14 @@ export class LimitResumeService {
   }
 
   /** Remove it, on disk, then send its one message. A send that fails comes back as missed, saying why. */
-  private async fire(session: Session): Promise<void> {
+  private async fire(session: Session, cap?: TurnCap): Promise<void> {
     const resume = session.limitResume
     if (!resume) return
     delete session.limitResume
     this.persist()
     try {
-      await this.deps.send(session.id, resume.text, { kind: 'limit-resume' })
+      const carried = lowerCap(resume.cap, cap)
+      await this.deps.send(session.id, resume.text, { kind: 'limit-resume' }, carried)
     } catch (err) {
       // Something else may have happened in the tab meanwhile; only an empty slot takes it back.
       if (session.limitResume || session.closedAt) return

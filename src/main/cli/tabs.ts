@@ -1,6 +1,7 @@
 // The chat-tab commands: tabs, tab new|set|close|reopen|fork, chat, queue,
 // rewind, resume-now, mcp, slash and search. Each is the operation the window performs, called through the same Api.
 // Tabs are counted from 1 among a workspace's open tabs, as `foreman send --tab` does.
+import { capIsLower, CEILING_NAMES } from '../../shared/agentAccess'
 import { AGENTS, defaultModel, modelInfo, modelsFor, type AgentKind, type EffortLevel } from '../../shared/agents'
 import { chatItemsOut, afterTurn, findTurn, lastTurns, renderChat, type ChatParams, type ChatResult, type McpParams, type McpResult, type QueueParams, type QueueResult, type QueueRow, type QueueVerb, type ResumeNowResult, type RewindParams, type RewindResult, type SearchHitRow, type SearchParams, type SearchResult, type SlashResult, type TabChangeResult, type TabForkParams, type TabReopenParams, type TabRow, type TabsResult } from '../../shared/cli/tabs'
 import { tabModelText } from '../../shared/tabs'
@@ -8,7 +9,7 @@ import type { Session, SessionPatch, Workspace } from '../../shared/types'
 import { CliCodedError, type CliHost } from './host'
 import { columns, flagParam, invalid, numberParam, paramsObject, textParam, type MethodDef } from './kit'
 import type { CliContext } from './methods'
-import { startRefusal } from './policy'
+import { apiFor, startRefusal } from './policy'
 import { ambiguous, notFound, plural, refused } from './refs'
 import { findTab, findWorkspace } from './resolve'
 
@@ -310,7 +311,7 @@ async function queue(host: CliHost, params: unknown, ctx: CliContext): Promise<Q
   } else if (verb === 'steer') {
     // Steering delivers the message into the running turn: it sends something to a chat.
     refuseStart(host, ctx)
-    await host.api.steerQueued(session.id, message.id)
+    await apiFor(host, ctx).steerQueued(session.id, message.id)
     text = `Steered “${label}” into the running turn of ${where}.`
   } else {
     // An edit or move is checked against the queue as the caller saw it; the one the server sees now is the best a one-shot command has.
@@ -324,6 +325,10 @@ async function queue(host: CliHost, params: unknown, ctx: CliContext): Promise<Q
     } else {
       const newText = textParam(p, 'text')
       if (!newText.trim()) throw invalid('Say what the message should read now.')
+      // docs/agent-access.md §4: a capped turn can't rewrite a message that would run less held than it (or not held at all).
+      if (ctx.cap && capIsLower(ctx.cap, message.cap)) {
+        throw new CliCodedError('refused', `This queued message can’t be edited from this turn: it was started through ${ctx.cap.name}’s access and is held to “${CEILING_NAMES[ctx.cap.ceiling]}”, and the message would run ${message.cap ? `as “${CEILING_NAMES[message.cap.ceiling]}”` : 'as the user’s, not held at all'}. Queue a message of your own instead.`)
+      }
       result = await host.api.editQueued(session.id, message.id, newText, revision)
       text = `Edited the queued message in ${where}.`
     }
@@ -356,7 +361,7 @@ async function resumeNow(host: CliHost, params: unknown, ctx: CliContext): Promi
   const { ws, tab, session } = tabOf(host, paramsObject(params))
   // Resume now sends the chat's message again: it starts a turn, so an agent needs the repository's opt-in.
   refuseStart(host, ctx)
-  await host.api.resumeLimitNow(session.id)
+  await apiFor(host, ctx).resumeLimitNow(session.id)
   return { workspace: wsOut(ws), tab, session: session.id, text: `Resumed tab ${tab} of ${ws.name} now.` }
 }
 

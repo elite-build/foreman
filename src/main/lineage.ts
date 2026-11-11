@@ -46,7 +46,8 @@ export async function lineageInput(src: LineageSources, workspaceId: string): Pr
     if (s.handedOffFrom) linkedIds.add(s.handedOffFrom.sessionId)
     for (const item of chats.get(s.id) ?? []) if (item.kind === 'user' && item.origin?.kind === 'delegation') linkedIds.add(item.origin.sessionId)
   }
-  if (workspace.startedBy && workspace.startedBy.via !== 'assistant') linkedIds.add(workspace.startedBy.sessionId)
+  // An outside agent isn't a chat here: its node is drawn from the record alone.
+  if (workspace.startedBy && workspace.startedBy.via !== 'assistant' && workspace.startedBy.via !== 'outside') linkedIds.add(workspace.startedBy.sessionId)
   for (const w of siblings) if (w.compare?.sessionId) linkedIds.add(w.compare.sessionId)
   for (const s of own) linkedIds.delete(s.id)
   const linked = [...linkedIds]

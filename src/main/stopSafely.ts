@@ -30,6 +30,7 @@ import { workspaceTarget } from './runtime'
 import type { SessionService } from './sessions'
 import type { Store } from './store'
 import { ArchiveStepError, type WorkspaceService } from './workspaces'
+import { lowerCap, type TurnCap } from '../shared/agentAccess'
 
 export interface StopSafelyDeps {
   store: Store
@@ -234,8 +235,11 @@ export class StopSafely {
     return rows
   }
 
-  /** Retry, after the row showed the message: send it again, word for word, in the same tab. */
-  async retry(turnId: string): Promise<void> {
+  /**
+   * Retry, after the row showed the message: send it again, word for word, in the same tab, under the cap the stopped
+   * turn ran under (lowered by `cap` when a capped turn asks, `foreman stopped retry`; docs/agent-access.md §4).
+   */
+  async retry(turnId: string, cap?: TurnCap): Promise<void> {
     const t = this.t()
     const stop = this.deps.store.state.stopRecord?.turns.find((x) => x.turnId === turnId)
     const session = stop && this.deps.store.state.sessions.find((s) => s.id === stop.sessionId)
@@ -245,7 +249,8 @@ export class StopSafely {
     )
     if (!user) throw new Error(t('stop.review.noMessage'))
     if (session.closedAt) this.deps.sessions.reopenSession(session.workspaceId, session.id)
-    await this.deps.sessions.send(session.id, user.text, { attachments: user.attachments })
+    const carried = lowerCap(user.cap, cap)
+    await this.deps.sessions.send(session.id, user.text, { attachments: user.attachments, ...(carried ? { cap: carried } : {}) })
     this.dismiss(turnId)
   }
 

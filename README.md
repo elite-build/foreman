@@ -42,7 +42,7 @@ foreman flow run fix-until-green --input task="make the tests pass" --wait
 
 `foreman help` lists the commands by group, and the [command line reference](docs/cli.md) has every one with its options and examples.
 
-Foreman also has checkpoints you can rewind to, terminals and run scripts, file paths in the chat that open in the right app, a built-in assistant, GitHub, Linear and Slack integrations, and a phone view for approving requests away from your desk. The phone view updates live, a browser on another computer can open the whole app with the same sign-in, and Foreman can run without a window, with sign-ins approved from a terminal. See the [guide](docs/guide.md) for those.
+Foreman also has checkpoints you can rewind to, terminals and run scripts, file paths in the chat that open in the right app, a built-in assistant, GitHub, Linear and Slack integrations, and a phone view for approving requests away from your desk. The phone view updates live, a browser on another computer can open the whole app with the same sign-in, and Foreman can run without a window, with sign-ins approved from a terminal. A Claude Code or Codex session you run yourself can sign in to Foreman over MCP and start and follow work there, held to the access level you approve. See the [guide](docs/guide.md) for those.
 
 ## Install
 
@@ -82,7 +82,7 @@ Foreman installs updates itself on Windows, and on macOS only when the app is si
 
 ## Learn more
 
-- [Guide](docs/guide.md): repository configuration, agent tools, integrations, backups, the command line, flows and phone access
+- [Guide](docs/guide.md): repository configuration, agent tools, integrations, backups, the command line, flows, phone access and agents on this computer
 - [Command line reference](docs/cli.md)
 - [Design system](docs/design-system.md), [accessibility](docs/accessibility.md) and [performance with many agents](docs/performance.md)
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development conventions

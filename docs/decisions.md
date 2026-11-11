@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-10: Outside agents sign in on a loopback listener of their own, and a level is scopes plus a ceiling carried down every turn
+
+**Decision.** Agents on this computer use MCP on `127.0.0.1:47634`, OAuth with PKCE, approved in Foreman by typing the browser page's code. A level is scopes plus a ceiling that only lowers a turn's mode and passes to everything that turn starts; an agent that can't hold a ceiling (Cursor, ACP agents) is refused below Never ask.
+
+**Why.** Any local process can reach a loopback port, and a cap held only on the first turn is escaped by delegating.
+
+**Turned down.** The phone listeners (Tailscale Serve reaches the private one); the CLI socket (any same-user process holds its token); approving in the browser page, or comparing a code by eye (anything local can drive the page); letting Cursor run at Ask (it never asks).
+
+**Revisit when.** A remote client such as ChatGPT must connect, or Cursor or an ACP agent can enforce a mode.
+
 ## 2026-11-10: One dispatcher and scoped sessions serve every client; the window keeps IPC and the server keeps Electron
 
 **Decision.** `Api` and `MainEvent` stay the API; each method is `read`, `operate`, `admin` or `window`; every client calls through `ApiDispatcher`. Phones and browsers use a WebSocket on the phone listeners with the pairing cookie: a snapshot, then live events, no event log. Headless means no window, not no Electron.

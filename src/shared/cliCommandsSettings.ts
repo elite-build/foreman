@@ -775,3 +775,84 @@ export const PHONE_COMMANDS: CommandSpec[] = [
     tier: 'admin'
   }
 ]
+
+const AGENT_ACCESS_DETAILS = `Claude Code, Codex and other MCP clients on this computer sign in to Foreman over a loopback address
+(docs/agent-access.md). Each sign-in waits for the person at the computer, who types the six-digit code its
+browser page shows and chooses its level: read (look only), ask (the default), ask-except-edits, auto or
+never-ask, the most permissive mode any turn it causes may run in. A level bounds what an agent does through
+Foreman, not what it can do with its own shell and files. This is Settings → Data & devices → Agents on this
+computer from a terminal; turn it on with \`foreman settings set devices.agent-access on\`. Anything that changes
+who may sign in is refused from inside an agent turn.`
+
+export const AGENT_ACCESS_COMMANDS: CommandSpec[] = [
+  {
+    path: ['agent-access'],
+    group: 'settings',
+    summary: 'Agents on this computer: the address, how to add it, who is signed in and who is asking',
+    usage: 'foreman agent-access [status]',
+    args: [{ name: 'verb', help: 'status (the default)', choices: ['status'] }],
+    options: {},
+    examples: ['foreman agent-access', 'foreman agent-access --json'],
+    details: `${AGENT_ACCESS_DETAILS}\n\nAlso: \`foreman agent-access pending\`, \`approve [<id>]\`, \`deny [<id>]\` and \`revoke <id-or-name>\`.`,
+    tier: 'read'
+  },
+  {
+    path: ['agent-access', 'status'],
+    group: 'settings',
+    summary: 'Whether agents may connect, the address and setup commands, the signed-in agents and the sign-ins waiting',
+    usage: 'foreman agent-access status [--json]',
+    args: [],
+    options: {},
+    examples: ['foreman agent-access status', 'foreman agent-access status --json'],
+    details: 'The address, the commands that add it to Claude Code (`--scope user`, so every project has it) and Codex, each signed-in agent with its level, when it was approved and last used, and the sign-ins waiting. Never a code.',
+    tier: 'read'
+  },
+  {
+    path: ['agent-access', 'pending'],
+    group: 'settings',
+    summary: 'The sign-ins waiting for approval: what each calls itself, where it returns and when it expires',
+    usage: 'foreman agent-access pending [--json]',
+    args: [],
+    options: {},
+    examples: ['foreman agent-access pending'],
+    tier: 'read'
+  },
+  {
+    path: ['agent-access', 'approve'],
+    group: 'settings',
+    summary: 'Approve a waiting sign-in with the code its browser page shows, typed at the prompt',
+    usage: 'foreman agent-access approve [<id>] [--level read|ask|ask-except-edits|auto|never-ask]',
+    args: [{ name: 'id', help: 'Which sign-in: its id, the start of one, or its name; asked when several wait' }],
+    options: {
+      level: { type: 'string', value: '<level>', choices: ['read', 'ask', 'ask-except-edits', 'auto', 'never-ask'], help: 'What it may do through Foreman', default: 'ask' }
+    },
+    examples: ['foreman agent-access approve', 'foreman agent-access approve --level read'],
+    exitCodes: { 6: 'No terminal to type the code on', 7: 'The code was wrong (the third wrong code denies the sign-in)', 8: 'No sign-in is waiting, or the id matches none or several' },
+    details: `The code is asked for at a prompt and never taken from the command line, so a script or an agent's shell, which has no terminal, can't approve. There is no --code and no --yes.\n\n${AGENT_ACCESS_DETAILS}`,
+    tier: 'admin',
+    noAssistant: 'it asks for the sign-in’s code at a terminal prompt'
+  },
+  {
+    path: ['agent-access', 'deny'],
+    group: 'settings',
+    summary: 'Refuse a waiting sign-in',
+    usage: 'foreman agent-access deny [<id>]',
+    args: [{ name: 'id', help: 'Which sign-in, when several wait: its id, the start of one, or its name' }],
+    options: {},
+    examples: ['foreman agent-access deny', 'foreman agent-access deny 1a2b3c4d'],
+    exitCodes: { 8: 'No sign-in is waiting, or the id matches none or several' },
+    tier: 'admin'
+  },
+  {
+    path: ['agent-access', 'revoke'],
+    group: 'settings',
+    summary: 'End an agent’s sign-in',
+    usage: 'foreman agent-access revoke <id-or-name> [--yes]',
+    args: [{ name: 'agent', required: true, help: 'Its id, the start of the id, or a name only one signed-in agent has (`foreman agent-access` lists them)' }],
+    options: {},
+    examples: ['foreman agent-access revoke "Claude Code"', 'foreman agent-access revoke 1a2b3c4d --yes'],
+    exitCodes: { 6: 'Not confirmed (no --yes and no terminal, or you answered no)', 8: 'No such agent, or the name matches several' },
+    details: 'Its next call is refused and the messages it queued are dropped; turns it started finish under their level. It can sign in again with a new approval.',
+    tier: 'admin'
+  }
+]

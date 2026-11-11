@@ -22,12 +22,14 @@ import { FLOW_METHODS } from './flows'
 import { LINEAGE_METHODS } from './lineage'
 import { PERSONA_METHODS } from './personas'
 import { PHONE_METHODS } from './phone'
+import { AGENT_ACCESS_METHODS } from './agentAccess'
 import { INTEGRATIONS_METHODS } from './integrations'
 import { REPO_SETTINGS_METHODS } from './repoSettings'
 import { SCHEDULES_METHODS } from './schedules'
 import { SETTINGS_METHODS } from './settings'
 import { TEMPLATES_METHODS } from './templates'
 import type { CliHost } from './host'
+import type { TurnCap } from '../../shared/agentAccess'
 import { callerTurn, type AnyCliRequest, type Tier } from './policy'
 import { importCommand, exportCommand } from './portability'
 import { resolveRepo } from './resolve'
@@ -42,6 +44,8 @@ export interface CliContext {
   signal: AbortSignal | undefined
   // A progress line for a long job. Only a version 2 request hears it; for version 1 it does nothing.
   progress(text: string, percent?: number): void
+  // docs/agent-access.md §4: the cap of the turn whose token an act-tier call carries; whatever it starts or queues carries it.
+  cap?: TurnCap
 }
 
 export interface CliMethod {
@@ -91,19 +95,20 @@ export const METHODS: Record<string, CliMethod> = {
   // app-info, doctor, cli-status and cli-install are in app.ts.
   ...appMethods,
   // From inside a turn, the workspace records the chat that started it, and a queued message the chat that sent it.
-  run: { tier: 'act', handle: async (host, params, ctx) => run(host, params as RunParams, startedByCaller(host, ctx)) },
+  run: { tier: 'act', handle: async (host, params, ctx) => run(host, params as RunParams, { ...startedByCaller(host, ctx), ...(ctx.cap ? { cap: ctx.cap } : {}) }) },
   send: {
     tier: 'act',
     handle: async (host, params, ctx) => {
       const from = callerTurn(host, ctx.caller)
-      return send(host, params as SendParams, from ? { origin: { kind: 'delegation', ...from } } : {})
+      return send(host, params as SendParams, { ...(from ? { origin: { kind: 'delegation' as const, ...from } } : {}), ...(ctx.cap ? { cap: ctx.cap } : {}) })
     }
   },
-  'resume-at': { tier: 'act', handle: async (host, params) => resumeAt(host, params as ResumeAtParams) },
+  'resume-at': { tier: 'act', handle: async (host, params, ctx) => resumeAt(host, params as ResumeAtParams, Date.now(), ctx.cap) },
   cancel: { tier: 'act', handle: async (host, params) => cancel(host, params as CancelParams) },
   // Running checks executes the repository's commands, yet agents may call it today (it answers "busy" during
-  // a turn), so it stays allowed: tier act, and no startRefusal because it starts no turn.
-  checks: { tier: 'act', handle: async (host, params) => checks(host, params as ChecksParams) },
+  // a turn), so it stays allowed: tier act, and no startRefusal because it starts no turn. From a turn capped below
+  // Never ask it is refused (docs/agent-access.md §4).
+  checks: { tier: 'act', handle: async (host, params, ctx) => checks(host, params as ChecksParams, ctx.cap) },
   // `foreman ask`: one assistant turn from the terminal; admin, so never from an agent turn (ask.ts).
   ...ASK_METHODS,
   export: { tier: 'admin', handle: async (host, params) => exportCommand(host, params as ExportParams) },
@@ -125,6 +130,8 @@ export const METHODS: Record<string, CliMethod> = {
   ...DATA_METHODS,
   // Phones and browsers signing in (docs/server.md): status and pending in read, everything that changes who may sign in in admin.
   ...PHONE_METHODS,
+  // Agents on this computer signing in (docs/agent-access.md §9): the same tiers as the phone's.
+  ...AGENT_ACCESS_METHODS,
   // Workspaces, chat tabs and approvals (plan §7).
   ...WORKSPACE_METHODS,
   ...TAB_METHODS,

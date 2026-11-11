@@ -417,6 +417,24 @@ describe('codex thread settings', () => {
     expect(s.sandboxPolicy).toMatchObject({ type: 'workspaceWrite', writableRoots: ['/repo/.git'], networkAccess: true })
   })
 
+  it('a turn capped below Never ask has no network in its sandbox, so reaching Foreman’s CLI asks or fails (docs/agent-access.md §3)', () => {
+    for (const ceiling of ['ask', 'ask-except-edits', 'auto'] as const) {
+      const s = settings({ approvals: ceiling, capped: { ceiling } })
+      expect(s.sandbox).toBe('workspace-write')
+      expect(s.sandboxPolicy).toMatchObject({ type: 'workspaceWrite', networkAccess: false })
+    }
+    expect(settings({ approvals: 'auto' }).sandboxPolicy).toMatchObject({ networkAccess: true })
+  })
+
+  it('a capped turn’s MCP tools prompt (asked at Ask, refused at Auto), except Foreman’s own server, which holds the cap itself', () => {
+    const servers = { echo: { command: 'node', args: ['x.mjs'], env: {} }, 'foreman-app': { command: 'foreman', args: ['mcp-bridge', 'app'], env: {} } }
+    const capped = settings({ approvals: 'auto', capped: { ceiling: 'auto' }, mcpServers: servers }).config.mcp_servers as Record<string, { default_tools_approval_mode: string }>
+    expect(capped.echo.default_tools_approval_mode).toBe('prompt')
+    expect(capped['foreman-app'].default_tools_approval_mode).toBe('approve')
+    const plain = settings({ approvals: 'auto', mcpServers: servers }).config.mcp_servers as Record<string, { default_tools_approval_mode: string }>
+    expect(plain.echo.default_tools_approval_mode).toBe('approve')
+  })
+
   it('read-only: never asks, whatever the policy, with nothing writable and no network', () => {
     for (const approvals of ['never-ask', 'ask', 'auto'] as const) {
       const s = settings({ approvals, readOnly: true, extraWritableDirs: ['/repo/.git'] })
@@ -608,6 +626,66 @@ describe('codex approvals', () => {
     expect(replies).toEqual([{ decision: 'acceptForSession' }, { decision: 'accept' }, { decision: 'acceptForSession' }])
     expect(autoAcceptEdits).toHaveBeenCalledWith(true)
     expect(approveTool).toHaveBeenCalledTimes(2)
+  })
+
+  it('a turn capped below Never ask asks before writing agent or git configuration, even where edits go ahead (docs/agent-access.md §3)', async () => {
+    const approveTool = approving(allow)
+    const capped = { approvals: 'ask-except-edits' as const, capped: { ceiling: 'ask-except-edits' as const, gitDir: path.resolve('/repos/app/.git') } }
+    const plain = await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f1' }, (s) => s.started('turn-1', fileChange('f1', [change('src/a.ts', 'update')])))
+    expect(plain.reply).toEqual({ decision: 'accept' })
+    expect(approveTool).not.toHaveBeenCalled()
+    const config = await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f2' }, (s) => s.started('turn-1', fileChange('f2', [change('src/b.ts', 'update'), change('.codex/config.toml', 'update')])))
+    expect(config.reply).toEqual({ decision: 'accept' })
+    expect(approveTool).toHaveBeenCalledTimes(1)
+    await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f3' }, (s) => s.started('turn-1', fileChange('f3', [change(path.resolve('/repos/app/.git/hooks/pre-commit'), 'add')])))
+    expect(approveTool).toHaveBeenCalledTimes(2)
+    // Uncapped, the same write goes ahead as before.
+    await asked({ approvals: 'ask-except-edits' }, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f4' }, (s) => s.started('turn-1', fileChange('f4', [change('.codex/config.toml', 'update')])))
+    expect(approveTool).toHaveBeenCalledTimes(2)
+  })
+
+  it('a capped turn goes ahead only with writes inside the workspace: anything outside it asks, even after edits for the session (docs/agent-access.md §3)', async () => {
+    const approveTool = approving(allow)
+    const capped = { approvals: 'ask-except-edits' as const, capped: { ceiling: 'ask-except-edits' as const } }
+    const outside = await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f1' }, (s) => s.started('turn-1', fileChange('f1', [change(path.resolve(CWD, '../elsewhere/a.ts'), 'update')])))
+    expect(outside.reply).toEqual({ decision: 'accept' })
+    expect(approveTool).toHaveBeenCalledTimes(1)
+    // A grant root outside the workspace, or none at all, asks too.
+    await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f2', grantRoot: path.resolve('/home/me') })
+    await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f3' })
+    expect(approveTool).toHaveBeenCalledTimes(3)
+    // Inside the workspace, the root included, it goes ahead.
+    await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f4', grantRoot: CWD })
+    await asked(capped, { approveTool }, 'item/fileChange/requestApproval', { itemId: 'f5' }, (s) => s.started('turn-1', fileChange('f5', [change('src/a.ts', 'update')])))
+    expect(approveTool).toHaveBeenCalledTimes(3)
+
+    // "Edits for this session" doesn't reach outside the workspace.
+    const forSession = approving({ kind: 'tool', allow: true, alternate: true })
+    const replies: unknown[] = []
+    const server = new FakeServer([
+      async (s, _p, id) => {
+        s.started(id, fileChange('g1', [change('a.ts', 'update')]))
+        replies.push(await s.ask('item/fileChange/requestApproval', { turnId: id, itemId: 'g1' }, 1))
+        s.started(id, fileChange('g2', [change(path.resolve(CWD, '../other/b.ts'), 'update')]))
+        replies.push(await s.ask('item/fileChange/requestApproval', { turnId: id, itemId: 'g2' }, 2))
+        s.completed(id)
+      }
+    ])
+    await runTurn(request({ approvals: 'ask', capped: { ceiling: 'ask' } }), recorder({ approveTool: forSession, autoAcceptEdits: vi.fn() }).cb, server)
+    expect(forSession).toHaveBeenCalledTimes(2)
+    expect(replies[0]).toEqual({ decision: 'acceptForSession' })
+  })
+
+  it('asks before an MCP tool as a tool approval, never as a question an outside agent could answer', async () => {
+    const questions = [{ id: 'mcp_tool_call_approval_call-1', header: 'Approve app tool call?', question: 'Allow echo to run tool "say"?', isOther: false, isSecret: false, options: [{ label: 'Allow', description: '' }, { label: 'Allow for this session', description: '' }, { label: 'Cancel', description: '' }] }]
+    const ask = vi.fn()
+    const approveTool = approving(allow)
+    const allowed = await asked({ approvals: 'ask', capped: { ceiling: 'ask' } }, { ask, approveTool }, 'item/tool/requestUserInput', { itemId: 'q1', questions })
+    expect(allowed.reply).toEqual({ answers: { 'mcp_tool_call_approval_call-1': { answers: ['Allow'] } } })
+    expect(approveTool).toHaveBeenCalledWith(expect.objectContaining({ kind: 'tool', toolName: 'MCP', input: { question: 'Allow echo to run tool "say"?' } }), expect.any(AbortSignal))
+    expect(ask).not.toHaveBeenCalled()
+    const denied = await asked({ approvals: 'ask', capped: { ceiling: 'ask' } }, { ask, approveTool: approving({ kind: 'tool', allow: false }) }, 'item/tool/requestUserInput', { itemId: 'q1', questions })
+    expect(denied.reply).toEqual({ answers: { 'mcp_tool_call_approval_call-1': { answers: [] } } })
   })
 
   it('asks for permissions: allow grants what was asked, minus what it left null; deny grants none', async () => {
