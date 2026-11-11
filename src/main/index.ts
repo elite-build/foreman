@@ -32,7 +32,8 @@ import { HOST_FLAG, hostArgs, hostDir } from './agentHost/protocol'
 import { readHostBundle, type HostBundle } from './agentHost/sandboxPackage'
 import { AppTray } from './tray'
 import { parseHeadless, quitsWhenWindowsClose, trayWanted, type HeadlessFacts } from './headless'
-import { installNotes, parseDataDir, parseService, readRelaunchNote, RELAUNCH_FILE, relaunchNote, ServiceManager, serviceUpdateDue, systemServiceDeps, type ServiceFacts } from './service'
+import { installNotes, launchArgs, parseDataDir, parseService, readRelaunchNote, RELAUNCH_FILE, relaunchNote, restartArgs, SERVICE_FLAG, serviceLaunch, ServiceManager, serviceUpdateDue, systemServiceDeps, type ServiceFacts } from './service'
+import { commitTrial, endTrial, failTrial, parseRetry, readOutcome, RETRY_FLAG, startTrial, takeSnapshot, TRIAL_TIMEOUT_MS, type UpdateTrial } from './serviceUpdate'
 import { LINK_SCHEME, linksIn } from '../shared/deepLink'
 import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
@@ -397,6 +398,27 @@ async function main(): Promise<void> {
   if (relaunch) {
     service = true
     headless = headless || !relaunch.window
+  }
+  // An update the service's Foreman installed is on trial until this version serves (serviceUpdate.ts): the data an
+  // earlier try left half done goes back first, and a version that failed every try puts it back and stops here.
+  if (!screensRoot && !demoRoot) {
+    try {
+      const { step, trial } = startTrial(app.getPath('userData'), { version: app.getVersion(), human: !service && !parseRetry(process.argv), now: Date.now() })
+      if (step.action === 'stop') {
+        console.error(`Foreman ${app.getVersion()} didn’t start after its update ${step.outcome.tries} times; the data is back as ${step.outcome.from} left it.`)
+        return app.exit(0)
+      }
+      if (trial) {
+        trialRun = trial
+        trialWatchdog = setTimeout(() => failTry(new Error(`It hadn’t started serving after ${TRIAL_TIMEOUT_MS / 60_000} minutes.`)), TRIAL_TIMEOUT_MS)
+      }
+    } catch (err) {
+      // Opening data an update may have half changed is worse than not starting.
+      console.error('Could not put the data back after a failed update; Foreman won’t open it:', err)
+      return app.exit(1)
+    }
+    const last = readOutcome(app.getPath('userData'))
+    rolledBackVersion = last?.outcome === 'rolled-back' ? last.to : undefined
   }
   // A folder dropped on the taskbar button, shortcut or Dock icon while Foreman runs (O21).
   app.on('second-instance', (_event, argv, workingDirectory, data) => {
@@ -778,10 +800,25 @@ async function main(): Promise<void> {
     setTimeout(() => void started.updates.start(), 5_000).unref()
     powerMonitor.on('resume', () => started.updates.woke())
     // The service's Foreman installs a downloaded update by itself once nobody is using it (service.ts): no window open and
-    // nothing Quit would ask about. A window's update card decides otherwise. Restarting writes the relaunch note.
+    // nothing Quit would ask about. A window's update card decides otherwise. Restarting writes the relaunch note. The data
+    // is copied aside first, for the new version's trial (serviceUpdate.ts); without a copy there is no update.
+    let heldUntil = 0
     setInterval(() => {
-      const due = serviceUpdateDue({ service, readyVersion: started.updates.readyVersion(), windows: visibleWindows(), busy: started.stopSafely.needsAsking() })
-      if (due) void started.api.restartToUpdate(false).catch((err: unknown) => console.error('Could not restart to install the Foreman update:', err))
+      const readyVersion = started.updates.readyVersion()
+      if (Date.now() < heldUntil || !readyVersion) return
+      if (!serviceUpdateDue({ service, readyVersion, windows: visibleWindows(), busy: started.stopSafely.needsAsking(), failedVersion: rolledBackVersion })) return
+      const dataDir = app.getPath('userData')
+      try {
+        store.flush()
+        takeSnapshot(dataDir, { from: app.getVersion(), to: readyVersion, now: Date.now(), copyDb: (file) => store.db.backupTo(file) })
+      } catch (err) {
+        heldUntil = Date.now() + 60 * 60_000
+        return console.error('Could not copy the data aside before installing the Foreman update; trying again in an hour:', err)
+      }
+      void started.api.restartToUpdate(false).catch((err: unknown) => {
+        endTrial(dataDir)
+        console.error('Could not restart to install the Foreman update:', err)
+      })
     }, 60_000).unref()
   }
   // Cloud workspaces: idle sleep every minute (nothing to do without one), and orphans stopped once if Settings say so.
@@ -876,6 +913,18 @@ async function main(): Promise<void> {
     console.error('Could not start the command-line socket:', err)
     return null
   })
+  // An update on trial has opened the data and is serving: it stays, and the copy of the data goes (serviceUpdate.ts).
+  // Before schedules, flows and the rest start writing, which putting the data back would lose.
+  if (trialRun) {
+    const trial = trialRun
+    trialRun = undefined
+    if (trialWatchdog) clearTimeout(trialWatchdog)
+    try {
+      commitTrial(app.getPath('userData'), trial, Date.now())
+    } catch (err) {
+      console.error('Could not finish the update’s trial:', err)
+    }
+  }
   void core.refreshAllDiffStats()
   if (online) core.prWatch.start()
   // #5: fix turns that were running when Foreman closed get their time cap back, or are settled from how they ended.
@@ -937,6 +986,11 @@ let quitApproved = false
 let updateInstaller: ElectronUpdateInstaller | undefined
 // The update card's Restart: once shut down, run the installer, which starts Foreman again.
 let installUpdate = false
+// The update this start is trying (serviceUpdate.ts), until it serves; and what ends the try if it hangs.
+let trialRun: UpdateTrial | undefined
+let trialWatchdog: NodeJS.Timeout | undefined
+// A version whose update was rolled back here: the service doesn't install it by itself again.
+let rolledBackVersion: string | undefined
 
 /** Windows someone could be looking at. */
 function visibleWindows(): number {
@@ -973,8 +1027,42 @@ function serviceHost(started: Core): CliHost['service'] {
       return service
     },
     canUpdate: () => !started.updates.view().installUnavailable,
-    notes: () => installNotes(serviceFacts())
+    notes: () => installNotes(serviceFacts()),
+    pid: process.pid,
+    busy: () => started.stopSafely.needsAsking(),
+    windowOpen: () => visibleWindows() > 0,
+    // After the reply has gone: Quit without asking (the command checked, or was forced), and Electron starts the
+    // service's Foreman once this one has exited, past the single-instance lock.
+    restart: (window) => {
+      const launch = serviceLaunch(serviceFacts())
+      setTimeout(() => {
+        app.relaunch({ execPath: launch.command, args: restartArgs(launch, window) })
+        quitApproved = true
+        app.quit()
+      }, 250)
+    },
+    lastUpdate: () => readOutcome(app.getPath('userData'))
   }
+}
+
+/**
+ * The update on trial failed in this process (it threw while starting, or hung): note why, and start Foreman again with
+ * RETRY_FLAG, which puts the data back before trying again or stopping (serviceUpdate.ts). Exits at once: a shutdown
+ * would write more into data that is about to be replaced.
+ */
+function failTry(err: unknown): void {
+  const trial = trialRun
+  if (!trial) return
+  trialRun = undefined
+  console.error(`Foreman ${app.getVersion()} didn’t start after its update:`, err)
+  try {
+    failTrial(app.getPath('userData'), trial, err instanceof Error ? err.message : String(err))
+  } catch (noted) {
+    console.error('Could not note why:', noted)
+  }
+  const flags = [...(headless ? ['--headless'] : []), ...(service ? [SERVICE_FLAG] : []), RETRY_FLAG]
+  app.relaunch({ execPath: serviceLaunch(serviceFacts()).command, args: launchArgs(serviceFacts(), flags) })
+  app.exit(1)
 }
 
 /** Just before the installer runs: how the new version should start, read once by takeRelaunchNote. */
@@ -1056,4 +1144,9 @@ app.on('window-all-closed', () => {
 
 // O10: started as the background agent host, Foreman runs only that (no window, no app state).
 if (process.argv.includes(HOST_FLAG)) void import('./agentHost/electronHost').then((m) => m.runAgentHost())
-else void main()
+else
+  void main().catch((err: unknown) => {
+    // A start that fails while an update is on trial puts the data back (failTry); any other failure is as it was.
+    if (trialRun) return failTry(err)
+    throw err
+  })

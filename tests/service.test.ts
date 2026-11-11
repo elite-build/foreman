@@ -2,8 +2,9 @@
 // and removing them through fakes, the update rule and the relaunch note, and `foreman service` (src/main/cli/service.ts).
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CliError } from '../src/cli/client'
 import type { Context } from '../src/cli/command'
-import { appRunners } from '../src/cli/commands/app'
+import { appRunners, waitForRestart } from '../src/cli/commands/app'
 import { renderCommandHelp } from '../src/cli/help'
 import { CliCodedError, type ServiceHost } from '../src/main/cli/host'
 import type { CliContext } from '../src/main/cli/methods'
@@ -11,11 +12,14 @@ import { SERVICE_METHODS } from '../src/main/cli/service'
 import { METHODS, tierCheck } from '../src/main/cliServer'
 import {
   installNotes,
+  launchArgs,
   launchdPlist,
   parseDataDir,
   parseService,
   readRelaunchNote,
   relaunchNote,
+  restartArgs,
+  restartProblem,
   serviceLaunch,
   serviceLocation,
   ServiceManager,
@@ -29,7 +33,7 @@ import {
   type ServiceFacts,
   type ServiceState
 } from '../src/main/service'
-import type { ServiceStatusResult, ServiceUninstallResult } from '../src/shared/cli/service'
+import type { ServiceRestartResult, ServiceStatusResult, ServiceUninstallResult } from '../src/shared/cli/service'
 import { COMMANDS, commandName, findCommand } from '../src/shared/cliCommands'
 import { defaultSettings } from '../src/main/store'
 import { stubHost } from './cliHost'
@@ -68,6 +72,26 @@ describe('what the service starts', () => {
   it('starts a development build through Electron with its app path, and keeps a data folder other than the default', () => {
     const dev = { ...windows, packaged: false, execPath: 'C:\\repo\\node_modules\\electron\\dist\\electron.exe', appPath: 'C:\\repo', dataDir: 'C:\\Foreman test' }
     expect(serviceLaunch(dev)).toEqual({ command: dev.execPath, args: ['C:\\repo', '--headless', '--service', '--data-dir=C:\\Foreman test'] })
+  })
+
+  it('makes every start of this copy the same way: app path first in development, flags, then its data folder', () => {
+    expect(launchArgs(windows, ['--service', '--update-retry'])).toEqual(['--service', '--update-retry'])
+    expect(launchArgs({ packaged: false, appPath: 'C:\\repo', dataDir: 'D:\\data' }, ['--headless'])).toEqual(['C:\\repo', '--headless', '--data-dir=D:\\data'])
+  })
+
+  it('restarts as the service starts it, without --headless when a window is open', () => {
+    const launch = serviceLaunch({ ...windows, dataDir: 'D:\\data' })
+    expect(restartArgs(launch, false)).toEqual(['--headless', '--service', '--data-dir=D:\\data'])
+    expect(restartArgs(launch, true)).toEqual(['--service', '--data-dir=D:\\data'])
+  })
+
+  it('restarts only an installed service that starts this copy, and with work running only when forced', () => {
+    const ok = { installed: true, current: true, busy: false, force: false }
+    expect(restartProblem(ok)).toBeNull()
+    expect(restartProblem({ ...ok, busy: true, force: true })).toBeNull()
+    expect(restartProblem({ ...ok, installed: false, current: false })).toMatchObject({ code: 'not-found', hint: expect.stringContaining('foreman service install') })
+    expect(restartProblem({ ...ok, current: false })).toMatchObject({ code: 'refused', message: expect.stringContaining('another copy') })
+    expect(restartProblem({ ...ok, busy: true })).toMatchObject({ code: 'busy', hint: expect.stringContaining('--force') })
   })
 
   it('refuses a macOS app run from a disk image or a translocated copy', () => {
@@ -271,6 +295,11 @@ describe('updating itself', () => {
     expect(serviceUpdateDue({ ...due, busy: true })).toBe(false)
   })
 
+  it('doesn’t install by itself a version whose update was rolled back here, but does a newer one', () => {
+    expect(serviceUpdateDue({ ...due, failedVersion: '1.0.22' })).toBe(false)
+    expect(serviceUpdateDue({ ...due, readyVersion: '1.0.23', failedVersion: '1.0.22' })).toBe(true)
+  })
+
   it('reads the relaunch note back only for the version it named, and only while it is recent', () => {
     const now = 1_762_790_400_000
     const text = relaunchNote('1.0.22', false, now)
@@ -299,6 +328,27 @@ describe('index.ts and the service', () => {
     expect(source).toMatch(/if \(!installUpdate \|\| !updateInstaller\) return app\.quit\(\)\r?\n\s*if \(updating\) writeRelaunchNote\(updating, windowOpen\)/)
     expect(source.indexOf('takeRelaunchNote()')).toBeGreaterThan(source.indexOf('requestSingleInstanceLock('))
   })
+
+  it('settles an update’s trial after the lock and the relaunch note, before anything opens the data', () => {
+    const at = source.indexOf('startTrial(app.getPath(')
+    expect(at).toBeGreaterThan(source.indexOf('takeRelaunchNote()'))
+    expect(at).toBeLessThan(source.indexOf('new Store(app.getPath('))
+    // A human start is neither the service's nor a retry; one that can't put the data back doesn't open it.
+    expect(source).toMatch(/human: !service && !parseRetry\(process\.argv\)/)
+    expect(source).toMatch(/Foreman won’t open it:', err\)\r?\n\s*return app\.exit\(1\)/)
+  })
+
+  it('keeps the update once the command line serves, before schedules and flows start writing', () => {
+    const commit = source.indexOf('commitTrial(app.getPath(')
+    expect(commit).toBeGreaterThan(source.indexOf('cliServer = await startCliServer('))
+    expect(commit).toBeLessThan(source.indexOf('core.schedules.start()'))
+  })
+
+  it('copies the data aside before restarting to install, and fails a try that throws by starting again with the retry flag', () => {
+    expect(source.indexOf('takeSnapshot(dataDir')).toBeLessThan(source.indexOf('started.api.restartToUpdate(false)'))
+    expect(source).toMatch(/if \(trialRun\) return failTry\(err\)/)
+    expect(source).toMatch(/RETRY_FLAG\]\r?\n\s*app\.relaunch\(/)
+  })
 })
 
 const ctx = { request: { method: 'x' }, caller: undefined, signal: undefined, progress: () => undefined } as CliContext
@@ -321,6 +371,11 @@ function serviceHost(start: Partial<ServiceState> = {}, extra: Partial<ServiceHo
     startedByService: false,
     canUpdate: () => true,
     notes: () => [],
+    pid: 4242,
+    busy: () => false,
+    windowOpen: () => false,
+    restart: (window) => void calls.push(`restart ${window ? 'window' : 'headless'}`),
+    lastUpdate: () => null,
     ...extra
   }
   return { service, calls }
@@ -330,14 +385,14 @@ function hostWith(service: ServiceHost | undefined, settings: Partial<ReturnType
   return stubHost({ service, state: () => ({ repos: [], workspaces: [], sessions: [], settings: { ...defaultSettings(), ...settings } }) })
 }
 
-const call = <T>(host: ReturnType<typeof hostWith>, method: string) => SERVICE_METHODS[method].handle(host, undefined, ctx) as Promise<T>
+const call = <T>(host: ReturnType<typeof hostWith>, method: string, params?: unknown) => SERVICE_METHODS[method].handle(host, params, ctx) as Promise<T>
 
 describe('the service methods', () => {
   it('reads in read and installs or removes only in admin, the same as the command table says', () => {
-    const tiers = { 'service-status': 'read', 'service-install': 'admin', 'service-uninstall': 'admin' }
+    const tiers = { 'service-status': 'read', 'service-install': 'admin', 'service-uninstall': 'admin', 'service-restart': 'admin' }
     expect(Object.fromEntries(Object.entries(SERVICE_METHODS).map(([m, d]) => [m, d.tier]))).toEqual(tiers)
     const specs = COMMANDS.filter((c) => c.path[0] === 'service')
-    expect(Object.fromEntries(specs.map((c) => [commandName(c), c.tier]))).toEqual({ service: 'read', 'service status': 'read', 'service install': 'admin', 'service uninstall': 'admin' })
+    expect(Object.fromEntries(specs.map((c) => [commandName(c), c.tier]))).toEqual({ service: 'read', 'service status': 'read', 'service install': 'admin', 'service uninstall': 'admin', 'service restart': 'admin' })
     for (const [m, tier] of Object.entries(tiers)) expect(METHODS[m]?.tier, m).toBe(tier)
   })
 
@@ -358,7 +413,8 @@ describe('the service methods', () => {
 
   it('status: not installed says how to install it', async () => {
     const result = await call<ServiceStatusResult>(hostWith(serviceHost().service), 'service-status')
-    expect(result).toMatchObject({ kind: 'task-scheduler', installed: false, startedByService: false, updates: 'automatic', command: [windows.execPath, '--headless', '--service'] })
+    expect(result).toMatchObject({ kind: 'task-scheduler', installed: false, startedByService: false, pid: 4242, updates: 'automatic', command: [windows.execPath, '--headless', '--service'] })
+    expect(result).not.toHaveProperty('lastUpdate')
     expect(result.text).toMatch(/^Background service: not installed\.\nRun `foreman service install`/)
   })
 
@@ -380,6 +436,42 @@ describe('the service methods', () => {
     expect(await call<ServiceStatusResult>(hostWith(service, { checkForUpdates: false }), 'service-status')).toMatchObject({ updates: 'off' })
     const cant = serviceHost({ installed: true, current: true }, { canUpdate: () => false }).service
     expect(await call<ServiceStatusResult>(hostWith(cant), 'service-status')).toMatchObject({ updates: 'unavailable' })
+  })
+
+  it('status: says how the last update went, kept or put back and why', async () => {
+    const at = Date.UTC(2026, 10, 10, 15, 4)
+    const kept = serviceHost({ installed: true, current: true }, { lastUpdate: () => ({ from: '1.0.22', to: '1.0.23', at, outcome: 'kept', tries: 1 }) }).service
+    const keptResult = await call<ServiceStatusResult>(hostWith(kept), 'service-status')
+    expect(keptResult.lastUpdate).toEqual({ from: '1.0.22', to: '1.0.23', at: '2026-11-10T15:04:00.000Z', outcome: 'kept', tries: 1 })
+    expect(keptResult.text.split('\n').at(-1)).toBe('Last update: 1.0.22 → 1.0.23 on 2026-11-10 15:04 UTC, kept.')
+    const back = serviceHost({ installed: true, current: true }, { lastUpdate: () => ({ from: '1.0.22', to: '1.0.23', at, outcome: 'rolled-back', tries: 3, error: 'no such column: x' }) }).service
+    expect((await call<ServiceStatusResult>(hostWith(back), 'service-status')).text.split('\n').at(-1)).toBe(
+      'Last update: 1.0.23 didn’t start after 3 tries on 2026-11-10 15:04 UTC (no such column: x), so Foreman put the data back as 1.0.22 left it. The service won’t install 1.0.23 by itself again; a newer release, or the update card, will.'
+    )
+  })
+
+  it('restart stops this Foreman and starts the service’s, with a window when one is open, once the checks pass', async () => {
+    const headless = serviceHost({ installed: true, current: true })
+    const result = await call<ServiceRestartResult>(hostWith(headless.service), 'service-restart')
+    expect(headless.calls).toEqual(['restart headless'])
+    expect(result).toMatchObject({ window: false, pid: 4242, text: 'Restarting Foreman as the Task Scheduler task “Foreman” starts it, with no window.' })
+    const windowed = serviceHost({ installed: true, current: true }, { windowOpen: () => true })
+    expect(await call<ServiceRestartResult>(hostWith(windowed.service), 'service-restart')).toMatchObject({ window: true })
+    expect(windowed.calls).toEqual(['restart window'])
+  })
+
+  it('restart refuses with the service missing or another copy’s, and with work running unless forced', async () => {
+    for (const [start, code] of [[{}, 'not-found'], [{ installed: true, current: false }, 'refused']] as const) {
+      const { service, calls } = serviceHost(start)
+      await expect(call(hostWith(service), 'service-restart', { force: true })).rejects.toMatchObject({ code })
+      expect(calls).toEqual([])
+    }
+    const busy = serviceHost({ installed: true, current: true }, { busy: () => true })
+    await expect(call(hostWith(busy.service), 'service-restart')).rejects.toMatchObject({ code: 'busy', hint: expect.stringContaining('--force') })
+    await expect(call(hostWith(busy.service), 'service-restart', { force: 'yes' })).rejects.toMatchObject({ code: 'busy' })
+    expect(busy.calls).toEqual([])
+    await call(hostWith(busy.service), 'service-restart', { force: true })
+    expect(busy.calls).toEqual(['restart headless'])
   })
 
   it('install registers it and says what changes now and at the next login, with this copy’s notes', async () => {
@@ -454,6 +546,42 @@ describe('the service commands', () => {
       await expect(appRunners[name](context), name).rejects.toThrow()
       expect(sent).toEqual([])
     }
+  })
+
+  it('restart sends --force, then waits for another Foreman to answer, through the moment none does', async () => {
+    const sent: [string, unknown][] = []
+    const replies: (() => unknown)[] = [
+      () => ({ pid: 1, window: false, text: 'Restarting…' }),
+      () => ({ pid: 1 }),
+      () => {
+        throw new CliError('Foreman isn’t running.', 5, 'not-running')
+      },
+      () => ({ pid: 2, text: 'status' })
+    ]
+    const printed: unknown[] = []
+    const context = {
+      ...fakeContext([]).context,
+      opts: { force: true },
+      send: (async (method: string, params?: unknown) => {
+        sent.push([method, params])
+        return replies.shift()!()
+      }) as Context['send'],
+      print: (value: unknown) => void printed.push(value)
+    } as Context
+    await appRunners['service restart'](context)
+    expect(sent).toEqual([['service-restart', { force: true }], ['service-status', undefined], ['service-status', undefined], ['service-status', undefined]])
+    expect(printed).toEqual([{ pid: 1, window: false, text: 'Restarting…', back: { pid: 2, text: 'status' } }])
+  }, 10_000)
+
+  it('restart gives up when Foreman doesn’t come back, and passes on any other failure', async () => {
+    const failing = (err: CliError) => ({ ...fakeContext([]).context, send: (async () => Promise.reject(err)) as Context['send'] }) as Context
+    await expect(waitForRestart(failing(new CliError('Foreman isn’t running.', 5, 'not-running')), 1, { tries: 3, delayMs: 0 })).rejects.toMatchObject({ code: 'failed', message: expect.stringContaining('hasn’t come back') })
+    const same = { ...fakeContext([]).context, send: (async () => ({ pid: 1 })) as Context['send'] } as Context
+    await expect(waitForRestart(same, 1, { tries: 2, delayMs: 0 })).rejects.toMatchObject({ code: 'failed' })
+    await expect(waitForRestart(failing(new CliError('Refused.', 7, 'refused')), 1, { tries: 3, delayMs: 0 })).rejects.toMatchObject({ code: 'refused' })
+    const { context, sent } = fakeContext(['now'])
+    await expect(appRunners['service restart'](context)).rejects.toThrow('takes no more words')
+    expect(sent).toEqual([])
   })
 
   it('has a help page and resolving examples for every command', () => {

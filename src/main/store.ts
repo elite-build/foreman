@@ -49,7 +49,7 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
   }
 }
 
-function renameSyncWithRetry(from: string, to: string): void {
+export function renameSyncWithRetry(from: string, to: string): void {
   for (let attempt = 0; ; attempt++) {
     try {
       return renameSync(from, to)

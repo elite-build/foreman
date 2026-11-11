@@ -126,7 +126,7 @@ export const METHODS: Record<string, CliMethod> = {
   ...DATA_METHODS,
   // Phones and browsers signing in (docs/server.md): status and pending in read, everything that changes who may sign in in admin.
   ...PHONE_METHODS,
-  // The background service that starts Foreman at login (src/main/service.ts): status in read, install and uninstall in admin.
+  // The background service that starts Foreman at login (src/main/service.ts): status in read, install, uninstall and restart in admin.
   ...SERVICE_METHODS,
   // Workspaces, chat tabs and approvals (plan §7).
   ...WORKSPACE_METHODS,

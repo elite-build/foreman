@@ -1,9 +1,10 @@
-// `foreman service status|install|uninstall`: start Foreman with no window when the user logs in, so schedules, flows,
-// phones and paired computers keep working without the app open (src/main/service.ts; docs/server.md, "As a service").
-// Installing and removing are the admin tier: an agent turn can't make Foreman start at login, or stop it.
-import type { ServiceInstallResult, ServiceKind, ServiceStatusResult, ServiceUninstallResult, ServiceUpdates } from '../../shared/cli/service'
+// `foreman service status|install|uninstall|restart`: start Foreman with no window when the user logs in, so schedules,
+// flows, phones and paired computers keep working without the app open (src/main/service.ts; docs/server.md, "As a
+// service"). Installing, removing and restarting are the admin tier: an agent turn can't make Foreman start at login,
+// or stop it.
+import type { ServiceInstallResult, ServiceKind, ServiceLastUpdate, ServiceRestartParams, ServiceRestartResult, ServiceStatusResult, ServiceUninstallResult, ServiceUpdates } from '../../shared/cli/service'
 import type { ServiceState } from '../service'
-import { windowsWord } from '../service'
+import { restartProblem, windowsWord } from '../service'
 import { CliCodedError, type CliHost, type ServiceHost } from './host'
 import type { MethodDef } from './kit'
 
@@ -38,7 +39,21 @@ function where(state: ServiceState): string {
   return state.kind === 'task-scheduler' ? `${KIND_WORDS[state.kind]} “${state.where}”` : `${KIND_WORDS[state.kind]} ${state.where}`
 }
 
+function lastUpdateOf(service: ServiceHost): ServiceLastUpdate | undefined {
+  const last = service.lastUpdate()
+  return last ? { ...last, at: new Date(last.at).toISOString() } : undefined
+}
+
+/** The last self-installed update, as a line: kept, or put back and why. */
+function lastUpdateLine(last: ServiceLastUpdate): string {
+  const when = `${last.at.slice(0, 16).replace('T', ' ')} UTC`
+  if (last.outcome === 'kept') return `Last update: ${last.from} → ${last.to} on ${when}, kept.`
+  const why = last.error ? ` (${last.error})` : ''
+  return `Last update: ${last.to} didn’t start after ${last.tries} ${last.tries === 1 ? 'try' : 'tries'} on ${when}${why}, so Foreman put the data back as ${last.from} left it. The service won’t install ${last.to} by itself again; a newer release, or the update card, will.`
+}
+
 function result(host: CliHost, service: ServiceHost, state: ServiceState, text: string): ServiceStatusResult {
+  const lastUpdate = lastUpdateOf(service)
   return {
     kind: state.kind,
     installed: state.installed,
@@ -46,7 +61,9 @@ function result(host: CliHost, service: ServiceHost, state: ServiceState, text: 
     where: state.where,
     command: [state.launch.command, ...state.launch.args],
     startedByService: service.startedByService,
+    pid: service.pid,
     updates: updatesOf(host),
+    ...(lastUpdate ? { lastUpdate } : {}),
     text
   }
 }
@@ -62,6 +79,8 @@ function statusLines(host: CliHost, service: ServiceHost, state: ServiceState): 
   }
   lines.push(service.startedByService ? 'This Foreman was started by the service.' : 'This Foreman wasn’t started by the service.')
   if (state.installed || service.startedByService) lines.push(`Updates: ${UPDATE_WORDS[updatesOf(host)]}.`)
+  const last = lastUpdateOf(service)
+  if (last) lines.push(lastUpdateLine(last))
   return lines
 }
 
@@ -107,8 +126,25 @@ const uninstall: MethodDef = {
   }
 }
 
+const restart: MethodDef = {
+  tier: 'admin',
+  async handle(host, params): Promise<ServiceRestartResult> {
+    const service = serviceOf(host)
+    const force = (params as ServiceRestartParams | undefined)?.force === true
+    const state = await service.status()
+    const problem = restartProblem({ installed: state.installed, current: state.current, busy: service.busy(), force })
+    if (problem) throw new CliCodedError(problem.code, problem.message, problem.hint)
+    const window = service.windowOpen()
+    const text = `Restarting Foreman as the ${where(state)} starts it${window ? ', with its window' : ', with no window'}.`
+    const reply = { ...result(host, service, state, text), window }
+    service.restart(window)
+    return reply
+  }
+}
+
 export const SERVICE_METHODS: Record<string, MethodDef> = {
   'service-status': status,
   'service-install': install,
-  'service-uninstall': uninstall
+  'service-uninstall': uninstall,
+  'service-restart': restart
 }

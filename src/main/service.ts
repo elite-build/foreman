@@ -67,11 +67,36 @@ export function serviceKind(platform: NodeJS.Platform): ServiceKind | null {
   return null
 }
 
+/**
+ * Foreman's arguments for a start of this copy: the app path first in a development build, then the flags, then its data
+ * folder when it isn't the default. The service's own start, `foreman service restart` and a start after a failed
+ * update try (serviceUpdate.ts) are all made here.
+ */
+export function launchArgs(f: Pick<ServiceFacts, 'packaged' | 'appPath' | 'dataDir'>, flags: string[]): string[] {
+  return [...(f.packaged ? [] : [f.appPath]), ...flags, ...(f.dataDir ? [`${DATA_DIR_FLAG}${f.dataDir}`] : [])]
+}
+
 /** What the service starts: this Foreman, headless, marked as the service's, with its data folder when it isn't the default. */
 export function serviceLaunch(f: ServiceFacts): ServiceLaunch {
   const command = f.platform === 'linux' && f.appImage ? f.appImage : f.execPath
-  const args = [...(f.packaged ? [] : [f.appPath]), '--headless', SERVICE_FLAG, ...(f.dataDir ? [`${DATA_DIR_FLAG}${f.dataDir}`] : [])]
-  return { command, args }
+  return { command, args: launchArgs(f, ['--headless', SERVICE_FLAG]) }
+}
+
+/**
+ * `foreman service restart`: the service's start again, with a window when one is open now. Restarting stops this
+ * Foreman, so it is refused unless the service is installed and starts this copy (another copy would come back in its
+ * place), and while something Quit would ask about is running unless forced. Null when it may go ahead.
+ */
+export function restartProblem(f: { installed: boolean; current: boolean; busy: boolean; force: boolean }): { code: 'not-found' | 'refused' | 'busy'; message: string; hint: string } | null {
+  if (!f.installed) return { code: 'not-found', message: 'The background service isn’t installed, so there is nothing to restart.', hint: 'Run `foreman service install` first.' }
+  if (!f.current) return { code: 'refused', message: 'The service starts another copy of Foreman (or an older install), not this one, so restarting this one would bring that one back instead.', hint: 'Run `foreman service install` from this Foreman, then restart it.' }
+  if (f.busy && !f.force) return { code: 'busy', message: 'Agent turns, check runs or run scripts are going, and restarting would stop them.', hint: 'Wait for them to finish, or add --force to stop them (they are listed for review after the restart, as with Quit).' }
+  return null
+}
+
+/** The restarted Foreman's arguments: the service's, without --headless when a window should open. */
+export function restartArgs(launch: ServiceLaunch, window: boolean): string[] {
+  return window ? launch.args.filter((a) => a !== '--headless') : launch.args
 }
 
 /** Why this Foreman can't be installed as a service, or null. */
@@ -352,7 +377,8 @@ export class ServiceManager {
 // ---------------------------------------------------------------------------------------------------------------------
 // Updating itself. A Foreman the service started installs a downloaded update on its own once nobody is using it, then
 // comes back the way it was. The installers start Foreman again with no arguments (NSIS's --force-run, Squirrel's
-// relaunch), so it leaves a note in its data folder that the new version reads once at startup.
+// relaunch), so it leaves a note in its data folder that the new version reads once at startup. The new version is on
+// trial until it serves, with the data copied aside first (serviceUpdate.ts).
 
 /** Whether the service's Foreman should restart now to install a downloaded update. */
 export function serviceUpdateDue(f: {
@@ -364,8 +390,11 @@ export function serviceUpdateDue(f: {
   windows: number
   // Turns, checks or scripts running: what Quit would ask about.
   busy: boolean
+  // A version whose update was rolled back here (serviceUpdate.ts): not installed by itself again. Someone at the
+  // computer can still choose it from the update card.
+  failedVersion?: string
 }): boolean {
-  return f.service && Boolean(f.readyVersion) && f.windows === 0 && !f.busy
+  return f.service && Boolean(f.readyVersion) && f.readyVersion !== f.failedVersion && f.windows === 0 && !f.busy
 }
 
 export const RELAUNCH_FILE = 'service-relaunch.json'
