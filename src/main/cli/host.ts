@@ -11,6 +11,7 @@ import type { CallerIdentity, RecordInput } from '../agentReports'
 import type { FlowRun, FlowRunOrigin, FlowRunStart } from '../../shared/flows'
 import type { TurnCap } from '../../shared/agentAccess'
 import type { ServiceState } from '../service'
+import type { UpdateOutcome } from '../serviceUpdate'
 
 export interface CliHost {
   state(): { repos: Repo[]; workspaces: Workspace[]; sessions: Session[]; settings: Settings }
@@ -95,6 +96,17 @@ export interface ServiceHost {
   canUpdate(): boolean
   // What install changes for this copy, said after installing: a development build, Linux's display. Empty when nothing.
   notes(): string[]
+  // This process, which `foreman service restart` waits to see replaced.
+  pid: number
+  // Something Quit would ask about is running: turns, check runs, run scripts.
+  busy(): boolean
+  // A window is open: the restarted Foreman opens one too.
+  windowOpen(): boolean
+  // Stop this Foreman as Quit does, without asking, and start the service's again (service.ts restartArgs). Returns at
+  // once: the reply goes out before Foreman stops.
+  restart(window: boolean): void
+  // How the last self-installed update went (serviceUpdate.ts), when there has been one.
+  lastUpdate(): UpdateOutcome | null
 }
 
 /**

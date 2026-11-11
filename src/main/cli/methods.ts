@@ -133,7 +133,7 @@ export const METHODS: Record<string, CliMethod> = {
   ...PHONE_METHODS,
   // Agents on this computer signing in (docs/agent-access.md §9): the same tiers as the phone's.
   ...AGENT_ACCESS_METHODS,
-  // The background service that starts Foreman at login (src/main/service.ts): status in read, install and uninstall in admin.
+  // The background service that starts Foreman at login (src/main/service.ts): status in read, install, uninstall and restart in admin.
   ...SERVICE_METHODS,
   // Workspaces, chat tabs and approvals (plan §7).
   ...WORKSPACE_METHODS,
