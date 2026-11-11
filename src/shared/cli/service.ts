@@ -8,6 +8,18 @@ export type ServiceKind = 'launchd' | 'systemd' | 'task-scheduler'
 // development build, an unsigned macOS build, Linux).
 export type ServiceUpdates = 'automatic' | 'notify' | 'off' | 'unavailable'
 
+// How the last update the service's Foreman installed went (src/main/serviceUpdate.ts). Kept: the new version opened
+// the data and served. Rolled back: it didn't, and the data is as the version before it left it.
+export interface ServiceLastUpdate {
+  from: string
+  to: string
+  // ISO time.
+  at: string
+  outcome: 'kept' | 'rolled-back'
+  tries: number
+  error?: string
+}
+
 export interface ServiceStatusResult {
   kind: ServiceKind
   installed: boolean
@@ -19,7 +31,10 @@ export interface ServiceStatusResult {
   command: string[]
   // This Foreman was started by the service.
   startedByService: boolean
+  // The process answering: `foreman service restart` waits for another one to answer.
+  pid: number
   updates: ServiceUpdates
+  lastUpdate?: ServiceLastUpdate
   text: string
 }
 
@@ -28,4 +43,14 @@ export type ServiceInstallResult = ServiceStatusResult
 export interface ServiceUninstallResult extends ServiceStatusResult {
   // There was a service to remove.
   removed: boolean
+}
+
+export interface ServiceRestartParams {
+  // Restart even with turns, check runs or run scripts going; they stop, as with Quit now.
+  force?: boolean
+}
+
+export interface ServiceRestartResult extends ServiceStatusResult {
+  // The restarted Foreman opens a window, as one is open now.
+  window: boolean
 }

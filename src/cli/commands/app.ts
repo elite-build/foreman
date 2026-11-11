@@ -1,6 +1,6 @@
 // The commands about the app and the command itself: app info, doctor, cli status, cli install,
 // completion and help.
-import { usageError } from '../client'
+import { CliError, usageError } from '../client'
 import type { Context, Run } from '../command'
 import { completionScript, SHELLS } from '../completion'
 import { helpFor } from '../help'
@@ -12,6 +12,7 @@ import { CLI_VERSION } from '../version'
 import { diagnosticsFileName, type DiagnosticsBundle } from '../../shared/diagnostics'
 import type { PerfReport } from '../../shared/perf'
 import type { CliInstallStatus } from '../../shared/types'
+import type { ServiceRestartParams, ServiceRestartResult, ServiceStatusResult } from '../../shared/cli/service'
 
 /** An app that speaks an older protocol than this command may lack things it asks for. Said once, on stderr. */
 export function warnIfOlder(ctx: Context, info: AppInfoResult): void {
@@ -153,6 +154,32 @@ const service =
     ctx.print(result, () => result.text)
   }
 
+/**
+ * After `foreman service restart`: ask until a Foreman other than `pid` answers. It is gone for a moment (shutting down,
+ * then starting), which the command sees as not running.
+ */
+export async function waitForRestart(ctx: Context, pid: number, options: { tries?: number; delayMs?: number } = {}): Promise<ServiceStatusResult> {
+  const { tries = 120, delayMs = 500 } = options
+  for (let i = 0; i < tries; i++) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs))
+    try {
+      const status = await ctx.send<ServiceStatusResult>('service-status')
+      if (status.pid !== pid) return status
+    } catch (err) {
+      if (!(err instanceof CliError) || err.code !== 'not-running') throw err
+    }
+  }
+  throw new CliError(`Foreman hasn’t come back after ${Math.round((tries * delayMs) / 1000)} s.`, 1, 'failed', 'Open Foreman, or log out and in for the service to start it; `foreman service` then says how the last start went.')
+}
+
+const serviceRestart: Run = async (ctx) => {
+  if (ctx.args.length) throw usageError('foreman service restart takes no more words.', 'foreman service restart [--force]')
+  const result = await ctx.send<ServiceRestartResult>('service-restart', { force: Boolean(ctx.opts.force) } satisfies ServiceRestartParams)
+  ctx.note(result.text)
+  const back = await waitForRestart(ctx, result.pid)
+  ctx.print({ ...result, back }, () => `Foreman is back (process ${back.pid}), started as the service’s${result.window ? ', with its window' : ''}.`)
+}
+
 const serviceStatus: Run = async (ctx) => {
   if (ctx.args.length > 1 || (ctx.args[0] !== undefined && ctx.args[0] !== 'status')) throw usageError('foreman service takes no words, or just “status”.', 'foreman service [status]')
   const result = await ctx.send<{ text: string }>('service-status')
@@ -186,6 +213,7 @@ export const appRunners: Record<string, Run> = {
   'service status': service('service-status', 'foreman service status'),
   'service install': service('service-install', 'foreman service install'),
   'service uninstall': service('service-uninstall', 'foreman service uninstall'),
+  'service restart': serviceRestart,
   completion,
   help
 }

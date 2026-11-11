@@ -6772,11 +6772,13 @@ macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of w
 flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
 and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
 service started installs a downloaded update by itself once nothing is running and no window is open, then starts
-again as it was (Settings → General → Updates decides whether updates download). Installing and removing never start
-or stop the Foreman running now, and both are refused from inside an agent turn. On Linux, Foreman needs a display, as
-Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
+again as it was (Settings → General → Updates decides whether updates download). It copies its data aside first, and
+keeps the update only once the new version has opened the data and is serving; a new version that doesn't puts the
+data back as it was, and the service doesn't install that version by itself again. Installing and removing never
+start or stop the Foreman running now; restarting does. All three are refused from inside an agent turn. On Linux,
+Foreman needs a display, as Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
 
-Also: `foreman service install` and `foreman service uninstall`.
+Also: `foreman service install`, `foreman service uninstall` and `foreman service restart`.
 ```
 
 ### foreman service status
@@ -6802,9 +6804,11 @@ macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of w
 flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
 and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
 service started installs a downloaded update by itself once nothing is running and no window is open, then starts
-again as it was (Settings → General → Updates decides whether updates download). Installing and removing never start
-or stop the Foreman running now, and both are refused from inside an agent turn. On Linux, Foreman needs a display, as
-Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
+again as it was (Settings → General → Updates decides whether updates download). It copies its data aside first, and
+keeps the update only once the new version has opened the data and is serving; a new version that doesn't puts the
+data back as it was, and the service doesn't install that version by itself again. Installing and removing never
+start or stop the Foreman running now; restarting does. All three are refused from inside an agent turn. On Linux,
+Foreman needs a display, as Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
 ```
 
 ### foreman service install
@@ -6835,9 +6839,11 @@ macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of w
 flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
 and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
 service started installs a downloaded update by itself once nothing is running and no window is open, then starts
-again as it was (Settings → General → Updates decides whether updates download). Installing and removing never start
-or stop the Foreman running now, and both are refused from inside an agent turn. On Linux, Foreman needs a display, as
-Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
+again as it was (Settings → General → Updates decides whether updates download). It copies its data aside first, and
+keeps the update only once the new version has opened the data and is serving; a new version that doesn't puts the
+data back as it was, and the service doesn't install that version by itself again. Installing and removing never
+start or stop the Foreman running now; restarting does. All three are refused from inside an agent turn. On Linux,
+Foreman needs a display, as Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
 ```
 
 ### foreman service uninstall
@@ -6856,6 +6862,50 @@ Common options:
 
 Examples:
   foreman service uninstall
+```
+
+### foreman service restart
+
+```text
+Stop the running Foreman and start it again as the service does, then wait for it to answer
+
+Usage:
+  foreman service restart [--force] [--json]
+
+Options:
+      --force  Restart even with agent turns, check runs or run scripts going; they stop, as with Quit now
+
+Common options:
+      --json   Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet  Hide progress lines and notes
+  -y, --yes    Answer yes to confirmations
+  -h, --help   Show this command’s help
+
+Examples:
+  foreman service restart
+  foreman service restart --force
+
+Exit codes:
+  1  Foreman didn’t come back within a minute
+  4  Something is running that restarting would stop (add --force)
+  7  The service starts another copy of Foreman
+  8  The service isn’t installed
+  Every code: foreman help exit-codes
+
+Foreman comes back with no window, or with its window when one is open now, and is the service's from then on: it
+installs downloaded updates by itself. The restarted Foreman is started by this one rather than by launchd or systemd,
+so until the next login they won't start it again after a crash.
+
+The background service starts Foreman with no window (`--headless`) when you log in: a launchd agent on
+macOS, a systemd user unit on Linux, a Task Scheduler task on Windows, none of which needs an administrator. Schedules,
+flows, phones, browsers and paired computers then work without anyone opening the app; the tray icon opens the window,
+and Quit there stops Foreman until the next login. launchd and systemd start it again after a crash. A Foreman the
+service started installs a downloaded update by itself once nothing is running and no window is open, then starts
+again as it was (Settings → General → Updates decides whether updates download). It copies its data aside first, and
+keeps the update only once the new version has opened the data and is serving; a new version that doesn't puts the
+data back as it was, and the service doesn't install that version by itself again. Installing and removing never
+start or stop the Foreman running now; restarting does. All three are refused from inside an agent turn. On Linux,
+Foreman needs a display, as Electron does: the unit takes this Foreman's, or runs it under xvfb-run when there is none.
 ```
 
 ### foreman completion
