@@ -107,6 +107,19 @@ describe('the run lens', () => {
     expect(edgeLabelled(flow, 'flow run: fix · pass 2')).toEqual([expect.objectContaining({ from: 'flow:run-1', to: 'turn:s1:t5', recorded: 'MessageOrigin' })])
   })
 
+  it('draws an outside agent that started the workspace and sent a message from one node, named as it signed in', () => {
+    const input = fixture()
+    input.workspace.startedBy = { via: 'outside', grantId: 'g1', name: 'Claude Code' }
+    const s1 = input.chats.get('s1')!
+    s1.push(user('t5', 58, 'Look at the flaky test', { origin: { kind: 'outside', grantId: 'g1', name: 'Claude Code' } }), end('t5'))
+    const graph = lineageGraph(input, 'run')
+    expect(graph.nodes.find((n) => n.id === 'outside:g1')).toMatchObject({ kind: 'source', label: 'Claude Code (outside agent)' })
+    expect(edgeLabelled(graph, 'started by')).toEqual([expect.objectContaining({ from: 'outside:g1', to: 'turn:s1:t1', recorded: 'Workspace.startedBy' })])
+    expect(edgeLabelled(graph, 'sent by')).toEqual([expect.objectContaining({ from: 'outside:g1', to: 'turn:s1:t5', recorded: 'MessageOrigin' })])
+    expect(edgeLabelled(graph, 'delegated by')).toEqual([])
+    expect(lineageOutline(graph).find((e) => e.id === 'outside:g1')?.label).toBe('Claude Code (outside agent)')
+  })
+
   it('labels in the app’s language', () => {
     const graph = lineageGraph(fixture(), 'run', { t: createT('de'), locale: 'de' })
     expect(graph.title).toBe(`lisbon · ${createT('de')('flowGraph.lens.run')}`)

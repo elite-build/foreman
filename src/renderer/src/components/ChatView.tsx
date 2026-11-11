@@ -746,6 +746,7 @@ const ChatRow = memo(function ChatRow({
             <UserMessageText text={item.text} />
             {item.noteRevision !== undefined && <div className="note-tag faint small">{t('chat.noteTag', { revision: item.noteRevision })}</div>}
             {item.readOnly && <ReadOnlyReceipt how={item.readOnly} />}
+            {item.origin?.kind === 'outside' && <div className="note-tag faint small">{t('chat.receipt.outside', { name: item.origin.name })}</div>}
             {item.attachments && item.attachments.length > 0 && (
               <div className="attachment-row">
                 {item.attachments.map((a) => (

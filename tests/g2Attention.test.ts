@@ -14,6 +14,7 @@ describe('approvals record where they were answered', () => {
     expect(approvalDraft(request, { kind: 'tool', allow: true }, 'w1', 'phone')).toMatchObject({ via: 'phone', allowed: true })
     expect(approvalDraft(request, { kind: 'tool', allow: false }, 'w1', 'window')).toMatchObject({ via: 'window', allowed: false })
     expect(approvalDraft(request, { kind: 'tool', allow: true }, 'w1')).not.toHaveProperty('via')
+    expect(approvalDraft(request, { kind: 'tool', allow: true }, 'w1', 'outside', 'Claude Code')).toMatchObject({ via: 'outside', by: 'Claude Code' })
     // Where it was answered doesn't make it a different event: repeats still fold.
     expect(approvalDraft(request, { kind: 'tool', allow: true }, 'w1', 'phone').key).toBe(approvalDraft(request, { kind: 'tool', allow: true }, 'w1', 'window').key)
   })
@@ -41,6 +42,7 @@ describe('the phone’s Recent list', () => {
     expect(describeEvent(event({ kind: 'approval-answered', label: 'plan', allowed: true, via: 'phone' }))).toBe('Plan approved · on your phone')
     expect(describeEvent(event({ kind: 'approval-answered', label: 'Bash', allowed: false }))).toBe('Bash denied')
     expect(describeEvent(event({ kind: 'approval-answered', label: 'question', allowed: true, via: 'window' }))).toBe('Question answered · in the window')
+    expect(describeEvent(event({ kind: 'approval-answered', label: 'question', allowed: true, via: 'outside', by: 'Claude Code' }))).toBe('Question answered · by Claude Code (outside agent)')
     expect(describeEvent(event({ kind: 'turn-ended', outcome: 'error', tab: 2, detail: 'Fix login' }))).toBe('Turn failed · Tab 2 · Fix login')
     expect(describeEvent(event({ kind: 'reason', label: 'Needs input', detail: 'which db?' }))).toBe('Needs input · which db?')
     expect(describeEvent(event({ kind: 'agent-report', label: 'stuck', detail: 'tests hang' }))).toBe('Agent report: stuck · “tests hang”')

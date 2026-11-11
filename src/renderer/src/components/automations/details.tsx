@@ -2,7 +2,7 @@
 import { ArrowLeft, CalendarClock, Copy, ExternalLink, MoreHorizontal, Pause, Play, Trash2 } from 'lucide-react'
 import type { PlainKey } from '../../../../shared/i18n'
 import { newTemplateId, templateName } from '../../../../shared/promptTemplates'
-import { formatRun, nextRuns, scheduleName } from '../../../../shared/schedule'
+import { formatRun, isProposedSchedule, nextRuns, scheduleName } from '../../../../shared/schedule'
 import type { Occurrence, PromptTemplate, Schedule } from '../../../../shared/types'
 import { t as tNow, useT } from '../../i18n'
 import { api, attempt, getState, openNewWorkspace, openScheduleDialog, recordMilestone, selectAutomation, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
@@ -169,9 +169,17 @@ function ScheduleRow({ schedule: s, occurrences, named }: { schedule: Schedule; 
   const t = useT()
   const last = [...occurrences].reverse().find((o) => o.scheduleId === s.id && o.state !== 'skipped')
   const cadence = cadenceText(s, t, t.locale)
-  const when = s.state === 'paused' ? s.pausedReason ?? t('automations.schedule.paused') : s.state === 'finished' ? t('automations.schedule.finished') : s.nextRunAt ? t('automations.schedule.next', { time: formatRun(Date.parse(s.nextRunAt), s.timezone, t.locale) }) : ''
+  // An outside agent's proposal waits for you: it says who proposed it, with the action that reviews and approves it.
+  const proposal = isProposedSchedule(s)
+  const when = proposal ? t('automations.schedule.proposedBy', { name: s.proposedBy?.name ?? '' }) : s.state === 'paused' ? s.pausedReason ?? t('automations.schedule.paused') : s.state === 'finished' ? t('automations.schedule.finished') : s.nextRunAt ? t('automations.schedule.next', { time: formatRun(Date.parse(s.nextRunAt), s.timezone, t.locale) }) : ''
   return (
-    <ActionRow role="listitem" divided onPress={() => selectAutomation(`s:${s.id}`)} primaryProps={{ className: 'auto-row' }}>
+    <ActionRow
+      role="listitem"
+      divided
+      onPress={() => selectAutomation(`s:${s.id}`)}
+      primaryProps={{ className: 'auto-row' }}
+      actions={proposal ? <Button size="sm" onClick={() => openScheduleDialog({ scheduleId: s.id })}>{t('automations.schedule.reviewProposal')}</Button> : undefined}
+    >
       <span className="auto-row-main">
         <span className="auto-row-title">{named ? scheduleName(s) : cadence}</span>
         <span className="auto-row-sub">{named ? [cadence, when].filter(Boolean).join(' · ') : when}</span>
@@ -189,6 +197,7 @@ export function ScheduleDetail({ schedule: s }: { schedule: Schedule }) {
   const runs = occurrences.filter((o) => o.scheduleId === s.id).slice(-8).reverse()
   const running = runs.find((o) => o.state === 'running' || o.state === 'starting')
   const upcoming = s.state === 'active' ? nextRuns(s, Date.now(), 4) : []
+  const proposal = isProposedSchedule(s)
   return (
     <div className="auto-detail">
       <div className="auto-eyebrow">{t('automations.schedule.eyebrow')}</div>
@@ -205,7 +214,7 @@ export function ScheduleDetail({ schedule: s }: { schedule: Schedule }) {
           </Button>
         ) : null}
         <Button size="sm" onClick={() => openScheduleDialog({ scheduleId: s.id })}>
-          {s.state === 'paused' ? t('automations.schedule.review') : s.state === 'finished' ? t('automations.schedule.again') : t('automations.schedule.edit')}
+          {proposal ? t('automations.schedule.reviewProposal') : s.state === 'paused' ? t('automations.schedule.review') : s.state === 'finished' ? t('automations.schedule.again') : t('automations.schedule.edit')}
         </Button>
         {s.state !== 'active' && (
           <LinkButton danger onClick={() => void attempt(async () => (await api.deleteSchedule(s.id), selectAutomation(null), true))}>
@@ -214,7 +223,11 @@ export function ScheduleDetail({ schedule: s }: { schedule: Schedule }) {
         )}
       </div>
 
-      {s.state === 'paused' && (
+      {proposal ? (
+        <Callout tone="warn" role="status">
+          {t('automations.schedule.proposedBanner', { name: s.proposedBy?.name ?? '' })}
+        </Callout>
+      ) : s.state === 'paused' && (
         <Callout tone="warn" role="status">
           {s.pausedReason ?? t('automations.schedule.pausedBanner')} {t('automations.schedule.reviewHint')}
         </Callout>

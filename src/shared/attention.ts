@@ -53,7 +53,9 @@ export interface AttentionEvent {
   // G2: the pull request is a GitLab merge request ("MR !12").
   gitlab?: boolean
   // G2: where an approval was answered. Absent in events from before it was kept.
-  via?: 'window' | 'phone'
+  via?: import('./types').ApprovalVia
+  // docs/agent-access.md §4: with `via: 'outside'`, the name the outside agent signed in with.
+  by?: string
 }
 
 /** A transition before it is in the log (no id, times or count yet). */
@@ -363,7 +365,7 @@ export function describeEvent(e: AttentionEvent): string {
     case 'approval-answered': {
       const what = e.label === 'plan' ? 'Plan' : e.label === 'question' ? 'Question' : (e.label ?? 'Request')
       const answer = e.label === 'question' ? (e.allowed ? 'answered' : 'skipped') : e.label === 'plan' ? (e.allowed ? 'approved' : 'rejected') : e.allowed ? 'allowed' : 'denied'
-      return join(`${what} ${answer}`, e.via === 'phone' ? 'on your phone' : e.via === 'window' ? 'in the window' : undefined)
+      return join(`${what} ${answer}`, e.via === 'phone' ? 'on your phone' : e.via === 'window' ? 'in the window' : e.via === 'outside' ? (e.by ? `by ${e.by} (outside agent)` : 'by an outside agent') : undefined)
     }
     case 'agent-report':
       return join(`Agent report: ${e.label ?? ''}`, e.detail ? `“${e.detail}”` : undefined)

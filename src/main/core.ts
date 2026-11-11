@@ -112,6 +112,8 @@ import { DeviceNet } from './deviceNet'
 import { RemoteHost } from './remote/host'
 import { RemoteComputers } from './remote/computers'
 import type { MobileService } from './mobile'
+import { checkAgentAccessSettings, type AgentAccessService } from './agentAccess/server'
+import { WaitingNotices } from './agentAccess/notice'
 import { TransferService, type TransferLocal } from './transfers'
 import { frozenReason, type DevicesInfo, type PairedDevice } from '../shared/transfer'
 import { repoReasons } from '../shared/portable'
@@ -145,7 +147,8 @@ import type { HelperLaunch } from './speech/local'
 import { linearIssue, linearMyIssues } from './linear'
 import { slackChannels, slackManifest, slackManifestUrl, slackPeople, slackUserByEmail, type SlackPerson } from './slack'
 import { findLinearLink, linearBranch, linearIntakeFile, type LinearIssue } from '../shared/linearLink'
-import type { LinearLinkInfo, MessageOrigin, WorkspaceStartedBy } from '../shared/types'
+import type { AdoptWorktreeOptions, ApprovalResponse, ApprovalVia, GitActionKind, LinearLinkInfo, MessageOrigin, SendReceipt, WorkspaceStartedBy } from '../shared/types'
+import { lowerCap, revokedCapRefusal, type TurnCap } from '../shared/agentAccess'
 import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
@@ -264,6 +267,8 @@ interface InternalStart {
   flowWorkspace?: { runId: string }
   // The chat (or assistant thread) that started it: delegation, or `foreman new`/`run` from inside a turn.
   startedBy?: WorkspaceStartedBy
+  // docs/agent-access.md §4: started from a capped turn, so its first message (held or not) carries this cap.
+  cap?: TurnCap
   onChat?: (workspaceId: string, sessionId: string) => void
 }
 
@@ -297,6 +302,20 @@ function stateText(snapshot: AppSnapshot): string | undefined {
 export class Core {
   private mobile: MobileService | null = null
   bindMobile(service: MobileService): void { this.mobile = service }
+  // Agents on this computer (docs/agent-access.md): its listener follows agentAccessEnabled and agentAccessPort.
+  private agentAccess: AgentAccessService | null = null
+  bindAgentAccess(service: AgentAccessService): void {
+    this.agentAccess = service
+    // docs/agent-access.md §4, "Revoking": what a revoked sign-in's tree asked for doesn't start.
+    this.sessions.grantExists = (grantId) => Boolean(service.grant(grantId))
+  }
+
+  /** A cap whose sign-in no longer exists: refused. Without the access service (unit tests), nothing is. */
+  private revokedCap(cap: TurnCap | undefined): string | null {
+    return revokedCapRefusal(cap, this.agentAccess ? (grantId) => Boolean(this.agentAccess?.grant(grantId)) : undefined)
+  }
+  // At most one notification a minute for sign-ins that start waiting.
+  private waitingNotices = new WaitingNotices()
   readonly workspaces: WorkspaceService
   readonly sessions: SessionService
   readonly ptys: PtyManager
@@ -660,7 +679,7 @@ export class Core {
     this.limitResume = new LimitResumeService({
       sessions: () => this.store.state.sessions,
       readChat: (sessionId) => this.store.readChat(sessionId),
-      send: (sessionId, text, origin) => this.sessions.deliver(sessionId, text, { mode: 'queue', origin }),
+      send: (sessionId, text, origin, cap) => this.sessions.deliver(sessionId, text, { mode: 'queue', origin, ...(cap ? { cap } : {}) }),
       flush: () => store.flush(),
       changed,
       now: () => Date.now(),
@@ -1389,8 +1408,8 @@ export class Core {
    * Imported issue/PR text goes as a file next to the message, never into its instructions.
    */
   private sendTemplated(message: FirstMessage) {
-    const { sessionId, text, templateId, intake, files, origin } = message
-    const options = { ...(templateId ? { templateId } : {}), ...(origin ? { origin } : {}) }
+    const { sessionId, text, templateId, intake, files, origin, cap } = message
+    const options = { ...(templateId ? { templateId } : {}), ...(origin ? { origin } : {}), ...(cap ? { cap } : {}) }
     if (!intake && !files?.length) return Object.keys(options).length ? this.sessions.send(sessionId, text, options) : this.sessions.send(sessionId, text)
     return this.attachFirst(sessionId, intake, files).then(async (attachments) => {
       const sent = await this.sessions.send(sessionId, text, { ...options, attachments })
@@ -1453,15 +1472,53 @@ export class Core {
     }
   }
 
-  /** "Start anyway": send the message held back by a failed setup. */
-  async startHeldMessage(workspaceId: string): Promise<void> {
+  /**
+   * docs/agent-access.md §4, "Revoking": what an outside sign-in's tree was waiting to start goes, wherever its cap names
+   * that sign-in: messages queued in any chat, a new workspace's first message still waiting for setup, and one held back
+   * by a failed setup. Running turns finish under their cap; what it already wrote stays.
+   */
+  /** #3: an answer goes into the history (a cancelled request never comes this way), then to the turn waiting for it. */
+  private answerApproval(id: string, response: ApprovalResponse, where: ApprovalVia, by?: string): Promise<void> {
+    const request = this.sessions.pendingApprovals().find((a) => a.id === id)
+    const workspaceId = request && this.store.state.sessions.find((s) => s.id === request.sessionId)?.workspaceId
+    if (request && workspaceId) this.attention.record(approvalDraft(request, response, workspaceId, where, by))
+    return this.sessions.respondApproval(id, response)
+  }
+
+  /**
+   * An outside agent answering its own worker's question (src/main/agentAccess/tools.ts, which has checked that it may):
+   * recorded as answered by that agent, by name. Not on the Api, so no other caller can claim to be one.
+   */
+  answerAsOutside(id: string, response: ApprovalResponse, name: string): Promise<void> {
+    return this.answerApproval(id, response, 'outside', name.slice(0, 50))
+  }
+
+  agentGrantRevoked(grantId: string): void {
+    this.sessions.dropQueuedFromGrant(grantId)
+    this.limitResume.dropFromGrant(grantId)
+    for (const [workspaceId, message] of this.firstMessages) if (message.cap?.grantId === grantId) this.firstMessages.delete(workspaceId)
+    let held = false
+    for (const ws of this.store.state.workspaces) {
+      if (ws.heldMessage?.cap?.grantId !== grantId) continue
+      delete ws.heldMessage
+      held = true
+    }
+    if (held) this.changed()
+  }
+
+  /**
+   * "Start anyway": send the message held back by a failed setup, with the cap it was held with. `cap`: asked for from a
+   * capped turn (`foreman new --start-anyway`), which lowers it (docs/agent-access.md §4).
+   */
+  async startHeldMessage(workspaceId: string, cap?: TurnCap): Promise<void> {
     const ws = this.workspaces.workspace(workspaceId)
     const held = ws.heldMessage
     if (!held) return
     delete ws.heldMessage
     this.changed()
     try {
-      await this.sendTemplated(held)
+      const carried = lowerCap(held.cap, cap)
+      await this.sendTemplated({ ...held, ...(carried ? { cap: carried } : {}) })
     } catch (err) {
       ws.heldMessage = held
       this.changed()
@@ -1737,6 +1794,12 @@ export class Core {
     this.store.save()
   }
 
+  /** What a schedule was approved on. Nothing runs a proposal, but a schedule without an approval must never start a run. */
+  private approvedOrThrow(schedule: Schedule): ScheduleFingerprint {
+    if (!schedule.approved) throw new Error('This schedule hasn’t been approved, so it can’t run.')
+    return schedule.approved
+  }
+
   private inputsOrThrow(scheduleId: string): FingerprintInputs {
     const schedule = this.schedules.schedule(scheduleId)
     const inputs = this.scheduleInputs(schedule)
@@ -1779,19 +1842,35 @@ export class Core {
     return { template, inputs }
   }
 
-  /** Schedule… → Approve schedule. Saving is the approval of the template and repo as they are now (and, with `shown`, of exactly what the caller showed). */
-  private saveSchedule(input: ScheduleInput, id?: string, shown?: ScheduleFingerprint): Schedule {
+  /**
+   * What a schedule request is saved as, and the fingerprint inputs it would be approved on, or the error saving it gives:
+   * the flow's name and source as they are now with only the inputs the flow asks for, or the template's name now.
+   */
+  private scheduleTarget(input: ScheduleInput): { target: ScheduleInput; inputs: FingerprintInputs } {
     const { template, prepared, inputs } = this.checkedScheduleInputs(input)
-    assertFingerprintShown(shown, fingerprintOf(inputs))
-    // The flow's name and source as they are now; only the inputs the flow asks for are kept.
     const target: ScheduleInput = prepared
       ? { ...input, templateId: undefined, templateName: undefined, flow: { flowId: prepared.ref.id, flowSource: prepared.ref.source, flowName: prepared.flow.name, inputs: Object.fromEntries(flowRunInputs(prepared).map((i) => [i.name, input.flow!.inputs[i.name].trim()])) } }
       : { ...input, flow: undefined, templateName: template!.name }
+    return { target, inputs }
+  }
+
+  /** Schedule… → Approve schedule. Saving is the approval of the template and repo as they are now (and, with `shown`, of exactly what the caller showed). */
+  private saveSchedule(input: ScheduleInput, id?: string, shown?: ScheduleFingerprint): Schedule {
+    const { target, inputs } = this.scheduleTarget(input)
+    assertFingerprintShown(shown, fingerprintOf(inputs))
     if (id) return this.schedules.update(id, target, inputs)
     const created = this.schedules.create(target, inputs)
     // Get started: a schedule created.
     this.recordMilestone('automation')
     return created
+  }
+
+  /**
+   * An outside agent's schedule_task (docs/agent-access.md §7): checked exactly as saving is, and saved as a proposal that
+   * runs nothing until the user approves it in the Schedule dialog (approveSchedule records the fingerprint then).
+   */
+  proposeSchedule(input: ScheduleInput, by: { grantId: string; name: string }): Schedule {
+    return this.schedules.propose(this.scheduleTarget(input).target, by)
   }
 
   /** What saving `input` would approve now: the fingerprint, and what it stands for in words (the Schedule dialog and `foreman schedules preview`). */
@@ -2090,6 +2169,7 @@ export class Core {
    * Resolves once the first turn has started; its end comes back through the session events.
    */
   private async launchScheduled(schedule: Schedule, occurrence: Occurrence, handle: LaunchHandle): Promise<void> {
+    this.approvedOrThrow(schedule)
     if (schedule.flow) return this.launchScheduledFlow(schedule, schedule.flow, occurrence, handle)
     const template = this.workspaces.template(schedule.templateId)
     if (!template) throw new Error(`The template “${schedule.templateName}” no longer exists.`)
@@ -2121,7 +2201,7 @@ export class Core {
       repoId: schedule.repoId,
       baseBranch: schedule.baseBranch,
       inputs: flow.inputs,
-      shown: flowFingerprintFrom(schedule.approved),
+      shown: flowFingerprintFrom(this.approvedOrThrow(schedule)),
       origin: { kind: 'schedule', scheduleId: schedule.id, occurrenceId: occurrence.id }
     })
     handle.flowRun?.(run.id)
@@ -2143,8 +2223,9 @@ export class Core {
   }
 
   /** A new workspace from the command line or delegation: as the window makes one, recording who started it when known. */
-  createWorkspaceFor(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy }): Promise<Workspace> {
-    return this.createFromOptions(repoId, options, extra?.startedBy ? { startedBy: extra.startedBy } : undefined)
+  createWorkspaceFor(repoId: string, options: CreateWorkspaceOptions, extra?: { startedBy?: WorkspaceStartedBy; cap?: TurnCap }): Promise<Workspace> {
+    const internal: InternalStart = { ...(extra?.startedBy ? { startedBy: extra.startedBy } : {}), ...(extra?.cap ? { cap: extra.cap } : {}) }
+    return this.createFromOptions(repoId, options, Object.keys(internal).length ? internal : undefined)
   }
 
   /** The chat and turn that a new workspace's first message started, once it has (give up after `timeoutMs`). */
@@ -2230,13 +2311,16 @@ export class Core {
     if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step, ...(internal.flowRun.persona ? { persona: internal.flowRun.persona } : {}) }
     internal?.onChat?.(workspaceId, session.id)
     if (prompt?.trim() || files?.length) {
-      // A schedule's run and a flow run's first step say so on the message (MessageOrigin).
+      // A schedule's run, a flow run's first step and an outside agent's start_task say so on the message (MessageOrigin).
+      const outside = internal?.startedBy?.via === 'outside' ? internal.startedBy : undefined
       const origin: MessageOrigin | undefined = internal?.scheduled
         ? { kind: 'schedule', scheduleId: internal.scheduled.scheduleId, occurrenceId: internal.scheduled.occurrenceId }
         : internal?.flowRun
           ? { kind: 'flow', runId: internal.flowRun.runId, step: internal.flowRun.step, iteration: 1 }
-          : undefined
-      this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}), ...(origin ? { origin } : {}) })
+          : outside
+            ? { kind: 'outside', grantId: outside.grantId, name: outside.name }
+            : undefined
+      this.firstMessages.set(workspaceId, { sessionId: session.id, text: prompt?.trim() ?? '', templateId, intake, ...(files?.length ? { files } : {}), ...(origin ? { origin } : {}), ...(internal?.cap ? { cap: internal.cap } : {}) })
       this.sendFirstMessages()
     }
     return session.id
@@ -2244,6 +2328,9 @@ export class Core {
 
   /** The one way a workspace and its first chat are made: the app, `foreman run` and schedules all come here. */
   private async createFromOptions(repoId: string, options?: CreateWorkspaceOptions, internal?: InternalStart): Promise<Workspace> {
+    // docs/agent-access.md §4: a first message from a revoked sign-in's tree starts nothing, the workspace included.
+    const revoked = this.revokedCap(internal?.cap)
+    if (revoked) throw new Error(revoked)
     if (options?.prompt && !options.githubUrl && !options.linearIssue) {
       const ref = findLinearLink(options.prompt, { bareIds: this.integrations.resolve(repoId, 'linear').state === 'ready' })
       if (ref) options = { ...options, linearIssue: ref.url ?? ref.identifier }
@@ -2770,6 +2857,88 @@ export class Core {
     return { env, command: `${shellQuote(found.path || settings.codexExecutablePath || 'codex')} login` }
   }
 
+  // ---- the calls that start a turn for a tab, which a capped turn's `foreman` command makes with its cap (docs/agent-access.md §4) ----
+
+  private async adoptWorktree(repoId: string, worktreePath: string, options: AdoptWorktreeOptions, cap?: TurnCap): Promise<Workspace> {
+    const ws = await this.workspaces.adoptWorktree(repoId, worktreePath, options)
+    const integrations = this.startingIntegrations(repoId, options.integrations)
+    if (integrations) {
+      ws.integrations = integrations
+      this.store.save()
+    }
+    this.startChat(ws.id, options.prompt, options.loadout, options.templateId, undefined, cap ? { cap } : undefined, options.attachments)
+    return ws
+  }
+
+  private async sendReviewThreads(workspaceId: string, ids: string[], sessionId: string | undefined, cap?: TurnCap): Promise<string> {
+    if (!ids.length) throw new Error('Select at least one review thread')
+    const ws = this.workspaces.workspace(workspaceId)
+    const pr = (await this.git.status(workspaceId)).pr
+    if (!pr) throw new Error('No pull request found for this workspace')
+    const threads = (await (await this.scm.forRepo(ws.repoId)).reviewThreads(ws, pr)).filter((t) => ids.includes(t.id) && !t.isResolved)
+    if (threads.length !== new Set(ids).size) throw new Error('Some threads have changed or been resolved. Refresh the reviews and select them again.')
+    const open = this.store.state.sessions.filter((s) => s.workspaceId === workspaceId && !s.closedAt)
+    const session = sessionId ? open.find((s) => s.id === sessionId) : open[0] ?? this.sessions.createSession(workspaceId)
+    if (!session) throw new Error('The selected chat is no longer open')
+    const gitlab = pr.provider === 'gitlab'
+    const content = reviewThreadsMarkdown(pr, threads)
+    const attachment = await attachFromData(workspaceTarget(ws, { wake: true }), `${gitlab ? 'MR' : 'PR'} ${pr.number} review threads.md`, Buffer.from(content).toString('base64'))
+    await this.sessions.send(session.id, `Address the selected ${gitlab ? 'GitLab' : 'GitHub'} review threads in the attached file. Check each suggestion against the current code and explain any you disagree with.`, { mode: 'queue', attachments: [attachment], ...(cap ? { cap } : {}) })
+    this.prWatch.ackReviews(workspaceId)
+    return session.id
+  }
+
+  /** Fix CI or resolve a moved base in the picked tab, or a new one ('new', or when none is open). */
+  private async toTab(workspaceId: string, sessionId: string | undefined, action: 'fix-errors' | 'resolve-conflicts', cap?: TurnCap): Promise<string> {
+    const open = this.store.state.sessions.filter((s) => s.workspaceId === workspaceId && !s.closedAt)
+    const fresh = sessionId === 'new' || !open.length
+    const target = fresh ? this.sessions.createSession(workspaceId) : (open.find((s) => s.id === sessionId) ?? open[0])
+    try {
+      await (cap ? this.git.run(workspaceId, action, target.id, cap) : this.git.run(workspaceId, action, target.id))
+    } catch (err) {
+      // Don't leave an empty tab behind when there was nothing to send.
+      if (fresh) await this.sessions.closeSession(target.id).catch(() => undefined)
+      throw err
+    }
+    if (action === 'fix-errors') this.prWatch.ackCi(workspaceId)
+    else this.baseWatch.ack(workspaceId)
+    return target.id
+  }
+
+  private async gitAction(workspaceId: string, action: GitActionKind, sessionId: string | undefined, cap?: TurnCap): Promise<SendReceipt | null> {
+    const receipt = await (cap ? this.git.run(workspaceId, action, sessionId, cap) : this.git.run(workspaceId, action, sessionId))
+    if (action === 'fix-errors') this.prWatch.ackCi(workspaceId)
+    void this.refreshDiffStat(workspaceId)
+    return receipt
+  }
+
+  /**
+   * The Api as a `foreman` command from a capped turn calls it: every call that starts or queues a turn carries the cap
+   * (lowered with what that turn continues, where it continues one); the rest is the Api as it is.
+   */
+  cappedApi(cap: TurnCap): Api {
+    return {
+      ...this.api,
+      adoptWorktree: (repoId, worktreePath, options) => this.adoptWorktree(repoId, worktreePath, options, cap),
+      sendReviewThreads: (workspaceId, ids, sessionId) => this.sendReviewThreads(workspaceId, ids, sessionId, cap),
+      fixCi: (workspaceId, sessionId) => this.toTab(workspaceId, sessionId, 'fix-errors', cap),
+      resolveBaseMoved: (workspaceId, sessionId) => this.toTab(workspaceId, sessionId, 'resolve-conflicts', cap),
+      gitAction: (workspaceId, action, sessionId) => this.gitAction(workspaceId, action, sessionId, cap),
+      cloudContinue: (sessionId) => this.cloudTurns.continueSession(sessionId, cap),
+      sendNote: (sessionId) => this.sessions.sendNote(sessionId, cap),
+      steerQueued: (sessionId, messageId) => this.sessions.steerQueued(sessionId, messageId, cap),
+      resumeLimitNow: (sessionId) => this.limitResume.resumeNow(sessionId, cap),
+      retryStopped: (turnId) => this.stopSafely.retry(turnId, cap),
+      startHeldMessage: (workspaceId) => this.startHeldMessage(workspaceId, cap),
+      createWorkspace: (repoId, options) => this.createFromOptions(repoId, options, { cap }),
+      armLimitResume: async (sessionId, turnId) => {
+        await this.limitResume.arm(sessionId, turnId, cap)
+      },
+      // A message sent this way is the capped turn's, not the user's.
+      sendMessage: (sessionId, text, options) => this.sessions.send(sessionId, text, { ...options, cap })
+    }
+  }
+
   readonly api: Api = {
     getSnapshot: async () => this.snapshot(),
     pickDirectory: () => this.host.pickDirectory(),
@@ -3055,6 +3224,17 @@ export class Core {
     mobileStartPairing: (mode) => this.requireMobile().startPairing(mode),
     mobileApprovePairing: async (id, allow, access) => this.requireMobile().approve(id, allow, access),
     mobileRevokeDevice: async (id) => this.requireMobile().revoke(id),
+    agentAccessInfo: async () => this.requireAgentAccess().info(),
+    agentAccessConfigure: async (enabled, port) => {
+      const service = this.requireAgentAccess()
+      await this.configureAgentAccess(enabled, port)
+      // The two settings changed with it: Settings, search and the CLI read them from the snapshot.
+      this.broadcastState()
+      return service.info()
+    },
+    agentAccessApprove: async (id, code, level) => this.requireAgentAccess().approve(id, code, level),
+    agentAccessDeny: async (id) => this.requireAgentAccess().deny(id),
+    agentAccessRevoke: async (grantId) => this.requireAgentAccess().revoke(grantId),
     devicesInfo: async () => this.devicesInfo(),
     setAcceptHandOffs: async (on, port) => {
       const settings = this.store.state.settings
@@ -3156,16 +3336,7 @@ export class Core {
     cancelLimitResume: async (sessionId) => this.limitResume.cancel(sessionId),
     resumeLimitNow: (sessionId) => this.limitResume.resumeNow(sessionId),
     resolveGithubLink: (repoId, url) => this.resolveLink(repoId, url),
-    adoptWorktree: async (repoId, worktreePath, options) => {
-      const ws = await this.workspaces.adoptWorktree(repoId, worktreePath, options)
-      const integrations = this.startingIntegrations(repoId, options.integrations)
-      if (integrations) {
-        ws.integrations = integrations
-        this.store.save()
-      }
-      this.startChat(ws.id, options.prompt, options.loadout, options.templateId, undefined, undefined, options.attachments)
-      return ws
-    },
+    adoptWorktree: (repoId, worktreePath, options) => this.adoptWorktree(repoId, worktreePath, options),
     listWorktrees: (repoId) => this.workspaces.listWorktrees(repoId),
     updateWorkspace: async (id, patch) => this.workspaces.updateWorkspace(id, patch),
     archivedWork: async (ids) => Promise.all(ids.map((id) => this.workspaces.archivedWork(id))),
@@ -3250,7 +3421,9 @@ export class Core {
     closeSession: (sessionId) => this.sessions.closeSession(sessionId),
     reopenSession: async (workspaceId, sessionId) => this.sessions.reopenSession(workspaceId, sessionId),
     getChat: (sessionId, live) => this.sessions.getChat(sessionId, live === true),
-    sendMessage: (sessionId, text, options) => {
+    sendMessage: (sessionId, text, given) => {
+      // docs/agent-access.md §4: a message from the window or a phone is the user's and carries no cap, whatever it says.
+      const options = given && 'cap' in given ? (({ cap: _cap, ...rest }) => rest)(given) : given
       // A flow step waiting here on its agent's sign-in: this message (the chat's Retry, most often) is the step's turn.
       const retry = text.trim() && !/^\/\S+$/.test(text.trim()) ? this.flows.retryTurn(sessionId) : undefined
       if (retry) this.sessions.markUnattended(retry.turnId, retry.unattended)
@@ -3270,13 +3443,9 @@ export class Core {
     moveQueued: async (sessionId, messageId, direction, revision) => this.sessions.moveQueued(sessionId, messageId, direction, revision),
     cancel: (sessionId) => this.sessions.cancel(sessionId),
     pendingApprovals: async () => this.sessions.pendingApprovals(),
-    respondApproval: (id, response, via) => {
-      // #3: an answer from the window or the phone goes into the history (a cancelled request never comes this way).
-      const request = this.sessions.pendingApprovals().find((a) => a.id === id)
-      const workspaceId = request && this.store.state.sessions.find((s) => s.id === request.sessionId)?.workspaceId
-      if (request && workspaceId) this.attention.record(approvalDraft(request, response, workspaceId, via === 'phone' ? 'phone' : 'window'))
-      return this.sessions.respondApproval(id, response)
-    },
+    // Any Api caller (the window, a phone, a browser) answers as the window or the phone: only the outside tools'
+    // own path (answerAsOutside) records an outside agent, by name (docs/agent-access.md §4).
+    respondApproval: (id, response, via) => this.answerApproval(id, response, via === 'phone' ? 'phone' : 'window'),
     attentionHistory: async () => this.attention.history(),
     markAttentionSeen: async () => this.attention.markSeen(),
     refreshPullRequest: (workspaceId) => this.prPoll.refresh(workspaceId),
@@ -3448,53 +3617,12 @@ export class Core {
       this.prWatch.ackReviews(workspaceId)
       return threads
     },
-    sendReviewThreads: async (workspaceId, ids, sessionId) => {
-      if (!ids.length) throw new Error('Select at least one review thread')
-      const ws = this.workspaces.workspace(workspaceId)
-      const pr = (await this.git.status(workspaceId)).pr
-      if (!pr) throw new Error('No pull request found for this workspace')
-      const threads = (await (await this.scm.forRepo(ws.repoId)).reviewThreads(ws, pr)).filter((t) => ids.includes(t.id) && !t.isResolved)
-      if (threads.length !== new Set(ids).size) throw new Error('Some threads have changed or been resolved. Refresh the reviews and select them again.')
-      const open = this.store.state.sessions.filter((s) => s.workspaceId === workspaceId && !s.closedAt)
-      const session = sessionId ? open.find((s) => s.id === sessionId) : open[0] ?? this.sessions.createSession(workspaceId)
-      if (!session) throw new Error('The selected chat is no longer open')
-      const gitlab = pr.provider === 'gitlab'
-      const content = reviewThreadsMarkdown(pr, threads)
-      const attachment = await attachFromData(workspaceTarget(ws, { wake: true }), `${gitlab ? 'MR' : 'PR'} ${pr.number} review threads.md`, Buffer.from(content).toString('base64'))
-      await this.sessions.send(session.id, `Address the selected ${gitlab ? 'GitLab' : 'GitHub'} review threads in the attached file. Check each suggestion against the current code and explain any you disagree with.`, { mode: 'queue', attachments: [attachment] })
-      this.prWatch.ackReviews(workspaceId)
-      return session.id
-    },
+    sendReviewThreads: (workspaceId, ids, sessionId) => this.sendReviewThreads(workspaceId, ids, sessionId),
     setPrWatch: async (workspaceId, kind, on) => {
       this.prWatch.setWatch(workspaceId, kind, on)
     },
-    fixCi: async (workspaceId, sessionId) => {
-      const open = this.store.state.sessions.filter((s) => s.workspaceId === workspaceId && !s.closedAt)
-      const fresh = sessionId === 'new' || !open.length
-      const target = fresh ? this.sessions.createSession(workspaceId) : (open.find((s) => s.id === sessionId) ?? open[0])
-      try {
-        await this.git.run(workspaceId, 'fix-errors', target.id)
-      } catch (err) {
-        // Don't leave an empty tab behind when there was nothing to send.
-        if (fresh) await this.sessions.closeSession(target.id).catch(() => undefined)
-        throw err
-      }
-      this.prWatch.ackCi(workspaceId)
-      return target.id
-    },
-    resolveBaseMoved: async (workspaceId, sessionId) => {
-      const open = this.store.state.sessions.filter((s) => s.workspaceId === workspaceId && !s.closedAt)
-      const fresh = sessionId === 'new' || !open.length
-      const target = fresh ? this.sessions.createSession(workspaceId) : (open.find((s) => s.id === sessionId) ?? open[0])
-      try {
-        await this.git.run(workspaceId, 'resolve-conflicts', target.id)
-      } catch (err) {
-        if (fresh) await this.sessions.closeSession(target.id).catch(() => undefined)
-        throw err
-      }
-      this.baseWatch.ack(workspaceId)
-      return target.id
-    },
+    fixCi: (workspaceId, sessionId) => this.toTab(workspaceId, sessionId, 'fix-errors'),
+    resolveBaseMoved: (workspaceId, sessionId) => this.toTab(workspaceId, sessionId, 'resolve-conflicts'),
     baseWatchSupport: async () => this.baseWatch.support(),
     ackCiFailure: async (workspaceId) => this.prWatch.ackCi(workspaceId),
     autoFixPreview: async (workspaceId, sessionId) => this.autoFix.preview(workspaceId, sessionId),
@@ -3509,12 +3637,7 @@ export class Core {
     setAutoReview: async (repoId, shown) => (shown ? this.autoReview.enable(repoId, shown) : this.autoReview.disable(repoId)),
     sendAutoReviewFindings: (workspaceId, reviewId, findingIds, sessionId) => this.autoReview.sendFindings(workspaceId, reviewId, findingIds, sessionId),
     dismissAutoReview: async (workspaceId, reviewId) => this.autoReview.dismiss(workspaceId, reviewId),
-    gitAction: async (workspaceId, action, sessionId) => {
-      const receipt = await this.git.run(workspaceId, action, sessionId)
-      if (action === 'fix-errors') this.prWatch.ackCi(workspaceId)
-      void this.refreshDiffStat(workspaceId)
-      return receipt
-    },
+    gitAction: (workspaceId, action, sessionId) => this.gitAction(workspaceId, action, sessionId),
     addComment: async (workspaceId, file, line, body, selection) => {
       if (!body.trim()) return
       this.store.state.comments.push({
@@ -3829,6 +3952,12 @@ export class Core {
       if ('updateInterval' in patch && !['hourly', 'every-4-hours', 'daily'].includes(patch.updateInterval as string)) throw new Error('Unknown update schedule')
       if ('updateMode' in patch && !['notify', 'download', 'quit'].includes(patch.updateMode as string)) throw new Error('Unknown update setting')
       if ('updateChannel' in patch && !['stable', 'beta'].includes(patch.updateChannel as string)) throw new Error('Unknown release channel')
+      // Agents on this computer: the service starts, stops or moves the listener and saves both (a port it can't bind turns it off).
+      if ('agentAccessEnabled' in patch || 'agentAccessPort' in patch) {
+        const { agentAccessEnabled, agentAccessPort, ...rest } = patch
+        patch = rest
+        await this.configureAgentAccess(agentAccessEnabled ?? this.store.state.settings.agentAccessEnabled, agentAccessPort)
+      }
       const settings: Settings = { ...this.store.state.settings, ...patch }
       this.store.state.settings = settings
       // A higher limit (or none) starts the turns queued for an agent slot.
@@ -3893,6 +4022,37 @@ export class Core {
       // G3 · O3: the folder the shell said it was in (OSC 7), when that folder exists; otherwise the workspace's.
       this.terminals.put(workspaceId, tabs.map((tab) => ({ ...tab, cwd: existingFolder(tab?.cwd) ?? cwd })))
     }
+  }
+
+  private async configureAgentAccess(enabled: boolean, port: number | undefined): Promise<void> {
+    if (this.agentAccess) {
+      await this.agentAccess.configure(enabled, port)
+      return
+    }
+    // No listener in this process (tests): the values alone, checked as the service checks them.
+    checkAgentAccessSettings(enabled, port, mainT(this.store.state.settings))
+    this.store.state.settings.agentAccessEnabled = enabled
+    if (port !== undefined) this.store.state.settings.agentAccessPort = port
+  }
+
+  private requireAgentAccess(): AgentAccessService {
+    if (!this.agentAccess) throw new Error('Access for agents on this computer is starting. Try again.')
+    return this.agentAccess
+  }
+
+  /**
+   * The service's onChanged (docs/agent-access.md §9): every window, phone and browser hears the new state, and a sign-in
+   * that started waiting raises a notification whose action opens Settings at Agents on this computer, at most one a minute.
+   */
+  agentAccessChanged(): void {
+    const service = this.agentAccess
+    if (!service) return
+    const info = service.info()
+    this.host.broadcast({ type: 'agent-access', info })
+    const asking = this.waitingNotices.take(info.pending)
+    if (!asking) return
+    const t = mainT(this.store.state.settings)
+    this.host.broadcast({ type: 'notify', workspaceId: '', sessionId: '', title: t('agentAccess.notify.title'), body: t('agentAccess.notify.body', { name: asking.name }), action: 'agent-access', kind: 'info' })
   }
 
   private requireMobile(): MobileService {

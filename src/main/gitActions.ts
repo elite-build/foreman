@@ -18,6 +18,7 @@ import { createMrInstructions } from '../shared/scm'
 import type { SessionService } from './sessions'
 import type { Store } from './store'
 import type { WorkspaceService } from './workspaces'
+import type { TurnCap } from '../shared/agentAccess'
 
 const toBase64 = (text: string) => Buffer.from(text).toString('base64')
 
@@ -81,11 +82,11 @@ export class GitActions {
     return session
   }
 
-  /** Sends to the chosen chat and says which turn carries it (a new one, or the one it queued behind). */
-  private async ask(ws: Workspace, sessionId: string | undefined, text: string, attachments: Attachment[] = []): Promise<SendReceipt> {
+  /** Sends to the chosen chat and says which turn carries it (a new one, or the one it queued behind). `cap`: asked for from a capped turn. */
+  private async ask(ws: Workspace, sessionId: string | undefined, text: string, attachments: Attachment[] = [], cap?: TurnCap): Promise<SendReceipt> {
     const session = this.targetSession(ws, sessionId)
     // Queue behind any running turn rather than steering mid-task.
-    return this.sessions.deliver(session.id, text, { attachments, mode: 'queue' })
+    return this.sessions.deliver(session.id, text, { attachments, mode: 'queue', ...(cap ? { cap } : {}) })
   }
 
   /** "Fix in chat…": the failing checks' logs go to the chosen chat, queued behind any running turn. */
@@ -108,18 +109,22 @@ export class GitActions {
     return workspaceTarget(ws, { wake: true })
   }
 
-  /** The receipt of the message the action sent to a chat (its turn id), or null when it sent none. */
-  async run(workspaceId: string, action: GitActionKind, sessionId?: string): Promise<SendReceipt | null> {
+  /**
+   * The receipt of the message the action sent to a chat (its turn id), or null when it sent none. `cap`: the action was
+   * asked for from a capped turn (`foreman git`, `foreman pr fix-ci`), so the turn it starts carries it (docs/agent-access.md §4).
+   */
+  async run(workspaceId: string, action: GitActionKind, sessionId?: string, cap?: TurnCap): Promise<SendReceipt | null> {
     try {
-      return (await this.runAction(workspaceId, action, sessionId)) ?? null
+      return (await this.runAction(workspaceId, action, sessionId, cap)) ?? null
     } finally {
       // Most actions change the PR; the panel's next look must not read the old answer.
       this.prs.invalidate(workspaceId)
     }
   }
 
-  private async runAction(workspaceId: string, action: GitActionKind, sessionId?: string): Promise<SendReceipt | undefined> {
+  private async runAction(workspaceId: string, action: GitActionKind, sessionId?: string, cap?: TurnCap): Promise<SendReceipt | undefined> {
     const ws = this.workspaces.workspace(workspaceId)
+    const ask = (text: string, attachments?: Attachment[]) => this.ask(ws, sessionId, text, attachments, cap)
     const repo = this.workspaces.repo(ws.repoId)
     const repoSettings = this.workspaces.settingsFor(repo.id)
     const prompts = repoSettings.prompts
@@ -134,7 +139,7 @@ export class GitActions {
 
     switch (action) {
       case 'commit-and-push':
-        return this.ask(ws, sessionId, repo.hasOrigin ? 'Commit and push all changes.' : 'Commit all changes.')
+        return ask(repo.hasOrigin ? 'Commit and push all changes.' : 'Commit all changes.')
 
       case 'create-pr':
       case 'create-draft-pr': {
@@ -142,11 +147,11 @@ export class GitActions {
         if (gitlab) {
           const instructions = createMrInstructions({ base: ws.baseBranch, draft, customPrompt: prompts.createPr, hasDiffTool: true, remote })
           const file = await attachFromData(this.attachTo(ws), 'MR instructions.md', toBase64(instructions))
-          return this.ask(ws, sessionId, draft ? 'Create a draft merge request.' : 'Create a merge request.', [file])
+          return ask(draft ? 'Create a draft merge request.' : 'Create a merge request.', [file])
         }
         const instructions = createPrInstructions({ base: ws.baseBranch, draft, customPrompt: prompts.createPr, hasDiffTool: true })
         const file = await attachFromData(this.attachTo(ws), 'PR instructions.md', toBase64(instructions))
-        return this.ask(ws, sessionId, draft ? 'Create a draft pull request.' : 'Create a pull request.', [file])
+        return ask(draft ? 'Create a draft pull request.' : 'Create a pull request.', [file])
       }
 
       case 'create-pr-web': {
@@ -169,7 +174,7 @@ export class GitActions {
         const status = await this.status(workspaceId)
         const diverged = (status.ahead > 0 && status.behind > 0) || (status.aheadBase > 0 && status.behindBase > 0)
         if (status.uncommitted > 0 || diverged) {
-          return this.ask(ws, sessionId, `Bring this branch up to date: commit any uncommitted work, merge ${status.baseRef} into it, resolve conflicts if any, then push.`)
+          return ask(`Bring this branch up to date: commit any uncommitted work, merge ${status.baseRef} into it, resolve conflicts if any, then push.`)
         }
         if (status.behind > 0) await git(at, ['merge', '--ff-only', '@{upstream}'])
         else if (status.behindBase > 0) await git(at, ['merge', '--ff-only', status.baseRef])
@@ -209,11 +214,11 @@ export class GitActions {
         const status = await this.status(workspaceId, true)
         const failing = (status.pr?.checks ?? []).filter((c) => c.state === 'failure')
         if (!failing.length) throw new Error('No failing checks found')
-        return this.ask(ws, sessionId, FIX_CI_MESSAGE, await this.ciFailureAttachments(ws, provider, failing, prompts.fixErrors))
+        return ask(FIX_CI_MESSAGE, await this.ciFailureAttachments(ws, provider, failing, prompts.fixErrors))
       }
 
       case 'resolve-conflicts':
-        return this.ask(ws, sessionId, resolveConflictsMessage(ws.baseBranch, prompts.resolveConflicts))
+        return ask(resolveConflictsMessage(ws.baseBranch, prompts.resolveConflicts))
 
       case 'review': {
         // The app asks which model first (HandOffService); this is the straight path with the review model.
@@ -227,7 +232,8 @@ export class GitActions {
           text: REVIEW_MESSAGE,
           attachments: [file],
           title: 'Code review',
-          turnId
+          turnId,
+          ...(cap ? { cap } : {})
         })
         return { disposition: 'started', turnId }
       }

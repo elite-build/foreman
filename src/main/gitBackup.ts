@@ -23,6 +23,8 @@ import type { WorkspaceService } from './workspaces'
 const FILES = ['settings', 'templates', 'repositories', 'workspaces', 'variable-names'] as const
 const MAX_FILE_BYTES = 5 * 1024 * 1024
 const DAY_MS = 24 * 60 * 60 * 1000
+// This computer's own listeners: a restored backup never opens one (docs/agent-access.md §6).
+const LOCAL_ONLY_SETTINGS: readonly string[] = ['agentAccessEnabled', 'agentAccessPort']
 const PATH_SETTINGS = ['workspacesRoot', 'cloneDirectory', 'backupFolder', 'claudeExecutablePath', 'codexExecutablePath', 'opencodeExecutablePath'] as const
 
 type Payload = GitBackupFiles
@@ -126,7 +128,7 @@ export function parseGitBackup(raw: Record<string, unknown>): Payload {
   const defaults = defaultSettings() as unknown as Record<string, unknown>
   const cleanSettings: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(settings)) {
-    if (key === 'promptTemplates' || !(key in defaults)) continue
+    if (key === 'promptTemplates' || !(key in defaults) || LOCAL_ONLY_SETTINGS.includes(key)) continue
     const expected = defaults[key]
     if (Array.isArray(expected) ? !Array.isArray(value) : object(expected) ? !object(value) : typeof value !== typeof expected)
       throw new Error(`The backup has an invalid ${key} setting.`)
@@ -154,7 +156,8 @@ function githubLoginOf(store: Store, repo: Store['state']['repos'][number]): str
 }
 
 export function makeGitBackupFiles(store: Store, secrets: SecretStore, at: Date): Payload {
-  const { promptTemplates, ...settings } = store.state.settings
+  const { promptTemplates, ...all } = store.state.settings
+  const settings = Object.fromEntries(Object.entries(all).filter(([key]) => !LOCAL_ONLY_SETTINGS.includes(key))) as Payload['settings']
   const repositories: GitBackupRepo[] = store.state.repos.map((repo) => ({
     id: repo.id, name: repo.name, rootPath: repo.rootPath, ...(repo.remoteUrl ? { remoteUrl: repo.remoteUrl } : {}),
     ...(repo.rootCommit ? { rootCommit: repo.rootCommit } : {}), defaultBranch: repo.defaultBranch, remote: repo.remote,

@@ -1,6 +1,7 @@
 // `foreman git`, `diff`, `commits`, `comments`, `pr`, `base-moved` and `ack-ci`: the Git panel's buttons through the same Api calls. Everything that puts a message in a chat goes
 // through the start policy (§13 item 1) before it does, whoever the caller is.
 import { prFacts } from '../../shared/board'
+import { CEILING_NAMES } from '../../shared/agentAccess'
 import { AUTO_FIX_BUDGET } from '../../shared/autoFix'
 import { pullRequestUrl } from '../../shared/status'
 import { tabModelText } from '../../shared/tabs'
@@ -50,10 +51,10 @@ import {
   type ThreadsResult
 } from '../../shared/cli/git'
 import type { DiffComment, GitActionKind, GitStatus, Session, Workspace } from '../../shared/types'
-import type { CliHost } from './host'
+import { CliCodedError, type CliHost } from './host'
 import { flagParam, invalid, numberParam, paramsObject, textList, textParam, type MethodDef } from './kit'
 import type { CliContext } from './methods'
-import { startRefusal } from './policy'
+import { apiFor, startRefusal } from './policy'
 import { findByRef, notFound, plural, refused } from './refs'
 import { findTab, findWorkspace } from './resolve'
 import { diffWords, turnDiffWords } from './words'
@@ -126,7 +127,7 @@ async function action(host: CliHost, params: unknown, ctx: CliContext): Promise<
   const sends = SENDING_ACTIONS.includes(kind)
   const target = sends || tab !== undefined ? chatFor(host, ws, tab) : {}
   const before = openTabs(host, ws).map((s) => s.id)
-  const receipt = await host.api.gitAction(ws.id, kind, target.session?.id)
+  const receipt = await apiFor(host, ctx).gitAction(ws.id, kind, target.session?.id)
   if (!receipt?.turnId) return { workspace: wsOut(ws), action: kind, text: actionText(kind) }
   // Review opens a chat of its own; the others used the chosen one, or the first open tab.
   const after = openTabs(host, ws)
@@ -245,11 +246,17 @@ async function commits(host: CliHost, params: unknown): Promise<CommitsResult> {
 
 const COMMENT_VERBS: CommentVerb[] = ['list', 'add', 'edit', 'resolve', 'delete']
 
-async function comments(host: CliHost, params: unknown): Promise<CommentsResult> {
+async function comments(host: CliHost, params: unknown, ctx?: CliContext): Promise<CommentsResult> {
   const p = paramsObject(params as CommentsParams)
   const ws = workspaceOf(host, p)
   const verb = (textParam(p, 'verb', { optional: true }) ?? 'list') as CommentVerb
   if (!COMMENT_VERBS.includes(verb)) throw invalid(`“${verb}” isn’t a comments command. Use ${COMMENT_VERBS.join(', ')}.`)
+  // docs/agent-access.md §4: a comment is the user's and goes with the next message in any chat, capped or not, so a
+  // turn held below Never ask can't write one into a turn that isn't held.
+  const cap = ctx?.cap
+  if ((verb === 'add' || verb === 'edit') && cap && cap.ceiling !== 'never-ask') {
+    throw new CliCodedError('refused', `Comments can’t be added or edited from this turn: it was started through ${cap.name}’s access and is held to “${CEILING_NAMES[cap.ceiling]}”, and a comment goes, as the user’s, with the next message in any of ${ws.name}’s chats, including ones that aren’t held. Put it in your answer instead.`)
+  }
   const mine = (): DiffComment[] => host.snapshot().comments.filter((c) => c.workspaceId === ws.id)
   const base = { workspace: wsOut(ws), verb }
   if (verb === 'list') {
@@ -340,8 +347,8 @@ async function toTab(host: CliHost, params: unknown, ctx: CliContext, call: (id:
   return { workspace: wsOut(ws), tab: at ?? 0, session, ...(turn ? { turn } : {}), text: `${what} ${at ? `tab ${at}` : 'a new tab'} of ${ws.name}${turn ? ` (turn ${turn})` : ''}.` }
 }
 
-const fixCi = (host: CliHost, params: unknown, ctx: CliContext) => toTab(host, params, ctx, (id, session) => host.api.fixCi(id, session), 'Sent the failing CI logs to')
-const baseMoved = (host: CliHost, params: unknown, ctx: CliContext) => toTab(host, params, ctx, (id, session) => host.api.resolveBaseMoved(id, session), 'Asked the agent to resolve the moved base in')
+const fixCi = (host: CliHost, params: unknown, ctx: CliContext) => toTab(host, params, ctx, (id, session) => apiFor(host, ctx).fixCi(id, session), 'Sent the failing CI logs to')
+const baseMoved = (host: CliHost, params: unknown, ctx: CliContext) => toTab(host, params, ctx, (id, session) => apiFor(host, ctx).resolveBaseMoved(id, session), 'Asked the agent to resolve the moved base in')
 
 async function threads(host: CliHost, params: unknown, ctx: CliContext): Promise<ThreadsResult> {
   const p = paramsObject(params as ThreadsParams)
@@ -356,7 +363,7 @@ async function threads(host: CliHost, params: unknown, ctx: CliContext): Promise
   if (!wanted.length) throw invalid('Name the threads: foreman pr threads <workspace> send <id>... (`list` shows the ids).')
   const picked = [...new Set(wanted.map((q) => findByRef(all, q, 'review thread', { id: (t) => t.id, names: () => [], describe: (t) => `${t.path}${t.line ? `:${t.line}` : ''} (id ${t.id})` }).id))]
   const target = chatFor(host, ws, numberParam(p, 'tab'))
-  const session = await host.api.sendReviewThreads(ws.id, picked, target.session?.id)
+  const session = await apiFor(host, ctx).sendReviewThreads(ws.id, picked, target.session?.id)
   const at = tabNumber(host, ws, session)
   return { workspace: wsOut(ws), verb, threads: rows.filter((r) => picked.includes(r.id)), ...(at ? { tab: at } : {}), session, text: `Sent ${plural(picked.length, 'review thread')} to ${at ? `tab ${at}` : 'a tab'} of ${ws.name}.` }
 }
@@ -418,7 +425,7 @@ export const GIT_METHODS: Record<string, MethodDef> = {
   diff: { tier: 'read', handle: async (host, params) => diff(host, params) },
   commits: { tier: 'read', handle: async (host, params) => commits(host, params) },
   // Comments wait for the next message, as the panel's do; none of it starts a turn.
-  comments: { tier: 'act', handle: async (host, params) => comments(host, params) },
+  comments: { tier: 'act', handle: async (host, params, ctx) => comments(host, params, ctx) },
   pr: { tier: 'read', handle: async (host, params) => pr(host, params) },
   'pr-refresh': { tier: 'act', handle: async (host, params) => prRefresh(host, params) },
   'pr-watch': { tier: 'act', handle: async (host, params) => prWatch(host, params) },

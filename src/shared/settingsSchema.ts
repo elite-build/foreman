@@ -291,6 +291,10 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   def('mobile-lan-address', { page: 'devices', field: 'mobileLanAddress', type: 'string', apply: 'mobileLan' }),
   // Its row (`keep-running`) sits with the Devices section on Data & devices; the key stays with the devices it serves.
   def('keep-running', { page: 'devices', field: 'keepRunning', type: 'boolean' }),
+  // Outside agents on this computer (docs/agent-access.md §5). Written through updateSettings, which starts or stops the
+  // listener; their rows (`agent-access`, `agent-access-port`) sit with the Devices section on Data & devices.
+  def('agent-access', { page: 'devices', field: 'agentAccessEnabled', type: 'boolean', note: 'Agents on this computer may now ask to sign in. Each sign-in waits for you to type the code its browser page shows into Foreman.' }),
+  def('agent-access-port', { page: 'devices', field: 'agentAccessPort', type: 'integer', min: 1024, max: 65_535 }),
 
   // Remote workspaces: the nested `cloud` object, written field by field (patchCloudSettings checks each).
   flag('workspaces', 'cloud-workspaces', 'cloud.enabled'),

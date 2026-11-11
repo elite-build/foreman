@@ -1,0 +1,40 @@
+/* Settings → Data & devices → Agents on this computer (AgentAccessSection.tsx). Layout only: every control is ui/'s. */
+.aa-copy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.aa-copy-text {
+  flex: 1;
+  min-width: 0;
+}
+.aa-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+.aa-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.aa-callout {
+  padding: 8px 0;
+}
+.aa-grants {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.aa-grant {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.aa-grant-name {
+  overflow-wrap: anywhere;
+}

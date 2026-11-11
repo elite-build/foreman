@@ -68,8 +68,8 @@ describe('a schedule that runs a flow (the service)', () => {
     expect(s).toMatchObject({ flow: { flowId: 'built-in:fix-until-green', flowName: 'Fix until green', inputs: { task: 'Fix the flaky tests' } }, approved: { template: 't1', setup: 's1', checks: 'c1', mcp: 'm1', flow: 'f1', personas: 'p1' } })
     expect(s.templateId).toBeUndefined()
     expect(scheduleName(s)).toBe('Fix until green')
-    expect(flowFingerprintFrom(s.approved)).toEqual(FLOW_FP)
-    expect(changedParts(s.approved, fingerprintOf(flowInputs({ ...FLOW_FP, flow: 'f2', personas: 'p2' })))).toEqual(['the flow', 'its personas'])
+    expect(flowFingerprintFrom(s.approved!)).toEqual(FLOW_FP)
+    expect(changedParts(s.approved!, fingerprintOf(flowInputs({ ...FLOW_FP, flow: 'f2', personas: 'p2' })))).toEqual(['the flow', 'its personas'])
     // A template schedule's fingerprint has neither part, so nothing reads as changed.
     const tpl = fingerprintOf({ templateBody: 'x', setupScript: '', checks: [], mcp: [] })
     expect(changedParts(tpl, tpl)).toEqual([])
@@ -228,7 +228,7 @@ describe('a flow schedule in core', () => {
     await (c as unknown as { launchScheduled(s: Schedule, o: Occurrence, h: LaunchHandle): Promise<void> }).launchScheduled(schedule, occurrence, handle)
     expect(begin).toHaveBeenCalledWith({
       flowId: schedule.flow!.flowId, repoId: schedule.repoId, baseBranch: 'develop', inputs: { task: 'the parser' },
-      shown: flowFingerprintFrom(schedule.approved), origin: { kind: 'schedule', scheduleId: schedule.id, occurrenceId: 'occ-1' }
+      shown: flowFingerprintFrom(schedule.approved!), origin: { kind: 'schedule', scheduleId: schedule.id, occurrenceId: 'occ-1' }
     })
     expect(handle.flowRun).toHaveBeenCalledWith('run-9')
     expect(handle.created).not.toHaveBeenCalled()

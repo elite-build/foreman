@@ -13,7 +13,8 @@ import { clockTime, dayOf } from '../../shared/usageLimit'
 import type { CancelParams, CancelResult, ChecksCliResult, ChecksParams, DecideParams, DecideResult, ReportParams, ReportResult, ResumeAtParams, ResumeAtResult, RunParams, RunResult, SendParams, SendResult, StatusResult, WaitParams, WaitResult } from '../../cli/protocol'
 import { HISTORY_ONLY_REASON, wsPath } from '../../shared/workspacePath'
 import { decisionProblem, isBlocker, isReportKind, type TurnCaller } from '../../shared/agentReports'
-import type { CliHost } from './host'
+import { CliCodedError, type CliHost } from './host'
+import { ceilingRefusal, runsCodeRefusal, type TurnCap } from '../../shared/agentAccess'
 import { chosenIntegrations } from './workspaceIntegrations'
 import { findTab, findWorkspace, resolveRepo, resolveWorkspace } from './resolve'
 
@@ -22,13 +23,16 @@ import { findTab, findWorkspace, resolveRepo, resolveWorkspace } from './resolve
  * --tab it refuses and lists them. It never steers a running turn, and a message
  * that waits is queued under the id of the turn it will start, so the receipt holds.
  */
-export async function send(host: CliHost, params: SendParams, options: { literal?: boolean; origin?: MessageOrigin } = {}): Promise<SendResult> {
+export async function send(host: CliHost, params: SendParams, options: { literal?: boolean; origin?: MessageOrigin; cap?: TurnCap } = {}): Promise<SendResult> {
   const state = host.state()
   const ws = findWorkspace(state, params.workspace, params.cwd)
   if (ws.heldMessage) throw new Error(`${ws.name}: setup failed and its first message is held. Open the workspace and choose Start anyway first.`)
   if (ws.state === 'history') throw new Error(`${ws.name}: ${HISTORY_ONLY_REASON}`)
   if (ws.state !== 'ready') throw new Error(`${ws.name} isn’t ready yet (${ws.state}).`)
   const { tab, session } = findTab(state.sessions, ws, params.tab)
+  // docs/agent-access.md §3: from a capped turn, a chat whose agent can't be held to its ceiling is refused before anything is sent.
+  const refusal = ceilingRefusal(session.agent, options.cap)
+  if (refusal) throw new Error(refusal)
 
   // An exact template name, id or slug (not a fuzzy match) followed by values; anything else is the message itself.
   const [first, ...values] = params.args
@@ -44,7 +48,7 @@ export async function send(host: CliHost, params: SendParams, options: { literal
   if (!text) throw new Error('Say what to send: a template name with its values, or the message.')
   if (/^\/\S+$/.test(text)) throw new Error('Foreman’s /commands run in the app, not from the command line.')
 
-  const receipt = await host.deliver(session.id, text, { mode: 'queue', templateId, via: 'cli', ...(options.origin ? { origin: options.origin } : {}) })
+  const receipt = await host.deliver(session.id, text, { mode: 'queue', templateId, via: 'cli', ...(options.origin ? { origin: options.origin } : {}), ...(options.cap ? { cap: options.cap } : {}) })
   if (!receipt.turnId || receipt.disposition === 'handled') throw new Error('Foreman handled that message itself; no turn was started.')
   return {
     workspace: { id: ws.id, name: ws.name },
@@ -77,7 +81,7 @@ export async function cancel(host: CliHost, params: CancelParams): Promise<Cance
  * G4 #11 `foreman resume-at <turn>`: arm the usage-limit resume the turn's recovery card offers, with the same
  * rules as ticking it (the chat's latest turn, a stated reset time still ahead, one per tab). --cancel disarms it.
  */
-export async function resumeAt(host: CliHost, params: ResumeAtParams, now = Date.now()): Promise<ResumeAtResult> {
+export async function resumeAt(host: CliHost, params: ResumeAtParams, now = Date.now(), cap?: TurnCap): Promise<ResumeAtResult> {
   const status = await host.turnStatus(params.turn)
   if (!status) throw new Error(`No turn with the id “${params.turn}”. \`foreman run\` and \`foreman send\` print it.`)
   if (!host.armLimitResume || !host.cancelLimitResume) throw new Error('This version of Foreman can’t arm a resume from the command line.')
@@ -89,7 +93,7 @@ export async function resumeAt(host: CliHost, params: ResumeAtParams, now = Date
     host.cancelLimitResume(status.sessionId)
     return { ...base, armed: false, message: armed ? `Cancelled the resume in ${name}. Nothing will be sent.` : `No resume was armed in ${name}; nothing to cancel.` }
   }
-  const resume = await host.armLimitResume(status.sessionId, params.turn)
+  const resume = cap ? await host.armLimitResume(status.sessionId, params.turn, cap) : await host.armLimitResume(status.sessionId, params.turn)
   const at = Date.parse(resume.at)
   const day = dayOf(at, now)
   const when = `${day === 'today' ? 'today' : day === 'tomorrow' ? 'tomorrow' : day} at ${clockTime(at)}`
@@ -102,7 +106,9 @@ export async function resumeAt(host: CliHost, params: ResumeAtParams, now = Date
   }
 }
 
-export async function checks(host: CliHost, params: ChecksParams): Promise<ChecksCliResult> {
+export async function checks(host: CliHost, params: ChecksParams, cap?: TurnCap): Promise<ChecksCliResult> {
+  const refusal = runsCodeRefusal(cap)
+  if (refusal) throw new CliCodedError('refused', refusal)
   return host.runChecks(resolveWorkspace(host.state(), params.cwd).id)
 }
 
@@ -114,7 +120,7 @@ export function status(host: CliHost): StatusResult {
   return statusRows({ snapshot, approvals: host.approvals(), unread: {}, unreadSessions: {} }, names)
 }
 
-export async function run(host: CliHost, params: RunParams, extra?: { startedBy?: WorkspaceStartedBy }): Promise<RunResult> {
+export async function run(host: CliHost, params: RunParams, extra?: { startedBy?: WorkspaceStartedBy; cap?: TurnCap }): Promise<RunResult> {
   const state = host.state()
   // The repo's own templates join the user's once we know which repo is meant.
   let repo: Repo | undefined
@@ -164,7 +170,7 @@ export async function run(host: CliHost, params: RunParams, extra?: { startedBy?
     branch: { kind: 'new', name: params.branch?.trim() || undefined },
     loadout,
     ...(integrations ? { integrations } : {})
-  }, extra)
+  }, extra && Object.keys(extra).length ? extra : undefined)
   if (params.open) host.reveal(ws.id)
   result.workspace = { id: ws.id, name: ws.name, branch: ws.branch, path: wsPath(ws) }
   if (ws.pullRequest) result.pullRequest = ws.pullRequest
@@ -172,7 +178,8 @@ export async function run(host: CliHost, params: RunParams, extra?: { startedBy?
   const setup = await host.setupOutcome(ws.id)
   if (setup.held) {
     if (params.startAnyway) {
-      await host.startHeldMessage(ws.id)
+      if (extra?.cap) await host.startHeldMessage(ws.id, extra.cap)
+      else await host.startHeldMessage(ws.id)
       result.startedAnyway = true
     } else result.held = { logTail: setup.logTail }
   }

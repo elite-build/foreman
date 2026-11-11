@@ -164,7 +164,7 @@ export function eventText(e: AttentionEvent, t: RendererT): { head: string; rest
     case 'approval-answered': {
       const what = e.label === 'plan' ? t('attention.event.plan') : e.label === 'question' ? t('attention.event.question') : (e.label ?? '')
       // G2: where it was answered, when the event says (older events don't).
-      return { head: t(e.allowed ? 'attention.event.approvalAllowed' : 'attention.event.approvalDenied', { what }), rest: e.via ? [t(e.via === 'phone' ? 'attention.event.viaPhone' : 'attention.event.viaWindow')] : [] }
+      return { head: t(e.allowed ? 'attention.event.approvalAllowed' : 'attention.event.approvalDenied', { what }), rest: e.via === 'outside' ? [t('attention.event.viaOutside', { name: e.by ?? '' })] : e.via ? [t(e.via === 'phone' ? 'attention.event.viaPhone' : 'attention.event.viaWindow')] : [] }
     }
     case 'agent-report': {
       const kind = e.label === 'review' ? t('attention.event.reportReview') : e.label && ['needs-input', 'stuck', 'checkpoint', 'done', 'decide'].includes(e.label) ? t(`reports.kind.${e.label as 'needs-input'}`) : (e.label ?? '')

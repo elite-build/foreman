@@ -17,6 +17,7 @@ import { columns, flagParam, invalid, numberParam, paramsObject, textParam, type
 import type { CliContext } from './methods'
 import { durationText, findByRef, firstLine, notFound, refused, utcText } from './refs'
 import { resolveRepo } from './resolve'
+import { CAPPED_FLOW_REFUSAL } from './policy'
 
 type GateRequest = Extract<ApprovalRequest, { kind: 'gate' }>
 type PickRequest = Extract<ApprovalRequest, { kind: 'pick' }>
@@ -471,6 +472,8 @@ const run: MethodDef = {
   tier: 'act',
   async handle(host, params, ctx: CliContext): Promise<FlowRunResult> {
     flowsOn(host)
+    // docs/agent-access.md §4: never from a capped turn, not even the preview.
+    if (ctx.cap) throw refused(CAPPED_FLOW_REFUSAL)
     const p = paramsObject(params)
     const state = host.state()
     const repo = await resolveRepo(state, textParam(p, 'cwd', { optional: true }) ?? process.cwd(), textParam(p, 'repo', { optional: true }))

@@ -287,6 +287,23 @@ describe('Foreman MCP in-process (Claude turns in the app)', () => {
     expect(readOnly).not.toContain('start_flow')
   })
 
+  it('refuses run_checks to a turn capped below Never ask, and lets it read check results (docs/agent-access.md §4)', async () => {
+    const { actions, state, session, api } = rig()
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null })
+    cleanup.push(() => local.close())
+    session.turnCap = { ceiling: 'auto', grantId: 'g', name: 'Claude Code' }
+    const client = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    const refused = await client.callTool({ name: 'run_checks', arguments: {} })
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('full rights')
+    expect((await client.callTool({ name: 'get_check_results', arguments: {} })).isError).not.toBe(true)
+    expect(api.runChecks).not.toHaveBeenCalled()
+    session.turnCap = { ceiling: 'never-ask', grantId: 'g', name: 'Claude Code' }
+    const never = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await never.callTool({ name: 'run_checks', arguments: {} })).isError).not.toBe(true)
+    expect(api.runChecks).toHaveBeenCalledTimes(1)
+  })
+
   it('offers only read-only tools to a read-only turn', async () => {
     const { actions, state, session } = rig()
     session.planMode = true

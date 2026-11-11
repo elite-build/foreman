@@ -5,7 +5,7 @@ import net from 'node:net'
 import type { CliErrorCode, CliProgressFrame, CliReplyV2, CliRequest, CliRequestV2, CliResponse } from '../../cli/protocol'
 import { CliCodedError, type CliHost } from './host'
 import { METHODS, type CliContext } from './methods'
-import { isV2, paramsOf, tierCheck, type AnyCliRequest } from './policy'
+import { callerCap, isV2, paramsOf, tierCheck, type AnyCliRequest } from './policy'
 
 // Requests are a few hundred bytes; anything this big isn't one.
 const MAX_REQUEST = 1024 * 1024
@@ -41,6 +41,11 @@ export async function handleRequest(host: CliHost, request: AnyCliRequest, signa
       progress: (text, percent) => {
         if (v2 && write) write({ progress: { text, ...(percent !== undefined ? { percent } : {}) } })
       }
+    }
+    // docs/agent-access.md §4: an act-tier call from inside a capped turn carries that turn's cap to whatever it starts.
+    if (entry.tier === 'act') {
+      const cap = await callerCap(host, request.caller)
+      if (cap) ctx.cap = cap
     }
     return { ok: true, result: await entry.handle(host, paramsOf(request), ctx) }
   } catch (err) {

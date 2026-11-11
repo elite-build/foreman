@@ -3,9 +3,11 @@ import { parseFlow, type FlowListing, type FlowRun, type FlowRunOrigin } from '.
 import { frozenReason } from '../shared/transfer'
 import { instanceLabel } from '../shared/agentInstances'
 import type { Loadout } from '../shared/agents'
-import type { Workspace, WorkspaceStartedBy } from '../shared/types'
+import type { MessageOrigin, Workspace, WorkspaceStartedBy } from '../shared/types'
 import type { NewResult } from '../shared/cli/workspaces'
 import { cantRunIn } from './cli/flows'
+import { ceilingRefusal, holdsCeiling, levelsHeldFor, type TurnCap } from '../shared/agentAccess'
+import { CAPPED_FLOW_REFUSAL } from './cli/policy'
 import type { CliHost } from './cli/host'
 import type { CliContext } from './cli/methods'
 import { WORKSPACE_METHODS } from './cli/workspaces'
@@ -17,6 +19,11 @@ export interface DelegationScope {
   readOnly: boolean
   // The assistant's thread, when the assistant runs the tool (its Run card): a workspace it starts records it.
   assistantThread?: string
+  // docs/agent-access.md §4: the caller's turn is capped. What start_task and send_task start carries the cap; start_flow is refused.
+  cap?: TurnCap
+  // docs/agent-access.md §7: an outside agent signed in to Foreman calls, with no workspace (as the assistant). What it
+  // starts records it (Workspace.startedBy), what it sends says so (MessageOrigin), and it is offered no flows.
+  outside?: { grantId: string; name: string }
   // MCP refreshes the grant and live read-only state at each async boundary/poll.
   refresh?(): DelegationScope
   signal?: AbortSignal
@@ -122,17 +129,28 @@ export class ForemanDelegation {
     const parsed = definition.schema.parse(args) as Record<string, unknown>
     const current = this.current(scope, !definition.readOnly)
     if (name === 'start_task') {
+      if (current.outside && typeof parsed.repoId !== 'string') throw new Error('Pass repoId: choose a repository ID from list_delegation_options.')
       this.startRepo(parsed, current)
-      if (!this.host.state().settings.loadouts[(parsed.loadout as number) - 1]) throw new Error('That loadout slot is not configured.')
+      const loadout = this.host.state().settings.loadouts[(parsed.loadout as number) - 1]
+      if (!loadout) throw new Error('That loadout slot is not configured.')
+      // docs/agent-access.md §3: a capped caller can't start a task on an agent that can't be held to its ceiling.
+      const refusal = ceilingRefusal(loadout.agent, current.cap)
+      if (refusal) throw new Error(refusal)
     }
     if (name === 'start_flow') {
+      // docs/agent-access.md §4: a flow run approves consent that is the user's, and its turns run unattended.
+      if (current.cap || current.outside) throw new Error(CAPPED_FLOW_REFUSAL)
       this.flowsOn()
       await this.flow(parsed.flowId as string, this.startRepo(parsed, current))
     }
     if (name === 'get_flow_status') await this.flowRun(parsed.runId as string | undefined, scope)
     if (typeof parsed.workspaceId === 'string') {
       this.target(parsed.workspaceId, scope, !definition.readOnly)
-      if (name === 'send_task' && !this.host.state().sessions.some((s) => s.id === parsed.sessionId && s.workspaceId === parsed.workspaceId && !s.closedAt)) throw new Error('Choose an open chat in the target workspace.')
+      const chat = name === 'send_task' ? this.host.state().sessions.find((s) => s.id === parsed.sessionId && s.workspaceId === parsed.workspaceId && !s.closedAt) : undefined
+      if (name === 'send_task' && !chat) throw new Error('Choose an open chat in the target workspace.')
+      // docs/agent-access.md §3: nor send to a chat whose agent can't be held to its ceiling.
+      const refusal = chat ? ceilingRefusal(chat.agent, current.cap) : null
+      if (refusal) throw new Error(refusal)
     }
     if (typeof parsed.turnId === 'string') await this.turn(parsed.turnId, scope, !definition.readOnly, name !== 'get_turn_result')
     return parsed
@@ -187,11 +205,14 @@ export class ForemanDelegation {
         const source = current.workspaceId ? this.workspace(current.workspaceId) : undefined
         const enabled = !source || this.host.agentsMayStart(source.repoId)
         // While Flows are on: the flows a start_flow may name here (the coordinator's repository's, or every one for the assistant).
-        const flows = this.host.state().settings.flows ? await this.flowOptions(source?.repoId) : undefined
+        // Never for an outside agent, which can't start one (docs/agent-access.md §4).
+        const flows = this.host.state().settings.flows && !current.outside ? await this.flowOptions(source?.repoId) : undefined
+        // An outside agent: which access levels each loadout's agent can be held to, and whether its own can.
+        const holds = (l: Loadout) => current.outside ? { heldAtLevels: levelsHeldFor(l.agent), ...(current.cap ? { usable: holdsCeiling(l.agent, current.cap.ceiling) } : {}) } : {}
         return {
           delegationEnabled: enabled && !current.readOnly,
           permission: source && !enabled ? OPT_IN : undefined,
-          loadouts: this.host.state().settings.loadouts.map((l, i) => ({ slot: i + 1, agent: l.agent, ...this.accountOf(l), model: l.model, effort: l.effort })),
+          loadouts: this.host.state().settings.loadouts.map((l, i) => ({ slot: i + 1, agent: l.agent, ...this.accountOf(l), model: l.model, effort: l.effort, ...holds(l) })),
           repositories: this.host.state().repos.filter((r) => !source || r.id === source.repoId).map((r) => ({ id: r.id, name: r.name })),
           workspaces: this.host.state().workspaces.filter((w) => w.state !== 'archived' && (!source || (w.repoId === source.repoId && (enabled || w.id === source.id)))).map((w) => this.task(w.id, scope)),
           ...(flows ? { flows } : {})
@@ -238,13 +259,21 @@ export class ForemanDelegation {
         const repo = this.host.state().repos.find((r) => r.id === repoId)!
         // Do not expose arbitrary flags, paths, attachments, consent, or --start-anyway.
         const params = { prompt: p.prompt, loadout: p.loadout, repo: repo.id, cwd: repo.rootPath, branch: p.branch, base: p.baseBranch, noWait: true }
-        // Who started it: the coordinating chat and its turn, or the assistant's thread.
+        // Who started it: the coordinating chat and its turn, the assistant's thread, or an outside agent's sign-in.
         const from = this.coordinator(current)
-        const startedBy: WorkspaceStartedBy | undefined = from ? { ...from, via: 'delegation' } : current.assistantThread ? { sessionId: current.assistantThread, via: 'assistant' } : undefined
+        const startedBy: WorkspaceStartedBy | undefined = from
+          ? { ...from, via: 'delegation' }
+          : current.assistantThread
+            ? { sessionId: current.assistantThread, via: 'assistant' }
+            : current.outside
+              ? { via: 'outside', grantId: current.outside.grantId, name: current.outside.name }
+              : undefined
+        // Its first message carries the caller's cap, read again with the grant (docs/agent-access.md §4).
         const guardedHost: CliHost = { ...this.host, createWorkspace: (id, options) => {
-          this.current(scope, true)
+          const cap = this.current(scope, true).cap
           if (id !== repo.id) throw new Error('Repository changed during delegation.')
-          return this.host.createWorkspace(id, options, startedBy ? { startedBy } : undefined)
+          const extra = { ...(startedBy ? { startedBy } : {}), ...(cap ? { cap } : {}) }
+          return this.host.createWorkspace(id, options, Object.keys(extra).length ? extra : undefined)
         } }
         const context: CliContext = { request: { method: 'new', params } as CliContext['request'], caller: undefined, signal: scope.signal, progress: () => {} }
         const result = await WORKSPACE_METHODS.new.handle(guardedHost, params, context) as NewResult
@@ -257,9 +286,10 @@ export class ForemanDelegation {
         const tabs = this.host.state().sessions.filter((s) => s.workspaceId === ws.id && !s.closedAt)
         const tab = tabs.findIndex((s) => s.id === p.sessionId) + 1
         if (!tab) throw new Error('The target chat is no longer open.')
-        // The queued message says which chat sent it (its receipt, and the Lineage tab's "delegated by").
+        // The queued message says which chat, or which outside agent, sent it (its receipt, and the Lineage tab).
         const from = this.coordinator(current)
-        return send(this.host, { workspace: ws.id, tab, args: [p.prompt], cwd: ws.path ?? '' }, { literal: true, ...(from ? { origin: { kind: 'delegation' as const, ...from } } : {}) })
+        const origin: MessageOrigin | undefined = from ? { kind: 'delegation', ...from } : current.outside ? { kind: 'outside', grantId: current.outside.grantId, name: current.outside.name } : undefined
+        return send(this.host, { workspace: ws.id, tab, args: [p.prompt], cwd: ws.path ?? '' }, { literal: true, ...(origin ? { origin } : {}), ...(current.cap ? { cap: current.cap } : {}) })
       }
       case 'get_turn_result': {
         const p = DELEGATION_TOOLS.get_turn_result.schema.parse(args)

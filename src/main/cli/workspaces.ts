@@ -3,6 +3,7 @@
 // is the operation the window performs, called through the same Api. A workspace is a name, id, branch or ".".
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { runsCodeRefusal } from '../../shared/agentAccess'
 import { openReports } from '../../shared/agentReports'
 import { durationText } from '../../shared/checks'
 import { sendReceiptText } from '../../shared/tabs'
@@ -17,7 +18,7 @@ import { columns, flagParam, invalid, numberParam, paramsObject, textList, textP
 import { chosenIntegrations, integrationRows, integrationsText, switchedIntegrations } from './workspaceIntegrations'
 import type { CliContext } from './methods'
 import { wsLineage } from './lineage'
-import { callerTurn, startRefusal } from './policy'
+import { apiFor, callerTurn, startRefusal } from './policy'
 import { findByRef, notFound, plural, refused } from './refs'
 import { findTab, findWorkspace, resolveRepo } from './resolve'
 import { tabRows, tabsText } from './tabs'
@@ -310,9 +311,12 @@ async function adopt(host: CliHost, params: unknown, ctx: CliContext): Promise<W
   const prompt = textParam(p, 'prompt', { optional: true })?.trim()
   // A first message starts a turn, so an agent needs the repository's opt-in.
   if (prompt) refuseStart(host, ctx)
+  // docs/agent-access.md §4: setup runs the worktree's code with the user's full rights.
+  const refusal = flagParam(p, 'setup') ? runsCodeRefusal(ctx.cap) : null
+  if (refusal) throw new CliCodedError('refused', refusal)
   const repo = await resolveRepo(host.state(), cwd, textParam(p, 'repo', { optional: true }))
   const folder = path.resolve(cwd, textParam(p, 'path'))
-  const ws = await host.api.adoptWorktree(repo.id, folder, { runSetup: flagParam(p, 'setup'), ...(prompt ? { prompt } : {}) })
+  const ws = await (prompt ? apiFor(host, ctx) : host.api).adoptWorktree(repo.id, folder, { runSetup: flagParam(p, 'setup'), ...(prompt ? { prompt } : {}) })
   return { workspace: { id: ws.id, name: ws.name, branch: ws.branch, path: ws.path ?? folder }, repo: repo.name, text: `Added ${ws.name} in ${repo.name}\n  branch  ${ws.branch}\n  path    ${ws.path ?? folder}${prompt ? '\n  The first message was sent.' : ''}` }
 }
 
@@ -320,10 +324,13 @@ async function adopt(host: CliHost, params: unknown, ctx: CliContext): Promise<W
 
 const SETUP_VERBS: SetupVerb[] = ['log', 'rerun', 'retry', 'stop', 'steps']
 
-async function setup(host: CliHost, params: unknown): Promise<WsSetupResult> {
+async function setup(host: CliHost, params: unknown, ctx?: CliContext): Promise<WsSetupResult> {
   const p = paramsObject(params)
   const verb = (textParam(p, 'verb', { optional: true }) ?? 'log') as SetupVerb
   if (!SETUP_VERBS.includes(verb)) throw invalid(`“${verb}” isn’t a setup command. Use ${SETUP_VERBS.join(', ')}.`)
+  // docs/agent-access.md §4: running setup again runs the workspace's code with the user's full rights.
+  const refusal = verb === 'rerun' || verb === 'retry' ? runsCodeRefusal(ctx?.cap) : null
+  if (refusal) throw new CliCodedError('refused', refusal)
   const ws = liveOf(host, p)
   const base = { workspace: wsOut(ws), verb }
   const current = () => host.state().workspaces.find((w) => w.id === ws.id) ?? ws
@@ -377,7 +384,7 @@ async function note(host: CliHost, params: unknown, ctx: CliContext): Promise<Ws
   refuseStart(host, ctx)
   if (!ws.note?.text.trim()) throw invalid(`${ws.name} has no note to send.`)
   const { tab, session } = findTab(host.state().sessions, ws, numberParam(p, 'tab'))
-  const receipt = await host.api.sendNote(session.id)
+  const receipt = await apiFor(host, ctx).sendNote(session.id)
   if (!receipt.turnId || receipt.disposition === 'handled') throw new CliCodedError('failed', 'Foreman handled that itself; no turn was started.')
   const disposition = receipt.disposition
   return { ...base, note: revisionOf(ws.note), sent: { tab, session: session.id, turn: receipt.turnId, disposition }, text: sendReceiptText(disposition, tab, session, receipt.turnId) }
@@ -549,7 +556,7 @@ async function startNew(host: CliHost, params: unknown, ctx: CliContext): Promis
     ...(attachments.length ? { attachments } : {}),
     ...(cloud ? { location: 'cloud' as const } : {}),
     ...(integrations ? { integrations } : {})
-  }, startedByCaller(host, ctx))
+  }, ctx.cap ? { ...startedByCaller(host, ctx), cap: ctx.cap } : startedByCaller(host, ctx))
   if (flagParam(p, 'open')) host.reveal(ws.id)
   const result: NewResult = { repo: repo.name, prompt, workspace: { id: ws.id, name: ws.name, branch: ws.branch, ...(ws.path ? { path: ws.path } : {}) }, ...(ws.cloud ? { cloud: true } : {}), text: '' }
   if (ws.pullRequest) result.pullRequest = ws.pullRequest
@@ -557,7 +564,8 @@ async function startNew(host: CliHost, params: unknown, ctx: CliContext): Promis
     const settled = await host.setupOutcome(ws.id)
     if (settled.held) {
       if (flagParam(p, 'startAnyway')) {
-        await host.startHeldMessage(ws.id)
+        if (ctx.cap) await host.startHeldMessage(ws.id, ctx.cap)
+        else await host.startHeldMessage(ws.id)
         result.startedAnyway = true
       } else result.held = { logTail: settled.logTail }
     }
@@ -586,7 +594,7 @@ export const WORKSPACE_METHODS: Record<string, MethodDef> = {
   'ws-activate': { tier: 'act', handle: async (host, params) => activate(host, params) },
   // With a prompt, adopting starts a turn; the handler applies the start policy.
   'ws-adopt': { tier: 'act', handle: async (host, params, ctx) => adopt(host, params, ctx) },
-  'ws-setup': { tier: 'act', handle: async (host, params) => setup(host, params) },
+  'ws-setup': { tier: 'act', handle: async (host, params, ctx) => setup(host, params, ctx) },
   'ws-note': { tier: 'act', handle: async (host, params, ctx) => note(host, params, ctx) },
   'ws-usage': { tier: 'read', handle: async (host, params) => usage(host, params) },
   // Behind the Flows switch: the workspace's history through a lens (cli/lineage.ts).

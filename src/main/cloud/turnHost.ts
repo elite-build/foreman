@@ -20,6 +20,7 @@ import {
   sessionCapReason
 } from '../../shared/cloud'
 import type { ChatItem, Session, SendReceipt, Workspace, WorkspaceCloud } from '../../shared/types'
+import type { TurnCap } from '../../shared/agentAccess'
 import type { AgentTurn, TurnCallbacks, TurnRequest, TurnResult } from '../agents/types'
 import { HOST_LOST, HostClient, type RemoteTurn, type TurnContext } from '../agentHost/client'
 import type { HostEvent, WireTurnRequest } from '../agentHost/protocol'
@@ -428,7 +429,7 @@ export class CloudTurnHost implements TurnHost {
     }
   }
 
-  ended(sessionId: string, turnId: string): void {
+  ended(sessionId: string, turnId: string, cap?: TurnCap): void {
     const turn = this.live.get(turnId)
     this.live.delete(turnId)
     const client = turn && this.clients.get(turn.workspaceId)
@@ -448,19 +449,23 @@ export class CloudTurnHost implements TurnHost {
     if (ws) this.markDisconnected(ws)
     this.deps.store.save()
     if (client) void client.ack(turnId).catch(() => undefined)
-    // Rollover: with Foreman open and autoContinue on, the conversation goes on in a new session (the queue starts it).
-    if (this.continueAfter.delete(turnId) && this.sessions) this.sessions.queueContinuation(sessionId, CLOUD_CONTINUE_PROMPT)
+    // Rollover: with Foreman open and autoContinue on, the conversation goes on in a new session (the queue starts it),
+    // under the cap the cut-off turn ran under (docs/agent-access.md §4).
+    if (this.continueAfter.delete(turnId) && this.sessions) this.sessions.queueContinuation(sessionId, CLOUD_CONTINUE_PROMPT, cap)
   }
 
-  /** The chat's Continue after a session cap: wake, then send the continuation the usual way (it resumes the agent's conversation). */
-  async continueSession(sessionId: string): Promise<SendReceipt> {
+  /**
+   * The chat's Continue after a session cap: wake, then send the continuation the usual way (it resumes the agent's
+   * conversation). `cap`: asked for from a capped turn (`foreman cloud continue`); the chat's own Continue is the user's.
+   */
+  async continueSession(sessionId: string, cap?: TurnCap): Promise<SendReceipt> {
     const sessions = this.sessions
     if (!sessions) throw new Error('Cloud workspaces aren’t ready yet')
     const session = sessions.session(sessionId)
     const ws = this.workspace(session.workspaceId)
     if (!ws?.cloud) throw new Error('This chat isn’t in a cloud workspace')
     await this.deps.sandboxes.wake(ws)
-    return sessions.deliver(sessionId, CLOUD_CONTINUE_PROMPT, { mode: 'queue' })
+    return sessions.deliver(sessionId, CLOUD_CONTINUE_PROMPT, { mode: 'queue', ...(cap ? { cap } : {}) })
   }
 
   /**

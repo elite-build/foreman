@@ -11,6 +11,7 @@ import { planDelivery } from '../shared/delivery'
 import { frozenReason } from '../shared/transfer'
 import { MAX_OPEN_TABS } from '../shared/handOff'
 import { approvalPolicyFor, readOnlyEnforcement } from '../shared/permissions'
+import { CEILING_NAMES, capIsLower, capPolicy, ceilingRefusal, lowerCap, revokedCapRefusal, type TurnCap } from '../shared/agentAccess'
 import { contextParts, pendingComments } from '../shared/context'
 import { hasNote, noteBlock, noteMessage, savedNote } from '../shared/note'
 import { workspaceUsage } from '../shared/usage'
@@ -82,6 +83,8 @@ interface TurnExtras {
   skipComments?: boolean
   // #5: Foreman sent this itself (auto-fix CI); the message carries it as a receipt.
   origin?: import('../shared/types').MessageOrigin
+  // docs/agent-access.md §4: the turn runs under this cap (Session.turnCap while it runs, and on its user item).
+  cap?: TurnCap
 }
 
 export interface SessionEvents {
@@ -144,8 +147,8 @@ export interface TurnHost {
   // Cloud: before a new turn in a chat whose last one lost its connection, pick that one up again if its agent still
   // runs. 'adopted': it is this chat's turn again; 'unreachable': nobody knows yet (hold new turns); 'clear': start.
   resolveLost?(sessionId: string): Promise<'adopted' | 'unreachable' | 'clear'>
-  // The app recorded the turn's end: the host may forget it.
-  ended(sessionId: string, turnId: string): void
+  // The app recorded the turn's end: the host may forget it. `cap`: the cap the turn ran under, which a continuation carries.
+  ended(sessionId: string, turnId: string, cap?: TurnCap): void
 }
 
 interface ActiveTurn {
@@ -256,6 +259,9 @@ export class SessionService {
   foremanMcp?: ForemanMcp
   // Cloud workspaces (Core sets it): every turn of a cloud workspace runs in the host inside its sandbox.
   cloudHost?: TurnHost
+  // docs/agent-access.md §4 (Core sets it from the Foreman access service): whether an outside sign-in still exists. A
+  // message or turn whose cap names one that doesn't is refused. Unset (no service): nothing is refused.
+  grantExists?: (grantId: string) => boolean
 
   constructor(
     private store: Store,
@@ -794,6 +800,11 @@ export class SessionService {
     const live = this.turns.get(sessionId)
     if (this.frozen && !/^\/\S+$/.test(text.trim()) && !this.starting.has(sessionId) && !(live && !live.finished)) throw new Error(this.frozen)
 
+    // docs/agent-access.md §3: a message from a capped turn to a chat whose agent can't be held to its ceiling is refused.
+    const cap = options.cap
+    const refusal = ceilingRefusal(session.agent, cap) ?? revokedCapRefusal(cap, this.grantExists)
+    if (refusal) throw new Error(refusal)
+
     // #11: whatever this turns out to be (send, queue, steer, /clear), an armed usage-limit resume in this tab is moot.
     this.events.activity?.(sessionId)
     // Before anything else: a check running here gives way to the message (app commands like /plan aren't work).
@@ -816,7 +827,9 @@ export class SessionService {
       mode: options.mode ?? this.store.state.settings.followUpMode,
       canSteer: AGENTS[session.agent].supportsSteering
     })
-    if (plan === 'steer' && active) {
+    // docs/agent-access.md §4: a capped message never steers into a turn held less than it would be (or not held at all);
+    // it waits in the queue for a turn of its own. Steered, it runs under the running turn's cap, the lower of the two.
+    if (plan === 'steer' && active && !capIsLower(cap, session.turnCap)) {
       if (active.turn.steer(text + this.attachmentText(ws, attachments))) {
         this.emit(sessionId, {
           kind: 'user',
@@ -833,7 +846,7 @@ export class SessionService {
     if (plan !== 'start') {
       const turnId = options.turnId ?? randomUUID()
       const revision = this.queueChanged(session)
-      session.queue.push({ id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin })
+      session.queue.push({ id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin, ...(cap ? { cap } : {}) })
       this.changed()
       return { disposition: 'queued', turnId }
     }
@@ -843,7 +856,7 @@ export class SessionService {
     if (active && !(await settles(active.done, LINGER_MS))) {
       const turnId = options.turnId ?? randomUUID()
       const revision = this.queueChanged(session)
-      session.queue.push({ id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin })
+      session.queue.push({ id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin, ...(cap ? { cap } : {}) })
       this.changed()
       // The turn's end drains the queue. Had it ended just now, before this message was queued, the drain found nothing.
       void active.done.catch(() => undefined).then(() => {
@@ -857,13 +870,13 @@ export class SessionService {
     // `foreman wait` and cancelTurn find it as queued.
     if (!this.slotFree(session, ws)) {
       const revision = this.queueChanged(session)
-      const queued = { id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin }
+      const queued = { id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin, ...(cap ? { cap } : {}) }
       if (session.waitingForSlot) session.queue.push(queued)
       else session.queue.unshift(queued)
       this.waitForSlot(session)
       return { disposition: 'queued', turnId }
     }
-    await this.startTurn(session, ws, text, attachments, followUp, turnId, { noteRevision: options.noteRevision, skipComments: options.skipComments, repoTemplate, origin: options.origin })
+    await this.startTurn(session, ws, text, attachments, followUp, turnId, { noteRevision: options.noteRevision, skipComments: options.skipComments, repoTemplate, origin: options.origin, cap })
     return { disposition: 'started', turnId }
   }
 
@@ -892,12 +905,12 @@ export class SessionService {
     this.changed()
   }
 
-  /** "Send updated note to this tab": the current note as a normal message in the queue. Only ever called by that click. */
-  async sendNote(sessionId: string): Promise<SendReceipt> {
+  /** "Send updated note to this tab": the current note as a normal message in the queue. That click, or `foreman workspace note send` (`cap`: from a capped turn). */
+  async sendNote(sessionId: string, cap?: TurnCap): Promise<SendReceipt> {
     const session = this.session(sessionId)
     const note = this.workspaces.workspace(session.workspaceId).note
     if (!hasNote(note)) throw new Error('This workspace has no note to send')
-    return this.deliver(sessionId, noteMessage(note), { mode: 'queue', noteRevision: note.revision })
+    return this.deliver(sessionId, noteMessage(note), { mode: 'queue', noteRevision: note.revision, ...(cap ? { cap } : {}) })
   }
 
   private template(id?: string) {
@@ -978,9 +991,19 @@ export class SessionService {
 
   private approvalPolicy(session: Session): ApprovalPolicy {
     // A scheduled run is always Claude's auto mode, whatever the app's setting says; what auto won't approve stops the run.
-    if (session.unattended) return 'auto'
     // Codex: "sandboxed" keeps it to the workspace and it asks before stepping outside, "always" lifts the sandbox.
-    return approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
+    const policy = session.unattended ? 'auto' : approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
+    // docs/agent-access.md §3: a capped turn runs at the lower of that and its ceiling, or not at all where its agent can't be held to it.
+    const cap = session.turnCap
+    if (!cap) return policy
+    const capped = capPolicy(policy, cap.ceiling, session.agent)
+    if (!capped) throw new Error(ceilingRefusal(session.agent, cap) ?? 'This turn can’t be held to its access.')
+    return capped
+  }
+
+  /** docs/agent-access.md §3: the cap that protects agent and git configuration in this turn, when it holds it below Never ask. */
+  private bindingCap(session: Session): TurnCap | undefined {
+    return session.turnCap && session.turnCap.ceiling !== 'never-ask' ? session.turnCap : undefined
   }
 
   private executablePath(session: Session, account?: AgentInstance): string | undefined {
@@ -1018,12 +1041,12 @@ export class SessionService {
     return workspaceTarget(ws, { wake })
   }
 
-  /** Cloud workspaces: queue the continuation of a turn the session limit cut off, ahead of anything else queued. */
-  queueContinuation(sessionId: string, text: string): string {
+  /** Cloud workspaces: queue the continuation of a turn the session limit cut off, ahead of anything else queued. It carries that turn's cap. */
+  queueContinuation(sessionId: string, text: string, cap?: TurnCap): string {
     const session = this.session(sessionId)
     const turnId = randomUUID()
     const revision = this.queueChanged(session)
-    session.queue.unshift({ id: randomUUID(), turnId, text, attachments: [], revision })
+    session.queue.unshift({ id: randomUUID(), turnId, text, attachments: [], revision, ...(cap ? { cap } : {}) })
     this.changed()
     return turnId
   }
@@ -1161,6 +1184,8 @@ export class SessionService {
       origin: extras.origin,
       // #16: the receipt says this turn ran read-only, and how that was enforced (a flow step's persona can make it so).
       readOnly: session.readOnly || this.turnPersona(session)?.readOnly ? readOnlyEnforcement(session.agent) ?? undefined : undefined,
+      // docs/agent-access.md §4: what continues or retries this turn reads its cap here.
+      ...(extras.cap ? { cap: extras.cap } : {}),
       // O1: which agent and model answered it, as a tab can switch agents.
       agent: session.agent,
       model: session.model,
@@ -1178,6 +1203,8 @@ export class SessionService {
     session.status = 'running'
     session.turnId = turnId
     session.turnStartedAt = message.at
+    if (extras.cap) session.turnCap = extras.cap
+    else delete session.turnCap
     session.lastTurn = undefined
     session.lastActivityAt = message.at
     this.changed()
@@ -1208,6 +1235,10 @@ export class SessionService {
     skipComments = false
   ): Promise<void> {
     const sessionId = session.id
+    // docs/agent-access.md §3: a capped turn on an agent that can't be held to its ceiling stops here, before anything runs.
+    // A capped turn whose outside sign-in was revoked after it was queued (docs/agent-access.md §4) doesn't start either.
+    const refusal = ceilingRefusal(session.agent, session.turnCap) ?? revokedCapRefusal(session.turnCap, this.grantExists)
+    if (refusal) throw new Error(refusal)
     // #130: the chat's account; a removed one stops here. A cloud sandbox signs in its own way, as the default account.
     const account = this.turnAccount(session)
     if (ws.cloud && session.instanceId) throw new Error(this.t()('agentAccounts.error.cloud'))
@@ -1242,6 +1273,7 @@ export class SessionService {
     // #130: an account on an API key with none saved would sign in some other way, so the turn stops instead.
     if (account?.auth === 'apiKey' && takesInstances(account.agent) && !env[INSTANCE_FIELDS[account.agent].keyEnv]) throw new Error(this.t()('agentAccounts.error.noKey', { account: account.label }))
     const gitDir = ws.cloud ? null : await gitCommonDir(wsPath(ws))
+    const binding = this.bindingCap(session)
     // Review comments the user left since the last message go along with this one.
     const pending = skipComments ? [] : pendingComments(this.store.state.comments, ws.id)
     for (const comment of pending) comment.state = 'sent'
@@ -1329,7 +1361,9 @@ export class SessionService {
         outputStyle: session.outputStyle,
         chrome: this.store.state.settings.chromeMode,
         launchArgs: session.agent === 'claude' && account?.args?.length ? account.args : undefined,
-        extraWritableDirs: gitDir ? [gitDir] : undefined,
+        // docs/agent-access.md §3: a turn capped below Never ask doesn't get the git folder, so it can't write hooks or config there.
+        extraWritableDirs: gitDir && !binding ? [gitDir] : undefined,
+        capped: binding ? { ceiling: binding.ceiling, ...(gitDir ? { gitDir } : {}) } : undefined,
         mcpServers: { ...repoMcp.servers, ...integServers, ...appServers },
         inProcessMcp,
         disabledMcp: integ.disabled.length ? integ.disabled : undefined,
@@ -1518,9 +1552,11 @@ export class SessionService {
               ? usageLimitOf(session.agent, crash, Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
               : undefined
         diag.log('turn.end', { session: sessionId, turn: turnId, agent: session.agent, workspace: ws.id, outcome, error: error?.split('\n')[0], durationMs: stoppedAt - trackedFrom })
+        // Read before endTurn clears it: a cloud host's continuation of this turn carries it.
+        const cap = session.turnId === turnId ? session.turnCap : undefined
         await this.endTurn(session, ws, turnId, outcome, error, turn.endedAt, limit, interruption, stoppedAt)
         // A cloud host may queue a continuation here, which the drain below starts.
-        if (turn.hosted) this.hostFor(ws)?.ended(sessionId, turnId)
+        if (turn.hosted) this.hostFor(ws)?.ended(sessionId, turnId, cap)
         // The host already notified for a turn that ended while Foreman was closed.
         if (!turn.endedWhileClosed) {
           const t = this.t()
@@ -1589,6 +1625,7 @@ export class SessionService {
       session.status = 'idle'
       session.turnId = undefined
       session.turnStartedAt = undefined
+      delete session.turnCap
     }
     session.lastTurn = { outcome: 'interrupted', turnId, endedAt: session.lastActivityAt ?? new Date().toISOString() }
     this.changed()
@@ -1639,6 +1676,7 @@ export class SessionService {
       session.status = 'idle'
       session.turnId = undefined
       session.turnStartedAt = undefined
+      delete session.turnCap
     }
     session.lastActivityAt = new Date(end).toISOString()
     session.lastTurn = {
@@ -1747,7 +1785,7 @@ export class SessionService {
     if (!CAN_CHAT.has(ws.state)) return
     // A queued turn is about to start: a check running here gives way to it.
     this.events.workStarting?.(ws.id)
-    await this.startTurn(session, ws, next.text, next.attachments, next.followUp, next.turnId, { noteRevision: next.noteRevision, skipComments: next.skipComments, repoTemplate: next.repoTemplate, origin: next.origin })
+    await this.startTurn(session, ws, next.text, next.attachments, next.followUp, next.turnId, { noteRevision: next.noteRevision, skipComments: next.skipComments, repoTemplate: next.repoTemplate, origin: next.origin, cap: next.cap })
   }
 
   /** Cloud: a turn the chat lost the connection to turned out to be over; queued messages may start now. */
@@ -1759,6 +1797,27 @@ export class SessionService {
   removeQueued(sessionId: string, messageId: string): void {
     this.refuseFlowMessage(sessionId, messageId)
     this.discardQueued(sessionId, messageId)
+  }
+
+  /**
+   * docs/agent-access.md §4, "Revoking": the messages an outside sign-in's tree queued (their cap names it) leave every
+   * chat's queue, so nothing it asked for starts after it was revoked. Running turns finish under their cap. Returns how
+   * many went.
+   */
+  dropQueuedFromGrant(grantId: string): number {
+    let dropped = 0
+    for (const session of this.store.state.sessions) {
+      const kept = session.queue.filter((m) => m.cap?.grantId !== grantId)
+      if (kept.length === session.queue.length) continue
+      dropped += session.queue.length - kept.length
+      session.queue = kept
+      this.queueChanged(session)
+      // Nothing left to start: the tab stops waiting for a slot.
+      if (!session.queue.length && session.waitingForSlot) this.unwait(session.id)
+      this.events.settled?.(session.workspaceId)
+    }
+    if (dropped) this.changed()
+    return dropped
   }
 
   // Foreman's own drops (Stop on a tab waiting for a slot, cancelling a queued turn by id) aren't the queue's editor.
@@ -1882,8 +1941,11 @@ export class SessionService {
     return { ok: true, revision: next }
   }
 
-  /** Send a queued message now: into the running turn, or as a new turn. */
-  async steerQueued(sessionId: string, messageId: string): Promise<void> {
+  /**
+   * Send a queued message now: into the running turn, or as a new turn. `cap`: steered from a capped turn (the CLI), which
+   * lowers the message's own. A capped message the running turn holds less than it would be stays queued (deliver).
+   */
+  async steerQueued(sessionId: string, messageId: string, cap?: TurnCap): Promise<void> {
     const session = this.session(sessionId)
     const message = session.queue.find((m) => m.id === messageId)
     if (!message) return
@@ -1898,10 +1960,16 @@ export class SessionService {
       }
       return
     }
+    // docs/agent-access.md §4: a capped message doesn't steer into a turn held less than it (or not at all). It keeps its
+    // place and waits for a turn of its own, rather than being sent and silently queued at the back.
+    const lowered = lowerCap(message.cap, cap)
+    if ((this.turns.has(sessionId) || this.starting.has(sessionId)) && capIsLower(lowered, session.turnCap)) {
+      throw new Error(`This message came from ${lowered!.name}, which may only start work that runs as “${CEILING_NAMES[lowered!.ceiling]}”, so it can’t join the running turn. It stays queued and runs as a turn of its own.`)
+    }
     // It is being sent right now, so the workspace doesn't go quiet in between.
     this.claim(messageId, message.turnId, message.text)
     this.dropQueued(sessionId, messageId)
-    await this.send(sessionId, message.text, { attachments: message.attachments, mode: 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via, origin: message.origin })
+    await this.send(sessionId, message.text, { attachments: message.attachments, mode: 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via, origin: message.origin, ...(lowered ? { cap: lowered } : {}) })
   }
 
   async cancel(sessionId: string): Promise<void> {
@@ -2231,6 +2299,8 @@ export class SessionService {
       // #17: the first turn's id, and a last word on the new tab before its first message goes (an auto review marks it unattended).
       turnId?: string
       prepare?: (target: Session) => void
+      // docs/agent-access.md §4: asked for from a capped turn (a git review action), so the new tab's first turn carries this cap.
+      cap?: TurnCap
     }
   ): Promise<Session> {
     const source = this.session(sourceId)
@@ -2253,7 +2323,7 @@ export class SessionService {
     if (request.readOnly) target.readOnly = true
     request.prepare?.(target)
     try {
-      const disposition = await this.send(target.id, request.text, { attachments: request.attachments, turnId: request.turnId })
+      const disposition = await this.send(target.id, request.text, { attachments: request.attachments, turnId: request.turnId, ...(request.cap ? { cap: request.cap } : {}) })
       if (disposition === 'handled') throw new Error('The first message was empty')
     } catch (err) {
       await this.discardSession(target.id)

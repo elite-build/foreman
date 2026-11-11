@@ -10,7 +10,7 @@ import type { ApprovalRequest, ApprovalResponse, Session, Workspace } from '../.
 import type { CliHost } from './host'
 import { columns, flagParam, invalid, paramsObject, textParam, type MethodDef } from './kit'
 import type { CliContext } from './methods'
-import { startRefusal } from './policy'
+import { apiFor, startRefusal } from './policy'
 import { ambiguous, notFound, refused } from './refs'
 
 const clip = (text: string, n = 90): string => {
@@ -242,7 +242,7 @@ async function stopped(host: CliHost, params: unknown, ctx: CliContext): Promise
     if (refusal) throw refused(refusal)
     const row = stoppedKey(rows, textParam(p, 'key', { optional: true }))
     if (row.kind !== 'turn') throw invalid('Only a stopped turn can be retried; dismiss a stopped check run, or run the checks again.')
-    await host.api.retryStopped(row.key)
+    await apiFor(host, ctx).retryStopped(row.key)
     return { verb, rows: rows.filter((r) => r.key !== row.key), text: `Sent “${clip(row.message ?? '', 50)}” again in ${row.workspace}${row.title ? ` (${row.title})` : ''}.` }
   }
   if (flagParam(p, 'all')) {

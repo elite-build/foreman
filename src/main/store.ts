@@ -19,6 +19,7 @@ import { parseAgentInstances } from '../shared/agentInstances'
 import { defaultFromEditorCommand, isOpenInChoice } from '../shared/openIn'
 import type { PairedDevice, Transfer } from '../shared/transfer'
 import type { MobileDevice } from '../shared/mobile'
+import { AGENT_ACCESS_PORT, type AgentAccessRecords } from '../shared/agentAccess'
 import type { GitBackupStatus } from '../shared/gitBackup'
 import { addStops, type StopRecord } from '../shared/stopSafely'
 import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
@@ -92,6 +93,9 @@ export interface PersistedState {
   devices?: { selfId?: string; paired: PairedDevice[] }
   transfers?: Transfer[]
   mobileDevices?: MobileDevice[]
+  // Outside agents' registrations and sign-ins (docs/agent-access.md §6); their refresh tokens' hashes are in the vault.
+  // Never in Settings, and left out of export, backup and device transfer.
+  agentAccess?: AgentAccessRecords
   // One-time setting migrations already applied.
   migrations?: string[]
   // Destination and schedule stay on this machine; never included in Git backup files.
@@ -251,7 +255,9 @@ export function defaultSettings(): Settings {
     mobileUrl: '',
     mobileLanEnabled: false,
     mobileLanAddress: '',
-    keepRunning: false
+    keepRunning: false,
+    agentAccessEnabled: false,
+    agentAccessPort: AGENT_ACCESS_PORT
   }
 }
 
@@ -374,6 +380,8 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
     session.status = 'idle'
     session.turnId = undefined
     session.turnStartedAt = undefined
+    // docs/agent-access.md §4: the cap of a turn a restart cut off goes with it (a kept turn, adopted above, keeps its own).
+    delete session.turnCap
   }
   return interrupted
 }

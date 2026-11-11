@@ -74,6 +74,7 @@ function scheduleRow(snapshot: AppSnapshot, s: Schedule): ScheduleRow {
     state: s.state,
     ...(s.pausedReason ? { pausedReason: s.pausedReason } : {}),
     ...(s.pausedKind ? { pausedKind: s.pausedKind } : {}),
+    ...(s.proposedBy ? { proposedBy: { ...s.proposedBy } } : {}),
     ...(s.nextRunAt ? { nextRunAt: s.nextRunAt } : {}),
     ...(next ? { next } : {}),
     consecutiveFailures: s.consecutiveFailures,
@@ -361,16 +362,18 @@ const approve: MethodDef = {
     const s = findByRef(snapshot.schedules, textParam(p, 'id'), 'schedule', scheduleSpec)
     const shown = fingerprintParam(p.shown)
     if (!shown) {
-      // What the schedule would run now, against what it was approved on.
+      // What the schedule would run now, against what it was approved on. A proposal was never approved, so there is
+      // nothing to compare: its reason says who proposed it.
       const now = await host.api.scheduleFingerprint(requestOf(s))
-      const changed = changedParts(s.approved, now.fingerprint)
+      const changed = s.approved ? changedParts(s.approved, now.fingerprint) : []
       const preview = previewFrom(requestOf(s), now)
+      const since = !s.approved ? '' : changed.length ? `Since you approved “${scheduleName(s)}”, ${changed.join(' and ')} changed.` : `Nothing has changed since you approved “${scheduleName(s)}”.`
       return {
         approved: false,
         needsConfirmation: true,
         changed,
         preview,
-        text: `${changed.length ? `Since you approved “${scheduleName(s)}”, ${changed.join(' and ')} changed.` : `Nothing has changed since you approved “${scheduleName(s)}”.`}${s.pausedReason ? ` ${s.pausedReason}` : ''}\n\n${preview.text}\n\nNothing is approved yet. Approve it with the fingerprint above (\`--yes\`).`
+        text: `${[since, s.pausedReason].filter(Boolean).join(' ')}\n\n${preview.text}\n\nNothing is approved yet. Approve it with the fingerprint above (\`--yes\`).`
       }
     }
     await host.api.approveSchedule(s.id, shown)

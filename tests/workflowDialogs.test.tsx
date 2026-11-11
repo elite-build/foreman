@@ -183,6 +183,85 @@ describe('schedules', () => {
     }
   })
 
+  it('shows an outside agent’s proposal as it would run, and Approve approves it without saving anything else', async () => {
+    const user = userEvent.setup()
+    const proposal = { id: 'sch2', templateId: 'tpl', templateName: 'Nightly', repoId: 'r1', baseBranch: 'develop', recurrence: 'weekly', startDate: '2099-03-02', weekdays: [1, 3], time: '09:00', timezone: 'Europe/London', model: 'claude-sonnet-5-5', maxMinutes: 60, afterRun: 'archive', state: 'paused', pausedKind: 'proposed', pausedReason: 'Proposed by Claude Code (outside agent).', proposedBy: { grantId: 'g1', name: 'Claude Code' }, consecutiveFailures: 0, createdAt: '' }
+    const before = fakeState.snapshot.schedules
+    fakeState.snapshot.schedules = [proposal]
+    fakeApi.saveSchedule = vi.fn(async () => ({}))
+    try {
+      render(<ScheduleDialog scheduleId="sch2" />)
+      const dialog = await screen.findByRole('dialog', { name: /Nightly/ })
+      expect(within(dialog).getByRole('status').textContent).toMatch(/^Claude Code, an outside agent, proposed this schedule\. Nothing runs until you approve it/)
+      // When it runs, on what, the model, the time limit and what happens after a run, as facts rather than a form.
+      const facts = Object.fromEntries([...dialog.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]))
+      expect(facts).toMatchObject({ When: 'Every Mon, Wed at 09:00 · Europe/London', 'Repo / base': 'foreman / develop', Template: 'Nightly', 'Max duration': '1 h', 'After each run': 'Archive it when the run completes' })
+      expect(facts.Model).toMatch(/\(Claude\)$/)
+      expect(facts['Next runs']).toMatch(/09:00/)
+      expect(within(dialog).queryByLabelText('Repeat')).toBeNull()
+      await user.click(within(dialog).getByRole('button', { name: 'Approve schedule' }))
+      await waitFor(() => expect(fakeApi.approveSchedule).toHaveBeenCalledWith('sch2', undefined))
+      expect(fakeApi.saveSchedule).not.toHaveBeenCalled()
+      expect(spy('openScheduleDialog')).toHaveBeenCalledWith(null)
+    } finally {
+      fakeState.snapshot.schedules = before
+    }
+  })
+
+  it('approves a flow’s proposal only once its run approval has loaded, with the fingerprint shown', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.flows = true
+    const fingerprint = { flow: 'f', templates: 't', setup: 's', checks: 'c', mcp: 'm', personas: 'p' }
+    fakeApi.listFlows = vi.fn(async () => [{ id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: '', summary: { steps: 6, loops: 2, gates: 1, personas: [] }, problems: [], warnings: [] }])
+    let loaded!: (value: unknown) => void
+    fakeApi.flowRunPreview = vi.fn(() => new Promise((resolve) => { loaded = resolve }))
+    fakeApi.approveSchedule = vi.fn(async () => undefined)
+    const proposal = { id: 'sch4', flow: { flowId: 'built-in:fix-until-green', flowSource: 'built-in', flowName: 'Fix until green', inputs: { task: 'the flaky tests' } }, repoId: 'r1', baseBranch: 'main', recurrence: 'daily', startDate: '2099-03-02', weekdays: [], time: '09:00', timezone: 'UTC', agent: 'claude', model: '', maxMinutes: 30, state: 'paused', pausedKind: 'proposed', proposedBy: { grantId: 'g1', name: 'Claude Code' }, consecutiveFailures: 0, createdAt: '' }
+    const before = fakeState.snapshot.schedules
+    fakeState.snapshot.schedules = [proposal]
+    try {
+      render(<ScheduleDialog scheduleId="sch4" />)
+      const dialog = await screen.findByRole('dialog', { name: /Fix until green/ })
+      const approve = within(dialog).getByRole('button', { name: 'Approve schedule' }) as HTMLButtonElement
+      // The run approval hasn't loaded: nothing to approve yet.
+      await waitFor(() => expect(fakeApi.flowRunPreview).toHaveBeenCalled())
+      expect(approve.disabled).toBe(true)
+      await user.click(approve)
+      expect(fakeApi.approveSchedule).not.toHaveBeenCalled()
+      loaded({
+        fingerprint, inputs: [{ name: 'task', description: 'What to build or fix' }],
+        summary: { flowName: 'Fix until green', flowSource: 'built-in', repoName: 'foreman', baseBranch: 'main', steps: 6, loops: 2, gates: 1, personas: [], templates: [], setupScript: '', checks: [], mcpServers: [], integrations: [], notClaude: [], problems: [] }
+      })
+      await waitFor(() => expect(approve.disabled).toBe(false))
+      await user.click(approve)
+      await waitFor(() => expect(fakeApi.approveSchedule).toHaveBeenCalledWith('sch4', { template: 't', setup: 's', checks: 'c', mcp: 'm', flow: 'f', personas: 'p' }))
+    } finally {
+      fakeState.snapshot.schedules = before
+      fakeState.snapshot.settings.flows = false
+    }
+  })
+
+  it('changes a proposal on the form before approving it, where saving approves the change', async () => {
+    const user = userEvent.setup()
+    const proposal = { id: 'sch3', templateId: 'tpl', templateName: 'Nightly', repoId: 'r1', baseBranch: 'main', recurrence: 'daily', startDate: '2099-03-02', weekdays: [], time: '09:00', timezone: 'UTC', model: 'claude-sonnet-5-5', maxMinutes: 30, state: 'paused', pausedKind: 'proposed', proposedBy: { grantId: 'g1', name: 'Claude Code' }, consecutiveFailures: 0, createdAt: '' }
+    const before = fakeState.snapshot.schedules
+    fakeState.snapshot.schedules = [proposal]
+    fakeApi.saveSchedule = vi.fn(async () => ({}))
+    try {
+      render(<ScheduleDialog scheduleId="sch3" />)
+      const dialog = await screen.findByRole('dialog', { name: /Nightly/ })
+      await user.click(within(dialog).getByRole('button', { name: 'Change before approving' }))
+      expect(screen.getByLabelText('Repeat')).toBeTruthy()
+      // Still says who proposed it.
+      expect(screen.getByRole('status').textContent).toMatch(/^Claude Code, an outside agent/)
+      await user.click(screen.getByRole('button', { name: 'Save and approve' }))
+      await waitFor(() => expect(fakeApi.saveSchedule).toHaveBeenCalled())
+      expect(fakeApi.saveSchedule.mock.calls[0][1]).toBe('sch3')
+    } finally {
+      fakeState.snapshot.schedules = before
+    }
+  })
+
   it('offers no flow while Flows are off', async () => {
     fakeState.snapshot.settings.flows = false
     render(<ScheduleDialog templateId="tpl" />)

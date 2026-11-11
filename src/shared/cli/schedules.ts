@@ -97,6 +97,8 @@ export interface ScheduleRow {
   state: Schedule['state']
   pausedReason?: string
   pausedKind?: Schedule['pausedKind']
+  // A proposal (pausedKind 'proposed'): the outside agent that proposed it.
+  proposedBy?: Schedule['proposedBy']
   // ISO (UTC) and as the schedule's zone says it.
   nextRunAt?: string
   next?: string

@@ -9,6 +9,7 @@ import { api, attempt, openPairDialog, showToast, useStore } from '../../store'
 import { Button, LinkButton, Spinner, TextInput } from '../../ui'
 import { Page, resetSettings, Row, saveSettings, Section, TextRow, ToggleRow, useSettings } from './controls'
 import { GitBackupSection } from './GitBackupSection'
+import { AgentAccessSection } from './AgentAccessSection'
 
 const mb = (bytes: number, t: RendererT) =>
   bytes >= 1024 * 1024
@@ -140,6 +141,8 @@ export function DataPage() {
       <GitBackupSection />
 
       <DevicesSection />
+
+      <AgentAccessSection />
 
       <p className="set-help" style={{ marginTop: 12 }}>
         {t('settings.data.syncWarning')}

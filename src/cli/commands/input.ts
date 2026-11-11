@@ -3,6 +3,7 @@
 // prints a value, and a secret is never read from the command line.
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import readline from 'node:readline'
 import { commandName, type CommandSpec } from '../../shared/cliCommands'
 import { CliError, usageError } from '../client'
 import type { Context } from '../command'
@@ -21,6 +22,16 @@ export const io = {
   readFile: (file: string, cwd: string): Promise<string> => fs.readFile(path.resolve(cwd, file), 'utf8'),
   readBytes: (file: string, cwd: string): Promise<Buffer> => fs.readFile(path.resolve(cwd, file)),
   writeFile: (file: string, cwd: string, text: string): Promise<void> => fs.writeFile(path.resolve(cwd, file), text, 'utf8'),
+  // One line typed at the terminal, the question on stderr (stdout stays the answer). For what isn't a secret.
+  promptLine(question: string): Promise<string> {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stderr })
+      rl.question(question, (answer) => {
+        rl.close()
+        resolve(answer)
+      })
+    })
+  },
   // The question goes to stderr; what is typed is not shown. (prompt.ts's readPassphrase would answer from
   // FOREMAN_PASSPHRASE, which is not a secret's value, so this does not reuse it.)
   promptSecret(question: string): Promise<string> {

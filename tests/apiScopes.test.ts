@@ -118,7 +118,7 @@ describe('sentToView', () => {
       'setup-log', 'cloud-build-log', 'pty-data', 'pty-exit', 'pty-state', 'notify', 'auto-run', 'clone-progress', 'show-workspace',
       'show-setting', 'report-problem', 'tour', 'launch-folders', 'quit-requested', 'open-link', 'navigate', 'attention-history',
       'archive-progress', 'assistant-item', 'assistant-threads', 'stt-partial', 'stt-error', 'stt-model', 'window-visibility', 'computers',
-      'computer-notify', 'computer-left'
+      'computer-notify', 'computer-left', 'agent-access'
     ]
     for (const type of types) expect([type, eventReach(type) === 'window']).toEqual([type, !hostForwards({ type } as MainEvent)])
   })

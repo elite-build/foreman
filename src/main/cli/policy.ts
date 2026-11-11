@@ -3,8 +3,10 @@
 // launch token only keeps other users on the computer away from the admin tier.
 import { timingSafeEqual } from 'node:crypto'
 import type { TurnCaller } from '../../shared/agentReports'
+import type { TurnCap } from '../../shared/agentAccess'
+import type { Api } from '../../shared/types'
 import type { CliErrorCode, CliRequest, CliRequestV2 } from '../../cli/protocol'
-import type { CliHost } from './host'
+import { CliCodedError, type CliHost } from './host'
 
 /**
  * read: always served. act: starts or queues a turn, or does work an agent may do, under the start policy.
@@ -54,6 +56,30 @@ export function callerTurn(host: CliHost, caller: TurnCaller | undefined): { ses
   const who = host.identifyCaller(caller)
   return who?.kind === 'turn' ? { sessionId: who.session.id, turnId: who.turnId } : undefined
 }
+
+/**
+ * docs/agent-access.md §4: the cap of the turn a call came from, when its token checks: the running turn's, or, for a
+ * turn that has ended (a background command it left running), the one on that turn's message. Undefined for a person
+ * at a terminal and for an uncapped turn.
+ */
+export async function callerCap(host: CliHost, caller: TurnCaller | undefined): Promise<TurnCap | undefined> {
+  if (!caller?.token) return undefined
+  const who = host.identifyCaller(caller)
+  if (who?.kind !== 'turn') return undefined
+  if (who.live) return who.session.turnCap
+  const message = (await host.api.getChat(who.session.id)).find((i) => i.kind === 'user' && i.turnId === who.turnId && !i.steered)
+  return message?.kind === 'user' ? message.cap : undefined
+}
+
+/** The Api a command uses to start or queue a turn: as it is, or with the calling turn's cap on everything it starts. */
+export function apiFor(host: CliHost, ctx: { cap?: TurnCap }): Api {
+  if (!ctx.cap) return host.api
+  if (!host.capped) throw new CliCodedError('refused', 'This turn’s access is limited, and this Foreman can’t hold what the command would start to it.')
+  return host.capped(ctx.cap)
+}
+
+/** Refused from a capped turn: a flow run approves consent that is the user's, and runs its turns unattended. */
+export const CAPPED_FLOW_REFUSAL = 'A flow can’t be started from this turn: it was started through an outside agent’s access, and a flow run approves its setup, checks and commands, which is the user’s to approve. Ask the user to start it.'
 
 function sameToken(given: unknown, expected: string): boolean {
   if (typeof given !== 'string') return false

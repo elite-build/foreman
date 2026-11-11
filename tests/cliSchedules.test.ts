@@ -221,7 +221,7 @@ describe('the schedule methods', () => {
       const { call, scheduleFingerprint } = setup({ snapshot: { schedules: [s] }, api: { approveSchedule } })
       const result = await call<SchedulesApproveResult>('schedules-approve', { id: s.id })
       expect(scheduleFingerprint.mock.calls[0][0]).toMatchObject({ templateId: 't-1', repoId: 'r1', model: s.model })
-      expect(changedParts(s.approved, FP)).toEqual(['the template', 'the repo’s checks'])
+      expect(changedParts(s.approved!, FP)).toEqual(['the template', 'the repo’s checks'])
       expect(result).toMatchObject({ approved: false, needsConfirmation: true, changed: ['the template', 'the repo’s checks'] })
       expect(result.preview?.fingerprint).toEqual(FP)
       expect(result.text).toContain('the template and the repo’s checks changed')
@@ -374,7 +374,7 @@ describe('what a schedule is approved on (the service)', () => {
     const staleView = saved.approved
     await expect(core.api.approveSchedule(saved.id, staleView)).rejects.toThrow(`${SHOWN_CHANGED}. Changed: the template.`)
     const now = (await core.api.scheduleFingerprint(request)).fingerprint
-    expect(now.template).not.toBe(saved.approved.template)
+    expect(now.template).not.toBe(saved.approved!.template)
     await core.api.pauseSchedule(saved.id)
     await core.api.approveSchedule(saved.id, now)
     expect(store.state.schedules![0]).toMatchObject({ state: 'active', approved: now })

@@ -7,13 +7,15 @@
 //  - the run is unattended: any approval or question stops it for the human, and unanswered approvals deny;
 //  - a duration limit cancels it (time spent waiting for an agent slot doesn't count); two failures in a row pause the schedule;
 //  - the schedule is tied to a fingerprint (template text and revision, repo setup, checks, repo MCP config) and pauses when it changes;
-//  - after a crash, runs that were in flight are marked uncertain and are never retried.
+//  - after a crash, runs that were in flight are marked uncertain and are never retried;
+//  - an outside agent may only propose a schedule (docs/agent-access.md §7): it is saved paused, with nothing approved,
+//    and nothing runs, re-pauses or resumes it until the user approves it.
 // A schedule may start a flow instead of a template (docs/loops-and-graphs.md): its fingerprint then covers the flow, its
 // templates and personas too, the occurrence follows the flow run to its end, and the flow's loop bounds stand in for the
 // duration limit.
 import { createHash, randomUUID } from 'node:crypto'
 import { scheduleFingerprintOfFlow, type FlowFingerprint, type FlowRun } from '../shared/flows'
-import { GLOBAL_ACTIVE_CAP, MISSED_GRACE_MS, dueAction, nextRuns, specOf, specProblem } from '../shared/schedule'
+import { GLOBAL_ACTIVE_CAP, MISSED_GRACE_MS, dueAction, isProposedSchedule, nextRuns, specOf, specProblem } from '../shared/schedule'
 import type { AfterRun, Occurrence, Schedule, ScheduleFingerprint, ScheduleRequest, TurnOutcome } from '../shared/types'
 
 /** A fingerprint part: the SHA-256 of the value as JSON (flows.ts makes a flow run's parts the same way). */
@@ -165,6 +167,7 @@ export interface ScheduleDeps {
 }
 
 const ACTIVE: Occurrence['state'][] = ['starting', 'running']
+const PROPOSED_REFUSAL = 'This schedule was proposed by an outside agent and hasn’t been approved. Review and approve it to let it run, or delete it.'
 const FAILING: Occurrence['state'][] = ['failed', 'timed-out', 'needs-you']
 // Old runs are history; keep enough to show what happened.
 const KEEP_OCCURRENCES = 40
@@ -248,10 +251,37 @@ export class ScheduleService {
   // ---- creating and changing schedules ----
 
   create(input: ScheduleInput, inputs: FingerprintInputs): Schedule {
+    const now = this.deps.now()
+    const schedule: Schedule = { ...this.fresh(input), state: 'active', approved: fingerprintOf(inputs), approvedAt: this.iso(now) }
+    schedule.nextRunAt = this.nextAfter(schedule, now)
+    this.schedules.push(schedule)
+    this.persist()
+    return schedule
+  }
+
+  /**
+   * An outside agent's proposal (docs/agent-access.md §7), validated as saving is: kept paused with nothing approved, so
+   * it runs nothing until the user approves it (approve(), which records the fingerprint). Never resumed by resume().
+   */
+  propose(input: ScheduleInput, by: { grantId: string; name: string }): Schedule {
+    const schedule: Schedule = {
+      ...this.fresh(input),
+      state: 'paused',
+      pausedKind: 'proposed',
+      pausedReason: `Proposed by ${by.name} (outside agent). It runs nothing until you review and approve it.`,
+      proposedBy: { grantId: by.grantId, name: by.name }
+    }
+    this.schedules.push(schedule)
+    this.persist()
+    return schedule
+  }
+
+  /** A new schedule from a request that passes scheduleProblem, before it is approved or proposed. */
+  private fresh(input: ScheduleInput): Omit<Schedule, 'state'> {
     const problem = scheduleProblem(input, this.deps.now())
     if (problem) throw new Error(problem)
     const now = this.deps.now()
-    const schedule: Schedule = {
+    return {
       id: randomUUID(),
       ...targetFields(input),
       repoId: input.repoId,
@@ -265,16 +295,9 @@ export class ScheduleService {
       weekdays: [...new Set(input.weekdays)].sort((a, b) => a - b),
       dayOfMonth: input.dayOfMonth,
       ...afterRunFields(input),
-      state: 'active',
       consecutiveFailures: 0,
-      approved: fingerprintOf(inputs),
-      approvedAt: this.iso(now),
       createdAt: this.iso(now)
     }
-    schedule.nextRunAt = this.nextAfter(schedule, now)
-    this.schedules.push(schedule)
-    this.persist()
-    return schedule
   }
 
   /** Change the cadence, model or limits. Saving is an approval of what the template is now. */
@@ -307,6 +330,7 @@ export class ScheduleService {
     s.consecutiveFailures = 0
     delete s.pausedReason
     delete s.pausedKind
+    delete s.proposedBy
     s.nextRunAt = this.nextAfter(s, this.deps.now())
     this.persist()
     return s
@@ -315,6 +339,8 @@ export class ScheduleService {
   pause(id: string, reason = 'Paused by you.', kind: Schedule['pausedKind'] = 'user'): void {
     const s = this.schedule(id)
     if (s.state === 'finished') throw new Error('This one-time schedule has finished. Edit it to schedule another run.')
+    // A proposal stays one: pausing it as yours would let resume() start what nobody approved.
+    if (isProposedSchedule(s)) throw new Error(PROPOSED_REFUSAL)
     s.state = 'paused'
     s.pausedReason = reason
     s.pausedKind = kind
@@ -326,6 +352,7 @@ export class ScheduleService {
   resume(id: string): void {
     const s = this.schedule(id)
     if (s.state === 'finished') throw new Error('This one-time schedule has finished. Edit it to schedule another run.')
+    if (isProposedSchedule(s)) throw new Error(PROPOSED_REFUSAL)
     if (s.pausedKind && s.pausedKind !== 'user') throw new Error('Review and approve this schedule to resume it.')
     const next = this.nextAfter(s, this.deps.now())
     if (s.recurrence === 'once' && !next) throw new Error('Choose a future date and time to reschedule this one-time run.')
@@ -361,10 +388,10 @@ export class ScheduleService {
       await this.enforceDurations(now)
       if (now - this.lastFingerprintCheck >= FINGERPRINT_EVERY_MS) {
         this.lastFingerprintCheck = now
-        for (const s of this.schedules) if (s.state === 'active') this.checkFingerprint(s)
+        for (const s of this.schedules) if (s.state === 'active' && !isProposedSchedule(s)) this.checkFingerprint(s)
       }
       for (const s of this.deps.paused?.() ? [] : [...this.schedules]) {
-        if (s.state !== 'active' || !s.nextRunAt) continue
+        if (s.state !== 'active' || !s.nextRunAt || isProposedSchedule(s)) continue
         const planned = Date.parse(s.nextRunAt)
         const action = dueAction(planned, now, this.deps.graceMs ?? MISSED_GRACE_MS)
         if (action === 'wait') continue
@@ -382,6 +409,8 @@ export class ScheduleService {
 
   /** Pause the schedule if what was approved isn't what it would run now. Returns true when it paused. */
   private checkFingerprint(s: Schedule): boolean {
+    // Nothing was approved (a proposal): it can't run, and it isn't paused again over it.
+    if (!s.approved || isProposedSchedule(s)) return true
     const now = this.deps.inputs(s)
     if ('error' in now) {
       this.pause(s.id, `Paused: ${now.error}`, 'changed')

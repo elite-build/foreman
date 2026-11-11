@@ -67,7 +67,7 @@ Four layers, each with one owner and one way out.
 
 `src/main/perf.ts` exports one `perf` meter, as `reportProblem.ts` exports one error log.
 
-- **Counters** `perf.count(name, n = 1)`: integers in a `Map`. Names are dotted and stable: `state.flush`, `state.broadcast`, `event.<type>`, `ipc.<method>`, `remote.<method>`, `ws.<method>`, `ws.connect`, `git.<subcommand>`, `gh.<subcommand>`, `store.save`, `db.putItem`, `db.readChat`.
+- **Counters** `perf.count(name, n = 1)`: integers in a `Map`. Names are dotted and stable: `state.flush`, `state.broadcast`, `event.<type>`, `ipc.<method>`, `remote.<method>`, `ws.<method>`, `ws.connect`, `mcp.<tool>`, `git.<subcommand>`, `gh.<subcommand>`, `store.save`, `db.putItem`, `db.readChat`.
 - **Timings** `perf.time(name, ms)` and `perf.timed(name, fn)`: count, total, max per name. Same names as the counters where a duration exists.
 - **Gauges** `perf.gauge(name, value)`: the latest value (`state.bytes`, `git.queue`).
 - **Samples**, every 5 s while the app runs: the main process's `process.cpuUsage()` and `process.memoryUsage()`, the event-loop delay histogram (`perf_hooks.monitorEventLoopDelay`, p50/p99/max with its own 20 ms sampling interval taken off, reset per sample), and every Electron process from `app.getAppMetrics()` by type (Browser is main, Tab is the renderer, then GPU and Utility: CPU share and working set). A ring of the last 120 samples (10 minutes). Electron is reached through what `perf.start` is given in `src/main/index.ts`, so the meter and its tests never import it.
@@ -87,6 +87,10 @@ Every call from any client enters the core through `ApiDispatcher` (`src/main/ap
 - `ws.event`: an event sent to one connection.
 - `ws.dropped`: an event not sent to a connection with more than 4 MB queued: terminal output, streamed text, or a held `state` replaced by a newer one.
 - `ws.slow`: a connection closed with `bye slow` for having more than 16 MB queued.
+
+An agent on this computer ([agent-access.md](agent-access.md)) calls its tools over its own loopback endpoint, not through `ApiDispatcher`, so each tool call is timed on its own in `src/main/agentAccess/tools.ts`:
+
+- `mcp.<tool>`: one outside agent's tool call, from when its handler starts to its answer, refusals included (arguments the MCP SDK rejects never reach the handler, so aren't counted). The names are the tools it is offered: `mcp.list_delegation_options`, `mcp.get_task_status`, `mcp.get_turn_result`, `mcp.wait_for_turn`, `mcp.get_workspace_status`, `mcp.get_check_results`, `mcp.get_flow_status`, `mcp.list_questions`, `mcp.list_schedules`, `mcp.start_task`, `mcp.send_task`, `mcp.cancel_turn`, `mcp.run_checks`, `mcp.answer_question` and `mcp.schedule_task`. `mcp.wait_for_turn` includes the wait, up to 30 seconds, so its total says how long agents waited, not how busy Foreman was. The calls the tools make into the core are not timed again as `ipc.<method>`.
 
 Cost: a `Map` lookup and an integer add per counted event; `performance.now()` twice per timed call; one `getAppMetrics` and one histogram read every 5 s.
 

@@ -1,5 +1,5 @@
 import { frozenReason } from '../../../../shared/transfer'
-import { ArrowDown, ArrowUp, Check, ClipboardList, MessageSquareQuote, Users, Copy, CornerDownLeft, File as FileIcon, FileText, Image, Lock, Paperclip, Pencil, Send, Square, SquareTerminal, Trash2, Workflow, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bot, Check, ClipboardList, MessageSquareQuote, Users, Copy, CornerDownLeft, File as FileIcon, FileText, Image, Lock, Paperclip, Pencil, Send, Square, SquareTerminal, Trash2, Workflow, X } from 'lucide-react'
 import { isActiveRun } from '../../../../shared/flows'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import { AGENTS, modelInfo, nextEffort, supportsPlan } from '../../../../shared/agents'
@@ -934,7 +934,16 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
                     <>
                       <div className="queued-edit-top">
                         <span className="pos">{n + 1}</span>
-                        {message.via === 'cli' ? (
+                        {message.origin?.kind === 'outside' ? (
+                          // An outside agent's message goes through `foreman send`'s path, but it is the agent's, not a script's.
+                          <>
+                            <Tag tone="outline">
+                              <Bot size={10} />
+                              {t('queue.outsideTag')}
+                            </Tag>
+                            <span className="faint small">{t('queue.editingOutside', { name: message.origin.name })}</span>
+                          </>
+                        ) : message.via === 'cli' ? (
                           <>
                             <Tag tone="outline">
                               <SquareTerminal size={10} />

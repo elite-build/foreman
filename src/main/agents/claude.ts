@@ -33,6 +33,7 @@ import { bundledClaudeExecutable } from '../platform'
 import { trackedClaudeSpawn } from './claudeSpawn'
 import { claudeContextUsage } from '../../shared/contextUsage'
 import { writeScopeDecision } from '../../shared/permissions'
+import { protectedPathDecision } from '../../shared/agentAccess'
 import { claudeLimit, type RateLimitEventInfo } from '../../shared/usageLimit'
 import {
   looksLikeAuthError,
@@ -238,6 +239,31 @@ export function writeScopeHook(writes: string[], root: string): HookCallback {
   }
 }
 
+/**
+ * docs/agent-access.md §3: the PreToolUse hook a turn capped below Never ask gets. A file tool writing agent or git
+ * configuration asks, even where the mode would let edits go ahead; nothing else is its business.
+ */
+export function protectedPathsHook(root: string, gitDir?: string): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== 'PreToolUse') return {}
+    const decided = protectedPathDecision(input.tool_name, input.tool_input, root, gitDir)
+    if (!decided) return {}
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: decided.reason } }
+  }
+}
+
+/** The turn's PreToolUse hooks: a flow persona's scoped writes, and a capped turn's protected paths. Where both decide, the stricter wins. */
+function preToolUseHooks(req: TurnRequest): { PreToolUse: { hooks: HookCallback[] }[] } | undefined {
+  const hooks: HookCallback[] = []
+  if (req.writeScope?.length) hooks.push(writeScopeHook(req.writeScope, req.cwd))
+  if (req.capped) hooks.push(protectedPathsHook(req.cwd, req.capped.gitDir))
+  return hooks.length ? { PreToolUse: [{ hooks }] } : undefined
+}
+
+// docs/agent-access.md §4: at an Auto ceiling the classifier could wave a `foreman` command through, and a command
+// without a turn token is the user's; so it asks. Below Auto every command asks anyway.
+export const CAPPED_ASK_RULES = ['Bash(foreman:*)']
+
 function permissionModeFor(approvals: ApprovalPolicy, planMode: boolean): SdkPermissionMode {
   if (planMode) return 'plan'
   switch (approvals) {
@@ -255,11 +281,12 @@ function permissionModeFor(approvals: ApprovalPolicy, planMode: boolean): SdkPer
 type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 const CLAUDE_EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
-/** Per-session settings: fast mode and the chat's output style. */
-function turnSettings(req: TurnRequest, supportsFast: boolean): { fastMode?: boolean; outputStyle?: string } | undefined {
-  const settings: { fastMode?: boolean; outputStyle?: string } = {}
+/** Per-session settings: fast mode and the chat's output style; for a turn capped at Auto, the rules that still ask. */
+export function turnSettings(req: TurnRequest, supportsFast: boolean): { fastMode?: boolean; outputStyle?: string; permissions?: { ask: string[] } } | undefined {
+  const settings: { fastMode?: boolean; outputStyle?: string; permissions?: { ask: string[] } } = {}
   if (req.fastMode && supportsFast) settings.fastMode = true
   if (req.outputStyle && req.outputStyle !== 'default') settings.outputStyle = req.outputStyle
+  if (req.capped?.ceiling === 'auto') settings.permissions = { ask: [...CAPPED_ASK_RULES] }
   return Object.keys(settings).length ? settings : undefined
 }
 
@@ -481,7 +508,8 @@ class ClaudeTurn implements AgentTurn {
               mcpServers: { ...repoMcpConfig(req.mcpServers), ...inProcessMcpConfig(req.inProcessMcp), foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] }) },
               // A flow persona's scoped writes, decided before any permission mode: inside the area allowed, elsewhere
               // and every shell refused with words the agent reads (subagents' calls too). The turn goes on either way.
-              hooks: req.writeScope?.length ? { PreToolUse: [{ hooks: [writeScopeHook(req.writeScope, req.cwd)] }] } : undefined,
+              // A capped turn's protected paths ask (docs/agent-access.md §3).
+              hooks: preToolUseHooks(req),
               // A one-line "what it's doing now" for running subagents.
               agentProgressSummaries: true,
               extraArgs: claudeExtraArgs(req),
@@ -556,8 +584,10 @@ class ClaudeTurn implements AgentTurn {
     // #16: enforced, not advisory. Plain plan mode can be left after the plan is approved; read-only never asks, it refuses.
     if (this.req.readOnly && READ_ONLY_DENIED.includes(toolName)) return { behavior: 'deny', message: READ_ONLY_REFUSAL }
 
+    // A capped turn's protected path reaches here because its hook asked: the user answers it, whatever else would allow it.
+    const guarded = this.req.capped ? protectedPathDecision(toolName, input, this.req.cwd, this.req.capped.gitDir) : null
     // A flow persona's scoped writes: decided here too, should a call reach the permission prompt past the hook.
-    if (this.req.writeScope?.length) {
+    if (this.req.writeScope?.length && !guarded) {
       const scoped = writeScopeDecision(toolName, input, this.req.writeScope, this.req.cwd)
       if (scoped) return scoped.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: scoped.message }
     }

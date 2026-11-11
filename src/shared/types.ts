@@ -486,6 +486,8 @@ export interface HeldMessage {
   files?: string[]
   // Foreman sends it for a schedule or a flow run's first step; the message carries it as its receipt.
   origin?: MessageOrigin
+  // docs/agent-access.md §4: started from a capped turn, so the turn it starts carries this cap.
+  cap?: import('./agentAccess').TurnCap
 }
 
 /** A Linear issue as New workspace shows it, read with the repository's Linear connection. */
@@ -687,15 +689,19 @@ export interface Schedule {
   // Archiving after a run also deletes the local branch.
   afterRunDeleteBranch?: boolean
   state: 'active' | 'paused' | 'finished'
-  // Why it is paused, in words; `pausedKind` says what clears it.
+  // Why it is paused, in words; `pausedKind` says what clears it. 'proposed': an outside agent proposed it
+  // (docs/agent-access.md §7) and it has never been approved; only approving it (never resuming) lets it run.
   pausedReason?: string
-  pausedKind?: 'user' | 'failures' | 'changed'
+  pausedKind?: 'user' | 'failures' | 'changed' | 'proposed'
+  // A proposal: the outside sign-in that proposed it, by id and name as it was then (the sign-in may be revoked since).
+  proposedBy?: { grantId: string; name: string }
   // The next planned run (ISO, UTC) while active.
   nextRunAt?: string
   consecutiveFailures: number
-  // Hashes of what was approved: template text and revision, repo setup, checks, repo MCP config.
-  approved: ScheduleFingerprint
-  approvedAt: string
+  // Hashes of what was approved: template text and revision, repo setup, checks, repo MCP config. Present on every
+  // schedule except a proposal, which nobody has approved yet.
+  approved?: ScheduleFingerprint
+  approvedAt?: string
   createdAt: string
 }
 
@@ -867,13 +873,16 @@ export interface CreateWorkspaceOptions {
 /**
  * Who started a workspace (docs/loops-and-graphs.md, "What isn't recorded yet"): a workspace agent's delegation tool,
  * the `foreman` command run from inside a turn, or the assistant. `sessionId` is the coordinating chat; for the
- * assistant it is the assistant thread. Absent when a person started it (and on workspaces from before it was kept).
+ * assistant it is the assistant thread. Or an outside agent signed in to Foreman (docs/agent-access.md §7), by its
+ * sign-in and the name it gave. Absent when a person started it (and on workspaces from before it was kept).
  */
-export interface WorkspaceStartedBy {
-  sessionId: string
-  turnId?: string
-  via: 'delegation' | 'cli' | 'assistant'
-}
+export type WorkspaceStartedBy =
+  | {
+      sessionId: string
+      turnId?: string
+      via: 'delegation' | 'cli' | 'assistant'
+    }
+  | { via: 'outside'; grantId: string; name: string }
 
 export interface AdoptWorktreeOptions {
   runSetup: boolean
@@ -904,6 +913,8 @@ export interface QueuedMessage {
   via?: 'cli'
   // #5: queued by auto-fix CI; the receipt goes with the turn it starts.
   origin?: MessageOrigin
+  // docs/agent-access.md §4: queued from a capped turn (or continuing one), so the turn it starts carries this cap.
+  cap?: import('./agentAccess').TurnCap
 }
 
 /** Which way a queued message moves: towards the front (sent sooner) or the back. */
@@ -973,6 +984,8 @@ export interface Session {
   // session that still has a turnId was cut off mid-turn.
   turnId?: string
   turnStartedAt?: string
+  // docs/agent-access.md §4: the cap of the turn in flight, while it runs (set when it starts, cleared when it ends).
+  turnCap?: import('./agentAccess').TurnCap
   // How the last turn ended, for the Home rows. Cleared when the next turn starts.
   lastTurn?: { outcome: TurnOutcome; turnId?: string; endedAt: string; additions?: number; deletions?: number }
   queue: QueuedMessage[]
@@ -1268,6 +1281,10 @@ export interface Settings {
   // Closing the last window leaves Foreman running behind its tray, so agents, schedules, flows and phones keep working
   // (docs/server.md, "Headless"; main/headless.ts). Off by default: closing the window quits, as it always has.
   keepRunning: boolean
+  // Outside agents on this computer (docs/agent-access.md): a loopback MCP endpoint they sign in to with OAuth, off by
+  // default, and its port (47634 unless another program needs it).
+  agentAccessEnabled: boolean
+  agentAccessPort: number
   // Cloud workspaces; absent until changed (see shared/cloud.ts cloudSettings for the defaults).
   cloud?: CloudSettings
 }
@@ -1396,6 +1413,8 @@ export type ChatItem =
       origin?: MessageOrigin
       // #16: this turn ran read-only, and how Foreman enforced it.
       readOnly?: ReadOnlyEnforcement
+      // docs/agent-access.md §4: the cap this turn ran under, so anything that continues or retries it carries it too.
+      cap?: import('./agentAccess').TurnCap
       // O1: the agent and model this turn was sent to (a tab can switch agents).
       agent?: AgentKind
       model?: string
@@ -1475,6 +1494,8 @@ export interface LimitResume {
   missed?: true
   // Why the send at `at` didn't go, when it was tried.
   failed?: string
+  // docs/agent-access.md §4: the stopped turn's cap (lowered by the turn that armed it, if one did); the resume carries it.
+  cap?: import('./agentAccess').TurnCap
 }
 
 /** completed: the agent reported success. cancelled: the user stopped it ("Stopped"). interrupted: the app quit mid-turn. */
@@ -1547,6 +1568,9 @@ export type ApprovalResponse =
   | { kind: 'gate'; answer: 'continued' | 'sent-back' | 'stopped'; note?: string }
   // null: nothing was chosen, and the run stops.
   | { kind: 'pick'; chosen: string | null }
+
+/** Where an approval was answered: the window, a phone, or an outside agent answering its own worker's question. */
+export type ApprovalVia = 'window' | 'phone' | 'outside'
 
 export interface DiffLine {
   type: 'add' | 'del' | 'ctx'
@@ -1826,7 +1850,7 @@ export interface AutoReview {
 
 /**
  * #5: a message Foreman sent itself, and why (shown as a receipt under it): auto-fix CI, a workspace agent's
- * send_task (delegation), a flow run's step, a schedule's run, or a resume armed after a usage limit.
+ * send_task (delegation), a flow run's step, a schedule's run, a resume armed after a usage limit, or an outside agent.
  */
 export type MessageOrigin =
   | {
@@ -1841,6 +1865,8 @@ export type MessageOrigin =
   | { kind: 'flow'; runId: string; step: string; iteration: number }
   | { kind: 'schedule'; scheduleId: string; occurrenceId: string }
   | { kind: 'limit-resume' }
+  // docs/agent-access.md §7: an outside agent signed in to Foreman sent it (start_task's first message, send_task).
+  | { kind: 'outside'; grantId: string; name: string }
 
 export interface PrWatch {
   ci?: CiWatch
@@ -2213,10 +2239,11 @@ export type MainEvent =
   | { type: 'pty-exit'; ptyId: string; code: number; workspaceId?: string }
   // A cloud terminal went read-only (its sandbox is asleep or unreachable; `reason` says which) or live again.
   | { type: 'pty-state'; ptyId: string; asleep: boolean; reason?: string; workspaceId?: string }
-  // sessionId is empty for notices about the workspace as a whole; `action` is what clicking it opens.
+  // sessionId is empty for notices about the workspace as a whole; `action` is what clicking it opens (agent-access:
+  // Settings at Agents on this computer).
   // `kind` (O13b) says what it is, since title and body are in the user's language: a turn that finished or was
   // stopped, something that needs the user (phone pushes go out for these), or anything else.
-  | { type: 'notify'; workspaceId: string; sessionId: string; title: string; body: string; action?: 'fix-ci' | 'keep-awake'; kind?: NotifyKind }
+  | { type: 'notify'; workspaceId: string; sessionId: string; title: string; body: string; action?: 'fix-ci' | 'keep-awake' | 'agent-access'; kind?: NotifyKind }
   // Setup finished and the repo has "Auto-run after setup" on.
   | { type: 'auto-run'; workspaceId: string }
   // A line of `git clone` output for the clone dialog.
@@ -2253,6 +2280,9 @@ export type MainEvent =
   | { type: 'window-visibility'; visible: boolean }
   // Other computers (shared/remote.ts): the computer chip's view changed.
   | { type: 'computers'; view: import('./remote').ComputersView }
+  // Agents on this computer (docs/agent-access.md §9): a sign-in started waiting, ended or was approved, a sign-in was
+  // revoked, or the listener started or stopped. What the Api's agentAccessInfo answers; it never holds a code.
+  | { type: 'agent-access'; info: import('./agentAccess').AgentAccessInfo }
   // A computer this window isn't showing needs you (computerId null: this one, while another is shown).
   | { type: 'computer-notify'; computerId: string | null; computerName: string; workspaceId: string; sessionId: string; title: string; body: string }
   // The window came back to this computer by itself: the other one ended control, turned it off, was unpaired, or the
@@ -2347,6 +2377,8 @@ export interface SendOptions {
   via?: 'cli'
   // #5: Foreman sends this itself (auto-fix CI); shown as a receipt on the message.
   origin?: MessageOrigin
+  // docs/agent-access.md §4: sent from a capped turn; set by the app's own callers only (a window's message carries none).
+  cap?: import('./agentAccess').TurnCap
 }
 
 /** What became of a message sent to a chat: its disposition and the turn it belongs to. */
@@ -2749,7 +2781,9 @@ export interface Api {
   cancel(sessionId: string): Promise<void>
   pendingApprovals(): Promise<ApprovalRequest[]>
   // G2: `via` says where it was answered, for Home → Recent (the phone server passes 'phone'; the window leaves it out).
-  respondApproval(id: string, response: ApprovalResponse, via?: 'window' | 'phone'): Promise<void>
+  // An outside agent's answer is recorded only through its own tools' path (Core.answerAsOutside, docs/agent-access.md §4),
+  // so an Api caller that says 'outside' is taken as the window.
+  respondApproval(id: string, response: ApprovalResponse, via?: Exclude<ApprovalVia, 'outside'>): Promise<void>
   // #3: Home → Recent's history, newest first, and when it was last marked seen.
   attentionHistory(): Promise<{ events: import('./attention').AttentionEvent[]; seenAt?: string }>
   // #3: "Mark all seen". Only the history's marker moves; no reason is resolved.
@@ -2811,6 +2845,14 @@ export interface Api {
   // The approval also chooses what the phone or browser may do: read (Watch), operate (the default) or admin (Full control).
   mobileApprovePairing(id: string, allow: boolean, access?: MobileAccess): Promise<MobileInfo>
   mobileRevokeDevice(id: string): Promise<MobileInfo>
+  // Agents on this computer (docs/agent-access.md §9): the listener, the sign-ins waiting (never their codes) and the
+  // signed-in agents; turning it on or off and moving its port; approving a waiting sign-in with the code its browser page
+  // shows, at a level; denying one; and ending a sign-in.
+  agentAccessInfo(): Promise<import('./agentAccess').AgentAccessInfo>
+  agentAccessConfigure(enabled: boolean, port?: number): Promise<import('./agentAccess').AgentAccessInfo>
+  agentAccessApprove(id: string, code: string, level: import('./agentAccess').AgentAccessLevel): Promise<import('./agentAccess').AgentAccessInfo>
+  agentAccessDeny(id: string): Promise<import('./agentAccess').AgentAccessInfo>
+  agentAccessRevoke(grantId: string): Promise<import('./agentAccess').AgentAccessInfo>
   // Listen for hand-offs on this Mac (and on which port), or stop.
   setAcceptHandOffs(on: boolean, port?: number): Promise<DevicesInfo>
   // Show a 6-digit code (valid for two minutes, one attempt).
@@ -3069,6 +3111,7 @@ export const API_METHODS = [
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
   'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'listPersonas', 'savePersonalPersona', 'deletePersonalPersona', 'flowRunPreview', 'startFlowRun', 'stopFlowRun', 'listFlowRuns', 'workspaceLineage', 'lineageFlowDraft', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
+  'agentAccessInfo', 'agentAccessConfigure', 'agentAccessApprove', 'agentAccessDeny', 'agentAccessRevoke',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
   'gitStatus', 'checksStatus', 'runChecks', 'cancelChecks', 'fixChecks', 'reviewThreads', 'sendReviewThreads', 'gitAction', 'setPrWatch', 'fixCi', 'resolveBaseMoved', 'baseWatchSupport', 'probePreview', 'ackCiFailure', 'autoFixPreview', 'setAutoFix', 'autoReviewPreview', 'setAutoReview', 'sendAutoReviewFindings', 'dismissAutoReview', 'addComment', 'sendDiffSelection', 'resendDiffSelection', 'updateComment', 'deleteComment',
   'ptySpawn', 'savedTerminals', 'terminalOutput', 'savedCommandConsent', 'approveSavedCommand', 'detectShells', 'agentStatus', 'codexSignIn', 'codexSignInCancel', 'reportDiagnostics', 'refreshModels',
