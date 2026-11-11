@@ -66,6 +66,14 @@ const approvalsOf = (w) => state.model.approvals.filter((a) => state.model.sessi
 const commentsOf = (id) => (state.model.comments || []).filter((c) => c.workspaceId === id)
 // What a message sent while this chat's turn runs does: this phone's choice for the chat, else the computer's setting.
 const modeFor = (s) => s.canSteer ? state.sendMode[s.id] || state.model.followUpMode || 'queue' : 'queue'
+// #164: your pending diff comments go with the message that starts the next turn; one steered into a running turn
+// doesn't take them (Foreman adds them when a turn starts), so the note says which this message will be.
+function commentsNote(s) {
+  const n = commentsOf(s.workspaceId).filter((c) => c.author === 'user').length
+  if (!n) return ''
+  const what = n + ' diff comment' + (n === 1 ? '' : 's')
+  return s.status === 'running' && modeFor(s) === 'steer' ? what + (n === 1 ? ' waits' : ' wait') + ' for the next turn, not this message' : what + ' will go with this message'
+}
 const MODE_TITLE = { steer: 'Sends into the running turn. Tap to queue this message instead.', queue: 'Waits until this turn ends. Tap to steer this message instead.' }
 function ring(w, approvals = approvalsOf(w)) {
   if (approvals.length) return 'need'
@@ -353,14 +361,16 @@ function diffHtml() {
         let budget = 400
         const placed = new Set()
         const line = (l) => {
-          const no = l.type === 'del' ? null : l.newNo
-          const here = no == null ? [] : mine.filter((c) => c.side !== 'old' && c.line === no)
+          // #127: a line takes a comment on its new side's number, as in the window's diff; #164: a removed line on its old one.
+          const side = l.type === 'del' ? 'old' : 'new'
+          const no = side === 'old' ? l.oldNo : l.newNo
+          const here = no == null ? [] : mine.filter((c) => (c.side === 'old' ? 'old' : 'new') === side && c.line === no)
           here.forEach((c) => placed.add(c.id))
-          const cells = '<span class="no">' + (l.type === 'add' ? '' : l.oldNo ?? '') + '</span><span class="no">' + (no ?? '') + '</span><span class="tx">' + (l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' ') + safe(l.text) + '</span>'
-          // #127: a line of the new side takes a comment, as a line in the window's diff does.
-          const row = no != null && canAct() ? '<button class="ln ' + l.type + '" data-action="cmt:' + safe(f.path) + '|' + no + '" aria-label="Comment on line ' + no + '">' + cells + '</button>' : '<div class="ln ' + l.type + '">' + cells + '</div>'
-          const writing = state.commenting && state.commenting.file === f.path && state.commenting.line === no
-          return row + here.map(commentHtml).join('') + (writing ? commentBox(no) : '')
+          const cells = '<span class="no">' + (l.type === 'add' ? '' : l.oldNo ?? '') + '</span><span class="no">' + (l.type === 'del' ? '' : l.newNo ?? '') + '</span><span class="tx">' + (l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' ') + safe(l.text) + '</span>'
+          const label = (side === 'old' ? 'Comment on removed line ' : 'Comment on line ') + no
+          const row = no != null && canAct() ? '<button class="ln ' + l.type + '" data-action="cmt:' + safe(f.path) + '|' + side + '|' + no + '" aria-label="' + label + '">' + cells + '</button>' : '<div class="ln ' + l.type + '">' + cells + '</div>'
+          const writing = state.commenting && state.commenting.file === f.path && state.commenting.side === side && state.commenting.line === no
+          return row + here.map(commentHtml).join('') + (writing ? commentBox(label) : '')
         }
         body = '<div class="hunks">' + f.hunks.map((h) => {
           if (budget <= 0) return ''
@@ -368,7 +378,7 @@ function diffHtml() {
           budget -= lines.length
           return '<div class="hh">' + safe(h.header) + '</div>' + lines.map(line).join('')
         }).join('') + (budget <= 0 ? '<div class="cut">Diff shortened. Open it on your computer for the rest.</div>' : '') + '</div>'
-        // Comments on lines this diff doesn't show (a removed line, or one past the cut), under the file.
+        // Comments on lines this diff doesn't show (past the cut, or no longer changed), under the file.
         const rest = mine.filter((c) => !placed.has(c.id))
         if (rest.length) body += '<div class="cmts-rest"><div class="hh">Other comments</div>' + rest.map(commentHtml).join('') + '</div>'
       }
@@ -390,8 +400,8 @@ function commentHtml(c) {
   return '<div class="cmt' + (mine ? ' mine' : '') + '"><div class="ch"><b>' + (mine ? 'You' : safe(c.authorLabel || 'Agent')) + '</b> · ' + where + (mine ? ' · goes with your next message' : '') + '</div>' +
     '<p>' + safe(c.body) + '</p>' + act + '</div>'
 }
-function commentBox(line) {
-  return '<div class="cmt new"><textarea data-comment placeholder="Comment on line ' + line + '…" aria-label="Comment on line ' + line + '">' + safe(state.commentDraft) + '</textarea>' +
+function commentBox(label) {
+  return '<div class="cmt new"><textarea data-comment placeholder="' + label + '…" aria-label="' + label + '">' + safe(state.commentDraft) + '</textarea>' +
     '<div class="row"><button class="btn" data-action="cmt-cancel">Cancel</button><button class="btn pri" data-action="cmt-save">Add comment</button></div></div>'
 }
 function checksHtml() {
@@ -446,10 +456,10 @@ function threadView() {
       const draft = state.drafts[s.id] || ''
       const running = s.status === 'running'
       body += chatHtml(s)
-      const pending = commentsOf(w.id).filter((c) => c.author === 'user').length
+      const note = commentsNote(s)
       const mode = modeFor(s)
       foot = queueHtml(s, running) + (!canAct() ? WATCH_ONLY :
-        (pending ? '<p class="hint">' + pending + ' diff comment' + (pending === 1 ? '' : 's') + ' will go with this message</p>' : '') +
+        (note ? '<p class="hint" id="comments-note">' + safe(note) + '</p>' : '') +
         '<div class="cmp">' +
         // #127: while a turn runs, whether this message steers it or waits for it to end (an agent that can't steer always waits).
         (s.canSteer ? '<button class="mode' + (mode === 'steer' ? ' on' : '') + '" data-action="mode" aria-pressed="' + (mode === 'steer') + '" title="' + MODE_TITLE[mode] + '"' + (running ? '' : ' hidden') + '>' + (mode === 'steer' ? 'Steer' : 'Queue') + '</button>' : '') +
@@ -724,6 +734,8 @@ function flipMode(button) {
   button.setAttribute('aria-pressed', String(mode === 'steer'))
   const draft = document.getElementById('draft')
   if (draft) draft.placeholder = mode === 'steer' ? 'Steer the agent…' : 'Queue a follow-up…'
+  const note = document.getElementById('comments-note')
+  if (note) note.textContent = commentsNote(s)
 }
 async function send() {
   const id = state.sessionId
@@ -970,8 +982,13 @@ root.addEventListener('click', async (event) => {
     }
     // #127: diff comments: start one on a line, write it, add it; delete yours or resolve the agent's.
     if (name === 'cmt') {
-      const cut = arg.lastIndexOf('|')
-      state.commenting = { file: arg.slice(0, cut), line: Number(arg.slice(cut + 1)) }
+      // `<file>|<side>|<line>`; the file may hold a | itself, so it is read from the end. A removed line's text goes along.
+      const parts = arg.split('|')
+      const line = Number(parts.pop())
+      const side = parts.pop() === 'old' ? 'old' : 'new'
+      const file = parts.join('|')
+      const shown = state.diff?.files.find((f) => f.path === file)?.hunks.flatMap((h) => h.lines).find((l) => side === 'old' ? l.type === 'del' && l.oldNo === line : l.type !== 'del' && l.newNo === line)
+      state.commenting = { file, side, line, quote: side === 'old' ? shown?.text ?? '' : undefined }
       state.commentDraft = ''
       render()
       root.querySelector('[data-comment]')?.focus()
@@ -983,7 +1000,7 @@ root.addEventListener('click', async (event) => {
       const body = state.commentDraft.trim()
       if (!at) return
       if (!body) { root.querySelector('[data-comment]')?.focus(); throw new Error('Write the comment first.') }
-      await request('POST', '/api/workspace/' + encodeURIComponent(state.wsId) + '/comment', { file: at.file, line: at.line, body })
+      await request('POST', '/api/workspace/' + encodeURIComponent(state.wsId) + '/comment', { file: at.file, line: at.line, side: at.side, quote: at.quote, body })
       state.commenting = null
       state.commentDraft = ''
       toast('Comment added. It goes with your next message.')

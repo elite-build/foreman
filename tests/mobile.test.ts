@@ -447,10 +447,16 @@ describe('paired mobile access', () => {
     // Diff comments: on a line, checked; yours deleted while pending, the agent's resolved while open, nothing else.
     expect((await post('/api/workspace/ws-1/comment', { file: 'src/a.ts', line: 4, body: '  Rename this  ' })).status).toBe(200)
     expect(api.addComment).toHaveBeenCalledWith('ws-1', 'src/a.ts', 4, 'Rename this')
-    for (const bad of [{ file: 'src/a.ts', line: 0, body: 'x' }, { file: 'src/a.ts', line: 1.5, body: 'x' }, { file: '', line: 1, body: 'x' }, { file: 'src/a.ts', line: 1, body: '  ' }]) {
+    // #164: a removed line goes as a one-line selection on the old side, quoting the line as the phone showed it.
+    expect((await post('/api/workspace/ws-1/comment', { file: 'src/a.ts', line: 7, side: 'old', quote: 'return cache.get(key)', body: 'Why was this removed?' })).status).toBe(200)
+    expect(api.addComment).toHaveBeenLastCalledWith('ws-1', 'src/a.ts', 7, 'Why was this removed?', { action: 'comment', side: 'old', start: 7, end: 7, lines: ['return cache.get(key)'], scope: 'all', at: expect.any(String) })
+    for (const bad of [
+      { file: 'src/a.ts', line: 0, body: 'x' }, { file: 'src/a.ts', line: 1.5, body: 'x' }, { file: '', line: 1, body: 'x' }, { file: 'src/a.ts', line: 1, body: '  ' },
+      { file: 'src/a.ts', line: 1, side: 'both', body: 'x' }, { file: 'src/a.ts', line: 1, side: 'old', body: 'x' }, { file: 'src/a.ts', line: 1, side: 'old', quote: 'y'.repeat(10_001), body: 'x' }
+    ]) {
       expect((await post('/api/workspace/ws-1/comment', bad)).status).toBe(400)
     }
-    expect(api.addComment).toHaveBeenCalledTimes(1)
+    expect(api.addComment).toHaveBeenCalledTimes(2)
     expect((await post('/api/comment/c-mine', { action: 'delete' })).status).toBe(200)
     expect(api.deleteComment).toHaveBeenCalledWith('c-mine')
     expect((await post('/api/comment/c-agent', { action: 'resolve' })).status).toBe(200)
