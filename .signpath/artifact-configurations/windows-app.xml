@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for Foreman.exe, the application executable, signed before it is packaged into the
+  installer. Its slug in SignPath is the repository variable SIGNPATH_APP_CONFIGURATION_SLUG. SignPath keeps the
+  configuration it uses; this copy is for review, so keep the two the same (see CODE_SIGNING.md).
+
+  The Installers workflow uploads a ZIP holding only Foreman.exe from dist/win-unpacked. Nothing else in the app is
+  Foreman's own build: Electron's DLLs, node-pty, ONNX Runtime and the agents' executables are upstream binaries, which
+  SignPath Foundation's terms forbid signing with its certificate.
+
+  productVersion is the ProductVersion electron-builder writes into Foreman.exe: major.minor.patch.0.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="productVersion" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="Foreman.exe" product-name="Foreman" product-version="${productVersion}">
+      <authenticode-sign hash-algorithm="sha256" description="Foreman" description-url="https://github.com/elite-build/foreman" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

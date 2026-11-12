@@ -4,6 +4,10 @@ name: Release
 # (`gh workflow run release.yml --ref v<version>`). It builds the installers with the Installers workflow (the macOS app
 # signed with the Developer ID certificate and notarized) and attaches them to a draft GitHub release. Drafts are visible only to people with write access; publishing one is a separate, human
 # decision (see "Releases" in docs/maintenance.md).
+#
+# Windows signing is off until the repository variable SIGNPATH_SIGNING is `true` (see CODE_SIGNING.md). Then Foreman.exe
+# and the installer are signed through SignPath, which waits for an approver for each, and verified, or the run fails and
+# no draft is made. Until then the Windows installer is unsigned, as before, and the run says so.
 on:
   workflow_dispatch:
 
@@ -23,6 +27,9 @@ jobs:
     name: Verify tag
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # Read once, so the build and the report on the draft can't disagree about whether Windows was signed.
+    outputs:
+      sign-windows: ${{ vars.SIGNPATH_SIGNING == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,12 +49,17 @@ jobs:
     name: Installers
     needs: verify
     uses: ./.github/workflows/installers.yml
+    # actions: read lets SignPath's connector fetch the unsigned Windows artifacts from this run.
     permissions:
       contents: read
+      actions: read
     # A release's macOS app is always Developer ID signed and notarized: Installers fails rather than build it otherwise.
+    # The Windows app and installer are signed once SignPath is set up and SIGNPATH_SIGNING is `true`.
     with:
       sign-macos: true
+      sign-windows: ${{ needs.verify.outputs.sign-windows == 'true' }}
     secrets:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -57,7 +69,7 @@ jobs:
 
   release:
     name: Draft release
-    needs: installers
+    needs: [verify, installers]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The only job with a write token. It checks nothing out and runs no repository or dependency code.
@@ -90,3 +102,14 @@ jobs:
           case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes \
             --title "Foreman ${TAG#v}" "${prerelease[@]}" -- *
+      # Says plainly which kind of Windows installer the draft carries, so an unsigned one is never taken for signed.
+      - name: Report the Windows signature
+        env:
+          SIGNED: ${{ needs.verify.outputs.sign-windows }}
+        run: |
+          if [ "$SIGNED" = true ]; then
+            echo "The Windows installer and the Foreman.exe inside it were signed through SignPath and verified with SignTool before upload." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::The Windows installer in this draft is not code-signed (SIGNPATH_SIGNING is not true; see CODE_SIGNING.md)."
+            echo "The Windows installer in this draft is **not code-signed**; SmartScreen will warn on first run." >> "$GITHUB_STEP_SUMMARY"
+          fi

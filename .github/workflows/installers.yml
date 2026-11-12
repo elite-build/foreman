@@ -8,7 +8,12 @@ name: Installers
 #
 # macOS: with sign-macos the app is signed with the Developer ID certificate, notarized and stapled, and the run fails
 # rather than produce anything less (see "macOS signing and notarization" in docs/maintenance.md). Without it the app is
-# ad-hoc signed and not notarized, as a test build. Windows is unsigned either way and never sees the Apple secrets.
+# ad-hoc signed and not notarized, as a test build. The Windows build never sees the Apple secrets.
+#
+# Windows: with sign-windows, Foreman.exe and then the installer are Authenticode signed through SignPath, each signing
+# request waiting for an approver in SignPath, and checked with SignTool, and the run fails rather than produce anything
+# less (see CODE_SIGNING.md). Without it the Windows installer is unsigned, as it has always been. The macOS build never
+# sees the SignPath token.
 on:
   workflow_dispatch:
     inputs:
@@ -16,12 +21,21 @@ on:
         description: Sign and notarize the macOS app (uses the Apple signing secrets)
         type: boolean
         default: false
+      sign-windows:
+        description: Sign the Windows app and installer through SignPath (uses the SignPath token; each request needs an approver)
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       sign-macos:
         type: boolean
         default: false
+      sign-windows:
+        type: boolean
+        default: false
     secrets:
+      SIGNPATH_API_TOKEN:
+        required: false
       CSC_LINK:
         required: false
       CSC_KEY_PASSWORD:
@@ -46,8 +60,16 @@ jobs:
   package:
     name: Package / ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
-    # Notarization uploads the app to Apple and waits for its verdict, usually minutes but sometimes much longer.
-    timeout-minutes: ${{ matrix.timeout }}
+    # Notarization uploads the app to Apple and waits for its verdict, usually minutes but sometimes much longer. A signed
+    # Windows build waits for a person to approve two signing requests in SignPath.
+    timeout-minutes: ${{ (matrix.platform == 'Windows' && inputs.sign-windows) && 180 || matrix.timeout }}
+    # SignPath's connector reads this run's job details and downloads the unsigned artifact with the job's token.
+    permissions:
+      contents: read
+      actions: read
+    env:
+      # The common name in the certificate SignPath Foundation signs with; a signed Windows build must carry it.
+      SIGNPATH_PUBLISHER: SignPath Foundation
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +84,34 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '24'
+      # Signed Windows build. Missing SignPath configuration fails here, before anything is built. The token itself stays
+      # out of this step: only whether it is set is passed in.
+      - name: Check the SignPath configuration
+        id: signpath
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        env:
+          HAS_SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_APP_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_APP_CONFIGURATION_SLUG }}
+          SIGNPATH_INSTALLER_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_INSTALLER_CONFIGURATION_SLUG }}
+        run: |
+          missing=()
+          [ "$HAS_SIGNPATH_API_TOKEN" = true ] || missing+=("secret SIGNPATH_API_TOKEN")
+          for name in SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG SIGNPATH_APP_CONFIGURATION_SLUG SIGNPATH_INSTALLER_CONFIGURATION_SLUG; do
+            [ -n "${!name:-}" ] || missing+=("variable $name")
+          done
+          [ ${#missing[@]} -eq 0 ] || { echo "::error::A signed Windows build needs these repository settings, which are missing or empty: ${missing[*]}"; exit 1; }
+          # SignPath's metadata restrictions check each file's ProductVersion. electron-builder writes Foreman.exe's as
+          # major.minor.patch.0 (AppInfo.getVersionInWeirdWindowsForm; GitHub Actions sets none of the build-number
+          # variables it reads) and the installer's as package.json's version.
+          node -e '
+            const version = require("./package.json").version
+            const [major, minor, patch] = version.split(".").map((part) => parseInt(part))
+            require("node:fs").appendFileSync(process.env.GITHUB_OUTPUT,
+              "installer-version=" + version + "\napp-version=" + [major, minor, patch, 0].join(".") + "\n")
+          '
       - run: npm ci --ignore-scripts --no-audit --no-fund
       # Lifecycle scripts stay off for the install; only node-pty's native setup and the repository's own postinstall run.
       - run: npm rebuild node-pty
@@ -71,7 +121,7 @@ jobs:
       # The dist scripts pass --publish never. No signing identity: the macOS app is ad-hoc signed (dist:mac:adhoc) so its
       # signature is valid, but it is not notarized; Windows is unsigned.
       - name: Build installer
-        if: matrix.platform != 'macOS' || !inputs.sign-macos
+        if: (matrix.platform == 'macOS' && !inputs.sign-macos) || (matrix.platform == 'Windows' && !inputs.sign-windows)
         env:
           DIST_SCRIPT: ${{ matrix.script }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -142,6 +192,97 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: bash scripts/verify-mac-release.sh dist "$APPLE_TEAM_ID"
+
+      # Signed Windows build (see CODE_SIGNING.md). SignPath signs only files it fetches from this run's artifacts, so each
+      # file goes up as an artifact, is signed by SignPath once an approver approves the request, and comes back.
+      # Foreman.exe is signed first and put back into the app, then the installer is built from it and signed in turn.
+      # The intermediate artifacts are deliberately not named Foreman-*: the Release workflow attaches every Foreman-*
+      # artifact to the draft release.
+      - name: Build the Windows app
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-vite build && npx electron-builder --win dir --publish never
+      - name: Upload Foreman.exe for signing
+        id: unsigned-app
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-windows-app
+          # A rerun of the failed job uploads it again under the same name.
+          overwrite: true
+          path: dist/win-unpacked/Foreman.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign Foreman.exe with SignPath
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APP_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          parameters: |
+            productVersion: ${{ toJSON(steps.signpath.outputs.app-version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signpath/app
+      - name: Verify the signed Foreman.exe
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-release.ps1 -Publisher "$SIGNPATH_PUBLISHER" -File "$RUNNER_TEMP/signpath/app/Foreman.exe"
+      # Only Foreman.exe changes; electron-builder then packs the app as it is, without touching the executable again.
+      - name: Build the installer from the signed app
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          cp -f -- "$RUNNER_TEMP/signpath/app/Foreman.exe" dist/win-unpacked/Foreman.exe
+          npx electron-builder --win nsis --publish never --prepackaged dist/win-unpacked
+      - name: Upload the installer for signing
+        id: unsigned-installer
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-windows-installer
+          # A rerun of the failed job uploads it again under the same name.
+          overwrite: true
+          path: dist/*Setup*.exe
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Sign the installer with SignPath
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          parameters: |
+            productVersion: ${{ toJSON(steps.signpath.outputs.installer-version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signpath/installer
+      # Signing changed the installer's bytes, so latest.yml and the blockmap electron-builder wrote no longer match it
+      # and installed copies would reject the update.
+      - name: Put the signed installer in place and update latest.yml and the blockmap
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        run: |
+          shopt -s nullglob
+          signed=("$(cygpath -u "$RUNNER_TEMP")"/signpath/installer/*Setup*.exe)
+          unsigned=(dist/*Setup*.exe)
+          [ ${#signed[@]} -eq 1 ] && [ ${#unsigned[@]} -eq 1 ] && [ "$(basename "${signed[0]}")" = "$(basename "${unsigned[0]}")" ] \
+            || { echo "::error::Expected SignPath to return the one installer that was sent."; ls -la "$RUNNER_TEMP/signpath/installer" dist; exit 1; }
+          cp -f -- "${signed[0]}" "${unsigned[0]}"
+          node scripts/windows-update-feed.mjs dist
+      # The installer, the Foreman.exe inside it (same certificate) and latest.yml, before anything is uploaded.
+      - name: Verify the signed installer and update feed
+        if: matrix.platform == 'Windows' && inputs.sign-windows
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-release.ps1 -Publisher "$SIGNPATH_PUBLISHER" -Folder dist
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -49,7 +49,8 @@ Foreman also has checkpoints you can rewind to, terminals and run scripts, file 
 Download Foreman from the [latest release](https://github.com/elite-build/foreman/releases/latest): the `.dmg` for macOS on Apple Silicon, or `Foreman-Setup-<version>.exe` for Windows. It's an ordinary desktop app; you don't need Node.js or a checkout to run it.
 
 - The macOS app is signed and notarized, so it opens without a warning.
-- The Windows installer isn't signed yet, so SmartScreen warns on first run (**More info → Run anyway**). Foreman has been verified on macOS so far; see [Windows](docs/windows.md) for what still needs checking there.
+- The Windows installer isn't signed yet, so SmartScreen warns on first run (**More info → Run anyway**). Foreman has applied to SignPath Foundation's open-source code signing programme; see the [code signing policy](CODE_SIGNING.md). Foreman has been verified on macOS so far; see [Windows](docs/windows.md) for what still needs checking there.
+- Each release lists the SHA-256 checksum of every file in `SHA256SUMS.txt`. The [code signing policy](CODE_SIGNING.md#verifying-a-download) explains how to check a download against it.
 
 You'll also need:
 
@@ -70,7 +71,11 @@ npm run dev        # or: npm run dev demo
 
 `npm run dev demo` opens the app on demo data, with no network and no agent login: two repositories, three workspaces with chats and diffs, and a flow run you can watch stop at its gate. `npm run dev demo reset` starts it again from scratch. Set `FOREMAN_DATA_DIR=/some/folder` to keep development state apart from an installed Foreman, and run `npm link` after `npm run build` to put `foreman` on your PATH from the checkout. If `npm run dev` says Electron failed to install, run `node node_modules/electron/install.js`.
 
-`npm test`, `npm run typecheck` and `npm run build` are the checks; `npm run dist:mac` / `npm run dist:win` build an installer into `dist/`. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for the rest, and [docs/maintenance.md](docs/maintenance.md#releases) for releases.
+`npm test`, `npm run typecheck` and `npm run build` are the checks; `npm run dist:mac` / `npm run dist:win` build an installer into `dist/`. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for the rest.
+
+### Releases
+
+Releases are built by GitHub Actions from a version tag on `main`, never on a developer's computer. A maintainer bumps the version through a pull request and tags the merged commit. Then the manual **Release** workflow builds the macOS and Windows installers on GitHub-hosted runners: the macOS app is signed and notarized by Apple, and the Windows installer is signed through SignPath once that is set up. The workflow attaches the installers, the update files and `SHA256SUMS.txt` to a draft GitHub release. A maintainer reviews the draft and publishes it. [Releases](docs/maintenance.md#releases) has the steps, and the [code signing policy](CODE_SIGNING.md) covers signing.
 
 ### Updates
 
@@ -86,6 +91,7 @@ Foreman installs updates itself on Windows, and on macOS only when the app is si
 - [Command line reference](docs/cli.md)
 - [Design system](docs/design-system.md), [accessibility](docs/accessibility.md) and [performance with many agents](docs/performance.md)
 - [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development conventions
+- [Code signing policy](CODE_SIGNING.md) and [security](SECURITY.md)
 
 ## License
 
