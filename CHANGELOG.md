@@ -2,6 +2,56 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.22 (2026-11-12)
+
+### Added
+
+- **Accounts** in Settings → Agents for Claude Code, Codex and Cursor: more than one account per agent (such as work and personal), each with its own sign-in, config folder and key, chosen in the model picker's **Account** row, with a rule for whether a chat may move between accounts. ([#161](https://github.com/elite-build/foreman/pull/161))
+- **Settings → Agents** shows each agent's capabilities: what works, what works another way, what isn't offered, and who enforces its permissions. ([#173](https://github.com/elite-build/foreman/pull/173))
+- **Usage → Limits** shows each account's usage windows. A chat that hits a limit waits and resumes by itself when the limit resets, and can **Continue on another account**. ([#173](https://github.com/elite-build/foreman/pull/173))
+- Switching agent or account in a chat shows **What Codex received** (or another agent's name), and agents can read the turns that were left out. ([#173](https://github.com/elite-build/foreman/pull/173))
+- Subagents appear under their turn with their own **Stop**, and their approvals say which subagent asked. ([#173](https://github.com/elite-build/foreman/pull/173))
+- **Codex** can plan: turn on **Plan**, review its plan, and it carries on to implement it once you approve. ([#162](https://github.com/elite-build/foreman/pull/162))
+- Messages you send while **Codex** works now reach it in the running turn, instead of waiting for it to finish. ([#162](https://github.com/elite-build/foreman/pull/162))
+- **Sign in with ChatGPT** in Settings › Agents › Codex signs in through the browser; the terminal stays as **Use a terminal instead**. ([#162](https://github.com/elite-build/foreman/pull/162))
+- Codex chats can be forked, rewound, compacted, and given a goal. ([#173](https://github.com/elite-build/foreman/pull/173))
+- Claude Code and Codex sessions on this computer can sign in to Foreman over MCP and start and message work, wait for turns and answer their workers' questions, at an access level you choose when you approve them in **Settings → Data & devices → Agents on this computer**. ([#170](https://github.com/elite-build/foreman/pull/170))
+- An outside agent at **Auto** or **Never ask** can propose a schedule, which waits in **Automations** until you approve it. ([#170](https://github.com/elite-build/foreman/pull/170))
+- `foreman service install` starts Foreman with no window whenever you log in, so schedules, flows and phones keep working without opening the app; `foreman service` and `foreman service uninstall` show and remove it, and `foreman service restart` stops it and starts it again, then waits for it to answer (`--force` restarts even with agents running). ([#167](https://github.com/elite-build/foreman/pull/167), [#169](https://github.com/elite-build/foreman/pull/169))
+- Foreman started by the background service installs a downloaded update by itself once nothing is running and no window is open, then starts again in the background. It copies your data aside first: if the new version can't open it and start, your data is put back as it was, `foreman service` says how the last update went, and a version that failed isn't installed by itself again. ([#167](https://github.com/elite-build/foreman/pull/167), [#169](https://github.com/elite-build/foreman/pull/169))
+- Run Foreman without a window with `--headless`, or keep it running in the tray after the last window closes with **Keep running without a window**. ([#163](https://github.com/elite-build/foreman/pull/163))
+- Open the whole Foreman in a browser at `/app` on the phone's address, signed in from the phone dialog's **Browser** choice or `foreman phone link --browser`. ([#163](https://github.com/elite-build/foreman/pull/163))
+- Pairing a phone now chooses what it may do: **Watch**, **Operate** or **Full control**. ([#163](https://github.com/elite-build/foreman/pull/163))
+- `foreman phone` signs phones and browsers in from a terminal: `status`, `link`, `pending`, `approve`, `deny`, `revoke`. ([#163](https://github.com/elite-build/foreman/pull/163))
+- The phone updates live as agents work instead of refreshing every few seconds, shows a reply as it is written, and says when it is reconnecting or has been signed out. ([#163](https://github.com/elite-build/foreman/pull/163))
+- A paired phone can **Steer** a running turn or **Queue** a message, and **Send now** or **Delete** queued messages. ([#166](https://github.com/elite-build/foreman/pull/166))
+- A paired phone can comment on a line in **Changes**, a removed line too (the comment quotes it for the agent), delete its comments and **Resolve** the agent's. The comments go with the next message. ([#166](https://github.com/elite-build/foreman/pull/166), [#168](https://github.com/elite-build/foreman/pull/168))
+- A paired phone has a read-only **Terminal** tab that follows the workspace's terminals and run scripts as they print. ([#166](https://github.com/elite-build/foreman/pull/166))
+- The phone's workspace menu shows how full the chat's context is, and the turns, agent time and cost of the chat and the workspace. ([#166](https://github.com/elite-build/foreman/pull/166))
+- After a usage limit, a missed resume on the phone offers **Resume now** and **Dismiss**. ([#166](https://github.com/elite-build/foreman/pull/166))
+
+### Changed
+
+- With **Codex tool approvals** set to **Sandboxed**, Codex asks before leaving its sandbox instead of being stopped there. ([#162](https://github.com/elite-build/foreman/pull/162))
+- Cursor, OpenCode and chat agents can **Interrupt and send** a follow-up, and their questions and terminal commands appear in the chat. ([#173](https://github.com/elite-build/foreman/pull/173))
+- An agent that fails to start says why in one sentence, and Settings shows whether its version was tested, with **Update**. ([#173](https://github.com/elite-build/foreman/pull/173))
+- A phone's **Terminal** tab shows each terminal as its tab on the computer does, so progress bars, Windows terminal repaints and full-screen programs such as `less` read correctly. ([#168](https://github.com/elite-build/foreman/pull/168))
+
+### Fixed
+
+- Rewinding a chat on Cursor, OpenCode or a chat agent keeps the conversation up to that point instead of starting with no history. ([#173](https://github.com/elite-build/foreman/pull/173))
+- While set to **Steer**, a phone no longer says your diff comments go with the message; they wait for the next turn. ([#168](https://github.com/elite-build/foreman/pull/168))
+
+### Security
+
+- Pairing links and codes are shown only to devices with full control. ([#163](https://github.com/elite-build/foreman/pull/163))
+
+### Development
+
+- Adapter tests replay recorded agent traffic (`npm run record:agent`), and model-facing text has hand-run evals (`npm run evals`). ([#173](https://github.com/elite-build/foreman/pull/173))
+- The Windows release build can be signed through SignPath Foundation once Foreman is approved; until then the Windows installer stays unsigned, and **CODE_SIGNING.md** explains the policy and how to verify a download. ([#175](https://github.com/elite-build/foreman/pull/175))
+- `npm run check:security` passes again: it no longer flags the recorded agent fixtures' message IDs or the sanitizer test's dummy JWT. The persona template test passes on Windows checkouts that use CRLF line endings. ([#176](https://github.com/elite-build/foreman/pull/176))
+
 ## 1.0.21 (2026-11-09)
 
 ### Added
