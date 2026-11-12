@@ -56,6 +56,13 @@ paths = ['''(?:^|/)src/renderer/src/shortcuts\.ts$''']
 regexTarget = "secret"
 regexes = ['''^ctrl\+shift\+KeyO$''']
 
+[[rules.allowlists]]
+description = "Anthropic message ID (api_message_id) in recorded agent traffic, an identifier rather than a credential"
+condition = "AND"
+paths = ['''(?:^|/)src/main/agents/claude/fixtures/[^/]+\.jsonl$''']
+regexTarget = "secret"
+regexes = ['''^msg_[A-Za-z0-9]{20,}$''']
+
 [[rules]]
 id = "aws-access-token"
 [[rules.allowlists]]
@@ -73,3 +80,10 @@ condition = "AND"
 paths = ['''(?:^|/)tests/reportProblem\.test\.ts$''']
 regexTarget = "secret"
 regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U$''']
+
+[[rules.allowlists]]
+description = "Dummy JWT the fixture sanitizer test redacts; its signature is filler, so it never verifies"
+condition = "AND"
+paths = ['''(?:^|/)tests/agentFixtures\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTYifQ\.abcdefghijk$''']
