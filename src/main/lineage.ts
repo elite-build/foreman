@@ -34,7 +34,8 @@ export async function lineageInput(src: LineageSources, workspaceId: string): Pr
   const read = async (id: string) => {
     if (chats.has(id)) return
     const items = await src.readChat(id).catch(() => [] as ChatItem[])
-    chats.set(id, items.filter((i) => KEPT.has(i.kind)).slice(-MAX_ITEMS))
+    // A notice that holds the record of what a switch gave the next agent is kept too (it is the switch edge).
+    chats.set(id, items.filter((i) => KEPT.has(i.kind) || (i.kind === 'notice' && Boolean(i.switched?.handOff ?? i.handOff))).slice(-MAX_ITEMS))
   }
   await Promise.all(own.map((s) => read(s.id)))
 

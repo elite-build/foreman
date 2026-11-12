@@ -5,7 +5,7 @@ import { defaultRepoSettings } from '../src/main/repoSettings'
 import { cloudSettings } from '../src/shared/cloud'
 import { SETTINGS_SCHEMA, STRUCTURED_SETTINGS, NOT_A_SETTING } from '../src/shared/settingsSchema'
 import { REPO_SETTINGS_SCHEMA, STRUCTURED_REPO_SETTINGS } from '../src/shared/repoSettingsSchema'
-import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS } from '../src/shared/foremanTools'
+import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, READ_CHAT_HISTORY_TOOL } from '../src/shared/foremanTools'
 import { DELEGATION_TOOLS } from '../src/shared/foremanDelegation'
 import { CLI_DEDICATED_TOOLS, FOREMAN_CLI_TOOL, MCP_CLI_READ_COMMANDS } from '../src/shared/foremanCli'
 import { READABLE_SETTINGS } from '../src/shared/assistant'
@@ -57,7 +57,7 @@ describe('MCP settings coverage review', () => {
   it('requires a settings coverage review when the MCP tool inventory changes', () => {
     // New settings tools must replace the exclusions above with supported routes
     // and handler/transport tests; updating a snapshot alone does not add support.
-    expect(Object.entries({ ...FOREMAN_TOOLS, ...DELEGATION_TOOLS, [FOREMAN_CLI_TOOL.name]: FOREMAN_CLI_TOOL, [FLOW_DECIDE_TOOL.name]: FLOW_DECIDE_TOOL })
+    expect(Object.entries({ ...FOREMAN_TOOLS, ...DELEGATION_TOOLS, [FOREMAN_CLI_TOOL.name]: FOREMAN_CLI_TOOL, [FLOW_DECIDE_TOOL.name]: FLOW_DECIDE_TOOL, [READ_CHAT_HISTORY_TOOL.name]: READ_CHAT_HISTORY_TOOL })
       .map(([name, tool]) => ({ name, readOnly: tool.readOnly, description: tool.description }))
       .sort((a, b) => a.name.localeCompare(b.name))).toMatchSnapshot()
   })

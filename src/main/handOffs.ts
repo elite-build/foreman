@@ -2,6 +2,7 @@
 // model, or a continuation. The dialog previews what would be sent; Start
 // builds it again from the source as it is now and refuses if it differs.
 import { createHash } from 'node:crypto'
+import { staticCapabilities } from '../shared/agentCatalog'
 import { modelInfo } from '../shared/agents'
 import {
   assembleHandOff,
@@ -156,7 +157,7 @@ export class HandOffService {
     const attachments: Attachment[] = []
     if (request.kind === 'review') {
       const prompts = this.workspaces.settingsFor(ws.repoId).prompts
-      const instructions = reviewInstructions({ base: ws.baseBranch, customPrompt: prompts.codeReview, hasDiffTool: request.model.agent === 'claude' })
+      const instructions = reviewInstructions({ base: ws.baseBranch, customPrompt: prompts.codeReview, hasDiffTool: staticCapabilities(request.model.agent)?.features.diffTool === true })
       attachments.push(await attachFromData(workspaceTarget(ws, { wake: true }), 'Review request.md', toBase64(instructions)))
     }
     // A cloud workspace's go into its sandbox.

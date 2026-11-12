@@ -68,6 +68,25 @@ afterEach(() => {
 })
 
 describe('the Lineage tab', () => {
+  it('opens the record of what the next agent received from a switch edge, in the same dialog as the chat’s notice', async () => {
+    const user = userEvent.setup()
+    const handOff = { turnId: 'b1', from: { agent: 'claude' as const, model: 'claude-opus-5-5' }, to: { agent: 'codex' as const, model: 'gpt-6.1-sol' }, strategy: 'prompt-full' as const, budgetTokens: 16_000, usedTokens: 900, full: ['a1'], condensed: [], omitted: [], turns: [{ id: 'a1', n: 1, agent: 'claude' as const, request: 'Fix it', tokens: 900 }] }
+    const graph = lineageGraph({ workspace: ws, sessions: [tab('s1', 'Login bug')], chats: new Map([['s1', [
+      { kind: 'user', id: 'user:a1', turnId: 'a1', text: 'Fix it', at: '2026-11-05T10:00:00.000Z' }, { kind: 'turn-end', id: 'e1', turnId: 'a1', outcome: 'completed', durationMs: 60_000 },
+      { kind: 'notice', id: 'sw', level: 'info', text: 'Switched', switched: { from: 'claude', to: 'codex', model: 'gpt-6.1-sol', carried: 'history', handOff } },
+      { kind: 'user', id: 'user:b1', turnId: 'b1', text: 'Now test it', at: '2026-11-05T10:05:00.000Z' }, { kind: 'turn-end', id: 'e2', turnId: 'b1', outcome: 'completed', durationMs: 60_000 }
+    ]]]) }, 'run')
+    fakeApi.workspaceLineage = vi.fn(async () => ({ graph, outline: lineageOutline(graph), mermaid: flowMermaid(graph), gaps: graph.gaps }))
+    render(<LineagePanel workspaceId="w1" />)
+    const outline = await screen.findByRole('list', { name: 'What happened, in order' })
+    await user.click(within(outline).getByRole('button', { name: /^What Codex received/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'What Codex received' })
+    expect(within(dialog).getByText('prompt-full')).toBeTruthy()
+    // Closing it leaves the tab as it was.
+    await user.click(within(dialog).getAllByRole('button', { name: 'Close' }).at(-1)!)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('draws the run lens, lists the outline with its tags, and opens what an entry stands for', async () => {
     const user = userEvent.setup()
     render(<LineagePanel workspaceId="w1" />)

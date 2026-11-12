@@ -10,7 +10,8 @@ import path from 'node:path'
 import QRCode from 'qrcode'
 import webpush from 'web-push'
 import { WebSocketServer } from 'ws'
-import { AGENTS } from '../shared/agents'
+import { capabilitiesFor, interruptsToSteer, type AgentCapabilities } from '../shared/agentCapabilities'
+import { staticCapabilitiesView } from '../shared/agentCatalog'
 import { ApiRefused } from '../shared/api'
 import { triageAll } from '../shared/triage'
 import { phoneRecent, prGlyph } from '../shared/attention'
@@ -19,6 +20,7 @@ import { ACCESS_SCOPES, deviceSession, MOBILE_ACCESS, type MobileAccess, type Mo
 import type { Api, AppSnapshot, ApprovalRequest, ApprovalResponse, CheckConsentItem, DiffSelection, MainEvent } from '../shared/types'
 import type { ApiDispatcher } from './api/dispatch'
 import { ApiSocketServer, MAX_INBOUND_BYTES, type ApiSocketDeps } from './api/socket'
+import { continueOptions } from '../shared/limits'
 import { mainT } from './i18n'
 import { lanAddresses, onSameLan } from './lan'
 import type { Store } from './store'
@@ -457,6 +459,14 @@ export class MobileService {
     const approvals = this.deps.approvals()
     const waiting = new Set(approvals.map((a) => a.sessionId))
     const rows = triageAll({ snapshot, approvals, unread: {}, unreadSessions: {} }, null)
+    // docs/agents.md 2.3: what each agent in use can do, from the same record the window reads (canSteer follows from it).
+    const capabilities = snapshot.agentCapabilities ?? staticCapabilitiesView()
+    const open = snapshot.sessions.filter((s) => !s.closedAt)
+    const agentCapabilities: Record<string, AgentCapabilities> = {}
+    for (const s of open) {
+      const record = capabilitiesFor(capabilities, s.agent)
+      if (record) agentCapabilities[s.agent] = record
+    }
     const shown = new Set(rows.map((t) => t.ws.id))
     return {
       repos: snapshot.repos.map((r) => ({ id: r.id, name: r.name })),
@@ -466,8 +476,11 @@ export class MobileService {
         const stalledSince = stalledSession?.lastActivityAt ?? stalledSession?.turnStartedAt
         return { id: t.ws.id, repoId: t.ws.repoId, name: t.ws.name, branch: t.ws.branch, state: t.ws.state, bucket: stalled && t.bucket === 'working' ? 'attention' : t.bucket, label: stalled && t.bucket === 'working' ? 'Possible stall' : t.label, detail: stalled && t.bucket === 'working' ? `${stalledSession!.agent} · no activity for ${Math.floor((Date.now() - new Date(stalledSince!).getTime()) / 60_000)} min` : t.detail, sessionId: stalledSession?.id ?? t.sessionId, facts: t.facts, stalled, stalledSince, since: t.since, pr: this.prGlyph(t.ws, snapshot), checks: t.ws.checks ? { running: t.ws.checks.running, stale: t.ws.checks.stale, results: t.ws.checks.results.map((r) => ({ name: r.name, status: r.status })) } : null }
       }),
+      agentCapabilities,
       // #127: whether a running turn takes a message now (steering), what waits in the queue, and how full the context is.
-      sessions: snapshot.sessions.filter((s) => !s.closedAt).map((s) => ({ id: s.id, workspaceId: s.workspaceId, title: s.title, agent: s.agent, model: s.model, status: s.status, waitingForSlot: s.waitingForSlot, turnStartedAt: s.turnStartedAt, lastActivityAt: s.lastActivityAt, lastTurn: s.lastTurn, queued: s.queue.length, queue: s.queue.map((q) => ({ id: q.id, text: q.text })), canSteer: AGENTS[s.agent]?.supportsSteering === true, context: s.contextUsage ? { used: s.contextUsage.used, limit: s.contextUsage.limit } : null, limitResume: s.limitResume })),
+      sessions: open.map((s) => ({ id: s.id, workspaceId: s.workspaceId, title: s.title, agent: s.agent, model: s.model, status: s.status, waitingForSlot: s.waitingForSlot, turnStartedAt: s.turnStartedAt, lastActivityAt: s.lastActivityAt, lastTurn: s.lastTurn, queued: s.queue.length, queue: s.queue.map((q) => ({ id: q.id, text: q.text })), canSteer: capabilitiesFor(capabilities, s.agent, s.instanceId)?.turns.steer.level === 'native', canInterrupt: interruptsToSteer(capabilitiesFor(capabilities, s.agent, s.instanceId)), context: s.contextUsage ? { used: s.contextUsage.used, limit: s.contextUsage.limit } : null, limitResume: s.limitResume, ...(s.lastTurn?.outcome === 'limit' && !s.limitHeld ? { continueOn: continueOptions(s, snapshot.settings, snapshot.limits, Date.now(), 'Default') } : {}) })),
+      // Docs/agents.md 7.1: what each account reported about its usage windows, as the window has it.
+      limits: snapshot.limits ?? [],
       approvals,
       templates: snapshot.settings.promptTemplates.map((t) => ({ id: t.id, name: t.name, body: t.body })),
       // The window's "Follow-up behavior" setting: what a message sent during a turn does unless the phone says otherwise.
@@ -632,6 +645,11 @@ export class MobileService {
       if (body.cancel === true) await this.call(device, 'cancelLimitResume', resumeAt[1])
       // #127: a missed resume's "Resume now", as the window's card has it.
       else if (body.now === true) await this.call(device, 'resumeLimitNow', resumeAt[1])
+      // Docs/agents.md 7.2: continue a paused chat on another account of its agent (null: the default account); never automatic.
+      else if ('continueOn' in body) {
+        if (body.continueOn !== null && typeof body.continueOn !== 'string') throw new HttpError(400, 'Which account?')
+        await this.call(device, 'continueOnAccount', resumeAt[1], body.continueOn)
+      }
       else {
         if (typeof body.turnId !== 'string') throw new HttpError(400, 'Which turn?')
         await this.call(device, 'armLimitResume', resumeAt[1], body.turnId)

@@ -1,0 +1,28 @@
+/* The agent's goal above the composer: layout only; the card, status and button come from the design system. */
+.goal-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 10px 12px;
+}
+.goal-card-icon {
+  flex: none;
+  margin-top: 2px;
+}
+.goal-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.goal-card-objective {
+  overflow-wrap: anywhere;
+}
+.goal-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}

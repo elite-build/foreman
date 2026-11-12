@@ -1,15 +1,17 @@
 // The Foreman assistant: answers "how do I…" questions about Foreman and points at the
 // right setting. It runs on the user's default agent (loadout slot 1). For now only Claude
 // Code can run it, because only Claude's turn can be locked to the assistant's own tools.
-import { catalogAgent, isAgentEnabled } from './agentCatalog'
-import { DEFAULT_MODEL, type AgentKind, type EffortLevel } from './agents'
+import { catalogAgent, DEFAULT_AGENT, isAgentEnabled, staticCapabilities } from './agentCatalog'
+import { chatAgentKinds, DEFAULT_MODEL, type AgentKind, type EffortLevel } from './agents'
 import { SETTINGS, type SettingEntry } from './settingsRegistry'
 import type { AgentStatus, ChatItem, Settings } from './types'
 import type { FlowChange } from './flowDiff'
 import type { FlowSource } from './flows'
 
-/** The agents that can run the assistant. Others need an adapter that proves tool isolation first. */
-export const ASSISTANT_AGENTS: readonly AgentKind[] = ['claude']
+/** The agents that can run the assistant (`features.assistant`). Others need an adapter that proves tool isolation first. */
+export function assistantAgents(): AgentKind[] {
+  return chatAgentKinds().filter((a) => staticCapabilities(a)?.features.assistant === true)
+}
 
 /**
  * Whether the assistant can run, and on what.
@@ -53,11 +55,12 @@ export function assistantGate(input: GateInput): AssistantGate {
   if (!settings.assistantEnabled) return { state: 'off' }
   if (settings.privacyMode) return { state: 'privacy' }
   if (!statuses) return { state: 'checking' }
-  const agent = settings.loadouts[0]?.agent ?? 'claude'
+  const agent = settings.loadouts[0]?.agent ?? DEFAULT_AGENT
   const anyReady = Object.keys(statuses).some((id) => ready(id, input))
   if (!anyReady) return { state: 'none' }
-  if (ASSISTANT_AGENTS.includes(agent)) return ready(agent, input) ? runOn(agent, input) : { state: 'signed-out', agent }
-  const alternative = ASSISTANT_AGENTS.find((a) => ready(a, input))
+  const capable = assistantAgents()
+  if (capable.includes(agent)) return ready(agent, input) ? runOn(agent, input) : { state: 'signed-out', agent }
+  const alternative = capable.find((a) => ready(a, input))
   if (alternative && input.override === alternative) return runOn(alternative, input, true)
   return { state: 'unsupported', agent, ...(alternative ? { alternative } : {}) }
 }
@@ -138,7 +141,7 @@ export const READABLE_SETTINGS = [
   'claudeOutputStyle', 'defaultPlanMode', 'branchPrefixType', 'autoRenameBranches', 'renameWorkspaceWithBranch',
   'deleteBranchOnArchive', 'archiveOnMerge', 'archiveCleanupDays', 'automerge', 'optionalChecksBlock', 'pushAutoSetupRemote', 'openPrIn', 'stackedPrs',
   'claudeAuth', 'codexAuth', 'chromeMode', 'autoPermissionMode', 'autoRunAfterSetup', 'forkToNewTab', 'showResourceUsage', 'flows', 'diagnostics',
-  'terminalScrollbackMb', 'terminalCopyOnSelect', 'terminalScreenReader', 'restoreTerminals', 'keepAgentsRunning', 'maxRunningAgents', 'backgroundWaitMinutes', 'keepClearedHistory', 'dailyBackup',
+  'terminalScrollbackMb', 'terminalCopyOnSelect', 'terminalScreenReader', 'restoreTerminals', 'keepAgentsRunning', 'maxRunningAgents', 'backgroundWaitMinutes', 'idleCompactTokens', 'keepClearedHistory', 'dailyBackup',
   'acceptHandOffs', 'mobileEnabled', 'keepRunning', 'assistantEnabled'
 ] as const satisfies readonly (keyof Settings)[]
 

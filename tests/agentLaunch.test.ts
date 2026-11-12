@@ -14,7 +14,7 @@ import { catalogAgent, CHAT_AGENT_IDS, type TerminalAgentRun } from '../src/shar
 import type { ShellLaunch } from '../src/shared/shells'
 import type { Settings } from '../src/shared/types'
 import { createAcpDriver, type AcpConnector } from '../src/main/agents/acp'
-import { acpCommand, acpConfigFor, acpReported, catalogDriver, catalogLoginCommand, executablePathFor, type LaunchEnv } from '../src/main/agents/catalogDrivers'
+import { acpCommand, acpConfigFor, acpReported, catalogDriver, catalogLoginCommand, executablePathFor, type LaunchEnv } from '../src/main/agents/acp/catalogDrivers'
 import { driverFor } from '../src/main/agents/registry'
 import type { TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import { git, gitOut } from '../src/main/git'

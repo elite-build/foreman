@@ -2,6 +2,8 @@
 // Claude counts `auth status`, a provider or a key; Codex counts a saved login file or a key; Cursor's key is
 // saved but never tested; OpenCode is only known to be installed. Pure, so the picker, New workspace, the
 // in-chat sign-in card and the first-run page all say the same thing.
+import { AGENT_CATALOG, catalogAgent } from './agentCatalog'
+import type { AgentKind } from './agents'
 import type { AgentStatus } from './types'
 
 export type AgentEvidenceKey =
@@ -38,20 +40,22 @@ function result(ready: boolean, evidenceKey: AgentEvidenceKey, needsSignIn = fal
   return { ready, evidenceKey, needsSignIn, attention: needsSignIn || evidenceKey === 'agentReadiness.keySavedUntested' || evidenceKey === 'agentReadiness.notInstalled' || evidenceKey === 'agentReadiness.noKey' }
 }
 
+/** The agents whose sign-in the main process can check from outside a turn: the ones judged by their own status check (`readiness: 'status'`). */
+export const STATUS_CHECKED_AGENTS: AgentKind[] = AGENT_CATALOG.filter((a) => a.readiness === 'status').map((a) => a.id as AgentKind)
+
 /** Whether the agent looks signed in, and the words for what that is based on. */
 export function agentReadiness(agent: string, input: ReadinessInput): AgentReadiness {
   const { status, keySaved, installed } = input
-  switch (agent) {
-    case 'claude':
-    case 'codex': {
+  switch (catalogAgent(agent)?.readiness) {
+    case 'status': {
       if (!status) return { ready: false, evidenceKey: 'agentReadiness.checking', needsSignIn: false, attention: false }
       if (!status.installed) return result(false, 'agentReadiness.notInstalled')
       if (!status.ready) return result(false, 'agentReadiness.notSignedIn', true)
       return result(true, status.method === 'API key' ? 'agentReadiness.apiKeySaved' : 'agentReadiness.accountFound')
     }
-    case 'cursor':
+    case 'key':
       return keySaved ? result(true, 'agentReadiness.keySavedUntested') : result(false, 'agentReadiness.noKey')
-    case 'opencode': {
+    case 'installed': {
       const found = status ? status.installed : Boolean(installed)
       return found ? result(true, 'agentReadiness.installed') : result(false, 'agentReadiness.notInstalled')
     }

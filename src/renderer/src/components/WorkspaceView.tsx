@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { compactModelLabel, modelTooltip } from '../../../shared/handOff'
 import { forkTabTitle } from '../../../shared/fork'
 import { usageLines } from '../../../shared/usage'
+import { clockTime } from '../../../shared/usageLimit'
 import type { PlainKey } from '../../../shared/i18n'
 import type { DiffFile, DiffScope, Session, Workspace, WorkspaceDiff, WorkspaceUsage } from '../../../shared/types'
 import {
@@ -306,6 +307,13 @@ export function ChatTab({
   const t = useT()
   const unread = useStore((s) => Boolean(s.unreadSessions[session.id]))
   const waiting = useStore((s) => s.approvals.some((a) => a.sessionId === session.id))
+  // Docs/agents.md 7.2: a chat paused at a usage limit says so (and when it resets, when it's known), in the tab's name and tooltip.
+  const pausedWord =
+    session.lastTurn?.outcome === 'limit' && session.status === 'idle'
+      ? session.lastTurn.resetAt
+        ? t('usageLimit.paused.title', { time: clockTime(Date.parse(session.lastTurn.resetAt), t.locale) })
+        : t('usageLimit.paused.titleUnknown')
+      : null
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(session.title ?? '')
   const [usage, setUsage] = useState<WorkspaceUsage | null>(null)
@@ -313,6 +321,7 @@ export function ChatTab({
   const loadUsage = () => void api.workspaceUsage(session.workspaceId).then(setUsage, () => undefined)
   const tip = [
     session.title || t('workspaceView.tab.newChat'),
+    pausedWord,
     showModel && modelTooltip(session.agent, session.model, session.effort, session.fastMode, t),
     usage?.tabs[session.id]?.turns ? t('workspaceView.tab.usageChat', { usage: usageLines(usage.tabs[session.id], formatDuration, t) }) : null,
     usage?.total.turns ? t(usage.total.partial ? 'workspaceView.tab.usageWorkspacePartial' : 'workspaceView.tab.usageWorkspace', { usage: usageLines(usage.total, formatDuration, t) }) : null
@@ -381,6 +390,8 @@ export function ChatTab({
       ) : session.waitingForSlot ? (
         // Its turn waits for an agent slot (Settings → Advanced): a hollow mark and the word, not a colour.
         <Status compact tone="off" label={t('workspaceView.tab.queued')} />
+      ) : pausedWord ? (
+        <Status compact tone="info" label={pausedWord} />
       ) : unread ? (
         <Status compact tone="info" label={t('workspaceView.tab.unread')} />
       ) : (

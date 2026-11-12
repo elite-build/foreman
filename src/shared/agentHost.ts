@@ -2,15 +2,17 @@
 // Which agents it can keep, the menu-bar/tray view while Foreman is closed, Home's
 // "Reconnected to …" line and the chat's "Foreman was closed 12:10–12:52" line.
 // The host itself is src/main/agentHost; nothing here starts or stops a turn.
+import { staticCapabilities } from './agentCatalog'
 import { AGENTS, type AgentKind } from './agents'
 import { createT, type TFunction } from './i18n'
 import type { KeepRunningPlan } from './stopSafely'
+import { isChildItem } from './subagents'
 import type { ChatItem } from './types'
 
 const enT = createT('en')
 
 /**
- * Agents whose turns can run in the background host. Claude Code (the Agent SDK) and Codex (the codex CLI
+ * Whether the agent's turns can run in the background host (`features.keptRunning` of its record). Claude Code (the Agent SDK) and Codex (the codex CLI
  * through its SDK) run one turn per call with no state kept between turns in Foreman's process, so the
  * host can run them as they are. G1: Cursor (its SDK's local agent) and OpenCode (`opencode acp`, started per
  * turn) work the same way, so the host owns their turns too: the Cursor agent and the OpenCode process live in
@@ -18,10 +20,8 @@ const enT = createT('en')
  * from unknown) and Cursor's model list cache. Untested end to end (no Cursor key or OpenCode here).
  * The Chat agents still stop at Quit.
  */
-export const KEPT_AGENTS: readonly AgentKind[] = ['claude', 'codex', 'cursor', 'opencode']
-
 export function keptRunning(agent: AgentKind): boolean {
-  return KEPT_AGENTS.includes(agent)
+  return staticCapabilities(agent)?.features.keptRunning === true
 }
 
 /** A turn the app handed to the host, remembered across a restart so it can be adopted again. */
@@ -133,7 +133,7 @@ export function finishedWhileClosed(
 /** How many steps (tool calls) the agent took in the events replayed after a gap. */
 export function stepsIn(items: ChatItem[], known: ReadonlySet<string> = new Set()): number {
   const ids = new Set<string>()
-  for (const item of items) if (item.kind === 'tool' && !known.has(item.id)) ids.add(item.id)
+  for (const item of items) if (item.kind === 'tool' && !known.has(item.id) && !isChildItem(item)) ids.add(item.id)
   return ids.size
 }
 

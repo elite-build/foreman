@@ -2,11 +2,13 @@ import type { BrowserState } from '../../shared/browser'
 import type { Attachment } from '../../shared/types'
 // Renderer state: the main process pushes snapshots and events, components
 // read slices through useStore.
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import type { AdoptWorktreeOptions, AgentKind, AppSnapshot, ApprovalRequest, ArchiveProgressStep, Bridge, ChatHit, ChatItem, CheckConsentItem, NoteHit, CreateWorkspaceOptions, HandOffKind, MainEvent, PromptTemplate, Session, SessionPatch } from '../../shared/types'
 import { AGENT_ORDER, setModelCatalog, type ModelCatalog } from '../../shared/agents'
 import { pickerAgents } from '../../shared/agentPicker'
-import type { AgentPrefs } from '../../shared/agentCatalog'
+import { waitingOnLimit } from '../../shared/limits'
+import { staticCapabilitiesView, type AgentPrefs } from '../../shared/agentCatalog'
+import { capabilitiesFor, type AgentCapabilities } from '../../shared/agentCapabilities'
 import { chatToMarkdown } from '../../shared/transcript'
 import { chooseStartLoadout } from '../../shared/startModel'
 import { hasNote } from '../../shared/note'
@@ -378,6 +380,15 @@ export function useStore<T>(selector: (s: State) => T): T {
 
 export const getState = () => state
 
+/**
+ * What an agent can do (docs/agents.md, 2.1): its record from the snapshot with what the account declared folded in, or
+ * undefined for an agent with no chats. Before the first snapshot arrives it is the static record.
+ */
+export function useCapabilities(agent: string, instance?: string): AgentCapabilities | undefined {
+  const view = useStore((s) => s.snapshot?.agentCapabilities)
+  return useMemo(() => capabilitiesFor(view ?? staticCapabilitiesView(), agent, instance), [view, agent, instance])
+}
+
 function catalogModels(snapshot: AppSnapshot): ModelCatalog {
   // #22: Chat agents appear once they've been asked for their models.
   const agents = [...new Set([...AGENT_ORDER, ...(Object.keys(snapshot.catalog.agents) as AgentKind[])])]
@@ -560,6 +571,8 @@ function trackUnread(previous: AppSnapshot | null, next: AppSnapshot, browserTab
   for (const session of next.sessions) {
     const before = previous.sessions.find((s) => s.id === session.id)
     if (before?.status !== 'running' || session.status !== 'idle') continue
+    // A tab paused at a usage limit with its resume armed isn't "ready for review": it is waiting for the clock.
+    if (waitingOnLimit(session)) continue
     if (isViewing(session.id, session.workspaceId, browserTabs)) continue
     unreadSessions = { ...unreadSessions, [session.id]: true }
     if (state.selectedWorkspaceId !== session.workspaceId || !document.hasFocus()) {

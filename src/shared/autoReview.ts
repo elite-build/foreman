@@ -5,7 +5,9 @@
 // workspace has been idle, with checks passed (or none configured), a read-only
 // reviewer reads the captured diff once per tree. Its findings are an opinion,
 // marked stale when the files move on, and only ever reach a worker by a click.
-import { AGENTS, modelInfo, type AgentKind, type Loadout } from './agents'
+import type { AgentCapabilities } from './agentCapabilities'
+import { staticCapabilities } from './agentCatalog'
+import { AGENTS, modelInfo, type Loadout } from './agents'
 import { readOnlyEnforcement } from './permissions'
 import { createT, type TFunction } from './i18n'
 import { sensitiveMatches } from './sensitive'
@@ -26,14 +28,14 @@ const KEEP_REVIEWS = 12
 // More than this many findings in one answer is noise, not a review.
 const MAX_FINDINGS = 50
 
-/** Claude Code and Codex only: the agents Foreman can hold to read-only. */
-export function canReview(agent: AgentKind): boolean {
-  return (agent === 'claude' || agent === 'codex') && readOnlyEnforcement(agent) !== null
+/** The agents Foreman can hold to read-only (Claude Code and Codex): a reviewer's record says how (`enforcement.readOnly`). */
+export function canReview(record: Pick<AgentCapabilities, 'enforcement'> | undefined): boolean {
+  return readOnlyEnforcement(record) !== null
 }
 
 /** The reviewer the dialog starts with: Settings → Models → Review model when it can review, else Claude's default. */
 export function defaultReviewer(reviewModel: Loadout | undefined, fallback: Loadout): Loadout {
-  return reviewModel && canReview(reviewModel.agent) ? reviewModel : fallback
+  return reviewModel && canReview(staticCapabilities(reviewModel.agent)) ? reviewModel : fallback
 }
 
 /** "*.md, docs/**" → globs, empty entries dropped. */
@@ -78,8 +80,9 @@ export function sameShown(a: AutoReviewShown, b: AutoReviewShown): boolean {
 
 /** What is wrong with a consent request, or null. */
 export function shownProblem(shown: AutoReviewShown, t: TFunction = enT): string | null {
-  if (!canReview(shown.reviewer.agent)) return t('autoReview.problem.agent', { agent: AGENTS[shown.reviewer.agent]?.label ?? shown.reviewer.agent })
-  if (readOnlyEnforcement(shown.reviewer.agent) !== shown.readOnly) return t('autoReview.problem.readOnly')
+  const record = staticCapabilities(shown.reviewer.agent)
+  if (!canReview(record)) return t('autoReview.problem.agent', { agent: AGENTS[shown.reviewer.agent]?.label ?? shown.reviewer.agent })
+  if (readOnlyEnforcement(record) !== shown.readOnly) return t('autoReview.problem.readOnly')
   if (!shown.reviewer.model.trim()) return t('autoReview.problem.model')
   return null
 }

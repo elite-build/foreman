@@ -146,7 +146,7 @@ These need the owner, not a packaging change made on their behalf:
 3. **Packaging alternative for both.** Without those permissions, stop bundling
    the SDKs: load them from a user-installed location, or install them on first
    use with the user's consent (as the speech model is downloaded). That
-   changes `src/main/agents/claude.ts`, `cursor.ts`, `platform.ts` and
+   changes `src/main/agents/claude/index.ts`, `cursor/index.ts`, `platform.ts` and
    `cursorWorker.ts` and the onboarding flow; it is proposed, not implemented.
 4. **elkjs corresponding source.** The notices name the elkjs 0.9.3 release
    commit, but the EPL object code is GWT-compiled from ELK Java sources whose

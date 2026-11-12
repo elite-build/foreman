@@ -82,7 +82,8 @@ function HomeRow({ t, repoName }: { t: Triage; repoName?: string }) {
   // #11 (via #3): a tab waiting out its usage limit: "Limit reached", then its chat and "resumes at 14:30".
   const limit = t.limitResume
   const limitChat = useStore((s) => (limit ? s.snapshot!.sessions.find((x) => x.id === limit.sessionId)?.title : undefined))
-  const detail = limit ? [limitChat, tr('attention.limit.resumesAtLower', { time: clockTime(Date.parse(limit.resetAt), tr.locale) })].filter(Boolean).join(' · ') : t.detail
+  // The row's label already says "Waiting · resumes at 14:20" (triage); the line under it names the chat and why.
+  const detail = limit ? [limitChat, tr('attention.limit.usageLimit')].filter(Boolean).join(' · ') : t.detail
   // G3 · O10: a kept turn that finished while Foreman was closed says so on its row, until Home's line is dismissed.
   const closedEnd = useStore((s) => finishedWhileClosed(s.snapshot?.reconnected, s.snapshot!.sessions, t.ws.id))
   const closedNote = closedEnd ? tr('keepRunning.home.rowFinished', { time: clockTime(Date.parse(closedEnd), tr.locale) }) : null
@@ -159,7 +160,7 @@ function HomeRow({ t, repoName }: { t: Triage; repoName?: string }) {
       )}
       <Tag tone={PILL_TONE[t.tone ?? ''] ?? 'neutral'} className="home-pill">
         {t.spinning && <Spinner size={11} />}
-        {autoReview?.label ?? (limit ? tr('attention.limit.reached') : (t.label ?? tr('home.row.idle')))}
+        {autoReview?.label ?? t.label ?? tr('home.row.idle')}
       </Tag>
       <span className="home-row-main">
         <span className="home-row-title">

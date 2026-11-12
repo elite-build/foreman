@@ -3,6 +3,7 @@
 // per-repo lists). Hidden only shortens the picker; loadouts, templates and
 // chats that name a hidden model keep it. Models an agent adds later aren't in
 // the set, so they start visible.
+import { catalogAgent } from './agentCatalog'
 import { chatAgentKinds, isSameModel, MODELS, type AgentKind, type Loadout, type ModelInfo } from './agents'
 import type { TemplateStartModel } from './types'
 
@@ -100,7 +101,8 @@ export function knownContextWindow(model: ModelInfo): number | undefined {
   const resolved = model.aliases?.[0]
   const listed = MODELS.find((m) => m.agent === model.agent && (m.id === model.id || m.id === resolved))
   if (listed) return listed.contextWindow
-  if (model.agent === 'claude' && model.id.includes('[1m]')) return 1_000_000
+  const marker = catalogAgent(model.agent)?.models?.millionMarker
+  if (marker && model.id.includes(marker)) return 1_000_000
   return undefined
 }
 

@@ -368,6 +368,40 @@ button.tool-row {
   max-width: none;
   align-self: stretch;
 }
+/* A Task call with Stop (or "Waiting for you") beside its row: the row takes the rest of the line. */
+.tool-line.tool-line-stop > .tool-row {
+  flex: 1 1 0;
+  max-width: none;
+}
+.tool-line-stop > .ui-btn,
+.tool-line-stop > .ui-tag {
+  flex: none;
+}
+/* What a subagent did, in a Tree under its Task call: one row per call, a Task call inside it a branch. */
+.subagent-tree {
+  min-width: 0;
+}
+.subagent-node-chev {
+  flex: none;
+  width: 12px;
+}
+.subagent-node-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-node-state {
+  flex: none;
+}
+.subagent-node-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 .tool-file {
   flex: 0 1 auto;
 }

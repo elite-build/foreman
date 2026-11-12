@@ -778,6 +778,8 @@ export interface Occurrence {
   sessionId?: string
   // A flow schedule's occurrence: the flow run it started, which says how it ends.
   flowRunId?: string
+  // The run's turn hit a usage limit that resets inside its time budget: it waits for the armed resume, until this time.
+  limitUntil?: string
 }
 
 export interface WorkspaceNote {
@@ -953,6 +955,16 @@ export interface ContextBreakdown {
 }
 
 /** One chat tab. Each tab has its own agent conversation. */
+/** What an agent says its goal for a chat is (Codex's `thread/goal`); shown as a card above the composer, cleared by the person. */
+export interface SessionGoal {
+  objective: string
+  // active: working toward it, on its own, until it is done; the rest say why it stopped.
+  status: 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+  tokensUsed: number
+  timeUsedSeconds: number
+  tokenBudget?: number
+}
+
 export interface Session {
   id: string
   workspaceId: string
@@ -976,6 +988,11 @@ export interface Session {
   lastAssistantUuid?: string
   // Set after a rewind: the next turn forks the conversation at this message.
   resumeAt?: string
+  // Set by Restore along with resumeAt: the conversation goes back in place (an agent that can roll its own thread back does,
+  // and keeps its id); without it resumeAt forks, a new conversation through that point. Cleared once the next turn has started.
+  rewound?: boolean
+  // The agent's goal for this chat, as it last reported it (Codex: thread/goal/updated). The card above the composer shows it.
+  goal?: SessionGoal
   status: 'idle' | 'running'
   // Queued (Settings → Advanced → Maximum agents running at once): the tab's next turn, the first message in
   // `queue`, waits for a running agent to finish; since when (ISO). The tab is idle meanwhile. Never kept over a restart.
@@ -987,7 +1004,11 @@ export interface Session {
   // docs/agent-access.md §4: the cap of the turn in flight, while it runs (set when it starts, cleared when it ends).
   turnCap?: import('./agentAccess').TurnCap
   // How the last turn ended, for the Home rows. Cleared when the next turn starts.
-  lastTurn?: { outcome: TurnOutcome; turnId?: string; endedAt: string; additions?: number; deletions?: number }
+  // `limit`: the turn ended at a usage limit and the tab is paused, not failed (docs/agents.md 7.2). The turn's own
+  // turn-end item still says `error`, with `limit`.
+  // `resetAt`: with `limit`, when the limit resets, if the turn's error or the agent said.
+  // `restartedBy`: the turn was cut by "Interrupt and send" (docs/agents.md 2.5) and the message with this id started the next one: neither attention nor failure.
+  lastTurn?: { outcome: LastTurnOutcome; turnId?: string; endedAt: string; additions?: number; deletions?: number; resetAt?: string; restartedBy?: string }
   queue: QueuedMessage[]
   // Goes up with every change to the queue (queued, edited, moved, sent, removed); edits and moves are checked against it.
   queueRevision?: number
@@ -1023,11 +1044,16 @@ export interface Session {
   // A fork with no agent conversation to branch: its next message carries the visible history. Cleared once the agent started.
   // O1 'switch': the tab was switched to an agent with no conversation of its own here.
   // #130 'account': the tab moved to another account of its agent, whose conversations are kept elsewhere.
-  seedHistory?: boolean | 'switch' | 'account'
+  // 'restore' (docs/agents.md 2.5, `checkpoint-fresh-session`): Restore put the files back and dropped the agent's conversation, which it can't rewind.
+  seedHistory?: boolean | 'switch' | 'account' | 'restore'
+  // The permission-mode notice the chat last showed ("stored>mode"), so a mode the agent runs in instead is said once (docs/agents.md 3).
+  modeNoticed?: string
   // O1: the own conversations of agents this tab was switched away from, resumed on switching back.
   parked?: Partial<Record<AgentKind, import('./switchAgent').ParkedSession>>
   // O1: switched back to a parked conversation; the next message carries a note of what was said since this turn (its last). Cleared once the agent started.
   catchUpSince?: string
+  // The switch or account move the next turn carries a record of (docs/agents.md 5.1): written onto its notice when that turn starts.
+  handOffPending?: import('./switchAgent').PendingHandOff
   // #16: Foreman holds this chat to read-only (Claude: plan mode it can't leave; Codex: the read-only sandbox). Fixed for the tab.
   readOnly?: boolean
   // The newest note revision this tab was given (with a message or on its own).
@@ -1038,6 +1064,9 @@ export interface Session {
   includeNote?: boolean
   // #11: a resume armed after a usage limit; any activity in the tab removes it.
   limitResume?: LimitResume
+  // What the turn that hit a usage limit was started as, kept while the tab is paused (endTurn clears `unattended`), so a
+  // resume re-runs it with its persona, write scope, read-only hold and unattended flag (docs/agents.md 7.2, "Provenance").
+  limitHeld?: { turnId: string; unattended: NonNullable<Session['unattended']> }
   // #20: the repo MCP servers (names) this tab's last turn got, and when that set was first passed. The receipt names them when it changes.
   repoMcp?: { servers: string[]; at: string }
   // Integrations: the accounts this tab's last turn used per service, and the user's own MCP servers it switched off.
@@ -1093,6 +1122,11 @@ export interface Settings {
   language: LanguageSetting
   messageSendKey: 'enter' | 'mod-enter'
   followUpMode: 'queue' | 'steer'
+  // A turn that stopped at a usage limit whose reset time is known: `auto` resumes it when the limit resets, with no click;
+  // `ask` offers the resume on the chat's card, as it always has (docs/agents.md 7.2). An unknown reset time is always an offer.
+  resumeAfterLimit: 'auto' | 'ask'
+  // How much of a chat the next agent is given when a tab switches to it, in estimated tokens (docs/agents.md 5.2).
+  handOffTokenBudget: number
   notifications: boolean
   sound: SoundSetting
   dockBadge: boolean
@@ -1238,6 +1272,9 @@ export interface Settings {
   showResourceUsage: boolean
   // Flows (docs/loops-and-graphs.md): off by default; off, nothing about flows appears and repo flow files are ignored.
   flows: boolean
+  // Development builds only (Settings → Experimental): Claude Code and Codex answer from recorded traffic instead of running
+  // (docs/agents.md, 9.5). A packaged build ignores it.
+  replayTraffic: boolean
   // Keep diagnostics (docs/telemetry.md): the event log, performance samples and crash dumps in the data folder.
   diagnostics: boolean
   // Advanced
@@ -1255,6 +1292,9 @@ export interface Settings {
   maxRunningAgents: number
   // Claude Code: minutes a turn that has answered stays open for its background shells and subagents; 0 waits as long as they run.
   backgroundWaitMinutes: number
+  // Claude Code: compact a chat while it sits idle once its context is over this many tokens, just before the prompt cache
+  // expires (docs/agents.md 3). It spends usage to make the next message cheaper; 0 is off, the default.
+  idleCompactTokens: number
   // O4, Windows only: the shell new terminal tabs start (Custom… uses terminalShellCustom, a path and
   // arguments), and the shell that runs Run scripts, setup, archive and checks.
   terminalShell: ShellChoice
@@ -1424,8 +1464,10 @@ export type ChatItem =
 
       editRaced?: true
     }
-  | { kind: 'assistant'; id: string; turnId: string; text: string; streaming?: boolean }
-  | { kind: 'thinking'; id: string; turnId: string; text: string; streaming?: boolean }
+  // `parentToolUseId`: a subagent said this (docs/agents.md 6); it is the id of the Task call that started it. Such items
+  // belong under that call's row and are left out of everything that reads the chat as the parent's (shared/subagents.ts).
+  | { kind: 'assistant'; id: string; turnId: string; text: string; streaming?: boolean; parentToolUseId?: string }
+  | { kind: 'thinking'; id: string; turnId: string; text: string; streaming?: boolean; parentToolUseId?: string }
   | {
       kind: 'tool'
       id: string
@@ -1436,10 +1478,14 @@ export type ChatItem =
       output?: string
       // A subagent or shell this call started, which may outlive the call itself.
       task?: TaskProgress
+      // The task's id (a subagent's, as `stopChild` names it), once the agent said the task started.
+      childId?: string
+      // This call was made by a subagent: the Task call that started it.
+      parentToolUseId?: string
     }
   // O10: `gap` marks where Foreman was closed while the turn kept running in the background host.
   // #2: `report` marks a line the agent reported ("agent says: checkpoint — …"); needs-input shows as a card while open.
-  | { kind: 'notice'; id: string; turnId?: string; level: 'info' | 'error'; text: string; action?: 'sign-in' | 'open-settings'; gap?: import('./agentHost').ClosedGap; report?: import('./agentReports').ReportMarker; switched?: import('./switchAgent').AgentSwitch; divider?: import('./switchAgent').ChatDivider }
+  | { kind: 'notice'; id: string; turnId?: string; level: 'info' | 'error'; text: string; action?: 'sign-in' | 'open-settings' | 'update'; gap?: import('./agentHost').ClosedGap; report?: import('./agentReports').ReportMarker; switched?: import('./switchAgent').AgentSwitch; divider?: import('./switchAgent').ChatDivider; handOff?: import('./chatHandOff').ChatHandOff }
   | { kind: 'result'; id: string; turnId: string; ok: boolean; costUsd?: number; durationMs?: number; turns?: number }
   // Internal: how a turn ended, appended once when it does. The only item that says "completed".
   | {
@@ -1449,6 +1495,8 @@ export type ChatItem =
       outcome: TurnOutcome
       // The cause, for error and interrupted.
       error?: string
+      // "Interrupt and send" cut this turn; the user message with this id started the next one. Not a failure, not a stop to tell anyone about.
+      restartedBy?: string
       durationMs?: number
       // What this turn changed, when both its checkpoints exist.
       delta?: TurnDelta
@@ -1496,10 +1544,20 @@ export interface LimitResume {
   failed?: string
   // docs/agent-access.md §4: the stopped turn's cap (lowered by the turn that armed it, if one did); the resume carries it.
   cap?: import('./agentAccess').TurnCap
+  // Foreman armed it itself (Settings → Usage → "Resume by itself"), not a click on the card.
+  auto?: true
+  // docs/agents.md 7.2: how the stopped turn was started, when it was unattended (a flow step, a schedule run): the resume starts the same way.
+  unattended?: NonNullable<Session['unattended']>
 }
 
 /** completed: the agent reported success. cancelled: the user stopped it ("Stopped"). interrupted: the app quit mid-turn. */
 export type TurnOutcome = 'completed' | 'error' | 'cancelled' | 'interrupted'
+
+/** A tab's last turn: a TurnOutcome, or `limit` for a turn that stopped at a usage limit (the tab is paused). */
+export type LastTurnOutcome = TurnOutcome | 'limit'
+
+/** A tab's last outcome as the turn's own record words it: a paused tab's turn ended with an error. */
+export const turnOutcomeOf = (outcome: LastTurnOutcome): TurnOutcome => (outcome === 'limit' ? 'error' : outcome)
 
 /**
  * Cloud workspaces (phase 2): why an `interrupted` turn stopped, on its turn-end item and in the agent's TurnResult.
@@ -1538,6 +1596,12 @@ export interface Question {
   options: { label: string; description?: string }[]
 }
 
+/** The subagent an approval or question came from: its task id (what `stopChild` takes) and the name its row shows. */
+export interface SubagentRef {
+  id: string
+  name: string
+}
+
 export type ApprovalRequest = {
   id: string
   sessionId: string
@@ -1549,9 +1613,14 @@ export type ApprovalRequest = {
       reason?: string
       // What the "alternate" (⌘↵) answer means for this tool, if anything.
       alternate?: 'edits-for-session' | 'always-allow'
+      // With `always-allow` where Foreman remembers it for the session (docs/agents.md 8): what exactly is remembered (the command, path
+      // or address), which the card names.
+      alwaysScope?: string
+      // A subagent is asking, not the agent itself (docs/agents.md 6).
+      subagent?: SubagentRef
     }
   | { kind: 'plan'; plan: string }
-  | { kind: 'question'; questions: Question[] }
+  | { kind: 'question'; questions: Question[]; subagent?: SubagentRef }
   // A flow's gate step (docs/loops-and-graphs.md): planned, so it waits for a person instead of stopping the run.
   | { kind: 'gate'; flowRunId: string; flowName: string; step: string; ask: string; show: FlowGateShow[] }
   // A flow's pick step: the person chooses one of the sibling results; the run goes on in the chosen one's workspace.
@@ -1865,6 +1934,8 @@ export type MessageOrigin =
   | { kind: 'flow'; runId: string; step: string; iteration: number }
   | { kind: 'schedule'; scheduleId: string; occurrenceId: string }
   | { kind: 'limit-resume' }
+  // Foreman compacted an idle chat before its prompt cache expired (Settings → Agents → Claude Code → Compact idle chats).
+  | { kind: 'idle-compact' }
   // docs/agent-access.md §7: an outside agent signed in to Foreman sent it (start_task's first message, send_task).
   | { kind: 'outside'; grantId: string; name: string }
 
@@ -2024,6 +2095,8 @@ export interface AgentStatus {
   installed: boolean
   ready: boolean
   version?: string
+  // The program is the copy that ships inside Foreman, which Foreman's own update changes: its own update command has no place there.
+  bundled?: boolean
   // e.g. "Claude Max account", "API key", "ChatGPT login".
   method?: string
   account?: string
@@ -2150,6 +2223,11 @@ export interface AppSnapshot {
   // Repository id → workspace currently mirrored into the repo root.
   spotlight: Record<string, string>
   catalog: ModelCatalogState
+  // What each agent that can hold a chat can do (docs/agents.md, 2.1): its static record, and what each account declared.
+  // Read it through capabilitiesFor / the renderer's useCapabilities.
+  agentCapabilities: import('./agentCapabilities').AgentCapabilitiesView
+  // What each account of each agent that reports them last said about its usage windows (docs/agents.md 7.1).
+  limits?: import('./limits').AccountLimits[]
   // Repository folders opened before that aren't in Foreman now, most recent first.
   recentRepos: string[]
   // Scheduled templates and their recent runs (R-5).
@@ -2363,8 +2441,9 @@ export interface ArchivePreview {
 
 export interface SendOptions {
   attachments?: Attachment[]
-  // Override the follow-up setting for this message while a turn is running.
-  mode?: 'queue' | 'steer'
+  // Override the follow-up setting for this message while a turn is running. `interrupt` ("Interrupt and send") is for an agent whose
+  // record has `turns.steer` as the interrupt-restart fallback: the turn is cut and restarted with this message first.
+  mode?: 'queue' | 'steer' | 'interrupt'
   // The prompt template the message was written from.
   templateId?: string
   // The id for the turn this message starts (or the one it was queued under).
@@ -2836,6 +2915,10 @@ export interface Api {
   armLimitResume(sessionId: string, turnId: string): Promise<void>
   cancelLimitResume(sessionId: string): Promise<void>
   resumeLimitNow(sessionId: string): Promise<void>
+  // Limits that recover (docs/agents.md 7): read each account's usage windows now (Usage → Limits, Refresh), and move a
+  // paused chat to another account of its agent and resume it there (`to`: null is the agent's default account).
+  refreshLimits(): Promise<void>
+  continueOnAccount(sessionId: string, to: string | null): Promise<void>
   // Pairing and hand-off to another Mac (P-4).
   devicesInfo(): Promise<DevicesInfo>
   mobileInfo(): Promise<MobileInfo>
@@ -2874,6 +2957,8 @@ export interface Api {
   cancelHandOff(transferId: string): Promise<void>
   reconcileHandOff(transferId: string, choice: 'keep-here' | 'other-keeps'): Promise<void>
   reconnectMcpServer(sessionId: string, name: string): Promise<void>
+  // Stops one subagent of the chat's running turn (docs/agents.md 6); the turn itself carries on.
+  stopChild(sessionId: string, childId: string): Promise<void>
   // Files
   attachFiles(workspaceId: string, paths: string[]): Promise<Attachment[]>
   attachData(workspaceId: string, name: string, base64: string): Promise<Attachment>
@@ -3078,6 +3163,8 @@ export interface Api {
 // Fire-and-forget messages (high frequency, no reply needed).
 export interface Signals {
   ptyWrite(ptyId: string, data: string): void
+  // The composer of this tab has text in it: an armed idle compaction (docs/agents.md 3) stands down.
+  composerTyping(sessionId: string): void
   ptyResize(ptyId: string, cols: number, rows: number): void
   ptyKill(ptyId: string): void
   // #3: the window's unread workspaces and chats, so the tray and dock badge count what Home counts.
@@ -3109,7 +3196,7 @@ export const API_METHODS = [
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',
   'getChat', 'sendMessage', 'removeQueued', 'steerQueued', 'editQueued', 'moveQueued', 'cancel',
-  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'listPersonas', 'savePersonalPersona', 'deletePersonalPersona', 'flowRunPreview', 'startFlowRun', 'stopFlowRun', 'listFlowRuns', 'workspaceLineage', 'lineageFlowDraft', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
+  'pendingApprovals', 'respondApproval', 'restoreCheckpoint', 'slashCommands', 'mcpStatus', 'reconnectMcpServer', 'stopChild', 'repoMcp', 'approveRepoMcp', 'saveSchedule', 'approveSchedule', 'scheduleFingerprint', 'pauseSchedule', 'resumeSchedule', 'deleteSchedule', 'stopScheduledRun', 'listFlows', 'savePersonalFlow', 'deletePersonalFlow', 'listPersonas', 'savePersonalPersona', 'deletePersonalPersona', 'flowRunPreview', 'startFlowRun', 'stopFlowRun', 'listFlowRuns', 'workspaceLineage', 'lineageFlowDraft', 'armLimitResume', 'cancelLimitResume', 'resumeLimitNow', 'refreshLimits', 'continueOnAccount', 'devicesInfo', 'setAcceptHandOffs', 'showPairingCode', 'cancelPairingCode', 'pairWith', 'unpairDevice', 'pingDevice', 'setRemoteControl', 'computers', 'viewComputer', 'answerControlRequest', 'disconnectController', 'startHandOffTo', 'cancelHandOff', 'reconcileHandOff',
   'mobileInfo', 'mobileConfigure', 'mobileConfigureLan', 'mobileStartPairing', 'mobileApprovePairing', 'mobileRevokeDevice',
   'agentAccessInfo', 'agentAccessConfigure', 'agentAccessApprove', 'agentAccessDeny', 'agentAccessRevoke',
   'attachFiles', 'attachData', 'stageAttachment', 'listFiles', 'getDiff', 'diffSources', 'branchCommitCount', 'branchCommits', 'getAlertDiff', 'dismissAlert', 'closeAgentReport', 'workspaceUsage', 'setFileViewed', 'revertFile', 'setSpotlight', 'openPreview',
@@ -3128,7 +3215,7 @@ export const API_METHODS = [
   'deleteSlackRule', 'linkPerson', 'unlinkPerson', 'slackDeliveries', 'answerSlackAsk', 'resendSlackDelivery', 'linearMyIssues', 'resolveLinearLink'
 ] as const satisfies readonly (keyof Api)[]
 
-export const SIGNAL_METHODS = ['ptyWrite', 'ptyResize', 'ptyKill', 'setUnread', 'saveTerminals', 'setBattery'] as const satisfies readonly (keyof Signals)[]
+export const SIGNAL_METHODS = ['ptyWrite', 'composerTyping', 'ptyResize', 'ptyKill', 'setUnread', 'saveTerminals', 'setBattery'] as const satisfies readonly (keyof Signals)[]
 
 type AssertNever<T extends never> = T
 export type _AllApiMethodsListed = AssertNever<Exclude<keyof Api, (typeof API_METHODS)[number]>>

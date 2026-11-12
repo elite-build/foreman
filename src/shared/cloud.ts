@@ -442,16 +442,12 @@ export function patchCloudSettings(current: Pick<Settings, 'claudeAuth' | 'cloud
 
 // ---- agents in the sandbox (phase 2) ----
 
-/** Agents that can run inside a sandbox: Claude Code, Codex, OpenCode and the ACP (Chat) catalog agents. Not Cursor. */
-export function cloudAgentSupported(agent: string): boolean {
-  if (agent === 'claude' || agent === 'codex' || agent === 'opencode') return true
-  return catalogAgent(agent)?.level === 'chat'
-}
-
-/** Why an agent can't take a turn in a cloud workspace. */
+/** Why an agent can't take a turn in a cloud workspace (whether it can is `features.cloud` of its record). */
 export function cloudAgentRefusal(agent: string): string {
-  if (agent === 'cursor') return 'Cursor can’t run in a cloud workspace yet: its SDK runs the agent on this computer. Switch this chat to Claude Code, Codex or OpenCode.'
-  return `${catalogAgent(agent)?.name ?? agent} can’t run in a cloud workspace. Switch this chat to Claude Code, Codex or OpenCode.`
+  const entry = catalogAgent(agent)
+  const name = entry?.name ?? agent
+  if (entry?.notInCloud) return `${name} can’t run in a cloud workspace yet: ${entry.notInCloud}. Switch this chat to Claude Code, Codex or OpenCode.`
+  return `${name} can’t run in a cloud workspace. Switch this chat to Claude Code, Codex or OpenCode.`
 }
 
 /** What Foreman sends to pick a turn up again after the sandbox's session hit the plan's limit. */

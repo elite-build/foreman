@@ -6,12 +6,14 @@
 import { GitBranch } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { LENS_WORD } from '../../../shared/flowGraph'
+import type { ChatHandOff } from '../../../shared/chatHandOff'
 import { LINEAGE_LENSES, leftOutText, type LineageGap, type LineageLens, type LineageOutlineEntry, type WorkspaceLineage } from '../../../shared/lineage'
 import type { PlainKey } from '../../../shared/i18n'
 import { useT } from '../i18n'
 import { api, attempt, openFlowDraft, openTurn, showChecksPanel, useStore } from '../store'
 import { Button, Callout, Card, CardButton, Segmented, Spinner, Tag } from '../ui'
 import { FlowGraphView } from './FlowDiagram'
+import { HandOffDialog } from './HandOffRecord'
 import './flowRun.css'
 
 const GAP_WORD: Record<LineageGap, PlainKey> = {
@@ -46,6 +48,8 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
   const history = useHistoryKey(workspaceId)
   const key = `${workspaceId}|${lens}|${history}`
   const [read, setRead] = useState<{ key: string; lineage?: WorkspaceLineage; failed?: string }>()
+  // A switch edge opens the record of what the next agent received (the same dialog as the chat's notice).
+  const [received, setReceived] = useState<ChatHandOff>()
   // "Make a flow from this…": the draft opens in the flow studio, with what it leaves out as notes; nothing is saved.
   const makeFlow = async () => {
     const draft = await attempt(() => api.lineageFlowDraft(workspaceId))
@@ -85,6 +89,7 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
               const ref = lineage.outline.find((e) => e.id === id?.replace(/#\d+$/, ''))?.ref
               if (ref?.kind === 'turn') void openTurn(ref.workspaceId, ref.sessionId, ref.turnId)
               else if (ref?.kind === 'checks') showChecksPanel(ref.workspaceId)
+              else if (ref?.kind === 'received') setReceived(ref.handOff)
             }}
           />
           {lineage.gaps.length > 0 && (
@@ -105,18 +110,19 @@ export function LineagePanel({ workspaceId }: { workspaceId: string }) {
           <ol className="flow-run-steps" aria-label={t('lineage.outline')}>
             {lineage.outline.map((entry) => (
               <li key={entry.id}>
-                <OutlineEntry entry={entry} />
+                <OutlineEntry entry={entry} onReceived={setReceived} />
               </li>
             ))}
           </ol>
         </>
       )}
+      {received && <HandOffDialog handOff={received} onClose={() => setReceived(undefined)} />}
     </div>
   )
 }
 
 /** One node of the outline: what it is, what links it (inferred ones say so), and the records behind it. */
-function OutlineEntry({ entry }: { entry: LineageOutlineEntry }) {
+function OutlineEntry({ entry, onReceived }: { entry: LineageOutlineEntry; onReceived: (handOff: ChatHandOff) => void }) {
   const t = useT()
   const body = (
     <>
@@ -161,6 +167,12 @@ function OutlineEntry({ entry }: { entry: LineageOutlineEntry }) {
   if (ref?.kind === 'turn')
     return (
       <CardButton className="flow-step" onClick={() => void openTurn(ref.workspaceId, ref.sessionId, ref.turnId)} title={t('lineage.open.turn')}>
+        {body}
+      </CardButton>
+    )
+  if (ref?.kind === 'received')
+    return (
+      <CardButton className="flow-step" onClick={() => onReceived(ref.handOff)} title={t('lineage.open.received')}>
         {body}
       </CardButton>
     )

@@ -3,25 +3,18 @@
 // one account to another. Main checks and saves every field (saveAgentInstance).
 import { FolderOpen, Plus } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { catalogAgent, loginCommandLabel } from '../../../../shared/agentCatalog'
 import { AGENTS } from '../../../../shared/agents'
 import { DEFAULT_MOVE_RULE, INSTANCE_FIELDS, instancesFor, joinArgs, splitArgs, type AgentInstance, type InstanceAgent, type MoveRule } from '../../../../shared/agentInstances'
-import type { TFunction } from '../../../../shared/i18n'
 import type { AgentAuthMode } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api, attempt, showToast, useStore } from '../../store'
 import { Button, Callout, Field, IconButton, Select, Spinner, Status, Tag, TextInput } from '../../ui'
 import { AgentDialog } from './AgentDialog'
-import { ApiKeyField, AuthCards, type AuthOption } from './AgentAuth'
+import { ApiKeyField, AuthCards, authOptions } from './AgentAuth'
 import { AgentStatusBlock, statusView, useAgentStatus } from './AgentStatusCard'
 import { LoginTerminal } from './LoginTerminal'
 import { Row, saveSettings, Section, useSettings } from './controls'
-
-const KEY_PROVIDER: Record<InstanceAgent, string> = { claude: 'Anthropic', codex: 'OpenAI', cursor: 'Cursor' }
-
-const authOptions = (agent: InstanceAgent, t: TFunction): AuthOption[] => [
-  { value: 'cli', label: t('agentCatalog.method.login'), description: t(agent === 'claude' ? 'agentSettings.claude.loginDesc' : 'agentSettings.codex.loginDesc') },
-  { value: 'apiKey', label: t('agentCatalog.method.apiKey'), description: t(agent === 'claude' ? 'agentSettings.claude.keyDesc' : 'agentSettings.codex.keyDesc') }
-]
 
 /** The Accounts section: the default account, the others, Add account, and the moving rule. */
 export function AgentAccounts({ agent }: { agent: InstanceAgent }) {
@@ -240,13 +233,13 @@ function AccountSignIn({ account }: { account: AgentInstance }) {
   return (
     <div className="ag-account-signin">
       <h3>{t('agentAccounts.signIn', { label: account.label })}</h3>
-      <AgentStatusBlock state={state} view={view} />
+      <AgentStatusBlock agent={account.agent} state={state} view={view} />
       {account.auth === 'apiKey' ? (
-        <ApiKeyField agent={account.agent} instanceId={account.id} label={t('agentCatalog.agent.keyLabel', { agent: KEY_PROVIDER[account.agent] })} />
+        <ApiKeyField agent={account.agent} instanceId={account.id} label={t('agentCatalog.agent.keyLabel', { agent: catalogAgent(account.agent)?.auth.apiKey?.provider ?? account.agent })} />
       ) : (
         <LoginTerminal
           command={`login-instance:${account.id}`}
-          commandLabel={account.agent === 'claude' ? 'claude auth login' : 'codex login'}
+          commandLabel={loginCommandLabel(catalogAgent(account.agent)!) ?? ''}
           buttonLabel={view?.connected ? t('agentCatalog.agent.signInAgain') : t('agentCatalog.signin.signIn')}
           primary={view !== null && !view.connected}
           onDone={() => void state.refresh()}

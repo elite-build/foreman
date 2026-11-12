@@ -14,7 +14,7 @@ import {
   splitArgs,
   type AgentInstance
 } from '../src/shared/agentInstances'
-import { parseAgentPrefs } from '../src/shared/agentCatalog'
+import { parseAgentPrefs, staticCapabilities } from '../src/shared/agentCatalog'
 import { continueBlock, modelChoiceAction } from '../src/shared/switchAgent'
 
 const work: AgentInstance = { id: 'ai-work0001', agent: 'claude', label: 'Work', home: '/Users/me/.claude-work', auth: 'cli' }
@@ -132,9 +132,9 @@ describe('moving a chat between accounts', () => {
     expect(modelChoiceAction({ ...session, instanceId: work.id }, true, { agent: 'claude', instance: work.id })).toBe('apply')
     expect(modelChoiceAction({ agent: 'claude' }, true, { agent: 'claude', instance: work.id })).toBe('apply')
     expect(modelChoiceAction(session, false, { agent: 'claude', instance: work.id })).toBe('apply')
-    expect(continueBlock({ status: 'idle' }, 'claude', true)).toBe('account')
-    expect(continueBlock({ status: 'running' }, 'claude', true)).toBe('running')
-    expect(continueBlock({ status: 'idle' }, 'claude')).toBeNull()
+    expect(continueBlock({ status: 'idle' }, staticCapabilities('claude'), true)).toBe('account')
+    expect(continueBlock({ status: 'running' }, staticCapabilities('claude'), true)).toBe('running')
+    expect(continueBlock({ status: 'idle' }, staticCapabilities('claude'))).toBeNull()
   })
 })
 

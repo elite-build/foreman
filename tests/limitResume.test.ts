@@ -82,15 +82,15 @@ describe('a turn that stops at a usage limit', () => {
     expect(turnId).toBe(end.turnId)
   })
 
-  it('marks a Codex limit error with an unknown reset time, whatever the words say', async () => {
-    registerDriver({ ...fakeDriver(async (_r, cb) => cb.finished({ ok: false, error: `You've hit your usage limit · ${SOURCE}` })), kind: 'codex' })
+  it('marks a Cursor limit error with an unknown reset time, whatever the words say', async () => {
+    registerDriver({ ...fakeDriver(async (_r, cb) => cb.finished({ ok: false, error: `You've hit your usage limit · ${SOURCE}` })), kind: 'cursor' })
     const h = await setupSessions()
-    const codexTab = h.sessions.createSession(h.ws.id, { agent: 'codex', title: 'codex' })
-    await h.sessions.send(codexTab.id, 'go')
-    await until(async () => (await h.store.readChat(codexTab.id)).some((i) => i.kind === 'turn-end'))
-    const end = turnEnd(await h.store.readChat(codexTab.id))
+    const cursorTab = h.sessions.createSession(h.ws.id, { agent: 'cursor', title: 'cursor' })
+    await h.sessions.send(cursorTab.id, 'go')
+    await until(async () => (await h.store.readChat(cursorTab.id)).some((i) => i.kind === 'turn-end'))
+    const end = turnEnd(await h.store.readChat(cursorTab.id))
     expect(end.limit).toEqual({})
-    expect(limitCardView(end, codexTab, true, T0)).toEqual({ kind: 'unknown', stated: false })
+    expect(limitCardView(end, cursorTab, true, T0)).toEqual({ kind: 'unknown', stated: false })
   })
 })
 
@@ -128,7 +128,7 @@ describe('arming', () => {
     clock.now = Date.parse(RESET)
     await expect(service.arm(session.id, turnId)).rejects.toThrow('The reset time has passed')
     clock.now = T0
-    session.agent = 'codex'
+    session.agent = 'cursor'
     await expect(service.arm(session.id, turnId)).rejects.toThrow('doesn’t say when its limits reset')
     session.agent = 'claude'
     const end = turnEnd(await store.readChat(session.id))
@@ -387,7 +387,6 @@ describe('the card', () => {
 
   it('says unknown, with no checkbox, when no time was stated or the agent can’t say', () => {
     expect(limitCardView({ turnId: 't1', limit: {} }, claude, true, T0)).toEqual({ kind: 'unknown', stated: true })
-    expect(limitCardView(end, { agent: 'codex' }, true, T0)).toEqual({ kind: 'unknown', stated: false })
     expect(limitCardView(end, { agent: 'cursor' }, true, T0)).toEqual({ kind: 'unknown', stated: false })
     expect(limitCardView({ turnId: 't1' }, claude, true, T0)).toEqual({ kind: 'none' })
   })

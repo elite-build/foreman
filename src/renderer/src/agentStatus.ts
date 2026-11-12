@@ -61,7 +61,7 @@ export function statusEvents(
     if (!before.running && now.running) events.push({ sessionId: id, kind: 'started' })
     if (before.running && !now.running) {
       const outcome = sessions.find((s) => s.id === id)?.lastTurn?.outcome
-      events.push({ sessionId: id, kind: outcome === 'error' || outcome === 'interrupted' ? 'failed' : outcome === 'cancelled' ? 'stopped' : 'finished' })
+      events.push({ sessionId: id, kind: outcome === 'error' || outcome === 'interrupted' ? 'failed' : outcome === 'cancelled' || outcome === 'limit' ? 'stopped' : 'finished' })
     }
   }
   return events
@@ -120,12 +120,13 @@ export function turnEndedSentence(t: TFunction, session: Session, workspace: Wor
   const last = session.lastTurn
   if (!last) return null
   if (outcome === 'finished' && last.outcome !== 'completed') return null
-  if (outcome === 'stopped' && last.outcome !== 'cancelled') return null
+  // A tab paused at a usage limit is stopped, not failed (docs/agents.md 7.2).
+  if (outcome === 'stopped' && last.outcome !== 'cancelled' && last.outcome !== 'limit') return null
   if (outcome === 'failed' && last.outcome !== 'error' && last.outcome !== 'interrupted') return null
   return turnEnded(t, {
     agent: agentLabel(session.agent),
     workspace: workspace?.name ?? session.workspaceId,
-    outcome: last.outcome,
+    outcome: last.outcome === 'limit' ? 'cancelled' : last.outcome,
     delta: last.additions !== undefined || last.deletions !== undefined ? { additions: last.additions ?? 0, deletions: last.deletions ?? 0 } : undefined,
     checks: workspace?.checks
   })

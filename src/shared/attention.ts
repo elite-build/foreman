@@ -6,7 +6,8 @@
 //  - The tray's count and jump list come from the same triage as Home's "need you".
 //  - A row's lead glyph is attention first; the PR glyph sits apart and comes from `prInfo` only.
 import { REASONS, triageAll, type ReasonContext, type Triage, type TriageInput } from './triage'
-import type { Session, TurnOutcome, Workspace } from './types'
+import { waitingOnLimit } from './limits'
+import { turnOutcomeOf, type Session, type TurnOutcome, type Workspace } from './types'
 
 export const LOG_MAX_EVENTS = 500
 export const LOG_MAX_AGE_MS = 30 * 24 * 60 * 60_000
@@ -135,7 +136,11 @@ export function lookAt(ws: Workspace, sessions: Session[], input: TriageInput): 
   const turns: WorkspaceLook['turns'] = {}
   for (const s of sessions) {
     if (!s.lastTurn) continue
-    turns[s.id] = { mark: s.lastTurn.turnId ?? s.lastTurn.endedAt, outcome: s.lastTurn.outcome, tab: open.indexOf(s) + 1, title: s.title }
+    // Docs/agents.md 7.2: a tab paused at a usage limit with its resume armed is waiting, never "Turn failed".
+    if (waitingOnLimit(s)) continue
+    // A turn cut by "Interrupt and send" went on with the person's message: it isn't a stop or a failure to log (docs/agents.md 2.5).
+    if (s.lastTurn.restartedBy) continue
+    turns[s.id] = { mark: s.lastTurn.turnId ?? s.lastTurn.endedAt, outcome: turnOutcomeOf(s.lastTurn.outcome), tab: open.indexOf(s) + 1, title: s.title }
   }
   const info = ws.prInfo
   const facts = info?.facts

@@ -12,6 +12,7 @@ import {
   flowProposalItem,
   foremanRunItem,
   MAX_ASSISTANT_MESSAGE,
+  assistantAgents,
   readSettings,
   runFollowUp,
   searchSettings,
@@ -45,7 +46,7 @@ import { renderCommandHelp } from '../cli/help'
 import { parseCommandArgs, plan } from '../cli/registry'
 import type { AgentStatus, ApprovalRequest, ChatItem, DiffFile, MainEvent, Session, TurnOutcome, Workspace } from '../shared/types'
 import { driverFor } from './agents/registry'
-import { executablePathFor } from './agents/catalogDrivers'
+import { executablePathFor } from './agents/acp/catalogDrivers'
 import type { AgentDriver, AgentTurn, AssistantTools, TurnResult } from './agents/types'
 import type { CliHost } from './cli/host'
 import { inProcessRefusal, runCli } from './cli/inProcess'
@@ -182,7 +183,7 @@ export class AssistantService {
     if (threadId && !existing) throw new Error('That conversation no longer exists.')
     if (existing && this.running.has(existing.id)) throw new Error('The assistant is still answering. Stop it or wait.')
 
-    const gate = await this.gate(false, existing?.override ? existing.agent : useAlternative ? 'claude' : undefined)
+    const gate = await this.gate(false, existing?.override ? existing.agent : useAlternative ? assistantAgents()[0] : undefined)
     if (gate.state !== 'ready') throw new Error(gateError(gate))
     // A thread never continues on another agent: its conversation id belongs to the one it started on.
     if (existing && existing.agent !== gate.agent) throw new Error(`This conversation ran on ${agentName(existing.agent)}. Start a new one.`)

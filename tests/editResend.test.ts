@@ -2,6 +2,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { claudeDriver } from '../src/main/agents/claude'
 import { codexDriver } from '../src/main/agents/codex'
+import { cursorDriver } from '../src/main/agents/cursor'
 import { registerDriver } from '../src/main/agents/registry'
 import type { TurnRequest } from '../src/main/agents/types'
 import { editResendBlock, forkCutBefore, forkTabTitle, quoteMessage } from '../src/shared/fork'
@@ -11,13 +12,14 @@ import { fakeDriver, setupSessions } from './sessionHarness'
 afterEach(() => {
   registerDriver(claudeDriver)
   registerDriver(codexDriver)
+  registerDriver(cursorDriver)
 })
 
 type Harness = Awaited<ReturnType<typeof setupSessions>>
 type User = Extract<ChatItem, { kind: 'user' }>
 
 /** Each turn answers "answer N" as agent session `native-1`, reporting assistant uuid `a<N>`; requests are collected. */
-function answering(kind: 'claude' | 'codex' = 'claude') {
+function answering(kind: 'claude' | 'codex' | 'cursor' = 'claude') {
   const requests: TurnRequest[] = []
   registerDriver({
     ...fakeDriver(async (req, cb) => {
@@ -125,13 +127,13 @@ describe('Edit and resend through the fork path', () => {
   })
 
   it('other agents: a new conversation that carries the visible history before the message', async () => {
-    const requests = answering('codex')
+    const requests = answering('cursor')
     const h = await setupSessions()
-    await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    await h.sessions.updateSession(h.session.id, { agent: 'cursor' })
     const users = await converse(h, 'one', 'two')
 
     const fork = await h.sessions.forkSession(h.session.id, users[1].turnId, { before: true })
-    expect(fork).toMatchObject({ agent: 'codex', seedHistory: true, title: 'chat (fork)' })
+    expect(fork).toMatchObject({ agent: 'cursor', seedHistory: true, title: 'chat (fork)' })
     expect(fork.agentSessionId).toBeUndefined()
     const items = await h.store.readChat(fork.id)
     expect(texts(items)).toEqual(['one'])

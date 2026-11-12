@@ -41,7 +41,7 @@ export function ProviderKeysPage({ tabs }: { tabs: ReactNode }) {
   const inShell = (view?.shellProviderKeys ?? []).filter((v) => !saved.includes(v) && matches(v))
   // G1: every agent that can take shared keys, enabled or not; disabled ones are dimmed (a tick only matters once it's enabled).
   const ticked = new Set(Object.values(allow ?? {}).flat())
-  const sharers = AGENT_CATALOG.filter((a) => a.id !== 'opencode' && takesSharedKeys(a.id))
+  const sharers = AGENT_CATALOG.filter((a) => !a.auth.allProviderKeys && takesSharedKeys(a.id))
   const enabled = (id: string) => isAgentEnabled(id, settings.agentPrefs)
 
   const toggle = (envVar: string, id: string, on: boolean) => void saveSettings({ providerKeyAgents: toggleKeyAgent(allow, envVar, id, on) })

@@ -219,13 +219,6 @@ export class IntegrationBridge {
     return turn.servers
   }
 
-  /** Names of the user's own servers to switch off, for the driver: Claude's tool prefixes, Codex's server names. */
-  static blockedFor(agent: string, blocked: OwnMcpServer[]): { claude: string[]; codex: string[] } {
-    const claude = agent === 'claude' ? blocked.filter((s) => s.from === 'claude' || s.from === 'claude.ai').map((s) => s.name) : []
-    const codex = agent === 'codex' ? blocked.filter((s) => s.from === 'codex').map((s) => s.name) : []
-    return { claude, codex }
-  }
-
   /**
    * What each of a repository's agent tools costs, listed (and cached) as a turn lists them. A service whose list
    * can't be had in time (offline, a refused key) is left out rather than guessed.

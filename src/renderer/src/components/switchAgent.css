@@ -11,6 +11,8 @@
 .switch-opt-title { font-weight: 500; color: var(--text); }
 .switch-opt-sub { font-size: var(--text-sm); line-height: 1.4; color: var(--text-muted); }
 .switch-opt-main .ui-kbd { flex: none; margin-top: 1px; }
+.switch-choice-why { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 0 4px; line-height: 1.45; }
+.switch-choice-why .ui-glyph { flex: none; margin-top: 3px; }
 .switch-choice-note { padding: 2px 4px 0; line-height: 1.45; }
 
 .agent-switch { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; padding: 4px 0; font-size: var(--text-sm); color: var(--text-muted); }

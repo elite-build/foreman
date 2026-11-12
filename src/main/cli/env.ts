@@ -228,7 +228,7 @@ async function keysAgents(host: CliHost, params: unknown, on: boolean): Promise<
   const envVar = checkName(textParam(p, 'envVar'))
   const agents = textList(p, 'agents')
   if (!agents.length) throw invalid('Name the agents.')
-  const eligible = AGENT_CATALOG.filter((a) => a.id !== 'opencode' && takesSharedKeys(a.id)).map((a) => a.id)
+  const eligible = AGENT_CATALOG.filter((a) => !a.auth.allProviderKeys && takesSharedKeys(a.id)).map((a) => a.id)
   const unknown = agents.filter((id) => !AGENT_CATALOG.some((a) => a.id === id))
   if (unknown.length) throw new CliCodedError('not-found', `No agent called ${unknown.map((id) => `'${id}'`).join(', ')}. Agents that take shared provider keys: ${eligible.join(', ')}.`)
   if (agents.includes('opencode')) throw invalid('OpenCode always gets every provider key; that can’t be changed.')

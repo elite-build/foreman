@@ -3,6 +3,8 @@
 //   vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
 // then set what a component reads on `fakeState` and watch the calls on `fakeApi`.
 import { vi } from 'vitest'
+import { capabilitiesFor } from '../src/shared/agentCapabilities'
+import { staticCapabilitiesView } from '../src/shared/agentCatalog'
 
 export const fakeApi: Record<string, ReturnType<typeof vi.fn>> = {}
 
@@ -52,11 +54,13 @@ const api = new Proxy(fakeApi, {
 
 const known: Record<string, unknown> = {
   api,
-  bridge: { pathForFile: () => '', onEvent: () => () => undefined },
+  bridge: { pathForFile: () => '', onEvent: () => () => undefined, send: { composerTyping: () => undefined } },
   // The desktop window unless a test says otherwise (a browser's socket bridge: bridge.ts).
   clientKind: 'window',
   getState: () => fakeState,
   useStore: (selector: (s: typeof fakeState) => unknown) => selector(fakeState),
+  // The record the snapshot carries, else the static one (as the real hook does before the first snapshot).
+  useCapabilities: (agent: string, instance?: string) => capabilitiesFor(fakeState.snapshot?.agentCapabilities ?? staticCapabilitiesView(), agent, instance),
   // The window is on screen unless a test says otherwise.
   useWindowVisible: () => fakeState.windowVisible !== false,
   attempt: async (fn: () => unknown) => fn(),

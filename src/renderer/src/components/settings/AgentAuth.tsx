@@ -3,7 +3,8 @@
 import { ArrowUpRight, FolderOpen, KeyRound, Lock, SquareTerminal, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { agentAuthMode, catalogAgent } from '../../../../shared/agentCatalog'
-import type { AgentAuthMode, AgentKeyName, Settings } from '../../../../shared/types'
+import type { TFunction } from '../../../../shared/i18n'
+import { AGENT_KEYS, type AgentAuthMode, type AgentKeyName, type Settings } from '../../../../shared/types'
 import { useAgentCatalog } from '../../agentCatalog'
 import { useT } from '../../i18n'
 import { api, attempt, getState, openSettingsPage, showToast, useStore } from '../../store'
@@ -42,8 +43,6 @@ export function EnvironmentLink({ children }: { children?: ReactNode }) {
 
 // ---- sign-in mode ----
 
-const AGENT_KEY: Record<'claude' | 'codex', AgentKeyName> = { claude: 'ANTHROPIC_API_KEY', codex: 'CODEX_API_KEY' }
-
 /**
  * The agent's sign-in mode, switched optimistically: the new card shows at
  * once and goes back if saving fails. For Claude and Codex, picking API key
@@ -56,20 +55,19 @@ export function useAuthMode(agent: string) {
   const saved = agentAuthMode(agent, settings)
   const [pending, setPending] = useState<AgentAuthMode | null>(null)
   const mode = pending ?? saved
+  const info = catalogAgent(agent)
+  // An agent with a setting of its own for the mode (Claude, Codex) saves there; the rest under agentPrefs.
+  const own = info?.settings?.auth
+  const envVar = info?.auth.apiKey?.envVar
 
   const select = async (next: AgentAuthMode) => {
     if (next === mode) return
     setPending(next)
-    const patch: Partial<Settings> =
-      agent === 'claude'
-        ? { claudeAuth: next }
-        : agent === 'codex'
-          ? { codexAuth: next }
-          : { agentPrefs: { ...settings.agentPrefs, [agent]: { ...settings.agentPrefs?.[agent], auth: next } } }
+    const patch: Partial<Settings> = own ? { [own]: next } : { agentPrefs: { ...settings.agentPrefs, [agent]: { ...settings.agentPrefs?.[agent], auth: next } } }
     const ok = await saveSettings(patch)
     setPending(null)
-    if (!ok || next !== 'apiKey' || (agent !== 'claude' && agent !== 'codex')) return
-    const key = AGENT_KEY[agent]
+    if (!ok || next !== 'apiKey' || !own || !envVar || !(AGENT_KEYS as readonly string[]).includes(envVar)) return
+    const key = envVar as AgentKeyName
     // Never replace a key the user already saved.
     if (getState().snapshot?.agentKeys[key] !== undefined) return
     const imported = await api.importKeyFromShell(key).catch(() => false)
@@ -83,6 +81,16 @@ export interface AuthOption {
   value: AgentAuthMode
   label: string
   description: string
+}
+
+/** The Login and API key cards an agent with both shows, worded by its catalog entry (`auth.cards`). */
+export function authOptions(agent: string, t: TFunction): AuthOption[] {
+  const cards = catalogAgent(agent)?.auth.cards
+  if (!cards) return []
+  return [
+    { value: 'cli', label: t('agentCatalog.method.login'), description: t(cards.login) },
+    { value: 'apiKey', label: t('agentCatalog.method.apiKey'), description: t(cards.apiKey) }
+  ]
 }
 
 const AUTH_ICONS: Record<AgentAuthMode, ReactNode> = {

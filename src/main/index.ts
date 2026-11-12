@@ -45,6 +45,7 @@ import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
 import { blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
 import { claimDemoFolder, DEMO, demoDataDir, DEMO_RESET, demoFolder, seedDemo } from './demo'
 import { registerDemoAgents, startDemoRun } from './demoRun'
+import { configureReplay } from './agents/fixtures/replayDriver'
 import { perf } from './perf'
 import { RemoteRouter, type WindowRoute } from './remote/router'
 import { electronUpdateInstaller, type ElectronUpdateInstaller } from './updateInstaller'
@@ -97,7 +98,7 @@ if (demoRoot) {
   }
   blockNetwork((name, value) => app.commandLine.appendSwitch(name, value))
   // Agents answer from a script (main/demoRun.ts), so the demo's flow run moves with no model behind it.
-  registerDemoAgents()
+  registerDemoAgents({ replayRoot: app.getAppPath() })
   console.log(`[demo] ${demoSeed ? 'Seeding' : 'Using'} the demo data in ${demoRoot}`)
 }
 // Separate data folder for development and tests (SWITCHYARD_DATA_DIR is the older name). --data-dir= is how the background
@@ -530,6 +531,9 @@ async function main(): Promise<void> {
     return win.webContents.debugger
   }
   await store.load()
+  // Development builds only: Settings → Experimental → Replay recorded traffic (agents/fixtures/replayDriver.ts). A packaged
+  // build never configures it, so the setting does nothing there. The demo has already turned it on for its chats.
+  if (!app.isPackaged && !demoRoot) configureReplay({ enabled: () => store.state.settings.replayTraffic, root: app.getAppPath(), notice: () => mainT(store.state.settings)('replay.notice') })
 
   const secrets = new SecretStore(path.join(app.getPath('userData'), 'secrets.bin'), {
     available: () => safeStorage.isEncryptionAvailable(),

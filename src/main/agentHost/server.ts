@@ -1,5 +1,5 @@
 // Keep agents running (O10): the background agent host. A small process of its own that
-// runs Claude Code, Codex, Cursor and OpenCode turns (G1: KEPT_AGENTS) with the same drivers the app uses, so they survive
+// runs Claude Code, Codex, Cursor and OpenCode turns (G1: features.keptRunning) with the same drivers the app uses, so they survive
 // Foreman quitting. Every event a turn produces is logged to disk before it is sent, and
 // an app that reconnects gets what it missed, in order. Exactly one app may be attached;
 // a chat has at most one turn here. With no turn left and no app attached, it exits.
@@ -278,6 +278,13 @@ export class HostServer {
         await this.turn(turnId).turn?.reconnectMcpServer?.(name)
         return { ok: true }
       }
+      case 'stopChild': {
+        const { turnId, childId } = p as { turnId: string; childId: string }
+        const turn = this.turn(turnId).turn
+        if (!turn?.stopChild) throw new Error('The agent can’t stop a subagent')
+        await turn.stopChild(childId)
+        return { ok: true }
+      }
       case 'respond': {
         const { id, response } = p as { id: string; response: ApprovalResponse }
         for (const turn of this.turns.values()) {
@@ -369,10 +376,13 @@ export class HostServer {
       assistantMessage: (uuid) => record({ type: 'assistant-message', uuid }),
       approveTool: (request, signal) => this.approval(turn, request, signal) as never,
       reviewPlan: (plan, signal) => this.approval(turn, { kind: 'plan', plan }, signal) as never,
-      ask: (questions, signal) => this.approval(turn, { kind: 'question', questions }, signal) as never,
+      ask: (questions, signal, subagent) => this.approval(turn, { kind: 'question', questions, ...(subagent ? { subagent } : {}) }, signal) as never,
       planModeChanged: (on) => record({ type: 'plan-mode', on }),
       autoAcceptEdits: (on) => record({ type: 'auto-accept-edits', on }),
       usage: (usage) => record({ type: 'usage', usage }),
+      goal: (goal) => record({ type: 'goal', goal }),
+      cacheWindow: (cache) => record({ type: 'cache-window', ...cache }),
+      declared: (facts) => record({ type: 'declared', facts }),
       mirrorError: (agentSessionId, subpath, error) => record({ type: 'mirror-error', agentSessionId, subpath, error }),
       finished: (result) => record({ type: 'finished', result })
     }

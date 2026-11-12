@@ -1,0 +1,9 @@
+{"fixture":1,"agent":"opencode","scenario":"plain","version":"conformance-fake 1.0.0","recordedAt":"2026-11-12","evidence":"simulated","note":"A short answer and a usage update with its cost, from the ACP conformance fake."}
+{"t":5,"dir":"send","data":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true,"elicitation":{"form":{}}},"clientInfo":{"name":"foreman","title":"Foreman","version":"1.0.0"}}}}
+{"t":10,"dir":"recv","data":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true},"agentInfo":{"name":"conformance-fake","version":"1.0.0"}}}}
+{"t":11,"dir":"send","data":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<repo>","mcpServers":[]}}}
+{"t":12,"dir":"recv","data":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"sess-1"}}}
+{"t":13,"dir":"send","data":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"sess-1","prompt":[{"type":"text","text":"Reply with the single word: ok"}]}}}
+{"t":14,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ok"}}}}}
+{"t":16,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"usage_update","used":1200,"size":200000,"cost":{"amount":0.05,"currency":"USD"}}}}}
+{"t":22,"dir":"recv","data":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}

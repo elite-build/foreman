@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { gapRange, hostView, keepRunningPlan, reconnectRecord, shortAge, stepsIn } from '../src/shared/agentHost'
-import type { ApprovalResponse, ChatItem, TurnOutcome, Workspace } from '../src/shared/types'
+import type { ApprovalResponse, ChatItem, SubagentRef, TurnOutcome, Workspace } from '../src/shared/types'
 import { claudeDriver } from '../src/main/agents/claude'
 import type { TurnCallbacks } from '../src/main/agents/types'
 import { HostClient } from '../src/main/agentHost/client'
@@ -35,6 +35,10 @@ function recorder(answer?: (kind: string) => ApprovalResponse) {
   const items: ChatItem[] = []
   const finished: unknown[] = []
   const asked: string[] = []
+  const goals: unknown[] = []
+  const caches: unknown[] = []
+  // Who each approval or question came from, when a subagent asked.
+  const from: (SubagentRef | undefined)[] = []
   const cb: TurnCallbacks = {
     item: (item, transient) => {
       if (!transient) items.push(item)
@@ -43,20 +47,24 @@ function recorder(answer?: (kind: string) => ApprovalResponse) {
     assistantMessage: () => undefined,
     approveTool: async (request) => {
       asked.push(`tool:${request.toolName}`)
+      from.push(request.subagent)
       return (answer?.('tool') ?? { kind: 'tool', allow: true }) as never
     },
     reviewPlan: async () => ({ kind: 'plan', approve: true }),
-    ask: async () => {
+    ask: async (_questions, _signal, subagent) => {
       asked.push('question')
+      from.push(subagent)
       return (answer?.('question') ?? { kind: 'question', answers: { 'Which?': 'A' } }) as never
     },
     planModeChanged: () => undefined,
     autoAcceptEdits: () => undefined,
     usage: () => undefined,
+    goal: (g) => void goals.push(g),
+    cacheWindow: (c) => void caches.push(c),
     finished: (r) => void finished.push(r)
   }
   const said = () => items.flatMap((i) => (i.kind === 'assistant' ? [i.text] : i.kind === 'tool' ? [`${i.id}:${i.status}`] : []))
-  return { cb, items, finished, asked, said }
+  return { cb, items, finished, asked, from, said, goals, caches }
 }
 
 const started: { server?: HostServer; clients: HostClient[]; children: ChildProcess[] } = { clients: [], children: [] }
@@ -141,6 +149,17 @@ describe('background agent host: a separate process', () => {
   }, 120_000)
 })
 
+describe('background agent host: what a turn reports besides its items', () => {
+  it('carries the agent\'s goal and the prompt cache it left to the app, in order', async () => {
+    const host = await inProcessHost()
+    const r = recorder()
+    const turn = host.client().start({ sessionId: 's1', agent: 'claude', request: fakeRequest('t1', ['goal:ship it', 'cache:1h', 'goal:-'].join('\n')), label }, {}, r.cb)
+    await turn.run()
+    expect(r.goals).toEqual([{ objective: 'ship it', status: 'active', tokensUsed: 10, timeUsedSeconds: 2 }, null])
+    expect(r.caches).toEqual([{ ttl: '1h', warm: true }])
+  })
+})
+
 describe('background agent host: one owner', () => {
   it('lets only one app attach at a time', async () => {
     const host = await inProcessHost()
@@ -175,7 +194,7 @@ describe('background agent host: resource usage', () => {
     const host = await inProcessHost()
     const client = host.client()
     await client.connect({ spawn: false })
-    // The host's drivers track what they start in the host's own list (claudeSpawn.ts, processRoots.ts).
+    // The host's drivers track what they start in the host's own list (claude/spawn.ts, processRoots.ts).
     const untrack = trackProcess(7171, 'w1', 'agent')
     try {
       expect((await client.request('processRoots', {})).roots).toContainEqual({ pid: 7171, workspaceId: 'w1', kind: 'agent' })
@@ -241,6 +260,30 @@ describe('background agent host: approvals while Foreman is closed', () => {
     await host.client().start({ sessionId: 's1', agent: 'claude', request: fakeRequest('t1', 'ask'), label }, {}, r.cb).run()
     expect(r.asked).toEqual(['question'])
     expect(r.said()).toEqual(['answer: {"Which?":"A"}'])
+  })
+})
+
+describe('background agent host: subagents', () => {
+  it('carries who asked from the host to the app, for an approval and a question', async () => {
+    const host = await inProcessHost()
+    const r = recorder()
+    await host.client().start({ sessionId: 's1', agent: 'claude', request: fakeRequest('t1', ['subapprove:explore-tests', 'subask:find-flaky', 'approve:Bash'].join('\n')), label }, {}, r.cb).run()
+    expect(r.asked).toEqual(['tool:Bash', 'question', 'tool:Bash'])
+    expect(r.from).toEqual([{ id: 'task-1', name: 'explore-tests' }, { id: 'task-1', name: 'find-flaky' }, undefined])
+  })
+
+  it('stops one subagent of a hosted turn without ending the turn', async () => {
+    const host = await inProcessHost()
+    const r = recorder()
+    const gate = path.join(host.dir, 'go')
+    const turn = host.client().start({ sessionId: 's1', agent: 'claude', request: fakeRequest('t1', [`gate:${gate}`, 'say:after'].join('\n')), label }, {}, r.cb)
+    const run = turn.run()
+    await until(() => host.server.view().count === 1)
+    await turn.stopChild!('task-1')
+    writeFileSync(gate, '')
+    await run
+    expect(r.said()).toEqual(['stopped task-1', 'after'])
+    expect(r.finished).toEqual([{ ok: true }])
   })
 })
 

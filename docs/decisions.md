@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-12: Features read one capability record per agent, and no feature branches on an agent's id
+
+**Decision.** Every feature asks the agent's capability record (`src/shared/agentCapabilities.ts`, with what an account declares at start folded in) what it can do. None compares an agent's id: `tests/agentBranches.test.ts` holds the count at zero outside the adapters and the catalog.
+
+**Why.** Ten agents with different protocols had spread `agent === 'claude'` checks over forty files, each silently deciding what another agent lacked. A record makes each gap data (works, works with a fallback, not offered) that Settings shows and tests prove against recordings.
+
+**Turned down.** Per-feature flags or id lists: they drift from the adapters and nobody sees what is missing. A guard that only warns: the count never fell.
+
+**Revisit when.** A capability depends on the turn rather than the agent and can't be a record field, or the record grows past what Settings can show a person.
+
 ## 2026-11-10: Outside agents sign in on a loopback listener of their own, and a level is scopes plus a ceiling carried down every turn
 
 **Decision.** Agents on this computer use MCP on `127.0.0.1:47634`, OAuth with PKCE, approved in Foreman by typing the browser page's code. A level is scopes plus a ceiling that only lowers a turn's mode and passes to everything that turn starts; an agent that can't hold a ceiling (Cursor, ACP agents) is refused below Never ask.

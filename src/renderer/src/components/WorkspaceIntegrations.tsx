@@ -6,10 +6,11 @@ import { ChevronDown, Plug } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { workspaceTools, type RepoIntegrationService, type ToolCost, type WorkspaceIntegrations, type WorkspaceTool } from '../../../shared/integrations'
 import { formatCompact } from '../../../shared/i18n/time'
-import { AGENTS, type AgentKind } from '../../../shared/agents'
+import type { AgentKind } from '../../../shared/agents'
+import { offers } from '../../../shared/agentCapabilities'
 import type { Repo, Workspace } from '../../../shared/types'
 import { useT } from '../i18n'
-import { api, attempt, useStore } from '../store'
+import { api, attempt, useCapabilities, useStore } from '../store'
 import { MenuButton, MenuCheckboxItem, MenuGroup, MenuLabel, MenuSeparator, type FieldControlProps, type MenuButtonLook } from '../ui'
 import { SERVICE_NAMES, ServiceMark } from './settings/integrations/ServiceMark'
 import './settings/integrations/integrations.css'
@@ -128,7 +129,8 @@ export function WorkspaceToolsChip({ workspace, agent }: { workspace: Workspace;
   const t = useT()
   const repo = useStore((s) => s.snapshot!.repos.find((r) => r.id === workspace.repoId))
   const tools = useWorkspaceTools(repo, workspace.integrations)
-  if (!tools.length || workspace.cloud || !AGENTS[agent]?.supportsRepoMcp) return null
+  const record = useCapabilities(agent)
+  if (!tools.length || workspace.cloud || !record || !offers(record.tools.mcp)) return null
   return (
     <IntegrationsMenu
       repoId={workspace.repoId}

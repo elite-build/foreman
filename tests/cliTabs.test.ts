@@ -367,6 +367,7 @@ describe('policy', () => {
       'tab-reopen': 'act',
       'tab-fork': 'act',
       chat: 'read',
+      'chat-switch': 'act',
       queue: 'act',
       rewind: 'admin',
       'resume-now': 'act',
@@ -487,5 +488,84 @@ describe('the command table', () => {
     const set = TAB_COMMANDS.find((c) => commandName(c) === 'tab set')!
     expect(parseCommandArgs(set, ['api', '--tab', '2', '--no-plan', '--auto-accept-edits']).opts).toMatchObject({ tab: '2', 'no-plan': true, 'auto-accept-edits': true })
     expect(() => parseCommandArgs(set, ['api', '--turn', 'x'])).toThrow('doesn’t take --turn')
+  })
+})
+
+describe('chat switch', () => {
+  const record = {
+    from: { agent: 'claude' as const, model: 'claude-opus-5-5[1m]' },
+    to: { agent: 'codex' as const, model: 'gpt-6.1-sol' },
+    strategy: 'prompt-full' as const,
+    budgetTokens: 16000,
+    usedTokens: 15200,
+    full: ['t4', 't5'],
+    condensed: ['t3'],
+    omitted: ['t1', 't2'],
+    turns: [
+      { id: 't1', n: 1, agent: 'claude' as const, request: 'one', tokens: 0 },
+      { id: 't2', n: 2, agent: 'claude' as const, request: 'two', tokens: 0 },
+      { id: 't3', n: 3, agent: 'claude' as const, request: 'three', tokens: 80 },
+      { id: 't4', n: 4, agent: 'claude' as const, request: 'four', tokens: 900 },
+      { id: 't5', n: 5, agent: 'claude' as const, request: 'five', tokens: 900 }
+    ]
+  }
+  const switchedChat = (handOff: unknown): ChatItem[] => [{ kind: 'notice', id: 'n1', level: 'info', text: 'Switched', switched: { from: 'claude', to: 'codex', model: 'gpt-6.1-sol', carried: 'history', handOff } } as ChatItem]
+
+  it('switches the tab through updateSession, with the agent’s default model, and prints the record', async () => {
+    const { call, calls } = rig({ api: { getChat: (async () => switchedChat(record)) as Api['getChat'] } })
+    const result = await call<{ handOff: typeof record | null; text: string }>('chat-switch', { ...base, agent: 'codex' })
+    expect(calls[0][0]).toBe('updateSession')
+    expect(calls[0][1]).toBe('s1')
+    expect(calls[0][2]).toMatchObject({ agent: 'codex', model: modelsFor('codex')[0].id })
+    expect(result.handOff).toEqual(record)
+    expect(result.text).toContain('What Codex received (prompt-full): 2 turns in full, 1 condensed, 2 left out')
+    expect(result.text).toContain('15,200 of 16,000 tokens (an estimate')
+    expect(result.text).toContain('In full: #4–5')
+    expect(result.text).toContain('Left out: #1–2')
+    expect(result.text).toContain('read_chat_history')
+  })
+
+  it('takes a model, and an account by name, id or default', async () => {
+    const instances = [{ id: 'ai-work0001', agent: 'claude', label: 'Work', auth: 'cli' }]
+    const model = modelsFor('codex')[0]
+    const { call, calls } = rig({ api: { getChat: (async () => []) as Api['getChat'] }, host: { state: () => ({ repos: [repo], workspaces: [ws()], sessions: [tab('s1', { agent: 'codex', model: model.id })], settings: { ...defaultSettings(), agentInstances: instances as never } }) } })
+    await call('chat-switch', { ...base, agent: 'claude', account: 'work' })
+    expect(calls[0][2]).toMatchObject({ agent: 'claude', instanceId: 'ai-work0001' })
+    await call('chat-switch', { ...base, agent: 'claude', account: 'default', model: 'claude-opus-5-5[1m]' })
+    expect(calls[1][2]).toMatchObject({ agent: 'claude', instanceId: null })
+    expect((await failure(call('chat-switch', { ...base, agent: 'claude', account: 'nobody' }))).code).toBe('invalid')
+    expect(calls).toHaveLength(2)
+  })
+
+  it('says so when the chat has no messages to hand over, and answers null in JSON', async () => {
+    const { call } = rig({ api: { getChat: (async () => []) as Api['getChat'] } })
+    const result = await call<{ handOff: unknown; text: string }>('chat-switch', { ...base, agent: 'codex' })
+    expect(result.handOff).toBeNull()
+    expect(result.text).toContain('no messages to hand over')
+  })
+
+  it('refuses an unknown agent or model, and a switch that changes nothing', async () => {
+    const { call, calls } = rig()
+    expect((await failure(call('chat-switch', { ...base, agent: 'gpt-nine' }))).code).toBe('invalid')
+    expect((await failure(call('chat-switch', { ...base, agent: 'codex', model: 'nope' }))).code).toBe('invalid')
+    expect((await failure(call('chat-switch', { ...base, agent: 'claude' }))).code).toBe('invalid')
+    expect(calls).toEqual([])
+  })
+
+  it('passes on the Api’s refusal (a running turn, a read-only chat, an account rule)', async () => {
+    const { call } = rig({ api: { updateSession: (async () => { throw new Error('Wait for this turn to finish before switching agents') }) as Api['updateSession'] } })
+    await expect(call('chat-switch', { ...base, agent: 'codex' })).rejects.toThrow('Wait for this turn to finish')
+  })
+
+  it('is a command with its own help, and the command line sends the words as a request', async () => {
+    const spec = TAB_COMMANDS.find((c) => commandName(c) === 'chat switch')!
+    expect(spec).toMatchObject({ tier: 'act', group: 'chats' })
+    expect(Object.keys(spec.options ?? {})).toEqual(expect.arrayContaining(['tab', 'agent', 'model', 'account']))
+    expect(renderCommandHelp(spec)).toContain('What <agent> received')
+    const sent: unknown[] = []
+    const context = { args: ['api'], opts: { agent: 'codex', model: 'gpt-6.1-sol', account: 'work', tab: '2' }, cwd: '/', send: async (method: string, params: unknown) => (sent.push([method, params]), { text: 'ok' }), print: () => undefined } as unknown as Context
+    await tabRunners['chat switch'](context)
+    expect(sent).toEqual([['chat-switch', { workspace: 'api', cwd: '/', tab: 2, agent: 'codex', model: 'gpt-6.1-sol', account: 'work' }]])
+    await expect(tabRunners['chat switch']({ ...context, opts: {} } as Context)).rejects.toThrow('Say which agent')
   })
 })

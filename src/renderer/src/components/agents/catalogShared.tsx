@@ -6,10 +6,10 @@ import type { ReactNode } from 'react'
 import {
   agentAuthMode,
   allowedProviderKeys,
+  capsOf,
   CAPABILITIES,
   catalogAgent,
   isAgentEnabled,
-  missingCapabilities,
   signInMethods,
   signInState,
   type CatalogAgent,
@@ -18,11 +18,10 @@ import {
   type SignInState
 } from '../../../../shared/agentCatalog'
 import type { PlainKey } from '../../../../shared/i18n'
-import type { AgentKind } from '../../../../shared/agents'
 import type { AgentStatus } from '../../../../shared/types'
 import { useAgentCatalog } from '../../agentCatalog'
 import { useT, type RendererT } from '../../i18n'
-import { useStore } from '../../store'
+import { useCapabilities, useStore } from '../../store'
 import { Switch, Tag, TextInput, type StatusTone, type TextInputProps } from '../../ui'
 import { saveSettings, useSettings } from '../settings/controls'
 import { CAPABILITY_LABEL, LEVEL_LABEL } from './PickerAgents'
@@ -54,15 +53,18 @@ export function EnableSwitch({ agent }: { agent: CatalogAgent }) {
   )
 }
 
-/** Capability chips, unsupported ones struck through. G1: Plan turns on when the agent itself declared a plan session mode. */
+/**
+ * Capability chips, unsupported ones struck through, read from the agent's capability record (a terminal agent has none:
+ * its catalog row says everything is off). G1: Plan turns on when the agent itself declared a plan session mode.
+ */
 export function CapabilityChips({ agent }: { agent: CatalogAgent }) {
   const t = useT()
-  const modes = useStore((s) => s.snapshot?.catalog.agents[agent.id as AgentKind]?.modes)
-  const missing = missingCapabilities(agent.id, modes)
+  const record = useCapabilities(agent.id)
+  const chips = record ? capsOf(record) : agent.capabilities
   return (
     <span className="cat-chips">
       {CAPABILITIES.map((c) => {
-        const on = !missing.includes(c)
+        const on = chips[c]
         const declared = on && !agent.capabilities[c]
         return (
           <Tag

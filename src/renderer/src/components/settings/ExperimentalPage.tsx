@@ -10,6 +10,7 @@ const DEFAULTS = {
   forkToNewTab: true,
   showResourceUsage: false,
   flows: false,
+  replayTraffic: false,
   diagnostics: true
 } satisfies Partial<Settings>
 
@@ -75,6 +76,17 @@ export function ExperimentalPage() {
           onChange={(flows) => void saveSettings({ flows })}
           onReset={reset('flows')}
         />
+        {/* Development builds only (the app also ignores the setting when packaged): agents answer from recorded traffic. */}
+        {import.meta.env.DEV && (
+          <ToggleRow
+            id="replay-traffic"
+            label={t('settings.experimental.replay.label')}
+            help={t('settings.experimental.replay.help')}
+            checked={settings.replayTraffic}
+            onChange={(replayTraffic) => void saveSettings({ replayTraffic })}
+            onReset={reset('replayTraffic')}
+          />
+        )}
         <ToggleRow
           id="diagnostics"
           label={t('settings.experimental.diagnostics.label')}

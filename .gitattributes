@@ -6,3 +6,6 @@ design/** export-ignore
 docs/*-spec/** export-ignore
 FEATURES.md export-ignore
 PUBLICATION-*.md export-ignore
+
+# Generated Codex protocol types: LF whatever core.autocrlf says (their hash is pinned).
+src/main/agents/codex/protocol/** text eol=lf

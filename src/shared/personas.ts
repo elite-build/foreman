@@ -3,6 +3,7 @@
 // narrow what the step may do and add to what it is shown, with instructions beneath. This module is the model, the
 // reader and the rules for applying one to a step, pure so the renderer (the editor), main (files, runs) and tests share
 // them. A persona is human-owned: nothing a run does writes to one.
+import { PERSONA_FILE_AGENT } from './agentCatalog'
 import { AGENTS, MODELS, type AgentKind } from './agents'
 import { createT, type TFunction } from './i18n'
 
@@ -45,7 +46,7 @@ export interface Persona {
   // The only MCP servers the step keeps of what the repository and integrations give; never adds one.
   mcp?: string[]
   // Scoped writes: path globs relative to the workspace root (docs/features/**). Set, and not read-only, the step's
-  // turn may edit files only inside them and gets no shell; Foreman refuses the rest (Claude only).
+  // turn may edit files only inside them; Foreman refuses the rest (Claude: no shell either; Codex: a read-only sandbox, so no command writes). An agent whose record doesn't offer scoped writes refuses the step.
   writes?: string[]
   // A Claude Code subagent's `tools`, kept as written: Foreman doesn't apply it.
   tools?: string
@@ -93,6 +94,11 @@ export interface TurnPersona {
   mcp?: string[]
   // The only paths the turn may write (globs relative to the workspace root): file tools elsewhere and every shell are refused.
   writes?: string[]
+}
+
+/** The persona's part of a flow step's system prompt (a scope line may follow). Shared so evals/ runs the text a turn is given. */
+export function personaTurnText(name: string, instructions: string): string {
+  return `This turn is a step of a Foreman flow, run as the persona “${name}”. Its instructions:\n${instructions.trim()}`
 }
 
 export type PersonaParse = { persona: Persona; warnings: string[] } | { problems: string[]; warnings: string[] }
@@ -204,7 +210,7 @@ const FIELDS = ['name', 'description', 'loadout', 'agent', 'model', 'read_only',
 export function claudeAgentModel(model: string | undefined): string | undefined {
   const alias = model?.trim().toLowerCase()
   if (!alias || alias === 'inherit') return undefined
-  return MODELS.find((m) => m.agent === 'claude' && (m.id === alias || m.id.includes(`-${alias}-`)))?.id ?? model!.trim()
+  return MODELS.find((m) => m.agent === PERSONA_FILE_AGENT && (m.id === alias || m.id.includes(`-${alias}-`)))?.id ?? model!.trim()
 }
 
 /**
@@ -241,7 +247,7 @@ export function parsePersona(markdown: string, source: PersonaSource, t: TFuncti
   if (where.rev) persona.rev = where.rev
 
   if (claude) {
-    persona.agent = 'claude'
+    persona.agent = PERSONA_FILE_AGENT
     const model = claudeAgentModel(text('model'))
     if (model) persona.model = model
     const tools = meta.tools

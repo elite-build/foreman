@@ -1,5 +1,5 @@
 import { ArrowRightLeft, Braces, Check, ChevronDown, EyeOff, MessageSquarePlus, MousePointer2, Search, Settings2, Sparkle, SquareTerminal, Zap, type LucideIcon } from 'lucide-react'
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   AGENT_ORDER,
   AGENTS,
@@ -9,20 +9,21 @@ import {
   isSameModel,
   modelInfo,
   modelsFor,
-  supportsPlan,
   type AgentKind,
   type EffortLevel,
   type Loadout,
   type ModelInfo
 } from '../../../../shared/agents'
+import { offers } from '../../../../shared/agentCapabilities'
+import { chosenModels, hasTwoLineNames, staticCapabilities } from '../../../../shared/agentCatalog'
 import { accountMoveGuess, DEFAULT_MOVE_RULE, instanceLabel, instancesFor, resolveInstance } from '../../../../shared/agentInstances'
 import { isModelHidden, pickerModels, type HiddenModels } from '../../../../shared/modelVisibility'
 import { PROVIDER_KEYS } from '../../../../shared/providers'
 import type { Session } from '../../../../shared/types'
-import { continueBlock, modelChoiceAction } from '../../../../shared/switchAgent'
-import { api, attempt, availableAgents, getState, modKey, newChat, openSettingsPage, useStore } from '../../store'
+import { accountBlocked, cloudAccountBlocked, continueBlock, modelChoiceAction, type ContinueBlock } from '../../../../shared/switchAgent'
+import { api, attempt, availableAgents, getState, modKey, newChat, openSettingsPage, useCapabilities, useStore } from '../../store'
 import { t as storeT, useT } from '../../i18n'
-import { ActionRow, ChipButton, Kbd, LinkButton, Popover, Segmented, Select, Switch, TextInput } from '../../ui'
+import { ActionRow, ChipButton, Glyph, Kbd, LinkButton, Popover, Segmented, Select, Switch, TextInput } from '../../ui'
 import { AgentMonogram } from '../agents/AgentMonogram'
 import { ManageAgentsRow, PickerAgentGroups } from '../agents/PickerAgents'
 import { openTerminalAgent } from '../agents/TerminalAgents'
@@ -71,6 +72,16 @@ export function opencodeModelParts(model: Pick<ModelInfo, 'id' | 'label'>): { pr
   return { provider, providerLabel, name: name || model.id }
 }
 
+/** A model of an agent whose labels read "provider/model" (catalog `models.twoLineNames`) split in two; null for any other agent. */
+export function modelParts(model: Pick<ModelInfo, 'agent' | 'id' | 'label'>): ReturnType<typeof opencodeModelParts> | null {
+  return hasTwoLineNames(model.agent) ? opencodeModelParts(model) : null
+}
+
+/** The model's name as the tabs and rows show it: without its provider where the label carries one. */
+export function modelName(model: Pick<ModelInfo, 'agent' | 'id' | 'label'>): string {
+  return modelParts(model)?.name ?? model.label
+}
+
 /**
  * #130: the account a choice asks for. On the chat's own agent a choice always names one (none: the default account);
  * on another agent only an explicit one counts, and otherwise that agent's account follows the workspace.
@@ -97,7 +108,7 @@ const ASK_SWITCH = 'foreman:o1-ask-switch'
 
 function matches(model: ModelInfo, query: string): boolean {
   const q = query.toLowerCase()
-  const provider = model.agent === 'opencode' ? opencodeModelParts(model).providerLabel.toLowerCase() : ''
+  const provider = modelParts(model)?.providerLabel.toLowerCase() ?? ''
   return (
     model.label.toLowerCase().includes(q) ||
     model.id.toLowerCase().includes(q) ||
@@ -144,7 +155,8 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
   const available = useStore((s) => availableAgents(s))
   // Subscribing re-renders the chooser when an agent reports new models.
   const catalog = useStore((s) => s.snapshot!.catalog)
-  const chosenOpencode = useStore((s) => s.snapshot!.settings.opencodeModels)
+  // The models ticked in Settings, for an agent that lists only a chosen subset.
+  const chosenSettings = useStore((s) => s.snapshot!.settings)
   // O8: models hidden in Settings → Agents; "N hidden · Show" reveals them until the picker closes.
   const hiddenModels = useStore((s) => s.snapshot!.settings.hiddenModels) ?? NO_HIDDEN
   // #130: the chosen agent's other accounts; with any, an Account row picks one.
@@ -165,9 +177,10 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
 
   const { listed, hiddenLeft } = useMemo(() => {
     // Search still finds hidden models (each row says so).
-    if (q) return { listed: allModels().filter((m) => available[m.agent] && (m.agent !== 'opencode' || chosenOpencode.includes(m.id)) && matches(m, q)), hiddenLeft: 0 }
+    if (q) return { listed: allModels().filter((m) => available[m.agent] && (chosenModels(m.agent, chosenSettings)?.includes(m.id) ?? true) && matches(m, q)), hiddenLeft: 0 }
     // OpenCode can offer hundreds of models; only the chosen ones are listed.
-    if (agentTab === 'opencode') return { listed: chosenOpencode.map((id) => modelInfo('opencode', id)), hiddenLeft: 0 }
+    const chosenTab = chosenModels(agentTab, chosenSettings)
+    if (chosenTab) return { listed: chosenTab.map((id) => modelInfo(agentTab, id)), hiddenLeft: 0 }
     const models = modelsFor(agentTab)
     if (!models.length && !entry?.loading) return { listed: [modelInfo(agentTab, '')], hiddenLeft: 0 }
     // The current model always shows; revealed hidden models go under the others.
@@ -175,7 +188,7 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
     return revealHidden ? { listed: [...split.shown, ...split.hidden], hiddenLeft: 0 } : { listed: split.shown, hiddenLeft: split.hidden.length }
     // modelsFor reads the catalog the store keeps current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, agentTab, available, entry, catalog, chosenOpencode, hiddenModels, revealHidden, value.agent, value.model])
+  }, [q, agentTab, available, entry, catalog, chosenSettings, hiddenModels, revealHidden, value.agent, value.model])
 
   const choose = (m: ModelInfo) => {
     const same = m.agent === value.agent && isSameModel(m.agent, m.id, value.model)
@@ -190,7 +203,7 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
     openSettingsPage({ section: 'agents', agent })
   }
 
-  const showEditOpencode = !q && agentTab === 'opencode'
+  const showEditChosen = !q && chosenModels(agentTab, chosenSettings) !== undefined
 
   return (
     // Standalone (the callers that place it themselves) it is a named group; in a Popover the panel is the dialog.
@@ -220,7 +233,7 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
       )}
 
       <div className="picker-section picker-models">
-        {listed.length === 0 && !showEditOpencode && (
+        {listed.length === 0 && !showEditChosen && (
           <div className="faint small pad">{entry?.loading && !q ? t('agentPicker.asking', { agent: AGENTS[agentTab].label }) : t('agentPicker.noModels')}</div>
         )}
         {!q && entry?.error && (
@@ -234,7 +247,7 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
         {listed.map((m) => {
           const current = m.agent === value.agent && isSameModel(m.agent, m.id, value.model)
           const waiting = pending && m.agent === pending.agent && isSameModel(m.agent, m.id, pending.model)
-          const parts = m.agent === 'opencode' ? opencodeModelParts(m) : null
+          const parts = modelParts(m)
           return (
             <ActionRow
               key={`${m.agent}:${m.id}`}
@@ -263,8 +276,8 @@ export function ModelChooser({ value, onChoose, onEffort, onFast, onClose, label
             <span className="faint small">{t('models.picker.hidden', { count: hiddenLeft })}</span>
           </ActionRow>
         )}
-        {showEditOpencode && (
-          <ActionRow onPress={() => openAgentSettings('opencode')} primaryProps={{ className: 'picker-row-main' }}>
+        {showEditChosen && (
+          <ActionRow onPress={() => openAgentSettings(agentTab)} primaryProps={{ className: 'picker-row-main' }}>
             <Settings2 size={13} aria-hidden />
             <span>{t('agentPicker.chooseOpencode')}</span>
           </ActionRow>
@@ -341,7 +354,10 @@ export function AgentPicker({
   const platform = useStore((s) => s.snapshot!.platform)
   const available = useStore((s) => availableAgents(s))
   const instances = useStore((s) => s.snapshot!.settings.agentInstances)
-  const moveRule = useStore((s) => s.snapshot!.settings.agentPrefs?.[session.agent]?.moveChats) ?? DEFAULT_MOVE_RULE
+  const prefs = useStore((s) => s.snapshot!.settings.agentPrefs)
+  const moveRule = prefs?.[session.agent]?.moveChats ?? DEFAULT_MOVE_RULE
+  // A remote workspace signs its agent in its own way, so it takes only the default account (docs/agents.md 5.4).
+  const cloud = useStore((s) => Boolean(s.snapshot!.workspaces.find((w) => w.id === session.workspaceId)?.cloud))
   // O1: another agent's model, waiting on "Continue this chat with …" or "Open a new chat instead".
   // #130: or another account of this chat's agent, waiting the same way.
   const [pending, setPending] = useState<Loadout | null>(null)
@@ -349,7 +365,8 @@ export function AgentPicker({
   const effort = session.effort ?? model.defaultEffort
   const mod = modKey(platform)
   const accountMove = pending && pending.agent === session.agent ? accountMoveGuess(instances, session.agent, session.instanceId, pending.instance, moveRule, Boolean(session.agentSessionId)) : null
-  const blocked = pending ? continueBlock(session, pending.agent, accountMove === 'blocked') : null
+  // Said before anything changes: the chosen account is refused by its agent's rule, or a remote workspace can't take it.
+  const blocked = pending ? continueBlock(session, staticCapabilities(pending.agent), accountBlocked(session, pending, instances, (agent) => prefs?.[agent]?.moveChats), cloudAccountBlocked(cloud, pending)) : null
   const account = instanceLabel(instances, session.agent, session.instanceId) ?? (session.instanceId ? t('agentAccounts.chooser.removed') : null)
 
   const close = () => {
@@ -411,7 +428,7 @@ export function AgentPicker({
       <div className="picker-label">{t('agentPicker.loadouts')}</div>
       {loadouts.map((loadout, n) => {
         const info = modelInfo(loadout.agent, loadout.model)
-        const name = loadout.agent === 'opencode' ? opencodeModelParts(info).name : info.label
+        const name = modelName(info)
         return (
           <ActionRow key={n} onPress={() => void pick(loadout)} disabled={!available[loadout.agent]} primaryProps={{ className: 'picker-row-main' }}>
             <span className="picker-num">{n + 1}</span>
@@ -452,7 +469,7 @@ export function AgentPicker({
       trigger={(popover) => (
         <ChipButton {...popover} className="picker-trigger" title={t('agentPicker.triggerTitle', { key: `${mod}/` })}>
           <AgentIcon agent={session.agent} />
-          <span>{session.agent === 'opencode' ? opencodeModelParts(model).name : model.label}</span>
+          <span>{modelName(model)}</span>
           {account && <span className="faint">{account}</span>}
           {effort && model.efforts.length > 0 && <span className="faint">{effortLabel(effort, t)}</span>}
           {session.fastMode && <Zap size={12} className="fast-on" aria-hidden />}
@@ -510,7 +527,7 @@ function SwitchChoice({
 }: {
   session: Session
   choice: Loadout
-  blocked: ReturnType<typeof continueBlock>
+  blocked: ContinueBlock | null
   // #130: moving to another account starts a new conversation there with the history as text.
   carried?: boolean
   mod: string
@@ -519,15 +536,19 @@ function SwitchChoice({
 }) {
   const t = useT()
   const info = modelInfo(choice.agent, choice.model)
-  const name = choice.agent === 'opencode' ? opencodeModelParts(info).name : info.label
+  const name = modelName(info)
   const agent = AGENTS[choice.agent].label
   const current = AGENTS[session.agent].label
   // #130: the same agent on another account.
   const instances = useStore((s) => s.snapshot!.settings.agentInstances)
   const sameAgent = choice.agent === session.agent
+  // What the chosen agent declared decides whether it has a plan mode (an ACP agent states one when it starts).
+  const chosen = useCapabilities(choice.agent, choice.instance)
   const account = instanceLabel(instances, choice.agent, choice.instance) ?? t('agentAccounts.default')
   // Switching back to an agent that ran here resumes its own conversation.
   const native = Boolean(session.parked?.[choice.agent])
+  // A blocked row is dimmed whole, so its reason is a line of its own under it (docs/agents.md 5.4), tied to the row for assistive tech.
+  const whyId = useId()
   const why =
     blocked === 'running'
       ? t('switchAgent.choice.blocked.running')
@@ -537,21 +558,24 @@ function SwitchChoice({
           ? t('switchAgent.choice.blocked.history')
           : blocked === 'account'
             ? t('agentAccounts.choice.blocked', { agent })
-            : null
+            : blocked === 'cloud'
+              ? t('switchAgent.choice.blocked.cloud')
+              : null
   if (sameAgent) {
     return (
       <div className="picker-section switch-choice" role="group" aria-label={t('switchAgent.choice.label')}>
         <div className="switch-choice-head">{t.rich('agentAccounts.choice.head', { account: <b key="a">{account}</b>, agent })}</div>
-        <ActionRow className="switch-opt" selected={!blocked} disabled={Boolean(blocked)} onPress={onContinue} primaryProps={{ className: 'switch-opt-main' }}>
+        <ActionRow className="switch-opt" selected={!blocked} disabled={Boolean(blocked)} onPress={onContinue} primaryProps={{ className: 'switch-opt-main', 'aria-describedby': why ? whyId : undefined }}>
           <span className="switch-opt-icon">
             <ArrowRightLeft size={14} aria-hidden />
           </span>
           <span className="switch-opt-text">
             <span className="switch-opt-title">{t('agentAccounts.choice.continue', { account })}</span>
-            <span className="switch-opt-sub">{why ?? t(carried ? 'agentAccounts.choice.asText' : 'agentAccounts.choice.same', { agent })}</span>
+            <span className="switch-opt-sub">{t(carried ? 'agentAccounts.choice.asText' : 'agentAccounts.choice.same', { agent })}</span>
           </span>
           {!blocked && <Kbd>↵</Kbd>}
         </ActionRow>
+        {why && <BlockedReason id={whyId}>{why}</BlockedReason>}
         <ActionRow className="switch-opt" onPress={onNewChat} primaryProps={{ className: 'switch-opt-main' }}>
           <span className="switch-opt-icon">
             <MessageSquarePlus size={14} aria-hidden />
@@ -569,16 +593,17 @@ function SwitchChoice({
     <div className="picker-section switch-choice" role="group" aria-label={t('switchAgent.choice.label')}>
       <div className="switch-choice-head">{t.rich('switchAgent.choice.head', { model: <b key="m">{name}</b>, agent, current })}</div>
 
-      <ActionRow className="switch-opt" selected={!blocked} disabled={Boolean(blocked)} onPress={onContinue} primaryProps={{ className: 'switch-opt-main' }}>
+      <ActionRow className="switch-opt" selected={!blocked} disabled={Boolean(blocked)} onPress={onContinue} primaryProps={{ className: 'switch-opt-main', 'aria-describedby': why ? whyId : undefined }}>
         <span className="switch-opt-icon">
           <ArrowRightLeft size={14} aria-hidden />
         </span>
         <span className="switch-opt-text">
           <span className="switch-opt-title">{t('switchAgent.choice.continue', { agent })}</span>
-          <span className="switch-opt-sub">{why ?? t(native ? 'switchAgent.choice.continueNative' : 'switchAgent.choice.continueHistory', { agent })}</span>
+          <span className="switch-opt-sub">{t(native ? 'switchAgent.choice.continueNative' : 'switchAgent.choice.continueHistory', { agent })}</span>
         </span>
         {!blocked && <Kbd>↵</Kbd>}
       </ActionRow>
+      {why && <BlockedReason id={whyId}>{why}</BlockedReason>}
       <ActionRow className="switch-opt" onPress={onNewChat} primaryProps={{ className: 'switch-opt-main' }}>
         <span className="switch-opt-icon">
           <MessageSquarePlus size={14} aria-hidden />
@@ -591,9 +616,19 @@ function SwitchChoice({
       </ActionRow>
       <div className="switch-choice-note faint small">
         {t('switchAgent.choice.follows', { agent })}
-        {!supportsPlan(choice.agent, getState().snapshot?.catalog.agents[choice.agent]?.modes) && ` ${t('switchAgent.choice.noPlan', { agent })}`}
+        {chosen && !offers(chosen.planning.planMode) && ` ${t('switchAgent.choice.noPlan', { agent })}`}
       </div>
     </div>
+  )
+}
+
+/** Why a choice can't be made, on a line of its own under it (a disabled row dims its contents, so the reason can't live inside). */
+function BlockedReason({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <p id={id} className="switch-choice-why small">
+      <Glyph name="off" />
+      <span>{children}</span>
+    </p>
   )
 }
 

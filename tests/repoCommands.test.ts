@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { discoverClaudeCommands } from '../src/main/agents/claude'
+import { staticCapabilities } from '../src/shared/agentCatalog'
 import { commandText, filterCommands, repoCommands } from '../src/shared/repoCommands'
 import { tempDir } from './helpers'
 
@@ -42,13 +43,13 @@ describe('Repo commands in the picker', () => {
   ]
 
   it('is hidden for other agents and leaves out built-ins', () => {
-    expect(repoCommands('claude', list).map((c) => c.name)).toEqual(['review-ipc', 'electron-debug'])
-    for (const agent of ['codex', 'cursor', 'opencode'] as const) expect(repoCommands(agent, list)).toEqual([])
+    expect(repoCommands(staticCapabilities('claude'), list).map((c) => c.name)).toEqual(['review-ipc', 'electron-debug'])
+    for (const agent of ['codex', 'cursor', 'opencode'] as const) expect(repoCommands(staticCapabilities(agent), list)).toEqual([])
   })
 
   it('filters by words and inserts only the name', () => {
-    expect(filterCommands(repoCommands('claude', list), '/ipc').map((c) => c.name)).toEqual(['review-ipc'])
-    expect(filterCommands(repoCommands('claude', list), 'main process').map((c) => c.name)).toEqual(['electron-debug'])
+    expect(filterCommands(repoCommands(staticCapabilities('claude'), list), '/ipc').map((c) => c.name)).toEqual(['review-ipc'])
+    expect(filterCommands(repoCommands(staticCapabilities('claude'), list), 'main process').map((c) => c.name)).toEqual(['electron-debug'])
     expect(commandText({ name: 'review-ipc' })).toBe('/review-ipc ')
   })
 })

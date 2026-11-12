@@ -3,6 +3,7 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { catalogAgent } from '../src/shared/agentCatalog'
 import { modelInfo } from '../src/shared/agents'
 import type { ChatItem } from '../src/shared/types'
 import {
@@ -11,9 +12,12 @@ import {
   codexDriver,
   codexSettings,
   expandCustomPrompt,
-  listCodexModels
+  threadCommand,
+  listCodexModels,
+  readCodexLimits,
+  windowsSandboxFact
 } from '../src/main/agents/codex'
-import type { CodexAppServerLike } from '../src/main/agents/codexAppServer'
+import type { CodexAppServerLike } from '../src/main/agents/codex/appServer'
 import type { TurnCallbacks, TurnRequest, TurnResult } from '../src/main/agents/types'
 import { makeRepo, tempDir } from './helpers'
 
@@ -87,8 +91,14 @@ class FakeServer implements CodexAppServerLike {
 
   constructor(private scripts: TurnScript[] = []) {}
 
-  async initialize(): Promise<void> {
+  // What a real server says about itself: its version is in `userAgent`.
+  userAgent?: string
+  // Which system it says it runs on ("windows": the sandbox's readiness is read).
+  platformOs?: string
+
+  async initialize(): Promise<{ userAgent?: string; platformOs?: string } | void> {
     this.calls.push({ method: 'initialize', params: {} })
+    if (this.userAgent || this.platformOs) return { userAgent: this.userAgent, platformOs: this.platformOs }
   }
 
   async request<T = unknown>(method: string, params: unknown): Promise<T> {
@@ -96,9 +106,15 @@ class FakeServer implements CodexAppServerLike {
     if (this.exited) throw new Error('Codex app-server exited unexpectedly')
     if (method === 'thread/resume') this.thread = (params as Params).threadId
     const custom = this.answers[method]
-    if (custom) return custom(params as Params) as T
+    if (custom) {
+      const answer = custom(params as Params) as { thread?: { id: string } }
+      // A fork is the thread its notifications are about from then on.
+      if (method === 'thread/fork' && answer.thread) this.thread = answer.thread.id
+      return answer as T
+    }
     switch (method) {
       case 'thread/start':
+        this.thread = THREAD
         return { thread: { id: THREAD }, model: 'gpt-6.1-sol' } as T
       case 'thread/resume':
         this.thread = (params as Params).threadId
@@ -330,11 +346,44 @@ describe('codex turn', () => {
     const items = r.persisted()
     const notices = items.filter((i) => i.kind === 'notice')
     expect(notices).toHaveLength(1)
-    expect(notices[0]).toMatchObject({ level: 'error', text: message, action: 'open-settings' })
+    expect(notices[0]).toMatchObject({ level: 'error', text: 'Codex isn’t signed in, or its sign-in has expired.', action: 'open-settings' })
     expect(items.find((i) => i.kind === 'result')).toMatchObject({ ok: false })
     expect(r.calls.filter((c) => c === 'finished')).toHaveLength(1)
     expect(r.results).toEqual([{ ok: false, error: message }])
     expect(server.closed).toBe(1)
+  })
+
+  // Docs/agents.md 7.1: `account/rateLimits/updated` reports the account's windows during a turn, and a turn that fails at the
+  // limit takes its reset time from the blocked window, so a paused chat can resume when it resets.
+  it('reports rate-limit windows during the turn and reads the reset time of a limit failure from the blocked one', async () => {
+    const windows: unknown[] = []
+    const r = recorder({ limits: (w) => void windows.push(w) })
+    const resetsAt = Math.floor(Date.now() / 1000) + 2 * 3600
+    const message = "You've hit your usage limit. Try again later."
+    const server = new FakeServer([
+      (s, _p, id) => {
+        s.emit('account/rateLimits/updated', { rateLimits: { limitId: 'codex', primary: { usedPercent: 83, windowDurationMins: 300, resetsAt }, secondary: { usedPercent: 20, windowDurationMins: 10_080, resetsAt: resetsAt + 86_400 } } })
+        s.emit('account/rateLimits/updated', { rateLimits: { limitId: 'codex', primary: { usedPercent: 100, windowDurationMins: 300, resetsAt }, rateLimitReachedType: 'rate_limit_reached' } })
+        s.emit('error', { turnId: id, error: { message }, willRetry: false })
+        s.completed(id, 'failed', { message })
+      }
+    ])
+    await runTurn(request(), r.cb, server)
+    expect(windows).toEqual([
+      [{ kind: 'session', usedPercent: 83, resetsAt: new Date(resetsAt * 1000).toISOString(), state: 'warning' }, { kind: 'weekly', usedPercent: 20, resetsAt: new Date((resetsAt + 86_400) * 1000).toISOString(), state: 'ok' }],
+      [{ kind: 'session', usedPercent: 100, resetsAt: new Date(resetsAt * 1000).toISOString(), state: 'blocked' }]
+    ])
+    expect(r.results).toEqual([{ ok: false, error: message, limit: { resetAt: new Date(resetsAt * 1000).toISOString(), source: 'five_hour', timeZone: 'UTC', from: 'event' } }])
+  })
+
+  it('a limit failure with no window reported is a limit with an unknown reset time, and any other failure none', async () => {
+    const limited = recorder()
+    const message = "You've hit your usage limit."
+    await runTurn(request(), limited.cb, new FakeServer([(s, _p, id) => s.completed(id, 'failed', { message })]))
+    expect(limited.results).toEqual([{ ok: false, error: message, limit: {} }])
+    const other = recorder()
+    await runTurn(request(), other.cb, new FakeServer([(s, _p, id) => s.completed(id, 'failed', { message: 'model not found' })]))
+    expect(other.results).toEqual([{ ok: false, error: 'model not found' }])
   })
 
   it('shows the CLI error when the process dies without a turn result', async () => {
@@ -365,7 +414,7 @@ describe('codex turn', () => {
     const r = recorder()
     await codexDriver.createTurn(request({ executablePath: path.join(os.tmpdir(), 'no-such-codex') }), r.cb).run()
     const items = r.persisted()
-    expect(items.find((i) => i.kind === 'notice')).toMatchObject({ level: 'error', text: expect.stringMatching(/^Codex CLI not found at /), action: 'open-settings' })
+    expect(items.find((i) => i.kind === 'notice')).toMatchObject({ level: 'error', text: expect.stringMatching(/^Codex is not installed or could not be found at /), action: 'open-settings' })
     expect(items.find((i) => i.kind === 'result')).toMatchObject({ ok: false })
     expect(r.calls.at(-1)).toBe('finished')
   })
@@ -967,6 +1016,27 @@ describe('codex model list', () => {
     expect(server.closed).toBeGreaterThanOrEqual(1)
   })
 
+  // Docs/agents.md 7.1: the windows are read between turns with `account/rateLimits/read`, which starts no turn.
+  it('reads the account’s windows with account/rateLimits/read, and closes the process', async () => {
+    const server = new FakeServer()
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600
+    server.answers['account/rateLimits/read'] = () => ({
+      rateLimits: { limitId: 'codex', primary: { usedPercent: 54, windowDurationMins: 300, resetsAt }, secondary: { usedPercent: 18, windowDurationMins: 10_080, resetsAt: resetsAt + 86_400 } },
+      rateLimitsByLimitId: null
+    })
+    const windows = await readCodexLimits({ cwd: CWD, env: {}, executablePath: process.execPath }, () => server)
+    expect(windows.map((w) => [w.kind, w.usedPercent, w.state])).toEqual([['session', 54, 'ok'], ['weekly', 18, 'ok']])
+    expect(server.calls.map((c) => c.method)).toEqual(['initialize', 'account/rateLimits/read'])
+    expect(server.closed).toBeGreaterThanOrEqual(1)
+    // An account with no plan windows (an API key) answers with an error: nothing to report, never a throw.
+    const keyed = new FakeServer()
+    keyed.answers['account/rateLimits/read'] = () => {
+      throw new Error('codex account authentication required to read rate limits')
+    }
+    await expect(readCodexLimits({ cwd: CWD, env: {}, executablePath: process.execPath }, () => keyed)).resolves.toEqual([])
+    expect(keyed.closed).toBeGreaterThanOrEqual(1)
+  })
+
   it('closes the process when the list fails', async () => {
     const server = new FakeServer()
     server.answers['model/list'] = () => {
@@ -1090,4 +1160,575 @@ describe.runIf(smoke)('codex smoke test', () => {
     expect(items.find((i) => i.kind === 'assistant')).toMatchObject({ text: expect.stringMatching(/OK/) })
     expect(items.find((i) => i.kind === 'result')).toMatchObject({ ok: true })
   }, 180_000)
+})
+
+describe('codex launch problems (docs/agents.md, 4.1)', () => {
+  const UNKNOWN = 'Invalid request: unknown variant `thread/start`, expected one of `initialize`, `thread/resume`'
+
+  /** A server that says what version it is, as the real one does in its initialize answer. */
+  const versioned = (): FakeServer => {
+    const server = new FakeServer()
+    server.userAgent = 'foreman/0.140.0 (Windows 10.0.26200; x86_64) unknown (foreman; 1.0.0)'
+    return server
+  }
+
+  it('says a request the CLI does not know is older than Foreman expects, offers Update, and keeps its own words in the result', async () => {
+    const r = recorder()
+    const server = versioned()
+    server.answers['thread/start'] = () => {
+      throw new Error(UNKNOWN)
+    }
+    await runTurn(request(), r.cb, server)
+    expect(r.persisted().find((i) => i.kind === 'notice')).toMatchObject({
+      level: 'error',
+      text: 'Codex 0.140.0 doesn’t know the request “thread/start”, so it is older than Foreman expects.',
+      action: 'update'
+    })
+    expect(r.results[0]).toMatchObject({ ok: false, error: expect.stringContaining('unknown variant') })
+  })
+
+  it('refuses a version the table lists as broken before it opens a thread', async () => {
+    const table = catalogAgent('codex')!.versions!
+    catalogAgent('codex')!.versions = { ...table, broken: [{ range: '<0.150.0', why: 'agentCaps.why.cost' }] }
+    try {
+      const r = recorder()
+      const server = versioned()
+      await runTurn(request(), r.cb, server)
+      expect(r.persisted().find((i) => i.kind === 'notice')).toMatchObject({ level: 'error', text: expect.stringContaining('Codex 0.140.0 doesn’t work with Foreman'), action: 'update' })
+      expect(server.sent('thread/start')).toEqual([])
+      expect(r.results).toEqual([{ ok: false, error: expect.stringContaining('Codex 0.140.0') }])
+      expect(server.closed).toBe(1)
+    } finally {
+      catalogAgent('codex')!.versions = table
+    }
+  })
+
+  it('refuses a model the table says needs a newer CLI, naming the model and the installed version', async () => {
+    const table = catalogAgent('codex')!.versions!
+    catalogAgent('codex')!.versions = { ...table, models: { 'gpt-6.1-sol': '0.170.0' } }
+    try {
+      const r = recorder()
+      const server = versioned()
+      await runTurn(request(), r.cb, server)
+      expect(r.persisted().find((i) => i.kind === 'notice')).toMatchObject({ level: 'error', text: 'GPT-6.1 Sol needs a newer Codex than 0.140.0.', action: 'update' })
+      expect(server.sent('thread/start')).toEqual([])
+    } finally {
+      catalogAgent('codex')!.versions = table
+    }
+  })
+
+  it('goes on with a version the table has no complaint about', async () => {
+    const r = recorder()
+    await runTurn(request(), r.cb, versioned())
+    expect(r.persisted().find((i) => i.kind === 'result')).toMatchObject({ ok: true })
+  })
+})
+
+describe('codex scoped writes (docs/agents.md 8)', () => {
+  const scoped = { writeScope: ['docs/**', 'notes/*.md'], approvals: 'ask' as const }
+
+  /** One turn held to the globs in which the server asks `method`: the driver's reply, and what it said into the turn about it. */
+  async function askedScoped(req: Partial<TurnRequest>, method: string, params: Params, before?: (s: FakeServer) => void, cb: Partial<TurnCallbacks> = {}) {
+    let reply: unknown
+    const r = recorder(cb)
+    const server = new FakeServer([
+      async (s, _p, id) => {
+        before?.(s)
+        reply = await s.ask(method, { turnId: id, ...params }, 7).catch((e: Error) => ({ rejected: e.message }))
+        // The message goes in just after the answer, while the turn is still going.
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        s.completed(id)
+      }
+    ])
+    await runTurn(request({ ...scoped, ...req }), r.cb, server)
+    const said = server.sent('turn/steer').map((p) => (p.input[0] as { text: string }).text)
+    return { reply, r, server, said }
+  }
+
+  it('runs in the read-only sandbox with on-request approvals, whatever the chat’s approval setting', () => {
+    for (const approvals of ['ask', 'ask-except-edits', 'never-ask', 'auto'] as const) {
+      const { sandbox, sandboxPolicy, approvalPolicy, thread } = codexSettings(request({ ...scoped, approvals }))
+      expect({ sandbox, approvalPolicy }).toEqual({ sandbox: 'read-only', approvalPolicy: 'on-request' })
+      expect(sandboxPolicy).toEqual({ type: 'readOnly', networkAccess: true })
+      expect(thread).toMatchObject({ sandbox: 'read-only', approvalPolicy: 'on-request' })
+    }
+    // No network under a ceiling, as in the workspace sandbox.
+    expect(codexSettings(request({ ...scoped, capped: { gitDir: '/repo/.git' } as never })).sandboxPolicy).toEqual({ type: 'readOnly', networkAccess: false })
+    // No globs, nothing changes; read-only wins and stays offline and never asks.
+    expect(codexSettings(request({ approvals: 'ask' })).sandbox).toBe('workspace-write')
+    expect(codexSettings(request({ ...scoped, readOnly: true }))).toMatchObject({ sandbox: 'read-only', approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly', networkAccess: false } })
+    expect(codexSettings(request({ writeScope: [], approvals: 'never-ask' })).sandbox).toBe('danger-full-access')
+  })
+
+  it('sets repo MCP servers to prompt, Foreman’s own excepted, and declines the prompt', async () => {
+    const servers = { sentry: { command: 'node', args: [], env: {} }, 'foreman-app': { command: 'node', args: [], env: {} } }
+    const config = codexSettings(request({ ...scoped, mcpServers: servers })).config.mcp_servers as Record<string, { default_tools_approval_mode: string }>
+    expect(config.sentry.default_tools_approval_mode).toBe('prompt')
+    expect(config['foreman-app'].default_tools_approval_mode).toBe('approve')
+    expect((codexSettings(request({ mcpServers: servers })).config.mcp_servers as typeof config).sentry.default_tools_approval_mode).toBe('approve')
+
+    const approveTool = vi.fn()
+    const { reply, said } = await askedScoped(
+      {},
+      'item/tool/requestUserInput',
+      {
+        itemId: 'q1',
+        questions: [{ id: 'mcp_tool_call_approval_1', header: 'Approve app tool call?', question: 'Allow the sentry MCP server to run tool "search"?', isOther: false, isSecret: false, options: [{ label: 'Allow', description: '' }, { label: 'Cancel', description: '' }] }]
+      },
+      undefined,
+      { approveTool }
+    )
+    expect(reply).toEqual({ answers: { mcp_tool_call_approval_1: { answers: [] } } })
+    expect(approveTool).not.toHaveBeenCalled()
+    expect(said[0]).toContain('MCP server’s tools run outside the sandbox')
+  })
+
+  it('accepts a file change whose every file is inside the globs, without asking the person', async () => {
+    const approveTool = vi.fn()
+    const { reply, said } = await askedScoped(
+      {},
+      'item/fileChange/requestApproval',
+      { itemId: 'f1' },
+      (s) => s.started('turn-1', fileChange('f1', [change('docs/a.md', 'add'), change(path.join(CWD, 'docs/deep/b.md'), 'update'), change('notes/x.md', 'add')])),
+      { approveTool }
+    )
+    expect(reply).toEqual({ decision: 'accept' })
+    expect(said).toEqual([])
+    expect(approveTool).not.toHaveBeenCalled()
+  })
+
+  it('declines a change with any file outside them, naming it and the area in a message to the agent, and never asks the person', async () => {
+    for (const [file, named] of [['src/main.ts', 'src/main.ts'], ['../other/docs/a.md', path.resolve(CWD, '../other/docs/a.md')], ['notes/deep/x.md', 'notes/deep/x.md'], ['docs/../src/x.ts', 'src/x.ts']] as const) {
+      const approveTool = vi.fn()
+      const { reply, said } = await askedScoped(
+        {},
+        'item/fileChange/requestApproval',
+        { itemId: 'f1' },
+        (s) => s.started('turn-1', fileChange('f1', [change('docs/ok.md', 'add'), change(file, 'add')])),
+        { approveTool }
+      )
+      expect(reply, file).toEqual({ decision: 'decline' })
+      expect(approveTool).not.toHaveBeenCalled()
+      expect(said, file).toHaveLength(1)
+      expect(said[0]).toContain(`writing “${named}” is outside the folders this step may write in`)
+      expect(said[0]).toContain('allowed only inside docs/**, notes/*.md')
+      expect(said[0]).toContain('Carry on.')
+    }
+  })
+
+  it('declines a change that names no file, or asks for a whole folder', async () => {
+    const none = await askedScoped({}, 'item/fileChange/requestApproval', { itemId: 'f1' })
+    expect(none.reply).toEqual({ decision: 'decline' })
+    expect(none.said[0]).toContain('it names no file to write')
+    const root = await askedScoped({}, 'item/fileChange/requestApproval', { itemId: 'f2', grantRoot: 'docs' })
+    expect(root.reply).toEqual({ decision: 'decline' })
+    expect(root.said[0]).toContain('whole folder')
+  })
+
+  it('declines a write inside the globs that a ceiling protects (agent or git configuration)', async () => {
+    const capped = { gitDir: path.resolve('/repos/app/.git') } as never
+    const { reply, said } = await askedScoped({ capped, writeScope: ['**'] }, 'item/fileChange/requestApproval', { itemId: 'f1' }, (s) => s.started('turn-1', fileChange('f1', [change('.codex/config.toml', 'update')])))
+    expect(reply).toEqual({ decision: 'decline' })
+    expect(said[0]).toContain('agent or git configuration')
+    const fine = await askedScoped({ capped, writeScope: ['**'] }, 'item/fileChange/requestApproval', { itemId: 'f2' }, (s) => s.started('turn-1', fileChange('f2', [change('src/a.ts', 'update')])))
+    expect(fine.reply).toEqual({ decision: 'accept' })
+  })
+
+  it('declines every command that asks, and every request for more access, with the reason', async () => {
+    const approveTool = vi.fn()
+    const command = await askedScoped({}, 'item/commandExecution/requestApproval', { itemId: 'c1', command: 'npm run build', cwd: CWD, reason: 'needs to write dist' }, undefined, { approveTool })
+    expect(command.reply).toEqual({ decision: 'decline' })
+    expect(command.said[0]).toContain('the command “npm run build” needs to write or to leave the sandbox')
+    const more = await askedScoped({}, 'item/permissions/requestApproval', { itemId: 'p1', cwd: CWD, reason: null, permissions: { network: { enabled: true }, fileSystem: null } }, undefined, { approveTool })
+    expect(more.reply).toEqual({ permissions: {}, scope: 'turn' })
+    expect(more.said[0]).toContain('more access than the sandbox gives')
+    expect(approveTool).not.toHaveBeenCalled()
+  })
+
+  it('leaves a turn with no scope, and a read-only turn, as they were', async () => {
+    const approveTool = vi.fn(async () => ({ kind: 'tool', allow: true }) as const)
+    const plain = await askedScoped({ writeScope: undefined }, 'item/commandExecution/requestApproval', { itemId: 'c1', command: 'ls', cwd: CWD }, undefined, { approveTool })
+    expect(plain.reply).toEqual({ decision: 'accept' })
+    expect(plain.said).toEqual([])
+    const readOnly = await askedScoped({ readOnly: true }, 'item/fileChange/requestApproval', { itemId: 'f1' }, (s) => s.started('turn-1', fileChange('f1', [change('docs/a.md', 'add')])))
+    expect(readOnly.reply).toEqual({ decision: 'decline' })
+    expect(readOnly.said).toEqual([])
+  })
+})
+
+describe('codex on Windows: the sandbox’s readiness (docs/agents.md 8)', () => {
+  const windows = (status: string | Error): FakeServer => {
+    const server = new FakeServer()
+    server.platformOs = 'windows'
+    server.answers['windowsSandbox/readiness'] = () => {
+      if (status instanceof Error) throw status
+      return { status }
+    }
+    return server
+  }
+
+  it('reads it at start on Windows, with no params, and declares it for the account', async () => {
+    const declared: unknown[] = []
+    const r = recorder({ declared: (facts) => void declared.push(facts) })
+    const server = windows('ready')
+    await runTurn(request(), r.cb, server)
+    expect(server.calls.map((c) => c.method).slice(0, 3)).toEqual(['initialize', 'windowsSandbox/readiness', 'thread/start'])
+    expect(server.sent('windowsSandbox/readiness')).toEqual([undefined])
+    expect(declared).toEqual([{ windowsSandbox: 'ready' }])
+    expect(r.persisted().find((i) => i.kind === 'result')).toMatchObject({ ok: true })
+  })
+
+  it('declares "not-ready" for a sandbox that was never set up or needs an update, and a turn that promises nothing still runs', async () => {
+    for (const status of ['notConfigured', 'updateRequired']) {
+      const declared: unknown[] = []
+      const r = recorder({ declared: (facts) => void declared.push(facts) })
+      const server = windows(status)
+      await runTurn(request(), r.cb, server)
+      expect(declared, status).toEqual([{ windowsSandbox: 'not-ready' }])
+      expect(server.sent('thread/start'), status).toHaveLength(1)
+    }
+  })
+
+  it('does not start a read-only or scoped-writes turn on a sandbox that is not ready, and says why', async () => {
+    for (const [patch, what] of [[{ readOnly: true }, 'hold this chat to read-only'], [{ writeScope: ['docs/**'] }, 'hold this step to the folders it may write in']] as [Partial<TurnRequest>, string][]) {
+      const r = recorder()
+      const server = windows('notConfigured')
+      await runTurn(request(patch), r.cb, server)
+      expect(server.sent('thread/start')).toEqual([])
+      expect(r.results).toEqual([{ ok: false, error: expect.stringContaining(what) }])
+      expect(r.results[0]).toMatchObject({ error: expect.stringContaining('isn’t set up') })
+      expect(server.closed).toBe(1)
+    }
+    const r = recorder()
+    await runTurn(request({ readOnly: true }), r.cb, windows('updateRequired'))
+    expect(r.results[0]).toMatchObject({ error: expect.stringContaining('needs an update') })
+  })
+
+  it('lets a read-only turn go on where the sandbox is ready', async () => {
+    const r = recorder()
+    const server = windows('ready')
+    await runTurn(request({ readOnly: true }), r.cb, server)
+    expect(server.sent('thread/start')).toHaveLength(1)
+    expect(r.results).toEqual([{ ok: true }])
+  })
+
+  it('reads nothing off Windows, and declares nothing when the answer cannot be read', async () => {
+    const declared: unknown[] = []
+    const r = recorder({ declared: (facts) => void declared.push(facts) })
+    const mac = windows('notConfigured')
+    mac.platformOs = 'macos'
+    await runTurn(request({ readOnly: true }), r.cb, mac)
+    expect(mac.sent('windowsSandbox/readiness')).toEqual([])
+    const quiet = windows(new Error('Method not found'))
+    await runTurn(request({ readOnly: true }), r.cb, quiet)
+    expect(declared).toEqual([])
+    expect(quiet.sent('thread/start')).toHaveLength(1)
+  })
+
+  it('names the states by what the protocol says: only "ready" holds', () => {
+    expect(windowsSandboxFact('ready')).toEqual({ windowsSandbox: 'ready' })
+    expect(windowsSandboxFact('notConfigured')).toEqual({ windowsSandbox: 'not-ready' })
+    expect(windowsSandboxFact('updateRequired')).toEqual({ windowsSandbox: 'not-ready' })
+  })
+})
+
+describe('codex update command', () => {
+  it('runs Codex’s own `update` on the program the user set, else on the one on PATH, quoted for the shell', () => {
+    expect(codexDriver.updateCommand?.('/opt/my codex/codex')).toMatch(/^['"]?\/opt\/my codex\/codex['"]? update$/)
+    expect(codexDriver.updateCommand?.()).toMatch(/^['"]codex['"] update$/)
+  })
+})
+
+// ---- docs/agents.md 3 (slice 4a): fork, rollback, compaction and goals ----
+
+describe('codex slash commands that go to the protocol', () => {
+  it('reads /compact, /goal <text>, /goal pause|resume|clear and a bare /goal, and nothing else', () => {
+    expect(threadCommand('/compact')).toEqual({ name: 'compact' })
+    expect(threadCommand('  /compact keep the API notes')).toEqual({ name: 'compact' })
+    expect(threadCommand('/goal get the tests passing')).toEqual({ name: 'goal', objective: 'get the tests passing' })
+    expect(threadCommand('/GOAL Clear')).toEqual({ name: 'goal-clear' })
+    expect(threadCommand('/goal pause')).toEqual({ name: 'goal-pause' })
+    expect(threadCommand('/goal resume')).toEqual({ name: 'goal-resume' })
+    expect(threadCommand('/goal')).toEqual({ name: 'goal-usage' })
+    // Only the first line is the objective: what Foreman appends after it (notes, attachments) is not.
+    expect(threadCommand('/goal ship it\n\n[attached: a.png]')).toEqual({ name: 'goal', objective: 'ship it' })
+    for (const text of ['hello', 'please /compact', '/compacted', '/goals', '/plan']) expect(threadCommand(text), text).toBeUndefined()
+  })
+})
+
+describe('codex fork and rollback', () => {
+  it('forks through the turn the conversation stood at, with the thread settings, and carries on in the fork', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    server.answers['thread/fork'] = () => ({ thread: { id: 'forked' }, model: 'gpt-6.1-sol' })
+    await runTurn(request({ resume: 'parent', resumeAt: 'turn-9' }), r.cb, server)
+    expect(server.sent('thread/resume')).toEqual([])
+    expect(server.sent('thread/start')).toEqual([])
+    expect(server.sent('thread/fork')).toEqual([expect.objectContaining({ threadId: 'parent', lastTurnId: 'turn-9', excludeTurns: true, cwd: CWD, model: 'gpt-6.1-sol' })])
+    expect(r.calls).toContain('session:forked')
+    expect(server.sent('turn/start')[0]).toMatchObject({ threadId: 'forked' })
+  })
+
+  it('reports the turn each Codex turn ended at, for Restore and forks to cut at', async () => {
+    const points: string[] = []
+    const r = recorder({ assistantMessage: (id) => void points.push(id) })
+    await runTurn(request(), r.cb, new FakeServer())
+    expect(points).toEqual(['turn-1'])
+  })
+
+  it('Restore: resumes, lists the turns, and reverts before the one after the turn it keeps', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    // Newest first, as thread/turns/list answers; two pages.
+    server.answers['thread/turns/list'] = (p) => (p.cursor ? { data: [{ id: 'turn-3' }, { id: 'turn-2' }], nextCursor: null } : { data: [{ id: 'turn-5' }, { id: 'turn-4' }], nextCursor: 'more' })
+    await runTurn(request({ resume: 'mine', resumeAt: 'turn-3', rewind: true }), r.cb, server)
+    expect(server.sent('thread/resume')).toHaveLength(1)
+    expect(server.sent('thread/fork')).toEqual([])
+    expect(server.sent('thread/turns/list')).toHaveLength(2)
+    expect(server.sent('thread/revert')).toEqual([{ threadId: 'mine', beforeTurnId: 'turn-4' }])
+    expect(r.calls).toContain('session:mine')
+  })
+
+  it('Restore to the newest turn has nothing to cut', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    server.answers['thread/turns/list'] = () => ({ data: [{ id: 'turn-3' }, { id: 'turn-2' }], nextCursor: null })
+    await runTurn(request({ resume: 'mine', resumeAt: 'turn-3', rewind: true }), r.cb, server)
+    expect(server.sent('thread/revert')).toEqual([])
+    expect(r.calls).toContain('session:mine')
+  })
+
+  it('Restore to a turn the thread no longer has starts a new conversation, and says so', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    server.answers['thread/turns/list'] = () => ({ data: [{ id: 'turn-3' }], nextCursor: null })
+    await runTurn(request({ resume: 'mine', resumeAt: 'gone', rewind: true }), r.cb, server)
+    expect(server.sent('thread/revert')).toEqual([])
+    expect(server.sent('thread/start')).toHaveLength(1)
+    expect(r.persisted().find((i) => i.kind === 'notice')).toMatchObject({ level: 'info', text: expect.stringContaining('starts a new one') })
+    expect(r.calls).toContain(`session:${THREAD}`)
+  })
+})
+
+describe('codex /compact', () => {
+  it('compacts the thread through thread/compact/start and shows the divider, without sending the text to the model', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    server.answers['thread/compact/start'] = () => {
+      setTimeout(() => {
+        server.emit('turn/started', { turn: { id: 'c1' } })
+        server.finished('c1', { type: 'contextCompaction', id: 'cc' })
+        server.completed('c1')
+      }, 0)
+      return {}
+    }
+    await runTurn(request({ prompt: '/compact', resume: 'mine' }), r.cb, server)
+    expect(server.sent('thread/compact/start')).toEqual([{ threadId: 'mine' }])
+    expect(server.sent('turn/start')).toEqual([])
+    expect(r.persisted().flatMap((i) => (i.kind === 'notice' && i.divider ? [i.divider] : []))).toEqual([{ kind: 'compact' }])
+    expect(r.results).toEqual([{ ok: true }])
+  })
+
+  it('says there is nothing to compact in a conversation that has not started', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    await runTurn(request({ prompt: '/compact' }), r.cb, server)
+    expect(server.sent('thread/compact/start')).toEqual([])
+    expect(r.persisted().find((i) => i.kind === 'notice')).toMatchObject({ text: 'There is nothing to compact yet.' })
+    expect(r.results).toEqual([{ ok: true }])
+  })
+})
+
+describe('codex goals', () => {
+  const goal = (status: string, extra: Params = {}) => ({ threadId: THREAD, objective: 'ship it', status, tokenBudget: null, tokensUsed: 10, timeUsedSeconds: 2, createdAt: 1, updatedAt: 2, ...extra })
+  const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  /** What Codex does after thread/goal/set: the goal is active, and it takes turns of its own until it marks it complete. */
+  function working(server: FakeServer, turns: number) {
+    server.answers['thread/goal/set'] = (p) => {
+      if (p.status === 'paused') {
+        setTimeout(() => server.emit('thread/goal/updated', { turnId: null, goal: goal('paused') }), 0)
+        return { goal: goal('paused') }
+      }
+      setTimeout(async () => {
+        server.emit('thread/goal/updated', { turnId: null, goal: goal('active') })
+        for (let n = 1; n <= turns; n++) {
+          server.emit('turn/started', { turn: { id: `g${n}` } })
+          server.finished(`g${n}`, agentMessage(`m${n}`, `step ${n}`))
+          if (n === turns) server.emit('thread/goal/updated', { turnId: `g${n}`, goal: goal('complete', { tokensUsed: 99 }) })
+          server.completed(`g${n}`)
+          await tick(0)
+        }
+      }, 0)
+      return { goal: goal('active') }
+    }
+  }
+
+  /** A goal that starts one turn and then waits to be stopped or cleared. */
+  function started(server: FakeServer) {
+    server.answers['thread/goal/set'] = (p) => {
+      if (p.status !== 'paused') {
+        setTimeout(() => {
+          server.emit('thread/goal/updated', { turnId: null, goal: goal('active') })
+          server.emit('turn/started', { turn: { id: 'g1' } })
+        }, 0)
+      }
+      return { goal: goal(p.status ?? 'active') }
+    }
+    server.answers['turn/interrupt'] = () => {
+      setTimeout(() => server.completed('g1', 'interrupted'), 0)
+      return {}
+    }
+  }
+
+  it('sets the goal, stays open for the turns Codex takes by itself, and ends when the goal is complete', async () => {
+    const goals: unknown[] = []
+    const points: string[] = []
+    const r = recorder({ goal: (g) => void goals.push(g), assistantMessage: (id) => void points.push(id) })
+    const server = new FakeServer()
+    working(server, 3)
+    await runTurn(request({ prompt: '/goal ship it' }), r.cb, server)
+    expect(server.sent('thread/goal/set')).toEqual([{ threadId: THREAD, objective: 'ship it', origin: 'user' }])
+    // Foreman asked for no turn of its own: Codex's goal started all three.
+    expect(server.sent('turn/start')).toEqual([])
+    expect(r.persisted().filter((i) => i.kind === 'assistant').map((i) => (i as { text: string }).text)).toEqual(['step 1', 'step 2', 'step 3'])
+    expect(points).toEqual(['g1', 'g2', 'g3'])
+    expect(goals.map((g) => (g as { status: string }).status)).toEqual(['active', 'complete'])
+    expect(goals.at(-1)).toEqual({ objective: 'ship it', status: 'complete', tokensUsed: 99, timeUsedSeconds: 2 })
+    // The result is the one turn's, once; and a goal that finished has nothing to pause.
+    expect(r.results).toEqual([{ ok: true }])
+    expect(server.sent('thread/goal/set')).toHaveLength(1)
+  })
+
+  it('Stop pauses a goal that is still active, so the thread does not start it again on its own when it is resumed', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    started(server)
+    const turn = new CodexTurn(request({ prompt: '/goal ship it' }), r.cb, () => server)
+    const done = turn.run()
+    await vi.waitFor(() => expect(server.sent('thread/goal/set')).toHaveLength(1))
+    await tick()
+    await turn.stop()
+    await done
+    expect(server.sent('turn/interrupt')).toEqual([{ threadId: THREAD, turnId: 'g1' }])
+    expect(server.sent('thread/goal/set').at(-1)).toEqual({ threadId: THREAD, status: 'paused', origin: 'user' })
+  })
+
+  it('/goal clear sent into the running goal clears it at once, and says nothing to the model', async () => {
+    const goals: unknown[] = []
+    const r = recorder({ goal: (g) => void goals.push(g) })
+    const server = new FakeServer()
+    started(server)
+    server.answers['thread/goal/clear'] = () => ({ cleared: true })
+    const turn = new CodexTurn(request({ prompt: '/goal ship it' }), r.cb, () => server)
+    const done = turn.run()
+    await vi.waitFor(() => expect(goals).toHaveLength(1))
+    await tick()
+    expect(turn.steer('/goal clear')).toBe(true)
+    await vi.waitFor(() => expect(goals.at(-1)).toBeNull())
+    expect(server.sent('turn/steer')).toEqual([])
+    expect(server.sent('thread/goal/clear')).toEqual([{ threadId: THREAD, origin: 'user' }])
+    await turn.stop()
+    await done
+  })
+
+  it('/goal clear as a message of its own clears the goal and ends the turn', async () => {
+    const goals: unknown[] = []
+    const r = recorder({ goal: (g) => void goals.push(g) })
+    const server = new FakeServer()
+    server.answers['thread/goal/clear'] = () => ({ cleared: true })
+    await runTurn(request({ prompt: '/goal clear', resume: 'mine' }), r.cb, server)
+    expect(server.sent('thread/goal/clear')).toHaveLength(1)
+    expect(goals).toEqual([null])
+    expect(r.results).toEqual([{ ok: true }])
+  })
+
+  it('/goal pause and /goal resume set the status, and resume goes on to follow what Codex does next', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    working(server, 1)
+    await runTurn(request({ prompt: '/goal resume', resume: 'mine' }), r.cb, server)
+    expect(server.sent('thread/goal/set')[0]).toEqual({ threadId: 'mine', status: 'active', origin: 'user' })
+    expect(r.persisted().filter((i) => i.kind === 'assistant')).toHaveLength(1)
+
+    const p = recorder()
+    const paused = new FakeServer()
+    working(paused, 1)
+    await runTurn(request({ prompt: '/goal pause', resume: 'mine' }), p.cb, paused)
+    expect(paused.sent('thread/goal/set')).toEqual([{ threadId: 'mine', status: 'paused', origin: 'user' }])
+    expect(p.results).toEqual([{ ok: true }])
+  })
+})
+
+describe('codex fork and rollback: when Codex cannot', () => {
+  it('a fork Codex cannot make starts a new conversation and says so, rather than failing every message after it', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    server.answers['thread/fork'] = () => {
+      throw new Error('thread not found: parent')
+    }
+    await runTurn(request({ resume: 'parent', resumeAt: 'turn-9' }), r.cb, server)
+    expect(server.sent('thread/resume')).toEqual([])
+    expect(server.sent('thread/start')).toHaveLength(1)
+    expect(r.persisted().find((i) => i.kind === 'notice')).toMatchObject({ level: 'info', text: expect.stringContaining('could not fork') })
+    expect(r.calls).toContain(`session:${THREAD}`)
+    expect(r.results).toEqual([{ ok: true }])
+  })
+
+  it('a CLI that does not know thread/fork is a launch problem of the turn, not a fork to fall back from', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    server.answers['thread/fork'] = () => {
+      throw new Error('Invalid request: unknown variant `thread/fork`, expected one of `initialize`, `thread/start`')
+    }
+    await runTurn(request({ resume: 'parent', resumeAt: 'turn-9' }), r.cb, server)
+    expect(server.sent('thread/start')).toEqual([])
+    expect(r.results[0]).toMatchObject({ ok: false })
+  })
+
+  it('a thread whose turns cannot be listed starts a new conversation on Restore, and says so', async () => {
+    const r = recorder()
+    const server = new FakeServer()
+    server.answers['thread/turns/list'] = () => {
+      throw new Error('thread not found')
+    }
+    await runTurn(request({ resume: 'mine', resumeAt: 'turn-3', rewind: true }), r.cb, server)
+    expect(server.sent('thread/revert')).toEqual([])
+    expect(server.sent('thread/start')).toHaveLength(1)
+    expect(r.persisted().find((i) => i.kind === 'notice')).toMatchObject({ text: expect.stringContaining('starts a new one') })
+  })
+})
+
+describe('codex goals: commands sent while it works, and a pause the card sees', () => {
+  const goal = (status: string) => ({ threadId: THREAD, objective: 'ship it', status, tokenBudget: null, tokensUsed: 10, timeUsedSeconds: 2, createdAt: 1, updatedAt: 2 })
+
+  it('/goal <text> sent into a running turn sets the goal and is not said to the model', async () => {
+    const r = recorder()
+    const server = new FakeServer([async (s, _p, id) => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+      s.completed(id)
+    }])
+    server.answers['thread/goal/set'] = () => ({ goal: goal('active') })
+    const turn = new CodexTurn(request({ prompt: 'work on it' }), r.cb, () => server)
+    const done = turn.run()
+    await vi.waitFor(() => expect(server.sent('turn/start')).toHaveLength(1))
+    expect(turn.steer('/goal ship it')).toBe(true)
+    await vi.waitFor(() => expect(server.sent('thread/goal/set')).toHaveLength(1))
+    expect(server.sent('thread/goal/set')[0]).toEqual({ threadId: THREAD, objective: 'ship it', origin: 'user' })
+    expect(server.sent('turn/steer')).toEqual([])
+    await done
+  })
+
+  it('a goal left active when the turn ends is paused, and the card shows it paused without waiting for the notification', async () => {
+    const goals: unknown[] = []
+    const r = recorder({ goal: (g) => void goals.push(g) })
+    const server = new FakeServer([async (s, _p, id) => {
+      s.emit('thread/goal/updated', { turnId: id, goal: goal('active') })
+      s.completed(id, 'interrupted')
+    }])
+    server.answers['thread/goal/set'] = (p) => ({ goal: goal(p.status ?? 'active') })
+    await runTurn(request({ prompt: 'work on it' }), r.cb, server)
+    expect(server.sent('thread/goal/set').at(-1)).toEqual({ threadId: THREAD, status: 'paused', origin: 'user' })
+    expect(goals.map((g) => (g as { status: string }).status)).toEqual(['active', 'paused'])
+  })
 })

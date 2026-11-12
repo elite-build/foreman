@@ -7,6 +7,11 @@ export const MAX_BACKGROUND_WAIT_MINUTES = 24 * 60
 export const RUNNING_AGENT_CHOICES: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16]
 export const BACKGROUND_WAIT_CHOICES: readonly number[] = [0, 5, 10, 15, 30, 60, 120]
 
+// "Compact idle chats" (Settings → Agents → Claude Code): the context size over which a chat is compacted while it sits idle
+// (docs/agents.md 3). 0 is off, the default.
+export const MAX_IDLE_COMPACT_TOKENS = 10_000_000
+export const IDLE_COMPACT_CHOICES: readonly number[] = [0, 50_000, 100_000, 150_000, 250_000, 500_000]
+
 /** A whole number from 0 to `max`. */
 export function isSlotSetting(value: unknown, max: number): value is number {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= max

@@ -4,6 +4,7 @@
 // limits, no traversal, no links; nothing runs), shows a preview, and only then creates
 // a history-only workspace. Activating it (provisioning a worktree) is a separate step.
 import { createHash, randomUUID } from 'node:crypto'
+import { isChildItem } from '../shared/subagents'
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -29,13 +30,14 @@ import {
   type StageResult
 } from '../shared/portable'
 import { AGENTS, type AgentKind } from '../shared/agents'
-import type { Attachment, ChatItem, DiffComment, Repo, Session, Workspace } from '../shared/types'
+import { turnOutcomeOf, type Attachment, type ChatItem, type DiffComment, type LastTurnOutcome, type Repo, type Session, type Workspace } from '../shared/types'
 import { exportIntegrationChoices, importIntegrationChoices } from '../shared/integrations'
 import { DEFAULT_LIMITS, ExportFileError, decrypt, encrypt, isEncrypted, pack, parse, type Limits, type PackEntry, type ParsedEntry } from './exportFile'
 import type { TranscriptFile } from '../shared/claudeMirror'
 import { bundleSummary, type WorktreeInfo, type WorktreeNote, type WorktreeResult } from '../shared/worktreeBundle'
 import { wsPath } from '../shared/workspacePath'
 import { otherAgentTurns } from '../shared/switchAgent'
+import { mirroredAgents } from './agents/capabilities'
 import { CHECKPOINT_REF_PREFIX, deleteCheckpoints, restoreCheckpoint } from './checkpoints'
 import { filesToCopy } from './filesToCopy'
 import { git, revParse, repoEvidence } from './git'
@@ -132,9 +134,32 @@ function sanitizeSession(raw: unknown): SessionData {
   if (last) out.lastActivityAt = last
   if (str(raw.agentSessionId, 200)) out.agentSessionId = raw.agentSessionId as string
   if (str(raw.lastAssistantUuid, 200)) out.lastAssistantUuid = raw.lastAssistantUuid as string
-  if (isObject(raw.lastTurn) && typeof raw.lastTurn.outcome === 'string') out.lastTurn = raw.lastTurn as unknown as Session['lastTurn']
+  const lastTurn = sanitizeLastTurn(raw.lastTurn)
+  if (lastTurn) out.lastTurn = lastTurn
   if (isObject(raw.contextUsage) && typeof raw.contextUsage.used === 'number' && typeof raw.contextUsage.limit === 'number') out.contextUsage = { used: raw.contextUsage.used, limit: raw.contextUsage.limit }
   return out
+}
+
+const TURN_OUTCOMES: ReadonlySet<string> = new Set(['completed', 'error', 'cancelled', 'interrupted', 'limit'])
+
+/**
+ * How a chat's last turn ended, from a file: a known outcome and the fields that go with it, nothing else. A turn that stopped at a usage
+ * limit was only "paused" with its resume armed on the computer that made the file; the resume doesn't travel, so here it is the turn
+ * that ended in an error (turnOutcomeOf), as it is for anything that reads the outcome as an ending, and its reset time goes too.
+ */
+function sanitizeLastTurn(raw: unknown): Session['lastTurn'] | undefined {
+  if (!isObject(raw) || typeof raw.outcome !== 'string' || !TURN_OUTCOMES.has(raw.outcome)) return undefined
+  const endedAt = str(raw.endedAt, 40)
+  if (!endedAt) return undefined
+  const turnId = str(raw.turnId, 100)
+  return {
+    outcome: turnOutcomeOf(raw.outcome as LastTurnOutcome),
+    endedAt,
+    ...(turnId ? { turnId } : {}),
+    ...(typeof raw.additions === 'number' ? { additions: raw.additions } : {}),
+    ...(typeof raw.deletions === 'number' ? { deletions: raw.deletions } : {}),
+    ...(typeof raw.restartedBy === 'string' && raw.restartedBy.length < 100 ? { restartedBy: raw.restartedBy } : {})
+  }
 }
 
 function sanitizeItems(raw: unknown): ChatItem[] {
@@ -162,6 +187,9 @@ function sanitizeComment(raw: unknown): DiffComment | null {
     createdAt: str(raw.createdAt, 40) ?? new Date().toISOString()
   }
 }
+
+/** Whether Foreman mirrors this agent's own transcript (`features.transcriptMirror`), so an export can carry its conversation. */
+const isMirrored = (agent: AgentKind): boolean => mirroredAgents().includes(agent)
 
 /** One transcript file: Claude's session id and its entries (main transcript, then subagents). Malformed parts are refused. */
 function readTranscript(entry: ParsedEntry): TranscriptFile {
@@ -266,7 +294,7 @@ export class PortabilityService {
         title: session.title || 'New chat',
         agent: session.agent,
         closed: Boolean(session.closedAt),
-        messages: items.filter((i) => i.kind === 'user' || i.kind === 'assistant').length,
+        messages: items.filter((i) => (i.kind === 'user' || i.kind === 'assistant') && !isChildItem(i)).length,
         toolCalls: items.filter((i) => i.kind === 'tool').length,
         attachments: items.reduce((n, i) => n + (i.kind === 'user' ? (i.attachments?.length ?? 0) : 0), 0)
       })
@@ -321,7 +349,7 @@ export class PortabilityService {
     for (const session of chosen) {
       // The latest version of each message, as the app shows it; never the raw log.
       const items = await store.readChat(session.id)
-      if (session.agent === 'claude' && otherAgentTurns(items, 'claude') > 0) mixed.add(session.id)
+      if (isMirrored(session.agent) && otherAgentTurns(items, session.agent) > 0) mixed.add(session.id)
       for (const item of items) if (item.kind === 'user') for (const a of item.attachments ?? []) await pack1(a.path)
       json(
         `chat/${session.id}.json`,
@@ -339,7 +367,7 @@ export class PortabilityService {
     const skipped: ExportSummary['transcriptsSkipped'] = []
     if (this.deps.mirror && (!share || options.includeTranscripts === true)) {
       for (const s of chosen) {
-        if (s.agent !== 'claude' || !s.agentSessionId || transcripts.has(s.agentSessionId)) continue
+        if (!isMirrored(s.agent) || !s.agentSessionId || transcripts.has(s.agentSessionId)) continue
         // O1: the transcript misses the turns other agents answered here, so it isn't the whole chat and doesn't travel.
         const gap = mixed.has(s.id) ? 'other agents answered part of this chat, so Claude’s own transcript doesn’t hold all of it' : this.deps.mirror.gap(s.agentSessionId)
         const file = gap ? null : this.deps.mirror.read(s.agentSessionId)
@@ -507,7 +535,7 @@ export class PortabilityService {
       if (!/^transcript\/[^/]+\.json$/.test(e.path)) continue
       const file = readTranscript(e)
       // Only a transcript of a Claude chat in the file can be used; the name must match the contents.
-      if (e.path === `transcript/${file.sessionId}.json` && sessions.some((x) => x.agent === 'claude' && x.agentSessionId === file.sessionId)) transcripts.set(file.sessionId, file)
+      if (e.path === `transcript/${file.sessionId}.json` && sessions.some((x) => isMirrored(x.agent) && x.agentSessionId === file.sessionId)) transcripts.set(file.sessionId, file)
     }
     const worktree = readWorktree(byPath)
     const repos = await this.repoOptions(workspace.branch, repo, worktree ? path.join(dir, 'worktree', 'branch.bundle') : undefined)
@@ -520,10 +548,10 @@ export class PortabilityService {
         sessionId: s.id,
         title: s.title || 'New chat',
         agent: s.agent,
-        messages: (chats.get(s.id) ?? []).filter((i) => i.kind === 'user' || i.kind === 'assistant').length,
+        messages: (chats.get(s.id) ?? []).filter((i) => (i.kind === 'user' || i.kind === 'assistant') && !isChildItem(i)).length,
         hasNativeSession: Boolean(s.agentSessionId),
-        nativeResume: s.agent === 'claude' && Boolean(s.agentSessionId && transcripts.has(s.agentSessionId)),
-        nativeNote: s.agent !== 'claude' ? `${AGENTS[s.agent].label} keeps its conversation on the machine it ran on` : !s.agentSessionId ? 'this chat never started a conversation' : transcripts.has(s.agentSessionId) ? undefined : 'the file has no complete transcript for it'
+        nativeResume: isMirrored(s.agent) && Boolean(s.agentSessionId && transcripts.has(s.agentSessionId)),
+        nativeNote: !isMirrored(s.agent) ? `${AGENTS[s.agent].label} keeps its conversation on the machine it ran on` : !s.agentSessionId ? 'this chat never started a conversation' : transcripts.has(s.agentSessionId) ? undefined : 'the file has no complete transcript for it'
       }))
     const preview: ImportPreview = {
       stageId: id,

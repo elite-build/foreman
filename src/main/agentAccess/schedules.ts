@@ -3,6 +3,7 @@
 // the Schedule dialog is (Core.proposeSchedule reuses saveSchedule's checks) and runs nothing until the user approves it;
 // only Auto and Never ask clients may propose, since a scheduled run is unattended and runs in auto mode (§4).
 import { z } from 'zod'
+import { DEFAULT_AGENT } from '../../shared/agentCatalog'
 import { CEILING_NAMES, LEVEL_CEILINGS, mayProposeSchedule, type AgentGrant } from '../../shared/agentAccess'
 import { parseFlow, type FlowListing } from '../../shared/flows'
 import { templatePlaceholders } from '../../shared/promptTemplates'
@@ -114,7 +115,7 @@ export async function proposalRequest(deps: OutsideScheduleDeps, args: unknown):
     ...(dayOfMonth !== undefined ? { dayOfMonth } : {}),
     time: p.time,
     timezone,
-    agent: 'claude' as const,
+    agent: DEFAULT_AGENT,
     maxMinutes: p.maxMinutes ?? DEFAULT_MAX_MINUTES
   }
   if (p.flowId) {

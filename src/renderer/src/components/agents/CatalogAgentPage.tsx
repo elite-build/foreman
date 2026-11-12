@@ -5,6 +5,7 @@
 import { ArrowUpRight, FolderOpen, RefreshCw, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { allowedProviderKeys, binariesFor, canCheckSignIn, catalogAgent, signInMethods, type CatalogAgent } from '../../../../shared/agentCatalog'
+import { versionStatus } from '../../../../shared/agentVersions'
 import type { PlainKey } from '../../../../shared/i18n'
 import { providerInfo } from '../../../../shared/providers'
 import type { Settings } from '../../../../shared/types'
@@ -17,6 +18,7 @@ import { LoginTerminal } from '../settings/LoginTerminal'
 import { RepoMcpAgentRow } from '../McpConsent'
 import { Page, Row, saveSettings, Section, useDraft, useSettings } from '../settings/controls'
 import { AgentMonogram } from './AgentMonogram'
+import { CapabilitiesSection } from './CapabilityList'
 import { CapabilityChips, EnableSwitch, signInStatusTone, signInText, useSignIn } from './catalogShared'
 import { LEVEL_LABEL } from './PickerAgents'
 import { ModelVisibility } from '../settings/ModelVisibility'
@@ -49,10 +51,12 @@ export function CatalogAgentPage({ agent: id, tabs }: { agent: string; tabs: Rea
       <Section>
         <AuthRow agent={agent} />
         <PathRow agent={agent} />
-        <Row label={t('agentCatalog.agent.capabilities')} help={agent.level === 'terminal' ? t('agentCatalog.agent.terminalHelp') : t('agentCatalog.agent.chatHelp')} stacked>
-          <CapabilityChips agent={agent} />
-          <Reported agent={agent} />
-        </Row>
+        {/* A Terminal agent has no record: Foreman sees the files and the process, nothing else. */}
+        {agent.level === 'terminal' && (
+          <Row label={t('agentCatalog.agent.capabilities')} help={t('agentCatalog.agent.terminalHelp')} stacked>
+            <CapabilityChips agent={agent} />
+          </Row>
+        )}
         <RepoMcpAgentRow agent={agent.id} name={agent.name} />
         <Row label={t('agentCatalog.agent.enable')} help={t('agentCatalog.agent.enableHelp')}>
           <EnableSwitch agent={agent} />
@@ -63,6 +67,12 @@ export function CatalogAgentPage({ agent: id, tabs }: { agent: string; tabs: Rea
           </ExternalLink>
         </Row>
       </Section>
+      {/* docs/agents.md 2.6: a Chat agent's record as a list, with what it said about itself when it last ran. */}
+      {agent.level === 'chat' && (
+        <CapabilitiesSection agent={agent.id} name={agent.name}>
+          <Reported agent={agent} />
+        </CapabilitiesSection>
+      )}
     </Page>
   )
 }
@@ -131,7 +141,7 @@ function AuthRow({ agent }: { agent: CatalogAgent }) {
               {detection.version && (
                 <div className="ag-status-row">
                   <dt>{t('agentCatalog.agent.version')}</dt>
-                  <dd className="mono">{detection.version}</dd>
+                  <dd className="mono">{agent.versions ? t('agentVersion.withWord', { version: detection.version, word: t(`agentVersion.${versionStatus(agent.id, detection.version)}`) }) : detection.version}</dd>
                 </div>
               )}
               {detection.path && (

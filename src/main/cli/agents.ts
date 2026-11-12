@@ -2,7 +2,8 @@
 // Each handler is the same change the window makes, through the same `updateSettings`; the agent and model ids are checked
 // against the agent catalog and the model catalog the snapshot carries (what the picker lists).
 import { AGENT_ORDER, AGENTS, chatAgentKinds, modelInfo, type AgentKind, type EffortLevel, type Loadout, type ModelInfo } from '../../shared/agents'
-import { agentAuthMode, AGENT_CATALOG, catalogAgent, isAgentEnabled, signInMethods, type AgentPrefs } from '../../shared/agentCatalog'
+import { capabilitiesFor } from '../../shared/agentCapabilities'
+import { agentAuthMode, AGENT_CATALOG, catalogAgent, isAgentEnabled, signInMethods, staticCapabilitiesView, type AgentPrefs } from '../../shared/agentCatalog'
 import { instanceLabel } from '../../shared/agentInstances'
 import { modelUses, setModelHidden, type HiddenModels } from '../../shared/modelVisibility'
 import type { AgentEnabledResult, AgentIdParams, AgentModels, AgentRow, AgentsAuthParams, AgentsAuthResult, AgentsListResult, AgentsPathParams, AgentsPathResult, AgentsStatusResult, LoadoutParams, LoadoutRow, LoadoutsMoveParams, LoadoutsRemoveParams, LoadoutsResult, LoadoutsSetParams, ModelRow, ModelsListParams, ModelsListResult, ModelsRefreshParams, ModelsRefreshResult, ModelsVisibilityResult, ReviewModelResult } from '../../shared/cli/agents'
@@ -212,7 +213,8 @@ const reviewModelSet: MethodDef = {
 const isHiddenIn = (hidden: HiddenModels, agent: AgentKind, m: ModelInfo): boolean => (hidden[agent] ?? []).some((h) => sameModel(m, h))
 
 function modelRows(settings: Settings, agent: AgentKind, models: ModelInfo[]): ModelRow[] {
-  const chosen = agent === 'opencode' ? settings.opencodeModels : undefined
+  const chosenKey = catalogAgent(agent)?.settings?.models
+  const chosen = chosenKey ? settings[chosenKey] : undefined
   return models.map((m) => {
     const hidden = isHiddenIn(settings.hiddenModels ?? {}, agent, m)
     return {
@@ -321,12 +323,15 @@ const agentsList: MethodDef = {
     const p = paramsObject(params)
     const view = await host.api.agentCatalog(flagParam(p, 'refresh'))
     const settings = host.state().settings
+    // The records the window reads (with what each agent declared), not a second copy of them.
+    const capabilityView = host.snapshot().agentCapabilities ?? staticCapabilitiesView()
     const rows = AGENT_CATALOG.map((a): AgentRow => {
       const detection = view.detections?.[a.id]
       const status = view.statuses?.[a.id]
       const version = status?.version ?? detection?.version
       const found = detection?.path
       const auth = authOf(a.id, settings)
+      const capabilities = capabilitiesFor(capabilityView, a.id)
       return {
         id: a.id,
         name: a.name,
@@ -336,6 +341,7 @@ const agentsList: MethodDef = {
         ...(version ? { version } : {}),
         ...(found ? { path: found } : {}),
         ...(auth ? { auth } : {}),
+        ...(capabilities ? { capabilities } : {}),
         ...(status ? { ready: status.ready, ...(status.method ? { method: status.method } : {}), ...(status.account ? { account: status.account } : {}) } : {})
       }
     })
@@ -376,8 +382,8 @@ const agentsAuth: MethodDef = {
     if (mode !== 'login' && mode !== 'api-key') throw invalid('Sign-in is `login` or `api-key`.')
     const settings = host.state().settings
     const stored = mode === 'login' ? 'cli' : 'apiKey'
-    if (entry.id === 'claude') await host.api.updateSettings({ claudeAuth: stored })
-    else if (entry.id === 'codex') await host.api.updateSettings({ codexAuth: stored })
+    const authField = entry.settings?.auth
+    if (authField) await host.api.updateSettings({ [authField]: stored })
     else {
       const methods = signInMethods(entry)
       if (!methods.includes('login') || !methods.includes('apiKey')) {
