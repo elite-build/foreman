@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest'
 import { parsePersona, type Persona } from '../src/shared/personas'
 import { PERSONA_STARTERS } from '../src/shared/personaStarters'
 
-const doc = readFileSync(join(__dirname, '..', 'docs', 'persona-template.md'), 'utf8')
+// A Windows checkout with core.autocrlf=true has CRLF line endings.
+const doc = readFileSync(join(__dirname, '..', 'docs', 'persona-template.md'), 'utf8').replace(/\r\n/g, '\n')
 const documents = [...doc.matchAll(/```md\n([\s\S]*?)```/g)].map((m) => m[1])
 
 describe('docs/persona-template.md', () => {
