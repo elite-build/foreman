@@ -7,12 +7,12 @@ import { registerDriver } from '../src/main/agents/registry'
 import type { AgentTurn, TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import type { TurnHost } from '../src/main/sessions'
 import { searchChats } from '../src/main/chatSearch'
+import { staticCapabilities } from '../src/shared/agentCatalog'
 import type { AgentKind } from '../src/shared/agents'
+import { buildHandOff, renderHandOff } from '../src/shared/chatHandOff'
 import { MAX_FORK_HISTORY_CHARS } from '../src/shared/fork'
 import { chatToMarkdown } from '../src/shared/transcript'
 import {
-  CATCH_UP_MAX_CHARS,
-  catchUpBlock,
   continueBlock,
   isMixed,
   modelChoiceAction,
@@ -86,8 +86,13 @@ describe('switching agent in a chat', () => {
     await h.sessions.updateSession(h.session.id, { agent: 'codex', model: 'gpt-6.1-sol' })
     expect(tab(h)).toMatchObject({ agent: 'codex', model: 'gpt-6.1-sol', seedHistory: 'switch', parked: { claude: { agentSessionId: 'native-claude', lastAssistantUuid: 'a2' } } })
     expect(tab(h).agentSessionId).toBeUndefined()
+    // The notice says what the agent will be given, with the record the first turn writes again (docs/agents.md 5.1).
     expect(await switches(h)).toEqual([
-      { from: 'claude', to: 'codex', model: 'gpt-6.1-sol', carried: 'history', text: 'Switched to Codex · GPT-6.1 Sol · earlier messages passed as text (newest 100k characters)' }
+      {
+        from: 'claude', to: 'codex', model: 'gpt-6.1-sol', carried: 'history',
+        text: 'Switched to Codex · GPT-6.1 Sol · 2 turns in full, 0 condensed, 0 left out',
+        handOff: expect.objectContaining({ strategy: 'prompt-full', full: expect.any(Array), omitted: [], budgetTokens: 16_000 })
+      }
     ])
 
     const sent = await say(h, 'look for edge cases')
@@ -111,15 +116,20 @@ describe('switching agent in a chat', () => {
     expect(requests.at(-1)).toMatchObject({ agent: 'codex', resume: 'native-codex', prompt: 'and then' })
   })
 
-  it('keeps the newest 100k characters of a long history and says the oldest part was left out', async () => {
+  it('gives a long history within the budget: the oldest turns condensed or left out, and the receipt says so', async () => {
     const requests = bothAgents()
     const h = await setupSessions()
+    h.store.state.settings.handOffTokenBudget = 1_024
     await say(h, `OLDEST${'x'.repeat(MAX_FORK_HISTORY_CHARS)}`)
+    for (let n = 2; n <= 10; n++) await say(h, `question ${n} ${'y'.repeat(600)}`)
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
     const sent = await say(h, 'go')
-    expect(requests.at(-1)!.prompt).not.toContain('OLDEST')
-    expect(requests.at(-1)!.prompt).toContain('oldest part was left out')
-    expect(sent.added!.find((p) => p.kind === 'history')!.detail).toContain('oldest part was left out')
+    const prompt = requests.at(-1)!.prompt
+    // The huge first turn never goes in whole: it is shortened or left out, and the text names what was left out.
+    expect(prompt.length).toBeLessThan(1_024 * 4 + 2_000)
+    expect(prompt).not.toContain('x'.repeat(500))
+    expect(prompt).toContain('left out to keep this short')
+    expect(sent.added!.find((p) => p.kind === 'history')!.detail).toBeDefined()
   })
 
   it('switching back resumes the native session with a note of what was said in between', async () => {
@@ -299,6 +309,30 @@ describe('switching agent in a chat', () => {
   })
 })
 
+describe('a conversation parked for an agent that can’t resume it', () => {
+  it('stays parked: switching to the agent starts a new conversation, and nothing replaced the old one', async () => {
+    bothAgents()
+    const h = await setupSessions()
+    await say(h, 'claude one')
+    await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    await say(h, 'codex two')
+    await h.sessions.updateSession(h.session.id, { agent: 'claude' })
+    expect(tab(h).parked).toMatchObject({ codex: { agentSessionId: 'native-codex' } })
+    const codex = staticCapabilities('codex')!
+    const resume = codex.threads.resume
+    codex.threads.resume = { level: 'none', why: 'agentCaps.why.resume' } as never
+    try {
+      await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+      // A fresh conversation for Codex, with the chat as text; its old one is still kept, as Claude's now is.
+      expect(tab(h).agentSessionId).toBeUndefined()
+      expect(tab(h).seedHistory).toBe('switch')
+      expect(tab(h).parked).toMatchObject({ codex: { agentSessionId: 'native-codex' }, claude: { agentSessionId: 'native-claude' } })
+    } finally {
+      codex.threads.resume = resume
+    }
+  })
+})
+
 describe('bookkeeping in a chat that switched agents', () => {
   it('Restore goes back to the agent that message went to, and drops conversations that saw later turns', async () => {
     const requests = bothAgents()
@@ -402,20 +436,22 @@ describe('switching: the pure parts', () => {
     expect(turnAuthors(items.slice(0, 3), { agent: 'claude' }).get('t1')).toEqual({ agent: 'claude', model: undefined })
   })
 
-  it('the catch-up note: messages only, answers joined and labelled, newest kept', () => {
-    const note = catchUpBlock(items, 't1', { agent: 'claude' })
-    expect(note.text).toContain('**You:** to codex')
-    expect(note.text).toContain('**Codex (GPT-6.1 Sol):** codex part one codex part two')
-    expect(note.text).toContain('**You (while it worked):** also this')
-    expect(note.text).not.toContain('secret-cmd')
-    expect(note.text).not.toContain('old message')
-    expect(catchUpBlock(items, 't2', { agent: 'claude' }).text).toBe('')
+  it('the delta a returning agent gets: messages only, answers joined and labelled, newest kept', () => {
+    const note = renderHandOff(buildHandOff(items, { agent: 'claude' }, 't1', 16_000), { reason: 'return', canRead: true })
+    expect(note).toContain('**You:** to codex')
+    expect(note).toContain('**Codex (GPT-6.1 Sol):** codex part one\n\ncodex part two')
+    expect(note).toContain('(while it worked) also this')
+    expect(note).not.toContain('secret-cmd')
+    expect(note).not.toContain('old message')
+    expect(renderHandOff(buildHandOff(items, { agent: 'claude' }, 't2', 16_000), { reason: 'return', canRead: true })).toBe('')
     const long: ChatItem[] = [...items, ...Array.from({ length: 40 }, (_, n): ChatItem => ({ kind: 'user', id: `l${n}`, turnId: `l${n}`, text: `${n === 39 ? 'NEWEST' : 'filler'} ${'y'.repeat(700)}`, at: '' }))]
-    const cut = catchUpBlock(long, 't1', { agent: 'claude' })
-    expect(cut.cut).toBe(true)
-    expect(cut.text).toContain('NEWEST')
-    expect(cut.text).not.toContain('to codex')
-    expect(cut.text.length).toBeLessThan(CATCH_UP_MAX_CHARS + 1000)
+    const build = buildHandOff(long, { agent: 'claude' }, 't1', 4_000)
+    const cut = renderHandOff(build, { reason: 'return', canRead: true })
+    expect(build.omitted.length).toBeGreaterThan(0)
+    expect(cut).toContain('NEWEST')
+    expect(cut).not.toContain('to codex')
+    expect(cut).toContain('read_chat_history')
+    expect(build.usedTokens).toBeLessThanOrEqual(4_000)
   })
 
   it('the picker asks only when the agent changes in a chat with messages, and says when it can’t continue', () => {
@@ -423,21 +459,37 @@ describe('switching: the pure parts', () => {
     expect(modelChoiceAction(session, true, { agent: 'codex' })).toBe('ask')
     expect(modelChoiceAction(session, false, { agent: 'codex' })).toBe('apply')
     expect(modelChoiceAction(session, true, { agent: 'claude' })).toBe('apply')
-    expect(continueBlock(session, 'codex')).toBeNull()
-    expect(continueBlock({ ...session, status: 'running' }, 'codex')).toBe('running')
-    expect(continueBlock({ ...session, readOnly: true }, 'cursor')).toBe('read-only')
-    expect(continueBlock({ ...session, readOnly: true }, 'codex')).toBeNull()
-    expect(continueBlock({ ...session, importedMode: 'history' }, 'codex')).toBe('history')
+    expect(continueBlock(session, staticCapabilities('codex'))).toBeNull()
+    expect(continueBlock({ ...session, status: 'running' }, staticCapabilities('codex'))).toBe('running')
+    expect(continueBlock({ ...session, readOnly: true }, staticCapabilities('cursor'))).toBe('read-only')
+    expect(continueBlock({ ...session, readOnly: true }, staticCapabilities('codex'))).toBeNull()
+    expect(continueBlock({ ...session, importedMode: 'history' }, staticCapabilities('codex'))).toBe('history')
   })
 
-  it('the Plan control: hidden for an agent without plan mode, greyed in a switched chat, locked when read-only', () => {
-    expect(planControl('cursor', { planMode: false, mixed: false })).toBe('hidden')
-    expect(planControl('cursor', { planMode: false, mixed: true })).toBe('unavailable')
+  it('the Plan control: disabled with its reason for an agent without plan mode, locked when read-only, absent only without a record', () => {
+    expect(planControl(staticCapabilities('cursor'), { planMode: false })).toBe('unavailable')
+    expect(planControl(undefined, { planMode: false })).toBe('hidden')
     // Codex plans through the app-server's plan collaboration mode.
-    expect(planControl('codex', { planMode: false, mixed: false })).toBe('off')
-    expect(planControl('codex', { planMode: true, mixed: true })).toBe('on')
-    expect(planControl('claude', { planMode: true, mixed: true })).toBe('on')
-    expect(planControl('claude', { planMode: false, mixed: false })).toBe('off')
-    expect(planControl('claude', { planMode: true, readOnly: true, mixed: false })).toBe('locked')
+    expect(planControl(staticCapabilities('codex'), { planMode: false })).toBe('off')
+    expect(planControl(staticCapabilities('codex'), { planMode: true })).toBe('on')
+    expect(planControl(staticCapabilities('claude'), { planMode: true })).toBe('on')
+    expect(planControl(staticCapabilities('claude'), { planMode: false })).toBe('off')
+    expect(planControl(staticCapabilities('claude'), { planMode: true, readOnly: true })).toBe('locked')
+  })
+})
+
+describe('what a flow step’s loadout changes in the tab it continues', () => {
+  const loadout = { agent: 'codex' as AgentKind, model: 'gpt-6.1-sol', fast: false }
+  it('a switch of agent, an account move on the same agent, or nothing', async () => {
+    const { stepTabPatch } = await import('../src/shared/switchAgent')
+    expect(stepTabPatch({ agent: 'claude' }, loadout)).toEqual({ agent: 'codex', model: 'gpt-6.1-sol', effort: undefined, fastMode: false })
+    expect(stepTabPatch({ agent: 'claude' }, { ...loadout, instance: 'ai-work' })).toMatchObject({ agent: 'codex', instanceId: 'ai-work' })
+    // The same agent on the account the step names: a move of the chat to that account, and nothing else.
+    expect(stepTabPatch({ agent: 'codex' }, { ...loadout, instance: 'ai-work' })).toEqual({ instanceId: 'ai-work' })
+    expect(stepTabPatch({ agent: 'codex', instanceId: 'ai-home' }, { ...loadout, instance: 'ai-work' })).toEqual({ instanceId: 'ai-work' })
+    // Already there, or the step names no account: it leaves the tab's account alone.
+    expect(stepTabPatch({ agent: 'codex', instanceId: 'ai-work' }, { ...loadout, instance: 'ai-work' })).toBeUndefined()
+    expect(stepTabPatch({ agent: 'codex', instanceId: 'ai-work' }, loadout)).toBeUndefined()
+    expect(stepTabPatch({ agent: 'codex' }, loadout)).toBeUndefined()
   })
 })

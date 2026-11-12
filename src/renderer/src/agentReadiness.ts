@@ -2,7 +2,7 @@
 // card. Asked for when a component needs it (not pushed): on first use, when a saved key changes, when the window
 // regains focus, and whenever Settings → Agents re-checks (it records its answer here).
 import { useEffect, useSyncExternalStore } from 'react'
-import { agentReadiness, type AgentReadiness } from '../../shared/agentReadiness'
+import { agentReadiness, STATUS_CHECKED_AGENTS, type AgentReadiness } from '../../shared/agentReadiness'
 import { AGENTS, preferAgentLoadout, type AgentKind } from '../../shared/agents'
 import type { AgentStatus } from '../../shared/types'
 import { t } from './i18n'
@@ -11,7 +11,7 @@ import { api, attempt, getState, showToast, useStore } from './store'
 type Statuses = Partial<Record<AgentKind, AgentStatus>>
 
 // The agents whose sign-in the main process can check from outside a turn.
-const CHECKED: AgentKind[] = ['claude', 'codex']
+const CHECKED = STATUS_CHECKED_AGENTS
 // A status this fresh is reused when another component mounts.
 const FRESH_MS = 30_000
 

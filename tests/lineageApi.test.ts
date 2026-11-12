@@ -38,6 +38,17 @@ async function setup() {
 }
 
 describe('the lineage API', () => {
+  it('keeps the notice that holds the record of a switch, which is the switch edge, and no other notice', async () => {
+    const { core, store } = await setup()
+    const handOff = { turnId: 't2', from: { agent: 'claude', model: 'claude-opus-5-5' }, to: { agent: 'codex', model: 'gpt-6.1-sol' }, strategy: 'prompt-full', budgetTokens: 16_000, usedTokens: 10, full: ['t1'], condensed: [], omitted: [], turns: [] }
+    await store.appendChat('s1', { kind: 'notice', id: 'sw', level: 'info', text: 'Switched', switched: { from: 'claude', to: 'codex', model: 'gpt-6.1-sol', carried: 'history', handOff } } as ChatItem)
+    await store.appendChat('s1', { kind: 'notice', id: 'plain', level: 'info', text: 'Just a notice' })
+    await store.appendChat('s1', { kind: 'user', id: 'user:t2', turnId: 't2', text: 'Next', at: '2026-11-05T10:02:00.000Z' })
+    const input = await lineageInput({ workspaces: store.state.workspaces, sessions: store.state.sessions, readChat: (id) => store.readChat(id) }, 'ws')
+    expect(input.chats.get('s1')!.filter((i) => i.kind === 'notice').map((i) => i.id)).toEqual(['sw'])
+    await core.shutdown()
+  })
+
   it('refuses while Flows are off', async () => {
     const { core } = await setup()
     await expect(core.api.workspaceLineage('ws', 'run')).rejects.toThrow('Flows are off')

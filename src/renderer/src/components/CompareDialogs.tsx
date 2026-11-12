@@ -8,13 +8,13 @@ import { AGENTS, effortLabel, modelInfo, type Loadout } from '../../../shared/ag
 import { COMPARE_MAX_EXTRA, compareBlock, compareSummary, costNote, promptTitle, type CompareGroup } from '../../../shared/compare'
 import { permissionNote } from '../../../shared/permissions'
 import { api, attempt, availableAgents, openCompareArchive, openCompareDialog, selectSession, selectWorkspace, useStore } from '../store'
-import { AgentIcon, ModelChooser, opencodeModelParts } from './composer/AgentPicker'
+import { AgentIcon, ModelChooser, modelName } from './composer/AgentPicker'
 import { useT } from '../i18n'
 import { ActionRow, Button, Callout, Checkbox, Dialog, Field, LinkButton, MenuButton, MenuItem, MenuLabel, Popover, Tag, TextArea } from '../ui'
 
 function nameOf(model: Loadout): string {
   const info = modelInfo(model.agent, model.model)
-  return model.agent === 'opencode' ? opencodeModelParts(info).name : info.label
+  return modelName(info)
 }
 
 const same = (a: Loadout, b: Loadout) => a.agent === b.agent && a.model === b.model && a.effort === b.effort && a.fast === b.fast

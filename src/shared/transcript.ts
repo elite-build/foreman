@@ -1,6 +1,7 @@
 // A chat as Markdown, for copying. Built from the chat's latest-version items
 // (what store.readChat returns). Attachment contents are never included, only
 // their names; thinking and internal items are left out.
+import { isChildItem } from './subagents'
 import type { ChatItem } from './types'
 
 export interface TranscriptOptions {
@@ -33,6 +34,8 @@ export function chatToMarkdown(items: ChatItem[], options: TranscriptOptions): s
     lastRole = role
   }
   for (const item of items) {
+    // A subagent's own calls and messages are detail of its Task call, whose result is already here.
+    if (isChildItem(item)) continue
     if (item.kind === 'user') {
       const names = (item.attachments ?? []).map((a) => a.name)
       const body = [item.text.trim(), names.length ? `_Attachments: ${names.join(', ')}_` : ''].filter(Boolean).join('\n\n')

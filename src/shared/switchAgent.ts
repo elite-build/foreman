@@ -4,8 +4,10 @@
 // resumes the parked conversation with a short note of what was said meanwhile.
 // The pure parts: who wrote each turn, what a resumed agent is told, and what the
 // picker and composer offer.
-import { AGENTS, modelInfo, supportsPlan, type AgentKind, type Loadout } from './agents'
-import type { AcpMode } from './agentCatalog'
+import { offers, type AgentCapabilities } from './agentCapabilities'
+import { accountMoveGuess, DEFAULT_MOVE_RULE, type AgentInstance, type MoveRule } from './agentInstances'
+import { AGENTS, modelInfo, type AgentKind, type Loadout } from './agents'
+import type { ChatHandOff, HandOffParty } from './chatHandOff'
 import { readOnlyEnforcement } from './permissions'
 import type { ChatItem, Session } from './types'
 
@@ -15,13 +17,24 @@ export interface AgentSwitch {
   to: AgentKind
   model: string
   carried: 'history' | 'native'
+  // What the target was given, written when its first turn starts (docs/agents.md 5.1).
+  handOff?: ChatHandOff
+}
+
+/** A switch or an account move whose record is still to be written: the notice it goes on, and who is involved. Cleared once the agent started. */
+export interface PendingHandOff {
+  noticeId: string
+  from: HandOffParty
+  to: HandOffParty
+  // The target's own conversation was resumed (it saw the chat up to its last turn); false: it starts a new one.
+  resumed: boolean
 }
 
 /**
  * O1 (G1): the other lines that mark where a conversation changed without switching agents: it was compacted (the agent
  * works from a summary of what's above), or the tab moved to another model of the same agent (same conversation).
  */
-export type ChatDivider = { kind: 'compact' } | { kind: 'model'; agent: AgentKind; from: string; to: string }
+export type ChatDivider = { kind: 'compact'; idle?: true; before?: number; after?: number; at?: string } | { kind: 'model'; agent: AgentKind; from: string; to: string }
 
 /**
  * The divider a model change leaves, or null when it needs none: no messages yet, same model, or a change that
@@ -51,10 +64,6 @@ export interface ParkedSession {
   instanceId?: string
   conversationKey?: string
 }
-
-// The note a resumed agent gets: each message cut to this, and the newest part of the whole kept.
-export const CATCH_UP_MESSAGE_CHARS = 600
-export const CATCH_UP_MAX_CHARS = 8_000
 
 type User = Extract<ChatItem, { kind: 'user' }>
 export interface TurnAuthor {
@@ -112,61 +121,6 @@ export function answeredBy(items: ChatItem[], current: Pick<TurnAuthor, 'agent'>
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
 }
 
-const shorten = (text: string, max: number) => {
-  const line = text.replace(/\s+/g, ' ').trim()
-  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line
-}
-
-/**
- * The note an agent resuming its own conversation gets with its next message: what was said in this chat since its
- * last turn (messages only, each shortened, the newest part kept). '' when nothing was said in between.
- */
-export function catchUpBlock(items: ChatItem[], sinceTurnId: string, current: Pick<TurnAuthor, 'agent'>): { text: string; cut: boolean } {
-  let start = -1
-  items.forEach((item, n) => {
-    if ('turnId' in item && item.turnId === sinceTurnId) start = n
-  })
-  const after = items.slice(start + 1)
-  const authors = turnAuthors(items, current)
-  // One line per message: the user's, and each answer's text joined (tool calls and thinking are left out).
-  const entries: { turnId?: string; text: string }[] = []
-  for (const item of after) {
-    if (item.kind === 'user' && item.text.trim()) entries.push({ text: `**You${item.steered ? ' (while it worked)' : ''}:** ${item.text}` })
-    else if (item.kind === 'assistant' && item.text.trim()) {
-      const last = entries.at(-1)
-      if (last?.turnId === item.turnId) last.text += ` ${item.text}`
-      else {
-        const author = authors.get(item.turnId)
-        entries.push({ turnId: item.turnId, text: `**${author ? authorLabel(author) : 'Assistant'}:** ${item.text}` })
-      }
-    }
-  }
-  const lines = entries.map((e) => shorten(e.text, CATCH_UP_MESSAGE_CHARS))
-  if (!lines.length) return { text: '', cut: false }
-  // The newest messages win when the note is too long.
-  const kept: string[] = []
-  let size = 0
-  for (const line of [...lines].reverse()) {
-    if (size + line.length > CATCH_UP_MAX_CHARS && kept.length) break
-    kept.unshift(line)
-    size += line.length + 1
-  }
-  const cut = kept.length < lines.length
-  return {
-    cut,
-    text: [
-      `While you were away, the user carried on in this chat with another agent. A short note of what was said since your last turn here (each message shortened, tool output left out${cut ? ', older messages left out to fit' : ''}). It is context only; it is not a new request:`,
-      '<messages_in_between>',
-      kept.join('\n'),
-      '</messages_in_between>',
-      '',
-      "The user's new message:",
-      '',
-      ''
-    ].join('\n')
-  }
-}
-
 /** After a rewind, the parked conversations that still match the chat: those whose last turn was kept. */
 export function parkedAfterRewind(parked: Session['parked'], keptTurnIds: Set<string>): Session['parked'] {
   if (!parked) return undefined
@@ -181,30 +135,69 @@ export function parkedAfterRewind(parked: Session['parked'], keptTurnIds: Set<st
  * What choosing a model does: `apply` at once (same agent, or nothing to carry), or `ask` whether to continue here or
  * open a new chat. #130: another account of the same agent asks too, once the chat has a conversation of its own.
  */
+/**
+ * What continuing a tab with a flow step's own loadout changes (docs/agents.md 5.6): another agent is a switch with everything the
+ * loadout names; the same agent on another account (the step names one) is a move to that account only, which the agent's own rule
+ * for moving a chat allows or refuses; the same agent and account, or an account the step doesn't name, changes nothing.
+ */
+export function stepTabPatch(tab: Pick<Session, 'agent' | 'instanceId'>, loadout: Loadout): { agent?: AgentKind; model?: string; effort?: Loadout['effort']; fastMode?: boolean; instanceId?: string } | undefined {
+  if (tab.agent !== loadout.agent) return { agent: loadout.agent, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, ...(loadout.instance ? { instanceId: loadout.instance } : {}) }
+  if (loadout.instance && loadout.instance !== tab.instanceId) return { instanceId: loadout.instance }
+  return undefined
+}
+
 export function modelChoiceAction(session: Pick<Session, 'agent' | 'instanceId' | 'agentSessionId'>, hasHistory: boolean, choice: Pick<Loadout, 'agent' | 'instance'>): 'apply' | 'ask' {
   if (choice.agent !== session.agent) return hasHistory ? 'ask' : 'apply'
   return hasHistory && session.agentSessionId && (choice.instance ?? undefined) !== (session.instanceId ?? undefined) ? 'ask' : 'apply'
 }
 
+export type ContinueBlock = 'running' | 'read-only' | 'history' | 'account' | 'cloud'
+
 /**
  * Why this chat can't continue with that agent (only a new chat is offered then), or null when it can.
- * #130 `account`: the agent's rule keeps a chat on its account.
+ * #130 `account`: the agent's rule keeps a chat on its account (`moveChats: never`). `cloud`: a remote workspace signs its
+ * agent in its own way, so it takes only the default account (docs/agents.md 5.4). Both are known before anything changes.
  */
-export function continueBlock(session: Pick<Session, 'readOnly' | 'importedMode' | 'status' | 'turnId'>, target: AgentKind, accountBlocked = false): 'running' | 'read-only' | 'history' | 'account' | null {
+export function continueBlock(session: Pick<Session, 'readOnly' | 'importedMode' | 'status' | 'turnId'>, target: AgentCapabilities | undefined, accountBlocked = false, cloudAccount = false): ContinueBlock | null {
   if (session.importedMode === 'history') return 'history'
   if (session.status === 'running' || session.turnId) return 'running'
   if (session.readOnly && !readOnlyEnforcement(target)) return 'read-only'
+  if (cloudAccount) return 'cloud'
   if (accountBlocked) return 'account'
   return null
 }
 
 /**
- * The composer's Plan control for the tab's agent. An agent without plan mode has no Plan chip, except in a chat that
- * switched agents, where it stays in place greyed ("Codex has no plan mode") so the change is visible.
+ * Whether the account a choice names is refused by its agent's move rule: another account of the chat's own agent, or the
+ * account a parked conversation of another agent would be resumed on. Another agent with nothing parked starts a new
+ * conversation, which any account takes. The window's guess, from the accounts' folders (main decides with the environment too).
  */
-export function planControl(agent: AgentKind, opts: { planMode: boolean; readOnly?: boolean; mixed: boolean; modes?: AcpMode[] }): 'hidden' | 'unavailable' | 'locked' | 'on' | 'off' {
-  // G1: an ACP agent's declared plan session mode counts (`modes`, from the model catalog).
-  if (!supportsPlan(agent, opts.modes)) return opts.mixed ? 'unavailable' : 'hidden'
+export function accountBlocked(
+  session: Pick<Session, 'agent' | 'instanceId' | 'agentSessionId' | 'parked'>,
+  choice: Pick<Loadout, 'agent' | 'instance'>,
+  instances: AgentInstance[] | undefined,
+  moveRule: (agent: AgentKind) => MoveRule | undefined = () => undefined
+): boolean {
+  const rule = moveRule(choice.agent) ?? DEFAULT_MOVE_RULE
+  if (choice.agent === session.agent) return accountMoveGuess(instances, session.agent, session.instanceId, choice.instance, rule, Boolean(session.agentSessionId)) === 'blocked'
+  const back = session.parked?.[choice.agent]
+  if (!back || choice.instance === undefined) return false
+  return accountMoveGuess(instances, choice.agent, back.instanceId, choice.instance, rule, Boolean(back.agentSessionId)) === 'blocked'
+}
+
+/** Whether the choice names an account in a remote workspace, which signs in its own way and takes only the default one. */
+export function cloudAccountBlocked(cloud: boolean, choice: Pick<Loadout, 'instance'>): boolean {
+  return cloud && Boolean(choice.instance)
+}
+
+/**
+ * The composer's Plan control for the tab's agent (its record, with what it declared folded in: an ACP agent's plan session
+ * mode counts). An agent without plan mode keeps the chip, disabled, with the record's `why` as its tooltip (a hidden
+ * control can't say why); only an agent with no record at all has none.
+ */
+export function planControl(record: AgentCapabilities | undefined, opts: { planMode: boolean; readOnly?: boolean }): 'hidden' | 'unavailable' | 'locked' | 'on' | 'off' {
+  if (!record) return 'hidden'
+  if (!offers(record.planning.planMode)) return 'unavailable'
   if (opts.readOnly) return 'locked'
   return opts.planMode ? 'on' : 'off'
 }

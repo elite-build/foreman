@@ -5,10 +5,11 @@ import { AlarmClock, Clock } from 'lucide-react'
 import { AGENTS } from '../../../shared/agents'
 import { formatDateTime } from '../../../shared/i18n/time'
 import type { ChatItem, LimitResume, Session } from '../../../shared/types'
+import { continueOptions } from '../../../shared/limits'
 import { clockTime, dayOf, limitCardView, RESUME_TEXT } from '../../../shared/usageLimit'
 import { useT, type RendererT } from '../i18n'
 import { api, attempt, selectSession, useStore } from '../store'
-import { Button, Checkbox, LinkButton, Tag } from '../ui'
+import { Button, Callout, Checkbox, LinkButton, Tag } from '../ui'
 import { formatDuration } from './turnResult'
 import './limitResume.css'
 
@@ -119,6 +120,56 @@ export function LimitResumePart({ item, session, canAct }: { item: Extract<ChatI
         </div>
       )
   }
+}
+
+/**
+ * Docs/agents.md 7.2: the card of a chat paused at a usage limit, in place of the failed turn's red card. It says when the chat
+ * resumes by itself (or, when nothing is armed, offers a time as it always has), and offers Resume now, Dismiss and, where
+ * another account of the agent has room and the move rule allows it, Continue on that account (never automatic).
+ */
+export function PausedCard({ item, session, canAct }: { item: Extract<ChatItem, { kind: 'turn-end' }>; session: Session; canAct: boolean }) {
+  const t = useT()
+  const now = Date.now()
+  const settings = useStore((s) => s.snapshot!.settings)
+  const limits = useStore((s) => s.snapshot!.limits)
+  const resume = session.limitResume?.turnId === item.turnId ? session.limitResume : undefined
+  const armed = resume && !resume.missed ? resume : undefined
+  const resetAt = item.limit?.resetAt ? Date.parse(item.limit.resetAt) : undefined
+  const title = resetAt ? t('usageLimit.paused.title', { time: clockTime(resetAt, t.locale) }) : t('usageLimit.paused.titleUnknown')
+  const options = session.limitHeld || resume?.unattended ? [] : continueOptions(session, settings, limits, now, t('agentAccounts.default'))
+  const acting = canAct && !resume?.missed
+  return (
+    <Callout
+      tone="info"
+      role="status"
+      title={title}
+      actions={
+        acting && (
+          <>
+            <Button size="sm" onClick={() => void attempt(() => api.resumeLimitNow(session.id))}>
+              {t('usageLimit.resumeNow')}
+            </Button>
+            {options.map((o) => (
+              <Button key={o.instance ?? 'default'} size="sm" onClick={() => void attempt(() => api.continueOnAccount(session.id, o.instance ?? null))}>
+                {t('usageLimit.continueOn', { account: o.label })}
+              </Button>
+            ))}
+            {armed && <LinkButton onClick={() => void attempt(() => api.cancelLimitResume(session.id))}>{t('usageLimit.dismiss')}</LinkButton>}
+            {options.length > 0 && <span className="muted small">{t('usageLimit.continueHint', { account: options[0].label })}</span>}
+          </>
+        )
+      }
+    >
+      {armed ? (
+        <>
+          <Source t={t} agent={session.agent} source={armed.source} from={armed.from} />
+          <div className="resume-preview">{t('usageLimit.paused.armed', { text: armed.text, time: clockTime(Date.parse(armed.at), t.locale) })}</div>
+        </>
+      ) : (
+        <LimitResumePart item={item} session={session} canAct={canAct} />
+      )}
+    </Callout>
+  )
 }
 
 /** The tabs with an armed or missed resume, for Home's Scheduled card (one row each, never more than one per tab). */

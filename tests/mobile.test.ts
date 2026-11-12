@@ -383,7 +383,7 @@ describe('paired mobile access', () => {
     const terminals = [{ id: 'p1', kind: 'script', command: 'npm run dev', startedAt: '2026-11-10T10:00:00Z', text: 'ready on :5173' }]
     const api = {
       sendMessage: vi.fn(async () => 'steered' as const), steerQueued: vi.fn(async () => undefined), removeQueued: vi.fn(async () => undefined),
-      resumeLimitNow: vi.fn(async () => undefined), addComment: vi.fn(async () => undefined), deleteComment: vi.fn(async () => undefined),
+      resumeLimitNow: vi.fn(async () => undefined), continueOnAccount: vi.fn(async () => undefined), addComment: vi.fn(async () => undefined), deleteComment: vi.fn(async () => undefined),
       updateComment: vi.fn(async () => undefined), workspaceUsage: vi.fn(async () => usage), terminalOutput: vi.fn(async () => terminals)
     }
     const at = '2026-11-10T10:00:00Z'
@@ -393,11 +393,17 @@ describe('paired mobile access', () => {
       workspaces: [{ id: 'ws-1', repoId: 'repo-1', name: 'Work', branch: 'b', state: 'ready', status: 'in-progress', createdAt: at }],
       sessions: [
         { id: 'chat-1', workspaceId: 'ws-1', agent: 'claude', model: 'opus', status: 'running', turnId: 't', turnStartedAt: new Date().toISOString(), lastActivityAt: new Date().toISOString(), queue: [{ id: 'q1', text: 'Then run the tests', attachments: [] }], contextUsage: { used: 84_000, limit: 200_000, breakdown: { categories: [] } } },
-        { id: 'chat-2', workspaceId: 'ws-1', agent: 'cursor', model: 'auto', status: 'idle', queue: [] }
+        { id: 'chat-2', workspaceId: 'ws-1', agent: 'cursor', model: 'auto', status: 'idle', queue: [] },
+        // Docs/agents.md 7.2: paused at a usage limit with its resume armed; the account named Work has room.
+        { id: 'chat-3', workspaceId: 'ws-1', agent: 'claude', model: 'opus', status: 'idle', queue: [], lastTurn: { outcome: 'limit', turnId: 't9', endedAt: at, resetAt: '2026-11-10T14:20:00Z' }, limitResume: { turnId: 't9', resetAt: '2026-11-10T14:20:00Z', at: '2026-11-10T14:21:00Z', source: 'five_hour', text: 'Continue where you left off.', armedAt: at, auto: true } }
+      ],
+      limits: [
+        { agent: 'claude', windows: [{ kind: 'session', usedPercent: 100, state: 'blocked', resetsAt: '2026-11-10T14:20:00Z' }], updatedAt: at },
+        { agent: 'claude', instance: 'ai-work', windows: [{ kind: 'session', usedPercent: 22, state: 'ok' }], updatedAt: at }
       ],
       // Shown: yours still pending and the agent's still open, in a workspace the phone lists; not sent, resolved or elsewhere.
       comments: [comment('c-mine', 'user', 'pending'), comment('c-agent', 'agent', 'open'), comment('c-sent', 'user', 'sent'), comment('c-done', 'agent', 'resolved'), comment('c-gone', 'user', 'pending', 'ws-archived')],
-      settings: { ...state.settings, promptTemplates: [], followUpMode: 'steer' }
+      settings: { ...state.settings, promptTemplates: [], followUpMode: 'steer', agentInstances: [{ id: 'ai-work', agent: 'claude', label: 'Work', auth: 'login' }] }
     } as unknown as AppSnapshot
     const serve = serving(api as unknown as Api)
     const service = new MobileService({
@@ -419,10 +425,17 @@ describe('paired mobile access', () => {
     const get = (path: string, cookie = phone) => fetch(base + path, { headers: { Cookie: cookie } })
 
     // What the page needs to offer them.
-    const model = await (await get('/api/state')).json() as { sessions: Record<string, unknown>[]; comments: { id: string }[]; followUpMode: string }
+    const model = await (await get('/api/state')).json() as { sessions: Record<string, unknown>[]; comments: { id: string }[]; followUpMode: string; agentCapabilities: Record<string, { turns: { steer: { level: string } } }> }
     expect(model.followUpMode).toBe('steer')
     expect(model.sessions[0]).toMatchObject({ canSteer: true, queued: 1, queue: [{ id: 'q1', text: 'Then run the tests' }], context: { used: 84_000, limit: 200_000 } })
     expect(model.sessions[1]).toMatchObject({ canSteer: false, queue: [], context: null })
+    // docs/agents.md 2.3: the record of each agent in use rides along, and canSteer is what it says.
+    expect(Object.keys(model.agentCapabilities).sort()).toEqual(['claude', 'cursor'])
+    expect(model.sessions.map((s) => [s.agent, s.canSteer, model.agentCapabilities[s.agent as string].turns.steer.level === 'native'])).toEqual([['claude', true, true], ['cursor', false, false], ['claude', true, true]])
+    // Docs/agents.md 7: each account's windows ride along, and a paused chat names the accounts it could continue on.
+    expect((model as unknown as { limits: unknown[] }).limits).toHaveLength(2)
+    expect(model.sessions[2]).toMatchObject({ lastTurn: { outcome: 'limit', resetAt: '2026-11-10T14:20:00Z' }, limitResume: { auto: true }, continueOn: [{ instance: 'ai-work', label: 'Work' }] })
+    expect(model.sessions[0].continueOn).toBeUndefined()
     expect(model.comments).toEqual([
       { id: 'c-mine', workspaceId: 'ws-1', file: 'src/a.ts', line: 4, side: 'new', body: 'Why?', author: 'user', state: 'pending' },
       { id: 'c-agent', workspaceId: 'ws-1', file: 'src/a.ts', line: 4, side: 'new', body: 'Why?', author: 'agent', state: 'open' }
@@ -443,6 +456,12 @@ describe('paired mobile access', () => {
     // A missed limit resume: Resume now.
     expect((await post('/api/chat/chat-1/resume-at', { now: true })).status).toBe(200)
     expect(api.resumeLimitNow).toHaveBeenCalledWith('chat-1')
+    // Continue on another account: a button the person presses; the account is named, null is the default one.
+    expect((await post('/api/chat/chat-3/resume-at', { continueOn: 'ai-work' })).status).toBe(200)
+    expect(api.continueOnAccount).toHaveBeenLastCalledWith('chat-3', 'ai-work')
+    expect((await post('/api/chat/chat-3/resume-at', { continueOn: null })).status).toBe(200)
+    expect(api.continueOnAccount).toHaveBeenLastCalledWith('chat-3', null)
+    expect((await post('/api/chat/chat-3/resume-at', { continueOn: 7 })).status).toBe(400)
 
     // Diff comments: on a line, checked; yours deleted while pending, the agent's resolved while open, nothing else.
     expect((await post('/api/workspace/ws-1/comment', { file: 'src/a.ts', line: 4, body: '  Rename this  ' })).status).toBe(200)

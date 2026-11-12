@@ -64,6 +64,23 @@ describe('export and import', () => {
     expect(dst.store.state.comments).toMatchObject([{ id: 'c1', workspaceId: 'ws-1', state: 'sent' }])
   })
 
+  it('reads how a chat’s last turn ended from the file, as an ending: a limit pause is an error here (its resume does not travel), and an unknown outcome is nothing', async () => {
+    const src = await machine()
+    const { ws } = await seed(src)
+    const endedAt = '2026-11-01T10:00:00.000Z'
+    const [first, second] = src.store.state.sessions.filter((x) => x.workspaceId === ws.id)
+    first.lastTurn = { outcome: 'limit', turnId: 't-limit', endedAt, resetAt: '2026-11-01T14:20:00.000Z' }
+    second.lastTurn = { outcome: 'exploded' as never, turnId: 't-odd', endedAt }
+    const out = path.join(await tempDir(), 'limit.foreman')
+    await src.portability.exportWorkspace(ws.id, { mode: 'share', outPath: out })
+    const dst = await machine({ name: 'Studio' })
+    const preview = await stage(dst, out)
+    await dst.portability.importStaged(preview.stageId, { repoId: dst.repo.id, tabs: { 'sess-1': 'fresh' } })
+    const [a, b] = dst.store.state.sessions
+    expect(a.lastTurn).toEqual({ outcome: 'error', turnId: 't-limit', endedAt })
+    expect(b.lastTurn).toBeUndefined()
+  })
+
   it('preserves exported account choices as unresolved references instead of using the destination defaults', async () => {
     const src = await machine()
     const { ws } = await seed(src)

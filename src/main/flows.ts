@@ -13,6 +13,8 @@
 //  - at most GLOBAL_ACTIVE_CAP runs at once, nothing new while Foreman quits, and after a crash runs that were in flight
 //    are uncertain and never retried; a completed run's `[after]` archives or deletes the workspaces it made.
 import { randomUUID } from 'node:crypto'
+import { offers } from '../shared/agentCapabilities'
+import { canRunUnattended, DEFAULT_AGENT, PERSONA_FILE_AGENT, staticCapabilities } from '../shared/agentCatalog'
 import { AGENTS, defaultModel, type AgentKind, type EffortLevel, type Loadout } from '../shared/agents'
 import { flowModelProblems } from '../shared/flowModels'
 import { autoReviewPrompt, canReview, findingsMessage, parseFindings } from '../shared/autoReview'
@@ -125,6 +127,12 @@ const PART_TEXT: Record<keyof FlowFingerprint, string> = {
   personas: 'its personas'
 }
 
+/** Whether the agent can be held to a persona's writes (its record's scopedWrites). */
+function offersScopedWrites(agent: AgentKind): boolean {
+  const scoped = staticCapabilities(agent)?.enforcement.scopedWrites
+  return Boolean(scoped) && offers(scoped!)
+}
+
 /** Refuse a start whose shown fingerprint isn't what would run now, naming what changed (nothing shown: everything did). */
 export function assertFlowFingerprintShown(shown: FlowFingerprint | undefined, now: FlowFingerprint): void {
   refuseChangedParts(shown, now, PART_TEXT)
@@ -136,7 +144,7 @@ export function assertFlowFingerprintShown(shown: FlowFingerprint | undefined, n
  */
 export function stepLoadout(step: AgentStep, loadouts: Loadout[], persona?: Persona, choice?: FlowStepChoice): Loadout | { error: string } {
   // #130: a step on loadout 1's agent runs on loadout 1's account, as it takes its model.
-  const first = loadouts[0] ?? { agent: 'claude' as const, model: defaultModel('claude'), fast: false }
+  const first = loadouts[0] ?? { agent: DEFAULT_AGENT, model: defaultModel(DEFAULT_AGENT), fast: false }
   const account = (agent: string) => (agent === first.agent && first.instance ? { instance: first.instance } : {})
   if (choice) {
     if (!Object.hasOwn(AGENTS, choice.agent)) return { error: `The agent “${choice.agent}” chosen for step “${step.name}” isn’t one Foreman knows.` }
@@ -231,17 +239,17 @@ export function flowRunProblems(prepared: PreparedFlow, loadouts: Loadout[], mod
     }
     const label = AGENTS[loadout.agent]?.label ?? loadout.agent
     // A review or decide is read-only by construction, so it may run on Codex, attended; a turn step is Claude only.
-    if (loadout.agent !== 'claude') {
-      if (step.kind !== 'turn' && canReview(loadout.agent)) attended.push({ step: step.name, agent: label })
+    if (!canRunUnattended(loadout.agent)) {
+      if (step.kind !== 'turn' && canReview(staticCapabilities(loadout.agent))) attended.push({ step: step.name, agent: label })
       else notClaude.push({ step: step.name, agent: label })
     }
     const writes = step.kind === 'turn' ? applyPersona(step, persona).writes : undefined
-    if (writes?.length && loadout.agent !== 'claude')
-      problems.push(`The step “${step.name}” may only write inside ${writes.join(', ')}${persona?.writes?.length ? ` (persona “${persona.name}”)` : ''}, which only Claude can be held to; this step runs on ${label}.`)
-    if (step.kind === 'review' && !canReview(loadout.agent)) problems.push(`The review step “${step.name}” runs on ${label}, which can’t be held to read-only: reviews run on Claude Code or Codex.`)
-    else if ((step.kind !== 'turn' || applyPersona(step, persona).readOnly) && !readOnlyEnforcement(loadout.agent))
+    if (writes?.length && !offersScopedWrites(loadout.agent))
+      problems.push(`The step “${step.name}” may only write inside ${writes.join(', ')}${persona?.writes?.length ? ` (persona “${persona.name}”)` : ''}, which ${label} can’t be held to; this step runs on ${label}.`)
+    if (step.kind === 'review' && !canReview(staticCapabilities(loadout.agent))) problems.push(`The review step “${step.name}” runs on ${label}, which can’t be held to read-only: reviews run on Claude Code or Codex.`)
+    else if ((step.kind !== 'turn' || applyPersona(step, persona).readOnly) && !readOnlyEnforcement(staticCapabilities(loadout.agent)))
       problems.push(`The step “${step.name}” is read-only${persona?.read_only ? ` (persona “${persona.name}”)` : step.kind === 'decide' ? ' (a decide step only decides)' : ''}, which ${label} can’t enforce.`)
-    if (persona?.source === 'claude-agents' && loadout.agent !== 'claude') problems.push(`The persona “${persona.name}” (step “${step.name}”) is a Claude Code subagent, for Claude steps only; this step runs on ${label}.`)
+    if (persona?.source === 'claude-agents' && loadout.agent !== PERSONA_FILE_AGENT) problems.push(`The persona “${persona.name}” (step “${step.name}”) is a Claude Code subagent, for Claude steps only; this step runs on ${label}.`)
   }
   if (notClaude.length) problems.push(notClaudeProblem(notClaude))
   return { problems, notClaude, attended }
@@ -311,6 +319,12 @@ export interface FlowServiceDeps {
   launch(run: FlowRun, first: { text: string; loadout: Loadout; step: string; persona?: TurnPersona }, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void | { turnId?: string }>
   /** A new tab in the workspace, on this loadout. Returns its id. */
   createSession(workspaceId: string, loadout: Loadout, options?: { title?: string }): string
+  /**
+   * A step that continues another step's tab (`same_tab`) but names its own agent: the tab goes on with that agent, through the
+   * switch the picker makes (docs/agents.md 5.5), so what the agent was given has a record in the chat and in Lineage. A no-op
+   * when the tab is on that agent already. Throws when the switch is refused, which fails the step.
+   */
+  switchTab?(sessionId: string, loadout: Loadout): Promise<void>
   /** Send a message as the turn with this id, unattended for that turn (narrowed by its persona; a decide step's options offer the decide tool). Queued behind a running turn. */
   // `origin`: the message says which run, step and iteration sent it (MessageOrigin), for its receipt and the Lineage tab.
   deliver(sessionId: string, text: string, options: { turnId: string; unattended: FlowTurnMark; origin?: MessageOrigin }): Promise<void>
@@ -374,6 +388,10 @@ export interface FlowServiceDeps {
   ended?(run: FlowRun): void
   /** True while Foreman quits once the running turns finish: nothing new starts. */
   paused?(): boolean
+  /** The tab's armed usage-limit resume for this turn (not a missed one): when it sends. Undefined when none is armed. */
+  limitResume?(sessionId: string, turnId: string): { at: number } | undefined
+  /** Take the tab's armed usage-limit resume away (the run it was for has ended). */
+  cancelLimitResume?(sessionId: string): void
   maxActive?: number
 }
 
@@ -432,6 +450,8 @@ export class FlowService {
   private marks = new Map<string, FlowTurnMark>()
   // Run id → the agent step's turn that couldn't run because its agent wasn't signed in, and the words the run waits with.
   private signIn = new Map<string, { turnId: string; reason: string }>()
+  // Run id → the agent step's turn that stopped at a usage limit, while the run waits for the tab's armed resume.
+  private limitWaits = new Map<string, { turnId: string; reason: string }>()
 
   constructor(private deps: FlowServiceDeps) {}
 
@@ -870,18 +890,19 @@ export class FlowService {
       if (loadout.effort) record.effort = loadout.effort
     }
     // A read-only step on another agent (a review or decide on Codex) is attended: an approval it asks for waits for you.
-    if (!('error' in loadout) && loadout.agent !== 'claude' && step.kind !== 'turn') mark.attended = true
+    if (!('error' in loadout) && !canRunUnattended(loadout.agent) && step.kind !== 'turn') mark.attended = true
     if (!sessionId) {
       if ('error' in loadout) throw new Error(loadout.error)
-      if (step.kind === 'review' && !canReview(loadout.agent)) throw new Error(`The review step “${step.name}” can’t run on ${AGENTS[loadout.agent]?.label ?? loadout.agent}: it can’t be held to read-only.`)
+      if (step.kind === 'review' && !canReview(staticCapabilities(loadout.agent))) throw new Error(`The review step “${step.name}” can’t run on ${AGENTS[loadout.agent]?.label ?? loadout.agent}: it can’t be held to read-only.`)
       sessionId = this.deps.createSession(run.workspaceId, loadout, step.kind === 'turn' ? undefined : { title: step.kind === 'review' ? `Review · ${step.name}` : `Decide · ${step.name}` })
     }
     record.sessionId = sessionId
+    if (step.kind === 'turn' && step.same_tab && ownsLoadout(step) && !('error' in loadout)) await this.deps.switchTab?.(sessionId, loadout)
     // A compaction reserved the step's turn id before its own turn, so nothing else ending in the tab passes for the step.
     record.turnId ??= this.id()
     const turnId = record.turnId
     // Who reviewed which tree, for the findings' words; and whether its persona expects findings or `done`.
-    if (step.kind === 'review') this.reviews.set(record.turnId, { reviewer: 'error' in loadout ? { agent: 'claude', model: defaultModel('claude'), fast: false } : loadout, tree: reviewTree ?? '', expects: applied.endsWith.length > 0 })
+    if (step.kind === 'review') this.reviews.set(record.turnId, { reviewer: 'error' in loadout ? { agent: DEFAULT_AGENT, model: defaultModel(DEFAULT_AGENT), fast: false } : loadout, tree: reviewTree ?? '', expects: applied.endsWith.length > 0 })
     this.marks.set(run.id, mark)
     this.persist()
     await this.deps.deliver(sessionId, text, { turnId, unattended: mark, origin: { kind: 'flow', runId: run.id, step: step.name, iteration: record.iteration } })
@@ -1269,10 +1290,12 @@ export class FlowService {
     }
     record.endedAt = this.iso()
     if (outcome !== 'completed') {
+      // A usage limit with a resume armed for it: the run waits for the reset and the step's turn goes on (docs/agents.md 7.2).
+      if (outcome === 'error' && end?.limit && this.awaitLimit(run, record, sessionId)) return
       record.state = outcome === 'cancelled' ? 'stopped' : 'failed'
       if (outcome === 'cancelled') return this.finish(run, 'stopped', `Stopped: the “${record.name}” turn was stopped.`)
       // Its agent wasn't signed in (or set up): nothing it did went wrong, so the run waits for the person to fix that.
-      const setup = items.find((i): i is Extract<ChatItem, { kind: 'notice' }> => i.kind === 'notice' && i.turnId === record.turnId && i.level === 'error' && (i.action === 'sign-in' || i.action === 'open-settings'))
+      const setup = items.find((i): i is Extract<ChatItem, { kind: 'notice' }> => i.kind === 'notice' && i.turnId === record.turnId && i.level === 'error' && (i.action === 'sign-in' || i.action === 'open-settings' || i.action === 'update'))
       if (outcome === 'error' && setup) return this.awaitSignIn(run, record, setup.action === 'sign-in')
       return this.finish(run, 'failed', outcome === 'interrupted' ? `The “${record.name}” turn was interrupted.` : `The “${record.name}” turn ended with an error.`)
     }
@@ -1304,7 +1327,7 @@ export class FlowService {
    * `undecided` (which takes the findings edge when the flow has none for it); without such a persona it is clean.
    */
   private reviewEnded(run: FlowRun, record: FlowRunStep, flow: Flow, answer: string, reports: { kind: string; text: string }[]): void {
-    const review = (record.turnId && this.reviews.get(record.turnId)) || { reviewer: { agent: 'claude' as const, model: defaultModel('claude'), fast: false }, tree: record.tree?.start ?? '', expects: false }
+    const review = (record.turnId && this.reviews.get(record.turnId)) || { reviewer: { agent: DEFAULT_AGENT, model: defaultModel(DEFAULT_AGENT), fast: false }, tree: record.tree?.start ?? '', expects: false }
     if (record.turnId) this.reviews.delete(record.turnId)
     const findings = parseFindings(answer)
     const requests = reports.filter((r) => r.kind === 'review' && r.text.trim())
@@ -1381,6 +1404,93 @@ export class FlowService {
   }
 
   /**
+   * What is left of the step's time budget, in minutes: the tightest minutes bound of the loops it is in, less what they
+   * used. Undefined when no loop bounds it (a step outside a loop has no budget).
+   */
+  private minutesLeft(run: FlowRun, record: FlowRunStep): number | undefined {
+    let left: number | undefined
+    for (const [name, bound] of Object.entries(run.bounds ?? {})) {
+      const pass = run.loops[name]
+      if (!pass || bound.minutes === undefined || !bound.over.includes(record.name)) continue
+      const rest = bound.minutes - pass.minutesUsed
+      left = left === undefined ? rest : Math.min(left, rest)
+    }
+    return left
+  }
+
+  /**
+   * An agent step's turn stopped at a usage limit and the tab has the resume armed (docs/agents.md 7.2). The run waits for
+   * it, counting no loop's minutes, and the resume sends the step's turn again under the step's own mark (persona, write
+   * scope, read-only hold, unattended): `resumeTurn`. It waits only while the reset falls inside the step's time budget (what
+   * is left of the tightest loop minutes bound it is in; a step in no loop has none); otherwise the run fails, saying so.
+   * False when no resume is armed (the setting asks first, or the reset time is unknown): the step fails as any error does.
+   */
+  private awaitLimit(run: FlowRun, record: FlowRunStep, sessionId: string): boolean {
+    const armed = record.turnId ? this.deps.limitResume?.(sessionId, record.turnId) : undefined
+    if (!armed || !record.turnId || !this.marks.has(run.id)) return false
+    const left = this.minutesLeft(run, record)
+    if (left !== undefined && (armed.at - this.deps.now()) / 60_000 > Math.max(0, left)) {
+      record.state = 'failed'
+      this.deps.cancelLimitResume?.(sessionId)
+      this.finish(run, 'failed', 'The usage limit resets after this step’s time budget.')
+      return true
+    }
+    const time = new Date(armed.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    const reason = `Waiting for the usage limit to reset: the “${record.name}” step goes on at ${time}.`
+    this.limitWaits.set(run.id, { turnId: record.turnId, reason })
+    record.state = 'waiting'
+    run.state = 'waiting'
+    run.reason = reason
+    this.persist()
+    return true
+  }
+
+  /**
+   * The tab's armed resume is sending: when a run waits there on a usage limit, the message is the waiting step's turn, sent
+   * under the step's mark, and the run goes on. Call `resumed` once it went (or didn't).
+   */
+  resumeTurn(sessionId: string): FlowRetry | undefined {
+    for (const run of this.runs) {
+      const waiting = this.limitWaits.get(run.id)
+      const record = run.steps.at(-1)
+      const unattended = this.marks.get(run.id)
+      if (!waiting || run.state !== 'waiting' || !record || record.turnId !== waiting.turnId || record.state !== 'waiting' || record.sessionId !== sessionId || !unattended) continue
+      const turnId = this.id()
+      this.limitWaits.set(run.id, { turnId, reason: waiting.reason })
+      const review = this.reviews.get(waiting.turnId)
+      this.reviews.delete(waiting.turnId)
+      if (review) this.reviews.set(turnId, review)
+      record.state = 'running'
+      record.turnId = turnId
+      delete record.endedAt
+      run.state = 'running'
+      delete run.reason
+      this.persist()
+      return { turnId, unattended, origin: { kind: 'flow', runId: run.id, step: record.name, iteration: record.iteration } }
+    }
+    return undefined
+  }
+
+  /** The message resumeTurn made the step's turn went, or didn't (the run waits again; the resume, marked missed, asks). */
+  resumed(turnId: string, delivered: boolean): void {
+    for (const run of this.runs) {
+      const waiting = this.limitWaits.get(run.id)
+      const record = run.steps.at(-1)
+      if (!waiting || waiting.turnId !== turnId || run.state !== 'running' || !record || record.turnId !== turnId || record.state !== 'running') continue
+      if (delivered) {
+        this.limitWaits.delete(run.id)
+        this.sent.add(turnId)
+        return
+      }
+      record.state = 'waiting'
+      run.state = 'waiting'
+      run.reason = waiting.reason
+      this.persist()
+      return
+    }
+  }
+
+  /**
    * A message is about to go in this tab: when a run waits there on its agent's sign-in, it is the waiting step's turn,
    * sent under the step's mark, and the run goes on. Call `retried` once the message went (or didn't).
    */
@@ -1430,6 +1540,16 @@ export class FlowService {
   /** Stop a minute bound that runs out while a step is still going, and fail a step whose turn can no longer come. */
   async tick(): Promise<void> {
     const now = this.deps.now()
+    // A run waiting for a usage limit's resume whose resume is gone (dismissed, the tab used, missed while Foreman was closed) has nothing to wait for.
+    for (const run of [...this.runs]) {
+      const waiting = this.limitWaits.get(run.id)
+      const record = run.steps.at(-1)
+      if (!waiting || run.state !== 'waiting' || !record?.sessionId || record.turnId !== waiting.turnId) continue
+      if (this.deps.limitResume?.(record.sessionId, waiting.turnId)) continue
+      this.limitWaits.delete(run.id)
+      record.state = 'failed'
+      this.finish(run, 'failed', `The “${record.name}” step was waiting for the usage limit to reset, but its resume was cancelled.`)
+    }
     for (const run of [...this.runs]) {
       if (run.state !== 'running') continue
       const record = run.steps.at(-1)
@@ -1529,6 +1649,10 @@ export class FlowService {
     this.texts.delete(run.id)
     this.marks.delete(run.id)
     this.signIn.delete(run.id)
+    const limitWait = this.limitWaits.get(run.id)
+    this.limitWaits.delete(run.id)
+    const waitingTab = limitWait ? run.steps.find((s) => s.turnId === limitWait.turnId)?.sessionId : undefined
+    if (waitingTab) this.deps.cancelLimitResume?.(waitingTab)
     for (const step of run.steps) {
       if (!step.turnId) continue
       this.reviews.delete(step.turnId)

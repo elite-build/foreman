@@ -1,0 +1,78 @@
+/* Settings → Usage → Limits: layout only. Colours, borders and type belong to Meter, Status and the settings card. */
+.limits-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.limits-card {
+  display: flex;
+  flex-direction: column;
+}
+.limits-item + .limits-item {
+  border-top: 1px solid var(--border);
+}
+.limits-agent {
+  display: flex;
+  flex-direction: column;
+}
+.limits-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px 4px;
+  flex-wrap: wrap;
+}
+.limits-grow {
+  flex: 1;
+}
+.limits-pool {
+  margin: 0;
+  padding: 0 16px 8px;
+}
+.limits-account {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 16px 11px;
+}
+.limits-account-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.limits-updated {
+  margin-left: auto;
+}
+.limits-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 138px) minmax(90px, 1fr) 76px minmax(120px, 150px) minmax(150px, 250px);
+  gap: 12px;
+  align-items: center;
+  min-height: 24px;
+}
+.limits-meter {
+  min-width: 90px;
+}
+.limits-passed {
+  grid-column: 2 / -1;
+}
+.limits-none {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  flex-wrap: wrap;
+}
+.limits-none-text {
+  flex: 1;
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .limits-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .limits-passed {
+    grid-column: 1 / -1;
+  }
+}

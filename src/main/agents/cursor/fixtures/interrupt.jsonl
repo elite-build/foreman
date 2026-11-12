@@ -1,0 +1,10 @@
+{"fixture":1,"agent":"cursor","scenario":"interrupt","version":"sdk-fake 1","recordedAt":"2026-11-12","evidence":"simulated","model":"auto","note":"The scripted person stops the turn once text has started: run.cancel(), the stream ends and the run is `cancelled`."}
+{"t":0,"dir":"send","data":{"type":"start","request":{"turnId":"record-interrupt","prompt":"Run the tests","cwd":"<repo>","env":{"CURSOR_API_KEY":"<env>"},"model":"auto","fastMode":false,"planMode":false,"approvals":"never-ask","systemPromptAppend":""},"reports":false}}
+{"t":0,"dir":"recv","data":{"type":"sessionStarted","args":["agent-1"]}}
+{"t":63,"dir":"recv","data":{"type":"item","args":[{"kind":"assistant","id":"record-interrupt:assistant:0","turnId":"record-interrupt","text":"Working on it","streaming":true},true]}}
+{"t":475,"dir":"send","data":{"type":"stop"}}
+{"t":475,"dir":"recv","data":{"type":"item","args":[{"kind":"notice","id":"record-interrupt:notice:0","turnId":"record-interrupt","level":"info","text":"Stopped."},null]}}
+{"t":475,"dir":"recv","data":{"type":"item","args":[{"kind":"assistant","id":"record-interrupt:assistant:0","turnId":"record-interrupt","text":"Working on it"},null]}}
+{"t":475,"dir":"recv","data":{"type":"finished","args":[{"ok":false,"error":"Stopped."}]}}
+{"t":475,"dir":"recv","data":{"type":"ended"}}
+{"t":475,"dir":"exit","data":{"code":0,"signal":null}}

@@ -229,3 +229,54 @@ describe('Make a flow from this…', () => {
     expect(draft.leftOut).toEqual([])
   })
 })
+
+describe('a switch of agent (docs/agents.md 5.5)', () => {
+  const record = (over: Record<string, unknown> = {}) => ({
+    turnId: 't2',
+    from: { agent: 'claude', model: 'claude-opus-5-5' },
+    to: { agent: 'codex', model: 'gpt-6.1-sol' },
+    strategy: 'prompt-full',
+    budgetTokens: 16_000,
+    usedTokens: 900,
+    full: ['t1'],
+    condensed: [],
+    omitted: [],
+    turns: [{ id: 't1', n: 1, agent: 'claude', request: 'Fix the login bug', tokens: 900 }],
+    ...over
+  })
+  const input = (handOff: unknown, notice: Record<string, unknown> = { switched: { from: 'claude', to: 'codex', model: 'gpt-6.1-sol', carried: 'history', handOff } }): LineageInput => {
+    const base = fixture()
+    const chats = new Map(base.chats)
+    chats.set('s1', [user('t1', 0, 'Fix the login bug'), end('t1'), { kind: 'notice', id: 'sw', level: 'info', text: 'Switched', ...notice } as ChatItem, user('t2', 10, 'Now add a test', { agent: 'codex', model: 'gpt-6.1-sol' }), end('t2')])
+    return { ...base, chats }
+  }
+
+  it('draws what the next agent received between the turns, and opens the record', () => {
+    const graph = lineageGraph(input(record()), 'run')
+    const node = graph.nodes.find((n) => n.id === 'received:turn:s1:t2')
+    expect(node).toMatchObject({ label: 'What Codex received', sublabel: '1 in full · 0 condensed · 0 left out · prompt-full', ref: { kind: 'received', handOff: { strategy: 'prompt-full', turnId: 't2' } }, recorded: ['ChatItem.switched.handOff'] })
+    // The first turn leads to the record and the record to the next turn; there is no direct edge past it.
+    expect(graph.edges.filter((e) => e.to === 'received:turn:s1:t2').map((e) => [e.from, e.recorded])).toEqual([['turn:s1:t1', 'ChatItem.switched.handOff']])
+    expect(graph.edges.filter((e) => e.from === 'received:turn:s1:t2')).toEqual([expect.objectContaining({ to: 'turn:s1:t2', label: 'switched: Claude Code → Codex' })])
+    expect(graph.edges.some((e) => e.from === 'turn:s1:t1' && e.to === 'turn:s1:t2')).toBe(false)
+    // The outline lists it between the two turns, as something that opens the record.
+    const outline = lineageOutline(graph).filter((e) => e.id.startsWith('turn:s1:t') || e.id.startsWith('received:'))
+    expect(outline.map((e) => e.id)).toEqual(['turn:s1:t1', 'received:turn:s1:t2', 'turn:s1:t2'])
+    expect(outline[1].ref).toMatchObject({ kind: 'received' })
+  })
+
+  it('draws an account move the same way, and leaves a switch with no record (older chats) as a plain next turn', () => {
+    const moved = lineageGraph(input(undefined, { handOff: record({ from: { agent: 'claude', model: 'claude-opus-5-5' }, to: { agent: 'claude', instance: 'work', model: 'claude-opus-5-5' } }) }), 'run')
+    expect(moved.nodes.some((n) => n.id === 'received:turn:s1:t2')).toBe(true)
+    const old = lineageGraph(input(undefined), 'run')
+    expect(old.nodes.some((n) => n.id.startsWith('received:'))).toBe(false)
+    expect(old.edges.some((e) => e.from === 'turn:s1:t1' && e.to === 'turn:s1:t2')).toBe(true)
+    // A record whose first turn hasn't started (the preview a switch writes) isn't drawn yet.
+    const preview = lineageGraph(input(record({ turnId: undefined })), 'run')
+    expect(preview.nodes.some((n) => n.id.startsWith('received:'))).toBe(false)
+  })
+
+  it('draws nothing of it in the other lenses', () => {
+    for (const lens of ['context', 'memory', 'data'] as const) expect(lineageGraph(input(record()), lens).nodes.some((n) => n.id.startsWith('received:'))).toBe(false)
+  })
+})

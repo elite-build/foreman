@@ -458,3 +458,35 @@ describe('#130: an agent’s other accounts', () => {
     setModelCatalog({})
   })
 })
+
+describe('Settings → Agents → an agent', () => {
+  it('a Full agent’s page shows its own panel and then its Capabilities', async () => {
+    const { AgentsPage } = await import('../src/renderer/src/components/settings/AgentsPage')
+    render(<AgentsPage agent="cursor" />)
+    expect(screen.getByRole('heading', { name: 'Capabilities' })).toBeTruthy()
+    // Cursor's own panel (its API key) comes before it, and its record is the one drawn.
+    expect(screen.getByLabelText('Cursor API key')).toBeTruthy()
+    expect(screen.getByText('Enforced by: Foreman')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Planning/ })).toBeTruthy()
+  })
+
+  it('every Full agent has a panel in the map, and nothing else is looked up by name', async () => {
+    const { AGENT_PANELS } = await import('../src/renderer/src/components/settings/agentPanels')
+    expect(Object.keys(AGENT_PANELS).sort()).toEqual(['claude', 'codex', 'cursor', 'opencode'])
+  })
+
+  it('a Chat agent’s page shows its Capabilities where the struck-through chips were', async () => {
+    const { AgentsPage } = await import('../src/renderer/src/components/settings/AgentsPage')
+    render(<AgentsPage agent="gemini" />)
+    expect(screen.getByRole('heading', { name: 'Capabilities' })).toBeTruthy()
+    expect(screen.getByText('Enforced by: Foreman')).toBeTruthy()
+    expect(screen.queryByText('What Foreman can do with it')).toBeNull()
+  })
+
+  it('a Terminal agent has no record, so its page keeps the chips', async () => {
+    const { AgentsPage } = await import('../src/renderer/src/components/settings/AgentsPage')
+    render(<AgentsPage agent="aider" />)
+    expect(screen.queryByRole('heading', { name: 'Capabilities' })).toBeNull()
+    expect(screen.getByText('What Foreman can do with it')).toBeTruthy()
+  })
+})

@@ -1,0 +1,14 @@
+{"fixture":1,"agent":"acp","scenario":"approval","version":"conformance-fake 1.0.0","recordedAt":"2026-11-12","evidence":"simulated","note":"The fake agent asks session/request_permission before a command; the scripted person allows it once."}
+{"t":0,"dir":"send","data":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true,"elicitation":{"form":{}}},"clientInfo":{"name":"foreman","title":"Foreman","version":"1.0.0"}}}}
+{"t":0,"dir":"recv","data":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true},"agentInfo":{"name":"conformance-fake","version":"1.0.0"}}}}
+{"t":0,"dir":"send","data":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<repo>","mcpServers":[]}}}
+{"t":0,"dir":"recv","data":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"sess-1"}}}
+{"t":0,"dir":"send","data":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"sess-1","prompt":[{"type":"text","text":"Run the tests"}]}}}
+{"t":0,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Running the tests. "}}}}}
+{"t":0,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"tool_call","toolCallId":"call-1","title":"npm test","kind":"execute","status":"pending","rawInput":{"command":"npm test","description":"Run tests"}}}}}
+{"t":1,"dir":"recv","data":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"sess-1","toolCall":{"toolCallId":"call-1"},"options":[{"optionId":"allow-once","name":"Allow once","kind":"allow_once"},{"optionId":"allow-always","name":"Always allow","kind":"allow_always"},{"optionId":"reject-once","name":"Reject","kind":"reject_once"}]}}}
+{"t":2,"dir":"send","data":{"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"allow-once"}}}}
+{"t":2,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call-1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"12 passed"}}]}}}}
+{"t":3,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"usage_update","used":1200,"size":200000,"cost":{"amount":0.05,"currency":"USD"}}}}}
+{"t":3,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"All green."}}}}}
+{"t":3,"dir":"recv","data":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}

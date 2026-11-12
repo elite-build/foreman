@@ -1,8 +1,9 @@
 import type { AgentKind } from '../../shared/agents'
-import { catalogDriver } from './catalogDrivers'
+import { catalogDriver } from './acp/catalogDrivers'
 import { claudeDriver } from './claude'
 import { codexDriver } from './codex'
-import { cursorProcessDriver } from './cursorProcess'
+import { cursorProcessDriver } from './cursor/process'
+import { replayAware } from './fixtures/replayDriver'
 import { opencodeDriver } from './opencode'
 import type { AgentDriver } from './types'
 
@@ -17,8 +18,9 @@ function unavailable(kind: AgentKind, label: string): AgentDriver {
 }
 
 const drivers: Partial<Record<AgentKind, AgentDriver>> = {
-  claude: claudeDriver,
-  codex: codexDriver,
+  // Development builds can replay recordings for these two (Settings → Experimental); otherwise the drivers as they are.
+  claude: replayAware(claudeDriver),
+  codex: replayAware(codexDriver),
   cursor: cursorProcessDriver,
   opencode: opencodeDriver
 }

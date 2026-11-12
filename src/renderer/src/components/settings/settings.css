@@ -736,6 +736,23 @@ label.set-label {
   width: 150px;
   margin: 0;
 }
+.set-range-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.set-range-stack .set-range--wide {
+  width: 220px;
+}
+.set-range-scale {
+  display: flex;
+  justify-content: space-between;
+  width: 220px;
+  font-variant-numeric: tabular-nums;
+}
+.set-range-wrap .set-range-value--wide {
+  min-width: 96px;
+}
 .set-range-value {
   min-width: 34px;
   font-size: var(--text-sm);

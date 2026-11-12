@@ -1,6 +1,7 @@
 // What a chat item contributes to the search index and to the "message" count.
 // Message text (user and assistant) and tool text are kept apart: tool output is
 // large and noisy, so it is searched only when asked for.
+import { isChildItem } from './subagents'
 import type { ChatItem } from './types'
 
 export interface ItemText {
@@ -11,6 +12,8 @@ export interface ItemText {
 const TOOL_TEXT_LIMIT = 100_000
 
 export function itemText(item: ChatItem): ItemText {
+  // A subagent's own calls and messages are not searched: a hit has no row of its own to jump to, only the Task call's folded detail.
+  if (isChildItem(item)) return { text: null, toolText: null }
   if (item.kind === 'user' || item.kind === 'assistant') return { text: item.text || null, toolText: null }
   if (item.kind === 'tool') {
     let input = ''

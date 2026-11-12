@@ -1,6 +1,7 @@
 // Every searchable setting. Pages give each row `id={…}` from here so search
 // can scroll to it; repository rows are repeated for each repo. Shared so the
 // assistant (main) can search and point at the same rows.
+import { AGENT_SEARCH_WORDS } from './agentCatalog'
 import type { AgentKind } from './agents'
 import type { PlainKey } from './i18n'
 
@@ -91,7 +92,7 @@ export const PAGE_KEYWORDS: Record<PersonalSection | 'agents' | RepoSection, str
   accessibility: ['low vision', 'screen reader', 'text size', 'font size', 'motion', 'animation', 'nvda', 'voiceover', 'a11y'],
   models: ['thinking', 'plan', 'fast', 'loadout', 'effort'],
   git: ['branch', 'version', 'control', 'commit', 'pull request'],
-  agents: ['harness', 'api', 'key', 'claude', 'codex', 'cursor', 'opencode', 'sign in'],
+  agents: ['harness', 'api', 'key', ...AGENT_SEARCH_WORDS.full, 'sign in'],
   environment: ['env', 'vars', 'env vars', 'variables', 'secrets', 'path', 'proxy'],
   experimental: ['beta', 'labs', 'features'],
   advanced: ['storage', 'folder', 'terminal', 'cli', 'command line'],
@@ -199,6 +200,7 @@ export const SETTINGS: SettingEntry[] = [
   { id: 'claude-output-style', page: p('models'), titleKey: 'settings.row.claudeOutputStyle', title: 'Claude output style', description: 'Choose which output style to apply to new chats.', descriptionKey: 'settings.row.claudeOutputStyle.desc', keywords: ['personality', 'concise', 'explanatory', 'learning'] },
   { id: 'review-model', page: p('models'), titleKey: 'settings.row.reviewModel', title: 'Review model', description: 'Used when you ask for a code review.', descriptionKey: 'settings.row.reviewModel.desc' },
   { id: 'default-plan-mode', page: p('models'), titleKey: 'settings.row.defaultPlanMode', title: 'Default to plan mode in new chats' },
+  { id: 'switch-history-tokens', page: p('models'), titleKey: 'settings.row.switchHistory', title: 'History given to the next agent', description: 'How much of a chat the next agent is given when you switch to it, in tokens (about four characters each). The newest turns go in full, older ones are shortened, the rest are left out. The agent can still read them on request. Giving more uses more of its context.', descriptionKey: 'settings.row.switchHistory.desc', keywords: ['switch', 'agent', 'context', 'history', 'tokens', 'budget', 'hand over', 'carry'] },
 
   // Git
   // O2
@@ -217,10 +219,11 @@ export const SETTINGS: SettingEntry[] = [
 
   // Agents
   // #22
-  { id: 'agents-catalog', page: { section: 'agents', agent: 'catalog' }, titleKey: 'agentCatalog.page.title', title: 'Agents', description: 'Every coding agent Foreman can run: enable them, see what each can do, how to install.', descriptionKey: 'settings.row.agentsCatalog.desc', keywords: ['catalog', 'gemini', 'qwen', 'kimi', 'droid', 'copilot', 'goose', 'aider', 'amp', 'crush', 'cline', 'acp', 'terminal agent', 'enable'] },
+  { id: 'agents-catalog', page: { section: 'agents', agent: 'catalog' }, titleKey: 'agentCatalog.page.title', title: 'Agents', description: 'Every coding agent Foreman can run: enable them, see what each can do, how to install.', descriptionKey: 'settings.row.agentsCatalog.desc', keywords: ['catalog', ...AGENT_SEARCH_WORDS.catalog, 'acp', 'terminal agent', 'enable'] },
   { id: 'agents-signin', page: { section: 'agents', agent: 'signin' }, titleKey: 'agentCatalog.signin.title', title: 'Sign-in', description: 'How each agent signs in: Login, API key or shared provider keys.', descriptionKey: 'settings.row.agentsSignin.desc', keywords: ['login', 'api key', 'auth', 'credentials'] },
   { id: 'provider-keys', page: { section: 'agents', agent: 'keys' }, titleKey: 'agentCatalog.keys.title', title: 'Provider keys', description: 'Provider API keys saved once, with the agents allowed to use each.', descriptionKey: 'settings.row.providerKeys.desc', keywords: ['openai', 'anthropic', 'openrouter', 'groq', 'api key', 'shared keys'] },
   { id: 'agent-claude', page: a('claude'), title: 'Claude Code', description: 'Sign-in, API key, Chrome and executable path.', descriptionKey: 'settings.row.agentClaude.desc', keywords: ['anthropic', 'login'] },
+  { id: 'idle-compact', page: a('claude'), titleKey: 'agentSettings.claude.idleCompact.label', title: 'Compact idle chats', description: 'Spends usage to make your next message cheaper: a chat over this size is compacted just before its prompt cache expires.', descriptionKey: 'agentSettings.claude.idleCompact.help', keywords: ['compact', 'idle', 'cache', 'context', 'tokens', 'usage', 'summarize'] },
   { id: 'chrome-mode', page: a('claude'), titleKey: 'settings.row.chromeMode', title: 'Use Claude Code with Chrome', description: 'Allow Claude Code to control your Chrome browser.', descriptionKey: 'settings.row.chromeMode.desc', keywords: ['browser'] },
   { id: 'agent-codex', page: a('codex'), title: 'Codex', description: 'Sign-in, API key and executable path.', descriptionKey: 'settings.row.agentCodex.desc', keywords: ['openai', 'chatgpt'] },
   { id: 'agent-cursor', page: a('cursor'), title: 'Cursor', description: 'Cursor API key.', descriptionKey: 'settings.row.agentCursor.desc' },
@@ -259,6 +262,8 @@ export const SETTINGS: SettingEntry[] = [
   { id: 'cli-command', page: p('advanced'), titleKey: 'settings.advanced.cli.label', title: 'foreman command', description: 'Start workspaces, change settings and drive Foreman from a terminal.', descriptionKey: 'settings.row.cliCommand.desc', keywords: ['cli', 'command line', 'shell', 'path', 'install'] },
 
   // Usage
+  { id: 'resume-after-limit', page: p('usage'), titleKey: 'settings.usage.resume.label', title: 'When a limit pauses a chat', description: 'Resume the chat by itself when the usage limit resets, or only offer to. An unknown reset time is always an offer.', descriptionKey: 'settings.usage.resume.help', keywords: ['limit', 'rate limit', 'quota', 'resume', 'pause', 'wait'] },
+  { id: 'usage-limits', page: p('usage'), titleKey: 'limits.section.title', title: 'Limits', description: 'How close each agent account is to its usage limits, and when they reset.', descriptionKey: 'limits.section.desc', keywords: ['limit', 'rate limit', 'quota', 'session', 'weekly', 'reset'] },
   { id: 'usage-report', page: p('usage'), titleKey: 'settings.page.usage', title: 'Usage', description: 'Reported cost, turns and agent time by repo and model, for the last 7, 30 or 90 days.', descriptionKey: 'settings.row.usageReport.desc', keywords: ['cost', 'spend', 'tokens', 'turns'] },
 
   // Data & devices

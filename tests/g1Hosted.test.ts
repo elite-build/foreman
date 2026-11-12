@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { keptRunning } from '../src/shared/agentHost'
 import { AGENTS } from '../src/shared/agents'
 import { hasReportTools, isReportCall, teachText } from '../src/shared/agentReports'
-import { repoMcpReach, repoMcpSupport } from '../src/shared/agentCatalog'
+import { offers } from '../src/shared/agentCapabilities'
+import { repoMcpReach, repoMcpSupport, staticCapabilities } from '../src/shared/agentCatalog'
 import type { ChatItem } from '../src/shared/types'
 import { createAcpDriver, type AcpConnector } from '../src/main/agents/acp'
 import { cursorDriver, cursorMcpServers, cursorReportTools } from '../src/main/agents/cursor'
@@ -97,7 +98,7 @@ function cursorWithReport(seen: { options?: Record<string, unknown> }) {
 describe('G1 · Cursor through its SDK: repo MCP servers and report tools (fake SDK, untested with a real key)', () => {
   it('Cursor takes repo MCP servers now, and they reach it first in the consent list', () => {
     expect(repoMcpSupport('cursor')).toEqual({ supported: true, via: 'cursor' })
-    expect(AGENTS.cursor.supportsRepoMcp).toBe(true)
+    expect(offers(staticCapabilities('cursor')!.tools.mcp)).toBe(true)
     expect(repoMcpReach({}).map((r) => [r.id, r.support.supported])).toEqual([
       ['claude', true],
       ['codex', true],

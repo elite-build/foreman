@@ -294,10 +294,10 @@ describe('cursor driver', () => {
     const { cb, persisted } = callbacks()
     await cursorDriver.createTurn(request({ env: {} }), cb).run()
     expect(persisted()).toEqual([
-      { kind: 'notice', id: 't1:notice:0', turnId: 't1', level: 'error', text: 'Add a Cursor API key in Settings › Agents › Cursor.', action: 'open-settings' }
+      { kind: 'notice', id: 't1:notice:0', turnId: 't1', level: 'error', text: 'Cursor has no API key. Add one in Settings → Agents → Cursor.', action: 'open-settings' }
     ])
     expect(cb.finished).toHaveBeenCalledTimes(1)
-    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: 'Add a Cursor API key in Settings › Agents › Cursor.' })
+    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: 'Cursor has no API key. Add one in Settings → Agents → Cursor.' })
     expect(sdk.Agent.create).not.toHaveBeenCalled()
   })
 
@@ -354,7 +354,7 @@ describe('cursor driver', () => {
     const { cb, persisted } = callbacks()
     await cursorDriver.createTurn(request(), cb).run()
     expect(persisted()).toEqual([
-      { kind: 'notice', id: 't1:notice:0', turnId: 't1', level: 'error', text: '401 Unauthorized: invalid API key', action: 'open-settings' }
+      { kind: 'notice', id: 't1:notice:0', turnId: 't1', level: 'error', text: 'Cursor isn’t signed in, or its sign-in has expired.', action: 'open-settings' }
     ])
     expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: '401 Unauthorized: invalid API key' })
   })

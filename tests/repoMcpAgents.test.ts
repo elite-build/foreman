@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acpMcpServers, createAcpDriver, type AcpConnector } from '../src/main/agents/acp'
 import { codexBinary, codexMcpConfig, codexSettings, CodexTurn } from '../src/main/agents/codex'
-import { CodexAppServer, type AppServerFactory } from '../src/main/agents/codexAppServer'
+import { CodexAppServer, type AppServerFactory } from '../src/main/agents/codex/appServer'
 import { registerDriver } from '../src/main/agents/registry'
 import type { McpLaunch, TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import { HostServer } from '../src/main/agentHost/server'
@@ -21,7 +21,8 @@ import { SecretStore, type Encryptor } from '../src/main/secrets'
 import { SessionService } from '../src/main/sessions'
 import { Store } from '../src/main/store'
 import { WorkspaceService } from '../src/main/workspaces'
-import { repoMcpReach, repoMcpSupport } from '../src/shared/agentCatalog'
+import { offers } from '../src/shared/agentCapabilities'
+import { repoMcpReach, repoMcpSupport, staticCapabilities } from '../src/shared/agentCatalog'
 import { AGENTS, type AgentKind } from '../src/shared/agents'
 import type { ChatItem, ContextPart, Workspace } from '../src/shared/types'
 import { fakeDriver } from './agentHostFake'
@@ -130,7 +131,8 @@ describe('Codex gets approved repo servers', () => {
           return real.exited
         },
         initialize: () => real.initialize(),
-        request: (method, params) => real.request(method, method === 'thread/start' ? { ...(params as object), config: { ...(params as { config?: object }).config, ...swap } } : params),
+        // The throwaway home has no Windows sandbox set up; this test is about the servers' approvals, not the sandbox (docs/agents.md 8), so readiness is not the CLI's to answer here.
+        request: (method, params) => (method === 'windowsSandbox/readiness' ? Promise.resolve({ status: 'ready' } as never) : real.request(method, method === 'thread/start' ? { ...(params as object), config: { ...(params as { config?: object }).config, ...swap } } : params)),
         notify: (method, params) => real.notify(method, params),
         onNotification: (handler) => real.onNotification(handler),
         onRequest: (handler) => real.onRequest(handler),
@@ -383,13 +385,13 @@ describe('env scopes and consent hold for Codex and ACP agents', () => {
 
 describe('capability gating', () => {
   it('Claude, Codex, Cursor (G1, untested with a key), OpenCode and the Chat agents take repo servers; Terminal agents do not', () => {
-    for (const kind of ['claude', 'codex', 'cursor', 'opencode', 'gemini', 'qwen'] as const) expect(AGENTS[kind].supportsRepoMcp).toBe(true)
+    for (const kind of ['claude', 'codex', 'cursor', 'opencode', 'gemini', 'qwen'] as const) expect(offers(staticCapabilities(kind)!.tools.mcp)).toBe(true)
     expect(repoMcpSupport('cursor')).toEqual({ supported: true, via: 'cursor' })
     expect(repoMcpSupport('aider')).toEqual({ supported: false, reason: 'terminal' })
     expect(repoMcpSupport('codex')).toEqual({ supported: true, via: 'config' })
     expect(repoMcpSupport('opencode')).toEqual({ supported: true, via: 'acp' })
-    // Every agent's flag is the catalog's answer.
-    for (const kind of Object.keys(AGENTS)) expect(AGENTS[kind as AgentKind].supportsRepoMcp).toBe(repoMcpSupport(kind).supported)
+    // Every agent's record is the catalog's answer.
+    for (const kind of Object.keys(AGENTS)) expect(offers(staticCapabilities(kind)!.tools.mcp)).toBe(repoMcpSupport(kind).supported)
   })
 
   it('lists who a server reaches: the Full agents, and Chat agents only when enabled', () => {

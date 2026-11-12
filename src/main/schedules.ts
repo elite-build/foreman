@@ -14,6 +14,7 @@
 // templates and personas too, the occurrence follows the flow run to its end, and the flow's loop bounds stand in for the
 // duration limit.
 import { createHash, randomUUID } from 'node:crypto'
+import { canRunUnattended } from '../shared/agentCatalog'
 import { scheduleFingerprintOfFlow, type FlowFingerprint, type FlowRun } from '../shared/flows'
 import { GLOBAL_ACTIVE_CAP, MISSED_GRACE_MS, dueAction, isProposedSchedule, nextRuns, specOf, specProblem } from '../shared/schedule'
 import type { AfterRun, Occurrence, Schedule, ScheduleFingerprint, ScheduleRequest, TurnOutcome } from '../shared/types'
@@ -102,7 +103,7 @@ export function scheduleProblem(input: ScheduleInput, now = Date.now()): string 
   if (Boolean(flow) === Boolean(input.templateId)) return 'A schedule runs a template or a flow: choose one.'
   if (flow && (typeof flow.flowId !== 'string' || !flow.flowId || typeof flow.inputs !== 'object' || flow.inputs === null || Object.values(flow.inputs).some((v) => typeof v !== 'string')))
     return 'Choose the flow to schedule, with a value for each of its inputs.'
-  if (input.agent !== 'claude' || (!flow && !input.model.trim())) return 'Scheduled runs are Claude only: other agents can’t pause for approvals.'
+  if (!canRunUnattended(input.agent) || (!flow && !input.model.trim())) return 'Scheduled runs are Claude only: other agents can’t pause for approvals.'
   if (!Number.isFinite(input.maxMinutes) || input.maxMinutes < 5 || input.maxMinutes > 480) return 'Pick a maximum duration between 5 minutes and 8 hours.'
   if (!input.baseBranch.trim()) return 'Pick a base branch.'
   if (input.afterRun !== undefined && !AFTER_RUN.includes(input.afterRun)) return 'Pick what happens to the workspace after a run.'
@@ -162,6 +163,10 @@ export interface ScheduleDeps {
   paused?(): boolean
   // Settles once the inputs can be told (gh's active account is known), so a fingerprint isn't read as changed before then.
   ready?(): Promise<unknown>
+  /** The tab's armed usage-limit resume (not a missed one): when it sends. Undefined when none is armed. */
+  limitResume?(sessionId: string): { at: number } | undefined
+  /** Take the tab's armed usage-limit resume away (the run it was for has ended). */
+  cancelLimitResume?(sessionId: string): void
   maxActive?: number
   graceMs?: number
 }
@@ -480,6 +485,12 @@ export class ScheduleService {
       const s = this.schedules.find((x) => x.id === o.scheduleId)
       // A flow's run is bounded by its loops, and its gates wait for a person: no duration limit.
       if (o.flowRunId || s?.flow) continue
+      // Waiting for a usage limit's resume, which was checked against this budget when the turn stopped: the wait itself isn't
+      // timed out, but a resume that is gone (dismissed, missed while Foreman was closed) leaves nothing to wait for.
+      if (o.limitUntil) {
+        if (o.sessionId && !this.deps.limitResume?.(o.sessionId)) this.finish(o, 'failed', 'The run was waiting for the usage limit to reset, but its resume was cancelled.')
+        continue
+      }
       const limit = (s?.maxMinutes ?? 30) * 60_000
       // Counted from launch while the workspace is made, and from the turn's start once it has one: a run waiting for an
       // agent slot hasn't started, so it isn't stopped for the wait.
@@ -503,7 +514,42 @@ export class ScheduleService {
     if (!o) return
     if (outcome === 'completed') this.finish(o, 'completed')
     else if (outcome === 'cancelled') this.finish(o, 'cancelled', 'Stopped.')
+    else if (outcome === 'error' && this.awaitLimit(o)) return
     else this.finish(o, 'failed', outcome === 'interrupted' ? 'The run was interrupted.' : 'The agent ended with an error.')
+  }
+
+  /**
+   * The run's turn stopped at a usage limit and its tab has the resume armed (docs/agents.md 7.2): the run waits for it and
+   * the resume sends the turn again as the run's own (`resumeRun`), only while the reset falls inside the run's time budget.
+   * A schedule's budget is its maximum duration (default 30 minutes), counted from the run's start, as the duration limit
+   * counts it between turns; a reset later than that fails the run, saying so. False when no resume is armed (the setting
+   * asks first, or the reset time is unknown): the run fails as any error does.
+   */
+  private awaitLimit(o: Occurrence): boolean {
+    const armed = o.sessionId ? this.deps.limitResume?.(o.sessionId) : undefined
+    if (!armed || !o.sessionId) return false
+    const s = this.schedules.find((x) => x.id === o.scheduleId)
+    const budgetEnd = Date.parse(o.startedAt ?? this.iso(this.deps.now())) + (s?.maxMinutes ?? 30) * 60_000
+    if (armed.at > budgetEnd) {
+      this.deps.cancelLimitResume?.(o.sessionId)
+      this.finish(o, 'failed', 'The usage limit resets after this run’s time budget.')
+      return true
+    }
+    o.limitUntil = this.iso(armed.at)
+    this.persist()
+    return true
+  }
+
+  /**
+   * The tab's armed resume is sending: when a run waits there on a usage limit, the message is the run's own turn (unattended,
+   * as the run started it). False when the run has ended (stopped, timed out): nothing resumes it then.
+   */
+  resumeRun(sessionId: string): boolean {
+    const o = this.byAgentSession(sessionId)
+    if (!o?.limitUntil) return false
+    delete o.limitUntil
+    this.persist()
+    return true
   }
 
   /** The run asked for an approval or a question: it stops here and is left for the human. */
@@ -536,6 +582,10 @@ export class ScheduleService {
     o.state = state
     o.endedAt = this.iso(this.deps.now())
     if (reason) o.reason = reason
+    if (o.limitUntil) {
+      delete o.limitUntil
+      if (o.sessionId) this.deps.cancelLimitResume?.(o.sessionId)
+    }
     const s = this.schedules.find((x) => x.id === o.scheduleId)
     if (s) {
       if (state === 'completed') s.consecutiveFailures = 0

@@ -91,7 +91,7 @@ const input: ScheduleInput = { templateId: 't1', templateName: 'Dependency audit
 const inputs: FingerprintInputs = { templateBody: 'npm outdated', templateRev: undefined, setupScript: 'npm ci', checks: [{ name: 'test', command: 'npm test' }], mcp: [] }
 const MON_9 = iso('2026-10-26T16:00:00Z')
 
-function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; occurrences?: Occurrence[] }; turnStart?: ScheduleDeps['turnStart']; afterRun?: ScheduleDeps['afterRun'] } = {}) {
+function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; occurrences?: Occurrence[] }; turnStart?: ScheduleDeps['turnStart']; afterRun?: ScheduleDeps['afterRun']; limitResume?: ScheduleDeps['limitResume'] } = {}) {
   const store = { state: { schedules: options.start?.schedules, occurrences: options.start?.occurrences } as { schedules?: Schedule[]; occurrences?: Occurrence[] }, flush: vi.fn() }
   const clock = { now: iso('2026-10-20T12:00:00Z') }
   let current = inputs as FingerprintInputs | { error: string }
@@ -112,11 +112,13 @@ function rig(options: { maxActive?: number; start?: { schedules?: Schedule[]; oc
     changed: vi.fn(),
     maxActive: options.maxActive,
     turnStart: options.turnStart,
-    afterRun: options.afterRun
+    afterRun: options.afterRun,
+    ...(options.limitResume ? { limitResume: options.limitResume } : {}),
+    cancelLimitResume: vi.fn()
   }
   const service = new ScheduleService(deps)
   return {
-    service, store, clock, launches, stopped, onDisk,
+    service, store, deps, clock, launches, stopped, onDisk,
     setInputs: (next: FingerprintInputs | { error: string }) => (current = next),
     /** Move the clock to the time and let the tick launch. */
     async at(time: number) {
@@ -512,5 +514,66 @@ describe('persistence', () => {
     service.reconcile()
     expect(second.state.occurrences?.[0].state).toBe('uncertain')
     second.close()
+  })
+})
+
+// Docs/agents.md 7.2: a run whose turn stops at a usage limit waits for the armed resume while the reset falls inside the run's
+// time budget (its maximum duration, counted from the run's start); the resume starts the turn again as the run's own.
+describe('a usage limit in a scheduled run', () => {
+  const MIN = 60_000
+
+  it('waits for the resume inside its budget, isn’t timed out meanwhile, and the resumed turn is the run’s own', async () => {
+    let at: number | undefined
+    const r = rig({ limitResume: () => (at === undefined ? undefined : { at }) })
+    r.service.create(input, inputs)
+    await r.at(MON_9 + 1000)
+    const l = await running(r)
+    at = MON_9 + 20 * MIN
+    r.service.turnEnded('sess0', 'error')
+    expect(l.occurrence.state).toBe('running')
+    expect(l.occurrence.limitUntil).toBe(new Date(at).toISOString())
+    // Past the 30 minutes (the turn ended, nothing runs): a wait for a resume that is armed isn't a timeout.
+    await r.at(MON_9 + 45 * MIN)
+    expect(l.occurrence.state).toBe('running')
+    expect(r.stopped).toEqual([])
+    // The resume sends: it is the run's turn again, once.
+    expect(r.service.resumeRun('sess0')).toBe(true)
+    expect(l.occurrence.limitUntil).toBeUndefined()
+    expect(r.service.resumeRun('sess0')).toBe(false)
+    r.service.turnEnded('sess0', 'completed')
+    expect(l.occurrence.state).toBe('completed')
+  })
+
+  it('fails with the budget sentence when the reset is after the run’s maximum duration', async () => {
+    const r = rig({ limitResume: () => ({ at: MON_9 + 3 * 60 * MIN }) })
+    r.service.create(input, inputs)
+    await r.at(MON_9 + 1000)
+    const l = await running(r)
+    r.service.turnEnded('sess0', 'error')
+    expect(l.occurrence).toMatchObject({ state: 'failed', reason: 'The usage limit resets after this run’s time budget.' })
+    expect(r.deps.cancelLimitResume).toHaveBeenCalledWith('sess0')
+  })
+
+  it('fails as any error does when no resume is armed', async () => {
+    const r = rig({ limitResume: () => undefined })
+    r.service.create(input, inputs)
+    await r.at(MON_9 + 1000)
+    const l = await running(r)
+    r.service.turnEnded('sess0', 'error')
+    expect(l.occurrence).toMatchObject({ state: 'failed', reason: 'The agent ended with an error.' })
+  })
+
+  it('fails when the resume it waits for is cancelled, and a stopped run has nothing to resume', async () => {
+    let armed = true
+    const r = rig({ limitResume: () => (armed ? { at: MON_9 + 10 * MIN } : undefined) })
+    r.service.create(input, inputs)
+    await r.at(MON_9 + 1000)
+    const l = await running(r)
+    r.service.turnEnded('sess0', 'error')
+    expect(l.occurrence.state).toBe('running')
+    armed = false
+    await r.at(MON_9 + 2 * MIN)
+    expect(l.occurrence).toMatchObject({ state: 'failed', reason: 'The run was waiting for the usage limit to reset, but its resume was cancelled.' })
+    expect(r.service.resumeRun('sess0')).toBe(false)
   })
 })

@@ -76,6 +76,7 @@ const callbacks = () =>
     planModeChanged: vi.fn(),
     autoAcceptEdits: vi.fn(),
     usage: vi.fn(),
+    limits: vi.fn(),
     finished: vi.fn()
   }) satisfies TurnCallbacks
 const base = { uuid: 'u', session_id: 's1' }
@@ -102,6 +103,22 @@ describe('Claude adapter', () => {
     expect(finished.ok).toBe(false)
     expect(finished.error).toContain('usage limit reached')
     expect(finished.limit).toMatchObject({ source: 'resets 11pm (UTC)', timeZone: 'UTC' })
+  })
+
+  // Docs/agents.md 7.1: each rate_limit_event is also one window of the account's usage, reported as the turn runs.
+  it('reports each rate-limit event as a window of the account', async () => {
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600
+    scripted([
+      { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt, rateLimitType: 'five_hour', utilization: 0.4 }, ...base } as Partial<SDKMessage>,
+      { type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', rateLimitType: 'seven_day_opus', utilization: 0.85 }, ...base } as Partial<SDKMessage>,
+      { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', rateLimitType: 'brand_new_window' }, ...base } as unknown as Partial<SDKMessage>
+    ])
+    const cb = callbacks()
+    await claudeDriver.createTurn(request, cb).run()
+    expect(cb.limits.mock.calls).toEqual([
+      [[{ kind: 'session', usedPercent: 40, resetsAt: new Date(resetsAt * 1000).toISOString(), state: 'ok' }]],
+      [[{ kind: 'model-weekly', label: 'Opus', usedPercent: 85, state: 'warning' }]]
+    ])
   })
 
   it('a crash that isn’t a limit gets no card', async () => {

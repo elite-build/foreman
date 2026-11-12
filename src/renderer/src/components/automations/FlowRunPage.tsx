@@ -5,7 +5,9 @@
 // step will run on. A run carries only the models that differ from the flow (FlowRunStart.models); they are remembered
 // per flow, and a personal flow can take them into its file.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { effortLabel, modelInfo, modelsFor, type AgentKind, type EffortLevel } from '../../../../shared/agents'
+import { canRunUnattended, staticCapabilities } from '../../../../shared/agentCatalog'
+import { AGENT_ORDER, AGENTS, effortLabel, modelInfo, modelsFor, type AgentKind, type EffortLevel } from '../../../../shared/agents'
+import { canReview } from '../../../../shared/autoReview'
 import { modelWords } from '../../../../shared/flowGraph'
 import { choiceFor, choicesTier, chooseFor, FLOW_TIER_MODELS, flowPeople, pastRunCost, tierChoices, withoutDefaults, writeStepModels, type FlowTier } from '../../../../shared/flowModels'
 import { parseFlow, type FlowListing, type FlowModelChoices, type FlowRun, type FlowStepChoice, type FlowStepModel } from '../../../../shared/flows'
@@ -108,9 +110,9 @@ export function FlowRunPage({ flowId, repoId: openRepo, baseBranch: openBase }: 
   const tier = choicesTier(choices, steps)
   const past = flow ? pastRunCost(runs, flow.id) : { runs: 0 }
   const summary = preview?.summary
-  // A turn chosen on another agent can't run unattended: the page says so where it was chosen, and Start stays off.
-  const notClaude = steps.filter((s) => s.kind === 'turn' && choiceFor(s, choices).agent !== 'claude')
-  const refusedByFlow = (summary?.notClaude ?? []).filter((n) => !steps.some((s) => s.step === n.step && choiceFor(s, choices).agent === 'claude'))
+  // A turn chosen on an agent that can't run unattended (no one answers its approvals): the page says so where it was chosen, and Start stays off.
+  const notClaude = steps.filter((s) => s.kind === 'turn' && !canRunUnattended(choiceFor(s, choices).agent))
+  const refusedByFlow = (summary?.notClaude ?? []).filter((n) => !steps.some((s) => s.step === n.step && canRunUnattended(choiceFor(s, choices).agent)))
   const ready = Boolean(preview && summary && !summary.problems.length && !notClaude.length && !refusedByFlow.length && flowStartReady({ ...preview!, summary: { ...summary!, notClaude: [] } }, values) && base.trim()) && !busy
 
   const start = async () => {
@@ -276,13 +278,15 @@ function TierCards({ tier, onChange }: { tier: FlowTier | 'custom'; onChange: (t
 function ChoiceSelects({ choice, kinds, name, onChange }: { choice: FlowStepChoice; kinds: FlowStepModel['kind'][]; name: string; onChange: (choice: FlowStepChoice) => void }) {
   const t = useT()
   const hidden = useStore((s) => s.snapshot!.settings.hiddenModels) ?? NO_HIDDEN
-  const agents: AgentKind[] = kinds.every((k) => k !== 'turn') ? ['claude', 'codex'] : ['claude']
+  // A turn step runs unattended; a review or decide step is read-only by construction, so any agent Foreman can hold read-only may take it.
+  const hasTurn = kinds.some((k) => k === 'turn')
+  const agents: AgentKind[] = AGENT_ORDER.filter((a) => canRunUnattended(a) || (!hasTurn && canReview(staticCapabilities(a))))
   if (!agents.includes(choice.agent as AgentKind)) agents.push(choice.agent as AgentKind)
   const current = { agent: choice.agent as AgentKind, model: choice.model }
   const options: SelectOption<string>[] = agents.flatMap((agent) => {
     const listed = pickerModels(modelsFor(agent), hidden, current).shown
     const all = listed.some((m) => m.agent === current.agent && m.id === current.model) || agent !== current.agent ? listed : [modelInfo(agent, current.model), ...listed]
-    return all.map((m) => ({ value: `${agent}:${m.id}`, label: m.label, group: agent === 'claude' ? 'Claude' : agent === 'codex' ? 'Codex' : agent }))
+    return all.map((m) => ({ value: `${agent}:${m.id}`, label: m.label, group: AGENTS[agent].label }))
   })
   const efforts = modelInfo(current.agent, current.model).efforts
   return (

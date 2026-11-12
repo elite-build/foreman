@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowRight, ClipboardList, Copy, FolderPlus, GitBranch, Lock, MoreHorizontal, Pencil, Plus, RotateCcw, Settings, Sparkles, Users } from 'lucide-react'
-import { agentControls } from '../../../shared/agentCatalog'
 import { Activity, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { isFallback } from '../../../shared/agentCapabilities'
 import { AGENTS, modelInfo } from '../../../shared/agents'
 import { isMixed, turnAuthors, type AgentSwitch, type ChatDivider, type TurnAuthor } from '../../../shared/switchAgent'
 import { continueEligibility, continueFollowUp, turnAnswer } from '../../../shared/handOff'
@@ -8,27 +8,29 @@ import { partSize, receiptLine } from '../../../shared/context'
 import type { PlainKey } from '../../../shared/i18n'
 import type { AgentKind, ApprovalRequest, ChatItem, ContextPart, Session, TurnDelta, Workspace } from '../../../shared/types'
 import { useClock } from '../clock'
-import { api, attempt, clearChatJump, copyTranscript, editAndResend, fillComposer, forkChat, loadChat, onUiCommand, openHandOffDialog, openNewWorkspace, openSettingsPage, sendUiCommand, showToast, useStore } from '../store'
+import { api, attempt, clearChatJump, copyTranscript, editAndResend, fillComposer, forkChat, loadChat, onUiCommand, openHandOffDialog, openNewWorkspace, openSettingsPage, sendUiCommand, showToast, useCapabilities, useStore } from '../store'
 import { useHeldStore } from '../heldStore'
 import { editResendBlock } from '../../../shared/fork'
 import { useT } from '../i18n'
 import { announce } from '../announce'
 import { spokenSnippet } from '../agentStatus'
 import { reduceMotion } from '../theme'
-import { formatClock } from '../../../shared/i18n/time'
-import { Button, Callout, Checkbox, ChipButton, flash, LinkButton, MenuButton, MenuItem, MenuLabel, MenuSeparator, Pressable, Spinner, Tag } from '../ui'
+import { formatClock, formatNumber } from '../../../shared/i18n/time'
+import { Button, Callout, Checkbox, ChipButton, Dialog, flash, LinkButton, MenuButton, MenuItem, MenuLabel, MenuSeparator, Pressable, Spinner, Tag } from '../ui'
 import { hasNote } from '../../../shared/note'
 import { formatDuration } from './turnResult'
 import { GatePanel, PickPanel, QuestionPanel, ToolApprovalPanel } from './ApprovalPanel'
 import { AttachmentChip, Composer } from './composer/Composer'
 import { UserMessageText } from './composer/TerminalDraft'
 import { AgentIcon } from './composer/AgentPicker'
+import { MoveDivider, SwitchDivider } from './SwitchDivider'
 import './switchAgent.css'
 import { Markdown } from './Markdown'
 import { SensitiveCard } from './SensitiveAlert'
 import { ChatSearch } from './ChatSearch'
 import { textMatches } from './findInChat'
-import { describe, taskActivity, TaskMeta, ToolRow, type Root, type ToolItem } from './ToolRow'
+import { describe, taskActivity, TaskMeta, ToolRow, type Root, type StopChild, type Subtree, type ToolItem } from './ToolRow'
+import { childItemsOf, isChildItem, withoutChildren, type ChildItem } from '../../../shared/subagents'
 import type { FileAccess } from './OpenFileChip'
 import { workspaceSurfaces } from '../archivedView'
 import { toolRoots } from '../../../shared/portable'
@@ -40,12 +42,13 @@ import { ClosedGapLine } from './KeepRunning'
 import { ReportRow } from './AgentReport'
 import { isReportCall } from '../../../shared/agentReports'
 import { AutoFixReceipt } from './AutoFix'
-import { LimitResumePart } from './LimitResume'
+import { LimitResumePart, PausedCard } from './LimitResume'
 import { SignInNotice } from './SignInNotice'
 import { AutoReviewFindings, AutoReviewReceipt } from './AutoReview'
 import { withoutFindingsBlock } from '../../../shared/autoReview'
 
 const EMPTY: ChatItem[] = []
+const NO_TASKS: ReadonlySet<string> = new Set()
 
 // How long a streaming reply's Markdown waits between renders (accessibility plan, A3 step 2): a reader's browse buffer is
 // rebuilt each time the text changes, and the stream flushes about every 50 ms.
@@ -131,6 +134,30 @@ function itemsByTurn(items: ChatItem[], previous: Map<string, ChatItem[]>): Map<
     if (old && sameItems(old, list)) next.set(id, old)
   }
   return next
+}
+
+/**
+ * Each Task call's subagent's own items (docs/agents.md 6): the call's id to its items and those of any Task call inside it.
+ * A call whose items are all the same objects keeps its map, so its row isn't drawn again when another subagent adds one.
+ */
+function subtreesOf(all: ChatItem[], previous: Map<string, Subtree>): Map<string, Subtree> {
+  const out = new Map<string, Subtree>()
+  const by = childItemsOf(all)
+  if (!by.size) return out
+  for (const root of all) {
+    if (root.kind !== 'tool' || isChildItem(root) || !by.has(root.id)) continue
+    const tree = new Map<string, ChildItem[]>()
+    const walk = (id: string) => {
+      const kids = by.get(id)
+      if (!kids || tree.has(id)) return
+      tree.set(id, kids)
+      for (const kid of kids) if (kid.kind === 'tool') walk(kid.id)
+    }
+    walk(root.id)
+    const old = previous.get(root.id)
+    out.set(root.id, old && old.size === tree.size && [...tree].every(([id, kids]) => old.has(id) && sameItems(old.get(id)!, kids)) ? old : tree)
+  }
+  return out
 }
 
 /** `turnAuthors`, keeping the previous object for a turn whose agent and model are the same. */
@@ -244,7 +271,11 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const logged = useHeldStore((s) => s.chats[session.id], hidden) ?? EMPTY
   const mode = hidden ? 'hidden' : 'visible'
   // Only the turn running now can still be working; anything an earlier turn left running was stopped with it.
-  const items = useMemo(() => settleStable(logged, session.turnId), [logged, session.turnId])
+  const everything = useMemo(() => settleStable(logged, session.turnId), [logged, session.turnId])
+  // What the agent itself said and did; a subagent's own calls and messages hang under its Task call's row (subtrees).
+  const items = useMemo(() => withoutChildren(everything), [everything])
+  const lastSubtrees = useRef(new Map<string, Subtree>())
+  const subtrees = useMemo(() => (lastSubtrees.current = subtreesOf(everything, lastSubtrees.current)), [everything])
   // This chat's requests, kept as the same array while they are the same ones, so another chat's approval renders nothing
   // here. Not held while hidden: a request that arrives then is already in place (and has had its mount) when shown.
   const lastPending = useRef<ApprovalRequest[]>([])
@@ -368,6 +399,11 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const last = items.at(-1)?.kind
   const finished = last === 'result' || last === 'turn-end'
   const lastTurnEnd = items.findLast((i) => i.kind === 'turn-end')
+  // Subagents with a request waiting on the person: their rows say so.
+  const waiting = useMemo(() => {
+    const ids = pending.flatMap((a) => ((a.kind === 'tool' || a.kind === 'question') && a.subagent ? [a.subagent.id] : []))
+    return ids.length ? new Set(ids) : NO_TASKS
+  }, [pending])
   const toolRequest = pending.find((a): a is Extract<ApprovalRequest, { kind: 'tool' }> => a.kind === 'tool')
   const question = pending.find((a): a is Extract<ApprovalRequest, { kind: 'question' }> => a.kind === 'question')
   const plan = pending.find((a): a is Extract<ApprovalRequest, { kind: 'plan' }> => a.kind === 'plan')
@@ -473,6 +509,8 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
           level={headingLevel + 2}
           workspacePath={roots}
           files={kind === 'tool' ? files : undefined}
+          subtree={kind === 'tool' ? subtrees.get(item.id) : undefined}
+          waiting={kind === 'tool' && item.childId ? waiting : undefined}
           strip={strip}
           expandTools={expandTools}
           running={kind === 'user' || kind === 'turn-end' || signIn ? running : undefined}
@@ -663,6 +701,9 @@ type RowProps = {
   workspacePath: Root
   // Only for tool rows: what their paths may open.
   files?: FileAccess | null
+  // Only for a Task call: its subagent's own items, and the subagents with a request waiting for the person.
+  subtree?: Subtree
+  waiting?: ReadonlySet<string>
   strip: boolean
   expandTools: boolean
   repoId?: string
@@ -697,6 +738,8 @@ const ChatRow = memo(function ChatRow({
   level,
   workspacePath,
   files,
+  subtree,
+  waiting,
   strip,
   expandTools,
   repoId,
@@ -714,26 +757,59 @@ const ChatRow = memo(function ChatRow({
 }: RowProps) {
   const t = useT()
   const headingId = useId()
+  const caps = useCapabilities(agent)
+  const restores = caps?.checkpointing.restoreFiles === true
+  // Restore's confirmation says what happens to the agent's own conversation: rolled back, or (an agent that can't) started afresh.
+  const rollback = caps?.checkpointing.conversationRollback
+  const freshRestore = rollback ? isFallback(rollback, 'checkpoint-fresh-session') : false
+  const [confirmRestore, setConfirmRestore] = useState(false)
+  // Stop on a subagent: only for an agent whose record says it can (docs/agents.md 6).
+  const canStopChild = caps?.subagents.stop.level !== undefined && caps.subagents.stop.level !== 'none'
+  const stopChild = useMemo<StopChild | undefined>(
+    () => (canStopChild ? (childId) => attempt(async () => (await api.stopChild(sessionId, childId), true)) : undefined),
+    [canStopChild, sessionId]
+  )
   switch (item.kind) {
     case 'user':
+      // Foreman compacted this chat while it sat idle: the "Compacted while idle" row says so, not a message the person never wrote.
+      if (item.origin?.kind === 'idle-compact') return null
       return (
         <div className="user-row">
           {/* #22: agents that can't rewind (Chat agents over ACP) get no Restore. O1: the agent the message went to decides. */}
-          {item.checkpoint && !item.steered && !readOnly && agentControls(agent).restore && (
+          {item.checkpoint && !item.steered && !readOnly && restores && (
             <span className="restore-wrap">
               <Button
                 size="sm"
                 icon={<RotateCcw size={12} />}
-                title={t('chat.restore.title')}
+                title={t(freshRestore ? 'chat.restore.titleFresh' : 'chat.restore.title')}
                 disabled={running}
-                onClick={() => {
-                  if (window.confirm(t('chat.restore.confirm'))) {
-                    void attempt(() => api.restoreCheckpoint(sessionId, item.turnId))
-                  }
-                }}
+                onClick={() => setConfirmRestore(true)}
               >
                 {t('chat.restore.label')}
               </Button>
+              {confirmRestore && (
+                <Dialog
+                  title={t('chat.restore.dialogTitle')}
+                  onClose={() => setConfirmRestore(false)}
+                  footer={
+                    <>
+                      <Button onClick={() => setConfirmRestore(false)}>{t('common.cancel')}</Button>
+                      <Button
+                        variant="primary"
+                        autoFocus
+                        onClick={() => {
+                          setConfirmRestore(false)
+                          void attempt(() => api.restoreCheckpoint(sessionId, item.turnId))
+                        }}
+                      >
+                        {t('chat.restore.label')}
+                      </Button>
+                    </>
+                  }
+                >
+                  <p>{t(freshRestore ? 'chat.restore.confirmFresh' : rollback?.level === 'none' ? 'chat.restore.confirmFiles' : 'chat.restore.confirm')}</p>
+                </Dialog>
+              )}
             </span>
           )}
           {!readOnly && <UserMenu item={item} sessionId={sessionId} workspaceId={workspaceId} running={running} />}
@@ -778,7 +854,7 @@ const ChatRow = memo(function ChatRow({
       // #2: a call that only made a report is folded into the report's own line.
       if (isReportCall(item)) return null
       // The call written out for search only while there is a query.
-      return <ToolRow item={item} workspacePath={workspacePath} files={files} expandByDefault={expandTools} forceOpen={Boolean(query) && textMatches(toolSearchText(item), query).length > 0} />
+      return <ToolRow item={item} workspacePath={workspacePath} files={files} expandByDefault={expandTools} forceOpen={Boolean(query) && textMatches(toolSearchText(item), query).length > 0} subtree={subtree} onStopChild={stopChild} waiting={waiting} />
     case 'notice':
       // O10: where Foreman was closed while this turn kept running in the background.
       if (item.gap) return <ClosedGapLine gap={item.gap} />
@@ -786,6 +862,8 @@ const ChatRow = memo(function ChatRow({
       if (item.report) return <ReportRow marker={item.report} turnId={item.turnId} sessionId={sessionId} workspaceId={workspaceId} readOnly={readOnly} />
       // O1: where the chat switched agents, and what the new one was given.
       if (item.switched) return <SwitchDivider switched={item.switched} />
+      // #130: where the tab moved to another account that starts a new conversation, and what it was given.
+      if (item.handOff) return <MoveDivider text={item.text} handOff={item.handOff} />
       // O1 (G1): where the conversation was compacted, or moved to another model of the same agent.
       if (item.divider) return <ChatDividerLine divider={item.divider} />
       // The turn failed on sign-in: once the agent is signed in, this card says so and offers Retry.
@@ -797,7 +875,8 @@ const ChatRow = memo(function ChatRow({
           actions={
             item.action && (
               <Button size="sm" icon={<Settings size={12} />} onClick={() => openSettingsPage({ section: 'agents', agent: tabAgent })}>
-                {t('chat.notice.openSettings')}
+                {/* "update": the agent's page has its Update button next to its version. */}
+                {item.action === 'update' ? t('agentVersion.update') : t('chat.notice.openSettings')}
               </Button>
             )
           }
@@ -857,7 +936,9 @@ function TurnEnd({
   forkToNewTab: boolean
 }) {
   const t = useT()
-  const failed = item.outcome === 'error' || item.outcome === 'interrupted'
+  // Docs/agents.md 7.2: the latest turn of a chat paused at a usage limit isn't a failure: it has its own card.
+  const paused = Boolean(item.limit) && session.lastTurn?.turnId === item.turnId && session.lastTurn.outcome === 'limit'
+  const failed = (item.outcome === 'error' || item.outcome === 'interrupted') && !paused
   const cost = turnItems.find((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId === item.turnId)?.costUsd
   // The workspace-wide figure is only honest for the latest turn, and is labelled as such.
   const changes = item.delta
@@ -879,7 +960,7 @@ function TurnEnd({
         {item.outcome === 'completed' ? <Sparkles size={13} /> : failed ? <AlertTriangle size={13} /> : null}
         <span className="mono">
           {[
-            t(OUTCOME_LABEL[item.outcome]),
+            paused ? t('usageLimit.paused.outcome') : item.restartedBy ? t('chat.outcome.restarted') : t(OUTCOME_LABEL[item.outcome]),
             item.durationMs !== undefined && formatDuration(item.durationMs),
             cost !== undefined && cost > 0 && `$${cost.toFixed(2)}`
           ]
@@ -913,6 +994,7 @@ function TurnEnd({
           ))}
         </div>
       )}
+      {paused && <PausedCard item={item} session={session} canAct={isLatestEnd && !running && !readOnly} />}
       {failed && (
         <Callout
           tone="error"
@@ -945,27 +1027,20 @@ function TurnEnd({
   )
 }
 
-/** O1: the line where a chat switched agents: "Switched to Codex · GPT-6.1 Sol · earlier messages passed as text …". */
-function SwitchDivider({ switched }: { switched: AgentSwitch }) {
-  const t = useT()
-  const name = `${AGENTS[switched.to]?.label ?? switched.to} · ${modelInfo(switched.to, switched.model).label}`
-  return (
-    <div className="agent-switch" role="separator">
-      <span className="agent-switch-text">
-        <AgentIcon agent={switched.to} size={12} />
-        <span>{t.rich(switched.carried === 'native' ? 'switchAgent.divider.native' : 'switchAgent.divider.history', { name: <b key="n">{name}</b> })}</span>
-      </span>
-    </div>
-  )
-}
-
 /** O1 (G1): "Conversation compacted · …" or "Model changed to Sonnet 5.5 · same conversation", drawn like a switch. */
 function ChatDividerLine({ divider }: { divider: ChatDivider }) {
   const t = useT()
   if (divider.kind === 'compact') {
+    // Idle compaction (Settings → Agents → Claude Code): what it held before and after, and when.
+    const time = divider.at ? formatClock(divider.at, t.locale) : ''
+    const text = !divider.idle
+      ? t('g1.divider.compact')
+      : divider.before && divider.after
+        ? t('g1.divider.compactIdle', { before: formatNumber(divider.before, t.locale), after: formatNumber(divider.after, t.locale), time })
+        : t('g1.divider.compactIdleNoCount', { time })
     return (
       <div className="agent-switch" role="separator">
-        <span className="agent-switch-text">{t('g1.divider.compact')}</span>
+        <span className="agent-switch-text">{text}</span>
       </div>
     )
   }

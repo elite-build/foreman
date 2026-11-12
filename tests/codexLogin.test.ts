@@ -1,7 +1,7 @@
 // Codex's managed ChatGPT sign-in, against a fake app-server: no process is started and no account is touched.
 import { describe, expect, it, vi } from 'vitest'
-import type { AppServerLaunch, CodexAppServerLike } from '../src/main/agents/codexAppServer'
-import { startCodexSignIn } from '../src/main/agents/codexLogin'
+import type { AppServerLaunch, CodexAppServerLike } from '../src/main/agents/codex/appServer'
+import { startCodexSignIn } from '../src/main/agents/codex/login'
 
 const LAUNCH: AppServerLaunch = { file: 'codex', cwd: '/home', env: { CODEX_HOME: '/codex-home' } }
 

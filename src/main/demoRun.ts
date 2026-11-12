@@ -8,11 +8,15 @@ import path from 'node:path'
 import { AGENTS, type AgentKind } from '../shared/agents'
 import { isActiveRun } from '../shared/flows'
 import type { ChatItem } from '../shared/types'
+import { claudeDriver } from './agents/claude'
+import { codexDriver } from './agents/codex'
+import { configureReplay, replayAware } from './agents/fixtures/replayDriver'
 import { registerDriver } from './agents/registry'
 import type { AgentDriver, AgentTurn, TurnCallbacks, TurnRequest } from './agents/types'
 import { commandHash } from './checks'
 import type { Core } from './core'
 import { git } from './git'
+import { mainT } from './i18n'
 import type { Store } from './store'
 
 const FLOW_ID = 'built-in:fix-until-green'
@@ -153,6 +157,14 @@ const testRun = (tests: number): Beat => ({
   ms: 3500
 })
 
+const GENERIC_REPLY = 'This is the demo: no agent runs here, so this reply is a script and nothing in the workspace changed.'
+
+/** A message that is one of the flow run's steps, not a chat of the person's. */
+const isFlowBeat = (request: TurnRequest): boolean => {
+  const beats = script(request)
+  return !(beats.length === 1 && 'say' in beats[0] && beats[0].say === GENERIC_REPLY)
+}
+
 /** What the agent does for this message: the flow's steps by what their messages say, and a plain reply for anything else. */
 function script(request: TurnRequest): Beat[] {
   const { prompt, cwd } = request
@@ -193,7 +205,7 @@ function script(request: TurnRequest): Beat[] {
       { say: '`fetchWithRetry` in `src/retry.ts` retries a failed request up to 3 times, waiting 200, 400 and 800 ms, with two tests. I have not run them yet.' }
     ]
   }
-  return [{ say: 'This is the demo: no agent runs here, so this reply is a script and nothing in the workspace changed.' }]
+  return [{ say: GENERIC_REPLY }]
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -261,17 +273,29 @@ class DemoTurn implements AgentTurn {
   async setModel(): Promise<void> {}
 }
 
-function demoDriver(kind: AgentKind): AgentDriver {
+function demoDriver(kind: AgentKind, replayed?: AgentDriver): AgentDriver {
   return {
     kind,
-    createTurn: (request, callbacks) => new DemoTurn(request, callbacks),
-    status: async () => ({ agent: kind, installed: true, ready: true, detail: 'Demo: answers from a script' })
+    // The flow run's steps are a script (they write the files the checks then run); a chat of the person's goes to the
+    // real adapter over ReplayTransport, so it answers as the recorded agent did (docs/agents.md, 9.5).
+    createTurn: (request, callbacks) => (replayed && !isFlowBeat(request) ? replayed.createTurn(request, callbacks) : new DemoTurn(request, callbacks)),
+    status: async () => ({ agent: kind, installed: true, ready: true, detail: replayed ? 'Demo: answers from recordings' : 'Demo: answers from a script' })
   }
 }
 
-/** Every agent answers from the script: the demo reaches no model (main/index.ts keeps turns out of the background host). */
-export function registerDemoAgents(): void {
-  for (const kind of Object.keys(AGENTS) as AgentKind[]) registerDriver(demoDriver(kind))
+/**
+ * Every agent answers from the script: the demo reaches no model (main/index.ts keeps turns out of the background host).
+ * With `replayRoot` (the app, not the tests), a chat of the person's with Claude Code or Codex is played from the recordings
+ * under that folder through the real adapter instead, with "Replaying a recording" in the chat.
+ *
+ * TODO(#172 slice 2): the flow run's own steps are still DemoTurn's beats, not `scripted` fixtures. A beat reads and writes
+ * the workspace (the Edit it plays changes the file the checks then run), which a fixture of frames can't do; they become
+ * fixtures once ReplayOptions has a hook that runs a beat's file write as its frame is played.
+ */
+export function registerDemoAgents(options: { replayRoot?: string } = {}): void {
+  if (options.replayRoot) configureReplay({ enabled: () => true, root: options.replayRoot, notice: () => mainT(undefined)('replay.notice') })
+  const replayed: Partial<Record<AgentKind, AgentDriver>> = options.replayRoot ? { claude: replayAware(claudeDriver), codex: replayAware(codexDriver) } : {}
+  for (const kind of Object.keys(AGENTS) as AgentKind[]) registerDriver(demoDriver(kind, replayed[kind]))
 }
 
 // ---- starting the run ----

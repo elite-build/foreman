@@ -18,7 +18,7 @@ vi.mock('../src/renderer/src/components/LimitResume', () => ({ LimitResumeRows: 
 vi.mock('../src/renderer/src/components/composer/AgentPicker', () => ({
   AgentIcon: () => null,
   ModelChooser: () => <div>chooser</div>,
-  opencodeModelParts: () => ({ name: '' })
+  modelName: (model: { label: string }) => model.label
 }))
 
 vi.mock('../src/renderer/src/components/TerminalView', () => ({ TerminalView: () => <textarea aria-label="terminal" /> }))

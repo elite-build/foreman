@@ -3,6 +3,7 @@
 // `add`/`edit`/`approve` send the fingerprint back as `shown`: the service refuses when it no longer matches, as the window does.
 // With Flows on, a schedule may start a flow instead (`--flow <name>` with `--input key=value`): its preview is the flow run's
 // approval, and every input is filled in when it is saved, because a scheduled run can't ask.
+import { DEFAULT_AGENT } from '../../shared/agentCatalog'
 import { modelsFor } from '../../shared/agents'
 import { pickerModels } from '../../shared/modelVisibility'
 import { templatePlaceholders } from '../../shared/promptTemplates'
@@ -129,7 +130,7 @@ const weekdayOf = (date: string): number => new Date(`${date}T00:00:00Z`).getUTC
 
 /** What the dialog selects first: a Sonnet from the picker's Claude models, else the first one shown. */
 function defaultModel(host: CliHost): string {
-  const claude = pickerModels(modelsFor('claude'), host.state().settings.hiddenModels ?? {}).shown
+  const claude = pickerModels(modelsFor(DEFAULT_AGENT), host.state().settings.hiddenModels ?? {}).shown
   return claude.find((m) => m.id.includes('sonnet'))?.id ?? claude[0]?.id ?? ''
 }
 
@@ -235,7 +236,7 @@ async function buildRequest(host: CliHost, snapshot: AppSnapshot, p: Record<stri
   const modelWanted = flow ? '' : modelGiven ?? (existing?.model || defaultModel(host))
   if (!flow && !modelWanted) throw invalid('Foreman has no Claude model to offer yet; pass --model.', '`foreman models refresh claude`')
   // A Claude model Foreman can name; an unchanged saved one stays as it is, even if the list moved on.
-  const model = flow ? '' : modelGiven === undefined && existing?.model ? existing.model : resolveLoadout(host, { agent: 'claude', model: modelWanted }).loadout.model
+  const model = flow ? '' : modelGiven === undefined && existing?.model ? existing.model : resolveLoadout(host, { agent: DEFAULT_AGENT, model: modelWanted }).loadout.model
 
   const request: ScheduleRequest = {
     ...(flow ? { flow } : { templateId: template!.id, templateName: template!.name }),
@@ -247,7 +248,7 @@ async function buildRequest(host: CliHost, snapshot: AppSnapshot, p: Record<stri
     ...(dayOfMonth !== undefined ? { dayOfMonth } : {}),
     time,
     timezone,
-    agent: 'claude',
+    agent: DEFAULT_AGENT,
     model,
     maxMinutes,
     // Not set from the command line yet: an edit keeps what the Schedule dialog chose.

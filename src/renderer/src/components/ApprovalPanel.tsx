@@ -1,9 +1,11 @@
 import { MessageCircleQuestion, ShieldCheck, Workflow } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import type { PlainKey } from '../../../shared/i18n'
-import type { ApprovalRequest } from '../../../shared/types'
+import type { ApprovalRequest, SubagentRef } from '../../../shared/types'
+import { isFallback } from '../../../shared/agentCapabilities'
+import { AGENTS } from '../../../shared/agents'
 import { useT } from '../i18n'
-import { api, attempt, modKey, selectWorkspace, showChecksPanel, useStore } from '../store'
+import { api, attempt, modKey, selectWorkspace, showChecksPanel, useCapabilities, useStore } from '../store'
 import { Button, CardButton, Field, Kbd, LinkButton, Tab, TabList, Tabs, TextArea, TextInput } from '../ui'
 import { toolSummary } from './ToolRow'
 
@@ -22,16 +24,32 @@ const TOOL_TITLES: Record<string, PlainKey> = {
   WebSearch: 'approval.title.search'
 }
 
+/** "From subagent explore-tests": who is asking, when it isn't the agent itself (docs/agents.md 6). */
+function FromSubagent({ subagent, id }: { subagent?: SubagentRef; id: string }) {
+  const t = useT()
+  if (!subagent) return null
+  return (
+    <div className="faint small" id={id}>
+      {subagent.name ? t.rich('approval.fromSubagent', { name: <strong key="name" className="mono">{subagent.name}</strong> }) : t('approval.fromSubagent.unnamed')}
+    </div>
+  )
+}
+
 const isTyping = (target: EventTarget) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
 
 /** Takes the composer's place while the agent waits for permission. */
 export function ToolApprovalPanel({ request, workspacePath }: { request: ToolRequest; workspacePath: string }) {
   const t = useT()
   const platform = useStore((s) => s.snapshot!.platform)
+  // An agent that can't remember an always-allow gets no button for it, and the card says why (docs/agents.md 8).
+  const tab = useStore((s) => s.snapshot!.sessions.find((x) => x.id === request.sessionId))
+  const alwaysAllow = useCapabilities(tab?.agent ?? '', tab?.instanceId)?.approvals.alwaysAllow
+  const onceOnly = tab && !request.alternate && alwaysAllow && isFallback(alwaysAllow, 'once-always')
   const [reason, setReason] = useState('')
   const panel = useRef<HTMLDivElement>(null)
   const mod = modKey(platform)
   const titleId = useId()
+  const fromId = useId()
   const reasonHelpId = useId()
 
   useEffect(() => panel.current?.focus(), [request.id])
@@ -63,18 +81,27 @@ export function ToolApprovalPanel({ request, workspacePath }: { request: ToolReq
   }
 
   const summary = toolSummary(request.toolName, request.input, workspacePath, t)
+  // Where Foreman remembers it for the session, the button says exactly what: the command or path it will let through.
   const alternateLabel =
-    request.alternate === 'edits-for-session' ? t('approval.alternate.edits') : request.alternate === 'always-allow' ? t('approval.alternate.always') : null
+    request.alternate === 'edits-for-session'
+      ? t('approval.alternate.edits')
+      : request.alternate === 'always-allow'
+        ? request.alwaysScope
+          ? t.rich('approval.alternate.alwaysScope', { scope: <code key="scope" className="mono">{request.alwaysScope}</code> })
+          : t('approval.alternate.always')
+        : null
 
   return (
     <div className="composer">
-      <div className="approval-panel" tabIndex={-1} ref={panel} onKeyDown={onKeyDown} role="group" aria-labelledby={titleId}>
+      <div className="approval-panel" tabIndex={-1} ref={panel} onKeyDown={onKeyDown} role="group" aria-labelledby={titleId} aria-describedby={request.subagent ? fromId : undefined}>
         <div className="approval-title">
           <ShieldCheck size={15} />
           <strong id={titleId}>{TOOL_TITLES[request.toolName] ? t(TOOL_TITLES[request.toolName]) : t('approval.title.other', { tool: request.toolName.replace(/^mcp__[^_]+__/, '') })}</strong>
         </div>
+        <FromSubagent subagent={request.subagent} id={fromId} />
         {summary && <code className="approval-summary">{summary}</code>}
         {request.reason && <div className="faint small">{request.reason}</div>}
+        {onceOnly && <div className="faint small">{t('approval.onceAlways', { agent: AGENTS[tab.agent].label })}</div>}
         <details>
           <summary>{t('approval.details')}</summary>
           <pre>{JSON.stringify(request.input, null, 2)}</pre>
@@ -117,6 +144,7 @@ export function QuestionPanel({ request }: { request: QuestionRequest }) {
   const panel = useRef<HTMLDivElement>(null)
   const otherInput = useRef<HTMLTextAreaElement>(null)
   const titleId = useId()
+  const fromId = useId()
   const question = request.questions[index]
 
   useEffect(() => panel.current?.focus(), [request.id])
@@ -155,11 +183,12 @@ export function QuestionPanel({ request }: { request: QuestionRequest }) {
 
   return (
     <div className="composer">
-      <div className="approval-panel question" tabIndex={-1} ref={panel} onKeyDown={onKeyDown} role="group" aria-labelledby={titleId}>
+      <div className="approval-panel question" tabIndex={-1} ref={panel} onKeyDown={onKeyDown} role="group" aria-labelledby={titleId} aria-describedby={request.subagent ? fromId : undefined}>
         <div className="approval-title">
           <MessageCircleQuestion size={15} />
           <strong id={titleId}>{question.header ? `${question.header}: ` : ''}{question.question}</strong>
         </div>
+        <FromSubagent subagent={request.subagent} id={fromId} />
         {request.questions.length > 1 && (
           <Tabs className="question-tabs" variant="pill" value={String(index)} onChange={(v) => setIndex(Number(v))}>
             <TabList label={t('approval.question.tabs')}>

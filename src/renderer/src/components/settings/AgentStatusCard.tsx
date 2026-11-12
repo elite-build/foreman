@@ -1,7 +1,9 @@
 // Connection status for one agent: a hook that asks the main process, and the
 // block on the Agents page that shows the answer.
-import { RefreshCw } from 'lucide-react'
+import { ArrowUpCircle, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { catalogAgent } from '../../../../shared/agentCatalog'
+import { brokenReason, degradedReason, updateArgs, versionStatus } from '../../../../shared/agentVersions'
 import { AGENTS } from '../../../../shared/agents'
 import type { TFunction } from '../../../../shared/i18n'
 import type { AgentAuthMode, AgentKind, AgentStatus } from '../../../../shared/types'
@@ -9,6 +11,7 @@ import { recordAgentStatus } from '../../agentReadiness'
 import { useT } from '../../i18n'
 import { api, refreshOpencode } from '../../store'
 import { Button, Spinner, Status } from '../../ui'
+import { LoginTerminal } from './LoginTerminal'
 
 export interface AgentStatusState {
   status: AgentStatus | null
@@ -45,8 +48,8 @@ export function useAgentStatus(agent: AgentKind, key = '', keepStale = false, in
     } finally {
       if (id === request.current) setLoading(false)
     }
-    // The agent picker offers OpenCode only once it's installed.
-    if (agent === 'opencode') void refreshOpencode()
+    // The agent picker offers an agent judged only by whether it's installed (OpenCode) once it is.
+    if (catalogAgent(agent)?.readiness === 'installed') void refreshOpencode()
   }, [agent, instanceId])
 
   // When what the answer depends on changes, the old answer no longer applies.
@@ -71,13 +74,6 @@ export interface StatusView {
   detail?: string
 }
 
-// Whose API key each agent takes (provider names, not translated).
-const KEY_PROVIDERS: Partial<Record<AgentKind, string>> = {
-  claude: 'Anthropic',
-  codex: 'OpenAI',
-  cursor: 'Cursor'
-}
-
 /** What the status block says, given how the agent is set to sign in. */
 export function statusView(agent: AgentKind, state: AgentStatusState, mode: AgentAuthMode, hasKey: boolean, t: TFunction): StatusView | null {
   if (state.error) return { connected: false, message: t('agentSettings.status.checkFailed'), detail: state.error }
@@ -85,7 +81,7 @@ export function statusView(agent: AgentKind, state: AgentStatusState, mode: Agen
   if (!status) return null
   if (!status.installed) return { connected: false, message: status.detail || t('agentSettings.status.notInstalled', { agent: AGENTS[agent].label }) }
   if (mode === 'apiKey' && !hasKey) {
-    const provider = KEY_PROVIDERS[agent]
+    const provider = catalogAgent(agent)?.auth.apiKey?.provider
     return { connected: false, message: provider ? t('agentSettings.status.noProviderKey', { provider }) : t('agentCatalog.status.noKey') }
   }
   if (status.ready) return { connected: true, message: t('agentSettings.status.connected') }
@@ -98,12 +94,23 @@ function methodLabel(method: string, t: TFunction): string {
   return /account$/i.test(method) ? t('agentSettings.status.loginMethod') : t('agentSettings.status.auth')
 }
 
-/** "Connected" or why not, a Refresh button, and the version and account details. */
-export function AgentStatusBlock({ state, view }: { state: AgentStatusState; view: StatusView | null }) {
+/**
+ * "Connected" or why not, a Refresh button, and the version and account details. The version has the word the agent's table
+ * gives it next to it (tested, untested, degraded, broken); where the agent has an update command and runs from the user's
+ * own copy, `updatable` adds an Update button that runs it in a terminal here (never unseen).
+ */
+export function AgentStatusBlock({ agent, state, view, updatable }: { agent: AgentKind; state: AgentStatusState; view: StatusView | null; updatable?: boolean }) {
   const t = useT()
   const { status, loading, refresh } = state
   const rows: [string, string, boolean?][] = []
-  if (status?.version) rows.push([t('agentCatalog.agent.version'), status.version, true])
+  const version = status?.version
+  const word = version && catalogAgent(agent)?.versions ? versionStatus(agent, version) : undefined
+  if (version) rows.push([t('agentCatalog.agent.version'), word ? t('agentVersion.withWord', { version, word: t(`agentVersion.${word}`) }) : version, true])
+  // What is wrong with this version, when the table says: the agent runs, or it won't.
+  const table = catalogAgent(agent)?.versions
+  const reasonKey = word === 'degraded' ? degradedReason(table, version) : word === 'broken' ? brokenReason(table, version)?.why : undefined
+  const command = catalogAgent(agent)?.binaries[0]
+  const canUpdate = updatable && status?.installed && !status.bundled && updateArgs(agent) && command
   if (view?.connected && status?.method) rows.push([methodLabel(status.method, t), status.method])
   if (view?.connected && status?.account) rows.push([t('agentSettings.status.account'), status.account])
 
@@ -121,6 +128,7 @@ export function AgentStatusBlock({ state, view }: { state: AgentStatusState; vie
         </Button>
       </div>
       {view?.detail && <p className="ag-status-detail">{view.detail}</p>}
+      {reasonKey && <p className="ag-status-detail">{t(reasonKey)}</p>}
       {rows.length > 0 && (
         <dl className="ag-status-table">
           {rows.map(([label, value, mono]) => (
@@ -132,6 +140,15 @@ export function AgentStatusBlock({ state, view }: { state: AgentStatusState; vie
             </div>
           ))}
         </dl>
+      )}
+      {canUpdate && (
+        <LoginTerminal
+          command={`update:${agent}`}
+          commandLabel={`${command} ${updateArgs(agent)!.join(' ')}`}
+          buttonLabel={t('agentVersion.update')}
+          icon={<ArrowUpCircle size={13} />}
+          onDone={() => void refresh()}
+        />
       )}
     </div>
   )

@@ -80,14 +80,14 @@ function configOptions(model = 'anthropic/claude-sonnet', effort = 'default'): a
 }
 
 /** An in-process ACP agent that runs `prompt` for each turn. */
-function fakeAgent(options: { prompt?: (turn: FakeTurn, log: FakeLog) => Promise<acp.StopReason>; loadSession?: boolean; failNew?: Error; failLoad?: Error } = {}) {
+function fakeAgent(options: { prompt?: (turn: FakeTurn, log: FakeLog) => Promise<acp.StopReason>; loadSession?: boolean; failNew?: Error; failLoad?: Error; protocolVersion?: number } = {}) {
   const log: FakeLog = { methods: [], prompts: [], configs: [], permissions: [], cancelled: false, results: [] }
   let onCancel = () => {}
   const app = acp
     .agent({ name: 'fake' })
     .onRequest(acp.methods.agent.initialize, () => {
       log.methods.push('initialize')
-      return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: options.loadSession ?? true } }
+      return { protocolVersion: options.protocolVersion ?? acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: options.loadSession ?? true } }
     })
     .onRequest(acp.methods.agent.session.new, ({ params }) => {
       log.methods.push('session/new')
@@ -325,18 +325,20 @@ describe('ACP driver', () => {
   it('routes permission requests to the user otherwise', async () => {
     const { app, log } = fakeAgent()
     const rec = recorder(() => ({ allow: false }))
-    await driverFor(app).createTurn(request({ approvals: 'ask' }), rec.cb).run()
+    // Not OpenCode: its record says an always-allow is answered once, so its card has no such button (tests/acpAlwaysAllow.test.tsx).
+    const generic = { kind: 'gemini', label: 'Gemini' } as const
+    await driverFor(app, generic).createTurn(request({ approvals: 'ask' }), rec.cb).run()
 
     expect(rec.calls.approvals).toEqual([
-      { kind: 'tool', toolName: 'Bash', input: { command: 'npm test', description: 'Run tests' }, alternate: 'always-allow' }
+      { kind: 'tool', toolName: 'Bash', input: { command: 'npm test', description: 'Run tests' }, alternate: 'always-allow', alwaysScope: 'npm test' }
     ])
     expect(log.permissions).toEqual([{ outcome: 'selected', optionId: 'reject-once' }])
     expect(rec.find('tool')[0]).toMatchObject({ name: 'Bash', status: 'error', output: 'Rejected by the user' })
 
-    // "Always" answers pick the agent's allow-always option.
+    // "Always" is Foreman's for a Chat agent (session-always): it remembers the request and answers the agent once.
     const always = fakeAgent()
-    await driverFor(always.app).createTurn(request(), recorder(() => ({ allow: true, alternate: true })).cb).run()
-    expect(always.log.permissions).toEqual([{ outcome: 'selected', optionId: 'allow-always' }])
+    await driverFor(always.app, generic).createTurn(request(), recorder(() => ({ allow: true, alternate: true })).cb).run()
+    expect(always.log.permissions).toEqual([{ outcome: 'selected', optionId: 'allow-once' }])
   })
 
   it('approves edits itself in ask-except-edits mode but still asks about commands', async () => {
@@ -460,7 +462,7 @@ describe('ACP driver', () => {
     const { app } = fakeAgent({ failNew: acp.RequestError.authRequired(undefined, 'run opencode auth login') })
     const rec = recorder()
     await driverFor(app).createTurn(request(), rec.cb).run()
-    expect(rec.find('notice')).toMatchObject([{ level: 'error', action: 'open-settings', text: expect.stringContaining('Authentication required') }])
+    expect(rec.find('notice')).toMatchObject([{ level: 'error', action: 'open-settings', text: 'OpenCode isn’t signed in, or its sign-in has expired.' }])
     expect(rec.calls.finished).toBe(1)
     expect(rec.calls.results).toMatchObject([{ ok: false, error: expect.stringContaining('Authentication required') }])
     expect(rec.calls.sessionStarted).toEqual([])
@@ -574,5 +576,17 @@ acp.agent({ name: 'script' })
     expect(missing).toMatchObject({ agent: 'opencode', installed: false, ready: false })
     expect(missing.detail).toContain('OpenCode is not installed')
     expect(missing.detail).toContain('npm i -g opencode-ai')
+  })
+})
+
+describe('ACP launch problems (docs/agents.md, 4.1)', () => {
+  it('says an agent that answers initialize with another protocol version speaks only that one, and does not open a session', async () => {
+    const { app, log } = fakeAgent({ protocolVersion: 2 })
+    const rec = recorder()
+    await driverFor(app).createTurn(request(), rec.cb).run()
+    expect(rec.find('notice')).toMatchObject([{ level: 'error', text: 'OpenCode speaks only ACP v2, and Foreman speaks v1.' }])
+    expect(rec.find('notice')[0]).not.toHaveProperty('action', expect.anything())
+    expect(rec.calls.results).toEqual([{ ok: false, error: 'OpenCode speaks only ACP v2, and Foreman speaks v1.' }])
+    expect(log.methods).toEqual(['initialize'])
   })
 })

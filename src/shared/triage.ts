@@ -278,7 +278,7 @@ export const REASONS: Reason[] = [
       const reviewed = new Set(stoppedIn(input.snapshot.stopRecord, ws.id).map((t) => t.turnId))
       // #11: a usage-limit failure with a resume armed for it has been dealt with; the row says when it resumes instead.
       const failed = sessions.find(
-        (s) => !s.closedAt && s.status === 'idle' && (s.lastTurn?.outcome === 'error' || s.lastTurn?.outcome === 'interrupted') && !reviewed.has(s.lastTurn.turnId ?? '') && !armedResume(s)
+        (s) => !s.closedAt && s.status === 'idle' && !s.lastTurn?.restartedBy && (s.lastTurn?.outcome === 'error' || s.lastTurn?.outcome === 'interrupted' || s.lastTurn?.outcome === 'limit') && !reviewed.has(s.lastTurn.turnId ?? '') && !armedResume(s)
       )
       if (!failed) return null
       const t = input.t ?? enT
@@ -383,7 +383,7 @@ export function runningFact(running: Session[], now: number, t: TFunction = enT)
 
 /** Separate facts about a chat's last turn: "Tab 2 completed", "this turn +120 −8", "PR #42" ("MR !42" on GitLab, G2). */
 export function finishedFacts(tab: number, last: NonNullable<Session['lastTurn']>, pr?: number, prState?: PullRequestInfo['state'], gitlab = false, t: TFunction = enT): string[] {
-  const facts = [t(`triage.finished.${last.outcome}`, { n: tab })]
+  const facts = [t(last.outcome === 'limit' ? 'triage.finished.limit' : `triage.finished.${last.outcome}`, { n: tab })]
   if (last.additions !== undefined && last.deletions !== undefined) facts.push(t('triage.finished.delta', { additions: last.additions, deletions: last.deletions }))
   if (pr !== undefined) {
     const ref = gitlab ? t('attention.pr.ref.gitlab', { number: pr }) : t('attention.pr.ref.github', { number: pr })
@@ -459,12 +459,13 @@ function triageOne(ws: Workspace, sessions: Session[], input: TriageInput): Tria
     const label = stopped.every((s) => s.cause === 'quit') ? t('triage.stopped.quit') : t('triage.stopped.closed')
     return { ws, bucket: 'idle', label, since: last, sessionId: stopped[0].sessionId, facts: [t('triage.tabs', { count: stopped.length })] }
   }
-  // #11: "Resumes at 14:30 · usage limit" while one resume is armed (a missed one is on Home's Scheduled card).
+  // #11, docs/agents.md 7.2: "Waiting · resumes at 14:30" while one resume is armed: the chat needs nothing from you until
+  // then, so it is never in Needs you and has no bucket of its own (a missed one is on Home's Scheduled card).
   const armed = sessions.find((s) => !s.closedAt && armedResume(s))
   if (armed?.limitResume) {
     const at = new Date(armed.limitResume.resetAt)
     const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
-    return { ws, bucket: 'idle', label: t('attention.limit.resumesAt', { time }), detail: t('attention.limit.usageLimit'), since: last, sessionId: armed.id, limitResume: { sessionId: armed.id, resetAt: armed.limitResume.resetAt } }
+    return { ws, bucket: 'idle', label: t('attention.limit.waiting', { time }), detail: t('attention.limit.usageLimit'), since: last, sessionId: armed.id, limitResume: { sessionId: armed.id, resetAt: armed.limitResume.resetAt } }
   }
   // A flow run that was stopped (by you, a bound, or Foreman closing): idle, with why, until something else happens here.
   const ended = settledRun(input.snapshot.flowRuns, ws.id, sessions)

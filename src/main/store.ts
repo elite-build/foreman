@@ -15,6 +15,8 @@ import { parseSavedCommands } from '../shared/savedCommands'
 import { parseHiddenModels } from '../shared/modelVisibility'
 import { DEFAULT_VIEWS, normalizeViews } from '../shared/views'
 import { parseAgentPrefs, parseProviderKeyAgents } from '../shared/agentCatalog'
+import { DEFAULT_ACCOUNT, EVERY_ACCOUNT } from '../shared/agentCapabilities'
+import { isSlotSetting, MAX_IDLE_COMPACT_TOKENS } from '../shared/agentSlots'
 import { parseAgentInstances } from '../shared/agentInstances'
 import { defaultFromEditorCommand, isOpenInChoice } from '../shared/openIn'
 import type { PairedDevice, Transfer } from '../shared/transfer'
@@ -26,6 +28,8 @@ import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
 import type { IntegrationsState } from '../shared/integrations'
 import type { FlowRun, PersonalFlow } from '../shared/flows'
 import type { PersonalPersona } from '../shared/personas'
+import { clampBudget, HAND_OFF_BUDGET } from '../shared/chatHandOff'
+import { parseAccountLimits, type AccountLimits } from '../shared/limits'
 import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
 import { migrateRepoFields } from './repoSettings'
 import { ForemanDb } from './db'
@@ -102,6 +106,11 @@ export interface PersistedState {
   gitBackup?: GitBackupStatus
   // #1: turns and check runs a quit or crash stopped, until each is retried or dismissed. Never replayed by itself.
   stopRecord?: StopRecord
+  // Limits that recover (docs/agents.md 7.1): what each account of each agent last reported about its usage windows. Small
+  // and live, not history; saved with the rest of the state.
+  limits?: AccountLimits[]
+  // Docs/agents.md 2.1: what each account of each agent last declared about itself (its version, Codex's Windows sandbox), by agent then account ("" for the default one).
+  declared?: Record<string, Record<string, import('../shared/agentCapabilities').DeclaredFacts>>
   // O10: turns handed to the background agent host, adopted again after a restart.
   hostedTurns?: HostedTurnRecord[]
   // O10: set by a keep-running quit; when Foreman closed, for the chat's gap line.
@@ -125,6 +134,8 @@ export function defaultSettings(): Settings {
     language: 'system',
     messageSendKey: 'enter',
     followUpMode: 'steer',
+    resumeAfterLimit: 'auto',
+    handOffTokenBudget: HAND_OFF_BUDGET.default,
     notifications: true,
     assistantEnabled: true,
     tourSeen: false,
@@ -228,6 +239,7 @@ export function defaultSettings(): Settings {
     showResourceUsage: false,
     // Flows are an experiment: off until the person here turns them on (a repository can't).
     flows: false,
+    replayTraffic: false,
     diagnostics: true,
     terminalScrollbackMb: 10,
     terminalCopyOnSelect: false,
@@ -238,6 +250,8 @@ export function defaultSettings(): Settings {
     // No limit and no cutoff: turns start at once and wait for their background work, as they always did.
     maxRunningAgents: 0,
     backgroundWaitMinutes: 0,
+    // Off: nothing is compacted behind the person's back, which spends usage.
+    idleCompactTokens: 0,
     // O4: Automatic is the shell Foreman always started (pwsh, then Windows PowerShell); scripts stay on cmd.exe.
     terminalShell: 'auto',
     terminalShellCustom: '',
@@ -271,6 +285,13 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   state.migrations ??= []
   state.schedules ??= []
   state.occurrences ??= []
+  state.limits = parseAccountLimits(state.limits)
+  state.declared = parseDeclared(state.declared)
+  if (state.settings.resumeAfterLimit !== 'auto' && state.settings.resumeAfterLimit !== 'ask') state.settings.resumeAfterLimit = 'auto'
+  state.settings.handOffTokenBudget = clampBudget(state.settings.handOffTokenBudget)
+  // Read back as typed: a whole number from 0 (off) to the limit, else off; a switch that is exactly true, else off.
+  if (!isSlotSetting(state.settings.idleCompactTokens, MAX_IDLE_COMPACT_TOKENS)) state.settings.idleCompactTokens = 0
+  state.settings.replayTraffic = state.settings.replayTraffic === true
   state.flowRuns = (Array.isArray(state.flowRuns) ? state.flowRuns : []).filter((r) => r && typeof r.id === 'string' && typeof r.state === 'string' && Array.isArray(r.steps))
   // Personal flows checked entry by entry; anything malformed is dropped.
   state.personalFlows = (Array.isArray(state.personalFlows) ? state.personalFlows : []).filter(
@@ -562,4 +583,22 @@ export class Store {
   keepClearedChanged(): void {
     if (!this.state.settings.keepClearedHistory) this.db.scrubCleared()
   }
+}
+
+/** The declared facts kept in state.json, checked entry by entry: only a version (a string) and the Windows sandbox's readiness are kept; anything else is dropped. */
+export function parseDeclared(value: unknown): NonNullable<PersistedState['declared']> {
+  const out: NonNullable<PersistedState['declared']> = {}
+  if (!value || typeof value !== 'object') return out
+  for (const [agent, accounts] of Object.entries(value as Record<string, unknown>)) {
+    if (!accounts || typeof accounts !== 'object') continue
+    for (const [account, facts] of Object.entries(accounts as Record<string, unknown>)) {
+      const { version, windowsSandbox } = (facts ?? {}) as { version?: unknown; windowsSandbox?: unknown }
+      const kept: NonNullable<PersistedState['declared']>[string][string] = {}
+      if (typeof version === 'string' && version.length < 64) kept.version = version
+      if (windowsSandbox === 'ready' || windowsSandbox === 'not-ready') kept.windowsSandbox = windowsSandbox
+      // An earlier build kept the default account's facts under the key for every account, where every other account inherited them.
+      if (Object.keys(kept).length) (out[agent] ??= {})[account === EVERY_ACCOUNT ? DEFAULT_ACCOUNT : account] = kept
+    }
+  }
+  return out
 }

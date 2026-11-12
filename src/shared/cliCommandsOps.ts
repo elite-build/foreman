@@ -56,6 +56,13 @@ queue as it is when you run the command: when the queue changed meanwhile, or th
 already started, nothing changes and the command says so. steer delivers a queued message into
 the running turn instead of waiting for it to end.`
 
+const CHAT_SWITCH_DETAILS = `foreman chat switch continues a tab's conversation with another agent (and model) or on another account of its agent, as the
+picker does. The agent it leaves keeps its own conversation, so switching back resumes it. It refuses while a turn runs, in a read-only
+chat the agent can't enforce, and where the agent's rule keeps a chat on its account. It prints the record of what the next agent will be
+given: how it is delivered (prompt-full, resume-delta, ...), the size against Settings → Default models (an estimate, characters / 4),
+and which turns go in full, condensed or are left out (the agent can read those with read_chat_history). The first message sent after it
+carries the text; the record is saved on the chat's switch notice then, and the app shows it as "What <agent> received".`
+
 const REWIND_DETAILS = `foreman rewind restores the tab to just before a turn: the files go back to the checkpoint
 saved then and the conversation continues from there. Work done after that turn is lost, so
 it asks first (--yes answers for you). Find the turn id with foreman chat.`
@@ -496,6 +503,23 @@ export const TAB_COMMANDS: CommandSpec[] = [
     examples: ['foreman chat api', 'foreman chat api --tab 2 --tail 3 --tool-output', 'foreman chat api --since 7f3a9c --json'],
     details: CHAT_DETAILS,
     tier: 'read'
+  },
+  {
+    path: ['chat', 'switch'],
+    group: 'chats',
+    summary: 'Continue a tab with another agent or account, and show what it is given',
+    usage: 'foreman chat switch <workspace> [--tab n] --agent <id> [--model m] [--account <id>] [--json]',
+    args: [WORKSPACE_ARG],
+    options: {
+      tab: TAB_OPTION,
+      agent: { type: 'string', value: '<agent>', help: 'The agent to continue with (claude, codex, …); its own id keeps the agent and changes only the account', default: 'the tab’s' },
+      model: { type: 'string', value: '<model>', help: 'The model’s id or name', default: 'the agent’s default' },
+      account: { type: 'string', value: '<account>', help: 'The agent’s account: its name or id, or default', default: 'the workspace’s pick for that agent' }
+    },
+    examples: ['foreman chat switch api --agent codex', 'foreman chat switch api --tab 2 --agent codex --model gpt-6.1-sol --json', 'foreman chat switch api --agent claude --account work'],
+    details: CHAT_SWITCH_DETAILS,
+    exitCodes: { 0: 'Switched', 1: 'Refused: a turn is running, the chat is read-only, or the agent keeps chats on their account', 2: 'Usage error: no agent given, or an agent or account that does not exist' },
+    tier: 'act'
   },
   {
     path: ['queue'],

@@ -1,10 +1,11 @@
 import { ChevronDown, Zap } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { HAND_OFF_BUDGET } from '../../../../shared/chatHandOff'
 import { effortLabel, modelInfo, type Loadout } from '../../../../shared/agents'
 import { useT } from '../../i18n'
 import { showToast, useStore } from '../../store'
-import { AgentIcon, ModelChooser, opencodeModelParts } from '../composer/AgentPicker'
-import { ChipButton, Popover, Select } from '../../ui'
+import { AgentIcon, ModelChooser, modelName } from '../composer/AgentPicker'
+import { ChipButton, Popover, Range, Select } from '../../ui'
 import { ExternalLink } from './AgentAuth'
 import { Page, resetSettings, Row, saveSettings, Section, ToggleRow, useSettings } from './controls'
 import { LoadoutEditor } from './ModelsLoadout'
@@ -73,7 +74,70 @@ export function ModelsPage() {
           onChange={(defaultPlanMode) => void saveSettings({ defaultPlanMode })}
         />
       </Section>
+      <Section title={t('modelsPage.switching.section')}>
+        <SwitchHistoryRow />
+      </Section>
     </Page>
+  )
+}
+
+/** How much of a chat the next agent is given on a switch (docs/agents.md 5.2): the slider moves locally and saves when it settles. */
+function SwitchHistoryRow() {
+  const t = useT()
+  const settings = useSettings()
+  const saved = settings.handOffTokenBudget ?? HAND_OFF_BUDGET.default
+  const [value, setValue] = useState(saved)
+  const pending = useRef<number | null>(null)
+  useEffect(() => setValue(saved), [saved])
+  useEffect(() => {
+    if (value === saved) return
+    pending.current = value
+    const timer = setTimeout(() => {
+      pending.current = null
+      void saveSettings({ handOffTokenBudget: value })
+    }, 300)
+    return () => clearTimeout(timer)
+    // Only a slider move schedules a save.
+  }, [value])
+  useEffect(
+    () => () => {
+      if (pending.current !== null) void saveSettings({ handOffTokenBudget: pending.current })
+    },
+    []
+  )
+  const words = t('modelsPage.switching.value', { count: value.toLocaleString(t.locale) })
+  return (
+    <Row
+      id="switch-history-tokens"
+      label={t('settings.row.switchHistory')}
+      help={t('settings.row.switchHistory.desc')}
+      onReset={saved === HAND_OFF_BUDGET.default ? undefined : () => void resetSettings(['handOffTokenBudget'])}
+    >
+      {(control) => (
+        <div className="set-range-stack">
+          <div className="set-range-wrap">
+            <Range
+              {...control}
+              className="set-range set-range--wide"
+              aria-label={t('settings.row.switchHistory')}
+              valueText={words}
+              min={HAND_OFF_BUDGET.min}
+              max={HAND_OFF_BUDGET.max}
+              step={64}
+              value={value}
+              onChange={(e) => setValue(Number(e.target.value))}
+            />
+            <span className="set-range-value set-range-value--wide" aria-hidden>
+              {words}
+            </span>
+          </div>
+          <div className="set-range-scale faint small" aria-hidden>
+            <span>{HAND_OFF_BUDGET.min.toLocaleString(t.locale)}</span>
+            <span>{HAND_OFF_BUDGET.max.toLocaleString(t.locale)}</span>
+          </div>
+        </div>
+      )}
+    </Row>
   )
 }
 
@@ -95,7 +159,7 @@ function CompactChooser({ label, value, onChange }: { label: string; value: Load
   }
 
   const info = modelInfo(value.agent, value.model, t)
-  const name = value.agent === 'opencode' ? opencodeModelParts(info).name : info.label
+  const name = modelName(info)
   const effort = info.efforts.length > 0 ? effortLabel(value.effort ?? info.defaultEffort, t) : ''
 
   return (

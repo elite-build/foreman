@@ -62,8 +62,8 @@ export const METHOD_SCOPES = {
   // Chats, approvals and the assistant.
   createSession: 'operate', forkSession: 'operate', startHandOff: 'operate', updateSession: 'operate', closeSession: 'operate',
   reopenSession: 'operate', sendMessage: 'operate', removeQueued: 'operate', steerQueued: 'operate', editQueued: 'operate',
-  moveQueued: 'operate', cancel: 'operate', respondApproval: 'operate', restoreCheckpoint: 'operate', reconnectMcpServer: 'operate',
-  approveRepoMcp: 'operate', armLimitResume: 'operate', cancelLimitResume: 'operate', resumeLimitNow: 'operate',
+  moveQueued: 'operate', cancel: 'operate', respondApproval: 'operate', restoreCheckpoint: 'operate', reconnectMcpServer: 'operate', stopChild: 'operate',
+  approveRepoMcp: 'operate', armLimitResume: 'operate', cancelLimitResume: 'operate', resumeLimitNow: 'operate', refreshLimits: 'operate', continueOnAccount: 'operate',
   assistantSend: 'operate', assistantCancel: 'operate', assistantDeleteThread: 'operate', assistantClearHistory: 'operate',
   assistantCancelRun: 'operate', answerSlackAsk: 'operate', resendSlackDelivery: 'operate', cancelHandOff: 'operate',
 
@@ -136,6 +136,7 @@ export const METHOD_SCOPES = {
 /** Terminal input is work in a workspace; the unread badge and the battery are about this computer's window. */
 export const SIGNAL_SCOPES = {
   ptyWrite: 'operate',
+  composerTyping: 'operate',
   ptyResize: 'operate',
   ptyKill: 'operate',
   saveTerminals: 'operate',

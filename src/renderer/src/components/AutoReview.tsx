@@ -5,7 +5,8 @@
 // decides when a review runs, and findings only move on the user's click.
 import { Bot, Lock, TriangleAlert } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
-import { AGENTS, modelInfo, modelsFor, type Loadout } from '../../../shared/agents'
+import { staticCapabilities } from '../../../shared/agentCatalog'
+import { AGENT_ORDER, AGENTS, modelInfo, modelsFor, type Loadout } from '../../../shared/agents'
 import { canReview, findingPlace, findingsMessage, parseExclusions, reviewOf, usedToday } from '../../../shared/autoReview'
 import type { AppSnapshot, AutoReview, AutoReviewShown, ChatItem, Session, Workspace } from '../../../shared/types'
 import type { Triage } from '../triage'
@@ -89,8 +90,8 @@ export function AutoReviewSetting({ repoId }: { repoId: string }) {
 /** The reviewers on offer: Claude Code and Codex models only (the agents Foreman can hold read-only), the current one first. */
 function reviewerOptions(current: Loadout | null, available: Record<string, boolean>): Loadout[] {
   const out: Loadout[] = current ? [current] : []
-  for (const agent of ['claude', 'codex'] as const) {
-    if (!canReview(agent) || !available[agent]) continue
+  for (const agent of AGENT_ORDER) {
+    if (!canReview(staticCapabilities(agent)) || !available[agent]) continue
     for (const m of modelsFor(agent)) {
       if (!out.some((l) => l.agent === agent && l.model === m.id)) out.push({ agent, model: m.id, effort: m.defaultEffort, fast: false })
     }

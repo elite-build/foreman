@@ -13,7 +13,8 @@ import { AgentHostService } from '../src/main/agentHost/service'
 import { HandOffService } from '../src/main/handOffs'
 import { SessionService } from '../src/main/sessions'
 import { Store } from '../src/main/store'
-import { AGENTS, AGENT_ORDER } from '../src/shared/agents'
+import { AGENTS, AGENT_ORDER, chatAgentKinds } from '../src/shared/agents'
+import { staticCapabilities } from '../src/shared/agentCatalog'
 import { readOnlyEnforcement } from '../src/shared/permissions'
 import type { ChatItem, Session, Workspace } from '../src/shared/types'
 import { makeRepo, tempDir } from './helpers'
@@ -94,11 +95,11 @@ afterEach(() => {
 
 describe('which agents offer read-only', () => {
   it('Claude and Codex enforce it; Cursor and OpenCode can’t, so it is hidden for them', () => {
-    expect(AGENT_ORDER.filter((a) => AGENTS[a].supportsReadOnly)).toEqual(['claude', 'codex'])
-    expect(readOnlyEnforcement('claude')).toBe('plan')
-    expect(readOnlyEnforcement('codex')).toBe('sandbox')
-    expect(readOnlyEnforcement('cursor')).toBeNull()
-    expect(readOnlyEnforcement('opencode')).toBeNull()
+    expect(AGENT_ORDER.filter((a) => readOnlyEnforcement(staticCapabilities(a)) !== null)).toEqual(['claude', 'codex'])
+    expect(readOnlyEnforcement(staticCapabilities('claude'))).toBe('plan')
+    expect(readOnlyEnforcement(staticCapabilities('codex'))).toBe('sandbox')
+    expect(readOnlyEnforcement(staticCapabilities('cursor'))).toBeNull()
+    expect(readOnlyEnforcement(staticCapabilities('opencode'))).toBeNull()
   })
 })
 

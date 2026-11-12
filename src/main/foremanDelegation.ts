@@ -4,6 +4,7 @@ import { frozenReason } from '../shared/transfer'
 import { instanceLabel } from '../shared/agentInstances'
 import type { Loadout } from '../shared/agents'
 import type { MessageOrigin, Workspace, WorkspaceStartedBy } from '../shared/types'
+import { isChildItem } from '../shared/subagents'
 import type { NewResult } from '../shared/cli/workspaces'
 import { cantRunIn } from './cli/flows'
 import { ceilingRefusal, holdsCeiling, levelsHeldFor, type TurnCap } from '../shared/agentAccess'
@@ -296,7 +297,7 @@ export class ForemanDelegation {
         const turn = await this.turn(p.turnId, scope)
         const items = await this.host.api.getChat(turn.sessionId)
         this.target(turn.workspaceId, scope)
-        const reply = items.filter((i) => i.kind === 'assistant' && i.turnId === turn.turnId).map((i) => i.kind === 'assistant' ? i.text : '').join('\n\n')
+        const reply = items.filter((i) => i.kind === 'assistant' && i.turnId === turn.turnId && !isChildItem(i)).map((i) => i.kind === 'assistant' ? i.text : '').join('\n\n')
         const limit = p.maxChars ?? 16_000
         return { ...turn, reply: reply.slice(-limit), truncated: reply.length > limit, contentIsData: true }
       }

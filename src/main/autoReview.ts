@@ -16,6 +16,7 @@ import { AUTO_REVIEW_DEFAULTS, autoReviewPrompt, canReview, decideNow, decideTre
 import { MAX_OPEN_TABS } from '../shared/handOff'
 import { readOnlyEnforcement } from '../shared/permissions'
 import type { AutoReview, AutoReviewShown, Repo, SendDisposition, Session, TurnOutcome, TurnStatus, Workspace } from '../shared/types'
+import { staticCapabilities } from '../shared/agentCatalog'
 import type { Loadout } from '../shared/agents'
 
 /** The diff as captured when a review starts. */
@@ -115,7 +116,7 @@ export class AutoReviewService {
       maxMinutes: AUTO_REVIEW_DEFAULTS.maxMinutes,
       idleMinutes: AUTO_REVIEW_DEFAULTS.idleMinutes,
       // An agent that can't be held to read-only is refused by enable(); the dialog never offers one.
-      readOnly: readOnlyEnforcement(reviewer.agent) ?? 'plan',
+      readOnly: readOnlyEnforcement(staticCapabilities(reviewer.agent)) ?? 'plan',
       prompt: autoReviewPrompt(this.deps.customPrompt(repo))
     }
   }
@@ -148,7 +149,7 @@ export class AutoReviewService {
     if (!consent) return false
     if (consent.paused) return false
     const now = this.preview(repo.id, { reviewer: consent.reviewer, exclusions: consent.exclusions })
-    if (canReview(consent.reviewer.agent) && sameShown(now, consent)) return true
+    if (canReview(staticCapabilities(consent.reviewer.agent)) && sameShown(now, consent)) return true
     consent.paused = { reason: 'What auto review covers changed since you approved it (the review preferences, or read-only for this agent). Turn it on again to approve it.', at: this.iso() }
     this.save()
     return false

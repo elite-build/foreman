@@ -4,7 +4,8 @@ import { PassThrough } from 'node:stream'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, type ForemanToolName } from '../shared/foremanTools'
+import { FLOW_DECIDE_TOOL, FOREMAN_TOOLS, READ_CHAT_HISTORY_TOOL, type ForemanToolName } from '../shared/foremanTools'
+import type { ReadHistoryArgs, ReadHistoryResult } from '../shared/chatHandOff'
 import type { Session } from '../shared/types'
 import type { TurnCap } from '../shared/agentAccess'
 import type { McpLaunch } from './agents/types'
@@ -23,6 +24,8 @@ interface Deps {
   socket(): string | null
   // Settings → Experimental → Flows: off, the flow delegation tools aren't offered at all.
   flowsOn?(): boolean
+  // `read_chat_history`: the turns of a session's own chat. Not offered where this isn't given.
+  chatHistory?(sessionId: string, args: ReadHistoryArgs): Promise<ReadHistoryResult>
 }
 
 /** Local capabilities, never the CLI's optional/cooperative caller identity. */
@@ -136,6 +139,19 @@ export class ForemanMcp {
         const scope = this.scope(grantId)
         const result = this.deps.actions.decide(scope.sessionId, args.option)
         return { content: [{ type: 'text' as const, text: result.message }] }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
+      }
+    })
+    // The chat the calling turn belongs to, from its grant: the arguments never name a chat.
+    if (this.deps.chatHistory) server.registerTool(READ_CHAT_HISTORY_TOOL.name, {
+      description: READ_CHAT_HISTORY_TOOL.description,
+      inputSchema: READ_CHAT_HISTORY_TOOL.schema,
+      annotations: { readOnlyHint: true }
+    }, async (args) => {
+      try {
+        const result = await this.deps.chatHistory!(this.scope(grantId).sessionId, args)
+        return { content: [{ type: 'text' as const, text: result.text }] }
       } catch (err) {
         return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
       }

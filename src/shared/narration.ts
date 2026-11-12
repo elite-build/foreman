@@ -248,7 +248,7 @@ export function workspaceSummary(t: TFunction, workspace: Workspace, input: Work
     if (running) parts.push(t('narration.summary.working', { agent: label(running.agent) }))
     else if (latest) {
       const last = latest.lastTurn!
-      parts.push(t(ENDED[last.outcome], { agent: label(latest.agent), ago: ago(t, last.endedAt, input.now) }))
+      parts.push(t(last.outcome === 'limit' ? 'narration.summary.limit' : ENDED[last.outcome], { agent: label(latest.agent), ago: ago(t, last.endedAt, input.now) }))
       const additions = last.additions ?? 0
       const deletions = last.deletions ?? 0
       if (additions || deletions) {

@@ -3,6 +3,7 @@
 // turns a quit or a crash stopped, kept for review after the restart. Nothing here
 // starts or replays anything; Retry is always the user's click on one tab.
 import { modelInfo } from './agents'
+import { withoutChildren } from './subagents'
 import type { ApprovalRequest, ChatItem, CheckStatus, Session, TurnDelta, Workspace } from './types'
 
 /** What a turn was blocked on: a tool approval, a plan review or a question. */
@@ -283,7 +284,7 @@ export type StopReviewRow = StopReviewTurn | StopReviewChecks
 /** What a stopped turn's chat says about it: its message, last step, time and partial changes. */
 export function reviewFromChat(turnId: string, items: ChatItem[]): Pick<StopReviewTurn, 'message' | 'attachments' | 'lastStep' | 'durationMs' | 'delta'> {
   const user = items.find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === turnId && !i.steered)
-  const tools = items.filter((i): i is Extract<ChatItem, { kind: 'tool' }> => i.kind === 'tool' && i.turnId === turnId)
+  const tools = withoutChildren(items).filter((i): i is Extract<ChatItem, { kind: 'tool' }> => i.kind === 'tool' && i.turnId === turnId)
   const end = items.find((i): i is Extract<ChatItem, { kind: 'turn-end' }> => i.kind === 'turn-end' && i.turnId === turnId)
   const last = tools.at(-1)
   return {

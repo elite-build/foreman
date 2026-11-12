@@ -4,6 +4,7 @@
 import { LogIn, RotateCcw } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { AGENTS } from '../../../shared/agents'
+import { STATUS_CHECKED_AGENTS } from '../../../shared/agentReadiness'
 import type { ChatItem, Session } from '../../../shared/types'
 import { refreshAgentStatuses, useAgentStatuses } from '../agentReadiness'
 import { useT } from '../i18n'
@@ -25,7 +26,7 @@ export function SignInNotice({ item, items, session, running, readOnly, children
   const t = useT()
   const agent = session.agent
   const name = AGENTS[agent]?.label ?? agent
-  const checked = agent === 'claude' || agent === 'codex'
+  const checked = STATUS_CHECKED_AGENTS.includes(agent)
   const statuses = useAgentStatuses()
   const status = statuses[agent]
   const ready = Boolean(status?.installed && status.ready)

@@ -13,7 +13,7 @@ import type { AgentKind } from '../shared/agents'
 import { INSTANCE_FIELDS, type AgentInstance } from '../shared/agentInstances'
 import { PROVIDER_KEYS } from '../shared/providers'
 import { AGENT_KEYS, type AgentKeyName, type AgentStatus, type AppSnapshot, type Settings } from '../shared/types'
-import { acpReported } from './agents/catalogDrivers'
+import { acpReported } from './agents/acp/catalogDrivers'
 import { detectAgent, realDetectDeps, runProgram, type DetectDeps } from './agents/catalogDetect'
 import { hasSignInProbe, probeSignIn, realProbeDeps, type ProbeDeps } from './agents/signInProbes'
 import type { SecretStore } from './secrets'
@@ -51,7 +51,7 @@ function hintOf(value: string | undefined): string | undefined {
 /** What a status command's output means. Only a clear answer counts; anything else is unknown. */
 export function parseSignInOutput(agent: string, output: string, ok: boolean): { signedIn: boolean; account?: string } | null {
   const text = output.trim()
-  if (agent === 'kiro' && ok) {
+  if (catalogAgent(agent)?.auth.login?.statusFormat === 'json-account' && ok) {
     try {
       const data = JSON.parse(text) as { email?: string; username?: string; accountType?: string }
       return { signedIn: true, account: data.email ?? data.username ?? data.accountType }
@@ -176,7 +176,7 @@ export class AgentCatalogService {
   importKey(agent: string, instanceId?: string): boolean {
     const envVar = this.keyVar(agent)
     const shell = this.deps.shell()
-    const value = shell[envVar] ?? (agent === 'codex' ? shell.OPENAI_API_KEY : undefined)
+    const value = shell[envVar] ?? catalogAgent(agent)?.auth.apiKey?.importEnv?.map((name) => shell[name]).find(Boolean)
     const saved = instanceId ? this.deps.secrets.instanceKey(instanceId, envVar) : this.deps.secrets.agentKey(agent, envVar)
     if (!value?.trim() || saved) return false
     if (instanceId) this.deps.secrets.setInstanceKey(instanceId, envVar, value)

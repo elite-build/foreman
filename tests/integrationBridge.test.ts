@@ -14,6 +14,9 @@ import { runBridge } from '../src/cli/bridge'
 import { socketPath } from '../src/cli/protocol'
 import { startCliServer, type CliHost } from '../src/main/cliServer'
 import { Environment } from '../src/main/environment'
+import { claudeDriver } from '../src/main/agents/claude'
+import { codexDriver } from '../src/main/agents/codex'
+import { opencodeDriver } from '../src/main/agents/opencode'
 import { IntegrationBridge, sdkUpstream } from '../src/main/integrationBridge'
 import { Integrations, secretKey } from '../src/main/integrations'
 import { SecretStore, type Encryptor } from '../src/main/secrets'
@@ -411,9 +414,9 @@ describe('the integration bridge', () => {
     delete process.env.CODEX_HOME
     try {
       const turn = bridge.forTurn(turnInput)
-      expect(IntegrationBridge.blockedFor('claude', turn.blocked).claude.sort()).toEqual(['claude_ai_Linear', 'linear'])
-      expect(IntegrationBridge.blockedFor('codex', turn.blocked).codex).toEqual(['linear-work'])
-      expect(IntegrationBridge.blockedFor('opencode', turn.blocked)).toEqual({ claude: [], codex: [] })
+      expect(claudeDriver.ownMcpToDisable!(turn.blocked).sort()).toEqual(['claude_ai_Linear', 'linear'])
+      expect(codexDriver.ownMcpToDisable!(turn.blocked)).toEqual(['linear-work'])
+      expect(opencodeDriver.ownMcpToDisable).toBeUndefined()
       integrations.setRepoOptions('r', { allowOwnMcp: ['linear'] })
       expect(bridge.forTurn(turnInput).blocked).toEqual([])
       // Where Foreman doesn't provide Linear, the user's own servers are left alone.

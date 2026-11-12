@@ -1,19 +1,23 @@
 // How tool approvals work for a chat, and the plain-language version of it that
 // dialogs show before an agent is started.
-import { AGENTS, type AgentKind } from './agents'
+import type { AgentCapabilities } from './agentCapabilities'
+import { catalogAgent, staticCapabilities } from './agentCatalog'
+import type { AgentKind } from './agents'
 import { createT, type TFunction } from './i18n'
+import { effectivePolicy } from './permissionModes'
 import { globToRegExp } from './sensitive'
 import type { ReadOnlyEnforcement } from './types'
 
 const enT = createT('en')
 
 /**
- * #16: how Foreman holds a chat of this agent to read-only, or null where it can't
- * (Cursor, OpenCode), so the option is not offered there at all.
+ * #16: how Foreman holds a chat of this agent to read-only (`enforcement.readOnly` of its record), or null where it can't
+ * (Cursor, OpenCode, an agent with no record), so the option is not offered there at all. Only an agent that holds its own
+ * rules (`enforcement.by` is 'agent': Claude's plan mode, Codex's sandbox) can be held to it; a record that says Foreman holds
+ * the rules, which Foreman can't make an agent keep, never offers it whatever else it says (docs/agents.md 8).
  */
-export function readOnlyEnforcement(agent: AgentKind): ReadOnlyEnforcement | null {
-  if (!AGENTS[agent].supportsReadOnly) return null
-  return agent === 'claude' ? 'plan' : 'sandbox'
+export function readOnlyEnforcement(record: Pick<AgentCapabilities, 'enforcement'> | undefined): ReadOnlyEnforcement | null {
+  return record?.enforcement.by === 'agent' ? record.enforcement.readOnly : null
 }
 
 /** How tool approvals work for a turn. */
@@ -25,9 +29,13 @@ export interface ApprovalSettings {
   autoPermissionMode: boolean
 }
 
-/** The policy a chat of this agent runs with. Codex is unrestricted ("always") or sandboxed and asks before leaving the sandbox ("sandboxed"). */
+/**
+ * The policy a chat of this agent runs with. An agent with its own approval setting (Codex: unrestricted "always", or
+ * sandboxed and asking before it leaves the sandbox, "sandboxed") follows that, not the app-wide one.
+ */
 export function approvalPolicyFor(agent: AgentKind, settings: ApprovalSettings, autoAcceptEdits = false): ApprovalPolicy {
-  if (agent === 'codex') return settings.codexApprovals === 'always' ? 'never-ask' : autoAcceptEdits ? 'ask-except-edits' : 'ask'
+  const own = catalogAgent(agent)?.settings?.approvals
+  if (own) return settings[own.field] === 'always' ? 'never-ask' : autoAcceptEdits ? 'ask-except-edits' : 'ask'
   if (!settings.requireToolApprovals) return 'never-ask'
   if (settings.autoPermissionMode) return 'auto'
   return autoAcceptEdits ? 'ask-except-edits' : 'ask'
@@ -35,10 +43,13 @@ export function approvalPolicyFor(agent: AgentKind, settings: ApprovalSettings, 
 
 /** What the target chat can do without asking, as the settings stand now. */
 export function permissionNote(agent: AgentKind, settings: ApprovalSettings, t: TFunction = enT): string {
-  if (agent === 'codex') {
-    return settings.codexApprovals === 'always' ? t('permissions.codex.always') : t('permissions.codex.sandboxed')
-  }
-  switch (approvalPolicyFor(agent, settings)) {
+  const own = catalogAgent(agent)?.settings?.approvals
+  if (own) return settings[own.field] === 'always' ? t(own.notes.always) : t(own.notes.sandboxed)
+  // What the chat will really run as: an agent that doesn't honour the stored mode runs in the one it does (docs/agents.md 3).
+  const stored = approvalPolicyFor(agent, settings)
+  const record = staticCapabilities(agent)
+  const effective = record ? effectivePolicy(record, stored) : undefined
+  switch (effective && !effective.refused ? effective.policy : stored) {
     case 'never-ask':
       return t('permissions.neverAsk')
     case 'auto':

@@ -3,6 +3,7 @@
 import { Check, GripVertical, RefreshCw, TriangleAlert, X, Zap } from 'lucide-react'
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { chosenModels, hasTwoLineNames } from '../../../../shared/agentCatalog'
 import { instanceLabel } from '../../../../shared/agentInstances'
 import {
   AGENT_ORDER,
@@ -17,7 +18,7 @@ import {
 } from '../../../../shared/agents'
 import { useT } from '../../i18n'
 import { api, attempt, availableAgents, getState, openSettingsPage, useStore } from '../../store'
-import { AgentIcon, ModelChooser, opencodeModelParts } from '../composer/AgentPicker'
+import { AgentIcon, ModelChooser, modelName, modelParts } from '../composer/AgentPicker'
 import { Button, Card, CardButton, IconButton, LinkButton, Popover, Spinner } from '../../ui'
 import { saveSettings, useSettings } from './controls'
 
@@ -90,9 +91,8 @@ function choiceFor(model: ModelInfo): Loadout {
   return { agent: model.agent, model: model.id, effort: model.defaultEffort, fast: false }
 }
 
-function modelName(agent: AgentKind, id: string): string {
-  const info = modelInfo(agent, id)
-  return agent === 'opencode' ? opencodeModelParts(info).name : info.label
+function nameOf(agent: AgentKind, id: string): string {
+  return modelName(modelInfo(agent, id))
 }
 
 export function LoadoutEditor() {
@@ -273,7 +273,7 @@ export function LoadoutEditor() {
                         selected={chooser === i}
                         target={target === i}
                         lifted={liftedSlot === i}
-                        aria-label={t('loadout.slot.label', { n: i + 1, model: modelName(loadout.agent, loadout.model) })}
+                        aria-label={t('loadout.slot.label', { n: i + 1, model: nameOf(loadout.agent, loadout.model) })}
                         aria-haspopup={pop['aria-haspopup']}
                         aria-expanded={pop['aria-expanded']}
                         aria-controls={pop['aria-controls']}
@@ -331,7 +331,7 @@ export function LoadoutEditor() {
             ghost
             size={drag.source.kind === 'slot' ? 'md' : 'sm'}
             tone={removing ? 'danger' : 'default'}
-            className={`ml-ghost ${drag.source.kind === 'slot' ? 'ml-card' : `ml-model ${drag.source.choice.agent === 'opencode' ? 'two-line' : ''}`}`}
+            className={`ml-ghost ${drag.source.kind === 'slot' ? 'ml-card' : `ml-model ${hasTwoLineNames(drag.source.choice.agent) ? 'two-line' : ''}`}`}
             style={{ left: drag.x - drag.dx, top: drag.y - drag.dy, width: drag.width, height: drag.height }}
             aria-hidden
           >
@@ -351,7 +351,7 @@ function CardFace({ loadout, index }: { loadout: Loadout; index: number }) {
   const t = useT()
   const available = useStore((s) => availableAgents(s))[loadout.agent]
   const info = modelInfo(loadout.agent, loadout.model)
-  const parts = loadout.agent === 'opencode' ? opencodeModelParts(info) : null
+  const parts = modelParts(info)
   const effort = info.efforts.length > 0 ? effortLabel(loadout.effort ?? info.defaultEffort, t) : ''
   // #130: a slot on another of the agent's accounts says which.
   const instances = useStore((s) => s.snapshot!.settings.agentInstances)
@@ -380,7 +380,7 @@ function CardFace({ loadout, index }: { loadout: Loadout; index: number }) {
 function ModelRowFace({ choice, equipped }: { choice: Loadout; equipped: boolean }) {
   const t = useT()
   const info = modelInfo(choice.agent, choice.model)
-  const parts = choice.agent === 'opencode' ? opencodeModelParts(info) : null
+  const parts = modelParts(info)
   return (
     <>
       <span className="ml-model-text">
@@ -407,7 +407,8 @@ function AgentColumn({ agent, loadouts, lifted, bind, onAdd }: AgentColumnProps)
   const available = useStore((s) => availableAgents(s))[agent]
   // Subscribing re-renders the column when the agent reports new models.
   const entry = useStore((s) => s.snapshot!.catalog.agents[agent])
-  const chosenOpencode = useStore((s) => s.snapshot!.settings.opencodeModels)
+  const chosenSettings = useStore((s) => s.snapshot!.settings)
+  const chosen = chosenModels(agent, chosenSettings)
   const label = AGENTS[agent].label
 
   const configure = (
@@ -417,7 +418,7 @@ function AgentColumn({ agent, loadouts, lifted, bind, onAdd }: AgentColumnProps)
   )
 
   let content
-  if (!available || (agent === 'opencode' && chosenOpencode.length === 0)) {
+  if (!available || (chosen && chosen.length === 0)) {
     content = configure
   } else if (entry?.loading && !entry.models.length) {
     content = (
@@ -435,12 +436,12 @@ function AgentColumn({ agent, loadouts, lifted, bind, onAdd }: AgentColumnProps)
       </div>
     )
   } else {
-    // OpenCode lists only the models chosen on the Agents page.
-    const models = agent === 'opencode' ? chosenOpencode.map((id) => modelInfo('opencode', id)) : modelsFor(agent)
+    // An agent that can offer hundreds of models lists only the ones chosen on the Agents page.
+    const models = chosen ? chosen.map((id) => modelInfo(agent, id)) : modelsFor(agent)
     content = models.map((m) => {
       const choice = choiceFor(m)
       const equipped = loadouts.some((l) => l.agent === agent && isSameModel(agent, l.model, m.id))
-      const parts = agent === 'opencode' ? opencodeModelParts(m) : null
+      const parts = modelParts(m)
       const isLifted = lifted?.agent === agent && isSameModel(agent, lifted.model, m.id)
       return (
         <CardButton

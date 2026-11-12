@@ -2,6 +2,7 @@
 // limit resets from the error's own words. Pure; the clock and the local time zone are arguments.
 // The time is read from the turn's result error only (never from what the agent wrote), and the
 // words it came from are kept so the card can quote them. Anything not understood is "unknown".
+import { staticCapabilities } from './agentCatalog'
 import type { AgentKind, LimitResume, UsageLimit } from './types'
 import { dateInZone, offsetMs, validTimezone } from './schedule'
 
@@ -9,8 +10,10 @@ import { dateInZone, offsetMs, validTimezone } from './schedule'
 export const RESUME_TEXT = 'Continue where you left off.'
 /** A resume goes this long after the stated reset time, so a clock a little behind the provider's doesn't hit the limit again. */
 export const RESUME_BUFFER_MS = 60_000
-/** Agents whose transport carries a reset time Foreman can read. Codex reports `turn.completed` usage only; others say nothing. */
-export const READS_RESET_TIME: readonly AgentKind[] = ['claude']
+/** Whether the agent's transport carries a reset time Foreman can read (`usage.resetTime`). Codex reports `turn.completed` usage only; others say nothing. */
+export function readsResetTime(agent: string): boolean {
+  return staticCapabilities(agent)?.usage.resetTime === true
+}
 
 const DAY_MS = 86_400_000
 // A weekly limit resets within 7 days; anything much further out is a misreading, not a plan limit.
@@ -180,11 +183,11 @@ const plausible = (at: number, now: number) => Number.isFinite(at) && at > now -
 
 /**
  * What a failed turn's error says about a usage limit, or undefined when it isn't one. Only agents in
- * READS_RESET_TIME get a reset time; for the others (and for errors that don't state one) it is unknown.
+ * a record that reads reset times get one; for the others (and for errors that don't state one) it is unknown.
  */
 export function usageLimitOf(agent: AgentKind, error: string | undefined, now: number, localZone: string, detected = false): UsageLimit | undefined {
   if (!detected && !looksLikeUsageLimit(error)) return undefined
-  if (!READS_RESET_TIME.includes(agent)) return {}
+  if (!readsResetTime(agent)) return {}
   const reset = parseResetTime(error, now, localZone)
   return reset ? { resetAt: new Date(reset.at).toISOString(), source: reset.source, ...(reset.timeZone ? { timeZone: reset.timeZone } : {}) } : {}
 }
@@ -246,7 +249,7 @@ export function limitCardView(
   if (!limit) return { kind: 'none' }
   const resume = session.limitResume?.turnId === turn.turnId ? session.limitResume : undefined
   if (resume?.missed) return { kind: 'missed', resume }
-  if (!READS_RESET_TIME.includes(session.agent)) return { kind: 'unknown', stated: false }
+  if (!readsResetTime(session.agent)) return { kind: 'unknown', stated: false }
   if (!limit.resetAt || !limit.source) return { kind: 'unknown', stated: true }
   const resetAt = Date.parse(limit.resetAt)
   // G4: a time from the rate-limit event says so instead of quoting the error.

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ fork: vi.fn() }))
 vi.mock('node:child_process', () => ({ fork: mocks.fork }))
 vi.mock('node:fs', () => ({ existsSync: () => true }))
 vi.mock('../src/main/agents/cursor', () => ({ cursorDriver: { kind: 'cursor' } }))
-import { cursorProcessDriver } from '../src/main/agents/cursorProcess'
+import { cursorProcessDriver } from '../src/main/agents/cursor/process'
 
 describe('Cursor repository environments', () => {
   it('starts simultaneous turns with separate credentials and forwards their results and reports', async () => {

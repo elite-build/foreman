@@ -1,0 +1,64 @@
+/* Settings → Agents → Capabilities: the record as groups of lines. Layout only: the rows, status words, tags and disclosures
+   come from ui/. */
+
+.cap-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.cap-enforced,
+.cap-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.cap-evidence {
+  margin-left: auto;
+}
+
+/* One group: a Disclosure whose button holds the name and the count. */
+.cap-group {
+  padding: 8px 16px;
+}
+.cap-group-label {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+.cap-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cap-lines > li + li {
+  border-top: 1px solid var(--border);
+}
+
+/* A line: what it is on the left, how it works (a word, then a sentence) on the right. Stacks when narrow. */
+.cap-line {
+  display: grid;
+  grid-template-columns: minmax(150px, 2fr) minmax(0, 3fr);
+  align-items: baseline;
+  gap: 2px 14px;
+}
+.cap-name {
+  min-width: 0;
+}
+.cap-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .cap-line {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cap-evidence {
+    margin-left: 0;
+  }
+}

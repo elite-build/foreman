@@ -5,6 +5,7 @@
 // process (recording), the renderer (Home, chat, settings preview) and the tests.
 // Nothing here writes into the repository: reports live in foreman.db, and the
 // instructions go to the agent through its system prompt.
+import { staticCapabilities } from './agentCatalog'
 import type { AgentKind } from './agents'
 import type { PromptTemplate } from './types'
 
@@ -231,7 +232,7 @@ export interface TeachText {
  * two as the Cursor SDK's in-process `customTools` (untested without a Cursor key), so its reports land on the tab too.
  */
 export function hasReportTools(agent: AgentKind): boolean {
-  return agent === 'claude' || agent === 'cursor'
+  return staticCapabilities(agent)?.features.reportTools === true
 }
 
 /**

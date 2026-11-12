@@ -9,8 +9,11 @@ export type ToolRoot = string | string[]
 export function toolSummary(name: string, input: unknown, root: ToolRoot, t: TFunction): string {
   const i = (input ?? {}) as Record<string, unknown>
   switch (name) {
-    case 'Bash':
-      return String(i.command ?? '')
+    case 'Bash': {
+      // A command run through an agent's terminal (an ACP agent) also names the folder and the variables the agent sets for it.
+      const where = [typeof i.cwd === 'string' && i.cwd ? `cwd: ${i.cwd}` : '', Array.isArray(i.env) && i.env.length ? `env: ${i.env.join(', ')}` : ''].filter(Boolean)
+      return `${String(i.command ?? '')}${where.length ? ` (${where.join('; ')})` : ''}`
+    }
     case 'Read':
     case 'Write':
     case 'Edit':

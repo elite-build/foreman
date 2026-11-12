@@ -4,7 +4,11 @@
 //   gate:<file>     wait until the file exists (the test's go-ahead, across processes)
 //   approve:<tool>  ask for a tool approval and say the answer
 //   ask             ask a question and say the answer
+//   subapprove:<n>  ask for a tool approval on behalf of the subagent named <n>, and say the answer
+//   subask:<n>      ask a question on behalf of the subagent named <n>
 //   diff:<file>     call Foreman's workspaceDiff tool (a host-tool call) and say the answer
+//   goal:<text>     the agent's goal is <text> (goal:- clears it)
+//   cache:<5m|1h>   the turn left a warm prompt cache with that time-to-live
 //   fail:<error>    end the turn with an error (otherwise it ends ok)
 import { existsSync } from 'node:fs'
 import type { AgentDriver, AgentTurn, TurnCallbacks, TurnRequest } from '../src/main/agents/types'
@@ -39,11 +43,20 @@ class FakeTurn implements AgentTurn {
       } else if (step === 'approve') {
         const answer = await this.cb.approveTool({ kind: 'tool', toolName: arg, input: { command: 'npm run build' } }, new AbortController().signal)
         this.say(answer.allow ? 'approved' : `denied: ${answer.message ?? ''}`)
+      } else if (step === 'subapprove') {
+        const answer = await this.cb.approveTool({ kind: 'tool', toolName: 'Bash', input: { command: 'npm test' }, subagent: { id: 'task-1', name: arg } }, new AbortController().signal)
+        this.say(answer.allow ? 'approved' : `denied: ${answer.message ?? ''}`)
+      } else if (step === 'subask') {
+        await this.cb.ask([{ question: 'Which?', options: [{ label: 'A' }] }], new AbortController().signal, { id: 'task-1', name: arg })
       } else if (step === 'ask') {
         const answer = await this.cb.ask([{ question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }], new AbortController().signal)
         this.say(`answer: ${JSON.stringify(answer.answers ?? null)}`)
       } else if (step === 'diff') {
         this.say(`diff: ${(await this.req.hostTools?.workspaceDiff(arg || undefined)) ?? 'no tools'}`)
+      } else if (step === 'goal') {
+        this.cb.goal?.(arg === '-' ? null : { objective: arg, status: 'active', tokensUsed: 10, timeUsedSeconds: 2 })
+      } else if (step === 'cache') {
+        this.cb.cacheWindow?.({ ttl: arg as '5m' | '1h', warm: true })
       } else if (step === 'fail') failure = arg
     }
     this.cb.finished(this.stopped ? { ok: false, error: 'Stopped.' } : failure ? { ok: false, error: failure } : { ok: true })
@@ -56,6 +69,10 @@ class FakeTurn implements AgentTurn {
   steer(text: string): boolean {
     this.say(`steered: ${text}`)
     return true
+  }
+
+  async stopChild(childId: string): Promise<void> {
+    this.say(`stopped ${childId}`)
   }
 
   async setPlanMode(): Promise<void> {}

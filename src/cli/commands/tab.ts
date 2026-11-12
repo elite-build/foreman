@@ -59,6 +59,13 @@ const tabSet: Run = async (ctx) => {
   ctx.print(result, () => result.text)
 }
 
+const chatSwitch: Run = async (ctx) => {
+  const agent = str(ctx.opts.agent)
+  if (!agent) throw usageError('Say which agent: foreman chat switch <workspace> --agent <id>')
+  const result = await ctx.send<{ text: string }>('chat-switch', { workspace: needWorkspace(ctx.args[0]), cwd: ctx.cwd, tab: tabNumber(ctx), agent, model: str(ctx.opts.model), account: str(ctx.opts.account) })
+  ctx.print(result, () => result.text)
+}
+
 const tabReopen = simple('tab-reopen', (ctx) => ({ id: str(ctx.opts.tab) }))
 
 const tabFork = simple('tab-fork', (ctx) => ({ ...withTab(ctx), turn: str(ctx.opts.turn), before: ctx.opts.before }))
@@ -132,6 +139,7 @@ export const tabRunners: Record<string, Run> = {
   'tab reopen': tabReopen,
   'tab fork': tabFork,
   chat,
+  'chat switch': chatSwitch,
   queue,
   rewind,
   'resume-now': resumeNow,

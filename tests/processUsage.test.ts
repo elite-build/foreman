@@ -4,7 +4,7 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { STDERR_GRACE_MS, trackedClaudeSpawn } from '../src/main/agents/claudeSpawn'
+import { STDERR_GRACE_MS, trackedClaudeSpawn } from '../src/main/agents/claude/spawn'
 import { processRoots, trackChild, trackProcess, type ProcessRoot } from '../src/main/processRoots'
 import {
   attribute,

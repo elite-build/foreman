@@ -1,5 +1,7 @@
 import {
   Bot,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   FilePen,
   FilePlus,
@@ -8,8 +10,10 @@ import {
   Globe,
   ListTodo,
   MessageCircleQuestion,
+  MessageSquare,
   Plug,
   Search,
+  Square,
   SquareTerminal,
   Wrench,
   type LucideIcon
@@ -19,9 +23,10 @@ import type { TFunction } from '../../../shared/i18n'
 import { toolSummary as sharedToolSummary } from '../../../shared/toolSummary'
 import type { ChatItem, TaskProgress } from '../../../shared/types'
 import { relativeToRoots } from '../../../shared/portable'
+import { isSubagentCall, subagentName, SUBAGENT_TOOLS, type ChildItem } from '../../../shared/subagents'
 import { t as storeT, useT } from '../i18n'
 import { useWindowVisible } from '../store'
-import { Pressable, Spinner } from '../ui'
+import { Button, Pressable, Spinner, Status, Tag, Tree, TreeItem } from '../ui'
 import { Markdown } from './Markdown'
 import { fullPath, OpenFileChip, type FileAccess } from './OpenFileChip'
 
@@ -224,6 +229,156 @@ export function taskActivity(task: TaskProgress, t: TFunction = storeT): string 
   return task.summary || (task.lastTool ? t('toolRow.task.using', { tool: task.lastTool }) : '')
 }
 
+/** A subagent's own calls and messages by the call they sit under: the Task call's id, and any Task call inside it. */
+export type Subtree = ReadonlyMap<string, ChildItem[]>
+
+/** Stops one subagent; true once the agent was told, undefined if it could not be (the failure is shown as a toast). */
+export type StopChild = (childId: string) => Promise<boolean | undefined>
+
+/** Stop for one running subagent. Named for it, since several can run at once. Disabled from the press until its row says stopped. */
+function StopSubagent({ childId, name, onStop }: { childId: string; name: string; onStop: StopChild }) {
+  const t = useT()
+  const [sent, setSent] = useState(false)
+  return (
+    <Button
+      size="sm"
+      icon={<Square size={11} />}
+      disabled={sent}
+      aria-label={t(sent ? 'toolRow.child.stoppingLabel' : 'toolRow.child.stopLabel', { name })}
+      onClick={(e) => {
+        // Not the row's own click, which would open or close the branch.
+        e.stopPropagation()
+        setSent(true)
+        void onStop(childId).then((told) => {
+          if (!told) setSent(false)
+        })
+      }}
+    >
+      {sent ? t('toolRow.child.stopping') : t('toolRow.child.stop')}
+    </Button>
+  )
+}
+
+interface ChildEntry {
+  item: ChildItem
+  depth: number
+  // A subagent of its own (a Task call inside this one), shown with its status and Stop.
+  subagent: boolean
+  // It has calls to open.
+  dir: boolean
+  expanded: boolean
+}
+
+/** The visible rows under a Task call: its own calls and messages, and inside an open nested subagent, that one's. */
+function childEntries(rootId: string, subtree: Subtree, expanded: ReadonlySet<string>): ChildEntry[] {
+  const out: ChildEntry[] = []
+  const walk = (parent: string, depth: number) => {
+    for (const item of subtree.get(parent) ?? []) {
+      const own = subtree.get(item.id)
+      const subagent = item.kind === 'tool' && isSubagentCall(item, Boolean(own?.length))
+      const dir = subagent && Boolean(own?.length)
+      const open = dir && expanded.has(item.id)
+      out.push({ item, depth, subagent, dir, expanded: open })
+      if (open) walk(item.id, depth + 1)
+    }
+  }
+  walk(rootId, 0)
+  return out
+}
+
+const firstLine = (text: string) => text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? ''
+
+const CHILD_STATE = {
+  running: 'toolRow.child.running',
+  completed: 'toolRow.child.done',
+  failed: 'toolRow.child.failed',
+  stopped: 'toolRow.child.stopped'
+} as const
+
+/** What a subagent's task says it is doing: its own state, else its call's. */
+function childState(item: ToolItem): keyof typeof CHILD_STATE {
+  if (item.task) return item.task.status
+  return item.status === 'running' ? 'running' : item.status === 'error' ? 'failed' : 'completed'
+}
+
+/**
+ * What a subagent did, as a tree under its Task call (docs/agents.md 6): its calls and messages as leaves, and a Task call
+ * inside it as a branch with its own status, counts and Stop. Folded by default; ↑ ↓ → ← Home End as in any Tree.
+ */
+function SubagentTree({ rootId, name, subtree, workspacePath, onStop, waiting }: { rootId: string; name: string; subtree: Subtree; workspacePath: Root; onStop?: StopChild; waiting?: ReadonlySet<string> }) {
+  const t = useT()
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const entries = useMemo(() => childEntries(rootId, subtree, expanded), [rootId, subtree, expanded])
+  // What typing matches is what the row shows, not the item's id.
+  const rows = useMemo(() => entries.map((e) => ({ path: e.item.id, dir: e.dir, depth: e.depth, expanded: e.expanded, label: childLabel(e, workspacePath, t) })), [entries, workspacePath, t])
+  if (!entries.length) return null
+  const toggle = (path: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(path)) next.add(path)
+      return next
+    })
+  return (
+    <Tree className="subagent-tree" label={t('toolRow.child.tree', { name })} rows={rows} onToggle={toggle} onOpen={() => undefined}>
+      {entries.map((e) => (
+        <ChildNode key={e.item.id} entry={e} workspacePath={workspacePath} onStop={onStop} waiting={waiting} />
+      ))}
+    </Tree>
+  )
+}
+
+/** The words a subagent's row shows: a message's first line, a nested subagent's name, or a tool call's label and target. */
+function childLabel(entry: ChildEntry, workspacePath: Root, t: TFunction): string {
+  const { item } = entry
+  if (item.kind !== 'tool') return firstLine(item.kind === 'assistant' ? item.text : '')
+  if (entry.subagent) return subagentName(item.input, t('toolRow.subagent'))
+  const d = describe(item, workspacePath, t)
+  return [d.label, d.file ?? d.code].filter(Boolean).join(' ')
+}
+
+function ChildNode({ entry, workspacePath, onStop, waiting }: { entry: ChildEntry; workspacePath: Root; onStop?: StopChild; waiting?: ReadonlySet<string> }) {
+  const t = useT()
+  const { item } = entry
+  const chevron = entry.dir ? entry.expanded ? <ChevronDown size={12} className="subagent-node-chev" /> : <ChevronRight size={12} className="subagent-node-chev" /> : <span className="subagent-node-chev" />
+  if (item.kind !== 'tool') {
+    const text = childLabel(entry, workspacePath, t)
+    return (
+      <TreeItem path={item.id} title={text}>
+        {chevron}
+        <MessageSquare size={14} className="tool-icon" />
+        <span className="subagent-node-name">{text}</span>
+      </TreeItem>
+    )
+  }
+  if (entry.subagent) {
+    const state = childState(item)
+    const name = childLabel(entry, workspacePath, t)
+    const running = state === 'running'
+    return (
+      <TreeItem path={item.id} title={name}>
+        {chevron}
+        {running ? <Spinner size={12} /> : <Status tone={state === 'completed' ? 'ok' : state === 'failed' ? 'error' : 'off'} label={t(CHILD_STATE[state])} />}
+        {running && <span className="subagent-node-state">{t(CHILD_STATE.running)}</span>}
+        <span className="subagent-node-name">{name}</span>
+        <span className="subagent-node-end">
+          {item.childId && waiting?.has(item.childId) && <Tag tone="warn">{t('toolRow.child.waiting')}</Tag>}
+          {item.task && <TaskMeta task={item.task} />}
+          {running && item.childId && onStop && <StopSubagent childId={item.childId} name={name} onStop={onStop} />}
+        </span>
+      </TreeItem>
+    )
+  }
+  const Icon = describe(item, workspacePath, t).icon
+  const text = childLabel(entry, workspacePath, t)
+  return (
+    <TreeItem path={item.id} title={text}>
+      {chevron}
+      {item.status === 'running' ? <Spinner size={12} /> : item.status === 'error' ? <Status compact tone="error" label={t('toolRow.child.failed')} /> : <Icon size={14} className="tool-icon" />}
+      <span className="subagent-node-name">{text}</span>
+    </TreeItem>
+  )
+}
+
 /**
  * One tool call in the log. Memo'd, with what it shows worked out once per change to the call: a long chat has hundreds.
  * `expandByDefault` is the Expand tool calls setting (⌃O), read once by the chat rather than by every row.
@@ -234,13 +389,22 @@ export const ToolRow = memo(function ToolRow({
   workspacePath,
   files,
   forceOpen = false,
-  expandByDefault
+  expandByDefault,
+  subtree,
+  onStopChild,
+  waiting
 }: {
   item: ToolItem
   workspacePath: Root
   files?: FileAccess | null
   forceOpen?: boolean
   expandByDefault: boolean
+  // A Task call's subagent's own calls and messages (docs/agents.md 6); none for any other call.
+  subtree?: Subtree
+  // Only for an agent that can stop one subagent (its record's subagents.stop).
+  onStopChild?: StopChild
+  // Task ids of subagents that have an approval or question waiting for the person.
+  waiting?: ReadonlySet<string>
 }) {
   const t = useT()
   // null until the user opens or closes this row; until then it follows the setting (⌃O).
@@ -259,6 +423,20 @@ export const ToolRow = memo(function ToolRow({
   const icon = busy ? <span className="tool-icon"><Spinner size={14} /></span> : <Icon size={14} className="tool-icon" />
   // A path opens once the call has finished (never a file still being written); a failed call's file may be there.
   const path = d.file && files && !busy ? fullPath(d.target, files.root) : null
+  const subagent = SUBAGENT_TOOLS.includes(item.name) && item.childId !== undefined
+  const name = subagent ? subagentName(item.input, t('toolRow.subagent')) : ''
+  const stoppable = subagent && task?.status === 'running' && onStopChild !== undefined
+  const asking = subagent && item.childId !== undefined && waiting?.has(item.childId) === true
+  const summaryRow = (
+    <Pressable className="tool-row" aria-expanded={open} onClick={toggle}>
+      {icon}
+      <span className="tool-label">{d.label}</span>
+      {d.file && <span className="file-chip mono">{d.file}</span>}
+      {d.code && <code className="tool-code">{d.code}</code>}
+      {d.meta && <span className="tool-meta">{d.meta}</span>}
+      {task && <TaskMeta task={task} />}
+    </Pressable>
+  )
   return (
     <div className={`tool ${failed ? 'error' : item.status}`} data-tool={item.id}>
       {path && files ? (
@@ -274,20 +452,21 @@ export const ToolRow = memo(function ToolRow({
             {d.meta && <span className="tool-meta">{d.meta}</span>}
           </Pressable>
         </div>
+      ) : stoppable || asking ? (
+        // Stop is its own control beside the row, which a button can't hold.
+        <div className="tool-line tool-line-stop">
+          {summaryRow}
+          {asking && <Tag tone="warn">{t('toolRow.child.waiting')}</Tag>}
+          {stoppable && item.childId && <StopSubagent childId={item.childId} name={name} onStop={onStopChild} />}
+        </div>
       ) : (
-        <Pressable className="tool-row" aria-expanded={open} onClick={toggle}>
-          {icon}
-          <span className="tool-label">{d.label}</span>
-          {d.file && <span className="file-chip mono">{d.file}</span>}
-          {d.code && <code className="tool-code">{d.code}</code>}
-          {d.meta && <span className="tool-meta">{d.meta}</span>}
-          {task && <TaskMeta task={task} />}
-        </Pressable>
+        summaryRow
       )}
       {activity && <div className="task-activity">{activity}</div>}
       {open && (
         <div className="tool-body">
           {task && task.status !== 'running' && task.summary && <div className="task-summary">{task.summary}</div>}
+          {subtree && <SubagentTree rootId={item.id} name={name || subagentName(item.input, t('toolRow.subagent'))} subtree={subtree} workspacePath={workspacePath} onStop={onStopChild} waiting={waiting} />}
           {item.name === 'Edit' || item.name === 'MultiEdit' ? (
             <EditPreview input={input} />
           ) : item.name === 'ExitPlanMode' ? (

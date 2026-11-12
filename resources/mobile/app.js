@@ -94,15 +94,21 @@ function toolArg(name, input) {
 function firstLine(text) {
   return (String(text || '').split('\n').map((l) => l.replace(/^[#>*\-\s]+/, '').trim()).find(Boolean) || '')
 }
+// Docs/agents.md 6: a subagent asks, not the agent itself.
+function fromSubagent(a) {
+  return a.subagent ? (a.subagent.name ? 'From subagent ' + a.subagent.name : 'From a subagent') : ''
+}
 function askText(a) {
+  const from = fromSubagent(a)
+  const lead = from ? '<b>' + safe(from) + '</b> · ' : ''
   if (a.kind === 'tool') {
     const arg = toolArg(a.toolName, a.input)
-    return a.toolName === 'Bash' && arg ? '<b>Wants to run</b> ' + safe(arg) : '<b>Wants to use ' + safe(a.toolName) + '</b>' + (arg ? ' ' + safe(arg) : '')
+    return lead + (a.toolName === 'Bash' && arg ? '<b>Wants to run</b> ' + safe(arg) : '<b>Wants to use ' + safe(a.toolName) + '</b>' + (arg ? ' ' + safe(arg) : ''))
   }
   if (a.kind === 'plan') return '<b>Plan ready:</b> ' + safe(firstLine(a.plan))
   if (a.kind === 'gate') return '<b>' + safe(a.flowName) + ' waits for you:</b> ' + safe(a.ask)
   if (a.kind === 'pick') return '<b>' + safe(a.flowName) + ' asks you to pick:</b> ' + safe(a.choices.map((c) => c.step).join(', '))
-  return '<b>Asks:</b> ' + safe(a.questions[0]?.question || 'A question')
+  return lead + '<b>Asks:</b> ' + safe(a.questions[0]?.question || 'A question')
 }
 function preview(w, approvals) {
   if (approvals.length) return askText(approvals[0])
@@ -255,6 +261,19 @@ function toolGroup(tools) {
 }
 // G4 #11: a usage-limit failure's "Resume at …", as the window's card offers it (the same rules apply in Foreman).
 function hhmm(ms) { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) }
+// Docs/agents.md 7.2: a chat paused at a usage limit says so, resumes by itself when its time comes, and offers Resume now,
+// Dismiss and (when another account has room) Continue on that account, never automatically.
+function pausedCard(i, s) {
+  const armed = s.limitResume && s.limitResume.turnId === i.turnId && !s.limitResume.missed ? s.limitResume : null
+  const at = i.limit.resetAt ? Date.parse(i.limit.resetAt) : NaN
+  const title = armed || at > Date.now() ? 'Paused: limit · resets ' + hhmm(armed ? Date.parse(armed.resetAt) : at) : 'Paused: limit · reset time unknown'
+  const sub = armed ? 'Foreman sends “' + safe(armed.text) + '” at ' + hhmm(Date.parse(armed.at)) + ', once. Anything you do in this chat first cancels it.' : 'Nothing is sent by itself. Resume when you know the limit has reset.'
+  const act = canAct() && s.status !== 'running'
+  const buttons = act ? '<button class="linkish" data-action="resume-now">Resume now</button>' +
+    (s.continueOn || []).map((o) => ' · <button class="linkish" data-action="continue:' + safe(o.instance || '') + '">Continue on account ' + safe(o.label) + '</button>').join('') +
+    (armed ? ' · <button class="linkish" data-action="unresume:' + safe(i.turnId) + '">Dismiss</button>' : '') : ''
+  return '<div class="sys paused"><b>' + title + '</b><div>' + sub + '</div>' + (buttons ? '<div>' + buttons + '</div>' : '') + '</div>'
+}
 function limitPart(i, s) {
   if (!i.limit || !s) return ''
   const armed = s.limitResume && s.limitResume.turnId === i.turnId ? s.limitResume : null
@@ -263,7 +282,9 @@ function limitPart(i, s) {
     (canAct() ? ' <button class="linkish" data-action="resume-now">Resume now</button> · <button class="linkish" data-action="unresume:' + safe(i.turnId) + '">Dismiss</button>' : '') + '</div>'
   if (armed) return '<div class="sys">Resumes at ' + hhmm(Date.parse(armed.at)) + ' · sends “' + safe(armed.text) + '” once' + (canAct() ? ' <button class="linkish" data-action="unresume:' + safe(i.turnId) + '">Cancel</button>' : '') + '</div>'
   const at = i.limit.resetAt ? Date.parse(i.limit.resetAt) : NaN
-  if (s.agent !== 'claude' || !i.limit.source || !(at > Date.now())) return '<div class="sys">Reset time unknown</div>'
+  // Only an agent whose record says its reset time can be read gets a resume time (the phone payload carries the records).
+  const reads = state.model.agentCapabilities && state.model.agentCapabilities[s.agent] && state.model.agentCapabilities[s.agent].usage.resetTime
+  if (!reads || !i.limit.source || !(at > Date.now())) return '<div class="sys">Reset time unknown</div>'
   const latest = canAct() && s.lastTurn && s.lastTurn.turnId === i.turnId && s.status !== 'running' && !s.queued
   const from = i.limit.from === 'event' ? 'from Claude’s rate-limit event' : 'from Claude: “…' + safe(i.limit.source) + '”'
   return '<div class="sys">' + (latest ? '<button class="linkish" data-action="resume-at:' + safe(i.turnId) + '">Resume at ' + hhmm(at) + '</button>' : 'Resets ' + hhmm(at)) + ' · ' + from + '</div>'
@@ -273,11 +294,13 @@ function turnEnd(i, s) {
   if (i.outcome === 'completed') return '<div class="sys">Done' + (i.durationMs ? ' in ' + secs(i.durationMs) : '') + delta + '</div>'
   if (i.outcome === 'cancelled') return '<div class="sys">Stopped' + delta + '</div>'
   if (i.outcome === 'interrupted') return '<div class="sys err">Interrupted' + (i.error ? ': ' + safe(i.error) : '') + '</div>'
+  if (i.limit && s && s.lastTurn && s.lastTurn.turnId === i.turnId && s.lastTurn.outcome === 'limit') return pausedCard(i, s)
   return '<div class="sys err">Turn failed' + (i.error ? ': ' + safe(i.error) : '') + '</div>' + limitPart(i, s)
 }
 function chatHtml(s) {
   if (state.chatFor !== state.sessionId) return '<div class="empty">Loading chat…</div>'
-  const items = state.chat.filter((i) => ['user', 'assistant', 'tool', 'notice', 'turn-end'].includes(i.kind))
+  // A subagent's own calls and messages (parentToolUseId) stay out: its Task call is the one row shown for it.
+  const items = state.chat.filter((i) => ['user', 'assistant', 'tool', 'notice', 'turn-end'].includes(i.kind) && !i.parentToolUseId)
   const shown = items.slice(-state.limit)
   let out = items.length > shown.length ? '<button class="more-older" data-action="older">Show earlier messages</button>' : ''
   let tools = []
@@ -311,6 +334,7 @@ function requestCard(a) {
     const arg = toolArg(a.toolName, a.input)
     const detail = a.toolName === 'Bash' && arg ? arg : JSON.stringify(a.input, null, 2)
     return '<div class="req"><div class="rh">' + icon('lock', 'sm') + 'Permission needed · ' + safe(a.toolName) + '</div><div class="rb">' +
+      (a.subagent ? '<p class="why"><b>' + safe(fromSubagent(a)) + '</b></p>' : '') +
       (a.reason ? '<p class="why">' + safe(a.reason) + '</p>' : '') + '<pre class="cmd">' + safe(detail) + '</pre>' + (replying ? note : '') + '</div>' +
       '<div class="acts">' + (replying ? '<button class="alt" data-action="reply:' + id + '">Cancel</button><button class="no" data-action="deny:' + id + '">Deny &amp; send</button>' :
         '<button class="no" data-action="deny:' + id + '">Deny</button><button class="alt" data-action="reply:' + id + '">Reply</button><button class="yes" data-action="allow:' + id + '">Allow</button>') + '</div></div>'
@@ -340,6 +364,7 @@ function requestCard(a) {
   }
   const picked = state.answers[a.id] || {}
   return '<div class="req"><div class="rh">' + icon('chat', 'sm') + (a.questions.length > 1 ? a.questions.length + ' questions' : 'Question') + '</div><div class="rb">' +
+    (a.subagent ? '<p class="why"><b>' + safe(fromSubagent(a)) + '</b></p>' : '') +
     a.questions.map((q, qi) => '<div class="q"><h4>' + (q.header ? '<span>' + safe(q.header) + ' · </span>' : '') + safe(q.question) + '</h4><div class="opts">' +
       q.options.map((o, oi) => '<button class="opt' + (q.multiSelect ? ' multi' : '') + ((picked[qi] || []).includes(o.label) ? ' on' : '') + '" data-action="pick:' + id + '|' + qi + '|' + oi + '"><span class="mk"></span><span><b>' + safe(o.label) + '</b>' + (o.description ? '<small>' + safe(o.description) + '</small>' : '') + '</span></button>').join('') +
       '</div><input data-other="' + id + '|' + qi + '" placeholder="Other answer…" value="' + safe(state.others[a.id + '|' + qi] || '') + '"></div>').join('') +
@@ -477,7 +502,7 @@ function queueHtml(s, running) {
   if (!queue.length) return ''
   const shown = queue.slice(0, 3)
   const row = (q) => '<div class="qrow"><span class="qt">' + safe(firstLine(q.text) || q.text) + '</span>' +
-    (canAct() ? (s.canSteer && running ? '<button class="linkish" data-action="qsteer:' + safe(q.id) + '">Send now</button>' : '') + '<button class="linkish" data-action="qremove:' + safe(q.id) + '">Delete</button>' : '') + '</div>'
+    (canAct() ? ((s.canSteer || s.canInterrupt) && running ? '<button class="linkish" data-action="qsteer:' + safe(q.id) + '"' + (s.canInterrupt ? ' title="Stops the running turn and sends this message first. Work in progress is cut."' : '') + '>' + (s.canInterrupt ? 'Interrupt and send' : 'Send now') + '</button>' : '') + '<button class="linkish" data-action="qremove:' + safe(q.id) + '">Delete</button>' : '') + '</div>'
   return '<div class="queue" role="group" aria-label="Queued messages"><p class="hint">Queued · sent when the agent finishes</p>' + shown.map(row).join('') +
     (queue.length > shown.length ? '<p class="hint">and ' + (queue.length - shown.length) + ' more</p>' : '') + '</div>'
 }
@@ -970,6 +995,11 @@ root.addEventListener('click', async (event) => {
     }
     if (name === 'send') return await send()
     if (name === 'mode') return flipMode(button)
+    if (name === 'continue') {
+      await request('POST', '/api/chat/' + encodeURIComponent(state.sessionId) + '/resume-at', { continueOn: arg || null })
+      toast('Continuing on the other account')
+      await refresh(); await loadTab(); return render()
+    }
     if (name === 'resume-at' || name === 'unresume' || name === 'resume-now') {
       await request('POST', '/api/chat/' + encodeURIComponent(state.sessionId) + '/resume-at', name === 'unresume' ? { cancel: true } : name === 'resume-now' ? { now: true } : { turnId: arg })
       toast(name === 'unresume' ? 'Resume cancelled' : name === 'resume-now' ? 'Resuming' : 'Resume armed')
@@ -978,7 +1008,9 @@ root.addEventListener('click', async (event) => {
     // #127: a queued message sent into the running turn now, or deleted.
     if (name === 'qsteer' || name === 'qremove') {
       await request('POST', '/api/chat/' + encodeURIComponent(state.sessionId) + '/queued/' + encodeURIComponent(arg), { action: name === 'qsteer' ? 'steer' : 'remove' })
-      toast(name === 'qsteer' ? 'Sent to the running agent' : 'Deleted from the queue')
+      // The same two words the window's queue says: an agent that can only be interrupted had its turn cut to send this first.
+      const cut = state.model.sessions.find((x) => x.id === state.sessionId)?.canInterrupt
+      toast(name === 'qsteer' ? (cut ? 'Interrupted the agent and sent' : 'Sent to the running agent') : 'Deleted from the queue')
       await refresh(); await loadTab(); return render()
     }
     // #127: diff comments: start one on a line, write it, add it; delete yours or resolve the agent's.

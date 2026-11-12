@@ -1,7 +1,7 @@
 import { ChevronDown, CircleDot, FolderGit2, FolderOpen, FolderRoot, GitBranch, GitPullRequest, Paperclip } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { AGENTS, DEFAULT_MODEL, isSameModel, modelInfo, modelsFor, type AgentKind, type Loadout } from '../../../shared/agents'
-import { catalogAgent, enabledAgentIds } from '../../../shared/agentCatalog'
+import { catalogAgent, chosenModels, enabledAgentIds } from '../../../shared/agentCatalog'
 import { pickerModels, type HiddenModels } from '../../../shared/modelVisibility'
 import { fillIssuePlaceholders, intakeLine, type GithubLinkInfo } from '../../../shared/githubLink'
 import { findScmLink } from '../../../shared/scm'
@@ -374,7 +374,7 @@ function WorkspaceModelSelect({
   const signedOut = (agent: AgentKind) => agentReadiness(agent, { status: statuses[agent] }).needsSignIn
   const chosenSignedOut = !terminalAgent && signedOut(value.agent)
   const catalog = useStore((s) => s.snapshot!.catalog)
-  const chosenOpencode = useStore((s) => s.snapshot!.settings.opencodeModels)
+  const chosenSettings = useStore((s) => s.snapshot!.settings)
   const hidden = useStore((s) => s.snapshot!.settings.hiddenModels) ?? NO_HIDDEN
   const prefs = useStore((s) => s.snapshot!.settings.agentPrefs)
   // G1: the enabled Chat agents too, in catalog order after the Full ones; O8: hidden models left out (the chosen one stays).
@@ -383,7 +383,7 @@ function WorkspaceModelSelect({
       (Object.keys(available) as AgentKind[])
         .filter((agent) => available[agent] || agent === value.agent)
         .map((agent) => {
-          const listed = agent === 'opencode' ? chosenOpencode.map((id) => modelInfo(agent, id)) : modelsFor(agent)
+          const listed = chosenModels(agent, chosenSettings)?.map((id) => modelInfo(agent, id)) ?? modelsFor(agent)
           const models = pickerModels(listed, hidden, value).shown
           // Keep a saved model selectable even if the agent no longer lists it.
           if (agent === value.agent && !models.some((model) => isSameModel(agent, model.id, value.model))) {
@@ -391,7 +391,7 @@ function WorkspaceModelSelect({
           }
           return { agent, models }
         }),
-    [available, catalog, chosenOpencode, hidden, value]
+    [available, catalog, chosenSettings, hidden, value]
   )
   const terminals = useMemo(() => (onTerminalAgent ? enabledAgentIds(prefs, 'terminal') : []), [onTerminalAgent, prefs])
   const selected = groups.find((group) => group.agent === value.agent)?.models.find((model) => isSameModel(value.agent, model.id, value.model))
