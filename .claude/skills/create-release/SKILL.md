@@ -143,12 +143,13 @@ gh run list --workflow release.yml --branch v<version> --limit 1 --json database
 gh run watch <run-id> --exit-status
 ```
 
-The run takes from 15 minutes to over an hour (macOS notarization waits for Apple), so start `gh run watch` in the background and carry on when it ends. The run verifies the tag, builds both installers with the macOS app Developer ID signed and notarized, and creates a **draft** release with generated notes and every asset.
+The run takes from 15 minutes to over an hour (macOS notarization waits for Apple), so start `gh run watch` in the background and carry on when it ends. The run verifies the tag, builds both installers with the macOS app Developer ID signed and notarized, and creates a **draft** release with generated notes and every asset. When the repository variable `SIGNPATH_SIGNING` is `true`, the Windows job also makes two SignPath signing requests, `Foreman.exe` and then the installer, and each waits up to an hour for an approver. Tell the user as soon as the Windows job reaches them, so they can approve both in SignPath; you can't approve them. Otherwise the run's summary warns that the Windows installer is unsigned, which is expected until signing is turned on (CODE_SIGNING.md).
 
 If it fails, read `gh run view <run-id> --log-failed`:
 
 - Transient (a runner or network error, stapling failing on every attempt): `gh run rerun <run-id> --failed`, once.
-- Missing or wrong signing secrets, or a build error: stop and report it. A fix goes through an ordinary PR, and the release becomes a new patch version; the tag stays where it is.
+- A SignPath request rejected or not approved within the hour: ask the user before rerunning the failed jobs, which makes new requests to approve.
+- Missing or wrong signing secrets or SignPath settings, a failed signature check, or a build error: stop and report it. A fix goes through an ordinary PR, and the release becomes a new patch version; the tag stays where it is.
 - "already has a release": a release for this tag exists. Look at it (`gh release view v<version>`) and continue at step 9 if it's this tag's draft; don't delete one without asking.
 
 ## 9. Edit the draft
