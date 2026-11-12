@@ -2,8 +2,10 @@
 // continue): picking the source's task and answer, sizing and placing the
 // context, and the plain-language lines the dialog shows. Pure, so the dialog
 // and the main process agree on the numbers.
+import { catalogAgent } from './agentCatalog'
 import { AGENTS, modelInfo, type AgentKind } from './agents'
-import { createT, type TFunction } from './i18n'
+import { createT, type PlainKey, type TFunction } from './i18n'
+import { isChildItem } from './subagents'
 import type { ChatItem, MessageFollowUp, Session } from './types'
 
 const enT = createT('en')
@@ -98,6 +100,8 @@ const PROVIDER: Partial<Record<AgentKind, string>> = {
   codex: 'OpenAI (Codex)',
   cursor: 'Cursor'
 }
+// OpenCode goes to whichever provider the chosen model belongs to, which the line says in words rather than naming one.
+const PROVIDER_KEY: Partial<Record<AgentKind, PlainKey>> = { opencode: 'handOff.size.opencodeProvider' }
 
 /** "~14 KB → OpenAI (Codex)", plus a note when something goes as an attachment. */
 export function sizeLine(placements: Placement[], agent: AgentKind, t: TFunction = enT): string {
@@ -105,7 +109,8 @@ export function sizeLine(placements: Placement[], agent: AgentKind, t: TFunction
   const attached = placements.filter((p) => p.where === 'attached')
   const truncated = attached.some((p) => p.truncated)
   const note = attached.length ? ` · ${truncated ? t('handOff.size.attachedTruncated', { count: attached.length }) : t('handOff.size.attached', { count: attached.length })}` : ''
-  const provider = agent === 'opencode' ? t('handOff.size.opencodeProvider') : PROVIDER[agent] ?? AGENTS[agent]?.label ?? agent
+  const providerKey = PROVIDER_KEY[agent]
+  const provider = providerKey ? t(providerKey) : PROVIDER[agent] ?? AGENTS[agent]?.label ?? agent
   return `${t('handOff.size.line', { size: formatBytes(total), provider })}${note}`
 }
 
@@ -127,7 +132,7 @@ export function userTasks(items: ChatItem[]): TaskChoice[] {
 export function lastAnswer(items: ChatItem[]): { id: string; turnId: string; text: string } | null {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
-    if (item.kind === 'assistant' && !item.streaming && item.text.trim()) return { id: item.id, turnId: item.turnId, text: item.text }
+    if (item.kind === 'assistant' && !item.streaming && item.text.trim() && !isChildItem(item)) return { id: item.id, turnId: item.turnId, text: item.text }
   }
   return null
 }
@@ -135,7 +140,7 @@ export function lastAnswer(items: ChatItem[]): { id: string; turnId: string; tex
 /** Everything the agent said in one turn, as text (tool calls and thinking left out); empty if it said nothing. */
 export function turnAnswer(items: ChatItem[], turnId: string): string {
   return items
-    .filter((i): i is Extract<ChatItem, { kind: 'assistant' }> => i.kind === 'assistant' && i.turnId === turnId && !i.streaming && Boolean(i.text.trim()))
+    .filter((i): i is Extract<ChatItem, { kind: 'assistant' }> => i.kind === 'assistant' && i.turnId === turnId && !i.streaming && Boolean(i.text.trim()) && !isChildItem(i))
     .map((i) => i.text.trim())
     .join('\n\n')
 }
@@ -148,7 +153,7 @@ export function defaultTask(tasks: TaskChoice[], answer: { turnId: string } | nu
 /** Short model name for tabs: "Opus" for Opus 5.5. The full name and effort go in the tooltip. */
 export function compactModelLabel(agent: AgentKind, model: string): string {
   const label = modelInfo(agent, model).label
-  const name = agent === 'opencode' && label.includes('/') ? label.slice(label.lastIndexOf('/') + 1).trim() : label
+  const name = catalogAgent(agent)?.models?.twoLineNames && label.includes('/') ? label.slice(label.lastIndexOf('/') + 1).trim() : label
   return name.split(/\s+/)[0] || AGENTS[agent].label
 }
 

@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from '../src/renderer/src/components/composer/Composer'
+import { staticCapabilitiesView } from '../src/shared/agentCatalog'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -305,6 +306,27 @@ describe('the queue', () => {
   })
 })
 
+describe('the queue’s send action', () => {
+  const queue = [{ id: 'q1', text: 'first', attachments: [] }] as never
+
+  it('says Interrupt and send for an agent that can only be interrupted, and sends at once, as the phone does', async () => {
+    fakeApi.steerQueued = vi.fn(async () => undefined)
+    const user = userEvent.setup()
+    renderComposer({ agent: 'cursor', status: 'running', queue })
+    expect(screen.queryByRole('button', { name: 'Send now' })).toBeNull()
+    const button = screen.getByRole('button', { name: /^Interrupt and send/ })
+    expect(button.title).toMatch(/cuts work in progress/)
+    await user.click(button)
+    expect(fakeApi.steerQueued).toHaveBeenCalledWith('s1', 'q1')
+  })
+
+  it('stays Send now for an agent that steers', () => {
+    renderComposer({ agent: 'claude', status: 'running', queue })
+    expect(screen.getByRole('button', { name: 'Send now' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Interrupt and send/ })).toBeNull()
+  })
+})
+
 describe('the template picker', () => {
   beforeEach(() => {
     fakeState.snapshot.settings.promptTemplates = [
@@ -373,6 +395,81 @@ describe('the toolbar', () => {
     expect(plan.getAttribute('aria-pressed')).toBe('false')
     await user.click(plan)
     expect(fakeApi.updateSession).toHaveBeenCalledWith('s1', { planMode: true })
+  })
+
+  it('an agent with no plan mode keeps the Plan chip, disabled, with the record’s reason as its tooltip', async () => {
+    fakeApi.updateSession = vi.fn(async () => undefined)
+    const user = userEvent.setup()
+    renderComposer({ agent: 'cursor', planMode: false })
+    const plan = screen.getByRole('button', { name: /Plan/ }) as HTMLButtonElement
+    expect(plan.disabled).toBe(true)
+    expect(plan.getAttribute('aria-pressed')).toBeNull()
+    expect(plan.title).toBe('This agent hasn’t offered a plan mode.')
+    await user.click(plan)
+    expect(fakeApi.updateSession).not.toHaveBeenCalled()
+  })
+
+  it('an ACP agent that declared a plan mode has Plan on; one that did not shows it disabled', () => {
+    const before = fakeState.snapshot.agentCapabilities
+    fakeState.snapshot.agentCapabilities = { ...staticCapabilitiesView(), declared: { gemini: { '': { planMode: true } } } }
+    try {
+      const { unmount } = renderComposer({ agent: 'gemini' })
+      expect((screen.getByRole('button', { name: /Plan/ }) as HTMLButtonElement).disabled).toBe(false)
+      unmount()
+      renderComposer({ agent: 'qwen' })
+      expect((screen.getByRole('button', { name: /Plan/ }) as HTMLButtonElement).disabled).toBe(true)
+    } finally {
+      fakeState.snapshot.agentCapabilities = before
+    }
+  })
+
+  it('says who holds the permission mode, from the record: on the read-only chip and on the auto-accept chip', () => {
+    fakeState.snapshot.settings.requireToolApprovals = true
+    renderComposer({ agent: 'codex', readOnly: true, autoAcceptEdits: true })
+    // Codex's own sandbox and approval policy hold the rules.
+    expect(screen.getByText('Read-only').closest('[title]')!.getAttribute('title')).toMatch(/read-only sandbox.*Enforced by: the agent$/)
+    expect(screen.getByRole('button', { name: /Auto-accept/ }).title).toMatch(/Enforced by: the agent$/)
+    cleanup()
+    // Cursor's is Foreman's review: the chip says so (Cursor is never read-only, so this is the auto-accept chip).
+    renderComposer({ agent: 'cursor', autoAcceptEdits: true })
+    expect(screen.getByRole('button', { name: /Auto-accept/ }).title).toMatch(/Enforced by: Foreman$/)
+  })
+
+  it('Steer follows the record: Claude can take a message into a running turn, an agent with no way to take one only queues', () => {
+    renderComposer({ agent: 'claude', status: 'running' })
+    expect(screen.getByRole('button', { name: 'Queue' })).toBeTruthy()
+    cleanup()
+    // Qwen's record is the ACP one, which can interrupt (below); a record with neither shows the plain tag.
+    const before = fakeState.snapshot.agentCapabilities
+    try {
+      const view = staticCapabilitiesView()
+      fakeState.snapshot.agentCapabilities = { ...view, agents: { ...view.agents, cursor: { ...view.agents.cursor, turns: { steer: { level: 'none', why: 'agentCaps.why.steer' } } } } }
+      renderComposer({ agent: 'cursor', status: 'running' })
+      expect(screen.queryByRole('button', { name: 'Queue' })).toBeNull()
+      expect(screen.getByText('Queue').title).toMatch(/can.t take messages mid-turn/)
+    } finally {
+      fakeState.snapshot.agentCapabilities = before
+    }
+  })
+
+  it('Interrupt and send is an explicit choice for an agent that can only be interrupted: Queue is the default', async () => {
+    const user = userEvent.setup()
+    renderComposer({ agent: 'cursor', status: 'running' })
+    // Queue by default, and the chip offers the interrupt with what it costs.
+    const chip = screen.getByRole('button', { name: 'Queue' })
+    expect(chip.title).toMatch(/interrupt the turn and send this message/)
+    await user.type(box(), 'try again')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1))
+    expect(fakeApi.sendMessage.mock.calls[0][2]).toMatchObject({ mode: 'queue' })
+
+    await user.click(screen.getByRole('button', { name: 'Queue' }))
+    const interrupt = screen.getByRole('button', { name: 'Interrupt and send' })
+    expect(interrupt.title).toMatch(/Work in progress is cut/)
+    await user.type(box(), 'stop that')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledTimes(2))
+    expect(fakeApi.sendMessage.mock.calls[1][2]).toMatchObject({ mode: 'interrupt' })
   })
 })
 

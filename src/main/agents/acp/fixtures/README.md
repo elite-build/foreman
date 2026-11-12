@@ -1,0 +1,3 @@
+# acp fixtures
+
+`simulated` traffic for the generic ACP adapter and the Chat agents behind it (docs/agents.md, section 9.1), recorded from the in-process ACP conformance fake (`src/main/agents/fixtures/fakes.ts`) by `npm run record:agent -- simulated`: `plain`, `approval`, `question` (an `elicitation/create` form), `terminal` (a command through `terminal/create`, which really ran in a piped process), `interrupt`, `crash` and `resume`. No ACP chat agent was installed where this was built; until someone records one, its capability record says `simulated`. `tests/replay/simulated.test.ts` plays them.

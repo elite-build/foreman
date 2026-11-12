@@ -7,6 +7,7 @@
 // The question gets a conversation of its own, deleted when the answer is in: it neither fills the Assistant
 // view's list nor leaves a proposal waiting on a Run button there.
 import { foremanRunOf, type PendingRun } from '../../shared/assistant'
+import { isChildItem } from '../../shared/subagents'
 import type { ChatItem } from '../../shared/types'
 import type { CliHost } from './host'
 import { CliCodedError } from './host'
@@ -45,7 +46,7 @@ export interface AskParams {
 /** The answer and proposals a finished (or interrupted) turn left in its thread. */
 export function readTurn(items: ChatItem[]): { answer: string; proposals: AskProposal[]; end?: Extract<ChatItem, { kind: 'turn-end' }> } {
   const answer = items
-    .filter((item): item is Extract<ChatItem, { kind: 'assistant' }> => item.kind === 'assistant')
+    .filter((item): item is Extract<ChatItem, { kind: 'assistant' }> => item.kind === 'assistant' && !isChildItem(item))
     .map((item) => item.text.trim())
     .filter(Boolean)
     .join('\n\n')

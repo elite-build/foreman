@@ -19,7 +19,7 @@ import {
   type EventDraft,
   type TrayWords
 } from '../src/shared/attention'
-import { triageAll, type TriageInput } from '../src/shared/triage'
+import { finishedFacts, triageAll, type TriageInput } from '../src/shared/triage'
 import type { AppSnapshot, ApprovalRequest, LimitResume, Session, Workspace } from '../src/shared/types'
 
 const NOW = Date.parse('2026-10-22T14:00:00Z')
@@ -230,11 +230,31 @@ describe('#11 labels', () => {
     armedAt: ago(5),
     ...patch
   })
-  const limited = (patch: Partial<LimitResume> = {}) => session('s1', 'w1', { title: 'Persist sidebar filters', lastTurn: { outcome: 'error', turnId: 't1', endedAt: ago(8) }, limitResume: resume(patch) })
+  const limited = (patch: Partial<LimitResume> = {}) => session('s1', 'w1', { title: 'Persist sidebar filters', lastTurn: { outcome: 'limit', turnId: 't1', endedAt: ago(8) }, limitResume: resume(patch) })
 
-  it('an armed resume reads "Resumes at 14:30 · usage limit" instead of a failed turn needing you', () => {
+  it('a paused chat with its resume armed reads "Waiting · resumes at 14:30" instead of a failed turn needing you', () => {
     const t = triageAll(input([ws('w1')], [limited()]), null)[0]
-    expect(t).toMatchObject({ bucket: 'idle', label: 'Resumes at 14:30', detail: 'usage limit', sessionId: 's1', limitResume: { sessionId: 's1', resetAt: resume().resetAt } })
+    expect(t).toMatchObject({ bucket: 'idle', label: 'Waiting · resumes at 14:30', detail: 'usage limit', sessionId: 's1', limitResume: { sessionId: 's1', resetAt: resume().resetAt } })
+  })
+
+  it('a paused chat is never "needs you" while its resume is armed, with a known reset time or not asking first', () => {
+    // The tab is idle in the workspaces at rest: no attention bucket, no "Turn failed", no "Ready for review".
+    const rows = triageAll(input([ws('w1')], [limited()], { unread: {} }), null)
+    expect(rows[0].bucket).toBe('idle')
+    expect(rows[0].tone).toBeUndefined()
+    // With "Ask me first" (nothing armed) it is a failed turn with an offer on its card: it asks for you.
+    const asking = session('s1', 'w1', { title: 'Persist sidebar filters', lastTurn: { outcome: 'limit', turnId: 't1', endedAt: ago(8), resetAt: resume().resetAt } })
+    expect(triageAll(input([ws('w1')], [asking]), null)[0]).toMatchObject({ bucket: 'attention', label: 'Turn failed' })
+  })
+
+  it('a paused chat leaves no "Turn failed" event in the feed while it waits, and the tab word for it is "paused"', () => {
+    const look = (sessions: Session[]) => [...lookAll(input([ws('w1')], sessions)).values()][0]
+    const turnEvents = (sessions: Session[]) => transitions('w1', look([session('s1', 'w1')]), look(sessions))
+    expect(turnEvents([limited()]).filter((e) => e.kind === 'turn-ended')).toEqual([])
+    // Not armed: it is the failure it always was.
+    const unarmed = session('s1', 'w1', { lastTurn: { outcome: 'limit', turnId: 't1', endedAt: ago(8) } })
+    expect(turnEvents([unarmed]).filter((e) => e.kind === 'turn-ended')).toHaveLength(1)
+    expect(finishedFacts(2, unarmed.lastTurn!)[0]).toBe('Tab 2 paused at a usage limit')
   })
 
   it('a missed resume is the failed turn again, and other reasons still win', () => {

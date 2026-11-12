@@ -1,6 +1,7 @@
 // Parameters and results of the loadout, review model, model and agent methods.
 // Each result has a `text` the command prints unless --json is given; the rows are the contract for scripts.
 import type { EffortLevel } from '../agents'
+import type { AgentCapabilities } from '../agentCapabilities'
 import type { IntegrationLevel } from '../agentCatalog'
 
 /** The effort levels any model may offer; a model's own list is checked when Foreman has it. */
@@ -137,6 +138,8 @@ export interface AgentRow {
   ready?: boolean
   method?: string
   account?: string
+  // Agents with chats only (not the terminal agents): what Foreman can do with it, as the window reads it (docs/agents.md, 2.1).
+  capabilities?: AgentCapabilities
 }
 
 export interface AgentsListResult {

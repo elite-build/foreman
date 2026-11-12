@@ -1,6 +1,7 @@
 // Parameters and results of the chat-tab methods, and the text a chat
 // is printed as. Each result has a `text` the command prints unless --json is given.
 import { durationText } from '../checks'
+import { isChildItem } from '../subagents'
 import type { ChatItem, McpServerInfo, SlashCommandInfo, TurnOutcome } from '../types'
 
 /** Where a command ran, which workspace it names and (for most) which open tab, counting from 1. */
@@ -51,6 +52,11 @@ export interface TabNewParams {
   fast?: boolean
   plan?: boolean
   title?: string
+}
+
+/** `foreman chat switch`: the tab after the switch, and the record of what the next agent will be given (none for a chat with no messages yet). */
+export interface ChatSwitchResult extends TabChangeResult {
+  handOff: import('../chatHandOff').ChatHandOff | null
 }
 
 export interface TabChangeResult {
@@ -257,9 +263,9 @@ export function afterTurn(items: ChatItem[], turnId: string): ChatItem[] {
   return items.slice(last + 1)
 }
 
-/** Items as the JSON a script reads: no thinking, and a tool's output only when asked for. */
+/** Items as the JSON a script reads: no thinking, nothing a subagent did inside its Task call, and a tool's output only when asked for. */
 export function chatItemsOut(items: ChatItem[], toolOutput: boolean): ChatItem[] {
-  return items.filter((i) => i.kind !== 'thinking').map((i) => (i.kind === 'tool' && !toolOutput ? { ...i, output: undefined } : i))
+  return items.filter((i) => i.kind !== 'thinking' && !isChildItem(i)).map((i) => (i.kind === 'tool' && !toolOutput ? { ...i, output: undefined } : i))
 }
 
 /**
@@ -270,6 +276,7 @@ export function renderChat(items: ChatItem[], options: { toolOutput?: boolean; a
   const agent = options.agent ?? 'Agent'
   const blocks: string[] = []
   for (const item of items) {
+    if (isChildItem(item)) continue
     if (item.kind === 'user') {
       const names = (item.attachments ?? []).map((a) => a.name)
       const head = `You${item.steered ? ' (while the agent worked)' : ''} · turn ${item.turnId}`

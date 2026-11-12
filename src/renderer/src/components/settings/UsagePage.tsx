@@ -5,14 +5,17 @@ import { costText, type UsageFigures, type UsageReport } from '../../../../share
 import { useT } from '../../i18n'
 import { api, attempt, selectWorkspace, useStore } from '../../store'
 import { formatDuration } from '../turnResult'
+import type { Settings } from '../../../../shared/types'
 import { LinkButton, Segmented } from '../../ui'
-import { Page, Section } from './controls'
+import { LimitsSection } from './LimitsSection'
+import { Page, resetSettings, Row, saveSettings, Section, useSettings } from './controls'
 
 const RANGES = [7, 30, 90]
 
 /** Settings → Usage: what was reported, by repo and by model. Unknown stays unknown. */
 export function UsagePage() {
   const t = useT()
+  const settings = useSettings()
   const [days, setDays] = useState(30)
   const [report, setReport] = useState<UsageReport | null>(null)
   const repos = useStore((s) => s.snapshot!.repos)
@@ -60,6 +63,29 @@ export function UsagePage() {
 
   return (
     <Page title={t('settings.page.usage')} description={t('settings.usage.desc')}>
+      <LimitsSection />
+      <Section>
+        <Row
+          id="resume-after-limit"
+          label={t('settings.usage.resume.label')}
+          help={t('settings.usage.resume.help')}
+          onReset={settings.resumeAfterLimit === 'auto' ? undefined : () => void resetSettings(['resumeAfterLimit'])}
+        >
+          {(control) => (
+            <Segmented<Settings['resumeAfterLimit']>
+              {...control}
+              label={t('settings.usage.resume.label')}
+              value={settings.resumeAfterLimit}
+              options={[
+                { value: 'auto', label: t('settings.usage.resume.auto') },
+                { value: 'ask', label: t('settings.usage.resume.ask') }
+              ]}
+              onChange={(resumeAfterLimit) => void saveSettings({ resumeAfterLimit })}
+            />
+          )}
+        </Row>
+      </Section>
+      <Section title={t('settings.usage.section.cost')} plain>
       <Segmented
         plain
         small
@@ -134,6 +160,7 @@ export function UsagePage() {
           )}
         </>
       )}
+      </Section>
     </Page>
   )
 }

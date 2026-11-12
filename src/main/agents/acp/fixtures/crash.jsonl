@@ -1,0 +1,8 @@
+{"fixture":1,"agent":"acp","scenario":"crash","version":"conformance-fake 1.0.0","recordedAt":"2026-11-12","evidence":"simulated","note":"The fake agent's end of the connection closes mid-turn, with its prompt unanswered."}
+{"t":1,"dir":"send","data":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true,"elicitation":{"form":{}}},"clientInfo":{"name":"foreman","title":"Foreman","version":"1.0.0"}}}}
+{"t":1,"dir":"recv","data":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true},"agentInfo":{"name":"conformance-fake","version":"1.0.0"}}}}
+{"t":1,"dir":"send","data":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<repo>","mcpServers":[]}}}
+{"t":1,"dir":"recv","data":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"sess-1"}}}
+{"t":1,"dir":"send","data":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"sess-1","prompt":[{"type":"text","text":"Run the tests"}]}}}
+{"t":1,"dir":"recv","data":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Working on"}}}}}
+{"t":2,"dir":"exit","data":{"code":0,"signal":null}}

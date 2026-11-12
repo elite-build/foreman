@@ -3,6 +3,7 @@
 // the "Plan the work" template. Stored on this computer only; nothing goes into the repo.
 import { Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { catalogAgent, DEFAULT_AGENT } from '../../../../shared/agentCatalog'
 import { AGENT_ORDER, AGENTS, type AgentKind } from '../../../../shared/agents'
 import { byteLength, missingPlanTemplates, teachText } from '../../../../shared/agentReports'
 import { partSize } from '../../../../shared/context'
@@ -35,9 +36,10 @@ export function ForemanForAgents({ repo }: { repo: Repo }) {
   const mayStart = useRepoSetting(repo.id, 'agentsMayStart').value
   const checksAfterTurn = useRepoSetting(repo.id, 'checksAfterTurn').value
   const cli = useCliInstalled()
-  const [agent, setAgent] = useState<AgentKind>('claude')
+  const [agent, setAgent] = useState<AgentKind>(DEFAULT_AGENT)
   const templates = useStore((s) => s.snapshot!.settings.promptTemplates)
   const missing = missingPlanTemplates(templates)
+  const note = catalogAgent(agent)?.reportToolsNote
   const taught = teachText({ agent, cli: Boolean(cli), mayStart, checksAfterTurn })
   const code = (text: string) => <code>{text}</code>
 
@@ -95,7 +97,7 @@ export function ForemanForAgents({ repo }: { repo: Repo }) {
             cli !== null && <p className="faint small">{t.rich('reports.settings.nothing', { agent: AGENTS[agent].label, cli: code('foreman') })}</p>
           )}
           {/* G1: Cursor now gets report and request_review as SDK tools, so its reports land on the tab; untested without a key. */}
-          {agent === 'cursor' && taught.text && <p className="faint small">{t('g1.reports.cursorTools')}</p>}
+          {note && taught.text && <p className="faint small">{t(note)}</p>}
         </div>
       </Row>
       <Row id="plan-the-work" label={t('reports.settings.plan')} help={t.rich('reports.settings.planHelp', { run: code('foreman run … --base …') })}>

@@ -13,5 +13,5 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "electron.vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "evals", "electron.vite.config.ts", "vitest.config.ts", "vitest.evals.config.ts", "vitest.record.config.ts", "scripts/record/*.record.ts"]
 }

@@ -41,6 +41,11 @@ export type HostEventBody =
   | { type: 'plan-mode'; on: boolean }
   | { type: 'auto-accept-edits'; on: boolean }
   | { type: 'usage'; usage: ContextUsage }
+  // Docs/agents.md 3: the agent's goal for the conversation (null: cleared), and the prompt cache the turn left.
+  | { type: 'goal'; goal: import('../../shared/types').SessionGoal | null }
+  | { type: 'cache-window'; ttl: '5m' | '1h'; warm: boolean }
+  // Docs/agents.md 2.1: what the agent said about itself when it started (its version), for the account's declared facts.
+  | { type: 'declared'; facts: import('../../shared/agentCapabilities').DeclaredFacts }
   | { type: 'mirror-error'; agentSessionId: string; subpath?: string; error: string }
   // A transcript batch for the app's Claude mirror (SessionStore.append).
   | { type: 'mirror-append'; key: unknown; entries: unknown[] }
@@ -115,6 +120,7 @@ export interface HostMethods {
   setModel(p: { turnId: string; model: string }): { ok: true }
   mcpStatus(p: { turnId: string }): unknown
   reconnectMcp(p: { turnId: string; name: string }): { ok: true }
+  stopChild(p: { turnId: string; childId: string }): { ok: true }
   respond(p: { id: string; response: unknown }): { ok: true }
   callResult(p: { callId: string; result?: unknown; error?: string }): { ok: true }
   // The app applied the turn's end: forget it and delete its log.

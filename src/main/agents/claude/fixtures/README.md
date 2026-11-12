@@ -1,0 +1,3 @@
+# claude fixtures
+
+Traffic recorded from the real Claude Code CLI (as the Agent SDK drives it, on the CLI's stdio) by `npm run record:agent -- claude <scenario>`, one `<scenario>.jsonl` per scenario (docs/agents.md, section 9.1). `plain`, `approval`, `question`, `plan`, `steer`, `interrupt`, `crash`, `resume`, `fork`, `revert`, `compact` and `subagents` are recordings; `limit` is `plain` with the frames a usage limit produces substituted (`edited`, its header lists them). The header names the CLI version and model. `tests/replay/claude.test.ts` plays each through the real driver; `tests/agentFixtures.test.ts` checks none holds a path, key, email or JWT.

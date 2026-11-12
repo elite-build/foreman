@@ -6,11 +6,14 @@ import { stat } from 'node:fs/promises'
 import os from 'node:os'
 import { diag } from './diagnosticsLog'
 import { cloudAgentRefusal } from '../shared/cloud'
-import { AGENTS, builtinCommands, DEFAULT_MODEL, defaultModel, modelInfo, supportsPlan } from '../shared/agents'
+import { AGENTS, builtinCommands, DEFAULT_MODEL, defaultModel, modelInfo } from '../shared/agents'
+import { ability, DEFAULT_ACCOUNT, interruptsToSteer, isFallback, offers, type AgentCapabilities, type DeclaredFacts } from '../shared/agentCapabilities'
 import { planDelivery } from '../shared/delivery'
 import { frozenReason } from '../shared/transfer'
 import { MAX_OPEN_TABS } from '../shared/handOff'
 import { approvalPolicyFor, readOnlyEnforcement } from '../shared/permissions'
+import { MODE_LABEL } from '../shared/agentCapabilityList'
+import { effectivePolicy } from '../shared/permissionModes'
 import { CEILING_NAMES, capIsLower, capPolicy, ceilingRefusal, lowerCap, revokedCapRefusal, type TurnCap } from '../shared/agentAccess'
 import { contextParts, pendingComments } from '../shared/context'
 import { hasNote, noteBlock, noteMessage, savedNote } from '../shared/note'
@@ -18,9 +21,11 @@ import { workspaceUsage } from '../shared/usage'
 import { editIsStale, isAppCommand, moveQueuedMessage } from '../shared/queueEdit'
 import { isActiveRun } from '../shared/flows'
 import { usageLimitOf } from '../shared/usageLimit'
+import { capabilitiesOf, oneShotAgent } from './agents/capabilities'
 import { PreviewEncoder, RESYNC_MS, type ChatAppend } from '../shared/chatAppend'
 import type { DiffComment, NotifyKind, QueueChangeResult, QueueMove, SendReceipt, TurnDelta, TurnInterruption, TurnStatus, UsageLimit, WorkspaceUsage } from '../shared/types'
-import type { TurnPersona } from '../shared/personas'
+import { personaTurnText, type TurnPersona } from '../shared/personas'
+import { cleanTitle, titlePrompt } from '../shared/chatTitle'
 import type {
   AgentApprovalRequest,
   ApprovalRequest,
@@ -40,7 +45,7 @@ import type {
   Workspace
 } from '../shared/types'
 import { driverFor } from './agents/registry'
-import { executablePathFor } from './agents/catalogDrivers'
+import { executablePathFor } from './agents/acp/catalogDrivers'
 import type { AgentTurn, ApprovalPolicy, HostTools, McpLaunch, McpProbe, TurnCallbacks, TurnRequest, TurnResult } from './agents/types'
 import { stepsIn, type ClosedGap } from '../shared/agentHost'
 import { workspaceDiffText } from './diff'
@@ -48,8 +53,11 @@ import { commentsBlock } from '../shared/prompts'
 import { carriedHistory, forkCut, forkCutBefore, forkNoticeText, type ForkCut } from '../shared/fork'
 import type { TFunction } from '../shared/i18n'
 import { mainT } from './i18n'
-import { answeredBy, catchUpBlock, isMixed, lastTurnOf, modelDivider, otherAgentTurns, parkedAfterRewind, turnAuthors, type AgentSwitch } from '../shared/switchAgent'
-import { catalogAgent } from '../shared/agentCatalog'
+import { answeredBy, isMixed, lastTurnOf, modelDivider, otherAgentTurns, parkedAfterRewind, turnAuthors, type AgentSwitch, type PendingHandOff } from '../shared/switchAgent'
+import { buildHandOff, chooseStrategy, clampBudget, handOffRecord, readChatHistory, renderHandOff, type ChatHandOff, type HandOffBuild, type HandOffParty, type HandOffStrategy, type ReadHistoryArgs, type ReadHistoryResult } from '../shared/chatHandOff'
+import { catalogAgent, DEFAULT_AGENT } from '../shared/agentCatalog'
+import { waitingOnLimit, withWindows, type LimitWindow } from '../shared/limits'
+import { IdleCompactor } from './idleCompact'
 import { continuationKey, DEFAULT_MOVE_RULE, INSTANCE_FIELDS, instanceMove, resolveInstance, takesInstances, type AgentInstance, type ResolvedInstance } from '../shared/agentInstances'
 import { agentBaseEnv } from './platform'
 import type { AgentKind } from '../shared/agents'
@@ -108,6 +116,9 @@ export interface SessionEvents {
   attendedApproval?(sessionId: string, waiting: boolean): void
   // #11: something happened in this tab (a send, queue or steer, a rewind or restore, a model change, close or archive): an armed usage-limit resume is moot.
   activity?(sessionId: string): void
+  // Docs/agents.md 7.2: a turn ended at a usage limit and its tab is paused. The tab's reset time and the turn's cap, for the
+  // resume Foreman arms by itself (Settings → Usage). Called before `turnEnded`, so the run a turn belongs to finds the resume armed.
+  limitPaused?(sessionId: string, turnId: string, limit: UsageLimit, cap?: TurnCap): void
 }
 
 // An approval request before it gets its id and session.
@@ -125,6 +136,10 @@ interface TurnState {
   mirrorNoticed: boolean
   // #130: where a conversation the turn starts lives (continuationKey), when it runs on an account.
   conversationKey?: string
+  // The prompt cache the turn left (Claude), for idle compaction.
+  cache?: { ttl: '5m' | '1h'; warm: boolean }
+  // The turn is Foreman compacting an idle chat: its compaction row says so.
+  idle?: boolean
 }
 
 /** O10: what a turn running in the background host adds (see agentHost/client.ts). */
@@ -158,6 +173,8 @@ interface ActiveTurn {
   // The result arrived; the agent process is only winding down.
   finished: boolean
   cancelled: boolean
+  // "Interrupt and send" cut this turn (docs/agents.md 2.5): the id of the user message that starts the next one.
+  restartedBy?: string
 }
 
 const CAN_CHAT = new Set(['ready', 'setting-up', 'setup-failed'])
@@ -268,7 +285,7 @@ export class SessionService {
     private environment: Environment,
     private workspaces: WorkspaceService,
     private events: SessionEvents,
-    // Repo-proposed MCP servers this Mac approved; #20: tabs of every agent with supportsRepoMcp get them.
+    // Repo-proposed MCP servers this Mac approved; #20: tabs of every agent whose record offers `tools.mcp` get them.
     private repoMcp?: RepoMcp,
     // Claude's own transcripts, mirrored here so a conversation can move between machines.
     private mirror?: ClaudeMirror,
@@ -277,6 +294,38 @@ export class SessionService {
     // #2: turn identity, agent reports and "Teach agents Foreman".
     private reports?: TurnReports
   ) {}
+
+  // Docs/agents.md 3: a chat left alone with a large context is compacted before its prompt cache expires (opt-in).
+  private idleCompact = new IdleCompactor({
+    threshold: () => this.store.state.settings.idleCompactTokens ?? 0,
+    eligible: (id) => this.idleCompactable(id),
+    run: (id, cap) => this.send(id, '/compact', { origin: { kind: 'idle-compact' }, ...(cap ? { cap } : {}) }).then(() => undefined),
+    failed: (id, err) => diag.log('idleCompact.failed', { session: id, error: err instanceof Error ? err.message : String(err) })
+  })
+
+  /** Whatever the person did in this tab (typing, queueing, sending, restoring, closing) also means no idle compaction. */
+  private activity(sessionId: string): void {
+    this.idleCompact.cancel(sessionId)
+    this.events.activity?.(sessionId)
+  }
+
+  /** The composer has text in it: the person is about to send something, so an armed idle compaction stands down. */
+  noteTyping(sessionId: string): void {
+    this.idleCompact.cancel(sessionId)
+  }
+
+  /**
+   * The tab is still waiting for the person when the compaction would start: nothing running or queued, no resume armed, and not a tab
+   * nobody is at: a scheduled run's or a flow run's workspace (a turn there has no one to read a "Compacted while idle" row, and the
+   * run's own steps decide what its context holds), whether or not the turn that just ended was unattended.
+   */
+  private idleCompactable(id: string): boolean {
+    const s = this.store.state.sessions.find((x) => x.id === id)
+    const ws = s && this.store.state.workspaces.find((w) => w.id === s.workspaceId)
+    if (!ws || ws.scheduled || ws.flowRun) return false
+    if (!s || s.closedAt || s.status !== 'idle' || s.turnId || s.queue.length || s.unattended || s.autoReview || s.waitingForSlot || !s.agentSessionId) return false
+    return !this.turns.has(id) && !this.starting.has(id) && !waitingOnLimit(s) && !s.limitResume && !this.frozen
+  }
 
   private changed() {
     this.store.save()
@@ -310,7 +359,7 @@ export class SessionService {
       throw new Error(`Maximum of ${MAX_OPEN_TABS} chats per workspace. Close one first.`)
     }
     const { settings } = this.store.state
-    const loadout = settings.loadouts[0] ?? { agent: 'claude' as const, model: DEFAULT_MODEL.claude, fast: false }
+    const loadout = settings.loadouts[0] ?? { agent: DEFAULT_AGENT, model: DEFAULT_MODEL[DEFAULT_AGENT], fast: false }
     const agent = patch.agent ?? loadout.agent
     const sameAgent = agent === loadout.agent
     const model = patch.model ?? (sameAgent ? loadout.model : defaultModel(agent))
@@ -374,7 +423,7 @@ export class SessionService {
       ? source.agentSessionId && source.lastAssistantUuid ? { sessionId: source.agentSessionId, messageUuid: source.lastAssistantUuid } : undefined
       : cut.resumeFrom
     // O1: in a chat other agents answered part of, Claude's own conversation isn't the whole chat, so the fork carries the history as text.
-    const native = source.agent === 'claude' && !source.nativeLineage && !source.forkOnResume && !source.seedHistory && otherAgentTurns(cut.items, 'claude') === 0 && resume
+    const native = chooseStrategy({ sameAgent: true, sameHome: true, forkNative: this.record(source.agent)?.threads.fork.level === 'native', parked: false, resumeNative: false }) === 'native-fork' && !source.nativeLineage && !source.forkOnResume && !source.seedHistory && otherAgentTurns(cut.items, source.agent) === 0 && resume
     // #130: a fork stays on the chat's account.
     const fork = this.createSession(source.workspaceId, {
       agent: source.agent,
@@ -440,12 +489,16 @@ export class SessionService {
     const active = this.turns.get(id)
     // #11: a different agent or model (effort and fast included) makes an armed usage-limit resume moot.
     const modelChanged = [patch.agent !== undefined && patch.agent !== session.agent, patch.model !== undefined && patch.model !== session.model, patch.effort !== undefined && patch.effort !== session.effort, patch.fastMode !== undefined && patch.fastMode !== session.fastMode, patch.instanceId !== undefined && (patch.instanceId ?? undefined) !== session.instanceId].some(Boolean)
+    // docs/agents.md 5.4: a remote workspace signs its agent in its own way, so it takes only the default account (the picker says so before this).
+    if (patch.instanceId && this.workspaces.workspace(session.workspaceId).cloud) throw new Error(this.t()('agentAccounts.error.cloud'))
     if (patch.agent && patch.agent !== session.agent) {
       // #22: a Terminal agent runs its own CLI in a terminal tab; it can't take a chat over.
       if (!AGENTS[patch.agent]) throw new Error(`${catalogAgent(patch.agent)?.name ?? patch.agent} is a Terminal agent: it runs in its own terminal tab and can’t continue a chat. Open it from the picker’s Terminal group.`)
       if (active || session.turnId || this.starting.has(id)) throw new Error('Wait for this turn to finish before switching agents')
       if (session.importedMode === 'history') throw new Error('This chat was imported as history only. Open a new chat to continue the work.')
-      if (session.readOnly && !readOnlyEnforcement(patch.agent)) throw new Error(`This chat is read-only, which ${AGENTS[patch.agent].label} can’t enforce`)
+      // The account it would run on: the one asked for, else the parked conversation's, else the workspace's (the default account when none).
+      const landing = patch.instanceId !== undefined ? patch.instanceId || undefined : (session.parked?.[patch.agent]?.instanceId ?? this.workspaces.workspace(session.workspaceId).agentInstances?.[patch.agent])
+      if (session.readOnly && !readOnlyEnforcement(this.record(patch.agent, landing))) throw new Error(`This chat is read-only, which ${AGENTS[patch.agent].label} can’t enforce`)
       // #130: an account asked for with the switch is checked before anything changes (the conversation it would resume, if one is parked).
       if (patch.instanceId !== undefined) {
         const back = session.parked?.[patch.agent]
@@ -479,17 +532,34 @@ export class SessionService {
     if (patch.planMode !== undefined && patch.planMode !== session.planMode) {
       if (patch.planMode && !this.planCapable(session.agent)) throw new Error('Plan mode is not available for this agent')
       // #16: a read-only Claude chat can't leave plan mode, from the composer, /plan or anywhere else.
-      if (!patch.planMode && session.readOnly && session.agent === 'claude') throw new Error('This chat is read-only, so it stays in plan mode')
+      if (!patch.planMode && session.readOnly && readOnlyEnforcement(this.record(session.agent, session.instanceId)) === 'plan') throw new Error('This chat is read-only, so it stays in plan mode')
       session.planMode = patch.planMode
       await active?.turn.setPlanMode(session.planMode)
     }
-    if (modelChanged) this.events.activity?.(id)
+    if (modelChanged) this.activity(id)
     this.changed()
   }
 
-  /** G1: Claude's plan mode, or the plan session mode an ACP agent declared (kept in the model catalog). */
+  /** The agent's capability record: its static facts, its driver's features, and what it declared at its last start (docs/agents.md 2.3); `instance` is the account, whose own declaration (Codex's Windows sandbox) counts. */
+  private record(agent: AgentKind, instance?: string | null): AgentCapabilities | undefined {
+    return capabilitiesOf(agent, this.store.state.catalog?.agents, this.store.state.declared, instance ?? undefined)
+  }
+
+  /** G1: Claude's plan mode, or the plan session mode an ACP agent declared (kept in the model catalog and resolved into its record). */
   private planCapable(agent: AgentKind): boolean {
-    return supportsPlan(agent, this.store.state.catalog.agents[agent]?.modes)
+    const record = this.record(agent)
+    return Boolean(record) && offers(record!.planning.planMode)
+  }
+
+  /** The agent that writes chat titles (and answers a one-shot question): the first whose driver does, in catalog order. */
+  private titleAgent(): AgentKind | undefined {
+    return oneShotAgent()
+  }
+
+  /** Whether approved repo MCP servers, Foreman's own tools and integrations reach this agent's turns (`tools.mcp` of its record). */
+  private takesMcp(agent: AgentKind): boolean {
+    const record = this.record(agent)
+    return Boolean(record) && offers(record!.tools.mcp)
   }
 
   /** O1 (G1): "Model changed to … · same conversation" where the tab moved to another model of the same agent. */
@@ -516,7 +586,7 @@ export class SessionService {
     session.fastMode = false
     if (!this.planCapable(agent)) session.planMode = false
     // #16: a read-only tab stays read-only: back on Claude, that is plan mode it can't leave.
-    if (session.readOnly && readOnlyEnforcement(agent) === 'plan') session.planMode = true
+    if (session.readOnly && readOnlyEnforcement(this.record(agent)) === 'plan') session.planMode = true
   }
 
   /**
@@ -527,6 +597,7 @@ export class SessionService {
    */
   private async switchAgent(session: Session, to: AgentKind, model: string): Promise<void> {
     const from = session.agent
+    const fromParty: HandOffParty = { agent: from, ...(session.instanceId ? { instance: session.instanceId } : {}), model: session.model }
     const items = await this.store.readChat(session.id)
     const parked = { ...session.parked }
     if (session.agentSessionId) {
@@ -541,8 +612,13 @@ export class SessionService {
         ...(session.conversationKey ? { conversationKey: session.conversationKey } : {})
       }
     }
-    const back = parked[to]
-    delete parked[to]
+    // docs/agents.md 5.3: an agent that saw the chat resumes its own conversation (when it can) and gets only the delta.
+    const parkedBack = parked[to]
+    const resume = this.record(to)?.threads.resume
+    const back = parkedBack && (!resume || offers(resume)) ? parkedBack : undefined
+    // A parked conversation this agent can't resume stays parked: it was not superseded (nothing replaced it), and it is overwritten only
+    // when this tab leaves the agent again with a conversation of its own to park.
+    if (back) delete parked[to]
     session.parked = Object.keys(parked).length ? parked : undefined
     // #130: back on its own conversation, on the account it ran on; otherwise on the workspace's pick for that agent.
     session.instanceId = back ? back.instanceId : this.workspaces.workspace(session.workspaceId).agentInstances?.[to]
@@ -557,18 +633,71 @@ export class SessionService {
     const hasHistory = items.some((i) => i.kind === 'user')
     session.seedHistory = !back && hasHistory ? 'switch' : undefined
     session.catchUpSince = back?.lastTurnId
+    session.handOffPending = undefined
     if (!hasHistory) return
-    const switched: AgentSwitch = { from, to, model, carried: back ? 'native' : 'history' }
+    // The record is worked out now, so the notice (and `foreman chat switch`) can say what the agent will be given; the
+    // first turn that carries it writes it again with its turn id.
+    const pending: PendingHandOff = { noticeId: `switch:${randomUUID()}`, from: fromParty, to: { agent: to, ...(session.instanceId ? { instance: session.instanceId } : {}), model }, resumed: Boolean(back) }
+    session.handOffPending = pending
+    const plan = this.handOffFor(session, items)
+    const handOff = plan && handOffRecord(plan.build, { from: pending.from, to: pending.to, strategy: plan.strategy })
+    const switched: AgentSwitch = { from, to, model, carried: back ? 'native' : 'history', ...(handOff ? { handOff } : {}) }
     const name = `${AGENTS[to].label} · ${modelInfo(to, model).label}`
+    const counts = handOff ? `${handOff.full.length} turns in full, ${handOff.condensed.length} condensed, ${handOff.omitted.length} left out` : ''
     this.emit(session.id, {
       kind: 'notice',
-      id: `switch:${randomUUID()}`,
+      id: pending.noticeId,
       level: 'info',
       text: back
-        ? `Back to ${name} · resumed its own session, with a short note of what was said in between`
-        : `Switched to ${name} · earlier messages passed as text (newest 100k characters)`,
+        ? `Back to ${name} · resumed its own session${handOff ? ` · ${handOff.full.length + handOff.condensed.length + handOff.omitted.length} turns since it left` : ''}`
+        : `Switched to ${name}${counts ? ` · ${counts}` : ''}`,
       switched
     })
+  }
+
+  /** The tokens the next agent may be given of a chat (Settings → Default models), within its limits. */
+  private handOffBudget(): number {
+    return clampBudget(this.store.state.settings.handOffTokenBudget)
+  }
+
+  /**
+   * What the tab's next turn is given of the chat so far (docs/agents.md 5.2, 5.3): a switched tab's agent gets the chat as
+   * attributed text, one switched back to its own conversation only what was said since its last turn there. `items` is the chat
+   * before the new message. Nothing for a tab with nothing to carry, or a fork, which has its own carried history.
+   */
+  private handOffFor(session: Session, items: ChatItem[]): { build: HandOffBuild; strategy: HandOffStrategy; text: string; slot: 'history' | 'catchUp' } | undefined {
+    const canRead = this.takesMcp(session.agent)
+    const budget = this.handOffBudget()
+    if (session.seedHistory === 'switch' || session.seedHistory === 'account' || session.seedHistory === 'restore') {
+      const build = buildHandOff(items, session, undefined, budget)
+      return { build, strategy: 'prompt-full', text: renderHandOff(build, { reason: session.seedHistory, canRead }), slot: 'history' }
+    }
+    if (session.catchUpSince) {
+      const build = buildHandOff(items, session, session.catchUpSince, budget)
+      // A parked turn the chat no longer has (it was rewound) is not a delta: the whole chat goes as text.
+      const strategy = build.delta ? chooseStrategy({ sameAgent: false, sameHome: false, forkNative: false, parked: true, resumeNative: true }) : 'prompt-full'
+      return { build, strategy, text: renderHandOff(build, { reason: 'return', canRead }), slot: 'catchUp' }
+    }
+    // Back on its own conversation with nothing said since: the record says so, with nothing sent.
+    if (session.handOffPending?.resumed) return { build: buildHandOff([], session, undefined, budget), strategy: 'resume-delta', text: '', slot: 'catchUp' }
+    return undefined
+  }
+
+  /** Writes the record onto the switch (or account) notice that the turn which carried it belongs to. */
+  private recordHandOff(session: Session, before: ChatItem[], pending: PendingHandOff, plan: { build: HandOffBuild; strategy: HandOffStrategy }, turnId: string): void {
+    const notice = before.find((i) => i.id === pending.noticeId)
+    if (!notice || notice.kind !== 'notice') return
+    const handOff = handOffRecord(plan.build, { from: pending.from, to: pending.to, strategy: plan.strategy, turnId })
+    this.emit(session.id, notice.switched ? { ...notice, switched: { ...notice.switched, handOff } } : { ...notice, handOff })
+  }
+
+  /**
+   * The `read_chat_history` tool (docs/agents.md 5.3): turns of the chat the calling turn belongs to, in full. The session
+   * is the turn's own (its grant), never one the agent names, so no turn can read another chat.
+   */
+  async readChatHistory(sessionId: string, args: ReadHistoryArgs): Promise<ReadHistoryResult> {
+    const session = this.session(sessionId)
+    return readChatHistory(await this.store.readChat(sessionId), args, session)
   }
 
   // ---- #130: accounts ----
@@ -606,7 +735,9 @@ export class SessionService {
     const items = await this.store.readChat(session.id)
     const hasHistory = items.some((i) => i.kind === 'user')
     const hadConversation = Boolean(session.agentSessionId)
+    const fromParty: HandOffParty = { agent: session.agent, ...(session.instanceId ? { instance: session.instanceId } : {}), model: session.model }
     if (move === 'carry') this.dropConversation(session, hasHistory)
+    session.handOffPending = undefined
     session.instanceId = target.kind === 'instance' ? target.instance.id : undefined
     session.conversationKey = session.agentSessionId ? toKey : undefined
     this.closeMcpProbe(session.id)
@@ -617,12 +748,21 @@ export class SessionService {
     ws.agentInstances = Object.keys(picks).length ? picks : undefined
     if (!hasHistory) return
     const account = target.kind === 'instance' ? target.instance.label : t('agentAccounts.default')
+    // A new conversation on the other account is given the chat as text: that is a hand-over worth a record (docs/agents.md 5.3).
+    let handOff: ChatHandOff | undefined
+    const noticeId = `account:${randomUUID()}`
+    if (move === 'carry' && hasHistory) {
+      session.handOffPending = { noticeId, from: fromParty, to: { agent: session.agent, ...(session.instanceId ? { instance: session.instanceId } : {}), model: session.model }, resumed: false }
+      const plan = this.handOffFor(session, items)
+      handOff = plan && handOffRecord(plan.build, { from: session.handOffPending.from, to: session.handOffPending.to, strategy: plan.strategy })
+    }
     this.emit(session.id, {
       kind: 'notice',
-      id: `account:${randomUUID()}`,
+      id: noticeId,
       level: 'info',
       // A chat whose agent has no conversation of its own yet only says where it is now.
-      text: t(move === 'carry' ? 'agentAccounts.notice.carried' : hadConversation ? 'agentAccounts.notice.same' : 'agentAccounts.notice.moved', { account, agent })
+      text: t(move === 'carry' ? 'agentAccounts.notice.carried' : hadConversation ? 'agentAccounts.notice.same' : 'agentAccounts.notice.moved', { account, agent }),
+      ...(handOff ? { handOff } : {})
     })
   }
 
@@ -642,6 +782,8 @@ export class SessionService {
     session.agentSessionId = undefined
     session.lastAssistantUuid = undefined
     session.resumeAt = undefined
+    session.rewound = undefined
+    session.goal = undefined
     session.nativeFork = undefined
     session.forkOnResume = undefined
     session.catchUpSince = undefined
@@ -669,13 +811,13 @@ export class SessionService {
     return home && name ? { [name]: home } : undefined
   }
 
-  /** #130: the account a chat title is written on: the chat's own for a Claude chat, else Claude's default account. */
-  private titleAccount(session: Session): { env: Record<string, string>; executablePath?: string } {
-    const resolved = session.agent === 'claude' ? this.accountOf(session) : ({ kind: 'default' } as const)
+  /** #130: the account a chat title is written on: the chat's own where its agent writes titles, else that agent's default account. */
+  private titleAccount(session: Session, titleAgent: AgentKind): { env: Record<string, string>; executablePath?: string } {
+    const resolved = session.agent === titleAgent ? this.accountOf(session) : ({ kind: 'default' } as const)
     // A removed account writes no title (the turn says why); the fallback title stands in.
     if (resolved.kind === 'missing') throw new Error('No account for the title')
     const account = resolved.kind === 'instance' ? resolved.instance : undefined
-    return { env: this.environment.forAgent('claude', undefined, {}, account), executablePath: executablePathFor(this.store.state.settings, 'claude', account) }
+    return { env: this.environment.forAgent(titleAgent, undefined, {}, account), executablePath: executablePathFor(this.store.state.settings, titleAgent, account) }
   }
 
   async closeSession(id: string): Promise<void> {
@@ -684,7 +826,7 @@ export class SessionService {
     // Its integration grants end with it.
     this.integrations?.endSession(id)
     this.foremanMcp?.endSession(id)
-    this.events.activity?.(id)
+    this.activity(id)
     session.closedAt = new Date().toISOString()
     // A workspace always keeps at least one chat open.
     if (this.openSessions(session.workspaceId).length === 0) this.createSession(session.workspaceId)
@@ -806,12 +948,13 @@ export class SessionService {
     if (refusal) throw new Error(refusal)
 
     // #11: whatever this turns out to be (send, queue, steer, /clear), an armed usage-limit resume in this tab is moot.
-    this.events.activity?.(sessionId)
+    this.activity(sessionId)
     // Before anything else: a check running here gives way to the message (app commands like /plan aren't work).
     if (!/^\/\S+$/.test(text.trim())) this.events.workStarting?.(ws.id)
     if (await this.handleCommand(session, text.trim())) return { disposition: 'handled' }
     // #2: a message in this tab answers what its agent reported it needs (a `foreman send` from a script doesn't).
-    if (options.via !== 'cli') this.reports?.replied(sessionId)
+    // Not Foreman's own maintenance (an idle compaction is nobody's answer, and mustn't clear what the agent is waiting to be told).
+    if (options.via !== 'cli' && options.origin?.kind !== 'idle-compact') this.reports?.replied(sessionId)
     // Cloud: this chat's last turn lost its connection, and its agent may still run in the sandbox. Pick it up first,
     // so this message queues behind it (or waits, while the sandbox can't be reached) instead of starting a second agent.
     const lost = ws.cloud && !this.turns.has(sessionId) && !this.starting.has(sessionId) ? await this.cloudHost?.resolveLost?.(sessionId) : undefined
@@ -825,7 +968,8 @@ export class SessionService {
       starting: this.starting.has(sessionId),
       running,
       mode: options.mode ?? this.store.state.settings.followUpMode,
-      canSteer: AGENTS[session.agent].supportsSteering
+      canSteer: this.record(session.agent)?.turns.steer.level === 'native',
+      canInterrupt: interruptsToSteer(this.record(session.agent))
     })
     // docs/agent-access.md §4: a capped message never steers into a turn held less than it would be (or not held at all);
     // it waits in the queue for a turn of its own. Steered, it runs under the running turn's cap, the lower of the two.
@@ -843,6 +987,29 @@ export class SessionService {
         return { disposition: 'steered', turnId: active.turnId }
       }
     }
+    // docs/agents.md 2.5, `interrupt-restart`: an agent that can't take a message mid-turn is stopped, and the message starts the
+    // next turn of the same conversation. Held to the same cap rule as a steer; a turn already being cut leaves this one queued.
+    if (plan === 'interrupt' && active && !active.cancelled && !capIsLower(cap, session.turnCap)) {
+      const turnId = options.turnId ?? randomUUID()
+      active.restartedBy = `user:${turnId}`
+      await this.cancel(sessionId)
+      if (!this.turns.has(sessionId) && !this.starting.has(sessionId)) {
+        if (this.slotFree(session, ws)) {
+          await this.startTurn(session, ws, text, attachments, followUp, turnId, { noteRevision: options.noteRevision, skipComments: options.skipComments, repoTemplate, origin: options.origin, cap })
+          return { disposition: 'started', turnId }
+        }
+        // Every agent slot is taken: the message goes first and waits its turn, as a message to an idle tab does.
+        const revision = this.queueChanged(session)
+        const queued = { id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin, ...(cap ? { cap } : {}) }
+        session.queue.unshift(queued)
+        this.waitForSlot(session)
+        return { disposition: 'queued', turnId }
+      }
+      const revision = this.queueChanged(session)
+      session.queue.unshift({ id: randomUUID(), turnId, text, attachments, templateId: options.templateId, followUp, repoTemplate, noteRevision: options.noteRevision, skipComments: options.skipComments, revision, via: options.via, origin: options.origin, ...(cap ? { cap } : {}) })
+      this.changed()
+      return { disposition: 'queued', turnId }
+    }
     if (plan !== 'start') {
       const turnId = options.turnId ?? randomUUID()
       const revision = this.queueChanged(session)
@@ -852,7 +1019,7 @@ export class SessionService {
     }
     // Let a wrapping-up agent process exit before continuing its conversation. One that takes longer than a moment
     // (a poor connection can hold up Claude Code's exit) must not hold the message unseen: it waits in the queue,
-    // which the turn's end drains, and the driver closes a process that outlives its turn (claude.ts).
+    // which the turn's end drains, and the driver closes a process that outlives its turn (claude/index.ts).
     if (active && !(await settles(active.done, LINGER_MS))) {
       const turnId = options.turnId ?? randomUUID()
       const revision = this.queueChanged(session)
@@ -938,12 +1105,15 @@ export class SessionService {
       await this.cancel(session.id)
       session.agentSessionId = undefined
       session.resumeAt = undefined
+      session.rewound = undefined
+      session.goal = undefined
       session.lastAssistantUuid = undefined
       session.contextUsage = undefined
       // O1: a fresh conversation has nothing to resume or carry.
       session.parked = undefined
       session.catchUpSince = undefined
       session.seedHistory = undefined
+      session.handOffPending = undefined
       session.queue = []
       this.queueChanged(session)
       const notice: ChatItem = { kind: 'notice', id: `clear:${randomUUID()}`, level: 'info', text: 'Started a fresh conversation.' }
@@ -973,32 +1143,74 @@ export class SessionService {
   /** #16: how this chat is held to read-only, or null when it isn't (or its agent can't enforce it, which refuses the turn). A flow step's persona can hold one turn read-only. */
   private readOnly(session: Session): ReturnType<typeof readOnlyEnforcement> {
     if (!session.readOnly && !this.turnPersona(session)?.readOnly) return null
-    const how = readOnlyEnforcement(session.agent)
-    if (!how) throw new Error(`This chat is read-only, which ${AGENTS[session.agent].label} can’t enforce`)
+    const how = readOnlyEnforcement(this.record(session.agent, session.instanceId))
+    if (!how) {
+      // Not the agent's record, which an account's declaration changes: the static one says the agent can hold it, so the account's can't.
+      const notReady = capabilitiesOf(session.agent, this.store.state.catalog?.agents)?.enforcement.readOnly
+      throw new Error(`This chat is read-only, which ${AGENTS[session.agent].label} can’t enforce${notReady ? ' while its sandbox isn’t ready on this computer' : ''}`)
+    }
     return how
   }
 
   /**
-   * A flow step's scoped writes for this turn: its persona's globs, unless the turn is read-only. Only Claude can be held
-   * to them (a hook refuses file tools elsewhere and every shell); on another agent the turn is refused.
+   * A flow step's scoped writes for this turn: its persona's globs, unless the turn is read-only. Only an agent whose record offers
+   * scoped writes can be held to them (Claude: a hook refuses file tools elsewhere and every shell; Codex: its read-only sandbox, with
+   * every write or command that asks decided by Foreman, docs/agents.md 8); on another the turn is refused.
    */
   private writeScope(session: Session): string[] | undefined {
     const writes = this.turnPersona(session)?.writes
     if (!writes?.length || this.readOnly(session)) return undefined
-    if (session.agent !== 'claude') throw new Error(`This flow step may only write inside ${writes.join(', ')}, which only Claude can be held to`)
+    const scoped = this.record(session.agent, session.instanceId)?.enforcement.scopedWrites
+    if (!scoped || !offers(scoped)) throw new Error(`This flow step may only write inside ${writes.join(', ')}, which ${AGENTS[session.agent]?.label ?? session.agent} can’t be held to${scoped?.why === 'agentCaps.why.sandboxNotReady' ? ' while its sandbox isn’t ready on this computer' : ''}`)
     return writes
   }
 
   private approvalPolicy(session: Session): ApprovalPolicy {
-    // A scheduled run is always Claude's auto mode, whatever the app's setting says; what auto won't approve stops the run.
-    // Codex: "sandboxed" keeps it to the workspace and it asks before stepping outside, "always" lifts the sandbox.
-    const policy = session.unattended ? 'auto' : approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
-    // docs/agent-access.md §3: a capped turn runs at the lower of that and its ceiling, or not at all where its agent can't be held to it.
+    return this.resolvePolicy(session).policy
+  }
+
+  /**
+   * The mode this turn runs in (docs/agents.md 3, "Permission modes"): what is stored, as the agent's record honours it. A scheduled run
+   * is always Claude's auto mode, whatever the app's setting says; what auto won't approve stops the run. Codex: "sandboxed" keeps it to
+   * the workspace and it asks before stepping outside, "always" lifts the sandbox. docs/agent-access.md §3: a capped turn runs at the
+   * lower of that and its ceiling, or not at all where its agent can't be held to it; nothing else is ever refused for its mode.
+   */
+  private resolvePolicy(session: Session): { policy: ApprovalPolicy; changed?: { stored: ApprovalPolicy; by: 'agent' | 'foreman' } } {
+    const stored = session.unattended ? 'auto' : approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
     const cap = session.turnCap
-    if (!cap) return policy
-    const capped = capPolicy(policy, cap.ceiling, session.agent)
-    if (!capped) throw new Error(ceilingRefusal(session.agent, cap) ?? 'This turn can’t be held to its access.')
-    return capped
+    // The account's own record: a Codex sandbox that isn't ready on this account's home holds no ceiling (docs/agents.md 8).
+    const record = this.record(session.agent, session.instanceId)
+    // An agent with no record is held to the ceilings by the old table and runs as stored.
+    if (!record) {
+      if (!cap) return { policy: stored }
+      const capped = capPolicy(stored, cap.ceiling, session.agent)
+      if (!capped) throw new Error(ceilingRefusal(session.agent, cap) ?? 'This turn can’t be held to its access.')
+      return { policy: capped }
+    }
+    const effective = effectivePolicy(record, stored, cap)
+    if (effective.refused) throw new Error(ceilingRefusal(session.agent, cap) ?? 'This turn can’t be held to its access.')
+    return { policy: effective.policy, ...(effective.changed ? { changed: effective.changed } : {}) }
+  }
+
+  /**
+   * Says once, in the chat, when the agent runs in a mode other than the stored one and who holds the one it runs in; said again only
+   * when the stored mode or what the agent runs as changes. Never silent, and never a reason to refuse.
+   */
+  private noteMode(session: Session, turnId: string, resolved: { policy: ApprovalPolicy; changed?: { stored: ApprovalPolicy; by: 'agent' | 'foreman' } }): void {
+    const kept = resolved.changed ? `${resolved.changed.stored}>${resolved.policy}` : undefined
+    if (session.modeNoticed === kept) return
+    session.modeNoticed = kept
+    if (!resolved.changed) return
+    const t = this.t()
+    const by = t(resolved.changed.by === 'foreman' ? 'permissionModes.by.foreman' : 'permissionModes.by.agent')
+    const agent = AGENTS[session.agent].label
+    this.emit(session.id, {
+      kind: 'notice',
+      id: `${turnId}:mode`,
+      turnId,
+      level: 'info',
+      text: resolved.policy === 'never-ask' ? t('permissionModes.notice.noAsk', { agent, by }) : t('permissionModes.notice.other', { agent, stored: t(MODE_LABEL[resolved.changed.stored]), mode: t(MODE_LABEL[resolved.policy]), by })
+    })
   }
 
   /** docs/agent-access.md §3: the cap that protects agent and git configuration in this turn, when it holds it below Never ask. */
@@ -1183,7 +1395,7 @@ export class SessionService {
       repoTemplate: extras.repoTemplate,
       origin: extras.origin,
       // #16: the receipt says this turn ran read-only, and how that was enforced (a flow step's persona can make it so).
-      readOnly: session.readOnly || this.turnPersona(session)?.readOnly ? readOnlyEnforcement(session.agent) ?? undefined : undefined,
+      readOnly: session.readOnly || this.turnPersona(session)?.readOnly ? readOnlyEnforcement(this.record(session.agent, session.instanceId)) ?? undefined : undefined,
       // docs/agent-access.md §4: what continues or retries this turn reads its cap here.
       ...(extras.cap ? { cap: extras.cap } : {}),
       // O1: which agent and model answered it, as a tab can switch agents.
@@ -1278,7 +1490,7 @@ export class SessionService {
     const pending = skipComments ? [] : pendingComments(this.store.state.comments, ws.id)
     for (const comment of pending) comment.state = 'sent'
     const general = this.workspaces.settingsFor(ws.repoId).prompts.general.trim()
-    const followups = session.agent === 'claude' && this.workspaces.settingsFor(ws.repoId).suggestFollowups !== false
+    const followups = Boolean(this.record(session.agent)?.features.followups) && this.workspaces.settingsFor(ws.repoId).suggestFollowups !== false
     const baseInstructions = this.workspaces.agentContext(ws) +
       (general ? `\n\nThe user's standing instructions for this repository (they take precedence):\n${general}` : '')
     // #2: "Teach agents Foreman" (a repo setting, fixed when the chat starts) adds how to report, filtered to what this agent can use.
@@ -1288,8 +1500,8 @@ export class SessionService {
     // A flow step's persona: its instructions follow the rest, for this turn only; its MCP list keeps fewer servers.
     const persona = this.turnPersona(session)
     const scope = this.writeScope(session)
-    const scopeText = scope ? `\n\nThis step may only write files inside ${scope.join(', ')} (relative to the workspace root). Foreman refuses writes anywhere else and gives this turn no shell; read with Read, Grep and Glob.` : ''
-    const personaText = persona?.name && persona.instructions?.trim() ? `This turn is a step of a Foreman flow, run as the persona “${persona.name}”. Its instructions:\n${persona.instructions.trim()}${scopeText}` : scopeText.trim()
+    const scopeText = scope ? `\n\nThis step may only write files inside ${scope.join(', ')} (relative to the workspace root). Foreman refuses writes anywhere else, and any command that could write; read with what only reads.` : ''
+    const personaText = persona?.name && persona.instructions?.trim() ? `${personaTurnText(persona.name, persona.instructions)}${scopeText}` : scopeText.trim()
     const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '') + (personaText ? `\n\n${personaText}` : '')
     const integServers = persona?.mcp ? Object.fromEntries(Object.entries(integ.servers).filter(([name]) => persona.mcp!.includes(name))) : integ.servers
 
@@ -1298,10 +1510,14 @@ export class SessionService {
     const commentsText = commentsBlock(pending)
     // A fork that can't branch the agent's conversation carries the history it was forked with.
     // O1: a tab switched to this agent carries its history the same way; one switched back to an agent's own conversation carries a note of what was said meanwhile.
-    const before = session.seedHistory || session.catchUpSince ? await this.historyBefore(sessionId, message.id) : []
-    const carried = session.seedHistory ? carriedHistory(before, session.seedHistory === true ? 'fork' : session.seedHistory) : { text: '', cut: false }
-    const historyText = carried.text
-    const catchUp = session.catchUpSince ? catchUpBlock(before, session.catchUpSince, session) : { text: '', cut: false }
+    // docs/agents.md 5: both come from one builder with a budget, and the record of what was given goes on the notice of the switch.
+    const before = session.seedHistory || session.catchUpSince || session.handOffPending ? await this.historyBefore(sessionId, message.id) : []
+    const forkHistory = session.seedHistory === true ? carriedHistory(before, 'fork') : { text: '', cut: false }
+    const handOff = session.seedHistory === true ? undefined : this.handOffFor(session, before)
+    const historyText = forkHistory.text || (handOff?.slot === 'history' ? handOff.text : '')
+    const carried = { text: historyText, cut: forkHistory.cut || (handOff?.slot === 'history' && handOff.build.omitted.length > 0) }
+    const catchUp = { text: handOff?.slot === 'catchUp' ? handOff.text : '' }
+    if (handOff && session.handOffPending) this.recordHandOff(session, before, session.handOffPending, handOff, turnId)
     const sizes = await Promise.all(attachments.map(async (a) => ({ name: a.name, bytes: await stat(a.path).then((i) => i.size, () => undefined) })))
     // #20: the approved repo servers this agent gets; the receipt names them when the set changed since this tab's last turn.
     const repoMcp = this.repoMcpFor(session, ws, persona?.mcp)
@@ -1318,7 +1534,7 @@ export class SessionService {
       attachmentText,
       attachments: sizes,
       historyText,
-      historySource: session.seedHistory === 'switch' || session.seedHistory === 'account' ? t('context.history.sourceSwitch', { agent: answeredBy(before, session) }) : undefined,
+      historySource: session.seedHistory === 'switch' || session.seedHistory === 'account' || session.seedHistory === 'restore' ? t('context.history.sourceSwitch', { agent: answeredBy(before, session) }) : undefined,
       historyCut: carried.cut,
       catchUpText: catchUp.text,
       catchUpSource: t('context.catchUp.sourceSince', { agent: AGENTS[session.agent].label }),
@@ -1337,10 +1553,12 @@ export class SessionService {
     const hosted = Boolean(host?.keeps(session.agent, ws))
     // Foreman's own tools (`foreman-app`): a Claude turn in the app gets them in-process; any other turn that takes MCP
     // servers gets the stdio bridge, a process of its own that reaches the app over the CLI socket.
-    const appTools = Boolean(AGENTS[session.agent]?.supportsRepoMcp)
-    const inProcess = session.agent === 'claude' && !hosted && !ws.cloud
+    const appTools = this.takesMcp(session.agent)
+    const inProcess = Boolean(driverFor(session.agent).accepts?.inProcessMcp) && !hosted && !ws.cloud
     const appServers = appTools && !inProcess ? this.foremanMcp?.forTurn(session, Boolean(ws.cloud)) ?? {} : {}
     const inProcessMcp = appTools && inProcess ? this.foremanMcp?.inProcessForTurn(session) : undefined
+    const policy = this.resolvePolicy(session)
+    this.noteMode(session, turnId, policy)
     const request: TurnRequest = {
         turnId,
         prompt: historyText + catchUp.text + text + attachmentText + noteText + commentsText,
@@ -1350,17 +1568,19 @@ export class SessionService {
         effort: session.effort,
         fastMode: session.fastMode,
         planMode: session.planMode || this.readOnly(session) === 'plan',
-        approvals: this.approvalPolicy(session),
+        approvals: policy.policy,
         readOnly: this.readOnly(session) ? true : undefined,
         writeScope: scope,
+        instance: session.instanceId,
         resume: session.agentSessionId,
         resumeAt: session.resumeAt,
+        rewind: session.rewound && session.resumeAt ? true : undefined,
         systemPromptAppend,
         executablePath: this.executablePath(session, account),
         hostTools: this.hostTools(ws, session, turnId, followups),
         outputStyle: session.outputStyle,
         chrome: this.store.state.settings.chromeMode,
-        launchArgs: session.agent === 'claude' && account?.args?.length ? account.args : undefined,
+        launchArgs: takesInstances(session.agent) && INSTANCE_FIELDS[session.agent].args && account?.args?.length ? account.args : undefined,
         // docs/agent-access.md §3: a turn capped below Never ask doesn't get the git folder, so it can't write hooks or config there.
         extraWritableDirs: gitDir && !binding ? [gitDir] : undefined,
         capped: binding ? { ceiling: binding.ceiling, ...(gitDir ? { gitDir } : {}) } : undefined,
@@ -1372,7 +1592,7 @@ export class SessionService {
         backgroundWait: this.backgroundWait()
       }
     // #130: a conversation started on an account remembers where it lives.
-    const state: TurnState = { mirrorNoticed: false, conversationKey: account || session.conversationKey ? conversationKey : undefined }
+    const state: TurnState = { mirrorNoticed: false, conversationKey: account || session.conversationKey ? conversationKey : undefined, ...(message.origin?.kind === 'idle-compact' ? { idle: true } : {}) }
     const callbacks = this.turnCallbacks(session, turnId, state)
     const turn = hosted && host
       ? host.createTurn(session, ws, request, callbacks, endCheckpointId(sessionId, turnId))
@@ -1393,7 +1613,7 @@ export class SessionService {
    * for agents that take them. `changed` lists their names when the set differs from the tab's last turn ([] = none now).
    */
   private repoMcpFor(session: Session, ws: Workspace, keep?: string[]): { servers?: Record<string, McpLaunch>; changed?: string[] } {
-    const proposed = AGENTS[session.agent]?.supportsRepoMcp ? this.repoMcp?.launchable(ws) ?? {} : {}
+    const proposed = this.takesMcp(session.agent) ? this.repoMcp?.launchable(ws) ?? {} : {}
     const allowed = this.integrations?.filterRepoServers(ws.repoId, proposed) ?? proposed
     // A flow step's persona keeps only the servers it names, never more than the approvals give.
     const servers = keep ? Object.fromEntries(Object.entries(allowed).filter(([name]) => keep.includes(name))) : allowed
@@ -1421,14 +1641,13 @@ export class SessionService {
       workspaceId: ws.id,
       repoId: ws.repoId,
       cwd: this.turnCwd(ws),
-      supportsMcp: Boolean(AGENTS[session.agent]?.supportsRepoMcp),
+      supportsMcp: this.takesMcp(session.agent),
       last: session.integrations?.snapshot,
       choices: ws.integrations,
       // #130: an account's own config folder holds its own MCP servers.
-      homes: { claude: env.CLAUDE_CONFIG_DIR, codex: env.CODEX_HOME }
+      homes: Object.fromEntries(Object.entries(INSTANCE_FIELDS).flatMap(([agent, fields]) => (fields.homeEnv ? [[agent, env[fields.homeEnv]]] : [])))
     })
-    const { claude, codex } = IntegrationBridge.blockedFor(session.agent, turn.blocked)
-    const disabled = [...claude, ...codex]
+    const disabled = driverFor(session.agent).ownMcpToDisable?.(turn.blocked) ?? []
     const lastOff = session.integrations?.ownOff ?? []
     const newlyOff = disabled.filter((n) => !lastOff.includes(n))
     session.integrations = { snapshot: turn.snapshot, ownOff: disabled }
@@ -1446,16 +1665,18 @@ export class SessionService {
   private turnCallbacks(session: Session, turnId: string, state: TurnState): TurnCallbacks {
     const sessionId = session.id
     return {
-        item: (item, transient) => this.emit(sessionId, item, transient),
+        item: (item, transient) => this.emit(sessionId, state.idle && item.kind === 'notice' && item.divider?.kind === 'compact' ? { ...item, divider: { ...item.divider, idle: true, at: new Date().toISOString() } } : item, transient),
         sessionStarted: (agentSessionId) => {
           // An imported copy continues as a new Claude session; that one's mirror starts from the fork, so it is not trusted to resume from.
           if (session.forkOnResume && session.agentSessionId && session.agentSessionId !== agentSessionId) session.nativeFork = true
           session.forkOnResume = undefined
           session.seedHistory = undefined
           session.catchUpSince = undefined
+          session.handOffPending = undefined
           session.agentSessionId = agentSessionId
           session.conversationKey = state.conversationKey
           session.resumeAt = undefined
+          session.rewound = undefined
           this.changed()
         },
         mirrorError: (agentSessionId, subpath, error) => {
@@ -1475,8 +1696,8 @@ export class SessionService {
           this.requestApproval(sessionId, request, signal) as Promise<Extract<ApprovalResponse, { kind: 'tool' }>>,
         reviewPlan: (plan, signal) =>
           this.requestApproval(sessionId, { kind: 'plan', plan }, signal) as Promise<Extract<ApprovalResponse, { kind: 'plan' }>>,
-        ask: (questions, signal) =>
-          this.requestApproval(sessionId, { kind: 'question', questions }, signal) as Promise<
+        ask: (questions, signal, subagent) =>
+          this.requestApproval(sessionId, { kind: 'question', questions, ...(subagent ? { subagent } : {}) }, signal) as Promise<
             Extract<ApprovalResponse, { kind: 'question' }>
           >,
         planModeChanged: (on) => {
@@ -1491,6 +1712,13 @@ export class SessionService {
           session.contextUsage = usage
           this.changed()
         },
+        goal: (goal) => {
+          session.goal = goal ?? undefined
+          this.changed()
+        },
+        cacheWindow: (cache) => void (state.cache = cache),
+        declared: (facts) => this.recordDeclared(session.agent, session.instanceId, facts),
+        limits: (windows) => this.recordLimits(session.agent, session.instanceId, windows),
         finished: (r) => {
           state.result ??= r
           const active = this.turns.get(sessionId)
@@ -1542,31 +1770,40 @@ export class SessionService {
           error = result && !result.ok ? result.error : crash ?? 'The agent ended without reporting a result.'
           if (crash && !result) this.emit(sessionId, { kind: 'notice', id: `${turnId}:error`, turnId, level: 'error', text: crash })
         }
-        // #11: Claude's adapter reads a limit from its result; for the others the words alone say so, with the reset time unknown.
+        // #11: an adapter whose transport carries a reset time (Claude's) reads a limit from its result; for the others the words alone say so, with the reset time unknown.
         // G4: a process that crashed without a result can still have said so (its stderr is in the crash text).
         const limit = outcome !== 'error'
           ? undefined
           : result && !result.ok
-            ? result.limit ?? (session.agent === 'claude' ? undefined : usageLimitOf(session.agent, result.error, Date.now(), 'UTC'))
+            ? result.limit ?? (this.record(session.agent)?.usage.resetTime ? undefined : usageLimitOf(session.agent, result.error, Date.now(), 'UTC'))
             : !result && crash
               ? usageLimitOf(session.agent, crash, Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
               : undefined
         diag.log('turn.end', { session: sessionId, turn: turnId, agent: session.agent, workspace: ws.id, outcome, error: error?.split('\n')[0], durationMs: stoppedAt - trackedFrom })
         // Read before endTurn clears it: a cloud host's continuation of this turn carries it.
         const cap = session.turnId === turnId ? session.turnCap : undefined
-        await this.endTurn(session, ws, turnId, outcome, error, turn.endedAt, limit, interruption, stoppedAt)
+        // Likewise: endTurn ends the turn's unattended mark, and a turn nobody was at leaves no one to compact for.
+        const unattended = Boolean(session.unattended)
+        await this.endTurn(session, ws, turnId, outcome, error, turn.endedAt, limit, interruption, stoppedAt, cap, entry.restartedBy)
+        // Opt-in (Settings → Agents → Claude Code): a chat left with a large context is compacted before its prompt cache expires.
+        if (outcome === 'completed' && state.cache && !unattended && !ws.scheduled && !ws.flowRun) this.idleCompact.arm({ sessionId, tokens: session.contextUsage?.used ?? 0, cache: state.cache, ...(cap ? { cap } : {}) })
         // A cloud host may queue a continuation here, which the drain below starts.
         if (turn.hosted) this.hostFor(ws)?.ended(sessionId, turnId, cap)
         // The host already notified for a turn that ended while Foreman was closed.
         if (!turn.endedWhileClosed) {
           const t = this.t()
-          this.events.notify(
-            ws.id,
-            sessionId,
-            this.label(session, ws),
-            outcome === 'cancelled' ? t('notify.turn.stopped') : outcome === 'completed' ? t('notify.turn.finished') : t('notify.turn.failed'),
-            outcome === 'cancelled' ? 'stopped' : outcome === 'completed' ? 'finished' : 'attention'
-          )
+          // Docs/agents.md 7.2: a tab paused at a usage limit with its resume armed is waiting, not asking: it needs nothing from the person.
+          const waiting = waitingOnLimit(session) && session.limitResume?.turnId === turnId
+          // A turn cut by "Interrupt and send" is neither a stop nor a failure to tell anyone about: the work goes on with the message.
+          if (!waiting && !entry.restartedBy) {
+            this.events.notify(
+              ws.id,
+              sessionId,
+              this.label(session, ws),
+              outcome === 'cancelled' ? t('notify.turn.stopped') : outcome === 'completed' ? t('notify.turn.finished') : t('notify.turn.failed'),
+              outcome === 'cancelled' ? 'stopped' : outcome === 'completed' ? 'finished' : 'attention'
+            )
+          }
         }
         if (!entry.cancelled) void this.drainQueue(sessionId)
       })
@@ -1593,7 +1830,7 @@ export class SessionService {
     session.status = 'running'
     session.turnId = turnId
     const state: TurnState = { mirrorNoticed: false, conversationKey: session.conversationKey }
-    const followups = session.agent === 'claude' && this.workspaces.settingsFor(ws.repoId).suggestFollowups !== false
+    const followups = Boolean(this.record(session.agent)?.features.followups) && this.workspaces.settingsFor(ws.repoId).suggestFollowups !== false
     const context = { hostTools: this.hostTools(ws, session, turnId, followups), sessionStore: this.mirrorFor(session, ws) }
     const { turn, missed } = await open(context, this.turnCallbacks(session, turnId, state))
     const known = new Set((await this.store.readChat(sessionId)).map((i) => i.id))
@@ -1637,7 +1874,7 @@ export class SessionService {
   }
 
   /** Records how a turn ended (one internal item; earlier items are never touched) and frees the session. */
-  private async endTurn(session: Session, ws: Workspace, turnId: string, outcome: TurnOutcome, error?: string, endedAt?: string, limit?: UsageLimit, interrupted?: TurnInterruption, stoppedAt?: number): Promise<void> {
+  private async endTurn(session: Session, ws: Workspace, turnId: string, outcome: TurnOutcome, error?: string, endedAt?: string, limit?: UsageLimit, interrupted?: TurnInterruption, stoppedAt?: number, cap?: TurnCap, restartedBy?: string): Promise<void> {
     const sessionId = session.id
     const startedAt = session.turnId === turnId ? session.turnStartedAt : undefined
     // O10: a turn that ended while Foreman was closed lasted until then, not until now.
@@ -1666,10 +1903,17 @@ export class SessionService {
       suggestions: outcome === 'completed' && suggestions?.length ? suggestions : undefined,
       ...(limit ? { limit } : {}),
       ...(interrupted ? { interrupted } : {}),
+      ...(restartedBy ? { restartedBy } : {}),
       ...(usage && usage.limit > 0 ? { usage } : {}),
       ...(memoryWrites.length ? { memoryWrites } : {}),
       ...(tree.start || tree.end ? { tree } : {})
     })
+    // Docs/agents.md 7.2: how a turn that stopped at a usage limit was started, kept so its resume starts it the same way.
+    // An auto review's reviewer isn't resumed: its review has failed, as any review of an errored turn does.
+    const paused = outcome === 'error' && Boolean(limit)
+    const held = session.unattended && !('autoReviewId' in session.unattended) ? session.unattended : undefined
+    if (paused && held) session.limitHeld = { turnId, unattended: held }
+    else delete session.limitHeld
     // A scheduled run is unattended for its one turn only; after that the chat is an ordinary one.
     session.unattended = undefined
     if (session.turnId === turnId) {
@@ -1680,14 +1924,43 @@ export class SessionService {
     }
     session.lastActivityAt = new Date(end).toISOString()
     session.lastTurn = {
-      outcome,
+      outcome: paused ? 'limit' : outcome,
       turnId,
       endedAt: session.lastActivityAt,
       additions: delta === 'unavailable' ? undefined : delta.additions,
-      deletions: delta === 'unavailable' ? undefined : delta.deletions
+      deletions: delta === 'unavailable' ? undefined : delta.deletions,
+      ...(paused && limit?.resetAt ? { resetAt: limit.resetAt } : {}),
+      ...(restartedBy ? { restartedBy } : {})
     }
+    // Armed (Settings → Usage) before anything that reads the tab's state decides what the turn's end means.
+    if (paused && limit) this.events.limitPaused?.(sessionId, turnId, limit, cap)
     this.changed()
     this.events.turnEnded(sessionId, outcome, stoppedAt)
+  }
+
+  /** Docs/agents.md 2.1: what the account declared about itself when a turn started, kept for its record (a changed version or sandbox resolves it again). */
+  recordDeclared(agent: AgentKind, instance: string | undefined, facts: DeclaredFacts): void {
+    const { version, windowsSandbox } = facts
+    if (!version && !windowsSandbox) return
+    const state = this.store.state
+    const accounts = ((state.declared ??= {})[agent] ??= {})
+    const key = instance ?? DEFAULT_ACCOUNT
+    const before = accounts[key]
+    if ((!version || before?.version === version) && (!windowsSandbox || before?.windowsSandbox === windowsSandbox)) return
+    accounts[key] = { ...before, ...(version ? { version } : {}), ...(windowsSandbox ? { windowsSandbox } : {}) }
+    this.store.save()
+    this.changed()
+  }
+
+  /** Docs/agents.md 7.1: what the account reported (merged into what it last said), kept in state.json and published in the snapshot. */
+  recordLimits(agent: AgentKind, instance: string | undefined, windows: LimitWindow[], replace = false): void {
+    const state = this.store.state
+    const before = state.limits ?? []
+    const next = withWindows(before, agent, instance, windows, Date.now(), replace)
+    if (next === before) return
+    state.limits = next
+    this.store.save()
+    this.changed()
   }
 
   /** Persists an alert when the turn changed files under the repo's sensitive paths (or couldn't be compared). */
@@ -1969,7 +2242,8 @@ export class SessionService {
     // It is being sent right now, so the workspace doesn't go quiet in between.
     this.claim(messageId, message.turnId, message.text)
     this.dropQueued(sessionId, messageId)
-    await this.send(sessionId, message.text, { attachments: message.attachments, mode: 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via, origin: message.origin, ...(lowered ? { cap: lowered } : {}) })
+    // "Send now" on an agent that can only be interrupted is the explicit interrupt-and-send (docs/agents.md 2.5); on any other, a steer.
+    await this.send(sessionId, message.text, { attachments: message.attachments, mode: interruptsToSteer(this.record(session.agent)) ? 'interrupt' : 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via, origin: message.origin, ...(lowered ? { cap: lowered } : {}) })
   }
 
   async cancel(sessionId: string): Promise<void> {
@@ -2050,21 +2324,16 @@ export class SessionService {
     // Privacy mode keeps the message on this computer: no generated title.
     if (!settings.privacyMode) {
       try {
-        const prompt = [
-          'Write a 2-5 word title for this coding task. It is a topic label, not a progress update:',
-          'start with the most distinctive noun and never with words like Fix or Investigate.',
-          preferences ? `The user's naming preferences: ${preferences}` : '',
-          '',
-          'Task:',
-          text.slice(0, 2000)
-        ].join('\n')
-        title =
-          (await driverFor('claude').oneShot?.(prompt, {
-            // The title is written on this computer, also for a cloud workspace (it reads only the message).
-            cwd: ws.cloud ? os.tmpdir() : wsPath(ws),
-            ...this.titleAccount(session)
-          })) ?? ''
-        title = title.replace(/^["'`]+|["'`.]+$/g, '').split('\n')[0].trim().slice(0, 60)
+        const prompt = titlePrompt(text, preferences)
+        const titleAgent = this.titleAgent()
+        title = titleAgent
+          ? ((await driverFor(titleAgent).oneShot?.(prompt, {
+              // The title is written on this computer, also for a cloud workspace (it reads only the message).
+              cwd: ws.cloud ? os.tmpdir() : wsPath(ws),
+              ...this.titleAccount(session, titleAgent)
+            })) ?? '')
+          : ''
+        title = cleanTitle(title)
       } catch {
         title = ''
       }
@@ -2094,7 +2363,7 @@ export class SessionService {
   /** Roll the workspace files and the conversation back to just before a message. */
   async restore(sessionId: string, turnId: string): Promise<void> {
     await this.cancel(sessionId)
-    this.events.activity?.(sessionId)
+    this.activity(sessionId)
     const session = this.session(sessionId)
     const ws = this.workspaces.workspace(session.workspaceId)
     const items = await this.store.readChat(sessionId)
@@ -2104,6 +2373,9 @@ export class SessionService {
     if (!user.checkpoint) throw new Error('No checkpoint was saved before this message')
 
     await restoreCheckpoint(this.checkpointTarget(ws, true), user.checkpoint)
+    // A message that went to this chat's own conversation can be rolled back in place (`rewound`); one that went to another
+    // (the first message of a fork, which continued its parent's) is forked from, so the parent's history is left as it is.
+    const ownThread = Boolean(user.resumeFrom) && user.resumeFrom?.sessionId === session.agentSessionId
     // O1: in a chat that switched agents, the message may have gone to another agent: the tab goes back to that one.
     const author = turnAuthors(items, session).get(turnId)
     if (author && author.agent !== session.agent) {
@@ -2120,7 +2392,12 @@ export class SessionService {
     // The next message forks the conversation at the point this turn started from.
     session.agentSessionId = user.resumeFrom?.sessionId
     session.resumeAt = user.resumeFrom?.messageUuid
+    session.rewound = ownThread || undefined
     session.lastAssistantUuid = user.resumeFrom?.messageUuid
+    // docs/agents.md 2.5, `checkpoint-fresh-session`: an agent that can't rewind its own conversation (an ACP agent, OpenCode, Cursor)
+    // leaves it behind: the files are back, and the next message starts a new session, given the chat up to here as text.
+    const fresh = isFallback(this.record(session.agent)?.checkpointing.conversationRollback ?? ability('none', 'agentCaps.why.rollback'), 'checkpoint-fresh-session')
+    if (fresh) this.dropConversation(session, false)
     session.queue = []
     this.queueChanged(session)
     // The turns after this point are gone, and so is how the last one ended.
@@ -2129,7 +2406,12 @@ export class SessionService {
     const preview = user.text.length > 80 ? `${user.text.slice(0, 80)}…` : user.text
     const kept: ChatItem[] = [
       ...items.slice(0, index),
-      { kind: 'notice', id: `restore:${randomUUID()}`, level: 'info', text: `Restored files and conversation to before “${preview}”.` }
+      {
+        kind: 'notice',
+        id: `restore:${randomUUID()}`,
+        level: 'info',
+        text: fresh ? this.t()('chat.restore.contextRestarted', { preview, agent: AGENTS[session.agent].label }) : `Restored files and conversation to before “${preview}”.`
+      }
     ]
     const keptTurnIds = new Set(kept.flatMap((i) => (i.kind === 'user' ? [i.turnId] : [])))
     if (ws.alerts) {
@@ -2137,6 +2419,12 @@ export class SessionService {
       if (!ws.alerts.length) delete ws.alerts
     }
     if (session.parked || isMixed(items)) this.afterMixedRewind(session, kept, keptTurnIds)
+    // The new conversation carries what was said up to the restore point, whoever answered it (the history of a switch would be rebuilt here).
+    if (fresh) {
+      session.seedHistory = kept.some((i) => i.kind === 'user') ? 'restore' : undefined
+      session.catchUpSince = undefined
+      session.handOffPending = undefined
+    }
     await this.store.replaceChat(sessionId, kept)
     this.events.reset(sessionId, kept)
     this.changed()
@@ -2154,6 +2442,7 @@ export class SessionService {
     session.parked = parked && Object.keys(parked).length ? parked : undefined
     session.seedHistory = undefined
     session.catchUpSince = undefined
+    session.handOffPending = undefined
     if (!isMixed(kept)) return
     if (!session.agentSessionId) {
       if (kept.some((i) => i.kind === 'user')) session.seedHistory = 'switch'
@@ -2309,7 +2598,7 @@ export class SessionService {
     // The caller's last look at the source, as late as possible.
     await request.guard?.()
     const { model } = request
-    if (request.readOnly && !readOnlyEnforcement(model.agent)) throw new Error(`Read-only isn’t offered for ${AGENTS[model.agent].label}: Foreman can’t enforce it there`)
+    if (request.readOnly && !readOnlyEnforcement(this.record(model.agent, model.instance))) throw new Error(`Read-only isn’t offered for ${AGENTS[model.agent].label}: Foreman can’t enforce it there`)
     const target = this.createSession(ws.id, {
       agent: model.agent,
       instanceId: model.instance ?? null,
@@ -2318,7 +2607,7 @@ export class SessionService {
       fastMode: model.fast,
       title: request.title,
       // #16: read-only Claude runs in plan mode it can't leave.
-      planMode: Boolean(request.readOnly) && readOnlyEnforcement(model.agent) === 'plan'
+      planMode: Boolean(request.readOnly) && readOnlyEnforcement(this.record(model.agent, model.instance)) === 'plan'
     })
     if (request.readOnly) target.readOnly = true
     request.prepare?.(target)
@@ -2338,7 +2627,7 @@ export class SessionService {
    * a partial mirror would lose history. Rewinds and forks resume from the local file.
    */
   private mirrorFor(session: Session, ws: Workspace): ClaudeMirror | undefined {
-    const mirror = session.agent === 'claude' ? this.mirror : undefined
+    const mirror = this.record(session.agent)?.features.transcriptMirror ? this.mirror : undefined
     if (!mirror) return undefined
     const id = session.agentSessionId
     if (id && session.importedMode === 'native') mirror.adopt(pendingKey(ws.id), this.turnCwd(ws), [id])
@@ -2391,7 +2680,7 @@ export class SessionService {
     const session = this.session(sessionId)
     if (!driverFor(session.agent).mcpProbe) {
       // G1: an agent that can't report MCP status (Codex, Cursor, OpenCode, Chat agents) still shows the repo's servers and whether Foreman passes them.
-      if (!AGENTS[session.agent]?.supportsRepoMcp || !this.repoMcp) return { supported: false, servers: [], live: false }
+      if (!this.takesMcp(session.agent) || !this.repoMcp) return { supported: false, servers: [], live: false }
       return { supported: true, servers: this.repoServersFor(session), live: false, repoOnly: { agent: AGENTS[session.agent].label, passedAt: session.repoMcp?.at } }
     }
     const turn = this.liveTurn(sessionId)
@@ -2434,7 +2723,7 @@ export class SessionService {
 
   /** Mark the servers that came from the repo, and list the proposed ones that were left out because this Mac hasn't approved them. */
   private withRepoOrigins(session: Session, servers: McpServerInfo[]): McpServerInfo[] {
-    if (session.agent !== 'claude' || !this.repoMcp) return servers
+    if (!driverFor(session.agent).mcpProbe || !this.repoMcp) return servers
     const ws = this.workspaces.workspace(session.workspaceId)
     const proposed = this.repoMcp.origins(ws)
     const out = servers.map((s) => (proposed.some((p) => p.approved && p.name === s.name) ? { ...s, origin: ORIGIN_APPROVED } : s))
@@ -2442,6 +2731,18 @@ export class SessionService {
       if (!p.approved && !out.some((s) => s.name === p.name)) out.push({ name: p.name, status: 'disabled', transport: 'stdio', target: p.command, origin: ORIGIN_UNAPPROVED, error: 'Proposed by this repo; not approved on this Mac, so it was not started.' })
     }
     return out
+  }
+
+  /**
+   * Stops one subagent of the chat's running turn (docs/agents.md 6). The turn itself carries on: the agent is told the
+   * subagent was stopped and goes on with its own work. Only for an agent whose record offers `subagents.stop`.
+   */
+  async stopChild(sessionId: string, childId: string): Promise<void> {
+    const session = this.session(sessionId)
+    if (this.record(session.agent)?.subagents.stop.level === 'none') throw new Error('This agent can’t stop a subagent on its own.')
+    const turn = this.liveTurn(sessionId)
+    if (!turn?.stopChild) throw new Error('No subagent is running in this chat.')
+    await turn.stopChild(childId)
   }
 
   async reconnectMcpServer(sessionId: string, name: string): Promise<void> {
@@ -2463,7 +2764,7 @@ export class SessionService {
         cwd: localOnly(ws, 'Checking MCP servers between turns'),
         env: this.environment.forAgent(session.agent, ws.repoId, this.workspaces.env(ws), this.turnAccount(session)),
         executablePath: this.executablePath(session, this.turnAccount(session)),
-        mcpServers: AGENTS[session.agent]?.supportsRepoMcp
+        mcpServers: this.takesMcp(session.agent)
           ? {
               ...this.repoMcp?.launchable(ws),
               // Integrations: a probe-only grant, which lists tools and runs none.
@@ -2498,7 +2799,7 @@ export class SessionService {
       this.closeMcpProbe(session.id)
       await this.cancel(session.id)
       // #11: archiving the workspace cancels its tabs' armed usage-limit resumes.
-      this.events.activity?.(session.id)
+      this.activity(session.id)
       await deleteCheckpoints(repoRoot, `${session.id}-`).catch(() => undefined)
     }
   }

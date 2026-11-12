@@ -1,0 +1,15 @@
+/* "What Codex received": layout only; colours, borders and type belong to the components it is made of. */
+.hor-kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 14px; }
+.hor-kv dt { margin: 0; }
+.hor-kv dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.hor-party { display: inline-flex; align-items: center; gap: 6px; }
+.hor-note { flex-basis: 100%; }
+.hor-size { display: inline-flex; align-items: center; gap: 10px; }
+.hor-meter { width: 200px; }
+.hor-group { margin: 0 0 14px; }
+.hor-head { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
+.hor-title { margin: 0; }
+.hor-turns { list-style: none; margin: 0; padding: 0; }
+.hor-turn { display: grid; grid-template-columns: 3.2em 8em 1fr auto; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--border); }
+.hor-turn-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hor-turn-size { white-space: nowrap; }

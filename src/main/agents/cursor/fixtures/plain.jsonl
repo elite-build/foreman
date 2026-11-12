@@ -1,0 +1,9 @@
+{"fixture":1,"agent":"cursor","scenario":"plain","version":"sdk-fake 1","recordedAt":"2026-11-11","evidence":"simulated","model":"auto","note":"A short answer and a usage tick, from Cursor's SDK replaced by a fake under the worker's message loop."}
+{"t":0,"dir":"send","data":{"type":"start","request":{"turnId":"record-plain","prompt":"Reply with the single word: ok","cwd":"<repo>","env":{"CURSOR_API_KEY":"<env>"},"model":"auto","fastMode":false,"planMode":false,"approvals":"never-ask","systemPromptAppend":""},"reports":false}}
+{"t":1,"dir":"recv","data":{"type":"sessionStarted","args":["agent-1"]}}
+{"t":2,"dir":"recv","data":{"type":"item","args":[{"kind":"assistant","id":"record-plain:assistant:0","turnId":"record-plain","text":"ok"},null]}}
+{"t":2,"dir":"recv","data":{"type":"item","args":[{"kind":"result","id":"result:record-plain:0","turnId":"record-plain","ok":true,"durationMs":900},null]}}
+{"t":2,"dir":"recv","data":{"type":"usage","args":[{"used":1204,"limit":200000}]}}
+{"t":2,"dir":"recv","data":{"type":"finished","args":[{"ok":true}]}}
+{"t":2,"dir":"recv","data":{"type":"ended"}}
+{"t":2,"dir":"exit","data":{"code":0,"signal":null}}

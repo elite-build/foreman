@@ -209,6 +209,11 @@ describe('the agents methods', () => {
       const claude = result.agents.find((a) => a.id === 'claude')!
       expect(claude).toMatchObject({ level: 'full', enabled: true, installed: true, version: '9.9.9', auth: 'login', ready: true, method: 'Claude Max account' })
       expect(result.agents.find((a) => a.id === 'aider')).toMatchObject({ level: 'terminal', enabled: false, installed: false })
+      // docs/agents.md 2.3: the agents with chats carry their capability record; a terminal agent has none.
+      expect(claude.capabilities).toMatchObject({ turns: { steer: { level: 'native' } }, enforcement: { readOnly: 'plan', by: 'agent' } })
+      expect(result.agents.find((a) => a.id === 'gemini')?.capabilities).toMatchObject({ turns: { steer: { level: 'fallback', fallback: 'interrupt-restart' } }, enforcement: { by: 'foreman' } })
+      expect(result.agents.find((a) => a.id === 'aider')).not.toHaveProperty('capabilities')
+      expect(result.agents.filter((a) => a.capabilities).map((a) => a.level).every((level) => level !== 'terminal')).toBe(true)
       expect(result.text).toMatch(/claude\s+Claude Code\s+full\s+on/)
     })
 

@@ -3,7 +3,7 @@
 // The rules here are pure so the dialog, the sidebar, Home and the tests agree.
 // Nothing here picks a winner: it only reports how each run ended.
 import { createT, type TFunction } from './i18n'
-import type { Session, TurnOutcome, Workspace } from './types'
+import { turnOutcomeOf, type Session, type TurnOutcome, type Workspace } from './types'
 
 const enT = createT('en')
 
@@ -60,7 +60,7 @@ export function memberState(ws: Workspace, sessions: Session[]): CompareMemberSt
   if (ws.state === 'setup-failed') return { ws, session, label, finished: true, outcome: 'setup-failed' }
   const last = session?.lastTurn
   if (!session || session.status !== 'idle' || !last) return { ws, session, label, finished: false }
-  return { ws, session, label, finished: true, outcome: last.outcome, additions: last.additions, deletions: last.deletions }
+  return { ws, session, label, finished: true, outcome: turnOutcomeOf(last.outcome), additions: last.additions, deletions: last.deletions }
 }
 
 /** Live comparisons, in the order their first workspace was created. A group of one isn't a comparison. */

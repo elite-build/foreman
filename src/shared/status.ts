@@ -2,7 +2,7 @@
 // sidebar uses, plus the facts a script wants (last turn, checks, delta, PR).
 import { isFailure } from './checks'
 import { triageAll, type Bucket, type TriageInput } from './triage'
-import type { AppSnapshot, PullRequestInfo, Session, TurnOutcome, Workspace } from './types'
+import type { AppSnapshot, LastTurnOutcome, PullRequestInfo, Session, Workspace } from './types'
 
 export type ChecksState = 'passed' | 'failed' | 'stale' | 'running' | 'incomplete' | 'none'
 
@@ -15,7 +15,8 @@ export interface StatusRow {
   // What the row says it needs ("Checks failed", "Working"), when it says anything.
   label?: string
   // The newest turn across the workspace's open chats. 'running' while one is in flight.
-  turn?: { id?: string; tab: number; outcome: TurnOutcome | 'running'; endedAt?: string }
+  // `limit`: paused at a usage limit.
+  turn?: { id?: string; tab: number; outcome: LastTurnOutcome | 'running'; endedAt?: string }
   checks: ChecksState
   // What the latest turn changed, when it was measured.
   delta?: { additions: number; deletions: number }
@@ -74,12 +75,13 @@ export function statusRows(input: Omit<TriageInput, 'snapshot'> & { snapshot: { 
     })
 }
 
-const OUTCOME_TEXT: Record<TurnOutcome | 'running', string> = {
+const OUTCOME_TEXT: Record<LastTurnOutcome | 'running', string> = {
   running: 'running',
   completed: 'completed',
   error: 'failed',
   cancelled: 'stopped',
-  interrupted: 'interrupted'
+  interrupted: 'interrupted',
+  limit: 'paused at a usage limit'
 }
 
 /** The human table for a terminal. */

@@ -23,8 +23,12 @@ function planSteps(plan: string): number {
   return plan.split('\n').filter((l) => /^\s*(\d+[.)]|[-*•])\s+\S/.test(l)).length
 }
 
-/** What a request asks, in one line. */
+/** What a request asks, in one line. A subagent's says so first (docs/agents.md 6). */
 export function askText(request: ApprovalRequest): string {
+  if ((request.kind === 'tool' || request.kind === 'question') && request.subagent) {
+    const from = request.subagent.name ? `From subagent ${request.subagent.name}` : 'From a subagent'
+    return clip(`${from}: ${askText({ ...request, subagent: undefined })}`, 120)
+  }
   if (request.kind === 'tool') {
     const summary = toolSummary(request.input)
     return clip(`${request.toolName}${summary ? `: ${summary}` : Object.keys(request.input).length ? `: ${JSON.stringify(request.input)}` : ''}`)

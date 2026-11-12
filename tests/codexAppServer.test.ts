@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CodexAppServer, RpcError } from '../src/main/agents/codexAppServer'
+import { CodexAppServer, RpcError } from '../src/main/agents/codex/appServer'
 
 const FAKE = path.join(process.cwd(), 'tests', 'fixtures', 'codexAppServerFake.mjs')
 const open: CodexAppServer[] = []
@@ -22,7 +22,7 @@ const next = <T>(register: (resolve: (value: T) => void) => void) => new Promise
 describe('CodexAppServer', () => {
   it('initializes with the experimental API on, then says initialized', async () => {
     const server = start()
-    const saw = next<{ method: string; params: unknown }>((resolve) => server.onNotification((m, p) => m === 'saw' && resolve(p)))
+    const saw = next<{ method: string; params: unknown }>((resolve) => server.onNotification((m, p) => m === 'saw' && resolve(p as { method: string; params: unknown })))
     await server.initialize()
     expect(await saw).toEqual({ method: 'initialized', params: null })
   })
@@ -59,7 +59,7 @@ describe('CodexAppServer', () => {
     const server = start()
     const calls: unknown[] = []
     server.onRequest(async (method, params, id) => (calls.push([method, params, id]), { decision: 'accept' }))
-    const reply = next<{ id: string; result: unknown }>((resolve) => server.onNotification((m, p) => m === 'asked' && resolve(p)))
+    const reply = next<{ id: string; result: unknown }>((resolve) => server.onNotification((m, p) => m === 'asked' && resolve(p as { id: string; result: unknown })))
     await server.request('ask', {})
     expect(await reply).toEqual({ id: 'srv-1', result: { decision: 'accept' } })
     expect(calls).toEqual([['item/fake/ask', { question: 'ok?' }, 'srv-1']])
@@ -72,7 +72,7 @@ describe('CodexAppServer', () => {
       throw new Error('handler broke')
     })
     const replies: { id: string; error: { code: number; message: string } }[] = []
-    const both = next<void>((resolve) => server.onNotification((m, p) => m === 'asked' && replies.push(p) === 2 && resolve()))
+    const both = next<void>((resolve) => server.onNotification((m, p) => m === 'asked' && replies.push(p as (typeof replies)[number]) === 2 && resolve()))
     await server.request('ask', {})
     await server.request('ask-unknown', {})
     await both
@@ -84,7 +84,7 @@ describe('CodexAppServer', () => {
 
   it('answers -32601 to a server request when nothing handles requests', async () => {
     const server = start()
-    const reply = next<{ id: string; error: { code: number } }>((resolve) => server.onNotification((m, p) => m === 'asked' && resolve(p)))
+    const reply = next<{ id: string; error: { code: number } }>((resolve) => server.onNotification((m, p) => m === 'asked' && resolve(p as { id: string; error: { code: number } })))
     await server.request('ask', {})
     expect(await reply).toMatchObject({ id: 'srv-1', error: { code: -32601 } })
   })

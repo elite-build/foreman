@@ -5,24 +5,28 @@ import { describe, expect, it } from 'vitest'
 import {
   AGENT_CATALOG,
   agentAuthMode,
-  agentControls,
   CAPABILITIES,
   catalogAgent,
   CHAT_AGENT_IDS,
+  chosenModels,
   enabledAgentIds,
   excludeAdditions,
   filterCatalog,
   FULL_AGENT_IDS,
+  hasTwoLineNames,
   isAgentEnabled,
-  missingCapabilities,
+  loginCommandLabel,
   parseAgentPrefs,
   signInMethods,
   signInState,
+  staticCapabilities,
   TERMINAL_AGENT_IDS,
   TERMINAL_QUIET_MS,
   terminalActivity,
   usesOwnApiKey
 } from '../src/shared/agentCatalog'
+import { offers } from '../src/shared/agentCapabilities'
+import { STATUS_CHECKED_AGENTS } from '../src/shared/agentReadiness'
 import { enabledCount, noteCapabilities, pickerAgents, pickerGroups } from '../src/shared/agentPicker'
 import { closeAgentTab, closeNeedsConfirm, openAgentTab, restartAgentTab, showAgentTab, tabsOf } from '../src/shared/agentTabs'
 import { AGENT_ORDER, AGENTS, DEFAULT_MODEL } from '../src/shared/agents'
@@ -65,7 +69,7 @@ describe('agent registry', () => {
         expect(agent.terminal, agent.id).toBeDefined()
         expect(agent.acp, agent.id).toBeUndefined()
         // Foreman sees the process, nothing else.
-        expect(missingCapabilities(agent.id), agent.id).toEqual([...CAPABILITIES])
+        expect(Object.values(agent.capabilities), agent.id).toEqual(CAPABILITIES.map(() => false))
       }
       if (agent.level === 'full') expect(agent.acp, agent.id).toBeUndefined()
       // An API key method names a real variable.
@@ -111,29 +115,28 @@ describe('agent registry', () => {
     expect(catalogAgent('aider')!.scratch).toContain('.aider*')
   })
 
-  it('agrees with the Full agents’ own capability flags, and gives Chat agents no plan mode or steering', () => {
-    for (const id of AGENT_ORDER) {
-      expect(catalogAgent(id)!.capabilities.plan, id).toBe(AGENTS[id].supportsPlanMode)
-      expect(catalogAgent(id)!.capabilities.steer, id).toBe(AGENTS[id].supportsSteering)
-    }
+  it('gives Chat agents no plan mode or steering until they declare one, and a name and no default model', () => {
     for (const id of CHAT_AGENT_IDS) {
-      expect(AGENTS[id]).toMatchObject({ kind: id, label: catalogAgent(id)!.name, supportsPlanMode: false, supportsSteering: false })
+      expect(AGENTS[id]).toMatchObject({ kind: id, label: catalogAgent(id)!.name })
+      expect(catalogAgent(id)!.capabilities).toMatchObject({ plan: false, steer: false })
       expect(DEFAULT_MODEL[id]).toBe('')
     }
   })
 })
 
 describe('capability-based controls', () => {
-  it('hides Plan, steering and Restore for agents that can’t do them', () => {
-    expect(agentControls('claude')).toEqual({ plan: true, steer: true, restore: true })
-    expect(agentControls('codex')).toEqual({ plan: true, steer: true, restore: true })
-    expect(agentControls('gemini')).toEqual({ plan: false, steer: false, restore: false })
-    expect(agentControls('qwen').restore).toBe(false)
+  it('the controls follow the record: Plan, steering and Restore for the agents that can do them', () => {
+    const controls = (id: string) => ({ plan: offers(staticCapabilities(id)!.planning.planMode), steer: staticCapabilities(id)!.turns.steer.level === 'native', restore: staticCapabilities(id)!.checkpointing.restoreFiles })
+    expect(controls('claude')).toEqual({ plan: true, steer: true, restore: true })
+    expect(controls('codex')).toEqual({ plan: true, steer: true, restore: true })
+    // A Chat agent restores the files and starts a fresh conversation (checkpoint-fresh-session); it can't steer mid-turn natively.
+    expect(controls('gemini')).toEqual({ plan: false, steer: false, restore: true })
+    expect(controls('qwen').restore).toBe(true)
   })
 
   it('names what a Chat agent lacks in the picker’s hover note', () => {
     const gemini = pickerGroups({ gemini: { enabled: true } }, { cursor: true, opencode: true }).find((g) => g.level === 'chat')!.agents[0]
-    expect(noteCapabilities(gemini)).toEqual(['plan', 'rewind', 'steer'])
+    expect(noteCapabilities(gemini)).toEqual(['plan', 'steer'])
     // Full agents carry no note.
     const claude = pickerGroups(undefined, { cursor: true, opencode: true })[0].agents[0]
     expect(noteCapabilities(claude)).toEqual([])
@@ -310,5 +313,38 @@ describe('terminal agent status and tabs', () => {
 
   it('adds only the scratch patterns info/exclude doesn’t have yet', () => {
     expect(excludeAdditions('.context/\n.aider*\n', ['.aider*', '.crush/'])).toEqual(['.crush/'])
+  })
+})
+
+describe('what the settings pages and pickers read from the catalog instead of an agent’s id', () => {
+  it('model names: OpenCode’s read "provider/model" as two lines, no other agent’s do; its chosen subset is a setting', () => {
+    expect(AGENT_CATALOG.filter((a) => hasTwoLineNames(a.id)).map((a) => a.id)).toEqual(['opencode'])
+    const settings = { opencodeModels: ['anthropic/claude-sonnet-5-5'] }
+    expect(chosenModels('opencode', settings)).toEqual(['anthropic/claude-sonnet-5-5'])
+    // An agent that lists every model has no chosen subset.
+    expect(chosenModels('claude', settings)).toBeUndefined()
+    expect(chosenModels('gemini', settings)).toBeUndefined()
+    expect(chosenModels('nobody', settings)).toBeUndefined()
+  })
+
+  it('the login command is the binary and the login arguments, and only an agent with a Login has one', () => {
+    expect(loginCommandLabel(catalogAgent('claude')!)).toBe('claude auth login')
+    expect(loginCommandLabel(catalogAgent('codex')!)).toBe('codex login')
+    expect(loginCommandLabel(catalogAgent('cursor')!)).toBeUndefined()
+  })
+
+  it('the Login and API key cards are worded by the catalog, for the agents that have both', () => {
+    expect(catalogAgent('claude')!.auth.cards).toEqual({ login: 'agentSettings.claude.loginDesc', apiKey: 'agentSettings.claude.keyDesc' })
+    expect(catalogAgent('codex')!.auth.cards).toEqual({ login: 'agentSettings.codex.loginDesc', apiKey: 'agentSettings.codex.keyDesc' })
+    for (const agent of AGENT_CATALOG) if (agent.auth.cards) expect(agent.auth.login && agent.auth.apiKey, agent.id).toBeTruthy()
+  })
+
+  it('names whose key an agent’s API key is, and what is shown beside the teaching instructions', () => {
+    expect(['claude', 'codex', 'cursor'].map((id) => catalogAgent(id)!.auth.apiKey!.provider)).toEqual(['Anthropic', 'OpenAI', 'Cursor'])
+    expect(AGENT_CATALOG.filter((a) => a.reportToolsNote).map((a) => a.id)).toEqual(['cursor'])
+  })
+
+  it('the agents whose sign-in is checked from outside a turn are the ones judged by their status', () => {
+    expect(STATUS_CHECKED_AGENTS).toEqual(['claude', 'codex'])
   })
 })

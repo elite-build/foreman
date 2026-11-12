@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claudeDriver } from '../src/main/agents/claude'
 import { codexDriver } from '../src/main/agents/codex'
+import { cursorDriver } from '../src/main/agents/cursor'
 import { registerDriver } from '../src/main/agents/registry'
 import type { TurnRequest } from '../src/main/agents/types'
 import { forkCut, forkHistoryBlock, MAX_FORK_HISTORY_CHARS } from '../src/shared/fork'
@@ -10,13 +11,14 @@ import { fakeDriver, gate, setupSessions } from './sessionHarness'
 afterEach(() => {
   registerDriver(claudeDriver)
   registerDriver(codexDriver)
+  registerDriver(cursorDriver)
 })
 
 type Harness = Awaited<ReturnType<typeof setupSessions>>
 type User = Extract<ChatItem, { kind: 'user' }>
 
 /** Each turn answers "answer N" as agent session `native-1`, reporting assistant uuid `a<N>`; requests are collected. */
-function answering(kind: 'claude' | 'codex' = 'claude') {
+function answering(kind: 'claude' | 'codex' | 'cursor' = 'claude') {
   const requests: TurnRequest[] = []
   registerDriver({
     ...fakeDriver(async (req, cb) => {
@@ -113,13 +115,13 @@ describe('forking a chat', () => {
   })
 
   it('other agents: the fork starts a new conversation and its first message carries the history', async () => {
-    const requests = answering('codex')
+    const requests = answering('cursor')
     const h = await setupSessions()
-    await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    await h.sessions.updateSession(h.session.id, { agent: 'cursor' })
     const users = await converse(h, 'one', 'two')
 
     const fork = await h.sessions.forkSession(h.session.id, users[0].turnId)
-    expect(fork).toMatchObject({ agent: 'codex', seedHistory: true })
+    expect(fork).toMatchObject({ agent: 'cursor', seedHistory: true })
     expect(fork.agentSessionId).toBeUndefined()
     expect((await h.store.readChat(fork.id)).at(-1)).toMatchObject({ kind: 'notice', text: expect.stringContaining('carries the history above') })
 
@@ -151,5 +153,92 @@ describe('forking a chat', () => {
     await expect(h.sessions.forkSession(h.session.id)).rejects.toThrow('Wait for this turn to finish')
     release()
     await idle(h)
+  })
+})
+
+// Docs/agents.md 3 (slice 4a): Codex forks its own thread, and Restore rolls it back in place.
+describe('Codex: a native fork, and Restore cutting the thread back', () => {
+  /** Each turn answers as thread `native-1`, reporting the turn it ended at (`a<N>`); a fork gets a thread of its own, a rewind keeps its thread. */
+  function codexThreads() {
+    const requests: TurnRequest[] = []
+    registerDriver({
+      ...fakeDriver(async (req, cb) => {
+        requests.push(req)
+        const n = requests.length
+        cb.sessionStarted(req.resumeAt && !req.rewind ? `fork-${n}` : req.resume ?? 'native-1')
+        cb.item({ kind: 'assistant', id: `${req.turnId}:a`, turnId: req.turnId, text: `answer ${n}` })
+        cb.assistantMessage(`a${n}`)
+        cb.finished({ ok: true })
+      }),
+      kind: 'codex'
+    })
+    return requests
+  }
+
+  it('forks natively through the turn it stood at, on the same agent', async () => {
+    const requests = codexThreads()
+    const h = await setupSessions()
+    await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    const users = await converse(h, 'one', 'two')
+
+    const fork = await h.sessions.forkSession(h.session.id, users[0].turnId)
+    expect(fork).toMatchObject({ agent: 'codex', agentSessionId: 'native-1', resumeAt: 'a1', forkedFrom: { sessionId: h.session.id, turnId: users[0].turnId } })
+    expect(fork.seedHistory).toBeUndefined()
+    expect((await h.store.readChat(fork.id)).at(-1)).toMatchObject({ kind: 'notice', text: expect.stringContaining('continues the same conversation') })
+
+    await h.sessions.send(fork.id, 'go another way')
+    await idle(h, fork.id)
+    // The turn forks the thread (resume + resumeAt, not a rewind), and the fork's thread is the chat's from then on.
+    expect(requests.at(-1)).toMatchObject({ resume: 'native-1', resumeAt: 'a1', prompt: 'go another way' })
+    expect(requests.at(-1)!.rewind).toBeUndefined()
+    const tab = h.store.state.sessions.find((s) => s.id === fork.id)!
+    expect(tab.agentSessionId).toMatch(/^fork-/)
+    expect(tab.resumeAt).toBeUndefined()
+    // The original chat's thread is untouched.
+    expect(h.store.state.sessions.find((s) => s.id === h.session.id)!.agentSessionId).toBe('native-1')
+  })
+
+  it('Restore to a message of the chat\'s own thread rolls it back in place, once', async () => {
+    const requests = codexThreads()
+    const h = await setupSessions()
+    await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    const users = await converse(h, 'one', 'two')
+
+    await h.sessions.restore(h.session.id, users[1].turnId)
+    const tab = () => h.store.state.sessions.find((s) => s.id === h.session.id)!
+    expect(tab()).toMatchObject({ agentSessionId: 'native-1', resumeAt: 'a1', rewound: true })
+
+    await h.sessions.send(h.session.id, 'two again')
+    await idle(h)
+    expect(requests.at(-1)).toMatchObject({ resume: 'native-1', resumeAt: 'a1', rewind: true, prompt: 'two again' })
+    // Said once: the next turn just resumes.
+    expect(tab().rewound).toBeUndefined()
+    expect(tab().resumeAt).toBeUndefined()
+    await h.sessions.send(h.session.id, 'three')
+    await idle(h)
+    expect(requests.at(-1)!.rewind).toBeUndefined()
+    expect(requests.at(-1)!.resumeAt).toBeUndefined()
+  })
+
+  it('Restore to the first message of a fork forks again, so the thread it was forked from is left alone', async () => {
+    const requests = codexThreads()
+    const h = await setupSessions()
+    await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    const users = await converse(h, 'one', 'two')
+    const fork = await h.sessions.forkSession(h.session.id, users[0].turnId)
+    await h.sessions.send(fork.id, 'in the fork')
+    await idle(h, fork.id)
+    const forkUser = (await h.store.readChat(fork.id)).filter((i): i is User => i.kind === 'user').at(-1)!
+    // That message went to the parent's thread (the fork had no thread of its own yet).
+    expect(forkUser.resumeFrom).toEqual({ sessionId: 'native-1', messageUuid: 'a1' })
+
+    await h.sessions.restore(fork.id, forkUser.turnId)
+    const tab = h.store.state.sessions.find((s) => s.id === fork.id)!
+    expect(tab).toMatchObject({ agentSessionId: 'native-1', resumeAt: 'a1' })
+    expect(tab.rewound).toBeUndefined()
+    await h.sessions.send(fork.id, 'in the fork, again')
+    await idle(h, fork.id)
+    expect(requests.at(-1)).toMatchObject({ resume: 'native-1', resumeAt: 'a1' })
+    expect(requests.at(-1)!.rewind).toBeUndefined()
   })
 })

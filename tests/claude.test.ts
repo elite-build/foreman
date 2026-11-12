@@ -626,3 +626,43 @@ describe('a turn capped below Never ask (docs/agent-access.md §3)', () => {
     await run
   })
 })
+
+describe('Claude launch problems (docs/agents.md, 4.1)', () => {
+  const fail = (message: string) =>
+    sdk.query.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        throw new Error(message)
+      }
+    }))
+  const notice = (cb: ReturnType<typeof callbacks>) => cb.item.mock.calls.map(([item]) => item).find((item) => item.kind === 'notice')
+
+  it('says the program is missing when it cannot be spawned, and points at Settings', async () => {
+    fail('spawn claude ENOENT')
+    const cb = callbacks()
+    await claudeDriver.createTurn(request, cb).run()
+    expect(notice(cb)).toMatchObject({ level: 'error', text: 'Claude Code is not installed or could not be found. Set its path in Settings → Agents → Claude Code.', action: 'open-settings' })
+  })
+
+  it('says not signed in with the sign-in button, and keeps Claude’s own words in the result', async () => {
+    fail('Please run /login · API Error: 401')
+    const cb = callbacks()
+    await claudeDriver.createTurn(request, cb).run()
+    expect(notice(cb)).toMatchObject({ level: 'error', text: 'Claude Code isn’t signed in, or its sign-in has expired.', action: 'sign-in' })
+    expect(cb.finished).toHaveBeenCalledWith({ ok: false, error: 'Please run /login · API Error: 401' })
+  })
+
+  it('shows Claude’s own error when nothing else matches, with no button', async () => {
+    fail('Prompt is too long')
+    const cb = callbacks()
+    await claudeDriver.createTurn(request, cb).run()
+    expect(notice(cb)).toMatchObject({ level: 'error', text: 'Prompt is too long' })
+    expect(notice(cb)).not.toHaveProperty('action', expect.anything())
+  })
+})
+
+describe('Claude update command', () => {
+  it('runs Claude Code’s own `update` on the program the user set, else on the one on PATH (the bundled copy is never updated this way)', () => {
+    expect(claudeDriver.updateCommand?.('/opt/my claude/claude')).toMatch(/^['"]?\/opt\/my claude\/claude['"]? update$/)
+    expect(claudeDriver.updateCommand?.()).toMatch(/^['"]claude['"] update$/)
+  })
+})

@@ -6,8 +6,8 @@ import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { acpPlanMode, agentControls, catalogAgent, declaresPlanMode, missingCapabilities } from '../src/shared/agentCatalog'
-import { supportsPlan } from '../src/shared/agents'
+import { resolveCapabilities } from '../src/shared/agentCapabilities'
+import { acpPlanMode, capsOf, catalogAgent, staticCapabilities } from '../src/shared/agentCatalog'
 import { planControl } from '../src/shared/switchAgent'
 import { createAcpDriver, listAcpSession, sessionModes, type AcpConnector } from '../src/main/agents/acp'
 import {
@@ -20,7 +20,7 @@ import {
   expectedAgentNote,
   piEnv,
   type LaunchEnv
-} from '../src/main/agents/catalogDrivers'
+} from '../src/main/agents/acp/catalogDrivers'
 import { detectAgent, findAcpProgram } from '../src/main/agents/catalogDetect'
 import type { TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import type { ChatItem } from '../src/shared/types'
@@ -288,20 +288,17 @@ describe('G1 · ACP session modes and the Plan chip', () => {
 
   it('turns the Plan chip on for an ACP agent that declared a plan mode; steering stays off', () => {
     const modes = [{ id: 'plan', name: 'Plan' }]
-    expect(declaresPlanMode('gemini', modes)).toBe(true)
-    expect(declaresPlanMode('opencode', modes)).toBe(true)
-    expect(declaresPlanMode('codex', modes)).toBe(false)
-    expect(declaresPlanMode('aider', modes)).toBe(false)
-    expect(agentControls('gemini')).toMatchObject({ plan: false, steer: false })
-    expect(agentControls('gemini', modes)).toMatchObject({ plan: true, steer: false })
-    expect(missingCapabilities('gemini')).toContain('plan')
-    expect(missingCapabilities('gemini', modes)).not.toContain('plan')
-    expect(missingCapabilities('gemini', modes)).toContain('steer')
-    expect(supportsPlan('gemini', modes)).toBe(true)
-    expect(supportsPlan('claude')).toBe(true)
-    expect(supportsPlan('cursor', modes)).toBe(false)
-    expect(planControl('gemini', { planMode: true, mixed: false, modes })).toBe('on')
-    expect(planControl('gemini', { planMode: false, mixed: false })).toBe('hidden')
+    const declare = (id: string) => resolveCapabilities(staticCapabilities(id)!, acpPlanMode(modes) ? { planMode: true } : undefined)
+    // The chips are read from the record with what the agent declared folded in.
+    expect(capsOf(staticCapabilities('gemini')!)).toMatchObject({ plan: false, steer: false })
+    expect(capsOf(declare('gemini'))).toMatchObject({ plan: true, steer: false })
+    expect(capsOf(declare('opencode')).plan).toBe(true)
+    // Only an agent whose record says it declares a plan mode takes one from what it declared.
+    expect(capsOf(declare('cursor')).plan).toBe(false)
+    expect(capsOf(declare('claude')).plan).toBe(true)
+    // What it declared is folded into the record the control reads; without it the chip stays, disabled, saying why.
+    expect(planControl(declare('gemini'), { planMode: true })).toBe('on')
+    expect(planControl(staticCapabilities('gemini'), { planMode: false })).toBe('unavailable')
   })
 
   it('reads modes from `modes` and from a "mode" config option', () => {

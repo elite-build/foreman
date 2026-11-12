@@ -2,16 +2,18 @@ import { frozenReason } from '../../../../shared/transfer'
 import { ArrowDown, ArrowUp, Bot, Check, ClipboardList, MessageSquareQuote, Users, Copy, CornerDownLeft, File as FileIcon, FileText, Image, Lock, Paperclip, Pencil, Send, Square, SquareTerminal, Trash2, Workflow, X } from 'lucide-react'
 import { isActiveRun } from '../../../../shared/flows'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
-import { AGENTS, modelInfo, nextEffort, supportsPlan } from '../../../../shared/agents'
+import { AGENTS, modelInfo, nextEffort } from '../../../../shared/agents'
 import { compareBlockFor } from '../../../../shared/compare'
-import { effectiveMode, oppositeMode, receiptText, type FollowUpMode } from '../../../../shared/delivery'
+import { readOnlyEnforcement } from '../../../../shared/permissions'
+import { interruptsToSteer } from '../../../../shared/agentCapabilities'
+import { effectiveMode, oppositeMode, receiptText, type SendMode } from '../../../../shared/delivery'
 import { pendingComments } from '../../../../shared/context'
 import { insertTemplate, templateAfterEdit } from '../../../../shared/promptTemplates'
 import { queueMoveKey, shortTurnId } from '../../../../shared/queueEdit'
 import { templateById } from '../../../../shared/repoTemplates'
 import { composeMessage, editSnippet, snippetAttachmentName, snippetAttachmentText, snippetIsTooLong, TERMINAL_SNIPPET_MAX_CHARS, type TerminalSnippet } from '../../../../shared/terminalSnippet'
 import type { ApprovalRequest, Attachment, PromptTemplate, QueueChangeResult, QueuedMessage, QueueMove, Session, SlashCommandInfo, Workspace } from '../../../../shared/types'
-import { api, attempt, bridge, clientKind, modKey, newChatWithTemplate, onUiCommand, openCompareDialog, openMcpStatus, requestOpenFile, sendUiCommand, showError, showToast, takeComposerFill, toggleRightPanel, useStore, type EditedFrom } from '../../store'
+import { api, attempt, bridge, clientKind, modKey, newChatWithTemplate, onUiCommand, openCompareDialog, openMcpStatus, requestOpenFile, sendUiCommand, showError, showToast, takeComposerFill, toggleRightPanel, useCapabilities, useStore, type EditedFrom } from '../../store'
 import { useT } from '../../i18n'
 import { useStoreMemo } from '../../storeMemo'
 import { ActionRow, Button, Callout, ChipButton, IconButton, Kbd, LinkButton, Listbox, Tag, TextArea } from '../../ui'
@@ -20,6 +22,7 @@ import { ContextWheel } from './ContextWheel'
 import { newChatHint } from '../../../../shared/startModel'
 import { TemplatePicker } from './TemplatePicker'
 import { TerminalDraft } from './TerminalDraft'
+import { GoalCard } from '../GoalCard'
 import { WorkspaceToolsChip } from '../WorkspaceIntegrations'
 import { isMixed, planControl } from '../../../../shared/switchAgent'
 
@@ -151,7 +154,7 @@ export function Composer({
   const [commands, setCommands] = useState<SlashCommandInfo[]>([])
   const [dragging, setDragging] = useState(false)
   // Overrides the follow-up setting for the next message only.
-  const [override, setOverride] = useState<FollowUpMode | null>(null)
+  const [override, setOverride] = useState<SendMode | null>(null)
   // The template last inserted. Kept through edits, including filling its placeholders, until the
   // draft is cleared, sent or another template goes in; it is how the answer finds its follow-up.
   const [templateId, setTemplateId] = useState<string | undefined>()
@@ -160,6 +163,13 @@ export function Composer({
   // #16: the draft is a message being edited and resent (from Edit and resend), until it's sent or discarded.
   const [edited, setEdited] = useState<EditedFrom | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
+  // Something typed stands an armed idle compaction down (docs/agents.md 3); said at most every few seconds.
+  const typingSaid = useRef(0)
+  useEffect(() => {
+    if (!text.trim() || Date.now() - typingSaid.current < 5000) return
+    typingSaid.current = Date.now()
+    bridge.send.composerTyping(session.id)
+  }, [text, session.id])
   const suggestionsId = useId()
   const running = session.status === 'running'
   const agent = AGENTS[session.agent]
@@ -168,14 +178,18 @@ export function Composer({
   // O1: controls follow the tab's agent; in a chat that switched agents, a Plan chip the agent lacks stays greyed.
   // Scanned again only when this chat's log changes, not on every store event.
   const mixed = useStoreMemo((s) => [s.chats[session.id]], ([chat]) => isMixed(chat ?? []))
-  // G1: an ACP agent that declared a plan session mode gets the Plan chip.
-  const modes = useStore((s) => s.snapshot?.catalog.agents[session.agent]?.modes)
-  const plan = planControl(session.agent, { planMode: session.planMode, readOnly: session.readOnly, mixed, modes })
+  // G1: an ACP agent that declared a plan session mode has Plan on; any other without one shows it disabled, saying why.
+  const capabilities = useCapabilities(session.agent, session.instanceId)
+  const plan = planControl(capabilities, { planMode: session.planMode, readOnly: session.readOnly })
   const mod = modKey(platform)
   const isMac = platform === 'darwin'
   const held = workspace.state === 'setup-failed' && workspace.heldMessage?.sessionId === session.id
-  const canSteer = agent.supportsSteering
-  const followUp = effectiveMode(settings.followUpMode, override, canSteer)
+  const canSteer = capabilities?.turns.steer.level === 'native'
+  // Who holds the permission mode, from the record (docs/agents.md 8): the agent's own modes and sandbox, or Foreman's prompts and review.
+  const enforcedBy = capabilities ? t(capabilities.enforcement.by === 'agent' ? 'agentCaps.enforced.agent' : 'agentCaps.enforced.foreman') : ''
+  // An agent that can't take a message mid-turn queues by default; "Interrupt and send" is an explicit choice (docs/agents.md 2.5).
+  const canInterrupt = interruptsToSteer(capabilities)
+  const followUp = effectiveMode(settings.followUpMode, override, canSteer, canInterrupt)
   const historyOnly = workspace.state === 'history'
   // A tab imported as history stays read-only even once the workspace is active.
   const tabHistory = session.importedMode === 'history'
@@ -267,7 +281,7 @@ export function Composer({
   }, [menu, commands, workspace.id])
 
   const togglePlan = () => {
-    if (!supportsPlan(session.agent, modes)) return showError(t('composer.plan.unavailable'))
+    if (plan === 'hidden' || plan === 'unavailable') return showError(t('composer.plan.unavailable'))
     void attempt(() => api.updateSession(session.id, { planMode: !session.planMode }))
   }
 
@@ -348,7 +362,7 @@ export function Composer({
     })
   }
 
-  const send = async (mode?: 'queue' | 'steer') => {
+  const send = async (mode?: SendMode) => {
     const typed = text.trim()
     // Terminal blocks go first, each as a fenced block under its label line, then what was typed.
     // G4: a block trimmed down to nothing goes nowhere.
@@ -458,10 +472,10 @@ export function Composer({
       } else if (modDown && !e.shiftKey) {
         // Enter-mode: ⌘↵ sends with the opposite follow-up. ⌘↵-mode: ⌘↵ sends.
         e.preventDefault()
-        void send(sendsOnEnter && running && canSteer ? oppositeMode(followUp) : undefined)
-      } else if (!sendsOnEnter && e.altKey && running && canSteer) {
+        void send(sendsOnEnter && running && (canSteer || canInterrupt) ? oppositeMode(followUp, canInterrupt) : undefined)
+      } else if (!sendsOnEnter && e.altKey && running && (canSteer || canInterrupt)) {
         e.preventDefault()
-        void send(oppositeMode(followUp))
+        void send(oppositeMode(followUp, canInterrupt))
       }
       return
     }
@@ -577,6 +591,7 @@ export function Composer({
           )}
         </div>
       )}
+      <GoalCard session={session} />
       <QueuedList session={session} isMac={isMac} mod={mod} onKept={keepEdit} />
       {kept && (
         <Callout
@@ -702,7 +717,7 @@ export function Composer({
         <div className="composer-toolbar" onClick={(e) => e.stopPropagation()}>
           <AgentPicker session={session} hasHistory={hasHistory} open={pickerOpen} onOpenChange={setPickerOpen} />
           {plan === 'unavailable' ? (
-            <ChipButton disabled title={t('switchAgent.composer.noPlan', { agent: agent.label })}>
+            <ChipButton disabled title={mixed ? t('switchAgent.composer.noPlan', { agent: agent.label }) : t(capabilities?.planning.planMode.why ?? 'agentCaps.why.plan')}>
               <ClipboardList size={13} /> {t('composer.plan.chip')}
             </ChipButton>
           ) : plan !== 'hidden' && (
@@ -716,7 +731,7 @@ export function Composer({
             </ChipButton>
           )}
           {session.readOnly && (
-            <Tag title={t(session.agent === 'claude' ? 'readOnlyOpinion.enforced.claude' : 'readOnlyOpinion.enforced.codex')}>
+            <Tag title={`${t(readOnlyEnforcement(capabilities) === 'plan' ? 'readOnlyOpinion.enforced.claude' : 'readOnlyOpinion.enforced.codex')} ${enforcedBy}`}>
               <Lock size={12} /> {t('readOnlyOpinion.chip')}
             </Tag>
           )}
@@ -730,7 +745,7 @@ export function Composer({
           {settings.requireToolApprovals && session.autoAcceptEdits && (
             <ChipButton
               pressed
-              title={t('composer.autoAccept.title')}
+              title={`${t('composer.autoAccept.title')} ${enforcedBy}`}
               onClick={() => void attempt(() => api.updateSession(session.id, { autoAcceptEdits: false }))}
             >
               <Pencil size={12} /> {t('composer.autoAccept.label')} <X size={11} />
@@ -744,7 +759,7 @@ export function Composer({
             <TemplatePicker open={templatesOpen} onOpenChange={setTemplatesOpen} repoId={workspace.repoId} session={session} onPickCommand={insertCommand} onPick={applyTemplate} title={t('composer.templates.title', { key: `${mod}J` })} />
           )}
           {!disabled && <AlsoTry workspace={workspace} session={session} text={text} />}
-          {running && !pendingPlan && <SendModeChip mode={followUp} canSteer={canSteer} sendsOnEnter={settings.messageSendKey === 'enter'} isMac={isMac} mod={mod} onToggle={() => setOverride(oppositeMode(followUp))} />}
+          {running && !pendingPlan && <SendModeChip mode={followUp} canSteer={canSteer} canInterrupt={canInterrupt} sendsOnEnter={settings.messageSendKey === 'enter'} isMac={isMac} mod={mod} onToggle={() => setOverride(oppositeMode(followUp, canInterrupt))} />}
           <span className="spacer" />
           {session.contextUsage && (
             <ContextWheel
@@ -763,7 +778,7 @@ export function Composer({
             variant="primary"
             onClick={() => (stopIsPrimary ? void attempt(() => api.cancel(session.id)) : void send())}
             disabled={!stopIsPrimary && (disabled || !hasDraft)}
-            label={stopIsPrimary ? t('composer.send.stopTitle') : pendingPlan ? t('composer.send.planFeedbackTitle') : sendsQueue ? t('composer.send.queue') : t('composer.send.send')}
+            label={stopIsPrimary ? t('composer.send.stopTitle') : pendingPlan ? t('composer.send.planFeedbackTitle') : sendsQueue ? t('composer.send.queue') : running && followUp === 'interrupt' ? t('composer.send.interrupt') : t('composer.send.send')}
           >
             {stopIsPrimary ? <Square size={12} fill="currentColor" /> : sendsQueue ? <CornerDownLeft size={14} /> : pendingPlan ? <Send size={13} /> : <ArrowUp size={15} />}
           </IconButton>
@@ -805,25 +820,28 @@ function HeldBanner({ workspaceId }: { workspaceId: string }) {
 }
 
 /** While a turn runs: how this message goes (Steer or Queue), and the key for the other. */
-function SendModeChip({ mode, canSteer, sendsOnEnter, isMac, mod, onToggle }: {
-  mode: FollowUpMode
+function SendModeChip({ mode, canSteer, canInterrupt, sendsOnEnter, isMac, mod, onToggle }: {
+  mode: SendMode
   canSteer: boolean
+  // The agent can only be cut and restarted: Queue is the default, "Interrupt and send" the explicit choice.
+  canInterrupt: boolean
   sendsOnEnter: boolean
   isMac: boolean
   mod: string
   onToggle: () => void
 }) {
   const t = useT()
-  if (!canSteer) return <Tag title={t('composer.mode.cantSteer')}>{t('composer.mode.queue')}</Tag>
-  const other = oppositeMode(mode)
+  if (!canSteer && !canInterrupt) return <Tag title={t('composer.mode.cantSteer')}>{t('composer.mode.queue')}</Tag>
+  const other = oppositeMode(mode, canInterrupt)
   const key = sendsOnEnter ? `${mod}↵` : isMac ? '⌥↵' : 'Alt+Enter'
-  const label = (m: FollowUpMode) => (m === 'steer' ? t('composer.mode.steer') : t('composer.mode.queue'))
+  const label = (m: SendMode) => (m === 'steer' ? t('composer.mode.steer') : m === 'interrupt' ? t('composer.mode.interrupt') : t('composer.mode.queue'))
+  const title = mode === 'steer' ? t('composer.mode.steerTitle') : mode === 'interrupt' ? t('composer.mode.interruptTitle') : t(canInterrupt ? 'composer.mode.queueInterruptTitle' : 'composer.mode.queueTitle')
   return (
     <>
-      <ChipButton onClick={onToggle} title={mode === 'steer' ? t('composer.mode.steerTitle') : t('composer.mode.queueTitle')}>
+      <ChipButton onClick={onToggle} title={title}>
         {label(mode)}
       </ChipButton>
-      <span className="faint small">{t(other === 'steer' ? 'composer.mode.keyToSteer' : 'composer.mode.keyToQueue', { key })}</span>
+      <span className="faint small">{t(other === 'steer' ? 'composer.mode.keyToSteer' : other === 'interrupt' ? 'composer.mode.keyToInterrupt' : 'composer.mode.keyToQueue', { key })}</span>
     </>
   )
 }
@@ -847,6 +865,9 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
   const rows = useRef(new Map<string, HTMLElement>())
   const upKey = isMac ? '⌥↑' : 'Alt+↑'
   const downKey = isMac ? '⌥↓' : 'Alt+↓'
+  // Sending a queued message now steers it into the running turn, or, for an agent that can only be interrupted, cuts the turn and
+  // restarts it with the message first (docs/agents.md 2.5): the control says which, as the phone's does.
+  const interrupts = interruptsToSteer(useCapabilities(session.agent, session.instanceId))
   // G2 (#15): diff selection comments waiting for this tab. They wait in core, not in this queue, and go when the tab is
   // free (checked against the file first), so they're listed after it without places or moves.
   const allComments = useStore((s) => s.snapshot!.comments)
@@ -1028,7 +1049,7 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
                     <IconButton data-queue-action="down" disabled={n === queue.length - 1} label={t('queue.moveDown', { key: downKey })} onClick={() => void move(message.id, 'down', 'down')}>
                       <ArrowDown size={13} />
                     </IconButton>
-                    <IconButton data-queue-action="send" label={t('queue.sendNow')} onClick={() => void attempt(() => api.steerQueued(session.id, message.id))}>
+                    <IconButton data-queue-action="send" label={t(interrupts ? 'queue.interruptAndSend' : 'queue.sendNow')} onClick={() => void attempt(() => api.steerQueued(session.id, message.id))}>
                       <CornerDownLeft size={13} />
                     </IconButton>
                     <IconButton

@@ -6,6 +6,7 @@ import { modelInfo } from '../shared/agents'
 import { createT } from '../shared/i18n'
 import { mainLocale } from './i18n'
 import { keepRunningPlan } from '../shared/agentHost'
+import { withoutChildren } from '../shared/subagents'
 import {
   addStops,
   checksKey,
@@ -275,7 +276,7 @@ export class StopSafely {
         .filter((s) => s.workspaceId === id && turnRunning(s))
         .map(async (s) => {
           const items = s.turnId ? await store.readChat(s.id) : []
-          const last = items.filter((i): i is Extract<ChatItem, { kind: 'tool' }> => i.kind === 'tool' && i.turnId === s.turnId).at(-1)
+          const last = withoutChildren(items).filter((i): i is Extract<ChatItem, { kind: 'tool' }> => i.kind === 'tool' && i.turnId === s.turnId).at(-1)
           return { sessionId: s.id, title: s.title, model: modelInfo(s.agent, s.model).label, startedAt: s.turnStartedAt, lastStep: last ? { name: last.name, input: last.input } : undefined }
         })
     )

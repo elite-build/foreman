@@ -73,7 +73,6 @@ import { SttChip } from './SttChip'
 import { UpdateNotice } from './UpdateNotice'
 import { TerminalAgentLabel, useHasTerminalAgent } from './agents/TerminalAgents'
 import { leadGlyph } from '../../../shared/attention'
-import { clockTime } from '../../../shared/usageLimit'
 import { PrGlyphView } from './Attention'
 import { GitlabMark } from './GitlabMark'
 import { cloudAction, CloudSub } from './cloud/CloudBits'
@@ -344,8 +343,8 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
         ) : (
           t.label && (
             <span className={`ws-label ${t.tone ?? ''}`}>
-              {t.limitResume ? tr('attention.limit.resumesAt', { time: clockTime(Date.parse(t.limitResume.resetAt), tr.locale) }) : t.label}
-              {t.limitResume ? <span className="ws-detail"> · {tr('attention.limit.usageLimit')}</span> : t.detail && <span className="ws-detail"> · {t.detail}</span>}
+              {t.label}
+              {t.detail && <span className="ws-detail"> · {t.detail}</span>}
             </span>
           )
         )}

@@ -1,14 +1,15 @@
 // A sign-in command (claude, codex or gh login) run in an inline terminal,
 // used on the Agents and Account pages.
 import { LogIn, SquareTerminal, X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useT } from '../../i18n'
 import { Button, IconButton } from '../../ui'
 import { TerminalView } from '../TerminalView'
 
 // #22: `login:<agent id>` runs a catalog agent's own sign-in. 'claude-setup-token' prints a token for cloud workspaces.
 // #130: `login-instance:<id>` signs one of Claude's or Codex's other accounts in, in its own config folder.
-export type LoginCommand = 'claude-login' | 'claude-setup-token' | 'codex-login' | 'gh-login' | `login:${string}` | `login-instance:${string}`
+// `update:<agent id>` runs the agent's own update command (its catalog version table's `update`).
+export type LoginCommand = 'claude-login' | 'claude-setup-token' | 'codex-login' | 'gh-login' | `login:${string}` | `login-instance:${string}` | `update:${string}`
 
 interface LoginTerminalProps {
   command: LoginCommand
@@ -17,6 +18,8 @@ interface LoginTerminalProps {
   // Label for the button that opens the terminal.
   buttonLabel: string
   primary?: boolean
+  // The button's icon; the sign-in key by default.
+  icon?: ReactNode
   // Called after the user clicks Done (refresh status here).
   onDone: () => void
   // #22: the Done button's label (catalog agents say "Check again"), and what to do in the terminal.
@@ -28,7 +31,7 @@ interface LoginTerminalProps {
 }
 
 /** A button that, when clicked, becomes a terminal running the login command. */
-export function LoginTerminal({ command, commandLabel, buttonLabel, primary, onDone, doneLabel: doneText, hint, startOpen, onClose }: LoginTerminalProps) {
+export function LoginTerminal({ command, commandLabel, buttonLabel, primary, icon, onDone, doneLabel: doneText, hint, startOpen, onClose }: LoginTerminalProps) {
   const t = useT()
   const doneLabel = doneText ?? t('common.done')
   const [open, setOpen] = useState(Boolean(startOpen))
@@ -41,7 +44,7 @@ export function LoginTerminal({ command, commandLabel, buttonLabel, primary, onD
         <Button
           size="sm"
           variant={primary ? 'primary' : 'default'}
-          icon={<LogIn size={13} />}
+          icon={icon ?? <LogIn size={13} />}
           onClick={() => {
             setExitCode(null)
             setOpen(true)

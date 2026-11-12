@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { toModelInfo } from '../src/main/agents/claude'
 import { codexContextWindows, toCodexModelInfo, type CodexModel } from '../src/main/agents/codex'
 import { toCursorModelInfo } from '../src/main/agents/cursor'
-import { defaultModel, modelInfo, modelsFor, setModelCatalog } from '../src/shared/agents'
+import { catalogAgent } from '../src/shared/agentCatalog'
+import { defaultModel, MODELS, modelInfo, modelsFor, overlayModel, setModelCatalog, type ModelInfo } from '../src/shared/agents'
 
 afterEach(() => setModelCatalog({}))
 
@@ -105,5 +106,44 @@ describe('live catalog lookups', () => {
   it('uses the built-in list until the agent answers', () => {
     expect(modelsFor('codex').length).toBeGreaterThan(0)
     expect(modelInfo('opencode', 'deepseek/v4').label).toBe('deepseek/v4')
+  })
+})
+
+describe('the model overlay (docs/agents.md, 4.3)', () => {
+  const reported = (patch: Partial<ModelInfo>): ModelInfo => ({ id: 'gpt-6.1-sol', agent: 'codex', label: 'GPT-6.1 Sol', efforts: ['low'], supportsFast: true, contextWindow: 200_000, ...patch })
+
+  it('is written once, in the agents’ catalog files, and read as MODELS before any agent has answered', () => {
+    expect(MODELS.map((m) => m.id)).toEqual(['claude-fable-5-1', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5[1m]', 'claude-haiku-5-5', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.5', 'auto', 'grok-4.7', 'composer-2.5'])
+    expect(MODELS.find((m) => m.id === 'gpt-6.1-sol')).toMatchObject({ agent: 'codex', label: 'GPT-6.1 Sol', contextWindow: catalogAgent('codex')!.models!.table![0].contextWindow })
+    expect(modelsFor('codex').map((m) => m.id)).toEqual(['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.5'])
+  })
+
+  it('keeps what the agent states: its efforts, its fast tier, a context window it reported', () => {
+    const m = overlayModel(reported({ efforts: ['low', 'ultra'], supportsFast: false, contextWindow: 272_000, contextReported: true }))
+    expect(m).toMatchObject({ efforts: ['low', 'ultra'], supportsFast: false, contextWindow: 272_000 })
+  })
+
+  it('supplies what it does not state: the window a driver only worked out, a name left empty, a default effort', () => {
+    const m = overlayModel(reported({ label: '', contextWindow: 200_000, defaultEffort: undefined }))
+    expect(m).toMatchObject({ label: 'GPT-6.1 Sol', contextWindow: 500_000, defaultEffort: 'high' })
+  })
+
+  it('matches by id alone, so an alias does not inherit another model’s window', () => {
+    const alias = { ...reported({ id: 'opus', agent: 'claude', label: 'Opus 5.5', contextWindow: 200_000 }), aliases: ['claude-opus-5-5', 'claude-opus-5-5[1m]'] }
+    expect(overlayModel(alias).contextWindow).toBe(200_000)
+  })
+
+  it('leaves a model the catalog does not know exactly as the agent reported it', () => {
+    const m = reported({ id: 'gpt-9', contextWindow: 123_456 })
+    expect(overlayModel(m)).toBe(m)
+  })
+
+  it('applies to the agent’s own list and to a lookup', () => {
+    setModelCatalog({ codex: [reported({ contextWindow: 200_000 }), reported({ id: 'gpt-9', label: 'GPT-9', contextWindow: 99_000 })] })
+    expect(modelsFor('codex').map((m) => [m.id, m.contextWindow])).toEqual([
+      ['gpt-6.1-sol', 500_000],
+      ['gpt-9', 99_000]
+    ])
+    expect(modelInfo('codex', 'gpt-6.1-sol').contextWindow).toBe(500_000)
   })
 })

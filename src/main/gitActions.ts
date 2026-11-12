@@ -15,6 +15,7 @@ import { sandboxNotRunningReason } from '../shared/cloud'
 import { REVIEW_MESSAGE } from '../shared/handOff'
 import { createPrInstructions, fixErrorsInstructions, resolveConflictsMessage, reviewInstructions } from '../shared/prompts'
 import { createMrInstructions } from '../shared/scm'
+import { staticCapabilities } from '../shared/agentCatalog'
 import type { SessionService } from './sessions'
 import type { Store } from './store'
 import type { WorkspaceService } from './workspaces'
@@ -223,7 +224,7 @@ export class GitActions {
       case 'review': {
         // The app asks which model first (HandOffService); this is the straight path with the review model.
         const review = this.store.state.settings.reviewModel
-        const instructions = reviewInstructions({ base: ws.baseBranch, customPrompt: prompts.codeReview, hasDiffTool: review.agent === 'claude' })
+        const instructions = reviewInstructions({ base: ws.baseBranch, customPrompt: prompts.codeReview, hasDiffTool: staticCapabilities(review.agent)?.features.diffTool === true })
         const file = await attachFromData(this.attachTo(ws), 'Review request.md', toBase64(instructions))
         // The review opens in a new chat; its first turn gets an id up front so the caller can follow it.
         const turnId = randomUUID()

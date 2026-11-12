@@ -1,5 +1,5 @@
 import { cursorDriver } from './agents/cursor'
-import type { CursorEvent, CursorStart } from './agents/cursorProcess'
+import type { CursorEvent, CursorStart } from './agents/cursor/process'
 import type { AgentTurn, TurnCallbacks } from './agents/types'
 
 let turn: AgentTurn | undefined

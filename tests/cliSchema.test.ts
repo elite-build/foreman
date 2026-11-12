@@ -143,6 +143,7 @@ describe('settings schema: enums', () => {
     language: ['system', ...Object.keys(CATALOGUES)],
     messageSendKey: ['enter', 'mod-enter'],
     followUpMode: ['queue', 'steer'],
+    resumeAfterLimit: ['auto', 'ask'],
     sound: ['chime', 'bell', 'pop', 'marimba', 'none'],
     openInDefault: ['', 'custom', ...OPEN_IN_APP_IDS],
     updateInterval: ['hourly', 'every-4-hours', 'daily'],

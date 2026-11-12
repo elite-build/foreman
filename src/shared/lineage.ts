@@ -9,15 +9,18 @@
 // from timing (`reconstructed`, drawn dashed, with the record it `needs`). The graph has flowGraph's shape, so
 // flowMermaid draws it; lineageOutline is its accessible list, and draftFlowFromLineage turns it into a flow file to
 // edit. Pure: the caller reads the records (bounded: the workspace's chats and one hop of linked ones).
+import { AGENTS } from './agents'
 import { FLOW_DONE, type FlowRun } from './flows'
 import { modelWords, stateText, type FlowGraph, type FlowGraphEdge, type FlowGraphNode, type FlowLens, type FlowNodeState } from './flowGraph'
 import { CONTINUE_MESSAGE, REVIEW_MESSAGE, SECOND_OPINION_MESSAGE } from './handOff'
+import type { ChatHandOff } from './chatHandOff'
 import { createT, type Locale, type PlainKey, type TFunction } from './i18n'
 import { formatCompact } from './i18n/time'
 import { memoryLabel } from './memoryPaths'
 import type { ChatItem, ContextPart, HandOffKind, Session, TurnOutcome, Workspace } from './types'
 
 const enT = createT('en')
+const AGENT_NAME = (agent: string) => AGENTS[agent as keyof typeof AGENTS]?.label ?? agent
 
 export type LineageLens = FlowLens
 export const LINEAGE_LENSES: readonly LineageLens[] = ['run', 'context', 'memory', 'data']
@@ -30,7 +33,12 @@ export const LINEAGE_GAPS = ['Session.handedOffFrom', 'Workspace.startedBy', 'Me
 export type LineageGap = (typeof LINEAGE_GAPS)[number]
 
 /** What a node stands for, so the outline can open it: a chat's turn, the workspace's checks, or its pull request. */
-export type LineageRef = { kind: 'turn'; workspaceId: string; sessionId: string; turnId: string } | { kind: 'checks'; workspaceId: string } | { kind: 'pr'; workspaceId: string; url?: string }
+export type LineageRef =
+  | { kind: 'turn'; workspaceId: string; sessionId: string; turnId: string }
+  | { kind: 'checks'; workspaceId: string }
+  | { kind: 'pr'; workspaceId: string; url?: string }
+  // A switch of agent or account: opens the record of what the next agent received (docs/agents.md 5.5).
+  | { kind: 'received'; handOff: ChatHandOff }
 
 /** What "Make a flow from this…" needs to know of a node in the workspace itself. */
 export interface LineageDraftInfo {
@@ -285,11 +293,33 @@ export function lineageGraph(input: LineageInput, lens: LineageLens, options: Li
   // ---- per turn, per lens ----
   for (const session of own) {
     const list = turnsOf(session)
+    // The switches (and account moves) whose first turn carried a record of what the next agent received, by that turn.
+    const received = new Map<string, ChatHandOff>()
+    for (const i of input.chats.get(session.id) ?? []) {
+      const record = i.kind === 'notice' ? (i.switched?.handOff ?? i.handOff) : undefined
+      if (record?.turnId) received.set(record.turnId, record)
+    }
     list.forEach((turn, i) => {
       const n = turnNode(turn)
       const prev = list[i - 1]
       const origin = turn.user.origin
-      if (lens === 'run' && prev) {
+      const record = received.get(turn.user.turnId)
+      if (lens === 'run' && prev && record) {
+        // The turn after a switch comes from the record of what the agent received, which comes from the turn before.
+        const at = Number.isFinite(time(turn.at)) ? new Date(time(turn.at) - 1).toISOString() : undefined
+        const gave = node({
+          id: `received:${turn.id}`,
+          kind: 'source',
+          label: t('lineage.node.received', { agent: AGENT_NAME(record.to.agent) }),
+          sublabel: t('lineage.received.sub', { full: record.full.length, condensed: record.condensed.length, omitted: record.omitted.length, strategy: record.strategy }),
+          loops: [],
+          ref: { kind: 'received', handOff: record },
+          ...(at ? { at } : {})
+        })
+        recorded(gave, 'ChatItem.switched.handOff')
+        edge({ from: prev.id, to: gave.id, kind: 'fact', recorded: 'ChatItem.switched.handOff' })
+        edge({ from: gave.id, to: turn.id, kind: 'fact', label: t('lineage.edge.switched', { from: AGENT_NAME(record.from.agent), to: AGENT_NAME(record.to.agent) }), recorded: 'ChatItem.switched.handOff' })
+      } else if (lens === 'run' && prev) {
         // The next message in the same chat; a resume after a usage limit says so.
         const resumed = origin?.kind === 'limit-resume'
         edge({ from: prev.id, to: turn.id, kind: 'fact', ...(resumed ? { label: t('lineage.edge.limitResume') } : {}), recorded: resumed ? 'MessageOrigin' : 'ChatItem.turnId' })

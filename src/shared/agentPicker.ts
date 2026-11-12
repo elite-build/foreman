@@ -2,7 +2,7 @@
 // Only enabled agents appear. A Full agent that's enabled but not set up yet
 // (Cursor without a key, OpenCode not installed) is listed as not ready, and
 // picking it opens its settings, as the old "+ Cursor" shortcut did.
-import { AGENT_CATALOG, isAgentEnabled, LEVELS, missingCapabilities, type AgentPrefs, type Capability, type IntegrationLevel } from './agentCatalog'
+import { AGENT_CATALOG, CAPABILITIES, catalogAgent, isAgentEnabled, LEVELS, type AgentPrefs, type Capability, type IntegrationLevel } from './agentCatalog'
 import type { AgentKind } from './agents'
 import { agentReadiness, type AgentReadiness } from './agentReadiness'
 import type { AgentStatus } from './types'
@@ -26,16 +26,19 @@ export interface PickerReadiness {
   statuses?: Partial<Record<string, AgentStatus>>
 }
 
-/** The evidence for a Full agent (Claude, Codex, Cursor, OpenCode); undefined for every other agent. */
+/** The evidence for a Full agent (those whose catalog entry says how it is judged); undefined for every other agent. */
 export function pickerEvidence(id: string, readiness: PickerReadiness): AgentReadiness | undefined {
-  if (id !== 'claude' && id !== 'codex' && id !== 'cursor' && id !== 'opencode') return undefined
+  if (!catalogAgent(id)?.readiness) return undefined
   return agentReadiness(id, { status: readiness.statuses?.[id], keySaved: readiness.cursor, installed: readiness.opencode })
 }
 
-// Claude and Codex are always selectable: a signed-out one is labelled and offers sign-in (see pickerEvidence), never blocked.
+// An agent judged by its own status check (Claude, Codex) is always selectable: a signed-out one is labelled and offers sign-in
+// (see pickerEvidence), never blocked. One judged by a saved key (`readiness.cursor`) or by being installed (`readiness.opencode`)
+// is ready only when that is so.
 function ready(id: string, readiness: PickerReadiness): boolean {
-  if (id === 'cursor') return readiness.cursor
-  if (id === 'opencode') return readiness.opencode
+  const evidence = catalogAgent(id)?.readiness
+  if (evidence === 'key') return readiness.cursor
+  if (evidence === 'installed') return readiness.opencode
   return true
 }
 
@@ -57,7 +60,7 @@ export function pickerGroups(prefs: AgentPrefs | undefined, readiness: PickerRea
       id: a.id,
       level,
       ready: level === 'terminal' || ready(a.id, readiness),
-      missing: missingCapabilities(a.id),
+      missing: CAPABILITIES.filter((c) => !a.capabilities[c]),
       readiness: pickerEvidence(a.id, readiness)
     }))
   })).filter((g) => g.agents.length > 0)

@@ -1,5 +1,6 @@
 // Outside agents' access levels, and the cap a turn they cause carries down everything it starts
 // (docs/agent-access.md, sections 3 and 4). Pure: main and tests share it.
+import { staticCapabilities } from './agentCatalog'
 import { AGENTS, chatAgentKinds, type AgentKind } from './agents'
 import { SCOPED_FILE_TOOLS, workspaceRelative, type ApprovalPolicy } from './permissions'
 import type { DelegationToolName } from './foremanDelegation'
@@ -80,12 +81,12 @@ export function capIsLower(cap: TurnCap | undefined, than: TurnCap | undefined):
 // Claude Code and Codex take the permission mode or sandbox Foreman gives each turn, so either can be held to any
 // ceiling (Codex's Ask and Ask except edits are the same sandboxed on-request mode, its Auto sandboxed and never
 // asking). Cursor never prompts and an ACP agent asks only when it chooses to, so neither can be held below Never ask.
-const HOLDS_EVERY_CEILING: ReadonlySet<AgentKind> = new Set<AgentKind>(['claude', 'codex'])
+// Each record says so in `enforcement.ceilings`.
 const NEVER_ASK_ONLY: readonly ApprovalPolicy[] = ['never-ask']
 
 /** The ceilings Foreman can hold each agent to. */
 export const CEILINGS_ENFORCED: Record<AgentKind, readonly ApprovalPolicy[]> = Object.fromEntries(
-  chatAgentKinds().map((agent) => [agent, HOLDS_EVERY_CEILING.has(agent) ? POLICY_ORDER : NEVER_ASK_ONLY])
+  chatAgentKinds().map((agent) => [agent, staticCapabilities(agent)?.enforcement.ceilings ?? NEVER_ASK_ONLY])
 ) as Record<AgentKind, readonly ApprovalPolicy[]>
 
 /** Whether a turn of this agent can be held to this ceiling. An agent this build doesn't know can't be held below Never ask. */

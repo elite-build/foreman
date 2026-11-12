@@ -7,8 +7,8 @@ import { AGENTS, effortLabel, modelInfo, type Loadout } from '../../../shared/ag
 import { MAX_OPEN_TABS, placeSections, sizeLine } from '../../../shared/handOff'
 import { permissionNote, readOnlyEnforcement } from '../../../shared/permissions'
 import type { HandOffKind, HandOffPreview } from '../../../shared/types'
-import { api, attempt, availableAgents, modKey, openHandOffDialog, openSessions, selectSession, useStore } from '../store'
-import { AgentIcon, ModelChooser, opencodeModelParts } from './composer/AgentPicker'
+import { api, attempt, availableAgents, modKey, openHandOffDialog, openSessions, selectSession, useCapabilities, useStore } from '../store'
+import { AgentIcon, ModelChooser, modelName } from './composer/AgentPicker'
 import { withReviewRequest } from '../../../shared/agentReports'
 import { useT } from '../i18n'
 import type { PlainKey } from '../../../shared/i18n'
@@ -20,9 +20,8 @@ const TITLES: Record<HandOffKind, PlainKey> = {
   continue: 'secondOpinion.title.continue'
 }
 
-function modelName(model: Loadout): string {
-  const info = modelInfo(model.agent, model.model)
-  return model.agent === 'opencode' ? opencodeModelParts(info).name : info.label
+function loadoutName(model: Loadout): string {
+  return modelName(modelInfo(model.agent, model.model))
 }
 
 /** Loadouts at the top of the chooser, as in the composer's picker. */
@@ -38,7 +37,7 @@ function LoadoutRows({ onPick }: { onPick: (loadout: Loadout) => void }) {
         <ActionRow key={n} onPress={() => onPick(loadout)} disabled={!available[loadout.agent]} primaryProps={{ className: 'picker-row-main' }}>
           <span className="picker-num">{n + 1}</span>
           <AgentIcon agent={loadout.agent} />
-          <span className="picker-row-label">{modelName(loadout)}</span>
+          <span className="picker-row-label">{loadoutName(loadout)}</span>
           {loadout.effort && <span className="faint">{effortLabel(loadout.effort, t)}</span>}
           {loadout.fast && <Zap size={11} className="fast-on" aria-hidden />}
         </ActionRow>
@@ -51,10 +50,11 @@ function LoadoutRows({ onPick }: { onPick: (loadout: Loadout) => void }) {
  * #16: the Access section. Read-only is offered only where Foreman enforces it (Claude: plan mode it can't
  * leave; Codex: the read-only sandbox). Elsewhere the checkbox is gone, with one line saying why.
  */
-function AccessField({ agent, checked, onChange }: { agent: Loadout['agent']; checked: boolean; onChange: (on: boolean) => void }) {
+function AccessField({ agent, instance, checked, onChange }: { agent: Loadout['agent']; instance?: string; checked: boolean; onChange: (on: boolean) => void }) {
   const t = useT()
   const labelId = useId()
-  const how = readOnlyEnforcement(agent)
+  // The account's own record: a Codex whose Windows sandbox isn't ready there isn't offered it (docs/agents.md 8).
+  const how = readOnlyEnforcement(useCapabilities(agent, instance))
   return (
     <div className="dlg-group" role="group" aria-labelledby={labelId}>
       <span id={labelId} className="dlg-label">
@@ -88,6 +88,7 @@ export function SecondOpinionDialog({ sourceId, kind, prefill, reportId, readOnl
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
   const [model, setModel] = useState<Loadout | null>(null)
+  const modelHow = readOnlyEnforcement(useCapabilities(model?.agent ?? '', model?.instance))
   const [useTask, setUseTask] = useState(false)
   const [taskTurnId, setTaskTurnId] = useState<string | undefined>()
   const [useAnswer, setUseAnswer] = useState(false)
@@ -159,7 +160,7 @@ export function SecondOpinionDialog({ sourceId, kind, prefill, reportId, readOnl
         taskTurnId: useTask ? taskTurnId : undefined,
         answer: useAnswer,
         diff: useDiff,
-        readOnly: offersReadOnly && readOnly && readOnlyEnforcement(model.agent) ? true : undefined,
+        readOnly: offersReadOnly && readOnly && modelHow ? true : undefined,
         expect: { task: useTask ? task?.hash : undefined, answer: useAnswer ? preview.answer?.hash : undefined, diff: useDiff ? preview.diff?.hash : undefined }
       })
     )
@@ -246,7 +247,7 @@ export function SecondOpinionDialog({ sourceId, kind, prefill, reportId, readOnl
               trigger={(popover) => (
                 <ChipButton {...popover} aria-labelledby="so-model-label so-model-chip" className="picker-trigger">
                   <AgentIcon agent={model.agent} />
-                  <span id="so-model-chip">{modelName(model)}</span>
+                  <span id="so-model-chip">{loadoutName(model)}</span>
                   {model.effort && modelInfo(model.agent, model.model).efforts.length > 0 && <span className="faint">{effortLabel(model.effort, t)}</span>}
                   {model.fast && <Zap size={12} className="fast-on" aria-hidden />}
                   <ChevronDown size={12} className="faint" aria-hidden />
@@ -310,7 +311,7 @@ export function SecondOpinionDialog({ sourceId, kind, prefill, reportId, readOnl
             {kind === 'review' && <small className="dlg-hint">{t('secondOpinion.reviewNote')}</small>}
           </div>
 
-          {offersReadOnly && <AccessField agent={model.agent} checked={readOnly} onChange={setReadOnly} />}
+          {offersReadOnly && <AccessField agent={model.agent} instance={model.instance} checked={readOnly} onChange={setReadOnly} />}
 
           <Field label={t('secondOpinion.firstMessage')}>{(control) => <TextArea {...control} rows={3} value={message} onChange={(e) => setMessage(e.target.value)} />}</Field>
 
@@ -320,8 +321,8 @@ export function SecondOpinionDialog({ sourceId, kind, prefill, reportId, readOnl
             <div>
               {t('secondOpinion.permissions', { agent: AGENTS[model.agent].label })}{' '}
               <b>
-                {offersReadOnly && readOnly && readOnlyEnforcement(model.agent)
-                  ? t(readOnlyEnforcement(model.agent) === 'plan' ? 'readOnlyOpinion.permissions.plan' : 'readOnlyOpinion.permissions.sandbox')
+                {offersReadOnly && readOnly && modelHow
+                  ? t(modelHow === 'plan' ? 'readOnlyOpinion.permissions.plan' : 'readOnlyOpinion.permissions.sandbox')
                   : permissionNote(model.agent, snapshot.settings, t)}
               </b>
             </div>

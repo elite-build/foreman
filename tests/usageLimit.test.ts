@@ -165,10 +165,15 @@ describe('what a failed turn says about a limit', () => {
     expect(usageLimitOf('claude', 'You’ve hit your usage limit. Try again later.', NOW, 'UTC')).toEqual({})
   })
 
-  it('is unknown for Codex and the others, whatever the words say', () => {
-    expect(usageLimitOf('codex', "You've hit your usage limit. Try again later.", NOW, 'UTC')).toEqual({})
-    expect(usageLimitOf('codex', 'usage limit · resets 2:30pm (Europe/London)', NOW, 'UTC')).toEqual({})
+  it('is unknown for the agents whose record has no reset time, whatever the words say', () => {
+    expect(usageLimitOf('cursor', "You've hit your usage limit. Try again later.", NOW, 'UTC')).toEqual({})
+    expect(usageLimitOf('cursor', 'usage limit · resets 2:30pm (Europe/London)', NOW, 'UTC')).toEqual({})
     expect(usageLimitOf('opencode', 'Rate limit reached', NOW, 'UTC')).toEqual({})
+  })
+
+  it('reads the time Codex states, now that its record says its reset time can be read (docs/agents.md 7.1)', () => {
+    expect(usageLimitOf('codex', "You've hit your usage limit. Try again later.", NOW, 'UTC')).toEqual({})
+    expect(usageLimitOf('codex', 'usage limit · resets 2:30pm (Europe/London)', NOW, 'UTC')).toMatchObject({ source: 'resets 2:30pm (Europe/London)', timeZone: 'Europe/London' })
   })
 
   it('is nothing for an error that isn’t a limit, unless the adapter detected one', () => {

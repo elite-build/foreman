@@ -6,21 +6,20 @@
 import path from 'node:path'
 import { Duplex, Readable, Writable } from 'node:stream'
 import type { HostedTurnRecord, HostTurnInfo } from '../../shared/agentHost'
-import { catalogAgent } from '../../shared/agentCatalog'
+import { catalogAgent, staticCapabilities } from '../../shared/agentCatalog'
 import type { AgentKind } from '../../shared/agents'
 import {
-  CLAUDE_SETUP_TOKEN_KEY,
   CLOUD_CONTINUE_PROMPT,
   CLOUD_HOST_DIR,
   CLOUD_HOST_SOCKET,
   CLOUD_HOST_STATE_DIR,
-  cloudAgentSupported,
   cloudSettings,
   repoCloud,
   sessionCapReason
 } from '../../shared/cloud'
 import type { ChatItem, Session, SendReceipt, Workspace, WorkspaceCloud } from '../../shared/types'
 import type { TurnCap } from '../../shared/agentAccess'
+import { driverFor } from '../agents/registry'
 import type { AgentTurn, TurnCallbacks, TurnRequest, TurnResult } from '../agents/types'
 import { HOST_LOST, HostClient, type RemoteTurn, type TurnContext } from '../agentHost/client'
 import type { HostEvent, WireTurnRequest } from '../agentHost/protocol'
@@ -246,6 +245,10 @@ class CloudTurn implements AgentTurn, HostedFacts {
   reconnectMcpServer(name: string): Promise<void> {
     return this.inner.reconnectMcpServer(name)
   }
+
+  stopChild(childId: string): Promise<void> {
+    return this.inner.stopChild(childId)
+  }
 }
 
 export class CloudTurnHost implements TurnHost {
@@ -286,7 +289,7 @@ export class CloudTurnHost implements TurnHost {
 
   /** A cloud workspace's turn runs here when its agent can run in a sandbox (not Cursor). */
   keeps(agent: AgentKind, ws?: Workspace): boolean {
-    return Boolean(ws?.cloud) && cloudAgentSupported(agent)
+    return Boolean(ws?.cloud) && staticCapabilities(agent)?.features.cloud === true
   }
 
   /** A turn is going in this workspace's sandbox (the idle ticker counts it as activity). */
@@ -345,29 +348,12 @@ export class CloudTurnHost implements TurnHost {
   private turnEnv(agent: AgentKind, ws: Workspace, base: Record<string, string>): Record<string, string> {
     const { secrets } = this.deps
     const vars = this.deps.vars(ws.repoId)
-    // Lowest first: OpenCode's provider keys (it reads whichever its model needs), Settings → Environment, the turn's own.
-    const env: Record<string, string> = { ...(agent === 'opencode' ? secrets.providerKeys() : {}), ...vars, ...base }
-    if (agent === 'claude') {
-      if (cloudSettings(this.deps.store.state.settings).claudeAuth === 'setup-token') {
-        const token = secrets.agentKey('claude', CLAUDE_SETUP_TOKEN_KEY)
-        if (!token) throw new Error('Claude isn’t signed in for cloud workspaces. Add a setup token in Settings → Cloud workspaces, or switch Claude to an API key there.')
-        // An API key would win over the token.
-        delete env.ANTHROPIC_API_KEY
-        delete env.ANTHROPIC_AUTH_TOKEN
-        env.CLAUDE_CODE_OAUTH_TOKEN = token
-      } else {
-        const key = secrets.agentKey('claude', 'ANTHROPIC_API_KEY') ?? vars.ANTHROPIC_API_KEY
-        if (!key) throw new Error('Claude in cloud workspaces uses an API key, and none is saved. Add one in Settings → Agents → Claude Code, or use a setup token (Settings → Cloud workspaces).')
-        delete env.CLAUDE_CODE_OAUTH_TOKEN
-        env.ANTHROPIC_API_KEY = key
-      }
-    } else if (agent === 'codex') {
-      const key = secrets.agentKey('codex', 'CODEX_API_KEY') ?? vars.CODEX_API_KEY
-      if (!key) throw new Error('Codex in cloud workspaces needs an API key. Add one in Settings → Agents → Codex.')
-      // `codex exec` reads either name.
-      env.CODEX_API_KEY = key
-      env.OPENAI_API_KEY = key
-    } else if (agent !== 'opencode') {
+    // Lowest first: Settings → Environment, the turn's own; the driver puts its credentials over them (OpenCode: its provider keys under).
+    let env: Record<string, string> = { ...vars, ...base }
+    const driver = driverFor(agent)
+    if (driver.cloudEnv) env = driver.cloudEnv({ env, vars, secrets, cloud: cloudSettings(this.deps.store.state.settings) })
+    else {
+      // Any other agent: the key its catalog entry names, if one is saved.
       const keyVar = catalogAgent(agent)?.auth.apiKey?.envVar
       const key = keyVar ? secrets.agentKey(agent, keyVar) : undefined
       if (keyVar && key) env[keyVar] = key

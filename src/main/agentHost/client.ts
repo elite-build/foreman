@@ -454,6 +454,15 @@ export class RemoteTurn implements AgentTurn {
       case 'usage':
         this.cb.usage(event.usage)
         break
+      case 'goal':
+        this.cb.goal?.(event.goal)
+        break
+      case 'cache-window':
+        this.cb.cacheWindow?.({ ttl: event.ttl, warm: event.warm })
+        break
+      case 'declared':
+        this.cb.declared?.(event.facts)
+        break
       case 'mirror-error':
         this.cb.mirrorError?.(event.agentSessionId, event.subpath, event.error)
         break
@@ -496,7 +505,7 @@ export class RemoteTurn implements AgentTurn {
         ? this.cb.approveTool(r, controller.signal)
         : r.kind === 'plan'
           ? this.cb.reviewPlan(r.plan, controller.signal)
-          : this.cb.ask(r.questions, controller.signal)
+          : this.cb.ask(r.questions, controller.signal, r.subagent)
     void answer
       .catch(() => CANCELLED[r.kind])
       .then((response) => {
@@ -562,6 +571,11 @@ export class RemoteTurn implements AgentTurn {
 
   async reconnectMcpServer(name: string): Promise<void> {
     await this.client.request('reconnectMcp', { turnId: this.turnId, name })
+  }
+
+  async stopChild(childId: string): Promise<void> {
+    if (this.ended) throw new Error('The agent is not running')
+    await this.client.request('stopChild', { turnId: this.turnId, childId })
   }
 }
 

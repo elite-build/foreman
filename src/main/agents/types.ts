@@ -3,9 +3,12 @@
 import type { SessionStore } from '@anthropic-ai/claude-agent-sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { AgentKind, EffortLevel, ModelInfo } from '../../shared/agents'
-import type { AgentStatus, ApprovalRequest, ApprovalResponse, ChatItem, ContextUsage, McpServerInfo, Question } from '../../shared/types'
+import type { AgentStatus, ApprovalRequest, ApprovalResponse, ChatItem, ContextUsage, McpServerInfo, Question, SubagentRef } from '../../shared/types'
 import type { ApprovalPolicy } from '../../shared/permissions'
 import type { ReportKind } from '../../shared/agentReports'
+import type { CloudSettings } from '../../shared/types'
+import type { OwnMcpServer } from '../../shared/integrations'
+import type { SecretStore } from '../secrets'
 
 /** How tool approvals work for a turn. */
 export type { ApprovalPolicy }
@@ -67,15 +70,23 @@ export interface TurnRequest {
   planMode: boolean
   approvals: ApprovalPolicy
   // #16: enforced read-only. Claude stays in plan mode (leaving it, and edit tools, are always refused);
-  // Codex runs in its read-only sandbox. Only sent to agents that support it (see AGENTS.supportsReadOnly).
+  // Codex runs in its read-only sandbox. Only sent to agents that support it (`enforcement.readOnly` in its capability record).
   readOnly?: boolean
-  // Claude only: a flow persona's scoped writes (globs relative to cwd). File tools may write only inside them and every
-  // shell is refused, each refusal a message the agent reads and carries on from (never an approval that stops the turn).
+  // A flow persona's scoped writes (globs relative to cwd), for an agent whose record offers `enforcement.scopedWrites`. Claude: file tools
+  // may write only inside them and every shell is refused. Codex: the read-only sandbox, a write inside them accepted, anything else
+  // declined, and so are the commands and MCP calls that ask. Each refusal is a message the agent reads and carries on from (never an
+  // approval that stops the turn).
   writeScope?: string[]
+  // The account the turn runs on (undefined: the agent's default one): what an agent's pooled server is keyed by (docs/agents.md 3).
+  instance?: string
   // The agent's conversation to continue, if any.
   resume?: string
-  // With `resume`: fork the conversation after this message (after a rewind).
+  // With `resume`: the conversation as it stood after this message (Claude: the assistant message's uuid; Codex: the id of
+  // the turn that last ended there): the turn forks it, a new conversation through that point.
   resumeAt?: string
+  // With `resume` and `resumeAt` (Restore): the conversation goes back to that point in place, keeping its id, where the
+  // agent can roll its own thread back (`checkpointing.conversationRollback`); an agent that can't ignores this and forks.
+  rewind?: boolean
   systemPromptAppend: string
   executablePath?: string
   hostTools?: HostTools
@@ -96,7 +107,7 @@ export interface TurnRequest {
   sessionStore?: SessionStore
   // With `resume`: continue as a new session id (an import made as a copy), instead of the same one.
   forkOnResume?: boolean
-  // Repo-proposed MCP servers this Mac approved (#20: agents with supportsRepoMcp), and Integrations' bridge
+  // Repo-proposed MCP servers this Mac approved (#20: agents whose record offers `tools.mcp`), and Integrations' bridge
   // servers (`foreman-linear`). Never contains an unapproved one.
   mcpServers?: Record<string, McpLaunch>
   // MCP servers the app answers in its own process (Foreman's `foreman-app`), by name. Claude only, and only for
@@ -134,10 +145,32 @@ export interface TurnCallbacks {
   assistantMessage(uuid: string): void
   approveTool(request: ToolApprovalRequest, signal: AbortSignal): Promise<Extract<ApprovalResponse, { kind: 'tool' }>>
   reviewPlan(plan: string, signal: AbortSignal): Promise<Extract<ApprovalResponse, { kind: 'plan' }>>
-  ask(questions: Question[], signal: AbortSignal): Promise<Extract<ApprovalResponse, { kind: 'question' }>>
+  /** `subagent`: a subagent asks, not the agent itself (docs/agents.md 6). */
+  ask(questions: Question[], signal: AbortSignal, subagent?: SubagentRef): Promise<Extract<ApprovalResponse, { kind: 'question' }>>
   planModeChanged(on: boolean): void
   autoAcceptEdits(on: boolean): void
   usage(usage: ContextUsage): void
+  /**
+   * The agent's goal for this conversation changed (Codex's `thread/goal/updated`), or was cleared (null). Optional: an agent
+   * whose record has no `planning.goals` never calls it.
+   */
+  goal?(goal: import('../../shared/types').SessionGoal | null): void
+  /**
+   * What the agent said about itself when the turn started (OpenCode's `initialize.agentInfo.version`): Foreman keeps it for the
+   * account (`declared` in the snapshot's capabilities) and resolves the record from it (docs/agents.md 2.1). Optional.
+   */
+  declared?(facts: import('../../shared/agentCapabilities').DeclaredFacts): void
+  /**
+   * The prompt cache the turn's last request left (Claude's usage: which time-to-live it wrote with, and whether it wrote or
+   * read at all). Called once, before `finished`, only where the turn's answer carried it; idle compaction reads it.
+   */
+  cacheWindow?(cache: { ttl: '5m' | '1h'; warm: boolean }): void
+  /**
+   * Usage windows the agent reported during the turn (Claude's `rate_limit_event`, Codex's `account/rateLimits/updated`),
+   * one or more at a time: Foreman merges them into what the account last said (docs/agents.md 7.1). Optional: an agent
+   * whose record has no `usage.limitWindows` never calls it.
+   */
+  limits?(windows: import('../../shared/limits').LimitWindow[]): void
   /** The transcript mirror could not store a batch (Claude only). */
   mirrorError?(agentSessionId: string, subpath: string | undefined, error: string): void
   /**
@@ -158,6 +191,11 @@ export interface AgentTurn {
   /** MCP servers of the running agent. Optional. */
   mcpStatus?(): Promise<McpServerInfo[]>
   reconnectMcpServer?(name: string): Promise<void>
+  /**
+   * Stops one subagent of the running turn, by the id its Task call's `childId` carries; the turn goes on (docs/agents.md 6).
+   * Only for an agent whose record has `subagents.stop`. Resolves when the agent has been told; it never ends the turn.
+   */
+  stopChild?(childId: string): Promise<void>
 }
 
 /** An idle agent process kept open to watch its MCP servers connect. */
@@ -182,18 +220,72 @@ export interface ModelList {
   modes?: import('../../shared/agentCatalog').AcpMode[]
 }
 
+/**
+ * What the driver's turns use of the app beyond a prompt, declared next to the code that uses it. Together with
+ * `oneShot`, this is where the record's derived `features` come from (capabilities.ts driverFeatures), so a feature can't
+ * be listed for an agent whose adapter doesn't do it.
+ */
+export interface DriverAccepts {
+  // HostTools.workspaceDiff, diffComments and addDiffComments.
+  diffTool?: boolean
+  // HostTools.suggestFollowups.
+  followups?: boolean
+  // HostTools.report: `report` and `request_review`.
+  reportTools?: boolean
+  // TurnRequest.sessionStore: the transcript mirrored into Foreman.
+  transcriptMirror?: boolean
+  // TurnRequest.inProcessMcp: MCP servers the app answers in its own process, in place of a bridge process.
+  inProcessMcp?: boolean
+}
+
+/** What a driver needs to put its credentials into a cloud sandbox's turn environment (AgentDriver.cloudEnv). */
+export interface CloudCredentialInput {
+  // The turn's environment so far: Settings → Environment's variables under the turn's own.
+  env: Record<string, string>
+  // Settings → Environment's variables alone.
+  vars: Record<string, string>
+  secrets: Pick<SecretStore, 'agentKey' | 'providerKeys'>
+  // The cloud settings (Settings → Cloud workspaces): how Claude signs in there.
+  cloud: CloudSettings
+}
+
 export interface AgentDriver {
   kind: AgentKind
+  /** The host tools and stores its turns use; absent: none. */
+  accepts?: DriverAccepts
   createTurn(request: TurnRequest, callbacks: TurnCallbacks): AgentTurn
   /** Single answer with no tools, e.g. for chat titles. Optional. */
   oneShot?(prompt: string, options: OneShotOptions): Promise<string>
   status(env: Record<string, string>, executablePath?: string): Promise<AgentStatus>
+  /**
+   * The account's usage windows now, read with the account's own environment and binary (Usage → Limits, and when its status
+   * is read). Only for an agent whose record reports windows and has a read that needs no turn; it must not start work or
+   * spend usage. An empty list: nothing to report (an API key has no plan windows).
+   */
+  limits?(env: Record<string, string>, executablePath?: string): Promise<import('../../shared/limits').LimitWindow[]>
   /** The models this agent offers with its current sign-in, straight from the agent. */
   listModels?(options: OneShotOptions): Promise<ModelList>
   /** #130: `env` is the turn's environment, so an account's config folder is the one read. */
   slashCommands?(cwd: string, env?: Record<string, string>): Promise<{ name: string; description: string }[]>
   /** Start the agent without a prompt to check its MCP servers. Optional. */
   mcpProbe?(options: OneShotOptions): McpProbe
+  /**
+   * The agent's credentials in a cloud sandbox's turn environment: returns the environment to run with, or throws the
+   * sentence that says what to add in Settings. Absent: the generic rule (the key the catalog names, if one is saved).
+   */
+  cloudEnv?(input: CloudCredentialInput): Record<string, string>
+  /** The command line that signs the agent in, for the sign-in terminal; `executablePath` is the one the user set. No spawning. */
+  signInCommand?(executablePath?: string): string
+  /**
+   * The command line that runs the agent's own update command (its catalog version table's `update`), for a terminal tab
+   * the person watches. `executablePath` is the program the user set; Foreman never runs it unseen. Absent: no update command.
+   */
+  updateCommand?(executablePath?: string): string
+  /**
+   * Of the user's own MCP servers a repository's integration replaces (their config in this agent's own files), the names
+   * this agent's turn switches off so it can't reach another account. Absent: none.
+   */
+  ownMcpToDisable?(blocked: OwnMcpServer[]): string[]
 }
 
 /** Matches agent error text that means "not signed in". */

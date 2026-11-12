@@ -269,6 +269,38 @@ describe('Foreman MCP in-process (Claude turns in the app)', () => {
     expect(record).toHaveBeenCalledWith({ workspaceId: 'w', sessionId: 's', turnId: 't1', kind: 'decide', text: 'large', via: 'mcp' })
   })
 
+  it('offers read_chat_history, reading only the chat the calling turn belongs to (docs/agents.md 5.3)', async () => {
+    const { actions, state, session } = rig()
+    const other = { id: 's2', workspaceId: 'w', status: 'idle', agent: 'claude', planMode: false } as Session
+    state.sessions.push(other)
+    const chatHistory = vi.fn(async (sessionId: string, args: object) => ({ text: `read ${sessionId} ${JSON.stringify(args)}`, returned: [1], total: 1, missing: [], notReturned: [] }))
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null, chatHistory })
+    const client = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'read_chat_history')
+    expect(tool?.annotations?.readOnlyHint).toBe(true)
+    expect(tool?.description).toContain('Reads only this chat')
+    // The chat is the grant's: the arguments never name one, so a session id is refused as an unknown argument.
+    const own = await client.callTool({ name: 'read_chat_history', arguments: { turns: [2, 3], from: 1 } })
+    expect(own.isError).not.toBe(true)
+    expect(JSON.stringify(own.content)).toContain('read s {')
+    expect(chatHistory).toHaveBeenLastCalledWith('s', { turns: [2, 3], from: 1 })
+    const other2 = await client.callTool({ name: 'read_chat_history', arguments: { sessionId: 's2' } })
+    expect(other2.isError).toBe(true)
+    expect(chatHistory).toHaveBeenCalledTimes(1)
+    expect((await client.callTool({ name: 'read_chat_history', arguments: { turns: [0] } })).isError).toBe(true)
+    expect((await client.callTool({ name: 'read_chat_history', arguments: { from: 'x' } })).isError).toBe(true)
+    // A read-only turn may read its chat; the tool changes nothing.
+    session.planMode = true
+    const readOnly = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await readOnly.listTools()).tools.map((t) => t.name)).toContain('read_chat_history')
+    // A turn that has ended can't read: its grant is revoked.
+    local.endSession(session.id)
+    expect((await client.callTool({ name: 'read_chat_history', arguments: {} })).isError).toBe(true)
+    // Not offered where the app gave no way to read a chat.
+    const bare = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null })
+    expect((await (await inProcessClient(bare.inProcessForTurn(session)['foreman-app'])).listTools()).tools.map((t) => t.name)).not.toContain('read_chat_history')
+  })
+
   it('offers start_flow and get_flow_status only while Flows are on, and get_flow_status alone to a read-only turn', async () => {
     const { actions, state, session } = rig()
     const flows = { on: false }
@@ -369,7 +401,8 @@ describe('workspace turn lifecycle', () => {
     // Codex in the app: its own process, so the bridge too.
     finished = new Promise<void>((resolve) => { finish = resolve })
     let request: TurnRequest | undefined
-    registerDriver({ ...fakeDriver(async (req, cb) => { request = req; cb.finished({ ok: true }) }), kind: 'codex' })
+    // The fake is Claude's driver underneath: Codex takes no in-process server, so it doesn't accept one.
+    registerDriver({ ...fakeDriver(async (req, cb) => { request = req; cb.finished({ ok: true }) }), kind: 'codex', accepts: undefined })
     await sessions.updateSession(session.id, { agent: 'codex' })
     await sessions.send(session.id, 'Codex turn')
     await finished

@@ -9,9 +9,10 @@ import { randomBytes } from 'node:crypto'
 import { realpathSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { catalogAgent, staticCapabilities } from '../../shared/agentCatalog'
 import type { AgentKind } from '../../shared/agents'
 import { CLOUD_HOST_IDLE_MS } from '../../shared/cloud'
-import { catalogDriver } from '../agents/catalogDrivers'
+import { catalogDriver } from '../agents/acp/catalogDrivers'
 import { claudeDriver } from '../agents/claude'
 import { codexDriver } from '../agents/codex'
 import { opencodeDriver } from '../agents/opencode'
@@ -62,8 +63,8 @@ export function sandboxEnv(turnEnv: Record<string, string>, base: NodeJS.Process
 
 /** The driver for an agent in the sandbox, pointed at the sandbox's own binary when one is configured. */
 export function sandboxDriver(kind: AgentKind, executables: Executables = {}): AgentDriver {
-  // Cursor's SDK runs its agent in-process on this computer; it has no way to run inside a sandbox.
-  if (kind === 'cursor') return refused(kind, 'Cursor can’t run in a cloud workspace yet. Use Claude Code, Codex or OpenCode there.')
+  // An agent whose record says it can't run in a sandbox (Cursor's SDK runs its agent in-process on this computer) is refused.
+  if (staticCapabilities(kind)?.features.cloud === false) return refused(kind, `${catalogAgent(kind)?.name ?? kind} can’t run in a cloud workspace yet. Use Claude Code, Codex or OpenCode there.`)
   const base = BUILT_IN[kind] ?? catalogDriver(kind)
   if (!base) return refused(kind, `${kind} can’t run in a cloud workspace.`)
   // The app's executablePath is a path on its own computer: the sandbox's wins, else the agent's own lookup.

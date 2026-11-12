@@ -1596,6 +1596,48 @@ the last n turns; --since <turn> keeps what came after that turn. With --json th
 chat's own records (no thinking; tool output only with --tool-output).
 ```
 
+### foreman chat switch
+
+```text
+Continue a tab with another agent or account, and show what it is given
+
+Usage:
+  foreman chat switch <workspace> [--tab n] --agent <id> [--model m] [--account <id>] [--json]
+
+Arguments:
+  <workspace>              A name, id or branch from `foreman status`, or "." for the one you’re in
+
+Options:
+  -t, --tab <n>            Open tab, counting from 1 (default: the only open tab)
+      --agent <agent>      The agent to continue with (claude, codex, …); its own id keeps the agent and changes only the account (default: the tab’s)
+      --model <model>      The model’s id or name (default: the agent’s default)
+      --account <account>  The agent’s account: its name or id, or default (default: the workspace’s pick for that agent)
+
+Common options:
+      --json               Print the result as JSON (FOREMAN_JSON=1 does the same)
+  -q, --quiet              Hide progress lines and notes
+  -y, --yes                Answer yes to confirmations
+  -h, --help               Show this command’s help
+
+Examples:
+  foreman chat switch api --agent codex
+  foreman chat switch api --tab 2 --agent codex --model gpt-6.1-sol --json
+  foreman chat switch api --agent claude --account work
+
+Exit codes:
+  0  Switched
+  1  Refused: a turn is running, the chat is read-only, or the agent keeps chats on their account
+  2  Usage error: no agent given, or an agent or account that does not exist
+  Every code: foreman help exit-codes
+
+foreman chat switch continues a tab's conversation with another agent (and model) or on another account of its agent, as the
+picker does. The agent it leaves keeps its own conversation, so switching back resumes it. It refuses while a turn runs, in a read-only
+chat the agent can't enforce, and where the agent's rule keeps a chat on its account. It prints the record of what the next agent will be
+given: how it is delivered (prompt-full, resume-delta, ...), the size against Settings → Default models (an estimate, characters / 4),
+and which turns go in full, condensed or are left out (the agent can read those with read_chat_history). The first message sent after it
+carries the text; the record is saved on the chat's switch notice then, and the app shows it as "What <agent> received".
+```
+
 ### foreman queue
 
 ```text
@@ -3258,7 +3300,7 @@ Usage:
   foreman settings list [--page <page>] [--changed] [--json]
 
 Options:
-      --page <page>  Only this Settings page (one of: general, account, appearance, accessibility, models, agents, git, environment, experimental, advanced, data, devices, cloud)
+      --page <page>  Only this Settings page (one of: general, account, appearance, accessibility, models, agents, git, environment, experimental, advanced, usage, data, devices, cloud)
       --changed      Only the settings that differ from their default
 
 Common options:
@@ -7308,17 +7350,19 @@ Accessibility
   accessibility.terminal-screen-reader  auto | on | off               Screen reader support
 
 Models
-  models.claude-output-style  text      Claude output style
-  models.default-plan-mode    on | off  Default to plan mode in new chats
+  models.claude-output-style    text                Claude output style
+  models.default-plan-mode      on | off            Default to plan mode in new chats
+  models.switch-history-tokens  integer 1024-64000  History given to the next agent
 
 Agents
-  agents.claude-auth      login | api-key          Claude Code
-  agents.claude-path      path (empty: automatic)  Claude Code
-  agents.codex-auth       login | api-key          Codex
-  agents.codex-path       path (empty: automatic)  Codex
-  agents.opencode-path    path (empty: automatic)  OpenCode
-  agents.opencode-models  list (a,b,c)             OpenCode
-  agents.chrome-mode      on | off                 Use Claude Code with Chrome
+  agents.claude-auth          login | api-key          Claude Code
+  agents.claude-path          path (empty: automatic)  Claude Code
+  agents.codex-auth           login | api-key          Codex
+  agents.codex-path           path (empty: automatic)  Codex
+  agents.opencode-path        path (empty: automatic)  OpenCode
+  agents.opencode-models      list (a,b,c)             OpenCode
+  agents.idle-compact-tokens  integer 0-10000000       Compact idle chats
+  agents.chrome-mode          on | off                 Use Claude Code with Chrome
 
 Git
   git.branch-prefix-type            github | custom | none        Branch name prefix
@@ -7355,6 +7399,9 @@ Advanced
   advanced.keep-agents-running      on | off                                   Keep agents running after Quit
   advanced.max-running-agents       integer 0-64                               Maximum agents running at once
   advanced.background-wait-minutes  integer 0-1440                             Stop waiting for background tasks
+
+Usage
+  usage.resume-after-limit  auto | ask  When a limit pauses a chat
 
 Data
   data.keep-cleared-history  on | off                 Keep cleared history

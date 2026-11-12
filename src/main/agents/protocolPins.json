@@ -1,0 +1,30 @@
+{
+  "codex": {
+    "package": "@openai/codex",
+    "version": "0.163.0",
+    "command": "app-server generate-ts --experimental",
+    "generated": {
+      "dir": "src/main/agents/codex/protocol",
+      "sha256": "2ea27773b09ca248019ec568f8f3c8f3d2382d2457555974d1ae85173c56e4d8",
+      "files": 896
+    }
+  },
+  "acp": {
+    "package": "@agentclientprotocol/sdk",
+    "version": "2.0.1",
+    "schemas": {
+      "schema/v1/schema.json": "4bcd1d2051ff7ed379bd9b234fb9b09c5ab9245478698e9fab805bd9b52a33a6",
+      "schema/v1/schema.unstable.json": "97ba7e979ceca18e24f5e47cf2f38adfe28e03de268a0f22c124ab4c5660b7bd",
+      "schema/v2/schema.json": "4ebe929b2502128d0f7e5265c99ac4a99c5ddb80457aac6b77ac2abe8369b0d4",
+      "schema/v2/schema.unstable.json": "42cfef92addff96a7cbf01272eedcbfb20b2642ef0bd17a33d229384cf0b41e5"
+    }
+  },
+  "claudeAgentSdk": {
+    "package": "@anthropic-ai/claude-agent-sdk",
+    "version": "0.3.301",
+    "types": {
+      "file": "sdk.d.ts",
+      "sha256": "92b10aef95dafe91ae54059991417190360df1efd33716eec1e8c850dc63bda9"
+    }
+  }
+}

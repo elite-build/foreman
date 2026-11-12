@@ -6,6 +6,7 @@ import path from 'node:path'
 import type { BackupResult, DataInfo } from '../shared/types'
 import { usageReport, type UsageReport } from '../shared/usageReport'
 import { otherAgentTurns } from '../shared/switchAgent'
+import { mirroredAgents } from './agents/capabilities'
 import { legacyDir, legacyFiles } from './legacyImport'
 import type { ClaudeMirror } from './claudeMirror'
 import type { Store } from './store'
@@ -62,9 +63,10 @@ export class DataService {
   private async switchedClaudeChats(): Promise<number> {
     let count = 0
     for (const s of this.store.state.sessions) {
-      const claude = (s.agent === 'claude' && s.agentSessionId) || s.parked?.claude
-      if (!claude) continue
-      if (otherAgentTurns(await this.store.readChat(s.id), 'claude') > 0) count++
+      // The chat has a conversation of a mirrored agent's own, which other agents' turns in it never reached.
+      const own = mirroredAgents().find((agent) => (s.agent === agent && s.agentSessionId) || s.parked?.[agent])
+      if (!own) continue
+      if (otherAgentTurns(await this.store.readChat(s.id), own) > 0) count++
     }
     return count
   }

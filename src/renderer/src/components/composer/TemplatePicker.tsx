@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { filterTemplates } from '../../../../shared/promptTemplates'
 import { layeredTemplates, REPO_TEMPLATE_DIR } from '../../../../shared/repoTemplates'
 import { commandText, filterCommands, repoCommands } from '../../../../shared/repoCommands'
+import { staticCapabilities } from '../../../../shared/agentCatalog'
 import type { AgentKind } from '../../../../shared/agents'
 import type { PromptTemplate, SlashCommandInfo } from '../../../../shared/types'
 import { useT } from '../../i18n'
@@ -60,14 +61,14 @@ export function TemplatePicker({
   const agent = session?.agent
   const sessionId = session?.id
   useEffect(() => {
-    if (!open || agent !== 'claude' || !sessionId || !onPickCommand) return setFound([])
+    if (!open || !agent || !staticCapabilities(agent)?.features.repoCommands || !sessionId || !onPickCommand) return setFound([])
     let current = true
     void api.slashCommands(sessionId).then((list) => current && setFound(list), () => current && setFound([]))
     return () => {
       current = false
     }
   }, [open, agent, sessionId, onPickCommand])
-  const commands = useMemo(() => (agent && onPickCommand ? filterCommands(repoCommands(agent, found), query) : []), [agent, found, query, onPickCommand])
+  const commands = useMemo(() => (agent && onPickCommand ? filterCommands(repoCommands(staticCapabilities(agent), found), query) : []), [agent, found, query, onPickCommand])
 
   useEffect(() => {
     if (open) setQuery('')

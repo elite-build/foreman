@@ -8,21 +8,25 @@ import type { AgentKind, Loadout } from '../shared/agents'
 import { ARCHIVE_CLEANUP_DAYS, mergedNow } from '../shared/autoArchive'
 import { DONE_DAYS_OPTIONS, nextPrInfo, prFacts } from '../shared/board'
 import { parseViews } from '../shared/views'
-import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from '../shared/agentSlots'
+import { isSlotSetting, MAX_BACKGROUND_WAIT_MINUTES, MAX_IDLE_COMPACT_TOKENS, MAX_RUNNING_AGENTS } from '../shared/agentSlots'
 import { ENV_NAME } from '../shared/envfile'
 import { PROVIDER_KEYS } from '../shared/providers'
 import { tailLines } from '../shared/setupLog'
 import { type AgentKeyName, type Api, type AppSnapshot, type CheckResult, type CreateWorkspaceOptions, type EnvScope, type GitlabConnection, type GitlabHostRow, type GitStatus, type HeldMessage, type IntakeFile, type MainEvent, type Occurrence, type PromptTemplate, type Repo, type Schedule, type ScheduleFingerprint, type ScheduleFingerprintView, type Settings, type Signals, type Workspace } from '../shared/types'
 import { driverFor } from './agents/registry'
 import { codexBinary } from './agents/codex'
-import { startCodexSignIn, type CodexSignIn } from './agents/codexLogin'
-import { catalogLoginCommand, executablePathFor, setAgentRuntimeDir } from './agents/catalogDrivers'
+import { startCodexSignIn, type CodexSignIn } from './agents/codex/login'
+import { agentCapabilitiesView, mirroredAgents, oneShotAgent } from './agents/capabilities'
+import { catalogLoginCommand, executablePathFor, setAgentRuntimeDir } from './agents/acp/catalogDrivers'
 import { onAcpModes } from './agents/acp'
 import { AgentCatalogService, LEGACY_AGENT_KEYS } from './agentCatalogService'
 import { AssistantService } from './assistant'
 import { TerminalAgents } from './terminalAgents'
-import { catalogAgent, parseAgentPrefs, parseProviderKeyAgents } from '../shared/agentCatalog'
-import { argsProblem, INSTANCE_FIELDS, MAX_INSTANCE_LABEL, parseAgentInstances, resolveInstance, sameLabel, takesInstances, type AgentInstance, type AgentInstanceInput } from '../shared/agentInstances'
+import { AGENT_CATALOG, catalogAgent, DEFAULT_AGENT, parseAgentPrefs, parseProviderKeyAgents, staticCapabilities } from '../shared/agentCatalog'
+import { updateArgs } from '../shared/agentVersions'
+import { argsProblem, INSTANCE_FIELDS, instancesFor, MAX_INSTANCE_LABEL, parseAgentInstances, resolveInstance, sameLabel, takesInstances, type AgentInstance, type AgentInstanceInput } from '../shared/agentInstances'
+import { HAND_OFF_BUDGET } from '../shared/chatHandOff'
+import { continueOptions } from '../shared/limits'
 import { Environment } from './environment'
 import { makeRepository } from './makeRepo'
 import { cloneRepo, githubRepos, gitProtocol, quickStart } from './repoSources'
@@ -69,7 +73,7 @@ import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint, sharedWorkingTree
 import { runScript, type RunningScript } from './scripts'
 import { endCheckpointId } from './turnDelta'
 import { turnAnswer } from '../shared/handOff'
-import { builtinCommands, DEFAULT_MODEL } from '../shared/agents'
+import { AGENTS, builtinCommands, DEFAULT_MODEL } from '../shared/agents'
 import { branchCommitCount, branchCommits, sourceDiff, sourceInfo, type PrTarget } from './diffSources'
 import { CommitAttribution } from './commitAttribution'
 import { AutoArchive } from './autoArchive'
@@ -149,6 +153,7 @@ import { slackChannels, slackManifest, slackManifestUrl, slackPeople, slackUserB
 import { findLinearLink, linearBranch, linearIntakeFile, type LinearIssue } from '../shared/linearLink'
 import type { AdoptWorktreeOptions, ApprovalResponse, ApprovalVia, GitActionKind, LinearLinkInfo, MessageOrigin, SendReceipt, WorkspaceStartedBy } from '../shared/types'
 import { lowerCap, revokedCapRefusal, type TurnCap } from '../shared/agentAccess'
+import { stepTabPatch } from '../shared/switchAgent'
 import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
@@ -451,7 +456,7 @@ export class Core {
         this.broadcastState()
         // #130: the model lists come from the default account, whose key didn't change.
         if (instanceId) return
-        if (agent === 'claude' || agent === 'codex' || agent === 'cursor' || agent === 'opencode') void this.models.refresh(agent)
+        if (catalogAgent(agent)?.level === 'full') void this.models.refresh(agent as AgentKind)
       }
     })
     this.agentCatalog.migrateKeys()
@@ -639,6 +644,8 @@ export class Core {
         this.autoReview.needsHuman(sessionId, what)
       },
       activity: (sessionId) => this.limitResume.activity(sessionId),
+      // Docs/agents.md 7.2: armed with no click for a reset time Foreman knows (Settings → Usage); before the turn's end reaches a run.
+      limitPaused: (sessionId, turnId, limit, cap) => void this.limitResume.autoArm(sessionId, turnId, limit, cap),
       workStarting: (workspaceId) => {
         this.autoChecks.workStarting(workspaceId)
         this.autoArchive?.cancel(workspaceId)
@@ -658,7 +665,8 @@ export class Core {
       session: (id) => store.state.sessions.find((s) => s.id === id),
       launch: () => host.bridgeLaunch?.() ?? null,
       socket: () => host.cliSocket?.() ?? null,
-      flowsOn: () => Boolean(store.state.settings.flows)
+      flowsOn: () => Boolean(store.state.settings.flows),
+      chatHistory: (sessionId, args) => this.sessions.readChatHistory(sessionId, args)
     })
     this.sessions.foremanMcp = this.foremanMcp
     this.assistant.foremanActions = this.foremanActions
@@ -679,7 +687,38 @@ export class Core {
     this.limitResume = new LimitResumeService({
       sessions: () => this.store.state.sessions,
       readChat: (sessionId) => this.store.readChat(sessionId),
-      send: (sessionId, text, origin, cap) => this.sessions.deliver(sessionId, text, { mode: 'queue', origin, ...(cap ? { cap } : {}) }),
+      // A turn started by a flow step or a schedule run resumes the way it was started (docs/agents.md 7.2, "Provenance").
+      send: async (sessionId, text, origin, cap, unattended) => {
+        const options = { mode: 'queue' as const, origin, ...(cap ? { cap } : {}) }
+        const ended = () => new Error(mainT(this.store.state.settings)('usageLimit.error.runEnded'))
+        if (unattended && 'flowRunId' in unattended) {
+          const retry = this.flows.resumeTurn(sessionId)
+          if (!retry) throw ended()
+          this.sessions.markUnattended(retry.turnId, retry.unattended)
+          try {
+            const receipt = await this.sessions.deliver(sessionId, text, { ...options, turnId: retry.turnId, origin: retry.origin })
+            this.flows.resumed(retry.turnId, true)
+            return receipt
+          } catch (err) {
+            this.flows.resumed(retry.turnId, false)
+            throw err
+          }
+        }
+        if (unattended && 'occurrenceId' in unattended) {
+          if (!this.schedules.resumeRun(sessionId)) throw ended()
+          const turnId = randomUUID()
+          this.sessions.markUnattended(turnId, unattended)
+          return this.sessions.deliver(sessionId, text, { ...options, turnId })
+        }
+        return this.sessions.deliver(sessionId, text, options)
+      },
+      resumeAfterLimit: () => this.store.state.settings.resumeAfterLimit,
+      moveAccount: (sessionId, to) => this.sessions.updateSession(sessionId, { instanceId: to }),
+      resumed: (session) => {
+        const ws = this.store.state.workspaces.find((w) => w.id === session.workspaceId)
+        const t = mainT(this.store.state.settings)
+        host.broadcast({ type: 'notify', workspaceId: session.workspaceId, sessionId: session.id, title: ws?.name ?? 'Foreman', body: t('usageLimit.notify.resumed'), kind: 'info' })
+      },
       flush: () => store.flush(),
       changed,
       now: () => Date.now(),
@@ -694,6 +733,8 @@ export class Core {
       now: () => Date.now(),
       inputs: (schedule) => this.scheduleInputs(schedule),
       launch: (schedule, occurrence, handle) => this.launchScheduled(schedule, occurrence, handle),
+      limitResume: (sessionId) => this.armedResumeFor(sessionId),
+      cancelLimitResume: (sessionId) => this.limitResume.cancel(sessionId),
       stop: async (occurrence) => {
         // A flow schedule's run: Stop on the run (its occurrence then ends with it).
         if (occurrence.flowRunId) await this.flows.stopRun(occurrence.flowRunId)
@@ -728,11 +769,20 @@ export class Core {
       // Never in plan mode: nobody is there to review a plan (a read-only step's turn is held in it by its persona mark).
       createSession: (workspaceId, loadout, options) =>
         this.sessions.createSession(workspaceId, { agent: loadout.agent, instanceId: loadout.instance ?? null, model: loadout.model, effort: loadout.effort, fastMode: loadout.fast, planMode: false, ...(options?.title ? { title: options.title } : {}) }).id,
+      // A step that continues a tab with another agent switches it as the picker does, so the record of what it was given exists; one that
+      // names another account of the tab's agent moves the chat there, as the agent's rule allows (a refusal fails the step with its reason).
+      switchTab: async (sessionId, loadout) => {
+        const tab = this.store.state.sessions.find((s) => s.id === sessionId)
+        const patch = tab && stepTabPatch(tab, loadout)
+        if (patch) await this.sessions.updateSession(sessionId, patch)
+      },
       deliver: async (sessionId, text, options) => {
         this.sessions.markUnattended(options.turnId, options.unattended)
         await this.sessions.deliver(sessionId, text, { mode: 'queue', turnId: options.turnId, ...(options.origin ? { origin: options.origin } : {}) })
       },
       cancel: (sessionId) => this.sessions.cancel(sessionId),
+      limitResume: (sessionId, turnId) => this.armedResumeFor(sessionId, turnId),
+      cancelLimitResume: (sessionId) => this.limitResume.cancel(sessionId),
       turnStatus: (turnId) => this.sessions.turnStatus(turnId),
       startChecks: (workspaceId, by, wanted) => this.startFlowChecks(workspaceId, by, wanted),
       // Only the check run this run's step started: one the user started meanwhile is theirs.
@@ -929,10 +979,11 @@ export class Core {
         const { settings } = this.store.state
         // Privacy mode keeps the repository's names and README on this computer, as it does a chat's first message.
         if (settings.privacyMode) return null
-        const claude = driverFor('claude')
-        if (!claude.oneShot) return null
+        const asker = oneShotAgent()
+        const driver = asker && driverFor(asker)
+        if (!asker || !driver?.oneShot) return null
         // Run outside the repository: the answer comes from the prompt alone.
-        return claude.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent('claude'), executablePath: executablePathFor(settings, 'claude') }).catch(() => null)
+        return driver.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent(asker), executablePath: executablePathFor(settings, asker) }).catch(() => null)
       },
       remoteAvatar: async (repo) => {
         const target = await this.scm.target(repo.id)
@@ -1040,7 +1091,7 @@ export class Core {
       now: () => Date.now(),
       newId: () => randomUUID(),
       customPrompt: (repo) => this.workspaces.settingsFor(repo.id).prompts.codeReview,
-      defaultReviewer: () => defaultReviewer(store.state.settings.reviewModel, { agent: 'claude', model: DEFAULT_MODEL.claude, fast: false }),
+      defaultReviewer: () => defaultReviewer(store.state.settings.reviewModel, { agent: DEFAULT_AGENT, model: DEFAULT_MODEL[DEFAULT_AGENT], fast: false }),
       // Idle as auto-fix means it: ready, no tab running or queued, no checks or setup running.
       busy: (ws) =>
         ws.state !== 'ready' || this.sessions.isBusy(ws.id) || Boolean(ws.checks?.running) || ws.autoChecks?.state === 'running' || Boolean(ws.setupRun && !ws.setupRun.finishedAt),
@@ -1054,7 +1105,7 @@ export class Core {
       changedFiles: (ws, from, to) => changedFilesBetween(ws, from, to),
       capture: (ws) => workspaceDiffPatch(ws),
       launch: async (ws, worker, review, message) => {
-        if (!canReview(review.reviewer.agent)) throw new Error('This reviewer can’t be held to read-only')
+        if (!canReview(staticCapabilities(review.reviewer.agent))) throw new Error('This reviewer can’t be held to read-only')
         const attachments = await Promise.all(message.attachments.map((a) => attachFromData(workspaceTarget(ws, { wake: true }), a.name, Buffer.from(a.content).toString('base64'))))
         const session = await this.sessions.handOff(worker.id, {
           model: review.reviewer,
@@ -1550,7 +1601,8 @@ export class Core {
         const repo = this.workspaces.repo(this.workspaces.workspace(id).repoId)
         return { name: repo.name, defaultBranch: repo.defaultBranch, ...(await repoEvidence(repo.rootPath, repo.remote || 'origin')) }
       },
-      hasClaude: (id) => store.state.sessions.some((s) => s.workspaceId === id && s.agent === 'claude'),
+      // A chat of an agent whose conversation travels with the workspace (its transcript is mirrored) needs that agent signed in on the other computer.
+      hasClaude: (id) => store.state.sessions.some((s) => s.workspaceId === id && mirroredAgents().includes(s.agent)),
       busy: (id) => this.busyReason(id),
       exportBackup: async (id, passphrase, outPath) => {
         await this.portability.exportWorkspace(id, { mode: 'backup', passphrase, includeWorktree: true, outPath })
@@ -1561,8 +1613,11 @@ export class Core {
         const version = /(\d+)\.(\d+)/.exec((await git(os.homedir(), ['--version'], { allowFail: true }).catch(() => ({ stdout: '' }))).stdout)
         if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && Number(version[2]) < 30)) problems.push('git 2.30 or newer is needed on this Mac.')
         if (hasClaude) {
-          const status = await driverFor('claude').status(this.environment.forAgent('claude'), store.state.settings.claudeExecutablePath || undefined).catch(() => null)
-          if (!status?.ready) problems.push('Claude isn’t signed in on this Mac, and this workspace has Claude chats.')
+          // The mirrored agent's own name, short ("Claude" for Claude Code).
+          for (const agent of mirroredAgents()) {
+            const status = await driverFor(agent).status(this.environment.forAgent(agent), executablePathFor(store.state.settings, agent)).catch(() => null)
+            if (!status?.ready) problems.push(`${AGENTS[agent].label.split(' ')[0]} isn’t signed in on this Mac, and this workspace has ${AGENTS[agent].label.split(' ')[0]} chats.`)
+          }
         }
         return problems
       },
@@ -2180,7 +2235,7 @@ export class Core {
         templateId: template.id,
         baseBranch: schedule.baseBranch,
         branch: { kind: 'new' },
-        loadout: { agent: 'claude', model: schedule.model, fast: false }
+        loadout: { agent: DEFAULT_AGENT, model: schedule.model, fast: false }
       },
       { scheduled: { scheduleId: schedule.id, occurrenceId: occurrence.id }, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
     )
@@ -2688,6 +2743,8 @@ export class Core {
       instanceKeyHints: this.agentCatalog?.instanceKeyHints(settings.agentInstances) ?? {},
       spotlight,
       catalog: this.models.state(),
+      agentCapabilities: agentCapabilitiesView(this.store.state.catalog.agents, this.store.state.declared),
+      limits: this.store.state.limits ?? [],
       transfers: this.transfers.view(),
       pairedDevices: this.devices.list(),
       schedules: this.schedules.schedules,
@@ -2794,6 +2851,38 @@ export class Core {
   // ---- #130: an agent's other accounts ----
 
   /** One of the agent's other accounts, by id; a missing or another agent's one is refused. */
+  /** The tab's armed usage-limit resume for this turn (a missed one doesn't count), for the runs that wait for it. */
+  private armedResumeFor(sessionId: string, turnId?: string): { at: number } | undefined {
+    const session = this.store.state.sessions.find((s) => s.id === sessionId)
+    const resume = session?.limitResume
+    if (!resume || resume.missed || resume.turnId !== (turnId ?? session?.lastTurn?.turnId)) return undefined
+    return { at: Date.parse(resume.at) }
+  }
+
+  // When each account's windows were last read, so a status refresh doesn't read them again at once.
+  private limitsReadAt = new Map<string, number>()
+
+  /** Reads one account's usage windows through its agent (when it has a read that needs no turn) and keeps them. Never throws. */
+  private async readLimits(agent: AgentKind, instance: AgentInstance | undefined, force: boolean): Promise<void> {
+    const driver = driverFor(agent)
+    if (!driver.limits || !staticCapabilities(agent)?.usage.limitWindows) return
+    const key = `${agent}:${instance?.id ?? ''}`
+    const last = this.limitsReadAt.get(key) ?? 0
+    if (Date.now() - last < (force ? 20_000 : 5 * 60_000)) return
+    this.limitsReadAt.set(key, Date.now())
+    try {
+      const env = this.environment.forAgent(agent, undefined, {}, instance)
+      const path = executablePathFor(this.store.state.settings, agent, instance)
+      // A read needs a signed-in account; an API key has no plan windows.
+      const status = await driver.status(env, path)
+      if (!status.ready || status.method === 'API key') return
+      const windows = await driver.limits(env, path)
+      if (windows.length) this.sessions.recordLimits(agent, instance?.id, windows, true)
+    } catch {
+      // Limits are advisory: a read that fails leaves what was known.
+    }
+  }
+
   private instance(agent: string, id: string): AgentInstance {
     const resolved = resolveInstance(this.store.state.settings.agentInstances, agent, id)
     if (resolved.kind !== 'instance') throw new Error(mainT(this.store.state.settings)('agentAccounts.error.gone'))
@@ -2852,9 +2941,9 @@ export class Core {
     if (!fields.login) throw new Error('Unknown command')
     const env = agentBaseEnv()
     if (fields.homeEnv && found.home) for (const name of [fields.homeEnv, ...fields.alsoHomeEnv]) env[name] = found.home
-    const { settings } = this.store.state
-    if (found.agent === 'claude') return { env, command: `${shellQuote(found.path || settings.claudeExecutablePath || bundledClaudeExecutable() || 'claude')} auth login` }
-    return { env, command: `${shellQuote(found.path || settings.codexExecutablePath || 'codex')} login` }
+    const command = driverFor(found.agent).signInCommand?.(executablePathFor(this.store.state.settings, found.agent, found))
+    if (!command) throw new Error('Unknown command')
+    return { env, command }
   }
 
   // ---- the calls that start a turn for a tab, which a capped turn's `foreman` command makes with its cap (docs/agent-access.md §4) ----
@@ -3459,6 +3548,7 @@ export class Core {
       if (names.length) this.recordMilestone('mcp')
     },
     reconnectMcpServer: (sessionId, name) => this.sessions.reconnectMcpServer(sessionId, name),
+    stopChild: (sessionId, childId) => this.sessions.stopChild(sessionId, childId),
 
     attachFiles: async (workspaceId, paths) => {
       const ws = this.workspaces.workspace(workspaceId)
@@ -3682,6 +3772,13 @@ export class Core {
         const login = this.instanceLogin(command.slice('login-instance:'.length))
         return this.ptys.spawn('', os.homedir(), login.env, cols, rows, login.command)
       }
+      // The agent's own update command (its version table's `update`), in a terminal the person watches: never run unseen.
+      if (kind === 'command' && command?.startsWith('update:')) {
+        const agent = command.slice('update:'.length)
+        const line = updateArgs(agent) ? driverFor(agent as AgentKind).updateCommand?.(executablePathFor(this.store.state.settings, agent)) : undefined
+        if (!line) throw new Error('Unknown command')
+        return this.ptys.spawn('', os.homedir(), this.environment.forCatalogAgent(agent), cols, rows, line)
+      }
       if (kind === 'command' && command?.startsWith('login:')) {
         const agent = command.slice('login:'.length)
         return this.ptys.spawn('', os.homedir(), this.environment.forCatalogAgent(agent), cols, rows, catalogLoginCommand(agent, executablePathFor(this.store.state.settings, agent)))
@@ -3757,7 +3854,27 @@ export class Core {
     agentStatus: async (agent, instanceId) => {
       // #130: one of the agent's other accounts, checked with its own folder, key and binary.
       const instance = instanceId ? this.instance(agent, instanceId) : undefined
-      return driverFor(agent).status(this.environment.forAgent(agent, undefined, {}, instance), executablePathFor(this.store.state.settings, agent, instance))
+      const status = await driverFor(agent).status(this.environment.forAgent(agent, undefined, {}, instance), executablePathFor(this.store.state.settings, agent, instance))
+      // Docs/agents.md 7.1: a signed-in account's windows are read along with its status, in the background and not oftener than every few minutes.
+      if (status.ready) void this.readLimits(agent, instance, false)
+      return status
+    },
+    refreshLimits: async () => {
+      const tasks: Promise<void>[] = []
+      for (const agent of Object.keys(AGENTS) as AgentKind[]) {
+        if (!driverFor(agent).limits) continue
+        tasks.push(this.readLimits(agent, undefined, true))
+        for (const instance of instancesFor(this.store.state.settings.agentInstances, agent)) tasks.push(this.readLimits(agent, instance, true))
+      }
+      await Promise.all(tasks)
+    },
+    continueOnAccount: async (sessionId, to) => {
+      const session = this.store.state.sessions.find((s) => s.id === sessionId)
+      if (!session) throw new Error('Chat not found')
+      // Only an account that reported it has room, and only one the chat may move to; the move rule has the last word.
+      const options = continueOptions(session, this.store.state.settings, this.store.state.limits, Date.now(), '')
+      if (!options.some((o) => (o.instance ?? null) === to)) throw new Error(mainT(this.store.state.settings)('usageLimit.error.noAccount'))
+      await this.limitResume.continueOnAccount(sessionId, to)
     },
     codexSignIn: () => this.runCodexSignIn(),
     codexSignInCancel: async () => {
@@ -3947,8 +4064,10 @@ export class Core {
       if ('homeDoneDays' in patch && !(DONE_DAYS_OPTIONS as readonly number[]).includes(patch.homeDoneDays as number)) throw new Error('Unknown Done window')
       if ('views' in patch) patch = { ...patch, views: parseViews(patch.views) }
       if ('archiveCleanupDays' in patch && !(ARCHIVE_CLEANUP_DAYS as readonly number[]).includes(patch.archiveCleanupDays as number)) throw new Error('Unknown cleanup window')
+      if ('handOffTokenBudget' in patch && !(Number.isInteger(patch.handOffTokenBudget) && patch.handOffTokenBudget! >= HAND_OFF_BUDGET.min && patch.handOffTokenBudget! <= HAND_OFF_BUDGET.max)) throw new Error(`History given to the next agent must be a whole number of tokens from ${HAND_OFF_BUDGET.min} to ${HAND_OFF_BUDGET.max}`)
       if ('maxRunningAgents' in patch && !isSlotSetting(patch.maxRunningAgents, MAX_RUNNING_AGENTS)) throw new Error(`Maximum agents running at once must be a whole number from 0 (no limit) to ${MAX_RUNNING_AGENTS}`)
       if ('backgroundWaitMinutes' in patch && !isSlotSetting(patch.backgroundWaitMinutes, MAX_BACKGROUND_WAIT_MINUTES)) throw new Error(`Background task wait must be a whole number of minutes from 0 (never stop) to ${MAX_BACKGROUND_WAIT_MINUTES}`)
+      if ('idleCompactTokens' in patch && !isSlotSetting(patch.idleCompactTokens, MAX_IDLE_COMPACT_TOKENS)) throw new Error(`Idle compaction must be a whole number of tokens from 0 (off) to ${MAX_IDLE_COMPACT_TOKENS}`)
       if ('updateInterval' in patch && !['hourly', 'every-4-hours', 'daily'].includes(patch.updateInterval as string)) throw new Error('Unknown update schedule')
       if ('updateMode' in patch && !['notify', 'download', 'quit'].includes(patch.updateMode as string)) throw new Error('Unknown update setting')
       if ('updateChannel' in patch && !['stable', 'beta'].includes(patch.updateChannel as string)) throw new Error('Unknown release channel')
@@ -3975,14 +4094,7 @@ export class Core {
       if ('language' in patch) this.host.applyLanguage?.()
       this.broadcastState()
       // A different sign-in or binary can offer different models.
-      const affects: [keyof Settings, AgentKind][] = [
-        ['claudeAuth', 'claude'],
-        ['claudeExecutablePath', 'claude'],
-        ['codexAuth', 'codex'],
-        ['codexExecutablePath', 'codex'],
-        ['opencodeExecutablePath', 'opencode']
-      ]
-      const stale = affects.filter(([key]) => key in patch).map(([, agent]) => agent)
+      const stale = AGENT_CATALOG.filter((a) => [a.settings?.auth, a.settings?.executablePath].some((key) => key && key in patch)).map((a) => a.id as AgentKind)
       if (stale.length) void this.models.refreshAll([...new Set(stale)])
       // keepAwake and its O17 cutoffs (keepAwakeBatteryCutoff, …).
       // O2: a GitLab host added or removed changes which repos are GitLab.
@@ -3998,6 +4110,7 @@ export class Core {
 
   readonly signals: Signals = {
     ptyWrite: (id, data) => this.ptys.write(id, data),
+    composerTyping: (sessionId) => this.sessions.noteTyping(sessionId),
     ptyResize: (id, cols, rows) => this.ptys.resize(id, cols, rows),
     ptyKill: (id) => {
       this.ptys.kill(id)

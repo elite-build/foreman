@@ -2,7 +2,7 @@
 // list at runtime (see main/models.ts); the static list below is only used
 // until that first answer arrives, or when the agent can't be reached.
 
-import { AGENT_CATALOG, declaresPlanMode, repoMcpSupport, type AcpMode, type ChatAgentId, type FullAgentId } from './agentCatalog'
+import { AGENT_CATALOG, FULL_AGENT_IDS, staticCapabilities, type ChatAgentId, type FullAgentId } from './agentCatalog'
 import { createT, type PlainKey, type TFunction } from './i18n'
 
 const enT = createT('en')
@@ -17,13 +17,6 @@ export interface AgentInfo {
   label: string
   // What the effort axis is called for this agent, in English; effortAxisLabel(agent, t) for the UI language.
   effortLabel: string
-  supportsPlanMode: boolean
-  // Steering = delivering a follow-up into the running turn instead of queueing it.
-  supportsSteering: boolean
-  // #16: Foreman can hold a chat to read-only (Claude: plan mode it can't leave; Codex: the read-only sandbox).
-  supportsReadOnly: boolean
-  // #20: approved repo MCP servers are passed to its turns (see repoMcpSupport in agentCatalog.ts for how, or why not).
-  supportsRepoMcp: boolean
   // Built-in slash commands the composer offers for this agent, described in English; builtinCommands(agent, t) for the UI language.
   builtinCommands: { name: string; description: string }[]
 }
@@ -47,11 +40,12 @@ export interface ModelInfo {
   hidden?: boolean
 }
 
-type CommandId = 'clear' | 'compact' | 'plan' | 'fastOpus' | 'fast' | 'mcpStatus' | 'repoMcpStatus'
+type CommandId = 'clear' | 'compact' | 'goal' | 'plan' | 'fastOpus' | 'fast' | 'mcpStatus' | 'repoMcpStatus'
 
 const COMMANDS: Record<CommandId, { name: string; description: PlainKey }> = {
   clear: { name: 'clear', description: 'agents.command.clear' },
   compact: { name: 'compact', description: 'agents.command.compact' },
+  goal: { name: 'goal', description: 'agents.command.goal' },
   plan: { name: 'plan', description: 'agents.command.plan' },
   fastOpus: { name: 'fast', description: 'agents.command.fastOpus' },
   fast: { name: 'fast', description: 'agents.command.fast' },
@@ -74,7 +68,10 @@ const CHAT_COMMAND_IDS: CommandId[] = ['clear', 'repoMcpStatus']
 
 /** The agent's built-in slash commands, described in t's language (English by default). */
 export function builtinCommands(agent: AgentKind, t: TFunction = enT): { name: string; description: string }[] {
-  return (COMMAND_IDS[agent as FullAgentId] ?? CHAT_COMMAND_IDS).map((id) => ({ name: COMMANDS[id].name, description: t(COMMANDS[id].description) }))
+  const ids = COMMAND_IDS[agent as FullAgentId] ?? CHAT_COMMAND_IDS
+  // `/goal` is offered to an agent whose record says it keeps goals (planning.goals), not by its name (docs/agents.md 3).
+  const goals = staticCapabilities(agent)?.planning.goals.level === 'native' ? (['goal'] as CommandId[]) : []
+  return [...ids, ...goals].map((id) => ({ name: COMMANDS[id].name, description: t(COMMANDS[id].description) }))
 }
 
 const EFFORT_AXIS: Partial<Record<AgentKind, PlainKey>> = { codex: 'agents.effortAxis.thinking' }
@@ -89,47 +86,31 @@ export const AGENTS: Record<AgentKind, AgentInfo> = {
     kind: 'claude',
     label: 'Claude Code',
     effortLabel: effortAxisLabel('claude'),
-    supportsPlanMode: true,
-    supportsSteering: true,
-    supportsReadOnly: true,
-    supportsRepoMcp: repoMcpSupport('claude').supported,
     builtinCommands: builtinCommands('claude')
   },
   codex: {
     kind: 'codex',
     label: 'Codex',
     effortLabel: effortAxisLabel('codex'),
-    supportsPlanMode: true,
-    supportsSteering: true,
-    supportsReadOnly: true,
-    supportsRepoMcp: repoMcpSupport('codex').supported,
     builtinCommands: builtinCommands('codex')
   },
   cursor: {
     kind: 'cursor',
     label: 'Cursor',
     effortLabel: effortAxisLabel('cursor'),
-    supportsPlanMode: false,
-    supportsSteering: false,
-    supportsReadOnly: false,
-    supportsRepoMcp: repoMcpSupport('cursor').supported,
     builtinCommands: builtinCommands('cursor')
   },
   opencode: {
     kind: 'opencode',
     label: 'OpenCode',
     effortLabel: effortAxisLabel('opencode'),
-    supportsPlanMode: false,
-    supportsSteering: false,
-    supportsReadOnly: false,
-    supportsRepoMcp: repoMcpSupport('opencode').supported,
     builtinCommands: builtinCommands('opencode')
   },
   // #22
   ...chatAgentInfos()
 }
 
-/** #22: Chat (ACP) agents run through the generic ACP adapter, which has no plan mode, steering or read-only hold. */
+/** #22: Chat (ACP) agents run through the generic ACP adapter, whose capabilities are their records (agentCatalog/). */
 function chatAgentInfos(): Record<ChatAgentId, AgentInfo> {
   const out = {} as Record<ChatAgentId, AgentInfo>
   for (const agent of AGENT_CATALOG) {
@@ -139,42 +120,19 @@ function chatAgentInfos(): Record<ChatAgentId, AgentInfo> {
       kind,
       label: agent.name,
       effortLabel: effortAxisLabel(kind),
-      supportsPlanMode: false,
-      supportsSteering: false,
-      supportsReadOnly: false,
-      // #20: through the ACP session, like OpenCode.
-      supportsRepoMcp: repoMcpSupport(kind).supported,
       builtinCommands: builtinCommands(kind)
     }
   }
   return out
 }
 
+export const AGENT_ORDER: AgentKind[] = [...FULL_AGENT_IDS]
+
 /**
- * G1: whether a chat with this agent can be in plan mode: Claude Code's own, or the plan session mode an ACP agent
- * (OpenCode, a Chat agent) declared when it last started (`modes`, kept in the model catalog).
+ * The models Foreman knows by name: each agent's table in its catalog file (agentCatalog/<id>.ts), in catalog order. This is the
+ * list shown before an agent has answered `model/list`, and what modelsFor() lays under the agent's own report. It is not typed here.
  */
-export function supportsPlan(agent: AgentKind, modes?: AcpMode[]): boolean {
-  return Boolean(AGENTS[agent]?.supportsPlanMode) || declaresPlanMode(agent, modes)
-}
-
-export const AGENT_ORDER: AgentKind[] = ['claude', 'codex', 'cursor', 'opencode']
-
-const CLAUDE_EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
-const CODEX_EFFORTS: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh']
-
-export const MODELS: ModelInfo[] = [
-  { id: 'claude-fable-5-1', agent: 'claude', label: 'Fable 5.1', efforts: CLAUDE_EFFORTS, defaultEffort: 'high', supportsFast: false, contextWindow: 1_000_000 },
-  { id: 'claude-opus-5-5[1m]', agent: 'claude', label: 'Opus 5.5', efforts: CLAUDE_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 1_000_000 },
-  { id: 'claude-sonnet-5-5[1m]', agent: 'claude', label: 'Sonnet 5.5', efforts: CLAUDE_EFFORTS, defaultEffort: 'high', supportsFast: false, contextWindow: 1_000_000 },
-  { id: 'claude-haiku-5-5', agent: 'claude', label: 'Haiku 5.5', efforts: [], supportsFast: false, contextWindow: 200_000 },
-  { id: 'gpt-6.1-sol', agent: 'codex', label: 'GPT-6.1 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 500_000 },
-  { id: 'gpt-6-sol', agent: 'codex', label: 'GPT-6 Sol', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
-  { id: 'gpt-5.5', agent: 'codex', label: 'GPT-5.5', efforts: CODEX_EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
-  { id: 'auto', agent: 'cursor', label: 'Auto', efforts: [], supportsFast: false, contextWindow: 200_000 },
-  { id: 'grok-4.7', agent: 'cursor', label: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'high', supportsFast: true, contextWindow: 256_000 },
-  { id: 'composer-2.5', agent: 'cursor', label: 'Composer 2.5', efforts: [], supportsFast: true, contextWindow: 200_000 }
-]
+export const MODELS: ModelInfo[] = AGENT_CATALOG.flatMap((a) => (a.models?.table ?? []).map((m): ModelInfo => ({ ...m, agent: a.id as AgentKind })))
 
 export const DEFAULT_MODEL: Record<AgentKind, string> = {
   claude: 'claude-opus-5-5[1m]',
@@ -213,10 +171,28 @@ function sameModel(m: ModelInfo, id: string): boolean {
   return m.id === id || Boolean(m.aliases?.includes(id))
 }
 
+/**
+ * The agent's own report laid over what the catalog knows of the model (docs/agents.md, 4.3). What the agent states wins; the
+ * catalog supplies what it doesn't: a name, a default effort, and the context window unless the agent reported one itself
+ * (`contextReported`; a window a driver worked out from an id is not the agent's word). Matched by id alone: an alias that
+ * resolves to a table entry is not the same window (Claude's "opus" is not the `[1m]` one).
+ */
+export function overlayModel(reported: ModelInfo): ModelInfo {
+  const known = MODELS.find((m) => m.agent === reported.agent && m.id === reported.id)
+  if (!known) return reported
+  return {
+    ...reported,
+    label: reported.label || known.label,
+    defaultEffort: reported.defaultEffort ?? (reported.efforts.length ? known.defaultEffort : undefined),
+    contextWindow: reported.contextReported ? reported.contextWindow : known.contextWindow
+  }
+}
+
 /** Model lookup. Ids the agent no longer lists get a generic entry rather than failing. */
 export function modelInfo(agent: AgentKind, id: string, t: TFunction = enT): ModelInfo {
+  const found = live[agent]?.find((m) => sameModel(m, id))
   return (
-    live[agent]?.find((m) => sameModel(m, id)) ??
+    (found && overlayModel(found)) ??
     MODELS.find((m) => m.agent === agent && m.id === id) ?? {
       id,
       agent,
@@ -239,7 +215,7 @@ export function isSameModel(agent: AgentKind, a: string, b: string): boolean {
 /** The models the agent offers, in its own order. */
 export function modelsFor(agent: AgentKind): ModelInfo[] {
   const reported = live[agent]
-  if (reported?.length) return reported.filter((m) => !m.hidden)
+  if (reported?.length) return reported.filter((m) => !m.hidden).map(overlayModel)
   return MODELS.filter((m) => m.agent === agent && !m.hidden)
 }
 

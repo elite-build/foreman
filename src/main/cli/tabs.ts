@@ -2,10 +2,14 @@
 // rewind, resume-now, mcp, slash and search. Each is the operation the window performs, called through the same Api.
 // Tabs are counted from 1 among a workspace's open tabs, as `foreman send --tab` does.
 import { capIsLower, CEILING_NAMES } from '../../shared/agentAccess'
+import { DEFAULT_AGENT } from '../../shared/agentCatalog'
 import { AGENTS, defaultModel, modelInfo, modelsFor, type AgentKind, type EffortLevel } from '../../shared/agents'
+import type { ChatSwitchResult } from '../../shared/cli/tabs'
 import { chatItemsOut, afterTurn, findTurn, lastTurns, renderChat, type ChatParams, type ChatResult, type McpParams, type McpResult, type QueueParams, type QueueResult, type QueueRow, type QueueVerb, type ResumeNowResult, type RewindParams, type RewindResult, type SearchHitRow, type SearchParams, type SearchResult, type SlashResult, type TabChangeResult, type TabForkParams, type TabReopenParams, type TabRow, type TabsResult } from '../../shared/cli/tabs'
+import { describeHandOff } from '../../shared/chatHandOff'
+import { instancesFor } from '../../shared/agentInstances'
 import { tabModelText } from '../../shared/tabs'
-import type { Session, SessionPatch, Workspace } from '../../shared/types'
+import { turnOutcomeOf, type Session, type SessionPatch, type Workspace } from '../../shared/types'
 import { CliCodedError, type CliHost } from './host'
 import { columns, flagParam, invalid, numberParam, paramsObject, textParam, type MethodDef } from './kit'
 import type { CliContext } from './methods'
@@ -45,7 +49,8 @@ export function tabRow(s: Session, tab?: number): TabRow {
     ...(s.autoAcceptEdits ? { autoAcceptEdits: true } : {}),
     status: s.status === 'running' ? 'running' : s.waitingForSlot ? 'queued' : 'idle',
     queued: s.queue.length,
-    ...(last ? { lastTurn: { outcome: last.outcome, ...(last.turnId ? { turn: last.turnId } : {}), endedAt: last.endedAt } } : {}),
+    // A tab paused at a usage limit is a failed turn to a script: the CLI's outcome words are unchanged.
+    ...(last ? { lastTurn: { outcome: turnOutcomeOf(last.outcome), ...(last.turnId ? { turn: last.turnId } : {}), endedAt: last.endedAt } } : {}),
     ...(s.closedAt ? { closed: true } : {})
   }
 }
@@ -136,10 +141,10 @@ function sessionPatch(patchIn: Record<string, unknown>, current?: Session): Sess
   const modelText = str('model')
   // A different agent without a model takes that agent's default, as the window's picker does.
   const switched = agent !== undefined && current !== undefined && agent !== current.agent
-  if (modelText !== undefined) out.model = modelOf(agent ?? 'claude', modelText)
+  if (modelText !== undefined) out.model = modelOf(agent ?? DEFAULT_AGENT, modelText)
   else if (agentText !== undefined && (!current || switched)) out.model = defaultModel(agent!)
   const effort = str('effort')
-  if (effort !== undefined) out.effort = effortOf(agent ?? 'claude', out.model ?? current?.model ?? defaultModel(agent ?? 'claude'), effort)
+  if (effort !== undefined) out.effort = effortOf(agent ?? DEFAULT_AGENT, out.model ?? current?.model ?? defaultModel(agent ?? DEFAULT_AGENT), effort)
   const fast = flag('fast')
   if (fast !== undefined) out.fastMode = fast
   const plan = flag('plan')
@@ -235,6 +240,45 @@ async function tabFork(host: CliHost, params: unknown): Promise<TabChangeResult>
   const newTab = open.findIndex((s) => s.id === forked.id) + 1
   const from = turn ? `${before ? 'just before' : 'after'} turn ${turn}` : 'after its latest answer'
   return { workspace: wsOut(ws), tab: tabRow(forked, newTab || undefined), text: `Forked tab ${tab} of ${ws.name} ${from} into tab ${newTab || '?'} (${forked.title || 'New chat'}). It has no new message yet.` }
+}
+
+// ----- chat switch -----
+
+/**
+ * Continue the tab with another agent (or another account of its agent) as the picker does, through the same Api call, and
+ * answer with the record of what the next agent will be given (docs/agents.md 5.5). The record was worked out when the notice
+ * was written; the first message sent after it carries the text and saves the record again with that turn's id.
+ */
+async function chatSwitch(host: CliHost, params: unknown): Promise<ChatSwitchResult> {
+  const p = paramsObject(params)
+  const { ws, tab, session } = tabOf(host, p)
+  const agent = agentOf(textParam(p, 'agent'))
+  const modelText = textParam(p, 'model', { optional: true })
+  const accountText = textParam(p, 'account', { optional: true })
+  const patch: SessionPatch = { agent, model: modelText ? modelOf(agent, modelText) : agent === session.agent ? session.model : defaultModel(agent) }
+  if (accountText !== undefined) {
+    const q = accountText.trim().toLowerCase()
+    if (q === 'default') patch.instanceId = null
+    else {
+      const accounts = instancesFor(host.state().settings.agentInstances, agent)
+      const found = accounts.find((a) => a.id.toLowerCase() === q || a.label.toLowerCase() === q)
+      if (!found) throw invalid(`${AGENTS[agent].label} has no account “${accountText}”. Accounts: default${accounts.map((a) => `, ${a.label}`).join('')}`)
+      patch.instanceId = found.id
+    }
+  }
+  const moves = agent !== session.agent || (patch.instanceId !== undefined && (patch.instanceId ?? undefined) !== session.instanceId)
+  if (!moves && patch.model === session.model) throw invalid(`Tab ${tab} of ${ws.name} is already on ${AGENTS[agent].label} with that model and account.`)
+  await host.api.updateSession(session.id, patch)
+  const now = host.state().sessions.find((s) => s.id === session.id) ?? session
+  const row = tabRow(now, tab)
+  // The newest notice that holds a record: the one this switch just wrote.
+  const items = await host.api.getChat(session.id)
+  const notice = [...items].reverse().find((i) => i.kind === 'notice' && (i.switched?.handOff ?? i.handOff))
+  const handOff = notice?.kind === 'notice' ? (notice.switched?.handOff ?? notice.handOff ?? null) : null
+  const head = `Tab ${tab} of ${ws.name} now continues with ${row.modelText}${row.effort ? `, ${row.effort}` : ''}.`
+  const text = handOff && !handOff.turnId ? `${head}
+${describeHandOff(handOff)}` : `${head} It had no messages to hand over yet.`
+  return { workspace: wsOut(ws), tab: row, handOff: handOff && !handOff.turnId ? handOff : null, text }
 }
 
 // ----- chat -----
@@ -440,6 +484,8 @@ export const TAB_METHODS: Record<string, MethodDef> = {
   'tab-reopen': { tier: 'act', handle: async (host, params) => tabReopen(host, params) },
   'tab-fork': { tier: 'act', handle: async (host, params) => tabFork(host, params) },
   chat: { tier: 'read', handle: async (host, params) => chat(host, params) },
+  // The same Api call the picker makes. Like `tab set --agent`, it refuses while a turn runs.
+  'chat-switch': { tier: 'act', handle: async (host, params) => chatSwitch(host, params) },
   queue: { tier: 'act', handle: async (host, params, ctx) => queue(host, params, ctx) },
   rewind: { tier: 'admin', handle: async (host, params) => rewind(host, params) },
   'resume-now': { tier: 'act', handle: async (host, params, ctx) => resumeNow(host, params, ctx) },

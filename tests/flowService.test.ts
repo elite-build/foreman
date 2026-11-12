@@ -103,6 +103,8 @@ function harness(
     flushFailures?: number
     personas?: Record<string, Persona | undefined>
     commands?: Record<string, FlowCommand | undefined>
+    // The tab's armed usage-limit resume for a turn (docs/agents.md 7.2), as the session service reports it.
+    limitResume?: FlowServiceDeps['limitResume']
   } = {}
 ) {
   let flushFailures = options.flushFailures ?? 0
@@ -187,7 +189,9 @@ function harness(
     },
     cancelGate: vi.fn((id: string) => gates.find((g) => g.id === id)?.resolve({ kind: 'gate', answer: 'stopped' })),
     changed: () => {},
-    maxActive: options.maxActive
+    maxActive: options.maxActive,
+    ...(options.limitResume ? { limitResume: options.limitResume } : {}),
+    cancelLimitResume: vi.fn()
   }
   const service = new FlowService(deps)
   const run = () => state.flowRuns![0]
@@ -218,6 +222,16 @@ function harness(
     notice: (text: string, action?: 'sign-in' | 'open-settings') => {
       const last = sent.at(-1)!
       chats.set(last.sessionId, [...(chats.get(last.sessionId) ?? []), { kind: 'notice', id: `n-${last.turnId}`, turnId: last.turnId, level: 'error', text, ...(action ? { action } : {}) }])
+    },
+    /** The latest message's turn stops at a usage limit (an error that says when it resets), then the service hears of it. */
+    endAtLimit: async (resetInMinutes: number, minutes = 1) => {
+      const last = sent.at(-1)!
+      chats.set(last.sessionId, [
+        ...(chats.get(last.sessionId) ?? []),
+        { kind: 'turn-end', id: `e-${last.turnId}`, turnId: last.turnId, outcome: 'error', error: 'limit', durationMs: minutes * 60_000, limit: { resetAt: new Date(clock + resetInMinutes * 60_000).toISOString(), source: 'five_hour', from: 'event' } }
+      ])
+      await service.turnEnded(last.sessionId, last.turnId, 'error')
+      await settle()
     },
     /** The latest message's turn ends: its answer and how long it took go in the chat, then the service hears of it. */
     endTurn: async (outcome: TurnOutcome = 'completed', answer = 'I did it.', minutes = 1, costUsd?: number, delta?: { files: { path: string; additions: number; deletions: number }[]; additions: number; deletions: number }) => {
@@ -1423,7 +1437,7 @@ describe('read-only steps on Codex, and scoped writes', () => {
     expect(() => cursor.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: cursor.prepared.fingerprint })).toThrow(/Not Claude: review \(Cursor\)/)
   })
 
-  it('a persona’s scoped writes reach its turn, and refuse a loadout that isn’t Claude', async () => {
+  it('a persona’s scoped writes reach its turn, and refuse a loadout whose agent can’t be held to them', async () => {
     const pm = parsePersona('---\nname: pm\nwrites: [docs/features/**]\n---\nDecide what to build.', 'personal')
     if (!('persona' in pm)) throw new Error(pm.problems.join(' '))
     const toml = PLANNED.replace('persona = "architect"', 'persona = "pm"')
@@ -1431,10 +1445,14 @@ describe('read-only steps on Codex, and scoped writes', () => {
     await h.start({})
     expect(h.sent[0].persona).toEqual({ name: 'pm', instructions: 'Decide what to build.', writes: ['docs/features/**'] })
     expect(h.run().steps[0].detail).toBe('persona: pm · writes only docs/features/**')
-    const refused = harness(toml, { personas: { pm: pm.persona, developer: STARTER_PERSONAS.developer }, loadouts: [codex] })
+    // Cursor's record says it can't be held to them; Codex's says it can (docs/agents.md 8), so what it is refused for here is running unattended.
+    const cursor: Loadout = { agent: 'cursor', model: 'auto', fast: false }
+    const refused = harness(toml, { personas: { pm: pm.persona, developer: STARTER_PERSONAS.developer }, loadouts: [cursor] })
     expect(() => refused.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: refused.prepared.fingerprint })).toThrow(
-      'The step “plan” may only write inside docs/features/** (persona “pm”), which only Claude can be held to; this step runs on Codex.'
+      'The step “plan” may only write inside docs/features/** (persona “pm”), which Cursor can’t be held to; this step runs on Cursor.'
     )
+    const onCodex = harness(toml, { personas: { pm: pm.persona, developer: STARTER_PERSONAS.developer }, loadouts: [codex] })
+    expect(() => onCodex.service.begin({ flowId: 'flow-1', repoId: 'r', baseBranch: 'main', inputs: {}, shown: onCodex.prepared.fingerprint })).toThrow(/^Unattended turns are Claude only/)
   })
 })
 
@@ -1650,5 +1668,171 @@ describe('models chosen for a run', () => {
     const h = harness(REVIEWED.replace('prompt = "Build it."', 'prompt = "Build it."\neffort = "low"'), { loadouts: [{ ...sonnet, effort: 'high' }] })
     await h.start({})
     expect(h.launch.mock.calls[0][1].loadout).toEqual({ ...sonnet, effort: 'low' })
+  })
+})
+
+// Docs/agents.md 7.2: a step's turn that stops at a usage limit waits for the tab's armed resume, and the resume re-runs it the
+// way the step started it; it waits only while the reset falls inside the step's time budget.
+describe('a usage limit in a step', () => {
+  it('waits for the resume, counts no minutes, and the resumed turn goes on under the step’s own mark', async () => {
+    let first = ''
+    let current = { now: () => 0 }
+    const h = harness(GREEN, { checks: ['passed'], limitResume: (_s, turn) => (turn === first ? { at: current.now() + 90 * 60_000 } : undefined) })
+    current = h
+    await h.start()
+    first = h.sent.at(-1)!.turnId
+    await h.endAtLimit(89)
+    expect(h.run()).toMatchObject({ state: 'waiting' })
+    expect(h.run().reason).toContain('Waiting for the usage limit to reset: the “build” step goes on at')
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'build', state: 'waiting' })
+    // Nothing else wakes it, and a tab that isn't the step's gets nothing.
+    await h.service.tick()
+    expect(h.run().state).toBe('waiting')
+    expect(h.service.resumeTurn('s-other')).toBeUndefined()
+    // The resume sends: the step's turn again, with its persona, unattended, as the step's own message.
+    const resumed = h.service.resumeTurn('s-1')!
+    expect(resumed).toMatchObject({ unattended: { flowRunId: h.run().id, step: 'build', persona: { name: 'developer' } }, origin: { kind: 'flow', runId: h.run().id, step: 'build', iteration: 1 } })
+    expect(h.run()).toMatchObject({ state: 'running' })
+    expect(h.run().steps.at(-1)).toMatchObject({ name: 'build', state: 'running', turnId: resumed.turnId })
+    h.sent.push({ sessionId: 's-1', text: 'Continue where you left off.', turnId: resumed.turnId })
+    h.service.resumed(resumed.turnId, true)
+    // Once: another message in the tab is an ordinary one.
+    expect(h.service.resumeTurn('s-1')).toBeUndefined()
+    await h.endTurn('completed', 'Built the button.')
+    expect(names(h.run())).toEqual(['build', 'checks', 'ship'])
+    expect(h.run().state).toBe('waiting')
+  })
+
+  it('fails with the budget sentence when the reset is after what a loop’s minutes bound has left', async () => {
+    let turn = ''
+    let current = { now: () => 0 }
+    const h = harness(ASKING, { limitResume: (_s, t) => (t === turn ? { at: current.now() + 60 * 60_000 } : undefined) })
+    current = h
+    await h.start({})
+    turn = h.sent.at(-1)!.turnId
+    // The loop has 15 minutes; the turn used 10, so 5 are left, and the reset is an hour away.
+    await h.endAtLimit(59, 10)
+    expect(h.run()).toMatchObject({ state: 'failed', reason: 'The usage limit resets after this step’s time budget.' })
+    expect(h.deps.cancelLimitResume).toHaveBeenCalledWith('s-1')
+  })
+
+  it('waits inside the budget: a reset in 4 of the 5 minutes left', async () => {
+    let turn = ''
+    let current = { now: () => 0 }
+    const h = harness(ASKING, { limitResume: (_s, t) => (t === turn ? { at: current.now() + 4 * 60_000 } : undefined) })
+    current = h
+    await h.start({})
+    turn = h.sent.at(-1)!.turnId
+    await h.endAtLimit(3, 10)
+    expect(h.run().state).toBe('waiting')
+  })
+
+  it('a step with no resume armed (asking first, or no reset time) fails as any error does', async () => {
+    const h = harness(GREEN, { limitResume: () => undefined })
+    await h.start()
+    await h.endAtLimit(60)
+    expect(h.run()).toMatchObject({ state: 'failed', reason: 'The “build” turn ended with an error.' })
+  })
+
+  it('fails when the resume is cancelled while the run waits, and Stop takes the resume back', async () => {
+    let on = true
+    let turn = ''
+    let current = { now: () => 0 }
+    const h = harness(GREEN, { limitResume: (_s, t) => (on && t === turn ? { at: current.now() + 60 * 60_000 } : undefined) })
+    current = h
+    await h.start()
+    turn = h.sent.at(-1)!.turnId
+    await h.endAtLimit(59)
+    on = false
+    await h.service.tick()
+    expect(h.run()).toMatchObject({ state: 'failed', reason: 'The “build” step was waiting for the usage limit to reset, but its resume was cancelled.' })
+
+    on = true
+    const stopped = harness(GREEN, { limitResume: (_s, t) => (t === turn ? { at: current.now() + 60 * 60_000 } : undefined) })
+    current = stopped
+    await stopped.start()
+    turn = stopped.sent.at(-1)!.turnId
+    await stopped.endAtLimit(59)
+    await stopped.service.stopRun(stopped.run().id)
+    expect(stopped.run().state).toBe('stopped')
+    expect(stopped.deps.cancelLimitResume).toHaveBeenCalledWith('s-1')
+    expect(stopped.service.resumeTurn('s-1')).toBeUndefined()
+  })
+
+  it('a resume that didn’t go leaves the run waiting', async () => {
+    let turn = ''
+    let current = { now: () => 0 }
+    const h = harness(GREEN, { limitResume: (_s, t) => (t === turn ? { at: current.now() + 60 * 60_000 } : undefined) })
+    current = h
+    await h.start()
+    turn = h.sent.at(-1)!.turnId
+    await h.endAtLimit(59)
+    const reason = h.run().reason
+    const refused = h.service.resumeTurn('s-1')!
+    h.service.resumed(refused.turnId, false)
+    expect(h.run()).toMatchObject({ state: 'waiting', reason })
+  })
+})
+
+// A step that continues the build's tab but names its own agent switches the tab first, as the picker does (docs/agents.md 5.5).
+const SWITCHING = `name = "Switching"
+
+[start]
+step = "build"
+
+[steps.build]
+kind = "turn"
+prompt = "Build it."
+
+[steps.second]
+kind = "turn"
+same_tab = "build"
+agent = "codex"
+model = "gpt-6.1-sol"
+prompt = "Look it over."
+
+[steps.third]
+kind = "turn"
+same_tab = "build"
+prompt = "Fix what it found."
+
+[edges]
+build = "second"
+second = "third"
+`
+
+describe('a step that continues a tab with another agent', () => {
+  it('switches the tab through the same path before sending, and leaves a step with no agent of its own alone', async () => {
+    const h = harness(SWITCHING)
+    const order: string[] = []
+    const switchTab = vi.fn<NonNullable<FlowServiceDeps['switchTab']>>(async () => void order.push('switch'))
+    h.deps.switchTab = switchTab
+    const deliver = h.deps.deliver
+    h.deps.deliver = async (sessionId, text, o) => {
+      order.push('deliver')
+      await deliver(sessionId, text, o)
+    }
+    await start(h)
+    await h.endTurn('completed', 'Built it.')
+    // The second step's tab is the build's (a new tab isn't made), switched to the step's agent and model, then it is sent.
+    expect(h.sent.at(-1)!.sessionId).toBe('s-1')
+    expect(switchTab).toHaveBeenCalledTimes(1)
+    expect(switchTab).toHaveBeenCalledWith('s-1', expect.objectContaining({ agent: 'codex', model: 'gpt-6.1-sol' }))
+    expect(order).toEqual(['switch', 'deliver'])
+    await h.endTurn('completed', 'Looks fine.')
+    // The third step names no agent: it goes on in the tab as it is.
+    expect(h.sent.at(-1)!.sessionId).toBe('s-1')
+    expect(switchTab).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails the step with the switch’s own reason when it is refused', async () => {
+    const h = harness(SWITCHING)
+    h.deps.switchTab = async () => {
+      throw new Error('This chat is read-only, which Codex can’t enforce')
+    }
+    await start(h)
+    await h.endTurn('completed', 'Built it.')
+    expect(h.run().state).toBe('failed')
+    expect(h.run().reason).toContain('read-only')
   })
 })

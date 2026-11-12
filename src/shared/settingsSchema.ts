@@ -5,9 +5,10 @@
 // derived from the registry here and never typed twice. Fields with no row there (the Devices ones, the clone
 // directory) name their page themselves.
 import path from 'node:path'
-import { MAX_BACKGROUND_WAIT_MINUTES, MAX_RUNNING_AGENTS } from './agentSlots'
+import { MAX_BACKGROUND_WAIT_MINUTES, MAX_IDLE_COMPACT_TOKENS, MAX_RUNNING_AGENTS } from './agentSlots'
 import { ARCHIVE_CLEANUP_DAYS } from './autoArchive'
 import { DONE_DAYS_OPTIONS } from './board'
+import { HAND_OFF_BUDGET } from './chatHandOff'
 import { cloudSettings } from './cloud'
 import { LOCALES } from './i18n'
 import { BATTERY_PERCENTS } from './keepAwake'
@@ -17,10 +18,10 @@ import { SCRIPT_SHELLS, SHELL_CHOICES } from './shells'
 import { ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './terminalTabs'
 import type { BranchPrefixType, CloudSettings, ColorVision, HomeLayout, PaneSide, Settings, SoundSetting, TerminalPlacement, ThemeSetting, WindowLayout } from './types'
 
-export type SettingsPage = 'general' | 'account' | 'appearance' | 'models' | 'agents' | 'git' | 'environment' | 'experimental' | 'advanced' | 'data' | 'devices' | 'cloud' | 'accessibility'
+export type SettingsPage = 'general' | 'account' | 'appearance' | 'models' | 'agents' | 'git' | 'environment' | 'experimental' | 'advanced' | 'usage' | 'data' | 'devices' | 'cloud' | 'accessibility'
 
 /** The pages in the order the Settings window (and `settings list`) shows them; Devices sits inside Data & devices. */
-export const SETTINGS_PAGES: readonly SettingsPage[] = ['general', 'account', 'appearance', 'accessibility', 'models', 'agents', 'git', 'environment', 'experimental', 'advanced', 'data', 'devices', 'cloud']
+export const SETTINGS_PAGES: readonly SettingsPage[] = ['general', 'account', 'appearance', 'accessibility', 'models', 'agents', 'git', 'environment', 'experimental', 'advanced', 'usage', 'data', 'devices', 'cloud']
 
 export type SettingType = 'boolean' | 'enum' | 'integer' | 'number' | 'string' | 'path' | 'list' | 'map'
 
@@ -80,6 +81,7 @@ const HOME_LAYOUTS = enumOf<HomeLayout>({ list: true, board: true })
 const BRANCH_PREFIX_TYPES = enumOf<BranchPrefixType>({ github: true, custom: true, none: true })
 const SEND_KEYS = enumOf<Settings['messageSendKey']>({ enter: true, 'mod-enter': true })
 const FOLLOW_UP_MODES = enumOf<Settings['followUpMode']>({ queue: true, steer: true })
+const RESUME_AFTER_LIMITS = enumOf<Settings['resumeAfterLimit']>({ auto: true, ask: true })
 const GITHUB_AUTHS = enumOf<Settings['githubAuth']>({ cli: true, token: true })
 const CODEX_APPROVALS = enumOf<Settings['codexApprovals']>({ sandboxed: true, always: true })
 const PR_TARGETS = enumOf<Settings['openPrIn']>({ github: true, graphite: true })
@@ -113,12 +115,12 @@ interface Draft {
   note?: string
 }
 
-/** The Settings page a registry row sits on; a row the CLI has no key for (Usage, Integrations, repository rows) is a mistake here. */
+/** The Settings page a registry row sits on; a row the CLI has no key for (Integrations, repository rows) is a mistake here. */
 function pageOfRow(registryId: string): SettingsPage {
   const row = SETTINGS.find((e) => e.id === registryId)
   if (!row) throw new Error(`settingsSchema: no settingsRegistry row '${registryId}'`)
   const section = row.page.section
-  if (section === 'integrations' || section === 'usage' || section === 'repo') throw new Error(`settingsSchema: row '${registryId}' is not on a personal settings page`)
+  if (section === 'integrations' || section === 'repo') throw new Error(`settingsSchema: row '${registryId}' is not on a personal settings page`)
   return section
 }
 
@@ -220,6 +222,8 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   // The choices come from the catalog's output styles, which only the app knows; the server checks them.
   def('claude-output-style', { registryId: 'claude-output-style', field: 'claudeOutputStyle', type: 'string' }),
   flag('default-plan-mode', 'default-plan-mode', 'defaultPlanMode'),
+  // How much of a chat the next agent is given on a switch, in estimated tokens (docs/agents.md 5.2).
+  def('switch-history-tokens', { registryId: 'switch-history-tokens', field: 'handOffTokenBudget', type: 'integer', min: HAND_OFF_BUDGET.min, max: HAND_OFF_BUDGET.max }),
 
   // Agents
   def('claude-auth', { registryId: 'agent-claude', field: 'claudeAuth', type: 'enum', values: AGENT_AUTH_VALUES, labels: AGENT_AUTH_LABELS }),
@@ -228,6 +232,8 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   def('codex-path', { registryId: 'agent-codex', field: 'codexExecutablePath', type: 'path', sensitivity: 'path' }),
   def('opencode-path', { registryId: 'agent-opencode', field: 'opencodeExecutablePath', type: 'path', sensitivity: 'path' }),
   def('opencode-models', { registryId: 'agent-opencode', field: 'opencodeModels', type: 'list' }),
+  // 0 is off. It spends usage, so it is only ever turned on by the person.
+  def('idle-compact-tokens', { registryId: 'idle-compact', field: 'idleCompactTokens', type: 'integer', min: 0, max: MAX_IDLE_COMPACT_TOKENS }),
   flag('chrome-mode', 'chrome-mode', 'chromeMode', { note: 'Claude Code can now drive Chrome through its extension (claude --chrome) in new turns.' }),
 
   // Git
@@ -275,6 +281,9 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   def('max-running-agents', { registryId: 'max-running-agents', field: 'maxRunningAgents', type: 'integer', min: 0, max: MAX_RUNNING_AGENTS }),
   def('background-wait-minutes', { registryId: 'background-wait', field: 'backgroundWaitMinutes', type: 'integer', min: 0, max: MAX_BACKGROUND_WAIT_MINUTES }),
 
+  // Usage
+  choice('resume-after-limit', 'resume-after-limit', 'resumeAfterLimit', RESUME_AFTER_LIMITS),
+
   // Data
   flag('keep-cleared-history', 'keep-cleared-history', 'keepClearedHistory', { note: 'Turning it off scrubs the history that /clear and rewind had kept; turning it on keeps it from now on.' }),
   flag('daily-backup', 'daily-backup', 'dailyBackup'),
@@ -313,7 +322,9 @@ export const NOT_A_SETTING: Record<string, string> = {
   paneSizes: 'Lives in the window’s localStorage; reset from Settings → Appearance.',
   panelAndTabLayout: 'The window’s panel and tab layout lives in the window’s localStorage.',
   fullDiskAccess: 'A read-only system fact (shown by `foreman doctor`), not a stored setting.',
-  openInApps: 'Which apps Open in found on this computer is a read-only system fact (shown by `foreman doctor`).'
+  openInApps: 'Which apps Open in found on this computer is a read-only system fact (shown by `foreman doctor`).',
+  // The one exception to "none is a Settings field": a development switch that a packaged build ignores (docs/agents.md, 9.5).
+  replayTraffic: 'Development builds only, from Settings → Experimental: Claude Code and Codex answer from recorded traffic. A packaged build ignores it, so it has no CLI setting.'
 }
 
 // ---- lookups ----
