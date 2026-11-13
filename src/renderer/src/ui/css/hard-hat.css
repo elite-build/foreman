@@ -1,0 +1,86 @@
+/* HardHat: an AI employee's avatar. The figure carries its own ink outline and light face in both themes, so it reads
+   on every surface without a disc behind it; only the hat changes, by data-colour. No motion. */
+.ui-hard-hat {
+  flex: none;
+  vertical-align: middle;
+}
+.ui-hard-hat__outline {
+  fill: var(--hat-ink);
+  stroke: var(--hat-ink);
+}
+.ui-hard-hat__face {
+  fill: var(--hat-face);
+}
+.ui-hard-hat__ink {
+  fill: var(--hat-ink);
+}
+.ui-hard-hat__line {
+  stroke: var(--hat-ink);
+}
+.ui-hard-hat__hat {
+  fill: var(--ui-hard-hat-hat);
+}
+.ui-hard-hat__brim {
+  fill: var(--ui-hard-hat-brim);
+}
+
+.ui-hard-hat[data-colour='orange'] {
+  --ui-hard-hat-hat: var(--hat-orange);
+  --ui-hard-hat-brim: var(--hat-orange-shade);
+}
+.ui-hard-hat[data-colour='pink'] {
+  --ui-hard-hat-hat: var(--hat-pink);
+  --ui-hard-hat-brim: var(--hat-pink-shade);
+}
+.ui-hard-hat[data-colour='teal'] {
+  --ui-hard-hat-hat: var(--hat-teal);
+  --ui-hard-hat-brim: var(--hat-teal-shade);
+}
+.ui-hard-hat[data-colour='blue'] {
+  --ui-hard-hat-hat: var(--hat-blue);
+  --ui-hard-hat-brim: var(--hat-blue-shade);
+}
+.ui-hard-hat[data-colour='green'] {
+  --ui-hard-hat-hat: var(--hat-green);
+  --ui-hard-hat-brim: var(--hat-green-shade);
+}
+.ui-hard-hat[data-colour='purple'] {
+  --ui-hard-hat-hat: var(--hat-purple);
+  --ui-hard-hat-brim: var(--hat-purple-shade);
+}
+.ui-hard-hat[data-colour='yellow'] {
+  --ui-hard-hat-hat: var(--hat-yellow);
+  --ui-hard-hat-brim: var(--hat-yellow-shade);
+}
+.ui-hard-hat[data-colour='red'] {
+  --ui-hard-hat-hat: var(--hat-red);
+  --ui-hard-hat-brim: var(--hat-red-shade);
+}
+.ui-hard-hat[data-colour='cyan'] {
+  --ui-hard-hat-hat: var(--hat-cyan);
+  --ui-hard-hat-brim: var(--hat-cyan-shade);
+}
+.ui-hard-hat[data-colour='lime'] {
+  --ui-hard-hat-hat: var(--hat-lime);
+  --ui-hard-hat-brim: var(--hat-lime-shade);
+}
+.ui-hard-hat[data-colour='brown'] {
+  --ui-hard-hat-hat: var(--hat-brown);
+  --ui-hard-hat-brim: var(--hat-brown-shade);
+}
+.ui-hard-hat[data-colour='slate'] {
+  --ui-hard-hat-hat: var(--hat-slate);
+  --ui-hard-hat-brim: var(--hat-slate-shade);
+}
+
+/* Forced colours: keep the hat's colour (it is who this is, and the name is beside it or is the label), and draw the
+   outline in the text colour so the figure stays visible on a black or a white canvas. */
+@media (forced-colors: active) {
+  .ui-hard-hat {
+    forced-color-adjust: none;
+  }
+  .ui-hard-hat__outline {
+    fill: CanvasText;
+    stroke: CanvasText;
+  }
+}

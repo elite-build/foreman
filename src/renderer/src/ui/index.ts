@@ -19,6 +19,7 @@ export { Stepper, type StepperProps, type StepperStep, type StepperStatus, type 
 export { Callout, type CalloutProps, type CalloutTone } from './Callout'
 export { Kbd, type KbdProps } from './Kbd'
 export { MediaThumb, type MediaThumbProps } from './MediaThumb'
+export { HardHat, hardHatColours, isHardHatColour, type HardHatProps, type HardHatColour } from './HardHat'
 
 // Forms
 export { Field, useField, type FieldProps, type FieldBinding, type FieldControlProps, type UseFieldOptions } from './Field'

@@ -7,6 +7,7 @@ import { Card, CardButton } from '../Card'
 import { ChipButton } from '../ChipButton'
 import { Countdown } from '../Countdown'
 import { Glyph } from '../Glyph'
+import { HardHat, hardHatColours } from '../HardHat'
 import type { GlyphName } from '../Glyph'
 import { IconButton } from '../IconButton'
 import { Kbd } from '../Kbd'
@@ -315,6 +316,32 @@ export function Gallery2a() {
             <Glyph name="info" />
           </MediaThumb>
         </div>
+      </Section>
+
+      <Section title="HardHat">
+        {[16, 24, 48].map((size) => (
+          <div key={size} style={row}>
+            {hardHatColours.map((colour) => (
+              <HardHat key={colour} colour={colour} size={size} label={`${colour}, ${size}px`} />
+            ))}
+          </div>
+        ))}
+        <div style={row}>
+          {hardHatColours.map((colour) => (
+            <span key={colour} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <HardHat colour={colour} size={20} />
+              {colour}
+            </span>
+          ))}
+        </div>
+        {(['--bg-raised', '--bg-selected'] as const).map((surface) => (
+          <div key={surface} style={{ ...row, padding: 8, background: `var(${surface})` }}>
+            {hardHatColours.map((colour) => (
+              <HardHat key={colour} colour={colour} size={32} />
+            ))}
+            <span>on {surface}</span>
+          </div>
+        ))}
       </Section>
     </div>
   )

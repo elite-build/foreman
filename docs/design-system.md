@@ -10,7 +10,7 @@ The **Components** sections below are the authoritative catalogue of purposes, v
 
 | Requirement | Catalogue entries to inspect | Runnable example source |
 | --- | --- | --- |
-| Actions, cards and feedback | Button, IconButton, LinkButton, ChipButton, Pressable, ActionRow, Card/CardButton, Tag, Status, Glyph, Spinner, Countdown, Meter, Stepper, Callout, Kbd, MediaThumb | `ui/gallery/2a.tsx` |
+| Actions, cards and feedback | Button, IconButton, LinkButton, ChipButton, Pressable, ActionRow, Card/CardButton, Tag, Status, Glyph, Spinner, Countdown, Meter, Stepper, Callout, Kbd, MediaThumb, HardHat | `ui/gallery/2a.tsx` |
 | Labelled inputs and choices | Field/useField, TextInput, TextArea, CodeEditor, Range, FileInput, Checkbox, Select, MaskedValue, Switch, RadioList, RadioCards | `ui/gallery/2b.tsx` |
 | Navigation and action menus | Segmented, Tabs and parts, Menu and parts, ContextMenu, SplitButton, Disclosure | `ui/gallery/2c.tsx` |
 | Overlays, pickers and structure | Dialog/Sheet, Popover, HoverCard, Listbox, Combobox, Tree/TreeItem, Graph, Resizer | `ui/gallery/2d.tsx` |
@@ -43,6 +43,7 @@ Set on `:root`. There's one theme, with a light override (`prefers-color-scheme`
 | Tints | `--accent-bg`, `--add-bg`, `--del-bg`, `--amber-bg`, `--blue-bg`, `--approval-bg` (neutral: `--text` at 3 to 4%) are `color-mix(in srgb, var(--colour) N%, transparent)` at the theme's opacity, so they follow the colour (and the colour-vision overrides). A tag's text stays 4.5:1 on its own tint over any surface |
 | Actions | `--primary` (the text colour), `--on-primary`, `--primary-hover`, `--danger`, `--danger-hover`, `--on-danger` (4.5:1 on each fill and hover) |
 | Focus and layers | `--focus-ring` (= `--blue`: 3:1 on every surface, in both themes and every colour-vision mode, so focus is never mistaken for selection or error), `--shadow`, `--backdrop`, `--backdrop-soft` |
+| Identity | `--hat-<colour>` and `--hat-<colour>-shade` for the twelve `HardHat` colours (orange, pink, teal, blue, green, purple, yellow, red, cyan, lime, brown, slate), with `--hat-ink` and `--hat-face`: an AI employee's avatar, the same in both themes because the figure carries its own outline. Identity only, never a state, a chart or a tag; `tests/ui/HardHat.test.tsx` holds the figure to 3:1 on every surface and the `>_` to 3:1 on every hat |
 | Media | `--media-scrim` and `--on-media` (text and buttons over a picture), `--qr-bg` (the white behind the pairing QR code, which scanners need) |
 | Type | `--font`, `--mono`; chrome sizes `--text-xs` 11 (short metadata only), `--text-sm` 12, `--text-md` 13, `--text-lg` 15, `--text-xl` 20; content and display sizes named by use: `--text-display-subheading` 16, `--text-display-emoji-cell` 17, `--text-display-title` 18, `--text-display-heading` 22, `--text-display-phone-code` 26, `--text-display-emoji` 32, `--text-display-pair-code` 38; content sizes `--text-content` (13 by default), `--text-content-code` (one smaller) and `--text-content-heading` (two larger), which read `--content-font-size` from `<html>` so Settings → Accessibility → Content text size scales chat Markdown, diff code and the file viewer (`styles/content-size.css`) while chrome keeps the scale above |
 | Radius and targets | `--radius-sm` 4 (tags), `--radius-md` 7, `--radius-lg` 10, `--radius-full`; `--target-min` 24px, the smallest pointer target for a control |
@@ -69,6 +70,7 @@ Markup other components may rely on by class name:
 | Chip button | `button.ui-chip-btn` | `--warn`, `--pill`; `[aria-pressed=true]`, `[aria-expanded=true]` |
 | Card | `div.ui-card` (a `CardButton` is `button.ui-pressable.ui-card`; an `ActionRow card` is `div.ui-action-row.ui-card`) | `--interactive`, `--sm`; `[data-selected\|target\|empty\|lifted\|ghost]`, `[data-tone=danger]`, `[data-drop=before\|after]`, `[data-stripe=neutral\|ok\|warn\|info\|muted]` |
 | Glyph | `svg.ui-glyph[data-glyph=ok\|warn\|error\|info\|off]` | |
+| HardHat | `svg.ui-hard-hat[data-colour=<colour>]` > `g.ui-hard-hat__outline`, `.ui-hard-hat__face`, `.ui-hard-hat__hat`, `.ui-hard-hat__brim`, `.ui-hard-hat__ink`, `.ui-hard-hat__line` | `[role=img]` with a label, else `[aria-hidden=true]` |
 | Segmented | `div.ui-segmented[role=radiogroup]` > `button.ui-segmented__option[role=radio]` | `--plain`, `--small`; `[aria-checked=true]` |
 | Tabs | `div.ui-tabs` > `div.ui-tablist[role=tablist]` > `span.ui-tab` > `button.ui-tab__button[role=tab]` + `span.ui-tab__actions`; `div.ui-tabpanel[role=tabpanel]` | `.ui-tabs--underline`, `--pill`, `--chat`; `[aria-selected=true]`, `.ui-tab[data-selected]` |
 | Menu | `span.ui-menu-wrap` > trigger + `div.ui-menu[role=menu]` > `button.ui-menu__item`, `div.ui-menu__sep`, `div.ui-menu__heading`, `div.ui-menu__row` | `.ui-menu--bottom-end\|bottom-start\|top-end\|top-start`, `--fixed`, `--context`; item `[data-variant=danger\|value]`, `[data-indent]` |
@@ -296,6 +298,23 @@ Replaces `.nw-thumb`.
 
 ```tsx
 <MediaThumb src={url} name={file.name} onRemove={remove} removeLabel={t('nw.attach.remove', { name: file.name })} />
+```
+
+### HardHat
+
+An AI employee's avatar: a little person wearing Foreman's hard hat (the logo's hat, with its `>_`), the hat in the employee's colour. Added for AI employees, which need a face of their own wherever they appear (a list of employees, who wrote a message, who holds a task), told apart at a glance from each other and from people and agents.
+
+- Why nothing existing fit: `Glyph` draws states (ok, warn, error), and its shapes and colours mean those states, so an identity drawn with it would read as one. The repository icon (`RepoIconView` in `components/`) is a feature composition, not a `ui/` primitive, and pictures repositories, not people. `Tag` is a text label and `MediaThumb` an attachment's picture with its name; neither is a character, and making either draw one would change what it is. A variant of any of these would change its contract, so this is its own component with one narrow job: draw the figure in one of twelve hat colours, at a size, with or without a name.
+- Props: `colour` (one of `hardHatColours`: `orange`, `pink`, `teal`, `blue`, `green`, `purple`, `yellow`, `red`, `cyan`, `lime`, `brown`, `slate`), `size` (px, default 24; 16, 20, 24, 32, 40, 48 and 64 suit the 64-unit grid), `label` (the employee's name), `decorative`, plus native svg props except `role`, `aria-hidden`, `aria-label`, `focusable`, `width`, `height`, `viewBox` and `children`. Also exported: `hardHatColours` (in picker order), `isHardHatColour(value)` (to check a stored value) and the `HardHatColour` type.
+- With `label` (and not `decorative`) it is `role="img"` named by the label: use it where the avatar stands alone. Without one, or with `decorative`, it is `aria-hidden`: use that when the name is written beside it, so the name isn't read twice.
+- A colour it doesn't know (one a newer version stored) draws the `slate` hat rather than failing.
+- Look: no disc behind it; an ink outline round the whole figure and a light face, fixed in both themes (`--hat-ink`, `--hat-face`), so it reads on white and on dark. Only the dome and brim change, through `data-colour` and the `--hat-*` tokens. The colour is identity, never a state, and never the accent. Not interactive (wrap it in a component that is, such as a `Pressable`), and never animated. In forced colours it keeps its hat colours (`forced-color-adjust: none`) and the outline becomes `CanvasText`, so the figure shows on a black or a white canvas.
+
+```tsx
+<HardHat colour={employee.colour} size={20} />
+<span>{employee.name}</span>
+
+<HardHat colour={employee.colour} size={32} label={employee.name} />
 ```
 
 ### Forms: Field, useField, TextInput, TextArea, Range, FileInput, Checkbox, Select, MaskedValue, Switch, RadioList, RadioCards
