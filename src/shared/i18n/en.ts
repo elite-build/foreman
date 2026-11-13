@@ -3945,6 +3945,8 @@ export const en = {
   'toolRow.subagent': 'Subagent',
   // The kind of subagent, when the agent didn't name one.
   'toolRow.subagentType': 'subagent',
+  // A background subagent started again by a message sent to it.
+  'toolRow.subagentResumed': 'resumed',
   // Noun: the agent's plan.
   'toolRow.plan': 'Plan',
   'toolRow.asked': { one: 'Asked you a question', other: 'Asked you {count} questions' },

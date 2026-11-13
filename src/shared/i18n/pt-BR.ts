@@ -3495,6 +3495,7 @@ export const ptBR: Catalogue = {
   'toolRow.webSearch': 'Pesquisar na web por \'{query}\'',
   'toolRow.subagent': 'Subagente',
   'toolRow.subagentType': 'subagente',
+  'toolRow.subagentResumed': 'retomado',
   'toolRow.plan': 'Plano',
   'toolRow.asked': { one: 'Fez uma pergunta a você', other: 'Fez {count} perguntas a você' },
   'toolRow.summary.grepIn': '{pattern} em {path}',

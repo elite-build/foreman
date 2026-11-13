@@ -47,6 +47,29 @@ describe('a subagent’s items', () => {
     expect(subagentName({ description: ' explore-tests ', subagent_type: 'Explore' })).toBe('explore-tests')
     expect(subagentName({ subagent_type: 'Explore' })).toBe('Explore')
     expect(subagentName(undefined, 'fallback')).toBe('fallback')
+    // A SendMessage that resumed one: its summary, never the id it was sent to.
+    expect(subagentName({ to: 'a7726a19', summary: 'Resume slice 5b', message: 'Carry on' }, 'fallback')).toBe('Resume slice 5b')
+    expect(subagentName({ to: 'a7726a19', message: 'Carry on' }, 'fallback')).toBe('fallback')
+  })
+
+  it('go under the SendMessage that resumed the subagent, though its frames still name the first call', () => {
+    const resume: ChatItem = { kind: 'tool', id: 'sm1', turnId: 't2', name: 'SendMessage', input: { to: 'task-1', summary: 'Carry on' }, status: 'done', childId: 'task-1', task: { status: 'running', background: true } }
+    const after: ChatItem[] = [
+      ...items,
+      { kind: 'user', id: 'u2', turnId: 't2', text: 'resume it', at },
+      resume,
+      { kind: 'tool', id: 'c2', turnId: 't2', name: 'Read', input: { file_path: 'db.ts' }, status: 'done', parentToolUseId: 'tu1' },
+      { kind: 'assistant', id: 'm2', turnId: 't2', text: 'resumed and reading', parentToolUseId: 'tu1' }
+    ]
+    expect([...childItemsOf(after)].map(([id, list]) => [id, list.map((i) => i.id)])).toEqual([
+      ['tu1', ['c1', 'm1']],
+      ['sm1', ['c2', 'm2']]
+    ])
+    expect(isSubagentCall(resume as Extract<ChatItem, { kind: 'tool' }>)).toBe(true)
+    // One that resumed nothing (no task started on it) is no subagent and takes no items.
+    const passedOn = { ...resume, childId: undefined } as Extract<ChatItem, { kind: 'tool' }>
+    expect(isSubagentCall(passedOn)).toBe(false)
+    expect([...childItemsOf(after.map((i) => (i.id === 'sm1' ? passedOn : i)))].map(([id]) => id)).toEqual(['tu1'])
   })
 
   it('are not searched: no hit would have a row of its own to jump to', () => {

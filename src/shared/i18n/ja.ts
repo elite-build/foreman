@@ -3495,6 +3495,7 @@ export const ja: Catalogue = {
   'toolRow.webSearch': '「{query}」を Web で検索',
   'toolRow.subagent': 'サブエージェント',
   'toolRow.subagentType': 'サブエージェント',
+  'toolRow.subagentResumed': '再開',
   'toolRow.plan': 'プラン',
   'toolRow.asked': { other: '{count}件の質問がありました' },
   'toolRow.summary.grepIn': '{path} 内の {pattern}',
