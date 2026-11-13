@@ -146,12 +146,14 @@ interface SectionProps {
   description?: ReactNode
   // Skip the bordered card (for content that brings its own cards).
   plain?: boolean
+  // A searchable setting (shared/settingsRegistry) that is the whole section: what the menu and search scroll to.
+  setting?: string
   children: ReactNode
 }
 
-export function Section({ title, description, plain, children }: SectionProps) {
+export function Section({ title, description, plain, setting, children }: SectionProps) {
   return (
-    <section className="set-section">
+    <section id={setting ? rowDomId(setting) : undefined} className="set-section">
       {title && <h2>{title}</h2>}
       {description && <p className="set-section-desc">{description}</p>}
       {plain ? children : <div className="set-card">{children}</div>}
