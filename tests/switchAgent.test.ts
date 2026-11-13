@@ -39,12 +39,15 @@ type Sent = TurnRequest & { agent: AgentKind }
 /**
  * Claude and Codex stand-ins. Each turn answers "<agent> answer N" as its own conversation (`native-claude`,
  * `native-codex`) unless resumed; Claude reports assistant uuids and a cost, Codex neither. Requests are collected.
+ * Only `h`'s turns count: a test that timed out keeps sending through whichever drivers are registered, and its
+ * turns must not number or answer the next test's.
  */
-function bothAgents() {
+function bothAgents(h: Harness) {
   const requests: Sent[] = []
   for (const agent of ['claude', 'codex', 'cursor'] as const) {
     registerDriver({
       ...fakeDriver(async (req, cb) => {
+        if (req.cwd !== h.ws.path) return cb.finished({ ok: true })
         requests.push({ ...req, agent })
         const n = requests.length
         cb.sessionStarted(req.resume ?? `native-${agent}`)
@@ -58,6 +61,9 @@ function bothAgents() {
   }
   return requests
 }
+
+// Up to a dozen real turns a test, each with git work: give them room on a busy machine.
+const TURNS_BUDGET = 90_000
 
 const tab = (h: Harness, id = h.session.id) => h.store.state.sessions.find((s) => s.id === id)!
 
@@ -76,10 +82,10 @@ async function say(h: Harness, text: string, id = h.session.id) {
 const switches = async (h: Harness) =>
   (await h.store.readChat(h.session.id)).flatMap((i) => (i.kind === 'notice' && i.switched ? [{ ...i.switched, text: i.text }] : []))
 
-describe('switching agent in a chat', () => {
+describe('switching agent in a chat', { timeout: TURNS_BUDGET }, () => {
   it('continues in the same tab: a divider, and the new agent gets the visible history as text', async () => {
-    const requests = bothAgents()
     const h = await setupSessions()
+    const requests = bothAgents(h)
     await say(h, 'first question')
     await say(h, 'second question')
 
@@ -117,8 +123,8 @@ describe('switching agent in a chat', () => {
   })
 
   it('gives a long history within the budget: the oldest turns condensed or left out, and the receipt says so', async () => {
-    const requests = bothAgents()
     const h = await setupSessions()
+    const requests = bothAgents(h)
     h.store.state.settings.handOffTokenBudget = 1_024
     await say(h, `OLDEST${'x'.repeat(MAX_FORK_HISTORY_CHARS)}`)
     for (let n = 2; n <= 10; n++) await say(h, `question ${n} ${'y'.repeat(600)}`)
@@ -133,8 +139,8 @@ describe('switching agent in a chat', () => {
   })
 
   it('switching back resumes the native session with a note of what was said in between', async () => {
-    const requests = bothAgents()
     const h = await setupSessions()
+    const requests = bothAgents(h)
     await say(h, 'claude one')
     await h.sessions.updateSession(h.session.id, { agent: 'codex', model: 'gpt-6.1-sol' })
     await say(h, 'codex please')
@@ -170,8 +176,8 @@ describe('switching agent in a chat', () => {
   })
 
   it('switching away and straight back adds no note, and a chat with no messages just changes agent', async () => {
-    const requests = bothAgents()
     const h = await setupSessions()
+    const requests = bothAgents(h)
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
     expect(await switches(h)).toEqual([])
     expect(tab(h).seedHistory).toBeUndefined()
@@ -184,8 +190,8 @@ describe('switching agent in a chat', () => {
   })
 
   it('attributes each turn to the agent and model that wrote it: result lines, usage, search', async () => {
-    bothAgents()
     const h = await setupSessions()
+    bothAgents(h)
     const first = await say(h, 'alpha question')
     await h.sessions.updateSession(h.session.id, { agent: 'codex', model: 'gpt-6.1-sol' })
     const second = await say(h, 'beta question')
@@ -218,8 +224,8 @@ describe('switching agent in a chat', () => {
   })
 
   it('controls follow the active agent: Codex keeps plan mode, Cursor has none, and back on Claude it is offered again', async () => {
-    bothAgents()
     const h = await setupSessions()
+    bothAgents(h)
     await h.sessions.updateSession(h.session.id, { planMode: true })
     await say(h, 'plan this')
     // Codex plans through its app-server's plan collaboration mode, so the chat stays in plan mode.
@@ -252,8 +258,8 @@ describe('switching agent in a chat', () => {
   })
 
   it('a read-only tab stays read-only: only agents that can enforce it, and Claude is back in plan mode', async () => {
-    const requests = bothAgents()
     const h = await setupSessions()
+    const requests = bothAgents(h)
     Object.assign(tab(h), { readOnly: true, planMode: true })
     await say(h, 'review only')
     await expect(h.sessions.updateSession(h.session.id, { agent: 'cursor' })).rejects.toThrow('read-only')
@@ -269,7 +275,6 @@ describe('switching agent in a chat', () => {
   })
 
   it('runs the new agent’s turns in the background host after a switch', async () => {
-    const requests = bothAgents()
     const hosted: { agent: AgentKind; request: TurnRequest }[] = []
     const host: TurnHost = {
       keeps: (agent) => agent === 'codex',
@@ -291,6 +296,7 @@ describe('switching agent in a chat', () => {
       ended: () => {}
     }
     const h = await setupSessions({ turnHost: host })
+    const requests = bothAgents(h)
     await say(h, 'claude in process')
     expect(hosted).toHaveLength(0)
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
@@ -309,10 +315,10 @@ describe('switching agent in a chat', () => {
   })
 })
 
-describe('a conversation parked for an agent that can’t resume it', () => {
+describe('a conversation parked for an agent that can’t resume it', { timeout: TURNS_BUDGET }, () => {
   it('stays parked: switching to the agent starts a new conversation, and nothing replaced the old one', async () => {
-    bothAgents()
     const h = await setupSessions()
+    bothAgents(h)
     await say(h, 'claude one')
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
     await say(h, 'codex two')
@@ -333,10 +339,10 @@ describe('a conversation parked for an agent that can’t resume it', () => {
   })
 })
 
-describe('bookkeeping in a chat that switched agents', () => {
+describe('bookkeeping in a chat that switched agents', { timeout: TURNS_BUDGET }, () => {
   it('Restore goes back to the agent that message went to, and drops conversations that saw later turns', async () => {
-    const requests = bothAgents()
     const h = await setupSessions()
+    const requests = bothAgents(h)
     await say(h, 'claude one')
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
     const codexTurn = await say(h, 'codex two')
@@ -365,8 +371,8 @@ describe('bookkeeping in a chat that switched agents', () => {
   })
 
   it('a fork of a chat other agents answered carries the history as text instead of branching Claude', async () => {
-    const requests = bothAgents()
     const h = await setupSessions()
+    const requests = bothAgents(h)
     await say(h, 'claude one')
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
     await say(h, 'codex two')
@@ -382,8 +388,8 @@ describe('bookkeeping in a chat that switched agents', () => {
   })
 
   it('/clear forgets parked conversations', async () => {
-    bothAgents()
     const h = await setupSessions()
+    bothAgents(h)
     await say(h, 'one')
     await h.sessions.updateSession(h.session.id, { agent: 'codex' })
     await h.sessions.send(h.session.id, '/clear')
