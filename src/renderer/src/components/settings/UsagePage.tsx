@@ -8,7 +8,7 @@ import { formatDuration } from '../turnResult'
 import type { Settings } from '../../../../shared/types'
 import { LinkButton, Segmented } from '../../ui'
 import { LimitsSection } from './LimitsSection'
-import { Page, resetSettings, Row, saveSettings, Section, useSettings } from './controls'
+import { Page, resetSettings, Row, rowDomId, saveSettings, Section, useSettings } from './controls'
 
 const RANGES = [7, 30, 90]
 
@@ -85,6 +85,7 @@ export function UsagePage() {
           )}
         </Row>
       </Section>
+      <div id={rowDomId('usage-report')}>
       <Section title={t('settings.usage.section.cost')} plain>
       <Segmented
         plain
@@ -161,6 +162,7 @@ export function UsagePage() {
         </>
       )}
       </Section>
+      </div>
     </Page>
   )
 }

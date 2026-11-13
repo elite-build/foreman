@@ -25,6 +25,7 @@ import { useT, type RendererT } from '../../i18n'
 import { api, attempt, useStore } from '../../store'
 import { Button, Meter, Status } from '../../ui'
 import { AgentIcon } from '../composer/AgentPicker'
+import { rowDomId } from './controls'
 import './limits.css'
 
 const NONE: AccountLimits[] = []
@@ -189,7 +190,7 @@ export function LimitsSection() {
   }, [])
   const agents = AGENT_ORDER.filter((a) => isAgentEnabled(a, prefs))
   return (
-    <section className="set-section" aria-labelledby="usage-limits-title">
+    <section id={rowDomId('usage-limits')} className="set-section" aria-labelledby="usage-limits-title">
       <div className="limits-section-head">
         <h2 id="usage-limits-title">{t('limits.section.title')}</h2>
         <Button size="sm" variant="ghost" icon={<RefreshCw size={13} />} disabled={reading} onClick={() => void read()}>
