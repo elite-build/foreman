@@ -2,6 +2,13 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.0.23 (2026-11-13)
+
+### Fixed
+
+- A background agent that Claude resumes now shows as its own subagent row, named for what it was asked, with **Stop** and what it did since resuming, instead of a plain **SendMessage** row. ([#178](https://github.com/elite-build/foreman/pull/178))
+- Picking **Limits** or **Usage** in **Settings → Data & usage**, or in settings search, now scrolls to that section instead of leaving **Data & devices** on screen. ([#179](https://github.com/elite-build/foreman/pull/179))
+
 ## 1.0.22 (2026-11-12)
 
 ### Added
