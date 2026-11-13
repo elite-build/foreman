@@ -3495,6 +3495,7 @@ export const fr: Catalogue = {
   'toolRow.webSearch': 'Rechercher « {query} » sur le web',
   'toolRow.subagent': 'Sous-agent',
   'toolRow.subagentType': 'sous-agent',
+  'toolRow.subagentResumed': 'repris',
   'toolRow.plan': 'Plan',
   'toolRow.asked': { one: 'Vous a posé une question', other: 'Vous a posé {count} questions' },
   'toolRow.summary.grepIn': '{pattern} dans {path}',

@@ -3495,6 +3495,7 @@ export const ko: Catalogue = {
   'toolRow.webSearch': '웹에서 \'{query}\' 검색',
   'toolRow.subagent': '하위 에이전트',
   'toolRow.subagentType': '하위 에이전트',
+  'toolRow.subagentResumed': '재개됨',
   'toolRow.plan': '계획',
   'toolRow.asked': { other: '질문 {count}개를 했습니다' },
   'toolRow.summary.grepIn': '{path}에서 {pattern}',

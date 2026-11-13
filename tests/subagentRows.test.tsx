@@ -233,5 +233,35 @@ describe('a chat with a subagent', () => {
     render(<ChatView session={session} workspace={workspace} active headingLevel={2} />)
     expect(screen.getByRole('heading', { name: /1 tool call/ })).toBeTruthy()
   })
+
+  it('draws a subagent resumed with SendMessage as a subagent row of its own, with what it did since', async () => {
+    const user = userEvent.setup()
+    fakeApi.stopChild = vi.fn(async () => undefined)
+    const resumed = { kind: 'tool', id: 'sm1', turnId: 't1', name: 'SendMessage', input: { to: 'task-1', summary: 'Resume explore-tests', message: 'Carry on' }, status: 'done', output: 'Resumed', childId: 'task-1', task: { status: 'running', background: true, toolUses: 1 } } as never
+    fakeState.chats = {
+      s1: [
+        { kind: 'user', id: 'u1', turnId: 't1', text: 'Fix the sessions tests', at },
+        task({ status: 'done', task: { status: 'failed' } }),
+        ...children,
+        resumed,
+        // The resumed run's frames still name the first call.
+        call('c3', 'Grep', { pattern: 'tmpdir' })
+      ]
+    }
+    const { container } = render(<ChatView session={session} workspace={workspace} active headingLevel={2} />)
+    expect(screen.queryByText('SendMessage')).toBeNull()
+    // The background strip names it the same way.
+    expect(container.querySelector('.bg-tasks')?.textContent).toContain('Resume explore-tests')
+    const resumeRow = within(container.querySelector<HTMLElement>('[data-tool="sm1"]')!).getByRole('button', { name: /^Resume explore-tests/ })
+    expect(resumeRow.textContent).toContain('resumed')
+    await user.click(screen.getByRole('button', { name: 'Stop subagent Resume explore-tests' }))
+    expect(fakeApi.stopChild).toHaveBeenCalledWith('s1', 'task-1')
+    await user.click(resumeRow)
+    const since = within(screen.getByRole('tree', { name: 'What subagent Resume explore-tests did' })).getAllByRole('treeitem')
+    expect(since.map((i) => i.textContent)).toEqual([expect.stringContaining('tmpdir')])
+    // The first run keeps its own.
+    await user.click(screen.getByRole('button', { name: /^explore-tests/ }))
+    expect(within(screen.getByRole('tree', { name: 'What subagent explore-tests did' })).getAllByRole('treeitem')).toHaveLength(3)
+  })
 })
 

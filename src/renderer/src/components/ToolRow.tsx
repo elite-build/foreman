@@ -120,6 +120,10 @@ export function describe(item: ToolItem, root: Root, t: TFunction = storeT): Des
     case 'Task':
     case 'Agent':
       return { icon: Bot, label: String(i.description ?? t('toolRow.subagent')), meta: String(i.subagent_type ?? t('toolRow.subagentType')) }
+    case 'SendMessage':
+      // Resumed a background subagent (its task started again on this call); otherwise only a message passed on.
+      if (item.childId !== undefined) return { icon: Bot, label: subagentName(i, t('toolRow.subagent')), meta: t('toolRow.subagentResumed') }
+      return { icon: Wrench, label: item.name }
     case 'ExitPlanMode':
       return { icon: ClipboardList, label: t('toolRow.plan') }
     case 'mcp__foreman__AskUserQuestion':

@@ -239,6 +239,38 @@ describe('a Claude subagent as children of its Task call', () => {
     await expect(turn.stopChild!('task-1')).rejects.toThrow('not running')
   })
 
+  it('makes a SendMessage that resumed a finished subagent its row, named by its summary and stoppable', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const turn = claudeDriver.createTurn({ ...request, turnId: 't2' }, cb)
+    const run = turn.run()
+    // A later turn: the Task call that first started task-1 is in an earlier one. The resumed run's frames still name it.
+    const resume = { type: 'tool_use', id: 'sm1', name: 'SendMessage', input: { to: 'task-1', summary: 'Resume slice 5b', message: 'Carry on' } }
+    claude.push(
+      main(resume),
+      { ...started, tool_use_id: 'sm1', is_backgrounded: true },
+      inside('tu1', 'sub-m1', { type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'npm test' } })
+    )
+    await settle()
+    expect(lastItems(cb).get('sm1')).toMatchObject({ name: 'SendMessage', childId: 'task-1', task: { status: 'running', background: true } })
+    const signal = new AbortController().signal
+    await claude.state.canUseTool!('Bash', { command: 'npm test' }, { signal, toolUseID: 'c1', agentID: 'task-1' })
+    expect(cb.approveTool).toHaveBeenLastCalledWith(expect.objectContaining({ subagent: { id: 'task-1', name: 'Resume slice 5b' } }), signal)
+    await turn.stopChild!('task-1')
+    expect(claude.stopTask).toHaveBeenCalledWith('task-1')
+    claude.push(result)
+    await run
+  })
+
+  it('leaves a SendMessage that started no task an ordinary call', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(request, cb).run()
+    claude.push(main({ type: 'tool_use', id: 'sm1', name: 'SendMessage', input: { to: 'peer', message: 'Hi' } }), result)
+    await run
+    expect(lastItems(cb).get('sm1')).not.toHaveProperty('childId')
+  })
+
   it('closes a subagent’s unfinished calls with the turn, as it does the parent’s', async () => {
     const claude = fakeClaude()
     const cb = callbacks()

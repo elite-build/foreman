@@ -3495,6 +3495,7 @@ export const zhCN: Catalogue = {
   'toolRow.webSearch': '在网络上搜索「{query}」',
   'toolRow.subagent': '子智能体',
   'toolRow.subagentType': '子智能体',
+  'toolRow.subagentResumed': '已恢复',
   'toolRow.plan': '计划',
   'toolRow.asked': { other: '向你提了 {count} 个问题' },
   'toolRow.summary.grepIn': '在 {path} 中搜索 {pattern}',
