@@ -84,6 +84,34 @@
   --term-selection: #3d3531;
   /* G3 · #19: a previewed web page's canvas, white in both themes as a browser draws it. */
   --preview-canvas: #ffffff;
+  /* HardHat, an AI employee's avatar: the same in both themes, because the figure carries its own ink outline and
+     light face. Each hat colour is a dome and a darker brim. Identity only: never a state, and never the accent. */
+  --hat-ink: #1e1b19;
+  --hat-face: #f2efec;
+  --hat-orange: #f08a24;
+  --hat-orange-shade: #b05f0e;
+  --hat-pink: #e05a9a;
+  --hat-pink-shade: #a8336e;
+  --hat-teal: #1fa39a;
+  --hat-teal-shade: #13716b;
+  --hat-blue: #3b7be0;
+  --hat-blue-shade: #2353a3;
+  --hat-green: #4ca64c;
+  --hat-green-shade: #2f7330;
+  --hat-purple: #8b5cf6;
+  --hat-purple-shade: #5e35c2;
+  --hat-yellow: #f5b83d;
+  --hat-yellow-shade: #b8841c;
+  --hat-red: #d9473b;
+  --hat-red-shade: #9c2c23;
+  --hat-cyan: #22a7c9;
+  --hat-cyan-shade: #167591;
+  --hat-lime: #8cb43a;
+  --hat-lime-shade: #617e24;
+  --hat-brown: #9a6b42;
+  --hat-brown-shade: #6b4a2d;
+  --hat-slate: #6b7a8c;
+  --hat-slate-shade: #4a5563;
   /* Type: the chrome scale (11 only for short metadata), then sizes for content and display, named by use. */
   --text-xs: 11px;
   --text-sm: 12px;
