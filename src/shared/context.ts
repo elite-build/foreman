@@ -40,6 +40,18 @@ export interface AssembledAdditions {
   // A flow step's persona: the instructions appended to the system prompt, whether it held the turn read-only, and the
   // MCP servers it kept (undefined: it narrowed none).
   persona?: { name: string; text: string; readOnly?: boolean; mcp?: string[] }
+  // docs/ai-employees.md §5.2: an AI employee's run: its instructions as appended (Foreman's rules, the organization's
+  // instructions at a commit, its definition's), whether it ran read-only and the MCP servers it kept; and each pinned
+  // memory file it was given, with its path, the commit it was read at, its length and whether it was cut.
+  employee?: {
+    name: string
+    text: string
+    definitionPath: string
+    orgInstructions?: { path: string; commit: string; cut: boolean }
+    readOnly?: boolean
+    mcp: string[]
+    memory: { path: string; commit: string; chars: number; cut: boolean }[]
+  }
 }
 
 const SERVICE_LABEL: Record<IntegrationService, string> = { github: 'GitHub', linear: 'Linear', slack: 'Slack', langfuse: 'Langfuse', vercel: 'Vercel', docker: 'Docker', e2b: 'E2B', daytona: 'Daytona' }
@@ -69,6 +81,25 @@ export function contextParts(a: AssembledAdditions, t: TFunction = enT): Context
   if (a.persona) {
     const detail = [a.persona.readOnly ? t('context.persona.readOnly') : '', a.persona.mcp ? t('context.persona.mcp', { names: a.persona.mcp.join(', ') || '—' }) : ''].filter(Boolean).join(' · ')
     parts.push({ kind: 'persona', label: t('context.persona.label', { name: a.persona.name }), size: a.persona.text.length, unit: 'chars', source: t('context.persona.source'), ...(detail ? { detail } : {}) })
+  }
+  if (a.employee) {
+    const e = a.employee
+    const detail = [
+      e.orgInstructions ? t('context.employee.orgInstructions', { path: e.orgInstructions.path, commit: e.orgInstructions.commit.slice(0, 7) }) : '',
+      e.readOnly ? t('context.persona.readOnly') : '',
+      t('context.persona.mcp', { names: e.mcp.join(', ') || '—' })
+    ].filter(Boolean)
+    parts.push({ kind: 'employee', label: t('context.employee.label', { name: e.name }), size: e.text.length, unit: 'chars', source: t('context.employee.source', { file: e.definitionPath }), detail: detail.join(' · ') })
+    for (const m of e.memory) {
+      parts.push({
+        kind: 'memory',
+        label: m.path,
+        size: m.chars,
+        unit: 'chars',
+        source: t('context.memory.source', { commit: m.commit.slice(0, 7) }),
+        ...(m.cut ? { detail: t('context.memory.cut') } : {})
+      })
+    }
   }
   if (a.noteText && a.noteRevision !== undefined) {
     parts.push({ kind: 'note', label: t('chat.noteTag', { revision: a.noteRevision }), size: a.noteText.length, unit: 'chars', source: t('context.note.source'), revision: a.noteRevision })

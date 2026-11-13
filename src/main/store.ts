@@ -28,6 +28,10 @@ import type { HostedTurnRecord, ReconnectRecord } from '../shared/agentHost'
 import type { IntegrationsState } from '../shared/integrations'
 import type { FlowRun, PersonalFlow } from '../shared/flows'
 import type { PersonalPersona } from '../shared/personas'
+import { parseOrganizations, reconcileSpaces, type Organization } from '../shared/organizations'
+import { parseEmployeeRecords, type EmployeeRecord } from '../shared/employees'
+import { parseTriggerStates, type EmployeeTriggerState } from '../shared/employeeTriggers'
+import { parseEventWatch, type EventWatchState } from '../shared/employeeEvents'
 import { clampBudget, HAND_OFF_BUDGET } from '../shared/chatHandOff'
 import { parseAccountLimits, type AccountLimits } from '../shared/limits'
 import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
@@ -93,6 +97,18 @@ export interface PersistedState {
   personalPersonas?: PersonalPersona[]
   // Flow runs, like occurrences: written with a synchronous flush before anything of a run launches.
   flowRuns?: FlowRun[]
+  // Organizations (docs/ai-employees.md §3 and §12): each repository's space is `Repo.spaceId` in `repos`. Configuration,
+  // kept whether or not AI employees are on.
+  organizations?: Organization[]
+  // AI employees' lifecycle and approvals on this computer (docs/ai-employees.md §12); their definitions are in each
+  // organization's memory repository. Approvals never travel with it.
+  employees?: EmployeeRecord[]
+  // Their triggers' firing state on this computer (docs/ai-employees.md §8, §12): the next planned time, off here, the
+  // last firings. The triggers themselves are in the definitions.
+  employeeTriggers?: EmployeeTriggerState[]
+  // Their event triggers' sources as last looked at on this computer (main/employeeEvents.ts): each watched
+  // repository's pull requests and base tip, each Linear connection's assigned issues, and the chain guard's log.
+  employeeEventWatch?: EventWatchState
   // Paired Macs (keys are in the vault) and hand-offs (P-4).
   devices?: { selfId?: string; paired: PairedDevice[] }
   transfers?: Transfer[]
@@ -239,6 +255,8 @@ export function defaultSettings(): Settings {
     showResourceUsage: false,
     // Flows are an experiment: off until the person here turns them on (a repository can't).
     flows: false,
+    // AI employees are an experiment too: off until turned on here; off, organizations are kept but not shown.
+    aiEmployees: false,
     replayTraffic: false,
     diagnostics: true,
     terminalScrollbackMb: 10,
@@ -292,6 +310,14 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   // Read back as typed: a whole number from 0 (off) to the limit, else off; a switch that is exactly true, else off.
   if (!isSlotSetting(state.settings.idleCompactTokens, MAX_IDLE_COMPACT_TOKENS)) state.settings.idleCompactTokens = 0
   state.settings.replayTraffic = state.settings.replayTraffic === true
+  state.settings.aiEmployees = state.settings.aiEmployees === true
+  // Organizations checked entry by entry; a memory repository or a space that points nowhere is let go (nothing on disk).
+  state.organizations = parseOrganizations(state.organizations)
+  reconcileSpaces(state.organizations, state.repos)
+  // Employee records checked entry by entry; an approved state without its fingerprint starts again as a draft.
+  state.employees = parseEmployeeRecords(state.employees)
+  state.employeeTriggers = parseTriggerStates(state.employeeTriggers)
+  state.employeeEventWatch = parseEventWatch(state.employeeEventWatch)
   state.flowRuns = (Array.isArray(state.flowRuns) ? state.flowRuns : []).filter((r) => r && typeof r.id === 'string' && typeof r.state === 'string' && Array.isArray(r.steps))
   // Personal flows checked entry by entry; anything malformed is dropped.
   state.personalFlows = (Array.isArray(state.personalFlows) ? state.personalFlows : []).filter(

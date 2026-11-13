@@ -1,6 +1,7 @@
 // Linear's GraphQL API with a personal API key: who a key is, one issue, and the issues
 // assigned to the key's user. Keys are sent only to api.linear.app, never redirected.
 import type { ConnectionIdentity } from '../shared/integrations'
+import type { LinearAssigned } from '../shared/employeeEvents'
 import type { LinearIssue, LinearIssueSummary } from '../shared/linearLink'
 
 export type Fetch = typeof fetch
@@ -100,4 +101,28 @@ export async function linearMyIssues(key: string, doFetch?: Fetch): Promise<Line
     doFetch
   )
   return data.viewer.assignedIssues.nodes.map((i) => ({ identifier: i.identifier, title: i.title, url: i.url, branchName: i.branchName, state: i.state, priorityLabel: i.priorityLabel, team: i.team, assignee: i.assignee }))
+}
+
+/**
+ * AI employees' Linear assignment events (main/employeeEvents.ts): the issues assigned to the key's user that aren't
+ * done or cancelled, the 50 updated last, with their ids, teams and labels.
+ */
+export async function linearAssignedIssues(key: string, doFetch?: Fetch): Promise<LinearAssigned[]> {
+  type Node = { id: string; identifier: string; title: string; url: string; updatedAt?: string; state: { name: string; type: string }; team?: { key: string; name: string } | null; labels?: { nodes: { name: string }[] } | null }
+  const data = await query<{ viewer: { assignedIssues: { nodes: Node[] } } }>(
+    key,
+    'query { viewer { assignedIssues(first: 50, orderBy: updatedAt, filter: { state: { type: { nin: ["completed", "canceled"] } } }) { nodes { id identifier title url updatedAt state { name type } team { key name } labels(first: 20) { nodes { name } } } } } }',
+    {},
+    doFetch
+  )
+  return data.viewer.assignedIssues.nodes.map((i) => ({
+    id: i.id,
+    identifier: i.identifier,
+    title: i.title,
+    url: i.url,
+    state: i.state,
+    ...(i.team ? { team: i.team } : {}),
+    labels: (i.labels?.nodes ?? []).map((l) => l.name),
+    ...(i.updatedAt ? { updatedAt: i.updatedAt } : {})
+  }))
 }

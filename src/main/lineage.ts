@@ -17,6 +17,9 @@ export interface LineageSources {
   readChat(sessionId: string): Promise<ChatItem[]>
   flowRuns?: FlowRun[]
   templateNames?: Record<string, string>
+  // An AI employee's task handed off by another employee (docs/ai-employees.md §7): the chat of the requester's run it
+  // came from, following the task's parent_id, with the requester's name. Undefined for a task a person or trigger made.
+  employeeParent?(taskId: string): { sessionId: string; turnId?: string; name: string } | undefined
 }
 
 const KEPT = new Set<ChatItem['kind']>(['user', 'turn-end', 'result'])
@@ -47,8 +50,11 @@ export async function lineageInput(src: LineageSources, workspaceId: string): Pr
     if (s.handedOffFrom) linkedIds.add(s.handedOffFrom.sessionId)
     for (const item of chats.get(s.id) ?? []) if (item.kind === 'user' && item.origin?.kind === 'delegation') linkedIds.add(item.origin.sessionId)
   }
-  // An outside agent isn't a chat here: its node is drawn from the record alone.
-  if (workspace.startedBy && workspace.startedBy.via !== 'assistant' && workspace.startedBy.via !== 'outside') linkedIds.add(workspace.startedBy.sessionId)
+  // An outside agent isn't a chat here, nor is an AI employee's task: their nodes are drawn from the record alone.
+  if (workspace.startedBy && workspace.startedBy.via !== 'assistant' && workspace.startedBy.via !== 'outside' && workspace.startedBy.via !== 'employee') linkedIds.add(workspace.startedBy.sessionId)
+  // A task another employee handed off: the chat it was handed off from, so the delegation chain draws.
+  const employeeParent = workspace.startedBy?.via === 'employee' ? src.employeeParent?.(workspace.startedBy.taskId) : undefined
+  if (employeeParent) linkedIds.add(employeeParent.sessionId)
   for (const w of siblings) if (w.compare?.sessionId) linkedIds.add(w.compare.sessionId)
   for (const s of own) linkedIds.delete(s.id)
   const linked = [...linkedIds]
@@ -65,6 +71,7 @@ export async function lineageInput(src: LineageSources, workspaceId: string): Pr
     chats,
     workspaces: src.workspaces.filter((w) => w.id === workspaceId || named.has(w.id)),
     ...(flowRun ? { flowRun } : {}),
-    ...(src.templateNames ? { templateNames: src.templateNames } : {})
+    ...(src.templateNames ? { templateNames: src.templateNames } : {}),
+    ...(employeeParent ? { employeeParent } : {})
   }
 }

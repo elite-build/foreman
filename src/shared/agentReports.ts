@@ -135,8 +135,8 @@ export function answerReports(list: AgentReport[] | undefined, sessionId: string
   return { list: changed ? trimHistory(next) : list ?? [], changed }
 }
 
-/** Dismiss (or, for a review request, "opened": the review was started from it). It goes to history, not away. */
-export function closeReport(list: AgentReport[] | undefined, id: string, how: 'dismissed' | 'opened', at: string): { list: AgentReport[]; changed: boolean } {
+/** Dismiss (or, for a review request, "opened": the review was started from it; or "replied": it was answered elsewhere, as an AI employee’s question is). It goes to history, not away. */
+export function closeReport(list: AgentReport[] | undefined, id: string, how: 'dismissed' | 'opened' | 'replied', at: string): { list: AgentReport[]; changed: boolean } {
   let changed = false
   const next = (list ?? []).map((r) => {
     if (r.id !== id || !isOpen(r)) return r

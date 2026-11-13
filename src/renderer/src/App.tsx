@@ -33,6 +33,10 @@ import { editorViewsFor, RAIL_NAMES_WIDTH, RAIL_WIDTH, shownEditorView } from '.
 import { workspaceSurfaces } from './archivedView'
 import './components/workspace.css'
 import { CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/AddRepository'
+import { CreateOrganizationDialog } from './components/spaces/CreateOrganizationDialog'
+import { MemoryView } from './components/spaces/MemoryView'
+import { EmployeesView } from './components/employees/EmployeesView'
+import { snapshotInSpace } from '../../shared/organizations'
 import { Overlays } from './components/Overlays'
 import { Announcer, ToastHost } from './components/Announcer'
 import { Tour } from './components/Tour'
@@ -148,7 +152,8 @@ function useShortcuts() {
           platform: platformOf(snapshot.platform),
           ws,
           session: snapshot.sessions.find((s) => s.id === sessionId),
-          order: () => sidebarOrder({ ...state, snapshot }, state.sidebarView),
+          // The sidebar's own order: the space it shows (docs/ai-employees.md §3), as it lists it.
+          order: () => sidebarOrder({ ...state, snapshot: snapshotInSpace(snapshot, state.space) }, state.sidebarView),
           actions: shortcutActions
         },
         capture
@@ -188,6 +193,10 @@ export function App() {
   const settingsPage = useStore((s) => s.settingsPage)
   const automations = useStore((s) => Boolean(s.automations))
   const assistantOpen = useStore((s) => s.assistantOpen && Boolean(s.snapshot?.settings.assistantEnabled))
+  // An organization's Memory view, only while AI employees are on and the organization is there.
+  const memoryView = useStore((s) => (s.memoryView && s.snapshot?.settings.aiEmployees && s.snapshot.organizations?.some((o) => o.id === s.memoryView) ? s.memoryView : null))
+  // An organization's employees views (docs/ai-employees.md §10), on the same terms.
+  const employeesView = useStore((s) => (s.employeesView && s.snapshot?.settings.aiEmployees && s.snapshot.organizations?.some((o) => o.id === s.employeesView!.orgId) ? s.employeesView : null))
   const phoneSetupOpen = useStore((s) => s.phoneSetupOpen)
   const reportProblemOpen = useStore((s) => s.reportProblemOpen)
   const leftPanelOpen = useStore((s) => s.leftPanelOpen)
@@ -196,6 +205,8 @@ export function App() {
   const newWorkspacePrompt = useStore((s) => s.newWorkspacePrompt)
   const newWorkspaceTemplate = useStore((s) => s.newWorkspaceTemplate)
   const addRepoDialog = useStore((s) => s.addRepoDialog)
+  // AI employees off: the dialog never opens (nothing offers it).
+  const createOrganizationOpen = useStore((s) => s.createOrganizationOpen && Boolean(s.snapshot?.settings.aiEmployees))
   const makeRepoDir = useStore((s) => s.makeRepoDir)
   const sidebarSide = useStore((s) => s.snapshot?.settings.sidebarSide ?? 'left')
   const tiled = useStore((s) => s.snapshot?.settings.windowLayout === 'tiles')
@@ -222,7 +233,7 @@ export function App() {
   if (!snapshot) return null
   // An archived workspace is shown read-only (#13) only while it's the selected one.
   const liveOpened = opened.filter((id) => snapshot.workspaces.some((w) => w.id === id && (w.state !== 'archived' || id === selectedId)))
-  const covered = Boolean(settingsPage) || automations || assistantOpen
+  const covered = Boolean(settingsPage) || automations || assistantOpen || Boolean(memoryView) || Boolean(employeesView)
   const selected = snapshot.workspaces.find((w) => w.id === selectedId)
   // Tiles: a workspace opened full size, or an archived one being read, takes the whole area as in Three panes.
   const fullView = tiled && selected && (selected.state === 'archived' || tileZoom === selected.id) ? selected.id : null
@@ -262,6 +273,8 @@ export function App() {
         {settingsPage && <SettingsView page={settingsPage} />}
         {automations && !settingsPage && <AutomationsView />}
         {assistantOpen && !settingsPage && !automations && <AssistantView />}
+        {memoryView && !settingsPage && !automations && !assistantOpen && <MemoryView key={memoryView} organizationId={memoryView} />}
+        {employeesView && !settingsPage && !automations && !assistantOpen && !memoryView && <EmployeesView key={`${employeesView.orgId}:${employeesView.page}`} route={employeesView} />}
         {showHome && <Home />}
       </main>
       {editor && <StatusBar workspaceId={onScreen?.id ?? null} />}
@@ -291,6 +304,7 @@ export function App() {
       {addRepoDialog === 'clone' && <CloneRepoDialog />}
       {addRepoDialog === 'quick-start' && <QuickStartDialog />}
       {makeRepoDir && <MakeRepoDialog key={makeRepoDir} dir={makeRepoDir} />}
+      {createOrganizationOpen && <CreateOrganizationDialog />}
       <Overlays />
       <Announcer />
       <Tour />

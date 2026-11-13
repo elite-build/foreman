@@ -96,8 +96,12 @@ export interface TurnPersona {
   writes?: string[]
 }
 
-/** The persona's part of a flow step's system prompt (a scope line may follow). Shared so evals/ runs the text a turn is given. */
-export function personaTurnText(name: string, instructions: string): string {
+/**
+ * The persona's part of a flow step's system prompt (a scope line may follow), or of an AI employee's run that wears it
+ * (docs/ai-employees.md §5.2: narrowing only). Shared so evals/ runs the text a turn is given.
+ */
+export function personaTurnText(name: string, instructions: string, as: 'flow' | 'employee' = 'flow'): string {
+  if (as === 'employee') return `For this run you also wear the persona “${name}”. It narrows what you do and never widens what you may do. Its instructions:\n${instructions.trim()}`
   return `This turn is a step of a Foreman flow, run as the persona “${name}”. Its instructions:\n${instructions.trim()}`
 }
 

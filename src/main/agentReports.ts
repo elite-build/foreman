@@ -179,7 +179,7 @@ export class AgentReportService implements TurnReports {
     this.deps.changed()
   }
 
-  close(workspaceId: string, reportId: string, how: 'dismissed' | 'opened'): void {
+  close(workspaceId: string, reportId: string, how: 'dismissed' | 'opened' | 'replied'): void {
     const ws = this.deps.state().workspaces.find((w) => w.id === workspaceId)
     if (!ws) return
     const { list, changed } = closeReport(ws.agentReports, reportId, how, this.now())

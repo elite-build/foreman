@@ -13,6 +13,7 @@ import {
   bridgeServerName,
   changedIdentities,
   INTEGRATION_SERVICES,
+  isReadOnlyTool,
   LINEAR_MCP_READONLY_URL,
   LINEAR_MCP_URL,
   snapshotOf,
@@ -79,8 +80,20 @@ interface Grant {
   probe?: boolean
 }
 
+/**
+ * docs/ai-employees.md §9: an AI employee's run's Slack posts and Linear changes are brokered (main/employeeActions.ts):
+ * recorded, then sent, held for a person or refused as its definition says, instead of acted on here. Reads aren't.
+ */
+export interface BridgeActionBroker {
+  // Whether a chat's calls are brokered: it is an employee's run (an ended one is refused there, never let through here).
+  brokers(sessionId: string): boolean
+  bridgeCall(call: { sessionId: string; repoId: string; service: 'slack' | 'linear'; connectionId: string; connectionName: string; tool: string; args: Record<string, unknown>; channelName?: string }): Promise<{ text: string; isError?: boolean }>
+}
+
 export interface BridgeDeps {
   integrations: Integrations
+  // The employee action broker, once Foreman has made it.
+  actions?: () => BridgeActionBroker | undefined
   platform?: NodeJS.Platform
   // How to start `foreman mcp-bridge`: an absolute executable, never `foreman` on PATH.
   launch: () => { command: string; args: string[]; env: Record<string, string> } | null
@@ -397,6 +410,9 @@ export class IntegrationBridge {
             const text = args?.text
             if (typeof channel !== 'string' || !ok.connection.slack?.destinations.some((d) => d.id === channel)) return refuse('Choose a channel allowed by this Slack connection. Direct messages are not available to agents.')
             if (typeof text !== 'string' || !text.trim() || text.length > 4000) return refuse('A message must contain between 1 and 4000 characters.')
+            // An AI employee's post is recorded and sent, held or refused as its definition says (docs/ai-employees.md §9).
+            const broker = this.brokerFor(grant)
+            if (broker) return reply(await this.brokered(grant, broker, ok.connection, name, { channel, text }, ok.connection.slack?.destinations.find((d) => d.id === channel)?.name))
             const posted = await slackPost(ok.token, channel, slackEscape(text), this.deps.fetch)
             this.record(grant, name, true)
             return reply({ content: [{ type: 'text', text: `Posted to ${posted.channel} (${posted.ts}).` }] })
@@ -408,6 +424,9 @@ export class IntegrationBridge {
             this.record(grant, name, !result.isError)
             return reply(result)
           }
+          // An AI employee's Linear change is brokered the same way; what only reads isn't.
+          const broker = grant.service === 'linear' && !isReadOnlyTool(name) ? this.brokerFor(grant) : undefined
+          if (broker) return reply(await this.brokered(grant, broker, ok.connection, name, args ?? {}))
           const upstream = await this.upstream(ok.connection, ok.token, ok.access)
           const current = this.check(grant)
           if ('refused' in current) return refuse(current.refused)
@@ -424,6 +443,61 @@ export class IntegrationBridge {
       }
       default:
         return fail(-32601, `Method not found: ${msg.method}`)
+    }
+  }
+
+  /** The broker, when this chat's calls are an AI employee's (§9); undefined for every other chat, which acts as always. */
+  private brokerFor(grant: Grant): BridgeActionBroker | undefined {
+    const broker = this.deps.actions?.()
+    return broker?.brokers(grant.sessionId) ? broker : undefined
+  }
+
+  /** A brokered call's answer, logged in the bridge's activity like any call. */
+  private async brokered(grant: Grant, broker: BridgeActionBroker, connection: Connection, name: string, args: Record<string, unknown>, channelName?: string): Promise<Record<string, unknown>> {
+    const service = grant.service as 'slack' | 'linear'
+    const out = await broker.bridgeCall({ sessionId: grant.sessionId, repoId: grant.repoId, service, connectionId: connection.id, connectionName: connection.name, tool: name, args, ...(channelName ? { channelName } : {}) })
+    this.record(grant, name, !out.isError, out.isError ? out.text : undefined)
+    return { content: [{ type: 'text', text: out.text }], ...(out.isError ? { isError: true } : {}) }
+  }
+
+  /**
+   * Send an AI employee's recorded Slack post or Linear change (main/employeeActions.ts: allowed by its definition, or
+   * a person pressed Send) through the calls a turn's tool makes, as the repository's connection now, which must be the
+   * one it was recorded for (never another account), with agents' write access still on. Throws when it isn't sent;
+   * `uncertain` on the error when the service may have acted before it failed.
+   */
+  async sendAction(input: { repoId: string; service: 'slack' | 'linear'; connectionId: string; tool: string; args: Record<string, unknown> }): Promise<{ link?: string; detail?: string }> {
+    const label = LABEL[input.service]
+    const { integrations } = this.deps
+    const r = integrations.resolve(input.repoId, input.service)
+    if (r.state !== 'ready' || r.connection.id !== input.connectionId)
+      throw new Error(r.state === 'broken' ? integrations.brokenText(input.repoId, input.service) : `${label} changed for this repository since this was recorded, so Foreman didn’t send it with any other account.`)
+    const token = integrations.secret(r.connection.id)
+    if (!token) throw new Error(`${label}’s key is missing. Replace it in Settings → Integrations.`)
+    if (r.connection.agentAccess !== 'write') throw new Error(`Agents may no longer write with “${r.connection.name}”, so Foreman didn’t send it. The user can allow writing in Settings → Integrations.`)
+    try {
+      if (input.service === 'slack') {
+        const channel = typeof input.args.channel === 'string' ? input.args.channel : ''
+        const text = typeof input.args.text === 'string' ? input.args.text : ''
+        if (!r.connection.slack?.destinations.some((d) => d.id === channel)) throw new Error('This channel is no longer allowed by the Slack connection.')
+        if (!text.trim() || text.length > 4000) throw new Error('A message must contain between 1 and 4000 characters.')
+        const posted = await slackPost(token, channel, slackEscape(text), this.deps.fetch)
+        const site = r.connection.identity?.url?.replace(/\/+$/, '')
+        return { detail: `Posted to ${posted.channel} (${posted.ts}).`, ...(site && /^https:\/\//.test(site) ? { link: `${site}/archives/${posted.channel}/p${posted.ts.replace('.', '')}` } : {}) }
+      }
+      if (!toolAllowed('write', input.tool)) throw new Error(`“${input.tool}” isn’t a Linear tool Foreman can call.`)
+      const upstream = await this.upstream(r.connection, token, 'write')
+      const result = await upstream.callTool(input.tool, input.args)
+      const text = ((result.content as { type?: string; text?: string }[] | undefined) ?? []).flatMap((c) => (c.type === 'text' && typeof c.text === 'string' ? [c.text] : [])).join('\n').trim()
+      if (result.isError) throw new Error(text || 'Linear refused it.')
+      const link = /https:\/\/linear\.app\/[^\s"')]+/.exec(text)?.[0]
+      return { ...(text ? { detail: text.length > 400 ? `${text.slice(0, 399)}…` : text } : {}), ...(link ? { link } : {}) }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (isAuthError(err) || /\b401\b|unauthori[sz]ed|invalid.*(token|key)/i.test(message)) integrations.markProblem(r.connection.id, `${label} refused the key (${message})`)
+      // A Linear request that timed out or was cut off may have been carried out.
+      if (input.service === 'linear' && !(err as { uncertain?: unknown }).uncertain && /time(d)? ?out|aborted|ECONNRESET|socket hang up/i.test(message)) Object.assign(err as object, { uncertain: true })
+      throw err
     }
   }
 

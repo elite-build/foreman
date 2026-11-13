@@ -7,7 +7,7 @@ import type { PrCheck, PullRequestInfo, Repo, ReviewThread, Workspace } from '..
 import type { ReviewSummary } from '../shared/prWatch'
 import { newMergeRequestUrl, scmForRemote, type GitlabHost, type ScmTarget } from '../shared/scm'
 import { wsPath } from '../shared/workspacePath'
-import { gh, ghAs, ghAvailable, githubLogin, jobLog, mergeMethod, pullRequest, sandboxGh, type PrResult } from './github'
+import { gh, ghAs, ghAvailable, githubLogin, jobLog, listPullRequests, mergeMethod, pullRequest, sandboxGh, type PrListResult, type PrResult } from './github'
 import {
   createMergeRequest,
   discussions,
@@ -15,6 +15,7 @@ import {
   gitlabPullRequest,
   gitlabSelf,
   jobTrace,
+  listMergeRequests,
   mapDiscussions,
   markReady,
   mergeMergeRequest,
@@ -33,6 +34,9 @@ export interface ScmProvider {
   // Whatever it reads through is there: gh installed, or a token saved for the host.
   available(): Promise<boolean>
   pullRequest(ws: Workspace): Promise<PrResult>
+  // AI employees' pull-request events: the repository's open and recently merged pull requests, read in its own folder
+  // (`cwd`), never a workspace's (so never a sandbox).
+  listPullRequests(cwd: string): Promise<PrListResult>
   reviewThreads(ws: Workspace, pr: PullRequestInfo): Promise<ReviewThread[]>
   // Everyone else's review comment ids and review summaries, for the review watch.
   reviewActivity(ws: Workspace, pr: PullRequestInfo): Promise<{ comments: string[]; reviews: ReviewSummary[] }>
@@ -65,6 +69,7 @@ export function githubProvider(account: string | undefined): ScmProvider {
     identity: account ?? '',
     available: ghAvailable,
     pullRequest: (ws) => pullRequest(ws, request),
+    listPullRequests: (cwd) => listPullRequests(cwd, request),
     reviewThreads: (ws, pr) => {
       const p = place(ws, request)
       return fetchReviewThreads(p.cwd, pr, p.run)
@@ -130,6 +135,7 @@ export function gitlabProvider(host: GitlabHost, projectPath: string, token: str
     host,
     available: async () => Boolean(token),
     pullRequest: (ws) => gitlabPullRequest(api, projectOf(ws), ws.branch, ws.pullRequest?.gitlabHost ? ws.pullRequest.number : undefined),
+    listPullRequests: () => listMergeRequests(api, projectPath),
     reviewThreads: async (ws, pr) => mapDiscussions(await discussions(api, projectOf(ws), pr.number), pr.url, pr.pipeline?.sha),
     reviewActivity: async (ws, pr) => {
       const [all, self] = await Promise.all([discussions(api, projectOf(ws), pr.number), gitlabSelf(api)])

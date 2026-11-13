@@ -104,6 +104,9 @@ export interface LineageInput {
   prInfo?: Workspace['prInfo']
   // Template id → name, for the draft's `template =`.
   templateNames?: Record<string, string>
+  // An AI employee's run of a task another employee handed off (docs/ai-employees.md §7): the requester's chat and turn
+  // it was handed off from (main/lineage.ts follows the task's parent_id), and the requester's name.
+  employeeParent?: { sessionId: string; turnId?: string; name: string }
 }
 
 export interface LineageOptions {
@@ -435,10 +438,14 @@ export function lineageGraph(input: LineageInput, lens: LineageLens, options: Li
     // Who started the workspace: another chat (delegation, `foreman` from a turn), the assistant, or an outside agent.
     if (ws.startedBy?.via === 'outside' && firstTurn) {
       edge({ from: outsideNode(ws.startedBy.grantId, ws.startedBy.name).id, to: turnNode(firstTurn).id, kind: 'fact', label: t('lineage.edge.startedBy'), recorded: 'Workspace.startedBy' })
-    } else if (ws.startedBy && ws.startedBy.via !== 'outside' && firstTurn) {
+    } else if (ws.startedBy && ws.startedBy.via !== 'outside' && ws.startedBy.via !== 'employee' && firstTurn) {
       const from = sourceNode(ws.startedBy.sessionId, ws.startedBy.turnId, firstTurn.at, ws.startedBy.via === 'assistant')
       edge({ from: from.id, to: turnNode(firstTurn).id, kind: 'fact', label: t('lineage.edge.delegatedBy'), recorded: 'Workspace.startedBy' })
       omit('delegation')
+    } else if (ws.startedBy?.via === 'employee' && input.employeeParent && firstTurn) {
+      // A task one AI employee handed another: drawn from the requester's chat, so the delegation chain shows.
+      const from = sourceNode(input.employeeParent.sessionId, input.employeeParent.turnId, firstTurn.at)
+      edge({ from: from.id, to: turnNode(firstTurn).id, kind: 'fact', label: t('lineage.edge.delegatedBy'), recorded: 'EmployeeTask.parentId' })
     }
     if (ws.scheduled && firstTurn && firstTurn.user.origin?.kind !== 'schedule') scheduleEdge(turnNode(firstTurn), 'Workspace.scheduled')
     if (ws.scheduled) omit('scheduled')

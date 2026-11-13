@@ -24,6 +24,8 @@ import type { TurnRequest } from '../src/main/agents/types'
 import type { ForemanDelegation } from '../src/main/foremanDelegation'
 import { delegationRig } from './foremanDelegationHarness'
 import { ForemanCli } from '../src/main/foremanCli'
+import type { EmployeeTools } from '../src/main/employeeTools'
+import { EMPLOYEE_TOOL_NAMES } from '../src/shared/employeeTools'
 
 const cleanup: (() => Promise<unknown> | void)[] = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
@@ -204,6 +206,49 @@ describe('Foreman MCP over the local CLI socket', () => {
     conn.on('data', (chunk) => { response += chunk.toString() })
     conn.write(`${JSON.stringify({ method: 'mcp-bridge', params: { service: 'app', grant: config.env.FOREMAN_BRIDGE_GRANT } })}\n${JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } })}\n`)
     await vi.waitFor(() => expect(response).toContain('foreman-app'))
+  })
+})
+
+describe('Foreman MCP for an AI employee’s run (docs/ai-employees.md §6)', () => {
+  const mark = { employeeRunId: 'run-1', employeeId: 'e-max1', orgId: 'o1', persona: { readOnly: true, mcp: [] } }
+
+  it('offers its own tools and nothing else over the stdio bridge, answered for the grant’s chat, and refuses once the turn ends', async () => {
+    const d = delegationRig()
+    const { session, bridge } = await setup(d.service, new ForemanCli(d.host))
+    const calls: [string, string, Record<string, unknown>][] = []
+    bridge.employeeTools = { call: async (sessionId: string, name: string, args: Record<string, unknown>) => (calls.push([sessionId, name, args]), { text: `did ${name}` }) } as unknown as EmployeeTools
+    session.unattended = mark
+    const config = bridge.forTurn(session, false)['foreman-app']
+    const call = agent(config.env)
+    await call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } })
+    expect((await call('tools/list')).result?.tools?.map((t) => t.name).sort()).toEqual([...EMPLOYEE_TOOL_NAMES].sort())
+    const read = await call('tools/call', { name: 'memory_read', arguments: { path: 'memory/org/PROJECT.md' } })
+    expect(read.result?.content?.[0].text).toBe('did memory_read')
+    expect(calls).toEqual([['s', 'memory_read', { path: 'memory/org/PROJECT.md' }]])
+    // Its arguments are checked by the tool's schema before anything runs.
+    expect((await call('tools/call', { name: 'memory_read', arguments: { path: 'x', sessionId: 'other' } })).result?.isError).toBe(true)
+    expect((await call('tools/call', { name: 'finish_task', arguments: { status: 'maybe', summary: 'x' } })).result?.isError).toBe(true)
+    // The workspace agents' tools aren't there.
+    expect((await call('tools/call', { name: 'start_task', arguments: { prompt: 'x', loadout: 1 } })).result?.isError).toBe(true)
+    expect(d.createWorkspace).not.toHaveBeenCalled()
+    expect(calls).toHaveLength(1)
+    bridge.endSession(session.id)
+    expect((await call('tools/call', { name: 'report_no_update', arguments: {} })).result?.isError).toBe(true)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('offers the same tools in-process, for Claude', async () => {
+    const { actions, state, session } = rig()
+    const local = new ForemanMcp({ actions, session: (id) => state.sessions.find((s) => s.id === id), launch: () => null, socket: () => null })
+    local.employeeTools = { call: async (_s: string, name: string) => ({ text: name === 'memory_write' ? 'conflict' : 'ok', isError: name === 'memory_write' }) } as unknown as EmployeeTools
+    session.unattended = mark
+    const client = await inProcessClient(local.inProcessForTurn(session)['foreman-app'])
+    expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([...EMPLOYEE_TOOL_NAMES].sort())
+    // A refusal from the service is an error result the model reads.
+    const out = await client.callTool({ name: 'memory_write', arguments: { path: 'memory/bots/e-max1/a.md', text: 'x', expected: null } })
+    expect(out.isError).toBe(true)
+    expect(JSON.stringify(out.content)).toContain('conflict')
+    local.close()
   })
 })
 

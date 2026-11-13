@@ -227,6 +227,19 @@ export function protectedPathDecision(toolName: string, input: unknown, root: st
 
 export const PROTECTED_REASON = 'This turn was started through an outside agent’s access, so changing agent or git configuration (.claude, .codex, .cursor, .foreman, .switchyard, .mcp.json or the git folder) asks first.'
 
+/**
+ * docs/ai-employees.md §9: for an AI employee's run, a file tool writing a protected path is refused outright (not asked:
+ * nobody is there, and an approval it asked for would end the run), with words the agent reads and carries on from.
+ * Null for anything else.
+ */
+export function protectedPathRefusal(toolName: string, input: unknown, root: string, gitDir?: string): { deny: true; reason: string } | null {
+  const decided = protectedPathDecision(toolName, input, root, gitDir)
+  return decided ? { deny: true, reason: EMPLOYEE_PROTECTED_REASON } : null
+}
+
+export const EMPLOYEE_PROTECTED_REASON =
+  'Foreman refused this: an AI employee’s run never changes agent or git configuration (.claude, .codex, .cursor, .foreman, .switchyard, .mcp.json or the git folder). Leave that change out, say so in your answer, and carry on.'
+
 // ---- sign-ins (section 6) ----
 
 /** The loopback port outside agents connect to, unless Settings says another (`agentAccessPort`). */

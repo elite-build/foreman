@@ -1,0 +1,130 @@
+/* ---- spaces and organizations (docs/ai-employees.md §3): layout only; the controls are ui/ components ---- */
+
+/* The switcher sits above the sidebar's header, its trigger as wide as the panel's rows. */
+.space-switcher {
+  display: flex;
+  padding: 0 12px 6px;
+}
+.space-switcher .space-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.space-switcher-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Create an organization and its memory repository fields. */
+.space-dialog-body,
+.space-memory,
+.space-bring {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.space-dialog-body {
+  gap: 14px;
+}
+.space-memory-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 4px 24px;
+}
+.space-heading {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.space-bring-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 16px;
+  padding: 8px 12px;
+}
+.space-bring-row {
+  min-width: 0;
+}
+.space-bring-name {
+  margin-right: 8px;
+}
+.space-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.space-dialog-footer > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The Spaces page: a card per space, side by side while they fit. */
+.spaces-actions {
+  display: flex;
+  margin-bottom: 12px;
+}
+.spaces-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.space-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  min-width: 0;
+}
+.space-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.space-card-head > :first-child {
+  min-width: 0;
+}
+.space-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.space-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.space-card-memory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.space-repos {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.space-repo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.space-repo-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.spaces-note {
+  margin-top: 12px;
+}

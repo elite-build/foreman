@@ -1,4 +1,5 @@
 import { TransferBanner } from './HandOffDialogs'
+import { EmployeeRunBanner } from './employees/EmployeeRunBanner'
 import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, PanelBottom, PanelLeft, PanelRight, Plus, RefreshCw, RotateCcw, Upload, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -1114,6 +1115,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         {ws.transfer && <TransferBanner workspaceId={ws.id} />}
         {surfaces.cloud && <CloudBanner ws={ws} />}
         {ws.state === 'history' && !ws.transfer && <HistoryBanner ws={ws} />}
+        {/* docs/ai-employees.md §10: a workspace an AI employee's run made shows its hat and task. */}
+        {ws.startedBy?.via === 'employee' && <EmployeeRunBanner ws={ws} />}
         {editor && terminalFocus ? (
           <div className="focus-slot" ref={placeTerminal} />
         ) : editor ? (

@@ -17,7 +17,7 @@ import { Environment } from '../src/main/environment'
 import { claudeDriver } from '../src/main/agents/claude'
 import { codexDriver } from '../src/main/agents/codex'
 import { opencodeDriver } from '../src/main/agents/opencode'
-import { IntegrationBridge, sdkUpstream } from '../src/main/integrationBridge'
+import { IntegrationBridge, sdkUpstream, type BridgeActionBroker } from '../src/main/integrationBridge'
 import { Integrations, secretKey } from '../src/main/integrations'
 import { SecretStore, type Encryptor } from '../src/main/secrets'
 import { Store } from '../src/main/store'
@@ -142,7 +142,7 @@ describe('the integration bridge', () => {
     cli = null
   })
 
-  async function setup(platform: NodeJS.Platform = 'darwin') {
+  async function setup(platform: NodeJS.Platform = 'darwin', actions?: BridgeActionBroker) {
     const r = await rig()
     const added = await r.integrations.addConnection({ service: 'linear', name: 'Acme Linear', auth: { kind: 'token' }, token: 'lin_acme' })
     if (!added.ok) throw new Error(added.error)
@@ -156,6 +156,7 @@ describe('the integration bridge', () => {
       launch: () => ({ command: '/Applications/Foreman.app/Contents/MacOS/Foreman', args: ['/app.asar/out/main/cli.js'], env: { ELECTRON_RUN_AS_NODE: '1' } }),
       socket: () => socket,
       fetch: r.fetch,
+      ...(actions ? { actions: () => actions } : {}),
       // Linear's URLs, served by the stand-in (the path says which endpoint was asked for).
       upstream: (url, token) => {
         urls.push(url)
@@ -426,6 +427,93 @@ describe('the integration bridge', () => {
     } finally {
       if (prev !== undefined) process.env.CODEX_HOME = prev
     }
+  })
+
+  // docs/ai-employees.md §9: an AI employee's run's Slack posts and Linear changes go to the action broker (recorded,
+  // then sent, held or refused there); its reads and every other chat's calls act as they always have.
+  describe('an AI employee’s run', () => {
+    function broker(employeeSessions: string[]) {
+      const calls: Parameters<BridgeActionBroker['bridgeCall']>[0][] = []
+      const actions: BridgeActionBroker = {
+        brokers: (sessionId) => employeeSessions.includes(sessionId),
+        bridgeCall: async (call) => {
+          calls.push(call)
+          return { text: `Held for the person: ${call.tool}` }
+        }
+      }
+      return { actions, calls }
+    }
+
+    it('hands an employee’s Slack post to the broker instead of posting it, and leaves other chats posting as before', async () => {
+      const { actions, calls } = broker(['s-employee'])
+      const { bridge, integrations, slackPosts } = await setup('darwin', actions)
+      const added = await integrations.addConnection({ service: 'slack', name: 'Acme Slack', auth: { kind: 'token' }, token: 'xoxb-private' })
+      if (!added.ok) throw new Error(added.error)
+      await integrations.updateConnection(added.connection.id, { agentAccess: 'write', destinations: [{ id: 'C1', name: 'launches' }] })
+      const employee = bridge.forTurn({ ...turnInput, sessionId: 's-employee' })
+      const e = agent(employee.servers['foreman-slack'].env, 'slack')
+      const held = await e.call('tools/call', { name: 'slack_post', arguments: { channel: 'C1', text: 'We shipped' } })
+      expect(held.result).toMatchObject({ content: [{ type: 'text', text: 'Held for the person: slack_post' }] })
+      expect(held.result).not.toHaveProperty('isError')
+      expect(slackPosts).toEqual([])
+      expect(calls).toEqual([{ sessionId: 's-employee', repoId: 'r', service: 'slack', connectionId: added.connection.id, connectionName: 'Acme Slack', tool: 'slack_post', args: { channel: 'C1', text: 'We shipped' }, channelName: 'launches' }])
+      // The bridge's own checks still come first: a channel the connection doesn't allow is refused before the broker.
+      expect((await e.call('tools/call', { name: 'slack_post', arguments: { channel: 'UOTHER', text: 'hi' } })).result).toMatchObject({ isError: true })
+      expect(calls).toHaveLength(1)
+      await e.close()
+      // A workspace agent's chat: exactly today's behaviour.
+      const other = bridge.forTurn({ ...turnInput, sessionId: 's-person' })
+      const o = agent(other.servers['foreman-slack'].env, 'slack')
+      const posted = await o.call('tools/call', { name: 'slack_post', arguments: { channel: 'C1', text: 'hi' } })
+      expect(posted.result).toMatchObject({ content: [{ text: 'Posted to C1 (1.2).' }] })
+      await o.close()
+      expect(slackPosts).toEqual([expect.objectContaining({ channel: 'C1', text: 'hi' })])
+      expect(calls).toHaveLength(1)
+    })
+
+    it('brokers an employee’s Linear changes but lets its reads through', async () => {
+      const { actions, calls } = broker(['s-employee'])
+      const { bridge, integrations, connection } = await setup('darwin', actions)
+      await integrations.updateConnection(connection.id, { agentAccess: 'write' })
+      const turn = bridge.forTurn({ ...turnInput, sessionId: 's-employee' })
+      const a = agent(turn.servers['foreman-linear'].env)
+      await a.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'c', version: '1' } })
+      const read = await a.call('tools/call', { name: 'get_issue', arguments: { id: 'ENG-1' } })
+      expect(read.result).toMatchObject({ content: [{ text: 'get_issue {"id":"ENG-1"}' }] })
+      const write = await a.call('tools/call', { name: 'save_comment', arguments: { id: 'ENG-1', body: 'Shipped' } })
+      expect(write.result).toMatchObject({ content: [{ text: 'Held for the person: save_comment' }] })
+      await a.close()
+      expect(upstream.calls).toEqual(['/mcp get_issue'])
+      expect(calls).toEqual([expect.objectContaining({ service: 'linear', tool: 'save_comment', args: { id: 'ENG-1', body: 'Shipped' }, connectionId: connection.id })])
+    })
+
+    it('sends a recorded action only as the connection it was recorded for, never another account', async () => {
+      const { bridge, integrations, connection, slackPosts } = await setup()
+      const slack = await integrations.addConnection({ service: 'slack', auth: { kind: 'token' }, token: 'xoxb-private' })
+      if (!slack.ok) throw new Error(slack.error)
+      await integrations.updateConnection(slack.connection.id, { agentAccess: 'write', destinations: [{ id: 'C1', name: 'launches' }] })
+      const sent = await bridge.sendAction({ repoId: 'r', service: 'slack', connectionId: slack.connection.id, tool: 'slack_post', args: { channel: 'C1', text: '<!here> shipped' } })
+      expect(sent.detail).toBe('Posted to C1 (1.2).')
+      expect(slackPosts).toEqual([expect.objectContaining({ channel: 'C1', text: '&lt;!here&gt; shipped' })])
+      // A Linear change goes to Linear's write endpoint with the connection's key.
+      await integrations.updateConnection(connection.id, { agentAccess: 'write' })
+      const changed = await bridge.sendAction({ repoId: 'r', service: 'linear', connectionId: connection.id, tool: 'save_comment', args: { id: 'ENG-1', body: 'Shipped' } })
+      expect(changed.detail).toContain('save_comment')
+      expect(upstream.calls).toEqual(['/mcp save_comment'])
+      // The repository moved to another Linear account: the action recorded for Acme isn't sent with it.
+      const personal = await integrations.addConnection({ service: 'linear', auth: { kind: 'token' }, token: 'lin_mine' })
+      if (!personal.ok) throw new Error('setup')
+      integrations.setRepoChoice('r', 'linear', personal.connection.id)
+      await expect(bridge.sendAction({ repoId: 'r', service: 'linear', connectionId: connection.id, tool: 'save_comment', args: { id: 'ENG-1', body: 'Again' } })).rejects.toThrow(/changed for this repository/)
+      // Linear switched off here: refused, not sent with anything else.
+      integrations.setRepoChoice('r', 'linear', 'off')
+      await expect(bridge.sendAction({ repoId: 'r', service: 'linear', connectionId: connection.id, tool: 'save_comment', args: { id: 'ENG-1', body: 'Again' } })).rejects.toThrow(/without|changed|isn’t|off/)
+      expect(upstream.calls).toEqual(['/mcp save_comment'])
+      // Agents' writing turned off for Slack since: refused.
+      await integrations.updateConnection(slack.connection.id, { agentAccess: 'read' })
+      await expect(bridge.sendAction({ repoId: 'r', service: 'slack', connectionId: slack.connection.id, tool: 'slack_post', args: { channel: 'C1', text: 'x' } })).rejects.toThrow(/may no longer write/)
+      expect(slackPosts).toHaveLength(1)
+    })
   })
 
   it('gives nothing to agents that take no MCP servers, and says so in their instructions', async () => {

@@ -970,6 +970,17 @@ async function main(): Promise<void> {
   core.schedules.start()
   // Flow runs that were in flight when Foreman closed are uncertain, never retried.
   core.flows.start()
+  // AI employees' memory repositories: commits Foreman closed in the middle of are settled, the search index caught up,
+  // and each organization's employees read.
+  void core.memory
+    .start()
+    .then(() => core?.employees.refreshAll())
+    .catch((err: unknown) => console.error('Memory:', err))
+  // AI employees' runs that were going when Foreman closed: one whose turn never reached its agent is queued again, one
+  // whose turn did is uncertain and waits for a person (docs/ai-employees.md §6.6). Never replayed silently.
+  // Outward actions Foreman was sending when it closed may have gone: each waits, uncertain, for a person to check (§9).
+  core.employeeActions.recover()
+  core.employeeWork.start()
   // The demo: a flow run going from the start (main/demoRun.ts).
   if (demoRoot) void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow run: ${err instanceof Error ? err.message : String(err)}`))
   // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).

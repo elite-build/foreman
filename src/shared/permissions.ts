@@ -100,17 +100,18 @@ export function workspaceRelative(path: string, root: string): string | null {
 /**
  * Scoped writes, enforced by Foreman: a file tool inside one of `writes` (globs relative to `root`) is allowed, one
  * anywhere else is refused naming the allowed area, and a shell is refused. Neither refusal stops the turn: the agent
- * reads the message and carries on. Any other tool is left to the turn's approval policy (null).
+ * reads the message and carries on. Any other tool is left to the turn's approval policy (null). `subject` names the
+ * turn in the refusals: a flow step unless said otherwise (an AI employee's run).
  */
-export function writeScopeDecision(toolName: string, input: unknown, writes: readonly string[], root: string): WriteScopeDecision {
+export function writeScopeDecision(toolName: string, input: unknown, writes: readonly string[], root: string, subject = 'flow step'): WriteScopeDecision {
   const area = writes.join(', ')
   if ((SCOPED_SHELL_TOOLS as readonly string[]).includes(toolName))
-    return { allow: false, message: `This flow step may only write inside ${area}, so it has no shell: a command could write anywhere. Use Read, Grep and Glob to look around, and Edit or Write for files inside ${area}. Carry on without the shell.` }
+    return { allow: false, message: `This ${subject} may only write inside ${area}, so it has no shell: a command could write anywhere. Use Read, Grep and Glob to look around, and Edit or Write for files inside ${area}. Carry on without the shell.` }
   if (!(SCOPED_FILE_TOOLS as readonly string[]).includes(toolName)) return null
   const fields = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const raw = [fields.file_path, fields.notebook_path, fields.path].find((v): v is string => typeof v === 'string' && v.trim() !== '')
   const relative = raw ? workspaceRelative(raw, root) : null
   if (relative && writes.some((glob) => globToRegExp(glob).test(relative))) return { allow: true }
   const what = raw ? `“${relative ?? raw}”` : 'that file'
-  return { allow: false, message: `Foreman refused writing ${what}: this flow step may only write inside ${area} (relative to the workspace root). Write there instead, or leave the change out and say so in your answer. Carry on.` }
+  return { allow: false, message: `Foreman refused writing ${what}: this ${subject} may only write inside ${area} (relative to the workspace root). Write there instead, or leave the change out and say so in your answer. Carry on.` }
 }

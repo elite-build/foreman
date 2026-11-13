@@ -5,7 +5,7 @@ A Claude Code or Codex session on the same computer can sign in to Foreman once 
 ## 1. What stays the same
 
 - **Foreman's tools stay one catalogue.** The delegation tools in `src/shared/foremanDelegation.ts`, the workspace tools in `src/shared/foremanTools.ts` and their handlers in `src/main/foremanDelegation.ts` and `src/main/foremanActions.ts` serve the outside agent too. It is a third caller, beside an agent turn's `foreman-app` server and the assistant, with its own scope. No tool gains a second implementation.
-- **Agents Foreman starts keep their path.** A turn's `foreman-app` server (`src/main/foremanMcp.ts`), its turn grant, and the repository's opt-in "Let agents start workspaces and queue messages" are unchanged, except that a capped turn's grant carries its cap (section 4).
+- **Agents Foreman starts keep their path.** A turn's `foreman-app` server (`src/main/foremanMcp.ts`), its turn grant, and the repository's opt-in "Let agents start workspaces and queue messages" are unchanged, except that a capped turn's grant carries its cap (section 4). An AI employee's run is the one turn whose `foreman-app` offers other tools: only its employee tools (`docs/ai-employees.md`).
 - **The CLI socket stays local.** The outside endpoint does not go through it. Its tiers and launch token are unchanged; the act-tier methods that start a turn learn to carry a calling turn's cap (section 4).
 - **The phone and browser sessions stay as they are.** An outside agent's sign-in is a separate record with separate credentials; it is never a `MobileDevice` and never reaches `/api/ws`.
 - **No account, nothing hosted.** The endpoint listens on loopback only. Nothing is reachable from another computer, and no relay is involved.

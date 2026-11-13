@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-13: An organization keeps its memory in one dedicated repository that only Foreman's memory service writes
+
+**Decision.** Each organization has its own memory repository (for example `foreman-memory`), never shared with another organization. It holds organization memory, each AI employee's memory and definition, and Foreman's files for repositories that shouldn't carry `.foreman/`. Foreman's memory service is its only automatic writer, one commit per run; code repositories stay untouched (`docs/ai-employees.md`).
+
+**Why.** Employees need memory that is persistent, inspectable and versioned. Memory in a code repository conflicts across work branches (`docs/ai-memory.md`, option F) and shows to everyone who clones it.
+
+**Turned down.** Memory on a reserved branch of a code repository (a second worktree of a checked-out branch is impossible, and it shares the code's object store). One repository for all organizations (sharing one organization would share the others). Memory only in `foreman.db` (not inspectable or versioned). Agents committing memory themselves (no verified provenance).
+
+**Revisit when.** Several computers must run one organization, or employees need read access to memory enforced between them.
+
 ## 2026-11-12: Features read one capability record per agent, and no feature branches on an agent's id
 
 **Decision.** Every feature asks the agent's capability record (`src/shared/agentCapabilities.ts`, with what an account declares at start folded in) what it can do. None compares an agent's id: `tests/agentBranches.test.ts` holds the count at zero outside the adapters and the catalog.

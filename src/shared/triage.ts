@@ -14,6 +14,7 @@ import { DEFAULT_DONE_DAYS } from './board'
 import { matchesView, resolveFilter, type ViewId } from './views'
 import { laterDue, putAway } from './later'
 import { currentLoopBounds, runForWorkspace, type FlowRun } from './flows'
+import { needsPerson } from './employeeWork'
 import type { AppSnapshot, ApprovalRequest, PullRequestInfo, Session, Workspace, WorkspaceStatus } from './types'
 
 // English unless a caller passes its own `t` (the renderer passes the UI language's; `foreman status` stays English).
@@ -184,6 +185,23 @@ export const REASONS: Reason[] = [
       const t = input.t ?? enT
       const sessionId = run.steps.filter((s) => s.sessionId).at(-1)?.sessionId
       return { label: t(run.state === 'needs-you' ? 'triage.flow.needsYou' : 'triage.flow.failed'), tone: run.state === 'needs-you' ? 'amber' : 'red', detail: run.reason, sessionId }
+    }
+  },
+  {
+    // docs/ai-employees.md §6.6: an AI employee's run stopped for a person (an approval it asked for was denied, or Foreman
+    // closed while it ran): its task waits until someone retries or cancels it. Shown on the workspace of its latest run.
+    id: 'employee-task',
+    find: ({ ws, input }) => {
+      const by = ws.startedBy?.via === 'employee' ? ws.startedBy : undefined
+      if (!by) return null
+      const task = input.snapshot.employeeWork?.[by.orgId]?.tasks.find((x) => x.id === by.taskId && needsPerson(x))
+      if (!task) return null
+      const latest = input.snapshot.workspaces
+        .filter((w) => w.startedBy?.via === 'employee' && w.startedBy.taskId === by.taskId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+      if (latest && latest.id !== ws.id) return null
+      const t = input.t ?? enT
+      return { label: t('triage.employee.needsYou'), tone: 'amber', detail: task.reason }
     }
   },
   {

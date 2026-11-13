@@ -3,7 +3,7 @@
 // Auth failures and rate limits also pause lookups for a while: every lookup made
 // as the same GitHub account, since repos can be linked to different accounts.
 import type { Workspace } from '../shared/types'
-import { pullRequest, type PrResult } from './github'
+import { pullRequest, type PrListResult, type PrResult } from './github'
 
 export interface PrCacheOptions {
   fetch?: (ws: Workspace) => Promise<PrResult>
@@ -87,6 +87,22 @@ export class PrCache {
       this.entries.set(ws.id, { key, at: this.opts.now(), result })
       this.opts.onResult?.(ws, result)
     }
+  }
+
+  /**
+   * A repository's listing (AI employees' pull-request events, main/employeeEvents.ts), behind the same pause as lookups:
+   * while `identity` is paused it answers with the failure that paused it without asking, and an auth failure or a rate
+   * limit it meets pauses every lookup made as that identity.
+   */
+  async list(identity: string, fetch: () => Promise<PrListResult>): Promise<PrListResult> {
+    await this.opts.ready?.()?.catch(() => undefined)
+    const paused = this.paused.get(identity)
+    if (paused && this.opts.now() < paused.until && paused.result.kind !== 'ok' && paused.result.kind !== 'no-pr') return paused.result
+    const result = await fetch().catch((err): PrListResult => ({ kind: 'unavailable', message: err instanceof Error ? err.message : String(err) }))
+    if (result.kind === 'auth-error') this.paused.set(identity, { until: this.opts.now() + this.opts.authBackoffMs, result })
+    else if (result.kind === 'unavailable' && result.rateLimited) this.paused.set(identity, { until: this.opts.now() + this.opts.rateBackoffMs, result })
+    else if (result.kind === 'ok') this.paused.delete(identity)
+    return result
   }
 
   /** Another reader of GitHub (review threads) hit a failure that should pause everyone using the same identity as `ws`. */
