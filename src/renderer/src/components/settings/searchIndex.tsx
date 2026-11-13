@@ -14,6 +14,7 @@ import {
   KeyRound,
   Palette,
   Plug,
+  Network,
   Router,
   Settings2,
   SquareTerminal,
@@ -42,7 +43,8 @@ export const PAGE_ICONS: Record<PersonalSection | 'agents', LucideIcon> = {
   advanced: HardDrive,
   usage: BarChart3,
   data: Database,
-  cloud: Cloud
+  cloud: Cloud,
+  spaces: Network
 }
 
 export const REPO_TAB_ICONS: Record<RepoSection, LucideIcon> = {
@@ -93,10 +95,12 @@ const searchDescription = (row: SettingEntry, t: TFunction): string | undefined 
 /** A label in the UI language, plus its English words when they differ. */
 const bothWords = (label: string, english: string): string[] => (label === english ? words(label) : [...words(label), ...words(english)])
 
-export function buildIndex(repos: Repo[], mac: boolean, t: TFunction, platform?: string): SearchItem[] {
+/** `spaces`: AI employees are on, so the Spaces page is there to find. */
+export function buildIndex(repos: Repo[], mac: boolean, t: TFunction, platform?: string, spaces = false): SearchItem[] {
   const items: SearchItem[] = []
 
   for (const section of PERSONAL_PAGES) {
+    if (section === 'spaces' && !spaces) continue
     const label = t(PAGE_LABELS[section])
     items.push({
       key: `page:${section}`,

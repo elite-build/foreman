@@ -272,21 +272,62 @@ export class GitActions {
    * A flow's pr step: push the branch as the panel's Push does (the repository's account, git's own credentials for
    * GitLab) and open its pull request through the host, with no agent. The title defaults to the last commit's subject.
    */
-  async openPullRequest(workspaceId: string, options: { draft: boolean; title?: string; body?: string }): Promise<{ number: number; url: string }> {
+  async openPullRequest(workspaceId: string, options: { draft: boolean; title?: string; body?: string; base?: string; head?: string }): Promise<{ number: number; url: string }> {
     const ws = this.workspaces.workspace(workspaceId)
-    const repo = this.workspaces.repo(ws.repoId)
-    if (!repo.hasOrigin) throw new Error('This repository has no remote, so there is nowhere to open a pull request.')
+    if (!(await this.hasRemoteNow(ws.repoId))) throw new Error('This repository has no remote, so there is nowhere to open a pull request.')
     try {
-      const account = ws.cloud ? this.workspaces.accountFor(repo.id) : await this.workspaces.accountForFresh(repo.id)
-      const { provider } = await this.resolve(ws)
-      const at = workspaceTarget(ws, { wake: true })
-      const hasUpstream = (await git(at, ['rev-parse', '--abbrev-ref', '@{upstream}'], { allowFail: true })).code === 0
-      await git(at, hasUpstream ? ['push'] : ['push', '-u', repo.remote || 'origin', 'HEAD'], { timeoutMs: 120_000, env: provider.kind === 'gitlab' ? undefined : await this.pushEnv(ws, account) })
-      const title = options.title?.trim() || (await gitOut(at, ['log', '-1', '--format=%s']).catch(() => '')).trim() || ws.branch
-      return await provider.createPullRequest(ws, { title, body: options.body ?? '', draft: options.draft })
+      const { provider, at } = await this.pushWorkspace(ws, options.head)
+      const title = options.title?.trim() || (await gitOut(at, ['log', '-1', '--format=%s', ...(options.head ? [options.head] : [])]).catch(() => '')).trim() || ws.branch
+      // An AI employee's request may name another base (docs/ai-employees.md §9); everyone else's goes into the workspace's.
+      const into = options.base && options.base !== ws.baseBranch ? { ...ws, baseBranch: options.base } : ws
+      return await provider.createPullRequest(into, { title, body: options.body ?? '', draft: options.draft })
     } finally {
       this.prs.invalidate(workspaceId)
     }
+  }
+
+  /**
+   * Push the workspace's branch as the panel's Push does, with no agent: an AI employee's request_push, once sent (§9).
+   * With `head`, exactly that commit goes out as the branch, so commits made after a person saw the preview stay here.
+   */
+  async pushBranch(workspaceId: string, head?: string): Promise<void> {
+    const ws = this.workspaces.workspace(workspaceId)
+    if (!(await this.hasRemoteNow(ws.repoId))) throw new Error('This repository has no remote, so there is nowhere to push.')
+    try {
+      await this.pushWorkspace(ws, head)
+    } finally {
+      this.prs.invalidate(workspaceId)
+    }
+  }
+
+  /**
+   * Whether there is a remote to push to. "No remote" was recorded when the repository was added, so it is asked of git
+   * again before refusing: a remote added since is found (and recorded), and the push or pull request goes ahead.
+   */
+  private async hasRemoteNow(repoId: string): Promise<boolean> {
+    if (this.workspaces.repo(repoId).hasOrigin) return true
+    return this.workspaces.refreshRemote(repoId).catch(() => false)
+  }
+
+  /**
+   * The branch pushed (setting its upstream the first time), as the repository's account; git's own credentials for GitLab.
+   * With `head`, that commit is pushed as the branch rather than whatever the branch holds now.
+   */
+  private async pushWorkspace(ws: Workspace, head?: string): Promise<{ provider: ScmProvider; at: ReturnType<typeof workspaceTarget> }> {
+    const repo = this.workspaces.repo(ws.repoId)
+    const account = ws.cloud ? this.workspaces.accountFor(repo.id) : await this.workspaces.accountForFresh(repo.id)
+    const { provider } = await this.resolve(ws)
+    const at = workspaceTarget(ws, { wake: true })
+    const env = provider.kind === 'gitlab' ? undefined : await this.pushEnv(ws, account)
+    const remote = repo.remote || 'origin'
+    const hasUpstream = (await git(at, ['rev-parse', '--abbrev-ref', '@{upstream}'], { allowFail: true })).code === 0
+    if (head) {
+      await git(at, ['push', remote, `${head}:refs/heads/${ws.branch}`], { timeoutMs: 120_000, env })
+      if (!hasUpstream) await git(at, ['branch', `--set-upstream-to=${remote}/${ws.branch}`], { allowFail: true })
+    } else {
+      await git(at, hasUpstream ? ['push'] : ['push', '-u', remote, 'HEAD'], { timeoutMs: 120_000, env })
+    }
+    return { provider, at }
   }
 
   /** Fix errors' attachments: up to six failing checks' logs, then the instructions. */

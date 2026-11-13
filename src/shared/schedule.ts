@@ -42,7 +42,7 @@ function parts(tz: string): Intl.DateTimeFormat {
   return f
 }
 
-interface Wall {
+export interface Wall {
   y: number
   m: number
   d: number
@@ -52,7 +52,7 @@ interface Wall {
 }
 
 /** The wall-clock reading in `tz` at this instant. */
-function wall(ms: number, tz: string): Wall {
+export function wall(ms: number, tz: string): Wall {
   const out: Record<string, number> = {}
   for (const p of parts(tz).formatToParts(new Date(ms))) if (p.type !== 'literal') out[p.type] = Number(p.value)
   return { y: out.year, m: out.month, d: out.day, h: out.hour % 24, min: out.minute, s: out.second }

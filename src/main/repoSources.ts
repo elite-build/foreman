@@ -103,17 +103,27 @@ export async function gitProtocol(): Promise<'https' | 'ssh'> {
   return out.trim() === 'ssh' ? 'ssh' : 'https'
 }
 
-/** A new, empty repository: a folder with git initialised, a README and a first commit. */
-export async function quickStart(parentDir: string, name: string): Promise<string> {
+/** What a new repository starts with in place of the README: its files (relative paths, `/` between folders) and the first commit's message. */
+export interface QuickStartSeed {
+  files: Record<string, string>
+  message: string
+}
+
+/** A new, empty repository: a folder with git initialised, a README (or the seed's files) and a first commit. */
+export async function quickStart(parentDir: string, name: string, seed?: QuickStartSeed): Promise<string> {
   const clean = name.trim()
   if (!/^[\w.-]+$/.test(clean) || clean === '.' || clean === '..') throw new Error('Use letters, numbers, dots, dashes or underscores for the name')
   const dir = path.join(parentDir, clean)
   if (existsSync(dir) && !isEmptyDir(dir)) throw new Error(`${dir} already exists`)
   await mkdir(dir, { recursive: true })
   await git(dir, ['init', '-q', '-b', 'main'])
-  await writeFile(path.join(dir, 'README.md'), `# ${clean}\n`)
+  for (const [file, content] of Object.entries(seed?.files ?? { 'README.md': `# ${clean}\n` })) {
+    const target = path.join(dir, ...file.split('/'))
+    await mkdir(path.dirname(target), { recursive: true })
+    await writeFile(target, content)
+  }
   await git(dir, ['add', '-A'])
-  const commit = await git(dir, ['commit', '-q', '-m', 'Initial commit'], { allowFail: true })
+  const commit = await git(dir, ['commit', '-q', '-m', seed?.message ?? 'Initial commit'], { allowFail: true })
   if (commit.code !== 0) {
     const identity = /user\.(name|email)|identity|Please tell me who you are/i.test(commit.stderr)
     throw new Error(

@@ -1,13 +1,17 @@
-// Automations' details: the side panel (every schedule, or one schedule) and a template's own page.
+// Automations' details: the side panel (every schedule, or one schedule) and a template's own page. AI employees'
+// triggers are listed with the schedules, each with its employee's hat and name, read-only here: they are part of the
+// employee's definition and change on its page (docs/ai-employees.md §8).
 import { ArrowLeft, CalendarClock, Copy, ExternalLink, MoreHorizontal, Pause, Play, Trash2 } from 'lucide-react'
 import type { PlainKey } from '../../../../shared/i18n'
 import { newTemplateId, templateName } from '../../../../shared/promptTemplates'
+import { triggerKey } from '../../../../shared/employeeTriggers'
 import { formatRun, isProposedSchedule, nextRuns, scheduleName } from '../../../../shared/schedule'
 import type { Occurrence, PromptTemplate, Schedule } from '../../../../shared/types'
 import { t as tNow, useT } from '../../i18n'
-import { api, attempt, getState, openNewWorkspace, openScheduleDialog, recordMilestone, selectAutomation, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
+import { api, attempt, getState, openEmployees, openNewWorkspace, openScheduleDialog, recordMilestone, selectAutomation, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
 import { liveRepo } from '../../triage'
-import { ActionRow, Button, Callout, Card, IconButton, LinkButton, MenuButton, MenuItem, Status, type StatusTone } from '../../ui'
+import { ActionRow, Button, Callout, Card, HardHat, IconButton, LinkButton, MenuButton, MenuItem, Status, type HardHatColour, type StatusTone } from '../../ui'
+import { triggerAsks, triggerStatus, triggerWhen } from '../employees/words'
 import { cadenceText } from '../ScheduleDialogs'
 import { saveSettings, useSettings } from '../settings/controls'
 import { TemplateEditor } from './TemplateEditor'
@@ -148,19 +152,69 @@ export function ScheduleOverview() {
   const occurrences = useStore((s) => s.snapshot!.occurrences)
   const rank = (s: Schedule) => (s.state === 'active' ? 0 : s.state === 'paused' ? 1 : 2)
   const sorted = [...schedules].sort((a, b) => rank(a) - rank(b) || (a.nextRunAt ?? '').localeCompare(b.nextRunAt ?? ''))
+  const triggers = useEmployeeTriggerRows()
   return (
     <div className="auto-detail">
       <h2 className="auto-h2">{t('automations.template.schedules')}</h2>
-      {sorted.length ? (
+      {sorted.length || triggers.length ? (
         <Card className="auto-list" role="list" aria-label={t('automations.template.schedules')}>
           {sorted.map((s) => (
             <ScheduleRow key={s.id} schedule={s} occurrences={occurrences} named />
+          ))}
+          {triggers.map((row) => (
+            <EmployeeTriggerRow key={row.key} row={row} />
           ))}
         </Card>
       ) : (
         <p className="faint small">{t('automations.overview.empty')}</p>
       )}
     </div>
+  )
+}
+
+type TriggerRow = ReturnType<typeof useEmployeeTriggerRows>[number]
+
+/** Every trigger of every employee not retired, while AI employees are on: with its organization, employee and state here. */
+function useEmployeeTriggerRows() {
+  const snapshot = useStore((s) => s.snapshot!)
+  if (!snapshot.settings.aiEmployees) return []
+  return (snapshot.organizations ?? []).flatMap((org) =>
+    (snapshot.employees?.[org.id]?.employees ?? [])
+      .filter((e) => e.state !== 'retired')
+      .flatMap((e) =>
+        // Timed triggers only: an event trigger has no schedule, and is listed on its employee's Triggers tab.
+        (e.triggers ?? []).filter((trigger) => trigger.kind !== 'event').map((trigger) => {
+          const id = triggerKey(trigger)
+          return { key: `${org.id}:${e.id}:${id}`, orgId: org.id, employee: e, trigger, state: snapshot.employeeTriggers?.find((x) => x.orgId === org.id && x.employeeId === e.id && x.triggerId === id) }
+        })
+      )
+  )
+}
+
+/** An employee's trigger among the schedules: its hat and name, when and what, its next time or last firing; edited on its page. */
+function EmployeeTriggerRow({ row }: { row: TriggerRow }) {
+  const t = useT()
+  const name = row.employee.name || row.employee.id
+  const status = triggerStatus(row.trigger, row.state, name, t)
+  const off = !row.trigger.enabled || row.state?.off ? t('employees.trigger.off') : undefined
+  return (
+    <ActionRow
+      role="listitem"
+      divided
+      actions={
+        <LinkButton size="sm" onClick={() => openEmployees({ orgId: row.orgId, page: 'employee', id: row.employee.id })}>
+          {t('automations.employeeTrigger.edit', { name })}
+        </LinkButton>
+      }
+    >
+      <span className="auto-row">
+        <HardHat colour={row.employee.colour as HardHatColour} size={18} />
+        <span className="auto-row-main">
+          <span className="auto-row-title">{t('automations.employeeTrigger.title', { name, when: triggerWhen(row.trigger, t) })}</span>
+          <span className="auto-row-sub">{[triggerAsks(row.trigger, t), off ?? status.next, status.last].filter(Boolean).join(' · ')}</span>
+        </span>
+      </span>
+    </ActionRow>
   )
 }
 

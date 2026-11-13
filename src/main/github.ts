@@ -6,6 +6,7 @@ import { mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { BranchPrefixType, GithubAccount, GithubStatus, GitStatus, PrCheck, PullRequestInfo, Settings, Workspace } from '../shared/types'
+import type { PrListing } from '../shared/employeeEvents'
 import { baseStartPoint, git, revParse, type GitTarget } from './git'
 import { commandLabel, perf } from './perf'
 import { cloudSandboxes, workspaceTarget } from './runtime'
@@ -617,6 +618,58 @@ export async function pullRequest(ws: Workspace, request: typeof gh = gh): Promi
       default:
         return { kind: 'unavailable', message }
     }
+  }
+}
+
+/** A repository's pull requests, for AI employees' pull-request events (main/employeeEvents.ts). Failures as PrResult's. */
+export type PrListResult = { kind: 'ok'; prs: PrListing[] } | { kind: 'auth-error'; message: string } | { kind: 'unavailable'; message: string; rateLimited?: boolean }
+
+const LIST_FIELDS = 'number,title,url,author,headRefName,headRefOid,baseRefName,state,isDraft,createdAt,mergedAt,reviewRequests,latestReviews,statusCheckRollup'
+
+/** One `gh pr list --json` entry as a listing. */
+export function prListing(raw: Record<string, unknown>): PrListing | null {
+  const number = raw.number
+  const state = raw.state
+  if (typeof number !== 'number' || (state !== 'OPEN' && state !== 'MERGED' && state !== 'CLOSED')) return null
+  const author = (raw.author as { login?: string } | null | undefined)?.login
+  return {
+    number,
+    title: String(raw.title ?? ''),
+    url: String(raw.url ?? ''),
+    ...(author ? { author: String(author) } : {}),
+    headRefName: String(raw.headRefName ?? ''),
+    headRefOid: String(raw.headRefOid ?? ''),
+    baseRefName: String(raw.baseRefName ?? ''),
+    state,
+    ...(raw.isDraft ? { isDraft: true } : {}),
+    ...(typeof raw.createdAt === 'string' ? { createdAt: raw.createdAt } : {}),
+    ...(typeof raw.mergedAt === 'string' && raw.mergedAt ? { mergedAt: raw.mergedAt } : {}),
+    failing: parseChecks(raw.statusCheckRollup as RollupItem[] | undefined)
+      .filter((c) => c.state === 'failure')
+      .map((c) => c.name),
+    reviewRequests: reviewRequestsFrom(raw.reviewRequests).map((r) => (r.login ? r.login.toLowerCase() : `team:${r.team}`)),
+    reviews: latestReviews(raw.latestReviews)
+  }
+}
+
+/**
+ * A repository's open pull requests (the newest 50) and the ones merged most recently (20), read in its folder with gh
+ * (`request` runs as the repository's account). Never a workspace's, so a cloud workspace's sandbox is never woken.
+ */
+export async function listPullRequests(cwd: string, request: typeof gh = gh): Promise<PrListResult> {
+  if (!(await ghAvailable())) return { kind: 'unavailable', message: 'The GitHub CLI (gh) is not installed' }
+  try {
+    const [open, merged] = await Promise.all([
+      request(cwd, ['pr', 'list', '--state', 'open', '--limit', '50', '--json', LIST_FIELDS], 30_000),
+      request(cwd, ['pr', 'list', '--state', 'merged', '--search', 'sort:updated-desc', '--limit', '20', '--json', LIST_FIELDS], 30_000)
+    ])
+    const prs = [...(JSON.parse(open) as Record<string, unknown>[]), ...(JSON.parse(merged) as Record<string, unknown>[])].map(prListing).filter((p): p is PrListing => p !== null)
+    return { kind: 'ok', prs }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const kind = classifyGhError(message)
+    if (kind === 'auth-error') return { kind, message }
+    return { kind: 'unavailable', message, ...(kind === 'rate-limit' ? { rateLimited: true } : {}) }
   }
 }
 

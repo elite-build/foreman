@@ -120,7 +120,8 @@ function pageOfRow(registryId: string): SettingsPage {
   const row = SETTINGS.find((e) => e.id === registryId)
   if (!row) throw new Error(`settingsSchema: no settingsRegistry row '${registryId}'`)
   const section = row.page.section
-  if (section === 'integrations' || section === 'repo') throw new Error(`settingsSchema: row '${registryId}' is not on a personal settings page`)
+  // Spaces holds organizations, not settings: no CLI setting sits there.
+  if (section === 'integrations' || section === 'repo' || section === 'spaces') throw new Error(`settingsSchema: row '${registryId}' is not on a personal settings page`)
   return section
 }
 
@@ -267,6 +268,7 @@ export const SETTINGS_SCHEMA: readonly SettingSpec[] = [
   flag('fork-to-new-tab', 'fork-to-new-tab', 'forkToNewTab'),
   flag('show-resource-usage', 'show-resource-usage', 'showResourceUsage'),
   flag('flows', 'flows', 'flows'),
+  flag('ai-employees', 'ai-employees', 'aiEmployees'),
   flag('diagnostics', 'diagnostics', 'diagnostics'),
 
   // Advanced (the Workspaces folder and the Windows script shell live here, not under Git)

@@ -309,6 +309,9 @@ export interface Repo {
   // Cloud workspaces on Vercel Sandbox: this repository's cloud settings and its base
   // build. On this Mac only, like integrations; never read from settings.toml. Absent means never set up (cloudDefaults()).
   cloud?: RepoCloud
+  // The organization this repository belongs to (docs/ai-employees.md §3); absent means Personal. Set only through
+  // createOrganization, moveRepoToSpace and setOrganizationMemory; on this computer only (state.json).
+  spaceId?: string
   local: RepoLocalSettings
   createdAt: string
 }
@@ -633,7 +636,7 @@ export interface Workspace {
 }
 
 /** Why a workspace was archived: by hand, after its scheduled run completed, or after its pull request was merged. */
-export type ArchiveReason = { kind: 'manual' } | { kind: 'run'; scheduleId: string } | { kind: 'merged'; number: number } | { kind: 'flow'; runId: string }
+export type ArchiveReason = { kind: 'manual' } | { kind: 'run'; scheduleId: string } | { kind: 'merged'; number: number } | { kind: 'flow'; runId: string } | { kind: 'employee'; runId: string }
 
 /** What deleting an archived workspace would lose that isn't anywhere else, for the delete dialog and the cleanup. */
 export interface ArchivedWork {
@@ -885,6 +888,19 @@ export type WorkspaceStartedBy =
       via: 'delegation' | 'cli' | 'assistant'
     }
   | { via: 'outside'; grantId: string; name: string }
+  // docs/ai-employees.md §6.3: an AI employee's run. The task's title as it was, so the workspace says what it is for.
+  | { via: 'employee'; orgId: string; employeeId: string; runId: string; taskId: string; title: string }
+
+/** An AI employee's run, on its session while its turn runs (Session.unattended). */
+export interface EmployeeTurnMark {
+  employeeRunId: string
+  employeeId: string
+  orgId: string
+  // What the run may do: always its MCP servers; read-only for Read access; the workspace less protected paths for Write
+  // without a shell; a persona's name and instructions when it wears one.
+  persona: TurnPersona
+  attended?: true
+}
 
 export interface AdoptWorktreeOptions {
   runSetup: boolean
@@ -1021,7 +1037,14 @@ export interface Session {
   // A flow step's persona rides along for that turn: its instructions, read-only and the MCP servers it keeps. A decide
   // step's turn carries the options it picks from: only then is Foreman's `decide` tool offered.
   // A flow's read-only step on another agent (Codex) is `attended`: an approval it asks for waits in Needs you, never denied.
-  unattended?: { occurrenceId: string } | { autoReviewId: string } | { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true }
+  // docs/ai-employees.md §6.3: an AI employee's run is unattended the same way, for its turn: `persona` holds what the
+  // run may do (read-only, its write scope, the MCP servers it keeps) with a persona it wears, narrowing only. An
+  // attended employee (read-only) waits for a person on approvals, as a flow's attended step does.
+  unattended?:
+    | { occurrenceId: string }
+    | { autoReviewId: string }
+    | { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true }
+    | EmployeeTurnMark
   // #17: this tab is an auto review's read-only reviewer; its turns never start another review.
   autoReview?: { reviewId: string }
   // Closed tabs stay restorable until the workspace is archived.
@@ -1272,6 +1295,9 @@ export interface Settings {
   showResourceUsage: boolean
   // Flows (docs/loops-and-graphs.md): off by default; off, nothing about flows appears and repo flow files are ignored.
   flows: boolean
+  // AI employees (docs/ai-employees.md): off by default. Off, there is no space switcher or organization UI, every
+  // repository shows as it always did, and the organization methods refuse; organizations are kept, never deleted.
+  aiEmployees: boolean
   // Development builds only (Settings → Experimental): Claude Code and Codex answer from recorded traffic instead of running
   // (docs/agents.md, 9.5). A packaged build ignores it.
   replayTraffic: boolean
@@ -1411,7 +1437,9 @@ export interface ContextPart {
   // 'integrations': which GitHub, Linear or Slack account this turn uses, when that changed since the tab's last turn,
   // and the user's own same-service MCP servers switched off here.
   // 'persona': a flow step's persona, its instructions appended to the system prompt for that turn.
-  kind: 'instructions' | 'note' | 'comments' | 'attachments' | 'history' | 'foreman' | 'catch-up' | 'mcp' | 'integrations' | 'persona'
+  // 'employee': an AI employee's run's instructions (Foreman's rules, the organization's and its own); 'memory': a pinned
+  // memory file it was given, with its path and commit (docs/ai-employees.md §4, §5.2).
+  kind: 'instructions' | 'note' | 'comments' | 'attachments' | 'history' | 'foreman' | 'catch-up' | 'mcp' | 'integrations' | 'persona' | 'employee' | 'memory'
   // The short form for the receipt line: "note r3", "2 review comments".
   label: string
   // Characters added (bytes for attachments; the number of servers for 'mcp'; of accounts and servers for 'integrations').
@@ -1938,6 +1966,8 @@ export type MessageOrigin =
   | { kind: 'idle-compact' }
   // docs/agent-access.md §7: an outside agent signed in to Foreman sent it (start_task's first message, send_task).
   | { kind: 'outside'; grantId: string; name: string }
+  // docs/ai-employees.md §6.3: an AI employee's run's task.
+  | { kind: 'employee'; orgId: string; employeeId: string; runId: string; taskId: string }
 
 export interface PrWatch {
   ci?: CiWatch
@@ -2235,6 +2265,20 @@ export interface AppSnapshot {
   occurrences: Occurrence[]
   // Flow runs (docs/loops-and-graphs.md): in flight and the last finished ones. Empty while Flows are off.
   flowRuns?: FlowRun[]
+  // Organizations (docs/ai-employees.md §3), kept whether or not AI employees are on; the window shows them only while on.
+  organizations: import('./organizations').Organization[]
+  // Each organization's memory repository as last looked at, by organization id (docs/ai-employees.md §4). Only while AI
+  // employees are on, and only for organizations with a memory repository that has been looked at.
+  memory?: Record<string, import('./memory').MemoryStatus>
+  // Each organization's AI employees as last read from its memory repository, with their lifecycle on this computer
+  // (docs/ai-employees.md §5, §10). Only while AI employees are on, and only for organizations with a memory repository.
+  employees?: Record<string, import('./employees').EmployeeRoster>
+  // Each organization's employee work not yet over, and each employee's last result (docs/ai-employees.md §6). Only while
+  // AI employees are on.
+  employeeWork?: Record<string, import('./employeeWork').EmployeeWorkView>
+  // Each employee trigger's firing state on this computer: its next planned time, off here, its last firings
+  // (docs/ai-employees.md §8). Only while AI employees are on.
+  employeeTriggers?: import('./employeeTriggers').EmployeeTriggerState[]
   // Hand-offs to and from other Macs, including ones left unresolved (P-4).
   transfers: Transfer[]
   pairedDevices: PairedDevice[]
@@ -2672,6 +2716,86 @@ export interface Api {
   updateRepo(id: string, patch: RepoPatch): Promise<Repo>
   // Deletes the repo's workspaces (worktrees) and chats; the repository folder is untouched.
   removeRepo(id: string): Promise<void>
+  // Organizations (docs/ai-employees.md §3); each refuses while AI employees are off. Creating one may make its memory
+  // repository (a new git repository with one commit, added to Foreman) and moves the repositories named from Personal.
+  createOrganization(input: import('./organizations').CreateOrganizationInput): Promise<import('./organizations').Organization>
+  renameOrganization(id: string, name: string): Promise<import('./organizations').Organization>
+  // Its repositories, the memory repository too, go back to Personal; nothing is deleted from disk.
+  deleteOrganization(id: string): Promise<void>
+  // organizationId null: Personal. An organization's memory repository stays in its organization.
+  moveRepoToSpace(repoId: string, organizationId: string | null): Promise<void>
+  // For an organization that decided later: give it a memory repository now.
+  setOrganizationMemory(organizationId: string, memory: import('./organizations').OrganizationMemory): Promise<import('./organizations').Organization>
+  // An organization's memory repository (docs/ai-employees.md §4), through Foreman's memory service; each refuses while AI
+  // employees are off or the organization has no memory repository. Status looks again (and settles unfinished commits).
+  memoryStatus(organizationId: string): Promise<import('./memory').MemoryStatus>
+  // The files under memory/, bots/ and repos/ at the head.
+  memoryTree(organizationId: string): Promise<import('./memory').MemoryTree>
+  memoryReadFile(organizationId: string, path: string): Promise<import('./memory').MemoryFile>
+  // The commits that touched the file, newest first, with their trailers.
+  memoryFileHistory(organizationId: string, path: string): Promise<import('./memory').MemoryCommit[]>
+  // At most 10 files, best first, from the search index (a cache in foreman.db).
+  memorySearch(organizationId: string, query: string): Promise<import('./memory').MemorySearchHit[]>
+  // A person's edit: one commit by git's configured user, against the version they opened (null: a new file). A file
+  // changed since is a conflict with both versions; foreign changes, secrets and sensitive paths are refused.
+  memoryWriteFile(organizationId: string, path: string, text: string, expectedBlob: string | null): Promise<import('./memory').MemoryWriteResult>
+  // Accept changes Foreman didn't make (uncommitted ones are committed as the person's), so Foreman writes again.
+  memoryAcceptForeign(organizationId: string): Promise<import('./memory').MemoryStatus>
+  // AI employees (docs/ai-employees.md §5); each refuses while AI employees are off or the organization has no memory
+  // repository. The definitions at the memory repository's head, in full, with their lifecycle here.
+  listEmployees(organizationId: string): Promise<import('./employees').EmployeeList>
+  // One request to the person's default agent (no shell, no files, no tools) for a new employee's words, a free hat
+  // colour and suggestions, all off; nothing in it is a grant. Refused under Privacy mode.
+  generateEmployeeDraft(organizationId: string, input: import('./employees').EmployeeDraftInput): Promise<import('./employees').EmployeeDraftResult>
+  // The same request with the draft's current words and the person's change; the hat and every setting stay.
+  refineEmployeeDraft(organizationId: string, draft: import('./employees').EmployeeDraftText, request: string): Promise<import('./employees').EmployeeDraftResult>
+  // bots/<id>.toml and memory/bots/<id>/ in one commit by the person; a draft, or approved here with `approve`.
+  createEmployee(organizationId: string, definition: import('./employees').EmployeeDefinition, options: { approve?: boolean }): Promise<import('./employees').EmployeeView>
+  // Against the file's blob as read; a file changed since is a conflict. A moved fingerprint needs approving again.
+  updateEmployee(organizationId: string, id: string, definition: import('./employees').EmployeeDefinition, expectedBlob: string): Promise<import('./employees').EmployeeUpdateResult>
+  // Records the definition's fingerprint on this computer; with `expectedFingerprint`, refused if it changed meanwhile.
+  approveEmployee(organizationId: string, id: string, expectedFingerprint?: string): Promise<import('./employees').EmployeeView>
+  pauseEmployee(organizationId: string, id: string): Promise<void>
+  resumeEmployee(organizationId: string, id: string): Promise<void>
+  // It never runs again here; its definition and memory stay in the memory repository.
+  retireEmployee(organizationId: string, id: string): Promise<void>
+  // Turn one of its triggers off on this computer, or on again (docs/ai-employees.md §8): narrowing only, so its
+  // definition and approval don't change; on again, its next planned time is worked out from now.
+  setEmployeeTriggerOff(organizationId: string, employeeId: string, triggerId: string, off: boolean): Promise<void>
+  // An employee's work (docs/ai-employees.md §6); each refuses while AI employees are off. Ask: a task first, then
+  // admitted, held (paused, its lane or the organization's limit busy) or refused with the reason on the task. No
+  // repository: the first it may write, else the first it may read.
+  askEmployee(organizationId: string, employeeId: string, input: import('./employeeWork').EmployeeAskInput): Promise<import('./employeeWork').EmployeeTask>
+  // A task whose body asks it to work through its standing responsibilities and report.
+  runEmployeeNow(organizationId: string, employeeId: string, input?: { repoId?: string }): Promise<import('./employeeWork').EmployeeTask>
+  // Newest first; one employee's, or the organization's.
+  listEmployeeTasks(organizationId: string, employeeId?: string): Promise<import('./employeeWork').EmployeeTask[]>
+  listEmployeeRuns(organizationId: string, employeeId?: string, taskId?: string): Promise<import('./employeeWork').EmployeeRun[]>
+  // Stop now (§6.6): the run is cancelled and its task goes back to open, held as stopped until Retry.
+  stopEmployeeRun(runId: string): Promise<void>
+  // Another attempt at a task that isn't running (waiting, stopped or closed blocked), with the same request id.
+  retryEmployeeTask(taskId: string): Promise<import('./employeeWork').EmployeeTask>
+  // Closes it as canceled, stopping a run that is going.
+  cancelEmployeeTask(taskId: string): Promise<import('./employeeWork').EmployeeTask>
+  // An employee's question (ask_person, docs/ai-employees.md §6.4): one answer per question, refused for a second. The
+  // answer is the task's continuation, admitted (held or refused) like any run. It never approves anything.
+  answerEmployeeQuestion(taskId: string, questionId: string, answer: string): Promise<import('./employeeWork').EmployeeTask>
+  // An employee's proposed memory change: Keep commits it as the person (a file changed since is a conflict, and it
+  // stays proposed); Retire drops it, writing nothing.
+  keepMemoryProposal(organizationId: string, proposalId: string): Promise<{ ok: true; commit: string | null } | { ok: false; path: string; conflict: { blob: string | null; text: string | null } }>
+  retireMemoryProposal(organizationId: string, proposalId: string): Promise<void>
+  // Employees working together (docs/ai-employees.md §7): a task with its chain (the task it was handed off from, those
+  // handed off from it, its chain's ledger and its log, for receipts); raising a spent chain's runs (Needs you); and the
+  // organization's lead employee on this computer (null: none), which unaddressed work and escalations go to.
+  employeeTaskChain(taskId: string): Promise<import('./employeeWork').EmployeeTaskChain>
+  raiseEmployeeRootLimit(rootId: string): Promise<import('./employeeWork').EmployeeRootLedger>
+  setOrganizationLead(organizationId: string, employeeId: string | null): Promise<import('./organizations').Organization>
+  // An employee's held outward action (docs/ai-employees.md §9), in Needs you: Send (with `edits`, Edit then send: its
+  // words only, never where it goes), sent at most once; an uncertain one only with `checked` (the person looked and it
+  // didn't arrive). Skip sends nothing. Confirm records an uncertain one as arrived, sending nothing.
+  sendEmployeeAction(actionId: string, options?: { edits?: Record<string, string>; checked?: boolean }): Promise<import('./employeeActions').EmployeeAction>
+  skipEmployeeAction(actionId: string): Promise<import('./employeeActions').EmployeeAction>
+  confirmEmployeeAction(actionId: string): Promise<import('./employeeActions').EmployeeAction>
   updateRepoSettings(repoId: string, patch: RepoSettingsPatch): Promise<void>
   // With fetch, updates from the remote first.
   listBranches(repoId: string, options?: { fetch?: boolean }): Promise<BranchInfo[]>
@@ -3188,6 +3312,12 @@ export interface Bridge {
 // build if a method is added to Api or Signals but not listed here.
 export const API_METHODS = [
   'getSnapshot', 'pickDirectory', 'pickFiles', 'pickPath', 'addRepo', 'cloneRepo', 'githubRepos', 'quickStartRepo', 'makeRepo', 'forgetRecentRepo', 'classifyFolders', 'takeLaunchFolders', 'updateRepo', 'removeRepo',
+  'createOrganization', 'renameOrganization', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory',
+  'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
+  'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
+  'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
+  'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',
+  'sendEmployeeAction', 'skipEmployeeAction', 'confirmEmployeeAction',
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',
   'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'saveDiagnostics', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',

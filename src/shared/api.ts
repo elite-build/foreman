@@ -86,6 +86,33 @@ export const METHOD_SCOPES = {
   // Repositories and their settings.
   addRepo: 'admin', cloneRepo: 'admin', quickStartRepo: 'admin', makeRepo: 'admin', forgetRecentRepo: 'admin', updateRepo: 'admin',
   removeRepo: 'admin', updateRepoSettings: 'admin', detectRepoAccount: 'admin', setAutoReview: 'admin',
+  // Organizations (docs/ai-employees.md §3): which space a repository is in, and making a memory repository on disk.
+  createOrganization: 'admin', renameOrganization: 'admin', deleteOrganization: 'admin', moveRepoToSpace: 'admin', setOrganizationMemory: 'admin',
+  // Memory repositories (docs/ai-employees.md §4): reading them is a read; a person's edit and accepting foreign changes
+  // change what every employee of the organization is told, so they are admin.
+  memoryStatus: 'read', memoryTree: 'read', memoryReadFile: 'read', memoryFileHistory: 'read', memorySearch: 'read',
+  memoryWriteFile: 'admin', memoryAcceptForeign: 'admin',
+  // AI employees (docs/ai-employees.md §5): listing them is a read. Drafting sends the person's words to a model, and
+  // creating, editing, approving, pausing, resuming and retiring change what may run, so they are admin (§9: never from a turn).
+  listEmployees: 'read',
+  generateEmployeeDraft: 'admin', refineEmployeeDraft: 'admin', createEmployee: 'admin', updateEmployee: 'admin', approveEmployee: 'admin',
+  pauseEmployee: 'admin', resumeEmployee: 'admin', retireEmployee: 'admin',
+  // Turning a trigger off here or on again changes what runs on its own, as pausing does.
+  setEmployeeTriggerOff: 'admin',
+  // An employee's work (docs/ai-employees.md §6): reading tasks and runs is a read; asking, Run now, Stop, Retry and
+  // Cancel do work, as starting and stopping a flow run does (§9: `run` and `ask` act).
+  listEmployeeTasks: 'read', listEmployeeRuns: 'read',
+  askEmployee: 'operate', runEmployeeNow: 'operate', stopEmployeeRun: 'operate', retryEmployeeTask: 'operate', cancelEmployeeTask: 'operate',
+  // Answering an employee's question starts its continuation, as asking does; keeping or retiring a memory proposal
+  // changes what every employee of the organization reads, as a person's edit does, so it is admin (never from a turn).
+  answerEmployeeQuestion: 'operate', keepMemoryProposal: 'admin', retireMemoryProposal: 'admin',
+  // Working together (docs/ai-employees.md §7): reading a task's chain is a read. Raising a chain's runs lets employees
+  // run more on their own, and the lead decides where escalations go, so both are admin (never from a turn: an employee
+  // can't raise its own limit or make itself lead).
+  employeeTaskChain: 'read', raiseEmployeeRootLimit: 'admin', setOrganizationLead: 'admin',
+  // An employee's held outward action (docs/ai-employees.md §9): sending it is the person's approval of a Slack message,
+  // a Linear change, a push or a pull request, so it is admin, never from a turn (no agent approves an employee's send).
+  sendEmployeeAction: 'admin', skipEmployeeAction: 'admin', confirmEmployeeAction: 'admin',
 
   // Settings, keys and environment.
   updateSettings: 'admin', resetSettings: 'admin', setEnvVars: 'admin', setEnvFiles: 'admin',

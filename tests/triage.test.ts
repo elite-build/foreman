@@ -25,7 +25,21 @@ describe('triage reasons', () => {
   it('keeps the reason table in the agreed precedence', () => {
     // #2: an agent's needs-input / stuck right after approvals; its review request last.
     // A stopped archive first: the user meant the workspace to go, and it's waiting on them.
-    expect(REASONS.map((r) => r.id)).toEqual(['archive-stopped', 'approvals', 'flow-run', 'agent-report', 'sensitive', 'checks-failed', 'ci-failed', 'review-comments', 'base-moved', 'turn-outcome', 'held-message', 'review-request', 'auto-review'])
+    // An AI employee's run stopped for a person beside a flow run's (docs/ai-employees.md §6.6).
+    expect(REASONS.map((r) => r.id)).toEqual(['archive-stopped', 'approvals', 'flow-run', 'employee-task', 'agent-report', 'sensitive', 'checks-failed', 'ci-failed', 'review-comments', 'base-moved', 'turn-outcome', 'held-message', 'review-request', 'auto-review'])
+  })
+
+  it('an AI employee’s task waiting for a person needs you, with why, on the workspace of its latest run only', () => {
+    const by = { via: 'employee' as const, orgId: 'o1', employeeId: 'e-1', runId: 'r2', taskId: 't1', title: 'Draft' }
+    const latest = ws({ startedBy: by })
+    const older = ws({ id: 'ws-old', createdAt: ago(300), startedBy: { ...by, runId: 'r1' } })
+    const task = { id: 't1', orgId: 'o1', employeeId: 'e-1', state: 'waiting', waitingOn: 'person', reason: 'Foreman closed while this ran; retry or cancel.' }
+    const snapshot = (state: string) => ({ workspaces: [latest, older], sessions: [], employeeWork: { o1: { tasks: [{ ...task, state }], runs: [], last: {}, revision: 1 } } }) as unknown as AppSnapshot
+    const rows = triageAll({ snapshot: snapshot('waiting'), approvals: [], unread: {}, unreadSessions: {}, now: NOW }, null)
+    expect(rows.find((r) => r.ws.id === 'ws')).toMatchObject({ bucket: 'attention', label: 'Employee needs you', tone: 'amber', detail: 'Foreman closed while this ran; retry or cancel.' })
+    expect(rows.find((r) => r.ws.id === 'ws-old')?.bucket).not.toBe('attention')
+    const running = triageAll({ snapshot: snapshot('running'), approvals: [], unread: {}, unreadSessions: {}, now: NOW }, null)
+    expect(running.find((r) => r.ws.id === 'ws')?.label).not.toBe('Employee needs you')
   })
 
   it('a stopped archive needs you, says which step failed, and offers its dialog; it ends when the field goes', () => {

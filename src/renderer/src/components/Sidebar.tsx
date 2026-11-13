@@ -61,6 +61,9 @@ import { BUCKET_LABEL, liveRepo, sidebarGroups, sidebarOrder, STATUS_LABEL, tria
 import { promptTitle } from '../../../shared/compare'
 import type { CompareSection } from '../../../shared/triage'
 import { AddRepoItems } from './AddRepository'
+import { SpaceSwitcher } from './spaces/SpaceSwitcher'
+import { TeamSection } from './employees/TeamSection'
+import { memoryOwner, snapshotInSpace } from '../../../shared/organizations'
 import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
 import { AutomationsEntry } from './automations/AutomationsEntry'
@@ -411,14 +414,18 @@ function repoMark(repo: Repo): ReactNode {
  * Its toggle widens it in place to put each repository's name and what is going on in it beside the tile (the store's
  * `railNames`), and narrows it back.
  */
-function RepoRail({ counts }: { counts: Map<string | null, RepoCount> }) {
+function RepoRail({ counts, repos }: { counts: Map<string | null, RepoCount>; repos: Repo[] }) {
   const t = useT()
-  const repos = useStore((s) => s.snapshot!.repos)
+  // The space's organizations, for the memory repository's mark in its tooltip.
+  const organizations = useStore((s) => s.snapshot!.organizations)
+  const spaced = useStore((s) => Boolean(s.snapshot!.settings.aiEmployees))
   const connections = useStore((s) => s.snapshot!.integrations.connections)
   const mod = useStore((s) => modKey(s.snapshot!.platform))
   const platform = useStore((s) => s.snapshot!.platform)
   const settingsOpen = useStore((s) => Boolean(s.settingsPage))
-  const current = useStore((s) => liveRepo(s.snapshot!, s.sidebarView.repo))
+  const picked = useStore((s) => s.sidebarView.repo)
+  // A repository picked in another space isn't on this rail: All is.
+  const current = picked && repos.some((r) => r.id === picked) ? picked : null
   const home = useStore((s) => !s.selectedWorkspaceId && !s.settingsPage)
   const names = useStore((s) => s.railNames)
   const [menu, setMenu] = useState<{ repo: Repo; x: number; y: number } | null>(null)
@@ -483,13 +490,18 @@ function RepoRail({ counts }: { counts: Map<string | null, RepoCount> }) {
       return name ? [[r.id, name] as const] : []
     })
   )
+  // An organization's memory repository says so (docs/ai-employees.md §10), beside the GitHub connection it may name.
+  const tileLabel = (repo: Repo) => {
+    const memory = spaced && memoryOwner(repo.id, organizations ?? []) ? t('spaces.memoryTag') : undefined
+    return [repo.name, githubNames.get(repo.id), memory].filter(Boolean).join(' · ')
+  }
   return (
     <nav className={`repo-rail ${names ? 'names' : ''}`} aria-label={t('sidebar.rail.label')}>
       {tile(null, t('home.board.allRepos'), t('home.board.allRepos'), t('sidebar.subtitle.repos', { count: repos.length }), <span className="rail-text">{t('sidebar.rail.all')}</span>)}
       {repos.map((repo) =>
         tile(
           repo.id,
-          githubNames.get(repo.id) ? `${repo.name} · ${githubNames.get(repo.id)}` : repo.name,
+          tileLabel(repo),
           repo.name,
           t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }),
           repoMark(repo)
@@ -549,7 +561,11 @@ const EMPTY: Record<Exclude<SidebarFilter, 'all'>, PlainKey> = {
  */
 export function Sidebar({ resize, side = 'left', views, list = true }: { resize?: PanelSize; side?: PaneSide; views?: ReactNode; list?: boolean }) {
   const t = useT()
-  const input = useTriageInput()
+  const everything = useTriageInput()
+  // The space the sidebar shows (docs/ai-employees.md §3): its repositories and their workspaces only. While spaces
+  // don't apply this is the whole snapshot, as it always was.
+  const space = useStore((s) => s.space)
+  const input = { ...everything, snapshot: snapshotInSpace(everything.snapshot, space) }
   const { snapshot, unread } = input
   const view = useStore((s) => s.sidebarView)
   const selectedId = useStore((s) => s.selectedWorkspaceId)
@@ -587,7 +603,8 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
       ? grouped.groups.map((g) => ({ ...g, items: g.items.map((x) => (putAway(x, Date.now()) ? { ...x, label: laterWhen(x.ws, t), tone: undefined } : x)) }))
       : grouped.groups
   const order = sidebarOrder(input, view).map((w) => w.id)
-  const archived = snapshot.workspaces.filter((w) => w.state === 'archived').length
+  // Archived work and Import stay about everything, whichever space is shown.
+  const archived = everything.snapshot.workspaces.filter((w) => w.state === 'archived').length
   const anyUnread = Object.keys(unread).length > 0
   const newRepoId = repoId ?? snapshot.workspaces.find((w) => w.id === selectedId)?.repoId ?? snapshot.repos[0]?.id
   const repoById = new Map(snapshot.repos.map((r) => [r.id, r]))
@@ -610,13 +627,14 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
         {views ? (
           <div className="rail-column">
             {views}
-            <RepoRail counts={counts} />
+            <RepoRail counts={counts} repos={snapshot.repos} />
           </div>
         ) : (
-          <RepoRail counts={counts} />
+          <RepoRail counts={counts} repos={snapshot.repos} />
         )}
         {list && (
           <div className="sidebar-panel">
+            <SpaceSwitcher />
             <header className="sidebar-head">
               <div className="sidebar-head-text">
                 <div className="sidebar-title" role="heading" aria-level={2}>
@@ -636,6 +654,8 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
             </header>
             <AutomationsEntry />
             <AssistantEntry />
+            {/* An organization's employees (docs/ai-employees.md §10), only while it is the space shown. */}
+            <TeamSection />
             <Button variant="primary" className="sidebar-new" data-tour="new-workspace" aria-keyshortcuts={`${snapshot.platform === 'darwin' ? 'Meta' : 'Control'}+N`} disabled={!newRepoId} icon={<Plus size={14} />} onClick={() => newRepoId && openNewWorkspace(newRepoId)}>
               {t('palette.newWorkspace')}
               <Kbd className="sidebar-new-hint" aria-hidden>
@@ -739,7 +759,7 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
               </Button>
               {/* A .foreman file is picked on the computer: the window's alone. */}
               {clientKind === 'window' && (
-                <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
+                <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={everything.snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
                   {t('sidebar.import')}
                 </Button>
               )}

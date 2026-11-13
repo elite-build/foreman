@@ -20,6 +20,9 @@ export interface BaseWatchDeps {
   version?: () => Promise<string | undefined>
   notify: (n: { workspaceId: string; title: string; body: string; kind?: NotifyKind }) => void
   changed: () => void
+  // After each full look, on this watch's cadence: AI employees' base-moved events look at their repositories' base
+  // tips (main/employeeEvents.ts), whether or not any workspace is watched here.
+  afterPoll?: () => Promise<void>
 }
 
 export class BaseWatcher {
@@ -54,35 +57,40 @@ export class BaseWatcher {
     this.deps.changed()
   }
 
-  /** Look at every workspace of opted-in repos (or one repo), once. */
+  /** Look at every workspace of opted-in repos (or one repo), once; then, after a full look, what else rides this cadence. */
   async poll(onlyRepoId?: string): Promise<void> {
     if (this.polling) return
     this.polling = true
     try {
-      if (!(await this.support()).ok) return
-      const fetched = new Set<string>()
-      for (const ws of [...this.deps.store.state.workspaces]) {
-        if (onlyRepoId && ws.repoId !== onlyRepoId) continue
-        if (!this.deps.enabled(ws.repoId)) {
-          // Opting out takes the row away with it.
-          if (ws.baseWatch) {
-            delete ws.baseWatch
-            this.deps.store.save()
-            this.deps.changed()
-          }
-          continue
-        }
-        // TODO(cloud): watch cloud workspaces too, through workspaceTarget, only while their sandbox runs (each has its
-        // own clone, so its fetch can't be shared). Until then a cloud workspace (no path) is skipped.
-        if (ws.state !== 'ready' || !ws.path || ws.branch === ws.baseBranch) continue
-        const changed = await this.pollOne(ws, fetched)
-        if (changed) {
+      await this.pollWorkspaces(onlyRepoId)
+    } finally {
+      this.polling = false
+    }
+    if (!onlyRepoId) await this.deps.afterPoll?.().catch((err: unknown) => console.error('Base watch:', err))
+  }
+
+  private async pollWorkspaces(onlyRepoId?: string): Promise<void> {
+    if (!(await this.support()).ok) return
+    const fetched = new Set<string>()
+    for (const ws of [...this.deps.store.state.workspaces]) {
+      if (onlyRepoId && ws.repoId !== onlyRepoId) continue
+      if (!this.deps.enabled(ws.repoId)) {
+        // Opting out takes the row away with it.
+        if (ws.baseWatch) {
+          delete ws.baseWatch
           this.deps.store.save()
           this.deps.changed()
         }
+        continue
       }
-    } finally {
-      this.polling = false
+      // TODO(cloud): watch cloud workspaces too, through workspaceTarget, only while their sandbox runs (each has its
+      // own clone, so its fetch can't be shared). Until then a cloud workspace (no path) is skipped.
+      if (ws.state !== 'ready' || !ws.path || ws.branch === ws.baseBranch) continue
+      const changed = await this.pollOne(ws, fetched)
+      if (changed) {
+        this.deps.store.save()
+        this.deps.changed()
+      }
     }
   }
 

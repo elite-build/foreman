@@ -13,6 +13,8 @@
 // A schedule may start a flow instead of a template (docs/loops-and-graphs.md): its fingerprint then covers the flow, its
 // templates and personas too, the occurrence follows the flow run to its end, and the flow's loop bounds stand in for the
 // duration limit.
+// Other things that fire on a clock ride this one as `sources` (AI employees' triggers, main/employeeTriggers.ts): each
+// is looked at on every tick after the schedules, with the same missed-run grace, and not while Foreman quits.
 import { createHash, randomUUID } from 'node:crypto'
 import { canRunUnattended } from '../shared/agentCatalog'
 import { scheduleFingerprintOfFlow, type FlowFingerprint, type FlowRun } from '../shared/flows'
@@ -169,6 +171,16 @@ export interface ScheduleDeps {
   cancelLimitResume?(sessionId: string): void
   maxActive?: number
   graceMs?: number
+  /**
+   * Other things this clock fires (AI employees' triggers, main/employeeTriggers.ts): each is looked at on every tick
+   * after the schedules, with the same grace, and not at all while Foreman quits (`paused`).
+   */
+  sources?: ScheduleSource[]
+}
+
+/** Something else the schedule clock drives: it gets the tick's time and the missed-run grace. */
+export interface ScheduleSource {
+  tick(now: number, graceMs: number): Promise<void>
 }
 
 const ACTIVE: Occurrence['state'][] = ['starting', 'running']
@@ -406,6 +418,11 @@ export class ScheduleService {
           continue
         }
         this.runDue(s, planned, now)
+      }
+      if (!this.deps.paused?.()) {
+        for (const source of this.deps.sources ?? []) {
+          await source.tick(now, this.deps.graceMs ?? MISSED_GRACE_MS).catch((err: unknown) => console.error('Schedule source:', err))
+        }
       }
     } finally {
       this.ticking = false

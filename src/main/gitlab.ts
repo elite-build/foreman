@@ -7,7 +7,8 @@ import { execFile } from 'node:child_process'
 import type { GitlabConnection, PrCheck, PullRequestInfo, ReviewThread } from '../shared/types'
 import type { GithubLink, GithubLinkInfo } from '../shared/githubLink'
 import { rootCandidates, stripDraftTitle, type GitlabHost, type MergeBlock } from '../shared/scm'
-import type { PrResult } from './github'
+import type { PrListing } from '../shared/employeeEvents'
+import type { PrListResult, PrResult } from './github'
 
 export type Fetch = typeof fetch
 
@@ -152,6 +153,9 @@ export interface RawMergeRequest {
   head_pipeline?: { id: number; status: string; web_url?: string; sha?: string } | null
   diff_refs?: { head_sha?: string } | null
   merged_at?: string | null
+  created_at?: string
+  author?: { username?: string } | null
+  reviewers?: { username?: string }[] | null
 }
 
 export interface RawApprovals {
@@ -457,6 +461,45 @@ export async function gitlabPullRequest(api: GitlabApi, projectPath: string, bra
     if (number === null) return { kind: 'no-pr' }
     const { pr, sha } = await mergeRequestInfo(api, projectPath, number)
     return { kind: 'ok', pr, headRefOid: sha, repo: `${api.host.host}/${projectPath}` }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (err instanceof GitlabError && err.kind === 'auth') return { kind: 'auth-error', message }
+    if (err instanceof GitlabError && err.kind === 'rate') return { kind: 'unavailable', message, rateLimited: true }
+    return { kind: 'unavailable', message }
+  }
+}
+
+/** One merge request of a project's list as a listing. The list carries no pipeline or approvals: CI and reviews stay empty. */
+export function mrListing(mr: RawMergeRequest): PrListing | null {
+  const state = mr.state === 'opened' ? 'OPEN' : mr.state === 'merged' ? 'MERGED' : mr.state === 'closed' ? 'CLOSED' : null
+  if (!state || typeof mr.iid !== 'number') return null
+  return {
+    number: mr.iid,
+    title: stripDraftTitle(mr.title ?? ''),
+    url: mr.web_url,
+    ...(mr.author?.username ? { author: mr.author.username } : {}),
+    headRefName: mr.source_branch,
+    headRefOid: mr.sha ?? mr.diff_refs?.head_sha ?? '',
+    baseRefName: mr.target_branch,
+    state,
+    ...(mr.draft || mr.work_in_progress ? { isDraft: true } : {}),
+    ...(mr.created_at ? { createdAt: mr.created_at } : {}),
+    ...(mr.merged_at ? { mergedAt: mr.merged_at } : {}),
+    failing: [],
+    reviewRequests: (mr.reviewers ?? []).map((r) => r?.username?.toLowerCase()).filter((u): u is string => Boolean(u)),
+    reviews: []
+  }
+}
+
+/**
+ * A project's open merge requests (the 50 updated last) and those merged most recently (20), for AI employees'
+ * pull-request events. GitLab's list has no pipelines or approvals, so only merges and review requests are seen there.
+ */
+export async function listMergeRequests(api: GitlabApi, projectPath: string): Promise<PrListResult> {
+  try {
+    const q = (state: string, n: number) => `${project(projectPath)}/merge_requests?state=${state}&order_by=updated_at&sort=desc&per_page=${n}`
+    const [open, merged] = await Promise.all([api.get<RawMergeRequest[]>(q('opened', 50)), api.get<RawMergeRequest[]>(q('merged', 20))])
+    return { kind: 'ok', prs: [...(open ?? []), ...(merged ?? [])].map(mrListing).filter((p): p is PrListing => p !== null) }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (err instanceof GitlabError && err.kind === 'auth') return { kind: 'auth-error', message }

@@ -1,0 +1,181 @@
+/* ---- an organization's Memory view (docs/ai-employees.md §10): layout only; the controls are ui/ components ---- */
+
+/* It covers the main area like Settings and Automations; what is under it is hidden while it shows. */
+.memory-view {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.memory-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.app.main-first.platform-darwin .memory-head {
+  padding-left: 84px;
+}
+.memory-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.memory-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.memory-head-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.memory-none {
+  padding: 20px;
+  max-width: 640px;
+}
+
+/* The folders and search on the left, the file on the right. */
+.memory-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+}
+.memory-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+@media (min-width: 721px) {
+  .memory-side {
+    border-right: 1px solid var(--border);
+  }
+}
+.memory-search {
+  padding: 10px 10px 6px;
+}
+.memory-shared {
+  margin: auto 0 0;
+  padding: 10px 14px;
+}
+.memory-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.memory-file-head {
+  gap: 8px;
+}
+.memory-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.memory-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Foreign changes: the commits and paths, one per line. */
+.memory-foreign {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.memory-foreign p {
+  margin: 0;
+}
+.memory-foreign-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* A conflict: what is saved now beside the edit, each scrolling on its own. */
+.memory-conflict {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 8px 12px;
+}
+.memory-conflict-sides {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  min-height: 0;
+}
+.memory-conflict-sides > section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.memory-side-heading {
+  margin: 0 0 4px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* A file's history, newest first. */
+.memory-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px;
+  list-style: none;
+}
+.memory-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.memory-trailers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+@media (max-width: 720px) {
+  .memory-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(160px, 40%) 1fr;
+  }
+  .memory-side {
+    border-bottom: 1px solid var(--border);
+  }
+  .memory-conflict-sides {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Employees' proposals, above the folders while any wait: layout only (MemoryProposals draws them with ui/ components). */
+.memory-proposals {
+  max-height: 40%;
+  overflow: auto;
+  padding: 12px 20px;
+}
+@media (min-width: 721px) {
+  .memory-proposals {
+    border-bottom: 1px solid var(--border);
+  }
+}

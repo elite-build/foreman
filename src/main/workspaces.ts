@@ -254,16 +254,25 @@ export class WorkspaceService {
     return result
   }
 
+  /**
+   * Whether the repository has its remote now, asked of git rather than the record (a remote can be added after the
+   * repository was), with `hasOrigin` saved for the rest of the app.
+   */
+  async refreshRemote(id: string): Promise<boolean> {
+    const repo = this.repo(id)
+    const has = await hasRemote(repo.rootPath, repo.remote || 'origin')
+    repo.hasOrigin = has
+    this.changed()
+    return has
+  }
+
   updateRepo(id: string, patch: RepoPatch): Repo {
     const repo = this.repo(id)
     if (patch.name !== undefined && patch.name.trim()) repo.name = patch.name.trim()
     if (patch.defaultBranch !== undefined) repo.defaultBranch = patch.defaultBranch.trim() || repo.defaultBranch
     if (patch.remote !== undefined) {
       repo.remote = patch.remote.trim() || 'origin'
-      void hasRemote(repo.rootPath, repo.remote).then((has) => {
-        repo.hasOrigin = has
-        this.changed()
-      })
+      void this.refreshRemote(repo.id)
     }
     if (patch.setupHintDismissed !== undefined) repo.setupHintDismissed = patch.setupHintDismissed || undefined
     if (patch.cloud !== undefined) {

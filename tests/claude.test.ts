@@ -627,6 +627,105 @@ describe('a turn capped below Never ask (docs/agent-access.md §3)', () => {
   })
 })
 
+describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
+  const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
+  const employee: TurnRequest = { ...request, approvals: 'auto', writeScope: ['**'], writeScopeSubject: 'AI employee’s run', protect: { gitDir: '/repos/app/.git' }, onlyMcp: true }
+
+  it('refuses agent and git configuration with a reason it reads (never asks), keeps only its MCP servers, and names itself in the scope’s refusals', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(employee, cb).run()
+    const options = sdk.query.mock.calls[0][0].options
+    expect(options.strictMcpConfig).toBe(true)
+    const hooks = options.hooks.PreToolUse[0].hooks
+    const signal = new AbortController().signal
+    const decide = async (tool: string, input: unknown) => (await Promise.all(hooks.map((h: (...a: unknown[]) => Promise<unknown>) => h(pre(tool, input), 'u1', { signal })))) as { hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string } }[]
+    for (const file_path of ['/repo/.claude/settings.json', '/repo/.mcp.json', '/repo/.foreman/settings.toml', '/repos/app/.git/hooks/pre-commit']) {
+      const decided = await decide('Write', { file_path })
+      expect(decided.some((d) => d.hookSpecificOutput?.permissionDecision === 'deny' && d.hookSpecificOutput.permissionDecisionReason.startsWith('Foreman refused this: an AI employee’s run never changes agent or git configuration'))).toBe(true)
+      expect(decided.some((d) => d.hookSpecificOutput?.permissionDecision === 'ask')).toBe(false)
+    }
+    // Elsewhere in the workspace a file tool may write; the shell is refused, in the run's own words.
+    expect((await decide('Edit', { file_path: '/repo/src/index.ts' })).map((d) => d.hookSpecificOutput?.permissionDecision ?? null)).toEqual(['allow', null])
+    expect((await decide('Bash', { command: 'ls' }))[0].hookSpecificOutput?.permissionDecisionReason).toMatch(/^This AI employee’s run may only write inside \*\*, so it has no shell/)
+    // A call that reaches the permission prompt past the hook is refused there too, never asked.
+    expect(await options.canUseTool('Write', { file_path: '/repo/.claude/settings.json' }, { signal })).toMatchObject({ behavior: 'deny', message: expect.stringContaining('never changes agent or git configuration') })
+    expect(cb.approveTool).not.toHaveBeenCalled()
+    claude.push(result)
+    await run
+  })
+
+  it('allows its own Foreman tools without asking, even read-only in plan mode, and nothing else of the app server', async () => {
+    // Without this, a read-only employee's ask_person reached the prompt and the unattended run was stopped.
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const readOnly: TurnRequest = { ...employee, readOnly: true, planMode: true, writeScope: undefined }
+    const run = claudeDriver.createTurn(readOnly, cb).run()
+    const options = sdk.query.mock.calls[0][0].options
+    const signal = new AbortController().signal
+    for (const tool of ['ask_person', 'remember', 'memory_search', 'finish_task', 'report_no_update']) {
+      expect(await options.canUseTool(`mcp__foreman-app__${tool}`, {}, { signal })).toMatchObject({ behavior: 'allow' })
+    }
+    expect(cb.approveTool).not.toHaveBeenCalled()
+    // A tool of the app server that isn't an employee tool still goes to the prompt like any other call.
+    cb.approveTool.mockResolvedValue({ allow: false })
+    expect(await options.canUseTool('mcp__foreman-app__start_task', {}, { signal })).toMatchObject({ behavior: 'deny' })
+    expect(cb.approveTool).toHaveBeenCalledTimes(1)
+    claude.push(result)
+    await run
+  })
+
+  it('lets its bridged Slack, Linear and Langfuse calls reach Foreman’s broker without asking, and nothing else', async () => {
+    // docs/ai-employees.md §9: the bridge records the post and holds it for a person (or sends or refuses it as the
+    // definition says); asking here would deny the unattended run first.
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn(employee, cb).run()
+    const options = sdk.query.mock.calls[0][0].options
+    const signal = new AbortController().signal
+    for (const tool of ['mcp__foreman-slack__slack_post', 'mcp__foreman-linear__save_comment', 'mcp__foreman-linear__get_issue', 'mcp__foreman-langfuse__list_traces']) {
+      expect(await options.canUseTool(tool, {}, { signal })).toMatchObject({ behavior: 'allow' })
+    }
+    expect(cb.approveTool).not.toHaveBeenCalled()
+    // Another server's tool (one its definition keeps) still goes to the prompt: it isn't brokered, so it can't be held.
+    cb.approveTool.mockResolvedValue({ allow: false })
+    expect(await options.canUseTool('mcp__github__create_pull_request', {}, { signal })).toMatchObject({ behavior: 'deny' })
+    expect(cb.approveTool).toHaveBeenCalledTimes(1)
+    claude.push(result)
+    await run
+    // A turn that isn't an employee's asks as it always has.
+    const cb2 = callbacks()
+    cb2.approveTool.mockResolvedValue({ allow: false })
+    const claude2 = fakeClaude()
+    const run2 = claudeDriver.createTurn({ ...request, approvals: 'auto' }, cb2).run()
+    const options2 = sdk.query.mock.calls[1][0].options
+    expect(await options2.canUseTool('mcp__foreman-slack__slack_post', {}, { signal })).toMatchObject({ behavior: 'deny' })
+    expect(cb2.approveTool).toHaveBeenCalledTimes(1)
+    claude2.push(result)
+    await run2
+  })
+
+  it('asks about the app server’s employee tools on a turn that isn’t an employee’s', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    cb.approveTool.mockResolvedValue({ allow: false })
+    const run = claudeDriver.createTurn({ ...request, readOnly: true, planMode: true }, cb).run()
+    const options = sdk.query.mock.calls[0][0].options
+    expect(await options.canUseTool('mcp__foreman-app__ask_person', {}, { signal: new AbortController().signal })).toMatchObject({ behavior: 'deny' })
+    expect(cb.approveTool).toHaveBeenCalledTimes(1)
+    claude.push(result)
+    await run
+  })
+
+  it('leaves the user’s MCP configuration alone for any other turn', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn(request, callbacks()).run()
+    expect(sdk.query.mock.calls[0][0].options.strictMcpConfig).toBeUndefined()
+    claude.push(result)
+    await run
+  })
+})
+
 describe('Claude launch problems (docs/agents.md, 4.1)', () => {
   const fail = (message: string) =>
     sdk.query.mockImplementation(() => ({

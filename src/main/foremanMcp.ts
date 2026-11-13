@@ -14,6 +14,8 @@ import { DELEGATION_TOOLS, delegationToolNames } from '../shared/foremanDelegati
 import type { ForemanDelegation } from './foremanDelegation'
 import type { ForemanCli } from './foremanCli'
 import { FOREMAN_CLI_TOOL } from '../shared/foremanCli'
+import { EMPLOYEE_TOOL_NAMES, EMPLOYEE_TOOLS } from '../shared/employeeTools'
+import type { EmployeeTools } from './employeeTools'
 
 // `cap`: the turn's own (docs/agent-access.md §4), which its start_task and send_task pass on.
 interface Grant { id: string; sessionId: string; workspaceId: string; readOnly: boolean; cap?: TurnCap }
@@ -32,6 +34,8 @@ interface Deps {
 export class ForemanMcp {
   delegation?: ForemanDelegation
   cli?: ForemanCli
+  // An AI employee's run gets these in place of every other tool here (docs/ai-employees.md §6).
+  employeeTools?: EmployeeTools
   private grants = new Map<string, Grant>()
   private connections = new Map<net.Socket, string>()
 
@@ -95,9 +99,36 @@ export class ForemanMcp {
     void server.connect(transport).catch(() => conn.destroy())
   }
 
+  /**
+   * An AI employee's run (docs/ai-employees.md §4, §6): its own tools and nothing else (no workspace actions, no
+   * delegation, no CLI), each answered for the chat the grant names; the run is the one that chat's mark names now.
+   */
+  private employeeServer(server: McpServer, grantId: string): McpServer {
+    for (const name of EMPLOYEE_TOOL_NAMES) {
+      const definition = EMPLOYEE_TOOLS[name]
+      server.registerTool(name, {
+        description: definition.description,
+        inputSchema: definition.schema as z.ZodObject<z.ZodRawShape>,
+        annotations: { readOnlyHint: definition.readOnly }
+      }, async (args) => {
+        try {
+          const scope = this.scope(grantId)
+          if (!this.employeeTools) throw new Error('Foreman’s employee tools aren’t available.')
+          const result = await this.employeeTools.call(scope.sessionId, name, args as Record<string, unknown>)
+          return { content: [{ type: 'text' as const, text: result.text }], ...(result.isError ? { isError: true } : {}) }
+        } catch (err) {
+          return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true }
+        }
+      })
+    }
+    return server
+  }
+
   /** The turn's tools, each checking the grant (and the chat's live read-only state) when it is called. */
   private server(grantId: string): McpServer {
     const server = new McpServer({ name: 'foreman-app', version: '1' })
+    const employeeMark = this.deps.session(this.grants.get(grantId)?.sessionId ?? '')?.unattended
+    if (employeeMark && 'employeeRunId' in employeeMark) return this.employeeServer(server, grantId)
     const readOnly = this.scope(grantId).readOnly
     if (this.cli) server.registerTool(FOREMAN_CLI_TOOL.name, {
       description: FOREMAN_CLI_TOOL.description,

@@ -28,6 +28,8 @@ Foreman runs on your computer. There is no Foreman account or cloud service: wor
 
 Run a flow from Automations, **New workspace**, a schedule or `foreman flow run`, and follow it on the workspace's **Flow** tab. **Full screen** puts the run in the middle of the workspace with the chat beside it.
 
+**AI employees.** Group repositories into an organization with its own memory repository, then give it employees: each one a role written in plain words, a hard hat of its own, and access you approve. Ask one for something, or let its schedule or an event (a pull request, the base branch moving, a Linear assignment) start it; it works in a fresh workspace, remembers through the memory repository, hands work to its colleagues, and asks you before anything leaves your computer. AI employees are experimental: turn them on in **Settings → Experimental → AI employees**. `docs/ai-employees.md` has the design.
+
 ![A flow run's diagram in the middle of the workspace, with its chat beside it](docs/images/flow-run-dark.png)
 
 **Command line.** Most of what you do in the window can also be done from a terminal or a script with the `foreman` command: start workspaces from templates, send messages and wait for turns, answer approvals, open and merge pull requests, run flows, manage repositories, schedules and remote workspaces, and change any setting. Every command takes `--json`, and exit codes are the same for every command, so scripts and CI can rely on them. Agents use it too, from inside a turn, to report progress or ask for a review.

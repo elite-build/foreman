@@ -16,7 +16,7 @@ import { type AgentKeyName, type Api, type AppSnapshot, type CheckResult, type C
 import { driverFor } from './agents/registry'
 import { codexBinary } from './agents/codex'
 import { startCodexSignIn, type CodexSignIn } from './agents/codex/login'
-import { agentCapabilitiesView, mirroredAgents, oneShotAgent } from './agents/capabilities'
+import { agentCapabilitiesView, capabilitiesOf, mirroredAgents, oneShotAgent } from './agents/capabilities'
 import { catalogLoginCommand, executablePathFor, setAgentRuntimeDir } from './agents/acp/catalogDrivers'
 import { onAcpModes } from './agents/acp'
 import { AgentCatalogService, LEGACY_AGENT_KEYS } from './agentCatalogService'
@@ -31,8 +31,8 @@ import { Environment } from './environment'
 import { makeRepository } from './makeRepo'
 import { cloneRepo, githubRepos, gitProtocol, quickStart } from './repoSources'
 import { cliStatus, installCli, macAdmin } from './cliInstall'
-import { baseStartPoint, git, gitBlob, gitOut, noteWorktreeChanged, repoEvidence } from './git'
-import { accountToken, accountTokenAsync, branchPrefix, forgetAccountTokens, forgetIdentityLogins, ghActiveAccount, ghActiveAccountAsync, ghActiveAccountReady, ghAs, githubAccounts, githubEnv, githubEnvOrNone, githubLogin, githubSlug, githubStatus, refreshGhActiveAccount, setGithubIdentities, useGithubToken, warmGithub, type PrResult } from './github'
+import { baseStartPoint, git, gitBlob, gitOut, noteWorktreeChanged, repoEvidence, revParse } from './git'
+import { accountToken, accountTokenAsync, branchPrefix, forgetAccountTokens, forgetIdentityLogins, ghActiveAccount, ghActiveAccountAsync, ghActiveAccountReady, ghAs, githubAccounts, githubEnv, githubEnvOrNone, githubLogin, githubSlug, githubStatus, refreshGhActiveAccount, setGithubIdentities, useGithubToken, warmGithub, remoteGitEnv, type PrListResult, type PrResult } from './github'
 import { SandboxManager } from './cloud/sandboxes'
 import { CloudPtyBackend, cloudTerminalFolder } from './cloud/terminal'
 import { CloudTurnHost } from './cloud/turnHost'
@@ -66,7 +66,7 @@ import { GitlabApi, GlabLogins, gitlabAgentContext, glabInstalled, probeGitlab, 
 import { findScmLink, gitlabHosts, looksLikeGitlab, normalizeGitlabHost, projectOnHost, scmForRemote } from '../shared/scm'
 import { intakeFile } from '../shared/githubLink'
 import { chooseStartLoadout } from '../shared/startModel'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { pruneViewed, withMark } from '../shared/viewed'
 import { branchPoint, changedFilesBetween, fileAtRef, refsDiff, revertFile, workspaceDiff, workspaceDiffPatch, workspaceDiffStat } from './diff'
 import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint, sharedWorkingTree, VIEW_REUSE_MS } from './checkpoints'
@@ -127,6 +127,14 @@ import { templatePlaceholders } from '../shared/promptTemplates'
 import { SessionService } from './sessions'
 import { defaultSettings, type Store } from './store'
 import { WorkspaceService } from './workspaces'
+import { AI_EMPLOYEES_OFF, OrganizationService } from './organizations'
+import { MemoryService } from './memory'
+import { EmployeeService } from './employees'
+import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
+import { EmployeeTriggerService } from './employeeTriggers'
+import { EmployeeEventService } from './employeeEvents'
+import { EmployeeTools } from './employeeTools'
+import { EmployeeActionService, type BranchPreview } from './employeeActions'
 import { reviewThreadsMarkdown } from './reviews'
 import { ClaudeMirror } from './claudeMirror'
 import { wsPath } from '../shared/workspacePath'
@@ -148,10 +156,10 @@ import { ForemanMcp } from './foremanMcp'
 import { SlackRules } from './slackRules'
 import { SpeechService } from './speech'
 import type { HelperLaunch } from './speech/local'
-import { linearIssue, linearMyIssues } from './linear'
+import { linearAssignedIssues, linearIssue, linearMyIssues } from './linear'
 import { slackChannels, slackManifest, slackManifestUrl, slackPeople, slackUserByEmail, type SlackPerson } from './slack'
 import { findLinearLink, linearBranch, linearIntakeFile, type LinearIssue } from '../shared/linearLink'
-import type { AdoptWorktreeOptions, ApprovalResponse, ApprovalVia, GitActionKind, LinearLinkInfo, MessageOrigin, SendReceipt, WorkspaceStartedBy } from '../shared/types'
+import type { AdoptWorktreeOptions, ApprovalResponse, ApprovalVia, EmployeeTurnMark, GitActionKind, LinearLinkInfo, MessageOrigin, SendReceipt, WorkspaceStartedBy } from '../shared/types'
 import { lowerCap, revokedCapRefusal, type TurnCap } from '../shared/agentAccess'
 import { stepTabPatch } from '../shared/switchAgent'
 import { processRoots } from './processRoots'
@@ -272,6 +280,8 @@ interface InternalStart {
   flowWorkspace?: { runId: string }
   // The chat (or assistant thread) that started it: delegation, or `foreman new`/`run` from inside a turn.
   startedBy?: WorkspaceStartedBy
+  // An AI employee's run (docs/ai-employees.md §6.3): its first chat is unattended as the run, and its message says whose task it is.
+  employeeRun?: { mark: EmployeeTurnMark; origin: Extract<MessageOrigin, { kind: 'employee' }> }
   // docs/agent-access.md §4: started from a capped turn, so its first message (held or not) carries this cap.
   cap?: TurnCap
   onChat?: (workspaceId: string, sessionId: string) => void
@@ -322,6 +332,20 @@ export class Core {
   // At most one notification a minute for sign-ins that start waiting.
   private waitingNotices = new WaitingNotices()
   readonly workspaces: WorkspaceService
+  // Organizations and which space each repository is in (docs/ai-employees.md §3).
+  readonly organizations: OrganizationService
+  // Each organization's memory repository: its only automatic writer, and the search index (docs/ai-employees.md §4).
+  readonly memory: MemoryService
+  // AI employees: their definitions in each memory repository, their approvals and lifecycle here (docs/ai-employees.md §5).
+  readonly employees: EmployeeService
+  // AI employees' tasks and runs: admission, runs as workspaces and sessions, Stop, recovery (docs/ai-employees.md §6).
+  readonly employeeWork: EmployeeWorkService
+  // AI employees' triggers, fired by the schedule clock (docs/ai-employees.md §8).
+  readonly employeeTriggers: EmployeeTriggerService
+  // Event triggers (docs/ai-employees.md §8): what each source shows, heard by the employees that listen.
+  readonly employeeEvents: EmployeeEventService
+  // AI employees' outward actions: recorded first, then sent, held for a person or refused (docs/ai-employees.md §9).
+  readonly employeeActions: EmployeeActionService
   readonly sessions: SessionService
   readonly ptys: PtyManager
   readonly terminals: TerminalRestore
@@ -488,6 +512,46 @@ export class Core {
       },
       this.environment
     )
+    this.memory = new MemoryService({
+      state: () => store.state,
+      db: () => store.db,
+      sensitivePaths: (repo) => this.workspaces.settingsFor(repo.id).sensitivePaths,
+      // A memory repository's status moved (a commit, foreign changes): its employees are read again if its head did.
+      changed: () => {
+        this.changed()
+        void this.employees?.refreshAll()
+      },
+      // A commit Foreman made: AI employees' memory event triggers hear it at once.
+      committed: (commit) => void this.employeeEvents?.memoryCommitted(commit).catch((err: unknown) => console.error('Employee events (memory):', err))
+    })
+    this.employees = new EmployeeService({
+      state: () => store.state,
+      memory: this.memory,
+      changed: () => this.changed(),
+      // Approved, paused, resumed or retired: work held for it may run now, or waits.
+      lifecycle: () => void this.employeeWork?.pump().catch(() => undefined),
+      locale: () => mainLocale(store.state.settings),
+      // Generate and Refine: one request on the one-shot path chat titles use (no tools, run outside any repository), on
+      // the person's default agent when its driver answers one, else the agent that writes titles.
+      draft: async ({ system, prompt }) => {
+        const settings = store.state.settings
+        if (settings.privacyMode) return null
+        const preferred = settings.loadouts[0]?.agent
+        const agent = preferred && capabilitiesOf(preferred, store.state.catalog?.agents, store.state.declared)?.features.titles ? preferred : oneShotAgent()
+        const driver = agent && driverFor(agent)
+        if (!agent || !driver?.oneShot) return null
+        const model = settings.loadouts.find((l) => l.agent === agent)?.model || ''
+        const text = await driver.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent(agent), executablePath: executablePathFor(settings, agent), systemPrompt: system, ...(model ? { model } : {}) })
+        return { text, agent, model }
+      }
+    })
+    this.organizations = new OrganizationService({
+      state: () => store.state,
+      addRepo: (dir) => this.workspaces.addRepo(dir),
+      changed: () => this.changed(),
+      // .foreman-memory.json names the organization: written again after a rename or a memory repository picked.
+      organizationChanged: (id) => this.memory.organizationChanged(id)
+    })
     this.repoMcp = new RepoMcp(store, this.workspaces, this.environment)
     // Integrations, before anything runs GitHub work: the old token and linked accounts move into connections once.
     // gh answers in the background; agents' and terminals' environments then find its answers cached.
@@ -563,7 +627,13 @@ export class Core {
       changed
     })
     // ---- end cloud workspaces, phase 2b ----
-    this.bridge = new IntegrationBridge({ integrations: this.integrations, launch: () => host.bridgeLaunch?.() ?? null, socket: () => host.cliSocket?.() ?? null })
+    this.bridge = new IntegrationBridge({
+      integrations: this.integrations,
+      launch: () => host.bridgeLaunch?.() ?? null,
+      socket: () => host.cliSocket?.() ?? null,
+      // An AI employee's run's Slack posts and Linear changes are brokered (docs/ai-employees.md §9).
+      actions: () => this.employeeActions
+    })
     this.slack = new SlackRules({
       integrations: this.integrations,
       db: () => store.db,
@@ -632,17 +702,23 @@ export class Core {
         this.autoChecks.turnEnded(session.workspaceId, outcome)
         this.schedules.turnEnded(sessionId, outcome)
         void this.flows.turnEnded(sessionId, session.lastTurn?.turnId, outcome).catch(() => undefined)
+        void this.employeeWork.turnEnded(sessionId, session.lastTurn?.turnId, outcome).catch((err: unknown) => console.error('Employee run:', err))
         this.diffSelections.wake(sessionId)
         if (session.lastTurn?.turnId) this.autoFix.turnEnded(session.lastTurn.turnId, outcome)
         // #17: a worker's completed turn may make a review owed (only where the repo opted in); a reviewer's settles its review.
         this.autoReview.turnEnded(sessionId, outcome)
       },
-      attendedApproval: (sessionId, waiting) => this.flows.attendedApproval(sessionId, waiting),
+      attendedApproval: (sessionId, waiting) => {
+        this.flows.attendedApproval(sessionId, waiting)
+        this.employeeWork.attendedApproval(sessionId, waiting)
+      },
       unattendedStopped: (sessionId, what) => {
         this.schedules.needsHuman(sessionId, what)
         this.flows.needsHuman(sessionId, what)
         this.autoReview.needsHuman(sessionId, what)
+        this.employeeWork.needsHuman(sessionId, what)
       },
+      turnStarted: (sessionId, turnId) => this.employeeWork.turnStarted(sessionId, turnId),
       activity: (sessionId) => this.limitResume.activity(sessionId),
       // Docs/agents.md 7.2: armed with no click for a reset time Foreman knows (Settings → Usage); before the turn's end reaches a run.
       limitPaused: (sessionId, turnId, limit, cap) => void this.limitResume.autoArm(sessionId, turnId, limit, cap),
@@ -758,6 +834,9 @@ export class Core {
         }),
       paused: () => Boolean(this.stopSafely?.isDraining),
       ready: () => ghActiveAccountReady(),
+      // AI employees' triggers ride this clock: the same tick, grace and pause while quitting (docs/ai-employees.md §8).
+      // Their event triggers' batches fire on it too, once their debounce is over, and Linear is looked at on it.
+      sources: [{ tick: (now, graceMs) => this.employeeTriggers?.tick(now, graceMs) ?? Promise.resolve() }, { tick: (now) => this.employeeEvents?.tick(now) ?? Promise.resolve() }],
       changed
     })
     this.flows = new FlowService({
@@ -843,6 +922,106 @@ export class Core {
       ended: (run) => this.schedules.flowRunEnded(run),
       changed
     })
+    this.employeeWork = new EmployeeWorkService({
+      state: () => store.state,
+      db: () => store.db,
+      employees: this.employees,
+      memory: this.memory,
+      capabilities: (agent) => capabilitiesOf(agent as AgentKind, store.state.catalog?.agents, store.state.declared),
+      persona: (name, repoId) => findPersona(this.personaListings(repoId), name, repoId),
+      launch: (plan, handle) => this.launchEmployeeRun(plan, handle),
+      stop: (sessionId) => this.sessions.cancel(sessionId),
+      turnStart: (sessionId) => {
+        const session = this.store.state.sessions.find((s) => s.id === sessionId)
+        if (session?.waitingForSlot) return 'waiting'
+        return session?.turnId ? session.turnStartedAt : undefined
+      },
+      readChat: (sessionId) => this.store.readChat(sessionId),
+      session: (sessionId) => this.store.state.sessions.find((s) => s.id === sessionId),
+      workspaceName: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.name,
+      // As a scheduled run's: archived once quiet, its branch kept.
+      afterRun: (run) => this.autoArchive.request(run.workspaceId!, { reason: { kind: 'employee', runId: run.id }, deleteBranch: false }),
+      // ask_person's question, as any agent's needs-input report on its chat and turn (docs/ai-employees.md §6.4, §11).
+      report: ({ workspaceId, sessionId, turnId, text }) => {
+        const { report, added } = this.agentReports.record({ workspaceId, sessionId, ...(turnId ? { turnId } : {}), kind: 'needs-input', text, via: 'mcp' })
+        // And Slack's "needs me" event, as an agent that needs the person (§6.4); other reports stay as they are.
+        if (added) this.agentSlackEvent('attention', workspaceId, sessionId, report.text)
+        return added ? report.id : undefined
+      },
+      closeReport: (workspaceId, reportId, how) => this.agentReports.close(workspaceId, reportId, how),
+      changed
+    })
+    this.employeeTriggers = new EmployeeTriggerService({
+      state: () => store.state,
+      employees: this.employees,
+      work: this.employeeWork,
+      flush: () => store.flush(),
+      changed
+    })
+    this.employeeEvents = new EmployeeEventService({
+      state: () => store.state,
+      db: () => store.db,
+      employees: this.employees,
+      work: this.employeeWork,
+      flush: () => store.flush(),
+      changed,
+      pullRequests: (repoId) => this.repoPullRequests(repoId),
+      baseTip: (repoId) => this.repoBaseTip(repoId),
+      // The repository's own Linear connection, as it resolves now: a missing or broken one refuses, never another account.
+      linearConnection: (repoId) => {
+        const r = this.integrations.resolve(repoId, 'linear')
+        if (r.state === 'ready') return this.integrations.secret(r.connection.id) ? { connectionId: r.connection.id, name: r.connection.name } : { refused: `${r.connection.name}’s key is missing.` }
+        if (r.state === 'broken') return { refused: this.integrations.brokenText(repoId, 'linear') }
+        const name = this.store.state.repos.find((x) => x.id === repoId)?.name ?? 'This repository'
+        return { refused: `${name} has no Linear connection.` }
+      },
+      linearAssigned: async (connectionId) => {
+        const token = this.integrations.secret(connectionId)
+        if (!token) throw new Error('The Linear connection’s key is missing.')
+        return linearAssignedIssues(token)
+      }
+    })
+    this.sessions.employeeBrief = (runId) => this.employeeWork.brief(runId)
+    // Outward actions (docs/ai-employees.md §9): the bridge's Slack and Linear calls, Foreman's push and pull request,
+    // each recorded first and sent only as the repository's connection it was recorded for.
+    this.employeeActions = new EmployeeActionService({
+      state: () => store.state,
+      db: () => store.db,
+      work: this.employeeWork,
+      employees: this.employees,
+      session: (sessionId) => this.store.state.sessions.find((s) => s.id === sessionId),
+      send: {
+        slack: ({ repoId, connectionId, channel, text }) => this.bridge.sendAction({ repoId, service: 'slack', connectionId, tool: 'slack_post', args: { channel, text } }),
+        linear: ({ repoId, connectionId, tool, args }) => this.bridge.sendAction({ repoId, service: 'linear', connectionId, tool, args }),
+        push: async ({ repoId, workspaceId, connectionId, branch, head }) => {
+          await this.sameScmConnection(repoId, connectionId)
+          const ws = this.workspaces.workspace(workspaceId)
+          if (ws.branch !== branch) throw new Error(`The workspace is on ${ws.branch} now, not ${branch}, so Foreman didn’t push.`)
+          await this.git.pushBranch(workspaceId, head)
+          return { detail: `Pushed ${branch}.` }
+        },
+        pullRequest: async ({ repoId, workspaceId, connectionId, branch, head, base, title, body }) => {
+          await this.sameScmConnection(repoId, connectionId)
+          const ws = this.workspaces.workspace(workspaceId)
+          if (ws.branch !== branch) throw new Error(`The workspace is on ${ws.branch} now, not ${branch}, so Foreman didn’t open the pull request.`)
+          // Sent again (after a failure, or a person's check): a pull request already open for the branch is found, not made twice.
+          const existing = await this.prs.get(ws, { fresh: true }).catch(() => undefined)
+          if (existing?.kind === 'ok' && existing.pr.state === 'OPEN') {
+            await this.git.pushBranch(workspaceId, head)
+            return { link: existing.pr.url, detail: `#${existing.pr.number} was already open for ${branch}; Foreman pushed the branch to it.` }
+          }
+          // A draft, as a flow's pr step opens one: people mark it ready.
+          const opened = await this.git.openPullRequest(workspaceId, { draft: true, title, body, base, head })
+          return { link: opened.url, detail: `Opened #${opened.number} as a draft.` }
+        }
+      },
+      scm: {
+        connection: (repoId) => this.employeeScmConnection(repoId),
+        prepare: (workspaceId, input) => this.employeeBranch(workspaceId, input)
+      }
+    })
+    // An AI employee's own tools, on its run's foreman-app server (docs/ai-employees.md §4, §6, §9).
+    this.foremanMcp.employeeTools = new EmployeeTools({ work: this.employeeWork, memory: this.memory, employees: this.employees, actions: this.employeeActions })
     this.data = new DataService(store, undefined, this.claudeMirror)
     this.gitBackup = new GitBackupService({
       store, secrets, workspaces: this.workspaces,
@@ -1134,7 +1313,9 @@ export class Core {
       repo: (repoId) => this.workspaces.repo(repoId),
       githubKey: (repoId) => this.workspaces.accountFor(repoId),
       notify: (n) => host.broadcast({ type: 'notify', sessionId: '', ...n }),
-      changed
+      changed,
+      // AI employees' base-moved event triggers look at their repositories' base tips on this cadence.
+      afterPoll: () => this.employeeEvents?.pollBases() ?? Promise.resolve()
     })
     this.spotlight = new Spotlight({
       log: (workspaceId, line) => host.broadcast({ type: 'setup-log', workspaceId, chunk: `${line}\n` }),
@@ -1250,7 +1431,11 @@ export class Core {
       logChanged: () => host.broadcast({ type: 'attention-history', ...this.attention.history() })
     })
     this.prPoll = new PrPoller({
-      afterPoll: () => this.pollSlackRepositories(),
+      // Slack rules' repositories, then AI employees' pull-request event triggers' (each repository at most every 2 minutes).
+      afterPoll: async () => {
+        await this.pollSlackRepositories()
+        await this.employeeEvents?.pollPullRequests().catch((err: unknown) => console.error('Employee events (pull requests):', err))
+      },
       workspaces: () => store.state.workspaces,
       prs: this.prs,
       hasRemote: (ws) => {
@@ -1390,6 +1575,29 @@ export class Core {
     if (merged && next && ws.state === 'ready' && settings.archiveOnMerge) {
       this.autoArchive.request(ws.id, { reason: { kind: 'merged', number: next.number }, deleteBranch: settings.deleteBranchOnArchive })
     }
+  }
+
+  /**
+   * A repository's open and recently merged pull requests for AI employees' event triggers: read in its own folder (never
+   * a workspace's, so never a sandbox) as its account, behind the PR cache's pause for that account.
+   */
+  private async repoPullRequests(repoId: string): Promise<PrListResult> {
+    const repo = this.workspaces.repo(repoId)
+    if (!repo.hasOrigin) return { kind: 'unavailable', message: `${repo.name} has no remote to read pull requests from.` }
+    return this.prs.list(this.scm.identity(repoId), async () => (await this.scm.forRepo(repoId)).listPullRequests(repo.rootPath))
+  }
+
+  /** A repository's base branch and its tip: on its remote (ls-remote, which changes nothing here), else here. */
+  private async repoBaseTip(repoId: string): Promise<{ branch: string; sha: string } | undefined> {
+    const repo = this.workspaces.repo(repoId)
+    const branch = repo.defaultBranch || 'main'
+    if (!repo.hasOrigin) {
+      const sha = await revParse(repo.rootPath, `refs/heads/${branch}`)
+      return sha ? { branch, sha } : undefined
+    }
+    const out = await git(repo.rootPath, ['ls-remote', '--heads', repo.remote || 'origin', `refs/heads/${branch}`], { allowFail: true, timeoutMs: 60_000, env: await remoteGitEnv(this.workspaces.accountFor(repoId)) })
+    const sha = out.code === 0 ? out.stdout.trim().split(/\s+/)[0] : ''
+    return sha ? { branch, sha } : undefined
   }
 
   /** Rules watch a repository's PRs even when no workspace or CI/review watch is open. */
@@ -1762,7 +1970,9 @@ export class Core {
       sessions: state.sessions,
       readChat: (id) => this.store.readChat(id),
       flowRuns: state.flowRuns ?? [],
-      templateNames: Object.fromEntries(state.settings.promptTemplates.map((t) => [t.id, t.name]))
+      templateNames: Object.fromEntries(state.settings.promptTemplates.map((t) => [t.id, t.name])),
+      // An AI employee's handed-off task: the chat it was handed off from (docs/ai-employees.md §7).
+      employeeParent: (taskId) => this.employeeWork.delegatedFrom(taskId)
     }
   }
 
@@ -2206,6 +2416,70 @@ export class Core {
   }
 
   /** The workspace's changes against its base as a stat: a line per file and the totals last. */
+  /**
+   * The repository's selected GitHub (or GitLab) connection for an AI employee's push or pull request (docs/ai-employees.md
+   * §9): its id and name, or why it can't be used. A chosen connection that is missing or broken refuses; it is never
+   * replaced by another account. With none chosen, Foreman's usual default (gh's active account) is named as such.
+   */
+  private async employeeScmConnection(repoId: string): Promise<{ connectionId?: string; name: string } | { refused: string }> {
+    // The id names the account itself (a gh login, or a fingerprint of the token), so a switched gh login or a replaced
+    // token is another account at send time, not the one a person approved.
+    const tokenId = (token: string) => createHash('sha256').update(token).digest('hex').slice(0, 12)
+    const target = await this.scm.target(repoId)
+    if (target.kind === 'gitlab') {
+      const token = this.secrets.appSecret(gitlabTokenKey(target.host.host))
+      return token ? { connectionId: `gitlab:${target.host.host}:${tokenId(token)}`, name: `GitLab (${target.host.host})` } : { refused: `There is no GitLab token for ${target.host.host}. Add one in Settings → Git → Accounts.` }
+    }
+    const r = this.integrations.resolve(repoId, 'github')
+    if (r.state === 'broken') return { refused: this.integrations.brokenText(repoId, 'github') }
+    if (r.state === 'none' && r.off) return { refused: 'GitHub is off for this repository (Repository settings → Integrations).' }
+    const key = await this.integrations.githubKeyFresh(repoId)
+    const identity = key ? this.integrations.githubIdentity(key) : null
+    if (identity && 'blocked' in identity) return { refused: identity.blocked }
+    if (identity && 'off' in identity) return { refused: identity.off }
+    const account = identity ? tokenId(identity.token) : key
+    if (r.state === 'ready') return account ? { connectionId: `${r.connection.id}:${account}`, name: r.connection.name } : { refused: this.integrations.brokenText(repoId, 'github') }
+    if (r.state === 'env') return account ? { connectionId: `env:${repoId}:${account}`, name: 'the repository’s GitHub token' } : { refused: 'The repository’s GitHub token is missing.' }
+    const login = await ghActiveAccountAsync(true)
+    return login ? { connectionId: `gh:${login}`, name: `gh’s active account (${login})` } : { refused: 'gh isn’t signed in to GitHub, so there is no account to send this as.' }
+  }
+
+  /** At send time: the repository's connection must still be the one the action was recorded for (never another account). */
+  private async sameScmConnection(repoId: string, recorded: string | undefined): Promise<void> {
+    const now = await this.employeeScmConnection(repoId)
+    if ('refused' in now) throw new Error(now.refused)
+    if (now.connectionId !== recorded) throw new Error('The repository’s GitHub connection changed since this was recorded, so Foreman didn’t send it with another account.')
+  }
+
+  /**
+   * An AI employee's branch for a push or pull request (docs/ai-employees.md §9): what it changed is committed first as
+   * the employee (without the repository's hooks, which would run code its definition never approved), then read
+   * against the base: the commits ahead, their subjects and the diff stat.
+   */
+  private async employeeBranch(workspaceId: string, input: { base?: string; commit: { message: string; author: { name: string; email: string } } }): Promise<BranchPreview> {
+    const ws = this.workspaces.workspace(workspaceId)
+    if (ws.cloud) throw new Error('An AI employee’s run can’t push from a cloud workspace yet.')
+    const at = wsPath(ws)
+    const repo = this.workspaces.repo(ws.repoId)
+    const base = input.base ?? ws.baseBranch
+    if ((await gitOut(at, ['status', '--porcelain'])).trim()) {
+      await git(at, ['add', '-A'])
+      const { name, email } = input.commit.author
+      await git(at, ['-c', `user.name=${name}`, '-c', `user.email=${email}`, '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-q', '-m', input.commit.message])
+    }
+    const tracking = `refs/remotes/${repo.remote || 'origin'}/${base}`
+    const baseRef = (await git(at, ['rev-parse', '--verify', '--quiet', tracking], { allowFail: true })).code === 0 ? tracking : base
+    if ((await git(at, ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`], { allowFail: true })).code !== 0) throw new Error(`There is no branch “${base}” here to compare with.`)
+    const head = await gitOut(at, ['rev-parse', 'HEAD'])
+    const ahead = Number(await gitOut(at, ['rev-list', '--count', `${baseRef}..HEAD`])) || 0
+    const log = await gitOut(at, ['log', '-n', '20', '--format=%h%x09%s', `${baseRef}..HEAD`])
+    const commits = log ? log.split('\n').map((line) => ({ sha: line.split('\t')[0], subject: line.split('\t').slice(1).join('\t') })) : []
+    const stat = await gitOut(at, ['diff', '--shortstat', `${baseRef}...HEAD`]).catch(() => '')
+    const num = (re: RegExp) => Number(re.exec(stat)?.[1] ?? 0)
+    const diffStat = stat ? { files: num(/(\d+) files? changed/), insertions: num(/(\d+) insertions?/), deletions: num(/(\d+) deletions?/) } : undefined
+    return { branch: ws.branch, base, head, ahead, commits, ...(diffStat ? { diffStat } : {}) }
+  }
+
   private async diffStatText(workspaceId: string): Promise<string> {
     const ws = this.store.state.workspaces.find((w) => w.id === workspaceId)
     if (!ws) return ''
@@ -2262,6 +2536,21 @@ export class Core {
     handle.flowRun?.(run.id)
     // A run that ended before its id was recorded (its first step refused at once) ends the occurrence now.
     if (!isActiveRun(run)) this.schedules.flowRunEnded(run)
+  }
+
+  /**
+   * An AI employee's run (docs/ai-employees.md §6.3): a fresh workspace of the target repository from its default branch,
+   * made the way a scheduled run's is, on this computer; its first chat is unattended as the run (its mark carries what it
+   * may do) and its first message is the task. Resolves once setup has settled; the turn starts when an agent slot is free.
+   */
+  private async launchEmployeeRun(plan: EmployeeLaunchPlan, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
+    const ws = await this.createFromOptions(
+      plan.repoId,
+      { prompt: plan.message, baseBranch: plan.baseBranch, branch: { kind: 'new' }, loadout: plan.loadout, location: 'local' },
+      { employeeRun: { mark: plan.mark, origin: plan.origin }, startedBy: plan.startedBy, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
+    )
+    const setup = await this.setupOutcome(ws.id, plan.setupMs)
+    if (setup.failed || setup.held) throw new Error(`Setup failed, so the task was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
   }
 
   /** Wait for a new workspace's setup to settle. `held` is set when setup failed with a message held back. */
@@ -2346,7 +2635,7 @@ export class Core {
     // An explicit model wins; otherwise the template's start model, which only ever applies to a chat started here.
     const template = this.workspaces.template(templateId)
     // Get started: a workspace started from a template (a scheduled run is not the person trying one).
-    if (template && !internal?.scheduled && !internal?.flowRun && !internal?.flowWorkspace) this.recordMilestone('template')
+    if (template && !internal?.scheduled && !internal?.flowRun && !internal?.flowWorkspace && !internal?.employeeRun) this.recordMilestone('template')
     const start = chooseStartLoadout(loadout, template)
     const chosen = start.loadout
     const session = this.sessions.createSession(workspaceId, {
@@ -2354,7 +2643,7 @@ export class Core {
       // #130: a model chosen for the workspace comes with its account (a template's start model has none of its own).
       ...(start.source === 'explicit' && chosen ? { instanceId: chosen.instance ?? null } : {}),
       // A scheduled run never starts in plan mode: nobody is there to review a plan.
-      ...(internal?.scheduled || internal?.flowRun || internal?.flowWorkspace ? { planMode: false } : {})
+      ...(internal?.scheduled || internal?.flowRun || internal?.flowWorkspace || internal?.employeeRun ? { planMode: false } : {})
     })
     // #130: the first chat's account is the workspace's pick for that agent's later chats.
     if (session.instanceId) {
@@ -2364,12 +2653,15 @@ export class Core {
     // Marked before the first message can go, so the run is unattended from its first tool call.
     if (internal?.scheduled) session.unattended = { occurrenceId: internal.scheduled.occurrenceId }
     if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step, ...(internal.flowRun.persona ? { persona: internal.flowRun.persona } : {}) }
+    if (internal?.employeeRun) session.unattended = internal.employeeRun.mark
     internal?.onChat?.(workspaceId, session.id)
     if (prompt?.trim() || files?.length) {
       // A schedule's run, a flow run's first step and an outside agent's start_task say so on the message (MessageOrigin).
       const outside = internal?.startedBy?.via === 'outside' ? internal.startedBy : undefined
       const origin: MessageOrigin | undefined = internal?.scheduled
         ? { kind: 'schedule', scheduleId: internal.scheduled.scheduleId, occurrenceId: internal.scheduled.occurrenceId }
+        : internal?.employeeRun
+          ? internal.employeeRun.origin
         : internal?.flowRun
           ? { kind: 'flow', runId: internal.flowRun.runId, step: internal.flowRun.step, iteration: 1 }
           : outside
@@ -2750,6 +3042,11 @@ export class Core {
       schedules: this.schedules.schedules,
       occurrences: this.schedules.occurrences,
       flowRuns: settings.flows ? this.flows.runs : [],
+      organizations: this.store.state.organizations ?? [],
+      memory: this.memory.statuses(),
+      employees: this.employees.rosters(),
+      employeeWork: this.employeeWork.views(),
+      employeeTriggers: this.employeeTriggers.view(),
       platform: process.platform,
       homeDir: os.homedir(),
       screenReader: this.host.screenReader?.() ?? false,
@@ -3075,6 +3372,54 @@ export class Core {
       }
       await this.workspaces.removeRepo(id)
       this.secrets.forgetRepo(id)
+      // An organization whose memory repository this was has none now; the folder stays where it is.
+      this.organizations.repoRemoved(id)
+    },
+    createOrganization: (input) => this.organizations.create(input),
+    renameOrganization: async (id, name) => this.organizations.rename(id, name),
+    deleteOrganization: async (id) => this.organizations.delete(id),
+    moveRepoToSpace: async (repoId, organizationId) => this.organizations.moveRepo(repoId, organizationId),
+    setOrganizationMemory: (organizationId, memory) => this.organizations.setMemory(organizationId, memory),
+    memoryStatus: (organizationId) => this.memory.status(organizationId),
+    memoryTree: (organizationId) => this.memory.tree(organizationId),
+    memoryReadFile: (organizationId, path) => this.memory.read(organizationId, path),
+    memoryFileHistory: (organizationId, path) => this.memory.history(organizationId, path),
+    memorySearch: (organizationId, query) => this.memory.search(organizationId, query),
+    memoryWriteFile: (organizationId, path, text, expectedBlob) => this.memory.writeAsPerson(organizationId, path, text, expectedBlob),
+    memoryAcceptForeign: (organizationId) => this.memory.acceptForeign(organizationId),
+    listEmployees: (organizationId) => this.employees.list(organizationId),
+    generateEmployeeDraft: (organizationId, input) => this.employees.generate(organizationId, input),
+    refineEmployeeDraft: (organizationId, draft, request) => this.employees.refine(organizationId, draft, request),
+    createEmployee: (organizationId, definition, options) => this.employees.create(organizationId, definition, options),
+    updateEmployee: (organizationId, id, definition, expectedBlob) => this.employees.update(organizationId, id, definition, expectedBlob),
+    approveEmployee: (organizationId, id, expectedFingerprint) => this.employees.approve(organizationId, id, expectedFingerprint),
+    pauseEmployee: (organizationId, id) => this.employees.pause(organizationId, id),
+    resumeEmployee: (organizationId, id) => this.employees.resume(organizationId, id),
+    retireEmployee: (organizationId, id) => this.employees.retire(organizationId, id),
+    setEmployeeTriggerOff: async (organizationId, employeeId, triggerId, off) => {
+      if (!this.store.state.settings.aiEmployees) throw new Error(AI_EMPLOYEES_OFF)
+      this.employeeTriggers.setOff(organizationId, employeeId, triggerId, off === true)
+    },
+    askEmployee: (organizationId, employeeId, input) => this.employeeWork.ask(organizationId, employeeId, input),
+    runEmployeeNow: (organizationId, employeeId, input) => this.employeeWork.runNow(organizationId, employeeId, input ?? {}),
+    listEmployeeTasks: async (organizationId, employeeId) => this.employeeWork.tasks(organizationId, employeeId),
+    listEmployeeRuns: async (organizationId, employeeId, taskId) => this.employeeWork.runs(organizationId, employeeId, taskId),
+    stopEmployeeRun: (runId) => this.employeeWork.stop(runId),
+    retryEmployeeTask: (taskId) => this.employeeWork.retry(taskId),
+    cancelEmployeeTask: (taskId) => this.employeeWork.cancel(taskId),
+    answerEmployeeQuestion: (taskId, questionId, answer) => this.employeeWork.answerQuestion(taskId, questionId, answer),
+    keepMemoryProposal: (organizationId, proposalId) => this.employeeWork.keepProposal(organizationId, proposalId),
+    retireMemoryProposal: (organizationId, proposalId) => this.employeeWork.retireProposal(organizationId, proposalId),
+    employeeTaskChain: async (taskId) => this.employeeWork.chain(taskId),
+    raiseEmployeeRootLimit: (rootId) => this.employeeWork.raiseRootLimit(rootId),
+    sendEmployeeAction: (actionId, options) => this.employeeActions.send(actionId, options ?? {}),
+    skipEmployeeAction: async (actionId) => this.employeeActions.skip(actionId),
+    confirmEmployeeAction: async (actionId) => this.employeeActions.confirmArrived(actionId),
+    setOrganizationLead: async (organizationId, employeeId) => {
+      // Only one of the organization's own employees, as its memory repository has them now.
+      if (employeeId !== null) await this.employees.current(organizationId, employeeId)
+      const org = this.organizations.setLead(organizationId, employeeId)
+      return org
     },
     updateRepoSettings: async (repoId, patch) => {
       const result = await this.workspaces.updateRepoSettings(repoId, patch)
@@ -4086,6 +4431,15 @@ export class Core {
       if (patch.restoreTerminals === false) this.terminals.clear()
       // Turning the assistant off (or privacy mode on) stops what it is answering.
       if (patch.assistantEnabled === false || patch.privacyMode === true) void this.assistant.stopAll()
+      // AI employees turned on: each memory repository is looked at (and unfinished commits settled) in the background.
+      if (patch.aiEmployees === true)
+        void this.memory
+          .start()
+          .then(() => this.employees.refreshAll())
+          .then(() => this.employeeWork.pump())
+          .catch((err: unknown) => console.error('Memory:', err))
+      // Turned off: employee runs going stop as Stop would, saying why; queued work waits until they are on again.
+      if (patch.aiEmployees === false) void this.employeeWork.stopAll('Stopped: AI employees were turned off in Settings → Experimental.').catch(() => undefined)
       // Turning Flows off stops the runs in flight as Stop would, saying why.
       if (patch.flows === false) void this.flows.stopAll('Stopped: Flows were turned off in Settings → Experimental.')
       if (patch.scriptShell) setScriptShell(patch.scriptShell)
@@ -4241,6 +4595,8 @@ export class Core {
     this.baseWatch.stop()
     this.schedules.stopTimer()
     this.flows.stopTimer()
+    // An AI employee's run the quit stops stays as it was: the next start calls it uncertain, as after a crash.
+    this.employeeWork.closeDown()
     this.autoArchive.stop()
     this.limitResume.stopTimer()
     if (this.powerTimer) clearInterval(this.powerTimer)
@@ -4257,6 +4613,8 @@ export class Core {
     // O10: after a keep-running quit, turns in the background host go on; otherwise they stop like any other.
     const keepHosted = this.stopSafely.keeping
     await Promise.all([this.sessions.shutdown({ keepHosted }), this.workspaces.shutdown()])
+    // A recap being committed to an organization's memory repository (a run that ended before the quit) finishes first.
+    await this.employeeWork.settle()
     if (!keepHosted) this.agentHost.close()
     // Cloud workspaces' turns go on in their sandboxes; the app only lets go.
     this.foremanMcp.close()

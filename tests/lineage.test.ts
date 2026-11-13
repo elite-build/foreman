@@ -5,6 +5,7 @@ import { flowMermaid } from '../src/shared/flowGraph'
 import { parseFlow, validateFlow } from '../src/shared/flows'
 import { REVIEW_MESSAGE } from '../src/shared/handOff'
 import { createT } from '../src/shared/i18n'
+import { lineageInput } from '../src/main/lineage'
 import { draftFlowFromLineage, lineageGraph, lineageOutline, type LineageInput } from '../src/shared/lineage'
 import type { AutoReview, ChatItem, Session, Workspace } from '../src/shared/types'
 
@@ -118,6 +119,22 @@ describe('the run lens', () => {
     expect(edgeLabelled(graph, 'sent by')).toEqual([expect.objectContaining({ from: 'outside:g1', to: 'turn:s1:t5', recorded: 'MessageOrigin' })])
     expect(edgeLabelled(graph, 'delegated by')).toEqual([])
     expect(lineageOutline(graph).find((e) => e.id === 'outside:g1')?.label).toBe('Claude Code (outside agent)')
+  })
+
+  it('draws an AI employee’s handed-off task from the requester’s chat it came from, following the task’s parent (§7)', async () => {
+    const input = fixture()
+    input.workspace.startedBy = { via: 'employee', orgId: 'o1', employeeId: 'e-ada2', runId: 'run-2', taskId: 'task-2', title: 'Fix the login bug' }
+    // No parent recorded (a task a person asked for): no delegation edge.
+    expect(edgeLabelled(lineageGraph(input, 'run'), 'delegated by')).toEqual([])
+    input.employeeParent = { sessionId: 'c1', turnId: 'ct1', name: 'Max' }
+    expect(edgeLabelled(lineageGraph(input, 'run'), 'delegated by')).toEqual([expect.objectContaining({ from: 'turn:c1:ct1', to: 'turn:s1:t1', recorded: 'EmployeeTask.parentId' })])
+    // main/lineage.ts reads that chat too, from the task's parent, when it gathers the records.
+    const gathered = await lineageInput(
+      { workspaces: input.workspaces!, sessions: input.sessions, readChat: async (id) => input.chats.get(id) ?? [], employeeParent: (taskId) => (taskId === 'task-2' ? { sessionId: 'c1', turnId: 'ct1', name: 'Max' } : undefined) },
+      'ws1'
+    )
+    expect(gathered.employeeParent).toEqual({ sessionId: 'c1', turnId: 'ct1', name: 'Max' })
+    expect(gathered.sessions.map((s) => s.id)).toContain('c1')
   })
 
   it('labels in the app’s language', () => {

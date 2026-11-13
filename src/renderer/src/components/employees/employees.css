@@ -1,0 +1,691 @@
+/* ---- AI employees (docs/ai-employees.md §5, §10): layout only; every control and frame is a ui/ component ---- */
+
+/* The sidebar's Team section, above the workspace list. */
+.team-section {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin: 0 12px 8px;
+  min-width: 0;
+}
+.team-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 2px 4px;
+}
+.team-section-count {
+  margin-right: auto;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.team-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-row .ui-action-row__main,
+div.team-row {
+  min-width: 0;
+}
+/* The row's button is a grid of hat | words, like a workspace row's (.ws-row .ws-flow): the hat beside the name and
+   role on the first line, the state and current task on the second. The rule names the row as well as the button
+   because ui/ui.css loads after every feature sheet (main.tsx) and its `.ui-pressable { display: block }` has the
+   same weight as a lone class: with `.team-row-main` alone the button stayed a block and the hat sat on a line of
+   its own above the name. */
+.team-row .team-row-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 1px;
+  align-items: center;
+}
+.team-row-hat {
+  grid-column: 1;
+  grid-row: 1;
+}
+/* Name and role on the first line, the state and task under them: the task gives way, never the name or the state. */
+.team-row-who,
+.team-row-line {
+  grid-column: 2;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.team-row-who {
+  grid-row: 1;
+  align-items: baseline;
+}
+.team-row-line {
+  align-items: center;
+}
+.team-row-status {
+  flex: none;
+}
+.team-row-name {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.team-row-role {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.team-row-doing {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.team-empty {
+  margin: 0;
+  padding: 2px 4px 4px;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+/* The view: it covers the main area like Settings, Automations and the Memory view. */
+.employees-view {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.employees-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.app.main-first.platform-darwin .employees-head {
+  padding-left: 84px;
+}
+.employees-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.employees-head-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.employees-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px 32px;
+}
+.employees-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Shared text. */
+.employee-faint {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.employee-subheading {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.employee-name {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+/* The Team page: a card per employee, side by side while they fit. */
+.team-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 1100px;
+}
+.team-page-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+.team-page-head > p {
+  margin: 0;
+}
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-retired {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.employee-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  min-width: 0;
+}
+.employee-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.employee-card-who {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.employee-card-duties {
+  margin: 0;
+  padding-left: 18px;
+}
+.employee-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+}
+
+/* The New employee page and the Edit view: one column of cards. */
+.new-employee,
+.employee-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 820px;
+}
+.new-employee > p,
+.employee-page > p {
+  margin: 0;
+}
+.new-employee-card,
+.employee-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  min-width: 0;
+}
+.new-employee-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.new-employee-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.new-employee-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.new-employee-next ol {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+.new-employee-folded {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.new-employee-quote {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.new-employee-draft-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.new-employee-draft-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.new-employee-refine {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.new-employee-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.new-employee-suggestion {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.new-employee-suggestion-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.new-employee-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.new-employee-footer > :first-child {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* The draft's words and the precise form. */
+.employee-words,
+.employee-access {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.employee-row2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.employee-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.employee-group > p {
+  margin: 0;
+}
+.employee-responsibilities {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.employee-responsibility {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.employee-responsibility > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.employee-repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.employee-repo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.employee-repo-name {
+  flex: 1;
+  min-width: 140px;
+  overflow-wrap: anywhere;
+}
+.employee-limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.employee-hats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.employee-hats > :first-child {
+  align-self: stretch;
+}
+
+/* What it can do: a sentence per line, Change at its end. */
+.employee-can-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.employee-can-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* The approval plan. */
+.employee-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.employee-plan > p {
+  margin: 0;
+}
+.employee-plan-list {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+.employee-plan-list dt {
+  font-weight: 600;
+}
+.employee-plan-list dd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  min-width: 0;
+}
+.employee-plan-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.employee-plan-bullets {
+  margin: 0;
+  padding-left: 18px;
+}
+.employee-plan-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* An employee's page. */
+.employee-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.employee-page-who {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1;
+  min-width: 160px;
+}
+.employee-page-head > .employee-card-actions {
+  margin-top: 0;
+}
+.employee-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.employee-section > p {
+  margin: 0;
+}
+.employee-description {
+  margin: 0;
+}
+.employee-instructions {
+  padding: 8px 0;
+}
+.employee-diff {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow: auto;
+}
+.employee-diff-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+.employee-diff-gap {
+  color: var(--text-faint);
+}
+
+@media (max-width: 720px) {
+  .employees-body {
+    padding: 12px;
+  }
+  .employee-plan-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- tasks and runs (docs/ai-employees.md §6): layout only; the cards, statuses and buttons are ui/ components ---- */
+.employee-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  min-width: 0;
+}
+.employee-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.employee-task {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.employee-task-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.employee-task-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.employee-task-why,
+.employee-task-result {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.team-needs-you {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.employee-card-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.employee-card-doing {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.employee-run-banner {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.employee-run-banner-task {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* An employee's question (ask_person) and a memory proposal's text, inside a task's Card: layout only. */
+.employee-question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.employee-question-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.employee-proposal-text {
+  margin: 0;
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* An employee's triggers (docs/ai-employees.md §8): the Triggers tab's cards, the Edit view's rows and the trigger form. */
+.employee-triggers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.employee-trigger-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.employee-trigger,
+.employee-trigger-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.employee-trigger {
+  padding: 10px 12px;
+}
+.employee-trigger-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.employee-trigger-when {
+  font-weight: 500;
+}
+.employee-trigger-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.employee-trigger-when-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.employee-trigger-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.employee-trigger-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+}
+.employee-card-next {
+  margin: 0;
+}
+/* A task's chain and receipts (docs/ai-employees.md §7): layout only; the glyphs, tags and stepper bring their own look. */
+.employee-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  min-width: 0;
+}
+.employee-chain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.employee-chain-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.employee-card-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}

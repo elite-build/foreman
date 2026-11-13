@@ -1,6 +1,6 @@
 // Add repository: open a folder, clone from GitHub or a URL, start a new
 // project, or reopen a recent folder.
-import { Folder, FolderOpen, FolderPlus, Globe, Lock, Search, X } from 'lucide-react'
+import { Folder, FolderOpen, FolderPlus, Globe, Lock, Network, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { GITHUB_REPOS_LISTED, type GithubRepo, type GitIdentity } from '../../../shared/types'
 import {
@@ -11,6 +11,7 @@ import {
   modKey,
   onCloneProgress,
   openAddRepoDialog,
+  openCreateOrganization,
   openMakeRepo,
   openRecentRepo,
   quickStartRepository,
@@ -31,13 +32,15 @@ function repoNameFromUrl(url: string): string {
 }
 
 /**
- * The items of the Add repository menu: Open project, Open GitHub project, Quick start, Recents. Rendered inside a
- * `MenuButton` (the rail's Add button draws it beside itself, in the document, so the scrolling rail can't clip it).
+ * The items of the Add repository menu: Open project, Open GitHub project, Quick start, Recents, and, while AI employees
+ * are on, Create an organization…. Rendered inside a `MenuButton` (the rail's Add button draws it beside itself, in the
+ * document, so the scrolling rail can't clip it).
  */
 export function AddRepoItems() {
   const t = useT()
   const recents = useStore((s) => s.snapshot!.recentRepos)
   const home = useStore((s) => s.snapshot!.homeDir)
+  const organizations = useStore((s) => Boolean(s.snapshot!.settings.aiEmployees))
   return (
     <>
       <MenuItem icon={<FolderOpen size={15} />} onSelect={() => void addRepository()}>
@@ -67,12 +70,20 @@ export function AddRepoItems() {
           </MenuGroup>
         </>
       )}
+      {organizations && (
+        <>
+          <MenuSeparator />
+          <MenuItem icon={<Network size={15} />} description={t('spaces.create.menuDetail')} onSelect={() => openCreateOrganization(true)}>
+            {t('spaces.create.menu')}
+          </MenuItem>
+        </>
+      )}
     </>
   )
 }
 
 /** A folder field with Browse. */
-function LocationField({ value, onChange, title, description }: { value: string; onChange: (value: string) => void; title: string; description?: string }) {
+export function LocationField({ value, onChange, title, description }: { value: string; onChange: (value: string) => void; title: string; description?: string }) {
   const t = useT()
   return (
     <Field className="add-repo-section" label={t('addRepo.location.label')} description={description}>

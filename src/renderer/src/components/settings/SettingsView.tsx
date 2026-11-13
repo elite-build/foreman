@@ -22,6 +22,7 @@ import { IntegrationsPage } from './integrations/IntegrationsPage'
 import { ModelsPage } from './ModelsPage'
 import { CATEGORIES, categoryOf, REPO_TAB_LABELS, type SettingsCategory } from './registry'
 import { RepoPage } from './RepoPage'
+import { SpacesPage } from './SpacesPage'
 import { SettingsNav } from './SettingsNav'
 import './settings.css'
 
@@ -67,6 +68,12 @@ export function SettingsView({ page }: { page: SettingsPage }) {
   useEffect(() => {
     if (page.section === 'repo' && !repo) openSettingsPage({ section: 'general' })
   }, [page, repo])
+
+  // Spaces is there only while AI employees are on; turned off, it shows where to turn them on again.
+  const spacesOff = useStore((s) => page.section === 'spaces' && !s.snapshot!.settings.aiEmployees)
+  useEffect(() => {
+    if (spacesOff) openSettingsPage({ section: 'experimental', scrollTo: 'ai-employees' })
+  }, [spacesOff])
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: 0 })
@@ -201,5 +208,7 @@ function SectionPage({ section, page }: { section: PersonalSection | 'agents'; p
       return <DataPage />
     case 'cloud':
       return <CloudPage />
+    case 'spaces':
+      return <SpacesPage />
   }
 }

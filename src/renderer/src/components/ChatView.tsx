@@ -625,6 +625,13 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   )
 }
 
+/** An AI employee's run's task, sent by Foreman: whose it is (docs/ai-employees.md §6.3). */
+function EmployeeReceipt({ origin }: { origin: Extract<NonNullable<Extract<ChatItem, { kind: 'user' }>['origin']>, { kind: 'employee' }> }) {
+  const t = useT()
+  const name = useStore((s) => s.snapshot?.employees?.[origin.orgId]?.employees.find((e) => e.id === origin.employeeId)?.name) || origin.employeeId
+  return <div className="note-tag faint small">{t('chat.receipt.employee', { name })}</div>
+}
+
 /** A quiet line under a sent message: what Foreman added to it, expandable to each part with its size and source. */
 function ContextReceipt({ parts }: { parts: ContextPart[] }) {
   const t = useT()
@@ -637,8 +644,9 @@ function ContextReceipt({ parts }: { parts: ContextPart[] }) {
       {open && (
         <div className="ctx-open">
           {parts.map((p) => (
-            <div key={p.kind}>
-              <b>{p.label[0].toUpperCase() + p.label.slice(1)}</b> · {p.source} ({partSize(p, t, t.locale)}){p.detail && <span className="faint"> · {p.detail}</span>}
+            // A run's pinned memory is a part per file, so the kind alone doesn't tell them apart.
+            <div key={`${p.kind}:${p.label}`}>
+              <b>{p.kind === 'memory' ? p.label : p.label[0].toUpperCase() + p.label.slice(1)}</b> · {p.source} ({partSize(p, t, t.locale)}){p.detail && <span className="faint"> · {p.detail}</span>}
             </div>
           ))}
           <div className="faint">{t('chat.receipt.disclaimer')}</div>
@@ -823,6 +831,7 @@ const ChatRow = memo(function ChatRow({
             {item.noteRevision !== undefined && <div className="note-tag faint small">{t('chat.noteTag', { revision: item.noteRevision })}</div>}
             {item.readOnly && <ReadOnlyReceipt how={item.readOnly} />}
             {item.origin?.kind === 'outside' && <div className="note-tag faint small">{t('chat.receipt.outside', { name: item.origin.name })}</div>}
+            {item.origin?.kind === 'employee' && <EmployeeReceipt origin={item.origin} />}
             {item.attachments && item.attachments.length > 0 && (
               <div className="attachment-row">
                 {item.attachments.map((a) => (

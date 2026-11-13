@@ -17,21 +17,22 @@ import { FlowApproval, FlowInputFields, FlowPicker, flowStartReady, flowTitle, u
 
 const NO_HIDDEN: HiddenModels = {}
 
-const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+export const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
-function zones(current: string): string[] {
+/** Every IANA time zone this runtime knows, `current` first (it may be one this runtime doesn't list). */
+export function zones(current: string): string[] {
   const list = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? []
   const all = new Set([current, ...list])
   return [...all]
 }
 
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
-const REPEAT_OPTIONS: { value: Schedule['recurrence']; label: PlainKey }[] = [
+export const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
+export const REPEAT_OPTIONS: { value: Schedule['recurrence']; label: PlainKey }[] = [
   { value: 'once', label: 'scheduleDialog.repeat.once' }, { value: 'hourly', label: 'scheduleDialog.repeat.hourly' }, { value: 'daily', label: 'scheduleDialog.repeat.daily' },
   { value: 'weekly', label: 'scheduleDialog.repeat.weekly' }, { value: 'monthly', label: 'scheduleDialog.repeat.monthly' }
 ]
 
-function tomorrowInZone(zone: string): string {
+export function tomorrowInZone(zone: string): string {
   const today = dateInZone(Date.now(), zone)
   return new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
 }
@@ -39,7 +40,7 @@ function tomorrowInZone(zone: string): string {
 const ORDINAL_KEYS = { one: 'schedule.ordinal.one', two: 'schedule.ordinal.two', few: 'schedule.ordinal.few', other: 'schedule.ordinal.other' } as const
 
 /** "1st", "22nd": the form comes from the language's ordinal rules. */
-function ordinal(day: number, t: TFunction, locale: Locale): string {
+export function ordinal(day: number, t: TFunction, locale: Locale): string {
   const form = new Intl.PluralRules(locale, { type: 'ordinal' }).select(day)
   return t(form === 'one' || form === 'two' || form === 'few' ? ORDINAL_KEYS[form] : ORDINAL_KEYS.other, { day })
 }
@@ -493,7 +494,7 @@ function attentionFor(schedule: Schedule, occurrences: Occurrence[]): Occurrence
 const STATE_LABEL: Partial<Record<Occurrence['state'], PlainKey>> = { 'needs-you': 'scheduledCard.state.needsYou', uncertain: 'scheduledCard.state.uncertain', failed: 'scheduledCard.state.failed', 'timed-out': 'scheduledCard.state.timedOut' }
 
 /** "Every day at 09:00"; components pass useT()'s t and t.locale. */
-export function cadenceText(s: Schedule, t: TFunction = storeT, locale: Locale = uiLocale()): string {
+export function cadenceText(s: Pick<Schedule, 'recurrence' | 'startDate' | 'time' | 'weekdays' | 'dayOfMonth'>, t: TFunction = storeT, locale: Locale = uiLocale()): string {
   switch (s.recurrence) {
     case 'once': return t('schedule.cadence.once', { date: s.startDate, time: s.time })
     case 'hourly': return t('schedule.cadence.hourly', { minute: s.time.slice(3) })

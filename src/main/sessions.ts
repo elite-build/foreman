@@ -32,6 +32,7 @@ import type {
   ApprovalResponse,
   Attachment,
   ChatItem,
+  EmployeeTurnMark,
   Loadout,
   MessageFollowUp,
   SendDisposition,
@@ -58,6 +59,7 @@ import { buildHandOff, chooseStrategy, clampBudget, handOffRecord, readChatHisto
 import { catalogAgent, DEFAULT_AGENT } from '../shared/agentCatalog'
 import { waitingOnLimit, withWindows, type LimitWindow } from '../shared/limits'
 import { IdleCompactor } from './idleCompact'
+import type { EmployeeBrief } from './employeeWork'
 import { continuationKey, DEFAULT_MOVE_RULE, INSTANCE_FIELDS, instanceMove, resolveInstance, takesInstances, type AgentInstance, type ResolvedInstance } from '../shared/agentInstances'
 import { agentBaseEnv } from './platform'
 import type { AgentKind } from '../shared/agents'
@@ -112,6 +114,9 @@ export interface SessionEvents {
   settled?(workspaceId: string): void
   // A scheduled (unattended) run asked for an approval or a question and was stopped for the human.
   unattendedStopped?(sessionId: string, what: string): void
+  // A turn is starting, before the agent gets it: an AI employee's run records that its turn started (a crash after this
+  // leaves it uncertain, never replayed; docs/ai-employees.md §6.6).
+  turnStarted?(sessionId: string, turnId: string): void
   // A flow's attended step (a read-only step on Codex) asked for an approval (waiting) or got its answer.
   attendedApproval?(sessionId: string, waiting: boolean): void
   // #11: something happened in this tab (a send, queue or steer, a rewind or restore, a model change, close or archive): an armed usage-limit resume is moot.
@@ -279,6 +284,9 @@ export class SessionService {
   // docs/agent-access.md §4 (Core sets it from the Foreman access service): whether an outside sign-in still exists. A
   // message or turn whose cap names one that doesn't is refused. Unset (no service): nothing is refused.
   grantExists?: (grantId: string) => boolean
+  // docs/ai-employees.md §5.2 (Core sets it from the employee work service): what an AI employee's run's turn is given
+  // besides its task. Undefined for a run that has ended (or after a restart): its turn doesn't start.
+  employeeBrief?: (runId: string) => EmployeeBrief | undefined
 
   constructor(
     private store: Store,
@@ -1135,9 +1143,20 @@ export class SessionService {
     return false
   }
 
-  /** A flow step's persona for this turn (and what the step narrows), while its turn is unattended. */
+  /**
+   * What narrows this turn while it is unattended: a flow step's persona (and what the step narrows), or an AI employee's
+   * run's access (read-only, its write scope, the MCP servers it keeps) with the persona it wears, narrowing only.
+   */
   private turnPersona(session: Session): TurnPersona | undefined {
-    return session.unattended && 'flowRunId' in session.unattended ? session.unattended.persona : undefined
+    const mark = session.unattended
+    if (mark && 'flowRunId' in mark) return mark.persona
+    if (mark && 'employeeRunId' in mark) return mark.persona
+    return undefined
+  }
+
+  /** The AI employee's run this turn is, while it runs (docs/ai-employees.md §6.3). */
+  private employeeMark(session: Session): EmployeeTurnMark | undefined {
+    return session.unattended && 'employeeRunId' in session.unattended ? session.unattended : undefined
   }
 
   /** #16: how this chat is held to read-only, or null when it isn't (or its agent can't enforce it, which refuses the turn). A flow step's persona can hold one turn read-only. */
@@ -1161,7 +1180,7 @@ export class SessionService {
     const writes = this.turnPersona(session)?.writes
     if (!writes?.length || this.readOnly(session)) return undefined
     const scoped = this.record(session.agent, session.instanceId)?.enforcement.scopedWrites
-    if (!scoped || !offers(scoped)) throw new Error(`This flow step may only write inside ${writes.join(', ')}, which ${AGENTS[session.agent]?.label ?? session.agent} can’t be held to${scoped?.why === 'agentCaps.why.sandboxNotReady' ? ' while its sandbox isn’t ready on this computer' : ''}`)
+    if (!scoped || !offers(scoped)) throw new Error(`${this.employeeMark(session) ? 'This AI employee’s run' : 'This flow step'} may only write inside ${writes.join(', ')}, which ${AGENTS[session.agent]?.label ?? session.agent} can’t be held to${scoped?.why === 'agentCaps.why.sandboxNotReady' ? ' while its sandbox isn’t ready on this computer' : ''}`)
     return writes
   }
 
@@ -1419,6 +1438,8 @@ export class SessionService {
     else delete session.turnCap
     session.lastTurn = undefined
     session.lastActivityAt = message.at
+    // Before the agent gets it: an AI employee's run records that its turn started.
+    this.events.turnStarted?.(sessionId, turnId)
     this.changed()
     // From here on the turn has a visible start, so every way out must end it with an outcome.
     try {
@@ -1500,9 +1521,16 @@ export class SessionService {
     // A flow step's persona: its instructions follow the rest, for this turn only; its MCP list keeps fewer servers.
     const persona = this.turnPersona(session)
     const scope = this.writeScope(session)
-    const scopeText = scope ? `\n\nThis step may only write files inside ${scope.join(', ')} (relative to the workspace root). Foreman refuses writes anywhere else, and any command that could write; read with what only reads.` : ''
-    const personaText = persona?.name && persona.instructions?.trim() ? `${personaTurnText(persona.name, persona.instructions)}${scopeText}` : scopeText.trim()
-    const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '') + (personaText ? `\n\n${personaText}` : '')
+    // docs/ai-employees.md §5.2: an AI employee's run is given Foreman's rules, what it may do and the organization's and
+    // its own instructions (its brief), then the persona it wears (narrowing only); pinned memory goes before its task.
+    const employee = this.employeeMark(session)
+    const brief = employee ? this.employeeBrief?.(employee.employeeRunId) : undefined
+    if (employee && !brief) throw new Error('This AI employee’s run has ended, so its turn can’t start.')
+    if (employee && ws.cloud) throw new Error('An AI employee’s run can’t run in a cloud workspace yet.')
+    // An employee's brief says what it may write in its own words.
+    const scopeText = scope && !employee ? `\n\nThis step may only write files inside ${scope.join(', ')} (relative to the workspace root). Foreman refuses writes anywhere else, and any command that could write; read with what only reads.` : ''
+    const personaText = persona?.name && persona.instructions?.trim() ? `${personaTurnText(persona.name, persona.instructions, employee ? 'employee' : 'flow')}${scopeText}` : scopeText.trim()
+    const systemPromptAppend = baseInstructions + (taught ? `\n\n${taught.text}` : '') + (integ.notes.length ? `\n\nIntegrations for this repository:\n${integ.notes.map((n) => `- ${n}`).join('\n')}` : '') + (brief ? `\n\n${brief.system}` : '') + (personaText ? `\n\n${personaText}` : '')
     const integServers = persona?.mcp ? Object.fromEntries(Object.entries(integ.servers).filter(([name]) => persona.mcp!.includes(name))) : integ.servers
 
     // Record what Foreman added from the strings handed to the agent, so the receipt is what happened.
@@ -1540,7 +1568,18 @@ export class SessionService {
       catchUpSource: t('context.catchUp.sourceSince', { agent: AGENTS[session.agent].label }),
       repoMcp: repoMcp.changed,
       integrations: integ.receipt,
-      persona: persona?.name ? { name: persona.name, text: personaText, ...(persona.readOnly ? { readOnly: true } : {}), ...(persona.mcp ? { mcp: persona.mcp } : {}) } : undefined
+      persona: persona?.name ? { name: persona.name, text: personaText, ...(persona.readOnly ? { readOnly: true } : {}), ...(persona.mcp ? { mcp: persona.mcp } : {}) } : undefined,
+      employee: brief
+        ? {
+            name: brief.name,
+            text: brief.system,
+            definitionPath: brief.definitionPath,
+            ...(brief.orgInstructions ? { orgInstructions: brief.orgInstructions } : {}),
+            ...(persona?.readOnly ? { readOnly: true } : {}),
+            mcp: persona?.mcp ?? [],
+            memory: brief.memory
+          }
+        : undefined
     }, t)
     if (added.length) {
       message.added = added
@@ -1550,9 +1589,13 @@ export class SessionService {
     // O10: Claude Code, Codex, Cursor and OpenCode turns (G1) run in the background host when that's on, so they can outlive the app.
     // A cloud workspace's turns always run in its sandbox's host (checked above), whatever that setting says.
     const host = this.hostFor(ws)
-    const hosted = Boolean(host?.keeps(session.agent, ws))
+    // docs/ai-employees.md §6.6: an AI employee's run never goes to the background host, which can't restore its mark yet.
+    const hosted = !employee && Boolean(host?.keeps(session.agent, ws))
     // Foreman's own tools (`foreman-app`): a Claude turn in the app gets them in-process; any other turn that takes MCP
     // servers gets the stdio bridge, a process of its own that reaches the app over the CLI socket.
+    // An AI employee's run doesn't get the workspace agents' tools: its server offers its own (memory, finish_task,
+    // ask_person, report_no_update, escalate, and the bot_ tools for working with other employees) and nothing else,
+    // with the same per-turn grant (docs/ai-employees.md §6, §7).
     const appTools = this.takesMcp(session.agent)
     const inProcess = Boolean(driverFor(session.agent).accepts?.inProcessMcp) && !hosted && !ws.cloud
     const appServers = appTools && !inProcess ? this.foremanMcp?.forTurn(session, Boolean(ws.cloud)) ?? {} : {}
@@ -1561,7 +1604,7 @@ export class SessionService {
     this.noteMode(session, turnId, policy)
     const request: TurnRequest = {
         turnId,
-        prompt: historyText + catchUp.text + text + attachmentText + noteText + commentsText,
+        prompt: historyText + catchUp.text + (brief?.context ?? '') + text + attachmentText + noteText + commentsText,
         cwd: this.turnCwd(ws),
         env,
         model: session.model,
@@ -1571,6 +1614,10 @@ export class SessionService {
         approvals: policy.policy,
         readOnly: this.readOnly(session) ? true : undefined,
         writeScope: scope,
+        ...(employee ? { writeScopeSubject: 'AI employee’s run' } : {}),
+        // docs/ai-employees.md §9: agent and git configuration are refused for every employee run (a refusal it reads, not
+        // an approval that would end it), and only the MCP servers it was given are there.
+        ...(employee ? { protect: { ...(gitDir ? { gitDir } : {}) }, onlyMcp: true } : {}),
         instance: session.instanceId,
         resume: session.agentSessionId,
         resumeAt: session.resumeAt,
@@ -1911,7 +1958,10 @@ export class SessionService {
     // Docs/agents.md 7.2: how a turn that stopped at a usage limit was started, kept so its resume starts it the same way.
     // An auto review's reviewer isn't resumed: its review has failed, as any review of an errored turn does.
     const paused = outcome === 'error' && Boolean(limit)
-    const held = session.unattended && !('autoReviewId' in session.unattended) ? session.unattended : undefined
+    // Nor is an AI employee's run: it ends at the limit and its task is held until the reset, when a fresh run starts with
+    // its whole brief (a resume would run without it; main/employeeWork.ts).
+    const employeeTurn = Boolean(session.unattended && 'employeeRunId' in session.unattended)
+    const held = session.unattended && !('autoReviewId' in session.unattended) && !employeeTurn ? session.unattended : undefined
     if (paused && held) session.limitHeld = { turnId, unattended: held }
     else delete session.limitHeld
     // A scheduled run is unattended for its one turn only; after that the chat is an ordinary one.
@@ -1933,7 +1983,7 @@ export class SessionService {
       ...(restartedBy ? { restartedBy } : {})
     }
     // Armed (Settings → Usage) before anything that reads the tab's state decides what the turn's end means.
-    if (paused && limit) this.events.limitPaused?.(sessionId, turnId, limit, cap)
+    if (paused && limit && !employeeTurn) this.events.limitPaused?.(sessionId, turnId, limit, cap)
     this.changed()
     this.events.turnEnded(sessionId, outcome, stoppedAt)
   }
@@ -2461,8 +2511,10 @@ export class SessionService {
     const full = { id, sessionId, ...request } as AgentApprovalRequest
     const session = this.session(sessionId)
     const ws = this.workspaces.workspace(session.workspaceId)
-    // A flow's attended step (read-only on Codex) waits for a person like any chat; every other unattended turn is denied.
-    const attended = Boolean(session.unattended && 'flowRunId' in session.unattended && session.unattended.attended)
+    // A flow's attended step (read-only on Codex), or an attended AI employee's run (read-only), waits for a person like
+    // any chat; every other unattended turn is denied.
+    const mark = session.unattended
+    const attended = Boolean(mark && ('flowRunId' in mark || 'employeeRunId' in mark) && mark.attended)
     if (session.unattended && !attended) return this.denyUnattended(session, full)
     return new Promise((resolve) => {
       const settle = attended
@@ -2520,7 +2572,8 @@ export class SessionService {
     // #17: an auto review's reviewer is unattended the same way; its words say so. So is a flow's turn step.
     const review = Boolean(session.unattended && 'autoReviewId' in session.unattended)
     const flow = Boolean(session.unattended && 'flowRunId' in session.unattended)
-    const run = review ? 'an auto review' : flow ? 'a flow’s turn' : 'a scheduled run'
+    const employee = Boolean(session.unattended && 'employeeRunId' in session.unattended)
+    const run = review ? 'an auto review' : flow ? 'a flow’s turn' : employee ? 'an AI employee’s run' : 'a scheduled run'
     this.emit(session.id, {
       kind: 'notice',
       id: `${session.turnId ?? 'turn'}:unattended:${request.id}`,
@@ -2530,7 +2583,9 @@ export class SessionService {
         ? `Auto review stopped: ${what}. Nobody can approve tools in an auto review, so the request was denied. Ask a follow-up here when you are ready.`
         : flow
           ? `Flow stopped: ${what}. Nobody can answer a flow’s turn, so the request was denied. Continue here when you are ready.`
-          : `Scheduled run stopped: ${what}. Nobody can answer a scheduled run, so the request was denied. Continue here when you are ready.`
+          : employee
+            ? `AI employee’s run stopped: ${what}. Nobody can answer an AI employee’s unattended run, so the request was denied. Its task waits for you: retry it or cancel it.`
+            : `Scheduled run stopped: ${what}. Nobody can answer a scheduled run, so the request was denied. Continue here when you are ready.`
     })
     this.changed()
     this.events.unattendedStopped?.(session.id, what)

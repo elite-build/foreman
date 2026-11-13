@@ -115,6 +115,8 @@ interface Rule {
   // Replace only this capture group (e.g. the value after "password=").
   group?: number
   keep?: (match: string) => boolean
+  // Also an ordinary value in notes (a git commit id), so secretLines leaves it be.
+  notSecret?: boolean
 }
 
 // Things shaped like keys and tokens. Matching is by pattern, so the dialog asks the user to read the result.
@@ -136,7 +138,7 @@ const TOKEN_RULES: Rule[] = [
   // The value in "api_key=…", "password: …", "token=…".
   { kind: 'token', re: /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret|password|passwd|token)\b["']?\s*[:=]\s*["']?([^\s"',;]{8,})/gi, group: 1 },
   // Long hex secrets (32+ characters; git commit ids go too).
-  { kind: 'token', re: /\b[0-9a-f]{32,}\b/gi },
+  { kind: 'token', re: /\b[0-9a-f]{32,}\b/gi, notSecret: true },
   // Long base64-like runs mixing digits, upper and lower case letters.
   { kind: 'token', re: /(?<![\w+=-])(?=[\w+-]*\d)(?=[\w+-]*[a-z])(?=[\w+-]*[A-Z])[A-Za-z0-9+_-]{40,}={0,2}/g }
 ]
@@ -199,6 +201,22 @@ export function redact(text: string, context: RedactContext = {}): Redaction {
   }
   if (at < text.length) segments.push({ text: text.slice(at) })
   return { text: segments.map((s) => s.text).join(''), segments, counts, total: counts.path + counts.user + counts.token + counts.email }
+}
+
+/**
+ * The lines (from 1) holding something shaped like a key or token: the redaction's token rules, less long hex runs,
+ * since commit ids are ordinary in notes. For refusing a write that would keep a secret (docs/ai-employees.md §4).
+ */
+export function secretLines(text: string): number[] {
+  const lines = new Set<number>()
+  for (const rule of TOKEN_RULES) {
+    if (rule.notSecret) continue
+    for (const m of text.matchAll(rule.re)) {
+      const part = rule.group ? m[rule.group] : m[0]
+      if (part) lines.add(text.slice(0, m.index).split('\n').length)
+    }
+  }
+  return [...lines].sort((a, b) => a - b)
 }
 
 /** The text unchanged, as one segment, for when redaction is off. */

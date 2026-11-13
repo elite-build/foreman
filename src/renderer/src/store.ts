@@ -33,6 +33,7 @@ import type { OnboardingMilestone } from '../../shared/onboarding'
 import { isNotGitRepoError, type GitIdentity } from '../../shared/types'
 import { shareUnchanged } from '../../shared/reconcile'
 import { appendToItems } from '../../shared/chatAppend'
+import { currentSpace, spaceOf, spacesOn } from '../../shared/organizations'
 import { bridge, clientKind, followLanguage, socketBridge } from './bridge'
 import type { SocketStatus } from './socketBridge'
 
@@ -77,6 +78,9 @@ export const api = bridge.invoke
 /** In a browser: how its connection to the computer is (the banner says when it isn't live). Null in the desktop window. */
 export type ClientState = { kind: 'browser'; status: SocketStatus; name: string }
 
+/** Where the employees views are: an organization's Team page, its New employee page, or one employee (optionally editing). */
+export type EmployeesRoute = { orgId: string; page: 'team' } | { orgId: string; page: 'new' } | { orgId: string; page: 'employee'; id: string; edit?: boolean }
+
 interface State {
   browserTabs: Record<string, { url: string; request: number; active: boolean; split: boolean; state?: BrowserState }>
   browserAddressRequest: { workspaceId: string; nonce: number } | null
@@ -95,6 +99,11 @@ interface State {
   unreadSessions: Record<string, true>
   // What the sidebar lists: one repository (null = all), a filter and a search.
   sidebarView: SidebarView
+  // The space the sidebar shows (docs/ai-employees.md §3): an organization's id, or null for Personal. Read through
+  // currentSpace, since the organization may be gone; it matters only while spaces apply (spacesOn).
+  space: string | null
+  // The Create an organization dialog.
+  createOrganizationOpen: boolean
   leftPanelOpen: boolean
   // The repository rail shows each repository's name and state beside its tile (wide), not just the tiles.
   railNames: boolean
@@ -187,6 +196,10 @@ interface State {
   attentionHistory: { events: AttentionEvent[]; seenAt?: string }
   // The assistant view covers the workspace area like Settings and Automations.
   assistantOpen: boolean
+  // An organization's Memory view (docs/ai-employees.md §10), by its id; it covers the workspace area the same way.
+  memoryView: string | null
+  // An organization's Team page, New employee page or an employee's page (docs/ai-employees.md §10); covers it the same way.
+  employeesView: EmployeesRoute | null
   // The thread shown (null: a new conversation).
   assistantThreadId: string | null
   // Whether it can run, and its threads (null until first asked).
@@ -236,6 +249,8 @@ let state: State = {
   unread: {},
   unreadSessions: {},
   sidebarView: { repo: loadPref('sidebarRepo', null), filter: loadPref('sidebarFilter', 'all'), query: '', showFinished: loadPref('showFinished', false) },
+  space: loadPref<string | null>('space', null),
+  createOrganizationOpen: false,
   leftPanelOpen: loadPref('leftPanelOpen', true),
   railNames: loadPref('railNames', false),
   tiles: loadPref<string[]>('tiles', []),
@@ -286,6 +301,8 @@ let state: State = {
   autoRun: {},
   attentionHistory: { events: [] },
   assistantOpen: false,
+  memoryView: null,
+  employeesView: null,
   assistantThreadId: null,
   assistant: null,
   assistantItems: {},
@@ -630,7 +647,7 @@ function tNow() {
  * never sends, approves, runs or restores anything. Archived opens read-only (#13); missing goes Home and says so.
  */
 export function applyLinkRoute(route: LinkRoute): void {
-  setState({ overlay: null, settingsPage: null, automations: null, assistantOpen: false })
+  setState({ overlay: null, settingsPage: null, automations: null, assistantOpen: false, memoryView: null, employeesView: null })
   if (route.kind === 'home') selectWorkspace(null)
   else if (route.kind === 'archived') openArchivedChats(route.workspaceId, route.sessionId)
   else {
@@ -1075,6 +1092,8 @@ export async function attempt<T>(action: () => Promise<T>): Promise<T | undefine
 }
 
 export function selectWorkspace(id: string | null): void {
+  const repoId = id ? state.snapshot?.workspaces.find((w) => w.id === id)?.repoId : undefined
+  if (repoId) followSpace(repoId)
   const unread = { ...state.unread }
   const unreadSessions = { ...state.unreadSessions }
   if (id) {
@@ -1085,7 +1104,7 @@ export function selectWorkspace(id: string | null): void {
   savePref('selectedWorkspaceId', id)
   // Tiles: opening another workspace (or Home) leaves the one opened full size.
   const tileZoom = id === state.tileZoom ? state.tileZoom : null
-  setState({ selectedWorkspaceId: id, unread, unreadSessions, settingsPage: null, automations: null, assistantOpen: false, tileZoom })
+  setState({ selectedWorkspaceId: id, unread, unreadSessions, settingsPage: null, automations: null, assistantOpen: false, memoryView: null, employeesView: null, tileZoom })
 }
 
 function updateSidebarView(patch: Partial<SidebarView>): void {
@@ -1094,9 +1113,34 @@ function updateSidebarView(patch: Partial<SidebarView>): void {
 
 /** Scope the sidebar to one repository (null = all) and show its Home page. */
 export function showRepoHome(repoId: string | null): void {
+  if (repoId) followSpace(repoId)
   savePref('sidebarRepo', repoId)
   updateSidebarView({ repo: repoId })
   selectWorkspace(null)
+}
+
+/** Show one space in the sidebar (null: Personal): its repositories, all of them, and (unless `home` is false) its Home. */
+export function setSpace(space: string | null, { home = true }: { home?: boolean } = {}): void {
+  savePref('space', space)
+  savePref('sidebarRepo', null)
+  setState({ space, sidebarView: { ...state.sidebarView, repo: null } })
+  if (home) selectWorkspace(null)
+}
+
+/** A repository opened from elsewhere (Home, a link, the palette) brings the sidebar to its space, so it is listed. */
+function followSpace(repoId: string): void {
+  const snapshot = state.snapshot
+  if (!snapshot || !spacesOn(snapshot.settings, snapshot.organizations)) return
+  const repo = snapshot.repos.find((r) => r.id === repoId)
+  if (!repo) return
+  const space = spaceOf(repo, snapshot.organizations)
+  if (space === currentSpace(snapshot.organizations, state.space)) return
+  savePref('space', space)
+  setState({ space })
+}
+
+export function openCreateOrganization(open: boolean): void {
+  setState({ createOrganizationOpen: open })
 }
 
 export function setSidebarFilter(filter: SidebarFilter): void {
@@ -1455,16 +1499,34 @@ export async function runChecks(workspaceId: string, approve = false): Promise<v
 }
 
 export function openSettingsPage(page: SettingsPage | null): void {
-  setState(page ? { settingsPage: page, automations: null, assistantOpen: false } : { settingsPage: null, assistantReturn: false })
+  setState(page ? { settingsPage: page, automations: null, assistantOpen: false, memoryView: null, employeesView: null } : { settingsPage: null, assistantReturn: false })
 }
 
 /** The Automations page; `selected` is "t:<template id>" or "s:<schedule id>". `scrollTo` (G4 O9): Edit commands… lands on Commands. */
 export function openAutomations(selected: string | null = null, scrollTo?: 'commands'): void {
-  setState({ automations: scrollTo ? { selected: null, scrollTo } : { selected }, settingsPage: null, overlay: null, assistantOpen: false })
+  setState({ automations: scrollTo ? { selected: null, scrollTo } : { selected }, settingsPage: null, overlay: null, assistantOpen: false, memoryView: null, employeesView: null })
 }
 
 export function closeAutomations(): void {
   setState({ automations: null })
+}
+
+/** An organization's Memory view (docs/ai-employees.md §10): its memory repository's files, history and search. */
+export function openMemory(organizationId: string): void {
+  setState({ memoryView: organizationId, employeesView: null, settingsPage: null, automations: null, assistantOpen: false, overlay: null })
+}
+
+export function closeMemory(): void {
+  setState({ memoryView: null })
+}
+
+/** An organization's Team page, New employee page or one employee's page (docs/ai-employees.md §10). */
+export function openEmployees(route: EmployeesRoute): void {
+  setState({ employeesView: route, memoryView: null, settingsPage: null, automations: null, assistantOpen: false, overlay: null })
+}
+
+export function closeEmployees(): void {
+  setState({ employeesView: null })
 }
 
 // ---- the assistant ----
@@ -1482,7 +1544,7 @@ export async function loadAssistant(refresh = false): Promise<void> {
 }
 
 export function openAssistant(): void {
-  setState({ assistantOpen: true, assistantUnread: false, assistantReturn: false, settingsPage: null, automations: null, overlay: null })
+  setState({ assistantOpen: true, assistantUnread: false, assistantReturn: false, settingsPage: null, automations: null, overlay: null, memoryView: null, employeesView: null })
   void loadAssistant()
   if (state.assistantThreadId) void loadAssistantThread(state.assistantThreadId)
 }
@@ -1605,12 +1667,12 @@ export interface FlowDraftOpen {
 
 /** Open the flow studio on a draft that isn't saved yet: a new flow, a copy of a read-only one, or one drafted from a workspace. */
 export function openFlowDraft(draft: FlowDraftOpen): void {
-  setState({ automations: { selected: 'f:new', flowDraft: { ...draft, opened: Date.now() } }, settingsPage: null, overlay: null, assistantOpen: false })
+  setState({ automations: { selected: 'f:new', flowDraft: { ...draft, opened: Date.now() } }, settingsPage: null, overlay: null, assistantOpen: false, memoryView: null, employeesView: null })
 }
 
 /** Open a saved personal flow in the flow studio with its name selected to type over (Rename on its card). */
 export function openFlowRename(flowId: string): void {
-  setState({ automations: { selected: `f:${flowId}`, renameFlow: true }, settingsPage: null, overlay: null, assistantOpen: false })
+  setState({ automations: { selected: `f:${flowId}`, renameFlow: true }, settingsPage: null, overlay: null, assistantOpen: false, memoryView: null, employeesView: null })
 }
 
 /** Where the Run a flow page starts: the repository and base branch it was opened for (New workspace's, or none). */
@@ -1621,7 +1683,7 @@ export interface FlowRunOpen {
 
 /** Open the Run a flow page on a flow (or on none: the page offers the repository's flows). */
 export function openFlowRun(flowId: string | null, at: FlowRunOpen = {}): void {
-  setState({ automations: { selected: `r:${flowId ?? ''}`, flowRun: at }, settingsPage: null, overlay: null, assistantOpen: false })
+  setState({ automations: { selected: `r:${flowId ?? ''}`, flowRun: at }, settingsPage: null, overlay: null, assistantOpen: false, memoryView: null, employeesView: null })
 }
 
 export function openReportProblem(open: boolean, about?: string): void {
