@@ -85,7 +85,7 @@ export function UsagePage() {
           )}
         </Row>
       </Section>
-      <Section title={t('settings.usage.section.cost')} plain>
+      <Section title={t('settings.usage.section.cost')} setting="usage-report" plain>
       <Segmented
         plain
         small

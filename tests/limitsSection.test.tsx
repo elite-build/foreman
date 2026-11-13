@@ -7,6 +7,9 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LimitsSection } from '../src/renderer/src/components/settings/LimitsSection'
 import { PausedCard } from '../src/renderer/src/components/LimitResume'
+import { rowDomId } from '../src/renderer/src/components/settings/controls'
+import { UsagePage } from '../src/renderer/src/components/settings/UsagePage'
+import { SETTINGS } from '../src/shared/settingsRegistry'
 import type { AccountLimits } from '../src/shared/limits'
 import type { ChatItem, Session } from '../src/shared/types'
 import { clockTime } from '../src/shared/usageLimit'
@@ -93,6 +96,14 @@ describe('Settings → Usage → Limits', () => {
     expect(within(claude).getByText('Nothing reported yet. Windows appear after the agent’s next turn, or when you refresh.')).toBeTruthy()
     // Nothing blocked any more, and nothing reported by Work: not read yet, rather than room.
     expect(within(claude).queryByText(/blocked until/)).toBeNull()
+  })
+
+  it('gives every Usage entry in the settings menu and search a place to scroll to', () => {
+    // The Usage page sits below Data on one page: a menu entry with nothing to scroll to leaves Data on screen.
+    render(<UsagePage />)
+    const ids = SETTINGS.filter((s) => s.page.section === 'usage').map((s) => s.id)
+    expect(ids).toEqual(expect.arrayContaining(['usage-limits', 'usage-report']))
+    for (const id of ids) expect(document.getElementById(rowDomId(id)), id).toBeTruthy()
   })
 })
 
