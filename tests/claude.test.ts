@@ -189,6 +189,17 @@ describe('Claude turns with background work', () => {
     expect(claude.state.inputClosed).toBe(true)
   })
 
+  it('says it is waiting for background work in the app’s language', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn({ ...request, locale: 'de' }, cb).run()
+    claude.push(tasks('agent-1', 'shell-1'), result)
+    await settle()
+    expect(cb.item).toHaveBeenCalledWith(expect.objectContaining({ kind: 'notice', text: 'Warte, bis 2 Hintergrundaufgaben fertig sind.' }))
+    claude.push(tasks(), idle)
+    await run
+  })
+
   it('ends the turn when Claude goes idle after its background work', async () => {
     const claude = fakeClaude()
     const cb = callbacks()

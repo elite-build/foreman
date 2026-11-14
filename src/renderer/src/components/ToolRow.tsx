@@ -240,7 +240,7 @@ export type Subtree = ReadonlyMap<string, ChildItem[]>
 export type StopChild = (childId: string) => Promise<boolean | undefined>
 
 /** Stop for one running subagent. Named for it, since several can run at once. Disabled from the press until its row says stopped. */
-function StopSubagent({ childId, name, onStop }: { childId: string; name: string; onStop: StopChild }) {
+export function StopSubagent({ childId, name, onStop }: { childId: string; name: string; onStop: StopChild }) {
   const t = useT()
   const [sent, setSent] = useState(false)
   return (
@@ -328,6 +328,32 @@ function SubagentTree({ rootId, name, subtree, workspacePath, onStop, waiting }:
         <ChildNode key={e.item.id} entry={e} workspacePath={workspacePath} onStop={onStop} waiting={waiting} />
       ))}
     </Tree>
+  )
+}
+
+/**
+ * A subagent's last few calls and messages, newest last, as read-only lines (the background block's live tail). Its whole
+ * history, with nested subagents to open and Stop on each, is the tree under its Task row in the log.
+ */
+export function SubagentSteps({ rootId, subtree, workspacePath, limit = 5 }: { rootId: string; subtree: Subtree; workspacePath: Root; limit?: number }) {
+  const t = useT()
+  const entries = useMemo(() => childEntries(rootId, subtree, new Set()).slice(-limit), [rootId, subtree, limit])
+  return (
+    <ol className="subagent-steps">
+      {entries.map((entry) => {
+        const { item } = entry
+        const text = childLabel(entry, workspacePath, t)
+        const running = item.kind === 'tool' && (entry.subagent ? childState(item) === 'running' : item.status === 'running')
+        const failed = item.kind === 'tool' && (entry.subagent ? childState(item) === 'failed' : item.status === 'error')
+        const Icon = item.kind === 'tool' ? describe(item, workspacePath, t).icon : MessageSquare
+        return (
+          <li key={item.id} className="subagent-step" title={text}>
+            {running ? <Spinner size={12} /> : failed ? <Status compact tone="error" label={t('toolRow.child.failed')} /> : <Icon size={14} className="tool-icon" />}
+            <span className="subagent-step-text">{text}</span>
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 

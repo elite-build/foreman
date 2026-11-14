@@ -16,7 +16,7 @@ import { announce } from '../announce'
 import { spokenSnippet } from '../agentStatus'
 import { reduceMotion } from '../theme'
 import { formatClock, formatNumber } from '../../../shared/i18n/time'
-import { Button, Callout, Checkbox, ChipButton, Dialog, flash, LinkButton, MenuButton, MenuItem, MenuLabel, MenuSeparator, Pressable, Spinner, Tag } from '../ui'
+import { Button, Callout, Card, Checkbox, ChipButton, Dialog, Disclosure, flash, LinkButton, MenuButton, MenuItem, MenuLabel, MenuSeparator, Pressable, Spinner, Status, Tag } from '../ui'
 import { hasNote } from '../../../shared/note'
 import { formatDuration } from './turnResult'
 import { GatePanel, PickPanel, QuestionPanel, ToolApprovalPanel } from './ApprovalPanel'
@@ -29,7 +29,7 @@ import { Markdown } from './Markdown'
 import { SensitiveCard } from './SensitiveAlert'
 import { ChatSearch } from './ChatSearch'
 import { textMatches } from './findInChat'
-import { describe, taskActivity, TaskMeta, ToolRow, type Root, type StopChild, type Subtree, type ToolItem } from './ToolRow'
+import { describe, StopSubagent, SubagentSteps, taskActivity, TaskMeta, ToolRow, type Root, type StopChild, type Subtree, type ToolItem } from './ToolRow'
 import { childItemsOf, isChildItem, withoutChildren, type ChildItem } from '../../../shared/subagents'
 import type { FileAccess } from './OpenFileChip'
 import { workspaceSurfaces } from '../archivedView'
@@ -49,6 +49,7 @@ import { withoutFindingsBlock } from '../../../shared/autoReview'
 
 const EMPTY: ChatItem[] = []
 const NO_TASKS: ReadonlySet<string> = new Set()
+const NO_TOOLS: ToolItem[] = []
 
 // How long a streaming reply's Markdown waits between renders (accessibility plan, A3 step 2): a reader's browse buffer is
 // rebuilt each time the text changes, and the stream flushes about every 50 ms.
@@ -409,7 +410,19 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const plan = pending.find((a): a is Extract<ApprovalRequest, { kind: 'plan' }> => a.kind === 'plan')
   const gate = pending.find((a): a is Extract<ApprovalRequest, { kind: 'gate' }> => a.kind === 'gate')
   const pick = pending.find((a): a is Extract<ApprovalRequest, { kind: 'pick' }> => a.kind === 'pick')
-  const background = useMemo(() => items.filter((i): i is ToolItem => i.kind === 'tool' && i.task?.status === 'running' && Boolean(i.task.background)), [items])
+  // The running turn's background work, the finished tasks with it while any still runs; none once it all has ended.
+  const background = useMemo(() => {
+    const mine = items.filter((i): i is ToolItem => i.kind === 'tool' && Boolean(i.task?.background) && i.turnId === session.turnId)
+    return mine.some((i) => i.task!.status === 'running') ? mine : NO_TOOLS
+  }, [items, session.turnId])
+  const answered = useMemo(() => background.length > 0 && items.some((i) => i.kind === 'result' && i.turnId === session.turnId), [background, items, session.turnId])
+  // Stop on a subagent: only for an agent whose record says it can (docs/agents.md 6), as on its row in the log.
+  const caps = useCapabilities(session.agent)
+  const canStopChild = caps?.subagents.stop.level !== undefined && caps.subagents.stop.level !== 'none'
+  const stopChild = useMemo<StopChild | undefined>(
+    () => (canStopChild ? (childId) => attempt(async () => (await api.stopChild(session.id, childId), true)) : undefined),
+    [canStopChild, session.id]
+  )
   // Continue (on the latest answer's menu): only once the chat is idle, so it isn't worked out while a turn streams.
   const continuation = useMemo(() => {
     if (!lastTurnEnd || running || readOnly) return null
@@ -593,11 +606,25 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
                 <Markdown text={plan.plan} headingStart={headingLevel + 2} />
               </div>
             )}
-            {running && !finished && pending.length === 0 && lastUser?.kind === 'user' && <LiveTimer since={lastUser.at} />}
+            {/* While background work runs, its block above the composer keeps the turn's time. */}
+            {running && !finished && pending.length === 0 && background.length === 0 && lastUser?.kind === 'user' && <LiveTimer since={lastUser.at} />}
           </div>
         </Activity>
       </div>
-      <Activity mode={mode}>{background.length > 0 && <BackgroundTasks tasks={background} workspacePath={roots} onJump={jumpTo} />}</Activity>
+      <Activity mode={mode}>
+        {background.length > 0 && (
+          <BackgroundTasks
+            tasks={background}
+            answered={answered}
+            since={lastUser?.kind === 'user' ? lastUser.at : undefined}
+            workspacePath={roots}
+            subtrees={subtrees}
+            onStopChild={stopChild}
+            waiting={waiting}
+            onJump={jumpTo}
+          />
+        )}
+      </Activity>
       {workspace.state === 'archived' ? (
         // Read-only (#13): the composer becomes a banner, and Restore is its own step.
         <div className="composer">
@@ -661,37 +688,94 @@ function ContextReceipt({ parts }: { parts: ContextPart[] }) {
  * is inside the transcript's Activity: in a hidden chat the interval is cleared, and it catches up when shown.
  */
 function LiveTimer({ since }: { since: string }) {
-  const now = useClock(1000)
-  const elapsed = Math.max(0, now - new Date(since).getTime())
   return (
     <div className="live-timer">
       <Spinner size={14} />
-      <span className="mono">{formatDuration(Math.floor(elapsed / 1000) * 1000)}</span>
+      <TurnClock since={since} />
     </div>
   )
 }
 
-/** Subagents and shells still running after their tool call returned. */
-function BackgroundTasks({ tasks, workspacePath, onJump }: { tasks: ToolItem[]; workspacePath: Root; onJump: (id: string) => void }) {
+function TurnClock({ since }: { since: string }) {
+  const now = useClock(1000)
+  const elapsed = Math.max(0, now - new Date(since).getTime())
+  return <span className="mono">{formatDuration(Math.floor(elapsed / 1000) * 1000)}</span>
+}
+
+// How a finished background task ended: its mark's shape (never colour alone) and word.
+const TASK_ENDED = {
+  completed: { tone: 'ok', label: 'toolRow.child.done' },
+  failed: { tone: 'error', label: 'toolRow.child.failed' },
+  stopped: { tone: 'off', label: 'toolRow.child.stopped' }
+} as const
+
+/**
+ * The running turn's background work, in one block above the composer: how many tasks it waits on and how long the
+ * turn has run (in place of the log's own timer), then a row per subagent or shell, the finished ones ticked until the
+ * last ends. A row shows what its task is doing now, jumps to its call in the log, and has the call's Stop; a subagent's
+ * row opens to its latest steps.
+ */
+function BackgroundTasks({ tasks, answered, since, workspacePath, subtrees, onStopChild, waiting, onJump }: {
+  tasks: ToolItem[]
+  // The turn has given its answer: it is waiting on this work, not working beside it.
+  answered: boolean
+  since?: string
+  workspacePath: Root
+  subtrees: ReadonlyMap<string, Subtree>
+  onStopChild?: StopChild
+  waiting: ReadonlySet<string>
+  onJump: (id: string) => void
+}) {
   const t = useT()
+  const running = tasks.filter((i) => i.task!.status === 'running').length
+  const heading = t(answered ? 'chat.background.waitingOn' : 'chat.background.running', { count: running })
   return (
     <div className="bg-tasks">
-      <div className="bg-tasks-box">
-        <div className="bg-tasks-head faint small">{t('chat.background.head')}</div>
-        {tasks.map((item) => {
-          const task = item.task!
-          const activity = taskActivity(task, t)
-          return (
-            <Pressable key={item.id} className="tool-row bg-task" title={t('chat.background.show')} onClick={() => onJump(item.id)}>
-              <span className="tool-icon"><Spinner size={14} /></span>
-              <span className="tool-label">{describe(item, workspacePath, t).label}</span>
-              {activity && <span className="bg-task-activity">{activity}</span>}
-              <TaskMeta task={task} inStrip />
-            </Pressable>
-          )
-        })}
-      </div>
+      <Card as="section" className="bg-tasks-box" aria-label={t('chat.background.head')}>
+        <div className="bg-tasks-head">
+          <Spinner size={14} />
+          <span className="bg-tasks-title">{heading}</span>
+          {tasks.length > running && <span className="faint small">{t('chat.background.done', { done: tasks.length - running, total: tasks.length })}</span>}
+          {since && <span className="bg-tasks-clock faint small"><TurnClock since={since} /></span>}
+        </div>
+        <ul className="bg-tasks-list">
+          {tasks.map((item) => (
+            <BackgroundTask key={item.id} item={item} workspacePath={workspacePath} subtree={subtrees.get(item.id)} onStopChild={onStopChild} waiting={waiting} onJump={onJump} />
+          ))}
+        </ul>
+      </Card>
     </div>
+  )
+}
+
+function BackgroundTask({ item, workspacePath, subtree, onStopChild, waiting, onJump }: { item: ToolItem; workspacePath: Root; subtree?: Subtree; onStopChild?: StopChild; waiting: ReadonlySet<string>; onJump: (id: string) => void }) {
+  const t = useT()
+  const task = item.task!
+  const live = task.status === 'running'
+  const ended = live ? null : TASK_ENDED[task.status as keyof typeof TASK_ENDED]
+  const label = describe(item, workspacePath, t).label
+  // Running: what it is doing now. Finished: the first line of how it ended.
+  const activity = live ? taskActivity(task, t) : task.summary?.split(/\r?\n/).find((l) => l.trim())?.trim()
+  const asking = item.childId !== undefined && waiting.has(item.childId)
+  const stoppable = live && item.childId !== undefined && onStopChild !== undefined
+  return (
+    <li className="bg-task">
+      <div className="tool-line tool-line-stop">
+        <Pressable className="tool-row" title={t('chat.background.show')} onClick={() => onJump(item.id)}>
+          <span className="tool-icon">{ended ? <Status compact tone={ended.tone} label={t(ended.label)} /> : <Spinner size={14} />}</span>
+          <span className="tool-label">{label}</span>
+          <TaskMeta task={task} inStrip />
+        </Pressable>
+        {asking && <Tag tone="warn">{t('toolRow.child.waiting')}</Tag>}
+        {stoppable && <StopSubagent childId={item.childId!} name={label} onStop={onStopChild!} />}
+      </div>
+      {activity && <div className="task-activity">{activity}</div>}
+      {subtree?.get(item.id)?.length ? (
+        <Disclosure quiet className="bg-task-steps" label={t('chat.background.steps')}>
+          <SubagentSteps rootId={item.id} subtree={subtree} workspacePath={workspacePath} />
+        </Disclosure>
+      ) : null}
+    </li>
   )
 }
 
