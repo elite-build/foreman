@@ -250,11 +250,12 @@ describe('a chat with a subagent', () => {
     }
     const { container } = render(<ChatView session={session} workspace={workspace} active headingLevel={2} />)
     expect(screen.queryByText('SendMessage')).toBeNull()
-    // The background strip names it the same way.
+    // The background block names it the same way.
     expect(container.querySelector('.bg-tasks')?.textContent).toContain('Resume explore-tests')
-    const resumeRow = within(container.querySelector<HTMLElement>('[data-tool="sm1"]')!).getByRole('button', { name: /^Resume explore-tests/ })
+    const logRow = within(container.querySelector<HTMLElement>('[data-tool="sm1"]')!)
+    const resumeRow = logRow.getByRole('button', { name: /^Resume explore-tests/ })
     expect(resumeRow.textContent).toContain('resumed')
-    await user.click(screen.getByRole('button', { name: 'Stop subagent Resume explore-tests' }))
+    await user.click(logRow.getByRole('button', { name: 'Stop subagent Resume explore-tests' }))
     expect(fakeApi.stopChild).toHaveBeenCalledWith('s1', 'task-1')
     await user.click(resumeRow)
     const since = within(screen.getByRole('tree', { name: 'What subagent Resume explore-tests did' })).getAllByRole('treeitem')
@@ -262,6 +263,73 @@ describe('a chat with a subagent', () => {
     // The first run keeps its own.
     await user.click(screen.getByRole('button', { name: /^explore-tests/ }))
     expect(within(screen.getByRole('tree', { name: 'What subagent explore-tests did' })).getAllByRole('treeitem')).toHaveLength(3)
+  })
+})
+
+describe('the running turn’s background work', () => {
+  const session = { id: 's1', workspaceId: 'w1', agent: 'claude', status: 'running', turnId: 't1', queue: [], title: 'Login bug', createdAt: at } as never
+  const workspace = { id: 'w1', name: 'acme', branch: 'fix', baseBranch: 'main', state: 'ready', path: '/w', repoId: 'r1' } as never
+  const bgTask = task({ status: 'done', task: { status: 'running', background: true, toolUses: 2, lastTool: 'Grep' } })
+  const shell = { kind: 'tool', id: 'sh1', turnId: 't1', name: 'Bash', input: { command: 'npm run screens', description: 'Capture the fixture screens', run_in_background: true }, status: 'done', task: { status: 'running', background: true } } as never
+  const reviewed = { kind: 'tool', id: 'tu9', turnId: 't1', name: 'Task', input: { description: 'review-i18n' }, status: 'done', childId: 'task-9', task: { status: 'completed', background: true, summary: 'Found 2 hard-coded strings\nand nothing else' } } as never
+  const block = () => screen.getByRole('region', { name: 'Running in the background' })
+  const chat = (...log: unknown[]) => {
+    fakeState.chats = { s1: [{ kind: 'user', id: 'u1', turnId: 't1', text: 'Fix the sessions tests', at }, ...log] as never }
+    return render(<ChatView session={session} workspace={workspace} active headingLevel={2} />)
+  }
+
+  beforeEach(() => {
+    fakeState.snapshot.agentCapabilities = undefined
+    fakeState.approvals = []
+  })
+
+  it('says it works beside the turn until the answer is in, then that the turn waits on it, in place of the log’s timer', () => {
+    const { container, unmount } = chat(bgTask, ...children, shell)
+    expect(within(block()).getByText('2 tasks running in the background')).toBeTruthy()
+    expect(container.querySelector('.live-timer')).toBeNull()
+    unmount()
+    chat(bgTask, ...children, shell, { kind: 'result', id: 'r1', turnId: 't1', ok: true })
+    expect(within(block()).getByText('Waiting on 2 background tasks')).toBeTruthy()
+  })
+
+  it('has a row per task with what it is doing now, and keeps a finished one, ticked, while others run', () => {
+    chat(bgTask, ...children, shell, reviewed)
+    const region = within(block())
+    expect(region.getByText('1 of 3 done')).toBeTruthy()
+    expect(region.getByText('Using Grep')).toBeTruthy()
+    // The finished one: its mark in words for a screen reader, and the first line of how it ended.
+    expect(region.getByText('Done')).toBeTruthy()
+    expect(region.getByText('Found 2 hard-coded strings')).toBeTruthy()
+    expect(region.queryByText('and nothing else')).toBeNull()
+  })
+
+  it('stops a subagent from its row, for an agent whose record allows it', async () => {
+    const user = userEvent.setup()
+    fakeApi.stopChild = vi.fn(async () => undefined)
+    chat(bgTask, ...children, shell)
+    // A shell has no Stop of its own: stopping the turn stops it.
+    expect(within(block()).getAllByRole('button', { name: /^Stop subagent/ })).toHaveLength(1)
+    await user.click(within(block()).getByRole('button', { name: 'Stop subagent explore-tests' }))
+    expect(fakeApi.stopChild).toHaveBeenCalledWith('s1', 'task-1')
+  })
+
+  it('opens a subagent’s row to its latest steps, newest last', async () => {
+    const user = userEvent.setup()
+    chat(bgTask, ...children)
+    const steps = within(block()).getByRole('button', { name: 'Latest steps' })
+    expect(steps.getAttribute('aria-expanded')).toBe('false')
+    await user.click(steps)
+    const lines = within(block()).getAllByRole('listitem').filter((li) => li.classList.contains('subagent-step'))
+    expect(lines.map((li) => li.textContent)).toEqual([expect.stringContaining('tests/sessions.test.ts'), expect.stringContaining('Run the sessions tests'), 'The three failures share a tmpdir'])
+  })
+
+  it('is gone once all of it has ended, and never shows an earlier turn’s', () => {
+    const { container, unmount } = chat(task({ status: 'done', task: { status: 'completed', background: true } }), reviewed)
+    expect(container.querySelector('.bg-tasks')).toBeNull()
+    unmount()
+    const earlier = { ...(bgTask as object), turnId: 't0' }
+    chat(earlier)
+    expect(screen.queryByRole('region', { name: 'Running in the background' })).toBeNull()
   })
 })
 

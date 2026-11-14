@@ -458,25 +458,55 @@ button.tool-row {
   margin: 0 auto;
   padding: 0 24px 6px;
 }
+/* The running turn's background work: one Card, its heading, then a row per task. */
 .bg-tasks-box {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-input);
-  padding: 6px 12px 7px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 160px;
+  gap: 6px;
+  max-height: 260px;
   overflow-y: auto;
 }
 .bg-tasks-head {
-  padding-bottom: 2px;
-}
-.bg-task-activity {
-  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
+}
+.bg-tasks-title {
+  font-weight: 550;
+}
+.bg-tasks-clock {
+  margin-left: auto;
+}
+.bg-tasks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bg-task-steps {
+  margin-left: 23px;
+}
+/* A subagent's latest steps, under its row in the background block. */
+.subagent-steps {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
   font-size: var(--text-sm);
-  color: var(--text-faint);
+}
+.subagent-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 1px 0;
+  color: var(--text-soft);
+}
+.subagent-step-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
