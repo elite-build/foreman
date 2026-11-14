@@ -12,12 +12,16 @@ import {
   openAddRepoDialog,
   openAssistant,
   openAutomations,
+  openCreateOrganization,
+  openEmployees,
   openFlowDraft,
+  openMemory,
   openNewWorkspace,
   openPhoneSetup,
   openSettingsPage,
   selectSession,
   selectWorkspace,
+  setSpace,
   setWorkspaceFocus,
   showBottomPanel,
   showChecksPanel,
@@ -37,6 +41,8 @@ interface Fixture {
   queueChatId: string
   flowWorkspaceId: string
   flowChatId: string
+  // Acme, its employees and a run's workspace (main/screensOrganization.ts).
+  organization: { orgId: string; employeeId: string; draftEmployeeId: string; employeeWorkspaceId: string; employeeChatId: string }
   now: number
 }
 
@@ -97,6 +103,8 @@ function baseLayout(): void {
   if (s.railNames) toggleRailNames()
   if (!s.rightPanelOpen) toggleRightPanel()
   showBottomPanel(false)
+  // The space shown is kept across restarts: each screen starts in Personal, and the organization's screens move to Acme.
+  if (s.space !== null) setSpace(null, { home: false })
   // A terminal or Flow run left in a workspace's middle is kept across restarts, so each screen starts without one.
   for (const id of Object.keys(s.workspaceFocus)) setWorkspaceFocus(id, null)
   chooseHomeLayout('list')
@@ -346,6 +354,52 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     selectSession(f.flowWorkspaceId, f.flowChatId)
     setWorkspaceFocus(f.flowWorkspaceId, 'flow')
     return '.focus-view .flow-run .ui-graph .ui-graph__node'
+  },
+  // AI employees (docs/ai-employees.md §10), in the fixture's organization: the Team page with Max's push and Ada's
+  // proposal waiting in Needs you, Max's page, Lin's approval plan, New employee, the Memory view and Max's run's workspace.
+  team: async (f) => {
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'team' })
+    // Done once the held push is drawn, the last part to arrive.
+    return (await waitFor(() => document.querySelector('.team-page')?.textContent?.includes('max/launch-2.4'))) ? '.team-page' : null
+  },
+  employee: (f) => {
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'employee', id: f.organization.employeeId })
+    return '.employee-page .employee-name'
+  },
+  'employee-approve': async (f) => {
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'employee', id: f.organization.draftEmployeeId })
+    const approve = await waitFor(() => [...document.querySelectorAll<HTMLButtonElement>('.employee-page-head button')].find((b) => b.textContent?.startsWith('Approve')) ?? null)
+    if (!approve) return null
+    approve.click()
+    return '.employee-plan'
+  },
+  'new-employee': (f) => {
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'new' })
+    return '.new-employee'
+  },
+  memory: (f) => {
+    setSpace(f.organization.orgId)
+    openMemory(f.organization.orgId)
+    return '.memory-view .memory-repo'
+  },
+  'employee-workspace': (f) => {
+    setSpace(f.organization.orgId, { home: false })
+    selectWorkspace(f.organization.employeeWorkspaceId)
+    selectSession(f.organization.employeeWorkspaceId, f.organization.employeeChatId)
+    return '.employee-run-banner'
+  },
+  // New organization from Personal's Home, a name typed: one line says what its memory repository will be.
+  'new-organization': async () => {
+    showRepoHome(null)
+    openCreateOrganization(true)
+    const name = await waitFor(() => document.querySelector<HTMLInputElement>('.space-dialog-body input[type="text"]'))
+    if (!name) return null
+    typeInto(name, 'Northwind')
+    return '.space-dialog-body'
   },
   assistant: () => (openAssistant(), '.assistant-view'),
   'phone-pairing': () => {
