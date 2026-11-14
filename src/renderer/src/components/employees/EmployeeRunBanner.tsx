@@ -12,10 +12,9 @@ import './employees.css'
 export function EmployeeRunBanner({ ws }: { ws: Workspace }) {
   const t = useT()
   const by = ws.startedBy?.via === 'employee' ? ws.startedBy : undefined
-  const on = useStore((s) => Boolean(s.snapshot!.settings.aiEmployees))
   const employee = useStore((s) => (by ? s.snapshot!.employees?.[by.orgId]?.employees.find((e) => e.id === by.employeeId) : undefined))
   const work = useStore((s) => (by ? s.snapshot!.employeeWork?.[by.orgId] : undefined))
-  if (!by || !on) return null
+  if (!by) return null
   const task = work?.tasks.find((x) => x.id === by.taskId) ?? (work?.last[by.employeeId]?.id === by.taskId ? work.last[by.employeeId] : undefined)
   const run = work?.runs.find((r) => r.id === by.runId && isRunActive(r.state))
   const name = employee?.name || by.employeeId

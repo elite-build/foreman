@@ -194,9 +194,9 @@ export function App() {
   const automations = useStore((s) => Boolean(s.automations))
   const assistantOpen = useStore((s) => s.assistantOpen && Boolean(s.snapshot?.settings.assistantEnabled))
   // An organization's Memory view, only while AI employees are on and the organization is there.
-  const memoryView = useStore((s) => (s.memoryView && s.snapshot?.settings.aiEmployees && s.snapshot.organizations?.some((o) => o.id === s.memoryView) ? s.memoryView : null))
+  const memoryView = useStore((s) => (s.memoryView && s.snapshot?.organizations?.some((o) => o.id === s.memoryView) ? s.memoryView : null))
   // An organization's employees views (docs/ai-employees.md §10), on the same terms.
-  const employeesView = useStore((s) => (s.employeesView && s.snapshot?.settings.aiEmployees && s.snapshot.organizations?.some((o) => o.id === s.employeesView!.orgId) ? s.employeesView : null))
+  const employeesView = useStore((s) => (s.employeesView && s.snapshot?.organizations?.some((o) => o.id === s.employeesView!.orgId) ? s.employeesView : null))
   const phoneSetupOpen = useStore((s) => s.phoneSetupOpen)
   const reportProblemOpen = useStore((s) => s.reportProblemOpen)
   const leftPanelOpen = useStore((s) => s.leftPanelOpen)
@@ -206,7 +206,7 @@ export function App() {
   const newWorkspaceTemplate = useStore((s) => s.newWorkspaceTemplate)
   const addRepoDialog = useStore((s) => s.addRepoDialog)
   // AI employees off: the dialog never opens (nothing offers it).
-  const createOrganizationOpen = useStore((s) => s.createOrganizationOpen && Boolean(s.snapshot?.settings.aiEmployees))
+  const createOrganizationOpen = useStore((s) => s.createOrganizationOpen)
   const makeRepoDir = useStore((s) => s.makeRepoDir)
   const sidebarSide = useStore((s) => s.snapshot?.settings.sidebarSide ?? 'left')
   const tiled = useStore((s) => s.snapshot?.settings.windowLayout === 'tiles')

@@ -3,7 +3,7 @@
 // the organization; absent, the repository is in Personal. Pure, so main, the renderer and the tests read the same rules.
 import { parseWorkLimits, type WorkLimits } from './employeeBroker'
 import { isEmployeeId } from './memory'
-import type { AppSnapshot, Repo, Settings } from './types'
+import type { AppSnapshot, Repo } from './types'
 
 export interface Organization {
   id: string
@@ -67,11 +67,11 @@ export function organizationNameProblem(name: string, organizations: readonly Or
 }
 
 /**
- * Whether spaces apply: AI employees are on (Settings → Experimental) and at least one organization exists. Otherwise
- * there is no switcher and every repository shows as it always did; organizations are kept, never deleted.
+ * Whether spaces split the repositories: at least one organization exists. Until then every repository is in Personal
+ * and shows as it always did; the switcher still offers New organization….
  */
-export function spacesOn(settings: Pick<Settings, 'aiEmployees'> | undefined, organizations: readonly Organization[] | undefined): boolean {
-  return Boolean(settings?.aiEmployees) && (organizations?.length ?? 0) > 0
+export function spacesOn(organizations: readonly Organization[] | undefined): boolean {
+  return (organizations?.length ?? 0) > 0
 }
 
 /** The space a repository is in: its organization's id, or null for Personal (also when that organization is gone). */
@@ -100,7 +100,7 @@ export function currentSpace(organizations: readonly Organization[] | undefined,
  */
 export function snapshotInSpace(snapshot: AppSnapshot, wanted: string | null | undefined): AppSnapshot {
   const organizations = snapshot.organizations ?? []
-  if (!spacesOn(snapshot.settings, organizations)) return snapshot
+  if (!spacesOn(organizations)) return snapshot
   const space = currentSpace(organizations, wanted)
   const memory = space ? organizations.find((o) => o.id === space)?.memoryRepoId : undefined
   const repos = reposInSpace(snapshot.repos, organizations, space).sort((a, b) => Number(b.id === memory) - Number(a.id === memory))

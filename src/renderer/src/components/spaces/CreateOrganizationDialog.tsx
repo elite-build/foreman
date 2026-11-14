@@ -1,6 +1,7 @@
-// Create an organization (docs/ai-employees.md §3): a name; a memory repository (create a new one, use an existing
-// repository, or decide later); and the repositories to bring from Personal. One dialog, one call: main makes the memory
-// repository (one commit) if asked, and moves the ticked repositories with their workspaces and chats.
+// New organization (docs/ai-employees.md §3): a name, and the repositories to bring from Personal (the one the sidebar
+// shows ticked). Its memory repository is made beside the others unless More options says otherwise (another folder, an
+// existing repository, or later). One dialog, one call: main makes the memory repository (one commit) if asked, and
+// moves the ticked repositories with their workspaces and chats.
 import { useId, useState } from 'react'
 import {
   defaultMemoryName,
@@ -18,7 +19,7 @@ import { joinWorkspace } from '../../../../shared/openIn'
 import type { Repo } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api, openCreateOrganization, setSpace, useStore } from '../../store'
-import { Button, Callout, Card, Checkbox, Dialog, Field, RadioList, Select, TextInput, type SelectOption } from '../../ui'
+import { Button, Callout, Card, Checkbox, Dialog, Field, LinkButton, RadioList, Select, TextInput, type SelectOption } from '../../ui'
 import { LocationField } from '../AddRepository'
 import './spaces.css'
 
@@ -150,16 +151,19 @@ export function CreateOrganizationDialog() {
   const repos = useStore((s) => s.snapshot!.repos)
   const organizations = useStore((s) => s.snapshot!.organizations ?? NO_ORGANIZATIONS)
   const cloneDirectory = useStore((s) => s.snapshot!.settings.cloneDirectory)
+  // The repository the sidebar shows is the likeliest to belong in it: ticked to start with.
+  const viewing = useStore((s) => s.sidebarView.repo)
   // Made from Settings → Spaces: the sidebar shows the new organization and Settings stays open; elsewhere, its Home opens.
   const inSettings = useStore((s) => Boolean(s.settingsPage))
   const workspaceCount = useWorkspaceCount()
   const [name, setName] = useState('')
   const [memory, setMemory] = useState(() => newMemoryDraft(cloneDirectory))
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(viewing && reposInSpace(repos, organizations, null).some((r) => r.id === viewing) ? [viewing] : []))
+  // The memory repository's other choices (its folder, an existing repository, later) wait behind More options.
+  const [more, setMore] = useState(false)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
   const headingId = useId()
-  const hintId = useId()
 
   const close = () => !working && openCreateOrganization(false)
   // Shown once something is typed: an empty name only keeps Create off.
@@ -167,8 +171,16 @@ export function CreateOrganizationDialog() {
   const chosen = memoryOf(memory, name)
   // The memory repository picked from Personal moves with them; it isn't offered twice.
   const personal = reposInSpace(repos, organizations, null).filter((r) => !(memory.kind === 'existing' && r.id === memory.repoId))
-  const moving = [...personal.filter((r) => picked.has(r.id)), ...(chosen?.kind === 'existing' ? repos.filter((r) => r.id === chosen.repoId) : [])]
   const ready = Boolean(name.trim()) && !problem && chosen !== null && !working
+  // What happens to memory, in one line while More options is closed (the default: a new repository beside the others).
+  const memoryLine =
+    memory.kind === 'create'
+      ? memory.parentDir.trim() === cloneDirectory
+        ? t('spaces.create.memoryLine', { name: memoryName(memory, name) })
+        : t('spaces.create.memoryLineAt', { name: memoryName(memory, name), folder: memory.parentDir.trim() })
+      : memory.kind === 'existing'
+        ? t('spaces.create.memoryExisting', { name: repos.find((r) => r.id === memory.repoId)?.name ?? '' })
+        : t('spaces.memory.laterHint')
 
   const toggle = (id: string, on: boolean) => {
     const next = new Set(picked)
@@ -196,12 +208,12 @@ export function CreateOrganizationDialog() {
     <Dialog
       title={t('spaces.create.title')}
       description={t('spaces.create.desc')}
-      size="lg"
+      size="md"
       closeLabel={t('common.close')}
       onClose={close}
       footer={
         <div className="space-dialog-footer">
-          <span className="faint small">{chosen?.kind === 'create' ? t('spaces.create.creates', { path: joinWorkspace(chosen.parentDir, chosen.name) }) : null}</span>
+          <span className="faint small">{more && chosen?.kind === 'create' ? t('spaces.create.creates', { path: joinWorkspace(chosen.parentDir, chosen.name) }) : null}</span>
           <Button onClick={close} disabled={working}>
             {t('common.cancel')}
           </Button>
@@ -223,15 +235,11 @@ export function CreateOrganizationDialog() {
         <Field label={t('spaces.name.label')} error={problem ? t(NAME_PROBLEM[problem]) : undefined}>
           {(control) => <TextInput {...control} autoFocus value={name} placeholder={t('spaces.name.placeholder')} onChange={(e) => setName(e.target.value)} />}
         </Field>
-        <MemoryFields draft={memory} onChange={setMemory} organization={name} allowLater />
-        <div className="space-bring" role="group" aria-labelledby={headingId} aria-describedby={hintId}>
-          <div id={headingId} className="space-heading">
-            {t('spaces.bring.heading')}
-          </div>
-          <p id={hintId} className="faint small">
-            {t('spaces.bring.hint', { organization: name.trim() || t('spaces.memory.thisOrganization') })}
-          </p>
-          {personal.length ? (
+        {personal.length > 0 && (
+          <div className="space-bring" role="group" aria-labelledby={headingId}>
+            <div id={headingId} className="space-heading">
+              {t('spaces.bring.heading')}
+            </div>
             <Card className="space-bring-list">
               {personal.map((repo) => (
                 <Checkbox key={repo.id} className="space-bring-row" checked={picked.has(repo.id)} onChange={(e) => toggle(repo.id, e.target.checked)}>
@@ -240,11 +248,16 @@ export function CreateOrganizationDialog() {
                 </Checkbox>
               ))}
             </Card>
-          ) : (
-            <p className="faint small">{t('spaces.bring.none')}</p>
-          )}
-        </div>
-        <Callout tone="info">{moving.length ? t('spaces.create.summary', { count: moving.length }) : t('spaces.create.summaryNone')}</Callout>
+          </div>
+        )}
+        {more ? (
+          <MemoryFields draft={memory} onChange={setMemory} organization={name} allowLater />
+        ) : (
+          <p className="faint small">
+            {memoryLine}{' '}
+            <LinkButton onClick={() => setMore(true)}>{t('spaces.create.more')}</LinkButton>
+          </p>
+        )}
         {error && (
           <Callout tone="error" role="alert">
             {error}

@@ -98,7 +98,7 @@ function setSnapshot({ work, employees = [summary()], workspaces = [] as Workspa
     workspaces,
     employees: { o1: { head: 'h1', employees } },
     employeeWork: work ? { o1: work } : undefined,
-    settings: { ...original.settings, aiEmployees: true }
+    settings: original.settings
   }
 }
 
@@ -495,10 +495,9 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     expect(fakeApi.retryEmployeeTask).toHaveBeenCalledWith('t2')
     expect(screen.getByRole('button', { name: 'Cancel task' })).toBeTruthy()
     second.unmount()
-    // AI employees off: nothing.
+    // A workspace no employee started: nothing.
     setSnapshot({ work, workspaces: [ws] })
-    fakeState.snapshot.settings.aiEmployees = false
-    const { container } = render(<EmployeeRunBanner ws={ws} />)
+    const { container } = render(<EmployeeRunBanner ws={{ ...ws, startedBy: undefined }} />)
     expect(container.textContent).toBe('')
   })
 })

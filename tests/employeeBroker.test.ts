@@ -84,7 +84,7 @@ async function rig(options: { employees?: string[]; delegates?: Record<string, s
   const state = {
     repos: [repo('mem', 'acme-memory', 'o1'), repo('site', 'site', 'o1'), repo('api', 'api', 'o1'), repo('mem2', 'other-memory', 'o2'), repo('x', 'site', 'o2')],
     organizations: [org, other],
-    settings: { ...defaultSettings(), aiEmployees: true },
+    settings: defaultSettings(),
     sessions: [],
     workspaces: []
   } as unknown as PersistedState
@@ -824,7 +824,7 @@ describe('working together: bot_propose, kept or retired by a person', () => {
     opened.push(db)
     const site = { id: 'site', name: 'site', rootPath: path.join(parent, 'site'), defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1' } as unknown as Repo
     const mem = { id: 'mem', name: 'acme-memory', rootPath: root, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1' } as unknown as Repo
-    const state = { repos: [mem, site], organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-01T00:00:00.000Z' }], settings: { ...defaultSettings(), aiEmployees: true } } as unknown as PersistedState
+    const state = { repos: [mem, site], organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-01T00:00:00.000Z' }], settings: defaultSettings() } as unknown as PersistedState
     const memory = new MemoryService({ state: () => state, db: () => db, sensitivePaths: () => [], changed: () => undefined })
     const employees = new EmployeeService({ state: () => state, memory, changed: () => undefined })
     for (const id of ['e-max1', 'e-ada2']) await employees.create('o1', { ...definition(id), access: { ...definition(id).access, repos: { site: 'read' } } }, { approve: true })

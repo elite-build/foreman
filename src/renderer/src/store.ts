@@ -1130,7 +1130,7 @@ export function setSpace(space: string | null, { home = true }: { home?: boolean
 /** A repository opened from elsewhere (Home, a link, the palette) brings the sidebar to its space, so it is listed. */
 function followSpace(repoId: string): void {
   const snapshot = state.snapshot
-  if (!snapshot || !spacesOn(snapshot.settings, snapshot.organizations)) return
+  if (!snapshot || !spacesOn(snapshot.organizations)) return
   const repo = snapshot.repos.find((r) => r.id === repoId)
   if (!repo) return
   const space = spaceOf(repo, snapshot.organizations)

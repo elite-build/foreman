@@ -2,7 +2,7 @@
 
 An AI employee is a standing member of an organization: it has a name, a role, a hard hat in its own colour, instructions, memory and access to some of the organization's repositories, and it does work when a person asks, on a schedule or when another employee hands it a task. Each piece of work is a task; each attempt at it is a run, which is an ordinary Foreman workspace and session. Organizations are new too: a space you create on purpose, with its own memory repository. Everything you have today stays in **Personal**, unchanged.
 
-This is the design. It is built behind **Settings → Experimental → AI employees**, off by default (section 13). The research behind it (four reference projects studied independently by two models, with two review rounds) and the mocks the decisions were made from are kept outside the repository; where they disagree with this document, this document wins.
+This is the design. It started behind an Experimental switch and is now part of Foreman for everyone: until a person makes an organization, nothing about it shows except the **Personal ▾** switcher (section 3). The research behind it (four reference projects studied independently by two models, with two review rounds) and the mocks the decisions were made from are kept outside the repository; where they disagree with this document, this document wins.
 
 ## 1. What stays the same
 
@@ -33,7 +33,9 @@ The interface says "employee" and "memory repository". "Bot" appears only in fil
 
 **Creating an organization** is one dialog: a name; a memory repository (create a new one, named `<organization>-memory` by default, private, in a folder you pick; use an existing repository; or decide later); and which repositories to bring from Personal. "Decide later" makes an organization that only groups repositories: employees and memory need a memory repository. A repository already used as another organization's memory repository is not offered, and the list says why.
 
-**The space switcher** appears in the sidebar header once a second space exists, listing each space with its repository and employee counts, plus "Create an organization…" and "Manage spaces…". Home can show one space or all of them.
+**The space switcher** is always in the sidebar header, reading **Personal** until an organization exists. It lists each space with its repository count and memory repository, plus "New organization…" and "Manage spaces…". Home can show one space or all of them.
+
+**New organization…** (in the switcher, the Add repository menu and **Settings → Spaces**) asks for a name, and which of Personal's repositories to bring, with the one the sidebar shows already ticked. Its memory repository, `<name>-memory`, is made beside the other repositories, private to this computer, and one line says so; **More options** opens the rest (another folder, an existing repository, or deciding later).
 
 **Where a repository's Foreman files live** is a per-repository choice, shown in Repository settings:
 
@@ -310,7 +312,7 @@ Everything composes existing `ui/` components except the hard hat (`ui/HardHat`,
 
 ## 13. Building it
 
-The work was planned in the slices below. The hard hat (1) went in as its own pull request, as a new design-system component must; slices 2 to 8 went in together in the next one, behind the Experimental switch, because each builds on the last and none is useful to a person without the ones before it. Slice 9 isn't built.
+The work was planned in the slices below. The hard hat (1) went in as its own pull request, as a new design-system component must; slices 2 to 8 went in together in the next one, behind an Experimental switch, because each builds on the last and none is useful to a person without the ones before it. A third took the switch away, made the space switcher always there and cut New organization down to a name. Slice 9 isn't built.
 
 | # | Slice | Contents |
 | --- | --- | --- |

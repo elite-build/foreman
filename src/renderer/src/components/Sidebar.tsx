@@ -418,7 +418,6 @@ function RepoRail({ counts, repos }: { counts: Map<string | null, RepoCount>; re
   const t = useT()
   // The space's organizations, for the memory repository's mark in its tooltip.
   const organizations = useStore((s) => s.snapshot!.organizations)
-  const spaced = useStore((s) => Boolean(s.snapshot!.settings.aiEmployees))
   const connections = useStore((s) => s.snapshot!.integrations.connections)
   const mod = useStore((s) => modKey(s.snapshot!.platform))
   const platform = useStore((s) => s.snapshot!.platform)
@@ -492,7 +491,7 @@ function RepoRail({ counts, repos }: { counts: Map<string | null, RepoCount>; re
   )
   // An organization's memory repository says so (docs/ai-employees.md §10), beside the GitHub connection it may name.
   const tileLabel = (repo: Repo) => {
-    const memory = spaced && memoryOwner(repo.id, organizations ?? []) ? t('spaces.memoryTag') : undefined
+    const memory = memoryOwner(repo.id, organizations ?? []) ? t('spaces.memoryTag') : undefined
     return [repo.name, githubNames.get(repo.id), memory].filter(Boolean).join(' · ')
   }
   return (

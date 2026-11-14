@@ -108,7 +108,7 @@ describe('triggers in the definition', () => {
     const db = new ForemanDb(path.join(await tempDir('foreman-triggers-db-'), 'foreman.db'))
     opened.push(db)
     const repo = (id: string, name: string, rootPath: string) => ({ id, name, rootPath, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1' }) as unknown as Repo
-    const state = { repos: [repo('mem', 'acme-memory', root), repo('site', 'site', path.join(parent, 'site'))], organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00.000Z' }], settings: { ...defaultSettings(), aiEmployees: true } } as unknown as PersistedState
+    const state = { repos: [repo('mem', 'acme-memory', root), repo('site', 'site', path.join(parent, 'site'))], organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00.000Z' }], settings: defaultSettings() } as unknown as PersistedState
     const memory = new MemoryService({ state: () => state, db: () => db, sensitivePaths: () => [], changed: () => undefined })
     const employees = new EmployeeService({ state: () => state, memory, changed: () => undefined })
     const created = await employees.create('o1', max({ access: { ...max().access, repos: { site: 'write' } } }), { approve: true })
@@ -145,7 +145,7 @@ async function rig(trigger: EmployeeTrigger, options: { clock?: () => number } =
   const db = new ForemanDb(path.join(await tempDir('foreman-trigger-fire-'), 'foreman.db'))
   opened.push(db)
   const repo = (id: string, name: string) => ({ id, name, rootPath: `/code/${name}`, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1' }) as unknown as Repo
-  const state = { repos: [repo('mem', 'acme-memory'), repo('site', 'site'), repo('api', 'api')], organizations: [ORG], settings: { ...defaultSettings(), aiEmployees: true }, sessions: [], workspaces: [], schedules: [], occurrences: [] } as unknown as PersistedState
+  const state = { repos: [repo('mem', 'acme-memory'), repo('site', 'site'), repo('api', 'api')], organizations: [ORG], settings: defaultSettings(), sessions: [], workspaces: [], schedules: [], occurrences: [] } as unknown as PersistedState
   const definition = { value: max({ triggers: [trigger] }) }
   const summary: Rig['summary'] = { value: { state: 'active' } }
   const clock = { now: Date.parse('2026-11-16T08:00:00.000Z') }
@@ -391,13 +391,8 @@ describe('triggers firing on the schedule clock', () => {
     expect(stateOf(r).nextAt).toBeUndefined()
   })
 
-  it('does nothing while AI employees are off, and drops the state of a trigger no longer in its definition', async () => {
+  it('drops the state of a trigger no longer in its definition', async () => {
     const r = await rig(MONDAYS)
-    r.state.settings.aiEmployees = false
-    await tickAt(r, '2026-11-16T08:00:00.000Z')
-    expect(r.state.employeeTriggers ?? []).toEqual([])
-    expect(r.triggers.view()).toEqual([])
-    r.state.settings.aiEmployees = true
     await tickAt(r, '2026-11-16T08:00:00.000Z')
     expect(r.state.employeeTriggers).toHaveLength(1)
     r.definition.value = max()

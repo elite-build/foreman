@@ -127,7 +127,7 @@ import { templatePlaceholders } from '../shared/promptTemplates'
 import { SessionService } from './sessions'
 import { defaultSettings, type Store } from './store'
 import { WorkspaceService } from './workspaces'
-import { AI_EMPLOYEES_OFF, OrganizationService } from './organizations'
+import { OrganizationService } from './organizations'
 import { MemoryService } from './memory'
 import { EmployeeService } from './employees'
 import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
@@ -3397,7 +3397,6 @@ export class Core {
     resumeEmployee: (organizationId, id) => this.employees.resume(organizationId, id),
     retireEmployee: (organizationId, id) => this.employees.retire(organizationId, id),
     setEmployeeTriggerOff: async (organizationId, employeeId, triggerId, off) => {
-      if (!this.store.state.settings.aiEmployees) throw new Error(AI_EMPLOYEES_OFF)
       this.employeeTriggers.setOff(organizationId, employeeId, triggerId, off === true)
     },
     askEmployee: (organizationId, employeeId, input) => this.employeeWork.ask(organizationId, employeeId, input),
@@ -4431,15 +4430,6 @@ export class Core {
       if (patch.restoreTerminals === false) this.terminals.clear()
       // Turning the assistant off (or privacy mode on) stops what it is answering.
       if (patch.assistantEnabled === false || patch.privacyMode === true) void this.assistant.stopAll()
-      // AI employees turned on: each memory repository is looked at (and unfinished commits settled) in the background.
-      if (patch.aiEmployees === true)
-        void this.memory
-          .start()
-          .then(() => this.employees.refreshAll())
-          .then(() => this.employeeWork.pump())
-          .catch((err: unknown) => console.error('Memory:', err))
-      // Turned off: employee runs going stop as Stop would, saying why; queued work waits until they are on again.
-      if (patch.aiEmployees === false) void this.employeeWork.stopAll('Stopped: AI employees were turned off in Settings → Experimental.').catch(() => undefined)
       // Turning Flows off stops the runs in flight as Stop would, saying why.
       if (patch.flows === false) void this.flows.stopAll('Stopped: Flows were turned off in Settings → Experimental.')
       if (patch.scriptShell) setScriptShell(patch.scriptShell)

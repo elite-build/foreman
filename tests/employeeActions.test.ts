@@ -53,7 +53,7 @@ async function rig(options: { actions?: Record<string, EmployeeActionPolicy>; re
   opened.push(db)
   const repo = (id: string, name: string) => ({ id, name, rootPath: `/code/${name}`, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1' }) as unknown as Repo
   const org: Organization = { id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-01T00:00:00.000Z' }
-  const state = { repos: [repo('mem', 'acme-memory'), repo('site', 'site')], organizations: [org], settings: { ...defaultSettings(), aiEmployees: true }, sessions: [], workspaces: [] } as unknown as PersistedState
+  const state = { repos: [repo('mem', 'acme-memory'), repo('site', 'site')], organizations: [org], settings: defaultSettings(), sessions: [], workspaces: [] } as unknown as PersistedState
   const def = { current: definition(options.actions ?? {}, options.repos) }
   const summary: { patch: Partial<EmployeeSummary> } = { patch: {} }
   const sessions = new Map<string, Session>()

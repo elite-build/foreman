@@ -33,7 +33,7 @@ function setSnapshot(status: MemoryStatus | undefined, organizations = [org('o1'
     organizations,
     workspaces: [],
     memory: status ? { o1: status } : {},
-    settings: { ...original.settings, aiEmployees: true }
+    settings: original.settings
   }
 }
 
@@ -208,7 +208,7 @@ describe('ways into the Memory view', () => {
     fakeState.space = 'o2'
     render(<SpaceSwitcher />)
     await user.click(screen.getByRole('button', { name: 'Space: XYZ' }))
-    expect(screen.queryByRole('menuitem', { name: /memory/ })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /^Open .*memory/ })).toBeNull()
   })
 
   it('the Spaces page has Open memory on an organization’s card', async () => {

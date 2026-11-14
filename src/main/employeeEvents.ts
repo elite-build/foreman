@@ -173,7 +173,6 @@ export class EmployeeEventService {
    * (paused ones too: their events are recorded as skipped). Only these are watched for.
    */
   private live(): Live[] {
-    if (!this.state.settings.aiEmployees) return []
     const out: Live[] = []
     for (const source of this.host.employees.triggerSources()) {
       const why = this.blocked(source.summary)
@@ -304,7 +303,7 @@ export class EmployeeEventService {
 
   /** The memory service made a commit (in process, as it lands): who made it comes from its trailers. */
   memoryCommitted(commit: MemoryCommitted): Promise<void> {
-    if (!this.state.settings.aiEmployees || !commit.paths.length) return Promise.resolve()
+    if (!commit.paths.length) return Promise.resolve()
     const trailer = (key: string) => commit.trailers.find((t) => t.key === key)?.value
     const employee = trailer(MEMORY_TRAILERS.employee) ?? trailer(MEMORY_TRAILERS.proposedBy)
     const task = trailer(MEMORY_TRAILERS.task)
@@ -455,7 +454,6 @@ export class EmployeeEventService {
 
   /** The schedule clock's tick: Linear when it is due, then every batch whose debounce is over. */
   async tick(now = this.now()): Promise<void> {
-    if (!this.state.settings.aiEmployees) return
     await this.pollLinear().catch((err: unknown) => console.error('Employee events (Linear):', err))
     await this.exclusive(() => this.fireDue(now))
   }

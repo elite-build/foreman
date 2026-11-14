@@ -65,7 +65,7 @@ function setSnapshot(states: EmployeeTriggerState[] = STATES) {
     occurrences: [],
     employees: { o1: { head: 'h1', employees: [summary()] } },
     employeeTriggers: states,
-    settings: { ...original.settings, aiEmployees: true }
+    settings: original.settings
   }
 }
 

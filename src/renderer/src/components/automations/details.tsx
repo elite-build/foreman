@@ -174,10 +174,9 @@ export function ScheduleOverview() {
 
 type TriggerRow = ReturnType<typeof useEmployeeTriggerRows>[number]
 
-/** Every trigger of every employee not retired, while AI employees are on: with its organization, employee and state here. */
+/** Every trigger of every employee not retired: with its organization, employee and state here. */
 function useEmployeeTriggerRows() {
   const snapshot = useStore((s) => s.snapshot!)
-  if (!snapshot.settings.aiEmployees) return []
   return (snapshot.organizations ?? []).flatMap((org) =>
     (snapshot.employees?.[org.id]?.employees ?? [])
       .filter((e) => e.state !== 'retired')

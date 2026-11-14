@@ -115,7 +115,6 @@ async function setup(access: (repo: string) => Partial<EmployeeDefinition> = (re
   })
   core.attention.stop()
   vi.spyOn(core.environment, 'githubReady').mockResolvedValue()
-  await core.api.updateSettings({ aiEmployees: true })
   const repo = await core.api.addRepo(await makeRepo({ 'README.md': 'hello\n' }))
   const org = await core.api.createOrganization({ name: 'Acme', memory: { kind: 'create', name: 'acme-memory', parentDir: await tempDir('foreman-employee-runs-mem-') }, repoIds: [repo.id] })
   const definition = { ...base(repo.name), ...access(repo.name) }

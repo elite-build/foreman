@@ -33,7 +33,6 @@ import type { Session } from '../shared/types'
 import type { ForemanDb } from './db'
 import type { EmployeeService } from './employees'
 import type { EmployeeWorkService } from './employeeWork'
-import { AI_EMPLOYEES_OFF } from './organizations'
 import type { PersistedState } from './store'
 
 /** A bridged call an employee's run made (main/integrationBridge.ts), after the bridge's own checks passed. */
@@ -300,9 +299,6 @@ export class EmployeeActionService {
 
   // ---- a person's answer (Needs you) ----
 
-  private assertOn(): void {
-    if (!this.host.state().settings.aiEmployees) throw new Error(AI_EMPLOYEES_OFF)
-  }
 
   private action(id: string): EmployeeAction {
     const a = typeof id === 'string' ? this.db.employeeAction(id) : undefined
@@ -316,7 +312,6 @@ export class EmployeeActionService {
    * click) finds it on its way and sends nothing. One sent already is returned as it is.
    */
   async send(id: string, options: { edits?: Record<string, string>; checked?: boolean } = {}): Promise<EmployeeAction> {
-    this.assertOn()
     const a = this.action(id)
     if (a.state === 'approved' || a.state === 'sent') return a
     if (a.state === 'skipped' || a.state === 'refused') throw new Error(a.state === 'skipped' ? 'It was skipped, so it can’t be sent now.' : 'Its employee’s definition never allows it, so it can’t be sent.')
@@ -335,7 +330,6 @@ export class EmployeeActionService {
 
   /** Skip: nothing is sent, and the employee is told. */
   skip(id: string): EmployeeAction {
-    this.assertOn()
     const a = this.action(id)
     if (a.state === 'skipped') return a
     if (a.state !== 'held' && a.state !== 'failed' && a.state !== 'uncertain') throw new Error(a.state === 'sent' || a.state === 'approved' ? 'It was already sent.' : 'It was refused, so there is nothing to skip.')
@@ -344,7 +338,6 @@ export class EmployeeActionService {
 
   /** An uncertain action the person checked did arrive: recorded as sent, nothing sent again. */
   confirmArrived(id: string): EmployeeAction {
-    this.assertOn()
     const a = this.action(id)
     if (a.state !== 'uncertain') throw new Error('Only an action Foreman isn’t sure about can be marked as arrived.')
     return this.settle(a, 'sent', { result: { ...a.result, detail: 'A person checked that it arrived.' }, sentAt: a.sentAt ?? this.iso() })

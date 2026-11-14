@@ -37,7 +37,7 @@ const summary = (id: string, name: string, patch: Partial<EmployeeSummary> = {})
 
 const INSTRUCTIONS = '## Role\nMarketing.\n\n## What you do\nPosts.\n\n## How you write\nShort.\n\n## What you never do\nPublish.\n\n## How you finish\nA summary.'
 
-function setSnapshot({ on = true, organizations = [org('o1', 'Foreman', 'mem')], employees = [] as EmployeeSummary[], privacyMode = false } = {}) {
+function setSnapshot({ organizations = [org('o1', 'Foreman', 'mem')], employees = [] as EmployeeSummary[], privacyMode = false } = {}) {
   fakeState.snapshot = {
     ...original,
     repos: [
@@ -49,7 +49,7 @@ function setSnapshot({ on = true, organizations = [org('o1', 'Foreman', 'mem')],
     organizations,
     workspaces: [],
     employees: { o1: { head: 'h1', employees } },
-    settings: { ...original.settings, aiEmployees: on, privacyMode, loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5', fast: false }] }
+    settings: { ...original.settings, privacyMode, loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5', fast: false }] }
   }
 }
 
@@ -69,11 +69,7 @@ afterEach(() => {
 })
 
 describe('the Team section', () => {
-  it('is absent while AI employees are off, in Personal, and for an organization without a memory repository', () => {
-    setSnapshot({ on: false, employees: [summary('e-1abc', 'Ada')] })
-    const { unmount } = render(<TeamSection />)
-    expect(screen.queryByRole('heading', { name: 'Team' })).toBeNull()
-    unmount()
+  it('is absent in Personal, and for an organization without a memory repository', () => {
     setSnapshot({ employees: [summary('e-1abc', 'Ada')] })
     fakeState.space = null
     const second = render(<TeamSection />)

@@ -32,7 +32,7 @@ import { ForemanDb } from '../src/main/db'
 import { gitOut } from '../src/main/git'
 import { employeeFingerprint, EmployeeService, PRIVACY_MODE_ON } from '../src/main/employees'
 import { MemoryService } from '../src/main/memory'
-import { AI_EMPLOYEES_OFF, createMemoryRepository } from '../src/main/organizations'
+import { createMemoryRepository } from '../src/main/organizations'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import { tempDir } from './helpers'
 
@@ -274,7 +274,7 @@ afterEach(() => {
   }
 })
 
-async function rig(options: { on?: boolean; answer?: string } = {}) {
+async function rig(options: { answer?: string } = {}) {
   const parent = await tempDir('foreman-employees-')
   const root = await createMemoryRepository(parent, 'acme-memory', 'Acme')
   const db = new ForemanDb(path.join(await tempDir('foreman-employees-db-'), 'foreman.db'))
@@ -284,7 +284,7 @@ async function rig(options: { on?: boolean; answer?: string } = {}) {
   const blog = { id: 'blog', name: 'blog', rootPath: path.join(parent, 'blog'), defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z' } as unknown as Repo
   const org: Organization = { id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00.000Z' }
   const bare: Organization = { id: 'o2', name: 'Later', createdAt: '2026-11-05T00:00:00.000Z' }
-  const state = { repos: [memoryRepo, site, blog], organizations: [org, bare], settings: { ...defaultSettings(), aiEmployees: options.on ?? true } } as unknown as PersistedState
+  const state = { repos: [memoryRepo, site, blog], organizations: [org, bare], settings: defaultSettings() } as unknown as PersistedState
   const memory = new MemoryService({ state: () => state, db: () => db, sensitivePaths: () => [], changed: () => undefined })
   const counts = { changed: 0 }
   const draft = vi.fn(async (_request: { system: string; prompt: string }) => ({ text: options.answer ?? JSON.stringify(GOOD_ANSWER), agent: 'claude', model: 'claude-sonnet-5-5' }))
@@ -433,14 +433,8 @@ describe('employees: the service', () => {
     await expect(employees.pause('o1', 'e-none')).rejects.toThrow('Employee not found')
   })
 
-  it('refuses everything while AI employees are off, or for an organization without a memory repository', async () => {
-    const { employees, state, draft } = await rig({ on: false })
-    await expect(employees.list('o1')).rejects.toThrow(AI_EMPLOYEES_OFF)
-    await expect(employees.create('o1', definitionFor())).rejects.toThrow(AI_EMPLOYEES_OFF)
-    await expect(employees.pause('o1', 'e-7k2m')).rejects.toThrow(AI_EMPLOYEES_OFF)
-    await expect(employees.generate('o1', { description: 'x', traits: [] })).rejects.toThrow(AI_EMPLOYEES_OFF)
-    expect(employees.rosters()).toEqual({})
-    state.settings.aiEmployees = true
+  it('refuses everything for an organization without a memory repository', async () => {
+    const { employees, draft } = await rig()
     await expect(employees.list('o2')).rejects.toThrow('Later has no memory repository. Choose one in Settings → Spaces.')
     await expect(employees.generate('o2', { description: 'x', traits: [] })).rejects.toThrow('Later has no memory repository')
     expect(draft).not.toHaveBeenCalled()

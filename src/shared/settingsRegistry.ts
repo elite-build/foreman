@@ -45,7 +45,7 @@ export const PAGE_LABELS: Record<PersonalSection | 'agents', PlainKey> = {
   data: 'settings.page.data',
   // Remote (cloud) workspaces.
   cloud: 'settings.page.cloud',
-  // AI employees' spaces (docs/ai-employees.md §10): shown only while Settings → Experimental → AI employees is on.
+  // AI employees' spaces (docs/ai-employees.md §10): Personal and each organization.
   spaces: 'spaces.page.title'
 }
 
@@ -69,14 +69,9 @@ export const CATEGORIES: { id: SettingsCategory; label: PlainKey; pages: (Person
   { id: 'environment', label: 'settings.page.environment', pages: ['environment'] },
   { id: 'data', label: 'settings.category.data', pages: ['data', 'usage'] },
   { id: 'advanced', label: 'settings.page.advanced', pages: ['advanced', 'experimental'] },
-  // Personal and organizations; only while AI employees are on (categoriesShown).
+  // Personal and organizations.
   { id: 'spaces', label: 'spaces.page.title', pages: ['spaces'] }
 ]
-
-/** The categories Settings offers: Spaces only while AI employees are on (Settings → Experimental). */
-export function categoriesShown(settings: { aiEmployees?: boolean } | undefined): typeof CATEGORIES {
-  return settings?.aiEmployees ? CATEGORIES : CATEGORIES.filter((c) => c.id !== 'spaces')
-}
 
 export function categoryOf(section: PersonalSection | 'agents'): SettingsCategory {
   return CATEGORIES.find((c) => c.pages.includes(section))!.id
@@ -258,7 +253,6 @@ export const SETTINGS: SettingEntry[] = [
   { id: 'fork-to-new-tab', page: p('experimental'), titleKey: 'settings.experimental.fork.label', title: 'Fork chat to new tab', description: "Fork a chat from an answer's ⋯ menu (Fork from here), its tab's context menu, or with ⌘⌥↵.", descriptionKey: 'settings.row.forkToNewTab.desc', keywords: ['fork', 'branch chat', 'fork from here'] },
   { id: 'show-resource-usage', page: p('experimental'), titleKey: 'settings.experimental.resourceUsage.label', title: 'Show resource usage', description: 'Shows CPU and memory usage in the sidebar footer.', descriptionKey: 'settings.experimental.resourceUsage.help' },
   { id: 'flows', page: p('experimental'), titleKey: 'settings.experimental.flows.label', title: 'Flows', description: 'Graphs of agent steps with loops, run from Automations. Off: nothing about flows appears.', descriptionKey: 'settings.experimental.flows.help', keywords: ['flow', 'graph', 'loop', 'workflow', 'pipeline', 'automations', 'steps'] },
-  { id: 'ai-employees', page: p('experimental'), titleKey: 'settings.experimental.aiEmployees.label', title: 'AI employees', description: 'Organizations beside Personal, each with its own memory repository, for AI employees. Off: no switcher or organizations appear; nothing is deleted.', descriptionKey: 'settings.experimental.aiEmployees.help', keywords: ['organization', 'organizations', 'space', 'spaces', 'employee', 'bot', 'memory', 'personal'] },
   { id: 'diagnostics', page: p('experimental'), titleKey: 'settings.experimental.diagnostics.label', title: 'Keep diagnostics', description: 'Writes an event log and performance samples to the data folder and keeps crash dumps there. Nothing leaves this computer.', descriptionKey: 'settings.experimental.diagnostics.help', keywords: ['diagnostics', 'log', 'crash', 'dump', 'performance', 'telemetry', 'bug report', 'profile'] },
 
   // Advanced

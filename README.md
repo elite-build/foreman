@@ -28,7 +28,7 @@ Foreman runs on your computer. There is no Foreman account or cloud service: wor
 
 Run a flow from Automations, **New workspace**, a schedule or `foreman flow run`, and follow it on the workspace's **Flow** tab. **Full screen** puts the run in the middle of the workspace with the chat beside it.
 
-**AI employees.** Group repositories into an organization with its own memory repository, then give it employees: each one a role written in plain words, a hard hat of its own, and access you approve. Ask one for something, or let its schedule or an event (a pull request, the base branch moving, a Linear assignment) start it; it works in a fresh workspace, remembers through the memory repository, hands work to its colleagues, and asks you before anything leaves your computer. AI employees are experimental: turn them on in **Settings → Experimental → AI employees**. `docs/ai-employees.md` has the design.
+**AI employees.** Group repositories into an organization with its own memory repository, then give it employees: each one a role written in plain words, a hard hat of its own, and access you approve. Ask one for something, or let its schedule or an event (a pull request, the base branch moving, a Linear assignment) start it; it works in a fresh workspace, remembers through the memory repository, hands work to its colleagues, and asks you before anything leaves your computer. Start one from the **Personal ▾** switcher at the top of the sidebar: **New organization…** asks only for a name. `docs/ai-employees.md` has the design.
 
 ![A flow run's diagram in the middle of the workspace, with its chat beside it](docs/images/flow-run-dark.png)
 
