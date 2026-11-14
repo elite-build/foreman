@@ -1295,9 +1295,6 @@ export interface Settings {
   showResourceUsage: boolean
   // Flows (docs/loops-and-graphs.md): off by default; off, nothing about flows appears and repo flow files are ignored.
   flows: boolean
-  // AI employees (docs/ai-employees.md): off by default. Off, there is no space switcher or organization UI, every
-  // repository shows as it always did, and the organization methods refuse; organizations are kept, never deleted.
-  aiEmployees: boolean
   // Development builds only (Settings → Experimental): Claude Code and Codex answer from recorded traffic instead of running
   // (docs/agents.md, 9.5). A packaged build ignores it.
   replayTraffic: boolean

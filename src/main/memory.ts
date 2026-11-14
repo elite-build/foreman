@@ -41,7 +41,6 @@ import { sensitiveMatches } from '../shared/sensitive'
 import type { Repo } from '../shared/types'
 import type { ForemanDb, MemoryMutationDetail, MemoryMutationRow } from './db'
 import { busyOperation, git, gitBlob, revParse } from './git'
-import { AI_EMPLOYEES_OFF } from './organizations'
 import type { PersistedState } from './store'
 
 /** Who Foreman's own commits (and, unless a run names its employee, a run's) are by. */
@@ -50,7 +49,7 @@ export const FOREMAN_IDENTITY = { name: 'Foreman', email: 'foreman@localhost' }
 // At most this many foreign commits are listed; the rest are counted.
 const FOREIGN_LISTED = 20
 
-export type MemoryRefusalReason = 'off' | 'no-memory' | 'path' | 'size' | 'binary' | 'secret' | 'sensitive' | 'foreign' | 'unavailable' | 'identity' | 'invalid'
+export type MemoryRefusalReason = 'no-memory' | 'path' | 'size' | 'binary' | 'secret' | 'sensitive' | 'foreign' | 'unavailable' | 'identity' | 'invalid'
 
 /** A write or read the service won't do, with why in words the person (or the model) reads. */
 export class MemoryRefused extends Error {
@@ -148,10 +147,9 @@ export class MemoryService {
 
   // ---- organizations and their folders ----
 
-  /** The organization's memory repository, or a refusal: AI employees off, or no memory repository. */
+  /** The organization's memory repository, or a refusal: no such organization, or no memory repository. */
   private target(orgId: string): Target {
     const state = this.host.state()
-    if (!state.settings.aiEmployees) throw new MemoryRefused(AI_EMPLOYEES_OFF, 'off')
     const org = (state.organizations ?? []).find((o) => o.id === orgId)
     if (!org) throw new MemoryRefused('Organization not found', 'no-memory')
     const repo = org.memoryRepoId ? state.repos.find((r) => r.id === org.memoryRepoId) : undefined
@@ -257,7 +255,6 @@ export class MemoryService {
   /** The last status of each organization with a memory repository, for the snapshot (while AI employees are on). */
   statuses(): Record<string, MemoryStatus> {
     const state = this.host.state()
-    if (!state.settings.aiEmployees) return {}
     const out: Record<string, MemoryStatus> = {}
     for (const org of state.organizations ?? []) {
       const status = org.memoryRepoId ? this.statusCache.get(org.id) : undefined
@@ -918,16 +915,15 @@ export class MemoryService {
   organizationChanged(orgId: string): void {
     const state = this.host.state()
     const org = (state.organizations ?? []).find((o) => o.id === orgId)
-    if (!state.settings.aiEmployees || !org?.memoryRepoId) return
+    if (!org?.memoryRepoId) return
     void this.syncManifest(orgId).catch((err: unknown) => console.error('Memory manifest:', err))
   }
 
   // ---- start ----
 
-  /** At launch (and when AI employees are turned on): settle intents, look at each memory repository, catch the index up. */
+  /** At launch: settle intents, look at each memory repository, catch the index up. */
   async start(): Promise<void> {
     const state = this.host.state()
-    if (!state.settings.aiEmployees) return
     for (const org of state.organizations ?? []) {
       if (!org.memoryRepoId) continue
       try {

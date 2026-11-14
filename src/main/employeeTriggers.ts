@@ -86,7 +86,7 @@ export class EmployeeTriggerService {
   /** Each trigger's state here, for the snapshot (while AI employees are on). */
   view(): EmployeeTriggerState[] {
     // An event trigger's list of the event identities it took stays in main: the window never reads it.
-    return this.state.settings.aiEmployees ? this.states().map(({ seen: _seen, ...s }) => s) : []
+    return this.states().map(({ seen: _seen, ...s }) => s)
   }
 
   /**
@@ -116,7 +116,6 @@ export class EmployeeTriggerService {
    * from their events (main/employeeEvents.ts); their state here is kept while they are in their definition.
    */
   async tick(now: number, graceMs = MISSED_GRACE_MS): Promise<void> {
-    if (!this.state.settings.aiEmployees) return
     const sources = this.host.employees.triggerSources()
     let dirty = false
     for (const source of sources) {

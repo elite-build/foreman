@@ -7388,7 +7388,6 @@ Experimental
   experimental.fork-to-new-tab       on | off  Fork chat to new tab
   experimental.show-resource-usage   on | off  Show resource usage
   experimental.flows                 on | off  Flows
-  experimental.ai-employees          on | off  AI employees
   experimental.diagnostics           on | off  Keep diagnostics
 
 Advanced

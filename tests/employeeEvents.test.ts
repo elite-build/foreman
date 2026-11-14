@@ -230,7 +230,7 @@ async function rig(options: { triggers?: Record<string, EmployeeTrigger[]>; work
   opened.push(db)
   const repo = (id: string, name: string) => ({ id, name, rootPath: `/code/${name}`, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1', hasOrigin: true }) as unknown as Repo
   const org: Organization = { ...ORG, ...(options.workLimits ? { workLimits: options.workLimits } : {}) }
-  const state = { repos: [repo('mem', 'acme-memory'), repo('site', 'site'), repo('api', 'api')], organizations: [org], settings: { ...defaultSettings(), aiEmployees: true }, sessions: [], workspaces: [] } as unknown as PersistedState
+  const state = { repos: [repo('mem', 'acme-memory'), repo('site', 'site'), repo('api', 'api')], organizations: [org], settings: defaultSettings(), sessions: [], workspaces: [] } as unknown as PersistedState
   const definitions = new Map<string, EmployeeDefinition>()
   for (const id of ['e-max1', 'e-ada2']) definitions.set(id, definition(id, options.triggers?.[id] ?? []))
   const summaries = new Map<string, Partial<EmployeeSummary>>()
@@ -682,7 +682,7 @@ describe('the memory service’s commits', () => {
     const db = new ForemanDb(path.join(await tempDir('foreman-events-memory-db-'), 'foreman.db'))
     opened.push(db)
     const repo = { id: 'mem', name: 'acme-memory', rootPath: root, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1' } as unknown as Repo
-    const state = { repos: [repo], organizations: [ORG], settings: { ...defaultSettings(), aiEmployees: true } } as unknown as PersistedState
+    const state = { repos: [repo], organizations: [ORG], settings: defaultSettings() } as unknown as PersistedState
     const committed = vi.fn()
     const memory = new MemoryService({ state: () => state, db: () => db, sensitivePaths: () => [], changed: () => undefined, committed })
     await memory.start()

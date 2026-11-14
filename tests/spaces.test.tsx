@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-// Spaces in the window (docs/ai-employees.md §3 and §10): the switcher only while AI employees are on and an organization
-// exists, Create an organization… in the Add repository menu only while on, and the Create an organization dialog's
-// checks before it calls the API.
+// Spaces in the window (docs/ai-employees.md §3 and §10): the switcher always there (Personal until an organization
+// exists), New organization… in it and in the Add repository menu, and the New organization dialog: one name, the
+// repositories to bring (the one in view ticked), its memory repository in a line, the rest behind More options.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -23,7 +23,7 @@ const PARENT = 'C:\\code'
 const repo = (id: string, spaceId?: string) => ({ id, name: id, rootPath: `${PARENT}\\${id}`, defaultBranch: 'main', ...(spaceId ? { spaceId } : {}) })
 const org = (id: string, name: string, memoryRepoId?: string): Organization => ({ id, name, ...(memoryRepoId ? { memoryRepoId } : {}), createdAt: '2026-11-05T00:00:00.000Z' })
 
-function setSnapshot(aiEmployees: boolean, organizations: Organization[], repos = [repo('blog'), repo('dotfiles'), repo('site', 'o1'), repo('foreman-memory', 'o1')]) {
+function setSnapshot(organizations: Organization[], repos = [repo('blog'), repo('dotfiles'), repo('site', 'o1'), repo('foreman-memory', 'o1')]) {
   fakeState.snapshot = {
     ...original,
     repos,
@@ -35,7 +35,7 @@ function setSnapshot(aiEmployees: boolean, organizations: Organization[], repos 
     ],
     recentRepos: [],
     homeDir: 'C:\\Users\\me',
-    settings: { ...original.settings, aiEmployees, cloneDirectory: PARENT }
+    settings: { ...original.settings, cloneDirectory: PARENT }
   }
 }
 
@@ -43,29 +43,32 @@ beforeEach(() => {
   resetFake()
   for (const name of ['setSpace', 'openCreateOrganization', 'openSettingsPage']) spy(name).mockReset()
   fakeState.space = null
+  fakeState.sidebarView = { repo: null }
 })
 afterEach(() => {
   cleanup()
   fakeState.snapshot = original
   delete fakeState.space
+  delete fakeState.sidebarView
 })
 
 describe('the space switcher', () => {
-  it('is absent while AI employees are off, even with organizations', () => {
-    setSnapshot(false, [org('o1', 'Foreman', 'foreman-memory')])
-    render(<SpaceSwitcher />)
-    expect(screen.queryByRole('button', { name: /^Space:/ })).toBeNull()
-  })
-
-  it('is absent while on with no organization: Personal alone needs no switcher', () => {
-    setSnapshot(true, [])
-    render(<SpaceSwitcher />)
-    expect(screen.queryByRole('button', { name: /^Space:/ })).toBeNull()
-  })
-
-  it('lists each space with its counts, the current one checked, then Create and Manage', async () => {
+  it('is there before any organization exists: Personal, with New organization… to make one', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')])
+    setSnapshot([], [repo('blog'), repo('dotfiles')])
+    render(<SpaceSwitcher />)
+    await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
+    const menu = screen.getByRole('menu', { name: 'Spaces' })
+    expect(within(menu).getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Personal2 repositories · no memory repository', 'true']])
+    const make = screen.getByRole('menuitem', { name: /New organization…/ })
+    expect(make.textContent).toContain('Repositories you work on with others, with AI employees and a memory they share')
+    await user.click(make)
+    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
+  })
+
+  it('lists each space with its counts, the current one checked, then New organization and Manage', async () => {
+    const user = userEvent.setup()
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')])
     render(<SpaceSwitcher />)
     await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
     const menu = screen.getByRole('menu', { name: 'Spaces' })
@@ -79,7 +82,7 @@ describe('the space switcher', () => {
     expect(spy('setSpace')).toHaveBeenCalledWith('o1')
 
     await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Create an organization…' }))
+    await user.click(screen.getByRole('menuitem', { name: /New organization…/ }))
     expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
     await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
     await user.click(screen.getByRole('menuitem', { name: 'Manage spaces…' }))
@@ -87,7 +90,7 @@ describe('the space switcher', () => {
   })
 
   it('names the current organization, and falls back to Personal when it is gone', () => {
-    setSnapshot(true, [org('o1', 'Foreman')])
+    setSnapshot([org('o1', 'Foreman')])
     fakeState.space = 'o1'
     const { unmount } = render(<SpaceSwitcher />)
     expect(screen.getByRole('button', { name: 'Space: Foreman' })).toBeTruthy()
@@ -99,7 +102,8 @@ describe('the space switcher', () => {
 })
 
 describe('the Add repository menu', () => {
-  const open = async () => {
+  it('offers New organization…', async () => {
+    setSnapshot([])
     const user = userEvent.setup()
     render(
       <MenuButton label="Add repository" trigger="+">
@@ -107,47 +111,60 @@ describe('the Add repository menu', () => {
       </MenuButton>
     )
     await user.click(screen.getByRole('button', { name: '+' }))
-    return user
-  }
-
-  it('offers Create an organization… only while AI employees are on', async () => {
-    setSnapshot(false, [])
-    await open()
-    expect(screen.queryByRole('menuitem', { name: /Create an organization/ })).toBeNull()
-    cleanup()
-    setSnapshot(true, [])
-    const user = await open()
-    await user.click(screen.getByRole('menuitem', { name: /Create an organization/ }))
+    await user.click(screen.getByRole('menuitem', { name: /New organization…/ }))
     expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
   })
 })
 
-describe('Create an organization', () => {
+describe('New organization', () => {
   const create = () => screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement
 
-  it('needs a name, and names the new memory repository after it', async () => {
+  it('needs only a name: its memory repository is named after it and made beside the others, said in one line', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [])
+    setSnapshot([])
+    fakeApi.createOrganization = vi.fn(async () => org('new', 'Foreman'))
     render(<CreateOrganizationDialog />)
-    await screen.findByRole('dialog', { name: 'Create an organization' })
+    await screen.findByRole('dialog', { name: 'New organization' })
     expect(create().disabled).toBe(true)
     await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Foreman')
-    expect((screen.getByRole('textbox', { name: 'Repository name' }) as HTMLInputElement).value).toBe('foreman-memory')
-    expect(screen.getByText('Each organization has its own memory repository. It is never shared with another organization.')).toBeTruthy()
-    // Joined with the platform's separator, never a mix ("C:\code/foreman-memory").
-    expect(screen.getByText(`Creates ${PARENT}\\foreman-memory with one commit.`)).toBeTruthy()
-    expect(create().disabled).toBe(false)
+    expect(screen.getByText(/Makes foreman-memory beside your repositories, private to this computer\./)).toBeTruthy()
+    // Nothing else to decide unless asked for.
+    expect(screen.queryByRole('radio')).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Repository name' })).toBeNull()
+    await user.click(create())
+    await waitFor(() => expect(fakeApi.createOrganization).toHaveBeenCalledWith({ name: 'Foreman', memory: { kind: 'create', name: 'foreman-memory', parentDir: PARENT }, repoIds: [] }))
+    await waitFor(() => expect(spy('setSpace')).toHaveBeenCalledWith('new', { home: true }))
+    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(false)
   })
 
-  it('refuses a name another organization has, and a memory repository name Quick start would refuse', async () => {
+  it('ticks the repository in view, and brings the ones ticked', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [org('o1', 'Foreman', 'foreman-memory')])
+    setSnapshot([])
+    fakeState.sidebarView = { repo: 'dotfiles' }
+    fakeApi.createOrganization = vi.fn(async () => org('new', 'Acme'))
+    render(<CreateOrganizationDialog />)
+    const bring = await screen.findByRole('group', { name: 'Bring in' })
+    expect((within(bring).getByRole('checkbox', { name: /dotfiles/ }) as HTMLInputElement).checked).toBe(true)
+    expect((within(bring).getByRole('checkbox', { name: /blog/ }) as HTMLInputElement).checked).toBe(false)
+    expect(within(bring).getByText('2 workspaces')).toBeTruthy()
+    await user.click(within(bring).getByRole('checkbox', { name: /blog/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Acme')
+    await user.click(create())
+    await waitFor(() => expect(fakeApi.createOrganization).toHaveBeenCalledWith({ name: 'Acme', memory: { kind: 'create', name: 'acme-memory', parentDir: PARENT }, repoIds: ['blog', 'dotfiles'] }))
+  })
+
+  it('refuses a name another organization has, and under More options a memory repository name Quick start would refuse', async () => {
+    const user = userEvent.setup()
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
     render(<CreateOrganizationDialog />)
     await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'foreman')
     expect(screen.getByText('There is already an organization with this name.')).toBeTruthy()
     expect(create().disabled).toBe(true)
     await user.type(screen.getByRole('textbox', { name: 'Name' }), ' two')
     expect(create().disabled).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    // Joined with the platform's separator, never a mix ("C:\code/foreman two-memory").
+    expect(screen.getByText(`Creates ${PARENT}\\foreman-two-memory with one commit.`)).toBeTruthy()
     const memory = screen.getByRole('textbox', { name: 'Repository name' })
     await user.clear(memory)
     await user.type(memory, 'bad name!')
@@ -155,11 +172,12 @@ describe('Create an organization', () => {
     expect(create().disabled).toBe(true)
   })
 
-  it('offers existing repositories, says why another organization’s are not, and waits for a choice', async () => {
+  it('under More options, offers existing repositories, says why another organization’s are not, and waits for a choice', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [org('o1', 'Foreman', 'foreman-memory')])
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
     render(<CreateOrganizationDialog />)
     await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'XYZ')
+    await user.click(screen.getByRole('button', { name: 'More options' }))
     await user.click(screen.getByRole('radio', { name: 'Use an existing repository' }))
     expect(create().disabled).toBe(true)
     const select = screen.getByRole('combobox', { name: 'Repository' }) as HTMLSelectElement
@@ -175,37 +193,20 @@ describe('Create an organization', () => {
     expect(create().disabled).toBe(false)
     // The memory repository moves too, and isn't offered again in the list to bring.
     expect(screen.queryByRole('checkbox', { name: /dotfiles/ })).toBeNull()
-    expect(screen.getByText('1 repository moves, with its workspaces and chats. Nothing in the repository changes.')).toBeTruthy()
-  })
-
-  it('says what moves, creates, and then shows the new organization', async () => {
-    const user = userEvent.setup()
-    setSnapshot(true, [])
-    fakeApi.createOrganization = vi.fn(async () => org('new', 'Foreman'))
-    render(<CreateOrganizationDialog />)
-    await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Foreman')
-    expect(screen.getByText('No repositories move now. You can move any of them later, in Spaces.')).toBeTruthy()
-    const bring = screen.getByRole('group', { name: 'Bring repositories from Personal' })
-    await user.click(within(bring).getByRole('checkbox', { name: /blog/ }))
-    expect(within(bring).getByText('2 workspaces')).toBeTruthy()
-    expect(screen.getByText('1 repository moves, with its workspaces and chats. Nothing in the repository changes.')).toBeTruthy()
-    await user.click(create())
-    await waitFor(() => expect(fakeApi.createOrganization).toHaveBeenCalledWith({ name: 'Foreman', memory: { kind: 'create', name: 'foreman-memory', parentDir: PARENT }, repoIds: ['blog'] }))
-    await waitFor(() => expect(spy('setSpace')).toHaveBeenCalledWith('new', { home: true }))
-    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(false)
   })
 
   it('decides later without a memory repository, and shows a refusal as an alert', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [])
-    fakeApi.createOrganization = vi.fn(async () => Promise.reject(new Error('AI employees are off. Turn them on in Settings → Experimental.')))
+    setSnapshot([])
+    fakeApi.createOrganization = vi.fn(async () => Promise.reject(new Error('There is already an organization with this name.')))
     render(<CreateOrganizationDialog />)
     await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Acme')
+    await user.click(screen.getByRole('button', { name: 'More options' }))
     await user.click(screen.getByRole('radio', { name: 'Decide later' }))
     expect(screen.queryByRole('textbox', { name: 'Repository name' })).toBeNull()
     await user.click(create())
     await waitFor(() => expect(fakeApi.createOrganization).toHaveBeenCalledWith({ name: 'Acme', memory: { kind: 'later' }, repoIds: [] }))
-    expect((await screen.findByRole('alert')).textContent).toContain('AI employees are off')
+    expect((await screen.findByRole('alert')).textContent).toContain('There is already an organization')
     expect(spy('setSpace')).not.toHaveBeenCalled()
   })
 })
@@ -213,7 +214,7 @@ describe('Create an organization', () => {
 describe('the Spaces page', () => {
   it('shows a card per space with its memory repository and repositories, and moves one', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')])
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')])
     fakeApi.moveRepoToSpace = vi.fn(async () => undefined)
     render(<SpacesPage />)
     const personal = screen.getByRole('region', { name: 'Personal' })
@@ -238,7 +239,7 @@ describe('the Spaces page', () => {
 
   it('keeps a memory repository in its organization, and says why', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [org('o1', 'Foreman', 'foreman-memory')])
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
     render(<SpacesPage />)
     await user.click(within(screen.getByRole('region', { name: 'Foreman' })).getByRole('button', { name: 'Actions for foreman-memory' }))
     const [personal, foreman] = screen.getAllByRole('menuitemradio') as HTMLButtonElement[]
@@ -249,7 +250,7 @@ describe('the Spaces page', () => {
 
   it('deletes an organization after saying its repositories go back to Personal', async () => {
     const user = userEvent.setup()
-    setSnapshot(true, [org('o1', 'Foreman', 'foreman-memory')])
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
     fakeApi.deleteOrganization = vi.fn(async () => undefined)
     render(<SpacesPage />)
     await user.click(within(screen.getByRole('region', { name: 'Foreman' })).getByRole('button', { name: 'Delete…' }))

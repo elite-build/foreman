@@ -19,7 +19,7 @@ export function TeamSection() {
   const wanted = useStore((s) => s.space)
   const route = useStore((s) => s.employeesView)
   const organizations = snapshot.organizations ?? []
-  if (!spacesOn(snapshot.settings, organizations)) return null
+  if (!spacesOn(organizations)) return null
   const space = currentSpace(organizations, wanted)
   const org = organizations.find((o) => o.id === space)
   if (!org?.memoryRepoId) return null

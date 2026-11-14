@@ -73,7 +73,7 @@ function setSnapshot(work: Partial<EmployeeWorkView>) {
     workspaces: [],
     employees: { o1: { head: 'h1', employees: [summary] } },
     employeeWork: { o1: { tasks: [task], runs: [], last: {}, proposals: [], revision: 1, ...work } },
-    settings: { ...original.settings, aiEmployees: true }
+    settings: original.settings
   }
 }
 

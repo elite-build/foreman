@@ -7,7 +7,7 @@ import { useT } from '../../i18n'
 import { openSettingsPage, useStore, type RepoSection, type SettingsPage } from '../../store'
 import { ActionRow, Button, Combobox, IconButton, Kbd, Pressable, type ListboxOption } from '../../ui'
 import { lucideIcon } from './RepoIcon'
-import { CATEGORIES, categoriesShown, categoryOf, REPO_TAB_LABELS, SETTINGS, type SettingsCategory } from './registry'
+import { CATEGORIES, categoryOf, REPO_TAB_LABELS, SETTINGS, type SettingsCategory } from './registry'
 import { buildIndex, highlight, PAGE_ICONS, REPO_TAB_ICONS, rowDescription, rowTitle, search, type SearchItem } from './searchIndex'
 
 const REPO_TABS = Object.keys(REPO_TAB_LABELS) as RepoSection[]
@@ -22,9 +22,7 @@ export function SettingsNav({ page, repoTab, onClose }: { page: SettingsPage; re
   // A repository's Cloud tab shows once cloud workspaces are on (Settings → Cloud workspaces).
   const cloudOn = useStore((s) => Boolean(s.snapshot!.settings.cloud?.enabled))
   const repoTabs = cloudOn ? REPO_TABS : REPO_TABS.filter((tab) => tab !== 'cloud')
-  // Spaces shows while AI employees are on (Settings → Experimental).
-  const aiEmployees = useStore((s) => Boolean(s.snapshot!.settings.aiEmployees))
-  const categories = categoriesShown({ aiEmployees })
+  const categories = CATEGORIES
   const [query, setQuery] = useState('')
   const [, rerender] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -62,7 +60,7 @@ export function SettingsNav({ page, repoTab, onClose }: { page: SettingsPage; re
           {t('common.back')}
         </Button>
       </div>
-      <SearchBox inputRef={input} query={query} onQuery={setQuery} repos={repos} mac={mac} spaces={aiEmployees} onPick={open} />
+      <SearchBox inputRef={input} query={query} onQuery={setQuery} repos={repos} mac={mac} onPick={open} />
       {!query.trim() && (
         <div className="set-nav-scroll">
           {categories.map((c) => (
@@ -157,10 +155,10 @@ function CategoryGroup({ id, page, open, onToggle, onOpen, mac }: { id: Settings
 }
 
 /** Results while typing, grouped under the category or repository they belong to. */
-function SearchBox({ inputRef, query, onQuery, repos, mac, spaces, onPick }: { inputRef: React.RefObject<HTMLInputElement | null>; query: string; onQuery: (q: string) => void; repos: Repo[]; mac: boolean; spaces: boolean; onPick: (target: SettingsPage) => void }) {
+function SearchBox({ inputRef, query, onQuery, repos, mac, onPick }: { inputRef: React.RefObject<HTMLInputElement | null>; query: string; onQuery: (q: string) => void; repos: Repo[]; mac: boolean; onPick: (target: SettingsPage) => void }) {
   const t = useT()
   const platform = useStore((s) => s.snapshot!.platform)
-  const items = useMemo(() => buildIndex(repos, mac, t, platform, spaces), [repos, mac, t, platform, spaces])
+  const items = useMemo(() => buildIndex(repos, mac, t, platform), [repos, mac, t, platform])
   const results = useMemo(() => search(items, query), [items, query])
   const searching = query.trim() !== ''
 

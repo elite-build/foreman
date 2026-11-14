@@ -21,7 +21,7 @@ import {
 } from '../src/shared/organizations'
 import type { AppSnapshot, Repo, Workspace } from '../src/shared/types'
 import { gitOut } from '../src/main/git'
-import { AI_EMPLOYEES_OFF, memoryRepositoryFiles, OrganizationService } from '../src/main/organizations'
+import { memoryRepositoryFiles, OrganizationService } from '../src/main/organizations'
 import { defaultSettings, Store, type PersistedState } from '../src/main/store'
 import { tempDir } from './helpers'
 
@@ -47,11 +47,10 @@ describe('organizations: the shared rules', () => {
     expect(organizationNameProblem('XYZ', orgs)).toBeNull()
   })
 
-  it('applies spaces only with the switch on and an organization made', () => {
-    expect(spacesOn({ aiEmployees: false }, [org('o1', 'A')])).toBe(false)
-    expect(spacesOn({ aiEmployees: true }, [])).toBe(false)
-    expect(spacesOn({ aiEmployees: true }, undefined)).toBe(false)
-    expect(spacesOn({ aiEmployees: true }, [org('o1', 'A')])).toBe(true)
+  it('splits repositories into spaces once an organization is made', () => {
+    expect(spacesOn([])).toBe(false)
+    expect(spacesOn(undefined)).toBe(false)
+    expect(spacesOn([org('o1', 'A')])).toBe(true)
   })
 
   it('puts a repository with no space, or a space that is gone, in Personal', () => {
@@ -65,11 +64,11 @@ describe('organizations: the shared rules', () => {
     expect(currentSpace(orgs, null)).toBeNull()
   })
 
-  it('shows one space in the sidebar, its memory repository first, and everything while spaces are off', () => {
+  it('shows one space in the sidebar, its memory repository first, and everything before any organization exists', () => {
     const repos = [repo('blog'), repo('site', { spaceId: 'o1' }), repo('foreman-memory', { spaceId: 'o1' }), repo('xyz', { spaceId: 'o2' })]
     const workspaces = [{ id: 'w1', repoId: 'blog' }, { id: 'w2', repoId: 'site' }, { id: 'w3', repoId: 'xyz' }] as Workspace[]
     const organizations = [org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')]
-    const snapshot = { repos, workspaces, organizations, settings: { ...defaultSettings(), aiEmployees: true } } as unknown as AppSnapshot
+    const snapshot = { repos, workspaces, organizations, settings: defaultSettings() } as unknown as AppSnapshot
     const personal = snapshotInSpace(snapshot, null)
     expect(personal.repos.map((r) => r.id)).toEqual(['blog'])
     expect(personal.workspaces.map((w) => w.id)).toEqual(['w1'])
@@ -78,9 +77,9 @@ describe('organizations: the shared rules', () => {
     expect(foreman.workspaces.map((w) => w.id)).toEqual(['w2'])
     // An organization that is gone shows Personal.
     expect(snapshotInSpace(snapshot, 'gone').repos.map((r) => r.id)).toEqual(['blog'])
-    // Off: today's sidebar, every repository, and nothing about the organizations is lost.
-    const off = { ...snapshot, settings: { ...snapshot.settings, aiEmployees: false } } as AppSnapshot
-    expect(snapshotInSpace(off, 'o1')).toBe(off)
+    // No organization yet: the sidebar as it always was, every repository.
+    const none = { ...snapshot, organizations: [] } as AppSnapshot
+    expect(snapshotInSpace(none, null)).toBe(none)
   })
 
   it('offers Personal and its own repositories as a memory repository, and says why not for the rest', () => {
@@ -115,8 +114,8 @@ describe('organizations: the shared rules', () => {
 })
 
 /** A service over plain state: addRepo registers the folder the way WorkspaceService does (in Personal). */
-function rig(options: { on?: boolean; repos?: Repo[]; organizations?: Organization[] } = {}) {
-  const state = { repos: options.repos ?? [], organizations: options.organizations ?? [], settings: { ...defaultSettings(), aiEmployees: options.on ?? true } } as unknown as PersistedState
+function rig(options: { repos?: Repo[]; organizations?: Organization[] } = {}) {
+  const state = { repos: options.repos ?? [], organizations: options.organizations ?? [], settings: defaultSettings() } as unknown as PersistedState
   let changes = 0
   const service = new OrganizationService({
     state: () => state,
@@ -245,24 +244,13 @@ describe('organizations: the service', () => {
     await expect(service.setMemory(created.id, { kind: 'existing', repoId: 'app' })).rejects.toThrow(/already has a memory repository/)
   })
 
-  it('lets go of a memory repository removed from Foreman, whether or not the switch is on', () => {
-    const { state, service, changes } = rig({ on: false, repos: [repo('mem', { spaceId: 'o1' })], organizations: [org('o1', 'Foreman', 'mem')] })
+  it('lets go of a memory repository removed from Foreman', () => {
+    const { state, service, changes } = rig({ repos: [repo('mem', { spaceId: 'o1' })], organizations: [org('o1', 'Foreman', 'mem')] })
     service.repoRemoved('other')
     expect(changes()).toBe(0)
     service.repoRemoved('mem')
     expect(state.organizations![0].memoryRepoId).toBeUndefined()
     expect(changes()).toBe(1)
-  })
-
-  it('refuses every change while AI employees are off, and deletes nothing', async () => {
-    const { state, service } = rig({ on: false, repos: [repo('app', { spaceId: 'o1' })], organizations: [org('o1', 'Foreman')] })
-    await expect(service.create({ name: 'New', memory: { kind: 'later' }, repoIds: [] })).rejects.toThrow(AI_EMPLOYEES_OFF)
-    expect(() => service.rename('o1', 'X')).toThrow(AI_EMPLOYEES_OFF)
-    expect(() => service.delete('o1')).toThrow(AI_EMPLOYEES_OFF)
-    expect(() => service.moveRepo('app', null)).toThrow(AI_EMPLOYEES_OFF)
-    await expect(service.setMemory('o1', { kind: 'later' })).rejects.toThrow(AI_EMPLOYEES_OFF)
-    expect(state.organizations).toEqual([org('o1', 'Foreman')])
-    expect(state.repos[0].spaceId).toBe('o1')
   })
 })
 
@@ -275,18 +263,16 @@ describe('organizations in state.json', () => {
     return { store, dir }
   }
 
-  it('starts with none, the switch off, and every repository in Personal', async () => {
+  it('starts with none, and every repository in Personal', async () => {
     const { store } = await load({ repos: [repo('app')] })
     expect(store.state.organizations).toEqual([])
-    expect(store.state.settings.aiEmployees).toBe(false)
     expect(store.state.repos[0].spaceId).toBeUndefined()
     store.close()
   })
 
   it('reads organizations and spaces back as they were saved, and saves them again', async () => {
     const organizations = [org('o1', 'Foreman', 'mem')]
-    const { store, dir } = await load({ settings: { aiEmployees: true }, organizations, repos: [repo('mem', { spaceId: 'o1' }), repo('app', { spaceId: 'o1' }), repo('blog')] })
-    expect(store.state.settings.aiEmployees).toBe(true)
+    const { store, dir } = await load({ organizations, repos: [repo('mem', { spaceId: 'o1' }), repo('app', { spaceId: 'o1' }), repo('blog')] })
     expect(store.state.organizations).toEqual(organizations)
     expect(store.state.repos.map((r) => r.spaceId ?? null)).toEqual(['o1', 'o1', null])
     store.state.organizations!.push(org('o2', 'XYZ'))
@@ -296,9 +282,9 @@ describe('organizations in state.json', () => {
     expect(saved.repos.map((r) => r.spaceId ?? null)).toEqual(['o1', 'o1', null])
   })
 
-  it('keeps organizations while the switch is off, and drops what points nowhere', async () => {
-    const { store } = await load({ settings: { aiEmployees: 'yes' }, organizations: [org('o1', 'Foreman', 'missing'), { name: 'no id' }], repos: [repo('app', { spaceId: 'o1' }), repo('old', { spaceId: 'gone' })] })
-    expect(store.state.settings.aiEmployees).toBe(false)
+  it('lets go of the old Experimental switch (organizations made while it was on or off are kept), and drops what points nowhere', async () => {
+    const { store } = await load({ settings: { aiEmployees: false }, organizations: [org('o1', 'Foreman', 'missing'), { name: 'no id' }], repos: [repo('app', { spaceId: 'o1' }), repo('old', { spaceId: 'gone' })] })
+    expect(store.state.settings).not.toHaveProperty('aiEmployees')
     expect(store.state.organizations).toEqual([org('o1', 'Foreman')])
     expect(store.state.repos.map((r) => r.spaceId ?? null)).toEqual(['o1', null])
     store.close()

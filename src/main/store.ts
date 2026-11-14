@@ -255,8 +255,6 @@ export function defaultSettings(): Settings {
     showResourceUsage: false,
     // Flows are an experiment: off until the person here turns them on (a repository can't).
     flows: false,
-    // AI employees are an experiment too: off until turned on here; off, organizations are kept but not shown.
-    aiEmployees: false,
     replayTraffic: false,
     diagnostics: true,
     terminalScrollbackMb: 10,
@@ -310,7 +308,8 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   // Read back as typed: a whole number from 0 (off) to the limit, else off; a switch that is exactly true, else off.
   if (!isSlotSetting(state.settings.idleCompactTokens, MAX_IDLE_COMPACT_TOKENS)) state.settings.idleCompactTokens = 0
   state.settings.replayTraffic = state.settings.replayTraffic === true
-  state.settings.aiEmployees = state.settings.aiEmployees === true
+  // AI employees were an Experimental switch; they no longer are, so the old setting is let go.
+  delete (state.settings as { aiEmployees?: unknown }).aiEmployees
   // Organizations checked entry by entry; a memory repository or a space that points nowhere is let go (nothing on disk).
   state.organizations = parseOrganizations(state.organizations)
   reconcileSpaces(state.organizations, state.repos)

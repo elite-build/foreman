@@ -45,7 +45,7 @@ import {
 import { runGitAction } from './GitPanel'
 import { resetPanelSizes } from './resize'
 import { ActionRow, Button, Combobox, Dialog, IconButton, Kbd, Segmented, Tag } from '../ui'
-import { categoriesShown } from './settings/registry'
+import { CATEGORIES } from './settings/registry'
 import { SearchChats } from './SearchChats'
 import { ArchivedInbox } from './ArchivedList'
 import { OpenInSwitcher } from './OpenIn'
@@ -214,7 +214,7 @@ export function CommandPalette() {
     list.push({ id: 'get-started', label: t('palette.getStarted'), group: t('palette.group.general'), detail: t('palette.getStartedDetail'), run: showGetStarted })
     list.push({ id: 'tour', label: t('tour.label'), group: t('palette.group.general'), detail: t('tour.paletteDetail'), run: startTour })
     list.push({ id: 'report-problem', label: t('report.command'), group: t('palette.group.general'), detail: t('report.commandDetail'), run: () => openReportProblem(true) })
-    for (const c of categoriesShown(snapshot.settings))
+    for (const c of CATEGORIES)
       list.push({ id: `settings-${c.id}`, label: t('palette.settingsPage', { page: t(c.label) }), group: t('palette.group.settings'), run: close(() => openSettingsPage({ section: c.pages[0] } as Parameters<typeof openSettingsPage>[0])) })
     return list
   }, [snapshot, ws, platform, t])

@@ -95,12 +95,10 @@ const searchDescription = (row: SettingEntry, t: TFunction): string | undefined 
 /** A label in the UI language, plus its English words when they differ. */
 const bothWords = (label: string, english: string): string[] => (label === english ? words(label) : [...words(label), ...words(english)])
 
-/** `spaces`: AI employees are on, so the Spaces page is there to find. */
-export function buildIndex(repos: Repo[], mac: boolean, t: TFunction, platform?: string, spaces = false): SearchItem[] {
+export function buildIndex(repos: Repo[], mac: boolean, t: TFunction, platform?: string): SearchItem[] {
   const items: SearchItem[] = []
 
   for (const section of PERSONAL_PAGES) {
-    if (section === 'spaces' && !spaces) continue
     const label = t(PAGE_LABELS[section])
     items.push({
       key: `page:${section}`,

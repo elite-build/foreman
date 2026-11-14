@@ -1,6 +1,6 @@
 // Organizations (docs/ai-employees.md §3): create, rename and delete them, move repositories between spaces, and give
-// one its memory repository (§4), made here as a new git repository with the layout below and one commit. Every
-// method refuses while Settings → Experimental → AI employees is off; nothing here deletes anything on disk.
+// one its memory repository (§4), made here as a new git repository with the layout below and one commit. Nothing
+// here deletes anything on disk.
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import {
@@ -22,7 +22,6 @@ import type { Repo } from '../shared/types'
 import { quickStart } from './repoSources'
 import type { PersistedState } from './store'
 
-export const AI_EMPLOYEES_OFF = 'AI employees are off. Turn them on in Settings → Experimental.'
 
 export interface OrganizationHost {
   state(): PersistedState
@@ -105,9 +104,6 @@ export class OrganizationService {
     return (this.state.organizations ??= [])
   }
 
-  private assertOn(): void {
-    if (!this.state.settings.aiEmployees) throw new Error(AI_EMPLOYEES_OFF)
-  }
 
   private organization(id: string): Organization {
     const org = this.organizations.find((o) => o.id === id)
@@ -145,7 +141,6 @@ export class OrganizationService {
   }
 
   async create(input: CreateOrganizationInput): Promise<Organization> {
-    this.assertOn()
     if (!input || typeof input.name !== 'string' || !isMemory(input.memory) || !Array.isArray(input.repoIds) || input.repoIds.some((id) => typeof id !== 'string')) {
       throw new Error('Invalid organization')
     }
@@ -169,7 +164,6 @@ export class OrganizationService {
   }
 
   rename(id: string, name: string): Organization {
-    this.assertOn()
     const org = this.organization(id)
     const clean = typeof name === 'string' ? name.trim() : ''
     const problem = nameError(organizationNameProblem(clean, this.organizations, id), clean)
@@ -182,7 +176,6 @@ export class OrganizationService {
 
   /** The organization goes; its repositories, the memory repository too, are in Personal again. Nothing on disk changes. */
   delete(id: string): void {
-    this.assertOn()
     this.organization(id)
     for (const repo of this.state.repos) if (repo.spaceId === id) delete repo.spaceId
     this.state.organizations = this.organizations.filter((o) => o.id !== id)
@@ -194,7 +187,6 @@ export class OrganizationService {
    * and escalations go to it. The caller checks the employee is one of the organization's.
    */
   setLead(id: string, employeeId: string | null): Organization {
-    this.assertOn()
     const org = this.organization(id)
     if (employeeId === null) delete org.leadEmployeeId
     else if (typeof employeeId === 'string' && isEmployeeId(employeeId)) org.leadEmployeeId = employeeId
@@ -204,7 +196,6 @@ export class OrganizationService {
   }
 
   moveRepo(repoId: string, organizationId: string | null): void {
-    this.assertOn()
     const repo = this.repo(repoId)
     if (organizationId !== null) this.organization(organizationId)
     const refusal = moveRefusal(repoId, organizationId, this.organizations)
@@ -216,7 +207,6 @@ export class OrganizationService {
 
   /** For an organization without one: make or pick its memory repository now. */
   async setMemory(organizationId: string, memory: OrganizationMemory): Promise<Organization> {
-    this.assertOn()
     const org = this.organization(organizationId)
     if (!isMemory(memory)) throw new Error('Invalid memory repository')
     if (memory.kind === 'later') return org

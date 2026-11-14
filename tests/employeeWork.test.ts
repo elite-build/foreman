@@ -7,7 +7,6 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ForemanDb, SCHEMA_VERSION } from '../src/main/db'
 import { EmployeeWorkService, ORG_RUN_LIMIT, type EmployeeLaunchPlan, type EmployeeWorkHost } from '../src/main/employeeWork'
-import { AI_EMPLOYEES_OFF } from '../src/main/organizations'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import type { AgentCapabilities } from '../src/shared/agentCapabilities'
 import { staticCapabilities } from '../src/shared/agentCatalog'
@@ -166,7 +165,7 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
   const state = {
     repos: [repo('mem', 'acme-memory', 'o1'), repo('site', 'site', 'o1'), repo('api', 'api', 'o1'), repo('blog', 'blog')],
     organizations: [ORG],
-    settings: { ...defaultSettings(), aiEmployees: true },
+    settings: defaultSettings(),
     sessions: [],
     workspaces: []
   } as unknown as PersistedState
@@ -294,8 +293,6 @@ describe('employee work: admission', () => {
     await expect(f.service.ask('o1', 'e-max1', { body: 'x', repoId: 'site' })).rejects.toThrow('Max has no access to site')
     await expect(f.service.ask('o1', 'e-max1', { body: 'x' })).rejects.toThrow('can’t work in any of Acme’s repositories')
     await expect(f.service.ask('o1', 'e-nope', { body: 'x' })).rejects.toThrow('Employee not found')
-    f.state.settings.aiEmployees = false
-    await expect(f.service.ask('o1', 'e-max1', { body: 'x' })).rejects.toThrow(AI_EMPLOYEES_OFF)
     expect(f.db.employeeTasks('o1')).toEqual([])
   })
 
@@ -653,8 +650,6 @@ describe('employee work: a run', () => {
     expect(view.tasks.map((t) => t.title)).toEqual(['Second'])
     expect(view.last['e-max1']).toMatchObject({ title: 'First', closureReason: 'done', resultSummary: 'All done.' })
     expect(employeeActivity(view, 'e-max1')).toMatchObject({ running: false, queued: 1, needsYou: 0, current: { title: 'Second', hold: 'paused' } })
-    f.state.settings.aiEmployees = false
-    expect(f.service.views()).toEqual({})
   })
 })
 

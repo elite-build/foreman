@@ -40,7 +40,6 @@ export function AddRepoItems() {
   const t = useT()
   const recents = useStore((s) => s.snapshot!.recentRepos)
   const home = useStore((s) => s.snapshot!.homeDir)
-  const organizations = useStore((s) => Boolean(s.snapshot!.settings.aiEmployees))
   return (
     <>
       <MenuItem icon={<FolderOpen size={15} />} onSelect={() => void addRepository()}>
@@ -70,14 +69,10 @@ export function AddRepoItems() {
           </MenuGroup>
         </>
       )}
-      {organizations && (
-        <>
-          <MenuSeparator />
-          <MenuItem icon={<Network size={15} />} description={t('spaces.create.menuDetail')} onSelect={() => openCreateOrganization(true)}>
-            {t('spaces.create.menu')}
-          </MenuItem>
-        </>
-      )}
+      <MenuSeparator />
+      <MenuItem icon={<Network size={15} />} description={t('spaces.create.menuDetail')} onSelect={() => openCreateOrganization(true)}>
+        {t('spaces.create.menu')}
+      </MenuItem>
     </>
   )
 }

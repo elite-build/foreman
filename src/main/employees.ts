@@ -6,8 +6,7 @@
 // Approving records the definition's fingerprint here; a definition whose fingerprint has moved since is flagged
 // "changed since approval" (Foreman refuses to run it until it is approved again). Generate and Refine draft an
 // employee's words with one request to the person's default agent: no shell, no files, no tools, and nothing in the
-// answer can grant access. Every method refuses while Settings → Experimental → AI employees is off, or while the
-// organization has no memory repository.
+// answer can grant access. Every method refuses while the organization has no memory repository.
 import { createHash } from 'node:crypto'
 import {
   draftTextOf,
@@ -47,7 +46,6 @@ import { createT, type Locale } from '../shared/i18n'
 import { isEmployeeId } from '../shared/memory'
 import { reposInSpace, type Organization } from '../shared/organizations'
 import type { MemoryService } from './memory'
-import { AI_EMPLOYEES_OFF } from './organizations'
 import type { PersistedState } from './store'
 
 /** The longest a drafting request may take before the window is told it didn't answer. */
@@ -135,9 +133,8 @@ export class EmployeeService {
     return record
   }
 
-  /** The organization, or a refusal: AI employees off, no such organization, or no memory repository. */
+  /** The organization, or a refusal: no such organization, or no memory repository. */
   private organization(orgId: string): Organization {
-    if (!this.state.settings.aiEmployees) throw new Error(AI_EMPLOYEES_OFF)
     const org = (this.state.organizations ?? []).find((o) => o.id === orgId)
     if (!org) throw new Error('Organization not found')
     if (!org.memoryRepoId || !this.state.repos.some((r) => r.id === org.memoryRepoId)) throw new Error(`${org.name} has no memory repository. Choose one in Settings → Spaces.`)
@@ -264,7 +261,6 @@ export class EmployeeService {
 
   /** Each organization's employees as last read, with their lifecycle now, for the snapshot (while AI employees are on). */
   rosters(): Record<string, EmployeeRoster> {
-    if (!this.state.settings.aiEmployees) return {}
     const out: Record<string, EmployeeRoster> = {}
     for (const org of this.state.organizations ?? []) {
       const cached = org.memoryRepoId ? this.cache.get(org.id) : undefined
@@ -278,7 +274,6 @@ export class EmployeeService {
    * nothing is read from git, so a tick never touches a memory repository. Empty while AI employees are off.
    */
   triggerSources(): { orgId: string; summary: EmployeeSummary; definition: EmployeeDefinition }[] {
-    if (!this.state.settings.aiEmployees) return []
     const out: { orgId: string; summary: EmployeeSummary; definition: EmployeeDefinition }[] = []
     for (const org of this.state.organizations ?? []) {
       const cached = org.memoryRepoId ? this.cache.get(org.id) : undefined
@@ -334,9 +329,8 @@ export class EmployeeService {
     return run
   }
 
-  /** At launch, when AI employees are turned on, and whenever a memory repository's status moves. */
+  /** At launch, and whenever a memory repository's status moves. */
   async refreshAll(): Promise<void> {
-    if (!this.state.settings.aiEmployees) return
     await Promise.all((this.state.organizations ?? []).filter((o) => o.memoryRepoId).map((o) => this.refresh(o.id)))
   }
 

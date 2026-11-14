@@ -13,7 +13,7 @@ import type { Repo } from '../src/shared/types'
 import { ForemanDb, SCHEMA_VERSION } from '../src/main/db'
 import { git, gitOut } from '../src/main/git'
 import { MemoryRefused, MemoryService } from '../src/main/memory'
-import { AI_EMPLOYEES_OFF, createMemoryRepository, OrganizationService } from '../src/main/organizations'
+import { createMemoryRepository, OrganizationService } from '../src/main/organizations'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import { commit, tempDir } from './helpers'
 
@@ -31,7 +31,7 @@ afterEach(() => {
   }
 })
 
-async function rig(options: { on?: boolean } = {}) {
+async function rig() {
   const parent = await tempDir('foreman-memory-')
   const root = await createMemoryRepository(parent, 'acme-memory', 'Acme')
   const dbFile = path.join(await tempDir('foreman-memory-db-'), 'foreman.db')
@@ -43,7 +43,7 @@ async function rig(options: { on?: boolean } = {}) {
   let db = open()
   const repo = { id: 'mem', name: 'acme-memory', rootPath: root, defaultBranch: 'main', remote: 'origin', hasOrigin: false, local: {}, createdAt: '2026-11-01T00:00:00.000Z', spaceId: 'o1' } as unknown as Repo
   const org: Organization = { id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00.000Z' }
-  const state = { repos: [repo], organizations: [org], settings: { ...defaultSettings(), aiEmployees: options.on ?? true } } as unknown as PersistedState
+  const state = { repos: [repo], organizations: [org], settings: defaultSettings() } as unknown as PersistedState
   const rigState = { sensitive: [] as string[], changes: 0, fault: undefined as undefined | ((step: string) => void) }
   const make = () =>
     new MemoryService({
@@ -132,10 +132,7 @@ describe('memory: reading', () => {
     expect(history[0]).toMatchObject({ commit: tree.head, author: 'Test', subject: 'Create the acme-memory memory repository', trailers: [] })
   })
 
-  it('refuses while AI employees are off, or for an organization without a memory repository', async () => {
-    const off = await rig({ on: false })
-    await expect(off.memory.tree('o1')).rejects.toThrow(AI_EMPLOYEES_OFF)
-    await expect(off.memory.writeAsPerson('o1', 'memory/org/x.md', 'x', null)).rejects.toThrow(AI_EMPLOYEES_OFF)
+  it('refuses for an organization without a memory repository', async () => {
     const on = await rig()
     delete on.org.memoryRepoId
     await expect(on.memory.status('o1')).rejects.toThrow('Acme has no memory repository')

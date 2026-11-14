@@ -10,7 +10,6 @@ const DEFAULTS = {
   forkToNewTab: true,
   showResourceUsage: false,
   flows: false,
-  aiEmployees: false,
   replayTraffic: false,
   diagnostics: true
 } satisfies Partial<Settings>
@@ -76,25 +75,6 @@ export function ExperimentalPage() {
           checked={settings.flows}
           onChange={(flows) => void saveSettings({ flows })}
           onReset={reset('flows')}
-        />
-        <ToggleRow
-          id="ai-employees"
-          label={t('settings.experimental.aiEmployees.label')}
-          help={t('settings.experimental.aiEmployees.help')}
-          detail={
-            settings.aiEmployees
-              ? t.rich('settings.experimental.aiEmployees.detail', {
-                  spaces: (
-                    <LinkButton key="spaces" onClick={() => openSettingsPage({ section: 'spaces' })}>
-                      {t('spaces.page.title')}
-                    </LinkButton>
-                  )
-                })
-              : undefined
-          }
-          checked={settings.aiEmployees}
-          onChange={(aiEmployees) => void saveSettings({ aiEmployees })}
-          onReset={reset('aiEmployees')}
         />
         {/* Development builds only (the app also ignores the setting when packaged): agents answer from recorded traffic. */}
         {import.meta.env.DEV && (

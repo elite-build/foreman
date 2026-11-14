@@ -111,7 +111,6 @@ import type { ForemanDb } from './db'
 import type { EmployeeService } from './employees'
 import type { MemoryService } from './memory'
 import { mainT } from './i18n'
-import { AI_EMPLOYEES_OFF } from './organizations'
 import type { PersistedState } from './store'
 
 /** At most this many employee runs go at once in one organization (§9, "active runs per organization"). */
@@ -351,9 +350,6 @@ export class EmployeeWorkService {
     this.host.changed()
   }
 
-  private assertOn(): void {
-    if (!this.state.settings.aiEmployees) throw new Error(AI_EMPLOYEES_OFF)
-  }
 
   private organization(orgId: string): Organization {
     const org = (this.state.organizations ?? []).find((o) => o.id === orgId)
@@ -422,7 +418,7 @@ export class EmployeeWorkService {
       if (parent?.state === 'closed')
         this.db.addEmployeeTaskTransition({ taskId: parent.id, runId: null, at: this.iso(), from: 'closed', to: 'closed', event: 'late-result', detail: `“${task.title}” closed (${task.closureReason ?? 'done'}) after this task had; nothing restarted.` })
     }
-    if (this.state.settings.aiEmployees) this.later(() => this.settleWaits(task.rootId))
+    this.later(() => this.settleWaits(task.rootId))
   }
 
   private saveRun(run: EmployeeRun, patch: Partial<EmployeeRun> = {}): EmployeeRun {
@@ -467,7 +463,6 @@ export class EmployeeWorkService {
    * organization or employee, no words, a repository it can't work in) is refused before any task is made.
    */
   async ask(orgId: string, employeeId: string, input: EmployeeAskInput): Promise<EmployeeTask> {
-    this.assertOn()
     const body = typeof input?.body === 'string' ? input.body.trim() : ''
     if (!body) throw new Error('Say what you’re asking for.')
     if (body.length > MAX_TASK_BODY) throw new Error(`Keep the request under ${MAX_TASK_BODY} characters.`)
@@ -477,7 +472,6 @@ export class EmployeeWorkService {
 
   /** Run now (§6.1): a task asking the employee to work through its standing responsibilities and report. */
   async runNow(orgId: string, employeeId: string, input: { repoId?: string } = {}): Promise<EmployeeTask> {
-    this.assertOn()
     const current = await this.host.employees.current(orgId, employeeId)
     const body = runNowBody(current.definition ?? { responsibilities: current.summary.responsibilities })
     return this.createTask(orgId, employeeId, { title: mainT(this.state.settings)('employees.runNow.title'), body, repoId: typeof input?.repoId === 'string' && input.repoId ? input.repoId : undefined })
@@ -524,7 +518,6 @@ export class EmployeeWorkService {
    * the hard daily limit, then the lanes (held, queued).
    */
   private async verdict(task: EmployeeTask, exceptRun?: string): Promise<Verdict> {
-    if (!this.state.settings.aiEmployees) return { kind: 'refuse', reason: AI_EMPLOYEES_OFF }
     const org = (this.state.organizations ?? []).find((o) => o.id === task.orgId)
     if (!org) return { kind: 'refuse', reason: 'Its organization is gone.' }
     if (!org.memoryRepoId || !this.state.repos.some((r) => r.id === org.memoryRepoId)) return { kind: 'refuse', reason: `${org.name} has no memory repository. Choose one in Settings → Spaces.` }
@@ -702,7 +695,6 @@ export class EmployeeWorkService {
   async fire(input: EmployeeFireInput): Promise<EmployeeFireResult> {
     // An event firing's words are checked here too: they are written into the task as given.
     if (input.event && input.body.length > MAX_TASK_BODY) input = { ...input, body: input.body.slice(0, MAX_TASK_BODY) }
-    this.assertOn()
     this.organization(input.orgId)
     return this.exclusive(async () => {
       const existing = this.db.employeeTaskByRequest(input.orgId, input.requestId)
@@ -794,7 +786,7 @@ export class EmployeeWorkService {
 
   /** Admit what waits (§6.6: held work runs once its hold lifts), oldest first. Safe to call as often as you like. */
   pump(): Promise<void> {
-    if (this.closing || !this.state.settings.aiEmployees) return Promise.resolve()
+    if (this.closing) return Promise.resolve()
     return this.exclusive(() => this.admitQueued())
   }
 
@@ -1276,7 +1268,6 @@ export class EmployeeWorkService {
    * new run admitted (held or refused) like any, with the question and the answer first in its message. Never a permission.
    */
   async answerQuestion(taskId: string, questionId: string, answer: string): Promise<EmployeeTask> {
-    this.assertOn()
     const text = typeof answer === 'string' ? answer.trim() : ''
     if (!text) throw new Error('Write an answer, or pick one of the options.')
     if (text.length > MAX_ANSWER) throw new Error(`Keep the answer under ${MAX_ANSWER} characters.`)
@@ -1400,7 +1391,6 @@ export class EmployeeWorkService {
 
   /** Keep an employee's memory proposal: a commit by the person, through the memory service. */
   async keepProposal(orgId: string, proposalId: string): Promise<{ ok: true; commit: string | null } | { ok: false; path: string; conflict: { blob: string | null; text: string | null } }> {
-    this.assertOn()
     this.organization(orgId)
     try {
       return await this.host.memory.keepProposal(orgId, proposalId)
@@ -1411,7 +1401,6 @@ export class EmployeeWorkService {
 
   /** Retire an employee's memory proposal: nothing is written. */
   async retireProposal(orgId: string, proposalId: string): Promise<void> {
-    this.assertOn()
     this.organization(orgId)
     await this.host.memory.retireProposal(orgId, proposalId)
     this.touched()
@@ -1867,7 +1856,6 @@ export class EmployeeWorkService {
    * Idempotent: a task woken once isn't waiting any more.
    */
   private async settleWaits(rootId?: string): Promise<void> {
-    if (!this.state.settings.aiEmployees) return
     const now = this.now()
     const live = () => (rootId ? this.db.employeeTasksOfRoot(rootId).filter((t) => t.state !== 'closed') : this.db.employeeTasksIn(['open', 'running', 'waiting']))
     for (const t of live()) {
@@ -1983,7 +1971,6 @@ export class EmployeeWorkService {
 
   /** A task with its chain (§7): the task it came from, those handed off from it, its chain's ledger and its log. */
   chain(taskId: string): EmployeeTaskChain {
-    this.assertOn()
     const task = this.task(taskId)
     const parent = task.parentId ? this.db.employeeTask(task.parentId) : undefined
     const root = this.db.employeeRoot(task.rootId)
@@ -1993,7 +1980,6 @@ export class EmployeeWorkService {
 
   /** A person raises a spent chain's runs (Needs you, Raise limit): ROOT_RAISE more than it has used, then held work goes. */
   async raiseRootLimit(rootId: string, by = ROOT_RAISE): Promise<EmployeeRootLedger> {
-    this.assertOn()
     const ledger = typeof rootId === 'string' ? this.db.employeeRoot(rootId) : undefined
     if (!ledger) throw new Error('Chain not found')
     if (ledger.state === 'canceled') throw new Error('This chain of work was canceled.')
@@ -2024,7 +2010,6 @@ export class EmployeeWorkService {
 
   /** Stop now (§6.6): the run is cancelled and its task is open again, held as stopped until Retry. */
   async stop(runId: string): Promise<void> {
-    this.assertOn()
     const run = typeof runId === 'string' ? this.db.employeeRun(runId) : undefined
     if (!run) throw new Error('Run not found')
     if (!isRunActive(run.state)) return
@@ -2036,7 +2021,6 @@ export class EmployeeWorkService {
 
   /** Another attempt at a task that waits, was stopped, or closed blocked: admitted, held or refused like the first. */
   async retry(taskId: string): Promise<EmployeeTask> {
-    this.assertOn()
     const task = this.task(taskId)
     if (!canRetryTask(task))
       throw new Error(
@@ -2056,7 +2040,6 @@ export class EmployeeWorkService {
 
   /** Cancel (§6.6: discarding work is explicit): the task closes as canceled, and a run of it that is going stops. */
   async cancel(taskId: string): Promise<EmployeeTask> {
-    this.assertOn()
     const task = this.task(taskId)
     if (task.state === 'closed') return task
     await this.closeTree(task, 'canceled', 'Canceled by you.')
@@ -2108,20 +2091,17 @@ export class EmployeeWorkService {
   // ---- reading ----
 
   tasks(orgId: string, employeeId?: string): EmployeeTask[] {
-    this.assertOn()
     this.organization(orgId)
     return this.db.employeeTasks(orgId, { ...(typeof employeeId === 'string' && employeeId ? { employeeId } : {}), limit: LISTED })
   }
 
   runs(orgId: string, employeeId?: string, taskId?: string): EmployeeRun[] {
-    this.assertOn()
     this.organization(orgId)
     return this.db.employeeRuns({ orgId, ...(typeof employeeId === 'string' && employeeId ? { employeeId } : {}), ...(typeof taskId === 'string' && taskId ? { taskId } : {}), limit: LISTED })
   }
 
   /** Each organization's work not yet over, for the snapshot (while AI employees are on). */
   views(): Record<string, EmployeeWorkView> {
-    if (!this.state.settings.aiEmployees) return {}
     if (this.cached) return this.cached
     const out: Record<string, EmployeeWorkView> = {}
     for (const org of this.state.organizations ?? []) {
@@ -2154,7 +2134,7 @@ export class EmployeeWorkService {
     if (!this.timer) this.timer = setInterval(() => void this.tick().catch(() => undefined), intervalMs)
     void this.pump().catch(() => undefined)
     // Results, dependencies, follow-ups and deadlines that came due while Foreman was closed (§7).
-    if (this.state.settings.aiEmployees) this.later(() => this.settleWaits())
+    this.later(() => this.settleWaits())
   }
 
   /** Foreman is quitting: nothing more starts, and the turns the quit stops don't end their runs as stopped by a person. */
@@ -2200,7 +2180,7 @@ export class EmployeeWorkService {
     // Their recaps, from the record, once the memory service is up (best effort).
     for (const run of uncertain) {
       const task = this.db.employeeTask(run.taskId)
-      if (task && this.state.settings.aiEmployees) void this.track(this.recap(this.db.employeeRun(run.id) ?? run, task))
+      if (task) void this.track(this.recap(this.db.employeeRun(run.id) ?? run, task))
     }
   }
 
@@ -2219,7 +2199,7 @@ export class EmployeeWorkService {
       await ended
     }
     // Deadlines, sibling holds and follow-ups (§7) come due on this clock too.
-    if (this.state.settings.aiEmployees) await this.exclusive(() => this.settleWaits())
+    await this.exclusive(() => this.settleWaits())
     await this.pump()
   }
 }

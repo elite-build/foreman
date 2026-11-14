@@ -69,12 +69,6 @@ export function SettingsView({ page }: { page: SettingsPage }) {
     if (page.section === 'repo' && !repo) openSettingsPage({ section: 'general' })
   }, [page, repo])
 
-  // Spaces is there only while AI employees are on; turned off, it shows where to turn them on again.
-  const spacesOff = useStore((s) => page.section === 'spaces' && !s.snapshot!.settings.aiEmployees)
-  useEffect(() => {
-    if (spacesOff) openSettingsPage({ section: 'experimental', scrollTo: 'ai-employees' })
-  }, [spacesOff])
-
   useEffect(() => {
     scroller.current?.scrollTo({ top: 0 })
   }, [pageKey])
