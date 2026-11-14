@@ -1,6 +1,6 @@
 // Dev-only demo: `npm run dev demo` (scripts/dev.mjs sets FOREMAN_DEMO=1; an installed build ignores it). The app runs on
 // a data folder of its own, seeded once with the screenshot fixture (screenshots.ts: two repositories, three workspaces,
-// their chats, a flow run and its checks) and kept between launches, so what you click stays. Nothing reaches the
+// their chats, a flow run and its checks, and an organization with AI employees and their work, screensOrganization.ts) and kept between launches, so what you click stays. Nothing reaches the
 // network: agents answer from a script, which also drives the flow run each launch starts (main/demoRun.ts); GitHub,
 // integrations, cloud sandboxes and paired devices stay off (main/index.ts).
 // `npm run dev demo reset` (FOREMAN_DEMO_RESET=1) throws the folder away and seeds it again.

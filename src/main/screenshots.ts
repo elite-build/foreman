@@ -16,6 +16,7 @@ import { axWarnings, checkAxTree, reduceAxTree, type CdpAxNode } from './axTree'
 import { compareTranscript, formatDiffs, formatTranscript, keyEvents, runWalk, type ExpectedTranscript, type Reading, type StepDiff, type Transcript, type Walk, type WalkDriver } from './keyboardWalk'
 import { fileName, LARGE_CONTENT_SIZE, planShots, type Shot } from './screensPlan'
 import { selectWalks } from './walks'
+import { seedOrganization, type OrganizationFixture } from './screensOrganization'
 import { git } from './git'
 import { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
@@ -188,6 +189,8 @@ export interface ScreensFixture {
   /** The workspace a flow run made, and its implement tab: the Flow and Lineage screens (only the flow screens turn Flows on). */
   flowWorkspaceId: string
   flowChatId: string
+  /** Acme: an organization with three AI employees and their work (main/screensOrganization.ts), for the employee screens. */
+  organization: OrganizationFixture
   /** The page's clock while it shows a screen (renderer/src/screens.ts): half a minute after the fixture's times. */
   now: number
 }
@@ -400,7 +403,8 @@ function flowChecks(): Workspace['checks'] {
 }
 
 /**
- * Two real git repositories, three workspaces (worktrees) and their chats, written into `dataDir` before the app loads it.
+ * Two real git repositories, three workspaces (worktrees) and their chats, plus an organization with its own two
+ * repositories, three AI employees and two of their runs' workspaces, written into `dataDir` before the app loads it.
  * `overrides` changes the fixture's settings (the demo, main/demo.ts); the screenshot run takes them as they are.
  */
 export async function seedScreens(root: string, dataDir: string, overrides: Partial<Settings> = {}): Promise<ScreensFixture> {
@@ -470,6 +474,7 @@ export async function seedScreens(root: string, dataDir: string, overrides: Part
   )
   for (const [id, items] of Object.entries(flowChats())) for (const item of items) await store.appendChat(id, item)
   store.state.flowRuns = flowRuns()
+  const organization = await seedOrganization({ repos, worktrees, store, minutesAgo, commitAll, makeRepo, makeWorktree, writeFiles })
 
   const settings: Partial<Settings> = {
     language: 'en',
@@ -495,7 +500,7 @@ export async function seedScreens(root: string, dataDir: string, overrides: Part
   }
   Object.assign(store.state.settings, settings, overrides)
   store.close()
-  return { repoId: 'repo-atlas', workspaceId: 'ws-lisbon', chatId: 's-lisbon-1', queueChatId: 's-lisbon-2', flowWorkspaceId: 'ws-osaka', flowChatId: IMPLEMENT_TAB, now: seededAt + 30_000 }
+  return { repoId: 'repo-atlas', workspaceId: 'ws-lisbon', chatId: 's-lisbon-1', queueChatId: 's-lisbon-2', flowWorkspaceId: 'ws-osaka', flowChatId: IMPLEMENT_TAB, organization, now: seededAt + 30_000 }
 }
 
 // The Clone dialog's list: GitHub as gh would answer, without asking this machine's gh (its accounts and repos are real).
@@ -563,6 +568,14 @@ export const SCREENS = [
   'workspace-flow',
   'workspace-flow-full',
   'workspace-lineage',
+  // AI employees, in the fixture's organization (main/screensOrganization.ts).
+  'team',
+  'employee',
+  'employee-approve',
+  'new-employee',
+  'memory',
+  'employee-workspace',
+  'new-organization',
   'assistant',
   'phone-pairing',
   // A settings row reached from the navigation, its flash held (renderer/src/screens.ts).

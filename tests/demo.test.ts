@@ -52,8 +52,11 @@ describe('demo folder', () => {
     try {
       expect(store.state.settings.flows).toBe(true)
       expect(store.state.settings.terminalShell).toBe('auto')
-      expect(store.state.repos.map((r) => r.name)).toEqual(['atlas', 'beacon'])
-      expect(store.state.workspaces.map((w) => w.name)).toEqual(['lisbon', 'osaka', 'quito'])
+      expect(store.state.repos.map((r) => r.name)).toEqual(['atlas', 'beacon', 'acme-memory', 'site'])
+      expect(store.state.workspaces.map((w) => w.name)).toEqual(['lisbon', 'osaka', 'quito', 'kyoto', 'lima'])
+      // An organization with AI employees, so the demo shows them (main/screensOrganization.ts).
+      expect(store.state.organizations?.map((o) => o.name)).toEqual(['Acme'])
+      expect(store.state.employees?.map((e) => [e.id, e.state])).toEqual([['e-max1', 'active'], ['e-ada2', 'active'], ['e-lin3', 'draft']])
       expect(store.state.flowRuns?.length).toBeGreaterThan(0)
       for (const w of store.state.workspaces) expect(w.path && existsSync(w.path)).toBe(true)
     } finally {

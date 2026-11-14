@@ -774,6 +774,9 @@ async function main(): Promise<void> {
   // A screenshot run starts none of what follows (sockets, network, timers, schedules); it captures its screens and quits.
   if (screensRoot && fixture && win) {
     const screensCore = core
+    // The organization's memory repository and employees are read first (as a launch does further down), so its screens
+    // show them rather than their loading state.
+    await screensCore.memory.start().then(() => screensCore.employees.refreshAll()).catch((err: unknown) => console.error('Memory:', err))
     return void runScreens({
       win,
       core: screensCore,
