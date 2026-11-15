@@ -2,6 +2,44 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.1.0 (2026-11-15)
+
+### Added
+
+- **AI employees**: organizations with their own memory repository, and employees you describe in a sentence, approve, and ask for work, or start on a schedule or an event. They work in fresh workspaces, remember what they learn, hand work to each other, and hold pushes, pull requests, Slack posts and Linear changes for you in **Needs you**. Make an organization from the **Personal ▾** switcher at the top of the sidebar: **New organization…** asks only for a name and which repositories to bring. ([#183](https://github.com/elite-build/foreman/pull/183), [#184](https://github.com/elite-build/foreman/pull/184))
+
+### Changed
+
+- When an agent asks for an approval, a question or a plan review, its card docks **above** the message box, so what you were typing stays, and Enter in the box never answers it; **F6** moves to the card. ([#187](https://github.com/elite-build/foreman/pull/187))
+- An approval spells out a command part by part, marks anything that **leaves this computer**, and says exactly what **Always allow** adds. ([#187](https://github.com/elite-build/foreman/pull/187))
+- Background shells and subagents now show in one block above the composer: what each one is doing, how many are done, the time the turn has run, a subagent's **Latest steps**, and **Stop** on a subagent. ([#186](https://github.com/elite-build/foreman/pull/186))
+- One count of what needs you per space, shared by the sidebar, the rail, the space switcher, **Team** and **Home**, and held pushes and memory proposals are included. ([#187](https://github.com/elite-build/foreman/pull/187))
+- The sidebar's space switcher is its heading, **Automations** and **Assistant** share a row, **Team** is one row, and employee runs show their hard hat; the list starts much higher. ([#187](https://github.com/elite-build/foreman/pull/187))
+- **Home** leads with what needs you, filtered by space, and folds **Get started** to one row. ([#187](https://github.com/elite-build/foreman/pull/187))
+- Each turn ends with a receipt of its outcome, files and commands; a failed turn leads with its cause and **Retry**. ([#187](https://github.com/elite-build/foreman/pull/187))
+- The send button says what Enter will do (**Send**, **Steer**, **Queue**), and the context meter shows what's left before compacting. ([#187](https://github.com/elite-build/foreman/pull/187))
+- The **Team** page shows a column per employee; an employee's page and its run show its decisions; a draft employee is approved from its own page. ([#187](https://github.com/elite-build/foreman/pull/187))
+- **Settings** shows one short page per menu entry, with **Previous** / **Next**, search results with current values, and a **Devices** category. ([#187](https://github.com/elite-build/foreman/pull/187))
+- A flow run's panel opens with the flow's name, how it ended, its time and cost, and the graph's loops and zoom in a bar above it. ([#187](https://github.com/elite-build/foreman/pull/187))
+- In a narrow window or at 200% zoom the workspace list folds to the rail and the side panel opens as a sheet. ([#187](https://github.com/elite-build/foreman/pull/187))
+
+### Fixed
+
+- **New workspace** and Ctrl+N no longer open on an organization's memory repository or another space's repository. ([#187](https://github.com/elite-build/foreman/pull/187))
+- Plan review's Ctrl+Shift+Enter approves as its label says; Esc with an empty @ or / menu no longer stops the agent. ([#187](https://github.com/elite-build/foreman/pull/187))
+- Windows shows shortcut keys as words (Ctrl+Shift+Enter) instead of Mac symbols. ([#187](https://github.com/elite-build/foreman/pull/187))
+- The model picker's rows no longer run together, a count of one reads "1 needs you", a search with no matches no longer says "1 match", diffs no longer break words mid-identifier, **Run a flow** no longer lists a model twice, and the sidebar no longer scrolls sideways. ([#187](https://github.com/elite-build/foreman/pull/187))
+- "Waiting for N background tasks to finish." now shows in the app's language. ([#186](https://github.com/elite-build/foreman/pull/186))
+- On Windows, a workspace archived after an AI employee's run, a scheduled run or a merge no longer stays behind half-deleted when another program briefly holds its folder. ([#188](https://github.com/elite-build/foreman/pull/188))
+- On Windows, a settings change made while another was being saved is no longer occasionally lost. ([#188](https://github.com/elite-build/foreman/pull/188))
+
+### Development
+
+- The design system gains **HardHat**, the avatar AI employees wear: the Foreman hard hat in one of twelve colours. ([#182](https://github.com/elite-build/foreman/pull/182))
+- The screenshot fixture and `npm run dev demo` include an organization with AI employees and their work, and seven new fixture screens show them. ([#185](https://github.com/elite-build/foreman/pull/185))
+- In `npm run dev demo`, a chat message that mentions "background" plays a turn with a background shell and subagent. ([#186](https://github.com/elite-build/foreman/pull/186))
+- A `ui-review` skill (`.claude/skills/ui-review`) audits the app's screens against a rubric and mocks improvements. ([#187](https://github.com/elite-build/foreman/pull/187))
+
 ## 1.0.23 (2026-11-13)
 
 ### Fixed
