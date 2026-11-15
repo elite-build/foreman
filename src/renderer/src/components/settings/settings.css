@@ -99,10 +99,11 @@
   align-items: center;
   margin: 2px 10px 8px;
 }
-.set-nav-search-input {
+/* Two classes, as the sidebar's search does: ui/ui.css loads after this file, so the input's own padding would win. */
+.set-nav-search .set-nav-search-input {
   width: 100%;
-  padding-left: 30px;
-  padding-right: 56px;
+  /* The input's own 5px above and below; room for the icon at the start and Clear (or Ctrl+F) at the end. */
+  padding: 5px 56px 5px 30px;
 }
 .set-nav-search-icon {
   position: absolute;
