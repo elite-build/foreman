@@ -2,6 +2,13 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.1.1 (2026-11-15)
+
+### Changed
+
+- While an agent works, the message box's button stays **Steer** or **Queue** and Stop is a small ■ beside it, appearing a moment into the turn, so a double-click on send can no longer stop the turn it just started. Esc still stops at once. ([#190](https://github.com/elite-build/foreman/pull/190))
+- The list of files and commands under a turn's **Completed** line starts folded on every turn, the latest one too; click the line to open it. ([#191](https://github.com/elite-build/foreman/pull/191))
+
 ## 1.1.0 (2026-11-15)
 
 ### Added
