@@ -14,6 +14,8 @@ Foreman runs on your computer. There is no Foreman account or cloud service: wor
 
 **Editor.** Prefer an editor's arrangement? Settings → Appearance → Window layout → Editor puts files and diffs in the middle, the chat beside them, and an activity bar for switching between workspaces, changes, commits, files and checks.
 
+![The Editor layout: a file diff in the middle, the changes on the left and the chat on the right](docs/images/editor-dark.png)
+
 **Review.** Read every change as a diff before you commit, push or open a pull request.
 
 ![A file diff with the list of changed files](docs/images/file-diff-light.png)
@@ -28,9 +30,11 @@ Foreman runs on your computer. There is no Foreman account or cloud service: wor
 
 Run a flow from Automations, **New workspace**, a schedule or `foreman flow run`, and follow it on the workspace's **Flow** tab. **Full screen** puts the run in the middle of the workspace with the chat beside it.
 
+![A flow run's diagram in the middle of the workspace, with its chat beside it](docs/images/flow-run-dark.png)
+
 **AI employees.** Group repositories into an organization with its own memory repository, then give it employees: each one a role written in plain words, a hard hat of its own, and access you approve. Ask one for something, or let its schedule or an event (a pull request, the base branch moving, a Linear assignment) start it; it works in a fresh workspace, remembers through the memory repository, hands work to its colleagues, and asks you before anything leaves your computer. Start one from the **Personal ▾** switcher at the top of the sidebar: **New organization…** asks only for a name. `docs/ai-employees.md` has the design.
 
-![A flow run's diagram in the middle of the workspace, with its chat beside it](docs/images/flow-run-dark.png)
+![An organization's Team page: its employees, what each needs from you, and a memory change waiting for approval](docs/images/team-light.png)
 
 **Command line.** Most of what you do in the window can also be done from a terminal or a script with the `foreman` command: start workspaces from templates, send messages and wait for turns, answer approvals, open and merge pull requests, run flows, manage repositories, schedules and remote workspaces, and change any setting. Every command takes `--json`, and exit codes are the same for every command, so scripts and CI can rely on them. Agents use it too, from inside a turn, to report progress or ask for a review.
 
