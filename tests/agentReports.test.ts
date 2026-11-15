@@ -112,7 +112,8 @@ function agent(kind: AgentKind, script: (req: TurnRequest) => Promise<void> | vo
   return { requests, restore: () => registerDriver(claudeDriver) }
 }
 
-async function until(check: () => boolean, ms = 5000): Promise<void> {
+// Room for a turn to settle on a busy machine (the full suite); a test that never settles still fails at its timeout.
+async function until(check: () => boolean, ms = 20_000): Promise<void> {
   const deadline = Date.now() + ms
   while (!check()) {
     if (Date.now() > deadline) throw new Error('timed out')

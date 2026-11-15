@@ -17,6 +17,19 @@ export function nodeCommand(source: string): string {
 export const waitFor: typeof vi.waitFor = (callback, options) =>
   vi.waitFor(callback, typeof options === 'number' ? options : { timeout: 10_000, ...options })
 
+// The Fetch standard's bad ports a listener on port 0 can be given: fetch refuses them ("bad port"). Windows hands them
+// out when its dynamic port range is set to start at 1024 rather than the default 49152.
+const FETCH_BAD_PORTS = new Set([1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080])
+
+/** Start a listener on port 0 again until fetch can reach it. */
+export async function startFetchable(service: { origin: string; start(): Promise<void>; close(): Promise<void> }): Promise<void> {
+  await service.start()
+  while (FETCH_BAD_PORTS.has(Number(new URL(service.origin).port))) {
+    await service.close()
+    await service.start()
+  }
+}
+
 export async function tempDir(prefix = 'switchyard-test-'): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), prefix))
 }
