@@ -1,27 +1,82 @@
-/* ---- approval and question panels (take the composer's place) ---- */
+/* ---- an agent's or a flow's request, as a decision card docked above the message box (ApprovalPanel.tsx) ----
+   Layout only: the frame, the stripe and the buttons are ui/ (Card, Button), the card's own layout decisionCard.css. */
 
-.approval-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 12px 14px;
-  border: 1px solid var(--selected-border);
-  border-radius: var(--radius-lg);
-  background: var(--approval-bg);
-  outline: none;
+/* The reason field has its own full-width row, so the buttons fit on one. */
+.approval-panel .approval-reason {
+  width: 100%;
 }
-.approval-panel:focus-within,
-.approval-panel:focus {
-  box-shadow: 0 0 0 2px var(--focus-ring);
+/* A command part by part (.approval-summary gives the box): the command, what it does and its tags line up in three
+   columns, each part a row of the list; how a part follows the one before sits above it, across the row. */
+.approval-panel .approval-parts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  column-gap: 12px;
+  margin: 0;
+  max-height: 40vh;
+  overflow: auto;
+  list-style: none;
+  /* Only a command's own text breaks anywhere (.approval-part-text); the words beside it break between words. */
+  word-break: normal;
 }
-.approval-panel .approval-actions {
+.approval-part {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  padding: 2px 0;
+}
+.approval-part-join {
+  grid-column: 1 / -1;
+}
+.approval-part-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-part-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* An edit: the file, where it is and its counts, then the lines it changes. */
+.approval-change-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding-bottom: 4px;
 }
-.approval-panel .approval-reason {
+.approval-change-head > code {
   flex: 1;
-  min-width: 120px;
+  min-width: 0;
+}
+.approval-change-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.approval-request {
+  max-height: 40vh;
+  overflow: auto;
+}
+/* What always-allow adds, in words, above the buttons. */
+.approval-rule {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.approval-rule-icon {
+  flex: none;
+  margin-top: 2px;
+}
+.approval-rule-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.approval-rule-text > p {
+  margin: 0;
 }
 .question-tabs {
   align-self: flex-start;

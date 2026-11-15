@@ -4,7 +4,8 @@
 // throwaway data folder (src/main/screenshots.ts). It writes <screen>-<theme>[-<vision>][-z200].png and index.json into
 // --out (default: <temp>/foreman-screens/<timestamp>), quits, and the data folder is removed. Each PNG gets a
 // <name>.ax.json beside it (the reduced accessibility tree), and the summary lists accessibility warnings per screen:
-// focusable elements without a name, heading levels that skip, a main-landmark count other than one. Warnings only.
+// focusable elements without a name, heading levels that skip, a main-landmark count other than one (not counted behind a
+// modal dialog, whose page is inert). Warnings only.
 // --large-text adds the large-text fixtures (accessibility plan, D3), off by default so the usual run takes no longer:
 // zoom200-<screen>-<theme>.png (the window at 200% zoom) and content24-<screen>-<theme>.png (Content text size 24, set
 // through the setting) for home, workspace-chat, file-diff and settings-accessibility, in light and dark. `--only` also

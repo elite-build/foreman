@@ -135,6 +135,7 @@ const NAMED: Record<string, { key: string; vk: number; text?: string }> = {
   Enter: { key: 'Enter', vk: 13, text: '\r' },
   Tab: { key: 'Tab', vk: 9 },
   Escape: { key: 'Escape', vk: 27 },
+  F6: { key: 'F6', vk: 117 },
   Space: { key: ' ', vk: 32, text: ' ' },
   Backspace: { key: 'Backspace', vk: 8 },
   Delete: { key: 'Delete', vk: 46 },

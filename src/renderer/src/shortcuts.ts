@@ -281,10 +281,13 @@ export function collisions(entries: readonly ShortcutEntry[], platform: string |
   return out
 }
 
-/** Whether a chord has neither Ctrl nor Cmd: a bare key such as Enter, Esc or 1-9, live only while a control has focus. */
+/**
+ * Whether a chord has neither Ctrl nor Cmd: a bare key such as Enter, Esc or 1-9, live only while a control has focus. A
+ * function key (F6) is never typed into a text box, so it isn't bare: it moves between regions, as F6 does on Windows.
+ */
 export function isBare(chord: string, platform: string | undefined): boolean {
   const r = resolveChord(chord, platformOf(platform))
-  return !r.ctrl && !r.meta
+  return !r.ctrl && !r.meta && !/^F([1-9]|1[0-2])$/.test(r.token)
 }
 
 // ---- Matching and dispatch ----
@@ -546,10 +549,22 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     ([key, action, labelKey]): ShortcutEntry => ({ id: gitShortcutId(action), keys: k(`mod+shift+${key}`), group: 'git', scope: 'app', labelKey, when: inWorkspace, run: (c) => c.actions.runGit(c.ws!.id, action) })
   ),
 
-  // ---- Approvals (live while an approval or question has focus) ----
-  { id: 'approval.yes', keys: k('Enter'), group: 'approvals', scope: 'approvals', labelKey: 'shortcuts.yes', handledBy: 'ApprovalPanel' },
-  { id: 'approval.always', keys: k('mod+Enter'), group: 'approvals', scope: 'approvals', labelKey: 'shortcuts.yesAlways', handledBy: 'ApprovalPanel' },
-  { id: 'approval.no', keys: k('Backspace'), group: 'approvals', scope: 'approvals', labelKey: 'shortcuts.no', handledBy: 'ApprovalPanel' },
+  // ---- Decisions (an approval, a question, a plan, an employee's: live while the card has focus) ----
+  {
+    // The card docked above the message box: F6 goes to it (focus never jumps there by itself), Ctrl+L back to the message.
+    // A terminal keeps F6 for itself.
+    id: 'approval.focus',
+    keys: k('F6'),
+    group: 'approvals',
+    scope: 'app',
+    labelKey: 'shortcuts.decisionFocus',
+    when: (c) => inChat(c) && !(c.event.target as Element | null)?.closest?.('.terminal'),
+    run: (c) => c.actions.command('chat-needs-me', c.ws!.id)
+  },
+  // Never for an act that leaves this computer (a push, a message, a command that pushes): that button has no key.
+  { id: 'approval.yes', keys: k('Enter'), group: 'approvals', scope: 'approvals', labelKey: 'shortcuts.yes', handledBy: 'DecisionCard' },
+  { id: 'approval.always', keys: k('mod+Enter'), group: 'approvals', scope: 'approvals', labelKey: 'shortcuts.yesAlways', handledBy: 'DecisionCard' },
+  { id: 'approval.no', keys: k('Escape'), group: 'approvals', scope: 'approvals', labelKey: 'shortcuts.no', handledBy: 'DecisionCard' },
   { id: 'approval.answer', keys: k('Digit1-9 / Digit0'), group: 'approvals', scope: 'approvals', labelKey: 'shortcuts.answerOptions', handledBy: 'ApprovalPanel' },
   // Diff rows (Changes): from a hunk heading, arrows walk the lines; the selection is announced.
   { id: 'diff.rowNext', keys: k('ArrowDown / ArrowUp'), group: 'files', scope: 'diff', labelKey: 'shortcuts.diffRows', handledBy: 'Changes' },

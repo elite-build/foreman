@@ -19,8 +19,8 @@ export type CardLook = {
   tone?: 'default' | 'danger'
   // A drop indicator on the card's top or bottom edge (reordering a list).
   drop?: 'before' | 'after'
-  // A leading 3px edge in a status colour (a step that runs in parallel, a tile that needs you).
-  stripe?: 'neutral' | 'ok' | 'warn' | 'info' | 'muted'
+  // A leading 3px edge in a status colour (a step that runs in parallel, a tile that needs you, a tile whose turn failed).
+  stripe?: 'neutral' | 'ok' | 'warn' | 'error' | 'info' | 'muted'
   // sm: a 7px corner for a compact card (a row-sized choice); md: 10px.
   size?: 'md' | 'sm'
 }

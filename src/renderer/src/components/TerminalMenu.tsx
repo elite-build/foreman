@@ -2,6 +2,7 @@ import { CornerDownRight, Maximize2, MessageSquarePlus, Minimize2, Minus, Pencil
 import { useEffect, type ReactNode } from 'react'
 import { stepZoom, ZOOM_MAX, ZOOM_MIN, zoomPercent } from '../../../shared/terminalTabs'
 import { useT } from '../i18n'
+import { formatChord } from '../shortcuts'
 import { getState, modKey, openSessions, snippetTargetId, useStore } from '../store'
 import { ContextMenu, MenuCheckboxItem, MenuControlRow, MenuGroup, MenuItem, MenuRadioItem, MenuSeparator } from '../ui'
 
@@ -129,7 +130,7 @@ export function TerminalMenu({ x, y, actions, tab, label, dismiss, onEscape }: {
         <>
           {tab.onRename && item(t('terminal.menu.rename'), tab.onRename, { hint: t('terminal.menu.renameHint'), icon: <Pencil size={14} /> })}
           {item(tab.fullscreen ? t('terminal.menu.exitFullscreen') : t('terminal.menu.fullscreen'), tab.onFullscreen, {
-            hint: `${mod}⇧J`,
+            hint: formatChord('mod+shift+KeyJ', platform),
             icon: tab.fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />
           })}
           <MenuCheckboxItem checked={tab.copyOnSelect} icon={<TextSelect size={14} />} onCheckedChange={tab.onCopyOnSelect}>

@@ -25,7 +25,7 @@ import { useT, type RendererT } from '../../i18n'
 import { api, attempt, useStore } from '../../store'
 import { Button, Meter, Status } from '../../ui'
 import { AgentIcon } from '../composer/AgentPicker'
-import { rowDomId } from './controls'
+import { rowDomId, useLeadPart } from './controls'
 import './limits.css'
 
 const NONE: AccountLimits[] = []
@@ -189,10 +189,12 @@ export function LimitsSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const agents = AGENT_ORDER.filter((a) => isAgentEnabled(a, prefs))
+  // As the Limits page of Settings, the page heading names it.
+  const lead = useLeadPart()
   return (
-    <section id={rowDomId('usage-limits')} className="set-section" aria-labelledby="usage-limits-title">
+    <section id={rowDomId('usage-limits')} className="set-section" data-lead={lead || undefined} aria-labelledby={lead ? undefined : 'usage-limits-title'}>
       <div className="limits-section-head">
-        <h2 id="usage-limits-title">{t('limits.section.title')}</h2>
+        {!lead && <h2 id="usage-limits-title">{t('limits.section.title')}</h2>}
         <Button size="sm" variant="ghost" icon={<RefreshCw size={13} />} disabled={reading} onClick={() => void read()}>
           {reading ? t('limits.refreshing') : t('limits.refresh')}
         </Button>

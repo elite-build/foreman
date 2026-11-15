@@ -418,3 +418,19 @@ describe('Start with (Flows on)', () => {
     await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalledWith('r1', expect.objectContaining({ prompt: 'https://github.com/acme/app/issues/7\n\nStart with the stack trace', githubUrl: 'https://github.com/acme/app/issues/7' })))
   })
 })
+
+describe('the repository choice', () => {
+  afterEach(() => {
+    delete fakeState.snapshot.organizations
+  })
+
+  it('never offers an organization’s memory repository', async () => {
+    const memory = { ...repo, id: 'mem', name: 'acme-memory', rootPath: '/code/acme-memory', spaceId: 'o1' }
+    const site = { ...repo, id: 'site', name: 'site', rootPath: '/code/site', spaceId: 'o1' }
+    Object.assign(fakeState.snapshot, { repos: [repo, memory, site], organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00Z' }] })
+    render(<NewWorkspaceDialog repoId="site" />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'site' }))
+    const choices = (await screen.findAllByRole('menuitemradio')).map((item) => item.textContent)
+    expect(choices).toEqual(['foreman', 'site'])
+  })
+})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contextGaps, diffLayout, fileLines, hiddenBefore, parseHunkHeader, splitRows, SPLIT_MIN_WIDTH } from '../src/shared/splitDiff'
+import { contextGaps, diffLayout, fileLines, hiddenBefore, leadingColumns, parseHunkHeader, splitRows, SPLIT_MIN_WIDTH } from '../src/shared/splitDiff'
 import type { DiffHunk, DiffLine } from '../src/shared/types'
 
 const ctx = (oldNo: number, newNo: number, text = `c${newNo}`): DiffLine => ({ type: 'ctx', text, oldNo, newNo })
@@ -40,6 +40,17 @@ describe('splitRows', () => {
 
   it('handles an empty hunk', () => {
     expect(splitRows([])).toEqual([])
+  })
+})
+
+describe('leadingColumns (a wrapped line hangs under its own text)', () => {
+  it('counts spaces, and a tab up to the next stop', () => {
+    expect(leadingColumns('const a = 1')).toBe(0)
+    expect(leadingColumns('    return credentials')).toBe(4)
+    expect(leadingColumns('	x')).toBe(8)
+    expect(leadingColumns('  	x')).toBe(8)
+    expect(leadingColumns('		  x', 4)).toBe(10)
+    expect(leadingColumns('   ')).toBe(3)
   })
 })
 

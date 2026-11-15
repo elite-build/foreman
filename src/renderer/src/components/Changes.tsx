@@ -1,6 +1,6 @@
 import { Check, Columns2, FoldVertical, Rows2, SquareArrowRight, SquareDot, SquareMinus, SquarePlus, TextSelect, Trash2, UnfoldVertical } from 'lucide-react'
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import { contextGaps, diffLayout, hiddenBefore, parseHunkHeader, splitRows, SPLIT_MIN_WIDTH } from '../../../shared/splitDiff'
+import { contextGaps, diffLayout, hiddenBefore, leadingColumns, parseHunkHeader, splitRows, SPLIT_MIN_WIDTH } from '../../../shared/splitDiff'
 import { ImageDiff, showsImageDiff } from './ImageDiff'
 import { buildSelection, canSelect, pickLines, SELECTION_PREFIX, type Side } from '../../../shared/diffSelection'
 import type { DiffComment, DiffFile, DiffLine, DiffScope, DiffSelection, FileContent, Workspace, WorkspaceDiff } from '../../../shared/types'
@@ -564,8 +564,9 @@ export function FileDiffView({
       {oldNo ?? ''}
     </td>
   )
+  // A wrapped line's continuation hangs under its own text: --lead is its leading whitespace, in columns.
   const code = (line: DiffLine, extra = '') => (
-    <td className={`code ${extra}`}>
+    <td className={`code ${extra}`} style={{ ['--lead' as string]: leadingColumns(line.text) }}>
       {/* The visible sign stays; a reader hears the word instead of "plus" or "minus". Neither is copied with the line. */}
       <span className="sign">
         <span aria-hidden="true">{sign(line)}</span>

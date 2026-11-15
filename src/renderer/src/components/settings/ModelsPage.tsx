@@ -7,7 +7,7 @@ import { showToast, useStore } from '../../store'
 import { AgentIcon, ModelChooser, modelName } from '../composer/AgentPicker'
 import { ChipButton, Popover, Range, Select } from '../../ui'
 import { ExternalLink } from './AgentAuth'
-import { Page, resetSettings, Row, saveSettings, Section, ToggleRow, useSettings } from './controls'
+import { CONTROL_WIDTH, Page, Part, resetSettings, Row, saveSettings, Section, ToggleRow, useSettings } from './controls'
 import { LoadoutEditor } from './ModelsLoadout'
 import './agents.css'
 
@@ -33,19 +33,21 @@ export function ModelsPage() {
 
   return (
     <Page title={t('settings.page.models')}>
-      <div className="ml-bare">
-        <Row
-          id="loadout"
-          label={t('settings.row.loadout')}
-          help={t('modelsPage.loadout.help', { keys })}
-          onReset={() => void resetSettings(['loadouts'])}
-          stacked
-        >
-          <LoadoutEditor />
-        </Row>
-      </div>
+      <Part id="loadout">
+        <div className="ml-bare">
+          <Row
+            id="loadout"
+            label={t('settings.row.loadout')}
+            help={t('modelsPage.loadout.help', { keys })}
+            onReset={() => void resetSettings(['loadouts'])}
+            stacked
+          >
+            <LoadoutEditor />
+          </Row>
+        </div>
+      </Part>
 
-      <Section>
+      <Section part="defaults">
         <Row
           id="claude-output-style"
           label={t('settings.row.claudeOutputStyle')}
@@ -56,7 +58,7 @@ export function ModelsPage() {
           }
           onReset={settings.claudeOutputStyle !== 'default' ? () => void setOutputStyle('default') : undefined}
         >
-          <Select label={t('settings.row.claudeOutputStyle')} width={180} value={settings.claudeOutputStyle} options={styleOptions} onChange={(style) => void setOutputStyle(style)} />
+          <Select label={t('settings.row.claudeOutputStyle')} width={CONTROL_WIDTH} value={settings.claudeOutputStyle} options={styleOptions} onChange={(style) => void setOutputStyle(style)} />
         </Row>
         <Row
           id="review-model"
@@ -74,7 +76,7 @@ export function ModelsPage() {
           onChange={(defaultPlanMode) => void saveSettings({ defaultPlanMode })}
         />
       </Section>
-      <Section title={t('modelsPage.switching.section')}>
+      <Section part="switching" title={t('modelsPage.switching.section')}>
         <SwitchHistoryRow />
       </Section>
     </Page>

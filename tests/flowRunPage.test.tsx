@@ -6,6 +6,7 @@ import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setModelCatalog } from '../src/shared/agents'
 import type { FlowListing, FlowRunPreview } from '../src/shared/flows'
 import { AutomationsView } from '../src/renderer/src/components/automations/AutomationsView'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
@@ -128,6 +129,26 @@ describe('Run a flow', () => {
     expect(screen.getAllByText('as build').length).toBeGreaterThan(0)
     await u.click(startButton())
     expect(fakeApi.startFlowRun).toHaveBeenCalledWith(expect.objectContaining({ models: { build: { agent: 'claude', model: 'claude-fable-5-1', effort: 'high' }, review: { agent: 'claude', model: 'claude-opus-5-5[1m]', effort: 'high' } } }))
+  })
+
+  it('lists each model once when the agent reports it by an alias of the flow’s id', async () => {
+    // Claude Code lists "opus" and "fable"; the flow and the tiers name the full ids.
+    const live = (id: string, resolved: string, label: string) => ({ id, agent: 'claude' as const, label, aliases: [resolved, `${resolved}[1m]`], efforts: ['high' as const], defaultEffort: 'high' as const, supportsFast: false, contextWindow: 1_000_000 })
+    setModelCatalog({ claude: [live('opus', 'claude-opus-5-5', 'Opus 5.5'), live('fable', 'claude-fable-5-1', 'Fable 5.1'), live('sonnet', 'claude-sonnet-5-5', 'Sonnet 5.5')] })
+    try {
+      const u = userEvent.setup()
+      open()
+      await screen.findByRole('textbox', { name: 'task' })
+      await u.click(screen.getByRole('tab', { name: /Models/ }))
+      await u.click(screen.getByRole('radio', { name: /^Best/ }))
+      for (const [name, label, value] of [['Model for developer', 'Fable 5.1', 'claude:claude-fable-5-1'], ['Model for review', 'Opus 5.5', 'claude:claude-opus-5-5[1m]']]) {
+        const select = screen.getByRole('combobox', { name }) as HTMLSelectElement
+        expect(within(select).getAllByRole('option', { name: label })).toHaveLength(1)
+        expect(select.value).toBe(value)
+      }
+    } finally {
+      setModelCatalog({})
+    }
   })
 
   it('one step changed by hand makes the mix Custom; a review may run on Codex, a turn may not', async () => {

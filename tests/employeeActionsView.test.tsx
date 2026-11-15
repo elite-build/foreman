@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
-// An AI employee's outward actions in the window (docs/ai-employees.md §6.6, §9): Needs you shows each held action's
-// exact preview (Slack: channel and text; Linear: issue and change; a push: branch and commits ahead; a pull request:
-// title, description, base ← branch and diff stat) with Send, Edit then send (the words only) and Skip; one Foreman isn't
-// sure was sent asks for a check first; a task's chain lists its actions; the Team page says what was decided for you
-// and which can't be undone, or that nothing was; and the approval plan says each class's rule, and that a shell isn't held.
+// An AI employee's outward actions in the window (docs/ai-employees.md §6.6, §9): Needs you shows each held action as a
+// decision card with its exact preview (Slack: channel and text; Linear: issue and change; a push: branch, commits ahead,
+// where it goes and as whom; a pull request: title, description, base ← branch and commits), a line saying what the main
+// button sends, and buttons named for the act (Don't … · Edit, then … · the act, which has no key: it leaves this
+// computer); one Foreman isn't sure was sent asks for a check first; a task's chain lists its actions; the Team page says
+// what was decided for you and which can't be undone, or that nothing was; each class's rule in words; and a draft's plan
+// says plainly that a shell isn't held.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmployeeAction, EmployeeActionPayload } from '../src/shared/employeeActions'
 import type { EmployeeTask, EmployeeWorkView } from '../src/shared/employeeWork'
-import { defaultEmployee, type EmployeeSummary } from '../src/shared/employees'
+import { defaultEmployee, type EmployeeSummary, type EmployeeView } from '../src/shared/employees'
 import { EmployeesNeedYou, TaskChain } from '../src/renderer/src/components/employees/EmployeeWork'
 import { ActionRules, DecidedForYou } from '../src/renderer/src/components/employees/HeldActions'
-import { ApproveDialog } from '../src/renderer/src/components/employees/ApproveDialog'
+import { EmployeeReview } from '../src/renderer/src/components/employees/EmployeePage'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -78,7 +80,15 @@ function setSnapshot(work: Partial<EmployeeWorkView>) {
 }
 
 const spy = (name: string) => storeModule[name] as ReturnType<typeof vi.fn>
-const rowOf = (headline: string) => screen.getByText(headline).closest('li') as HTMLElement
+// A decision card is a group named by what it decides.
+const cardOf = (subject: string) => screen.getByRole('group', { name: subject })
+// A button's name carries its key hint ("Don’t post Esc"); an outward one has none.
+const button = (within_: HTMLElement, label: string) => within(within_).getByRole('button', { name: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( |$)`) })
+const buttonNames = (card: HTMLElement) =>
+  within(card)
+    .getAllByRole('button')
+    .filter((b) => b.closest('.decision-foot-acts'))
+    .map((b) => b.textContent?.trim())
 
 beforeEach(() => {
   resetFake()
@@ -90,92 +100,128 @@ afterEach(() => {
 })
 
 describe('Needs you: held outward actions', () => {
-  it('previews a Slack post (channel, account, text) with Send, Edit then send and Skip', async () => {
+  it('previews a Slack post (channel, account, text) as a card, says where it goes, and posts it on its named button', async () => {
     setSnapshot({ actions: [action('a1', PAYLOADS.slack)] })
     fakeApi.sendEmployeeAction = vi.fn(async () => action('a1', PAYLOADS.slack, { state: 'sent' }))
     render(<EmployeesNeedYou orgId="o1" />)
-    expect(screen.getByRole('heading', { name: 'Outward actions waiting for you · 1' })).toBeTruthy()
-    const row = rowOf('Max wants to post to Slack')
-    expect(within(row).getByText('Held for you')).toBeTruthy()
-    expect(within(row).getByText('For “Ship the launch post”')).toBeTruthy()
-    expect(within(row).getByText('#launches')).toBeTruthy()
-    expect(within(row).getByText('Acme Slack')).toBeTruthy()
-    expect(within(row).getByText('We shipped 1.1')).toBeTruthy()
-    expect(within(row).getByText('Once sent, this can’t be undone.')).toBeTruthy()
-    await userEvent.click(within(row).getByRole('button', { name: 'Send' }))
+    expect(screen.getByRole('heading', { name: 'Needs you · 1' })).toBeTruthy()
+    const card = cardOf('Post to #launches')
+    expect(card.querySelector('.decision-head')?.textContent).toMatch(/^Needs you\s*·\s*Max\s*·\s*Slack message/)
+    expect(within(card).getByText('For “Ship the launch post”')).toBeTruthy()
+    expect(within(card).getByText('#launches')).toBeTruthy()
+    expect(within(card).getByText('We shipped 1.1')).toBeTruthy()
+    // What pressing it sends, where and as whom (said once, on this line), flagged as leaving this computer.
+    expect(within(card).getByText('Leaves this computer')).toBeTruthy()
+    expect(within(card).getByText('Posts this message to #launches in Slack as Acme Slack. It can’t be undone.')).toBeTruthy()
+    // Decline · alternate · main, the main one last; the act that leaves this computer has no key.
+    expect(buttonNames(card)).toEqual(['Don’t post Esc', 'Edit, then post Ctrl+Enter', 'Post to #launches'])
+    const post = button(card, 'Post to #launches')
+    expect(post.querySelector('kbd')).toBeNull()
+    expect(post.className).toMatch(/primary/)
+    await userEvent.click(post)
     expect(fakeApi.sendEmployeeAction).toHaveBeenCalledWith('a1', {})
     await waitFor(() => expect(spy('showToast')).toHaveBeenCalledWith('Sent for Max.'))
   })
 
-  it('Edit then send changes only the words: no field for the channel', async () => {
+  it('never sends on Enter: an outward act is pressed on its button', async () => {
     setSnapshot({ actions: [action('a1', PAYLOADS.slack)] })
     fakeApi.sendEmployeeAction = vi.fn(async () => action('a1', PAYLOADS.slack, { state: 'sent' }))
     render(<EmployeesNeedYou orgId="o1" />)
-    const row = rowOf('Max wants to post to Slack')
-    await userEvent.click(within(row).getByRole('button', { name: 'Edit then send' }))
-    expect(within(row).getAllByRole('textbox').map((b) => b.getAttribute('aria-label') ?? b.id)).toHaveLength(1)
-    const text = within(row).getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
+    const card = cardOf('Post to #launches')
+    card.focus()
+    await userEvent.keyboard('{Enter}')
+    await userEvent.keyboard('{Control>}{Enter}{/Control}')
+    expect(fakeApi.sendEmployeeAction).not.toHaveBeenCalled()
+    // Ctrl+Enter took the alternate instead: Edit, then post.
+    expect(within(card).getByRole('textbox', { name: 'Message' })).toBeTruthy()
+  })
+
+  it('Edit, then post changes only the words: no field for the channel', async () => {
+    setSnapshot({ actions: [action('a1', PAYLOADS.slack)] })
+    fakeApi.sendEmployeeAction = vi.fn(async () => action('a1', PAYLOADS.slack, { state: 'sent' }))
+    render(<EmployeesNeedYou orgId="o1" />)
+    const card = cardOf('Post to #launches')
+    await userEvent.click(button(card, 'Edit, then post'))
+    expect(within(card).getAllByRole('textbox')).toHaveLength(1)
+    const text = within(card).getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
     expect(text.value).toBe('We shipped 1.1')
-    expect(within(row).getByText('Only the words can change: where it goes and as whom stay as recorded.')).toBeTruthy()
+    expect(within(card).getByText('Only the words can change: where it goes and as whom stay as recorded.')).toBeTruthy()
+    expect(buttonNames(card)).toEqual(['Cancel Esc', 'Send edited'])
     await userEvent.clear(text)
     await userEvent.type(text, 'We shipped 1.1 today')
-    await userEvent.click(within(row).getByRole('button', { name: 'Send edited' }))
+    await userEvent.click(button(card, 'Send edited'))
     expect(fakeApi.sendEmployeeAction).toHaveBeenCalledWith('a1', { edits: { text: 'We shipped 1.1 today' } })
   })
 
-  it('Skip sends nothing', async () => {
+  it('Don’t post sends nothing, on its button or on Esc', async () => {
     setSnapshot({ actions: [action('a1', PAYLOADS.slack)] })
     fakeApi.skipEmployeeAction = vi.fn(async () => action('a1', PAYLOADS.slack, { state: 'skipped' }))
     render(<EmployeesNeedYou orgId="o1" />)
-    await userEvent.click(within(rowOf('Max wants to post to Slack')).getByRole('button', { name: 'Skip' }))
+    const card = cardOf('Post to #launches')
+    await userEvent.click(button(card, 'Don’t post'))
     expect(fakeApi.skipEmployeeAction).toHaveBeenCalledWith('a1')
     expect(fakeApi.sendEmployeeAction).toBeUndefined()
     await waitFor(() => expect(spy('showToast')).toHaveBeenCalledWith('Skipped: nothing was sent for Max.'))
+    card.focus()
+    await userEvent.keyboard('{Escape}')
+    expect(fakeApi.skipEmployeeAction).toHaveBeenCalledTimes(2)
+    expect(fakeApi.sendEmployeeAction).toBeUndefined()
   })
 
   it('previews a Linear change: the issue, the tool and its arguments, and that it can be changed back', async () => {
     setSnapshot({ actions: [action('a2', PAYLOADS.linear)] })
     render(<EmployeesNeedYou orgId="o1" />)
-    const row = rowOf('Max wants to change Linear')
+    const card = cardOf('Change ENG-12 in Linear')
     // The issue it changes, then the change: the tool and each argument it was given.
-    expect(within(row).getAllByText('ENG-12')).toHaveLength(2)
-    expect(within(row).getByText('save_comment')).toBeTruthy()
-    expect(within(row).getByText('issueId')).toBeTruthy()
-    expect(within(row).getByText('Shipped in 1.1')).toBeTruthy()
-    expect(within(row).getByText('Acme Linear')).toBeTruthy()
-    expect(within(row).getByText('Once sent, it can be changed back in Linear.')).toBeTruthy()
-    await userEvent.click(within(row).getByRole('button', { name: 'Edit then send' }))
-    expect((within(row).getByRole('textbox', { name: 'Description' }) as HTMLTextAreaElement).value).toBe('Shipped in 1.1')
+    expect(within(card).getAllByText('ENG-12')).toHaveLength(2)
+    expect(within(card).getByText('save_comment')).toBeTruthy()
+    expect(within(card).getByText('issueId')).toBeTruthy()
+    expect(within(card).getByText('Shipped in 1.1')).toBeTruthy()
+    expect(within(card).getByText('Changes Linear as Acme Linear. It can be changed back in Linear.')).toBeTruthy()
+    expect(buttonNames(card)).toEqual(['Don’t change Esc', 'Edit, then change Ctrl+Enter', 'Make this change'])
+    await userEvent.click(button(card, 'Edit, then change'))
+    expect((within(card).getByRole('textbox', { name: 'Description' }) as HTMLTextAreaElement).value).toBe('Shipped in 1.1')
   })
 
-  it('previews a push: the branch and the commits ahead, with no Edit', () => {
+  it('previews a push: the branch and the commits ahead, where it goes and as whom, with no Edit', () => {
     setSnapshot({ actions: [action('a3', PAYLOADS.push)] })
     render(<EmployeesNeedYou orgId="o1" />)
-    const row = rowOf('Max wants to push a branch')
-    expect(within(row).getByText('max/launch')).toBeTruthy()
-    expect(within(row).getByText('2 commits ahead of main')).toBeTruthy()
-    expect(within(row).getByText('Write the launch post')).toBeTruthy()
-    expect(within(row).getByText('Fix a typo')).toBeTruthy()
-    expect(within(row).getByText('Acme GitHub')).toBeTruthy()
-    expect(within(row).queryByRole('button', { name: 'Edit then send' })).toBeNull()
-    expect(within(row).getByRole('button', { name: 'Send' })).toBeTruthy()
+    const card = cardOf('Push max/launch to site')
+    expect(within(card).getByText('max/launch')).toBeTruthy()
+    expect(within(card).getByText('2 commits ahead of main')).toBeTruthy()
+    expect(within(card).getByText('Write the launch post')).toBeTruthy()
+    expect(within(card).getByText('Fix a typo')).toBeTruthy()
+    expect(within(card).getByText('Pushes 2 commits of max/launch to origin (site) as Acme GitHub. It leaves this computer and can’t be undone.')).toBeTruthy()
+    expect(buttonNames(card)).toEqual(['Don’t push Esc', 'Push branch'])
+    expect(button(card, 'Push branch').querySelector('kbd')).toBeNull()
   })
 
-  it('previews a pull request: title, description, base ← branch, diff stat and commits; edits its title and description', async () => {
+  it('says a push’s remote, its URL and the login when they were recorded, and lists the files it changes', () => {
+    const push = { ...PAYLOADS.push, ahead: 1, repo: 'acme-site', remote: 'upstream', remoteUrl: 'github.com/acme/site', login: 'maxbot', files: [{ path: 'posts/launch.md', insertions: 40, deletions: 2 }] } as EmployeeActionPayload
+    setSnapshot({ actions: [action('a3', push)] })
+    render(<EmployeesNeedYou orgId="o1" />)
+    const card = cardOf('Push max/launch to acme-site')
+    expect(within(card).getByText('Pushes 1 commit of max/launch to upstream (github.com/acme/site) as @maxbot. It leaves this computer and can’t be undone.')).toBeTruthy()
+    expect(within(card).getByText('posts/launch.md')).toBeTruthy()
+    expect(within(card).getByText('+40 −2')).toBeTruthy()
+  })
+
+  it('previews a pull request: title, description, base ← branch and commits; edits its title and description', async () => {
     setSnapshot({ actions: [action('a4', PAYLOADS.pr)] })
     fakeApi.sendEmployeeAction = vi.fn(async () => action('a4', PAYLOADS.pr, { state: 'sent' }))
     render(<EmployeesNeedYou orgId="o1" />)
-    const row = rowOf('Max wants to open a pull request')
-    expect(within(row).getByText('Launch post')).toBeTruthy()
-    expect(within(row).getByText('Adds the 1.1 launch post.')).toBeTruthy()
-    expect(within(row).getByText('main ← max/launch')).toBeTruthy()
-    expect(within(row).getByText('3 files, +40 −2')).toBeTruthy()
-    expect(within(row).getByText('1 commit ahead of main')).toBeTruthy()
-    expect(within(row).getByText('It pushes the branch first and opens the pull request as a draft.')).toBeTruthy()
-    await userEvent.click(within(row).getByRole('button', { name: 'Edit then send' }))
-    const title = within(row).getByRole('textbox', { name: 'Title' })
+    const card = cardOf('Open a draft pull request “Launch post” in site')
+    expect(within(card).getByText('Launch post')).toBeTruthy()
+    expect(within(card).getByText('Adds the 1.1 launch post.')).toBeTruthy()
+    expect(within(card).getByText('main ← max/launch')).toBeTruthy()
+    expect(within(card).getByText('1 commit ahead of main')).toBeTruthy()
+    // It pushes the branch first and opens the pull request as a draft: the line above the buttons says so.
+    expect(within(card).getByText('Pushes max/launch to origin (site) and opens a draft pull request into main, as Acme GitHub. It can’t be undone.')).toBeTruthy()
+    expect(buttonNames(card)).toEqual(['Don’t open Esc', 'Edit, then open Ctrl+Enter', 'Open draft pull request'])
+    await userEvent.click(button(card, 'Edit, then open'))
+    const title = within(card).getByRole('textbox', { name: 'Title' })
     await userEvent.type(title, ' for 1.1')
-    await userEvent.click(within(row).getByRole('button', { name: 'Send edited' }))
+    await userEvent.click(button(card, 'Send edited'))
     expect(fakeApi.sendEmployeeAction).toHaveBeenCalledWith('a4', { edits: { title: 'Launch post for 1.1' } })
   })
 
@@ -183,14 +229,16 @@ describe('Needs you: held outward actions', () => {
     setSnapshot({ actions: [action('a5', PAYLOADS.slack, { state: 'uncertain', reason: 'Foreman closed while sending this.' })] })
     fakeApi.confirmEmployeeAction = vi.fn(async () => action('a5', PAYLOADS.slack, { state: 'sent' }))
     render(<EmployeesNeedYou orgId="o1" />)
-    const row = rowOf('Max wants to post to Slack')
-    expect(within(row).getByText('Maybe sent')).toBeTruthy()
-    expect(within(row).getByText('Foreman isn’t sure this was sent')).toBeTruthy()
-    expect(within(row).getByText(/Check whether it arrived before anything else\. Foreman closed while sending this\./)).toBeTruthy()
-    expect(within(row).queryByRole('button', { name: 'Send' })).toBeNull()
-    await userEvent.click(within(row).getByRole('button', { name: 'It arrived' }))
+    const card = cardOf('Post to #launches')
+    expect(within(card).getByText('Foreman isn’t sure this was sent')).toBeTruthy()
+    expect(within(card).getByText(/Check whether it arrived before anything else\. Foreman closed while sending this\./)).toBeTruthy()
+    expect(within(card).getByText('It arrived records it as sent and sends nothing. It didn’t arrive sends it again.')).toBeTruthy()
+    expect(within(card).queryByRole('button', { name: /^Post to/ })).toBeNull()
+    // Sending again leaves this computer, so it has no key; It arrived only records.
+    expect(buttonNames(card)).toEqual(['It didn’t arrive: send again', 'It arrived Enter'])
+    await userEvent.click(button(card, 'It arrived'))
     expect(fakeApi.confirmEmployeeAction).toHaveBeenCalledWith('a5')
-    await userEvent.click(within(row).getByRole('button', { name: 'It didn’t arrive: send again' }))
+    await userEvent.click(button(card, 'It didn’t arrive: send again'))
     expect(fakeApi.sendEmployeeAction).toHaveBeenCalledWith('a5', { checked: true })
   })
 
@@ -200,10 +248,11 @@ describe('Needs you: held outward actions', () => {
       throw new Error('Not sent: no remote')
     })
     render(<EmployeesNeedYou orgId="o1" />)
-    const row = rowOf('Max wants to push a branch')
-    expect(within(row).getByText('The repository’s GitHub connection changed since this was recorded.')).toBeTruthy()
-    await userEvent.click(within(row).getByRole('button', { name: 'Send again' }))
-    expect((await within(row).findByRole('alert')).textContent).toBe('Not sent: no remote')
+    const card = cardOf('Push max/launch to site')
+    expect(within(card).getByText('It wasn’t sent')).toBeTruthy()
+    expect(within(card).getByText('The repository’s GitHub connection changed since this was recorded.')).toBeTruthy()
+    await userEvent.click(button(card, 'Send again'))
+    expect((await within(card).findByRole('alert')).textContent).toBe('Not sent: no remote')
   })
 })
 
@@ -266,7 +315,7 @@ describe('each class’s rule in words', () => {
   const base = defaultEmployee({ id: 'e-max1', colour: 'orange', repos: [], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5' }], text: { name: 'Max' } })
 
   it('lists Foreman’s four routes with their rule, held when unlisted, and a class it can’t hold', () => {
-    const d = { ...base, access: { ...base.access, actions: { 'slack-post': 'allowed' as const, push: 'never' as const, newsletter: 'held' as const } } }
+    const d = { ...base, access: { ...base.access, repos: { site: 'write' as const }, actions: { 'slack-post': 'allowed' as const, push: 'never' as const, newsletter: 'held' as const } } }
     render(<ActionRules definition={d} />)
     const items = screen.getAllByRole('listitem').map((li) => li.textContent)
     expect(items[0]).toMatch(/^Slack messages\s*Allowed\s*Recorded, then sent at once without asking you\. A sent message, push or pull request can’t be undone\./)
@@ -278,13 +327,35 @@ describe('each class’s rule in words', () => {
     expect(screen.getByText('No shell: Foreman’s own routes above are its only way out.')).toBeTruthy()
   })
 
-  it('says plainly in the approval plan that a shell-profile employee’s shell isn’t held', () => {
+  it('leaves pushes and pull requests out for an employee with no Write access, and says it can’t do either', () => {
+    const d = { ...base, access: { ...base.access, repos: { site: 'read' as const, docs: 'read' as const }, actions: { push: 'allowed' as const } } }
+    const { unmount } = render(<ActionRules definition={d} />)
+    const items = screen.getAllByRole('listitem').map((li) => li.textContent ?? '')
+    expect(items.map((i) => i.split(/\s/)[0])).toEqual(['Slack', 'Linear'])
+    expect(items.some((i) => /^(Pushes|Pull requests)/.test(i))).toBe(false)
+    expect(screen.getByText('It has no Write access to any repository, so it can’t push or open pull requests.')).toBeTruthy()
+    unmount()
+    // Given Write access somewhere, both are listed again, and the line goes.
+    render(<ActionRules definition={{ ...d, access: { ...d.access, repos: { site: 'write' as const } } }} />)
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent?.split(/\s/)[0])).toEqual(['Slack', 'Linear', 'Pushes', 'Pull'])
+    expect(screen.queryByText(/no Write access/)).toBeNull()
+  })
+
+  it('says plainly in a draft’s plan that a shell-profile employee’s shell, and the MCP servers it keeps, aren’t held', () => {
     setSnapshot({})
     const d = { ...base, access: { ...base.access, profile: 'shell' as const, mcp: ['github', 'foreman-slack'] } }
-    render(<ApproveDialog definition={d} memory="acme-memory" names={(id) => id} onConfirm={async () => undefined} onClose={() => undefined} />)
-    const text = screen.getByRole('dialog').textContent ?? ''
-    expect(text).toContain('Its shell is not held: a command it runs (git push, gh, curl) acts at once, outside these rules.')
-    expect(text).toContain('The MCP servers it keeps (github) act with no hold.')
-    expect(text).toMatch(/Slack messages\s*Held\s*Recorded, then held for you: it goes only when you press Send\./)
+    const view: EmployeeView = { ...summary, state: 'draft', blob: 'b1', text: null, definition: d }
+    render(<EmployeeReview employee={view} definition={d} memory="acme-memory" organization="Acme" names={(id) => id} />)
+    const group = (name: string) =>
+      within(screen.getByRole('heading', { name }).closest('section')!)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent)
+    const can = group('Can')
+    expect(can).toContain('Use a shell and its tools Nothing it runs there waits for you.')
+    expect(can).toContain('Use github Nothing it does with them waits for you.')
+    // It keeps Foreman's Slack tools, so a Slack post is held for you; it keeps no Linear tools, so it can't change Linear.
+    expect(group('Asks you first')).toContain('Before each Slack post')
+    expect(group('Can’t')).toContain('Change Linear It keeps no Linear tools.')
+    expect(group('Can’t')).not.toContain('Use a shell')
   })
 })

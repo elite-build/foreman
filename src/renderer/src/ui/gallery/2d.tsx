@@ -10,6 +10,7 @@ import { Listbox } from '../Listbox'
 import type { ListboxOption } from '../Listbox'
 import { Popover } from '../Popover'
 import { Resizer } from '../Resizer'
+import { Tag } from '../Tag'
 import { Tree, TreeItem } from '../Tree'
 import type { TreeNodeRow } from '../Tree'
 
@@ -271,6 +272,28 @@ function GraphDemo() {
       />
       <span className="faint">A run: done, running, waiting, failed and not reached; badges; the path taken strong, the rest faint (a picture: role=img, no tab stops)</span>
       <Graph label="Research then implement, running: checks, pass 3" width={1060} height={400} nodes={RUN_NODES} edges={RUN_EDGES} notes={RUN_NOTES} zoom={0.75} />
+      <span className="faint">In a bar (bar): the loops as Tags at its start and the toolbar at its end, above the drawing rather than over it; grow makes the canvas as tall as the graph, so the page scrolls, not the graph</span>
+      <Graph
+        label="Research then implement, running: checks, pass 3"
+        width={1060}
+        height={340}
+        nodes={RUN_NODES}
+        edges={RUN_EDGES}
+        labels={GRAPH_LABELS}
+        bar={{
+          grow: true,
+          start: (
+            <>
+              <Tag mono>
+                <Repeat size={11} aria-hidden /> fix-until-green · pass 3 of 4 · 10 of 45 min
+              </Tag>
+              <Tag mono>
+                <Repeat size={11} aria-hidden /> qa-until-clean · 2 of 2 passes used
+              </Tag>
+            </>
+          )
+        }}
+      />
       <span className="faint">A proposal: added, changed, removed (fits the width)</span>
       <Graph
         label="Research then implement, with the assistant's changes"

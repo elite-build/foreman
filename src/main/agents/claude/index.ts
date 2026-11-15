@@ -36,6 +36,7 @@ import { launchProblem, type LaunchProblem } from '../../../shared/launchProblem
 import { updateArgs } from '../../../shared/agentVersions'
 import { bundledClaudeExecutable, shellQuote } from '../../platform'
 import { trackedClaudeSpawn } from './spawn'
+import { alwaysAllowScope } from './alwaysScope'
 import { transportOverride } from '../transport'
 import { claudeContextUsage } from '../../../shared/contextUsage'
 import { translate } from '../../../shared/i18n'
@@ -679,7 +680,9 @@ class ClaudeTurn implements AgentTurn {
     const offered = this.req.readOnly ? suggestions?.filter((s) => s.type !== 'setMode') : suggestions
     const alternate = EDIT_TOOLS.has(toolName) ? 'edits-for-session' : offered?.length ? 'always-allow' : undefined
     const subagent = this.subagentFor(agentID, toolUseID)
-    const answer = await this.cb.approveTool({ kind: 'tool', toolName, input, reason: decisionReason, alternate, ...(subagent ? { subagent } : {}) }, signal)
+    // The card names the rules always-allow adds: exactly the suggestions passed back below.
+    const scope = alternate === 'always-allow' ? alwaysAllowScope(offered) : {}
+    const answer = await this.cb.approveTool({ kind: 'tool', toolName, input, reason: decisionReason, alternate, ...scope, ...(subagent ? { subagent } : {}) }, signal)
     if (!answer.allow) return { behavior: 'deny', message: answer.message || 'The user declined this action.' }
     if (answer.alternate && alternate === 'edits-for-session') {
       this.cb.autoAcceptEdits(true)

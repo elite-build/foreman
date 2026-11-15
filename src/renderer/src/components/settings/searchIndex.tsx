@@ -1,5 +1,5 @@
-// What the settings nav's search box finds: pages and rows (see registry.ts), ranked,
-// with the matched letters marked.
+// What settings search finds: the menu's entries, the settings in the registry (registry.ts) and each repository's
+// pages, ranked, each with where it lives. The results page lists them by category (SearchResults.tsx).
 import {
   Accessibility,
   BarChart3,
@@ -12,6 +12,7 @@ import {
   GitBranch,
   HardDrive,
   KeyRound,
+  MonitorSmartphone,
   Palette,
   Plug,
   Network,
@@ -22,12 +23,14 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import type { ReactNode } from 'react'
+import type { AgentPrefs } from '../../../../shared/agentCatalog'
 import { AGENT_ORDER, AGENTS } from '../../../../shared/agents'
 import { createT, type TFunction } from '../../../../shared/i18n'
 import type { AgentKind, Repo } from '../../../../shared/types'
 import { fuzzyScore } from '../../fuzzy'
 import type { PersonalSection, RepoSection, SettingsPage } from '../../store'
-import { PAGE_KEYWORDS, PAGE_LABELS, REPO_TAB_LABELS, SETTINGS, type SettingEntry } from './registry'
+import { firstPage, linkTo, pageNode, pathTo, settingsTree, type SettingsNode } from './pages'
+import { CATEGORIES, PAGE_KEYWORDS, REPO_TAB_LABELS, SETTINGS, type SettingEntry, type SettingsCategory } from './registry'
 
 export const PAGE_ICONS: Record<PersonalSection | 'agents', LucideIcon> = {
   general: Settings2,
@@ -44,6 +47,7 @@ export const PAGE_ICONS: Record<PersonalSection | 'agents', LucideIcon> = {
   usage: BarChart3,
   data: Database,
   cloud: Cloud,
+  devices: MonitorSmartphone,
   spaces: Network
 }
 
@@ -57,22 +61,28 @@ export const REPO_TAB_ICONS: Record<RepoSection, LucideIcon> = {
   misc: Ellipsis
 }
 
-const PERSONAL_PAGES = Object.keys(PAGE_LABELS) as (PersonalSection | 'agents')[]
 const REPO_TABS = Object.keys(REPO_TAB_LABELS) as RepoSection[]
 const AGENT_KEYWORDS: Partial<Record<string, string[]>> = { claude: ['anthropic'], codex: ['openai'] }
-const MAX_RESULTS = 30
+const MAX_RESULTS = 60
 // Page names in English stay findable whatever the UI language.
 const enT = createT('en')
 
 export interface SearchItem {
   key: string
   label: string
-  // Muted line under the label: the page a row lives on.
-  sub?: string
+  // Where it lives under its group: the menu's path to it ("Claude Code › Sign-in"); empty for a group's own entry.
+  where: string[]
+  // The category or repository it is listed under, and that group's key (a category id, or `repo:<id>`).
+  group: string
+  groupKey: string
   description?: string
   keywords: string
   icon: LucideIcon
   target: SettingsPage
+  // A setting of the registry: its current value can be shown beside it.
+  rowId?: string
+  // A Full agent: whether it is signed in can be shown, and fixed.
+  agent?: AgentKind
 }
 
 const words = (label: string) => label.toLowerCase().split(/\s+/)
@@ -93,42 +103,69 @@ const searchDescription = (row: SettingEntry, t: TFunction): string | undefined 
 }
 
 /** A label in the UI language, plus its English words when they differ. */
-const bothWords = (label: string, english: string): string[] => (label === english ? words(label) : [...words(label), ...words(english)])
+const bothWords = (label: string, english: string | undefined): string[] => (english === undefined || label === english ? words(label) : [...words(label), ...words(english)])
 
-export function buildIndex(repos: Repo[], mac: boolean, t: TFunction, platform?: string): SearchItem[] {
+/** The icon of a category: its first page's. */
+export const categoryIcon = (category: SettingsCategory): LucideIcon => PAGE_ICONS[CATEGORIES.find((c) => c.id === category)!.pages[0]]
+
+const flatten = (nodes: SettingsNode[]): SettingsNode[] => nodes.flatMap((n) => [n, ...flatten(n.children ?? [])])
+
+/** A Full agent's own entry in the menu ("agents/claude"), as the agent it is. */
+const agentOfNode = (node: SettingsNode): AgentKind | undefined => {
+  const id = node.id.startsWith('agents/') && !node.page ? node.id.slice('agents/'.length) : ''
+  return (AGENT_ORDER as string[]).includes(id) ? (id as AgentKind) : undefined
+}
+
+/** Every entry of the menu, every setting and every repository page, as search finds them. */
+export function buildIndex(repos: Repo[], mac: boolean, t: TFunction, platform?: string, agentPrefs?: AgentPrefs): SearchItem[] {
   const items: SearchItem[] = []
+  const tree = settingsTree({ t, platform: platform ?? '', agentPrefs })
+  const english = new Map(flatten(settingsTree({ t: enT, platform: platform ?? '', agentPrefs })).map((n) => [n.id, n]))
+  const categoryLabel = (category: SettingsCategory) => tree.find((n) => n.category === category)!.label
+  // The labels under the category down to the node: where it sits.
+  const whereOf = (id: string) => pathTo(tree, id).slice(1).map((n) => n.label)
 
-  for (const section of PERSONAL_PAGES) {
-    const label = t(PAGE_LABELS[section])
-    items.push({
-      key: `page:${section}`,
-      label,
-      keywords: ['settings', ...bothWords(label, enT(PAGE_LABELS[section])), ...PAGE_KEYWORDS[section]].join(' '),
-      icon: PAGE_ICONS[section],
-      target: { section }
-    })
+  // The menu's entries: categories, agents, pages.
+  const visit = (node: SettingsNode, top: boolean) => {
+    const first = firstPage(node)
+    if (first) {
+      const en = english.get(node.id)
+      const agent = agentOfNode(node)
+      // The registry's row for a whole agent (e.g. "Claude Code") is folded into the agent's entry.
+      const agentRow = agent ? SETTINGS.find((r) => isAgentTabRow(r) && r.page.agent === agent) : undefined
+      const category = CATEGORIES.find((c) => c.id === node.category)!
+      items.push({
+        key: `node:${node.id}`,
+        label: top ? node.label : node.title,
+        where: top ? [] : whereOf(node.id).slice(0, -1),
+        group: categoryLabel(node.category),
+        groupKey: node.category,
+        description: agentRow && searchDescription(agentRow, t),
+        keywords: [
+          'settings',
+          ...bothWords(node.title, en?.title),
+          ...(node.label === node.title ? [] : bothWords(node.label, en?.label)),
+          ...(top ? category.pages.flatMap((page) => PAGE_KEYWORDS[page]) : []),
+          ...(agent ? ['harness', 'harnesses', 'provider', agent, ...(AGENT_KEYWORDS[agent] ?? []), ...(agentRow?.keywords ?? [])] : [])
+        ].join(' '),
+        icon: categoryIcon(node.category),
+        target: linkTo(first),
+        agent
+      })
+    }
+    for (const child of node.children ?? []) visit(child, false)
   }
-  for (const agent of AGENT_ORDER) {
-    const label = AGENTS[agent].label
-    // The registry's row for the whole tab (e.g. "Claude Code") is folded into the tab's entry.
-    const row = SETTINGS.find((r) => isAgentTabRow(r) && r.page.agent === agent)
-    items.push({
-      key: `agent:${agent}`,
-      label,
-      sub: t(PAGE_LABELS.agents),
-      description: row && searchDescription(row, t),
-      keywords: ['harness', 'harnesses', 'provider', agent, ...(AGENT_KEYWORDS[agent] ?? []), ...(row?.keywords ?? [])].join(' '),
-      icon: PAGE_ICONS.agents,
-      target: { section: 'agents', agent }
-    })
-  }
+  for (const node of tree) visit(node, true)
+
   for (const repo of repos) {
     for (const tab of REPO_TABS) {
       const label = t(REPO_TAB_LABELS[tab])
       items.push({
         key: `repo:${repo.id}:${tab}`,
         label,
-        sub: repo.name,
+        where: [],
+        group: repo.name,
+        groupKey: `repo:${repo.id}`,
         keywords: ['settings', 'repository', repo.name, ...(label === enT(REPO_TAB_LABELS[tab]) ? [] : [enT(REPO_TAB_LABELS[tab])]), ...PAGE_KEYWORDS[tab]].join(' '),
         icon: REPO_TAB_ICONS[tab],
         target: { section: 'repo', repoId: repo.id, tab }
@@ -150,37 +187,33 @@ export function buildIndex(repos: Repo[], mac: boolean, t: TFunction, platform?:
         items.push({
           key: `row:${repo.id}:${row.id}`,
           label,
-          sub: `${repo.name} · ${tabLabel}`,
+          where: [tabLabel],
+          group: repo.name,
+          groupKey: `repo:${repo.id}`,
           description,
           keywords: [tabLabel, repo.name, ...extra].join(' '),
           icon: REPO_TAB_ICONS[page.tab],
-          target: { section: 'repo', repoId: repo.id, tab: page.tab, scrollTo: row.id }
+          target: { section: 'repo', repoId: repo.id, tab: page.tab, scrollTo: row.id },
+          rowId: row.id
         })
       }
-    } else if (page.section === 'agents') {
-      const agentsLabel = t(PAGE_LABELS.agents)
-      items.push({
-        key: `row:${row.id}`,
-        label,
-        // #22: rows on the catalog, Sign-in and Provider keys pages have no agent to name.
-        sub: AGENTS[page.agent as AgentKind] ? `${agentsLabel} · ${AGENTS[page.agent as AgentKind].label}` : agentsLabel,
-        description,
-        keywords: [agentsLabel, ...extra].join(' '),
-        icon: PAGE_ICONS.agents,
-        target: { section: 'agents', agent: page.agent, scrollTo: row.id }
-      })
-    } else {
-      const pageLabel = t(PAGE_LABELS[page.section])
-      items.push({
-        key: `row:${row.id}`,
-        label,
-        sub: pageLabel,
-        description,
-        keywords: [pageLabel, ...extra].join(' '),
-        icon: PAGE_ICONS[page.section],
-        target: { section: page.section, scrollTo: row.id }
-      })
+      continue
     }
+    const node = pageNode(tree, { ...(page as SettingsPage), scrollTo: row.id })
+    if (!node) continue
+    const where = whereOf(node.id)
+    items.push({
+      key: `row:${row.id}`,
+      label,
+      where,
+      group: categoryLabel(node.category),
+      groupKey: node.category,
+      description,
+      keywords: [...where, ...extra].join(' '),
+      icon: categoryIcon(node.category),
+      target: { ...linkTo(node), scrollTo: row.id },
+      rowId: row.id
+    })
   }
   return items
 }
@@ -258,7 +291,7 @@ export function highlight(label: string, query: string): ReactNode {
   let runMarked = false
   const flush = () => {
     if (!run) return
-    parts.push(runMarked ? <mark key={parts.length}>{run}</mark> : run)
+    parts.push(runMarked ? <strong key={parts.length}>{run}</strong> : run)
     run = ''
   }
   for (let i = 0; i < label.length; i++) {

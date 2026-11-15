@@ -56,7 +56,7 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
   advanced: 'Advanced',
   usage: 'Usage',
   data: 'Data',
-  devices: 'Data & devices',
+  devices: 'Devices',
   cloud: 'Remote workspaces'
 }
 

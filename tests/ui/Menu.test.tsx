@@ -383,6 +383,50 @@ describe('menu items', () => {
     expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Bigger' }))
   })
 
+  it('a disabled item with a reason keeps the reason readable and reachable, and never acts', async () => {
+    const user = userEvent.setup()
+    const onCompare = vi.fn()
+    render(
+      <MenuButton label="More" trigger="More">
+        <MenuItem disabled reason="Another tab is still working" onSelect={onCompare}>
+          Compare
+        </MenuItem>
+        <MenuItem>Copy</MenuItem>
+        <MenuItem disabled>Hidden reason</MenuItem>
+      </MenuButton>
+    )
+    await user.click(screen.getByRole('button', { name: 'More' }))
+    // The menu opens on an item that can act.
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Copy' }))
+    const compare = screen.getByRole('menuitem', { name: /^Compare/ }) as HTMLButtonElement
+    expect(compare.disabled).toBe(false)
+    expect(compare.getAttribute('aria-disabled')).toBe('true')
+    expect(compare.textContent).toContain('Another tab is still working')
+    expect(compare.querySelector('.ui-menu__reason')?.textContent).toBe('Another tab is still working')
+    // ↑ reaches it (a plain disabled item is still skipped), and Enter or a click does nothing.
+    await user.keyboard('{ArrowUp}')
+    expect(document.activeElement).toBe(compare)
+    await user.keyboard('{ArrowUp}')
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Copy' }))
+    await user.keyboard('{ArrowDown}{Enter}')
+    await user.click(compare)
+    expect(onCompare).not.toHaveBeenCalled()
+    expect(screen.getByRole('menu')).toBeTruthy()
+  })
+
+  it('a reason shows only while the item is disabled', async () => {
+    const user = userEvent.setup()
+    render(
+      <MenuButton label="More" trigger="More">
+        <MenuItem reason="Not shown">Compare</MenuItem>
+      </MenuButton>
+    )
+    await user.click(screen.getByRole('button', { name: 'More' }))
+    const item = screen.getByRole('menuitem', { name: 'Compare' })
+    expect(item.getAttribute('aria-disabled')).toBeNull()
+    expect(item.textContent).toBe('Compare')
+  })
+
   it('fails loudly outside a Menu', () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<MenuItem>Orphan</MenuItem>)).toThrow(/inside a <Menu>/)

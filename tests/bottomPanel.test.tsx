@@ -268,16 +268,16 @@ describe('full screen', () => {
   it('its button is always in the header, named with its shortcut, whatever is selected', async () => {
     const user = userEvent.setup()
     render(<BottomPanel workspace={workspace} visible />)
-    await user.click(within(header()).getByRole('button', { name: 'Fullscreen (Ctrl⇧J)' }))
+    await user.click(within(header()).getByRole('button', { name: 'Fullscreen (Ctrl+Shift+J)' }))
     expect(store.toggleTerminalFullscreen).toHaveBeenCalledWith('w1')
     await newTerminal(user)
-    expect(within(header()).getByRole('button', { name: 'Fullscreen (Ctrl⇧J)' })).toBeTruthy()
+    expect(within(header()).getByRole('button', { name: 'Fullscreen (Ctrl+Shift+J)' })).toBeTruthy()
   })
 
   it('in full screen it leaves it', () => {
     fakeState.workspaceFocus = { w1: 'terminal' }
     render(<BottomPanel workspace={workspace} visible />)
-    expect(within(header()).getByRole('button', { name: 'Exit fullscreen (Ctrl⇧J)' })).toBeTruthy()
+    expect(within(header()).getByRole('button', { name: 'Exit fullscreen (Ctrl+Shift+J)' })).toBeTruthy()
   })
 })
 

@@ -41,6 +41,11 @@ describe('reduceAxTree', () => {
     expect('level' in root).toBe(false)
   })
 
+  it('keeps a dialog’s modal flag', () => {
+    const tree = reduceAxTree([cdp('1', 'RootWebArea', '', { childIds: ['2'] }), cdp('2', 'dialog', 'Rename', { parentId: '1', properties: [prop('modal', true)] })])
+    expect(tree[0].children).toEqual([{ role: 'dialog', name: 'Rename', modal: true, children: [] }])
+  })
+
   it('treats a missing role or name as empty', () => {
     expect(reduceAxTree([{ nodeId: '1', role: { value: 'button' } }])).toEqual([{ role: 'button', name: '', children: [] }])
     expect(reduceAxTree([{ nodeId: '1' }])).toEqual([])
@@ -76,6 +81,11 @@ describe('axWarnings', () => {
     const tree = [node('button', '', { focusable: true }), node('heading', 'x', { level: 1 }), node('heading', 'y', { level: 3 })]
     const warnings = axWarnings(checkAxTree(tree))
     expect(warnings).toEqual(['1 focusable without a name (button x1)', 'heading level skips from h1 to h3: "y"', '0 main landmarks (expected 1)'])
+  })
+
+  it('skips the main landmark count behind a modal dialog, whose page is inert, but not behind a non-modal one', () => {
+    expect(axWarnings(checkAxTree([node('RootWebArea', '', { children: [node('dialog', 'Rename', { modal: true })] })]))).toEqual([])
+    expect(axWarnings(checkAxTree([node('RootWebArea', '', { children: [node('dialog', 'Hover card')] })]))).toEqual(['0 main landmarks (expected 1)'])
   })
 })
 

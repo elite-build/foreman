@@ -646,7 +646,7 @@ function StepFacts({ flow, step, onGo, onToml, onAsk }: { flow: Flow; step: Flow
             {exits.map((e) => (
               <li key={`${e.fact ?? ''}>${e.to}`}>
                 {e.fact && <code>{e.fact}</code>} →{' '}
-                <LinkButton size="sm" onClick={() => onGo(e.to)}>
+                <LinkButton size="sm" underline onClick={() => onGo(e.to)}>
                   {e.to === FLOW_DONE ? t('flowGraph.end.done') : e.to}
                 </LinkButton>
               </li>

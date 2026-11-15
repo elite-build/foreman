@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 
 import { cleanSteps, sameSteps, stepGroups, stepsPatch, type StepsKind } from '../../../../shared/setupSteps'
 import type { SetupStep } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
+import { formatChord } from '../../shortcuts'
 import { useStore } from '../../store'
 import { Button, Card, MenuButton, MenuCheckboxItem, MenuItem, MenuSeparator, Select, TextArea, TextInput } from '../../ui'
 import { Row, saveRepoSettings, ToggleRow, useRepoSetting } from './controls'
@@ -122,8 +123,8 @@ export function SetupStepsRow({ repoId, kind = 'setup' }: { repoId: string; kind
     setDrop(null)
   }
 
-  const up = platform === 'darwin' ? '⌥↑' : 'Alt+↑'
-  const down = platform === 'darwin' ? '⌥↓' : 'Alt+↓'
+  const up = formatChord('alt+ArrowUp', platform)
+  const down = formatChord('alt+ArrowDown', platform)
   return (
     <Row
       id={archive ? 'archive-script' : 'setup-script'}

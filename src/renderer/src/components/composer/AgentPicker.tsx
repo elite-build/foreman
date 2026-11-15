@@ -23,6 +23,7 @@ import type { Session } from '../../../../shared/types'
 import { accountBlocked, cloudAccountBlocked, continueBlock, modelChoiceAction, type ContinueBlock } from '../../../../shared/switchAgent'
 import { api, attempt, availableAgents, getState, modKey, newChat, openSettingsPage, useCapabilities, useStore } from '../../store'
 import { t as storeT, useT } from '../../i18n'
+import { formatChord } from '../../shortcuts'
 import { ActionRow, ChipButton, Glyph, Kbd, LinkButton, Popover, Segmented, Select, Switch, TextInput } from '../../ui'
 import { AgentMonogram } from '../agents/AgentMonogram'
 import { ManageAgentsRow, PickerAgentGroups } from '../agents/PickerAgents'
@@ -447,7 +448,7 @@ export function AgentPicker({
 
   const footer = (
     <div className="picker-footer faint small">
-      <span>{t('agentPicker.footer', { cycleKey: `${mod}⇧/`, effort: effortAxisLabel(session.agent, t).toLocaleLowerCase(t.locale), fastKey: `${mod}⇧E` })}</span>
+      <span>{t('agentPicker.footer', { cycleKey: formatChord('mod+shift+Slash', platform), effort: effortAxisLabel(session.agent, t).toLocaleLowerCase(t.locale), fastKey: formatChord('mod+shift+KeyE', platform) })}</span>
       <LinkButton
         size="sm"
         onClick={() => {
@@ -492,7 +493,7 @@ export function AgentPicker({
           openTerminalAgent(session.workspaceId, agent)
         }}
         terminalNote={hasHistory ? (agent) => t('switchAgent.terminalNote', { agent }) : undefined}
-        fastHint={`${mod}⇧E`}
+        fastHint={formatChord('mod+shift+KeyE', platform)}
         pending={pending ?? undefined}
         choice={
           pending && (
@@ -501,7 +502,7 @@ export function AgentPicker({
               choice={pending}
               blocked={blocked}
               carried={accountMove === 'carry'}
-              mod={mod}
+              platform={platform}
               onContinue={() => void continueHere(pending)}
               onNewChat={() => void newChatInstead(pending)}
             />
@@ -521,7 +522,7 @@ function SwitchChoice({
   choice,
   blocked,
   carried,
-  mod,
+  platform,
   onContinue,
   onNewChat
 }: {
@@ -530,7 +531,7 @@ function SwitchChoice({
   blocked: ContinueBlock | null
   // #130: moving to another account starts a new conversation there with the history as text.
   carried?: boolean
-  mod: string
+  platform: string
   onContinue: () => void
   onNewChat: () => void
 }) {
@@ -573,7 +574,7 @@ function SwitchChoice({
             <span className="switch-opt-title">{t('agentAccounts.choice.continue', { account })}</span>
             <span className="switch-opt-sub">{t(carried ? 'agentAccounts.choice.asText' : 'agentAccounts.choice.same', { agent })}</span>
           </span>
-          {!blocked && <Kbd>↵</Kbd>}
+          {!blocked && <Kbd>{formatChord('Enter', platform)}</Kbd>}
         </ActionRow>
         {why && <BlockedReason id={whyId}>{why}</BlockedReason>}
         <ActionRow className="switch-opt" onPress={onNewChat} primaryProps={{ className: 'switch-opt-main' }}>
@@ -584,7 +585,7 @@ function SwitchChoice({
             <span className="switch-opt-title">{t('switchAgent.choice.newChat')}</span>
             <span className="switch-opt-sub">{t('agentAccounts.choice.newChatSub', { account })}</span>
           </span>
-          <Kbd>{mod}↵</Kbd>
+          <Kbd>{formatChord('mod+Enter', platform)}</Kbd>
         </ActionRow>
       </div>
     )
@@ -601,7 +602,7 @@ function SwitchChoice({
           <span className="switch-opt-title">{t('switchAgent.choice.continue', { agent })}</span>
           <span className="switch-opt-sub">{t(native ? 'switchAgent.choice.continueNative' : 'switchAgent.choice.continueHistory', { agent })}</span>
         </span>
-        {!blocked && <Kbd>↵</Kbd>}
+        {!blocked && <Kbd>{formatChord('Enter', platform)}</Kbd>}
       </ActionRow>
       {why && <BlockedReason id={whyId}>{why}</BlockedReason>}
       <ActionRow className="switch-opt" onPress={onNewChat} primaryProps={{ className: 'switch-opt-main' }}>
@@ -612,7 +613,7 @@ function SwitchChoice({
           <span className="switch-opt-title">{t('switchAgent.choice.newChat')}</span>
           <span className="switch-opt-sub">{t('switchAgent.choice.newChatSub', { agent, current })}</span>
         </span>
-        <Kbd>{mod}↵</Kbd>
+        <Kbd>{formatChord('mod+Enter', platform)}</Kbd>
       </ActionRow>
       <div className="switch-choice-note faint small">
         {t('switchAgent.choice.follows', { agent })}

@@ -114,7 +114,7 @@
 }
 
 /* macOS: the traffic lights are wider than the rail alone, so the header beside it makes room. */
-.app.editor-rail.platform-darwin:not(.sidebar-right) .workspace.editor-arrangement.with-panel > .side-panel > .panel-header,
+.app.editor-rail.platform-darwin:not(.sidebar-right) .workspace.editor-arrangement.with-panel > .side-panel > .panel-host > .panel-header,
 .app.editor-rail.platform-darwin:not(.sidebar-right) .workspace.editor-arrangement:not(.with-panel) > .center > .center-header {
   padding-left: 32px;
 }

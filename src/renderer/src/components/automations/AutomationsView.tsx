@@ -8,6 +8,7 @@ import { DEFAULT_PROMPT_TEMPLATES, newTemplateId, templateName } from '../../../
 import { qualifiedName } from '../../../../shared/repoTemplates'
 import type { Occurrence, PromptTemplate, Schedule } from '../../../../shared/types'
 import { useT, type RendererT } from '../../i18n'
+import { formatChord } from '../../shortcuts'
 import { closeAutomations, openScheduleDialog, selectAutomation, useStore } from '../../store'
 import { ActionRow, Button, IconButton, LinkButton, Status, Tab, TabList, TabPanel, Tabs, TextInput, type StatusTone } from '../../ui'
 import { cadenceText, nextPill } from '../ScheduleDialogs'
@@ -208,6 +209,7 @@ function TemplateShelf({ query }: { query: string }) {
   const templates = useSettings().promptTemplates
   const byRepo = useStore((s) => s.snapshot!.repoTemplates)
   const repos = useStore((s) => s.snapshot!.repos)
+  const platform = useStore((s) => s.snapshot!.platform)
   const missingDefaults = DEFAULT_PROMPT_TEMPLATES.filter((d) => !templates.some((t) => t.id === d.id))
   const needle = query.trim().toLowerCase()
   const hit = (tpl: PromptTemplate, title: string) => !needle || `${title}\n${tpl.body}`.toLowerCase().includes(needle)
@@ -235,7 +237,7 @@ function TemplateShelf({ query }: { query: string }) {
         </span>
       </div>
       <p className="faint small auto-side-note">
-        {t.rich('automations.templatesNote', { placeholder: <code key="placeholder">{'{{placeholder}}'}</code> })}
+        {t.rich('automations.templatesNote', { key: formatChord('mod+KeyJ', platform), placeholder: <code key="placeholder">{'{{placeholder}}'}</code> })}
       </p>
       {!needle && templates.length === 0 && <p className="faint small auto-side-note">{t('automations.noTemplates')}</p>}
       {needle && !mine.length && !shared.length && <p className="faint small auto-side-note">{t('automations.noMatches', { query: query.trim() })}</p>}

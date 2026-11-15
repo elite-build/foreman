@@ -67,8 +67,9 @@
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-/* A row's main button: its content in a line (the ActionRow draws the surface). */
-.picker-row-main {
+/* A row's main button: its content in a line (the ActionRow draws the surface). With .ui-pressable, because ui.css loads
+   after this file and its `display: block` would otherwise win, running the row's number, name and keys together. */
+.ui-pressable.picker-row-main {
   display: flex;
   align-items: center;
   gap: 8px;

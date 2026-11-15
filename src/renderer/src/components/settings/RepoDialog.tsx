@@ -2,6 +2,7 @@
 // centered dialog (the design system's Dialog), plus Escape and click-outside handling for popovers.
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { useT } from '../../i18n'
+import { formatChord } from '../../shortcuts'
 import { Dialog as UiDialog, Kbd } from '../../ui'
 import './repo.css'
 
@@ -94,7 +95,7 @@ export function Dialog({ title, description, onClose, onSubmit, footer, width = 
   )
 }
 
-/** "⌘↵" or "Ctrl+↵" after a button label. */
+/** "⌘↵" or "Ctrl+Enter" after a button label. */
 export function SubmitHint({ platform }: { platform: string }) {
-  return <Kbd className="repo-kbd">{platform === 'darwin' ? '⌘↵' : 'Ctrl+↵'}</Kbd>
+  return <Kbd className="repo-kbd">{formatChord('mod+Enter', platform)}</Kbd>
 }

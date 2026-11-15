@@ -24,19 +24,20 @@ import { ReportProblemDialog } from './components/ReportProblemDialog'
 import { DropFolder } from './components/DropFolder'
 import { Sidebar } from './components/Sidebar'
 import { Home } from './components/Home'
-import { liveRepo, sidebarOrder } from './triage'
+import { sidebarOrder } from './triage'
 import { WorkspaceView } from './components/WorkspaceView'
 import { TilesView } from './components/tiles/TilesView'
 import { EditorViews } from './components/editor/EditorViews'
 import { StatusBar } from './components/editor/StatusBar'
 import { editorViewsFor, RAIL_NAMES_WIDTH, RAIL_WIDTH, shownEditorView } from './editorLayout'
+import { CHAT_MIN_WIDTH, SIDE_PANEL_MIN_WIDTH, SIDEBAR_DEFAULT_WIDTH, sidebarShows } from './narrowLayout'
 import { workspaceSurfaces } from './archivedView'
 import './components/workspace.css'
 import { CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/AddRepository'
 import { CreateOrganizationDialog } from './components/spaces/CreateOrganizationDialog'
 import { MemoryView } from './components/spaces/MemoryView'
 import { EmployeesView } from './components/employees/EmployeesView'
-import { snapshotInSpace } from '../../shared/organizations'
+import { newWorkspaceTarget, snapshotInSpace } from '../../shared/organizations'
 import { Overlays } from './components/Overlays'
 import { Announcer, ToastHost } from './components/Announcer'
 import { Tour } from './components/Tour'
@@ -81,8 +82,8 @@ import {
   useStore
 } from './store'
 
-// Everything a registry entry can do (src/renderer/src/shortcuts.ts), over the store.
-const shortcutActions: ShortcutActions = {
+// Everything a registry entry can do (src/renderer/src/shortcuts.ts), over the store. Exported for its tests.
+export const shortcutActions: ShortcutActions = {
   openOverlay,
   recordMilestone,
   toggleToolCalls() {
@@ -107,11 +108,12 @@ const shortcutActions: ShortcutActions = {
   toggleFlowFullscreen: (workspaceId) => toggleWorkspaceFocus(workspaceId, 'flow'),
   selectWorkspace,
   selectSession,
-  newWorkspace(ws) {
+  // The repository the sidebar's New workspace button opens on (Sidebar.tsx): in the space shown, never a memory repository.
+  newWorkspace() {
     const state = getState()
     const { snapshot } = state
     if (!snapshot) return
-    const repoId = ws?.repoId ?? liveRepo(snapshot, state.sidebarView.repo) ?? snapshot.repos[0]?.id
+    const repoId = newWorkspaceTarget(snapshot, { space: state.space, picked: state.sidebarView.repo, selectedWorkspaceId: state.selectedWorkspaceId })
     if (repoId) openNewWorkspace(repoId)
   },
   newChat: (workspaceId) => void newChat(workspaceId),
@@ -200,6 +202,7 @@ export function App() {
   const phoneSetupOpen = useStore((s) => s.phoneSetupOpen)
   const reportProblemOpen = useStore((s) => s.reportProblemOpen)
   const leftPanelOpen = useStore((s) => s.leftPanelOpen)
+  const narrowList = useStore((s) => s.narrowList)
   const rightPanelOpen = useStore((s) => s.rightPanelOpen)
   const newWorkspaceRepo = useStore((s) => s.newWorkspaceRepo)
   const newWorkspacePrompt = useStore((s) => s.newWorkspacePrompt)
@@ -218,7 +221,7 @@ export function App() {
   const railNames = useStore((s) => s.railNames)
   const railExtra = railNames ? RAIL_NAMES_WIDTH - RAIL_WIDTH : 0
   // Leave the chat column 420px, plus the side panel's narrowest width when it's open. The size includes the rail's tiles.
-  const sidebar = usePanelSize('sidebar', 312, 260, Math.min(480, windowWidth - 420 - railExtra - (rightPanelOpen ? 280 : 0)))
+  const sidebar = usePanelSize('sidebar', SIDEBAR_DEFAULT_WIDTH, 260, Math.min(480, windowWidth - CHAT_MIN_WIDTH - railExtra - (rightPanelOpen ? SIDE_PANEL_MIN_WIDTH : 0)))
   // Workspaces stay mounted once opened so terminals and scroll positions survive switching. A hidden one holds what it
   // read and skips these renders, so it costs nothing per store event (WorkspaceView); its terminals still run.
   const [opened, setOpened] = useState<string[]>([])
@@ -244,20 +247,22 @@ export function App() {
   const onScreen = editor && !covered && selected && liveOpened.includes(selected.id) ? selected : undefined
   const editorViews = editorViewsFor(onScreen ? workspaceSurfaces(onScreen) : null)
   const shownView = shownEditorView(editorView, editorViews)
-  const listShown = leftPanelOpen && (!editor || shownView === 'workspaces')
+  // A narrow window folds the list to its rail (narrowLayout.ts) until ⌘B asks for it; not in the Editor layout.
+  const folded = !editor && sidebarShows({ windowWidth, windowLayout: snapshot.settings.windowLayout, leftPanelOpen, narrowList }) === 'rail'
+  const listShown = leftPanelOpen && (!editor || shownView === 'workspaces') && !folded
   const sidebarWidth = (listShown ? sidebar.size : RAIL_WIDTH) + railExtra
   // The main area reaches the window's left edge (where macOS draws the traffic lights).
   const mainFirst = editor ? sidebarRight : !leftPanelOpen || sidebarRight
 
   return (
     <div
-      className={`app platform-${snapshot.platform} ${leftPanelOpen || editor ? '' : 'no-sidebar'} ${sidebarRight ? 'sidebar-right' : ''} ${mainFirst ? 'main-first' : ''} ${editor ? 'editor-layout' : ''} ${editor && !listShown ? 'editor-rail' : ''}`}
+      className={`app platform-${snapshot.platform} ${leftPanelOpen || editor ? '' : 'no-sidebar'} ${sidebarRight ? 'sidebar-right' : ''} ${mainFirst ? 'main-first' : ''} ${editor ? 'editor-layout' : ''} ${editor && !listShown ? 'editor-rail' : ''} ${folded ? 'list-folded' : ''}`}
       style={leftPanelOpen || editor ? { gridTemplateColumns: sidebarRight ? `1fr ${sidebarWidth}px` : `${sidebarWidth}px 1fr` } : undefined}
     >
       {editor ? (
         <Sidebar resize={sidebar} side={sidebarSide} list={listShown} views={<EditorViews shown={leftPanelOpen ? shownView : null} available={editorViews} />} />
       ) : (
-        leftPanelOpen && <Sidebar resize={sidebar} side={sidebarSide} />
+        leftPanelOpen && <Sidebar resize={sidebar} side={sidebarSide} list={!folded} folded={folded} />
       )}
       <main className="main">
         <RemoteBanner />

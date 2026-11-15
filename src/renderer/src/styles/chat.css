@@ -12,6 +12,7 @@
   flex: 1;
   overflow-y: auto;
   position: relative;
+  scrollbar-width: thin;
 }
 .chat-search {
   display: flex;
@@ -28,7 +29,10 @@
 .search-count { min-width: 65px; text-align: right; font-variant-numeric: tabular-nums; }
 .shell-snippet { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; margin: 10px 0; }
 .snippet-toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
-.shell-snippet > pre { margin: 0; border: 0; border-radius: 0; }
+.shell-snippet > pre,
+.code-block > pre { margin: 0; border: 0; border-radius: 0; }
+.code-block { margin: 10px 0; overflow: hidden; }
+.code-block[data-wrap] > pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .snippet-output { height: 200px; border-top: 1px solid var(--border); }
 .snippet-output .terminal { height: 100%; min-height: 0; }
 /* Mermaid diagrams in Markdown (MermaidBlock.tsx): diagram or source under the snippet toolbar. */
@@ -188,6 +192,7 @@ html[data-window-hidden] .assistant.streaming .markdown > :last-child::after {
   border-radius: var(--radius-md);
   padding: 10px 12px;
   overflow-x: auto;
+  scrollbar-width: thin;
   font-variant-ligatures: var(--code-ligatures);
 }
 .markdown :not(pre) > code {
@@ -309,9 +314,6 @@ button.tool-row {
   flex: none;
   color: var(--text-muted);
 }
-.tool.error .tool-icon {
-  color: var(--red);
-}
 /* The row's own text takes the soft colour here, on the label, since the Pressable's look is ui/'s. */
 .tool-label {
   flex: none;
@@ -330,6 +332,15 @@ button.tool-row {
 }
 .tool-meta {
   flex: none;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+/* How a call ended ("● Passed · exit 0", "◆ Failed"): after the command, never squeezed. */
+.tool-result {
+  flex: none;
+}
+.tool-exit {
   font-family: var(--mono);
   font-size: var(--text-xs);
   color: var(--text-faint);
@@ -579,17 +590,83 @@ button.tool-row {
 .result.error {
   color: var(--red);
 }
-.turn-result .turn-changes {
+/* A turn's receipt (ChatView's TurnReceipt), a Card: line 1 is the outcome, the numbers, the fold and the menu; the fold's
+   panel (this turn's files and commands) wraps onto a line of its own, after the menu. */
+.turn-receipt {
+  padding: 4px 6px 4px 10px;
+}
+.turn-receipt-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.turn-receipt-numbers {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.turn-receipt-fold {
+  display: contents;
+}
+.turn-receipt-fold > .ui-disclosure__panel {
+  order: 1;
+  flex-basis: 100%;
+  min-width: 0;
+  padding: 0 0 4px;
+}
+.turn-receipt-line > .answer-menu {
   margin-left: auto;
 }
-.turn-result .add {
+/* Never broken inside a fact: "1 file +1 −1" wraps whole. */
+.turn-receipt-fact,
+.turn-delta {
+  white-space: nowrap;
+}
+.turn-receipt-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.turn-receipt-group,
+.turn-recovery-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.turn-receipt-file,
+.turn-receipt-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+.turn-receipt-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.turn-delta {
+  font-size: var(--text-xs);
+}
+.turn-delta .add {
   color: var(--green);
 }
-.turn-result .del {
+.turn-delta .del {
   color: var(--red);
 }
-.turn-result.error svg {
-  color: var(--red);
+/* A failed turn's card: the failing command's last lines in the tool rows' frame. */
+.turn-recovery-output {
+  margin: 6px 0 0;
 }
 .recovery-detail {
   margin-top: 4px;

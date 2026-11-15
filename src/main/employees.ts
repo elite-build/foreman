@@ -51,7 +51,7 @@ import type { PersistedState } from './store'
 /** The longest a drafting request may take before the window is told it didn't answer. */
 export const DRAFT_TIMEOUT_MS = 3 * 60_000
 
-export const PRIVACY_MODE_ON = 'Privacy mode is on, so nothing is sent to a model: use Save as is, or turn Privacy mode off in Settings → General.'
+export const PRIVACY_MODE_ON = 'Privacy mode is on, so nothing is sent to a model: press Use my words, or turn Privacy mode off in Settings → General.'
 
 export interface EmployeeHost {
   state(): PersistedState
@@ -480,14 +480,14 @@ export class EmployeeService {
 
   private async ask(prompt: string): Promise<{ text: string; agent: string; model: string }> {
     if (this.state.settings.privacyMode) throw new Error(PRIVACY_MODE_ON)
-    if (!this.host.draft) throw new Error('No agent here can draft an employee. Use Save as is.')
+    if (!this.host.draft) throw new Error('No agent here can draft an employee. Press Use my words.')
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('The model didn’t answer in time. Try again, or use Save as is.')), DRAFT_TIMEOUT_MS)
+      timer = setTimeout(() => reject(new Error('The model didn’t answer in time. Try again, or press Use my words.')), DRAFT_TIMEOUT_MS)
     })
     try {
       const answer = await Promise.race([this.host.draft({ system: EMPLOYEE_DRAFT_SYSTEM_PROMPT, prompt }), timeout])
-      if (!answer) throw new Error('No agent here can draft an employee: sign in to one in Settings → Agents, or use Save as is.')
+      if (!answer) throw new Error('No agent here can draft an employee: sign in to one in Settings → Agents, or press Use my words.')
       return answer
     } finally {
       clearTimeout(timer)
@@ -512,7 +512,7 @@ export class EmployeeService {
     const freeColours = HAT_COLOURS.filter((c) => !worn.includes(c))
     const answer = await this.ask(employeeDraftPrompt({ organization: org.name, description, traits, ...(otherTrait ? { otherTrait } : {}), repos, freeColours }))
     const parsed = parseEmployeeDraftAnswer(answer.text, { repos, freeColours })
-    if (!parsed.ok) throw new Error(`The draft didn’t come back as expected: ${parsed.problem} Try again, or use Save as is.`)
+    if (!parsed.ok) throw new Error(`The draft didn’t come back as expected: ${parsed.problem} Try again, or press Use my words.`)
     return { text: parsed.text, ...(picked ? {} : { colour: parsed.colour ?? freeHatColour(worn) }), suggested: parsed.suggested, agent: answer.agent, model: answer.model }
   }
 

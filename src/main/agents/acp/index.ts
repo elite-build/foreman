@@ -981,7 +981,7 @@ class AcpTurn implements AgentTurn, LinkTurn {
     if (linked) return this.cb.item(this.toolItem(linked), view.running)
     const output = view.output.length > MAX_TOOL_OUTPUT ? `${view.output.slice(0, MAX_TOOL_OUTPUT)}\n… (truncated)` : view.output
     this.cb.item(
-      { kind: 'tool', id: `${this.req.turnId}:${view.id}`, turnId: this.req.turnId, name: 'Bash', input: { command: view.command }, status: view.running ? 'running' : view.exitStatus?.exitCode === 0 ? 'done' : 'error', output },
+      { kind: 'tool', id: `${this.req.turnId}:${view.id}`, turnId: this.req.turnId, name: 'Bash', input: { command: view.command }, status: view.running ? 'running' : view.exitStatus?.exitCode === 0 ? 'done' : 'error', output, ...(!view.running && typeof view.exitStatus?.exitCode === 'number' ? { exitCode: view.exitStatus.exitCode } : {}) },
       view.running
     )
   }

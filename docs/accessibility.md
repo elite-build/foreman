@@ -48,13 +48,15 @@ On Windows, Foreman does not bind chords that screen readers use. The reserved l
 
 Known gap: some shortcuts are Ctrl+Alt plus a letter (theme, panels, uncommitted changes, next needing you). On keyboards where AltGr types letters, Windows treats AltGr as Ctrl+Alt, so these can collide with typing. US layouts are the target for now; other layouts are a follow-up.
 
-### Approval panels
+### Decision cards (approvals, questions, plans)
 
-When an agent asks permission to run a tool, approve a plan or answer a question, focus moves to the approval panel. It is a named group, and the name is the request (the tool's title, or the question text).
+When an agent asks permission to run a tool, shows a plan or asks a question, or a flow waits at a gate, the request docks above the message box as a decision card (`components/DecisionCard.tsx`, the same card an AI employee's question, held push or memory change uses). The message box stays, with whatever you were writing, its attachments and the queue. Focus does not move: the arrival is announced ("Claude Code needs you: Command. Press F6 to answer."), **F6** moves focus to the card, and **Ctrl+L** (Cmd+L) goes back to your message. Enter in the message box only ever sends your message (queued while the agent waits); it never answers the card. The card is a named group, and the name is the thing being decided (the tool's title, the question, "Plan ready for review").
 
-- Every button works as a button. Tab to **Yes**, **No**, the "always" or "allow edits" button, a question option, **Skip** or **Submit** and press Enter or Space: it does what its name says, and nothing else. (Enter on No or on an option used to approve the request. That was a bug and is fixed.)
-- A few shortcuts work only while the panel itself has focus, not a button inside it. **Enter** says Yes. **Backspace** says No. **Ctrl+Enter** (Cmd+Enter) takes the alternate answer, "always allow" or "allow edits", and works from anywhere in the panel.
-- In a question, the panel itself takes **1 to 9** to pick that option, **0** to go to the "other" field, **Left/Right** to move between questions and **Enter** to submit.
+- Every card has the same parts: a header ("Needs you", who asks, what kind), what is being decided, its details, a line saying what the main button will do, then the buttons in one order, the main one last: decline, alternate, main. Buttons are named for the act: **Don't run** / **Run**, **Skip questions** / **Send answers**, **Keep planning** / **Hand off** / **Approve plan**, **Don't push** / **Push branch**.
+- Every button works as a button: Tab to it and press Enter or Space, and it does what its name says and nothing else.
+- Inside the card: **Esc** declines, **Ctrl+Enter** (Cmd+Enter) takes the alternate (or the main act when there is none, from a text box too), **Enter** on the card or an option does the main act. Esc stays in the card: it never closes the view around it. A docked card ignores its keys for 600 ms after it appears.
+- **Nothing that leaves this computer has a key**: a push, a pull request, a Slack post, a Linear change, or a command with a part that pushes. Its button shows no key, the line above the buttons starts with "Leaves this computer", and you Tab to the button and press Enter or Space.
+- In questions, each tab is named by its question's header and says whether it is answered. A single-choice question is a group of radio buttons, a multiple-choice one checkboxes. **1 to n** pick an option and the next number goes to "Other: answer in your own words" (outside a text box). The main button reads "Next: <header>" until every question has an answer, then "Send answers".
 - The reason field ("Tell the agent what to do instead") is described as: Pressing Enter here denies the request and sends this reason to the agent.
 
 ## What Foreman says
@@ -118,7 +120,9 @@ src/menu.tsx, hunk 1 of 1, lines 40 to 52: added: const bp = 640; removed: const
 
 ## Large text and zoom
 
-Content text size and App zoom are described above. Foreman's screenshot run can capture Home, the chat, Changes and Settings > Accessibility at 200% zoom and at content size 24 (`npm run screens -- --large-text`), so overflow and hidden focus can be found. A keyboard pass at 200% belongs in the manual checks before a release.
+Content text size and App zoom are described above. In a narrow window, or at 200% zoom, the workspace takes a step each time its columns stop fitting at their narrowest (`src/renderer/src/narrowLayout.ts`); above about 1010 px nothing changes. Under that width the workspace list folds to its rail, which also carries the space switcher (the space's initial, ▲ when another space waits) and, in an organization, Team; Ctrl+B (⌘B) shows the list beside the rail and folds it again. The workspace header puts Compare, Export, Hand off and Open in into one More menu so the name and branch keep their width, and the Note bar becomes a Note chip at the end of the tab strip. When the workspace itself is under 700 px (200% zoom) the side panel opens as a sheet over the chat from a Changes button that says how many files changed (Ctrl+Alt+B / ⌘⌥B opens and closes it, Escape or picking a file closes it), and a terminal that lived in the panel opens under the chat. In a window under about 520 px tall the composer starts as one line and shows the rest of its toolbar when it has focus.
+
+Foreman's screenshot run can capture Home, the chat, Changes and Settings > Accessibility at 200% zoom and at content size 24 (`npm run screens -- --large-text`), so overflow and hidden focus can be found. A keyboard pass at 200% belongs in the manual checks before a release.
 
 ## Reporting a problem
 

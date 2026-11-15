@@ -9,12 +9,15 @@ import { Button, LinkButton, Tag, TextArea } from '../ui'
 
 /**
  * The workspace note: guidance you write once for every tab. Saving only records a revision; it reaches a chat
- * when a new tab includes it or you press "Send updated note to this tab".
+ * when a new tab includes it or you press "Send updated note to this tab". `folded` (a narrow window): a Note chip in
+ * the tab strip opens it (`open`, `onOpenChange`), so the bar shows only while it is open or has a note to send.
  */
-export function NoteBar({ workspace, session, readOnly }: { workspace: Workspace; session?: Session; readOnly?: boolean }) {
+export function NoteBar({ workspace, session, readOnly, folded, open: openProp, onOpenChange }: { workspace: Workspace; session?: Session; readOnly?: boolean; folded?: boolean; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const note = workspace.note
   const t = useT()
-  const [open, setOpen] = useState(false)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const open = openProp ?? ownOpen
+  const setOpen = onOpenChange ?? setOwnOpen
   const [draft, setDraft] = useState(note?.text ?? '')
   // G4 O15: the note can be edited Rich too (the choice is shared with prompt templates).
   const [fieldMode, setFieldMode] = useFieldMode()
@@ -37,6 +40,8 @@ export function NoteBar({ workspace, session, readOnly }: { workspace: Workspace
   }
 
   const standing = session ? noteStanding(note, session) : 'none'
+  // Folded: the chip stands for the bar, unless an updated note waits to be sent to this tab.
+  if (folded && !open && standing !== 'stale') return null
   const save = async () => {
     if (draft === (note?.text ?? '')) return setOpen(false)
     if (await attempt(async () => (await api.saveNote(workspace.id, draft), true))) {

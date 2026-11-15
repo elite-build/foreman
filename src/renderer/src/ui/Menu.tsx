@@ -32,6 +32,8 @@ const ITEM = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio
 const ROW = '[data-ui-menu-row]'
 
 const isOff = (el: HTMLElement) => (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true'
+// An item that is off but says why (`reason`): ↑ ↓ still reach it, so its reason is read, but it never activates.
+const isExplained = (el: HTMLElement) => el.hasAttribute('data-reason')
 
 // The up/down stops in DOM order: every item, with a control row counting as one stop.
 function stopsOf(root: HTMLElement): HTMLElement[] {
@@ -39,7 +41,9 @@ function stopsOf(root: HTMLElement): HTMLElement[] {
 }
 
 const itemsOf = (row: HTMLElement) => Array.from(row.querySelectorAll<HTMLElement>(ITEM)).filter((el) => !isOff(el))
-const stopOff = (el: HTMLElement) => (el.matches(ROW) ? itemsOf(el).length === 0 : isOff(el))
+const stopOff = (el: HTMLElement) => (el.matches(ROW) ? itemsOf(el).length === 0 : isOff(el) && !isExplained(el))
+// Where a menu opens: an item that can act, not one that only says why it can't.
+const stopActs = (el: HTMLElement) => (el.matches(ROW) ? itemsOf(el).length > 0 : !isOff(el))
 const stopLabel = (el: HTMLElement) => (el.matches(ROW) ? (el.dataset.label ?? '') : (el.querySelector('.ui-menu__label')?.textContent ?? el.textContent ?? ''))
 
 function focusStop(el: HTMLElement | undefined) {
@@ -76,7 +80,9 @@ export function Menu({ label, onClose, initialFocus = 'first', ignore, closeOnVi
   useLayoutEffect(() => {
     const root = local.current
     if (!root || initialFocus === 'none') return
-    const enabled = stopsOf(root).filter((el) => !stopOff(el))
+    const stops = stopsOf(root)
+    const acting = stops.filter(stopActs)
+    const enabled = acting.length ? acting : stops.filter((el) => !stopOff(el))
     const target = initialFocus === 'last' ? enabled[enabled.length - 1] : enabled[0]
     if (target) focusStop(target)
     else root.focus()
@@ -179,6 +185,9 @@ type ItemBase = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type' | 'role' | 
   hint?: ReactNode
   // A second line under the label.
   description?: ReactNode
+  // Why the item is off, with `disabled`: a line under the label that stays at full strength (only the label and icon
+  // fade), and ↑ ↓ still reach the item (aria-disabled, never activated), so the keyboard and screen readers get the reason.
+  reason?: ReactNode
   // Under a group label, such as the chats listed under Send.
   indent?: boolean
   // Keep the menu open after this item (zoom steps). Default: close, except inside a MenuControlRow.
@@ -188,10 +197,12 @@ type ItemBase = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type' | 'role' | 
 
 type ItemRole = 'menuitem' | 'menuitemcheckbox' | 'menuitemradio'
 
-function Item({ role, checked, onActivate, closeOnSelect, icon, hint, description, indent, className, children, ref, ...rest }: ItemBase & { role: ItemRole; checked?: boolean; onActivate?: () => void }) {
+function Item({ role, checked, onActivate, closeOnSelect, icon, hint, description, reason, indent, disabled, className, children, ref, ...rest }: ItemBase & { role: ItemRole; checked?: boolean; onActivate?: () => void }) {
   const menu = useMenu(role === 'menuitem' ? 'MenuItem' : role === 'menuitemradio' ? 'MenuRadioItem' : 'MenuCheckboxItem')
   const inRow = useContext(RowContext)
   const closes = closeOnSelect ?? !inRow
+  // Off with a reason: focusable (aria-disabled) so the reason can be reached, but it does nothing.
+  const explained = Boolean(disabled) && reason !== undefined && reason !== null && reason !== false
   return (
     <button
       {...rest}
@@ -200,9 +211,13 @@ function Item({ role, checked, onActivate, closeOnSelect, icon, hint, descriptio
       role={role}
       aria-checked={checked}
       tabIndex={-1}
+      disabled={explained ? undefined : disabled}
+      aria-disabled={explained ? true : rest['aria-disabled']}
+      data-reason={explained ? '' : undefined}
       className={join('ui-menu__item', className)}
       data-indent={indent || undefined}
       onClick={() => {
+        if (explained) return
         // Close first: focus goes back to the trigger, and then the action may move it elsewhere (open a dialog).
         if (closes) menu.close('select')
         onActivate?.()
@@ -216,6 +231,7 @@ function Item({ role, checked, onActivate, closeOnSelect, icon, hint, descriptio
       <span className="ui-menu__text">
         <span className="ui-menu__label">{children}</span>
         {description && <span className="ui-menu__desc">{description}</span>}
+        {explained && <span className="ui-menu__desc ui-menu__reason">{reason}</span>}
       </span>
       {hint && <span className="ui-menu__hint">{hint}</span>}
       {checked && <Check className="ui-menu__check" size={14} aria-hidden="true" />}

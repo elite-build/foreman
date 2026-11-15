@@ -22,6 +22,7 @@ import { RepoIconView } from './Sidebar'
 import { IntegrationsMenu, useWorkspaceTools } from './WorkspaceIntegrations'
 import { FlowPicker, useRunnableFlows } from './automations/FlowStartFields'
 import type { WorkspaceIntegrations } from '../../../shared/integrations'
+import { workspaceRepos } from '../../../shared/organizations'
 import { RunsOnField, useCloudReadiness, type RunsOnLocation } from './cloud/RunsOn'
 import { providerLabel, providerRegion, repoCloud, type CloudProviderId } from '../../../shared/cloud'
 import type { CloudProviderView } from '../../../shared/types'
@@ -451,7 +452,10 @@ type StartWith = 'message' | 'template' | 'flow' | 'link'
 
 export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initialTemplateId }: { repoId: string; initialPrompt?: string; initialTemplateId?: string }) {
   const t = useT()
-  const repos = useStore((s) => s.snapshot!.repos)
+  const allRepos = useStore((s) => s.snapshot!.repos)
+  const organizations = useStore((s) => s.snapshot!.organizations)
+  // An organization's memory repository never has workspaces (docs/ai-employees.md §4), so it isn't a choice here.
+  const repos = useMemo(() => workspaceRepos(allRepos, organizations), [allRepos, organizations])
   const repoSettings = useStore((s) => s.snapshot!.repoSettings)
   const settings = useStore((s) => s.snapshot!.settings)
   const home = useStore((s) => s.snapshot!.homeDir)

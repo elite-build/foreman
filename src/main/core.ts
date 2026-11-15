@@ -135,6 +135,7 @@ import { EmployeeTriggerService } from './employeeTriggers'
 import { EmployeeEventService } from './employeeEvents'
 import { EmployeeTools } from './employeeTools'
 import { EmployeeActionService, type BranchPreview } from './employeeActions'
+import { remoteWhere } from '../shared/employeeActions'
 import { reviewThreadsMarkdown } from './reviews'
 import { ClaudeMirror } from './claudeMirror'
 import { wsPath } from '../shared/workspacePath'
@@ -2421,7 +2422,7 @@ export class Core {
    * §9): its id and name, or why it can't be used. A chosen connection that is missing or broken refuses; it is never
    * replaced by another account. With none chosen, Foreman's usual default (gh's active account) is named as such.
    */
-  private async employeeScmConnection(repoId: string): Promise<{ connectionId?: string; name: string } | { refused: string }> {
+  private async employeeScmConnection(repoId: string): Promise<{ connectionId?: string; name: string; login?: string } | { refused: string }> {
     // The id names the account itself (a gh login, or a fingerprint of the token), so a switched gh login or a replaced
     // token is another account at send time, not the one a person approved.
     const tokenId = (token: string) => createHash('sha256').update(token).digest('hex').slice(0, 12)
@@ -2438,10 +2439,10 @@ export class Core {
     if (identity && 'blocked' in identity) return { refused: identity.blocked }
     if (identity && 'off' in identity) return { refused: identity.off }
     const account = identity ? tokenId(identity.token) : key
-    if (r.state === 'ready') return account ? { connectionId: `${r.connection.id}:${account}`, name: r.connection.name } : { refused: this.integrations.brokenText(repoId, 'github') }
+    if (r.state === 'ready') return account ? { connectionId: `${r.connection.id}:${account}`, name: r.connection.name, ...(r.connection.identity?.user ? { login: r.connection.identity.user } : {}) } : { refused: this.integrations.brokenText(repoId, 'github') }
     if (r.state === 'env') return account ? { connectionId: `env:${repoId}:${account}`, name: 'the repository’s GitHub token' } : { refused: 'The repository’s GitHub token is missing.' }
     const login = await ghActiveAccountAsync(true)
-    return login ? { connectionId: `gh:${login}`, name: `gh’s active account (${login})` } : { refused: 'gh isn’t signed in to GitHub, so there is no account to send this as.' }
+    return login ? { connectionId: `gh:${login}`, name: `gh’s active account (${login})`, login } : { refused: 'gh isn’t signed in to GitHub, so there is no account to send this as.' }
   }
 
   /** At send time: the repository's connection must still be the one the action was recorded for (never another account). */
@@ -2477,7 +2478,19 @@ export class Core {
     const stat = await gitOut(at, ['diff', '--shortstat', `${baseRef}...HEAD`]).catch(() => '')
     const num = (re: RegExp) => Number(re.exec(stat)?.[1] ?? 0)
     const diffStat = stat ? { files: num(/(\d+) files? changed/), insertions: num(/(\d+) insertions?/), deletions: num(/(\d+) deletions?/) } : undefined
-    return { branch: ws.branch, base, head, ahead, commits, ...(diffStat ? { diffStat } : {}) }
+    // The files it changes, and where it would go: shown with the push before anyone sends it (docs/ai-employees.md §9).
+    const numstat = await gitOut(at, ['diff', '--numstat', `${baseRef}...HEAD`]).catch(() => '')
+    const files = numstat
+      .split('\n')
+      .filter(Boolean)
+      .slice(0, 20)
+      .map((line) => {
+        const [added, removed, ...path] = line.split('\t')
+        return { path: path.join('\t'), insertions: Number(added) || 0, deletions: Number(removed) || 0 }
+      })
+    const remote = repo.remote || 'origin'
+    const remoteUrl = remoteWhere(await gitOut(at, ['remote', 'get-url', remote]).catch(() => ''))
+    return { branch: ws.branch, base, head, ahead, commits, ...(diffStat ? { diffStat } : {}), ...(files.length ? { files } : {}), remote, ...(remoteUrl ? { remoteUrl } : {}) }
   }
 
   private async diffStatText(workspaceId: string): Promise<string> {

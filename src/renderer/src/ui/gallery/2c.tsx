@@ -190,6 +190,9 @@ function MenusDemo() {
           <MenuItem disabled title="Nothing is selected">
             Copy (disabled)
           </MenuItem>
+          <MenuItem disabled reason="Another tab is still working">
+            Compare (disabled, with its reason)
+          </MenuItem>
           <MenuCheckboxItem checked={wrap} onCheckedChange={setWrap}>
             Wrap lines
           </MenuCheckboxItem>

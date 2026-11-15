@@ -2,7 +2,7 @@
 // A chat that is not on screen (its workspace switched away from, another tab in front) stays mounted but stops working:
 // no renders on store events, no live timer, and its scroll position back where it was when it is shown again.
 import './domShims'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatView } from '../src/renderer/src/components/ChatView'
@@ -143,7 +143,10 @@ describe('a hidden chat', () => {
     fakeState.approvals = [{ kind: 'question', id: 'q1', sessionId: 's1', questions: [{ question: 'Which file?', options: [] }] }]
     notify()
     rerender(<ChatView session={session()} workspace={workspace()} active />)
-    expect(container.querySelector('.approval-panel')).not.toBeNull()
+    // Docked above the message box, which stays: the card doesn't take its place, or the focus.
+    expect(container.querySelector('.decision-dock .approval-panel')).not.toBeNull()
+    expect(container.querySelector('.decision-dock')!.compareDocumentPosition(screen.getByRole('button', { name: 'composer' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(container.contains(document.activeElement)).toBe(false)
   })
 })
 

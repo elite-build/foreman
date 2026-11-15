@@ -187,7 +187,8 @@ describe('Flows on Automations', () => {
     const runs = await screen.findByRole('list', { name: 'Runs of Fix until green' })
     expect(within(runs).getByText('Stopped')).toBeTruthy()
     expect(within(runs).getByText('Stopped by you.')).toBeTruthy()
-    expect(within(runs).getByRole('button', { name: 'lisbon' })).toBeTruthy()
+    // A link to the workspace looks like one: blue and underlined (LinkButton underline), not plain text.
+    expect(within(runs).getByRole('button', { name: 'lisbon' }).classList.contains('ui-link-btn--underline')).toBe(true)
   })
 })
 
@@ -215,6 +216,6 @@ describe('every flow’s runs', () => {
     expect(within(rows[1]).getByText('Stopped by you.')).toBeTruthy()
     expect(within(rows[1]).getByText('$0.75')).toBeTruthy()
     expect(within(rows[1]).getByText('took 12m 00s')).toBeTruthy()
-    expect(within(rows[1]).getByRole('button', { name: 'lisbon' })).toBeTruthy()
+    expect(within(rows[1]).getByRole('button', { name: 'lisbon' }).classList.contains('ui-link-btn--underline')).toBe(true)
   })
 })

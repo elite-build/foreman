@@ -9,7 +9,7 @@ import { formatRun, isProposedSchedule, nextRuns, scheduleName } from '../../../
 import type { Occurrence, PromptTemplate, Schedule } from '../../../../shared/types'
 import { t as tNow, useT } from '../../i18n'
 import { api, attempt, getState, openEmployees, openNewWorkspace, openScheduleDialog, recordMilestone, selectAutomation, selectWorkspace, showToast, timeAgo, useStore } from '../../store'
-import { liveRepo } from '../../triage'
+import { newWorkspaceTarget } from '../../../../shared/organizations'
 import { ActionRow, Button, Callout, Card, HardHat, IconButton, LinkButton, MenuButton, MenuItem, Status, type HardHatColour, type StatusTone } from '../../ui'
 import { triggerAsks, triggerStatus, triggerWhen } from '../employees/words'
 import { cadenceText } from '../ScheduleDialogs'
@@ -44,7 +44,7 @@ export const runStatusTone = (o: Occurrence): StatusTone => TONE_OF[runTone(o)]
 /** "Run now": a New workspace dialog with the template filled in, in the repo in view. */
 export function runTemplate(t: PromptTemplate): void {
   const s = getState()
-  const repoId = t.repoId ?? liveRepo(s.snapshot!, s.sidebarView.repo) ?? s.snapshot!.repos[0]?.id
+  const repoId = t.repoId ?? newWorkspaceTarget(s.snapshot!, { space: s.space, picked: s.sidebarView.repo, selectedWorkspaceId: null })
   if (!repoId) return showToast(tNow('automations.addRepoFirst'))
   // Get started: Run now counts as trying Automations.
   recordMilestone('automation')

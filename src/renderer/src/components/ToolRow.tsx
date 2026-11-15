@@ -6,7 +6,9 @@ import {
   FilePen,
   FilePlus,
   FileText,
+  Flag,
   FolderSearch,
+  GitPullRequest,
   Globe,
   ListTodo,
   MessageCircleQuestion,
@@ -15,11 +17,12 @@ import {
   Search,
   Square,
   SquareTerminal,
+  Upload,
   Wrench,
   type LucideIcon
 } from 'lucide-react'
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { TFunction } from '../../../shared/i18n'
+import type { PlainKey, TFunction } from '../../../shared/i18n'
 import { toolSummary as sharedToolSummary } from '../../../shared/toolSummary'
 import type { ChatItem, TaskProgress } from '../../../shared/types'
 import { relativeToRoots } from '../../../shared/portable'
@@ -44,6 +47,27 @@ function countLines(text: unknown): number {
   return s ? s.replace(/\n$/, '').split('\n').length : 0
 }
 
+// Notes a search tool adds to its results: Claude Code's Glob and Grep paging and truncation, and Foreman's own cut.
+const SEARCH_NOTES = [/^\(Results are truncated\b/i, /^\[Showing results with pagination\b/i, /^… \(truncated\)$/]
+
+/**
+ * What a Grep or Glob found, from its output. Claude Code says "No matches found" or "No files found" for nothing, heads
+ * a file list with "Found 3 files" and ends a count with "Found 12 total occurrences across 3 files."; other agents
+ * (Cursor, ACP) give one line per match or file.
+ */
+function searchCount(output: unknown): number {
+  const lines = String(output ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !SEARCH_NOTES.some((note) => note.test(line)))
+  if (!lines.length || (lines.length === 1 && /^No (?:matches|files) found\.?$/i.test(lines[0]))) return 0
+  const total = /^Found (\d+) total occurrences?\b/i.exec(lines[lines.length - 1])
+  if (total) return Number(total[1])
+  const files = /^Found (\d+) files?$/i.exec(lines[0])
+  if (files) return Number(files[1])
+  return lines.length
+}
+
 /** Lines added and removed by replacing `before` with `after`, ignoring shared leading and trailing lines. */
 function changedLines(before: unknown, after: unknown): { added: number; removed: number } {
   const a = String(before ?? '').split('\n')
@@ -57,7 +81,61 @@ function changedLines(before: unknown, after: unknown): { added: number; removed
 
 /** One-line description of what a tool call does (also used by approval cards). */
 
-const BRIDGE_LABELS: Record<string, string> = { 'foreman-linear': 'Linear', 'foreman-github': 'GitHub', 'foreman-slack': 'Slack' }
+const BRIDGE_LABELS: Record<string, string> = { 'foreman-linear': 'Linear', 'foreman-github': 'GitHub', 'foreman-slack': 'Slack', 'foreman-app': 'Foreman' }
+
+// Foreman's own tools an AI employee's run ends its task or acts outward with (shared/employeeTools.ts), by plain name:
+// "Open a pull request", not "request_pull_request foreman-app". `code` is the input field the row shows after it.
+const APP_TOOL = 'mcp__foreman-app__'
+const APP_TOOLS: Record<string, { label: PlainKey; code?: string; icon: LucideIcon }> = {
+  ask_person: { label: 'toolRow.app.askPerson', code: 'question', icon: MessageCircleQuestion },
+  request_push: { label: 'toolRow.app.requestPush', code: 'commit_message', icon: Upload },
+  request_pull_request: { label: 'toolRow.app.requestPullRequest', code: 'title', icon: GitPullRequest },
+  finish_task: { label: 'toolRow.app.finishTask', code: 'summary', icon: Flag },
+  report_no_update: { label: 'toolRow.app.reportNoUpdate', icon: Flag },
+  escalate: { label: 'toolRow.app.escalate', code: 'reason', icon: Flag }
+}
+
+/** The exit code of a finished command: the one the agent reported, else the output's "Exit code N" (Claude Code, Cursor). */
+export function exitCodeOf(item: ToolItem): number | undefined {
+  if (item.exitCode !== undefined) return item.exitCode
+  if (item.name !== 'Bash' || item.status === 'running' || !item.output) return undefined
+  const match = /^(?:Error: )?Exit code (\d+)\b/.exec(item.output) ?? /\nExit code (\d+)\s*$/.exec(item.output)
+  return match ? Number(match[1]) : undefined
+}
+
+/**
+ * How a finished call ended, in a word beside its row, so the result is never only a red icon: a command passed or failed
+ * (with its exit code when known), any other call failed, or an employee's run asked the person or had an outward action
+ * held for them. Null when the row has nothing to add (a read or an edit that worked, a subagent whose task says it).
+ */
+const HELD = /^Held for (?:the|a) person\b|^Already recorded as action \S+ in this run: it is held\b/i
+export type ToolResult = { tone: 'ok' | 'warn' | 'error'; word: 'passed' | 'failed' | 'held' | 'asked'; exit?: number }
+export function toolResult(item: ToolItem): ToolResult | null {
+  if (item.status === 'running' || item.task) return null
+  const output = (item.output ?? '').trimStart()
+  if (item.status === 'done') {
+    if (item.name === `${APP_TOOL}ask_person` || (item.name === `${APP_TOOL}escalate` && output.startsWith('Escalated to the person'))) return { tone: 'warn', word: 'asked' }
+    // The broker's words for an action held for approval (shared/employeeActions.ts heldText, and the state words of one
+    // recorded before): a push, a pull request, a post.
+    if (HELD.test(output)) return { tone: 'warn', word: 'held' }
+  }
+  const exit = exitCodeOf(item)
+  if (item.status === 'error') return { tone: 'error', word: 'failed', ...(exit !== undefined ? { exit } : {}) }
+  if (item.name === 'Bash') return exit !== undefined && exit !== 0 ? { tone: 'error', word: 'failed', exit } : { tone: 'ok', word: 'passed', ...(exit !== undefined ? { exit } : {}) }
+  return null
+}
+
+const RESULT_WORD = { passed: 'toolRow.result.passed', failed: 'toolRow.result.failed', held: 'toolRow.result.held', asked: 'toolRow.result.asked' } as const satisfies Record<ToolResult['word'], PlainKey>
+
+/** "● Passed · exit 0", "◆ Failed", "▲ Held for you": a shape and a word, never a colour alone. */
+export function ResultWord({ result, className }: { result: ToolResult; className?: string }) {
+  const t = useT()
+  return (
+    <Status className={className ? `tool-result ${className}` : 'tool-result'} tone={result.tone} label={t(RESULT_WORD[result.word])}>
+      {result.exit !== undefined && <span className="tool-exit"> · {t('toolRow.result.exit', { code: String(result.exit) })}</span>}
+    </Status>
+  )
+}
 /** One line that says what a tool call does; the pure version lives in shared/toolSummary.ts so the narrator and the CLI say the same thing. */
 export function toolSummary(name: string, input: unknown, root: Root, t: TFunction = storeT): string {
   return sharedToolSummary(name, input, root, t)
@@ -106,11 +184,11 @@ export function describe(item: ToolItem, root: Root, t: TFunction = storeT): Des
     case 'Bash':
       return { icon: SquareTerminal, label: String(i.description ?? t('toolRow.runCommand')), code: String(i.command ?? '') }
     case 'Grep': {
-      const matches = done ? String(item.output ?? '').split('\n').filter(Boolean).length : 0
+      const matches = done ? searchCount(item.output) : 0
       return { icon: Search, label: t('toolRow.grep', { pattern: String(i.pattern ?? '') }), meta: done ? t('toolRow.matches', { count: matches }) : undefined }
     }
     case 'Glob': {
-      const files = done ? String(item.output ?? '').split('\n').filter(Boolean).length : 0
+      const files = done ? searchCount(item.output) : 0
       return { icon: FolderSearch, label: 'Glob', code: String(i.pattern ?? ''), meta: done ? t('toolRow.files', { count: files }) : undefined }
     }
     case 'WebFetch':
@@ -133,6 +211,11 @@ export function describe(item: ToolItem, root: Root, t: TFunction = storeT): Des
       return { icon: MessageCircleQuestion, label: t('toolRow.asked', { count }) }
     }
     default: {
+      const app = item.name.startsWith(APP_TOOL) ? APP_TOOLS[item.name.slice(APP_TOOL.length)] : undefined
+      if (app) {
+        const code = app.code && typeof i[app.code] === 'string' ? firstLine(i[app.code] as string) : ''
+        return { icon: app.icon, label: t(app.label), ...(code ? { code } : {}) }
+      }
       const mcp = /^mcp__(.+?)__(.+)$/.exec(item.name)
       // Integrations' bridge servers name their service ("foreman-linear" → Linear).
       if (mcp) return { icon: Plug, label: mcp[2], meta: BRIDGE_LABELS[mcp[1]] ?? mcp[1] }
@@ -163,7 +246,8 @@ function Todos({ input }: { input: unknown }) {
   )
 }
 
-function EditPreview({ input }: { input: Input }) {
+/** An edit as removed and added lines: the tool row's body, and the change an approval asks for. */
+export function EditPreview({ input }: { input: Input }) {
   const edits = (input.edits as Input[] | undefined) ?? [input]
   return (
     <div className="edit-preview">
@@ -457,6 +541,7 @@ export const ToolRow = memo(function ToolRow({
   const name = subagent ? subagentName(item.input, t('toolRow.subagent')) : ''
   const stoppable = subagent && task?.status === 'running' && onStopChild !== undefined
   const asking = subagent && item.childId !== undefined && waiting?.has(item.childId) === true
+  const result = toolResult(item)
   const summaryRow = (
     <Pressable className="tool-row" aria-expanded={open} onClick={toggle}>
       {icon}
@@ -465,6 +550,7 @@ export const ToolRow = memo(function ToolRow({
       {d.code && <code className="tool-code">{d.code}</code>}
       {d.meta && <span className="tool-meta">{d.meta}</span>}
       {task && <TaskMeta task={task} />}
+      {result && <ResultWord result={result} />}
     </Pressable>
   )
   return (
@@ -476,10 +562,12 @@ export const ToolRow = memo(function ToolRow({
             {icon}
             <span className="tool-label">{d.label}</span>
             {d.meta && <span className="sr-only">{d.meta}</span>}
+            {result && <span className="sr-only">{t(RESULT_WORD[result.word])}</span>}
           </Pressable>
           <OpenFileChip path={path} label={d.file!} access={files} />
           <Pressable className="tool-row tool-row-rest" aria-hidden="true" tabIndex={-1} onClick={toggle}>
             {d.meta && <span className="tool-meta">{d.meta}</span>}
+            {result && <ResultWord result={result} />}
           </Pressable>
         </div>
       ) : stoppable || asking ? (

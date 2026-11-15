@@ -1,16 +1,17 @@
 // A flow drawn as a graph (docs/loops-and-graphs.md, "Showing a graph"): flowGraph → layoutFlowGraph (where each node
 // goes) → the design system's Graph, at a size people can read, with zoom, fit and full screen. A step's kind, who runs
 // it and its state are on its card; a run's path is drawn strong and what it didn't reach faint; a loop going round is
-// dashed and named by a note with its bounds; an inferred link (lineage) is dotted; a proposal's parts carry their mark
-// in words. Selecting is optional: the outline beside it stays the accessible equivalent and what opens things.
+// dashed, and named with its bounds by a Tag in the bar above the drawing, beside the zoom, so nothing covers the graph;
+// an inferred link (lineage) is dotted; a proposal's parts carry their mark in words. Selecting is optional: the outline
+// beside it stays the accessible equivalent and what opens things.
 import { Bot, Clock, Database, Eye, FileText, FolderGit2, GitBranch, GitPullRequest, ListChecks, Repeat, Shuffle, Split, SquareTerminal, UserCheck, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { FLOW_STATE_GLYPH, flowGraph, type FlowGraph, type FlowGraphNode, type FlowLens, type FlowNodeState } from '../../../shared/flowGraph'
+import { FLOW_STATE_GLYPH, flowGraph, modelWords, type FlowGraph, type FlowGraphNode, type FlowLens, type FlowNodeState } from '../../../shared/flowGraph'
 import { layoutFlowGraph, type FlowLayoutDirection } from '../../../shared/flowLayout'
 import type { Flow, FlowRun, FlowStepKind } from '../../../shared/flows'
 import type { PlainKey } from '../../../shared/i18n'
 import { useT, type RendererT } from '../i18n'
-import { Dialog, Graph, type GraphEdge, type GraphLabels, type GraphMark, type GraphNode, type GraphNote, type GraphShape, type GraphTone } from '../ui'
+import { Dialog, Graph, Tag, type GraphEdge, type GraphLabels, type GraphMark, type GraphNode, type GraphShape, type GraphTone, type TagTone } from '../ui'
 import { STEP_KIND } from './automations/flowRunWords'
 import './flowRun.css'
 
@@ -28,6 +29,8 @@ const STATE_WORD: Record<FlowNodeState, PlainKey> = {
   'not-yet': 'flowGraph.state.notYet'
 }
 const MARK_WORD: Record<GraphMark, PlainKey> = { added: 'flowGraph.mark.added', changed: 'flowGraph.mark.changed', removed: 'flowGraph.mark.removed' }
+// A loop's Tag in a proposal: the tone's glyph and colour, with the mark's words in the tag.
+const MARK_TONE: Record<GraphMark, TagTone> = { added: 'ok', changed: 'warn', removed: 'error' }
 
 const STATE_GLYPHS = Object.values(FLOW_STATE_GLYPH)
 
@@ -35,17 +38,46 @@ const shapeOf = (n: FlowGraphNode): GraphShape => (n.kind === 'end' ? 'pill' : n
 
 /**
  * The line under a node's name: what the lens adds (a context window, a tree) where there is one, else who runs the
- * step. flowGraph's sublabel lines are "· kind · persona · model", then the state, then the lens's line.
+ * step. flowGraph's sublabel lines are "· kind · persona · model", then the state, then the lens's line. Top to bottom
+ * (a side panel, at 100%) the model is left out so the person fits: the step's card and the Run a flow page say it.
  */
-function detailOf(n: FlowGraphNode, lens: FlowLens): string | undefined {
+function detailOf(n: FlowGraphNode, lens: FlowLens, direction: FlowLayoutDirection): string | undefined {
   const lines = (n.sublabel ?? '').split('\n').filter(Boolean)
   if (n.kind !== 'step') return lines[0]
   const who = lines.find((l) => l.startsWith('· '))
   const added = lines.filter((l) => !l.startsWith('· ') && !STATE_GLYPHS.some((g) => l.startsWith(g)))
   if ((lens === 'context' || lens === 'data') && added.length) return added.at(-1)
   if (!who) return added[0]
-  const parts = who.slice(2).split(' · ')
-  return (n.stepKind && parts[0] === n.stepKind ? parts.slice(1) : parts).join(' · ') || undefined
+  let parts = who.slice(2).split(' · ')
+  if (n.stepKind && parts[0] === n.stepKind) parts = parts.slice(1)
+  if (direction === 'tall' && n.model && parts.length > 1 && parts.at(-1) === modelWords(n.model)) parts = parts.slice(0, -1)
+  return parts.join(' · ') || undefined
+}
+
+/** A loop as the bar above the graph names it: its name, its bounds and how far a run got, and a proposal's mark. */
+interface FlowGraphLoopTag {
+  name: string
+  text: string
+  mark?: GraphMark
+  markLabel?: string
+}
+
+/** The loops, as Tags at the start of the graph's bar (outside the drawing, so the zoom never covers one). */
+function LoopTags({ loops }: { loops: FlowGraphLoopTag[] }) {
+  const t = useT()
+  if (!loops.length) return null
+  return (
+    <ul className="flow-graph-loops" aria-label={t('flowGraph.loops')}>
+      {loops.map((loop) => (
+        <li key={loop.name}>
+          <Tag mono tone={loop.mark ? MARK_TONE[loop.mark] : 'neutral'}>
+            <Repeat size={11} aria-hidden />
+            {loop.markLabel ? `${loop.text} · ${loop.markLabel}` : loop.text}
+          </Tag>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 export interface FlowGraphViewProps {
@@ -64,13 +96,16 @@ export interface FlowGraphViewProps {
   // The toolbar's full-screen button: by default it opens the graph in a dialog; a function does that instead (the Flow
   // tab puts its run in the workspace's middle), and null leaves the button out (the run already is in the middle).
   fullScreen?: (() => void) | null
+  // The canvas as tall as the graph, so the page around it scrolls rather than the graph (the Flow tab).
+  grow?: boolean
   className?: string
 }
 
 /** The Graph's props for a flow graph: nodes and edges placed by the layout, worded for this locale. */
 export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirection, start: string | undefined, t: RendererT, details?: Record<string, string>) {
   return useMemo(() => {
-    const layout = layoutFlowGraph(graph, { direction, ...(start ? { start } : {}) })
+    // Without its loops the layout places no notes in the drawing: they are Tags in the bar above it.
+    const layout = layoutFlowGraph({ ...graph, loops: [] }, { direction, ...(start ? { start } : {}) })
     const byId = new Map(graph.nodes.map((n) => [n.id, n]))
     const nodes: GraphNode[] = layout.nodes.map((box) => {
       const n = byId.get(box.of)!
@@ -94,7 +129,7 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
               )
             }
           : {}),
-        ...((details?.[n.id] ?? detailOf(n, graph.lens)) ? { detail: details?.[n.id] ?? detailOf(n, graph.lens) } : {}),
+        ...((details?.[n.id] ?? detailOf(n, graph.lens, direction)) ? { detail: details?.[n.id] ?? detailOf(n, graph.lens, direction) } : {}),
         ...(tone && n.state ? { tone, toneLabel: t(STATE_WORD[n.state]) } : {}),
         ...(n.state === 'not-yet' ? { dim: true } : {}),
         ...(n.runs && n.runs > 1 ? { badge: `×${n.runs}` } : {}),
@@ -113,21 +148,12 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
         ...(e.mark ? { mark: e.mark, markLabel: t(MARK_WORD[e.mark]) } : {})
       }
     })
-    const notes: GraphNote[] = layout.notes.map((ln) => {
-      const loop = graph.loops.find((l) => l.name === ln.loop)!
-      const detail = loop.title.startsWith(`${loop.name} · `) ? loop.title.slice(loop.name.length + 3) : undefined
-      return {
-        id: `loop:${loop.name}`,
-        x: ln.x,
-        y: ln.y,
-        width: ln.width,
-        title: loop.name,
-        icon: <Repeat size={12} />,
-        ...(detail ? { detail } : {}),
-        ...(loop.mark ? { mark: loop.mark, markLabel: t(MARK_WORD[loop.mark]) } : {})
-      }
-    })
-    return { width: layout.width, height: layout.height, nodes, edges, notes }
+    // The loops that span a drawn step, as the bar names them: "fix-until-green · iteration 2 of at most 4 · 9 of 45 min".
+    const drawn = new Set(nodes.map((n) => n.id))
+    const loops: FlowGraphLoopTag[] = graph.loops
+      .filter((loop) => loop.over.some((s) => drawn.has(`step:${s}`)))
+      .map((loop) => ({ name: loop.name, text: loop.title, ...(loop.mark ? { mark: loop.mark, markLabel: t(MARK_WORD[loop.mark]) } : {}) }))
+    return { width: layout.width, height: layout.height, nodes, edges, loops }
   }, [graph, direction, start, t, details])
 }
 
@@ -140,52 +166,40 @@ export function useGraphLabels(): GraphLabels {
   }, [t])
 }
 
-// The smallest zoom a graph starts fitted at: below it the words get too small to read, so it starts at 100% and scrolls.
-const FIT_AT_LEAST = 0.7
-
-/** A flow graph as the design system's Graph, with a full-screen view that opens in a dialog unless `fullScreen` says. */
-export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, selectableEdges, thumbnail, details, fullScreen, className }: FlowGraphViewProps) {
+/**
+ * A flow graph as the design system's Graph, with its loops and the zoom in a bar above the drawing, and a full-screen
+ * view that opens in a dialog unless `fullScreen` says.
+ */
+export function FlowGraphView({ graph, direction = 'wide', start, selected, onSelect, selectableEdges, thumbnail, details, fullScreen, grow, className }: FlowGraphViewProps) {
   const t = useT()
-  const props = useFlowGraphProps(graph, direction, start, t, details)
+  const { loops, ...props } = useFlowGraphProps(graph, direction, start, t, details)
   const labels = useGraphLabels()
   const [full, setFull] = useState(false)
-  // The zoom follows the width while that keeps the words readable, else 100% and it scrolls; once the toolbar (or
-  // Ctrl + wheel) sets a zoom, that holds. The width is the graph's own, watched, so a panel opening beside it counts.
+  // It opens at 100%, the smallest zoom whose words are still 11px, and scrolls; it never shrinks to fit (the words would
+  // go to 7-8px). Once the toolbar (or Ctrl + wheel) sets a zoom, that holds, so an inspector opening beside it, or a
+  // step being selected, doesn't change it: Graph keeps the selected step in view instead.
   const [chosen, setChosen] = useState<number | 'fit' | null>(null)
-  const [box, setBox] = useState<HTMLDivElement | null>(null)
-  const [width, setWidth] = useState(0)
-  useEffect(() => {
-    if (!box || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
-    observer.observe(box)
-    return () => observer.disconnect()
-  }, [box])
-  // The selected step stays in view when the graph narrows (an inspector opening beside it) or the selection moves.
-  useEffect(() => {
-    if (!box || !selected) return
-    box.querySelector('[aria-pressed="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
-  }, [box, selected, width])
-  const fitsReadably = width <= 0 || props.width <= 0 || (width - 40) / props.width >= FIT_AT_LEAST
-  const zoom = chosen ?? (fitsReadably ? 'fit' : 1)
+  const zoom = chosen ?? 1
   if (thumbnail) return <Graph {...props} label={graph.title} thumbnail className={className} />
+  const loopTags = loops.length ? <LoopTags loops={loops} /> : undefined
   return (
     <>
       <Graph
         {...props}
-        ref={setBox}
         label={graph.title}
         labels={labels}
         zoom={zoom}
         onZoomChange={setChosen}
         onFullScreen={fullScreen === null ? undefined : (fullScreen ?? (() => setFull(true)))}
+        bar={{ start: loopTags, grow }}
         selected={selected}
         onSelect={onSelect}
         selectableEdges={selectableEdges}
-        className={['flow-graph', className].filter(Boolean).join(' ')}
+        className={['flow-graph', grow && 'flow-graph-grow', className].filter(Boolean).join(' ')}
       />
       {full && (
         <Dialog title={graph.title} onClose={() => setFull(false)} size="xl" closeOnBackdrop>
-          <Graph {...props} label={graph.title} labels={labels} selected={selected} onSelect={onSelect} selectableEdges={selectableEdges} className="flow-graph-full" />
+          <Graph {...props} label={graph.title} labels={labels} bar={{ start: loopTags }} selected={selected} onSelect={onSelect} selectableEdges={selectableEdges} className="flow-graph-full" />
         </Dialog>
       )}
     </>
@@ -207,6 +221,7 @@ export function FlowLensDiagram({
   thumbnail,
   details,
   fullScreen,
+  grow,
   className
 }: {
   flow?: Flow
@@ -219,12 +234,13 @@ export function FlowLensDiagram({
   thumbnail?: boolean
   details?: Record<string, string>
   fullScreen?: (() => void) | null
+  grow?: boolean
   className?: string
 }) {
   const t = useT()
   const graph = useMemo(() => flowGraph(flow, run, lens, { t, locale: t.locale, workspaceNames }), [flow, run, lens, t, workspaceNames])
   const start = flow?.start ? `step:${flow.start}` : run?.steps[0] ? `step:${run.steps[0].name}` : undefined
-  return <FlowGraphView graph={graph} direction={direction === 'TB' ? 'tall' : 'wide'} start={start} selected={selected} onSelect={onSelect} thumbnail={thumbnail} details={details} fullScreen={fullScreen} className={className} />
+  return <FlowGraphView graph={graph} direction={direction === 'TB' ? 'tall' : 'wide'} start={start} selected={selected} onSelect={onSelect} thumbnail={thumbnail} details={details} fullScreen={fullScreen} grow={grow} className={className} />
 }
 
 /** `value`, once it has stayed the same for `ms` (a flow being typed is drawn when the typing pauses). */

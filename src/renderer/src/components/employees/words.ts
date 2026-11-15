@@ -1,9 +1,9 @@
 // The words the employees views share (docs/ai-employees.md §5, §10): an employee's state as a Status, its model as
 // text, its hat colour's name, and what its access means in sentences. Text only; the views lay it out.
 import { catalogAgent } from '../../../../shared/agentCatalog'
-import { modelInfo, type AgentKind } from '../../../../shared/agents'
+import { effortLabel, modelInfo, type AgentKind } from '../../../../shared/agents'
+import { fileName, needsYouItems, type DefinitionChange, type DefinitionField, type PlanGroups, type PlanLine } from '../../../../shared/employeeDecisions'
 import {
-  employeeMemoryFolder,
   employeeStatus,
   type EmployeeSummary,
   type EmployeeActionPolicy,
@@ -12,7 +12,8 @@ import {
   type EmployeeStatus,
   type PersonalityTrait
 } from '../../../../shared/employees'
-import type { EmployeeActivity, EmployeeClosureReason, EmployeeRunState, EmployeeTask } from '../../../../shared/employeeWork'
+import { ACTION_NEEDS_PERSON, type EmployeeActionPayload, type EmployeeActionState } from '../../../../shared/employeeActions'
+import { needsPerson, type EmployeeActivity, type EmployeeClosureReason, type EmployeeRunState, type EmployeeTask, type EmployeeWorkView } from '../../../../shared/employeeWork'
 import { parseCron } from '../../../../shared/cron'
 import {
   intervalMinutes,
@@ -35,7 +36,9 @@ import type { RendererT } from '../../i18n'
 import type { StatusTone } from '../../ui'
 import { cadenceText } from '../ScheduleDialogs'
 
-export const STATUS_TONE: Record<EmployeeStatus, StatusTone> = { invalid: 'error', retired: 'off', changed: 'warn', paused: 'warn', draft: 'info', idle: 'off' }
+// A draft doesn't run (it isn't approved here), so it has the hollow ○ of a state that isn't active, never Working's ■;
+// its word says which.
+export const STATUS_TONE: Record<EmployeeStatus, StatusTone> = { invalid: 'error', retired: 'off', changed: 'warn', paused: 'warn', draft: 'off', idle: 'off' }
 
 export const STATUS_LABEL: Record<EmployeeStatus, PlainKey> = {
   invalid: 'employees.status.invalid',
@@ -89,6 +92,30 @@ const ACTION_LABEL: Record<string, PlainKey> = {
 /** An outward action's name; one Foreman doesn't list reads as its key. */
 export const actionName = (action: string, t: TFunction): string => (ACTION_LABEL[action] ? t(ACTION_LABEL[action]) : action)
 
+export const ACTION_STATE_LABEL: Record<EmployeeActionState, PlainKey> = {
+  held: 'employees.heldAction.state.held',
+  approved: 'employees.heldAction.state.approved',
+  sent: 'employees.heldAction.state.sent',
+  skipped: 'employees.heldAction.state.skipped',
+  failed: 'employees.heldAction.state.failed',
+  refused: 'employees.heldAction.state.refused',
+  uncertain: 'employees.heldAction.state.uncertain'
+}
+
+/** "Slack post to #launches", "Push of feature/x": what an action is, in a few words. */
+export function actionNoun(p: EmployeeActionPayload, t: TFunction): string {
+  switch (p.kind) {
+    case 'slack-post':
+      return t('employees.actionNoun.slack', { channel: p.channelName ? `#${p.channelName}` : p.channel })
+    case 'linear':
+      return p.issue ? t('employees.actionNoun.linearIssue', { tool: p.tool, issue: p.issue }) : t('employees.actionNoun.linear', { tool: p.tool })
+    case 'push':
+      return t('employees.actionNoun.push', { branch: p.branch })
+    case 'pull-request':
+      return t('employees.actionNoun.pullRequest', { title: p.title })
+  }
+}
+
 export const MEMORY_SCOPE_LABEL: Record<string, PlainKey> = { 'org/docs': 'employees.access.memoryDocs', 'org/data': 'employees.access.memoryData' }
 
 /** "Claude Code" */
@@ -116,7 +143,8 @@ export function canDoLines(d: EmployeeDefinition, t: RendererT, names: (id: stri
   const writes = repos.filter(([, a]) => a === 'write').map(([r]) => r)
   lines.push({ section: 'repos', text: reads.length ? t('employees.can.reads', { repos: join(reads, t) }) : writes.length ? t('employees.can.readsOnlyWritten') : t('employees.can.readsNone') })
   if (writes.length) lines.push({ section: 'repos', text: t('employees.can.writes', { repos: join(writes, t) }) })
-  lines.push({ section: 'memory', text: t('employees.can.memory', { folder: `${employeeMemoryFolder(d.id)}/` }) })
+  // Its own folder by its name ("Max's notes"), never the id in its path.
+  lines.push({ section: 'memory', text: t('employees.can.memory', { folder: t('employees.employee.notesLink', { name: d.name.trim() || d.id }) }) })
   if (d.access.memory_write.length) lines.push({ section: 'memory', text: t('employees.can.memoryWrite', { folders: join(d.access.memory_write.map((s) => `memory/${s}/`), t) }) })
   lines.push({ section: 'profile', text: d.access.profile === 'shell' ? t('employees.can.shell') : t('employees.can.noShell') })
   if (d.access.mcp.length) lines.push({ section: 'profile', text: t('employees.can.mcp', { servers: join(d.access.mcp, t) }) })
@@ -246,13 +274,38 @@ export function holdText(task: Pick<EmployeeTask, 'state' | 'hold' | 'reason' | 
   return day === 'tomorrow' ? t('employees.hold.usageLimitTomorrow', { time }) : t('employees.hold.usageLimitDay', { day, time })
 }
 
+/**
+ * One task in a line: what it is on, or why it waits or is held. A question (ask_person) is said once, in the person's
+ * language around the employee's words ("Asks you: Which day does 2.4 launch?"), never beside the reason main recorded.
+ */
+function taskLine(task: EmployeeTask, t: RendererT, now: number): string {
+  if (task.state === 'running') return t('employees.activity.on', { title: task.title })
+  if (task.state === 'waiting') {
+    const question = task.question?.question.split(/\r?\n/).find((l) => l.trim())?.trim()
+    if (question) return t('employees.activity.asks', { question })
+    return task.reason ? t('employees.activity.waiting', { title: task.title, reason: task.reason }) : t('employees.activity.waitingOnly', { title: task.title })
+  }
+  const reason = holdText(task, t, now)
+  return reason ? t('employees.activity.held', { title: task.title, reason }) : t('employees.activity.heldOnly', { title: task.title })
+}
+
 /** What the employee is on or waiting for, in one line (§10, "what it's doing or waiting for"); undefined when nothing. */
 export function activityText(activity: EmployeeActivity, t: RendererT, now = Date.now()): string | undefined {
-  const task = activity.current
-  if (!task) return undefined
-  if (task.state === 'running') return t('employees.activity.on', { title: task.title })
-  if (task.state === 'waiting') return t('employees.activity.waiting', { title: task.title, reason: task.reason ?? '' })
-  return t('employees.activity.held', { title: task.title, reason: holdText(task, t, now) ?? '' })
+  return activity.current ? taskLine(activity.current, t, now) : undefined
+}
+
+/**
+ * What of the employee waits for the person, in one line (§10, Needs you, "what your answer unblocks"): a task that waits
+ * on them (its question, or why), else an outward action held for them ("Held for you: Push of max/launch-2.4"), else a
+ * memory change it proposes ("Proposes a memory change: memory/org/PROJECT.md"); undefined when nothing does.
+ */
+export function needsYouText(view: EmployeeWorkView | undefined, employeeId: string, t: RendererT, now = Date.now()): string | undefined {
+  const task = view?.tasks.find((x) => x.employeeId === employeeId && needsPerson(x))
+  if (task) return taskLine(task, t, now)
+  const action = view?.actions?.find((a) => a.employeeId === employeeId && ACTION_NEEDS_PERSON.includes(a.state))
+  if (action) return t('employees.activity.action', { state: t(ACTION_STATE_LABEL[action.state]), action: actionNoun(action.payload, t) })
+  const proposal = view?.proposals.find((p) => p.employeeId === employeeId)
+  return proposal ? t('employees.activity.proposal', { path: proposal.path }) : undefined
 }
 
 /** Its last result: the closed task's title, how it closed, and what it reported or why. */
@@ -454,4 +507,171 @@ export function nextRunText(
     if (!soonest || at < soonest.at) soonest = { at, zone: triggerZone(trigger) }
   }
   return soonest ? t('employees.card.next', { time: formatRun(soonest.at, soonest.zone, t.locale) }) : undefined
+}
+
+// ---- a draft's page is its plan (docs/ai-employees.md §5.3) ----
+
+const PLAN_ACTION: Record<'allowed' | 'never' | 'held', Record<string, PlainKey>> = {
+  allowed: { push: 'employees.plan.allowed.push', 'pull-request': 'employees.plan.allowed.pullRequest', 'slack-post': 'employees.plan.allowed.slack', linear: 'employees.plan.allowed.linear' },
+  never: { push: 'employees.plan.never.push', 'pull-request': 'employees.plan.never.pullRequest', 'slack-post': 'employees.plan.never.slack', linear: 'employees.plan.never.linear' },
+  held: { push: 'employees.plan.held.push', 'pull-request': 'employees.plan.held.pullRequest', 'slack-post': 'employees.plan.held.slack', linear: 'employees.plan.held.linear' }
+}
+
+export interface PlanContext {
+  memory: string
+  organization: string
+  names: (id: string) => string
+}
+
+/**
+ * A definition's plan in words, grouped Can / Can't / Asks you first, each line with why where that helps ("It has Read
+ * access to site only."). Slack and Linear that it keeps no tools for are one line.
+ */
+export function planText(groups: PlanGroups, ctx: PlanContext, t: RendererT): Record<keyof PlanGroups, { text: string; detail?: string }[]> {
+  const scopes = (list: string[]) => join(list.map((s) => (MEMORY_SCOPE_LABEL[s] ? t(MEMORY_SCOPE_LABEL[s]) : s)), t)
+  const one = (line: PlanLine, group: keyof PlanGroups): { text: string; detail?: string } => {
+    switch (line.kind) {
+      case 'read':
+        return { text: t('employees.plan.read', { repos: join(line.repos, t) }) }
+      case 'write':
+        return { text: t('employees.plan.write', { repos: join(line.repos, t) }) }
+      case 'notes':
+        return { text: t('employees.plan.notes', { memory: ctx.memory }) }
+      case 'memory-write':
+        return { text: t('employees.plan.memoryWrite', { folders: scopes(line.scopes), memory: ctx.memory }) }
+      case 'shell':
+        return { text: t('employees.plan.shell'), detail: t('employees.plan.shellWhy') }
+      case 'mcp':
+        return { text: t('employees.plan.mcp', { servers: join(line.servers, t) }), detail: t('employees.plan.mcpWhy') }
+      case 'delegate':
+        return { text: t('employees.plan.delegate', { names: join(line.ids.map(ctx.names), t) }) }
+      case 'action':
+        return { text: t(PLAN_ACTION[group === 'can' ? 'allowed' : group === 'cant' ? 'never' : 'held'][line.action] ?? 'employees.plan.held.push') }
+      case 'no-repo-change':
+        return { text: t('employees.plan.noRepoChange'), detail: line.reads.length ? t('employees.plan.noRepoChangeWhy', { repos: join(line.reads, t) }) : t('employees.plan.noRepoAccess') }
+      case 'no-publish':
+        return { text: t('employees.plan.noPublish') }
+      case 'no-slack':
+        return { text: t('employees.plan.noSlack'), detail: t('employees.plan.noSlackWhy') }
+      case 'no-linear':
+        return { text: t('employees.plan.noLinear'), detail: t('employees.plan.noLinearWhy') }
+      case 'no-shell':
+        return { text: t('employees.plan.noShell') }
+      case 'no-delegate':
+        return { text: t('employees.plan.noDelegate') }
+      case 'shared-memory':
+        return { text: t('employees.plan.sharedMemory', { organization: ctx.organization }), detail: t('employees.plan.sharedMemoryWhy') }
+    }
+  }
+  const words = (group: keyof PlanGroups) => {
+    const lines = groups[group]
+    const both = lines.some((l) => l.kind === 'no-slack') && lines.some((l) => l.kind === 'no-linear')
+    return lines.flatMap((line) => {
+      if (both && line.kind === 'no-linear') return []
+      if (both && line.kind === 'no-slack') return [{ text: t('employees.plan.noSlackLinear'), detail: t('employees.plan.noSlackLinearWhy') }]
+      return [one(line, group)]
+    })
+  }
+  return { can: words('can'), cant: words('cant'), asks: words('asks') }
+}
+
+/** When it runs, in one line, and the limits it keeps (§5.1, §9). */
+export function planWhen(d: Pick<EmployeeDefinition, 'triggers' | 'limits' | 'attendance'>, t: RendererT): { when: string; limits: string; attended: string } {
+  const on = (d.triggers ?? []).filter((x) => x.enabled)
+  const when = on.length ? t('employees.plan.whenTriggers', { triggers: join(on.map((x) => triggerWhen(x, t)), t) }) : t('employees.plan.whenAsked')
+  const cost = d.limits.cost_per_day_usd !== undefined ? new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(d.limits.cost_per_day_usd) : undefined
+  const limits = cost
+    ? t('employees.plan.limitsCost', { runs: d.limits.runs_per_day, minutes: d.limits.minutes_per_run, cost })
+    : t('employees.plan.limits', { runs: d.limits.runs_per_day, minutes: d.limits.minutes_per_run })
+  const attended = d.attendance === 'unattended' ? t('employees.plan.unattended') : t('employees.plan.attended')
+  return { when, limits, attended }
+}
+
+/** "Claude Code · Opus 5.5 · High effort". */
+export function planModel(d: Pick<EmployeeDefinition, 'model'>, t: RendererT): string {
+  const model = modelText(d.model.agent, d.model.model, t) || agentLabel(d.model.agent)
+  return d.model.effort ? t('employees.plan.modelLine', { model, effort: effortLabel(d.model.effort, t) }) : model
+}
+
+const CHANGE_LABEL: Record<Exclude<DefinitionField, 'repo' | 'action' | 'instructions'>, PlainKey> = {
+  model: 'employees.changed.field.model',
+  effort: 'employees.changed.field.effort',
+  attendance: 'employees.changed.field.attendance',
+  memory: 'employees.changed.field.memory',
+  profile: 'employees.changed.field.profile',
+  mcp: 'employees.changed.field.mcp',
+  delegate: 'employees.changed.field.delegate',
+  triggers: 'employees.changed.field.triggers',
+  runs: 'employees.changed.field.runs',
+  minutes: 'employees.changed.field.minutes',
+  cost: 'employees.changed.field.cost',
+  persona: 'employees.changed.field.persona',
+  words: 'employees.changed.field.words'
+}
+
+/**
+ * A difference since approval in words: what it is about, the old value and the new one, and whether it widens what the
+ * employee may do ("Wider") or only rewords it ("Reworded"), so neither rests on colour.
+ */
+export function changeText(c: DefinitionChange, before: EmployeeDefinition, after: EmployeeDefinition, ctx: Pick<PlanContext, 'names'>, t: RendererT): { label: string; before: string; after: string; tag?: 'wider' | 'reworded' } {
+  const none = t('employees.changed.none')
+  const listOf = (v: string, map: (x: string) => string = (x) => x) => (v ? join(v.split(', ').map(map), t) : none)
+  const value = (v: string): string => {
+    switch (c.field) {
+      case 'model': {
+        const [agent, ...model] = v.split('/')
+        return modelText(agent, model.join('/'), t) || agentLabel(agent)
+      }
+      case 'effort':
+        return v ? effortLabel(v as NonNullable<EmployeeDefinition['model']['effort']>, t) : none
+      case 'attendance':
+        return v === 'unattended' ? t('employees.plan.unattendedShort') : t('employees.plan.attendedShort')
+      case 'repo':
+        return t(ACCESS_LABEL[v as EmployeeRepoAccess] ?? 'employees.access.none')
+      case 'memory':
+        return listOf(v, (s) => (MEMORY_SCOPE_LABEL[s] ? t(MEMORY_SCOPE_LABEL[s]) : s))
+      case 'profile':
+        return v === 'shell' ? t('employees.changed.shell') : t('employees.changed.noShell')
+      case 'mcp':
+        return listOf(v)
+      case 'delegate':
+        return listOf(v, ctx.names)
+      case 'action':
+        return t(POLICY_LABEL[v as EmployeeActionPolicy] ?? 'employees.policy.held')
+      case 'runs':
+        return t('employees.changed.runs', { count: Number(v) })
+      case 'minutes':
+        return t('employees.changed.minutes', { count: Number(v) })
+      case 'cost':
+        return v ? new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(Number(v)) : none
+      case 'persona':
+        return v || none
+      default:
+        return v
+    }
+  }
+  if (c.field === 'triggers') return { label: t(CHANGE_LABEL.triggers), before: planWhen(before, t).when, after: planWhen(after, t).when, ...(c.wider ? { tag: 'wider' as const } : {}) }
+  if (c.field === 'instructions') return { label: t('employees.changed.field.instructions', { name: after.name || after.id }), before: '', after: '', tag: 'reworded' }
+  if (c.field === 'words') return { label: t(CHANGE_LABEL.words), before: '', after: '', tag: 'reworded' }
+  const label = c.field === 'repo' ? t('employees.changed.field.repo', { repo: c.subject ?? '' }) : c.field === 'action' ? actionName(c.subject ?? '', t) : t(CHANGE_LABEL[c.field])
+  return { label, before: value(c.before), after: value(c.after), ...(c.wider ? { tag: 'wider' as const } : {}) }
+}
+
+/**
+ * What waits for you from an employee, in a few words for its page's status line ("push max/launch-2.4", "answer
+ * “Which day does 2.4 launch?”"); undefined when nothing does.
+ */
+export function decisionWhat(view: EmployeeWorkView | undefined, employeeId: string, t: RendererT): string | undefined {
+  const item = needsYouItems(view, employeeId)[0]
+  if (!item) return undefined
+  switch (item.kind) {
+    case 'question':
+      return t('employees.what.question', { question: item.task.question!.question.split(/\r?\n/)[0] })
+    case 'task':
+      return t('employees.what.task', { title: item.task.title })
+    case 'action':
+      return actionNoun(item.action.payload, t)
+    case 'proposal':
+      return t('employees.what.proposal', { file: fileName(item.proposal.path) })
+  }
 }

@@ -1,4 +1,4 @@
-/* A flow run's Flow tab: the header lines, the lens switch and diagram, and the steps as a column of cards. Layout
+/* A flow run's Flow tab: the run's header, the lens switch and diagram, and the steps as a column of cards. Layout
    only; the Cards, Status and Button (ui/) draw themselves. */
 .flow-run {
   display: flex;
@@ -6,9 +6,42 @@
   gap: 12px;
   padding: 12px;
 }
-.flow-run-head {
+/* The run's header: its name and facts at the start, Stop run or Run again and the ⋯ menu at the end. */
+.flow-run-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.flow-run-header-text {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.flow-run-title {
+  margin: 0;
+  font-size: inherit;
+  overflow-wrap: anywhere;
+}
+.flow-run-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  margin: 0;
+}
+/* A fact ("took 1h 00m") wraps to the next line whole, never in the middle. */
+.flow-run-fact {
+  white-space: nowrap;
+}
+.flow-run-reason {
+  margin: 0;
+}
+.flow-run-header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
   gap: 4px;
 }
 /* The lens switch, with the run's full screen (or the way back) at the row's end. */
@@ -103,20 +136,30 @@
 }
 
 /* A flow drawn with the design system's Graph (FlowDiagram.tsx): it grows to the graph, up to a height, then scrolls;
-   full screen gives it most of the window. */
+   full screen gives it most of the window. Grown (the Flow tab), the canvas is as tall as the graph and the panel
+   scrolls instead, so there is one scroll bar. */
 .flow-graph {
   max-height: 560px;
   min-width: 0;
 }
+.flow-graph.flow-graph-grow {
+  max-height: none;
+}
 .flow-graph-full {
   height: 72vh;
+}
+/* The loops, as Tags at the start of the graph's bar. */
+.flow-graph-loops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 /* In the workspace's middle (O3): the graph with room to read it (left to right once it's wide), the steps' cards in columns. */
 .flow-run-focused {
   padding: 16px 20px;
-}
-.flow-graph.flow-graph-focused {
-  max-height: 68vh;
 }
 .flow-run-focused .flow-run-steps {
   display: grid;

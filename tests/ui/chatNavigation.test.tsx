@@ -193,26 +193,32 @@ describe('the jump keys', () => {
     expect(announce).toHaveBeenCalledWith('No turns yet', 'chat:jump')
   })
 
-  it('what needs me focuses the approval panel, or the plan, or says nothing needs you', () => {
+  it('what needs me focuses the docked card, the approval or the plan, or says nothing needs you', () => {
     fakeState.approvals = [{ kind: 'tool', id: 'ap1', sessionId: 's1', toolName: 'Bash', input: { command: 'npm test' } }]
     const { rerender } = render(show(LOG))
-    // The panel took focus when it arrived; focus moves away (reading the log), and the key brings it back.
-    ;(document.activeElement as HTMLElement | null)?.blur()
+    // The card took no focus when it arrived; the key brings focus to it.
     expect(document.activeElement).toBe(document.body)
     command('chat-needs-me')
     expect(document.activeElement?.classList.contains('approval-panel')).toBe(true)
-    expect(document.activeElement?.getAttribute('role')).toBe('group')
+    expect(document.activeElement?.closest('.decision-dock')).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: 'Run this command?' }))
 
     fakeState.approvals = [{ kind: 'plan', id: 'pl1', sessionId: 's1', plan: '# Steps\n\n1. one\n2. two' }]
     rerender(show(LOG))
     ;(document.activeElement as HTMLElement | null)?.blur()
     command('chat-needs-me')
-    expect(document.activeElement?.getAttribute('role')).toBe('heading')
-    expect(document.activeElement?.textContent?.trim()).toBe('Plan')
-    // The plan card is a sibling of the turns: level 3. Its Markdown headings sit under it.
-    expect(level(document.activeElement!)).toBe(3)
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: 'Plan ready for review' }))
+    // The plan sits beside the turns: its Markdown headings sit under a turn's level.
     expect(level(screen.getByRole('heading', { name: 'Steps' }))).toBe(4)
 
+    fakeState.approvals = []
+    rerender(show(LOG))
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    command('chat-needs-me')
+    expect(document.activeElement).toBe(document.body)
+    expect(announce).toHaveBeenCalledWith('Nothing needs you', 'chat:jump')
+
+    vi.mocked(announce).mockClear()
     command('chat-needs-none')
     expect(announce).toHaveBeenCalledWith('Nothing needs you', 'chat:jump')
   })

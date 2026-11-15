@@ -70,7 +70,27 @@ export interface LinearPayload extends ConnectionPart {
   issue?: string
 }
 
-export interface PushPayload extends ConnectionPart {
+/** One file the branch changes against its base, as `git diff --numstat` counts it. */
+export interface ActionFile {
+  path: string
+  insertions: number
+  deletions: number
+}
+
+/**
+ * Where a branch goes, recorded with it so the person reads it before pushing (all optional: actions recorded before
+ * Foreman kept them have none): the repository's name, the remote and its URL, the account's login when Foreman knows
+ * it, and the files the branch changes (the first 20).
+ */
+interface BranchTarget {
+  repo?: string
+  remote?: string
+  remoteUrl?: string
+  login?: string
+  files?: ActionFile[]
+}
+
+export interface PushPayload extends ConnectionPart, BranchTarget {
   kind: 'push'
   workspaceId: string
   branch: string
@@ -78,9 +98,10 @@ export interface PushPayload extends ConnectionPart {
   head: string
   ahead: number
   commits: ActionCommit[]
+  diffStat?: ActionDiffStat
 }
 
-export interface PullRequestPayload extends ConnectionPart {
+export interface PullRequestPayload extends ConnectionPart, BranchTarget {
   kind: 'pull-request'
   workspaceId: string
   branch: string
@@ -94,6 +115,20 @@ export interface PullRequestPayload extends ConnectionPart {
 }
 
 export type EmployeeActionPayload = SlackPostPayload | LinearPayload | PushPayload | PullRequestPayload
+
+/**
+ * A remote's URL as a person reads it, with nothing secret in it: `git@github.com:acme/site.git` and
+ * `https://user:token@github.com/acme/site.git` are both `github.com/acme/site`. A local path stays as it is; '' for none.
+ */
+export function remoteWhere(url: string): string {
+  const u = url.trim()
+  if (!u) return ''
+  const scp = /^[^@/\s]+@([^:/\s]+):(.+?)(?:\.git)?\/?$/.exec(u)
+  if (scp) return `${scp[1]}/${scp[2]}`
+  const web = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/]+)\/(.+?)(?:\.git)?\/?$/i.exec(u)
+  if (web) return `${web[1].replace(/:\d+$/, '')}/${web[2]}`
+  return u
+}
 
 /** What sending it came to: where it went (a message link, a pull request), what the service said, or why it failed. */
 export interface EmployeeActionResult {
@@ -158,6 +193,17 @@ export function actionPolicy(definition: Pick<EmployeeDefinition, 'access'>, kin
   const push = definition.access.actions.push ?? 'held'
   return STRICTNESS[push] > STRICTNESS[own] ? push : own
 }
+
+/**
+ * Whether the definition can push or open a pull request at all (§9): Foreman does either only for a run with Write
+ * access to its repository, so an employee with no Write access anywhere never does, whatever its rules say.
+ */
+export function canPublish(definition: Pick<EmployeeDefinition, 'access'>): boolean {
+  return Object.values(definition.access.repos).includes('write')
+}
+
+/** The classes that publish a branch: a push, and a pull request (which pushes its branch). */
+export const PUBLISH_ACTIONS: readonly EmployeeActionKind[] = ['push', 'pull-request']
 
 /** A sent Slack message, a pushed branch and an opened pull request can't be taken back; a Linear change can be changed back in Linear. */
 export const CANT_UNDO: Record<EmployeeActionKind, boolean> = { 'slack-post': true, linear: false, push: true, 'pull-request': true }

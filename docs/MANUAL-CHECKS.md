@@ -34,13 +34,13 @@ One row per run. Copy the last row, fill in the versions and date, and keep the 
 | --- | --- | --- | --- |
 | 1 | A tool approval is pending. Tab to the **No** button and press Enter. | The request is denied, not approved. The agent is told it was denied. | not yet run |
 | 2 | Next request: Tab to the alternate button ("Always allow" or "Allow edits") and press Enter. | Only the alternate answer applies; nothing else is approved. | not yet run |
-| 3 | Next request: Tab to **Yes** and press Enter. | "Yes button." then "Claude started working." | not yet run |
+| 3 | Next request: Tab to **Run** and press Enter. | "Run button." then "Claude started working." | not yet run |
 | 4 | Repeat 1 to 3 with Space instead of Enter. | The same result for each button. | not yet run |
 | 5 | A question is pending. Tab to an option and press Enter. | That option is chosen. The question is not submitted. | not yet run |
-| 6 | Tab to **Submit** and press Enter; on another question Tab to **Skip** and press Enter. | Submit sends the answer; Skip skips and nothing else. | not yet run |
-| 7 | Focus lands on the panel when a request arrives. Press Enter on the panel itself; on another request press Backspace. | Enter approves, Backspace denies (panel shortcuts work only when the panel itself has focus). | not yet run |
+| 6 | Answer every question, Tab to **Send answers** and press Enter; on another question Tab to **Skip questions** and press Enter. | Send answers sends them; Skip questions skips and nothing else. Until every question has an answer the button reads "Next: <header>" and sends nothing. | not yet run |
+| 7 | Type in the message box while a request arrives. Focus stays in the box; press F6, then Enter on the card itself; on another request press F6, then Esc. | The arrival is announced; the draft stays; F6 reaches the card; Enter runs it (unless a part of it leaves this computer, which has no key), Esc declines. Ctrl+L goes back to the draft. | not yet run |
 | 8 | Tab into the reason field, type a reason, press Enter. | The request is denied and the reason is sent. The field's description is spoken: "Pressing Enter here denies the request and sends this reason to the agent." | not yet run |
-| 9 | Arrive at a request and listen. | "Approval, group" with the title as its name (both panels are named groups). | not yet run |
+| 9 | Arrive at a request, press F6 and listen. | A group with the title as its name (every card is a named group). | not yet run |
 
 **Pass criteria:** no Enter or Space on a button does anything but that button's own action, and the panels are announced as named groups.
 

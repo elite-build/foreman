@@ -574,7 +574,7 @@ export function defaultEmployee({ id, colour, repos, loadouts, text = {} }: Empl
   }
 }
 
-/** Save as is (§5.3): the person's words are the instructions and the description; the name is theirs to give. */
+/** Use my words (§5.3): the person's words are the instructions and the description; the name is theirs to give. */
 export function saveAsIsText(description: string, personality: string): EmployeeDraftText {
   const words = description.trim()
   const first = oneLine(words).slice(0, EMPLOYEE_TEXT_LIMITS.description)

@@ -5,7 +5,9 @@ import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { modelWords } from '../src/shared/flowGraph'
 import type { FlowRun } from '../src/shared/flows'
+import { timeAgo } from '../src/shared/i18n/time'
 import type { ApprovalRequest } from '../src/shared/types'
 import { GatePanel, PickPanel } from '../src/renderer/src/components/ApprovalPanel'
 import { FlowRunPanel } from '../src/renderer/src/components/FlowRunPanel'
@@ -90,13 +92,32 @@ describe('a flow’s gate', () => {
     await user.click(within(panel).getByRole('button', { name: 'Open checks' }))
     expect(storeModule.showChecksPanel).toHaveBeenCalledWith('ws-1')
 
+    // Decline, alternate, main: Stop (Esc), Send back (Ctrl+Enter), Continue (Enter), the main one last.
+    const foot = panel.querySelector('.decision-foot') as HTMLElement
+    expect(within(foot).getAllByRole('button').map((b) => b.textContent)).toEqual(['Stop Esc', 'Send back Ctrl+Enter', 'Continue Enter'])
     await user.type(within(panel).getByRole('textbox', { name: 'Send back with a note' }), 'Rename it')
-    await user.click(within(panel).getByRole('button', { name: 'Send back' }))
+    await user.click(within(panel).getByRole('button', { name: /^Send back/ }))
     expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'sent-back', note: 'Rename it' })
-    await user.click(within(panel).getByRole('button', { name: 'Continue' }))
+    await user.click(within(panel).getByRole('button', { name: /^Continue/ }))
     expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'continued' })
-    await user.click(within(panel).getByRole('button', { name: 'Stop' }))
+    await user.click(within(panel).getByRole('button', { name: /^Stop/ }))
     expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'stopped' })
+  })
+
+  it('answers from the keys while the card has focus: Enter continues, Ctrl+Enter sends back, Esc stops', async () => {
+    const user = userEvent.setup()
+    render(<GatePanel request={GATE} workspaceId="ws-1" />)
+    const panel = screen.getByRole('group', { name: 'Green waits for you at ship' })
+    panel.focus()
+    await user.keyboard('{Enter}')
+    expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'continued' })
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'sent-back' })
+    await user.keyboard('{Escape}')
+    expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('g1', { kind: 'gate', answer: 'stopped' })
+    // Enter in the note is a new line, not Continue.
+    await user.type(within(panel).getByRole('textbox', { name: 'Send back with a note' }), 'a{Enter}b')
+    expect(fakeApi.respondApproval).toHaveBeenCalledTimes(3)
   })
 })
 
@@ -130,7 +151,7 @@ describe('a flow’s pick', () => {
     const panel = screen.getByRole('group', { name: 'Siblings asks you to pick at choose' })
     const results = within(panel).getByRole('list', { name: 'Results' })
     expect(within(results).getAllByRole('listitem')).toHaveLength(2)
-    const goOn = within(panel).getByRole('button', { name: 'Pick a result first' }) as HTMLButtonElement
+    const goOn = within(panel).getByRole('button', { name: /^Pick a result first/ }) as HTMLButtonElement
     expect(goOn.disabled).toBe(true)
     const b = within(panel).getByRole('button', { name: /^try-b/ })
     expect(b.textContent).toContain('checks: Tests passed')
@@ -141,9 +162,9 @@ describe('a flow’s pick', () => {
     await user.click(within(panel).getByRole('button', { name: 'Open the workspace of try-b' }))
     expect(storeModule.selectWorkspace).toHaveBeenCalledWith('ws-2')
     expect(fakeApi.respondApproval?.mock.calls ?? []).toEqual([])
-    await user.click(within(panel).getByRole('button', { name: 'Go on with try-b' }))
+    await user.click(within(panel).getByRole('button', { name: /^Go on with try-b/ }))
     expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('p1', { kind: 'pick', chosen: 'try-b' })
-    await user.click(within(panel).getByRole('button', { name: 'Stop' }))
+    await user.click(within(panel).getByRole('button', { name: /^Stop/ }))
     expect(fakeApi.respondApproval).toHaveBeenLastCalledWith('p1', { kind: 'pick', chosen: null })
   })
 })
@@ -152,10 +173,11 @@ describe('the Flow tab', () => {
   it('says its loop bounds, and lists the steps in run order, each opening what it stands for', async () => {
     const user = userEvent.setup()
     render(<FlowRunPanel workspaceId="ws-1" />)
-    // The diagram and the steps say where the run is, so there is no head naming the flow, its state or a row of steps.
-    expect(screen.queryByText('Green')).toBeNull()
-    expect(screen.queryByRole('list', { name: 'Where the run is in the flow' })).toBeNull()
-    expect(screen.getByText('green: iteration 2 of at most 4 · 7 of 45 min')).toBeTruthy()
+    // The loops are Tags in the bar above the graph, outside the drawing, with how far the run got.
+    const loops = await screen.findByRole('list', { name: 'Loops' })
+    expect(within(loops).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['green · iteration 2 of at most 4 · 7 of 45 min'])
+    expect(loops.closest('.ui-graph__bar')).toBeTruthy()
+    expect(document.querySelector('.ui-graph__note')).toBeNull()
 
     const list = screen.getByRole('list', { name: 'Steps' })
     const items = within(list).getAllByRole('listitem')
@@ -338,6 +360,8 @@ describe('the Flow tab’s graph, gate and stop', () => {
     unmount()
     render(<FlowRunPanel workspaceId="ws-1" focused />)
     await screen.findByRole('group', { name: 'Green · Run' })
+    // In the middle the run's name is a level below the workspace's h1, not two.
+    expect(screen.getByRole('heading', { level: 2, name: 'Green' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Full screen' })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Back to the panel' }))
     expect(storeModule.setWorkspaceFocus).toHaveBeenCalledWith('ws-1', null)
@@ -384,5 +408,117 @@ describe('the Flow tab’s graph, gate and stop', () => {
     expect(screen.getByText('The “build” turn ended with an error.')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Open its chat tab' }))
     expect(storeModule.selectSession).toHaveBeenCalledWith('ws-1', 's1')
+  })
+})
+
+describe('the Flow tab’s run header', () => {
+  const HOUR = 3_600_000
+  const at = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
+  const header = () => document.querySelector<HTMLElement>('.flow-run-header')!
+  const facts = () => header().querySelector('.flow-run-facts')!.textContent
+
+  beforeEach(() => {
+    ;(storeModule.openFlowRun as Mock).mockClear()
+    ;(storeModule.openAutomations as Mock).mockClear()
+    fakeState.approvals = []
+  })
+  afterEach(() => {
+    fakeState.approvals = []
+  })
+
+  it('a completed run: which flow, how it ended in a glyph and a word, when, how long, what it cost; Run again and Open in Automations', async () => {
+    const user = userEvent.setup()
+    const startedAt = at(5 * HOUR)
+    const done: FlowRun = {
+      ...RUN,
+      state: 'completed',
+      current: undefined,
+      startedAt,
+      endedAt: at(4 * HOUR),
+      steps: [
+        { ...RUN.steps[0], costUsd: 0.58 },
+        { ...RUN.steps[1], state: 'completed' },
+        { ...RUN.steps[2], state: 'completed', costUsd: 0.81 }
+      ]
+    }
+    fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [done] }
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    expect(within(header()).getByRole('heading', { name: 'Green' })).toBeTruthy()
+    const status = header().querySelector('.ui-status')!
+    expect(status.textContent).toBe('Completed')
+    expect(status.querySelector('.ui-glyph')).toBeTruthy()
+    expect(facts()).toBe(`Completed · ${timeAgo(startedAt, 'en')} · took 1h 00m · $1.39`)
+    expect(within(header()).queryByRole('button', { name: 'Stop run' })).toBeNull()
+
+    await user.click(within(header()).getByRole('button', { name: 'Run again' }))
+    expect(storeModule.openFlowRun).toHaveBeenCalledWith('flow-1', { repoId: 'r1', baseBranch: 'main' })
+    await user.click(within(header()).getByRole('button', { name: 'More for Green' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Open in Automations' }))
+    expect(storeModule.openAutomations).toHaveBeenCalledWith('f:flow-1')
+  })
+
+  it('a running run: where it is, when it started and what it cost so far, with Stop run in Run again’s place', async () => {
+    const user = userEvent.setup()
+    const startedAt = at(14 * 60_000)
+    fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [{ ...RUN, startedAt, steps: [{ ...RUN.steps[0], costUsd: 0.79 }, ...RUN.steps.slice(1)] }] }
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    expect(header().querySelector('.ui-status')!.textContent).toBe('Running')
+    expect(facts()).toBe(`Runningat fix · started ${timeAgo(startedAt, 'en')} · $0.79 so far`)
+    expect(within(header()).queryByRole('button', { name: 'Run again' })).toBeNull()
+    await user.click(within(header()).getByRole('button', { name: 'Stop run' }))
+    expect(fakeApi.stopFlowRun).toHaveBeenCalledWith('run')
+  })
+
+  it('a run waiting for you: the gate it waits at, and the gate’s answers right under the header', () => {
+    fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [{ ...RUN, state: 'waiting', current: { step: 'ship', iteration: 1 } }] }
+    fakeState.approvals = [{ id: 'g1', kind: 'gate', flowRunId: 'run', flowName: 'Green', step: 'ship', ask: 'Ship it?', show: [], sessionId: '', workspaceId: 'ws-1' }]
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    expect(header().querySelector('.ui-status')!.textContent).toBe('Waiting for you')
+    expect(within(header()).getByText('at ship')).toBeTruthy()
+    expect(within(header()).getByRole('button', { name: 'Stop run' })).toBeTruthy()
+    expect(header().nextElementSibling?.textContent).toContain('Green waits for you at ship')
+  })
+
+  it('a stopped run: the step it stopped at, how long it took and Run again; why it stopped stays in its Callout', () => {
+    const startedAt = at(2 * 24 * HOUR)
+    fakeState.snapshot = {
+      ...fakeState.snapshot,
+      flowRuns: [{ ...RUN, state: 'stopped', current: undefined, startedAt, endedAt: new Date(Date.parse(startedAt) + 50 * 60_000).toISOString(), reason: 'The loop “green” reached its 4 iterations.', steps: RUN.steps.slice(0, 2) }]
+    }
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    expect(header().querySelector('.ui-status')!.textContent).toBe('Stopped')
+    expect(facts()).toBe(`Stoppedat checks · ${timeAgo(startedAt, 'en')} · took 50m 00s`)
+    expect(within(header()).getByRole('button', { name: 'Run again' })).toBeTruthy()
+    // The reason is said once, in the Callout under the header, not in the header too.
+    expect(within(header()).queryByText('The loop “green” reached its 4 iterations.')).toBeNull()
+    expect(screen.getByText('Why it stopped')).toBeTruthy()
+  })
+})
+
+describe('the Flow tab’s graph frame', () => {
+  it('puts the zoom in a bar above the canvas, not over it, and grows the canvas to the graph so the panel scrolls', async () => {
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    const root = (await screen.findByRole('group', { name: 'Green · Run' })).closest<HTMLElement>('.ui-graph')!
+    const viewport = root.querySelector('.ui-graph__viewport')!
+    const tools = root.querySelector<HTMLElement>('.ui-graph__tools')!
+    expect(within(tools).getByRole('button', { name: 'Zoom in' })).toBeTruthy()
+    // In the bar, which comes before the viewport: nothing of the toolbar is inside the canvas or floats over it.
+    expect(tools.parentElement!.classList.contains('ui-graph__bar')).toBe(true)
+    expect(tools.parentElement!.nextElementSibling).toBe(viewport)
+    expect(viewport.contains(tools)).toBe(false)
+    expect(root.hasAttribute('data-tools')).toBe(false)
+    expect(root.hasAttribute('data-grow')).toBe(true)
+    // It opens at 100%: its words are never drawn smaller than they are set.
+    expect(tools.querySelector('.ui-graph__zoom')!.textContent).toBe('100%')
+  })
+
+  it('top to bottom, a node names who runs it without the model, which its step card says', async () => {
+    const model = 'claude-opus-5-5[1m]'
+    fakeState.snapshot = { ...fakeState.snapshot, flowRuns: [{ ...RUN, steps: [{ ...RUN.steps[0], persona: 'developer', model }, ...RUN.steps.slice(1)] }] }
+    render(<FlowRunPanel workspaceId="ws-1" />)
+    await screen.findByRole('group', { name: 'Green · Run' })
+    const build = [...document.querySelectorAll<HTMLElement>('.ui-graph__node')].find((n) => n.querySelector('.ui-graph__title')?.textContent === 'build')!
+    expect(build.querySelector('.ui-graph__detail')!.textContent).toBe('developer')
+    expect(build.textContent).not.toContain(modelWords(model))
   })
 })

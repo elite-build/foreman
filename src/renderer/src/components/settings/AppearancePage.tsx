@@ -5,7 +5,7 @@ import { useT } from '../../i18n'
 import { resetPanelSizes } from '../resize'
 import { useStore } from '../../store'
 import { Button, Range, Select, TextInput, type SelectOption } from '../../ui'
-import { Page, resetSettings, Row, saveSettings, Section, ToggleRow, useDraft, useSettings } from './controls'
+import { CONTROL_WIDTH, Page, Part, resetSettings, Row, saveSettings, Section, ToggleRow, useDraft, useSettings } from './controls'
 import { HomeSection } from './HomeSection'
 
 const DEFAULTS = {
@@ -65,11 +65,11 @@ export function AppearancePage() {
 
   return (
     <Page title={t('settings.appearance.title')}>
-      <Section title={t('settings.appearance.section.interface')}>
+      <Section part="interface" title={t('settings.appearance.section.interface')}>
         <Row id="theme" label={t('settings.appearance.theme')} help={t('settings.appearance.theme.help')} detail={t('settings.appearance.theme.toggle', { keys: mac ? '⌘⌥T' : 'Ctrl+Alt+T' })} onReset={reset('theme')}>
           <Select<ThemeSetting>
             label={t('settings.appearance.theme')}
-            width={140}
+            width={CONTROL_WIDTH}
             value={settings.theme}
             options={[
               { value: 'light', label: t('settings.appearance.theme.light') },
@@ -82,7 +82,7 @@ export function AppearancePage() {
         <Row id="zoom" label={t('settings.appearance.zoom')} help={t('settings.appearance.zoom.help')} onReset={reset('zoom')}>
           <Select
             label={t('settings.appearance.zoom')}
-            width={140}
+            width={CONTROL_WIDTH}
             value={settings.zoom.toFixed(1)}
             options={ZOOM_OPTIONS}
             onChange={(value) => void saveSettings({ zoom: Number(value) })}
@@ -99,7 +99,7 @@ export function AppearancePage() {
         <Row id="color-vision" label={t('settings.appearance.colorVision')} help={t('settings.appearance.colorVision.help')} onReset={reset('colorVision')}>
           <Select<ColorVision>
             label={t('settings.appearance.colorVision')}
-            width={220}
+            width={CONTROL_WIDTH}
             value={settings.colorVision}
             options={[
               { value: 'default', label: t('common.default') },
@@ -112,22 +112,24 @@ export function AppearancePage() {
       </Section>
 
       {/* #21 */}
-      <HomeSection />
+      <Part id="home" lead>
+        <HomeSection />
+      </Part>
 
-      <Section title={t('settings.appearance.section.layout')}>
+      <Section part="layout" title={t('settings.appearance.section.layout')}>
         <Row id="window-layout" label={t('settings.appearance.windowLayout')} help={t('settings.appearance.windowLayout.help')} onReset={reset('windowLayout')}>
-          <Select<WindowLayout> label={t('settings.appearance.windowLayout')} width={180} value={settings.windowLayout} options={windowLayouts(t)} onChange={(windowLayout) => void saveSettings({ windowLayout })} />
+          <Select<WindowLayout> label={t('settings.appearance.windowLayout')} width={CONTROL_WIDTH} value={settings.windowLayout} options={windowLayouts(t)} onChange={(windowLayout) => void saveSettings({ windowLayout })} />
         </Row>
         <Row id="sidebar-side" label={t('settings.appearance.sidebar')} help={t('settings.appearance.sidebar.help')} detail={t('settings.appearance.showHide', { keys: mac ? '⌘B' : 'Ctrl+B' })} onReset={reset('sidebarSide')}>
-          <Select<PaneSide> label={t('settings.appearance.sidebar')} width={140} value={settings.sidebarSide} options={sides(t)} onChange={(sidebarSide) => void saveSettings({ sidebarSide })} />
+          <Select<PaneSide> label={t('settings.appearance.sidebar')} width={CONTROL_WIDTH} value={settings.sidebarSide} options={sides(t)} onChange={(sidebarSide) => void saveSettings({ sidebarSide })} />
         </Row>
         <Row id="side-panel-side" label={t('settings.appearance.sidePanel')} help={t('settings.appearance.sidePanel.help')} detail={t('settings.appearance.showHide', { keys: mac ? '⌘⌥B' : 'Ctrl+Alt+B' })} onReset={reset('sidePanelSide')}>
-          <Select<PaneSide> label={t('settings.appearance.sidePanel')} width={140} value={settings.sidePanelSide} options={sides(t)} onChange={(sidePanelSide) => void saveSettings({ sidePanelSide })} />
+          <Select<PaneSide> label={t('settings.appearance.sidePanel')} width={CONTROL_WIDTH} value={settings.sidePanelSide} options={sides(t)} onChange={(sidePanelSide) => void saveSettings({ sidePanelSide })} />
         </Row>
         <Row id="terminal-placement" label={t('settings.appearance.terminalPanel')} help={t('settings.appearance.terminalPanel.help')} detail={t('settings.appearance.showHide', { keys: mac ? '⌘⌥J' : 'Ctrl+Alt+J' })} onReset={reset('terminalPlacement')}>
           <Select<TerminalPlacement>
             label={t('settings.appearance.terminalPanel')}
-            width={220}
+            width={CONTROL_WIDTH}
             value={settings.terminalPlacement}
             options={terminalPlacements(t)}
             onChange={(terminalPlacement) => void saveSettings({ terminalPlacement })}
@@ -143,7 +145,7 @@ export function AppearancePage() {
         </div>
       </Section>
 
-      <Section title={t('settings.appearance.section.code')}>
+      <Section part="code" title={t('settings.appearance.section.code')}>
         <MonoFontRow onReset={reset('monoFont')} />
         <ToggleRow
           id="code-ligatures"
@@ -158,7 +160,7 @@ export function AppearancePage() {
         </div>
       </Section>
 
-      <Section title={t('settings.appearance.section.terminal')}>
+      <Section part="terminal" title={t('settings.appearance.section.terminal')}>
         <TerminalFontRow
           onReset={
             settings.terminalFont === DEFAULTS.terminalFont && settings.terminalFontSize === DEFAULTS.terminalFontSize
@@ -248,7 +250,7 @@ function MonoFontRow({ onReset }: { onReset?: () => void }) {
       <div className="set-font-picker">
         <Select
           label={t('settings.appearance.monoFont')}
-          width={180}
+          width={CONTROL_WIDTH}
           value={custom ? CUSTOM : settings.monoFont}
           options={options}
           onChange={(value) => {
@@ -266,7 +268,7 @@ function MonoFontRow({ onReset }: { onReset?: () => void }) {
           <>
             <TextInput
               id={inputId}
-              width={220}
+              width={CONTROL_WIDTH}
               aria-label={t('settings.appearance.monoFont.customLabel')}
               placeholder={t('settings.appearance.monoFont.placeholder')}
               spellCheck={false}

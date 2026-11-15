@@ -169,7 +169,7 @@ function FlowRuns({ flow }: { flow: FlowListing }) {
             <Status tone={RUN_TONE[run.state]} label={t(RUN_STATE[run.state])} />
             <span className="faint small">{timeAgo(run.startedAt)}</span>
             {ws && ws.state !== 'archived' && (
-              <LinkButton size="sm" onClick={() => selectWorkspace(ws.id)}>
+              <LinkButton size="sm" underline onClick={() => selectWorkspace(ws.id)}>
                 {ws.name}
               </LinkButton>
             )}
@@ -220,7 +220,7 @@ function FlowRunsTable({ flows }: { flows: FlowListing[] }) {
                 <span className="flow-runs-cell">
                   <span>{nameOf(run)}</span>
                   {ws && ws.state !== 'archived' ? (
-                    <LinkButton size="sm" onClick={() => selectWorkspace(ws.id)}>
+                    <LinkButton size="sm" underline onClick={() => selectWorkspace(ws.id)}>
                       {ws.name}
                     </LinkButton>
                   ) : null}

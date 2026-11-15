@@ -4,9 +4,7 @@
 
 .assistant-entry-dot {
   margin-left: auto;
-}
-.assistant-entry .ui-kbd {
-  margin-left: auto;
+  flex: none;
 }
 
 /* ---- frame ---- */

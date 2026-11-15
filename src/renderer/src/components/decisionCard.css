@@ -1,0 +1,165 @@
+/* ---- A decision (components/DecisionCard.tsx): layout only; the frame, stripe, glyphs, tags and buttons are ui/ ---- */
+
+.decision-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  min-width: 0;
+  min-height: 0;
+}
+.decision-card--in-row {
+  padding: 4px 12px 12px;
+}
+.decision-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.decision-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-weight: 500;
+}
+.decision-sep,
+.decision-age,
+.decision-kind {
+  color: var(--text-faint);
+}
+.decision-head-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--text-faint);
+}
+.decision-subject {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.decision-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.decision-consequence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.decision-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.decision-foot-start {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+.decision-foot-acts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Docked above a chat's message box: at most half the column, the body scrolling and the buttons always in view. */
+.decision-dock {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  /* Half the column, but never so little that the card's head and buttons can't fit (a short window, 200% zoom). */
+  max-height: max(50%, 220px);
+  min-height: 0;
+  padding: 0 16px 8px;
+}
+/* When even that is too short, the card scrolls as a whole rather than drawing over the message box. */
+.decision-card--docked {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.decision-card--docked > .decision-body {
+  flex: 0 1 auto;
+  overflow: auto;
+}
+
+/* The row form: ▲ kind · who · what · age, then one button. */
+.decision-list {
+  min-width: 0;
+  padding: 0;
+}
+.decision-list-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.decision-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.decision-row .decision-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.decision-row-kind {
+  flex: none;
+}
+.decision-row-who {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+}
+/* At least 160px for what's being decided: in a narrow column (the Team page) it drops to its own line rather than
+   being cut to nothing; where there's room (Home) the row stays on one line. */
+.decision-row-subject {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.decision-row-age {
+  flex: none;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+.decision-row-chevron {
+  flex: none;
+}
+.decision-consequence-text {
+  flex: 1;
+  min-width: 0;
+}
+.decision-consequence-text > p {
+  margin: 0;
+}
+.decision-dock:empty {
+  display: none;
+}

@@ -9,5 +9,8 @@ export function settingFlashParts(target: HTMLElement): (HTMLElement | null)[] {
   // The section's own title: it may sit in a header row (the model list's count and "show all"), but not in a nested section.
   const title = section && [...section.querySelectorAll<HTMLElement>('h2')].find((h) => h.closest('.set-section') === section)
   if (section && title) return [title, section.querySelector<HTMLElement>(':scope > .set-section-desc')]
+  // A section that is the page shown (its title is the page heading): the heading and the section's description.
+  const heading = section?.hasAttribute('data-lead') ? section.closest('.set-page')?.querySelector<HTMLElement>(':scope > h1') : undefined
+  if (section && heading) return [heading, section.querySelector<HTMLElement>(':scope > .set-section-desc')]
   return [target.querySelector<HTMLElement>('.set-row-text')]
 }

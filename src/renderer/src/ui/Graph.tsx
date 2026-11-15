@@ -14,6 +14,9 @@ import { Spinner } from './Spinner'
 // and last node; Enter and Space select; Escape clears the selection. Otherwise it is a picture: role="img" with `label`,
 // no tab stops of its own (one that overflows its viewport is a named region, one stop, so it can be scrolled). A
 // thumbnail is a tiny picture with no text, hidden from assistive tech unless the caller says otherwise.
+//
+// The zoom toolbar floats over the viewport's bottom-right corner, or (`bar`) sits in a bar above it with what the
+// caller puts at the bar's start, so nothing covers the drawing; `bar.grow` makes the viewport as tall as the graph.
 
 export type GraphSide = 'left' | 'right' | 'top' | 'bottom'
 export type GraphShape = 'card' | 'pill' | 'gate' | 'square'
@@ -104,6 +107,16 @@ export type GraphLabels = {
   fullScreen?: string
 }
 
+// A bar of its own above the viewport for the toolbar, so nothing is drawn over the graph.
+export type GraphBar = {
+  // At the bar's start: what explains the graph without being part of it (a flow's loops, as Tags). Not interactive
+  // by contract, though nothing stops a caller's own controls.
+  start?: ReactNode
+  // The viewport is as tall as the graph at its zoom and never scrolls down itself, so the page around it does (one
+  // scroll bar in a side panel). It still scrolls sideways when the graph is wider than it.
+  grow?: boolean
+}
+
 export type GraphProps = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onSelect' | 'role' | 'aria-label'> & {
   // The graph's accessible name: the picture's (role="img") or the group's.
   label: string
@@ -128,6 +141,8 @@ export type GraphProps = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onSe
   labels?: GraphLabels
   // Adds a full-screen button to the toolbar (needs labels.fullScreen). The caller does the rest.
   onFullScreen?: () => void
+  // Puts the toolbar in a bar above the viewport instead of floating it over the drawing's corner. Ignored by a thumbnail.
+  bar?: GraphBar
   thumbnail?: boolean
   // Drawn in the viewport, over the graph and outside the scaled layer (a popover's anchor). The scrolled canvas is the
   // containing block, with --ui-graph-scale set to the zoom, so left: calc(var(--x) * var(--ui-graph-scale) * 1px) works.
@@ -246,6 +261,7 @@ export function Graph({
   onZoomChange,
   labels,
   onFullScreen,
+  bar,
   thumbnail = false,
   className,
   children,
@@ -411,6 +427,22 @@ export function Graph({
     onSelect?.(id)
   }
 
+  // The selected item stays in view, at the zoom it has: when the selection changes (a list beside the graph chose it)
+  // or the viewport narrows (an inspector opening beside it), and the item isn't wholly inside the viewport, the viewport
+  // (not the page) scrolls to put it in the middle on that axis. One already in view doesn't move, so a click never jumps.
+  const viewportWidth = box?.width
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    const el = selected ? els.current.get(selected) : undefined
+    if (!viewport || !el) return
+    const v = viewport.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    const right = v.left + viewport.clientWidth
+    const bottom = v.top + viewport.clientHeight
+    if (r.left < v.left || r.right > right) viewport.scrollLeft += r.left + r.width / 2 - (v.left + viewport.clientWidth / 2)
+    if (r.top < v.top || r.bottom > bottom) viewport.scrollTop += r.top + r.height / 2 - (v.top + viewport.clientHeight / 2)
+  }, [selected, viewportWidth])
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
     if (e.key === 'Escape') {
@@ -480,6 +512,8 @@ export function Graph({
   const arrow = (variant: string) => `url(#${uid}-arrow-${variant})`
   const edgeVariant = (e: GraphEdge, isSelected: boolean) => (isSelected ? 'selected' : (e.mark ?? e.weight ?? 'normal'))
   const showTools = Boolean(labels) && !thumbnail
+  const inBar = Boolean(bar) && !thumbnail
+  const grow = inBar && Boolean(bar?.grow)
 
   const nodeName = (n: GraphNode) => n.label ?? [n.title, n.detail, n.toneLabel, n.markLabel, n.badge].filter(Boolean).join(', ')
   const edgeName = (e: GraphEdge, from: GraphNode, to: GraphNode) => e.name ?? [e.label, e.markLabel, from.title, to.title].filter(Boolean).join(', ')
@@ -597,15 +631,48 @@ export function Graph({
     )
   }
 
+  // Floating over the viewport's bottom-right corner, or in the bar above it.
+  const tools =
+    showTools && labels ? (
+      <div className="ui-graph__tools">
+        <IconButton ref={zoomOutRef} label={labels.zoomOut} onClick={zoomOut} disabled={atMin}>
+          <ZoomOut size={14} />
+        </IconButton>
+        <span className="ui-graph__zoom">{labels.zoomValue(Math.round(scale * 100))}</span>
+        <span className="ui-graph__said" aria-live="polite">
+          {said}
+        </span>
+        <IconButton ref={zoomInRef} label={labels.zoomIn} onClick={zoomIn} disabled={atMax}>
+          <ZoomIn size={14} />
+        </IconButton>
+        <span className="ui-graph__sep" aria-hidden="true" />
+        <IconButton label={labels.fit} onClick={() => setZoom('fit')}>
+          <Scan size={14} />
+        </IconButton>
+        {onFullScreen && labels.fullScreen && (
+          <IconButton label={labels.fullScreen} onClick={onFullScreen}>
+            <Maximize2 size={14} />
+          </IconButton>
+        )}
+      </div>
+    ) : null
+
   return (
     <div
       {...rest}
       ref={ref}
       className={['ui-graph', thumbnail && 'ui-graph--thumbnail', className].filter(Boolean).join(' ')}
       data-interactive={interactive || undefined}
-      data-tools={showTools || undefined}
+      data-tools={(showTools && !inBar) || undefined}
+      data-grow={grow || undefined}
       aria-hidden={rest['aria-hidden'] ?? (thumbnail ? true : undefined)}
     >
+      {inBar && (bar?.start !== undefined || showTools) && (
+        <div className="ui-graph__bar">
+          {bar?.start !== undefined && <div className="ui-graph__bar-start">{bar.start}</div>}
+          {tools}
+        </div>
+      )}
       <div
         ref={viewportRef}
         className="ui-graph__viewport"
@@ -692,29 +759,7 @@ export function Graph({
           {children}
         </div>
       </div>
-      {showTools && labels && (
-        <div className="ui-graph__tools">
-          <IconButton ref={zoomOutRef} label={labels.zoomOut} onClick={zoomOut} disabled={atMin}>
-            <ZoomOut size={14} />
-          </IconButton>
-          <span className="ui-graph__zoom">{labels.zoomValue(Math.round(scale * 100))}</span>
-          <span className="ui-graph__said" aria-live="polite">
-            {said}
-          </span>
-          <IconButton ref={zoomInRef} label={labels.zoomIn} onClick={zoomIn} disabled={atMax}>
-            <ZoomIn size={14} />
-          </IconButton>
-          <span className="ui-graph__sep" aria-hidden="true" />
-          <IconButton label={labels.fit} onClick={() => setZoom('fit')}>
-            <Scan size={14} />
-          </IconButton>
-          {onFullScreen && labels.fullScreen && (
-            <IconButton label={labels.fullScreen} onClick={onFullScreen}>
-              <Maximize2 size={14} />
-            </IconButton>
-          )}
-        </div>
-      )}
+      {!inBar && tools}
     </div>
   )
 }

@@ -5,7 +5,7 @@ import type { GithubStatus, Settings } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api, attempt, openSettingsPage } from '../../store'
 import { Button, LinkButton, Select, Spinner, Status, type StatusTone } from '../../ui'
-import { Page, resetSettings, rowDomId, Row, saveSettings, Section, ToggleRow, useSettings } from './controls'
+import { CONTROL_WIDTH, Page, Part, resetSettings, rowDomId, Row, saveSettings, Section, ToggleRow, useSettings } from './controls'
 import { LoginTerminal } from './LoginTerminal'
 
 const DEFAULTS = {
@@ -29,9 +29,11 @@ export function AccountPage() {
 
   return (
     <Page title={t('settings.page.account')}>
-      <GithubSection />
+      <Part id="github" lead>
+        <GithubSection />
+      </Part>
 
-      <Section title={t('settings.account.privacy')}>
+      <Section part="privacy" title={t('settings.account.privacy')}>
         <ToggleRow
           id="privacy-mode"
           label={t('settings.account.privacyMode')}
@@ -51,7 +53,7 @@ export function AccountPage() {
         <Row id="codex-tool-approvals" label={t('settings.account.codexApprovals')} help={t(CODEX_HELP[settings.codexApprovals])} onReset={reset('codexApprovals')}>
           <Select<Settings['codexApprovals']>
             label={t('settings.account.codexApprovals')}
-            width={200}
+            width={CONTROL_WIDTH}
             value={settings.codexApprovals}
             options={[
               { value: 'always', label: t('settings.account.codexApprovals.always') },

@@ -3,11 +3,12 @@
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccountPicker } from '../src/renderer/src/components/settings/GithubAccount'
 import { AddVariableSheet } from '../src/renderer/src/components/settings/EnvSheet'
 import { SettingsNav } from '../src/renderer/src/components/settings/SettingsNav'
-import { openSettingsPage } from '../src/renderer/src/store'
+import { openSettingsPage, type SettingsPage } from '../src/renderer/src/store'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -20,45 +21,79 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-const nav = (onClose = vi.fn()) => render(<SettingsNav page={{ section: 'general' }} repoTab={() => 'git'} onClose={onClose} />)
+/** The menu as the settings view holds it: the search text is the view's. */
+function Nav({ page, onClose }: { page: SettingsPage; onClose: () => void }) {
+  const [query, setQuery] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+  return <SettingsNav page={page} repoTab={() => 'git'} onClose={onClose} query={query} onQuery={setQuery} results={[]} inputRef={input} onResults={() => undefined} />
+}
+
+const nav = (onClose = vi.fn(), page: SettingsPage = { section: 'general' }) => render(<Nav page={page} onClose={onClose} />)
 
 describe('SettingsNav', () => {
-  it('a group opens and closes with its chevron, which says which it is doing', async () => {
-    const user = userEvent.setup()
-    nav()
-    const toggle = screen.getByRole('button', { name: /^(Collapse|Expand) Appearance$/ })
-    const opened = toggle.getAttribute('aria-expanded') === 'true'
-    await user.click(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe(opened ? 'false' : 'true')
+  it('is a tree: the open page’s category is open, the others closed, and the open page is current', () => {
+    nav(vi.fn(), { section: 'general', part: 'chat' })
+    const tree = screen.getByRole('tree', { name: 'Settings' })
+    const general = within(tree).getByRole('treeitem', { name: /^General/ })
+    expect(general.getAttribute('aria-expanded')).toBe('true')
+    expect(within(tree).getByRole('treeitem', { name: /^Appearance/ }).getAttribute('aria-expanded')).toBe('false')
+    // General's parts, in page order, under it.
+    const chat = within(tree).getByRole('treeitem', { name: 'Chat' })
+    expect(chat.getAttribute('aria-current')).toBe('page')
+    expect(chat.getAttribute('aria-selected')).toBe('true')
+    const names = within(tree).getAllByRole('treeitem').map((i) => i.textContent)
+    expect(names.indexOf('Language')).toBeLessThan(names.indexOf('Chat'))
+    expect(names.indexOf('Chat')).toBeLessThan(names.indexOf('Notifications'))
   })
 
-  it('the repository head opens the repository page and marks itself current when it is the page', async () => {
-    const user = userEvent.setup()
-    render(<SettingsNav page={{ section: 'repo', repoId: 'r1', tab: 'git' }} repoTab={() => 'git'} onClose={() => undefined} />)
-    const head = screen.getByRole('button', { name: 'alpha' })
-    expect(head.getAttribute('aria-current')).toBe('page')
-    await user.click(head)
-    expect(openSettingsPage).toHaveBeenCalledWith({ section: 'repo', repoId: 'r1', tab: 'git' })
-  })
-
-  it('typing lists matches in a listbox: arrows move, Enter opens the page and clears the box', async () => {
+  it('opening a closed category opens its first page; ← closes the open one and selects it', async () => {
     const user = userEvent.setup()
     nav()
-    const box = screen.getByRole('combobox', { name: /search/i })
-    await user.type(box, 'branch')
-    const list = screen.getByRole('listbox')
-    const options = within(list).getAllByRole('option')
-    expect(options.length).toBeGreaterThan(0)
-    expect(box.getAttribute('aria-activedescendant')).toBe(options[0].id)
-    if (options.length > 1) {
-      await user.keyboard('{ArrowDown}')
-      expect(box.getAttribute('aria-activedescendant')).toBe(options[1].id)
-      await user.keyboard('{ArrowUp}')
-    }
+    const tree = screen.getByRole('tree', { name: 'Settings' })
+    await user.click(within(tree).getByRole('treeitem', { name: /^Appearance/ }))
+    expect(openSettingsPage).toHaveBeenCalledWith({ section: 'appearance', part: 'interface' })
+    const general = within(tree).getByRole('treeitem', { name: /^General/ })
+    general.focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(general.getAttribute('aria-expanded')).toBe('false')
+    // The open page is hidden in it now, so the category carries the selection.
+    expect(general.getAttribute('aria-selected')).toBe('true')
+    await user.keyboard('{ArrowRight}')
+    expect(general.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('a page opens with Enter', async () => {
+    const user = userEvent.setup()
+    nav()
+    const notifications = screen.getByRole('treeitem', { name: 'Notifications' })
+    notifications.focus()
     await user.keyboard('{Enter}')
-    expect(openSettingsPage).toHaveBeenCalledTimes(1)
-    expect((box as HTMLInputElement).value).toBe('')
-    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(openSettingsPage).toHaveBeenCalledWith({ section: 'general', part: 'notifications' })
+  })
+
+  it('Agents & models lists the agents, each with its own pages', async () => {
+    nav(vi.fn(), { section: 'agents', agent: 'claude', part: 'accounts' })
+    const tree = screen.getByRole('tree', { name: 'Settings' })
+    const claude = within(tree).getByRole('treeitem', { name: 'Claude Code' })
+    expect(claude.getAttribute('aria-expanded')).toBe('true')
+    expect(within(tree).getByRole('treeitem', { name: 'Accounts' }).getAttribute('aria-current')).toBe('page')
+    expect(within(tree).getByRole('treeitem', { name: 'Codex' }).getAttribute('aria-expanded')).toBe('false')
+    expect(within(tree).getByRole('treeitem', { name: 'Default models' })).toBeTruthy()
+  })
+
+  it('the repository opens its page and marks itself current when it is the page', async () => {
+    const user = userEvent.setup()
+    nav(vi.fn(), { section: 'repo', repoId: 'r1', tab: 'git' })
+    const repos = screen.getByRole('tree', { name: 'Repositories' })
+    expect(within(repos).getByRole('treeitem', { name: 'Git' }).getAttribute('aria-current')).toBe('page')
+    const head = within(repos).getByRole('treeitem', { name: 'alpha' })
+    head.focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(head.getAttribute('aria-current')).toBe('page')
+    cleanup()
+    nav()
+    await user.click(screen.getByRole('treeitem', { name: 'alpha' }))
+    expect(openSettingsPage).toHaveBeenCalledWith({ section: 'repo', repoId: 'r1', tab: 'git' })
   })
 
   it('Escape clears the search first and is left for the page to close settings the second time', async () => {
@@ -67,9 +102,8 @@ describe('SettingsNav', () => {
     // What the settings view's own Escape handler sees: it ignores an Escape that was handled.
     const seen = vi.fn((e: KeyboardEvent) => e.defaultPrevented)
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && seen(e)
-    const box = screen.getByRole('combobox', { name: /search/i }) as HTMLInputElement
+    const box = screen.getByRole('textbox', { name: /search/i }) as HTMLInputElement
     await user.type(box, 'zzzz-no-such-setting')
-    expect(screen.getByRole('status').textContent).toMatch(/zzzz-no-such-setting/)
     window.addEventListener('keydown', onKey)
     await user.keyboard('{Escape}')
     expect(box.value).toBe('')

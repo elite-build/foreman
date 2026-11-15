@@ -17,7 +17,7 @@ import {
 import { useT } from '../../i18n'
 import { api, attempt, timeAgo, useStore } from '../../store'
 import { Button, IconButton, LinkButton, Tag } from '../../ui'
-import { saveSettings } from './controls'
+import { saveSettings, useLeadPart } from './controls'
 
 const NO_HIDDEN: HiddenModels = {}
 
@@ -34,13 +34,15 @@ export function ModelVisibility({ agent }: { agent: AgentKind }) {
   const templates = useMemo(() => [...personal, ...Object.values(repoTemplates).flat()], [personal, repoTemplates])
   const count = hiddenCount(models, hidden)
   const label = AGENTS[agent].label
+  // As the agent's Models page in Settings, the page heading names it.
+  const lead = useLeadPart()
 
   const save = (next: HiddenModels) => void saveSettings({ hiddenModels: next })
 
   return (
-    <section className="set-section" id={`setting-models-${agent}`}>
+    <section className="set-section" id={`setting-models-${agent}`} data-lead={lead || undefined}>
       <div className="mv-head">
-        <h2>{t('models.visibility.title')}</h2>
+        {!lead && <h2>{t('models.visibility.title')}</h2>}
         <span className="mv-count">
           {count ? t('models.visibility.count', { shown: models.length - count, hidden: count }) : t('models.visibility.allShown', { count: models.length })}
         </span>

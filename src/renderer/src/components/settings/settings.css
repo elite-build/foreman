@@ -92,47 +92,47 @@
 .app.main-first.platform-darwin .set-nav-top {
   padding-left: 80px;
 }
-/* The search box is a Combobox whose results list sits under it, in the menu's place: it takes the room left and scrolls. */
+/* The search box: an input with the search icon at its start and Clear (or ⌘F) at its end, laid over its padding. */
 .set-nav-search {
+  position: relative;
   display: flex;
-  flex: 0 1 auto;
-  flex-direction: column;
-  min-height: 0;
+  align-items: center;
   margin: 2px 10px 8px;
 }
-.set-nav-search .ui-combobox__field {
-  flex: none;
+/* Two classes, as the sidebar's search does: ui/ui.css loads after this file, so the input's own padding would win. */
+.set-nav-search .set-nav-search-input {
+  width: 100%;
+  /* The input's own 5px above and below; room for the icon at the start and Clear (or Ctrl+F) at the end. */
+  padding: 5px 56px 5px 30px;
 }
-.set-nav-search .ui-combobox__popup {
-  flex: 0 1 auto;
-  min-height: 0;
-  margin-top: 6px;
+.set-nav-search-icon {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
 }
+.set-nav-search-end {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+}
+/* The gutter stays, so a row's width doesn't change between menus that scroll and menus that don't. */
 .set-nav-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 0 8px 24px;
 }
-.set-nav-group + .set-nav-group {
-  margin-top: 1px;
-}
-.set-nav-head {
-  display: flex;
-  align-items: center;
-  border-radius: var(--radius-md);
-}
-.set-nav-head:hover {
-  background: var(--bg-hover);
-}
-.set-nav-head.selected {
-  background: var(--bg-selected);
-}
-.set-nav-head .set-nav-chevron {
-  flex: none;
-  width: 24px;
+/* A menu row is a TreeItem (ui/: indent, hover, selected and focus): the chevron, icon, label and count inside it. */
+.set-nav-item {
+  gap: 7px;
   height: 30px;
-  padding: 0;
+}
+.set-nav-chevron {
+  flex: none;
+  display: inline-flex;
+  width: 12px;
 }
 .set-nav-chevron svg {
   transition: transform 120ms ease;
@@ -140,75 +140,27 @@
 .set-nav-chevron svg.open {
   transform: rotate(90deg);
 }
-/* The label is a Pressable: the doubled class beats .ui-pressable's display and padding, which load later. Its colour
-   and weight are on the text inside. */
-.set-nav-head .set-nav-label {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 0;
-}
-.set-nav-label svg {
+.set-nav-icon {
   flex: none;
   color: var(--text-muted);
 }
-/* The selected group reads brighter and heavier. */
-.set-nav-head.selected .set-nav-label svg {
-  color: var(--text);
-}
-.set-nav-head.selected .set-nav-text {
-  color: var(--text);
-  font-weight: 500;
-}
 .set-nav-text {
   min-width: 0;
-  color: var(--text-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The open page reads brighter and heavier, never the accent. */
+.set-nav-item[aria-current='page'] .set-nav-text {
+  color: var(--text);
+  font-weight: 500;
+}
 .set-nav-count {
+  flex: none;
   margin-left: auto;
   font-size: var(--text-xs);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
-}
-/* A row is an ActionRow (ui/: hover and selected surfaces); this is its indent and its main button's layout. The group
-   selector outranks .ui-action-row's padding, which loads later. */
-.set-nav-group > .set-nav-row {
-  padding: 4px 10px 4px 44px;
-}
-button.set-nav-row-main {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-.set-nav-row-main svg {
-  flex: none;
-  margin-left: -4px;
-  color: var(--text-muted);
-}
-.set-nav-row-text {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.set-nav-row:hover .set-nav-row-text {
-  color: var(--text);
-}
-/* The current page: brighter and heavier, like the selected group, never the accent. */
-.set-nav-row[data-selected] .set-nav-row-text,
-.set-nav-row[data-selected] .set-nav-row-main svg {
-  color: var(--text);
-}
-.set-nav-row[data-selected] .set-nav-row-text {
-  font-weight: 500;
 }
 .set-nav-section {
   padding: 16px 10px 6px;
@@ -218,19 +170,11 @@ button.set-nav-row-main {
   text-transform: uppercase;
   color: var(--text-faint);
 }
-.set-nav-group:first-child > .set-nav-section {
-  padding-top: 4px;
-}
 .set-nav-empty {
   margin: 0;
   padding: 6px 10px;
   font-size: var(--text-sm);
   color: var(--text-faint);
-}
-.set-page-sep {
-  margin: 44px 0 32px;
-  border: none;
-  border-top: 1px solid var(--border);
 }
 .set-repo-avatar {
   flex: none;
@@ -353,13 +297,16 @@ label.set-label {
   line-height: 1.5;
   color: var(--text-muted);
 }
+/* The control column: at least CONTROL_WIDTH (controls.tsx), controls at its end, so a 220px menu, a switch or a button
+   in one card share the same edges. */
 .set-control {
   flex: 0 1 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
-  min-width: 0;
+  min-width: min(220px, 100%);
   max-width: 100%;
 }
 /* A button beside a select or an input (Test next to the chime, Turn on next to the address) is as tall as they are: 32px. */
@@ -414,6 +361,8 @@ label.set-label {
 }
 .set-row.stacked .set-control {
   flex-wrap: nowrap;
+  justify-content: flex-start;
+  min-width: 0;
 }
 /* The detail line stays readable: it often says why the row is disabled. */
 .set-row.disabled .set-label-line,
@@ -569,6 +518,47 @@ label.set-label {
   }
 }
 
+/* ---- one page at a time: Previous and Next, and search results ---- */
+
+.set-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 32px;
+}
+/* A callout under a card it is about (Storage's foreman.db warning). */
+.set-after-card {
+  margin-top: 12px;
+}
+.set-search .set-section h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+/* A result: its name and where it lives, its value, a chevron; the row's fix (Sign in) sits beside it as an action. */
+button.set-result-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 14px;
+}
+.set-result-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.set-result-value {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+}
+.set-result-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* ---- row chrome: source label, ⋯ menu, detail ---- */
 
 .set-label-line {
@@ -902,20 +892,23 @@ textarea.tpl-body {
 
 /* ---- Appearance → Sidebar & Home: the views ---- */
 
+/* One grid for the whole table, each row a subgrid of it: the header's empty last cell takes the move buttons' width too, so
+   the column names sit over their switches. */
 .set-views {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-.set-views-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) repeat(2, 96px) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  column-gap: 8px;
+  width: 100%;
 }
-.set-views.three .set-views-row {
+.set-views.three {
   grid-template-columns: minmax(0, 1fr) repeat(3, 96px) auto;
+}
+.set-views-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  padding: 6px 0;
 }
 .set-views-row + .set-views-row:not(.set-views-head + .set-views-row) {
   border-top: 1px solid var(--border);

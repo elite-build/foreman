@@ -1,7 +1,7 @@
 import { frozenReason } from '../../../../shared/transfer'
-import { ArrowDown, ArrowUp, Bot, Check, ClipboardList, MessageSquareQuote, Users, Copy, CornerDownLeft, File as FileIcon, FileText, Image, Lock, Paperclip, Pencil, Send, Square, SquareTerminal, Trash2, Workflow, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, AtSign, Bot, Check, ChevronDown, ClipboardList, MessageSquareQuote, Users, CornerDownLeft, File as FileIcon, FileText, Image, Lock, Paperclip, Pencil, ScrollText, Square, SquareTerminal, Trash2, Workflow, X } from 'lucide-react'
 import { isActiveRun } from '../../../../shared/flows'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import { AGENTS, modelInfo, nextEffort } from '../../../../shared/agents'
 import { compareBlockFor } from '../../../../shared/compare'
 import { readOnlyEnforcement } from '../../../../shared/permissions'
@@ -13,10 +13,12 @@ import { queueMoveKey, shortTurnId } from '../../../../shared/queueEdit'
 import { templateById } from '../../../../shared/repoTemplates'
 import { composeMessage, editSnippet, snippetAttachmentName, snippetAttachmentText, snippetIsTooLong, TERMINAL_SNIPPET_MAX_CHARS, type TerminalSnippet } from '../../../../shared/terminalSnippet'
 import type { ApprovalRequest, Attachment, PromptTemplate, QueueChangeResult, QueuedMessage, QueueMove, Session, SlashCommandInfo, Workspace } from '../../../../shared/types'
-import { api, attempt, bridge, clientKind, modKey, newChatWithTemplate, onUiCommand, openCompareDialog, openMcpStatus, requestOpenFile, sendUiCommand, showError, showToast, takeComposerFill, toggleRightPanel, useCapabilities, useStore, type EditedFrom } from '../../store'
+import { api, attempt, bridge, clientKind, newChatWithTemplate, onUiCommand, openCompareDialog, openMcpStatus, requestOpenFile, sendUiCommand, showError, showToast, takeComposerFill, toggleRightPanel, useCapabilities, useStore, type EditedFrom } from '../../store'
 import { useT } from '../../i18n'
+import type { MessageKey, PlainKey } from '../../../../shared/i18n'
+import { formatChord, shortcutHint } from '../../shortcuts'
 import { useStoreMemo } from '../../storeMemo'
-import { ActionRow, Button, Callout, ChipButton, IconButton, Kbd, LinkButton, Listbox, Tag, TextArea } from '../../ui'
+import { ActionRow, Button, Callout, ChipButton, IconButton, Kbd, LinkButton, Listbox, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, SplitButton, Tag, TextArea } from '../../ui'
 import { AgentPicker } from './AgentPicker'
 import { ContextWheel } from './ContextWheel'
 import { newChatHint } from '../../../../shared/startModel'
@@ -181,7 +183,6 @@ export function Composer({
   // G1: an ACP agent that declared a plan session mode has Plan on; any other without one shows it disabled, saying why.
   const capabilities = useCapabilities(session.agent, session.instanceId)
   const plan = planControl(capabilities, { planMode: session.planMode, readOnly: session.readOnly })
-  const mod = modKey(platform)
   const isMac = platform === 'darwin'
   const held = workspace.state === 'setup-failed' && workspace.heldMessage?.sessionId === session.id
   const canSteer = capabilities?.turns.steer.level === 'native'
@@ -362,6 +363,26 @@ export function Composer({
     })
   }
 
+  /** "A file from this workspace" in the Add menu: an @ at the cursor, which opens the file suggestions as typing one does. */
+  const insertMention = () => {
+    const el = input.current
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
+    const before = text.slice(0, start)
+    const at = before && !/\s$/.test(before) ? ' @' : '@'
+    const next = before + at + text.slice(end)
+    setText(next)
+    updateMenu(next, start + at.length)
+    caretAfterCommit.current = start + at.length
+  }
+
+  /** Compact now: /compact goes to the agent as a message of its own (queued while a turn runs); the draft stays in the box. */
+  const compactNow = async () => {
+    const disposition = await attempt(() => api.sendMessage(session.id, '/compact', running ? { mode: 'queue' } : {}))
+    const receipt = disposition === undefined ? null : receiptText(disposition, t)
+    if (receipt) showToast(receipt)
+  }
+
   const send = async (mode?: SendMode) => {
     const typed = text.trim()
     // Terminal blocks go first, each as a fenced block under its label line, then what was typed.
@@ -434,6 +455,12 @@ export function Composer({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return
     const modDown = isMac ? e.metaKey : e.ctrlKey
+    // Escape with a menu open closes it, even while it's still loading or has no matches: it never stops the agent.
+    if (menu && e.key === 'Escape') {
+      e.preventDefault()
+      setMenu(null)
+      return
+    }
     if (menu && menuItems.length) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
@@ -446,11 +473,6 @@ export function Composer({
         applyMenuItem(menuItems[menu.index]?.value ?? '')
         return
       }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setMenu(null)
-        return
-      }
     }
     if (e.key === 'Tab' && e.shiftKey) {
       e.preventDefault()
@@ -458,9 +480,9 @@ export function Composer({
       return
     }
     if (e.key === 'Enter' && modDown && e.shiftKey && pendingPlan) {
+      // Approve, as the plan bar's key says, whatever is in the box: a draft stays there (plain Enter sends it as feedback).
       e.preventDefault()
-      if (text.trim()) void send()
-      else void attempt(() => api.respondApproval(pendingPlan.id, { kind: 'plan', approve: true }))
+      void attempt(() => api.respondApproval(pendingPlan.id, { kind: 'plan', approve: true }))
       return
     }
     if (e.key === 'Enter') {
@@ -554,6 +576,82 @@ export function Composer({
         : t('composer.placeholder.queue')
       : t('composer.placeholder.ask', { agent: agent.label })
 
+  // What Enter does now, named on the send button and, in key form, on the line under the box.
+  const action: SendAction = stopIsPrimary ? 'stop' : pendingPlan ? 'sendChanges' : running ? followUp : 'send'
+  const sendsOnEnter = settings.messageSendKey === 'enter'
+  const canChoose = canSteer || canInterrupt
+  const keys = {
+    send: formatChord(sendsOnEnter ? 'Enter' : 'mod+Enter', platform),
+    // The other follow-up: ⌘↵ when Enter sends, ⌥↵ when ⌘↵ does (onKeyDown).
+    other: formatChord(sendsOnEnter ? 'mod+Enter' : 'alt+Enter', platform),
+    newLine: formatChord(sendsOnEnter ? 'shift+Enter' : 'Enter', platform),
+    approve: formatChord('mod+shift+Enter', platform),
+    stop: formatChord('Escape', platform)
+  }
+  const other = oppositeMode(followUp, canInterrupt)
+  const keyLine: [MessageKey, string][] = pendingPlan
+    ? [['composer.keys.sendChanges', keys.send], ['composer.keys.approve', keys.approve], ['composer.keys.newLine', keys.newLine]]
+    : running
+      ? [
+          ...(hasDraft ? [] : ([['composer.keys.stopAgent', keys.stop]] as [MessageKey, string][])),
+          [MODE_KEY[followUp], keys.send],
+          ...(canChoose ? ([[MODE_KEY[other], keys.other]] as [MessageKey, string][]) : []),
+          ...(hasDraft ? ([['composer.keys.newLine', keys.newLine], ['composer.keys.stop', keys.stop]] as [MessageKey, string][]) : [])
+        ]
+      : !focused && !hasDraft
+        ? [['composer.focusHint', shortcutHint('composer.focus', platform) ?? ''], ['composer.keys.send', keys.send]]
+        : [['composer.keys.send', keys.send], ['composer.keys.newLine', keys.newLine], ['composer.keys.file', '@'], ['composer.keys.command', '/']]
+  const actionTitle =
+    action === 'stop'
+      ? t('composer.action.stopTitle', { key: keys.stop })
+      : action === 'sendChanges'
+        ? t('composer.action.sendChangesTitle', { key: keys.send })
+        : action === 'steer'
+          ? t('composer.action.steerTitle', { key: keys.send })
+          : action === 'interrupt'
+            ? t('composer.action.interruptTitle', { key: keys.send })
+            : action === 'queue'
+              ? canChoose
+                ? t('composer.action.queueTitle', { key: keys.send })
+                : t('composer.mode.cantSteer')
+              : t('composer.action.sendTitle', { key: keys.send })
+  const cancel = () => void attempt(() => api.cancel(session.id))
+  // How this message can go while a turn runs, in the menu: the default first.
+  const modes: SendMode[] = canSteer ? ['steer', 'queue'] : canInterrupt ? ['queue', 'interrupt'] : ['queue']
+  const sendMenu: ReactNode[] = [
+    running && !pendingPlan && (
+      <MenuGroup key="how" label={t('composer.action.how')}>
+        <MenuLabel>{t('composer.action.how')}</MenuLabel>
+        {modes.map((m) => (
+          <MenuRadioItem
+            key={m}
+            checked={followUp === m}
+            onSelect={() => setOverride(m)}
+            description={canChoose ? t(MODE_DESCRIPTION[m]) : t('composer.mode.cantSteer')}
+            hint={<Kbd>{followUp === m ? keys.send : keys.other}</Kbd>}
+          >
+            {t(MODE_LABEL[m])}
+          </MenuRadioItem>
+        ))}
+      </MenuGroup>
+    ),
+    pendingPlan && (
+      <MenuItem key="approve" icon={<Check size={14} />} hint={<Kbd>{keys.approve}</Kbd>} onSelect={() => void attempt(() => api.respondApproval(pendingPlan.id, { kind: 'plan', approve: true }))}>
+        {t('composer.action.approve')}
+      </MenuItem>
+    ),
+    running && (
+      <MenuItem key="stop" icon={<Square size={12} />} hint={<Kbd>{keys.stop}</Kbd>} onSelect={cancel}>
+        {t('composer.action.stopAgent')}
+      </MenuItem>
+    ),
+    !disabled && <AlsoTryItem key="also" workspace={workspace} session={session} text={text} />
+  ].filter(Boolean)
+  // A chat an AI employee's run started: what's typed here is the person's own, not an answer to the employee's question.
+  const employeeRun = workspace.startedBy?.via === 'employee' ? workspace.startedBy : undefined
+  const employeeName = useStore((s) => (employeeRun ? s.snapshot!.employees?.[employeeRun.orgId]?.employees.find((e) => e.id === employeeRun.employeeId)?.name : undefined))
+  const keysId = useId()
+
   return (
     <div className="composer">
       {held && <HeldBanner workspaceId={workspace.id} />}
@@ -592,7 +690,7 @@ export function Composer({
         </div>
       )}
       <GoalCard session={session} />
-      <QueuedList session={session} isMac={isMac} mod={mod} onKept={keepEdit} />
+      <QueuedList session={session} isMac={isMac} platform={platform} onKept={keepEdit} />
       {kept && (
         <Callout
           tone="info"
@@ -642,7 +740,6 @@ export function Composer({
           {edited.from ? t('editResend.composer.from', { title: edited.from }) : t('editResend.composer.fromUntitled')}
         </Callout>
       )}
-      {pendingPlan && <PlanBar request={pendingPlan} sessionId={session.id} mod={mod} />}
       {draftTemplate && newChatLabel && (
         <div className="composer-newchat">
           <LinkButton size="sm" onClick={() => void newChatWithTemplate(workspace.id, draftTemplate)}>
@@ -697,6 +794,7 @@ export function Composer({
           aria-label={t('composer.input.label')}
           aria-controls={menu && menuItems.length > 0 ? suggestionsId : undefined}
           aria-activedescendant={menu && menuItems.length > 0 ? `${suggestionsId}-${menu.index}` : undefined}
+          aria-describedby={disabled ? undefined : keysId}
           placeholder={placeholder}
           value={text}
           disabled={disabled}
@@ -713,78 +811,160 @@ export function Composer({
           onKeyDown={onKeyDown}
           onPaste={(e) => void onPaste(e)}
         />
-        {!focused && !text && !snippets.length && <span className="composer-focus-hint">{t('composer.focusHint', { key: `${mod}L` })}</span>}
         <div className="composer-toolbar" onClick={(e) => e.stopPropagation()}>
-          <AgentPicker session={session} hasHistory={hasHistory} open={pickerOpen} onOpenChange={setPickerOpen} />
-          {plan === 'unavailable' ? (
-            <ChipButton disabled title={mixed ? t('switchAgent.composer.noPlan', { agent: agent.label }) : t(capabilities?.planning.planMode.why ?? 'agentCaps.why.plan')}>
-              <ClipboardList size={13} /> {t('composer.plan.chip')}
-            </ChipButton>
-          ) : plan !== 'hidden' && (
-            <ChipButton
-              pressed={Boolean(session.planMode)}
-              onClick={togglePlan}
-              disabled={session.readOnly}
-              title={session.readOnly ? t('readOnlyOpinion.composer.planLocked') : t('composer.plan.title', { key: '⇧Tab' })}
-            >
-              <ClipboardList size={13} /> {t('composer.plan.chip')}
-            </ChipButton>
-          )}
-          {session.readOnly && (
-            <Tag title={`${t(readOnlyEnforcement(capabilities) === 'plan' ? 'readOnlyOpinion.enforced.claude' : 'readOnlyOpinion.enforced.codex')} ${enforcedBy}`}>
-              <Lock size={12} /> {t('readOnlyOpinion.chip')}
-            </Tag>
-          )}
-          {flowRun?.current && (
-            <Tag title={t('flowRun.chip.title')}>
-              <Workflow size={12} aria-hidden /> {flowPersona
-                ? t('flowRun.chipPersona', { name: flowRun.flow.name, step: flowRun.current.step, persona: flowPersona })
-                : t('flowRun.chip', { name: flowRun.flow.name, step: flowRun.current.step })}
-            </Tag>
-          )}
-          {settings.requireToolApprovals && session.autoAcceptEdits && (
-            <ChipButton
-              pressed
-              title={`${t('composer.autoAccept.title')} ${enforcedBy}`}
-              onClick={() => void attempt(() => api.updateSession(session.id, { autoAcceptEdits: false }))}
-            >
-              <Pencil size={12} /> {t('composer.autoAccept.label')} <X size={11} />
-            </ChipButton>
-          )}
-          <IconButton label={t('composer.attach.title', { key: `${mod}U` })} onClick={() => void pickAttachments()}>
-            <Paperclip size={14} />
-          </IconButton>
-          <WorkspaceToolsChip workspace={workspace} agent={session.agent} />
-          {!disabled && (
-            <TemplatePicker open={templatesOpen} onOpenChange={setTemplatesOpen} repoId={workspace.repoId} session={session} onPickCommand={insertCommand} onPick={applyTemplate} title={t('composer.templates.title', { key: `${mod}J` })} />
-          )}
-          {!disabled && <AlsoTry workspace={workspace} session={session} text={text} />}
-          {running && !pendingPlan && <SendModeChip mode={followUp} canSteer={canSteer} canInterrupt={canInterrupt} sendsOnEnter={settings.messageSendKey === 'enter'} isMac={isMac} mod={mod} onToggle={() => setOverride(oppositeMode(followUp, canInterrupt))} />}
+          <div className="composer-group">
+            <AgentPicker session={session} hasHistory={hasHistory} open={pickerOpen} onOpenChange={setPickerOpen} />
+            {plan === 'unavailable' ? (
+              <ChipButton disabled title={mixed ? t('switchAgent.composer.noPlan', { agent: agent.label }) : t(capabilities?.planning.planMode.why ?? 'agentCaps.why.plan')}>
+                <ClipboardList size={13} /> {t('composer.plan.chip')}
+              </ChipButton>
+            ) : plan !== 'hidden' && (
+              <ChipButton
+                pressed={Boolean(session.planMode)}
+                onClick={togglePlan}
+                disabled={session.readOnly}
+                title={session.readOnly ? t('readOnlyOpinion.composer.planLocked') : t('composer.plan.title', { key: formatChord('shift+Tab', platform) })}
+              >
+                <ClipboardList size={13} /> {t('composer.plan.chip')}
+              </ChipButton>
+            )}
+            {session.readOnly && (
+              <Tag title={`${t(readOnlyEnforcement(capabilities) === 'plan' ? 'readOnlyOpinion.enforced.claude' : 'readOnlyOpinion.enforced.codex')} ${enforcedBy}`}>
+                <Lock size={12} /> {t('readOnlyOpinion.chip')}
+              </Tag>
+            )}
+            {flowRun?.current && (
+              <Tag title={t('flowRun.chip.title')}>
+                <Workflow size={12} aria-hidden /> {flowPersona
+                  ? t('flowRun.chipPersona', { name: flowRun.flow.name, step: flowRun.current.step, persona: flowPersona })
+                  : t('flowRun.chip', { name: flowRun.flow.name, step: flowRun.current.step })}
+              </Tag>
+            )}
+            {settings.requireToolApprovals && session.autoAcceptEdits && (
+              <ChipButton
+                pressed
+                title={`${t('composer.autoAccept.title')} ${enforcedBy}`}
+                onClick={() => void attempt(() => api.updateSession(session.id, { autoAcceptEdits: false }))}
+              >
+                <Pencil size={12} /> {t('composer.autoAccept.label')} <X size={11} />
+              </ChipButton>
+            )}
+          </div>
+          <div className="composer-group">
+            {disabled ? (
+              <AddMenu disabled platform={platform} onFiles={() => void pickAttachments()} onMention={insertMention} />
+            ) : (
+              <TemplatePicker
+                open={templatesOpen}
+                onOpenChange={setTemplatesOpen}
+                repoId={workspace.repoId}
+                session={session}
+                onPickCommand={insertCommand}
+                onPick={applyTemplate}
+                anchor={(ref) => <AddMenu ref={ref} platform={platform} onFiles={() => void pickAttachments()} onTemplate={() => setTemplatesOpen(true)} onMention={insertMention} />}
+              />
+            )}
+            <WorkspaceToolsChip workspace={workspace} agent={session.agent} />
+          </div>
           <span className="spacer" />
-          {session.contextUsage && (
-            <ContextWheel
-              usage={session.contextUsage}
-              agent={session.agent}
-              root={workspace.path}
-              onCompact={canCompact ? () => insertCommand('/compact ') : undefined}
-            />
-          )}
-          {running && !stopIsPrimary && (
-            <LinkButton size="sm" onClick={() => void attempt(() => api.cancel(session.id))}>
-              {t('common.stop')}
-            </LinkButton>
-          )}
-          <IconButton
-            variant="primary"
-            onClick={() => (stopIsPrimary ? void attempt(() => api.cancel(session.id)) : void send())}
-            disabled={!stopIsPrimary && (disabled || !hasDraft)}
-            label={stopIsPrimary ? t('composer.send.stopTitle') : pendingPlan ? t('composer.send.planFeedbackTitle') : sendsQueue ? t('composer.send.queue') : running && followUp === 'interrupt' ? t('composer.send.interrupt') : t('composer.send.send')}
-          >
-            {stopIsPrimary ? <Square size={12} fill="currentColor" /> : sendsQueue ? <CornerDownLeft size={14} /> : pendingPlan ? <Send size={13} /> : <ArrowUp size={15} />}
-          </IconButton>
+          <div className="composer-group composer-send">
+            {session.contextUsage && (
+              <ContextWheel
+                usage={session.contextUsage}
+                agent={session.agent}
+                root={workspace.path}
+                running={running}
+                draft={hasDraft}
+                onCompact={canCompact && !disabled ? () => void compactNow() : undefined}
+              />
+            )}
+            {running && !stopIsPrimary && (
+              <LinkButton size="sm" onClick={cancel}>
+                {t('common.stop')}
+              </LinkButton>
+            )}
+            <SplitButton
+              variant="primary"
+              size="sm"
+              placement="top-end"
+              label={
+                action === 'stop' ? (
+                  <>
+                    <Square size={10} fill="currentColor" aria-hidden /> {t('composer.action.stop')}
+                  </>
+                ) : (
+                  t(ACTION_LABEL[action])
+                )
+              }
+              title={actionTitle}
+              menuLabel={t('composer.action.more')}
+              menuDisabled={disabled}
+              disabled={action !== 'stop' && (disabled || !hasDraft)}
+              onClick={() => (action === 'stop' ? cancel() : void send())}
+            >
+              {sendMenu.flatMap((item, n) => (n ? [<MenuSeparator key={`sep-${n}`} />, item] : [item]))}
+            </SplitButton>
+          </div>
         </div>
       </div>
+      {!disabled && (
+        <div className="composer-keys faint small" id={keysId}>
+          {keyLine.map(([key, chord]) => (
+            <span key={key}>{t.rich(key, { key: <Kbd key="key">{chord}</Kbd> })}</span>
+          ))}
+          {employeeRun && <span className="composer-keys-note">{t('composer.keys.employee', { name: employeeName || employeeRun.employeeId })}</span>}
+        </div>
+      )}
     </div>
+  )
+}
+
+type SendAction = SendMode | 'send' | 'sendChanges' | 'stop'
+
+const ACTION_LABEL: Record<SendAction, PlainKey> = {
+  send: 'composer.action.send',
+  steer: 'composer.mode.steer',
+  queue: 'composer.mode.queue',
+  interrupt: 'composer.mode.interrupt',
+  sendChanges: 'composer.action.sendChanges',
+  stop: 'composer.action.stop'
+}
+const MODE_LABEL: Record<SendMode, PlainKey> = { steer: 'composer.mode.steer', queue: 'composer.mode.queue', interrupt: 'composer.mode.interrupt' }
+const MODE_DESCRIPTION: Record<SendMode, PlainKey> = { steer: 'composer.action.steerDesc', queue: 'composer.action.queueDesc', interrupt: 'composer.action.interruptDesc' }
+const MODE_KEY: Record<SendMode, MessageKey> = { steer: 'composer.keys.steer', queue: 'composer.keys.queue', interrupt: 'composer.keys.interrupt' }
+
+/** Add ▾: files or images, a prompt template, a file from the workspace (an @). Each item shows the key that does it. */
+function AddMenu({ platform, disabled, onFiles, onTemplate, onMention, ref }: { platform: string; disabled?: boolean; onFiles: () => void; onTemplate?: () => void; onMention: () => void; ref?: Ref<HTMLButtonElement> }) {
+  const t = useT()
+  const hint = (id: string) => {
+    const key = shortcutHint(id, platform)
+    return key ? <Kbd>{key}</Kbd> : undefined
+  }
+  return (
+    <MenuButton
+      ref={ref}
+      look="chip"
+      label={t('composer.add.menu')}
+      placement="top-start"
+      disabled={disabled}
+      trigger={
+        <>
+          <Paperclip size={13} aria-hidden /> {t('composer.add.label')} <ChevronDown size={12} aria-hidden />
+        </>
+      }
+    >
+      <MenuItem icon={<Paperclip size={14} />} hint={hint('attach.files')} onSelect={onFiles}>
+        {t('composer.add.files')}
+      </MenuItem>
+      {onTemplate && (
+        <MenuItem icon={<ScrollText size={14} />} hint={hint('templates.toggle')} onSelect={onTemplate}>
+          {t('composer.add.template')}
+        </MenuItem>
+      )}
+      <MenuItem icon={<AtSign size={14} />} hint={<Kbd>@</Kbd>} onSelect={onMention}>
+        {t('composer.add.mention')}
+      </MenuItem>
+    </MenuButton>
   )
 }
 
@@ -819,33 +999,6 @@ function HeldBanner({ workspaceId }: { workspaceId: string }) {
   )
 }
 
-/** While a turn runs: how this message goes (Steer or Queue), and the key for the other. */
-function SendModeChip({ mode, canSteer, canInterrupt, sendsOnEnter, isMac, mod, onToggle }: {
-  mode: SendMode
-  canSteer: boolean
-  // The agent can only be cut and restarted: Queue is the default, "Interrupt and send" the explicit choice.
-  canInterrupt: boolean
-  sendsOnEnter: boolean
-  isMac: boolean
-  mod: string
-  onToggle: () => void
-}) {
-  const t = useT()
-  if (!canSteer && !canInterrupt) return <Tag title={t('composer.mode.cantSteer')}>{t('composer.mode.queue')}</Tag>
-  const other = oppositeMode(mode, canInterrupt)
-  const key = sendsOnEnter ? `${mod}↵` : isMac ? '⌥↵' : 'Alt+Enter'
-  const label = (m: SendMode) => (m === 'steer' ? t('composer.mode.steer') : m === 'interrupt' ? t('composer.mode.interrupt') : t('composer.mode.queue'))
-  const title = mode === 'steer' ? t('composer.mode.steerTitle') : mode === 'interrupt' ? t('composer.mode.interruptTitle') : t(canInterrupt ? 'composer.mode.queueInterruptTitle' : 'composer.mode.queueTitle')
-  return (
-    <>
-      <ChipButton onClick={onToggle} title={title}>
-        {label(mode)}
-      </ChipButton>
-      <span className="faint small">{t(other === 'steer' ? 'composer.mode.keyToSteer' : other === 'interrupt' ? 'composer.mode.keyToInterrupt' : 'composer.mode.keyToQueue', { key })}</span>
-    </>
-  )
-}
-
 /**
  * The queue above the composer, a labelled list of rows. Each row shows its place; ↑/↓ (or ⌥↑/⌥↓ with focus anywhere in
  * the row) move it, and Edit opens it right where it is. Saving keeps the message's turn id, so `foreman wait` on it
@@ -854,7 +1007,7 @@ function SendModeChip({ mode, canSteer, canInterrupt, sendsOnEnter, isMac, mod, 
  */
 type QueueAction = 'up' | 'down' | 'send' | 'edit' | 'delete'
 
-function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: boolean; mod: string; onKept: (edit: KeptEdit) => void }) {
+function QueuedList({ session, isMac, platform, onKept }: { session: Session; isMac: boolean; platform: string; onKept: (edit: KeptEdit) => void }) {
   const t = useT()
   const queue = session.queue
   // The first message waits for an agent slot ("Maximum agents running at once"), not for this tab's agent.
@@ -863,8 +1016,8 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
   const [editing, setEditing] = useState<{ message: QueuedMessage; revision: number; text: string; attachments: Attachment[] } | null>(null)
   const saving = useRef(false)
   const rows = useRef(new Map<string, HTMLElement>())
-  const upKey = isMac ? '⌥↑' : 'Alt+↑'
-  const downKey = isMac ? '⌥↓' : 'Alt+↓'
+  const upKey = formatChord('alt+ArrowUp', platform)
+  const downKey = formatChord('alt+ArrowDown', platform)
   // Sending a queued message now steers it into the running turn, or, for an agent that can only be interrupted, cuts the turn and
   // restarts it with the message first (docs/agents.md 2.5): the control says which, as the phone's does.
   const interrupts = interruptsToSteer(useCapabilities(session.agent, session.instanceId))
@@ -1019,7 +1172,7 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
                           {t('queue.cancel')}
                         </Button>
                         <Button size="sm" variant="primary" disabled={empty} title={empty ? t('queue.emptyEdit') : undefined} onClick={() => void save()}>
-                          {t('queue.save')} <Kbd>{mod}↵</Kbd>
+                          {t('queue.save')} <Kbd>{formatChord('mod+Enter', platform)}</Kbd>
                         </Button>
                       </div>
                     </>
@@ -1100,40 +1253,22 @@ function QueuedList({ session, isMac, mod, onKept }: { session: Session; isMac: 
   )
 }
 
-function PlanBar({ request, sessionId, mod }: { request: Extract<ApprovalRequest, { kind: 'plan' }>; sessionId: string; mod: string }) {
-  const t = useT()
-  const respond = (handOff: boolean) =>
-    void attempt(() => api.respondApproval(request.id, { kind: 'plan', approve: !handOff, handOff }))
-  return (
-    <div className="plan-bar">
-      <ClipboardList size={14} />
-      <span>{t('composer.planBar.ready')}</span>
-      <span className="spacer" />
-      <Button size="sm" icon={<Copy size={12} />} onClick={() => void navigator.clipboard.writeText(request.plan)}>
-        {t('common.copy')}
-      </Button>
-      <Button size="sm" title={t('composer.planBar.handOffTitle')} onClick={() => respond(true)} data-session={sessionId}>
-        {t('composer.planBar.handOff')}
-      </Button>
-      <Button size="sm" variant="primary" title={t('composer.planBar.approveTitle', { key: `${mod}⇧↵` })} onClick={() => respond(false)}>
-        {t('composer.planBar.approve')} <Kbd>{mod}⇧↵</Kbd>
-      </Button>
-    </div>
-  )
-}
-
-/** "Also try with…": the same prompt in sibling workspaces with other models. Needs every tab idle, and says why when it can't. */
-function AlsoTry({ workspace, session, text }: { workspace: Workspace; session: Session; text: string }) {
+/**
+ * "Also try with other models…" in the send menu: the same prompt in sibling workspaces with other models. Needs every tab
+ * idle; when it can't, the item says why as its second line, which the keyboard and screen readers reach too.
+ */
+function AlsoTryItem({ workspace, session, text }: { workspace: Workspace; session: Session; text: string }) {
   const t = useT()
   const reason = useStoreMemo((s) => [workspace, s.snapshot!.sessions, t], ([ws, sessions, tr]) => compareBlockFor(ws, sessions, tr))
   return (
-    <LinkButton
-      size="sm"
+    <MenuItem
+      icon={<Users size={14} />}
       disabled={Boolean(reason)}
-      title={reason ?? t('composer.alsoTry.title')}
-      onClick={() => openCompareDialog({ workspaceId: workspace.id, sessionId: session.id, prompt: text })}
+      reason={reason ?? undefined}
+      description={reason ? undefined : t('composer.alsoTry.title')}
+      onSelect={() => openCompareDialog({ workspaceId: workspace.id, sessionId: session.id, prompt: text })}
     >
-      <Users size={12} /> {t('composer.alsoTry.label')}
-    </LinkButton>
+      {t('composer.alsoTry.menu')}
+    </MenuItem>
   )
 }

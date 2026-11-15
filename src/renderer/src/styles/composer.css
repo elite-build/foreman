@@ -1,7 +1,7 @@
 /* ---- composer ---- */
 
 .composer {
-  padding: 4px 24px 16px;
+  padding: 4px 24px 8px;
   max-width: 828px;
   width: 100%;
   margin: 0 auto;
@@ -22,36 +22,48 @@
   display: block;
   width: 100%;
 }
-.composer-focus-hint {
-  position: absolute;
-  top: 10px;
-  right: 14px;
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-  pointer-events: none;
-}
-/* Keep the placeholder clear of the hint, and drop the hint when there's no room. */
-.composer-box {
-  container-type: inline-size;
-}
-.composer-box:has(.composer-focus-hint) > .ui-textarea {
-  padding-right: 96px;
-}
-@container (max-width: 520px) {
-  .composer-focus-hint {
-    display: none;
-  }
-  .composer-box:has(.composer-focus-hint) > .ui-textarea {
-    padding-right: 0;
-  }
-}
+/* The toolbar: how it runs (agent and model, Plan) | what goes in (Add) | spacer | context and send. Groups sit 12px
+   apart and their controls 4px. At the chat's usual width it is one row, running too. Only when a group can't fit (a
+   narrow window, 200% zoom) does the row break, between groups (a group alone on a row too wide for it folds), and
+   context and send stay together at the right. */
 .composer-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 6px 12px;
   margin-top: 8px;
   cursor: default;
+}
+.composer-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.composer-group.composer-send {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-left: auto;
+}
+/* What Enter does, under the box: Kbd and words, in the same words as the send button. */
+.composer-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  min-height: 16px;
+  margin-top: 4px;
+  padding: 0 2px 0 15px;
+}
+.composer-keys > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.composer-keys > .composer-keys-note {
+  white-space: normal;
 }
 /* The "start a new chat with this template's model" line above the box. */
 .composer-newchat {
@@ -68,4 +80,40 @@
 .composer-notice-icon {
   margin-right: 6px;
   vertical-align: -2px;
+}
+
+/* A short window (200% zoom, 430 CSS px tall): the composer starts as one line, the text beside the agent, the context
+   and Send, so the transcript keeps the height. Add, the workspace's tools, a Plan chip that is off and the key hints
+   come back with focus, when the box grows to its usual rows. Plan mode on stays in sight. Layout only. */
+@media (max-height: 520px) {
+  .composer-box:not(:focus-within):not(.dragging) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  /* Attachments and terminal snippets keep their own rows above the line. */
+  .composer-box:not(:focus-within):not(.dragging) > :not(.ui-textarea):not(.composer-toolbar) {
+    flex-basis: 100%;
+  }
+  .composer-box:not(:focus-within):not(.dragging) > .ui-textarea {
+    flex: 1 1 160px;
+    min-width: 0;
+    max-height: 1lh;
+    overflow: hidden;
+  }
+  .composer-box:not(:focus-within):not(.dragging) > .composer-toolbar {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    margin-top: 0;
+  }
+  .composer-box:not(:focus-within):not(.dragging) .composer-toolbar > .composer-group:not(:first-child):not(.composer-send),
+  .composer-box:not(:focus-within):not(.dragging) .composer-toolbar > .composer-group:first-child > :not(:first-child):not([aria-pressed='true']) {
+    display: none;
+  }
+  .composer-box:not(:focus-within) + .composer-keys {
+    display: none;
+  }
 }

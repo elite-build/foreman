@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultEmployee, type EmployeeDefinition, type EmployeeSummary, type EmployeeView } from '../src/shared/employees'
 import type { EmployeeTrigger, EmployeeTriggerState } from '../src/shared/employeeTriggers'
 import { TriggersField, TriggersTab } from '../src/renderer/src/components/employees/EmployeeTriggers'
-import { ApproveDialog } from '../src/renderer/src/components/employees/ApproveDialog'
+import { EmployeeReview } from '../src/renderer/src/components/employees/EmployeePage'
 import { TeamPage } from '../src/renderer/src/components/employees/TeamPage'
 import { ScheduleOverview } from '../src/renderer/src/components/automations/details'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
@@ -167,13 +167,20 @@ describe('the Edit view’s Triggers section', () => {
 })
 
 describe('triggers elsewhere', () => {
-  it('lists them in words in the approval plan, with what the approval doesn’t cover', () => {
-    render(<ApproveDialog definition={max([MONDAYS])} memory="acme-memory" names={(id) => id} onConfirm={async () => undefined} onClose={() => undefined} />)
-    const text = screen.getByRole('dialog').textContent ?? ''
-    expect(text).toContain('Every Mon at 09:00 (Europe/London) · Draft the week’s update · in site · missed times are skipped')
-    expect(text).toContain('A trigger other than these, or a change to one of them.')
-    expect(text).toContain('Two runs in a row that don’t finish pause it until you resume it.')
-    expect(text).not.toContain('None: it runs only when asked.')
+  it('says them in words under When it runs in a draft’s plan, leaves a trigger that is off out, and says what the approval doesn’t cover', () => {
+    const d = max([MONDAYS, OFF])
+    const { unmount } = render(<EmployeeReview employee={view({ state: 'draft', definition: d })} definition={d} memory="acme-memory" organization="Acme" names={(id) => id} />)
+    const when = screen.getByText('When it runs').nextElementSibling as HTMLElement
+    expect(when.textContent).toContain('Every Mon at 09:00 (Europe/London), and when you ask · at most ')
+    expect(when.textContent).not.toMatch(/Every 90 minutes|Every 1.5/)
+    expect(when.textContent).not.toContain('Only when you ask')
+    expect(screen.getByText('A trigger other than these, or a change to one of them.')).toBeTruthy()
+    unmount()
+    // With none, it runs only when asked, and a new trigger is what the approval doesn't cover.
+    const none = max()
+    render(<EmployeeReview employee={view({ state: 'draft', definition: none, triggers: [] })} definition={none} memory="acme-memory" organization="Acme" names={(id) => id} />)
+    expect((screen.getByText('When it runs').nextElementSibling as HTMLElement).textContent).toMatch(/^Only when you ask · /)
+    expect(screen.getByText('A new trigger or schedule.')).toBeTruthy()
   })
 
   it('lists them with the schedules in Automations, read-only, with the hat and name and Edit on its page', async () => {

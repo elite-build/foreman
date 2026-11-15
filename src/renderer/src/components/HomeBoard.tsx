@@ -4,7 +4,7 @@
 // sets the manual status, as the sidebar's right-click Status menu does, and lanes
 // worked out from live facts refuse drops.
 import { Ban, Check, CircleHelp, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Info, Kanban, List, X } from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { modelInfo } from '../../../shared/agents'
 import { boardLanes, canDrop, DEFAULT_DONE_DAYS, dropStatus, keyboardLane, laneAfterDrop, moveChanges, prUnknown, type BoardOptions, type Lane, type Placement } from '../../../shared/board'
 import { prGlyph } from '../../../shared/attention'
@@ -16,8 +16,11 @@ import type { Locale } from '../../../shared/i18n'
 import { timeWaited } from '../../../shared/i18n/time'
 import { api, attempt, showRepoHome, showToast, useStore } from '../store'
 import { liveRepo, type Triage } from '../triage'
+import { workspaceRepos } from '../../../shared/organizations'
+import type { NeedsYouItem } from '../../../shared/needsYou'
 import { AgentIcon } from './composer/AgentPicker'
-import { ActionRow, Card, HoverCard, LinkButton, Segmented, Select, Spinner, Status, type StatusTone } from '../ui'
+import { employeeOf, itemSub, itemTitle, kindTag, openEmployeeItem } from './needsYouWords'
+import { ActionRow, Card, HardHat, HoverCard, LinkButton, Segmented, Select, Spinner, Status, Tag, type HardHatColour, type StatusTone } from '../ui'
 import { openTriaged } from './Sidebar'
 import { PrGlyphView } from './Attention'
 import { CloudGlyph } from './cloud/CloudBits'
@@ -53,7 +56,10 @@ export function useHomeLayout(): { enabled: boolean; layout: HomeLayout } {
 export function HomeLayoutControls() {
   const t = useT()
   const { layout } = useHomeLayout()
-  const repos = useStore((s) => s.snapshot!.repos)
+  const allRepos = useStore((s) => s.snapshot!.repos)
+  const organizations = useStore((s) => s.snapshot!.organizations)
+  // An organization's memory repository has no workspaces to filter to (docs/ai-employees.md §4).
+  const repos = useMemo(() => workspaceRepos(allRepos, organizations), [allRepos, organizations])
   const repoId = useStore((s) => liveRepo(s.snapshot!, s.sidebarView.repo))
   return (
     <>
@@ -61,7 +67,7 @@ export function HomeLayoutControls() {
         <Select
           label={t('home.board.repoFilter')}
           width={170}
-          value={repoId ?? ''}
+          value={repoId && repos.some((r) => r.id === repoId) ? repoId : ''}
           options={[{ value: '', label: t('home.board.allRepos') }, ...repos.map((r) => ({ value: r.id, label: r.name }))]}
           onChange={(id) => showRepoHome(id || null)}
         />
@@ -195,6 +201,7 @@ function Reason({ p, sessions }: { p: Placement; sessions: Session[] }) {
 function BoardCard({
   p,
   repoName,
+  space,
   sessions,
   now,
   dragging,
@@ -204,6 +211,8 @@ function BoardCard({
 }: {
   p: Placement
   repoName?: string
+  // Its space, while Home shows every space.
+  space?: string
   sessions: Session[]
   now: number
   // Some card is being dragged: the "why" card stays closed.
@@ -223,6 +232,9 @@ function BoardCard({
   const age = shortAge(p.t.since, now, t.locale)
   const glyph = prGlyph(ws)
   const lane = p.lane as Lane
+  // An employee's run says whose it is, by hat (docs/ai-employees.md §10); its label says what it asks.
+  const snapshot = useStore((s) => s.snapshot!)
+  const employee = ws.startedBy?.via === 'employee' ? employeeOf(snapshot, ws.startedBy) : undefined
   return (
     <HoverCard
       label={t('home.board.why', { name: ws.name, lane: t(`home.board.lane.${lane}`) })}
@@ -263,6 +275,11 @@ function BoardCard({
         >
           <span className="bcard-top">
             <CloudGlyph ws={ws} size={12} />
+            {employee && (
+              <span className="bcard-hat">
+                <HardHat colour={employee.colour as HardHatColour} size={16} label={employee.name} />
+              </span>
+            )}
             <span className="bcard-name">{ws.name}</span>
             {ws.diffStat && (ws.diffStat.additions > 0 || ws.diffStat.deletions > 0) && (
               <span className="diff-badge">
@@ -293,6 +310,11 @@ function BoardCard({
               </span>
             ))}
             <span className="bcard-age">{ready ? (readAge ? t('home.board.readAgo', { age: readAge }) : t('home.board.readJustNow')) : age}</span>
+            {space && (
+              <Tag tone="outline" className="bcard-space">
+                {space}
+              </Tag>
+            )}
           </span>
         </ActionRow>
       )}
@@ -429,7 +451,53 @@ function WhyBody({ p, lane, sessions, now }: { p: Placement; lane: Lane; session
 
 // ---- the board ----
 
-export function HomeBoard({ items, repoNames, now }: { items: Triage[]; repoNames?: Map<string, string>; now: number }) {
+/**
+ * An employee's decision on the Needs you lane (docs/ai-employees.md §10): the hat and what it asks or wants, where, its
+ * kind with its state shape (and "Leaves this computer" for an outward action), how long it has waited and its space. A
+ * card that opens the Team page, where it is decided; it isn't a workspace, so it isn't dragged.
+ */
+function NeedsCard({ item, repoName, space }: { item: NeedsYouItem; repoName?: string; space?: string }) {
+  const t = useT()
+  const snapshot = useStore((s) => s.snapshot!)
+  const employee = employeeOf(snapshot, item)
+  const tag = kindTag(item, t)
+  const sub = itemSub(item, t)
+  const age = item.since ? timeWaited(item.since, t.locale) : null
+  return (
+    <ActionRow card className="bcard needs-card" onPress={() => openEmployeeItem(item)} primaryProps={{ className: 'bcard-flow' }}>
+      <span className="bcard-top">
+        {employee && (
+          <span className="bcard-hat">
+            <HardHat colour={employee.colour as HardHatColour} size={16} />
+          </span>
+        )}
+        <span className="bcard-name">{itemTitle(item, snapshot, t)}</span>
+      </span>
+      {repoName && <span className="bcard-meta">{repoName}</span>}
+      <span className={`bcard-reason ${tag?.tone === 'error' ? 'red' : 'amber'}`}>
+        <Status compact aria-hidden tone={tag?.tone === 'error' ? 'error' : 'warn'} label={tag?.label ?? ''} />
+        <span className="bcard-reason-text">
+          {tag?.label}
+          {sub.length > 0 && <span className="bcard-detail"> · {sub.join(' · ')}</span>}
+        </span>
+      </span>
+      <span className="bcard-foot">
+        <span className="bcard-age">{age}</span>
+        {space && (
+          <Tag tone="outline" className="bcard-space">
+            {space}
+          </Tag>
+        )}
+      </span>
+    </ActionRow>
+  )
+}
+
+/**
+ * `needs`: what needs the person that isn't a workspace card (an employee's question, held action, proposal or pause),
+ * on the Needs you lane with the workspaces, oldest first. `spaceOf`/`spaceName`: each card's space, while Home shows every one.
+ */
+export function HomeBoard({ items, needs = [], repoNames, spaceOf, spaceName, now }: { items: Triage[]; needs?: NeedsYouItem[]; repoNames?: Map<string, string>; spaceOf?: (repoId: string) => string | undefined; spaceName?: (space: string | null) => string | undefined; now: number }) {
   const t = useT()
   const doneDays = useStore((s) => s.snapshot!.settings.homeDoneDays) || DEFAULT_DONE_DAYS
   const sessions = useStore((s) => s.snapshot!.sessions)
@@ -505,6 +573,11 @@ export function HomeBoard({ items, repoNames, now }: { items: Triage[]; repoName
       <div className={`board ${drag ? 'dragging' : ''}`}>
         {shown.map((lane) => {
           const cards = board.lanes[lane]
+          // The Needs you lane holds an employee's decisions too, with the workspaces, oldest first.
+          const decisions = lane === 'needs-you' ? needs : []
+          type Entry = { since: string; p?: Placement; item?: NeedsYouItem }
+          const ordered: Entry[] = [...cards.map((p): Entry => ({ since: p.t.since, p })), ...decisions.map((item): Entry => ({ since: item.since, item }))].sort((a, b) => a.since.localeCompare(b.since))
+          const count = cards.length + decisions.length
           const dropClass = !drag ? '' : !canDrop(lane) ? 'drop-no' : over === lane ? 'drop-ok' : 'drop-maybe'
           const hint = lane === 'done' ? t('home.board.hint.done', { count: doneDays }) : t(`home.board.hint.${lane}`)
           return (
@@ -512,7 +585,7 @@ export function HomeBoard({ items, repoNames, now }: { items: Triage[]; repoName
               <header className="blane-head">
                 <Status compact aria-hidden tone={LANE_TONE[LANE_DOT[lane]]} label={t(`home.board.lane.${lane}`)} className="blane-dot" />
                 <span className="blane-title">{t(`home.board.lane.${lane}`)}</span>
-                <span className="blane-count">{cards.length}</span>
+                <span className="blane-count">{count}</span>
                 <span className="blane-hint">{hint}</span>
               </header>
               <div className="blane-body">
@@ -527,23 +600,28 @@ export function HomeBoard({ items, repoNames, now }: { items: Triage[]; repoName
                     <span className="drop-slot-text">{t('home.board.dropHere', { lane: t(`home.board.lane.${lane}`) })}</span>
                   </Card>
                 )}
-                {cards.map((p) => (
-                  <BoardCard
-                    key={p.t.ws.id}
-                    p={p}
-                    repoName={repoNames?.get(p.t.ws.repoId)}
-                    sessions={sessions}
-                    now={now}
-                    dragging={Boolean(drag)}
-                    onDragStart={() => setDrag({ p, from: lane })}
-                    onDragEnd={() => {
-                      setDrag(null)
-                      setOver(null)
-                    }}
-                    onMove={(dir) => void keyMove(p, lane, dir)}
-                  />
-                ))}
-                {!cards.length && !drag && <div className="blane-empty">{t('home.board.empty')}</div>}
+                {ordered.map(({ p, item }) =>
+                  p ? (
+                    <BoardCard
+                      key={p.t.ws.id}
+                      p={p}
+                      repoName={repoNames?.get(p.t.ws.repoId)}
+                      space={spaceOf?.(p.t.ws.repoId)}
+                      sessions={sessions}
+                      now={now}
+                      dragging={Boolean(drag)}
+                      onDragStart={() => setDrag({ p, from: lane })}
+                      onDragEnd={() => {
+                        setDrag(null)
+                        setOver(null)
+                      }}
+                      onMove={(dir) => void keyMove(p, lane, dir)}
+                    />
+                  ) : (
+                    item && <NeedsCard key={item.id} item={item} repoName={item.repoId ? repoNames?.get(item.repoId) : undefined} space={spaceName?.(item.space)} />
+                  )
+                )}
+                {!count && !drag && <div className="blane-empty">{t('home.board.empty')}</div>}
               </div>
             </section>
           )

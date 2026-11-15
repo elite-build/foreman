@@ -1,20 +1,23 @@
 // The workspace's Flow tab (docs/loops-and-graphs.md, "Running a flow" and "Showing a graph"): the run this workspace
-// belongs to, its loop bounds, Stop, the run drawn as a diagram through one of four lenses (Run · Context · Memory ·
+// belongs to under a header (its flow, how it ended or where it is, when, how long, what it cost; Stop or Run again),
+// its loop bounds in the bar above the graph, the run drawn as a diagram through one of four lenses (Run · Context · Memory ·
 // Data) with what that lens adds in words, and its steps in run order with their facts. The step list is the diagram's
 // accessible equivalent: each card's last line follows the lens. A step opens the chat tab, the checks or the
 // workspace it stands for (a run that makes more than one workspace shows it in each). Its full screen, at the end of
 // the lens row rather than on the graph (where the graph's scroll bar could cover it), puts it in the workspace's middle,
 // drawn left to right where it has the room, with the chat in the side panel (O3); there the same button puts it back.
-import { Maximize2, Minimize2, Square } from 'lucide-react'
+import { Maximize2, Minimize2, MoreHorizontal, RotateCcw, Square, Zap } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { FLOW_LENSES, LENS_WORD, flowGraph, type FlowLens } from '../../../shared/flowGraph'
-import { FLOW_COMPACT_ABOVE, currentLoopBounds, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
-import { formatCompact } from '../../../shared/i18n/time'
+import { FLOW_LENSES, LENS_WORD, durationWords, flowGraph, type FlowLens } from '../../../shared/flowGraph'
+import { FLOW_COMPACT_ABOVE, isActiveRun, parseFlow, runForWorkspace, type Flow, type FlowRun, type FlowRunStep } from '../../../shared/flows'
+import { formatCompact, timeAgo } from '../../../shared/i18n/time'
 import type { ApprovalRequest } from '../../../shared/types'
 import { useT, type RendererT } from '../i18n'
-import { api, attempt, modKey, selectSession, selectWorkspace, setWorkspaceFocus, showChecksPanel, useStore } from '../store'
-import { Button, Callout, Card, CardButton, Meter, Segmented, Status, Tag } from '../ui'
-import { STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
+import { formatChord } from '../shortcuts'
+import { api, attempt, openAutomations, openFlowRun, selectSession, selectWorkspace, setWorkspaceFocus, showChecksPanel, useStore } from '../store'
+import { Button, Callout, Card, CardButton, MenuButton, MenuItem, Meter, Segmented, Status, Tag } from '../ui'
+import { flowTitle } from './automations/FlowStartFields'
+import { RUN_STATE, RUN_TONE, STEP_KIND, STEP_STATE, STEP_TONE } from './automations/flowRunWords'
 import { FlowLensDiagram } from './FlowDiagram'
 import './flowRun.css'
 
@@ -78,7 +81,7 @@ export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; fo
   const flow = useRunFlow(run)
   const workspaces = useStore((s) => s.snapshot?.workspaces)
   const names = useMemo(() => Object.fromEntries((workspaces ?? []).map((w) => [w.id, w.name])), [workspaces])
-  const key = `${modKey(useStore((s) => s.snapshot?.platform))}⇧K`
+  const key = formatChord('mod+shift+KeyK', useStore((s) => s.snapshot?.platform))
   const [box, setBox] = useState<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
   useEffect(() => {
@@ -89,33 +92,9 @@ export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; fo
   }, [focused, box])
   if (!run) return null
   const active = isActiveRun(run)
-  const bounds = active ? currentLoopBounds(run) : []
-  const reason = !!run.reason && (active || run.state === 'completed')
   return (
     <div ref={setBox} className={focused ? 'flow-run flow-run-focused' : 'flow-run'}>
-      {(active || reason) && (
-        <div className="flow-run-head">
-          {bounds.map((b) => (
-            <span key={b.loop} className="faint small">
-              {[
-                b.maxIterations ? t('flowRun.panel.loopIterationsMax', { loop: b.loop, iteration: b.iteration, max: b.maxIterations }) : t('flowRun.panel.loopIterations', { loop: b.loop, iteration: b.iteration }),
-                b.maxMinutes ? t('flowRun.panel.loopMinutes', { minutes: b.minutes, max: b.maxMinutes }) : null,
-                b.maxCost !== undefined ? t('flowRun.panel.loopCost', { cost: (b.cost ?? 0).toFixed(2), max: b.maxCost.toFixed(2) }) : null
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </span>
-          ))}
-          {reason && <span className="small">{run.reason}</span>}
-          {active && (
-            <span>
-              <Button size="sm" onClick={() => void attempt(() => api.stopFlowRun(run.id))}>
-                <Square size={12} aria-hidden /> {t('flowRun.panel.stop')}
-              </Button>
-            </span>
-          )}
-        </div>
-      )}
+      <RunHeader run={run} focused={focused} />
       <GateCard runId={run.id} />
       {!active && run.state !== 'completed' && run.reason && <StoppedCard workspaceId={workspaceId} run={run} />}
       <div className="flow-run-lens">
@@ -138,7 +117,7 @@ export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; fo
         direction={focused && width >= WIDE_ENOUGH ? 'LR' : 'TB'}
         onSelect={(id) => id && openStep(workspaceId, run, id)}
         fullScreen={null}
-        className={focused ? 'flow-graph-focused' : undefined}
+        grow
       />
       {lens === 'context' && <ContextRows run={run} />}
       {lens === 'memory' && <MemoryRows run={run} flow={flow} />}
@@ -154,6 +133,62 @@ export function FlowRunPanel({ workspaceId, focused }: { workspaceId: string; fo
       ) : (
         <p className="faint small">{t('flowRun.panel.empty')}</p>
       )}
+    </div>
+  )
+}
+
+/**
+ * The run at a glance, over the lens row: which flow ran, how it ended (or where it is) as a glyph and a word, when it
+ * started, how long it took and what its turns cost, with Stop run while it is going and Run again once it isn't. Only
+ * what the run records: the cost is the steps' costUsd added up (Claude's turns say theirs; a run with none shows none).
+ */
+function RunHeader({ run, focused }: { run: FlowRun; focused?: boolean }) {
+  const t = useT()
+  const active = isActiveRun(run)
+  const title = flowTitle({ starter: run.flow.starter, name: run.flow.name }, t)
+  const costs = run.steps.filter((s) => s.costUsd !== undefined)
+  const cost = costs.length ? new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(costs.reduce((sum, s) => sum + s.costUsd!, 0)) : undefined
+  const took = run.endedAt ? Date.parse(run.endedAt) - Date.parse(run.startedAt) : undefined
+  // Where it is (a run going or waiting) or where it ended short; a completed run went all the way.
+  const at = active ? run.current?.step : run.state === 'completed' ? undefined : run.steps.at(-1)?.name
+  const ago = timeAgo(run.startedAt, t.locale)
+  const facts = [
+    active ? t('flowRun.header.started', { ago }) : ago,
+    !active && took !== undefined && Number.isFinite(took) ? t('flowRun.header.took', { duration: durationWords(took) }) : undefined,
+    cost && (active ? t('flowRun.header.soFar', { cost }) : cost)
+  ].filter(Boolean)
+  return (
+    <div className="flow-run-header">
+      <div className="flow-run-header-text">
+        {/* Under the workspace's h1 in the middle; under the side panel's tabs in the panel. */}
+        {focused ? <h2 className="flow-run-title">{title}</h2> : <h3 className="flow-run-title">{title}</h3>}
+        <p className="flow-run-facts">
+          <Status tone={RUN_TONE[run.state]} label={t(RUN_STATE[run.state])} />
+          {at && <span className="small">{t('flowRun.header.at', { step: at })}</span>}
+          {facts.map((fact) => (
+            <span key={fact} className="flow-run-fact faint small">
+              {` · ${fact}`}
+            </span>
+          ))}
+        </p>
+        {run.reason && (active || run.state === 'completed') && <p className="flow-run-reason small">{run.reason}</p>}
+      </div>
+      <div className="flow-run-header-actions">
+        {active ? (
+          <Button size="sm" icon={<Square size={12} />} onClick={() => void attempt(() => api.stopFlowRun(run.id))}>
+            {t('flowRun.panel.stop')}
+          </Button>
+        ) : (
+          <Button size="sm" icon={<RotateCcw size={12} />} onClick={() => openFlowRun(run.flow.id, { repoId: run.repoId, baseBranch: run.baseBranch })}>
+            {t('flowRun.header.runAgain')}
+          </Button>
+        )}
+        <MenuButton look="icon" label={t('flowRun.header.more', { flow: title })} trigger={<MoreHorizontal size={14} />}>
+          <MenuItem icon={<Zap size={14} />} onSelect={() => openAutomations(`f:${run.flow.id}`)}>
+            {t('flowRun.header.openInAutomations')}
+          </MenuItem>
+        </MenuButton>
+      </div>
     </div>
   )
 }

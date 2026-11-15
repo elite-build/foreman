@@ -94,7 +94,7 @@ describe('the notification for a waiting sign-in', () => {
       current = info([waiting('a')])
       core.agentAccessChanged()
       expect(events.at(-2)).toEqual({ type: 'agent-access', info: current })
-      expect(notifies()).toEqual([{ type: 'notify', workspaceId: '', sessionId: '', title: 'An agent asks to sign in to Foreman', body: expect.stringContaining('Agent a is waiting in Settings → Data & devices → Agents on this computer'), action: 'agent-access', kind: 'info' }])
+      expect(notifies()).toEqual([{ type: 'notify', workspaceId: '', sessionId: '', title: 'An agent asks to sign in to Foreman', body: expect.stringContaining('Agent a is waiting in Settings → Devices → Agents on this computer'), action: 'agent-access', kind: 'info' }])
 
       current = info([waiting('a'), waiting('b')])
       core.agentAccessChanged()

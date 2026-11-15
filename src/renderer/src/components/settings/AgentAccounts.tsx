@@ -1,20 +1,20 @@
 // #130: Settings → Agents → Claude Code, Codex and Cursor: the agent's other accounts ("Claude work" beside the default
 // sign-in), each with its own config folder, sign-in, key, binary and launch flags, and the rule for moving a chat from
 // one account to another. Main checks and saves every field (saveAgentInstance).
-import { FolderOpen, Plus } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { FolderOpen, KeyRound, LogIn, MoreHorizontal, Plus } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { catalogAgent, loginCommandLabel } from '../../../../shared/agentCatalog'
 import { AGENTS } from '../../../../shared/agents'
 import { DEFAULT_MOVE_RULE, INSTANCE_FIELDS, instancesFor, joinArgs, splitArgs, type AgentInstance, type InstanceAgent, type MoveRule } from '../../../../shared/agentInstances'
 import type { AgentAuthMode } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api, attempt, showToast, useStore } from '../../store'
-import { Button, Callout, Field, IconButton, Select, Spinner, Status, Tag, TextInput } from '../../ui'
+import { Button, Callout, Field, IconButton, MenuButton, MenuItem, Select, Spinner, Status, Tag, TextInput } from '../../ui'
 import { AgentDialog } from './AgentDialog'
 import { ApiKeyField, AuthCards, authOptions } from './AgentAuth'
 import { AgentStatusBlock, statusView, useAgentStatus } from './AgentStatusCard'
 import { LoginTerminal } from './LoginTerminal'
-import { Row, saveSettings, Section, useSettings } from './controls'
+import { CONTROL_WIDTH, Row, saveSettings, Section, useSettings } from './controls'
 
 /** The Accounts section: the default account, the others, Add account, and the moving rule. */
 export function AgentAccounts({ agent }: { agent: InstanceAgent }) {
@@ -23,6 +23,12 @@ export function AgentAccounts({ agent }: { agent: InstanceAgent }) {
   const accounts = instancesFor(settings.agentInstances, agent)
   // null: closed; 'new': adding one; otherwise the id of the account being edited.
   const [editing, setEditing] = useState<string | null>(null)
+  // Opened from an account's Sign in (or Add key): the dialog starts at its sign-in.
+  const [toSignIn, setToSignIn] = useState(false)
+  const edit = (id: string, signIn = false) => {
+    setToSignIn(signIn)
+    setEditing(id)
+  }
   const name = AGENTS[agent].label
   const rule = settings.agentPrefs?.[agent]?.moveChats ?? DEFAULT_MOVE_RULE
 
@@ -42,10 +48,10 @@ export function AgentAccounts({ agent }: { agent: InstanceAgent }) {
     <Section title={t('agentAccounts.title')} description={t('agentAccounts.description', { agent: name })}>
       <Row id={`agent-accounts-${agent}`} label={t('agentAccounts.default')} help={t('agentAccounts.defaultHelp')} />
       {accounts.map((account) => (
-        <AccountRow key={account.id} account={account} onEdit={() => setEditing(account.id)} onRemove={() => void remove(account)} />
+        <AccountRow key={account.id} account={account} onEdit={(signIn) => edit(account.id, signIn)} onRemove={() => void remove(account)} />
       ))}
       <div className="set-pad">
-        <Button size="sm" icon={<Plus size={13} />} onClick={() => setEditing('new')}>
+        <Button size="sm" icon={<Plus size={13} />} onClick={() => edit('new')}>
           {t('agentAccounts.add')}
         </Button>
       </div>
@@ -55,7 +61,7 @@ export function AgentAccounts({ agent }: { agent: InstanceAgent }) {
             <Select<MoveRule>
               {...control}
               label={t('agentAccounts.rule.label')}
-              width={260}
+              width={CONTROL_WIDTH}
               value={rule}
               options={[
                 { value: 'never', label: t('agentAccounts.rule.never') },
@@ -66,13 +72,18 @@ export function AgentAccounts({ agent }: { agent: InstanceAgent }) {
           )}
         </Row>
       )}
-      {editing && <AccountDialog agent={agent} id={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onCreated={(id) => setEditing(id)} />}
+      {editing && (
+        <AccountDialog agent={agent} id={editing === 'new' ? undefined : editing} signIn={toSignIn} onClose={() => setEditing(null)} onCreated={(id) => edit(id, true)} />
+      )}
     </Section>
   )
 }
 
-/** One account: its name, where it keeps its sign-in, whether it's connected, Edit and Remove. */
-function AccountRow({ account, onEdit, onRemove }: { account: AgentInstance; onEdit: () => void; onRemove: () => void }) {
+/**
+ * One account: its name, where it keeps its sign-in, whether it's connected. One that isn't carries the button that fixes
+ * it (Sign in, or Add key); Edit and Remove are in its ⋯ menu.
+ */
+function AccountRow({ account, onEdit, onRemove }: { account: AgentInstance; onEdit: (signIn?: boolean) => void; onRemove: () => void }) {
   const t = useT()
   const hint = useStore((s) => s.snapshot!.instanceKeyHints?.[account.id])
   const state = useAgentStatus(account.agent, [account.auth, account.home ?? '', account.path ?? '', hint ?? ''].join('\n'), false, account.id)
@@ -90,12 +101,21 @@ function AccountRow({ account, onEdit, onRemove }: { account: AgentInstance; onE
       }
     >
       <div className="ag-account-actions">
-        <Button size="sm" onClick={onEdit}>
-          {t('agentAccounts.edit')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onRemove}>
-          {t('agentAccounts.remove')}
-        </Button>
+        {view && !view.connected && (
+          <Button
+            size="sm"
+            variant="primary"
+            className="ag-account-fix"
+            icon={account.auth === 'apiKey' ? <KeyRound size={13} /> : <LogIn size={13} />}
+            onClick={() => onEdit(true)}
+          >
+            {account.auth === 'apiKey' ? t('agentAccounts.addKey') : t('agentReadiness.signIn')}
+          </Button>
+        )}
+        <MenuButton label={t('agentAccounts.more', { label: account.label })} look="icon" trigger={<MoreHorizontal size={14} aria-hidden />}>
+          <MenuItem onSelect={() => onEdit()}>{t('agentAccounts.edit')}</MenuItem>
+          <MenuItem onSelect={onRemove}>{t('agentAccounts.remove')}</MenuItem>
+        </MenuButton>
       </div>
     </Row>
   )
@@ -121,7 +141,7 @@ const draftOf = (account: AgentInstance | undefined, agent: InstanceAgent): Draf
  * Add or edit an account. The details save together; once the account exists, its sign-in follows: a Login terminal
  * in its config folder, or its own API key.
  */
-function AccountDialog({ agent, id, onClose, onCreated }: { agent: InstanceAgent; id?: string; onClose: () => void; onCreated: (id: string) => void }) {
+function AccountDialog({ agent, id, signIn, onClose, onCreated }: { agent: InstanceAgent; id?: string; signIn?: boolean; onClose: () => void; onCreated: (id: string) => void }) {
   const t = useT()
   const settings = useSettings()
   const account = id ? settings.agentInstances.find((i) => i.id === id) : undefined
@@ -219,19 +239,26 @@ function AccountDialog({ agent, id, onClose, onCreated }: { agent: InstanceAgent
           </Field>
         )}
       </form>
-      {account && <AccountSignIn account={account} />}
+      {account && <AccountSignIn account={account} reveal={signIn} />}
     </AgentDialog>
   )
 }
 
 /** A saved account's sign-in: whether it's connected, and its Login terminal or API key. */
-function AccountSignIn({ account }: { account: AgentInstance }) {
+function AccountSignIn({ account, reveal }: { account: AgentInstance; reveal?: boolean }) {
   const t = useT()
+  const block = useRef<HTMLDivElement>(null)
+  // Opened to sign in: the sign-in is what to see first, below the account's details.
+  useEffect(() => {
+    if (reveal) block.current?.scrollIntoView?.({ block: 'start' })
+    // Once, as the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const hint = useStore((s) => s.snapshot!.instanceKeyHints?.[account.id])
   const state = useAgentStatus(account.agent, [account.auth, account.home ?? '', account.path ?? '', hint ?? ''].join('\n'), false, account.id)
   const view = statusView(account.agent, state, account.auth, hint !== undefined, t)
   return (
-    <div className="ag-account-signin">
+    <div ref={block} className="ag-account-signin">
       <h3>{t('agentAccounts.signIn', { label: account.label })}</h3>
       <AgentStatusBlock agent={account.agent} state={state} view={view} />
       {account.auth === 'apiKey' ? (

@@ -10,7 +10,7 @@ import { TerminalShellSection } from './ShellSettings'
 import { OpenInSection } from './OpenInSettings'
 import { UpdatesSection } from './UpdatesSection'
 import { Button, Listbox, Popover, Select, Status, type ListboxOption } from '../../ui'
-import { Page, resetSettings, Row, saveSettings, Section, ToggleRow, useSettings } from './controls'
+import { CONTROL_WIDTH, Page, Part, resetSettings, Row, saveSettings, Section, ToggleRow, useSettings } from './controls'
 
 const DEFAULTS = {
   language: 'system',
@@ -64,13 +64,13 @@ export function GeneralPage() {
 
   return (
     <Page title={t('settings.general.title')}>
-      <Section title={t('settings.general.section.language')} description={t('settings.general.section.languageDesc')}>
+      <Section part="language" title={t('settings.general.section.language')} description={t('settings.general.section.languageDesc')}>
         <Row id="language" label={languageRowLabel(t)} help={t('settings.language.help')} onReset={reset('language')}>
           <LanguagePicker value={settings.language} onChange={(language) => void saveSettings({ language })} />
         </Row>
       </Section>
 
-      <Section title={t('settings.general.section.chat')}>
+      <Section part="chat" title={t('settings.general.section.chat')}>
         <Row
           id="message-send-key"
           label={t('settings.general.sendKey.label')}
@@ -81,7 +81,7 @@ export function GeneralPage() {
           {(control) => (
             <Select<Settings['messageSendKey']>
               {...control}
-              width={140}
+              width={CONTROL_WIDTH}
               value={settings.messageSendKey}
               options={[
                 { value: 'enter', label: 'Enter' },
@@ -101,7 +101,7 @@ export function GeneralPage() {
           {(control) => (
             <Select<Settings['followUpMode']>
               {...control}
-              width={140}
+              width={CONTROL_WIDTH}
               value={settings.followUpMode}
               options={[
                 { value: 'queue', label: t('settings.general.followUp.queue') },
@@ -146,7 +146,7 @@ export function GeneralPage() {
         />
       </Section>
 
-      <Section title={t('assistant.title')}>
+      <Section part="assistant" title={t('assistant.title')}>
         <ToggleRow
           id="assistant"
           label={t('assistant.settings.enabled')}
@@ -170,7 +170,7 @@ export function GeneralPage() {
         </Row>
       </Section>
 
-      <Section title={t('settings.general.section.notifications')}>
+      <Section part="notifications" title={t('settings.general.section.notifications')}>
         <ToggleRow
           id="notifications"
           label={t('settings.general.notifications.label')}
@@ -187,7 +187,7 @@ export function GeneralPage() {
             <>
               <Select<SoundSetting>
                 {...control}
-                width={150}
+                width={CONTROL_WIDTH}
                 value={settings.sound}
                 options={SOUNDS.map((s) => ({ value: s.value, label: t(s.label) }))}
                 onChange={(sound) => {
@@ -220,7 +220,7 @@ export function GeneralPage() {
         />
       </Section>
 
-      <Section title={t('settings.general.section.system')}>
+      <Section part="system" title={t('settings.general.section.system')}>
         {mac && <FullDiskAccessRow />}
         <ToggleRow
           id="keep-awake"
@@ -233,11 +233,19 @@ export function GeneralPage() {
         />
       </Section>
 
-      <UpdatesSection />
+      <Part id="updates" lead>
+        <UpdatesSection />
+      </Part>
 
-      <OpenInSection />
+      <Part id="open-in" lead>
+        <OpenInSection />
+      </Part>
 
-      {platform === 'win32' && <TerminalShellSection />}
+      {platform === 'win32' && (
+        <Part id="terminal" lead>
+          <TerminalShellSection />
+        </Part>
+      )}
     </Page>
   )
 }

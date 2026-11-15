@@ -237,7 +237,10 @@ describe('codex event mapping', () => {
     // Running command shown live, then finished in place.
     expect(r.log.find((l) => l.item.id === 't1:item_1' && l.transient)?.item).toMatchObject({ status: 'running', output: 'a.txt\n' })
     expect(byId('t1:item_1')).toMatchObject({ kind: 'tool', name: 'Bash', input: { command: 'ls' }, status: 'done', output: 'a.txt\nb.txt\n' })
-    expect(byId('t1:item_2')).toMatchObject({ name: 'Bash', status: 'error', output: 'Exit code 1' })
+    expect(byId('t1:item_2')).toMatchObject({ name: 'Bash', status: 'error', output: 'Exit code 1', exitCode: 1 })
+    // The exit code is kept for the chat's "Passed · exit 0"; a declined command has none.
+    expect(byId('t1:item_1')).toMatchObject({ exitCode: 0 })
+    expect(byId('t1:item_2b')).not.toHaveProperty('exitCode')
     expect(byId('t1:item_2b')).toMatchObject({ name: 'Bash', status: 'error', output: 'Declined.' })
 
     expect(byId('t1:item_3:0')).toMatchObject({ name: 'Write', input: { file_path: path.join(CWD, 'src/new.ts') }, status: 'done' })

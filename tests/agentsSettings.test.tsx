@@ -395,7 +395,7 @@ describe('#130: an agent’s other accounts', () => {
     delete fakeState.snapshot.instanceKeyHints
   })
 
-  it('lists them with named Edit and Remove buttons, and asks for each account’s own status', async () => {
+  it('lists them with Edit and Remove in a named menu, and asks for each account’s own status', async () => {
     const { AgentAccounts } = await import('../src/renderer/src/components/settings/AgentAccounts')
     fakeApi.removeAgentInstance = vi.fn(async () => undefined)
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -405,10 +405,26 @@ describe('#130: an agent’s other accounts', () => {
     expect(screen.getByText('Work')).toBeTruthy()
     expect(screen.getByText('/me/.claude-work')).toBeTruthy()
     await waitFor(() => expect(fakeApi.agentStatus).toHaveBeenCalledWith('claude', 'ai-work0001'))
-    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    // Signed in: nothing to fix, so no Sign in beside it.
+    await waitFor(() => expect(screen.getByText(/connected|signed in|found/i)).toBeTruthy())
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'More for Work' }))
+    expect(screen.getByRole('menuitem', { name: 'Edit' })).toBeTruthy()
+    await user.click(screen.getByRole('menuitem', { name: 'Remove' }))
     expect(confirm).toHaveBeenCalled()
     await waitFor(() => expect(fakeApi.removeAgentInstance).toHaveBeenCalledWith('ai-work0001'))
     confirm.mockRestore()
+  })
+
+  it('an account that isn’t signed in carries Sign in, which opens its dialog at the sign-in', async () => {
+    const { AgentAccounts } = await import('../src/renderer/src/components/settings/AgentAccounts')
+    fakeApi.agentStatus = vi.fn(async () => ({ agent: 'claude', installed: true, ready: false }))
+    const user = userEvent.setup()
+    render(<AgentAccounts agent="claude" />)
+    const signIn = await screen.findByRole('button', { name: 'Sign in' })
+    await user.click(signIn)
+    const dialog = screen.getByRole('dialog', { name: /Work/ })
+    expect(dialog.querySelector('.ag-account-signin')).toBeTruthy()
   })
 
   it('adds one from a named dialog, sending only what was filled in', async () => {

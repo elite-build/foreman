@@ -1,7 +1,7 @@
 // A button that opens a searchable list of saved prompt templates
 // (Automations) and hands the chosen one to its owner.
 import { ScrollText, Search } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { filterTemplates } from '../../../../shared/promptTemplates'
 import { layeredTemplates, REPO_TEMPLATE_DIR } from '../../../../shared/repoTemplates'
 import { commandText, filterCommands, repoCommands } from '../../../../shared/repoCommands'
@@ -9,6 +9,7 @@ import { staticCapabilities } from '../../../../shared/agentCatalog'
 import type { AgentKind } from '../../../../shared/agents'
 import type { PromptTemplate, SlashCommandInfo } from '../../../../shared/types'
 import { useT } from '../../i18n'
+import { formatChord } from '../../shortcuts'
 import { api, openAutomations, useStore } from '../../store'
 import { Combobox, IconButton, LinkButton, Popover, type ListboxOption } from '../../ui'
 
@@ -25,7 +26,8 @@ export function TemplatePicker({
   manageLink = true,
   repoId,
   session,
-  onPickCommand
+  onPickCommand,
+  anchor
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -44,10 +46,14 @@ export function TemplatePicker({
   // The chat this opens from. Claude chats also list the repo's commands and skills; picking one inserts its name.
   session?: { id: string; agent: AgentKind }
   onPickCommand?: (text: string) => void
+  // Opens from something else (the composer's Add menu) instead of its own icon button: render that, with this ref on it,
+  // so the list opens beside it and Escape gives focus back to it. The owner opens the picker with `open`.
+  anchor?: (ref: (el: HTMLButtonElement | null) => void) => ReactNode
 }) {
   const t = useT()
   const personal = useStore((s) => s.snapshot!.settings.promptTemplates)
   const fromRepo = useStore((s) => (repoId ? s.snapshot!.repoTemplates[repoId] : undefined))
+  const platform = useStore((s) => s.snapshot!.platform)
   const trigger = useRef<HTMLElement | null>(null)
   const [query, setQuery] = useState('')
   const templates = useMemo(() => layeredTemplates(personal, fromRepo ?? []).filter((e) => e.template.body.trim()), [personal, fromRepo])
@@ -131,18 +137,19 @@ export function TemplatePicker({
       side={side ?? (className?.includes('below') ? 'bottom' : 'top')}
       align={align ?? (className?.includes('align-right') ? 'end' : 'start')}
       panelClassName="template-picker"
-      trigger={({ ref, ...rest }) => (
-        <IconButton
-          {...rest}
-          ref={(el) => {
-            trigger.current = el
-            ref(el)
-          }}
-          label={title ?? t('templatePicker.title')}
-        >
-          <ScrollText size={14} />
-        </IconButton>
-      )}
+      trigger={({ ref, ...rest }) => {
+        const attach = (el: HTMLButtonElement | null) => {
+          trigger.current = el
+          ref(el)
+        }
+        return anchor ? (
+          anchor(attach)
+        ) : (
+          <IconButton {...rest} ref={attach} label={title ?? t('templatePicker.title')}>
+            <ScrollText size={14} />
+          </IconButton>
+        )
+      }}
     >
       <div className="picker-combo">
         <Combobox
@@ -161,7 +168,7 @@ export function TemplatePicker({
       </div>
       {manageLink && (
         <div className="picker-footer faint small">
-          <span>{t('templatePicker.keys')}</span>
+          <span>{t('templatePicker.keys', { arrows: [formatChord('ArrowUp', platform), formatChord('ArrowDown', platform)].join(platform === 'darwin' ? '' : '/'), enter: formatChord('Enter', platform) })}</span>
           <LinkButton
             size="sm"
             onClick={() => {

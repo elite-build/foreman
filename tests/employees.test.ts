@@ -191,7 +191,7 @@ describe('employees: the definition', () => {
     expect(employeeStatus({ ...e, problems: ['x'] })).toBe('invalid')
   })
 
-  it('Save as is keeps the person’s words as the instructions and leaves the name to them', () => {
+  it('Use my words keeps the person’s words as the instructions and leaves the name to them', () => {
     expect(saveAsIsText('  Writes release notes.\nAnd the changelog.  ', 'Casual')).toEqual({ name: '', role: '', description: 'Writes release notes. And the changelog.', personality: 'Casual', responsibilities: [], ask_me_about: '', instructions: 'Writes release notes.\nAnd the changelog.' })
   })
 })
@@ -478,7 +478,7 @@ describe('employees: the service', () => {
 
   it('says plainly when the answer isn’t a draft, and under Privacy mode sends nothing at all', async () => {
     const bad = await rig({ answer: 'Sure! Max is a marketer.' })
-    await expect(bad.employees.generate('o1', { description: 'x', traits: [] })).rejects.toThrow('The draft didn’t come back as expected: The answer wasn’t a JSON object. Try again, or use Save as is.')
+    await expect(bad.employees.generate('o1', { description: 'x', traits: [] })).rejects.toThrow('The draft didn’t come back as expected: The answer wasn’t a JSON object. Try again, or press Use my words.')
     const { employees, state, draft } = await rig()
     state.settings.privacyMode = true
     await expect(employees.generate('o1', { description: 'x', traits: [] })).rejects.toThrow(PRIVACY_MODE_ON)

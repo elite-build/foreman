@@ -1,4 +1,4 @@
-// Settings → Data & devices → Agents on this computer (docs/agent-access.md §9): the switch and the port, the address and
+// Settings → Devices → Agents on this computer (docs/agent-access.md §9): the switch and the port, the address and
 // how to add it to Claude Code or Codex, each sign-in waiting for the code its browser page shows, and the signed-in agents.
 import { Check, Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'

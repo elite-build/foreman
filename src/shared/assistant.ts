@@ -173,7 +173,8 @@ const PAGE_NAMES: Record<string, string> = {
   experimental: 'Experimental',
   advanced: 'Advanced',
   usage: 'Usage',
-  data: 'Data & devices',
+  data: 'Data',
+  devices: 'Devices',
   agents: 'Agents'
 }
 

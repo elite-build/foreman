@@ -3,6 +3,7 @@
 // an edit whose file changed meanwhile showing both versions, search, the callout for changes Foreman didn't make with
 // Accept, and the ways in from the space switcher and the Spaces page.
 import './domShims'
+import { readFileSync } from 'node:fs'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -68,19 +69,48 @@ describe('the Memory view', () => {
     ])
   })
 
-  it('lists employees’ proposals above the folders while any wait, with Keep and Retire', async () => {
+  it('lists employees’ proposals above the folders while any wait, with Discard and Add', async () => {
     setSnapshot({ state: 'ok', head: 'h1' })
     fakeState.snapshot.employees = { o1: { head: 'h1', employees: [{ id: 'e-max1', name: 'Max' }] } }
-    fakeState.snapshot.employeeWork = { o1: { tasks: [], runs: [], last: {}, revision: 1, proposals: [{ id: 'p1', orgId: 'o1', path: 'memory/org/decisions.md', kind: 'append', text: '- Use bun.\n', employeeId: 'e-max1', runId: 'r1', createdAt: '2026-11-13T10:00:00Z' }] } }
+    fakeState.snapshot.employeeWork = {
+      o1: { tasks: [], runs: [], last: {}, revision: 1, proposals: [{ id: 'p1', orgId: 'o1', path: 'memory/org/decisions.md', kind: 'append', text: '- Use bun.\n', employeeId: 'e-max1', runId: 'r1', why: 'We moved to bun.', createdAt: '2026-11-13T10:00:00Z' }] }
+    }
+    fakeApi.keepMemoryProposal = vi.fn(async () => ({ ok: true }))
     const { unmount } = render(<MemoryView organizationId="o1" />)
     const list = screen.getByRole('list', { name: 'Memory proposals · 1' })
-    expect(within(list).getByText('Max proposes adding to memory/org/decisions.md')).toBeTruthy()
-    await userEvent.click(within(list).getByRole('button', { name: 'Retire' }))
+    // A decision card: what it adds where, the employee's own reason, and the lines it adds.
+    const card = within(list).getByRole('group', { name: 'Add to decisions.md' })
+    expect(within(card).getByText('Memory change')).toBeTruthy()
+    expect(within(card).getByText('Max: “We moved to bun.”')).toBeTruthy()
+    expect(within(card).getByText('memory/org/decisions.md')).toBeTruthy()
+    expect(within(card).getByRole('list', { name: 'Proposed text for memory/org/decisions.md' }).textContent).toBe('+ Added: - Use bun.')
+    expect(within(card).queryByRole('button', { name: /^(Keep|Retire)/ })).toBeNull()
+    await userEvent.click(within(card).getByRole('button', { name: /^Discard/ }))
     expect(fakeApi.retireMemoryProposal).toHaveBeenCalledWith('o1', 'p1')
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('Discarded: nothing was written to memory/org/decisions.md.'))
+    await userEvent.click(within(card).getByRole('button', { name: /^Add to decisions\.md/ }))
+    expect(fakeApi.keepMemoryProposal).toHaveBeenCalledWith('o1', 'p1')
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('Added: memory/org/decisions.md is updated.'))
     unmount()
     fakeState.snapshot.employeeWork.o1.proposals = []
     render(<MemoryView organizationId="o1" />)
     expect(screen.queryByRole('list', { name: /Memory proposals/ })).toBeNull()
+  })
+
+  it('is captured for the screenshots once its tree is there, not while it still says Loading…', async () => {
+    // The fixture screen's selector (renderer/src/screens.ts) is what the capture waits for.
+    const source = readFileSync('src/renderer/src/screens.ts', 'utf8')
+    const selector = /^\s*memory: \(f\) => \{[\s\S]*?return '([^']+)'/m.exec(source)?.[1]
+    expect(selector).toBeTruthy()
+    let answer: (value: unknown) => void = () => undefined
+    fakeApi.memoryTree = vi.fn(() => new Promise((resolve) => (answer = resolve)))
+    setSnapshot({ state: 'ok', head: 'h1' })
+    render(<MemoryView organizationId="o1" />)
+    expect(screen.getByText('Loading…')).toBeTruthy()
+    expect(document.querySelector(selector!)).toBeNull()
+    answer({ head: 'h1', entries: ENTRIES })
+    await waitFor(() => expect(document.querySelector(selector!)).not.toBeNull())
+    expect(screen.queryByText('Loading…')).toBeNull()
   })
 
   it('shows the folders as a tree, asks the service to look, and opens a file rendered (by keyboard too)', async () => {

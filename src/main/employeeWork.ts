@@ -1248,7 +1248,9 @@ export class EmployeeWorkService {
     }
     this.db.putEmployeeQuestion(q)
     this.markParked(run)
-    this.moveTask(now, { state: 'waiting', reason: `Asks: ${firstLine(question)}`, question: { id: q.id, question, options, runId: run.id, askedAt: at } }, event, run.id, question)
+    // The reason is the employee's own question, with no words of Foreman's around it: the window words it from the
+    // task's question (the renderer's employees/words.ts), in the person's language.
+    this.moveTask(now, { state: 'waiting', reason: firstLine(question), question: { id: q.id, question, options, runId: run.id, askedAt: at } }, event, run.id, question)
     this.touched()
     return q
   }

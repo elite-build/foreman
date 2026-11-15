@@ -15,8 +15,11 @@ export const APPROVAL_KEYS: Walk = {
   approval: { expect: 'denied' },
   waitFor: '.approval-panel',
   steps: [
-    { key: 'mod+alt+.', expect: { focus: { role: 'group', name: 'Run this command\\?' } } },
-    { key: 'Tab', until: { focus: { name: '^No\\b' }, max: 12 }, expect: { focus: { role: 'button', name: '^No\\b' } } },
+    // The card docks above the message box without taking focus: F6 reaches it (docs/accessibility.md, decision cards).
+    { key: 'F6', expect: { focus: { role: 'group', name: '^Run this command\\?$' } } },
+    { key: 'Tab', expect: { focus: { role: 'textbox', name: '^Tell the agent what to do instead' } } },
+    { key: 'Tab', expect: { focus: { role: 'button', name: '^Full request$' } } },
+    { key: 'Tab', expect: { focus: { role: 'button', name: '^Don’t run\\b' } } },
     { key: 'Enter', expect: { absent: ['.approval-panel'] } }
   ]
 }
