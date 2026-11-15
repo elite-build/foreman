@@ -59,6 +59,9 @@ describe('chords', () => {
     expect(describeKey('Digit1').code).toBe('Digit1')
     expect(describeKey('Esc').code).toBe('Escape')
     expect(describeKey('Down').code).toBe('ArrowDown')
+    // F6 reaches a decision docked above the message box (approval.focus).
+    expect(describeKey('F6')).toMatchObject({ code: 'F6', key: 'F6', windowsVirtualKeyCode: 117 })
+    expect(describeKey('F6').text).toBeUndefined()
     expect(() => describeKey('NoSuchKey')).toThrow(/Unknown key/)
     expect(() => parseChord('hyper+k', 'win32')).toThrow(/Unknown modifier/)
     expect(() => parseChord('', 'win32')).toThrow()
@@ -291,5 +294,20 @@ describe('the walks', () => {
     const approval = WALKS.find((w) => w.name === 'approval-keys')!
     expect(approval.approval).toEqual({ expect: 'denied' })
     expect(approval.waitFor).toBe('.approval-panel')
+  })
+
+  it('reach the docked approval the way a person does: F6 from the message box, then Tab to Don’t run', () => {
+    const approval = WALKS.find((w) => w.name === 'approval-keys')!
+    const reach = SHORTCUTS.find((e) => e.id === 'approval.focus')!
+    for (const platform of ['win', 'mac'] as const) {
+      const chords = chordsOf(reach.keys[platform]).flatMap((c) => canonicalChords(c, platform))
+      expect(chords, platform).toContain(canonicalChords(approval.steps[0].key, platform)[0])
+    }
+    // The card has no "No" any more: its decline is named for what it does.
+    const tabs = approval.steps.filter((s) => s.key === 'Tab')
+    expect(tabs.length).toBeGreaterThan(0)
+    const last = tabs.at(-1)!
+    expect(matches(last.until?.focus.name ?? last.expect?.focus?.name ?? '', 'Don’t run Esc')).toBe(true)
+    expect(approval.steps.at(-1)).toMatchObject({ key: 'Enter', expect: { absent: ['.approval-panel'] } })
   })
 })

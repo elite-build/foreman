@@ -62,7 +62,7 @@
   text-align: left;
   cursor: pointer;
 }
-.ui-menu__item:hover:not(:disabled),
+.ui-menu__item:hover:not(:disabled):not([aria-disabled='true']),
 .ui-menu__item:focus-visible {
   background: var(--bg-hover);
 }
@@ -74,6 +74,17 @@
 .ui-menu__item:disabled {
   opacity: 0.5;
   cursor: default;
+}
+/* Off with a reason (MenuItem `reason`): the label and icon fade, the reason stays readable. */
+.ui-menu__item[aria-disabled='true'] {
+  cursor: default;
+}
+.ui-menu__item[aria-disabled='true'] > .ui-menu__icon,
+.ui-menu__item[aria-disabled='true'] .ui-menu__label {
+  opacity: 0.5;
+}
+.ui-menu__item[aria-disabled='true'] .ui-menu__reason {
+  color: var(--text-soft);
 }
 .ui-menu__item[data-variant='danger'] {
   color: var(--red);

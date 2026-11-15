@@ -6,6 +6,7 @@ import { shellName, type ShellChoice } from '../../../shared/shells'
 import { normalizeTabName, restoredWhen, type SavedTerminalTab, type TerminalTabSave } from '../../../shared/terminalTabs'
 import type { PreviewUrl, RunScript, Workspace } from '../../../shared/types'
 import { useT } from '../i18n'
+import { formatChord } from '../shortcuts'
 import { activeSessionId, api, attempt, bridge, fillComposer, getState, modKey, onUiCommand, openSettingsPage, showBottomPanel, toggleTerminalFullscreen, useStore } from '../store'
 import { SetupLog } from './SetupLog'
 import { NewMenu } from './NewTerminalMenu'
@@ -405,7 +406,7 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
   const runLabel = spotlightMode ? t('bottomPanel.startSpotlight') : t('bottomPanel.run')
   const runIcon = spotlightMode ? <Radar size={11} /> : <Play size={11} />
   const runTitle = (script: RunScript) => (spotlightMode ? t('bottomPanel.spotlightTitle') : t('bottomPanel.runTitle', { name: script.name, command: script.command }))
-  const previewTitle = previewUrls[0]?.name ? t('bottomPanel.openPreview', { name: previewUrls[0].name, key: `${mod}⇧B` }) : t('bottomPanel.openPreviewDefault', { key: `${mod}⇧B` })
+  const previewTitle = previewUrls[0]?.name ? t('bottomPanel.openPreview', { name: previewUrls[0].name, key: formatChord('mod+shift+KeyB', platform) }) : t('bottomPanel.openPreviewDefault', { key: formatChord('mod+shift+KeyB', platform) })
 
   // A script's state in words: shown beside its name in the header, as a shape in the rail with the word in its tooltip.
   const runWord = (name: string): { tone: 'ok' | 'error'; label: string } | undefined => {
@@ -533,7 +534,7 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
                     key={`${preview.name}-${i}`}
                     icon={<ExternalLink size={14} />}
                     description={<span className="mono">{expandPorts(preview.url, workspace.portBase)}</span>}
-                    hint={i === 0 ? `${mod}⇧B` : undefined}
+                    hint={i === 0 ? formatChord('mod+shift+KeyB', platform) : undefined}
                     onSelect={() => openPreview(i)}
                   >
                     {preview.name || t('bottomPanel.previewN', { n: i + 1 })}
@@ -543,7 +544,7 @@ export function BottomPanel({ workspace, visible }: { workspace: Workspace; visi
             )}
           </span>
         )}
-        <IconButton label={fullscreen ? t('terminal.exitFullscreen', { key: `${mod}⇧J` }) : t('terminal.fullscreen', { key: `${mod}⇧J` })} onClick={() => toggleTerminalFullscreen(workspace.id)}>
+        <IconButton label={fullscreen ? t('terminal.exitFullscreen', { key: formatChord('mod+shift+KeyJ', platform) }) : t('terminal.fullscreen', { key: formatChord('mod+shift+KeyJ', platform) })} onClick={() => toggleTerminalFullscreen(workspace.id)}>
           {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </IconButton>
         {action}

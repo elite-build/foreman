@@ -87,13 +87,27 @@ describe('what replaced the coral', () => {
     expect(ruleBody(css, '.markdown :not(pre) > code')).toMatch(/background:\s*var\(--bg-raised\)/)
   })
 
-  it('Plan mode is a pressed neutral chip, plan and approval panels have neutral edges', () => {
+  it('Plan mode is a pressed neutral chip; the plan and approval cards are ui/ Cards with the amber stripe, with no look of their own', () => {
     const composer = readFileSync(`${ROOT}/components/composer/Composer.tsx`, 'utf8')
     expect(composer).not.toMatch(/tone=\{session\.planMode/)
     expect(composer).toMatch(/pressed=\{Boolean\(session\.planMode\)\}/)
     const extras = read('styles/composer-extras.css')
-    for (const selector of ['.composer-box.plan', '.plan-bar', '.plan-card']) expect(ruleBody(extras, selector), selector).toMatch(/border(-color)?:[^;]*var\(--selected-border\)/)
-    expect(ruleBody(read('styles/approval-panels.css'), '.approval-panel')).toMatch(/var\(--selected-border\)/)
+    expect(ruleBody(extras, '.composer-box.plan')).toMatch(/border(-color)?:[^;]*var\(--selected-border\)/)
+    // The plan bar and the transcript's plan card are gone: the plan is a decision card docked above the box.
+    for (const selector of ['.plan-bar', '.plan-card']) expect(ruleBody(extras, selector), selector).toBeUndefined()
+    // Every request in a chat (approval, question, plan, gate, pick) is a DecisionCard, which is a Card with stripe="warn".
+    const panels = read('components/ApprovalPanel.tsx')
+    expect(panels).not.toMatch(/<(section|div)[^>]*className="approval-panel/)
+    expect(panels.match(/<DecisionCard\b/g)).toHaveLength(5)
+    expect(read('components/DecisionCard.tsx')).toMatch(/<Card\s+as="section"[\s\S]{0,200}?stripe="warn"/)
+    expect(ruleBody(read('ui/css/card.css'), ".ui-card[data-stripe='warn']")).toMatch(/var\(--amber\)/)
+    // Their stylesheets set layout only: no edge, fill, radius, shadow or outline, and no colour but the faint text.
+    const appearance = /(^|[;{\s])(background(-color)?|border(-[a-z-]+)?|outline|box-shadow|border-radius)\s*:/m
+    for (const file of ['styles/approval-panels.css', 'components/decisionCard.css']) {
+      const css = read(file)
+      expect(css, file).not.toMatch(appearance)
+      expect(css.match(/(^|[;{\s])color\s*:[^;]*/gm)?.every((d) => /var\(--text-faint\)/.test(d)) ?? true, file).toBe(true)
+    }
   })
 
   it('a merged pull request is blue, not coral', () => {

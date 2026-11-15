@@ -41,3 +41,9 @@
 .app.main-first.platform-darwin .workspace.panel-left.with-panel .panel-header {
   padding-left: 80px;
 }
+
+/* The list folded to its rail (a narrow window, narrowLayout.ts): the traffic lights are wider than the rail alone, so the
+   workspace header beside it makes room, as in the Editor layout's rail. */
+.app.list-folded.platform-darwin:not(.sidebar-right) .workspace:not(.panel-left.with-panel) > .center > .center-header {
+  padding-left: 32px;
+}

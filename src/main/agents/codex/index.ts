@@ -497,7 +497,7 @@ export class CodexEventMapper {
         const streamed = this.outputs.get(id) ?? ''
         const output = item.aggregatedOutput || streamed || (declined ? 'Declined.' : failed && item.exitCode ? `Exit code ${item.exitCode}` : '')
         if (phase === 'completed') this.outputs.delete(id)
-        return this.tool({ id, name: 'Bash', input: { command: item.command }, status, output: clip(output) }, phase)
+        return this.tool({ id, name: 'Bash', input: { command: item.command }, status, output: clip(output), ...(item.exitCode != null ? { exitCode: item.exitCode } : {}) }, phase)
       }
       case 'fileChange': {
         const changes: FileChange[] = item.changes ?? []

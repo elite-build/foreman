@@ -58,12 +58,6 @@ const EXCEPTIONS: { rule: number; file: string; reason: string; where?: (f: Find
   },
   {
     rule: 1,
-    file: `${RENDERER}/components/ApprovalPanel.tsx`,
-    reason: "<details> shows the tool call's input as read-only JSON",
-    where: (f) => f.what === '<summary> in <details>'
-  },
-  {
-    rule: 1,
     file: `${RENDERER}/components/AutoReview.tsx`,
     reason: '<details> shows the review prompt as read-only text',
     where: (f) => f.what === '<summary> in <details class="ar-prompt">'

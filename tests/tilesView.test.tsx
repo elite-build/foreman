@@ -73,6 +73,15 @@ describe('tiles', () => {
     expect(spy('setTiles')).toHaveBeenCalledWith(['w1', 'w2'])
   })
 
+  it('a tile whose turn failed has the red edge, one waiting on an approval the amber one', () => {
+    fakeState.snapshot.sessions = [{ ...session('s1', 'w1'), lastTurn: { turnId: 't1', outcome: 'error' } }, session('s2', 'w2')]
+    fakeState.approvals = [{ id: 'a1', kind: 'tool', sessionId: 's2', toolName: 'Bash', input: { command: 'ls' } }]
+    render(<TilesView hidden={false} />)
+    const tile = (name: string) => screen.getByRole('heading', { name }).closest('.tile')!
+    expect(tile('curie').getAttribute('data-stripe')).toBe('error')
+    expect(tile('noether').getAttribute('data-stripe')).toBe('warn')
+  })
+
   it('hides the tiles\' chats while another view is in front, so they stop following the store', () => {
     const { rerender } = render(<TilesView hidden={false} />)
     expect(screen.getByText('chat s1').dataset).toMatchObject({ active: 'true', hidden: 'false' })

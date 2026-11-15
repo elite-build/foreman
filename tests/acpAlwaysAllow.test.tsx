@@ -143,12 +143,12 @@ describe('the approval card', () => {
     render(<ToolApprovalPanel request={{ kind: 'tool', id: 'a1', sessionId: 's1', toolName: 'Bash', input: { command: 'npm test' } } as never} workspacePath="/w" />)
   }
 
-  it('says OpenCode asks each time, and has only Yes and No', () => {
+  it('says OpenCode asks each time, and has only Run and Don’t run', () => {
     card('opencode')
     expect(screen.getByText('OpenCode can’t remember an always-allow; it asks each time.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /always/i })).toBeNull()
-    expect(screen.getByRole('button', { name: /^Yes/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /^No/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Run/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Don’t run/ })).toBeTruthy()
   })
 
   it('says nothing of the kind for an agent that can remember one', () => {
@@ -159,8 +159,10 @@ describe('the approval card', () => {
   it('names what Always allow will let through, where Foreman remembers it for the session', () => {
     fakeState.snapshot.sessions = [{ id: 's1', workspaceId: 'w1', agent: 'gemini' } as never]
     render(<ToolApprovalPanel request={{ kind: 'tool', id: 'a1', sessionId: 's1', toolName: 'Bash', input: { command: 'npm test' }, alternate: 'always-allow', alwaysScope: 'npm test' } as never} workspacePath="/w" />)
-    const button = screen.getByRole('button', { name: /always allow npm test in this session/i })
+    const button = screen.getByRole('button', { name: /always allow npm test/i })
     expect(button.textContent).toContain('npm test')
+    // The line above the buttons says what it remembers: the exact command, in this chat.
+    expect(document.querySelector('.approval-rule')?.textContent).toContain('npm test runs without asking in this chat when it’s asked for again exactly like this.')
     expect(screen.queryByText(/asks each time/)).toBeNull()
   })
 })

@@ -194,7 +194,7 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
   const tasks: EmployeeTask[] = [
     task({ id: 'task-launch', employeeId: MAX, title: 'Write the Atlas 2.4 launch post', body: 'Write the Atlas 2.4 launch post, from what changed, and push it to a branch for me to look at.', from: 'person', cause: 'person', state: 'closed', closureReason: 'done', resultSummary: 'Drafted the Atlas 2.4 launch post and asked to push it to max/launch-2.4.', result: { status: 'done', summary: 'Drafted the Atlas 2.4 launch post and asked to push it to max/launch-2.4.', artifacts: ['memory/org/docs/launch-2.4.md'], runId: 'run-max-2', at: at(41) } }, 90, 41),
     task({ id: 'task-changes', employeeId: ADA, title: 'List what changed in Atlas since 2.3', body: 'List what changed in Atlas since 2.3, customer-facing changes first.', from: 'employee', rootId: 'task-launch', parentId: 'task-launch', depth: 1, cause: 'run:run-max-1', requestedBy: { employeeId: MAX, name: 'Max', taskId: 'task-launch', runId: 'run-max-1' }, contract: { expecting: 'A list in memory/org/docs/changes-2.4.md' }, state: 'closed', closureReason: 'done', resultSummary: 'Two customer-facing changes: API rate limits, and sign-in returning to the page you came from.', result: { status: 'done', summary: 'Two customer-facing changes: API rate limits, and sign-in returning to the page you came from.', artifacts: ['memory/org/docs/changes-2.4.md'], runId: 'run-ada-1', at: at(62) } }, 84, 62),
-    task({ id: 'task-date', employeeId: ADA, title: 'Which day does 2.4 launch?', body: 'Find out which day Atlas 2.4 launches, so the post can say it.', from: 'person', cause: 'person', state: 'waiting', waitingOn: 'person', reason: 'Asks: Which day does Atlas 2.4 launch?', question: { id: 'q-date', question: 'Which day does Atlas 2.4 launch?', options: ['Tuesday 17 November', 'Thursday 19 November'], runId: 'run-ada-3', askedAt: at(23) } }, 32, 23),
+    task({ id: 'task-date', employeeId: ADA, title: 'Which day does 2.4 launch?', body: 'Find out which day Atlas 2.4 launches, so the post can say it.', from: 'person', cause: 'person', state: 'waiting', waitingOn: 'person', reason: 'Which day does Atlas 2.4 launch?', question: { id: 'q-date', question: 'Which day does Atlas 2.4 launch?', options: ['Tuesday 17 November', 'Thursday 19 November'], runId: 'run-ada-3', askedAt: at(23) } }, 32, 23),
     task({ id: 'task-monday', employeeId: MAX, title: 'Draft this week’s release notes from what merged.', body: 'Draft this week’s release notes from what merged.', from: 'schedule', cause: 'trigger:monday-notes', trigger: { id: 'monday-notes', plannedAt: at(4 * 24 * 60) }, state: 'closed', closureReason: 'no-follow-on', resultSummary: 'Nothing merged since last Monday’s notes.', result: { status: 'no-update', summary: 'Nothing merged since last Monday’s notes.', runId: 'run-max-0', at: at(4 * 24 * 60 - 6) } }, 4 * 24 * 60, 4 * 24 * 60 - 6)
   ]
   const run = (r: Partial<EmployeeRun> & Pick<EmployeeRun, 'id' | 'taskId' | 'employeeId' | 'attempt' | 'state'>, from: number, to: number): EmployeeRun => ({
@@ -226,7 +226,10 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
   const question: EmployeeQuestion = { id: 'q-date', orgId: ORG_ID, taskId: 'task-date', runId: 'run-ada-3', employeeId: ADA, question: 'Which day does Atlas 2.4 launch?', options: ['Tuesday 17 November', 'Thursday 19 November'], workspaceId: ADA_WORKSPACE, sessionId: ADA_TAB, state: 'open', askedAt: at(23), updatedAt: at(23) }
   const push: EmployeeAction = {
     id: 'act-push', orgId: ORG_ID, employeeId: MAX, taskId: 'task-launch', runId: 'run-max-2', repoId: SITE_REPO, kind: 'push',
-    payload: { kind: 'push', connection: 'gh’s active account', workspaceId: MAX_WORKSPACE, branch: 'max/launch-2.4', base: 'main', head, ahead: 1, commits: [{ sha: head.slice(0, 7), subject: 'Work on max/launch-2.4' }] },
+    payload: {
+      kind: 'push', connection: 'gh’s active account (yatin)', workspaceId: MAX_WORKSPACE, branch: 'max/launch-2.4', base: 'main', head, ahead: 1, commits: [{ sha: head.slice(0, 7), subject: 'Work on max/launch-2.4' }],
+      repo: 'site', remote: 'origin', remoteUrl: 'github.com/acme/site', login: 'yatin', diffStat: { files: 1, insertions: 6, deletions: 0 }, files: [{ path: 'blog/2026-11-launch-2.4.md', insertions: 6, deletions: 0 }]
+    },
     policy: 'held', state: 'held', key: 'fixture-push-launch', createdAt: at(42), updatedAt: at(42)
   }
   db.transaction(() => {
@@ -238,10 +241,10 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
     db.putEmployeeRoot({ rootId: 'task-launch', orgId: ORG_ID, runsUsed: 3, runsAllowed: 20, descendants: 1, active: 0, state: 'closed', createdAt: at(90), updatedAt: at(41) })
     db.putEmployeeRoot({ rootId: 'task-date', orgId: ORG_ID, runsUsed: 1, runsAllowed: 20, descendants: 0, active: 1, state: 'open', createdAt: at(32), updatedAt: at(23) })
     db.putEmployeeRoot({ rootId: 'task-monday', orgId: ORG_ID, runsUsed: 1, runsAllowed: 20, descendants: 0, active: 0, state: 'closed', createdAt: at(4 * 24 * 60), updatedAt: at(4 * 24 * 60 - 6) })
-    // Ada's proposal for the whole organization: a person keeps or retires it in Needs you.
+    // Ada's proposal for the whole organization, with her own reason: a person adds or discards it in Needs you.
     db.putMemoryMutation({
       id: 'mut-proposal', orgId: ORG_ID, runId: 'run-ada-3', state: 'proposed', expectedHead: null, commitId: null, paths: ['memory/org/PROJECT.md'],
-      detail: { changes: [{ kind: 'append', path: 'memory/org/PROJECT.md', text: '- 2.3 shipped on a Thursday: check the launch day for each release rather than assuming Tuesday.\n' }], proposal: { employeeId: ADA, taskId: 'task-date', why: 'A fact for the whole organization goes in memory/org/PROJECT.md, which a person keeps.' } },
+      detail: { changes: [{ kind: 'append', path: 'memory/org/PROJECT.md', text: '- 2.3 shipped on a Thursday: check the launch day for each release rather than assuming Tuesday.\n' }], proposal: { employeeId: ADA, taskId: 'task-date', why: '2.3 shipped on a Thursday, though PROJECT.md says Tuesdays.' } },
       createdAt: at(24), updatedAt: at(24)
     })
   })

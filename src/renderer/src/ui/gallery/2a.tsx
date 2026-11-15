@@ -161,6 +161,7 @@ export function Gallery2a() {
           <Card interactive ghost style={{ padding: 10, width: 150 }}>Ghost (follows the pointer)</Card>
           <Card interactive ghost tone="danger" style={{ padding: 10, width: 150 }}>Ghost that would remove</Card>
           <CardButton stripe="warn" size="sm" style={{ padding: 10, width: 150 }}>Small, warn stripe</CardButton>
+          <Card stripe="error" size="sm" style={{ padding: 10, width: 150 }}>Error stripe (a failed turn)</Card>
           <CardButton disabled style={{ padding: 10, width: 150 }}>Disabled</CardButton>
           <ActionRow card selected={selected === 'a'} onPress={() => setSelected('a')} style={{ width: 200 }}>ActionRow card</ActionRow>
         </div>

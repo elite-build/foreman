@@ -90,6 +90,10 @@
 .ui-card[data-stripe='warn'] {
   border-left-color: var(--amber);
 }
+/* Failed: red, so a failure doesn't wear the amber of "needs you". */
+.ui-card[data-stripe='error'] {
+  border-left-color: var(--red);
+}
 .ui-card[data-stripe='info'] {
   border-left-color: var(--blue);
 }

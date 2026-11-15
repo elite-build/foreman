@@ -107,6 +107,13 @@ describe('i18n: plurals', () => {
     expect(translate('fr', 'sidebar.runningCount', { count: 2 }, fr)).toBe('2 en cours (pl)')
   })
 
+  it('one workspace needs you, two need you', () => {
+    expect(translate('en', 'home.banner.needYou', { count: 1 })).toBe('1 needs you')
+    expect(translate('en', 'home.banner.needYou', { count: 2 })).toBe('2 need you')
+    expect(translate('en', 'sidebar.rail.needYou', { label: 'web', count: 1 })).toBe('web · 1 needs you')
+    expect(translate('en', 'sidebar.rail.needYou', { label: 'web', count: 3 })).toBe('web · 3 need you')
+  })
+
   it('a translator may give a plain string for a plural key', () => {
     const ko: Catalogue = { 'sidebar.runningCount': '{count}개 실행 중' }
     expect(translate('ko', 'sidebar.runningCount', { count: 3 }, ko)).toBe('3개 실행 중')

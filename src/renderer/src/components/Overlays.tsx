@@ -1,6 +1,7 @@
 import { CaseSensitive, Eye, File, Regex, RotateCcw, Search, Trash2, WholeWord } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AGENTS } from '../../../shared/agents'
+import { newWorkspaceTarget } from '../../../shared/organizations'
 import type { GitActionKind, SearchMatch, Settings } from '../../../shared/types'
 import { rankFiles, rankItems } from '../fuzzy'
 import {
@@ -95,6 +96,8 @@ export function CommandPalette() {
   const platform = snapshot.platform
   const t = useT()
   const ws = snapshot.workspaces.find((w) => w.id === selectedId && w.state !== 'archived')
+  // The repository ⌘N and the sidebar's New workspace open on: never an organization's memory repository.
+  const newRepoId = useStore((s) => newWorkspaceTarget(s.snapshot!, { space: s.space, picked: s.sidebarView.repo, selectedWorkspaceId: s.selectedWorkspaceId }))
 
   const commands = useMemo(() => {
     const list: Command[] = []
@@ -170,8 +173,7 @@ export function CommandPalette() {
         }
       }
     }
-    const repoId = ws?.repoId ?? snapshot.repos[0]?.id
-    if (repoId) list.push({ id: 'new-ws', label: t('palette.newWorkspace'), group: t('palette.group.general'), hint: shortcutHint('workspace.new', platform), run: close(() => openNewWorkspace(repoId)) })
+    if (newRepoId) list.push({ id: 'new-ws', label: t('palette.newWorkspace'), group: t('palette.group.general'), hint: shortcutHint('workspace.new', platform), run: close(() => openNewWorkspace(newRepoId)) })
     if (snapshot.repos.length && clientKind === 'window') list.push({ id: 'import-ws', label: t('palette.importWorkspace'), group: t('palette.group.general'), detail: t('palette.importWorkspaceDetail'), run: close(() => openImportDialog()) })
     list.push({ id: 'add-repo', label: t('palette.openProject'), group: t('palette.group.general'), run: close(() => void addRepository()) })
     list.push({ id: 'clone-repo', label: t('palette.openGithubProject'), group: t('palette.group.general'), run: close(() => openAddRepoDialog('clone')) })
@@ -217,7 +219,7 @@ export function CommandPalette() {
     for (const c of CATEGORIES)
       list.push({ id: `settings-${c.id}`, label: t('palette.settingsPage', { page: t(c.label) }), group: t('palette.group.settings'), run: close(() => openSettingsPage({ section: c.pages[0] } as Parameters<typeof openSettingsPage>[0])) })
     return list
-  }, [snapshot, ws, platform, t])
+  }, [snapshot, ws, newRepoId, platform, t])
 
   const shown = rankItems(commands, query, (c) => (c.detail ? `${c.label} ${c.detail}` : c.label))
 

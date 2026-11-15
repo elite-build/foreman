@@ -744,7 +744,7 @@ describe('employee work: how a run ends its task (finish_task, ask_person, repor
     const q = await f.service.askPerson(run.sessionId!, { question: 'Which launch: 1.0.23 or 1.1?', options: ['1.0.23', '1.1', '1.1'] })
     expect(q).toMatchObject({ state: 'open', options: ['1.0.23', '1.1'], runId: run.id, reportId: 'report-1' })
     expect(f.reports).toEqual([{ workspaceId: run.workspaceId, sessionId: run.sessionId, turnId: 'turn-1', text: 'Which launch: 1.0.23 or 1.1?' }])
-    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'waiting', waitingOn: 'person', reason: 'Asks: Which launch: 1.0.23 or 1.1?', question: { id: q.id, question: 'Which launch: 1.0.23 or 1.1?', options: ['1.0.23', '1.1'] } })
+    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'waiting', waitingOn: 'person', reason: 'Which launch: 1.0.23 or 1.1?', question: { id: q.id, question: 'Which launch: 1.0.23 or 1.1?', options: ['1.0.23', '1.1'] } })
     // Retry isn't how it goes on: the answer is.
     expect(canRetryTask(f.db.employeeTask(task.id)!)).toBe(false)
     await expect(f.service.retry(task.id)).rejects.toThrow(/answer it, or cancel/)

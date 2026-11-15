@@ -2,7 +2,7 @@
 // page, the New employee page and one employee's page. It reads the employees in full through the service (the
 // snapshot carries only their summaries) whenever the memory repository's head or an employee's lifecycle moves.
 import { ArrowLeft, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { EmployeeView } from '../../../../shared/employees'
 import { useT } from '../../i18n'
 import { api, closeEmployees, openEmployees, openSettingsPage, useStore, type EmployeesRoute } from '../../store'
@@ -13,6 +13,16 @@ import { TeamPage } from './TeamPage'
 import './employees.css'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+const TEXT_FIELDS = 'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="email"]'
+
+/**
+ * Whether a text field on the page holds words the person typed and hasn't sent: an answer in their own words, a held
+ * action's text being edited, an Ask draft. Escape leaves those alone, wherever focus is.
+ */
+export function holdsTypedText(root: ParentNode | null): boolean {
+  return Boolean(root && [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(TEXT_FIELDS)].some((f) => f.value.trim() !== ''))
+}
 
 /** The employees in full and how to read them again; null until the first answer. */
 export interface EmployeesData {
@@ -50,13 +60,16 @@ export function EmployeesView({ route }: { route: EmployeesRoute }) {
     }
   }, [route.orgId, memory, pulse, round])
 
-  // Escape closes the Team page and an employee's overview; the New employee page and Edit hold unsaved words, so not those.
+  // Escape closes the Team page and an employee's overview; the New employee page and Edit hold unsaved words, so not
+  // those, and not while a field here holds words not yet sent (focus may be on Skip, Cancel, Run now or Send).
   const unsaved = route.page === 'new' || (route.page === 'employee' && Boolean(route.edit))
+  const view = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (unsaved) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       if ((e.target as Element | null)?.closest?.('.modal, .ui-dialog, input, textarea, select, [role="menu"], [role="listbox"], [role="dialog"]')) return
+      if (holdsTypedText(view.current)) return
       e.preventDefault()
       closeEmployees()
     }
@@ -74,7 +87,7 @@ export function EmployeesView({ route }: { route: EmployeesRoute }) {
   const data: EmployeesData = { employees, error, reload }
 
   return (
-    <div className="employees-view">
+    <div className="employees-view" ref={view}>
       <header className="titlebar drag employees-head">
         {route.page !== 'team' && (
           <IconButton label={t('employees.view.back')} onClick={() => openEmployees({ orgId: route.orgId, page: 'team' })}>

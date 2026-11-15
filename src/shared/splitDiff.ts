@@ -86,6 +86,21 @@ export function hiddenBefore(hunks: readonly DiffHunk[]): number[] | null {
   return counts
 }
 
+/**
+ * How many columns a line's leading whitespace takes, a tab reaching the next
+ * stop (CSS's default tab-size is 8). A wrapped diff line hangs its
+ * continuation 2 columns deeper than this, under its own text.
+ */
+export function leadingColumns(text: string, tabSize = 8): number {
+  let cols = 0
+  for (const ch of text) {
+    if (ch === ' ') cols += 1
+    else if (ch === '\t') cols += tabSize - (cols % tabSize)
+    else break
+  }
+  return cols
+}
+
 /** A file's text as lines, without a final empty one after the last newline, and without CRs. */
 export function fileLines(content: string): string[] {
   if (content === '') return []

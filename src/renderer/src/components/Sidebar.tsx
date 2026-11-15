@@ -1,5 +1,6 @@
 import {
   Archive,
+  Brain,
   Bug,
   ChevronsLeft,
   ChevronsRight,
@@ -16,6 +17,7 @@ import {
   Plus,
   Search,
   Settings,
+  Users,
   X,
   icons,
   type LucideIcon
@@ -37,6 +39,8 @@ import {
   openHandOffTo,
   openImportDialog,
   clientKind,
+  openEmployees,
+  openMemory,
   openNewWorkspace,
   openOverlay,
   openReportProblem,
@@ -57,13 +61,17 @@ import {
 import { resolveFilter, VIEW_LABEL, viewsOn } from '../../../shared/views'
 import { LATER_CHOICES, putAway, waitingLater } from '../../../shared/later'
 import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater, useLaterWake } from '../later'
-import { BUCKET_LABEL, liveRepo, sidebarGroups, sidebarOrder, STATUS_LABEL, triageAll, type SidebarFilter, type Triage, type TriageInput } from '../triage'
+import { BUCKET_LABEL, liveRepo, sidebarGroups, sidebarOrder, STATUS_LABEL, type SidebarFilter, type Triage } from '../triage'
 import { promptTitle } from '../../../shared/compare'
 import type { CompareSection } from '../../../shared/triage'
+import { employeeKey, itemsInSpace, type NeedsYouCounts, type NeedsYouItem } from '../../../shared/needsYou'
+import { needsYouOf, useTriageInput } from '../needsYou'
+import { employeeOf, openEmployeeItem, rowWords } from './needsYouWords'
+import { actionNoun } from './employees/words'
 import { AddRepoItems } from './AddRepository'
-import { SpaceSwitcher } from './spaces/SpaceSwitcher'
+import { SpaceRailTile, SpaceSwitcher } from './spaces/SpaceSwitcher'
 import { TeamSection } from './employees/TeamSection'
-import { memoryOwner, snapshotInSpace } from '../../../shared/organizations'
+import { currentSpace, holdsWorkspaces, memoryOwner, newWorkspaceTarget, snapshotInSpace, spacesOn, workspaceRepos } from '../../../shared/organizations'
 import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
 import { AutomationsEntry } from './automations/AutomationsEntry'
@@ -80,7 +88,7 @@ import { PrGlyphView } from './Attention'
 import { GitlabMark } from './GitlabMark'
 import { cloudAction, CloudSub } from './cloud/CloudBits'
 import { isGitlabWorkspace } from '../../../shared/scm'
-import { ActionRow, Button, CardButton, ChipButton, ContextMenu, Glyph, IconButton, Kbd, LinkButton, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Spinner, Status, Tab, TabList, Tabs, TextInput, type StatusTone } from '../ui'
+import { ActionRow, Button, CardButton, ContextMenu, Glyph, HardHat, IconButton, LinkButton, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Spinner, Status, Tab, TabList, Tabs, TextInput, type HardHatColour, type StatusTone } from '../ui'
 
 /** A Lucide icon by name: PascalCase ("GitBranch") or kebab-case ("git-branch"). */
 export function lucideIcon(name: string | undefined): LucideIcon | undefined {
@@ -132,16 +140,8 @@ export function openTriaged(t: Triage): void {
   if (t.bucket === 'attention' && t.sessionId) selectSession(t.ws.id, t.sessionId)
 }
 
-/** Everything triage needs, read from the store. */
-export function useTriageInput(): TriageInput {
-  const snapshot = useStore((s) => s.snapshot)!
-  const approvals = useStore((s) => s.approvals)
-  const unread = useStore((s) => s.unread)
-  const unreadSessions = useStore((s) => s.unreadSessions)
-  // Labels and facts in the UI language.
-  const t = useT()
-  return { snapshot, approvals, unread, unreadSessions, t }
-}
+// Everything triage needs, read from the store (it lives beside the shared needs-you count now).
+export { useTriageInput }
 
 function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: number; y: number; onRename: () => void; dismiss: () => void }) {
   const t = useT()
@@ -189,9 +189,11 @@ function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: numb
 
 function RepoMenu({ repo, x, y, dismiss, onRemove }: { repo: Repo; x: number; y: number; dismiss: () => void; onRemove: () => void }) {
   const t = useT()
+  // An organization's memory repository never has workspaces (docs/ai-employees.md §4).
+  const workspaces = useStore((s) => holdsWorkspaces(repo.id, s.snapshot!.organizations))
   return (
     <ContextMenu x={x} y={y} label={repo.name} onClose={dismiss}>
-      <MenuItem onSelect={() => openNewWorkspace(repo.id)}>{t('sidebar.menu.newWorkspace')}</MenuItem>
+      {workspaces && <MenuItem onSelect={() => openNewWorkspace(repo.id)}>{t('sidebar.menu.newWorkspace')}</MenuItem>}
       <MenuItem onSelect={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>{t('sidebar.menu.repoSettings')}</MenuItem>
       <MenuItem onSelect={() => void navigator.clipboard.writeText(repo.rootPath)}>{t('openIn.copyPath')}</MenuItem>
       <MenuSeparator />
@@ -243,7 +245,8 @@ const ARCHIVE_STEP: Record<ArchiveProgressStep, PlainKey> = {
 function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Repo }) {
   const { ws } = t
   const tr = useT()
-  const selected = useStore((s) => s.selectedWorkspaceId === ws.id)
+  // While the Assistant covers the workspace, its entry is the one thing selected; the workspace stays chosen for when it closes.
+  const selected = useStore((s) => s.selectedWorkspaceId === ws.id && !(s.assistantOpen && s.snapshot!.settings.assistantEnabled))
   const platform = useStore((s) => s.snapshot!.platform)
   const coloredDiffs = useStore((s) => s.snapshot!.settings.coloredSidebarDiffs)
   // An archive running in the background (or stopped on a step that needs you) says so in place of the row's label.
@@ -258,6 +261,9 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
   const terminalAgent = useHasTerminalAgent(ws.id) && t.bucket !== 'attention'
   // G2: GitLab's mark on rows of GitLab repositories.
   const gitlab = useStore((s) => isGitlabWorkspace(ws, s.snapshot!.repos.find((r) => r.id === ws.repoId), s.snapshot!.settings.gitlabHosts ?? []))
+  // The employee whose run this is, for its hat and name.
+  const snapshot = useStore((s) => s.snapshot!)
+  const employee = ws.startedBy?.via === 'employee' ? employeeOf(snapshot, ws.startedBy) : undefined
 
   const saveName = () => {
     setRenaming(false)
@@ -343,6 +349,16 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
           </span>
         ) : terminalAgent ? (
           <TerminalAgentLabel workspaceId={ws.id} />
+        ) : employee && ws.startedBy?.via === 'employee' ? (
+          // docs/ai-employees.md §10: a run says whose it is, by hat and name ("Ada asks · Which day does 2.4 launch?").
+          // The leading glyph still says the state; the hat is identity only.
+          <span className={`ws-label ${t.tone ?? ''}`}>
+            <span className="ws-hat">
+              <HardHat colour={employee.colour as HardHatColour} size={14} />
+            </span>
+            {t.namesEmployee ? t.label : t.label ? tr('sidebar.row.byEmployee', { name: employee.name, label: t.label }) : tr('sidebar.row.employeeRun', { name: employee.name, title: ws.startedBy.title })}
+            {t.label && t.detail && <span className="ws-detail"> · {t.detail}</span>}
+          </span>
         ) : (
           t.label && (
             <span className={`ws-label ${t.tone ?? ''}`}>
@@ -374,6 +390,39 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
         />
       )}
     </>
+  )
+}
+
+/**
+ * An employee's decision with no workspace of its own in the list (docs/ai-employees.md §10): a held push or other
+ * outward action (it leaves the computer), a memory proposal, a question whose run's workspace is gone, a pause. A row
+ * like a workspace's in Needs your attention: ▲ (◆ when sending failed), what it is, the kind in words, and the
+ * employee's hat and name with the repository and how long it has waited. It opens the Team page, where it is decided.
+ */
+function NeedsYouRow({ item }: { item: NeedsYouItem }) {
+  const t = useT()
+  const snapshot = useStore((s) => s.snapshot!)
+  const employee = employeeOf(snapshot, item)
+  const { title, label } = rowWords(item, snapshot, t, (p) => actionNoun(p, t))
+  const failed = item.action?.state === 'failed'
+  const repo = item.repoId ? snapshot.repos.find((r) => r.id === item.repoId)?.name : undefined
+  const meta = [employee?.name, repo, item.since ? timeAgo(item.since) : ''].filter(Boolean).join(' · ')
+  return (
+    <ActionRow className="ws-row attention needs-row" onPress={() => openEmployeeItem(item)} primaryProps={{ className: 'ws-flow' }}>
+      <span className="ws-icon">
+        <Status compact aria-hidden tone={failed ? 'error' : 'warn'} label={label} />
+      </span>
+      <span className="ws-title">{title}</span>
+      <span className={`ws-label ${failed ? 'red' : 'amber'}`}>{label}</span>
+      <span className="ws-sub">
+        {employee && (
+          <span className="ws-hat">
+            <HardHat colour={employee.colour as HardHatColour} size={14} />
+          </span>
+        )}
+        {meta}
+      </span>
+    </ActionRow>
   )
 }
 
@@ -410,11 +459,47 @@ function repoMark(repo: Repo): ReactNode {
 }
 
 /**
+ * The sidebar's Team row as a rail tile, while a narrow window folds the list to its rail: the organization's employees,
+ * with "▲ 2" for what of theirs waits for the person (the same count as the Team row, TeamSection), opening the Team page.
+ * Only where the Team row would show: an organization with a memory repository is the space shown.
+ */
+function TeamRailTile({ needs }: { needs: NeedsYouCounts }) {
+  const t = useT()
+  const snapshot = useStore((s) => s.snapshot!)
+  const wanted = useStore((s) => s.space)
+  const route = useStore((s) => s.employeesView)
+  const organizations = snapshot.organizations ?? []
+  if (!spacesOn(organizations)) return null
+  const org = organizations.find((o) => o.id === currentSpace(organizations, wanted))
+  if (!org?.memoryRepoId) return null
+  const employees = (snapshot.employees?.[org.id]?.employees ?? []).filter((e) => e.state !== 'retired')
+  const count = employees.reduce((sum, e) => sum + (needs.byEmployee.get(employeeKey(org.id, e.id)) ?? 0), 0)
+  const label = t('employees.team.heading')
+  const name = count ? t('sidebar.rail.needYou', { label, count }) : label
+  const on = route?.orgId === org.id && route.page === 'team'
+  return (
+    <span className={`rail-item ${on ? 'on' : ''}`}>
+      <span className="rail-tile-wrap">
+        <CardButton className="rail-tile" selected={on} title={name} aria-label={name} aria-pressed={on} onClick={() => openEmployees({ orgId: org.id, page: 'team' })}>
+          <Users size={16} aria-hidden />
+          {count > 0 && (
+            <span className="rail-badge" aria-hidden>
+              <Glyph name="warn" />
+              {count > 9 ? '9+' : count}
+            </span>
+          )}
+        </CardButton>
+      </span>
+    </span>
+  )
+}
+
+/**
  * The column of repositories down the left edge: All, each repo, and Add; search, shortcuts and settings at the bottom.
  * Its toggle widens it in place to put each repository's name and what is going on in it beside the tile (the store's
  * `railNames`), and narrows it back.
  */
-function RepoRail({ counts, repos }: { counts: Map<string | null, RepoCount>; repos: Repo[] }) {
+function RepoRail({ counts, repos, folded }: { counts: Map<string | null, RepoCount>; repos: Repo[]; folded?: NeedsYouCounts }) {
   const t = useT()
   // The space's organizations, for the memory repository's mark in its tooltip.
   const organizations = useStore((s) => s.snapshot!.organizations)
@@ -425,8 +510,20 @@ function RepoRail({ counts, repos }: { counts: Map<string | null, RepoCount>; re
   const picked = useStore((s) => s.sidebarView.repo)
   // A repository picked in another space isn't on this rail: All is.
   const current = picked && repos.some((r) => r.id === picked) ? picked : null
-  const home = useStore((s) => !s.selectedWorkspaceId && !s.settingsPage)
+  // Home is showing only while no workspace is open and no page covers it (App.tsx's `covered`): Settings, Automations,
+  // the Assistant, an organization's Memory view or its Team, employee and New employee pages.
+  const home = useStore(
+    (s) =>
+      !s.selectedWorkspaceId &&
+      !s.settingsPage &&
+      !s.automations &&
+      !(s.assistantOpen && s.snapshot!.settings.assistantEnabled) &&
+      !(s.memoryView && s.snapshot!.organizations?.some((o) => o.id === s.memoryView)) &&
+      !(s.employeesView && s.snapshot!.organizations?.some((o) => o.id === s.employeesView!.orgId))
+  )
   const names = useStore((s) => s.railNames)
+  // The Memory view of the organization shown, open: its memory tile is the one pressed.
+  const memoryView = useStore((s) => s.memoryView)
   const [menu, setMenu] = useState<{ repo: Repo; x: number; y: number } | null>(null)
   const [removing, setRemoving] = useState<Repo | null>(null)
   // Beside a name: what needs you and what runs, or (when nothing does) how many workspaces it has.
@@ -435,22 +532,24 @@ function RepoRail({ counts, repos }: { counts: Map<string | null, RepoCount>; re
     const busy = [c?.attention ? t('home.banner.needYou', { count: c.attention }) : '', c?.working ? t('sidebar.runningCount', { count: c.working }) : ''].filter(Boolean)
     return busy.length ? busy.join(' · ') : quiet
   }
-  const tile = (repoId: string | null, label: string, title: string, quiet: string, content: ReactNode) => {
+  // `memory`: an organization's memory repository, whose tile is the way into its Memory view, not a repository to pick.
+  const tile = (repoId: string | null, label: string, title: string, quiet: string, content: ReactNode, memory?: string) => {
     const count = counts.get(repoId)?.attention ?? 0
     const name = count ? t('sidebar.rail.needYou', { label, count }) : label
     const lineId = `rail-line-${repoId ?? 'all'}`
+    const on = memory ? memoryView === memory : current === repoId
     return (
-      <span key={repoId ?? 'all'} className={`rail-item ${current === repoId ? 'on' : ''}`}>
+      <span key={repoId ?? 'all'} className={`rail-item ${on ? 'on' : ''}`}>
         {/* The wrapper draws the ring that says the tile's repository is also what Home is showing. */}
-        <span className={`rail-tile-wrap ${current === repoId && home ? 'on-home' : ''}`}>
+        <span className={`rail-tile-wrap ${!memory && current === repoId && home ? 'on-home' : ''}`}>
           <CardButton
             className="rail-tile"
-            selected={current === repoId}
+            selected={on}
             title={names ? undefined : name}
             aria-label={name}
             aria-describedby={names ? lineId : undefined}
-            aria-pressed={current === repoId}
-            onClick={() => showRepoHome(repoId)}
+            aria-pressed={on}
+            onClick={() => (memory ? openMemory(memory) : showRepoHome(repoId))}
             onContextMenu={(e) => {
               const repo = repos.find((r) => r.id === repoId)
               if (!repo) return
@@ -489,23 +588,30 @@ function RepoRail({ counts, repos }: { counts: Map<string | null, RepoCount>; re
       return name ? [[r.id, name] as const] : []
     })
   )
-  // An organization's memory repository says so (docs/ai-employees.md §10), beside the GitHub connection it may name.
-  const tileLabel = (repo: Repo) => {
-    const memory = memoryOwner(repo.id, organizations ?? []) ? t('spaces.memoryTag') : undefined
-    return [repo.name, githubNames.get(repo.id), memory].filter(Boolean).join(' · ')
-  }
+  const tileLabel = (repo: Repo) => [repo.name, githubNames.get(repo.id)].filter(Boolean).join(' · ')
+  // Code repositories only: an organization's memory repository is its Memory tile (docs/ai-employees.md §10).
+  const codeRepos = workspaceRepos(repos, organizations)
   return (
     <nav className={`repo-rail ${names ? 'names' : ''}`} aria-label={t('sidebar.rail.label')}>
-      {tile(null, t('home.board.allRepos'), t('home.board.allRepos'), t('sidebar.subtitle.repos', { count: repos.length }), <span className="rail-text">{t('sidebar.rail.all')}</span>)}
-      {repos.map((repo) =>
-        tile(
-          repo.id,
-          tileLabel(repo),
-          repo.name,
-          t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }),
-          repoMark(repo)
-        )
+      {/* The list folded to the rail (a narrow window): its heading, the space switcher, and its Team row come with it. */}
+      {folded && (
+        <>
+          <span className="rail-item">
+            <SpaceRailTile />
+          </span>
+          <TeamRailTile needs={folded} />
+          <span className="rail-divider" aria-hidden />
+        </>
       )}
+      {tile(null, t('home.board.allRepos'), t('home.board.allRepos'), t('sidebar.subtitle.repos', { count: codeRepos.length }), <span className="rail-text">{t('sidebar.rail.all')}</span>)}
+      {repos.map((repo) => {
+        const owner = memoryOwner(repo.id, organizations ?? [])
+        if (owner) {
+          const label = t('sidebar.rail.memory', { organization: owner.name })
+          return tile(repo.id, label, label, repo.name, <Brain size={16} aria-hidden />, owner.id)
+        }
+        return tile(repo.id, tileLabel(repo), repo.name, t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }), repoMark(repo))
+      })}
       <span className="rail-item">
         {/* Drawn in the document beside the button: the rail scrolls, which would clip a menu that opens to its right. */}
         <MenuButton label={t('sidebar.rail.add')} look="dashed" portal placement="right-start" triggerClassName="rail-add" data-tour="add-repo" trigger={<Plus size={15} />}>
@@ -556,9 +662,10 @@ const EMPTY: Record<Exclude<SidebarFilter, 'all'>, PlainKey> = {
 
 /**
  * The sidebar: the repository rail and the workspace list. The Editor layout puts its activity bar (`views`) at the top of
- * the rail and hides the list (`list` false) while the rail has picked another view or the sidebar is hidden.
+ * the rail and hides the list (`list` false) while the rail has picked another view or the sidebar is hidden. `folded`: a
+ * narrow window folded the list to the rail (narrowLayout.ts), so the rail carries the space switcher and Team too.
  */
-export function Sidebar({ resize, side = 'left', views, list = true }: { resize?: PanelSize; side?: PaneSide; views?: ReactNode; list?: boolean }) {
+export function Sidebar({ resize, side = 'left', views, list = true, folded }: { resize?: PanelSize; side?: PaneSide; views?: ReactNode; list?: boolean; folded?: boolean }) {
   const t = useT()
   const everything = useTriageInput()
   // The space the sidebar shows (docs/ai-employees.md §3): its repositories and their workspaces only. While spaces
@@ -572,22 +679,30 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
   const repoId = liveRepo(snapshot, view.repo)
   const repo = snapshot.repos.find((r) => r.id === repoId)
 
-  // Counts ignore the filter and search: they say what's out there.
-  const scoped = triageAll(input, repoId)
-  const needYou = scoped.filter((t) => t.bucket === 'attention').length
+  // Counts ignore the filter and search: they say what's out there. What needs you is the shared count
+  // (src/shared/needsYou.ts) for every space at once, so the heading, the rail, the tab and the group agree with Home.
+  const need = needsYouOf(everything)
+  const shownSpace = currentSpace(everything.snapshot.organizations, space)
+  const inSpace = new Set(snapshot.workspaces.map((w) => w.id))
+  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id))
+  const scoped = repoId ? spaceTriage.filter((x) => x.ws.repoId === repoId) : spaceTriage
+  const spaceNeeds = itemsInSpace(need.items, shownSpace)
+  const scopedNeeds = repoId ? spaceNeeds.filter((i) => i.repoId === repoId) : spaceNeeds
   const running = scoped.filter((t) => t.bucket === 'working').length
   const counts = new Map<string | null, RepoCount>()
   const tally = (key: string | null, t: Triage) => {
     const c = counts.get(key) ?? { attention: 0, working: 0, total: 0 }
     c.total++
-    if (t.bucket === 'attention') c.attention++
     if (t.bucket === 'working') c.working++
     counts.set(key, c)
   }
-  for (const t of triageAll(input, null)) {
+  for (const t of spaceTriage) {
     tally(null, t)
     tally(t.ws.repoId, t)
   }
+  // ▲ on the rail: the space's count on All, each repository's on its tile (a proposal on the memory repository's).
+  counts.set(null, { ...(counts.get(null) ?? { working: 0, total: 0 }), attention: spaceNeeds.length })
+  for (const r of snapshot.repos) counts.set(r.id, { ...(counts.get(r.id) ?? { working: 0, total: 0 }), attention: need.counts.byRepo.get(r.id) ?? 0 })
   const grouped = sidebarGroups(input, view)
   const { compares, hiddenFinished } = grouped
   // The tabs Settings → Appearance → Sidebar & Home turns on, and the one shown (a tab turned off falls back).
@@ -605,8 +720,27 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
   // Archived work and Import stay about everything, whichever space is shown.
   const archived = everything.snapshot.workspaces.filter((w) => w.state === 'archived').length
   const anyUnread = Object.keys(unread).length > 0
-  const newRepoId = repoId ?? snapshot.workspaces.find((w) => w.id === selectedId)?.repoId ?? snapshot.repos[0]?.id
+  // The same repository ⌘N opens on (App.tsx): never an organization's memory repository.
+  const newRepoId = newWorkspaceTarget(everything.snapshot, { space, picked: view.repo, selectedWorkspaceId: selectedId })
   const repoById = new Map(snapshot.repos.map((r) => [r.id, r]))
+  // An employee's decisions with no workspace row of their own (a held push, a memory proposal…) are rows in Needs your
+  // attention too: they leave the computer, or change what every employee reads.
+  const query = view.query.trim().toLowerCase()
+  const extraRows = filter === 'all' || filter === 'needs-you' ? scopedNeeds.filter((i) => i.kind !== 'workspace' && (!query || rowWords(i, everything.snapshot, t, (p) => actionNoun(p, t)).title.toLowerCase().includes(query))) : []
+  const listed = extraRows.length && !groups.some((g) => g.bucket === 'attention') ? [{ bucket: 'attention' as const, items: [] as Triage[] }, ...groups] : groups
+  // Oldest first, workspaces and decisions together.
+  const attentionRows = (items: Triage[]) =>
+    [
+      ...items.map((x) => ({ since: x.since, node: <WorkspaceRow key={x.ws.id} t={x} index={order.indexOf(x.ws.id)} repo={repoId ? undefined : repoById.get(x.ws.repoId)} /> })),
+      ...extraRows.map((i) => ({ since: i.since, node: <NeedsYouRow key={i.id} item={i} /> }))
+    ]
+      .sort((a, b) => a.since.localeCompare(b.since))
+      .map((r) => r.node)
+  // The heading's line: the repository picked and its workspaces, else the space's code repositories (never its memory).
+  const headingLine = repo ? `${repo.name} · ${t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })}` : t('sidebar.subtitle.repos', { count: workspaceRepos(snapshot.repos, snapshot.organizations).length })
+  // A tab's count, after its name: what needs you (▲) and what runs.
+  const tabCount = (id: SidebarFilter): number => (id === 'needs-you' ? scopedNeeds.length : id === 'working' ? running : 0)
+  const newKey = shortcutHint('workspace.new', snapshot.platform) ?? `${mod}N`
 
   return (
     <aside className="sidebar" aria-label={t('sidebar.label')}>
@@ -629,71 +763,80 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
             <RepoRail counts={counts} repos={snapshot.repos} />
           </div>
         ) : (
-          <RepoRail counts={counts} repos={snapshot.repos} />
+          <RepoRail counts={counts} repos={snapshot.repos} folded={folded && !list ? need.counts : undefined} />
         )}
         {list && (
           <div className="sidebar-panel">
-            <SpaceSwitcher />
-            <header className="sidebar-head">
-              <div className="sidebar-head-text">
-                <div className="sidebar-title" role="heading" aria-level={2}>
-                  {repo?.name ?? t('home.board.allRepos')}
-                </div>
-                <div className="sidebar-subtitle">
-                  {repo
-                    ? t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })
-                    : t('sidebar.subtitle.repos', { count: snapshot.repos.length })}
-                </div>
-              </div>
-              {repo && (
-                <IconButton label={t('sidebar.repoSettings')} onClick={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>
-                  <Settings size={14} />
-                </IconButton>
-              )}
-            </header>
-            <AutomationsEntry />
-            <AssistantEntry />
-            {/* An organization's employees (docs/ai-employees.md §10), only while it is the space shown. */}
+            {/* The space switcher is the heading (docs/ai-employees.md §10): the space, then its repositories (or the one
+                picked) and how much in it needs you. */}
+            <SpaceSwitcher
+              line={headingLine}
+              end={
+                repo && (
+                  <IconButton label={t('sidebar.repoSettings')} onClick={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>
+                    <Settings size={14} />
+                  </IconButton>
+                )
+              }
+            />
+            {/* Two places you open now and then share a row. */}
+            <div className="sidebar-pair">
+              <AutomationsEntry />
+              <AssistantEntry />
+            </div>
+            {/* An organization's employees (docs/ai-employees.md §10), only while it is the space shown: one row. */}
             <TeamSection />
-            <Button variant="primary" className="sidebar-new" data-tour="new-workspace" aria-keyshortcuts={`${snapshot.platform === 'darwin' ? 'Meta' : 'Control'}+N`} disabled={!newRepoId} icon={<Plus size={14} />} onClick={() => newRepoId && openNewWorkspace(newRepoId)}>
-              {t('palette.newWorkspace')}
-              <Kbd className="sidebar-new-hint" aria-hidden>
-                {mod}N
-              </Kbd>
-            </Button>
-            <div className="sidebar-search">
-              <Search size={14} aria-hidden />
-              <TextInput
-                type="search"
-                className="sidebar-search-input"
-                aria-label={t('sidebar.search.placeholder')}
-                placeholder={t('sidebar.search.placeholder')}
-                value={view.query}
-                spellCheck={false}
-                onChange={(e) => setSidebarQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Escape' && setSidebarQuery('')}
-              />
-              {view.query && (
-                <IconButton label={t('sidebar.search.clear')} onClick={() => setSidebarQuery('')}>
-                  <X size={12} />
-                </IconButton>
-              )}
+            {/* Find and the one primary action share a row; Ctrl+N is in New's tooltip and shortcut. */}
+            <div className="sidebar-find">
+              <div className="sidebar-search">
+                <Search size={14} aria-hidden />
+                <TextInput
+                  type="search"
+                  className="sidebar-search-input"
+                  aria-label={t('sidebar.search.placeholder')}
+                  placeholder={t('sidebar.search.short')}
+                  value={view.query}
+                  spellCheck={false}
+                  onChange={(e) => setSidebarQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Escape' && setSidebarQuery('')}
+                />
+                {view.query && (
+                  <IconButton label={t('sidebar.search.clear')} onClick={() => setSidebarQuery('')}>
+                    <X size={12} />
+                  </IconButton>
+                )}
+              </div>
+              <Button
+                variant="primary"
+                className="sidebar-new"
+                data-tour="new-workspace"
+                aria-label={t('palette.newWorkspace')}
+                title={t('sidebar.newTitle', { key: newKey })}
+                aria-keyshortcuts={`${snapshot.platform === 'darwin' ? 'Meta' : 'Control'}+N`}
+                disabled={!newRepoId}
+                icon={<Plus size={14} />}
+                onClick={() => newRepoId && openNewWorkspace(newRepoId)}
+              >
+                {t('sidebar.new')}
+              </Button>
             </div>
-            <div className="sidebar-summary">
-              <span className={running ? 'running' : ''}>{t('sidebar.runningCount', { count: running })}</span>
-              {needYou > 0 && (
-                <ChipButton pill tone="warn" pressed={filter === 'needs-you'} onClick={() => setSidebarFilter(filter === 'needs-you' ? tabs[0] : 'needs-you')}>
-                  {t('sidebar.needsYouCount', { count: needYou })}
-                </ChipButton>
-              )}
-            </div>
+            {/* The filters, each with its count (▲ what needs you, what runs): the one place the sidebar says how many. */}
             <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
               <TabList label={t('sidebar.filter.label')}>
-                {tabs.map((id) => (
-                  <Tab key={id} value={id}>
-                    {t(VIEW_LABEL[id])}
-                  </Tab>
-                ))}
+                {tabs.map((id) => {
+                  const n = tabCount(id)
+                  return (
+                    <Tab key={id} value={id} aria-label={n ? t('sidebar.tabCount', { label: t(VIEW_LABEL[id]), count: n }) : undefined}>
+                      {t(VIEW_LABEL[id])}
+                      {n > 0 && (
+                        <span className={`sidebar-tab-count ${id === 'needs-you' ? 'warn' : ''}`} aria-hidden>
+                          {id === 'needs-you' && <Glyph name="warn" />}
+                          {n}
+                        </span>
+                      )}
+                    </Tab>
+                  )
+                })}
               </TabList>
             </Tabs>
             {anyUnread && (
@@ -704,24 +847,24 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
               </div>
             )}
             <div className="sidebar-scroll">
-              {groups.map((group) => (
+              {listed.map((group) => (
                 <Fragment key={group.bucket}>
                   <section className={`ws-group ${group.bucket}`} aria-labelledby={`ws-group-${group.bucket}`}>
                     <div className="ws-group-head">
                       <span id={`ws-group-${group.bucket}`} role="heading" aria-level={3}>
                         {t(BUCKET_LABEL[group.bucket])}
                       </span>
-                      <span className="ws-group-count">{group.items.length}</span>
+                      <span className="ws-group-count">{group.items.length + (group.bucket === 'attention' ? extraRows.length : 0)}</span>
                     </div>
-                    {group.items.map((t) => (
-                      <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />
-                    ))}
+                    {group.bucket === 'attention'
+                      ? attentionRows(group.items)
+                      : group.items.map((t) => <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />)}
                   </section>
                   {group.bucket === 'attention' && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
                 </Fragment>
               ))}
-              {!groups.some((g) => g.bucket === 'attention') && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
-              {groups.length === 0 && compares.length === 0 && (
+              {!listed.some((g) => g.bucket === 'attention') && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
+              {listed.length === 0 && compares.length === 0 && (
                 <div className="sidebar-empty">
                   {view.query
                     ? t('sidebar.empty.noMatch')

@@ -36,10 +36,10 @@ describe('triage reasons', () => {
     const task = { id: 't1', orgId: 'o1', employeeId: 'e-1', state: 'waiting', waitingOn: 'person', reason: 'Foreman closed while this ran; retry or cancel.' }
     const snapshot = (state: string) => ({ workspaces: [latest, older], sessions: [], employeeWork: { o1: { tasks: [{ ...task, state }], runs: [], last: {}, revision: 1 } } }) as unknown as AppSnapshot
     const rows = triageAll({ snapshot: snapshot('waiting'), approvals: [], unread: {}, unreadSessions: {}, now: NOW }, null)
-    expect(rows.find((r) => r.ws.id === 'ws')).toMatchObject({ bucket: 'attention', label: 'Employee needs you', tone: 'amber', detail: 'Foreman closed while this ran; retry or cancel.' })
+    expect(rows.find((r) => r.ws.id === 'ws')).toMatchObject({ bucket: 'attention', label: 'Needs you', tone: 'amber', detail: 'Foreman closed while this ran; retry or cancel.' })
     expect(rows.find((r) => r.ws.id === 'ws-old')?.bucket).not.toBe('attention')
     const running = triageAll({ snapshot: snapshot('running'), approvals: [], unread: {}, unreadSessions: {}, now: NOW }, null)
-    expect(running.find((r) => r.ws.id === 'ws')?.label).not.toBe('Employee needs you')
+    expect(running.find((r) => r.ws.id === 'ws')?.label).not.toBe('Needs you')
   })
 
   it('a stopped archive needs you, says which step failed, and offers its dialog; it ends when the field goes', () => {

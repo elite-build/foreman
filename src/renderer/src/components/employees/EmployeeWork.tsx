@@ -1,19 +1,22 @@
-// An employee's work in the window (docs/ai-employees.md §6, §10): Ask <name>… and Run now on its page, its Tasks and Runs
-// tabs, the Team page's Needs you list, and a task's Stop, Retry and Cancel. Every task and run is read from the main
-// process (the snapshot carries only the work not yet over), read again whenever the organization's work moves.
-import { useCallback, useEffect, useState } from 'react'
+// An employee's work in the window (docs/ai-employees.md §6, §10): Ask <name> and Run now on its page, its Tasks and Runs
+// tabs, and a task's Stop, Retry and Cancel. What waits for a person is a decision (EmployeeDecisions.tsx). Every task and
+// run is read from the main process (the snapshot carries only the work not yet over), read again whenever the
+// organization's work moves.
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { RECEIPT_STAGES, receipts, type ReceiptStage } from '../../../../shared/employeeBroker'
-import { canCancelTask, canRetryTask, isRunActive, isRunGoing, needsPerson, workableRepos, type EmployeeRun, type EmployeeTask, type EmployeeTaskChain } from '../../../../shared/employeeWork'
+import { canCancelTask, canRetryTask, isRunActive, isRunGoing, workableRepos, type EmployeeRun, type EmployeeTask, type EmployeeTaskChain } from '../../../../shared/employeeWork'
 import { employeeStatus, type EmployeeDefinition, type EmployeeSummary } from '../../../../shared/employees'
 import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
 import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
-import { api, attempt, openEmployees, selectWorkspace, showToast, useStore } from '../../store'
-import { Button, Callout, Card, Disclosure, Field, LinkButton, RadioList, Select, Spinner, Status, Stepper, TextArea, type StepperStep } from '../../ui'
+import { formatChord } from '../../shortcuts'
+import { api, attempt, selectWorkspace, showToast, useStore } from '../../store'
+import { Button, Callout, Card, Disclosure, Field, Kbd, LinkButton, Select, Spinner, Status, Stepper, TextInput, type StepperStep } from '../../ui'
 import { formatDuration } from '../turnResult'
-import { ActionLog, HeldActions } from './HeldActions'
-import { MemoryProposals } from './MemoryProposals'
-import { ACCESS_LABEL, holdText, modelText, RUN_LABEL, RUN_TONE, taskWord } from './words'
+import { ActionLog } from './HeldActions'
+import { ACCESS_LABEL, activityText, holdText, modelText, RUN_LABEL, RUN_TONE, taskWord } from './words'
+
+export { EmployeesNeedYou } from './EmployeeDecisions'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -63,6 +66,10 @@ const CANT_ASK = {
   draft: 'employees.ask.cantRun.draft'
 } as const
 
+/**
+ * Ask <name>, on one line: what to do (Ctrl+Enter asks), the repository when it has more than one, Ask and Run now. An
+ * empty ask says what is missing at the field instead of a button that does nothing.
+ */
 export function AskEmployee({ orgId, employee, definition }: { orgId: string; employee: EmployeeSummary; definition: EmployeeDefinition }) {
   const t = useT()
   const snapshot = useStore((s) => s.snapshot!)
@@ -72,6 +79,8 @@ export function AskEmployee({ orgId, employee, definition }: { orgId: string; em
   const [repoId, setRepoId] = useState(repos[0]?.id ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [empty, setEmpty] = useState(false)
+  const field = useRef<HTMLInputElement>(null)
   const name = employee.name || employee.id
   const blocked = cantAsk(employee)
   const repo = repos.some((r) => r.id === repoId) ? repoId : (repos[0]?.id ?? '')
@@ -92,9 +101,17 @@ export function AskEmployee({ orgId, employee, definition }: { orgId: string; em
       setBusy(false)
     }
   }
+  const ask = () => {
+    if (!body.trim()) {
+      setEmpty(true)
+      field.current?.focus()
+      return
+    }
+    void send(() => api.askEmployee(orgId, employee.id, { body, repoId: repo }), true)
+  }
   return (
-    <Card as="section" className="employee-section" aria-labelledby={`ask-${employee.id}`}>
-      <h3 id={`ask-${employee.id}`} className="employee-subheading">
+    <Card as="section" className="employee-section employee-ask" aria-labelledby={`ask-${employee.id}`}>
+      <h3 id={`ask-${employee.id}`} className="sr-only">
         {t('employees.ask.heading', { name })}
       </h3>
       {blocked ? (
@@ -109,19 +126,39 @@ export function AskEmployee({ orgId, employee, definition }: { orgId: string; em
               {error}
             </Callout>
           )}
-          <Field label={t('employees.ask.label', { name })}>{(c) => <TextArea {...c} rows={4} value={body} placeholder={t('employees.ask.placeholder')} onChange={(e) => setBody(e.target.value)} />}</Field>
-          <Field label={t('employees.ask.repo')} description={t('employees.ask.repoHint', { name })}>
-            {(c) => <Select {...c} value={repo} options={repos.map((r) => ({ value: r.id, label: t('employees.ask.repoOption', { repo: r.name, access: t(ACCESS_LABEL[r.access]) }) }))} onChange={setRepoId} />}
-          </Field>
-          <div className="employee-card-actions">
-            <Button variant="primary" disabled={busy || !body.trim()} onClick={() => void send(() => api.askEmployee(orgId, employee.id, { body, repoId: repo }), true)}>
-              {busy ? t('employees.ask.sending') : t('employees.ask.submit')}
-            </Button>
-            <Button disabled={busy} onClick={() => void send(() => api.runEmployeeNow(orgId, employee.id, { repoId: repo }), false)}>
-              {t('employees.ask.runNow')}
-            </Button>
-            <span className="employee-faint">{t('employees.ask.runNowHint', { name })}</span>
+          <div className="employee-ask-line">
+            <Field label={t('employees.ask.heading', { name })} error={empty && !body.trim() ? t('employees.ask.empty', { name }) : undefined} className="employee-ask-field">
+              {(c) => (
+                <TextInput
+                  {...c}
+                  ref={field}
+                  value={body}
+                  placeholder={t('employees.ask.placeholder')}
+                  onChange={(e) => setBody(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !busy) {
+                      e.preventDefault()
+                      ask()
+                    }
+                  }}
+                />
+              )}
+            </Field>
+            {repos.length > 1 && (
+              <Field label={t('employees.ask.repo')}>
+                {(c) => <Select {...c} value={repo} options={repos.map((r) => ({ value: r.id, label: t('employees.ask.repoOption', { repo: r.name, access: t(ACCESS_LABEL[r.access]) }) }))} onChange={setRepoId} />}
+              </Field>
+            )}
+            <span className="employee-ask-buttons">
+              <Button variant="primary" disabled={busy} onClick={ask}>
+                {busy ? t('employees.ask.sending') : t('employees.ask.submit')} <Kbd>{formatChord('mod+Enter', snapshot.platform)}</Kbd>
+              </Button>
+              <Button disabled={busy} onClick={() => void send(() => api.runEmployeeNow(orgId, employee.id, { repoId: repo }), false)}>
+                {t('employees.ask.runNow')}
+              </Button>
+            </span>
           </div>
+          <span className="employee-faint">{t('employees.ask.runNowHint', { name })}</span>
         </>
       )}
     </Card>
@@ -186,69 +223,6 @@ function TaskActions({ task, runs }: { task: EmployeeTask; runs: EmployeeRun[] }
           {t('employees.task.openWorkspace')}
         </LinkButton>
       )}
-    </div>
-  )
-}
-
-/**
- * The question a task waits on (ask_person, docs/ai-employees.md §6.4): the employee's words, its options as choices
- * beside an answer in your own words, and Send. One answer per question: it starts the task's next run. It never
- * approves anything.
- */
-export function QuestionForm({ task }: { task: EmployeeTask }) {
-  const t = useT()
-  const name = useStore((s) => s.snapshot!.employees?.[task.orgId]?.employees.find((e) => e.id === task.employeeId)?.name) || task.employeeId
-  const question = task.question!
-  const [choice, setChoice] = useState<string | undefined>(undefined)
-  const [own, setOwn] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const options = question.options
-  const picked = choice !== undefined && choice !== 'own' ? options[Number(choice)] : undefined
-  const answer = (options.length ? picked ?? (choice === 'own' ? own : '') : own).trim()
-  const ownField = (
-    <Field label={t(options.length ? 'employees.question.own' : 'employees.question.answer')}>
-      {(c) => <TextArea {...c} rows={3} value={own} onChange={(e) => setOwn(e.target.value)} />}
-    </Field>
-  )
-  const send = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      await api.answerEmployeeQuestion(task.id, question.id, answer)
-      showToast(t('employees.question.sent', { name }))
-    } catch (err) {
-      setError(message(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <div className="employee-question">
-      <p className="employee-question-text">
-        <strong>{t('employees.question.asks', { name })}</strong> {question.question}
-      </p>
-      {options.length > 0 ? (
-        <RadioList
-          legend={t('employees.question.choose')}
-          value={choice}
-          onChange={setChoice}
-          options={[...options.map((o, i) => ({ value: String(i), label: o })), { value: 'own', label: t('employees.question.ownOption'), ...(choice === 'own' ? { extra: ownField } : {}) }]}
-        />
-      ) : (
-        ownField
-      )}
-      {error && (
-        <Callout tone="error" role="alert">
-          {error}
-        </Callout>
-      )}
-      <div className="employee-card-actions">
-        <Button size="sm" variant="primary" disabled={busy || !answer} onClick={() => void send()}>
-          {busy ? t('employees.question.sending') : t('employees.question.send')}
-        </Button>
-        <span className="employee-faint">{t('employees.question.hint')}</span>
-      </div>
     </div>
   )
 }
@@ -351,7 +325,7 @@ export function TaskRow({ task, runs, who }: { task: EmployeeTask; runs: Employe
         <span className="employee-task-title">{who ? t('employees.task.who', { name: who, title: task.title }) : task.title}</span>
       </div>
       {why && !task.question && <p className="employee-task-why">{why}</p>}
-      {task.question && <QuestionForm task={task} />}
+      {task.question && <p className="employee-task-why">{activityText({ current: task, running: false, needsYou: 1, queued: 0 }, t)}</p>}
       {task.resultSummary && <p className="employee-task-result">{task.resultSummary}</p>}
       <span className="employee-faint">
         {[
@@ -463,61 +437,5 @@ export function EmployeeRuns({ orgId, employee }: { orgId: string; employee: Emp
         <RunRow key={run.id} run={run} task={tasks.find((x) => x.id === run.taskId)} />
       ))}
     </ul>
-  )
-}
-
-// ---- Needs you ----
-
-/**
- * The organization's tasks that wait for a person (a question to answer, a denied approval, an uncertain run, a
- * refusal), with Answer, Retry and Cancel; the outward actions held for them (§9), with Send, Edit then send and Skip;
- * and the memory changes its employees proposed, with Keep and Retire.
- */
-export function EmployeesNeedYou({ orgId }: { orgId: string }) {
-  const t = useT()
-  const view = useStore((s) => s.snapshot!.employeeWork?.[orgId])
-  const roster = useStore((s) => s.snapshot!.employees?.[orgId]?.employees ?? [])
-  const organization = useStore((s) => s.snapshot!.organizations?.find((o) => o.id === orgId))
-  // A question, a refusal or an uncertain run, or a chain out of runs (§7); not work waiting on other employees.
-  const waiting = (view?.tasks ?? []).filter(needsPerson)
-  // Paused after two runs in a row didn't finish (§9): it waits for a person to look and resume it.
-  const failing = roster.filter((e) => e.state === 'paused' && e.pausedKind === 'failures')
-  if (!waiting.length && !view?.proposals?.length && !view?.actions?.length && !failing.length) return null
-  const runs = view?.runs ?? []
-  return (
-    <section className="team-needs-you" aria-labelledby={`needs-you-${orgId}`}>
-      <h2 id={`needs-you-${orgId}`} className="employee-subheading">
-        {t('employees.needsYou.heading')}
-      </h2>
-      {failing.map((e) => (
-        <Callout
-          key={e.id}
-          tone="warn"
-          role="status"
-          title={t('employees.employee.failuresTitle', { name: e.name || e.id })}
-          actions={
-            <>
-              <Button size="sm" variant="ghost" onClick={() => openEmployees({ orgId, page: 'employee', id: e.id })}>
-                {t('employees.needsYou.open')}
-              </Button>
-              <Button size="sm" onClick={() => void attempt(() => api.resumeEmployee(orgId, e.id))}>
-                {t('employees.action.resume')}
-              </Button>
-            </>
-          }
-        >
-          {e.pausedDetail ? t('employees.employee.failuresBody', { detail: e.pausedDetail }) : t('employees.employee.failuresBodyPlain')}
-        </Callout>
-      ))}
-      {waiting.length > 0 && (
-        <ul className="employee-work-list" aria-label={t('employees.needsYou.label', { organization: organization?.name ?? '' })}>
-          {waiting.map((task) => (
-            <TaskRow key={task.id} task={task} runs={runs} who={roster.find((e) => e.id === task.employeeId)?.name || task.employeeId} />
-          ))}
-        </ul>
-      )}
-      <HeldActions orgId={orgId} />
-      <MemoryProposals orgId={orgId} headingLevel={3} />
-    </section>
   )
 }

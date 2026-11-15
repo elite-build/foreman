@@ -27,9 +27,10 @@ import { durationText, fingerprintText, isFailure, STATUS_TEXT, summarizeChecks,
 import type { CheckRow, ChecksStatus, DiffComment, GitActionKind, GitStatus, PrCheck, PullRequestInfo } from '../../../shared/types'
 import { jobDuration } from '../../../shared/scm'
 import { McpSection } from './McpConsent'
-import { activeSessionId, api, attempt, getState, modKey, openArchiveDialog, openFixChecks, openHandOffDialog, openSettingsPage, runChecks, timeAgo, useStore, useWindowVisible } from '../store'
+import { activeSessionId, api, attempt, getState, openArchiveDialog, openFixChecks, openHandOffDialog, openSettingsPage, runChecks, timeAgo, useStore, useWindowVisible } from '../store'
 import { useStoreMemo } from '../storeMemo'
 import { useT } from '../i18n'
+import { formatChord } from '../shortcuts'
 import type { PlainKey } from '../../../shared/i18n'
 import { formatClock, formatDateTime } from '../../../shared/i18n/time'
 import { cloudStatusWord } from '../cloudView'
@@ -312,7 +313,6 @@ export function MergedProgress({ pr }: { pr: PullRequestInfo }) {
 export function GitHeaderActions({ workspaceId, status, refresh, running }: { workspaceId: string; status: GitStatus | null; refresh: () => void; running: boolean }) {
   const platform = useStore((s) => s.snapshot!.platform)
   const [busy, setBusy] = useState<GitActionKind | null>(null)
-  const mod = modKey(platform)
 
   const run = async (action: GitActionKind) => {
     setBusy(action)
@@ -352,7 +352,7 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
           size="sm"
           variant="ghost"
           icon={<ScanSearch size={13} />}
-          title={t('gitPanel.reviewTitle', { keys: `${mod}⇧R` })}
+          title={t('gitPanel.reviewTitle', { keys: formatChord('mod+shift+KeyR', platform) })}
           onClick={() => void run('review')}
           disabled={busy !== null}
         >
@@ -370,7 +370,7 @@ export function GitHeaderActions({ workspaceId, status, refresh, running }: { wo
           menuDisabled={false}
           title={status?.primary.label}
         >
-          <MenuItem icon={<GitPullRequest size={14} />} hint={<Kbd>{mod}⇧P</Kbd>} onSelect={() => void run('create-pr')}>
+          <MenuItem icon={<GitPullRequest size={14} />} hint={<Kbd>{formatChord('mod+shift+KeyP', platform)}</Kbd>} onSelect={() => void run('create-pr')}>
             {gitlab ? t('gitlab.header.createMr') : t('gitPanel.action.createPr')}
           </MenuItem>
           <MenuItem icon={<CircleDashed size={14} />} onSelect={() => void run('create-draft-pr')}>

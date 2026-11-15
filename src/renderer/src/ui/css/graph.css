@@ -1,5 +1,6 @@
 /* Graph: nodes (HTML) over an SVG edge layer, both in one layer scaled with `zoom`, so every size below is in graph
-   units and scales with the picture. The viewport scrolls; the toolbar floats over its bottom-right corner. */
+   units and scales with the picture. The viewport scrolls; the toolbar floats over its bottom-right corner, or sits in
+   a bar above it (the bar prop). */
 .ui-graph {
   position: relative;
   display: flex;
@@ -550,6 +551,43 @@ button.ui-graph__node:hover .ui-graph__shape {
   width: 1px;
   margin: 2px 3px;
   background: var(--border);
+}
+
+/* ---- the bar (bar prop): the toolbar above the viewport, after what the caller puts at its start ---- */
+.ui-graph__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px 12px;
+  min-height: 32px;
+  padding: 3px 4px 3px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.ui-graph__bar-start {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+/* In the bar the toolbar is part of the row: no float, edge or shadow, at the row's end. */
+.ui-graph__bar > .ui-graph__tools {
+  position: static;
+  flex: none;
+  margin-inline-start: auto;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+/* bar.grow: the viewport is as tall as the graph at its zoom. It scrolls sideways only, so a wheel over it scrolls the
+   page; with no scroll bar down its side, there is no gutter to keep for one. */
+.ui-graph[data-grow] .ui-graph__viewport {
+  flex: none;
+  overflow-y: hidden;
+  scrollbar-gutter: auto;
 }
 
 /* ---- thumbnail: shapes and lines only, heavier so they read when tiny ---- */

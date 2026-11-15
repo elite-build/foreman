@@ -11,12 +11,15 @@ import { createPortal } from 'react-dom'
 //   - Nested layers: one document-level Escape handler closes the topmost layer only, and skips an Escape that an
 //     inner widget (combobox, popover, menu) already handled.
 //   - Everything outside the layer is `inert` while it is open (sibling by sibling along the path to the layer, so a
-//     layer rendered inside a container works too). Live regions such as the toast are left alone.
+//     layer rendered inside a container works too). Live regions such as the toast stay announced, but the controls in
+//     them go inert too.
 //   - A title is required: it is the dialog's accessible name.
 
 const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), summary, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
-// Siblings that keep working under an open layer: announcements.
+// Siblings that keep being announced under an open layer: live regions. Their controls still go inert (CONTROL).
 const LIVE = '[data-ui-live], [aria-live]:not([aria-live="off"]), [role="status"], [role="alert"]'
+// Anything a person could use, enabled or not yet (a disabled button may turn on while the layer is open).
+const CONTROL = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [contenteditable]:not([contenteditable="false"]), [tabindex]'
 
 // ---- escape stack ----
 
@@ -63,8 +66,19 @@ const seqOf = (el: Element) => Number(el.getAttribute('data-ui-seq') ?? 0)
 function inertOutside(layer: Element, seq: number): () => void {
   const marked: Element[] = []
   const higher = (el: Element) => seqOf(el) > seq
+  // A live region stays out of inert so it is still announced, but nothing in it can be used behind the layer (a Callout
+  // role=status with a button in it, Home's banner): its controls go inert one by one.
+  const quiet = (region: Element) => {
+    for (const el of region.querySelectorAll(CONTROL)) {
+      const owner = el.closest('[data-ui-seq]')
+      if (el.hasAttribute('inert') || (owner && higher(owner))) continue
+      el.setAttribute('inert', '')
+      marked.push(el)
+    }
+  }
   const mark = (el: Element) => {
-    if (el.hasAttribute('inert') || el.matches(LIVE) || el.tagName === 'SCRIPT' || higher(el)) return
+    if (el.hasAttribute('inert') || el.tagName === 'SCRIPT' || higher(el)) return
+    if (el.matches(LIVE)) return quiet(el)
     // A branch that holds a live region or a higher layer can't go inert whole: mark what is around them instead.
     if (el.querySelector(LIVE) || [...el.querySelectorAll('[data-ui-seq]')].some(higher)) return void [...el.children].forEach(mark)
     el.setAttribute('inert', '')

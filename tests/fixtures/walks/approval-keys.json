@@ -1,8 +1,10 @@
 {
   "name": "approval-keys",
   "steps": [
-    { "key": "mod+alt+.", "expect": { "focus": { "role": "group", "name": "^Run this command\\?$", "tag": "^div$" } } },
-    { "key": "Tab", "expect": { "focus": { "role": "button", "name": "^No\\b", "tag": "^button$" } } },
+    { "key": "F6", "expect": { "focus": { "role": "group", "name": "^Run this command\\?$", "tag": "^section$" } } },
+    { "key": "Tab", "expect": { "focus": { "role": "textbox", "name": "^Tell the agent what to do instead", "tag": "^input$" } } },
+    { "key": "Tab", "expect": { "focus": { "role": "button", "name": "^Full request$", "tag": "^button$" } } },
+    { "key": "Tab", "expect": { "focus": { "role": "button", "name": "^Don’t run\\b", "tag": "^button$" } } },
     { "key": "Enter", "expect": { "absent": [".approval-panel"] } }
   ]
 }

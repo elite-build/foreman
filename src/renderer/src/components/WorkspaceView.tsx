@@ -1,6 +1,6 @@
 import { TransferBanner } from './HandOffDialogs'
 import { EmployeeRunBanner } from './employees/EmployeeRunBanner'
-import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, PanelBottom, PanelLeft, PanelRight, Plus, RefreshCw, RotateCcw, Upload, Users, X } from 'lucide-react'
+import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, MoreHorizontal, PanelBottom, PanelLeft, PanelRight, Pencil, Plus, RefreshCw, RotateCcw, Upload, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -30,9 +30,11 @@ import {
   openCompareDialog,
   openHandOffDialog,
   openMcpConsent,
+  openPanelSheet,
   openSessions,
   reopenChat,
   selectSession,
+  setPanelSheet,
   setWorkspaceFocus,
   showError,
   showToast,
@@ -67,10 +69,11 @@ import { FileViewer } from './FileViewer'
 import { FilesTree } from './FilesTree'
 import { ResizeHandle, usePanelSize, useWindowHeight, useWindowWidth, type PanelSize } from './resize'
 import { wsPath } from '../../../shared/workspacePath'
-import { archivedTabs, workspaceSurfaces } from '../archivedView'
+import { archivedTabs, workspaceSurfaces, type WorkspaceSurfaces } from '../archivedView'
 import { ArchivedPanel } from './ArchivedView'
 import { useT, type RendererT } from '../i18n'
-import { Button, Callout, ContextMenu, IconButton, MenuItem, MenuSeparator, SplitButton, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, TextInput, type TagTone } from '../ui'
+import { formatChord } from '../shortcuts'
+import { Button, Callout, ChipButton, ContextMenu, IconButton, MenuButton, MenuItem, MenuSeparator, Sheet, SplitButton, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, TextInput, type TagTone } from '../ui'
 import { AppIcon, DefaultAppMenu, OpenInMenuItems, openDefault, useDefaultLabel } from './OpenIn'
 import { refreshOpenInApps } from '../openIn'
 import { runningStep } from '../../../shared/setupSteps'
@@ -78,11 +81,13 @@ import { CloudBanner, CloudPill, useCloudStatusPoll, useWakeOnOpen } from './clo
 import { editorViewsFor, shownEditorView, type WorkspacePanelView } from '../editorLayout'
 import { FlowRunPanel, useWorkspaceFlowRun } from './FlowRunPanel'
 import { LineagePanel, useLineageOn } from './LineagePanel'
+import { listFolds, PANEL_SHEET_BELOW, sidebarShows } from '../narrowLayout'
+import { hasNote } from '../../../shared/note'
 import './editor/editor.css'
 
 /** The fork shortcut as shown in menus. */
 export function forkShortcut(platform: string | undefined): string {
-  return platform === 'darwin' ? '⌘⌥↵' : 'Ctrl+Alt+Enter'
+  return formatChord('mod+alt+Enter', platform)
 }
 
 const STATE_LABEL: Partial<Record<Workspace['state'], PlainKey>> = {
@@ -493,6 +498,10 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const rightPanelOpen = useStore((s) => s.rightPanelOpen)
   const leftPanelOpen = useStore((s) => s.leftPanelOpen)
   const bottomPanelOpen = useStore((s) => s.bottomPanelOpen)
+  // A narrow window (narrowLayout.ts): the list asked for beside its rail, and the side panel's sheet open.
+  const narrowList = useStore((s) => s.narrowList)
+  const panelSheetOpen = useStore((s) => s.panelSheetOpen)
+  const windowLayout = useStore((s) => s.snapshot!.settings.windowLayout)
   const storedFocus = useStore((s) => s.workspaceFocus[workspaceId])
   const sidebarSide = useStore((s) => s.snapshot!.settings.sidebarSide ?? 'left')
   const panelSide = useStore((s) => s.snapshot!.settings.sidePanelSide ?? 'right')
@@ -673,6 +682,20 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const chatTerminal = usePanelSize('bottom-height', Math.round(windowHeight * 0.35), 120, windowHeight - 320)
   // Editor: the chat's width, shared by all workspaces; the files between it and the side panel keep at least 360px.
   const chatPanel = usePanelSize('editor-chat', 380, 300, Math.min(760, windowWidth * 0.5, (containerWidth || windowWidth) - 360))
+  // A narrow window (narrowLayout.ts): the list folded to its rail, the Note bar a chip in the tab strip, and, when the
+  // chat and the side panel can't sit side by side, the panel as a sheet over the chat. The Editor layout takes none.
+  const narrowWindow = listFolds(windowWidth, windowLayout)
+  const folded = !editor && sidebarShows({ windowWidth, windowLayout, leftPanelOpen, narrowList }) === 'rail'
+  const asSheet = !editor && (containerWidth || windowWidth) < PANEL_SHEET_BELOW
+  const sheetOpen = asSheet && panelSheetOpen && !hidden
+  // The workspace on screen tells the store, so the side panel's shortcut opens the sheet; going off screen closes it.
+  useEffect(() => {
+    if (hidden) return
+    setPanelSheet(asSheet)
+    return () => setPanelSheet(false)
+  }, [hidden, asSheet])
+  // The Note bar's editor, opened from its chip in a narrow window.
+  const [noteOpen, setNoteOpen] = useState(false)
 
   // In the middle, the chat's browser tab would be out of view, so the chat shows its chat instead.
   useEffect(() => {
@@ -701,6 +724,24 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
     if (slot && terminalHost.parentElement !== slot) slot.appendChild(terminalHost)
   }, [terminalHost])
 
+  // The side panel's content renders once into a node of its own too, which moves between the side panel and its sheet (a
+  // narrow window), so opening the sheet never remounts its terminals, the Files tree or the Flow tab's graph.
+  const [panelHost] = useState(() => {
+    const el = document.createElement('div')
+    el.className = 'panel-host'
+    return el
+  })
+  const asideNode = useRef<HTMLElement | null>(null)
+  const placeAside = useCallback((aside: HTMLElement | null) => {
+    asideNode.current = aside
+    if (aside && !panelHost.isConnected) aside.appendChild(panelHost)
+  }, [panelHost])
+  // Into the sheet while it is open, and back into the side panel when it closes.
+  const placeInSheet = useCallback((slot: HTMLDivElement | null) => {
+    if (slot) slot.appendChild(panelHost)
+    else asideNode.current?.appendChild(panelHost)
+  }, [panelHost])
+
   if (!ws) return null
   const file: DiffFile | undefined = diff?.files.find((f) => f.path === openFile)
   const liveMounted = mounted.filter((id) => sessions.some((s) => s.id === id))
@@ -719,7 +760,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   // Editor: the side panel sits beside the activity bar (on the sidebar's side) and the chat on the other.
   const panelLeft = editor ? sidebarSide !== 'right' : panelSide === 'left'
   // While something is in the middle the side panel holds the chat, so it shows whatever its toggle says.
-  const panelShown = editor ? leftPanelOpen && editorPanel !== 'workspaces' : rightPanelOpen || Boolean(chatAside)
+  // A narrow workspace has it as a sheet instead.
+  const panelShown = editor ? leftPanelOpen && editorPanel !== 'workspaces' : !asSheet && (rightPanelOpen || Boolean(chatAside))
   // Three panes and Tiles: the selected tab of the strip, a file or commit shown in the centre, a Terminal agent tab, or
   // the chat. Editor: the strip is two, the files over the middle and the chats over the chat, each with its own selection.
   const browserShown = browserActive && !openFile && !viewFile && !commitFile && (editor || !agentTab)
@@ -728,36 +770,60 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const tabValue = fileTabValue || chatTabValue
   // The chat's bars (note, setup hint, reviewer) stay over the chat; in Three panes the browser covers it.
   const chatOnScreen = editor || !browserShown
-  // Editor: the terminal is always under the files.
-  const termPlacement = editor ? 'below-chat' : placement
+  // A narrow window: the Note bar is a chip at the end of the tab strip, its editor shown under the strip while open.
+  const noteChip = narrowWindow && !editor && hasChat && chatOnScreen && ws.state !== 'history' && !surfaces.archived
+  // Editor: the terminal is always under the files; with the side panel a sheet (narrow), it moves under the chat.
+  const termPlacement = editor || asSheet ? 'below-chat' : placement
   const belowChat = termPlacement === 'below-chat'
   const terminalShown = terminalFocus || (bottomPanelOpen && (belowChat || panelShown))
   // In the middle (O3) the panel moves into the chat's place; the usual slots step aside.
   const terminalDocked = surfaces.terminal && bottomPanelOpen && !terminalFocus
   const mod = modKey(snapshot.platform)
+  const keys = (chord: string) => formatChord(chord, snapshot.platform)
   const terminalSlot = (size: PanelSize, edge: 'top' | 'bottom', where: string) => (
     <div className={`bottom-slot ${where}`} ref={placeTerminal} style={size.isDefault ? undefined : { flex: `0 0 ${size.size}px` }}>
       <ResizeHandle panel={size} edge={edge} label={t('workspaceView.resize.terminal')} />
     </div>
   )
-  // Editor: the activity bar shows the sidebar again, so the header doesn't.
-  const sidebarToggle = !leftPanelOpen && !editor && (
-    <IconButton label={t('workspaceView.showSidebar', { key: `${mod}B` })} onClick={toggleLeftPanel}>
+  // Editor: the activity bar shows the sidebar again, so the header doesn't. Folded to its rail (narrow), it shows the list.
+  const sidebarToggle = (!leftPanelOpen || folded) && !editor && (
+    <IconButton label={folded ? t('workspaceView.showList', { key: keys('mod+KeyB') }) : t('workspaceView.showSidebar', { key: `${mod}B` })} onClick={toggleLeftPanel}>
       {sidebarSide === 'right' ? <PanelRight size={15} /> : <PanelLeft size={15} />}
     </IconButton>
   )
   // The side panel's toggle; in the Editor layout the right-hand panel is the chat, so it shows and hides that.
   const panelToggle = editor ? (
-    <IconButton label={t('editorLayout.chat.toggle', { key: `${mod}⌥B` })} pressed={rightPanelOpen} onClick={toggleRightPanel}>
+    <IconButton label={t('editorLayout.chat.toggle', { key: keys('mod+alt+KeyB') })} pressed={rightPanelOpen} onClick={toggleRightPanel}>
       {panelLeft ? <PanelRight size={15} /> : <PanelLeft size={15} />}
     </IconButton>
   ) : (
-    <IconButton label={t('workspaceView.toggleSidePanel', { key: `${mod}⌥B` })} pressed={rightPanelOpen} onClick={toggleRightPanel}>
+    <IconButton label={t('workspaceView.toggleSidePanel', { key: keys('mod+alt+KeyB') })} pressed={rightPanelOpen} onClick={toggleRightPanel}>
       {panelLeft ? <PanelLeft size={15} /> : <PanelRight size={15} />}
     </IconButton>
   )
   // The toggle sits at the header's end nearest the panel it toggles.
   const toggleAtStart = editor ? !panelLeft : panelLeft
+  // Narrow: the side panel is a sheet, opened by a button that names it and says how many files changed.
+  const changedCount = diff?.files.length ?? 0
+  const sheetButton = (
+    <Button
+      size="sm"
+      icon={panelLeft ? <PanelLeft size={13} /> : <PanelRight size={13} />}
+      aria-haspopup="dialog"
+      aria-expanded={sheetOpen}
+      title={t('workspaceView.panelSheet.title', { key: keys('mod+alt+KeyB') })}
+      onClick={() => openPanelSheet(true)}
+    >
+      {t('workspaceView.panel.changes')} {changedCount ? <span className="faint">{changedCount}</span> : null}
+    </Button>
+  )
+  // Picking a file in the sheet shows it in the middle, so the sheet steps aside.
+  const leaveSheet = () => {
+    if (sheetOpen) openPanelSheet(false)
+  }
+  // A narrow window (not the Editor layout): Compare, Export, Hand off and Open in go into one More menu, so the name and
+  // branch keep their width.
+  const moreMenu = !editor && narrowWindow
 
   const showSession = (id: string) => {
     // In the Editor layout the file stays open beside the chat.
@@ -861,12 +927,12 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const chatButtons = (
     <>
       {hasWorktree && (
-        <IconButton className="new-tab" label={t('workspaceView.newChatTitle', { key: '⌘T' })} onClick={() => void newChat(workspaceId)}>
+        <IconButton className="new-tab" label={t('workspaceView.newChatTitle', { key: keys('mod+KeyT') })} onClick={() => void newChat(workspaceId)}>
           <Plus size={14} />
         </IconButton>
       )}
       {!surfaces.archived && allSessions.some((s) => s.workspaceId === workspaceId && s.closedAt) && (
-        <IconButton label={t('workspaceView.reopenTitle', { key: '⌘⇧T' })} onClick={() => void reopenChat(workspaceId)}>
+        <IconButton label={t('workspaceView.reopenTitle', { key: keys('mod+shift+KeyT') })} onClick={() => void reopenChat(workspaceId)}>
           <RotateCcw size={13} />
         </IconButton>
       )}
@@ -874,7 +940,9 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   )
   const chatBars = hasChat && chatOnScreen && (
     <>
-      {ws.state !== 'history' && <NoteBar workspace={ws} session={sessions.find((s) => s.id === activeId)} readOnly={surfaces.archived} />}
+      {ws.state !== 'history' && (
+        <NoteBar workspace={ws} session={sessions.find((s) => s.id === activeId)} readOnly={surfaces.archived} folded={noteChip} open={noteChip ? noteOpen : undefined} onOpenChange={noteChip ? setNoteOpen : undefined} />
+      )}
       {!surfaces.archived && <SetupHint workspace={ws} session={sessions.find((s) => s.id === activeId)} />}
       {/* #17: the reviewer tab's running, stopped or stale bar. */}
       <AutoReviewBar workspace={ws} session={sessions.find((s) => s.id === activeId)} />
@@ -975,6 +1043,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       diff={diff}
       selected={openFile}
       onOpen={(path) => {
+        leaveSheet()
         selectBrowserTab(workspaceId, false)
         setViewFile(null)
         setCommitFile(null)
@@ -991,6 +1060,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       picking={picking}
       picked={source.picked}
       onOpen={(next) => {
+        leaveSheet()
         selectBrowserTab(workspaceId, false)
         setOpenFile(null)
         setViewFile(null)
@@ -1015,6 +1085,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       selected={viewFile?.path ?? openFile}
       reloadKey={filesReload}
       onOpen={(path, changed) => {
+        leaveSheet()
         selectBrowserTab(workspaceId, false)
         // A deleted file isn't on disk any more; its diff is what there is to see.
         setCommitFile(null)
@@ -1060,7 +1131,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         <header className="titlebar drag center-header">
           <div className="header-title">
             {sidebarSide === 'left' && sidebarToggle}
-            {toggleAtStart && !chatAside && panelToggle}
+            {toggleAtStart && !chatAside && !asSheet && panelToggle}
             {surfaces.cloud ? <Cloud size={14} className="faint" aria-label={t('cloud.glyph')} /> : <Folder size={14} className="faint" />}
             <span className="header-name" id={headingId} role="heading" aria-level={1}>
               {ws.name}
@@ -1083,31 +1154,37 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                 <LayoutGrid size={15} />
               </IconButton>
             )}
-            {/* Compare, hand-off and Open in need a folder on this computer; a cloud workspace has none. */}
-            {surfaces.local && <CompareButton ws={ws} sessionId={activeId} />}
-            {/* Export writes a file on the computer and Open in opens its apps: the window's alone, not a browser's. */}
-            {surfaces.exportable && clientKind === 'window' && (
-              <Button size="sm" icon={<Upload size={12} />} onClick={() => openExportDialog(ws.id)} title={t('workspaceView.export.title')} aria-label={t('workspaceView.export.label')}>
-                <span className="btn-label">{t('workspaceView.export.label')}</span>
-              </Button>
+            {moreMenu ? (
+              <HeaderMore ws={ws} sessionId={activeId} surfaces={surfaces} />
+            ) : (
+              <>
+                {/* Compare, hand-off and Open in need a folder on this computer; a cloud workspace has none. */}
+                {surfaces.local && <CompareButton ws={ws} sessionId={activeId} />}
+                {/* Export writes a file on the computer and Open in opens its apps: the window's alone, not a browser's. */}
+                {surfaces.exportable && clientKind === 'window' && (
+                  <Button size="sm" icon={<Upload size={12} />} onClick={() => openExportDialog(ws.id)} title={t('workspaceView.export.title')} aria-label={t('workspaceView.export.label')}>
+                    <span className="btn-label">{t('workspaceView.export.label')}</span>
+                  </Button>
+                )}
+                {surfaces.local && !ws.transfer && (
+                  <Button size="sm" icon={<ArrowRightLeft size={12} />} onClick={() => openHandOffTo({ workspaceId: ws.id })} title={t('workspaceView.handOff.title')} aria-label={t('workspaceView.handOff.label')}>
+                    <span className="btn-label">{t('workspaceView.handOff.label')}</span>
+                  </Button>
+                )}
+                {surfaces.local && clientKind === 'window' && <OpenMenu ws={ws} />}
+              </>
             )}
-            {surfaces.local && !ws.transfer && (
-              <Button size="sm" icon={<ArrowRightLeft size={12} />} onClick={() => openHandOffTo({ workspaceId: ws.id })} title={t('workspaceView.handOff.title')} aria-label={t('workspaceView.handOff.label')}>
-                <span className="btn-label">{t('workspaceView.handOff.label')}</span>
-              </Button>
-            )}
-            {surfaces.local && clientKind === 'window' && <OpenMenu ws={ws} />}
             {surfaces.terminal && (
-              <IconButton label={t('workspaceView.toggleTerminal', { key: `${mod}⌥J` })} pressed={terminalShown} onClick={toggleBottomPanel}>
+              <IconButton label={t('workspaceView.toggleTerminal', { key: keys('mod+alt+KeyJ') })} pressed={terminalShown} onClick={toggleBottomPanel}>
                 <PanelBottom size={15} />
               </IconButton>
             )}
             {focus === 'flow' && (
-              <IconButton label={t('flowRun.panel.exitFullScreen', { key: `${mod}⇧K` })} onClick={() => setWorkspaceFocus(workspaceId, null)}>
+              <IconButton label={t('flowRun.panel.exitFullScreen', { key: keys('mod+shift+KeyK') })} onClick={() => setWorkspaceFocus(workspaceId, null)}>
                 <Minimize2 size={15} />
               </IconButton>
             )}
-            {!toggleAtStart && !chatAside && panelToggle}
+            {asSheet ? sheetButton : !toggleAtStart && !chatAside && panelToggle}
             {sidebarSide === 'right' && sidebarToggle}
           </div>
         </header>
@@ -1167,10 +1244,14 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         {belowChat && terminalDocked && terminalSlot(chatTerminal, 'top', 'below-chat')}
       </section>
 
-      {/* Hidden rather than unmounted so its terminals keep running. */}
-      <aside className={`side-panel ${panel.size < 380 ? 'compact' : ''}`} aria-label={t('workspaceView.panel.label')} style={{ display: panelShown ? undefined : 'none' }}>
+      {/* Hidden rather than unmounted so its terminals keep running. Its content is in panelHost (below), which sits here
+          unless the sheet holds it. */}
+      <aside ref={placeAside} className={`side-panel ${panel.size < 380 ? 'compact' : ''}`} aria-label={t('workspaceView.panel.label')} style={{ display: panelShown ? undefined : 'none' }}>
         <ResizeHandle panel={panel} edge={panelLeft ? 'right' : 'left'} label={t('workspaceView.resize.side')} />
-        {surfaces.archived ? (
+      </aside>
+      {/* Before the chat's portal, so the panel's Chat tab is in place when the chat lays out (O3). */}
+      {createPortal(
+        surfaces.archived ? (
           <ArchivedPanel workspace={ws} />
         ) : (
           <>
@@ -1247,8 +1328,15 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
             )}
             {termPlacement === 'panel-bottom' && terminalDocked && terminalSlot(panelTerminal, 'top', 'panel-bottom')}
           </>
-        )}
-      </aside>
+        ),
+        panelHost
+      )}
+      {/* Narrow: the side panel over the chat. Esc, the close button or picking a file closes it. */}
+      {sheetOpen && (
+        <Sheet className="panel-sheet" title={t('workspaceView.panel.label')} description={`${ws.name} · ${ws.branch}`} closeLabel={t('common.close')} onClose={() => openPanelSheet(false)}>
+          <div className="panel-sheet-slot" ref={placeInSheet} />
+        </Sheet>
+      )}
       {editor && (
         // Hidden rather than unmounted, like the side panel, so the chats keep their place and drafts.
         <aside className={`editor-chat ${panelLeft ? 'edge-left' : 'edge-right'}`} aria-label={t('editorLayout.chat.label')} style={{ display: rightPanelOpen ? undefined : 'none' }}>
@@ -1286,6 +1374,12 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                   {fileTabs}
                   {previewButton}
                   {chatButtons}
+                  {noteChip && (
+                    <ChipButton className="note-chip" aria-expanded={noteOpen} title={noteOpen ? t('noteBar.collapse') : t('noteBar.expand')} onClick={() => setNoteOpen(!noteOpen)}>
+                      <Pencil size={12} aria-hidden /> {t('noteBar.label')}
+                      {hasNote(ws.note) && <span className="faint">{t('noteBar.revision', { revision: ws.note!.revision })}</span>}
+                    </ChipButton>
+                  )}
                 </TabList>
               </Tabs>
             )}
@@ -1335,6 +1429,52 @@ function LiveBottomPanel({ workspaceId, visible }: { workspaceId: string; visibl
   const ws = useStore((s) => s.snapshot!.workspaces.find((w) => w.id === workspaceId))
   if (!ws || !workspaceSurfaces(ws).terminal) return null
   return <BottomPanel workspace={ws} visible={visible} />
+}
+
+/**
+ * A narrow header's More menu (narrowLayout.ts): Compare, Export and Hand off, each with a line saying what it does, then
+ * the apps Open in offers, Copy path and Archive, as the Open button's menu has them.
+ */
+function HeaderMore({ ws, sessionId, surfaces }: { ws: Workspace; sessionId?: string; surfaces: WorkspaceSurfaces }) {
+  const t = useT()
+  const reason = useStoreMemo((s) => [ws, s.snapshot!.sessions, t], ([w, sessions, tr]) => compareBlockFor(w, sessions, tr))
+  const compare = surfaces.local
+  const exportable = surfaces.exportable && clientKind === 'window'
+  const handOff = surfaces.local && !ws.transfer
+  const openIn = surfaces.local && clientKind === 'window'
+  if (!compare && !exportable && !handOff && !openIn) return null
+  return (
+    <MenuButton look="icon" iconOnly label={t('workspaceView.more')} trigger={<MoreHorizontal size={15} />}>
+      {compare && (
+        <MenuItem icon={<Users size={14} />} disabled={Boolean(reason) || !sessionId} reason={reason ?? undefined} description={reason ? undefined : t('workspaceView.compare.title')} onSelect={() => openCompareDialog({ workspaceId: ws.id, sessionId })}>
+          {t('workspaceView.compare.label')}
+        </MenuItem>
+      )}
+      {exportable && (
+        <MenuItem icon={<Upload size={14} />} description={t('workspaceView.export.title')} onSelect={() => openExportDialog(ws.id)}>
+          {t('workspaceView.export.label')}
+        </MenuItem>
+      )}
+      {handOff && (
+        <MenuItem icon={<ArrowRightLeft size={14} />} description={t('workspaceView.handOff.title')} onSelect={() => openHandOffTo({ workspaceId: ws.id })}>
+          {t('workspaceView.handOff.label')}
+        </MenuItem>
+      )}
+      {openIn && (
+        <>
+          <MenuSeparator />
+          <OpenInMenuItems heading={t('openIn.menu.title', { name: ws.name })} target={{ folder: wsPath(ws) }} onDone={() => undefined} shortcut />
+          <MenuItem icon={<Copy size={14} />} onSelect={() => void attempt(() => navigator.clipboard.writeText(wsPath(ws)))}>
+            {t('openIn.copyPath')}
+          </MenuItem>
+          <MenuSeparator />
+          <MenuItem variant="danger" icon={<Archive size={14} />} onSelect={() => openArchiveDialog(ws.id)}>
+            {t('workspaceView.archive')}
+          </MenuItem>
+        </>
+      )}
+    </MenuButton>
+  )
 }
 
 /** "Compare…" in the header: the same prompt with other models, in sibling workspaces. */

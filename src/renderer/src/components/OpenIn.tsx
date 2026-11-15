@@ -5,6 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type R
 import { openInAppInfo, foundApps, joinWorkspace, openInShortcut, type OpenInApp, type OpenInChoice, type OpenInTarget, type ResolvedDefault } from '../../../shared/openIn'
 import { wsPath } from '../../../shared/workspacePath'
 import { useT, type RendererT } from '../i18n'
+import { formatChord } from '../shortcuts'
 import {
   appLabel,
   defaultApp,
@@ -342,7 +343,7 @@ export function OpenInSwitcher() {
       row.choice === defaultId || n === index ? (
         <span className="open-in-hint">
           {row.choice === defaultId && <Tag>{t('openIn.default')}</Tag>}
-          {n === index && <Kbd>↵</Kbd>}
+          {n === index && <Kbd>{formatChord('Enter', platform)}</Kbd>}
         </span>
       ) : undefined
   }))
@@ -377,9 +378,9 @@ export function OpenInSwitcher() {
       footer={
         ws ? (
           <div className="open-in-foot faint small">
-            <span>↑↓ {t('openIn.switcher.choose')}</span>
-            <span>↵ {t('openIn.switcher.open')}</span>
-            {file && <span>⇧↵ {t('openIn.switcher.folderInstead')}</span>}
+            <span>{[formatChord('ArrowUp', platform), formatChord('ArrowDown', platform)].join(platform === 'darwin' ? '' : '/')} {t('openIn.switcher.choose')}</span>
+            <span>{formatChord('Enter', platform)} {t('openIn.switcher.open')}</span>
+            {file && <span>{formatChord('shift+Enter', platform)} {t('openIn.switcher.folderInstead')}</span>}
           </div>
         ) : undefined
       }

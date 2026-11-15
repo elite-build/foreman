@@ -1501,6 +1501,9 @@ export type ChatItem =
       input: unknown
       status: 'running' | 'done' | 'error'
       output?: string
+      // A command's exit code, when the agent reported one (Codex, ACP terminals). Claude Code and Cursor say it in the
+      // output's "Exit code N" line instead, which the chat reads (ToolRow's exitCodeOf).
+      exitCode?: number
       // A subagent or shell this call started, which may outlive the call itself.
       task?: TaskProgress
       // The task's id (a subagent's, as `stopChild` names it), once the agent said the task started.
@@ -1641,6 +1644,9 @@ export type ApprovalRequest = {
       // With `always-allow` where Foreman remembers it for the session (docs/agents.md 8): what exactly is remembered (the command, path
       // or address), which the card names.
       alwaysScope?: string
+      // With `always-allow` from Claude Code: the Bash rules it adds, as Claude Code writes them (`npm test:*` for every
+      // command starting with `npm test`, else the exact command), so the card can say which parts of a command they cover.
+      alwaysRules?: string[]
       // A subagent is asking, not the agent itself (docs/agents.md 6).
       subagent?: SubagentRef
     }

@@ -3,8 +3,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { snippetParts } from '../../../shared/chatIndex'
 import { compactModelLabel } from '../../../shared/handOff'
 import type { ChatHit, NoteHit } from '../../../shared/types'
-import { api, attempt, openChatHit, openNoteHit, timeAgo } from '../store'
+import { api, attempt, openChatHit, openNoteHit, timeAgo, useStore } from '../store'
 import { useT } from '../i18n'
+import { formatChord } from '../shortcuts'
 import { Checkbox, Combobox, Kbd, Tag } from '../ui'
 
 /** The matched words of a snippet marked, so they stand out in the result. */
@@ -19,6 +20,7 @@ function Snippet({ text }: { text: string }) {
 /** Search every chat in every workspace (⌘⇧F, Chats). Enter opens the tab at the message. */
 export function SearchChats({ scopeSwitch }: { scopeSwitch: ReactNode }) {
   const t = useT()
+  const platform = useStore((s) => s.snapshot?.platform)
   const [query, setQuery] = useState('')
   const [tools, setTools] = useState(false)
   const [hits, setHits] = useState<ChatHit[]>([])
@@ -114,7 +116,7 @@ export function SearchChats({ scopeSwitch }: { scopeSwitch: ReactNode }) {
           [...notes, ...hits].some((hit) => hit.archived) ? (
             <div className="overlay-foot">
               <span>
-                <Kbd>↵</Kbd> {t('archivedView.search.open')}
+                <Kbd>{formatChord('Enter', platform)}</Kbd> {t('archivedView.search.open')}
               </span>
               <span>{t('archivedView.search.foot')}</span>
             </div>

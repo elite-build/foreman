@@ -2,7 +2,8 @@
 // scripts/screenshots.mjs sets: the app starts on a throwaway data folder seeded with a small fixture, main loads the
 // page with ?screens, asks the renderer's hook (renderer/src/screens.ts) to show each screen, captures it with
 // webContents.capturePage and quits. Next to each PNG it writes <name>.ax.json, the reduced accessibility tree
-// (axTree.ts), and warns about unnamed focusable elements, skipped heading levels and a wrong count of main landmarks.
+// (axTree.ts), and warns about unnamed focusable elements, skipped heading levels and a wrong count of main landmarks
+// (not counted while a modal dialog is open: the page behind it is inert).
 // With FOREMAN_SCREENSHOTS_WALK=1 (`--walk`) it then plays the keyboard walks (walks.ts, keyboardWalk.ts): real keys through
 // the DevTools protocol, the focus and live-region text recorded after each, compared with tests/fixtures/walks.
 // Without the flag nothing here runs.
@@ -195,7 +196,7 @@ export interface ScreensFixture {
   now: number
 }
 
-/** Three quarters full, so the composer shows its context ring; the `context-usage` screen opens it. */
+/** 152K of 200K, with 33K kept for compacting: 91% of the usable window, so the composer warns "15K left"; the `context-usage` screen opens it. */
 function fixtureContext(workspacePath: string): ContextUsage {
   return {
     used: 152_000,

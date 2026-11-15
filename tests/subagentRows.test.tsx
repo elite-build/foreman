@@ -159,10 +159,13 @@ describe('Stop on a subagent', () => {
 describe('an approval from a subagent', () => {
   it('says who is asking on the tool card and the question card', () => {
     const { unmount } = render(<ToolApprovalPanel request={{ kind: 'tool', id: 'a1', sessionId: 's1', toolName: 'Bash', input: { command: 'npm test' }, subagent: { id: 'task-1', name: 'explore-tests' } } as never} workspacePath="/w" />)
-    expect(screen.getByText('explore-tests').closest('div')!.textContent).toBe('From subagent explore-tests')
-    expect(screen.getByRole('group', { name: /command|Run|Bash/i }).getAttribute('aria-describedby')).toBeTruthy()
+    // The card's header names the subagent as who asks (not the chat's agent), and its body says where it comes from.
+    const card = screen.getByRole('group', { name: 'Run this command?' })
+    expect(card.querySelector('.decision-who')?.textContent).toBe('explore-tests')
+    expect(screen.getByText('From subagent', { exact: false }).textContent).toBe('From subagent explore-tests')
     unmount()
     render(<QuestionPanel request={{ kind: 'question', id: 'q1', sessionId: 's1', questions: [{ question: 'Which?', options: [{ label: 'A' }] }], subagent: { id: 'task-1', name: 'explore-tests' } } as never} />)
+    expect(screen.getByRole('group', { name: 'Which?' }).querySelector('.decision-who')?.textContent).toBe('explore-tests')
     expect(screen.getByText('From subagent', { exact: false }).textContent).toContain('explore-tests')
   })
 
@@ -178,7 +181,7 @@ describe('an approval from a subagent', () => {
     const user = userEvent.setup()
     fakeApi.respondApproval = vi.fn(async () => undefined)
     render(<ToolApprovalPanel request={{ kind: 'tool', id: 'a1', sessionId: 's1', toolName: 'Bash', input: { command: 'ls' }, subagent: { id: 'task-1', name: 'explore-tests' } } as never} workspacePath="/w" />)
-    await user.click(screen.getByRole('button', { name: /^Yes/ }))
+    await user.click(screen.getByRole('button', { name: /^Run/ }))
     expect(fakeApi.respondApproval).toHaveBeenCalledWith('a1', { kind: 'tool', allow: true, alternate: false, message: undefined })
   })
 })

@@ -2,7 +2,7 @@
 // Event triggers in the window (docs/ai-employees.md §8): the Edit view's trigger dialog takes the event kind
 // (its source, its events as checkboxes, its repository, branch glob, whose pull requests, memory paths, debounce and
 // prompt, with what is wrong said where it is typed); the Triggers tab says each in words with its last firing ("fired
-// for #42, 10:31", "skipped: chain guard"); the approval plan lists them; Automations' schedules leave them out.
+// for #42, 10:31", "skipped: chain guard"); a draft's plan says when they start it; Automations' schedules leave them out.
 import './domShims'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -11,7 +11,7 @@ import { defaultEmployee, type EmployeeDefinition, type EmployeeSummary, type Em
 import type { EmployeeTrigger, EmployeeTriggerState, EventTrigger } from '../src/shared/employeeTriggers'
 import { formatDateTime } from '../src/shared/i18n/time'
 import { TriggersField, TriggersTab } from '../src/renderer/src/components/employees/EmployeeTriggers'
-import { ApproveDialog } from '../src/renderer/src/components/employees/ApproveDialog'
+import { EmployeeReview } from '../src/renderer/src/components/employees/EmployeePage'
 import { ScheduleOverview } from '../src/renderer/src/components/automations/details'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 
@@ -162,10 +162,13 @@ describe('the Edit view’s event triggers', () => {
 })
 
 describe('event triggers elsewhere', () => {
-  it('lists them in words in the approval plan, with the debounce and the self guard', () => {
-    render(<ApproveDialog definition={max([{ ...MERGED, branch: 'release/*', authored_by: 'employees' }])} memory="acme-memory" names={(id) => id} onConfirm={async () => undefined} onClose={() => undefined} />)
-    const text = screen.getByRole('dialog').textContent ?? ''
-    expect(text).toContain('When a pull request merges in site (branch release/*, by an employee) · work through its responsibilities and report · in site · events within 60 s become one run; its own work never starts it')
+  it('says in a draft’s plan, under When it runs, what event starts it, its branch and whose pull requests', () => {
+    const d = max([{ ...MERGED, branch: 'release/*', authored_by: 'employees' }])
+    render(<EmployeeReview employee={view({ state: 'draft', definition: d })} definition={d} memory="acme-memory" organization="Acme" names={(id) => id} />)
+    const when = screen.getByText('When it runs').nextElementSibling as HTMLElement
+    expect(when.textContent).toContain('When a pull request merges in site (branch release/*, by an employee), and when you ask · at most ')
+    // What it doesn't cover names these triggers.
+    expect(screen.getByText('A trigger other than these, or a change to one of them.')).toBeTruthy()
   })
 
   it('leaves them out of Automations’ schedules: they have no times, and live on the employee’s Triggers tab', () => {

@@ -35,10 +35,15 @@
   user-select: none;
   white-space: nowrap;
 }
+/* A wrapped line breaks at spaces, splitting a word only when it alone is wider than the line, and its continuation hangs
+   2 columns deeper than the line's own indent (--lead, set per cell, counted up to 40), past the sign and its gap. */
 .hunk .code {
+  --hang: calc(1ch + 8px + (min(var(--lead, 0), 40) + 2) * 1ch);
   color: var(--code-fg);
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: anywhere;
+  padding-left: calc(10px + var(--hang));
+  text-indent: calc(-1 * var(--hang));
 }
 .hunk .sign {
   user-select: none;

@@ -845,7 +845,8 @@ describe('working together: bot_propose, kept or retired by a person', () => {
     expect(out.text).toMatch(/^Proposed \(not made\): a new trigger, as a new version of bots\/e-max1\.toml/)
     expect(r.memoryChanged).toHaveBeenCalled()
     const [proposal] = r.memory.proposals('o1')
-    expect(proposal).toMatchObject({ path: 'bots/e-max1.toml', kind: 'write', employeeId: 'e-max1', why: expect.stringContaining('needs approving again') })
+    // What the person reads beside it is the employee's own reason; the card says that keeping it means approving again.
+    expect(proposal).toMatchObject({ path: 'bots/e-max1.toml', kind: 'write', employeeId: 'e-max1', why: 'Mondays need an update.' })
     // Nothing changes until a person keeps it.
     expect((await r.employees.current('o1', 'e-max1')).definition!.triggers ?? []).toEqual([])
     expect((await r.memory.keepProposal('o1', proposal.id)).ok).toBe(true)

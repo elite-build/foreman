@@ -1,40 +1,26 @@
-// An AI employee's outward actions in the window (docs/ai-employees.md §6.6, §9): the ones waiting for you in Needs you,
-// each with its exact preview (Slack: the channel and the text; Linear: the issue and the change; a push: the branch and
-// the commits ahead; a pull request: its title, description, base ← branch and diff stat) and Send, Edit then send (the
-// words only, never where it goes) or Skip; one Foreman isn't sure was sent asks you to check first. A task's log of its
-// actions, the Team page's "Decided for you" (what went without asking in the last day, and which can't be undone), and
-// each class's rule in words for the approval plan and the employee's page. Every action is read from the snapshot.
-import { useState } from 'react'
-import { actionPolicy, CANT_UNDO, editableFields, isActionKind, type EmployeeAction, type EmployeeActionPayload, type EmployeeActionState } from '../../../../shared/employeeActions'
+// An AI employee's outward actions in the window (docs/ai-employees.md §6.6, §9): one waiting for you is a decision card
+// (components/DecisionCard.tsx) with its exact preview, where it goes and as whom (a push: the repository, the remote and
+// its URL, the login, the commits and the files it changes, with a way to its workspace), the line saying what pressing
+// the main button sends, and buttons named for the act: "Push branch" / "Don't push", "Post to #launches" / "Don't post",
+// with Edit, then … for the words only. None of them has a key: each leaves this computer. One Foreman isn't sure was sent
+// asks you to check first. A task's log of its actions, the Team page's "Decided for you" (what went without asking in
+// the last day, and which can't be undone), and each class's rule in words for the employee's page. Every action is read
+// from the snapshot.
+import { useState, type ReactNode } from 'react'
+import { actionPolicy, canPublish, CANT_UNDO, editableFields, isActionKind, PUBLISH_ACTIONS, type EmployeeAction, type EmployeeActionPayload, type EmployeeActionState } from '../../../../shared/employeeActions'
 import { EMPLOYEE_ACTIONS, type EmployeeActionPolicy, type EmployeeDefinition } from '../../../../shared/employees'
 import type { PlainKey } from '../../../../shared/i18n'
-import { formatDateTime } from '../../../../shared/i18n/time'
+import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
 import { useT, type RendererT } from '../../i18n'
-import { api, openEmployees, showToast, useStore } from '../../store'
-import { Button, Callout, Card, Field, LinkButton, Status, Tag, TextArea, TextInput, type StatusTone } from '../../ui'
-import { actionName, POLICY_LABEL } from './words'
+import { api, openEmployees, requestOpenFile, selectWorkspace, showToast, useStore } from '../../store'
+import { Callout, ChipButton, Field, LinkButton, Status, Tag, TextArea, TextInput, type StatusTone } from '../../ui'
+import { PlacedDecision, type DecisionAct, type DecisionPlace } from '../DecisionCard'
+import { ACTION_STATE_LABEL, actionName, actionNoun, POLICY_LABEL } from './words'
 import './employees.css'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-export const ACTION_STATE_LABEL: Record<EmployeeActionState, PlainKey> = {
-  held: 'employees.heldAction.state.held',
-  approved: 'employees.heldAction.state.approved',
-  sent: 'employees.heldAction.state.sent',
-  skipped: 'employees.heldAction.state.skipped',
-  failed: 'employees.heldAction.state.failed',
-  refused: 'employees.heldAction.state.refused',
-  uncertain: 'employees.heldAction.state.uncertain'
-}
-
 export const ACTION_STATE_TONE: Record<EmployeeActionState, StatusTone> = { held: 'warn', approved: 'info', sent: 'ok', skipped: 'off', failed: 'error', refused: 'off', uncertain: 'warn' }
-
-const HEADLINE = {
-  'slack-post': 'employees.heldAction.slack',
-  linear: 'employees.heldAction.linear',
-  push: 'employees.heldAction.push',
-  'pull-request': 'employees.heldAction.pullRequest'
-} as const satisfies Record<EmployeeActionPayload['kind'], string>
 
 const FIELD_LABEL: Record<string, PlainKey> = {
   text: 'employees.heldAction.message',
@@ -43,31 +29,39 @@ const FIELD_LABEL: Record<string, PlainKey> = {
   description: 'employees.heldAction.body'
 }
 
-/** "Slack post to #launches", "Push of feature/x": what an action is, in a few words. */
-export function actionNoun(p: EmployeeActionPayload, t: RendererT): string {
-  switch (p.kind) {
-    case 'slack-post':
-      return t('employees.actionNoun.slack', { channel: p.channelName ? `#${p.channelName}` : p.channel })
-    case 'linear':
-      return p.issue ? t('employees.actionNoun.linearIssue', { tool: p.tool, issue: p.issue }) : t('employees.actionNoun.linear', { tool: p.tool })
-    case 'push':
-      return t('employees.actionNoun.push', { branch: p.branch })
-    case 'pull-request':
-      return t('employees.actionNoun.pullRequest', { title: p.title })
-  }
-}
-
 const show = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v))
 
-/** The exact thing that would be sent: where it goes, as whom, and its words. */
+/** The files a branch changes, each opening in its workspace, with its counts. */
+function BranchFiles({ payload: p }: { payload: Extract<EmployeeActionPayload, { kind: 'push' | 'pull-request' }> }) {
+  const t = useT()
+  const exists = useStore((s) => s.snapshot!.workspaces.some((w) => w.id === p.workspaceId))
+  if (!p.files?.length && !exists) return null
+  return (
+    <div className="decision-facts">
+      {(p.files ?? []).map((f) => (
+        <span key={f.path} className="decision-file">
+          {exists ? (
+            <ChipButton path onClick={() => requestOpenFile(p.workspaceId, f.path)}>
+              {f.path}
+            </ChipButton>
+          ) : (
+            <code>{f.path}</code>
+          )}
+          <span className="employee-faint">{t('employees.decision.fileCounts', { insertions: f.insertions, deletions: f.deletions })}</span>
+        </span>
+      ))}
+      {exists && (
+        <LinkButton size="sm" underline onClick={() => selectWorkspace(p.workspaceId)}>
+          {t('employees.decision.viewChanges')}
+        </LinkButton>
+      )}
+    </div>
+  )
+}
+
+/** The exact thing that would be sent: where it goes and its words (as whom is said on the line above the buttons). */
 export function ActionPreview({ payload: p }: { payload: EmployeeActionPayload }) {
   const t = useT()
-  const as = p.connection ? (
-    <>
-      <dt>{t('employees.heldAction.as')}</dt>
-      <dd>{p.connection}</dd>
-    </>
-  ) : null
   if (p.kind === 'slack-post')
     return (
       <dl className="employee-plan-list">
@@ -76,7 +70,6 @@ export function ActionPreview({ payload: p }: { payload: EmployeeActionPayload }
           <span>{p.channelName ? `#${p.channelName}` : p.channel}</span>
           {p.channelName && <span className="employee-faint mono">{p.channel}</span>}
         </dd>
-        {as}
         <dt>{t('employees.heldAction.message')}</dt>
         <dd>
           <pre className="employee-proposal-text">{p.text}</pre>
@@ -102,7 +95,6 @@ export function ActionPreview({ payload: p }: { payload: EmployeeActionPayload }
             </ul>
           )}
         </dd>
-        {as}
       </dl>
     )
   }
@@ -125,30 +117,32 @@ export function ActionPreview({ payload: p }: { payload: EmployeeActionPayload }
   )
   if (p.kind === 'push')
     return (
-      <dl className="employee-plan-list">
-        <dt>{t('employees.heldAction.branch')}</dt>
-        <dd className="mono">{p.branch}</dd>
-        {commits}
-        {as}
-      </dl>
+      <>
+        <dl className="employee-plan-list">
+          {commits}
+          </dl>
+        <BranchFiles payload={p} />
+      </>
     )
   return (
-    <dl className="employee-plan-list">
-      <dt>{t('employees.heldAction.title')}</dt>
-      <dd>{p.title}</dd>
-      <dt>{t('employees.heldAction.body')}</dt>
-      <dd>{p.body.trim() ? <pre className="employee-proposal-text">{p.body}</pre> : <span className="employee-faint">{t('employees.heldAction.noBody')}</span>}</dd>
-      <dt>{t('employees.heldAction.into')}</dt>
-      <dd className="mono">{t('employees.heldAction.intoValue', { base: p.base, branch: p.branch })}</dd>
-      {p.diffStat && (
-        <>
-          <dt>{t('employees.heldAction.diff')}</dt>
-          <dd>{t('employees.heldAction.diffValue', { count: p.diffStat.files, insertions: p.diffStat.insertions, deletions: p.diffStat.deletions })}</dd>
-        </>
-      )}
-      {commits}
-      {as}
-    </dl>
+    <>
+      <dl className="employee-plan-list">
+        <dt>{t('employees.heldAction.title')}</dt>
+        <dd>{p.title}</dd>
+        <dt>{t('employees.heldAction.body')}</dt>
+        <dd>{p.body.trim() ? <pre className="employee-proposal-text">{p.body}</pre> : <span className="employee-faint">{t('employees.heldAction.noBody')}</span>}</dd>
+        <dt>{t('employees.heldAction.into')}</dt>
+        <dd className="mono">{t('employees.heldAction.intoValue', { base: p.base, branch: p.branch })}</dd>
+        {p.diffStat && (
+          <>
+            <dt>{t('employees.heldAction.diff')}</dt>
+            <dd>{t('employees.heldAction.diffValue', { count: p.diffStat.files, insertions: p.diffStat.insertions, deletions: p.diffStat.deletions })}</dd>
+          </>
+        )}
+        {commits}
+      </dl>
+      <BranchFiles payload={p} />
+    </>
   )
 }
 
@@ -159,13 +153,64 @@ function editsOf(p: EmployeeActionPayload): Record<string, string> {
   return Object.fromEntries(fields.map((f) => [f, typeof source[f] === 'string' ? (source[f] as string) : '']))
 }
 
-/** One action waiting for you: its preview, and Send, Edit then send or Skip (or, uncertain, check first). */
-function HeldActionRow({ action, who, task }: { action: EmployeeAction; who: string; task?: string }) {
+/** The account it goes out as: the login when Foreman knows it, else the connection's name. */
+const asWhom = (p: EmployeeActionPayload) => ('login' in p && p.login ? `@${p.login}` : p.connection)
+
+/** What the act will do, in a sentence, said just above its button: where it goes, as whom, and whether it can be undone. */
+export function actionConsequence(p: EmployeeActionPayload, repoName: string, t: RendererT): string {
+  switch (p.kind) {
+    case 'push':
+      return t('employees.decision.push.consequence', { count: p.ahead, branch: p.branch, remote: p.remote ?? 'origin', where: p.remoteUrl ?? p.repo ?? repoName, who: asWhom(p) })
+    case 'pull-request':
+      return t('employees.decision.pr.consequence', { branch: p.branch, remote: p.remote ?? 'origin', where: p.remoteUrl ?? p.repo ?? repoName, base: p.base, who: asWhom(p) })
+    case 'slack-post':
+      return t('employees.decision.slack.consequence', { channel: p.channelName ? `#${p.channelName}` : p.channel, who: asWhom(p) })
+    case 'linear':
+      return t('employees.decision.linear.consequence', { who: asWhom(p) })
+  }
+}
+
+/** The kind word a decision's header and row carry. */
+export function actionKindWord(p: EmployeeActionPayload, t: RendererT): string {
+  return p.kind === 'push' ? t('decision.kind.push') : p.kind === 'pull-request' ? t('decision.kind.pullRequest') : p.kind === 'slack-post' ? t('decision.kind.slack') : t('decision.kind.linear')
+}
+
+/** The thing decided, in one line: "Push max/launch-2.4 to site". */
+export function actionSubject(p: EmployeeActionPayload, repoName: string, t: RendererT): ReactNode {
+  switch (p.kind) {
+    case 'push':
+      return t.rich('employees.decision.push.subject', { branch: <code key="b">{p.branch}</code>, repo: p.repo ?? repoName })
+    case 'pull-request':
+      return t('employees.decision.pr.subject', { title: p.title || p.branch, repo: p.repo ?? repoName })
+    case 'slack-post':
+      return t('employees.decision.slack.subject', { channel: p.channelName ? `#${p.channelName}` : p.channel })
+    case 'linear':
+      return p.issue ? t('employees.decision.linear.subjectIssue', { issue: p.issue }) : t('employees.decision.linear.subject')
+  }
+}
+
+// Each class's act (Slack's names its channel), its refusal and its Edit, then … button.
+const ACT: Record<EmployeeActionPayload['kind'], { act?: PlainKey; decline: PlainKey; edit: PlainKey }> = {
+  push: { act: 'employees.decision.push.act', decline: 'employees.decision.push.decline', edit: 'employees.decision.push.edit' },
+  'pull-request': { act: 'employees.decision.pr.act', decline: 'employees.decision.pr.decline', edit: 'employees.decision.pr.edit' },
+  'slack-post': { decline: 'employees.decision.slack.decline', edit: 'employees.decision.slack.edit' },
+  linear: { act: 'employees.decision.linear.act', decline: 'employees.decision.linear.decline', edit: 'employees.decision.linear.edit' }
+}
+
+/**
+ * One action waiting for you, as a decision: its preview and the line saying where it goes, then Don't … · Edit, then … ·
+ * the act (none with a key: it leaves this computer); while editing, the words as fields and Send edited; one Foreman
+ * isn't sure was sent, It arrived · It didn't arrive: send again.
+ */
+export function ActionDecision({ action, place, who, task }: { action: EmployeeAction; place: DecisionPlace; who: ReactNode; task?: string }) {
   const t = useT()
+  const name = useStore((s) => s.snapshot!.employees?.[action.orgId]?.employees.find((e) => e.id === action.employeeId)?.name) || action.employeeId
+  const repoName = useStore((s) => s.snapshot!.repos.find((r) => r.id === action.repoId)?.name) ?? ''
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [edits, setEdits] = useState<Record<string, string> | null>(null)
-  const fields = editableFields(action.payload)
+  const p = action.payload
+  const fields = editableFields(p)
   const run = async (what: () => Promise<unknown>, done: string) => {
     setBusy(true)
     setError('')
@@ -179,14 +224,29 @@ function HeldActionRow({ action, who, task }: { action: EmployeeAction; who: str
       setBusy(false)
     }
   }
-  const send = (options: { edits?: Record<string, string>; checked?: boolean } = {}) => run(() => api.sendEmployeeAction(action.id, options), t('employees.heldAction.sentToast', { name: who }))
-  const changed = edits ? Object.fromEntries(Object.entries(edits).filter(([k, v]) => v !== editsOf(action.payload)[k])) : {}
-  return (
-    <Card as="li" className="employee-task">
-      <div className="employee-task-head">
-        <Status tone={ACTION_STATE_TONE[action.state]} label={t(ACTION_STATE_LABEL[action.state])} />
-        <span className="employee-task-title">{t(HEADLINE[action.kind], { name: who })}</span>
-      </div>
+  const send = (options: { edits?: Record<string, string>; checked?: boolean } = {}) => run(() => api.sendEmployeeAction(action.id, options), t('employees.heldAction.sentToast', { name }))
+  const skip = () => run(() => api.skipEmployeeAction(action.id), t('employees.heldAction.skippedToast', { name }))
+  const changed = edits ? Object.fromEntries(Object.entries(edits).filter(([k, v]) => v !== editsOf(p)[k])) : {}
+  const { act: actKey, decline: declineKey, edit: editKey } = ACT[p.kind]
+  const actLabel = p.kind === 'slack-post' ? t('employees.decision.slack.act', { channel: p.channelName ? `#${p.channelName}` : p.channel }) : actKey ? t(actKey) : t('employees.heldAction.send')
+
+  let decline: DecisionAct | undefined
+  let alternate: DecisionAct | undefined
+  let main: DecisionAct | undefined
+  if (action.state === 'uncertain') {
+    main = { label: t('employees.heldAction.arrived'), disabled: busy, onAct: () => void run(() => api.confirmEmployeeAction(action.id), t('employees.heldAction.arrivedToast')) }
+    alternate = { label: t('employees.heldAction.didntArrive'), disabled: busy, outward: true, onAct: () => void send({ checked: true }) }
+  } else if (edits) {
+    decline = { label: t('employees.heldAction.cancelEdit'), disabled: busy, onAct: () => setEdits(null) }
+    main = { label: busy ? t('employees.heldAction.sending') : t('employees.heldAction.sendEdited'), disabled: busy, outward: true, onAct: () => void send({ edits: changed }) }
+  } else {
+    decline = { label: t(declineKey), disabled: busy, onAct: () => void skip() }
+    if (fields.length) alternate = { label: t(editKey), disabled: busy, onAct: () => setEdits(editsOf(p)) }
+    main = { label: busy ? t('employees.heldAction.sending') : action.state === 'failed' ? t('employees.heldAction.sendAgain') : actLabel, disabled: busy, outward: true, onAct: () => void send() }
+  }
+
+  const body = (
+    <>
       {task && <span className="employee-faint">{t('employees.heldAction.task', { title: task })}</span>}
       {action.state === 'uncertain' && (
         <Callout tone="warn" role="status" title={t('employees.heldAction.uncertainTitle')}>
@@ -212,78 +272,35 @@ function HeldActionRow({ action, who, task }: { action: EmployeeAction; who: str
               }
             </Field>
           ))}
-          <ActionPreview payload={{ ...action.payload, ...(action.payload.kind === 'linear' ? { args: { ...action.payload.args, ...edits } } : edits) } as EmployeeActionPayload} />
         </div>
       ) : (
-        <ActionPreview payload={action.payload} />
+        <ActionPreview payload={p} />
       )}
-      {action.kind === 'pull-request' && <p className="employee-faint">{t('employees.heldAction.draft')}</p>}
       {error && (
         <Callout tone="error" role="alert">
           {error}
         </Callout>
       )}
-      <div className="employee-card-actions">
-        {action.state === 'uncertain' ? (
-          <>
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => api.confirmEmployeeAction(action.id), t('employees.heldAction.arrivedToast'))}>
-              {t('employees.heldAction.arrived')}
-            </Button>
-            <Button size="sm" disabled={busy} onClick={() => void send({ checked: true })}>
-              {t('employees.heldAction.didntArrive')}
-            </Button>
-          </>
-        ) : edits ? (
-          <>
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => void send({ edits: changed })}>
-              {busy ? t('employees.heldAction.sending') : t('employees.heldAction.sendEdited')}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEdits(null)}>
-              {t('employees.heldAction.cancelEdit')}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => void send()}>
-              {busy ? t('employees.heldAction.sending') : action.state === 'failed' ? t('employees.heldAction.sendAgain') : t('employees.heldAction.send')}
-            </Button>
-            {fields.length > 0 && (
-              <Button size="sm" disabled={busy} onClick={() => setEdits(editsOf(action.payload))}>
-                {t('employees.heldAction.edit')}
-              </Button>
-            )}
-          </>
-        )}
-        {!edits && (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => api.skipEmployeeAction(action.id), t('employees.heldAction.skippedToast', { name: who }))}>
-            {t('employees.heldAction.skip')}
-          </Button>
-        )}
-        <span className="employee-faint">{CANT_UNDO[action.kind] ? t('employees.heldAction.cantUndo') : t('employees.heldAction.canUndo')}</span>
-      </div>
-    </Card>
+    </>
   )
-}
-
-/** The organization's outward actions waiting for you (Needs you), oldest first; nothing when there are none. */
-export function HeldActions({ orgId }: { orgId: string }) {
-  const t = useT()
-  const view = useStore((s) => s.snapshot!.employeeWork?.[orgId])
-  const roster = useStore((s) => s.snapshot!.employees?.[orgId]?.employees ?? [])
-  const actions = view?.actions ?? []
-  if (!actions.length) return null
-  const title = (taskId: string) => view?.tasks.find((x) => x.id === taskId)?.title ?? Object.values(view?.last ?? {}).find((x) => x.id === taskId)?.title
   return (
-    <section className="team-needs-you" aria-labelledby={`held-actions-${orgId}`}>
-      <h3 id={`held-actions-${orgId}`} className="employee-subheading">
-        {t('employees.heldAction.heading', { count: actions.length })}
-      </h3>
-      <ul className="employee-work-list" aria-labelledby={`held-actions-${orgId}`}>
-        {actions.map((a) => (
-          <HeldActionRow key={a.id} action={a} who={roster.find((e) => e.id === a.employeeId)?.name || a.employeeId} task={title(a.taskId)} />
-        ))}
-      </ul>
-    </section>
+    <PlacedDecision
+      place={place}
+      parts={{
+        who,
+        kind: actionKindWord(p, t),
+        age: timeAgo(action.createdAt, t.locale),
+        subject: actionSubject(p, repoName, t),
+        children: body,
+        leaves: action.state !== 'uncertain',
+        consequence: action.state === 'uncertain' ? t('employees.decision.uncertain.consequence') : actionConsequence(p, repoName, t),
+        decline,
+        alternate,
+        main,
+        // Anything that leaves this computer is read before it can go: the row only opens the card.
+        rowAct: { label: t('decision.review'), onAct: place.onToggle ?? (() => undefined) }
+      }}
+    />
   )
 }
 
@@ -363,18 +380,21 @@ export function DecidedForYou({ orgId }: { orgId: string }) {
 const RULE: Record<EmployeeActionPolicy, PlainKey> = { held: 'employees.rules.held', allowed: 'employees.rules.allowed', never: 'employees.rules.never' }
 
 /**
- * Each outward action class with its rule in words (§9), for the approval plan and the employee's page: Foreman's four
- * brokered routes always (one the definition doesn't list is held), then any other class it lists, which Foreman can't
- * hold; and plainly that a shell, and MCP servers it keeps, act with no hold.
+ * Each outward action class with its rule in words (§9), for the approval plan and the employee's page: Foreman's
+ * brokered routes the definition can take (one it doesn't list is held), then any other class it lists, which Foreman
+ * can't hold; plainly that one with no Write access can't push or open pull requests at all; and that a shell, and MCP
+ * servers it keeps, act with no hold.
  */
 export function ActionRules({ definition: d }: { definition: Pick<EmployeeDefinition, 'access'> }) {
   const t = useT()
+  const publishes = canPublish(d)
+  const kinds = EMPLOYEE_ACTIONS.filter((kind) => publishes || !PUBLISH_ACTIONS.includes(kind))
   const others = Object.keys(d.access.actions).filter((a) => !isActionKind(a))
   const ownServers = d.access.mcp.filter((s) => !s.startsWith('foreman-'))
   return (
     <div className="employee-plan-section">
       <ul className="employee-plan-items">
-        {EMPLOYEE_ACTIONS.map((kind) => {
+        {kinds.map((kind) => {
           const listed = d.access.actions[kind]
           const policy = actionPolicy(d, kind)
           return (
@@ -391,6 +411,7 @@ export function ActionRules({ definition: d }: { definition: Pick<EmployeeDefini
           </li>
         ))}
       </ul>
+      {!publishes && <p className="employee-faint">{t('employees.rules.noWrite')}</p>}
       <p className="employee-faint">{d.access.profile === 'shell' ? t('employees.rules.shell') : t('employees.rules.noShell')}</p>
       {ownServers.length > 0 && <p className="employee-faint">{t('employees.rules.mcp', { servers: ownServers.join(t('employees.list.separator')) })}</p>}
     </div>

@@ -8,7 +8,7 @@ import { formatDuration } from '../turnResult'
 import type { Settings } from '../../../../shared/types'
 import { LinkButton, Segmented } from '../../ui'
 import { LimitsSection } from './LimitsSection'
-import { Page, resetSettings, Row, saveSettings, Section, useSettings } from './controls'
+import { Page, Part, resetSettings, Row, saveSettings, Section, useSettings } from './controls'
 
 const RANGES = [7, 30, 90]
 
@@ -63,8 +63,10 @@ export function UsagePage() {
 
   return (
     <Page title={t('settings.page.usage')} description={t('settings.usage.desc')}>
-      <LimitsSection />
-      <Section>
+      <Part id="limits" lead>
+        <LimitsSection />
+      </Part>
+      <Section part="limits">
         <Row
           id="resume-after-limit"
           label={t('settings.usage.resume.label')}
@@ -85,7 +87,7 @@ export function UsagePage() {
           )}
         </Row>
       </Section>
-      <Section title={t('settings.usage.section.cost')} setting="usage-report" plain>
+      <Section part="cost" title={t('settings.usage.section.cost')} setting="usage-report" plain>
       <Segmented
         plain
         small

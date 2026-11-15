@@ -1,0 +1,123 @@
+// The one list of what needs the person (src/shared/needsYou.ts): workspaces triage puts in Needs your attention plus
+// each organization's employee questions, held actions, proposals and pauses; each thing once; counted by space,
+// repository and employee, so every surface says the same number. The fixture is the screenshots': Personal 1, Acme 3.
+import { describe, expect, it } from 'vitest'
+import { employeeKey, itemsInSpace, needsYouCounts, needsYouItems } from '../src/shared/needsYou'
+import { triageAll, type TriageInput } from '../src/shared/triage'
+import type { EmployeeAction } from '../src/shared/employeeActions'
+import type { EmployeeTask, EmployeeWorkView } from '../src/shared/employeeWork'
+import type { EmployeeSummary } from '../src/shared/employees'
+import type { AppSnapshot, Session, Workspace } from '../src/shared/types'
+
+const NOW = Date.parse('2026-11-14T12:00:00Z')
+const ago = (min: number) => new Date(NOW - min * 60_000).toISOString()
+
+const repo = (id: string, spaceId?: string) => ({ id, name: id, rootPath: `/code/${id}`, defaultBranch: 'main', ...(spaceId ? { spaceId } : {}) })
+const ws = (id: string, repoId: string, patch: Partial<Workspace> = {}): Workspace =>
+  ({ id, repoId, name: id, branch: id, baseBranch: 'main', path: `/w/${id}`, portBase: 1, state: 'ready', createdAt: ago(200), ...patch }) as Workspace
+const session = (id: string, workspaceId: string, patch: Partial<Session> = {}): Session =>
+  ({ id, workspaceId, title: id, agent: 'claude', model: 'm', fastMode: false, planMode: false, status: 'idle', queue: [], createdAt: ago(190), ...patch }) as Session
+const by = (employeeId: string, taskId: string, runId = `run-${taskId}`) => ({ via: 'employee' as const, orgId: 'acme', employeeId, runId, taskId, title: taskId })
+const person = (id: string, name: string, patch: Partial<EmployeeSummary> = {}): EmployeeSummary => ({ id, path: `bots/${id}.toml`, name, role: '', colour: 'pink', responsibilities: [], problems: [], state: 'active', changed: false, ...patch })
+const task = (patch: Partial<EmployeeTask> & Pick<EmployeeTask, 'id' | 'employeeId' | 'state'>): EmployeeTask =>
+  ({ orgId: 'acme', requestId: `req-${patch.id}`, rootId: patch.id, parentId: null, title: patch.id, body: '', from: 'person', targetRepoId: 'site', createdAt: ago(40), updatedAt: ago(30), ...patch }) as EmployeeTask
+const push = (patch: Partial<EmployeeAction> = {}): EmployeeAction =>
+  ({
+    id: 'act-push',
+    orgId: 'acme',
+    employeeId: 'max',
+    taskId: 'launch',
+    runId: 'run-launch',
+    repoId: 'site',
+    kind: 'push',
+    payload: { kind: 'push', workspaceId: 'kyoto', branch: 'max/launch-2.4', base: 'main', head: 'abc', ahead: 1, commits: [], connection: 'gh' },
+    policy: 'held',
+    state: 'held',
+    key: 'k',
+    createdAt: ago(42),
+    updatedAt: ago(42),
+    ...patch
+  }) as EmployeeAction
+const question = task({ id: 'date', employeeId: 'ada', state: 'waiting', waitingOn: 'person', question: { id: 'q', question: 'Which day does Atlas 2.4 launch?', options: ['Tuesday', 'Thursday'], runId: 'run-date', askedAt: ago(32) } })
+const proposal = { id: 'p1', orgId: 'acme', path: 'memory/org/PROJECT.md', kind: 'append' as const, text: '- 2.3 shipped on a Thursday.', employeeId: 'ada', runId: 'run-date', createdAt: ago(24) }
+
+/** The screenshot fixture: osaka failed and lisbon idle in Personal; in Acme, lima holds Ada's question, kyoto Max's held push, and Ada proposed a fact. */
+function fixture(work: Partial<EmployeeWorkView> = {}, extra: Partial<AppSnapshot> = {}): AppSnapshot {
+  return {
+    repos: [repo('atlas'), repo('beacon'), repo('acme-memory', 'acme'), repo('site', 'acme')],
+    organizations: [{ id: 'acme', name: 'Acme', memoryRepoId: 'acme-memory', createdAt: ago(5000) }],
+    workspaces: [ws('osaka', 'atlas'), ws('lisbon', 'atlas'), ws('lima', 'site', { createdAt: ago(30), startedBy: by('ada', 'date') }), ws('kyoto', 'site', { createdAt: ago(70), startedBy: by('max', 'launch') })],
+    sessions: [session('s-osaka', 'osaka', { lastTurn: { outcome: 'error', endedAt: ago(180) }, lastActivityAt: ago(180) }), session('s-lisbon', 'lisbon', { lastActivityAt: ago(12) })],
+    employees: { acme: { head: 'h', employees: [person('ada', 'Ada'), person('max', 'Max', { colour: 'orange' }), person('lin', 'Lin', { state: 'draft' })] } },
+    employeeWork: { acme: { tasks: [question], runs: [], last: {}, proposals: [proposal], actions: [push()], revision: 1, ...work } },
+    ...extra
+  } as unknown as AppSnapshot
+}
+
+const input = (snapshot: AppSnapshot): TriageInput => ({ snapshot, approvals: [], unread: {}, unreadSessions: {}, now: NOW })
+
+describe('one list of what needs you', () => {
+  it('reads Personal 1, Acme 3, all spaces 4, oldest first, each item once', () => {
+    const items = needsYouItems(input(fixture()))
+    expect(items.map((i) => i.id)).toEqual(['ws:osaka', 'action:act-push', 'ws:lima', 'proposal:p1'])
+    const counts = needsYouCounts(items)
+    expect(counts.total).toBe(4)
+    expect(counts.bySpace.get(null)).toBe(1)
+    expect(counts.bySpace.get('acme')).toBe(3)
+    expect(itemsInSpace(items, 'acme').map((i) => i.kind)).toEqual(['action', 'workspace', 'proposal'])
+    expect(itemsInSpace(items, undefined)).toHaveLength(4)
+  })
+
+  it('counts an employee’s question and its run’s workspace once, as the workspace that says “Ada asks”', () => {
+    const items = needsYouItems(input(fixture()))
+    const lima = items.find((i) => i.id === 'ws:lima')!
+    expect(lima).toMatchObject({ kind: 'workspace', space: 'acme', orgId: 'acme', employeeId: 'ada', task: { id: 'date' } })
+    expect(lima.triage).toMatchObject({ label: 'Ada asks', detail: 'Which day does Atlas 2.4 launch?', namesEmployee: true })
+    expect(items.some((i) => i.id === 'task:date')).toBe(false)
+  })
+
+  it('makes a question its own item once its run’s workspace is gone', () => {
+    const snapshot = fixture()
+    snapshot.workspaces = snapshot.workspaces.map((w) => (w.id === 'lima' ? { ...w, state: 'archived' } : w))
+    const items = needsYouItems(input(snapshot))
+    expect(items.find((i) => i.id === 'task:date')).toMatchObject({ kind: 'question', space: 'acme', employeeId: 'ada', repoId: 'site', since: ago(32) })
+    expect(needsYouCounts(items).bySpace.get('acme')).toBe(3)
+  })
+
+  it('lists held, uncertain and failed outward actions, never sent or skipped ones, each apart from its run’s workspace', () => {
+    const states = (state: EmployeeAction['state']) => needsYouItems(input(fixture({ actions: [push({ state })] }))).filter((i) => i.kind === 'action').length
+    expect([states('held'), states('uncertain'), states('failed')]).toEqual([1, 1, 1])
+    expect([states('sent'), states('skipped'), states('approved')]).toEqual([0, 0, 0])
+    // kyoto itself needs nothing: the push is the one item.
+    expect(needsYouItems(input(fixture())).some((i) => i.id === 'ws:kyoto')).toBe(false)
+  })
+
+  it('lists a stuck task, and an employee paused after two failing runs; not a usage-limit hold, which clears itself', () => {
+    const stuck = task({ id: 'stuck', employeeId: 'max', state: 'open', hold: 'root-limit', reason: 'Its chain used its 20 runs.' })
+    const held = task({ id: 'held', employeeId: 'max', state: 'open', hold: 'usage-limit' })
+    const snapshot = fixture({ tasks: [question, stuck, held] })
+    snapshot.employees!.acme.employees[1] = person('max', 'Max', { state: 'paused', pausedKind: 'failures', pausedDetail: 'Stopped after 30 minutes.' })
+    const items = needsYouItems(input(snapshot))
+    expect(items.find((i) => i.id === 'task:stuck')).toMatchObject({ kind: 'task', employeeId: 'max' })
+    expect(items.find((i) => i.id === 'paused:acme:max')).toMatchObject({ kind: 'paused', detail: 'Stopped after 30 minutes.' })
+    expect(items.some((i) => i.id === 'task:held')).toBe(false)
+  })
+
+  it('counts by repository for the rail (a proposal on the memory repository) and by employee for the Team rows', () => {
+    const counts = needsYouCounts(needsYouItems(input(fixture())))
+    expect(counts.byRepo.get('atlas')).toBe(1)
+    expect(counts.byRepo.get('site')).toBe(2)
+    expect(counts.byRepo.get('acme-memory')).toBe(1)
+    expect(counts.byEmployee.get(employeeKey('acme', 'ada'))).toBe(2)
+    expect(counts.byEmployee.get(employeeKey('acme', 'max'))).toBe(1)
+    expect(counts.byEmployee.has(employeeKey('acme', 'lin'))).toBe(false)
+  })
+
+  it('takes the workspaces already triaged, and with no organization has only workspaces, all in Personal', () => {
+    const snapshot = fixture({}, { organizations: [], employeeWork: undefined })
+    const triaged = triageAll(input(snapshot), null)
+    const items = needsYouItems(input(snapshot), triaged)
+    expect(items.every((i) => i.kind === 'workspace' && i.space === null)).toBe(true)
+    expect(needsYouCounts(items).bySpace.get(null)).toBe(items.length)
+  })
+})

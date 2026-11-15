@@ -21,6 +21,7 @@ import {
   neverText,
   type ActionCommit,
   type ActionDiffStat,
+  type ActionFile,
   type EmployeeAction,
   type EmployeeActionKind,
   type EmployeeActionPayload,
@@ -62,7 +63,7 @@ export interface ActionSenders {
   pullRequest(input: { repoId: string; workspaceId: string; connectionId?: string; branch: string; head: string; base: string; title: string; body: string }): Promise<EmployeeActionResult>
 }
 
-/** What the run's branch holds, for a push's or pull request's preview. */
+/** What the run's branch holds, for a push's or pull request's preview, and where it would go. */
 export interface BranchPreview {
   branch: string
   base: string
@@ -70,12 +71,17 @@ export interface BranchPreview {
   ahead: number
   commits: ActionCommit[]
   diffStat?: ActionDiffStat
+  // The files it changes against the base (the first 20).
+  files?: ActionFile[]
+  // The remote it is pushed to, and that remote's URL.
+  remote?: string
+  remoteUrl?: string
 }
 
 export interface ScmGate {
   // The repository's selected GitHub or GitLab connection now (its id, absent for gh's own account or the repository's
-  // token, and a name to show), or why it can't be used. Never another account.
-  connection(repoId: string): Promise<{ connectionId?: string; name: string } | { refused: string }>
+  // token, a name to show and the account's login when known), or why it can't be used. Never another account.
+  connection(repoId: string): Promise<{ connectionId?: string; name: string; login?: string } | { refused: string }>
   // The run's branch against `base` (the workspace's base when absent); what is uncommitted is committed first, as the employee.
   prepare(workspaceId: string, input: { base?: string; commit: { message: string; author: { name: string; email: string } } }): Promise<BranchPreview>
 }
@@ -185,9 +191,17 @@ export class EmployeeActionService {
         commit: { message: input.commit_message?.trim() || input.title?.trim() || task.title, author: { name: `${name} (AI employee)`, email: `${run.employeeId}@employees.foreman.localhost` } }
       })
       if (!preview.ahead) throw new Refusal(`There is nothing to ${kind === 'push' ? 'push' : 'open a pull request for'}: ${preview.branch} has no commits ahead of ${preview.base}. Change files first.`)
-      const common = { ...(connection.connectionId ? { connectionId: connection.connectionId } : {}), connection: connection.name, workspaceId: run.workspaceId, branch: preview.branch, base: preview.base, head: preview.head, ahead: preview.ahead, commits: preview.commits }
-      const payload: EmployeeActionPayload =
-        kind === 'push' ? { kind, ...common } : { kind, ...common, ...(preview.diffStat ? { diffStat: preview.diffStat } : {}), title: (input.title ?? '').trim(), body: input.body ?? '' }
+      // Where it goes, as whom, and what it changes: recorded with it, so the person reads it before it leaves (§9).
+      const target = {
+        repo: repo.name,
+        ...(preview.remote ? { remote: preview.remote } : {}),
+        ...(preview.remoteUrl ? { remoteUrl: preview.remoteUrl } : {}),
+        ...(connection.login ? { login: connection.login } : {}),
+        ...(preview.files?.length ? { files: preview.files } : {}),
+        ...(preview.diffStat ? { diffStat: preview.diffStat } : {})
+      }
+      const common = { ...(connection.connectionId ? { connectionId: connection.connectionId } : {}), connection: connection.name, workspaceId: run.workspaceId, branch: preview.branch, base: preview.base, head: preview.head, ahead: preview.ahead, commits: preview.commits, ...target }
+      const payload: EmployeeActionPayload = kind === 'push' ? { kind, ...common } : { kind, ...common, title: (input.title ?? '').trim(), body: input.body ?? '' }
       return await this.decide(this.record(run, task, repo.id, kind, payload, policy))
     } catch (err) {
       return { text: message(err), isError: true }

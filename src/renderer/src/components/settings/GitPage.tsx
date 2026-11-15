@@ -3,7 +3,7 @@ import { ARCHIVE_CLEANUP_DAYS } from '../../../../shared/autoArchive'
 import type { BranchPrefixType, Settings } from '../../../../shared/types'
 import { api, openSettingsPage } from '../../store'
 import { LinkButton, RadioList, Select, TextInput } from '../../ui'
-import { Page, resetSettings, Row, saveSettings, Section, ToggleRow, useDraft, useSettings } from './controls'
+import { CONTROL_WIDTH, Page, Part, resetSettings, Row, saveSettings, Section, ToggleRow, useDraft, useSettings } from './controls'
 import { useT } from '../../i18n'
 import { ScmAccounts } from './ScmAccounts'
 
@@ -49,8 +49,10 @@ export function GitPage() {
   return (
     <Page title="Git">
       {/* O2: GitHub and GitLab hosts, one row each. */}
-      <ScmAccounts />
-      <Section title={t('settings.git.section.branches')}>
+      <Part id="accounts" lead>
+        <ScmAccounts />
+      </Part>
+      <Section part="branches" title={t('settings.git.section.branches')}>
         <BranchPrefixRow
           onReset={
             settings.branchPrefixType === DEFAULTS.branchPrefixType ? undefined : () => void resetSettings(['branchPrefixType', 'branchPrefix'])
@@ -82,11 +84,11 @@ export function GitPage() {
         />
       </Section>
 
-      <Section title={t('settings.git.section.pullRequests')}>
+      <Section part="pull-requests" title={t('settings.git.section.pullRequests')}>
         <Row id="open-pr-in" label={t('settings.git.openPrIn.label')} help={t('settings.git.openPrIn.help')} detail={settings.openPrIn === 'graphite' ? t('settings.git.openPrIn.graphiteNote', { note: t('gitlab.notAvailable') }) : undefined} onReset={reset('openPrIn')}>
           <Select<Settings['openPrIn']>
             label={t('settings.git.openPrIn.label')}
-            width={180}
+            width={CONTROL_WIDTH}
             value={settings.openPrIn}
             options={[
               { value: 'github', label: 'GitHub' },
@@ -125,7 +127,7 @@ export function GitPage() {
         />
       </Section>
 
-      <Section title={t('settings.git.section.archiving')} description={t('settings.git.section.archivingDesc')}>
+      <Section part="archiving" title={t('settings.git.section.archiving')} description={t('settings.git.section.archivingDesc')}>
         <ToggleRow
           id="delete-branch-on-archive"
           label={t('settings.git.deleteBranchOnArchive.label')}
@@ -150,7 +152,7 @@ export function GitPage() {
         <Row id="archive-cleanup-days" label={t('settings.git.archiveCleanup.label')} help={t('settings.git.archiveCleanup.help')} onReset={reset('archiveCleanupDays')}>
           <Select
             label={t('settings.git.archiveCleanup.label')}
-            width={140}
+            width={CONTROL_WIDTH}
             value={String(settings.archiveCleanupDays ?? 0)}
             options={ARCHIVE_CLEANUP_DAYS.map((n) => ({ value: String(n), label: n ? t('settings.git.archiveCleanup.days', { count: n }) : t('settings.git.archiveCleanup.never') }))}
             onChange={(value) => void saveSettings({ archiveCleanupDays: Number(value) })}

@@ -558,3 +558,27 @@ describe('outward actions: what the employee is told', () => {
     expect(r.db.employeeActions({ taskId: run.taskId, states: ['sent'] })).toEqual([a])
   })
 })
+
+describe('a held push says where it goes and as whom (decision cards, docs/ai-employees.md §9)', () => {
+  it('records the repository, the remote and its URL, the account’s login and the files it changes', async () => {
+    const r = await rig()
+    r.gate.connection = { connectionId: 'gh:yatin', name: 'gh’s active account (yatin)', login: 'yatin' }
+    r.scm.prepare.mockResolvedValueOnce({ ...PREVIEW, remote: 'origin', remoteUrl: 'github.com/acme/site', files: [{ path: 'blog/launch.md', insertions: 6, deletions: 0 }] })
+    const run = await begin(r)
+    await r.tools.call(run.sessionId!, 'request_push', {})
+    expect(only(r)).toMatchObject({
+      state: 'held',
+      payload: { kind: 'push', repo: 'site', remote: 'origin', remoteUrl: 'github.com/acme/site', login: 'yatin', files: [{ path: 'blog/launch.md', insertions: 6, deletions: 0 }], diffStat: PREVIEW.diffStat, connection: 'gh’s active account (yatin)' }
+    })
+  })
+
+  it('leaves out what Foreman doesn’t know, never guessing a login', async () => {
+    const r = await rig()
+    const run = await begin(r)
+    await r.tools.call(run.sessionId!, 'request_push', {})
+    const payload = only(r).payload
+    expect(payload).toMatchObject({ kind: 'push', repo: 'site', connection: 'Acme GitHub' })
+    expect(payload).not.toHaveProperty('login')
+    expect(payload).not.toHaveProperty('remoteUrl')
+  })
+})

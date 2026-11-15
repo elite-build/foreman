@@ -765,3 +765,54 @@ describe('Claude update command', () => {
     expect(claudeDriver.updateCommand?.()).toMatch(/^['"]claude['"] update$/)
   })
 })
+
+describe('Claude’s always-allow names its rule', () => {
+  const ask = async (suggestions: unknown[], toolName = 'Bash', input: Record<string, unknown> = { command: 'npm test -- session && git push origin main' }) => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    cb.approveTool.mockResolvedValue({ kind: 'tool', allow: true, alternate: true })
+    const run = claudeDriver.createTurn({ ...request, approvals: 'ask' }, cb).run()
+    const { canUseTool } = sdk.query.mock.calls[0][0].options
+    const answer = await canUseTool(toolName, input, { signal: new AbortController().signal, suggestions })
+    claude.push(result)
+    await run
+    return { request: cb.approveTool.mock.calls[0][0], answer }
+  }
+
+  it('fills alwaysScope and alwaysRules from the SDK’s Bash rule, and sends back exactly that rule', async () => {
+    const suggestions = [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }], behavior: 'allow', destination: 'session' }]
+    const { request: asked, answer } = await ask(suggestions)
+    expect(asked).toMatchObject({ alternate: 'always-allow', alwaysScope: 'npm test', alwaysRules: ['npm test:*'] })
+    expect(answer).toMatchObject({ behavior: 'allow', updatedPermissions: suggestions })
+  })
+
+  it('names every rule it would add', async () => {
+    const { request: asked } = await ask([
+      { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }, { toolName: 'Bash', ruleContent: 'git push:*' }], behavior: 'allow', destination: 'session' }
+    ])
+    expect(asked).toMatchObject({ alwaysScope: 'npm test, git push', alwaysRules: ['npm test:*', 'git push:*'] })
+  })
+
+  it('names a fetch’s domain and a folder, with no command rules', async () => {
+    const { request: asked } = await ask(
+      [
+        { type: 'addRules', rules: [{ toolName: 'WebFetch', ruleContent: 'domain:github.com' }], behavior: 'allow', destination: 'session' },
+        { type: 'addDirectories', directories: ['/data/shared'], destination: 'session' }
+      ],
+      'WebFetch',
+      { url: 'https://github.com/x' }
+    )
+    expect(asked.alwaysScope).toBe('github.com, /data/shared')
+    expect(asked).not.toHaveProperty('alwaysRules')
+  })
+
+  it('a mode change alone names nothing, and an edit never carries a scope', async () => {
+    const { request: mode } = await ask([{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }])
+    expect(mode).toMatchObject({ alternate: 'always-allow' })
+    expect(mode).not.toHaveProperty('alwaysScope')
+    sdk.query.mockReset()
+    const { request: edit } = await ask([{ type: 'addRules', rules: [{ toolName: 'Edit' }], behavior: 'allow', destination: 'session' }], 'Edit', { file_path: '/repo/a.ts', old_string: 'a', new_string: 'b' })
+    expect(edit).toMatchObject({ alternate: 'edits-for-session' })
+    expect(edit).not.toHaveProperty('alwaysScope')
+  })
+})

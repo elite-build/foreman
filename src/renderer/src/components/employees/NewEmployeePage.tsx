@@ -1,15 +1,14 @@
 // The New employee page (docs/ai-employees.md §5.3): describe the employee, optionally pick a personality and a hat,
-// then Generate with AI (one request) or Save as is. The draft is words to read and edit in place, with Refine; what it
+// then Generate with AI (one request) or Use my words. The draft is words to read and edit in place, with Refine; what it
 // can do starts at the safest settings whatever the words say, and what the draft suggests is listed switched off: the
-// AI drafts, it never grants. Create saves `bots/<id>.toml` and the employee's memory folder in one commit, as a draft;
-// Create and approve shows the plan first. Nothing is written before Create.
+// AI drafts, it never grants. Create saves `bots/<id>.toml` and the employee's memory folder in one commit, as a draft,
+// and opens the draft's page, which is its plan: approving happens there. Nothing is written before Create.
 import { Check, RotateCcw, Wand2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   defaultEmployee,
   draftTextOf,
   employeeNameProblem,
-  employeePath,
   employeeProblems,
   freeHatColour,
   MAX_DRAFT_DESCRIPTION,
@@ -27,7 +26,6 @@ import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { api, openEmployees, showToast, useStore } from '../../store'
 import { Button, Callout, Card, ChipButton, Disclosure, Field, HardHat, LinkButton, Spinner, Status, Switch, Tag, TextArea, TextInput, type HardHatColour } from '../../ui'
-import { ApproveDialog } from './ApproveDialog'
 import { CanDo, HatPicker, InstructionsField, WordFields, type Wearers } from './EmployeeFields'
 import type { EmployeesData } from './EmployeesView'
 import { agentLabel, colourName, modelText, TRAIT_LABEL } from './words'
@@ -55,7 +53,7 @@ export function NewEmployeePage({ orgId, data }: { orgId: string; data: Employee
   const [other, setOther] = useState('')
   const [hat, setHat] = useState<string | undefined>(undefined)
   const [draft, setDraft] = useState<EmployeeDefinition | null>(null)
-  // What drafted it; null: the person's own words (Save as is).
+  // What drafted it; null: the person's own words (Use my words).
   const [source, setSource] = useState<{ agent: string; model: string } | null>(null)
   const [suggested, setSuggested] = useState<EmployeeSuggestion[]>([])
   const [working, setWorking] = useState<'generate' | 'refine' | 'create' | null>(null)
@@ -64,7 +62,6 @@ export function NewEmployeePage({ orgId, data }: { orgId: string; data: Employee
   const [request, setRequest] = useState('')
   const [undo, setUndo] = useState<{ text: EmployeeDraftText; suggested: EmployeeSuggestion[] } | null>(null)
   const [refined, setRefined] = useState('')
-  const [approveOpen, setApproveOpen] = useState(false)
 
   const personalityWords = () => [...traits.map((tr) => t(TRAIT_LABEL[tr])), ...(otherOn && other.trim() ? [other.trim()] : [])].join(', ')
   const newDraft = (text: EmployeeDraftText, colour: string) => defaultEmployee({ id: newEmployeeId(others.map((o) => o.id)), colour, repos, loadouts: snapshot.settings.loadouts, text })
@@ -135,20 +132,19 @@ export function NewEmployeePage({ orgId, data }: { orgId: string; data: Employee
     setRefined('')
   }
 
-  const create = async (approve: boolean) => {
+  // Saved as a draft, then its own page: the plan, with Approve <name> in its header (§5.3).
+  const create = async () => {
     if (!draft) return
     setWorking('create')
     setError('')
     try {
-      const created = await api.createEmployee(orgId, draft, { approve })
-      showToast(approve ? t('employees.new.createdApproved', { name: created.name }) : t('employees.new.created', { name: created.name }))
+      const created = await api.createEmployee(orgId, draft, {})
+      showToast(t('employees.new.created', { name: created.name }))
       data.reload()
-      openEmployees({ orgId, page: 'team' })
+      openEmployees({ orgId, page: 'employee', id: created.id })
     } catch (err) {
-      // Create and approve says why in its dialog; Create, here.
-      if (!approve) setError(message(err))
+      setError(message(err))
       setWorking(null)
-      throw err
     }
   }
 
@@ -359,30 +355,14 @@ export function NewEmployeePage({ orgId, data }: { orgId: string; data: Employee
             </Callout>
           )}
           <div className="new-employee-footer">
-            <span className="employee-faint">{t('employees.new.target', { path: employeePath(draft.id), memory })}</span>
+            <span className="employee-faint">{t('employees.new.targetDraft', { memory })}</span>
             <Button variant="ghost" disabled={busy} onClick={startOver}>
               {t('employees.new.startOver')}
             </Button>
-            <Button disabled={!canCreate} onClick={() => void create(false).catch(() => undefined)}>
+            <Button variant="primary" disabled={!canCreate} onClick={() => void create()}>
               {working === 'create' ? t('employees.new.creating') : t('employees.new.create')}
             </Button>
-            <Button variant="primary" disabled={!canCreate} onClick={() => setApproveOpen(true)}>
-              {t('employees.new.createApprove')}
-            </Button>
           </div>
-          {approveOpen && (
-            <ApproveDialog
-              creating
-              definition={draft}
-              memory={memory}
-              names={(id) => others.find((o) => o.id === id)?.name || id}
-              onClose={() => setApproveOpen(false)}
-              onConfirm={async () => {
-                await create(true)
-                setApproveOpen(false)
-              }}
-            />
-          )}
         </>
       )}
     </div>

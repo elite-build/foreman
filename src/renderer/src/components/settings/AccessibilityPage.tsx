@@ -9,7 +9,7 @@ import { api, attempt, recordMilestone, showToast, useStore } from '../../store'
 import { downloadSttModel, useSttModel } from '../../stt'
 import { Button, Callout, Dialog, IconButton, Range, Segmented, Select, Spinner, Tag, TextInput } from '../../ui'
 import { announcePolicy } from '../../agentStatus'
-import { Page, resetSettings, Row, saveSettings, Section, TextRow, ToggleRow, useSettings } from './controls'
+import { CONTROL_WIDTH, Page, resetSettings, Row, saveSettings, Section, TextRow, ToggleRow, useSettings } from './controls'
 
 const DEFAULT_CONTENT_SIZE = 13
 const DEFAULT_TERMINAL_SIZE = 12
@@ -26,7 +26,7 @@ export function AccessibilityPage() {
 
   return (
     <Page title={t('settings.page.accessibility')}>
-      <Section title={t('settings.accessibility.section.vision')}>
+      <Section part="vision" title={t('settings.accessibility.section.vision')}>
         <ContentSizeRow />
         <ToggleRow
           id="terminal-font-content"
@@ -57,12 +57,12 @@ export function AccessibilityPage() {
         </Row>
       </Section>
 
-      <Section title={t('settings.accessibility.section.screenReader')}>
+      <Section part="screen-reader" title={t('settings.accessibility.section.screenReader')}>
         <ScreenReaderRow />
         <ScreenReaderDetected />
       </Section>
 
-      <Section title={t('settings.accessibility.section.announcements')}>
+      <Section part="announcements" title={t('settings.accessibility.section.announcements')}>
         <Row
           id="announce"
           label={t('settings.accessibility.announce.label')}
@@ -153,7 +153,7 @@ function VoiceSection() {
   const voiceLabel = t('settings.accessibility.voice.label')
 
   return (
-    <Section title={t('settings.accessibility.section.voice')} description={t('settings.accessibility.voice.betaDescription')}>
+    <Section part="voice" title={t('settings.accessibility.section.voice')} description={t('settings.accessibility.voice.betaDescription')}>
       <ToggleRow
         id="speech-output"
         label={t('settings.accessibility.speech.label')}
@@ -268,7 +268,7 @@ function SpeechInputSection() {
   const keys = shortcutHint('stt.pushToTalk', platform) ?? ''
 
   return (
-    <Section title={t('settings.accessibility.section.stt')}>
+    <Section part="stt" title={t('settings.accessibility.section.stt')}>
       <Row
         id="push-to-talk"
         label={t('settings.accessibility.pushToTalk.label')}
@@ -545,7 +545,7 @@ function ScreenReaderRow() {
       {(control) => (
         <Select<Settings['terminalScreenReader']>
           {...control}
-          width={150}
+          width={CONTROL_WIDTH}
           value={settings.terminalScreenReader}
           options={[
             { value: 'auto', label: t('settings.advanced.screenReader.auto') },

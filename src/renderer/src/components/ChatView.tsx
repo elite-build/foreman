@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, ClipboardList, Copy, FolderPlus, GitBranch, Lock, MoreHorizontal, Pencil, Plus, RotateCcw, Settings, Sparkles, Users } from 'lucide-react'
+import { ArrowRight, Copy, FolderPlus, GitBranch, History, Lock, MessageSquare, MoreHorizontal, Pencil, Plus, RotateCcw, Settings, Sparkles, Undo2, Users } from 'lucide-react'
 import { Activity, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { isFallback } from '../../../shared/agentCapabilities'
 import { AGENTS, modelInfo } from '../../../shared/agents'
@@ -6,9 +6,9 @@ import { isMixed, turnAuthors, type AgentSwitch, type ChatDivider, type TurnAuth
 import { continueEligibility, continueFollowUp, turnAnswer } from '../../../shared/handOff'
 import { partSize, receiptLine } from '../../../shared/context'
 import type { PlainKey } from '../../../shared/i18n'
-import type { AgentKind, ApprovalRequest, ChatItem, ContextPart, Session, TurnDelta, Workspace } from '../../../shared/types'
+import type { AgentKind, ApprovalRequest, ChatItem, ContextPart, Session, TurnDelta, TurnOutcome, Workspace } from '../../../shared/types'
 import { useClock } from '../clock'
-import { api, attempt, clearChatJump, copyTranscript, editAndResend, fillComposer, forkChat, loadChat, onUiCommand, openHandOffDialog, openNewWorkspace, openSettingsPage, sendUiCommand, showToast, useCapabilities, useStore } from '../store'
+import { api, attempt, clearChatJump, copyTranscript, editAndResend, fillComposer, forkChat, loadChat, onUiCommand, openHandOffDialog, openNewWorkspace, openSettingsPage, showToast, useCapabilities, useStore } from '../store'
 import { useHeldStore } from '../heldStore'
 import { editResendBlock } from '../../../shared/fork'
 import { useT } from '../i18n'
@@ -16,10 +16,11 @@ import { announce } from '../announce'
 import { spokenSnippet } from '../agentStatus'
 import { reduceMotion } from '../theme'
 import { formatClock, formatNumber } from '../../../shared/i18n/time'
-import { Button, Callout, Checkbox, ChipButton, Dialog, flash, LinkButton, MenuButton, MenuItem, MenuLabel, MenuSeparator, Pressable, Spinner, Tag } from '../ui'
+import { Button, Callout, Card, Checkbox, ChipButton, Dialog, Disclosure, flash, LinkButton, MenuButton, MenuItem, MenuLabel, MenuSeparator, Pressable, SplitButton, Spinner, Status, Tag, type StatusTone } from '../ui'
 import { hasNote } from '../../../shared/note'
 import { formatDuration } from './turnResult'
-import { GatePanel, PickPanel, QuestionPanel, ToolApprovalPanel } from './ApprovalPanel'
+import { NeedsYouDock } from './ApprovalPanel'
+import { EmployeeRunDecision } from './employees/EmployeeDecisions'
 import { AttachmentChip, Composer } from './composer/Composer'
 import { UserMessageText } from './composer/TerminalDraft'
 import { AgentIcon } from './composer/AgentPicker'
@@ -29,9 +30,9 @@ import { Markdown } from './Markdown'
 import { SensitiveCard } from './SensitiveAlert'
 import { ChatSearch } from './ChatSearch'
 import { textMatches } from './findInChat'
-import { describe, taskActivity, TaskMeta, ToolRow, type Root, type StopChild, type Subtree, type ToolItem } from './ToolRow'
+import { describe, ResultWord, taskActivity, TaskMeta, toolResult, ToolRow, type Root, type StopChild, type Subtree, type ToolItem } from './ToolRow'
 import { childItemsOf, isChildItem, withoutChildren, type ChildItem } from '../../../shared/subagents'
-import type { FileAccess } from './OpenFileChip'
+import { fullPath, OpenFileChip, type FileAccess } from './OpenFileChip'
 import { workspaceSurfaces } from '../archivedView'
 import { toolRoots } from '../../../shared/portable'
 import { sessionReadOnly } from '../../../shared/workspacePath'
@@ -305,7 +306,6 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
   const headingId = useId()
   const title = session.title || t('workspaceView.tab.newChat')
   const logHeading = useRef<HTMLHeadingElement>(null)
-  const planHeading = useRef<HTMLDivElement>(null)
   const chatRoot = useRef<HTMLDivElement>(null)
   const lastTurns = useRef<(ChatItem | TurnGroup)[]>([])
   const turns = useMemo(() => (lastTurns.current = groupTurns(items, lastTurns.current)), [items])
@@ -404,11 +404,8 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
     const ids = pending.flatMap((a) => ((a.kind === 'tool' || a.kind === 'question') && a.subagent ? [a.subagent.id] : []))
     return ids.length ? new Set(ids) : NO_TASKS
   }, [pending])
-  const toolRequest = pending.find((a): a is Extract<ApprovalRequest, { kind: 'tool' }> => a.kind === 'tool')
-  const question = pending.find((a): a is Extract<ApprovalRequest, { kind: 'question' }> => a.kind === 'question')
+  // A plan waiting for review: what is typed in the message box is feedback on it (its card docks above the box).
   const plan = pending.find((a): a is Extract<ApprovalRequest, { kind: 'plan' }> => a.kind === 'plan')
-  const gate = pending.find((a): a is Extract<ApprovalRequest, { kind: 'gate' }> => a.kind === 'gate')
-  const pick = pending.find((a): a is Extract<ApprovalRequest, { kind: 'pick' }> => a.kind === 'pick')
   const background = useMemo(() => items.filter((i): i is ToolItem => i.kind === 'tool' && i.task?.status === 'running' && Boolean(i.task.background)), [items])
   // Continue (on the latest answer's menu): only once the chat is idle, so it isn't worked out while a turn streams.
   const continuation = useMemo(() => {
@@ -476,10 +473,11 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
           if (previous) go(previous)
           else say(t(headings.length ? 'a11y.chat.firstTurn' : 'a11y.chat.noTurns'))
         } else if (command === 'chat-needs-me') {
-          // The approval or question panel in place of the composer; else the plan the agent proposed.
-          const panel = chatRoot.current?.querySelector<HTMLElement>('.approval-panel')
-          if (panel) panel.focus()
-          else if (planHeading.current) go(planHeading.current)
+          // The decision docked above the message box (an approval, a question, the plan, an employee's): F6 moves focus
+          // to it, and Ctrl+L goes back to the message.
+          const card = chatRoot.current?.querySelector<HTMLElement>('.decision-dock [data-decision]')
+          if (card) card.focus()
+          else say(t('narration.needs.lead', { count: 0 }))
         } else if (command === 'chat-needs-none') say(t('narration.needs.lead', { count: 0 }))
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -508,7 +506,7 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
           readOnly={readOnly}
           level={headingLevel + 2}
           workspacePath={roots}
-          files={kind === 'tool' ? files : undefined}
+          files={kind === 'tool' || kind === 'turn-end' ? files : undefined}
           subtree={kind === 'tool' ? subtrees.get(item.id) : undefined}
           waiting={kind === 'tool' && item.childId ? waiting : undefined}
           strip={strip}
@@ -521,7 +519,8 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
           items={signIn ? items : undefined}
           isLatestEnd={latest}
           continuation={latest ? continuation : null}
-          workspaceChanges={latest ? workspace.diffStat : undefined}
+          workspaceName={kind === 'turn-end' ? workspace.name : undefined}
+          employeeRun={kind === 'turn-end' && workspace.startedBy?.via === 'employee'}
           by={kind === 'turn-end' && mixed ? author : undefined}
           repoId={repoId}
           forkToNewTab={forkToNewTab}
@@ -585,14 +584,6 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
                 </div>
               </div>
             )}
-            {plan && (
-              <div className="plan-card">
-                <div className="plan-card-head" role="heading" aria-level={headingLevel + 1} tabIndex={-1} ref={planHeading}>
-                  <ClipboardList size={14} /> {t('chat.plan.title')}
-                </div>
-                <Markdown text={plan.plan} headingStart={headingLevel + 2} />
-              </div>
-            )}
             {running && !finished && pending.length === 0 && lastUser?.kind === 'user' && <LiveTimer since={lastUser.at} />}
           </div>
         </Activity>
@@ -603,23 +594,26 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
         <div className="composer">
           <ArchivedBanner workspace={workspace} session={session} />
         </div>
-      ) : toolRequest ? (
-        <ToolApprovalPanel request={toolRequest} workspacePath={workspace.path ?? ''} />
-      ) : question ? (
-        <QuestionPanel request={question} />
-      ) : gate ? (
-        <GatePanel request={gate} workspaceId={workspace.id} />
-      ) : pick ? (
-        <PickPanel request={pick} />
       ) : (
-        <Activity mode={mode}>
-          {!hasHistory && session.queue.length === 0 && hasNote(workspace.note) && (
-            <Checkbox className="include-note" checked={Boolean(session.includeNote)} onChange={(e) => void attempt(() => api.updateSession(session.id, { includeNote: e.target.checked }))}>
-              <span className="include-note-text">{t.rich('chat.includeNote', { revision: <Tag key="r">r{workspace.note.revision}</Tag> })}</span>
-            </Checkbox>
-          )}
-          <Composer session={session} workspace={workspace} active={active} hasHistory={hasHistory} pendingPlan={plan} />
-        </Activity>
+        <>
+          {/* What waits for the person docks above the message box, which stays mounted with its draft, attachments and
+              queue. Outside the Activity, so a request that arrives while the chat is hidden is in place when it's shown. */}
+          <NeedsYouDock
+            requests={pending}
+            workspace={workspace}
+            active={active}
+            headingLevel={headingLevel + 2}
+            fallback={workspace.startedBy?.via === 'employee' ? <EmployeeRunDecision ws={workspace} active={active} /> : undefined}
+          />
+          <Activity mode={mode}>
+            {!hasHistory && session.queue.length === 0 && hasNote(workspace.note) && (
+              <Checkbox className="include-note" checked={Boolean(session.includeNote)} onChange={(e) => void attempt(() => api.updateSession(session.id, { includeNote: e.target.checked }))}>
+                <span className="include-note-text">{t.rich('chat.includeNote', { revision: <Tag key="r">r{workspace.note.revision}</Tag> })}</span>
+              </Checkbox>
+            )}
+            <Composer session={session} workspace={workspace} active={active} hasHistory={hasHistory} pendingPlan={plan} />
+          </Activity>
+        </>
       )}
     </div>
   )
@@ -727,7 +721,10 @@ type RowProps = {
   items?: ChatItem[]
   isLatestEnd: boolean
   continuation: Continuation | null
-  workspaceChanges?: TurnDelta | { files: number; additions: number; deletions: number }
+  // Only for a turn's end: the workspace's name (a failed turn's card says its changes are still there), and whether an AI
+  // employee's run made it (Retry is then the run banner's, docs/ai-employees.md §10).
+  workspaceName?: string
+  employeeRun?: boolean
   // O1: in a chat that switched agents, who wrote this answer.
   by?: TurnAuthor
 }
@@ -760,7 +757,8 @@ const ChatRow = memo(function ChatRow({
   items = EMPTY,
   isLatestEnd,
   continuation,
-  workspaceChanges,
+  workspaceName,
+  employeeRun = false,
   by
 }: RowProps) {
   const t = useT()
@@ -895,7 +893,25 @@ const ChatRow = memo(function ChatRow({
       )
     case 'turn-end':
       if (!session) return null
-      return <TurnEnd item={item} turnItems={turnItems} session={session} running={running} isLatestEnd={isLatestEnd} continuation={continuation} workspaceChanges={workspaceChanges} readOnly={readOnly} by={by} repoId={repoId} forkToNewTab={forkToNewTab} />
+      return (
+        <TurnEnd
+          item={item}
+          turnItems={turnItems}
+          session={session}
+          agent={agent}
+          running={running}
+          isLatestEnd={isLatestEnd}
+          continuation={continuation}
+          files={files ?? null}
+          workspaceName={workspaceName}
+          employeeRun={employeeRun}
+          restore={item.turnId && restores && !readOnly ? (freshRestore ? 'chat.restore.confirmFresh' : rollback?.level === 'none' ? 'chat.restore.confirmFiles' : 'chat.restore.confirm') : null}
+          readOnly={readOnly}
+          by={by}
+          repoId={repoId}
+          forkToNewTab={forkToNewTab}
+        />
+      )
     case 'result':
       // Superseded by the turn's result line, which carries the cost.
       if (turnItems.some((i) => i.kind === 'turn-end' && i.turnId === item.turnId)) return null
@@ -912,17 +928,173 @@ const ChatRow = memo(function ChatRow({
   }
 })
 
-const OUTCOME_LABEL: Record<'completed' | 'error' | 'cancelled' | 'interrupted', PlainKey> = { completed: 'chat.outcome.completed', error: 'chat.outcome.error', cancelled: 'chat.outcome.cancelled', interrupted: 'chat.outcome.interrupted' }
+/** How a turn ended, as the receipt's Status: a shape and a word. A turn that ended by asking you waits for you. */
+const OUTCOME: Record<TurnOutcome, { tone: StatusTone; label: PlainKey }> = {
+  completed: { tone: 'ok', label: 'chat.outcome.completed' },
+  error: { tone: 'error', label: 'chat.outcome.error' },
+  cancelled: { tone: 'off', label: 'chat.outcome.cancelled' },
+  interrupted: { tone: 'error', label: 'chat.outcome.interrupted' }
+}
 
-/** How a turn ended: a compact result line, plus a recovery card when it failed or was cut off. */
+// The commands a receipt lists; earlier ones are counted.
+const RECEIPT_COMMANDS = 6
+// The lines of a failed command's output the recovery card shows.
+const OUTPUT_LINES = 8
+
+/** "+12 −3": lines added and removed, a zero left out, with a real minus sign. */
+function LineDelta({ additions, deletions }: { additions: number; deletions: number }) {
+  const t = useT()
+  if (!additions && !deletions) return null
+  return (
+    <span className="mono turn-delta">
+      {additions > 0 && <span className="add">+{formatNumber(additions, t.locale)}</span>}
+      {additions > 0 && deletions > 0 && ' '}
+      {deletions > 0 && <span className="del">−{formatNumber(deletions, t.locale)}</span>}
+    </span>
+  )
+}
+
+/** A file this turn changed: a path that opens it (where the files are on this computer), then its lines. */
+function ChangedFile({ file, files }: { file: TurnDelta['files'][number]; files: FileAccess | null }) {
+  const path = files ? fullPath(file.path, files.root) : null
+  return (
+    <span className="turn-receipt-file">
+      {path && files ? <OpenFileChip path={path} label={file.path} access={files} /> : <span className="file-chip mono">{file.path}</span>}
+      <LineDelta additions={file.additions} deletions={file.deletions} />
+    </span>
+  )
+}
+
+const firstLineOf = (text: string) => text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? ''
+const commandOf = (item: ToolItem) => firstLineOf(String((item.input as { command?: unknown } | undefined)?.command ?? ''))
+
+/** A failed turn's cause, as its card's title: the error's first line, without "The agent stopped:" or a closing full stop. */
+function causeOf(error: string | undefined): { title: string; rest: string } | null {
+  const text = (error ?? '').trim().replace(/^The agent stopped:\s*/i, '')
+  if (!text) return null
+  const [first, ...rest] = text.split(/\r?\n/)
+  return { title: first.trim().replace(/[.。]$/, ''), rest: rest.join('\n').trim() }
+}
+
+/**
+ * The receipt that closes a turn: how it ended, how long it took and what it cost, then what this turn did (its files and
+ * commands) as one fact. On the latest turn the fact is open, a chip per file (which opens it) and per command (which shows
+ * its row); older turns keep it folded to one line. Only this turn's own changes: a turn without both checkpoints names none.
+ */
+function TurnReceipt({
+  outcome,
+  numbers,
+  by,
+  delta,
+  commands,
+  files,
+  isLatestEnd,
+  menu
+}: {
+  outcome: { tone: StatusTone; label: string }
+  numbers: string
+  by?: TurnAuthor
+  delta?: TurnDelta
+  commands: ToolItem[]
+  files: FileAccess | null
+  isLatestEnd: boolean
+  menu: ReactNode
+}) {
+  const t = useT()
+  const card = useRef<HTMLDivElement>(null)
+  // null until the reader opens or closes it; until then the latest turn's is open.
+  const [toggled, setToggled] = useState<boolean | null>(null)
+  const open = toggled ?? isLatestEnd
+  const changed = delta?.files ?? []
+  const failed = commands.filter((c) => toolResult(c)?.tone === 'error').length
+  const facts: ReactNode[] = []
+  if (changed.length) {
+    facts.push(
+      <span key="files" className="turn-receipt-fact">
+        {t('chat.receipt.files', { count: changed.length })} <LineDelta additions={delta!.additions} deletions={delta!.deletions} />
+      </span>
+    )
+  }
+  if (commands.length) {
+    const ran = t('chat.receipt.commands', { count: commands.length })
+    facts.push(
+      <span key="commands" className="turn-receipt-fact">
+        {failed ? t('narration.join', { a: ran, b: t('chat.receipt.failed', { count: failed }) }) : ran}
+      </span>
+    )
+  }
+  // The command's row: scrolled to, flashed and focused, so the keyboard lands where the eye does.
+  const show = (id: string) => {
+    const row = card.current?.closest('.chat-scroll')?.querySelector<HTMLElement>(`[data-tool="${CSS.escape(id)}"]`)
+    if (!row) return
+    row.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' })
+    flash(row, { duration: 1800 })
+    row.querySelector<HTMLElement>('.tool-row')?.focus({ preventScroll: true })
+  }
+  const shown = commands.slice(-RECEIPT_COMMANDS)
+  return (
+    <Card size="sm" className="turn-receipt" ref={card}>
+      <div className="turn-receipt-line">
+        <Status tone={outcome.tone} label={outcome.label} />
+        {(numbers || by) && (
+          <span className="mono turn-receipt-numbers">
+            {numbers}
+            {by && (
+              <span className="turn-by">
+                {numbers ? ' · ' : ''}
+                {by.model ? modelInfo(by.agent, by.model).label : AGENTS[by.agent]?.label ?? by.agent}
+              </span>
+            )}
+          </span>
+        )}
+        {facts.length > 0 && (
+          <Disclosure quiet className="turn-receipt-fold" open={open} onOpenChange={setToggled} label={facts.flatMap((fact, n) => (n ? [<span key={`dot${n}`}> · </span>, fact] : [fact]))}>
+            <div className="turn-receipt-facts">
+              {changed.length > 0 && (
+                <div className="turn-receipt-group">
+                  <span className="faint small">{t('chat.receipt.changed')}</span>
+                  {changed.map((file) => (
+                    <ChangedFile key={file.path} file={file} files={files} />
+                  ))}
+                </div>
+              )}
+              {commands.length > 0 && (
+                <div className="turn-receipt-group">
+                  <span className="faint small">{t('chat.receipt.ran')}</span>
+                  {commands.length > shown.length && <span className="faint small">{t('chat.receipt.earlier', { count: commands.length - shown.length })}</span>}
+                  {shown.map((command) => {
+                    const result = toolResult(command)
+                    return (
+                      <ChipButton key={command.id} className="turn-receipt-command" title={t('chat.receipt.showCommand')} onClick={() => show(command.id)}>
+                        <code className="turn-receipt-code">{commandOf(command)}</code>
+                        {result && <ResultWord result={result} />}
+                      </ChipButton>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </Disclosure>
+        )}
+        {menu}
+      </div>
+    </Card>
+  )
+}
+
+/** How a turn ended: its receipt, plus a recovery card that leads with the cause when it failed or was cut off. */
 function TurnEnd({
   item,
   turnItems,
   session,
+  agent,
   running,
   isLatestEnd,
   continuation,
-  workspaceChanges,
+  files,
+  workspaceName,
+  employeeRun,
+  restore,
   readOnly,
   by,
   repoId,
@@ -932,11 +1104,19 @@ function TurnEnd({
   // Everything in the log from this turn.
   turnItems: ChatItem[]
   session: Session
+  // The agent that answered this turn.
+  agent: AgentKind
   running: boolean
   isLatestEnd: boolean
   // On the latest answer of an idle chat that can be continued (see `continueEligibility`), else null.
   continuation: Continuation | null
-  workspaceChanges?: { additions: number; deletions: number }
+  // What the turn's paths may open (null: a cloud workspace's files are in its sandbox).
+  files: FileAccess | null
+  workspaceName?: string
+  // An AI employee's run made the workspace: Retry is the run banner's (a fresh run), never the chat's.
+  employeeRun: boolean
+  // The agent can put the files back to before the message: what Restore's confirmation says. Null when it can't.
+  restore: PlainKey | null
   // The tab can't send (history only), so no recovery actions.
   readOnly?: boolean
   // O1: in a chat that switched agents, who wrote this answer.
@@ -945,54 +1125,81 @@ function TurnEnd({
   forkToNewTab: boolean
 }) {
   const t = useT()
+  const [confirm, setConfirm] = useState<'retry' | 'only' | null>(null)
+  const [outputOpen, setOutputOpen] = useState(false)
   // Docs/agents.md 7.2: the latest turn of a chat paused at a usage limit isn't a failure: it has its own card.
   const paused = Boolean(item.limit) && session.lastTurn?.turnId === item.turnId && session.lastTurn.outcome === 'limit'
   const failed = (item.outcome === 'error' || item.outcome === 'interrupted') && !paused
   const cost = turnItems.find((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result' && i.turnId === item.turnId)?.costUsd
-  // The workspace-wide figure is only honest for the latest turn, and is labelled as such.
-  const changes = item.delta
-    ? item.delta.additions || item.delta.deletions
-      ? { label: 'chat.changes.thisTurn' as PlainKey, ...item.delta }
-      : null
-    : isLatestEnd && workspaceChanges && (workspaceChanges.additions || workspaceChanges.deletions)
-      ? { label: 'chat.changes.workspace' as PlainKey, ...workspaceChanges }
-      : null
+  const tools = turnItems.filter((i): i is ToolItem => i.kind === 'tool' && i.turnId === item.turnId)
+  const commands = tools.filter((i) => i.name === 'Bash' && i.status !== 'running')
+  // An employee's run that asked the person, or had an outward action held for them, ended waiting for you.
+  const waiting = item.outcome === 'completed' && tools.some((i) => toolResult(i)?.tone === 'warn')
+  const outcome = paused
+    ? { tone: 'off' as const, label: t('usageLimit.paused.outcome') }
+    : item.restartedBy
+      ? { tone: 'off' as const, label: t('chat.outcome.restarted') }
+      : waiting
+        ? { tone: 'warn' as const, label: t('chat.outcome.waiting') }
+        : { tone: OUTCOME[item.outcome].tone, label: t(OUTCOME[item.outcome].label) }
+  const numbers = [item.durationMs !== undefined && formatDuration(item.durationMs), cost !== undefined && cost > 0 && `$${cost.toFixed(2)}`].filter(Boolean).join(' · ')
   const message = turnItems.find((i): i is Extract<ChatItem, { kind: 'user' }> => i.kind === 'user' && i.turnId === item.turnId && !i.steered)
   // On the latest answer only, and only once the chat is idle, queue empty and the turn completed.
   const suggested = continuation?.suggested ?? null
   const forkable = forkToNewTab && !readOnly && Boolean(message)
   // Chips only on the latest completed answer of an idle chat; once it moves on they are gone from view.
   const chips = item.outcome === 'completed' && isLatestEnd && !running && !readOnly && !session.queue.length ? item.suggestions ?? [] : []
+  const canAct = isLatestEnd && !running && !readOnly
+  const who = AGENTS[agent]?.label ?? agent
+
+  // The failure, cause first: the call that failed last (a command, by preference), and what the turn left behind.
+  const cause = causeOf(item.error)
+  const failing = failed ? (tools.findLast((i) => i.status === 'error' && i.name === 'Bash') ?? tools.findLast((i) => i.status === 'error')) : undefined
+  const failingCommand = failing?.name === 'Bash' ? commandOf(failing) : ''
+  const output = failing?.output?.trimEnd() ? failing.output.trimEnd().split('\n').slice(-OUTPUT_LINES).join('\n') : ''
+  const title = cause?.title ?? (item.outcome === 'interrupted' ? t('chat.recovery.interrupted') : t('chat.recovery.error'))
+  const stopped =
+    failed && item.outcome === 'error' && item.durationMs !== undefined
+      ? failing
+        ? t('chat.recovery.stoppedAt', { agent: who, step: describe(failing, '', t).label, time: formatDuration(item.durationMs) })
+        : t('chat.recovery.stoppedAfter', { agent: who, time: formatDuration(item.durationMs) })
+      : ''
+  const send = (text: string) => api.sendMessage(session.id, text, { attachments: message?.attachments, templateId: message?.followUp?.templateId })
+  const retry = () => message && attempt(() => send(message.text))
+  const restoreThen = (resend: boolean) =>
+    message &&
+    attempt(async () => {
+      await api.restoreCheckpoint(session.id, message.turnId)
+      if (resend) await send(message.text)
+    })
+  // Ask to fix it: the composer gets the request and nothing is sent, as with the Suggested chips.
+  const plainCause = title.replace(/[.。]$/, '')
+  const fixText = failingCommand ? t('chat.recovery.fixPrompt', { cause: plainCause, command: failingCommand }) : t('chat.recovery.fixPromptNoCommand', { cause: plainCause })
+  const canRestore = Boolean(message?.checkpoint) && restore !== null && !employeeRun
+
   return (
     <>
-      <div className={`result turn-result ${failed ? 'error' : ''}`}>
-        {item.outcome === 'completed' ? <Sparkles size={13} /> : failed ? <AlertTriangle size={13} /> : null}
-        <span className="mono">
-          {[
-            paused ? t('usageLimit.paused.outcome') : item.restartedBy ? t('chat.outcome.restarted') : t(OUTCOME_LABEL[item.outcome]),
-            item.durationMs !== undefined && formatDuration(item.durationMs),
-            cost !== undefined && cost > 0 && `$${cost.toFixed(2)}`
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-          {by && <span className="turn-by"> · {by.model ? modelInfo(by.agent, by.model).label : AGENTS[by.agent]?.label ?? by.agent}</span>}
-        </span>
-        <AnswerMenu
-          sessionId={session.id}
-          workspaceId={session.workspaceId}
-          turnId={item.turnId}
-          canFork={forkable}
-          repoId={repoId}
-          answer={turnAnswer(turnItems, item.turnId)}
-          continueLabel={continuation ? (suggested ? t('chat.continue.to', { title: suggested.title }) : t('chat.continue.another')) : undefined}
-          continueTitle={suggested ? t('chat.continue.toTitle') : t('chat.continue.anotherTitle')}
-        />
-        {changes && (
-          <span className="mono turn-changes" title={changes.label === 'chat.changes.thisTurn' ? t('chat.changes.thisTurnTitle') : t('chat.changes.workspaceTitle')}>
-            {t(changes.label)} <span className="add">+{changes.additions}</span> <span className="del">−{changes.deletions}</span>
-          </span>
-        )}
-      </div>
+      <TurnReceipt
+        outcome={outcome}
+        numbers={numbers}
+        by={by}
+        delta={item.delta}
+        commands={commands}
+        files={files}
+        isLatestEnd={isLatestEnd}
+        menu={
+          <AnswerMenu
+            sessionId={session.id}
+            workspaceId={session.workspaceId}
+            turnId={item.turnId}
+            canFork={forkable}
+            repoId={repoId}
+            answer={turnAnswer(turnItems, item.turnId)}
+            continueLabel={continuation ? (suggested ? t('chat.continue.to', { title: suggested.title }) : t('chat.continue.another')) : undefined}
+            continueTitle={suggested ? t('chat.continue.toTitle') : t('chat.continue.anotherTitle')}
+          />
+        }
+      />
       {chips.length > 0 && (
         <div className="chips-row" data-testid="suggested-followups">
           <span className="faint small">{t('chat.suggested')}</span>
@@ -1007,30 +1214,100 @@ function TurnEnd({
       {failed && (
         <Callout
           tone="error"
+          className="turn-recovery"
+          title={title}
           actions={
-            isLatestEnd && !running && !readOnly && (
+            canAct && (
               <>
-                {message && (
-                  <Button
-                    size="sm"
-                    icon={<RotateCcw size={12} />}
-                    title={t('chat.recovery.retryTitle')}
-                    onClick={() => void attempt(() => api.sendMessage(session.id, message.text, { attachments: message.attachments, templateId: message.followUp?.templateId }))}
-                  >
-                    {t('common.retry')}
-                  </Button>
-                )}
-                <Button size="sm" title={t('chat.recovery.continueTitle')} onClick={() => sendUiCommand('focus-composer', session.workspaceId)}>
-                  {t('common.continue')}
+                {message &&
+                  !employeeRun &&
+                  (canRestore ? (
+                    <SplitButton
+                      variant="primary"
+                      size="sm"
+                      label={
+                        <>
+                          <RotateCcw size={12} aria-hidden /> {t('common.retry')}
+                        </>
+                      }
+                      title={t('chat.recovery.retryTitle')}
+                      menuLabel={t('chat.recovery.retryMenu')}
+                      onClick={() => void retry()}
+                    >
+                      <MenuItem icon={<History size={12} />} description={t('chat.recovery.restoreRetryHint')} onSelect={() => setConfirm('retry')}>
+                        {t('chat.recovery.restoreRetry')}
+                      </MenuItem>
+                      <MenuItem icon={<Undo2 size={12} />} description={t('chat.recovery.restoreOnlyHint')} onSelect={() => setConfirm('only')}>
+                        {t('chat.recovery.restoreOnly')}
+                      </MenuItem>
+                    </SplitButton>
+                  ) : (
+                    <Button size="sm" variant="primary" icon={<RotateCcw size={12} />} title={t('chat.recovery.retryTitle')} onClick={() => void retry()}>
+                      {t('common.retry')}
+                    </Button>
+                  ))}
+                <Button
+                  size="sm"
+                  icon={<MessageSquare size={12} />}
+                  title={t(employeeRun ? 'chat.recovery.askFixYoursTitle' : 'chat.recovery.askFixTitle', { agent: who })}
+                  onClick={() => fillComposer(session.workspaceId, session.id, fixText)}
+                >
+                  {t(employeeRun ? 'chat.recovery.askFixYours' : 'chat.recovery.askFix', { agent: who })}
                 </Button>
               </>
             )
           }
         >
-          {item.outcome === 'interrupted' ? t('chat.recovery.interrupted') : t('chat.recovery.error')}
-          {item.error && <div className="recovery-detail">{item.error}</div>}
-          <LimitResumePart item={item} session={session} canAct={isLatestEnd && !running && !readOnly} />
+          {stopped && <div>{stopped}</div>}
+          {cause?.rest && <div className="recovery-detail">{cause.rest}</div>}
+          {item.delta && (
+            <div className="turn-recovery-left">
+              {item.delta.files.length ? (
+                <>
+                  <span>{t('chat.recovery.left', { count: item.delta.files.length })}</span>
+                  {item.delta.files.map((file) => (
+                    <ChangedFile key={file.path} file={file} files={files} />
+                  ))}
+                  {workspaceName && <span>{t('chat.recovery.stillIn', { name: workspaceName })}</span>}
+                </>
+              ) : (
+                <span>{t('chat.recovery.leftNone')}</span>
+              )}
+            </div>
+          )}
+          {output && (
+            <Disclosure quiet open={outputOpen} onOpenChange={setOutputOpen} label={t(outputOpen ? 'chat.recovery.hideOutput' : 'chat.recovery.showOutput')}>
+              <div className="tool-body turn-recovery-output">
+                <pre className="tool-output">{output}</pre>
+              </div>
+            </Disclosure>
+          )}
+          <LimitResumePart item={item} session={session} canAct={canAct} />
         </Callout>
+      )}
+      {confirm && message && (
+        <Dialog
+          title={t('chat.restore.dialogTitle')}
+          onClose={() => setConfirm(null)}
+          footer={
+            <>
+              <Button onClick={() => setConfirm(null)}>{t('common.cancel')}</Button>
+              <Button
+                variant="primary"
+                autoFocus
+                onClick={() => {
+                  const resend = confirm === 'retry'
+                  setConfirm(null)
+                  void restoreThen(resend)
+                }}
+              >
+                {t(confirm === 'retry' ? 'chat.recovery.restoreRetry' : 'chat.restore.label')}
+              </Button>
+            </>
+          }
+        >
+          <p>{t(restore ?? 'chat.restore.confirm')}</p>
+        </Dialog>
       )}
     </>
   )
@@ -1213,7 +1490,7 @@ const AssistantMessage = memo(function AssistantMessage({ text, streaming, works
       <Hidden level={level} id={headingId}>
         {askedAt ? t('chat.message.agentReplyAt', { name: who, time: formatClock(askedAt, t.locale) }) : who}
       </Hidden>
-      <Markdown text={shown} workspaceId={workspaceId} streaming={streaming} headingStart={level + 1} />
+      <Markdown text={shown} workspaceId={workspaceId} streaming={streaming} codeTools headingStart={level + 1} />
     </article>
   )
 })

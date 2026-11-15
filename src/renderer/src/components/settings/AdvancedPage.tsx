@@ -5,7 +5,7 @@ import type { CliInstallStatus } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api, attempt, showToast, useStore } from '../../store'
 import { Button, Select, Spinner, TextInput } from '../../ui'
-import { Page, resetSettings, Row, saveSettings, Section, TextRow, ToggleRow, useDraft, useSettings } from './controls'
+import { CONTROL_WIDTH, Page, resetSettings, Row, saveSettings, Section, TextRow, ToggleRow, useDraft, useSettings } from './controls'
 import { ScriptShellRow } from './ShellSettings'
 
 const SCROLLBACK_DEFAULT = 10
@@ -27,7 +27,7 @@ export function AdvancedPage() {
 
   return (
     <Page title={t('settings.page.advanced')}>
-      <Section title={t('settings.advanced.section.storage')}>
+      <Section part="storage" title={t('settings.advanced.section.storage')}>
         <TextRow
           id="workspaces-folder"
           label={t('settings.advanced.workspacesFolder.label')}
@@ -46,7 +46,7 @@ export function AdvancedPage() {
         />
       </Section>
 
-      <Section title={t('settings.general.section.terminal')}>
+      <Section part="terminal" title={t('settings.general.section.terminal')}>
         {platform === 'win32' && <ScriptShellRow />}
         <ScrollbackRow />
         <ToggleRow
@@ -68,7 +68,7 @@ export function AdvancedPage() {
         />
       </Section>
 
-      <Section title={t('keepRunning.settings.section')}>
+      <Section part="keep-running" title={t('keepRunning.settings.section')}>
         <ToggleRow
           id="keep-agents-running"
           label={t('keepRunning.settings.label')}
@@ -82,7 +82,7 @@ export function AdvancedPage() {
         <BackgroundWaitRow />
       </Section>
 
-      <Section title={t('settings.advanced.section.commandLine')}>
+      <Section part="cli" title={t('settings.advanced.section.commandLine')}>
         <CliRow />
       </Section>
     </Page>
@@ -142,7 +142,7 @@ function MaxAgentsRow() {
       {(control) => (
         <Select<string>
           {...control}
-          width={140}
+          width={CONTROL_WIDTH}
           value={String(value)}
           options={choicesWith(RUNNING_AGENT_CHOICES, value).map((n) => ({ value: String(n), label: n ? String(n) : t('settings.advanced.maxAgents.none') }))}
           onChange={(next) => void saveSettings({ maxRunningAgents: Number(next) })}
@@ -167,7 +167,7 @@ function BackgroundWaitRow() {
       {(control) => (
         <Select<string>
           {...control}
-          width={160}
+          width={CONTROL_WIDTH}
           value={String(value)}
           options={choicesWith(BACKGROUND_WAIT_CHOICES, value).map((n) => ({ value: String(n), label: n ? t('settings.advanced.backgroundWait.after', { count: n }) : t('settings.advanced.backgroundWait.never') }))}
           onChange={(next) => void saveSettings({ backgroundWaitMinutes: Number(next) })}

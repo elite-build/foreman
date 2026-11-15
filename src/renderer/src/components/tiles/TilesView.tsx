@@ -116,7 +116,8 @@ function Tile({ workspaceId, triage, focused, hidden, compact }: { workspaceId: 
       interactive
       selected={focused}
       aria-current={focused ? 'true' : undefined}
-      stripe={attention ? 'warn' : undefined}
+      // A failure (a red reason: a failed turn, failing checks) gets the red edge, not the amber of "needs you".
+      stripe={attention ? (attention.tone === 'red' ? 'error' : 'warn') : undefined}
       className="tile"
       aria-labelledby={headingId}
       onFocus={focus}

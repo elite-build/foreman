@@ -4,10 +4,12 @@
 import './domShims'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from '../src/renderer/src/components/composer/Composer'
 import { staticCapabilitiesView } from '../src/shared/agentCatalog'
-import { fakeApi, fakeState, resetFake } from './rendererStore'
+import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
 
@@ -22,6 +24,8 @@ function renderComposer(overrides: Record<string, unknown> = {}) {
 }
 
 const box = () => screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
+/** The line under the box, one entry per key: "Enter send". */
+const keyLine = () => Array.from(document.querySelectorAll('.composer-keys > span')).map((el) => el.textContent?.replace(/\s+/g, ' ').trim())
 
 /** Animation frames held by the test until `run()`, so it decides what happens before the next frame instead of racing it. */
 function holdFrames() {
@@ -89,7 +93,7 @@ describe('sending', () => {
   it('the send button is named and sends too', async () => {
     const user = userEvent.setup()
     renderComposer()
-    const send = screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement
+    const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
     expect(send.disabled).toBe(true)
     await user.type(box(), 'hi')
     expect(send.disabled).toBe(false)
@@ -341,8 +345,11 @@ describe('the template picker', () => {
   it('opens a popover with a searchable list, and Enter inserts the highlighted template', async () => {
     const user = userEvent.setup()
     renderComposer()
-    const trigger = screen.getByRole('button', { name: /Insert a prompt template/ })
-    await user.click(trigger)
+    // From the Add menu, which names the key that opens it too.
+    await user.click(screen.getByRole('button', { name: /^Add/ }))
+    const item = screen.getByRole('menuitem', { name: /^Prompt template/ })
+    expect(item.textContent).toContain('Ctrl+J')
+    await user.click(item)
     const panel = screen.getByRole('dialog', { name: 'Prompt templates' })
     const search = within(panel).getByRole('combobox', { name: 'Search templates' })
     expect(document.activeElement).toBe(search)
@@ -357,8 +364,9 @@ describe('the template picker', () => {
   it('arrow keys move the highlight and Escape closes with focus back on the button', async () => {
     const user = userEvent.setup()
     renderComposer()
-    const trigger = screen.getByRole('button', { name: /Insert a prompt template/ })
+    const trigger = screen.getByRole('button', { name: /^Add/ })
     await user.click(trigger)
+    await user.click(screen.getByRole('menuitem', { name: /^Prompt template/ }))
     const search = screen.getByRole('combobox', { name: 'Search templates' })
     const [first, second] = screen.getAllByRole('option')
     expect(search.getAttribute('aria-activedescendant')).toBe(first.id)
@@ -435,18 +443,29 @@ describe('the toolbar', () => {
     expect(screen.getByRole('button', { name: /Auto-accept/ }).title).toMatch(/Enforced by: Foreman$/)
   })
 
-  it('Steer follows the record: Claude can take a message into a running turn, an agent with no way to take one only queues', () => {
+  it('Steer follows the record: Claude can take a message into a running turn, an agent with no way to take one only queues', async () => {
+    const user = userEvent.setup()
     renderComposer({ agent: 'claude', status: 'running' })
+    await user.type(box(), 'and the tests')
     expect(screen.getByRole('button', { name: 'Queue' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'More ways to send' }))
+    expect(within(screen.getByRole('group', { name: 'How this message goes' })).getAllByRole('menuitemradio').map((r) => r.querySelector('.ui-menu__label')?.textContent)).toEqual(['Steer', 'Queue'])
     cleanup()
-    // Qwen's record is the ACP one, which can interrupt (below); a record with neither shows the plain tag.
+    // Qwen's record is the ACP one, which can interrupt (below); a record with neither only queues, and says why.
     const before = fakeState.snapshot.agentCapabilities
     try {
       const view = staticCapabilitiesView()
       fakeState.snapshot.agentCapabilities = { ...view, agents: { ...view.agents, cursor: { ...view.agents.cursor, turns: { steer: { level: 'none', why: 'agentCaps.why.steer' } } } } }
       renderComposer({ agent: 'cursor', status: 'running' })
-      expect(screen.queryByRole('button', { name: 'Queue' })).toBeNull()
-      expect(screen.getByText('Queue').title).toMatch(/can.t take messages mid-turn/)
+      await user.type(box(), 'and the tests')
+      const queue = screen.getByRole('button', { name: 'Queue' })
+      expect(queue.title).toMatch(/can.t take messages mid-turn/)
+      await user.click(screen.getByRole('button', { name: 'More ways to send' }))
+      const only = within(screen.getByRole('group', { name: 'How this message goes' })).getAllByRole('menuitemradio')
+      expect(only).toHaveLength(1)
+      expect(only[0].textContent).toMatch(/^Queue.*can.t take messages mid-turn/)
+      // No other follow-up, so the key line offers none.
+      expect(keyLine()).toEqual(['Enter queue', 'Shift+Enter new line', 'Esc stop'])
     } finally {
       fakeState.snapshot.agentCapabilities = before
     }
@@ -455,21 +474,246 @@ describe('the toolbar', () => {
   it('Interrupt and send is an explicit choice for an agent that can only be interrupted: Queue is the default', async () => {
     const user = userEvent.setup()
     renderComposer({ agent: 'cursor', status: 'running' })
-    // Queue by default, and the chip offers the interrupt with what it costs.
-    const chip = screen.getByRole('button', { name: 'Queue' })
-    expect(chip.title).toMatch(/interrupt the turn and send this message/)
     await user.type(box(), 'try again')
+    // Queue by default; the menu offers the interrupt with what it costs, and its key.
+    expect(screen.getByRole('button', { name: 'Queue' }).title).toBe('Send when this turn ends (Enter)')
+    expect(keyLine()).toEqual(['Enter queue', 'Ctrl+Enter interrupt and send', 'Shift+Enter new line', 'Esc stop'])
     await user.keyboard('{Enter}')
     await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1))
     expect(fakeApi.sendMessage.mock.calls[0][2]).toMatchObject({ mode: 'queue' })
 
-    await user.click(screen.getByRole('button', { name: 'Queue' }))
-    const interrupt = screen.getByRole('button', { name: 'Interrupt and send' })
-    expect(interrupt.title).toMatch(/Work in progress is cut/)
     await user.type(box(), 'stop that')
+    await user.click(screen.getByRole('button', { name: 'More ways to send' }))
+    const interrupt = screen.getByRole('menuitemradio', { name: /^Interrupt and send/ })
+    expect(interrupt.textContent).toMatch(/Work in progress is cut/)
+    expect(interrupt.querySelector('.ui-menu__hint')?.textContent).toBe('Ctrl+Enter')
+    await user.click(interrupt)
+    const button = screen.getByRole('button', { name: 'Interrupt and send' })
+    expect(button.title).toMatch(/Work in progress is cut/)
+    expect(keyLine()[0]).toBe('Enter interrupt and send')
+    await user.click(box())
     await user.keyboard('{Enter}')
     await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledTimes(2))
     expect(fakeApi.sendMessage.mock.calls[1][2]).toMatchObject({ mode: 'interrupt' })
+  })
+
+  it('stays on one row: two groups on the left, then context and the send button kept together on the right', async () => {
+    const user = userEvent.setup()
+    renderComposer({ status: 'running' })
+    await user.type(box(), 'and the tests')
+    const toolbar = document.querySelector('.composer-toolbar')!
+    // jsdom can't measure, so the structure: [model · Plan] [Add] spacer [context · Stop · send], and the CSS that keeps
+    // context and send together at the right.
+    expect(Array.from(toolbar.children).map((el) => el.className)).toEqual(['composer-group', 'composer-group', 'spacer', 'composer-group composer-send'])
+    const [how, add, , send] = Array.from(toolbar.children) as HTMLElement[]
+    expect(within(how).getByRole('button', { name: /Plan/ })).toBeTruthy()
+    expect(within(add).getByRole('button', { name: /^Add/ }).getAttribute('aria-haspopup')).toBe('menu')
+    expect(within(send).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Stop', 'Queue', 'More ways to send'])
+    // The running toolbar no longer adds a Steer chip, its key text, a paperclip or a template icon.
+    expect(screen.queryByRole('button', { name: /Attach files|Insert a prompt template/ })).toBeNull()
+    expect(toolbar.textContent).not.toMatch(/to steer|to queue|Also try/)
+    const css = readFileSync(join(__dirname, '../src/renderer/src/styles/composer.css'), 'utf8')
+    expect(css).toMatch(/\.composer-group\.composer-send \{[^}]*flex: none;[^}]*flex-wrap: nowrap;[^}]*margin-left: auto/)
+  })
+})
+
+describe('the send button names what Enter does', () => {
+  beforeEach(() => {
+    fakeApi.cancel = vi.fn(async () => undefined)
+    fakeApi.respondApproval = vi.fn(async () => undefined)
+    fakeState.snapshot.settings.followUpMode = 'queue'
+  })
+  afterEach(() => {
+    fakeState.snapshot.settings.followUpMode = 'queue'
+  })
+
+  it('idle: Send, and the key line says Enter sends; unfocused and empty it says how to focus', async () => {
+    const user = userEvent.setup()
+    renderComposer()
+    const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
+    expect(send.title).toBe('Send this message (Enter)')
+    expect(send.disabled).toBe(true)
+    // The menu stays usable with nothing typed.
+    expect((screen.getByRole('button', { name: 'More ways to send' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(keyLine()).toEqual(['Ctrl+L to focus', 'Enter send'])
+    await user.click(box())
+    expect(keyLine()).toEqual(['Enter send', 'Shift+Enter new line', '@ add a file', '/ run a command'])
+  })
+
+  it('follows the send-key setting', async () => {
+    fakeState.snapshot.settings.messageSendKey = 'mod-enter'
+    const user = userEvent.setup()
+    renderComposer()
+    await user.type(box(), 'hi')
+    expect(screen.getByRole('button', { name: 'Send' }).title).toBe('Send this message (Ctrl+Enter)')
+    expect(keyLine()).toEqual(['Ctrl+Enter send', 'Enter new line', '@ add a file', '/ run a command'])
+  })
+
+  it('running with Steer as the follow-up: Steer, Queue one key away, Esc stops', async () => {
+    fakeState.snapshot.settings.followUpMode = 'steer'
+    const user = userEvent.setup()
+    renderComposer({ status: 'running' })
+    await user.type(box(), 'also the tests')
+    expect(screen.getByRole('button', { name: 'Steer' }).title).toBe('Send into the running turn now (Enter)')
+    expect(keyLine()).toEqual(['Enter steer now', 'Ctrl+Enter queue', 'Shift+Enter new line', 'Esc stop'])
+    await user.click(screen.getByRole('button', { name: 'More ways to send' }))
+    const menu = screen.getByRole('menu', { name: 'More ways to send' })
+    const rows = within(menu).getAllByRole('menuitemradio')
+    expect(rows.map((r) => [r.querySelector('.ui-menu__label')?.textContent, r.querySelector('.ui-menu__desc')?.textContent, r.querySelector('.ui-menu__hint')?.textContent, r.getAttribute('aria-checked')])).toEqual([
+      ['Steer', 'Sends into the running turn now', 'Enter', 'true'],
+      ['Queue', 'Waits until this turn ends', 'Ctrl+Enter', 'false']
+    ])
+    expect(within(menu).getByRole('menuitem', { name: /^Stop the agent/ }).textContent).toContain('Esc')
+    expect(within(menu).getByRole('menuitem', { name: /^Also try with other models/ })).toBeTruthy()
+    // Picking Queue changes the label and the keys, for this message.
+    await user.click(rows[1])
+    expect(screen.getByRole('button', { name: 'Queue' })).toBeTruthy()
+    expect(keyLine()).toEqual(['Enter queue', 'Ctrl+Enter steer now', 'Shift+Enter new line', 'Esc stop'])
+    await user.click(box())
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1))
+    expect(fakeApi.sendMessage.mock.calls[0][2]).toMatchObject({ mode: 'queue' })
+    // Sent: the next message goes by the setting again.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy())
+  })
+
+  it('running with Queue as the follow-up: Queue, with Steer on the other key', async () => {
+    const user = userEvent.setup()
+    renderComposer({ status: 'running' })
+    await user.type(box(), 'later')
+    expect(screen.getByRole('button', { name: 'Queue' }).title).toBe('Send when this turn ends (Enter)')
+    expect(keyLine()).toEqual(['Enter queue', 'Ctrl+Enter steer now', 'Shift+Enter new line', 'Esc stop'])
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1))
+    expect(fakeApi.sendMessage.mock.calls[0][2]).toMatchObject({ mode: 'steer' })
+  })
+
+  it('running with nothing typed: the button is Stop, and stops', async () => {
+    const user = userEvent.setup()
+    renderComposer({ status: 'running' })
+    const stop = screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement
+    expect(stop.disabled).toBe(false)
+    expect(stop.title).toBe('Stop the agent (Esc)')
+    expect(keyLine()[0]).toBe('Esc stop the agent')
+    await user.click(stop)
+    expect(fakeApi.cancel).toHaveBeenCalledWith('s1')
+  })
+
+  it('plan review: Send changes, and the menu and Ctrl+Shift+Enter approve', async () => {
+    const plan = { kind: 'plan', id: 'p1', sessionId: 's1', plan: '1. Do it' } as never
+    const user = userEvent.setup()
+    render(<Composer session={session()} workspace={workspace} active hasHistory={false} pendingPlan={plan} />)
+    await user.type(box(), 'add a test for an expired token')
+    expect(screen.getByRole('button', { name: 'Send changes' }).title).toBe('Send what you typed as changes to the plan (Enter)')
+    expect(keyLine()).toEqual(['Enter send changes', 'Ctrl+Shift+Enter approve the plan', 'Shift+Enter new line'])
+    await user.click(screen.getByRole('button', { name: 'More ways to send' }))
+    const approve = screen.getByRole('menuitem', { name: /^Approve the plan/ })
+    expect(approve.querySelector('.ui-menu__hint')?.textContent).toBe('Ctrl+Shift+Enter')
+    await user.click(approve)
+    expect(fakeApi.respondApproval).toHaveBeenCalledWith('p1', { kind: 'plan', approve: true })
+    expect(box().value).toBe('add a test for an expired token')
+  })
+
+  it('the key line is the message box’s description', async () => {
+    renderComposer()
+    const line = document.getElementById(box().getAttribute('aria-describedby')!)
+    expect(line?.className).toContain('composer-keys')
+  })
+
+  it('in an AI employee’s run, says that what is typed is the person’s own, not an answer to the employee’s question', () => {
+    const before = fakeState.snapshot.employees
+    fakeState.snapshot.employees = { o1: { employees: [{ id: 'e1', name: 'Ada' }] } }
+    try {
+      const ws = { ...(workspace as object), startedBy: { via: 'employee', orgId: 'o1', employeeId: 'e1', runId: 'r1', taskId: 't1', title: 'Fix it' } } as never
+      render(<Composer session={session()} workspace={ws} active hasHistory={false} />)
+      expect(document.querySelector('.composer-keys')?.textContent).toContain('Messages here run as you: they don’t answer Ada, and they don’t send what Ada asked to send.')
+    } finally {
+      fakeState.snapshot.employees = before
+    }
+  })
+})
+
+describe('Also try with other models', () => {
+  const ready = { ...(workspace as object), state: 'ready', path: '/work/lisbon' } as never
+
+  it('is in the send menu; while another tab works it is off, with its reason readable and reachable', async () => {
+    const before = fakeState.snapshot.sessions
+    fakeState.snapshot.sessions = [{ id: 's2', workspaceId: 'w1', status: 'running', queue: [], title: 'Session tests' }]
+    try {
+      const user = userEvent.setup()
+      render(<Composer session={session()} workspace={ready} active hasHistory={false} />)
+      await user.click(screen.getByRole('button', { name: 'More ways to send' }))
+      const item = screen.getByRole('menuitem', { name: /^Also try with other models/ })
+      expect(item.getAttribute('aria-disabled')).toBe('true')
+      expect(item.querySelector('.ui-menu__reason')?.textContent).toMatch(/Session tests/)
+      // The only item: the keyboard lands on it, so the reason is read.
+      await user.keyboard('{ArrowDown}')
+      expect(document.activeElement).toBe(item)
+      await user.click(item)
+      expect(storeModule.openCompareDialog).not.toHaveBeenCalled()
+    } finally {
+      fakeState.snapshot.sessions = before
+    }
+  })
+
+  it('opens the comparison with the draft when every tab is idle', async () => {
+    const user = userEvent.setup()
+    render(<Composer session={session()} workspace={ready} active hasHistory={false} />)
+    await user.type(box(), 'fix the redirect')
+    await user.click(screen.getByRole('button', { name: 'More ways to send' }))
+    await user.click(screen.getByRole('menuitem', { name: /^Also try with other models/ }))
+    expect(storeModule.openCompareDialog).toHaveBeenCalledWith({ workspaceId: 'w1', sessionId: 's1', prompt: 'fix the redirect' })
+  })
+})
+
+describe('the Add menu', () => {
+  it('holds files, a template and a workspace file, each with its key; the @ item starts a mention', async () => {
+    fakeApi.listFiles = vi.fn(async () => ['src/alpha.ts'])
+    fakeApi.pickFiles = vi.fn(async () => [])
+    const user = userEvent.setup()
+    render(<Composer session={session()} workspace={{ ...(workspace as object), id: 'w-add' } as never} active hasHistory={false} />)
+    await user.type(box(), 'see')
+    await user.click(screen.getByRole('button', { name: /^Add/ }))
+    const menu = screen.getByRole('menu', { name: 'Add to the message' })
+    expect(within(menu).getAllByRole('menuitem').map((i) => [i.querySelector('.ui-menu__label')?.textContent, i.querySelector('.ui-menu__hint')?.textContent])).toEqual([
+      ['Files or images…', 'Ctrl+U'],
+      ['Prompt template…', 'Ctrl+J'],
+      ['A file from this workspace', '@']
+    ])
+    await user.click(within(menu).getByRole('menuitem', { name: /^A file from this workspace/ }))
+    expect(box().value).toBe('see @')
+    expect(await screen.findByRole('listbox', { name: 'Suggestions' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: /^Add/ }))
+    await user.click(screen.getByRole('menuitem', { name: /^Files or images/ }))
+    expect(fakeApi.pickFiles).toHaveBeenCalled()
+  })
+})
+
+describe('Compact now', () => {
+  const usage = {
+    used: 152_000,
+    limit: 200_000,
+    breakdown: { categories: [{ name: 'Messages', tokens: 152_000, kind: 'used' }, { name: 'Free space', tokens: 15_000, kind: 'free' }, { name: 'Autocompact buffer', tokens: 33_000, kind: 'buffer' }], mcpServers: [], memoryFiles: [], skills: [] }
+  }
+
+  it('sends /compact as its own message and leaves the draft in the box', async () => {
+    const user = userEvent.setup()
+    renderComposer({ contextUsage: usage })
+    await user.type(box(), 'half a thought')
+    await user.click(screen.getByRole('button', { name: /Auto-compacts in about 15K/ }))
+    expect(screen.getByText('Your draft stays in the box. It isn’t sent with /compact.')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Compact now' }))
+    await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledWith('s1', '/compact', {}))
+    expect(box().value).toBe('half a thought')
+  })
+
+  it('queues it while a turn runs', async () => {
+    const user = userEvent.setup()
+    renderComposer({ contextUsage: usage, status: 'running' })
+    await user.click(screen.getByRole('button', { name: /Auto-compacts in about 15K/ }))
+    expect(screen.getByText(/^Queues \/compact/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Compact now' }))
+    await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledWith('s1', '/compact', { mode: 'queue' }))
   })
 })
 
@@ -502,5 +746,113 @@ describe('integrations for this workspace', () => {
   it('isn’t shown in a cloud workspace, where these tools don’t reach the sandbox', () => {
     render(<Composer session={session()} workspace={{ ...(workspace as object), cloud: { provider: 'vercel' } } as never} active hasHistory={false} />)
     expect(screen.queryByRole('button', { name: /^Integrations/ })).toBeNull()
+  })
+})
+
+describe('Escape with the @ or / suggestions open', () => {
+  beforeEach(() => {
+    fakeApi.cancel = vi.fn(async () => undefined)
+  })
+
+  it('closes a menu with nothing in it and leaves the running agent alone; the next Escape stops it', async () => {
+    fakeApi.listFiles = vi.fn(async () => ['src/alpha.ts'])
+    const user = userEvent.setup()
+    render(<Composer session={session({ status: 'running' })} workspace={{ ...(workspace as object), id: 'w-nomatch' } as never} active hasHistory={false} />)
+    await user.type(box(), 'see @zzz')
+    // Nothing matches, so no list is drawn, but the menu is open.
+    await waitFor(() => expect(fakeApi.listFiles).toHaveBeenCalled())
+    expect(screen.queryByRole('listbox', { name: 'Suggestions' })).toBeNull()
+    await user.keyboard('{Escape}')
+    expect(fakeApi.cancel).not.toHaveBeenCalled()
+    expect(box().value).toBe('see @zzz')
+    await user.keyboard('{Escape}')
+    expect(fakeApi.cancel).toHaveBeenCalledWith('s1')
+  })
+
+  it('closes a menu that is still loading without stopping the agent', async () => {
+    // Another workspace, so the file list isn't cached from the tests above, and a list that never arrives.
+    fakeApi.listFiles = vi.fn(() => new Promise<string[]>(() => undefined))
+    fakeApi.slashCommands = vi.fn(() => new Promise(() => undefined))
+    const user = userEvent.setup()
+    render(<Composer session={session({ status: 'running' })} workspace={{ ...(workspace as object), id: 'w-loading' } as never} active hasHistory={false} />)
+    await user.type(box(), '@')
+    await user.keyboard('{Escape}')
+    expect(fakeApi.cancel).not.toHaveBeenCalled()
+    await user.clear(box())
+    await user.type(box(), '/')
+    await user.keyboard('{Escape}')
+    expect(fakeApi.cancel).not.toHaveBeenCalled()
+  })
+})
+
+describe('a plan waiting for review', () => {
+  const plan = { kind: 'plan', id: 'p1', sessionId: 's1', plan: '1. Do it' } as never
+  const renderPlan = () => render(<Composer session={session()} workspace={workspace} active hasHistory={false} pendingPlan={plan} />)
+
+  beforeEach(() => {
+    fakeApi.respondApproval = vi.fn(async () => undefined)
+  })
+
+  it('Ctrl+Shift+Enter approves, as the key line says, and keeps what was typed in the box', async () => {
+    const user = userEvent.setup()
+    renderPlan()
+    // The plan's own card (docked above the box) has Approve; the composer has no plan bar, only its key line.
+    expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull()
+    expect(document.querySelector('.composer-keys')?.textContent).toContain('Ctrl+Shift+Enter approve the plan')
+    expect(box().placeholder).toBe('Or say what to change, and press Enter to keep planning')
+    await user.type(box(), 'and add tests')
+    await user.keyboard('{Control>}{Shift>}{Enter}{/Shift}{/Control}')
+    await waitFor(() => expect(fakeApi.respondApproval).toHaveBeenCalledTimes(1))
+    expect(fakeApi.respondApproval).toHaveBeenCalledWith('p1', { kind: 'plan', approve: true })
+    expect(box().value).toBe('and add tests')
+    expect(fakeApi.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('plain Enter still sends what was typed as feedback on the plan', async () => {
+    const user = userEvent.setup()
+    renderPlan()
+    await user.type(box(), 'and add tests')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(fakeApi.respondApproval).toHaveBeenCalledTimes(1))
+    expect(fakeApi.respondApproval).toHaveBeenCalledWith('p1', { kind: 'plan', approve: false, feedback: 'and add tests' })
+    expect(box().value).toBe('')
+  })
+})
+
+describe('key hints follow the platform', () => {
+  const queue = [
+    { id: 'q1', text: 'first message', attachments: [] },
+    { id: 'q2', text: 'second message', attachments: [] }
+  ]
+  const plan = { kind: 'plan', id: 'p1', sessionId: 's1', plan: '1. Do it' } as never
+  afterEach(() => {
+    fakeState.snapshot.platform = 'win32'
+  })
+
+  async function renderAll() {
+    const user = userEvent.setup()
+    render(<Composer session={session({ status: 'running', queue, planMode: false })} workspace={workspace} active hasHistory={false} pendingPlan={plan} />)
+    // The queue's editor, for its Save key.
+    await user.click(within(screen.getAllByRole('listitem')[0]).getByRole('button', { name: 'Edit' }))
+  }
+
+  it('spells the keys out on Windows, with no Mac symbols anywhere in the composer', async () => {
+    fakeState.snapshot.platform = 'win32'
+    await renderAll()
+    expect(screen.getByRole('button', { name: /^Plan/ }).title).toBe('Plan mode (Shift+Tab)')
+    expect(document.querySelector('.composer-keys')?.textContent).toContain('Ctrl+Shift+Enter approve the plan')
+    expect(screen.getByRole('button', { name: /^Save/ }).textContent).toBe('Save Ctrl+Enter')
+    expect(screen.getAllByRole('button', { name: /^Move up/ })[0].getAttribute('aria-label')).toMatch(/Alt\+Up/)
+    const titles = Array.from(document.querySelectorAll('[title], [aria-label]')).map((el) => `${el.getAttribute('title') ?? ''} ${el.getAttribute('aria-label') ?? ''}`)
+    expect(`${document.body.textContent} ${titles.join(' ')}`).not.toMatch(/[⌘⌥⇧↵⌫]/)
+  })
+
+  it('draws the symbols on macOS', async () => {
+    fakeState.snapshot.platform = 'darwin'
+    await renderAll()
+    expect(screen.getByRole('button', { name: /^Plan/ }).title).toBe('Plan mode (⇧Tab)')
+    expect(document.querySelector('.composer-keys')?.textContent).toContain('⌘⇧↵ approve the plan')
+    expect(screen.getByRole('button', { name: /^Save/ }).textContent).toBe('Save ⌘↵')
+    expect(screen.getAllByRole('button', { name: /^Move up/ })[0].getAttribute('aria-label')).toMatch(/⌥↑/)
   })
 })

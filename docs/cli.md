@@ -4354,7 +4354,7 @@ Claude Code, Codex and other MCP clients on this computer sign in to Foreman ove
 (docs/agent-access.md). Each sign-in waits for the person at the computer, who types the six-digit code its
 browser page shows and chooses its level: read (look only), ask (the default), ask-except-edits, auto or
 never-ask, the most permissive mode any turn it causes may run in. A level bounds what an agent does through
-Foreman, not what it can do with its own shell and files. This is Settings → Data & devices → Agents on this
+Foreman, not what it can do with its own shell and files. This is Settings → Devices → Agents on this
 computer from a terminal; turn it on with `foreman settings set devices.agent-access on`. Anything that changes
 who may sign in is refused from inside an agent turn.
 
@@ -4436,7 +4436,7 @@ Claude Code, Codex and other MCP clients on this computer sign in to Foreman ove
 (docs/agent-access.md). Each sign-in waits for the person at the computer, who types the six-digit code its
 browser page shows and chooses its level: read (look only), ask (the default), ask-except-edits, auto or
 never-ask, the most permissive mode any turn it causes may run in. A level bounds what an agent does through
-Foreman, not what it can do with its own shell and files. This is Settings → Data & devices → Agents on this
+Foreman, not what it can do with its own shell and files. This is Settings → Devices → Agents on this
 computer from a terminal; turn it on with `foreman settings set devices.agent-access on`. Anything that changes
 who may sign in is refused from inside an agent turn.
 ```
@@ -7408,7 +7408,7 @@ Data
   data.daily-backup          on | off                 Daily backup
   data.backup-folder         path (empty: automatic)  Backup folder
 
-Data & devices
+Devices
   devices.accept-hand-offs    on | off            accept hand offs
   devices.port                integer 1024-65535  port
   devices.remote-control      on | off            remote control

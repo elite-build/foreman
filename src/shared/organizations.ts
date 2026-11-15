@@ -89,6 +89,31 @@ export function memoryOwner(repoId: string, organizations: readonly Organization
   return organizations.find((o) => o.memoryRepoId === repoId)
 }
 
+/**
+ * Whether a repository can have workspaces: an organization's memory repository never does (docs/ai-employees.md §4,
+ * Foreman's memory service is its only writer), so nothing offers or makes one there.
+ */
+export function holdsWorkspaces(repoId: string, organizations: readonly Organization[] | undefined): boolean {
+  return !memoryOwner(repoId, organizations ?? [])
+}
+
+/** The repositories a workspace can be made in, in their usual order: every one but the organizations' memory repositories. */
+export function workspaceRepos(repos: readonly Repo[], organizations: readonly Organization[] | undefined): Repo[] {
+  return repos.filter((r) => holdsWorkspaces(r.id, organizations))
+}
+
+/**
+ * The repository New workspace opens on, wherever it is asked for (the sidebar's button, ⌘N, Home, the palette): the
+ * one the sidebar picked, else the selected workspace's, else the first of the space shown, each only while it is in
+ * that space and never an organization's memory repository. Undefined when the space has none to offer.
+ */
+export function newWorkspaceTarget(snapshot: AppSnapshot, view: { space: string | null | undefined; picked: string | null | undefined; selectedWorkspaceId: string | null | undefined }): string | undefined {
+  const shown = snapshotInSpace(snapshot, view.space)
+  const usable = (id: string | null | undefined) => (id && shown.repos.some((r) => r.id === id) && holdsWorkspaces(id, snapshot.organizations) ? id : undefined)
+  const selected = view.selectedWorkspaceId ? shown.workspaces.find((w) => w.id === view.selectedWorkspaceId)?.repoId : undefined
+  return usable(view.picked) ?? usable(selected) ?? workspaceRepos(shown.repos, snapshot.organizations)[0]?.id
+}
+
 /** The space shown: the organization asked for while it exists, else Personal. */
 export function currentSpace(organizations: readonly Organization[] | undefined, wanted: string | null | undefined): string | null {
   return wanted && organizations?.some((o) => o.id === wanted) ? wanted : null

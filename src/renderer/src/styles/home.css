@@ -114,10 +114,84 @@
 }
 .home-line .home-row-flow {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr) auto auto;
+  grid-template-columns: 148px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
   min-height: 28px;
+}
+/* The row's end: "+N more", the space it belongs to (while Home shows every space) and how long it has waited. */
+.home-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* An employee's hat before a title or a line: identity only. */
+.home-row-hat {
+  display: inline-flex;
+  flex: none;
+  align-self: center;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+/* The Space filter under the header: "Space", then All spaces · Personal · each organization, each with its ▲ count. */
+.home-space {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: -4px;
+}
+.home-space-label {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.home-space-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 5px;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+.home-space-count .ui-glyph {
+  width: 8px;
+  height: 8px;
+}
+/* The needs-you block: the summary and Next on one line, the rows (a quiet Card) under them, the width of the block. */
+.home .home-needs {
+  align-items: flex-start;
+}
+.home .home-needs > .ui-callout__glyph {
+  margin-top: 9px;
+}
+.home .home-needs .ui-callout__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+}
+.home .home-needs .ui-callout__title {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+.home .home-needs .ui-callout__body > .ui-callout__actions {
+  grid-column: 2;
+  grid-row: 1;
+  margin-top: 0;
+}
+.home .home-needs .ui-callout__text {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-left: -22px;
+}
+.home-needs-list {
+  container-type: inline-size;
+  overflow: hidden;
+  padding: 0;
+}
+.home-needs-list .home-line {
+  padding: 8px 14px;
 }
 .home-line .home-row-main,
 .home-line .home-row-title,
@@ -210,19 +284,16 @@
    takes what is left, instead of the fixed 148px tag column squeezing the name to a letter. */
 @container (max-width: 520px) {
   .home-line .home-row-flow {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 4px 10px;
   }
-  /* First line: the state tag, and the time waited (after "+N more" when there is one) at the end. Second line: the name. */
+  /* First line: the state tag, and the time waited (after "+N more" and the space when there are) at the end. Second line: the name. */
   .home-line .home-pill {
     grid-area: 1 / 1;
   }
-  .home-line .home-row-age {
+  .home-line .home-row-meta {
     grid-row: 1;
     grid-column: 2;
-  }
-  .home-line .home-row-age:last-child {
-    grid-column: 3;
   }
   .home-line .home-row-main {
     grid-area: 2 / 1 / 3 / -1;

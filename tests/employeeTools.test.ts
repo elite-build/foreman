@@ -106,9 +106,16 @@ describe('employee tools: the service', () => {
     const r = rig()
     expect(await r.tools.call('s', 'memory_append', { path: 'memory/bots/e-max1/notes.md', text: 'A note' })).toMatchObject({ text: expect.stringMatching(/^Added to/) })
     expect(r.stage).toHaveBeenCalledWith('o1', 'run-1', { kind: 'append', path: 'memory/bots/e-max1/notes.md', text: 'A note\n' })
-    expect(await r.tools.call('s', 'memory_write', { path: 'memory/org/instructions.md', text: 'x', expected: 'a'.repeat(40) })).toMatchObject({ text: expect.stringMatching(/^Proposed/) })
-    expect(r.propose).toHaveBeenCalledWith('o1', 'run-1', { kind: 'write', path: 'memory/org/instructions.md', text: 'x', expectedBlob: 'a'.repeat(40) }, { employeeId: 'e-max1', taskId: 't1', why: expect.any(String) })
+    // The reason a person reads beside a proposal is the employee's own, never Foreman's routing rule.
+    expect(await r.tools.call('s', 'memory_write', { path: 'memory/org/instructions.md', text: 'x', expected: 'a'.repeat(40), why: 'The steps changed.' })).toMatchObject({
+      text: expect.stringMatching(/^Proposed[\s\S]*A person adds or discards it in Needs you/)
+    })
+    expect(r.propose).toHaveBeenCalledWith('o1', 'run-1', { kind: 'write', path: 'memory/org/instructions.md', text: 'x', expectedBlob: 'a'.repeat(40) }, { employeeId: 'e-max1', taskId: 't1', why: 'The steps changed.' })
     expect(r.memoryChanged).toHaveBeenCalledTimes(1)
+    // Without a reason of its own, the proposal carries none.
+    expect(await r.tools.call('s', 'memory_append', { path: 'memory/org/instructions.md', text: 'y' })).toMatchObject({ text: expect.stringMatching(/^Proposed/) })
+    expect(r.propose).toHaveBeenLastCalledWith('o1', 'run-1', { kind: 'append', path: 'memory/org/instructions.md', text: 'y\n' }, { employeeId: 'e-max1', taskId: 't1' })
+    expect(r.memoryChanged).toHaveBeenCalledTimes(2)
     expect(await r.tools.call('s', 'memory_append', { path: 'memory/bots/e-ada2/x.md', text: 'x' })).toMatchObject({ isError: true })
     expect(r.stage).toHaveBeenCalledTimes(1)
   })

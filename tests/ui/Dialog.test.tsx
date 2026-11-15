@@ -107,6 +107,42 @@ describe('Dialog', () => {
     expect(screen.getByRole('main').hasAttribute('inert')).toBe(false)
   })
 
+  it('keeps a live region announced but makes the controls inside it inert, and gives them back on close', async () => {
+    const user = userEvent.setup()
+    // Home's banner: a Callout role=status with a Next button in it, inside the page.
+    function Banner() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <main>
+            <button onClick={() => setOpen(true)}>Open</button>
+            <div role="status">
+              3 need you <button>Next</button>
+            </div>
+          </main>
+          {open && (
+            <Dialog title="Rename" onClose={() => setOpen(false)}>
+              <button>Save</button>
+            </Dialog>
+          )}
+        </>
+      )
+    }
+    render(<Banner />)
+    const next = screen.getByRole('button', { name: 'Next' })
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    const status = screen.getByRole('status')
+    expect(status.closest('[inert]')).toBeNull()
+    expect(next.hasAttribute('inert')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Open', hidden: true }).hasAttribute('inert')).toBe(true)
+    // Tab stays in the dialog and never reaches Next.
+    await user.tab()
+    await user.tab()
+    expect(document.activeElement).not.toBe(next)
+    await user.keyboard('{Escape}')
+    expect(next.hasAttribute('inert')).toBe(false)
+  })
+
   it('closes on a mousedown on the backdrop, not inside the dialog, unless turned off', () => {
     const onClose = vi.fn()
     const { rerender } = render(<Dialog title="A" onClose={onClose}>body</Dialog>)

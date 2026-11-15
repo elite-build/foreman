@@ -288,6 +288,24 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The card's space (while Home shows every space), after its age; on a decision card the age leads. */
+.bcard-space {
+  flex: none;
+}
+.needs-card .bcard-age {
+  margin-left: 0;
+}
+.needs-card .bcard-space {
+  margin-left: auto;
+}
+/* An employee's hat before what it asks: identity only. */
+.bcard-hat {
+  display: inline-flex;
+  flex: none;
+}
+.needs-card .bcard-name {
+  white-space: normal;
+}
 
 .board-foot {
   display: flex;

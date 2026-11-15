@@ -8,7 +8,6 @@ import {
   api,
   cloneRepository,
   makeRepository,
-  modKey,
   onCloneProgress,
   openAddRepoDialog,
   openCreateOrganization,
@@ -18,6 +17,7 @@ import {
   useStore
 } from '../store'
 import { useT } from '../i18n'
+import { formatChord } from '../shortcuts'
 import { timeAgo } from '../../../shared/i18n/time'
 import { Button, Callout, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, MenuControlRow, MenuGroup, MenuItem, MenuSeparator, CardButton, Spinner, TextInput } from '../ui'
 import { AccountPicker, useGithubAccounts } from './settings/GithubAccount'
@@ -124,7 +124,6 @@ export function CloneRepoDialog() {
   const [cloning, setCloning] = useState(false)
   const [log, setLog] = useState<string[]>([])
   const [error, setError] = useState('')
-  const mod = modKey(platform)
   // With several gh accounts signed in, clone (and link the repo) as a chosen one.
   const accounts = useGithubAccounts()
   const [account, setAccount] = useState<string | null>(null)
@@ -220,7 +219,7 @@ export function CloneRepoDialog() {
             {t('common.cancel')}
           </Button>
           <Button variant="primary" onClick={() => void submit()} disabled={cloning || !url.trim() || !location.trim()}>
-            {cloning ? t('addRepo.clone.cloning') : t('addRepo.clone.submit')} {!cloning && <Kbd>{mod}↵</Kbd>}
+            {cloning ? t('addRepo.clone.cloning') : t('addRepo.clone.submit')} {!cloning && <Kbd>{formatChord('mod+Enter', platform)}</Kbd>}
           </Button>
         </>
       }
@@ -307,7 +306,6 @@ export function QuickStartDialog() {
   const [location, setLocation] = useState(settings.cloneDirectory)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
-  const mod = modKey(platform)
 
   const submit = async () => {
     if (working || !name.trim() || !location.trim()) return
@@ -333,7 +331,7 @@ export function QuickStartDialog() {
             {t('common.cancel')}
           </Button>
           <Button variant="primary" onClick={() => void submit()} disabled={working || !name.trim() || !location.trim()}>
-            {working ? t('newWorkspace.submit.creating') : t('addRepo.quick.submit')} {!working && <Kbd>{mod}↵</Kbd>}
+            {working ? t('newWorkspace.submit.creating') : t('addRepo.quick.submit')} {!working && <Kbd>{formatChord('mod+Enter', platform)}</Kbd>}
           </Button>
         </>
       }

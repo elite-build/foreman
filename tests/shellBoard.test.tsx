@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as store from '../src/renderer/src/store'
 import { ArchiveDialog } from '../src/renderer/src/components/ArchiveDialog'
 import { CloneRepoDialog } from '../src/renderer/src/components/AddRepository'
-import { HomeBoard } from '../src/renderer/src/components/HomeBoard'
+import { HomeBoard, HomeLayoutControls } from '../src/renderer/src/components/HomeBoard'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 import { GITHUB_REPOS_LISTED, type GithubRepo } from '../src/shared/types'
 
@@ -246,5 +246,28 @@ describe('clone dialog', () => {
     render(<CloneRepoDialog />)
     await user.keyboard('{Escape}')
     expect(spy('openAddRepoDialog')).toHaveBeenCalledWith(null)
+  })
+})
+
+describe('Home’s repository filter', () => {
+  afterEach(() => {
+    delete fakeState.snapshot.organizations
+  })
+
+  it('never lists an organization’s memory repository, which has no workspaces', async () => {
+    Object.assign(fakeState.snapshot, {
+      repos: [
+        { id: 'r1', name: 'kite', rootPath: '/code/kite', defaultBranch: 'main' },
+        { id: 'mem', name: 'acme-memory', rootPath: '/code/acme-memory', defaultBranch: 'main', spaceId: 'o1' },
+        { id: 'site', name: 'site', rootPath: '/code/site', defaultBranch: 'main', spaceId: 'o1' }
+      ],
+      organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00Z' }]
+    })
+    fakeState.sidebarView = { repo: null, query: '', filter: 'all', showFinished: false }
+    render(<HomeLayoutControls />)
+    const filter = screen.getByRole('combobox', { name: 'Repository' })
+    await userEvent.setup().click(filter)
+    const options = screen.getAllByRole('option').map((o) => o.textContent)
+    expect(options).toEqual(['All repositories', 'kite', 'site'])
   })
 })

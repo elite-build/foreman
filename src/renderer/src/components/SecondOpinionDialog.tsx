@@ -7,10 +7,11 @@ import { AGENTS, effortLabel, modelInfo, type Loadout } from '../../../shared/ag
 import { MAX_OPEN_TABS, placeSections, sizeLine } from '../../../shared/handOff'
 import { permissionNote, readOnlyEnforcement } from '../../../shared/permissions'
 import type { HandOffKind, HandOffPreview } from '../../../shared/types'
-import { api, attempt, availableAgents, modKey, openHandOffDialog, openSessions, selectSession, useCapabilities, useStore } from '../store'
+import { api, attempt, availableAgents, openHandOffDialog, openSessions, selectSession, useCapabilities, useStore } from '../store'
 import { AgentIcon, ModelChooser, modelName } from './composer/AgentPicker'
 import { withReviewRequest } from '../../../shared/agentReports'
 import { useT } from '../i18n'
+import { formatChord } from '../shortcuts'
 import type { PlainKey } from '../../../shared/i18n'
 import { ActionRow, Button, Callout, Checkbox, ChipButton, Dialog, Field, Kbd, Popover, Select, Tag, TextArea } from '../ui'
 
@@ -189,7 +190,6 @@ export function SecondOpinionDialog({ sourceId, kind, prefill, reportId, readOnl
   }
 
   const heading = kind === 'continue' && preview?.followUp ? t('secondOpinion.continueTo', { title: preview.followUp.title }) : t(TITLES[kind])
-  const mod = modKey(platform)
   const diffLabel = preview?.diff
     ? t(preview.diff.stat ? 'secondOpinion.diffStatLabel' : 'secondOpinion.diffLabel', { base: preview.diff.baseRef, count: preview.diff.files, additions: preview.diff.additions, deletions: preview.diff.deletions })
     : t('secondOpinion.diffNone')
@@ -210,7 +210,7 @@ export function SecondOpinionDialog({ sourceId, kind, prefill, reportId, readOnl
               {t('common.cancel')}
             </Button>
             <Button variant="primary" onClick={() => void start()} onKeyDown={startKey} disabled={busy || atLimit || !message.trim() || Boolean(preview.blocked)}>
-              {t('common.start')} <Kbd>{mod}↵</Kbd>
+              {t('common.start')} <Kbd>{formatChord('mod+Enter', platform)}</Kbd>
             </Button>
           </>
         ) : undefined

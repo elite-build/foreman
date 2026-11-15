@@ -77,6 +77,7 @@ export {
   type GraphEnd,
   type GraphNote,
   type GraphLabels,
+  type GraphBar,
   type GraphSide,
   type GraphShape,
   type GraphTone,

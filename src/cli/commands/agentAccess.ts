@@ -43,7 +43,7 @@ const approve: Run = async (ctx) => {
       'foreman agent-access approve asks for the code at a terminal, and there is none here.',
       ERROR_EXIT['needs-confirmation'],
       'needs-confirmation',
-      'Run it yourself in a terminal, or approve the sign-in in Settings → Data & devices → Agents on this computer.'
+      'Run it yourself in a terminal, or approve the sign-in in Settings → Devices → Agents on this computer.'
     )
   }
   const level = str(ctx.opts.level)

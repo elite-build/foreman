@@ -2,7 +2,7 @@
 // as it changes; text fields save when they lose focus. The controls themselves
 // (Switch, Segmented, Select, Tabs, ...) are the design system's: import them from ui/.
 import { Check, MoreHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import type { PlainKey } from '../../../../shared/i18n'
 import type { CustomPrompts, RepoPatch, RepoSettingKey, RepoSettings, RepoSettingsPatch, Settings, SettingSource } from '../../../../shared/types'
 import { t as tNow, useT } from '../../i18n'
@@ -131,11 +131,45 @@ export function SavedHint() {
 
 // ---- layout ----
 
+/** The width of every menu, picker and short field in a row's control column, so their left edges line up. */
+export const CONTROL_WIDTH = 220
+
+// ---- parts: a page drawn one part at a time (pages.ts) ----
+
+/** The part of a page the settings view shows, its heading, and whether it is the page's first part. */
+export interface PartViewValue {
+  part: string
+  title: string
+  first: boolean
+}
+
+/** Set by the settings view around a page it shows a part of. Absent (a page drawn on its own, a test): the whole page. */
+export const PartView = createContext<PartViewValue | null>(null)
+
+// Inside the shown part's own section, whose title the page heading already says.
+const Lead = createContext(false)
+
+/** Whether this is the shown part itself: a section drawn by hand leaves out its title then, as Section does. */
+export function useLeadPart(): boolean {
+  return useContext(Lead)
+}
+
+/**
+ * Content that belongs to one part of a page: drawn only when that part, or the whole page, is shown. `lead`: the
+ * sections inside are the part itself, so their titles give way to the page heading (a section's description stays).
+ */
+export function Part({ id, lead, children }: { id: string; lead?: boolean; children: ReactNode }) {
+  const view = useContext(PartView)
+  if (view && view.part !== id) return null
+  return view && lead ? <Lead value>{children}</Lead> : <>{children}</>
+}
+
 export function Page({ title, description, children }: { title: ReactNode; description?: ReactNode; children?: ReactNode }) {
+  const view = useContext(PartView)
   return (
     <div className="set-page">
-      <h1>{title}</h1>
-      {description && <p className="set-page-desc">{description}</p>}
+      <h1>{view ? view.title : title}</h1>
+      {description && (!view || view.first) && <p className="set-page-desc">{description}</p>}
       {children}
     </div>
   )
@@ -148,15 +182,23 @@ interface SectionProps {
   plain?: boolean
   // A searchable setting (shared/settingsRegistry) that is the whole section: what the menu and search scroll to.
   setting?: string
+  // The part of the page it is (pages.ts): drawn only while that part, or the whole page, is shown.
+  part?: string
   children: ReactNode
 }
 
-export function Section({ title, description, plain, setting, children }: SectionProps) {
+export function Section({ title, description, plain, setting, part, children }: SectionProps) {
+  const view = useContext(PartView)
+  const inLead = useContext(Lead)
+  if (view && part !== undefined && part !== view.part) return null
+  // The shown part's own section: the page heading already says its title.
+  const lead = Boolean(view) && (inLead || part === view?.part)
   return (
-    <section id={setting ? rowDomId(setting) : undefined} className="set-section">
-      {title && <h2>{title}</h2>}
+    <section id={setting ? rowDomId(setting) : undefined} className="set-section" data-lead={lead || undefined}>
+      {title && !lead && <h2>{title}</h2>}
       {description && <p className="set-section-desc">{description}</p>}
-      {plain ? children : <div className="set-card">{children}</div>}
+      {/* Sections inside keep their titles. */}
+      <Lead value={false}>{plain ? children : <div className="set-card">{children}</div>}</Lead>
     </section>
   )
 }

@@ -66,6 +66,18 @@ describe('Card', () => {
     }
   })
 
+  it('has a red error stripe, apart from the amber of "needs you"', () => {
+    render(
+      <Card data-testid="failed" stripe="error">
+        Turn failed
+      </Card>
+    )
+    expect(screen.getByTestId('failed').getAttribute('data-stripe')).toBe('error')
+    const css = readCss('card')
+    expect(ruleBody(css, ".ui-card[data-stripe='error']")).toMatch(/border-left-color:\s*var\(--red\)/)
+    expect(ruleBody(css, ".ui-card[data-stripe='warn']")).toMatch(/border-left-color:\s*var\(--amber\)/)
+  })
+
   it('may hold controls: a card is not a button', async () => {
     const onClick = vi.fn()
     const user = userEvent.setup()

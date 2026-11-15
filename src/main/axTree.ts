@@ -18,6 +18,8 @@ export interface AxNode {
   name: string
   level?: number
   focusable?: true
+  // A modal dialog (aria-modal): the page behind it is inert, so it has no main landmark.
+  modal?: true
   children: AxNode[]
 }
 
@@ -44,6 +46,7 @@ export function reduceAxTree(nodes: readonly CdpAxNode[]): AxNode[] {
     const level = property(node, 'level')
     if (typeof level === 'number') reduced.level = level
     if (property(node, 'focusable') === true) reduced.focusable = true
+    if (property(node, 'modal') === true) reduced.modal = true
     return [reduced]
   }
   // Roots are the nodes nothing lists as a child (normally just the web area).
@@ -62,6 +65,8 @@ export interface AxReport {
   /** A heading that jumps more than one level below the previous heading in document order. */
   headingSkips: { from: number; to: number; name: string }[]
   mainCount: number
+  /** A modal dialog is open: everything behind it is inert, the main landmark too, so its count says nothing. */
+  modal: boolean
 }
 
 const ROOT_ROLES = new Set(['RootWebArea', 'WebArea'])
@@ -79,7 +84,8 @@ export function checkAxTree(tree: readonly AxNode[]): AxReport {
     if (previous !== null && node.level > previous + 1) headingSkips.push({ from: previous, to: node.level, name: node.name })
     previous = node.level
   }
-  return { unnamedFocusable, headingSkips, mainCount: nodes.filter((n) => n.role === 'main').length }
+  const modal = nodes.some((n) => n.modal && (n.role === 'dialog' || n.role === 'alertdialog'))
+  return { unnamedFocusable, headingSkips, mainCount: nodes.filter((n) => n.role === 'main').length, modal }
 }
 
 /** The report as human-readable warnings; empty when the screen is clean. */
@@ -91,7 +97,7 @@ export function axWarnings(report: AxReport): string[] {
     warnings.push(`${report.unnamedFocusable.length} focusable without a name (${[...roles].map(([role, n]) => `${role} x${n}`).join(', ')})`)
   }
   for (const skip of report.headingSkips) warnings.push(`heading level skips from h${skip.from} to h${skip.to}${skip.name ? `: "${skip.name}"` : ''}`)
-  if (report.mainCount !== 1) warnings.push(`${report.mainCount} main landmarks (expected 1)`)
+  if (report.mainCount !== 1 && !report.modal) warnings.push(`${report.mainCount} main landmarks (expected 1)`)
   return warnings
 }
 

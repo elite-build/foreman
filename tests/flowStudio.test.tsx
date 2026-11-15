@@ -93,7 +93,8 @@ describe('the flow studio', () => {
     const inspector = screen.getByRole('complementary', { name: 'Selected on the graph' })
     expect(within(inspector).getByText('Step checks')).toBeTruthy()
     expect(within(inspector).getByText('passed')).toBeTruthy()
-    expect(within(inspector).getByRole('button', { name: 'review' })).toBeTruthy()
+    // An exit's target is a link to that step: blue and underlined.
+    expect(within(inspector).getByRole('button', { name: 'review' }).classList.contains('ui-link-btn--underline')).toBe(true)
     await u.click(within(inspector).getByRole('button', { name: 'Show in TOML' }))
     expect(screen.getByRole('tab', { name: 'Flow (TOML)' }).getAttribute('aria-selected')).toBe('true')
     await u.click(within(inspector).getByRole('button', { name: 'Close' }))

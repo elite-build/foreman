@@ -80,6 +80,8 @@ export interface Triage {
   autoReviewId?: string
   // Save for later: its day has come (Home offers Dismiss and Later again; opening it takes it out of Later).
   laterBack?: boolean
+  // The label names the employee whose run the workspace is ("Ada asks"), so the row doesn't name it again.
+  namesEmployee?: boolean
 }
 
 export interface TriageInput {
@@ -132,6 +134,7 @@ export interface ReasonHit {
   reportId?: string
   reportText?: string
   autoReviewId?: string
+  namesEmployee?: boolean
 }
 
 export interface Reason {
@@ -201,7 +204,11 @@ export const REASONS: Reason[] = [
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
       if (latest && latest.id !== ws.id) return null
       const t = input.t ?? enT
-      return { label: t('triage.employee.needsYou'), tone: 'amber', detail: task.reason }
+      // A question (ask_person) is said as the employee's: "Ada asks · Which day does 2.4 launch?".
+      const question = task.question?.question.split(/\r?\n/).map((l) => l.trim()).find(Boolean)
+      const name = input.snapshot.employees?.[by.orgId]?.employees.find((e) => e.id === by.employeeId)?.name
+      if (question && name) return { label: t('triage.employee.asks', { name }), tone: 'amber', detail: question, namesEmployee: true }
+      return { label: t('triage.employee.needsYou'), tone: 'amber', detail: question ?? task.reason }
     }
   },
   {

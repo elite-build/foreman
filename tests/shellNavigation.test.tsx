@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as store from '../src/renderer/src/store'
 import { CommandPalette } from '../src/renderer/src/components/Overlays'
 import { Sidebar } from '../src/renderer/src/components/Sidebar'
+import { shortcutActions } from '../src/renderer/src/App'
+import { readFileSync } from 'node:fs'
 import { fakeApi, fakeState, resetFake } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -56,6 +58,22 @@ describe('sidebar rows', () => {
     render(<Sidebar />)
     await userEvent.setup().click(row())
     expect(spy('selectWorkspace')).toHaveBeenCalledWith('w1')
+  })
+
+  it('the open workspace is the selected row, until the Assistant covers it: then only the Assistant is', () => {
+    fakeState.snapshot.settings = { ...fakeState.snapshot.settings, assistantEnabled: true }
+    Object.assign(fakeState, { selectedWorkspaceId: 'w1', assistantOpen: false })
+    render(<Sidebar />)
+    expect(row().getAttribute('aria-current')).toBe('true')
+    cleanup()
+    Object.assign(fakeState, { assistantOpen: true })
+    render(<Sidebar />)
+    expect(row().getAttribute('aria-current')).toBeNull()
+    const assistant = screen.getByRole('button', { name: /Assistant/ })
+    expect(assistant.getAttribute('aria-current')).toBe('true')
+    // The workspace stays chosen, for when the Assistant closes.
+    expect(fakeState.selectedWorkspaceId).toBe('w1')
+    Object.assign(fakeState, { assistantOpen: false })
   })
 
   it('the archive button is its own named button and does not open the row', async () => {
@@ -278,15 +296,15 @@ describe('repository rail', () => {
   it('what needs you is a ▲ and a count on the narrow tile, and words beside the wide one', () => {
     fakeState.snapshot.workspaces = [{ ...ws, archiveStopped: { step: 'script', detail: 'exit 1', at: '2026-01-01T00:00:00Z' } }]
     const { rerender } = render(<Sidebar />)
-    const tile = screen.getByRole('button', { name: 'kite · 1 need you' })
+    const tile = screen.getByRole('button', { name: 'kite · 1 needs you' })
     const badge = tile.querySelector('.rail-badge')!
     expect(badge.querySelector('[data-glyph="warn"]')).not.toBeNull()
     expect(badge.textContent).toBe('1')
     fakeState.railNames = true
     rerender(<Sidebar />)
-    const wide = screen.getByRole('button', { name: 'kite · 1 need you' })
+    const wide = screen.getByRole('button', { name: 'kite · 1 needs you' })
     expect(wide.querySelector('.rail-badge')).toBeNull()
-    expect(wide.closest('.rail-item')?.querySelector('.rail-name-line')?.textContent).toBe('1 need you')
+    expect(wide.closest('.rail-item')?.querySelector('.rail-name-line')?.textContent).toBe('1 needs you')
   })
 
   it('right-click on a tile opens the repository menu', async () => {
@@ -381,5 +399,195 @@ describe('command palette', () => {
     render(<CommandPalette />)
     expect(screen.getByRole('dialog', { name: /palette/i })).toBeTruthy()
     expect(document.activeElement).toBe(field())
+  })
+})
+
+describe('the sidebar in an organization', () => {
+  const memory = { id: 'mem', name: 'acme-memory', rootPath: '/code/acme-memory', defaultBranch: 'main', spaceId: 'o1' }
+  const site = { id: 'site', name: 'site', rootPath: '/code/site', defaultBranch: 'main', spaceId: 'o1' }
+  beforeEach(() => {
+    Object.assign(fakeState.snapshot, { repos: [repo, memory, site], organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00Z' }] })
+    Object.assign(fakeState, { space: 'o1', memoryView: null, employeesView: null, automations: null, assistantOpen: false })
+  })
+  afterEach(() => {
+    delete fakeState.snapshot.organizations
+    for (const key of ['space', 'memoryView', 'employeesView', 'automations', 'assistantOpen']) delete fakeState[key]
+  })
+
+  it('opens New workspace, from the button and from Ctrl+N alike, on the organization’s repository, never its memory repository', async () => {
+    render(<Sidebar />)
+    await userEvent.setup().click(screen.getByRole('button', { name: /New workspace/ }))
+    expect(spy('openNewWorkspace')).toHaveBeenLastCalledWith('site')
+    shortcutActions.newWorkspace(undefined)
+    expect(spy('openNewWorkspace')).toHaveBeenLastCalledWith('site')
+    // With the memory repository picked on the rail, too.
+    cleanup()
+    fakeState.sidebarView = { ...fakeState.sidebarView, repo: 'mem' }
+    render(<Sidebar />)
+    await userEvent.setup().click(screen.getByRole('button', { name: /New workspace/ }))
+    expect(spy('openNewWorkspace')).toHaveBeenLastCalledWith('site')
+    shortcutActions.newWorkspace(undefined)
+    expect(spy('openNewWorkspace')).toHaveBeenLastCalledWith('site')
+    expect(spy('openNewWorkspace')).not.toHaveBeenCalledWith('mem')
+  })
+
+  it('offers no New workspace in the memory repository’s menu', async () => {
+    render(<Sidebar />)
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Acme’s memory' }), { clientX: 5, clientY: 5 })
+    const menu = await screen.findByRole('menu', { name: 'acme-memory' })
+    expect(within(menu).queryByRole('menuitem', { name: /new workspace/i })).toBeNull()
+    expect(within(menu).getByRole('menuitem', { name: /repository settings/i })).toBeTruthy()
+  })
+
+  it('rings the rail’s tile as Home only while Home is showing, not over the Team, an employee’s or the Memory page', () => {
+    const ringed = () => document.querySelectorAll('.rail-tile-wrap.on-home').length
+    const { rerender } = render(<Sidebar />)
+    expect(ringed()).toBe(1)
+    for (const page of [{ employeesView: { orgId: 'o1', page: 'team' } }, { employeesView: { orgId: 'o1', page: 'employee', id: 'e-max1' } }, { memoryView: 'o1' }, { automations: { selected: null } }]) {
+      Object.assign(fakeState, page)
+      rerender(<Sidebar />)
+      expect(ringed()).toBe(0)
+      Object.assign(fakeState, { memoryView: null, employeesView: null, automations: null })
+    }
+    rerender(<Sidebar />)
+    expect(ringed()).toBe(1)
+  })
+
+  it('never scrolls the list sideways: the hidden archive button sits inside its row', () => {
+    const style = document.createElement('style')
+    style.textContent = readFileSync('src/renderer/src/styles/sidebar.css', 'utf8')
+    document.head.append(style)
+    try {
+      fakeState.snapshot.workspaces = [{ ...ws, repoId: 'site' }]
+      render(<Sidebar />)
+      expect(getComputedStyle(document.querySelector('.sidebar-scroll')!).overflowX).toBe('hidden')
+      const archive = screen.getByRole('button', { name: /archive workspace/i })
+      expect(getComputedStyle(archive).position).toBe('absolute')
+      expect(getComputedStyle(archive).right).toBe('0px')
+      expect(getComputedStyle(archive).top).toBe('0px')
+    } finally {
+      style.remove()
+    }
+  })
+})
+
+// The sidebar's top (docs/ai-employees.md §10, the round-1 and round-3 picks): the space switcher is the heading, then
+// Automations | Assistant, the Team row (organizations only), Find | + New, the tabs with their counts, the list. Every
+// count is the shared needs-you count: kite's stopped archive in Personal; in Acme, Ada's question (lima), Max's held push
+// and Ada's memory proposal.
+describe('the sidebar’s heading, rows and counts', () => {
+  const memory = { id: 'mem', name: 'acme-memory', rootPath: '/code/acme-memory', defaultBranch: 'main', spaceId: 'o1' }
+  const site = { id: 'site', name: 'site', rootPath: '/code/site', defaultBranch: 'main', spaceId: 'o1' }
+  const NOW = '2026-11-14T10:00:00.000Z'
+  const lima = { id: 'lima', repoId: 'site', name: 'lima', branch: 'ada/launch-date', state: 'ready', createdAt: '2026-11-14T09:30:00.000Z', path: '/w/lima', startedBy: { via: 'employee', orgId: 'o1', employeeId: 'ada', runId: 'r3', taskId: 'date', title: 'Which day does 2.4 launch?' } }
+  const kyoto = { id: 'kyoto', repoId: 'site', name: 'kyoto', branch: 'max/launch-2.4', state: 'ready', createdAt: '2026-11-14T09:00:00.000Z', path: '/w/kyoto', startedBy: { via: 'employee', orgId: 'o1', employeeId: 'max', runId: 'r2', taskId: 'launch', title: 'Write the launch post' } }
+  const question = { id: 'date', orgId: 'o1', employeeId: 'ada', requestId: 'q', rootId: 'date', parentId: null, title: 'Which day does 2.4 launch?', body: '', from: 'person', targetRepoId: 'site', state: 'waiting', waitingOn: 'person', question: { id: 'q1', question: 'Which day does Atlas 2.4 launch?', options: ['Tue', 'Thu'], runId: 'r3', askedAt: '2026-11-14T09:35:00.000Z' }, createdAt: NOW, updatedAt: NOW }
+  const push = { id: 'a1', orgId: 'o1', employeeId: 'max', taskId: 'launch', runId: 'r2', repoId: 'site', kind: 'push', payload: { kind: 'push', workspaceId: 'kyoto', branch: 'max/launch-2.4', base: 'main', head: 'abc', ahead: 1, commits: [], connection: 'gh' }, policy: 'held', state: 'held', key: 'k', createdAt: '2026-11-14T09:20:00.000Z', updatedAt: NOW }
+  const proposal = { id: 'p1', orgId: 'o1', path: 'memory/org/PROJECT.md', kind: 'append', text: '- Thursdays.', employeeId: 'ada', runId: 'r3', createdAt: '2026-11-14T09:40:00.000Z' }
+  const person = (id: string, name: string, colour: string) => ({ id, path: `bots/${id}.toml`, name, role: 'Writer', colour, responsibilities: [], problems: [], state: 'active', changed: false })
+  beforeEach(() => {
+    Object.assign(fakeState.snapshot, {
+      repos: [repo, memory, site],
+      organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00Z' }],
+      workspaces: [{ ...ws, archiveStopped: { step: 'script', detail: 'exit 1', at: '2026-11-14T08:00:00.000Z' } }, lima, kyoto],
+      employees: { o1: { head: 'h', employees: [person('ada', 'Ada', 'pink'), person('max', 'Max', 'orange')] } },
+      employeeWork: { o1: { tasks: [question], runs: [], last: {}, proposals: [proposal], actions: [push], revision: 1 } }
+    })
+    fakeState.snapshot.settings = { ...fakeState.snapshot.settings, assistantEnabled: true }
+    Object.assign(fakeState, { space: 'o1', memoryView: null, employeesView: null, automations: null, assistantOpen: false, teamOpen: false })
+  })
+  afterEach(() => {
+    for (const key of ['organizations', 'employees', 'employeeWork']) delete fakeState.snapshot[key]
+    for (const key of ['space', 'memoryView', 'employeesView', 'automations', 'assistantOpen', 'teamOpen']) delete fakeState[key]
+  })
+
+  it('heads the panel with the space switcher: the space, its code repositories and its count, and where else something waits', () => {
+    render(<Sidebar />)
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(within(heading).getByRole('button', { name: 'Space: Acme · 1 in Personal' })).toBeTruthy()
+    // "1 repository": site, not the memory repository. "3 need you": the question, the push and the proposal.
+    expect(document.querySelector('.space-switcher-line')?.textContent).toBe('1 repository · 3 need you')
+    // The old heading and the "Nothing running / Needs you · 1" row are gone.
+    expect(screen.queryByText('All repositories', { selector: '.sidebar-title' })).toBeNull()
+    expect(screen.queryByText('Nothing running')).toBeNull()
+  })
+
+  it('pairs Automations with the Assistant and Find with + New, and puts the Team row between them', () => {
+    render(<Sidebar />)
+    const pair = document.querySelector('.sidebar-pair')!
+    expect(within(pair as HTMLElement).getByRole('button', { name: /Automations/ })).toBeTruthy()
+    expect(within(pair as HTMLElement).getByRole('button', { name: /Assistant/ })).toBeTruthy()
+    const find = document.querySelector('.sidebar-find') as HTMLElement
+    expect(within(find).getByRole('searchbox')).toBeTruthy()
+    const add = within(find).getByRole('button', { name: 'New workspace' })
+    expect(add.textContent).toBe('New')
+    expect(add.getAttribute('title')).toBe('New workspace (Ctrl+N)')
+    expect(add.getAttribute('aria-keyshortcuts')).toBe('Control+N')
+    // Top to bottom: the heading, the pair, Team, Find | New, the tabs.
+    const order = ['.space-switcher', '.sidebar-pair', '.team-section', '.sidebar-find', '.sidebar-filters'].map((s) => document.querySelector(s)!)
+    for (let i = 1; i < order.length; i++) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('says how many need you on the Needs you tab, with ▲, and lists the push and the proposal as rows in Needs your attention', async () => {
+    render(<Sidebar />)
+    const tab = screen.getByRole('tab', { name: 'Needs you · 3' })
+    expect(tab.querySelector('[data-glyph="warn"]')).not.toBeNull()
+    const group = screen.getByRole('region', { name: 'Needs your attention' })
+    expect(group.querySelector('.ws-group-count')?.textContent).toBe('3')
+    // Oldest first: the push (09:20), Ada's question in lima (09:35), the proposal (09:40).
+    const rows = within(group).getAllByRole('button').filter((b) => b.classList.contains('ws-flow'))
+    expect(rows.map((r) => r.querySelector('.ws-title')?.textContent)).toEqual(['Push of max/launch-2.4', 'lima', 'Memory proposal'])
+    expect(rows[0].querySelector('.ws-label')?.textContent).toBe('Held action · leaves this computer')
+    expect(rows[2].querySelector('.ws-label')?.textContent).toBe('Memory proposal · PROJECT.md')
+    // Each says whose it is by hat and name.
+    expect(rows[0].querySelector('.ws-sub svg.ui-hard-hat')).not.toBeNull()
+    expect(rows[0].querySelector('.ws-sub')?.textContent).toContain('Max · site')
+    await userEvent.setup().click(rows[0])
+    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
+  })
+
+  it('shows an employee’s run with its hat and name on the second line, and the question it asks', () => {
+    render(<Sidebar />)
+    const limaRow = screen.getByRole('button', { name: /^lima/ })
+    const label = limaRow.querySelector('.ws-label')!
+    expect(label.querySelector('svg.ui-hard-hat')).not.toBeNull()
+    expect(label.textContent).toBe('Ada asks · Which day does Atlas 2.4 launch?')
+    // A run that needs nothing still says whose it is.
+    const kyotoRow = screen.getByRole('button', { name: /^kyoto/ })
+    expect(kyotoRow.querySelector('.ws-label')?.textContent).toBe('Max’s run · Write the launch post')
+  })
+
+  it('makes the memory repository a Brain tile that opens Memory, and counts the rail from the same list', async () => {
+    render(<Sidebar />)
+    expect(screen.getByRole('button', { name: 'All repositories · 3 need you' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'site · 2 need you' })).toBeTruthy()
+    const brain = screen.getByRole('button', { name: 'Acme’s memory · 1 needs you' })
+    await userEvent.setup().click(brain)
+    expect(spy('openMemory')).toHaveBeenCalledWith('o1')
+    expect(spy('showRepoHome')).not.toHaveBeenCalledWith('mem')
+    cleanup()
+    fakeState.memoryView = 'o1'
+    render(<Sidebar />)
+    expect(screen.getByRole('button', { name: 'Acme’s memory · 1 needs you' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('in Personal: no Team row, its own count, and the heading points to Acme’s 3', () => {
+    fakeState.space = null
+    render(<Sidebar />)
+    expect(document.querySelector('.team-section')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Space: Personal · 3 in Acme' })).toBeTruthy()
+    expect(document.querySelector('.space-switcher-line')?.textContent).toBe('1 repository · 1 needs you')
+    expect(screen.getByRole('tab', { name: 'Needs you · 1' })).toBeTruthy()
+    expect(screen.queryByText('Memory proposal')).toBeNull()
+  })
+
+  it('with no organization, shows nothing of employees: Personal, its repositories, no Team row and no ▲ elsewhere', () => {
+    Object.assign(fakeState.snapshot, { organizations: [], repos: [repo], workspaces: [ws], employees: undefined, employeeWork: undefined })
+    fakeState.space = null
+    render(<Sidebar />)
+    expect(screen.getByRole('button', { name: 'Space: Personal' })).toBeTruthy()
+    expect(document.querySelector('.team-section')).toBeNull()
+    expect(document.querySelector('.space-switcher-elsewhere')).toBeNull()
+    expect(document.querySelector('.space-switcher-line')?.textContent).toBe('1 repository')
   })
 })

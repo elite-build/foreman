@@ -390,7 +390,7 @@ describe('settings list, get, keys, search, path', () => {
     expect(result.rows[0]).toMatchObject({ key: 'appearance.theme', value: 'dark', default: 'system', changed: true, path: 'Settings › Appearance › Theme', takes: 'system | light | dark' })
     expect(result.rows[1].path).toContain('Remote workspaces')
     // No row in Settings: the page name stands in.
-    expect(result.rows[2].path).toBe('Settings › Data & devices')
+    expect(result.rows[2].path).toBe('Settings › Devices')
     expect(result.text).toContain('Settings › Appearance › Theme')
   })
 

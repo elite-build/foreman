@@ -132,6 +132,14 @@ describe('table semantics', () => {
     expect(rowOf(table, 'two').querySelector('.sign > [aria-hidden="true"]')?.textContent).toBe('-')
   })
 
+  it('gives each code cell its leading whitespace, so a wrapped line hangs under its own text', () => {
+    const indented: DiffFile = { ...file, hunks: [{ header: '@@ -1,2 +1,2 @@', lines: [{ type: 'ctx', text: 'if (a) {', oldNo: 1, newNo: 1 }, { type: 'add', text: '    return credentials', newNo: 2 }] }] }
+    const table = renderDiff(indented)
+    const cell = (text: string) => within(table).getByText(text, { exact: false }).closest('td') as HTMLTableCellElement
+    expect(cell('return credentials').style.getPropertyValue('--lead')).toBe('4')
+    expect(cell('if (a)').style.getPropertyValue('--lead')).toBe('0')
+  })
+
   it('leaves the number cell empty on the side a line does not have', () => {
     const table = renderDiff()
     const added = Array.from(rowOf(table, 'TWO').cells).map((c) => c.textContent?.replace(/added|\+|\s/g, ''))

@@ -12,7 +12,7 @@ vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore'
 
 const spy = (name: string) => storeModule[name] as ReturnType<typeof vi.fn>
 
-function setSnapshot(over: { milestones?: Record<string, string>; hidden?: boolean; repos?: unknown[]; workspaces?: unknown[]; layout?: string } = {}) {
+function setSnapshot(over: { milestones?: Record<string, string>; hidden?: boolean; repos?: unknown[]; workspaces?: unknown[]; layout?: string; open?: boolean } = {}) {
   const base = fakeState.snapshot
   fakeState.snapshot = {
     ...base,
@@ -27,6 +27,8 @@ function setSnapshot(over: { milestones?: Record<string, string>; hidden?: boole
   }
   fakeState.sidebarView = { repo: null }
   fakeState.selectedWorkspaceId = null
+  // Opened to the full list (folded, it is one row: see "the folded row" below).
+  fakeState.checklistOpen = over.open ?? true
   fakeState.assistant = { gate: { state: 'ready', agent: 'claude' } }
 }
 
@@ -36,13 +38,14 @@ beforeEach(() => {
   resetAgentStatuses()
   fakeState.snapshot = original
   fakeApi.agentStatus = vi.fn(async (agent: string) => ({ agent, installed: true, ready: true, method: 'Claude Max account' }))
-  for (const name of ['openSettingsPage', 'openNewWorkspace', 'addRepository', 'setChecklistHidden', 'showToast', 'openAutomations', 'openOverlay']) spy(name).mockClear()
+  for (const name of ['openSettingsPage', 'openNewWorkspace', 'addRepository', 'setChecklistHidden', 'setChecklistOpen', 'showToast', 'openAutomations', 'openOverlay']) spy(name).mockClear()
   setSnapshot()
 })
 afterEach(cleanup)
 
 function item(name: string): HTMLElement {
-  return screen.getByRole('button', { name: `Show me: ${name}` }).closest('li') as HTMLElement
+  const list = screen.getByRole('list', { name: 'Get started checklist' })
+  return within(list).getByText(name).closest('li') as HTMLElement
 }
 
 describe('the Get started card', () => {
@@ -103,6 +106,17 @@ describe('the Get started card', () => {
     expect(spy('showToast')).toHaveBeenCalledWith(expect.stringContaining('Get started checklist'))
   })
 
+  it('lists the steps to do first and the done ones after them, without a Show me', () => {
+    setSnapshot({ milestones: { tiles: '2026-10-26T06:15:46.572Z' } })
+    render(<GetStarted />)
+    const rows = within(screen.getByRole('list', { name: 'Get started checklist' })).getAllByRole('listitem')
+    const done = rows.filter((r) => r.getAttribute('data-status') === 'done')
+    expect(done.length).toBeGreaterThan(0)
+    // Every done step is after every other.
+    expect(rows.slice(rows.length - done.length)).toEqual(done)
+    for (const row of done) expect(within(row).queryByRole('button', { name: /^Show me/ })).toBeNull()
+  })
+
   it('keeps More collapsed until asked, then links to the extras', async () => {
     const u = userEvent.setup()
     render(<GetStarted />)
@@ -110,5 +124,46 @@ describe('the Get started card', () => {
     await u.click(screen.getByRole('button', { name: 'More' }))
     await u.click(screen.getByRole('button', { name: 'Cloud workspaces (experimental)' }))
     expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'cloud' })
+  })
+})
+
+describe('the folded row', () => {
+  it('is one row: the disclosure, a meter of done of total, the next step with its Show me, and Hide checklist', async () => {
+    const u = userEvent.setup()
+    setSnapshot({ open: false })
+    render(<GetStarted />)
+    const fold = screen.getByRole('button', { name: 'Get started' })
+    expect(fold.getAttribute('aria-expanded')).toBe('false')
+    // The list is there, hidden, until opened.
+    expect(screen.queryByRole('list', { name: 'Get started checklist' })).toBeNull()
+    const meter = screen.getByRole('meter', { name: 'Get started progress' })
+    expect(meter.getAttribute('aria-valuetext')).toMatch(/^\d+ of \d+ done$/)
+    expect(Number(meter.getAttribute('aria-valuemax'))).toBeGreaterThan(Number(meter.getAttribute('aria-valuenow')))
+    // The next step is the first not done.
+    expect(screen.getByText('Next: Make Foreman comfortable')).toBeTruthy()
+    await u.click(screen.getByRole('button', { name: 'Show me: Make Foreman comfortable' }))
+    expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'accessibility' })
+    expect(screen.getByRole('button', { name: 'Hide checklist' })).toBeTruthy()
+    // Opening it is remembered.
+    await u.click(fold)
+    expect(spy('setChecklistOpen')).toHaveBeenCalledWith(true)
+  })
+
+  it('opened, shows the whole list in place and no separate next step', () => {
+    setSnapshot({ open: true })
+    render(<GetStarted />)
+    expect(screen.getByRole('button', { name: 'Get started' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('list', { name: 'Get started checklist' })).toBeTruthy()
+    expect(screen.queryByText(/^Next: /)).toBeNull()
+  })
+
+  it('starts open on a first run (expanded), and folds without saving anything', async () => {
+    const u = userEvent.setup()
+    setSnapshot({ open: false })
+    render(<GetStarted expanded />)
+    expect(screen.getByRole('list', { name: 'Get started checklist' })).toBeTruthy()
+    await u.click(screen.getByRole('button', { name: 'Get started' }))
+    expect(screen.queryByRole('list', { name: 'Get started checklist' })).toBeNull()
+    expect(spy('setChecklistOpen')).not.toHaveBeenCalled()
   })
 })

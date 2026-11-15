@@ -66,11 +66,11 @@ export class EmployeeTools {
         case 'memory_read':
           return await this.read(sessionId, args as { path: string })
         case 'remember':
-          return await this.remember(sessionId, args as { text: string; scope: 'me' | 'organization' })
+          return await this.remember(sessionId, args as { text: string; scope: 'me' | 'organization'; why?: string })
         case 'memory_append':
-          return await this.write(sessionId, args as { path: string; text: string }, 'append')
+          return await this.write(sessionId, args as { path: string; text: string; why?: string }, 'append')
         case 'memory_write':
-          return await this.write(sessionId, args as { path: string; text: string; expected: string | null }, 'write')
+          return await this.write(sessionId, args as { path: string; text: string; expected: string | null; why?: string }, 'write')
         case 'memory_checkpoint':
           return await this.checkpoint(sessionId)
         case 'finish_task':
@@ -187,6 +187,7 @@ export class EmployeeTools {
       if (!parse.definition) throw new Error(`Not proposed: it wouldn’t be a valid definition: ${parse.problems.join(' ')}`)
       return parse.definition
     }
+    // What the person reads beside it is the employee's own reason; the card says what keeping it does.
     const file = async (path: string, text: string, expectedBlob: string | null, why: string) => {
       const out = await this.host.memory.propose(run.orgId, run.id, { kind: 'write', path, text, expectedBlob }, { employeeId: run.employeeId, taskId: task.id, why })
       if (!out.ok) throw new Error(`Not proposed: ${path} changed while it was being proposed. Try again.`)
@@ -212,7 +213,7 @@ export class EmployeeTools {
           text: { name, role: text('role'), description: text('description'), personality: text('personality'), responsibilities, ask_me_about: text('ask_me_about'), instructions: text('instructions') }
         })
       )
-      const id = await file(employeePath(d.id), serializeEmployee(d), null, `A new employee, ${d.name}, at the safest settings: ${reason} Keeping it adds them as a draft, approved separately.`)
+      const id = await file(employeePath(d.id), serializeEmployee(d), null, reason)
       return { text: `Proposed (not made): a new employee, ${d.name} (${employeePath(d.id)}), at the safest settings (proposal ${id}). A person keeps or retires it in Needs you; kept, it is a draft until a person approves it.` }
     }
     // A trigger or a delegate: a new version of its own definition, against the version it is now.
@@ -240,7 +241,7 @@ export class EmployeeTools {
       next = checked({ ...parse.definition, triggers: [...existing, trigger] })
       what = 'a new trigger'
     }
-    const id = await file(path, serializeEmployee(next), now.blob, `A change to its own definition (${what}): ${reason} Keeping it changes the definition, which needs approving again before it runs.`)
+    const id = await file(path, serializeEmployee(next), now.blob, reason)
     return { text: `Proposed (not made): ${what}, as a new version of ${path} (proposal ${id}). A person keeps or retires it in Needs you; if kept, your definition has changed, and you run again only once a person approves it.` }
   }
 
@@ -272,25 +273,29 @@ export class EmployeeTools {
     return { scopes: brief.memoryWrites.scopes.filter((s) => definition.access.memory_write.includes(s)), readOnly: brief.memoryWrites.readOnly }
   }
 
-  /** File a proposal for a person (Needs you, the Memory view). */
-  private async propose(run: EmployeeRun, taskId: string, change: Extract<MemoryChange, { kind: 'write' | 'append' }>, why: string): Promise<EmployeeToolResult> {
-    const out = await this.host.memory.propose(run.orgId, run.id, change, { employeeId: run.employeeId, taskId, why })
+  /**
+   * File a proposal for a person (Needs you, the Memory view). What they read beside it is the employee's own reason, in
+   * its words, never Foreman's routing rule (`rule`, which only the employee is told).
+   */
+  private async propose(run: EmployeeRun, taskId: string, change: Extract<MemoryChange, { kind: 'write' | 'append' }>, rule: string, why?: string): Promise<EmployeeToolResult> {
+    const reason = why?.trim()
+    const out = await this.host.memory.propose(run.orgId, run.id, change, { employeeId: run.employeeId, taskId, ...(reason ? { why: reason } : {}) })
     if (!out.ok) return conflictResult(change.path, change.kind === 'write' ? change.expectedBlob : undefined, out.conflict, 'proposed')
     this.host.work.memoryChanged()
-    return { text: `Proposed (not written): ${why} A person keeps or retires it in Needs you; until then nothing changes, and your next reads don’t show it.` }
+    return { text: `Proposed (not written): ${rule} A person adds or discards it in Needs you${reason ? ', reading your reason beside it' : ' (give why next time, so they know what it rests on)'}; until then nothing changes, and your next reads don’t show it.` }
   }
 
-  private async remember(sessionId: string, args: { text: string; scope: 'me' | 'organization' }): Promise<EmployeeToolResult> {
+  private async remember(sessionId: string, args: { text: string; scope: 'me' | 'organization'; why?: string }): Promise<EmployeeToolResult> {
     const { run, task, brief } = this.host.work.toolRun(sessionId)
     const line = rememberLine(args.text, this.now())
     if (args.scope === 'organization') {
       await this.grants(run, brief)
-      return this.propose(run, task.id, { kind: 'append', path: 'memory/org/PROJECT.md', text: line }, 'A fact for the whole organization goes in memory/org/PROJECT.md, which a person keeps.')
+      return this.propose(run, task.id, { kind: 'append', path: 'memory/org/PROJECT.md', text: line }, 'A fact for the whole organization goes in memory/org/PROJECT.md, which a person keeps.', args.why)
     }
     const file = `memory/bots/${run.employeeId}/MEMORY.md`
     const decision = memoryWriteDecision(run.employeeId, file, await this.grants(run, brief))
     if (decision.kind === 'refuse') return { text: decision.why, isError: true }
-    if (decision.kind === 'propose') return this.propose(run, task.id, { kind: 'append', path: file, text: line }, decision.why)
+    if (decision.kind === 'propose') return this.propose(run, task.id, { kind: 'append', path: file, text: line }, decision.why, args.why)
     const seen = await this.host.memory.read(run.orgId, file, { runId: run.id })
     const text = seen.blob === null ? `# Memory\n\n${line}` : line
     const out = await this.host.memory.stage(run.orgId, run.id, { kind: 'append', path: file, text })
@@ -298,14 +303,14 @@ export class EmployeeTools {
     return { text: `Remembered in ${file} (committed when this run ends, or now with memory_checkpoint): ${line.trim()}` }
   }
 
-  private async write(sessionId: string, args: { path: string; text: string; expected?: string | null }, kind: 'append' | 'write'): Promise<EmployeeToolResult> {
+  private async write(sessionId: string, args: { path: string; text: string; expected?: string | null; why?: string }, kind: 'append' | 'write'): Promise<EmployeeToolResult> {
     const { run, task, brief } = this.host.work.toolRun(sessionId)
     const file = args.path.trim()
     const decision = memoryWriteDecision(run.employeeId, file, await this.grants(run, brief))
     if (decision.kind === 'refuse') return { text: decision.why, isError: true }
     const change: Extract<MemoryChange, { kind: 'write' | 'append' }> =
       kind === 'append' ? { kind: 'append', path: file, text: args.text.endsWith('\n') ? args.text : `${args.text}\n` } : { kind: 'write', path: file, text: args.text, expectedBlob: args.expected ?? null }
-    if (decision.kind === 'propose') return this.propose(run, task.id, change, decision.why)
+    if (decision.kind === 'propose') return this.propose(run, task.id, change, decision.why, args.why)
     const out = await this.host.memory.stage(run.orgId, run.id, change)
     if (!out.ok) return conflictResult(file, kind === 'write' ? (args.expected ?? null) : undefined, out.conflict, 'written')
     return { text: `${kind === 'append' ? 'Added to' : 'Wrote'} ${file} (committed when this run ends, or now with memory_checkpoint). Its version as you see it now: ${out.blob}` }

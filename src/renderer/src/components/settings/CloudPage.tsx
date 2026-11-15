@@ -12,7 +12,7 @@ import { useT } from '../../i18n'
 import { api, attempt, openSettingsPage, showToast, useStore } from '../../store'
 import { AgentIcon } from '../composer/AgentPicker'
 import { Button, LinkButton, Meter, RadioCards, Spinner, Switch, Tag, TextInput, type MeterTone } from '../../ui'
-import { Page, Row, rowDomId, saveSettings, Section, ToggleRow, useDraft, useSettings } from './controls'
+import { Page, Part, Row, rowDomId, saveSettings, Section, ToggleRow, useDraft, useSettings } from './controls'
 import { SecretInput } from './integrations/AddConnectionDialog'
 import { LoginTerminal } from './LoginTerminal'
 import { useSandboxConnectionsKey } from '../cloud/CloudBits'
@@ -42,7 +42,7 @@ export function CloudPage() {
       }
       description={t('cloud.page.desc')}
     >
-      <Section>
+      <Section part="setup">
         <Row id="cloud-workspaces" label={t('cloud.flag.label')} help={t('cloud.flag.help')}>
           {(control) => (
             <>
@@ -65,15 +65,15 @@ export function CloudPage() {
         </Row>
       </Section>
 
-      <Section title={t('cloud.claude.title')}>
+      <Section part="claude" title={t('cloud.claude.title')}>
         <ClaudeSignIn claudeAuth={cloud.claudeAuth} />
       </Section>
 
-      <Section title={t('cloud.codex.title')}>
+      <Section part="codex" title={t('cloud.codex.title')}>
         <CodexRow />
       </Section>
 
-      <Section title={t('cloud.house.title')}>
+      <Section part="house" title={t('cloud.house.title')}>
         <ToggleRow
           id="cloud-wake-on-open"
           label={t('cloud.house.wake.label')}
@@ -99,7 +99,8 @@ export function CloudPage() {
         <MaxRunningRow value={cloud.maxRunning} planCap={usage?.length === 1 && showsConcurrency(usage[0].limits) ? usage[0].limits.maxConcurrent : undefined} />
       </Section>
 
-      {usage?.map((view, i) => <UsageSection key={view.provider} view={view} first={i === 0} />)}
+      {/* This month's use on each provider, under the switch that turns remote workspaces on. */}
+      <Part id="setup">{usage?.map((view, i) => <UsageSection key={view.provider} view={view} first={i === 0} />)}</Part>
     </Page>
   )
 }

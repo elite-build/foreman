@@ -53,6 +53,8 @@ import { NO_HOOKS } from './worktreeBundle'
 import { isHistoryOnly, wsPath } from '../shared/workspacePath'
 import { gitlabHostFor } from '../shared/scm'
 import { parseLater } from '../shared/later'
+import { memoryOwner } from '../shared/organizations'
+import { mainT } from './i18n'
 
 /** #1: archiving stopped at a step that preserves work; nothing was deleted. */
 export class ArchiveStepError extends Error {
@@ -148,6 +150,17 @@ export class WorkspaceService {
   repo(id: string): Repo {
     const repo = this.state.repos.find((r) => r.id === id)
     if (!repo) throw new Error('Repository not found')
+    return repo
+  }
+
+  /**
+   * A repository a new workspace may be made in. An organization's memory repository never is (docs/ai-employees.md §4):
+   * Foreman's memory service is its only writer, so a workspace there is refused, whoever asks.
+   */
+  private workspaceRepo(id: string): Repo {
+    const repo = this.repo(id)
+    const owner = memoryOwner(repo.id, this.state.organizations ?? [])
+    if (owner) throw new Error(mainT(this.state.settings)('spaces.memoryNoWorkspace', { repo: repo.name, organization: owner.name }))
     return repo
   }
 
@@ -480,7 +493,7 @@ export class WorkspaceService {
   }
 
   async createWorkspace(repoId: string, options: CreateWorkspaceOptions = {}): Promise<Workspace> {
-    const repo = this.repo(repoId)
+    const repo = this.workspaceRepo(repoId)
     const { settings } = this.state
     const choice = options.branch ?? { kind: 'new' }
     const pr = options.pullRequest
@@ -727,7 +740,7 @@ export class WorkspaceService {
 
   /** Add a worktree that already exists on disk. Nothing is copied; setup runs only if asked. */
   async adoptWorktree(repoId: string, wtPath: string, options: { runSetup: boolean }): Promise<Workspace> {
-    const repo = this.repo(repoId)
+    const repo = this.workspaceRepo(repoId)
     const tree = (await this.listWorktrees(repoId)).find((t) => samePath(t.path, wtPath))
     if (!tree) throw new Error(`${wtPath} isn't a worktree of ${repo.name}`)
     if (tree.isMain) throw new Error('To work in the main checkout, choose “Repository folder” instead.')

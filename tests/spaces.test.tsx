@@ -75,7 +75,8 @@ describe('the space switcher', () => {
     const items = within(menu).getAllByRole('menuitemradio')
     expect(items.map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([
       ['Personal2 repositories · no memory repository', 'true'],
-      ['Foreman2 repositories · memory in foreman-memory', 'false'],
+      // Code repositories only: the memory repository isn't one to work in.
+      ['Foreman1 repository · memory in foreman-memory', 'false'],
       ['XYZ0 repositories · no memory repository', 'false']
     ])
     await user.click(items[1])

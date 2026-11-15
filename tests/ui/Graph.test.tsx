@@ -375,6 +375,74 @@ describe('Graph', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Zoom in' }))
   })
 
+  it('bar: the toolbar in a bar above the viewport with the caller’s start before it, not floating over the drawing', () => {
+    const { container, rerender } = render(<Graph label="G" width={600} height={210} nodes={NODES} edges={EDGES} labels={LABELS} bar={{ start: <span>2 loops</span> }} />)
+    const root = container.firstElementChild as HTMLElement
+    const bar = root.querySelector<HTMLElement>('.ui-graph__bar')!
+    const viewport = root.querySelector('.ui-graph__viewport')!
+    expect(bar.nextElementSibling).toBe(viewport)
+    expect(bar.querySelector('.ui-graph__bar-start')!.textContent).toBe('2 loops')
+    const tools = bar.querySelector<HTMLElement>('.ui-graph__tools')!
+    expect(within(tools).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Zoom out', 'Zoom in', 'Fit'])
+    // The start comes first, then the toolbar; nothing of it is in or after the viewport, and the root isn't marked as
+    // having a floating toolbar (which reserves room under the graph for it).
+    expect(bar.firstElementChild!.className).toBe('ui-graph__bar-start')
+    expect(root.querySelectorAll('.ui-graph__tools')).toHaveLength(1)
+    expect(root.hasAttribute('data-tools')).toBe(false)
+    expect(root.hasAttribute('data-grow')).toBe(false)
+    // Without the bar, the toolbar floats after the viewport, as before.
+    rerender(<Graph label="G" width={600} height={210} nodes={NODES} edges={EDGES} labels={LABELS} />)
+    expect(root.querySelector('.ui-graph__bar')).toBeNull()
+    expect(root.querySelector('.ui-graph__viewport')!.nextElementSibling!.className).toBe('ui-graph__tools')
+    expect(root.hasAttribute('data-tools')).toBe(true)
+  })
+
+  it('bar: drawn only with something in it; grow marks the root; a thumbnail ignores it', () => {
+    const { container, rerender } = render(<Graph label="G" width={600} height={210} nodes={NODES} edges={EDGES} bar={{ grow: true }} />)
+    const root = () => container.firstElementChild as HTMLElement
+    // No labels and no start: no bar, but the viewport still grows to the graph.
+    expect(root().querySelector('.ui-graph__bar')).toBeNull()
+    expect(root().hasAttribute('data-grow')).toBe(true)
+    rerender(<Graph label="G" width={600} height={210} nodes={NODES} edges={EDGES} bar={{ start: 'Loops' }} />)
+    expect(root().querySelector('.ui-graph__bar')!.textContent).toBe('Loops')
+    expect(root().querySelector('.ui-graph__tools')).toBeNull()
+    rerender(<Graph thumbnail label="G" width={600} height={210} nodes={NODES} edges={EDGES} labels={LABELS} bar={{ start: 'Loops', grow: true }} />)
+    expect(root().querySelector('.ui-graph__bar')).toBeNull()
+    expect(root().hasAttribute('data-grow')).toBe(false)
+    expect(root().textContent).toBe('')
+  })
+
+  it('keeps the selected item in view at its zoom, scrolling the viewport alone, and leaves one already in view where it is', () => {
+    const rects = new Map<Element, Partial<DOMRect>>()
+    const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      return { x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}), ...rects.get(this) } as DOMRect
+    })
+    try {
+      const props = { label: 'G', width: 600, height: 210, nodes: NODES, edges: EDGES, labels: LABELS, onSelect: () => {} }
+      const { container, rerender } = render(<Graph {...props} selected={null} />)
+      const viewport = container.querySelector<HTMLElement>('.ui-graph__viewport')!
+      // A 300 × 200 viewport at (100, 50), not scrolled.
+      Object.defineProperty(viewport, 'clientWidth', { value: 300 })
+      Object.defineProperty(viewport, 'clientHeight', { value: 200 })
+      Object.defineProperty(viewport, 'scrollLeft', { value: 0, writable: true })
+      Object.defineProperty(viewport, 'scrollTop', { value: 0, writable: true })
+      rects.set(viewport, { left: 100, top: 50, right: 400, bottom: 250, width: 300, height: 200 })
+      // plan is wholly in view: selecting it moves nothing.
+      rects.set(screen.getByRole('button', { name: /^plan/ }), { left: 150, right: 290, width: 140, top: 60, bottom: 122, height: 62 })
+      rerender(<Graph {...props} selected="plan" />)
+      expect([viewport.scrollLeft, viewport.scrollTop]).toEqual([0, 0])
+      // Done is off to the right: the viewport scrolls sideways to put its middle (658) at the viewport's (250); it is in
+      // view up and down, so that stays.
+      rects.set(screen.getByRole('button', { name: /^Done/ }), { left: 620, right: 696, width: 76, top: 66, bottom: 96, height: 30 })
+      rerender(<Graph {...props} selected="done" />)
+      expect([viewport.scrollLeft, viewport.scrollTop]).toEqual([408, 0])
+      // The zoom isn't touched.
+      expect(screen.getByText('100%', { selector: '.ui-graph__zoom' })).toBeTruthy()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('never makes a fitted graph below the smallest zoom bigger on a Ctrl + wheel zoom out', () => {
     const restore = viewportOf(250, 400)
     try {

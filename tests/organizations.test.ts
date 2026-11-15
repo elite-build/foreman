@@ -8,8 +8,10 @@ import { describe, expect, it } from 'vitest'
 import {
   currentSpace,
   defaultMemoryName,
+  holdsWorkspaces,
   memoryChoices,
   moveRefusal,
+  newWorkspaceTarget,
   organizationNameProblem,
   parseOrganizations,
   reconcileSpaces,
@@ -17,13 +19,17 @@ import {
   snapshotInSpace,
   spaceOf,
   spacesOn,
+  workspaceRepos,
   type Organization
 } from '../src/shared/organizations'
 import type { AppSnapshot, Repo, Workspace } from '../src/shared/types'
+import { Environment } from '../src/main/environment'
 import { gitOut } from '../src/main/git'
 import { memoryRepositoryFiles, OrganizationService } from '../src/main/organizations'
+import { SecretStore } from '../src/main/secrets'
 import { defaultSettings, Store, type PersistedState } from '../src/main/store'
-import { tempDir } from './helpers'
+import { WorkspaceService } from '../src/main/workspaces'
+import { makeRepo, tempDir } from './helpers'
 
 const repo = (id: string, extra: Partial<Repo> = {}): Repo =>
   ({ id, name: id, rootPath: `/code/${id}`, defaultBranch: 'main', remote: 'origin', hasOrigin: false, local: {}, createdAt: '2026-11-01T00:00:00.000Z', ...extra }) as Repo
@@ -80,6 +86,31 @@ describe('organizations: the shared rules', () => {
     // No organization yet: the sidebar as it always was, every repository.
     const none = { ...snapshot, organizations: [] } as AppSnapshot
     expect(snapshotInSpace(none, null)).toBe(none)
+  })
+
+  it('never offers an organization’s memory repository for a new workspace, as a default or a choice', () => {
+    const repos = [repo('blog'), repo('site', { spaceId: 'o1' }), repo('foreman-memory', { spaceId: 'o1' }), repo('docs', { spaceId: 'o1' })]
+    const workspaces = [{ id: 'w1', repoId: 'blog' }, { id: 'w2', repoId: 'docs' }] as Workspace[]
+    const organizations = [org('o1', 'Foreman', 'foreman-memory')]
+    const snapshot = { repos, workspaces, organizations, settings: defaultSettings() } as unknown as AppSnapshot
+    expect(holdsWorkspaces('foreman-memory', organizations)).toBe(false)
+    expect(holdsWorkspaces('site', organizations)).toBe(true)
+    expect(workspaceRepos(repos, organizations).map((r) => r.id)).toEqual(['blog', 'site', 'docs'])
+    // The organization lists its memory repository first, but New workspace opens on its first other repository…
+    expect(newWorkspaceTarget(snapshot, { space: 'o1', picked: null, selectedWorkspaceId: null })).toBe('site')
+    // …even with the memory repository picked on the rail.
+    expect(newWorkspaceTarget(snapshot, { space: 'o1', picked: 'foreman-memory', selectedWorkspaceId: null })).toBe('site')
+    // A picked repository comes first, then the open workspace's; each only while it is in the space shown.
+    expect(newWorkspaceTarget(snapshot, { space: 'o1', picked: 'docs', selectedWorkspaceId: null })).toBe('docs')
+    expect(newWorkspaceTarget(snapshot, { space: 'o1', picked: null, selectedWorkspaceId: 'w2' })).toBe('docs')
+    expect(newWorkspaceTarget(snapshot, { space: 'o1', picked: 'blog', selectedWorkspaceId: 'w1' })).toBe('site')
+    // Personal opens on Personal's repositories, never on the organization's.
+    expect(newWorkspaceTarget(snapshot, { space: null, picked: null, selectedWorkspaceId: null })).toBe('blog')
+    // An organization with nothing but its memory repository has nothing to offer.
+    const bare = { ...snapshot, repos: [repo('blog'), repo('foreman-memory', { spaceId: 'o1' })] } as AppSnapshot
+    expect(newWorkspaceTarget(bare, { space: 'o1', picked: null, selectedWorkspaceId: null })).toBeUndefined()
+    // No organization yet: the first repository, as always.
+    expect(newWorkspaceTarget({ ...snapshot, organizations: [] } as AppSnapshot, { space: undefined, picked: undefined, selectedWorkspaceId: undefined })).toBe('blog')
   })
 
   it('offers Personal and its own repositories as a memory repository, and says why not for the rest', () => {
@@ -287,6 +318,33 @@ describe('organizations in state.json', () => {
     expect(store.state.settings).not.toHaveProperty('aiEmployees')
     expect(store.state.organizations).toEqual([org('o1', 'Foreman')])
     expect(store.state.repos.map((r) => r.spaceId ?? null)).toEqual(['o1', null])
+    store.close()
+  })
+})
+
+describe('organizations: no workspace in a memory repository', () => {
+  it('refuses to make or adopt a workspace in an organization’s memory repository, saying why, and still makes one beside it', async () => {
+    const dataDir = await tempDir('foreman-org-ws-data-')
+    const store = new Store(dataDir)
+    await store.load()
+    store.state.settings.workspacesRoot = await tempDir('foreman-org-ws-')
+    store.state.settings.branchPrefixType = 'none'
+    store.state.settings.language = 'en'
+    const secrets = new SecretStore(path.join(dataDir, 'secrets.bin'), { available: () => false, encrypt: () => Buffer.from(''), decrypt: () => '' })
+    const environment = new Environment(secrets, () => store.state.settings, (id) => workspaces.repo(id))
+    const workspaces: WorkspaceService = new WorkspaceService(store, { changed() {}, setupLog() {} }, environment)
+    const memory = await workspaces.addRepo(await makeRepo({ 'README.md': 'memory\n' }))
+    const site = await workspaces.addRepo(await makeRepo({ 'README.md': 'site\n' }))
+    memory.spaceId = 'o1'
+    site.spaceId = 'o1'
+    store.state.organizations = [org('o1', 'Foreman', memory.id)]
+    const refusal = `${memory.name} is Foreman’s memory repository. Foreman keeps it, so it never has workspaces: start one in another of Foreman’s repositories.`
+    await expect(workspaces.createWorkspace(memory.id)).rejects.toThrow(refusal)
+    await expect(workspaces.createWorkspace(memory.id, { branch: { kind: 'direct', name: 'main' } })).rejects.toThrow(refusal)
+    await expect(workspaces.adoptWorktree(memory.id, path.join(memory.rootPath, '..', 'elsewhere'), { runSetup: false })).rejects.toThrow(refusal)
+    expect(store.state.workspaces).toEqual([])
+    const ws = await workspaces.createWorkspace(site.id)
+    expect(ws.repoId).toBe(site.id)
     store.close()
   })
 })

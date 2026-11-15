@@ -158,10 +158,10 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     return '.repo-rail.names .rail-name'
   },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
-  // The composer's context ring, pressed: what fills the chat's context window.
+  // The composer's context trigger ("15K left"), pressed: what fills the chat's context window.
   'context-usage': async (f) => {
     openWorkspace(f)
-    const ring = await waitFor(element('.composer-toolbar button[aria-label^="Context:"]'))
+    const ring = await waitFor(element('.composer-toolbar .context-trigger'))
     if (!ring) return null
     ring.click()
     return '.context-pop'
@@ -248,14 +248,15 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),
-  // #130: Claude Code's page scrolled to its Accounts section.
+  // #130: Claude Code's Accounts page.
   'settings-agent-accounts': () => claudeAccounts(),
   // The Work account's dialog: its details, then its sign-in.
   'agent-account-dialog': async () => {
     if (!(await claudeAccounts())) return null
-    const edit = await waitFor(element('.ag-account-actions button'))
-    if (!edit) return null
-    edit.click()
+    // An account that isn't signed in carries Sign in, which opens its dialog at the sign-in.
+    const fix = await waitFor(element('.ag-account-fix'))
+    if (!fix) return null
+    fix.click()
     return '.ag-dialog .ag-account-signin'
   },
   // The composer's picker on a Claude chat: the Account row under effort and fast.
@@ -276,9 +277,9 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   'settings-cloud': () => (openSettingsPage({ section: 'cloud' }), '.settings-view'),
   'settings-repo': (f) => (openSettingsPage({ section: 'repo', repoId: f.repoId }), '.settings-view'),
   'settings-integrations': () => (openSettingsPage({ section: 'integrations' }), '.settings-view'),
-  // Data & devices, scrolled to its Devices section: hand-offs, control from other computers, pairing.
+  // Devices → Computers: hand-offs, control from other computers, pairing.
   'settings-devices': async () => {
-    openSettingsPage({ section: 'data' })
+    openSettingsPage({ section: 'devices', part: 'computers' })
     const row = await waitFor(() => document.getElementById(rowDomId('accept-hand-offs')))
     if (!row) return null
     row.scrollIntoView({ block: 'start' })
@@ -371,10 +372,8 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   'employee-approve': async (f) => {
     setSpace(f.organization.orgId)
     openEmployees({ orgId: f.organization.orgId, page: 'employee', id: f.organization.draftEmployeeId })
-    const approve = await waitFor(() => [...document.querySelectorAll<HTMLButtonElement>('.employee-page-head button')].find((b) => b.textContent?.startsWith('Approve')) ?? null)
-    if (!approve) return null
-    approve.click()
-    return '.employee-plan'
+    // A draft's page is its plan (docs/ai-employees.md §5.3): what it may do once approved, Approve <name> in its header.
+    return (await waitFor(() => document.querySelector('.employee-page .employee-review'))) ? '.employee-page' : null
   },
   'new-employee': (f) => {
     setSpace(f.organization.orgId)
@@ -384,7 +383,8 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   memory: (f) => {
     setSpace(f.organization.orgId)
     openMemory(f.organization.orgId)
-    return '.memory-view .memory-repo'
+    // The file tree's first entry, not the header: the header is there while the tree still says Loading….
+    return '.memory-view .files-tree .file-node'
   },
   'employee-workspace': (f) => {
     setSpace(f.organization.orgId, { home: false })
@@ -419,9 +419,9 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   'gallery-2d': () => showGallery('2d')
 }
 
-/** #130: Settings → Agents → Claude Code, scrolled to its Accounts section. */
+/** #130: Settings → Agents → Claude Code → Accounts. */
 async function claudeAccounts(): Promise<string | null> {
-  openSettingsPage({ section: 'agents', agent: 'claude' })
+  openSettingsPage({ section: 'agents', agent: 'claude', part: 'accounts' })
   const row = await waitFor(() => document.getElementById(rowDomId('agent-accounts-claude')))
   if (!row) return null
   row.closest('section')?.scrollIntoView({ block: 'start' })

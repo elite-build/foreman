@@ -116,7 +116,7 @@ export interface MemoryProposal {
   employeeId: string
   runId: string
   taskId?: string
-  // Why it is a proposal, in the words the employee was told.
+  // The employee's own reason for it, in its words (what a person reads before adding it), when it gave one.
   why?: string
   createdAt: string
 }

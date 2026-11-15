@@ -28,6 +28,8 @@ const path = z.string().trim().min(1).max(500)
 const version = z.string().regex(/^[0-9a-f]{40,64}$/).nullable()
 
 export const MAX_REMEMBER = 500
+/** A proposal's reason, in the employee's own words: what a person reads before adding it to shared memory. */
+export const MAX_WHY = 500
 export const MAX_MEMORY_TOOL_TEXT = 64_000
 export const MAX_FINISH_SUMMARY = 4_000
 export const MAX_QUESTION = 2_000
@@ -52,19 +54,19 @@ export const EMPLOYEE_TOOLS = {
     schema: z.object({ path }).strict()
   },
   remember: {
-    description: `Keep one fact, on one line (at most ${MAX_REMEMBER} characters). scope "me": added, dated, to your own MEMORY.md, which every run of yours reads first. scope "organization": proposed for the organization’s PROJECT.md; a person keeps or retires it. Never put secrets in memory.`,
+    description: `Keep one fact, on one line (at most ${MAX_REMEMBER} characters). scope "me": added, dated, to your own MEMORY.md, which every run of yours reads first. scope "organization": proposed for the organization’s PROJECT.md; a person adds or discards it, and why (one sentence in your own words: what you saw that makes it true) is what they read beside it. Never put secrets in memory.`,
     readOnly: false,
-    schema: z.object({ text: z.string().trim().min(1).max(MAX_REMEMBER), scope: z.enum(['me', 'organization']) }).strict()
+    schema: z.object({ text: z.string().trim().min(1).max(MAX_REMEMBER), scope: z.enum(['me', 'organization']), why: z.string().trim().min(1).max(MAX_WHY).optional() }).strict()
   },
   memory_append: {
-    description: 'Add text to the end of a memory file (a journal, a log, a list). Your own folder memory/bots/<your id>/ is written; memory/org/docs/ and memory/org/data/ only if your definition grants them; the organization’s PROJECT.md, decisions.md and instructions.md, bots/ and repos/ become a proposal a person keeps or retires; anything else is refused. Written when this run ends, parks or checkpoints.',
+    description: 'Add text to the end of a memory file (a journal, a log, a list). Your own folder memory/bots/<your id>/ is written; memory/org/docs/ and memory/org/data/ only if your definition grants them; the organization’s PROJECT.md, decisions.md and instructions.md, bots/ and repos/ become a proposal a person adds or discards (give why, in your own words, for them to read); anything else is refused. Written when this run ends, parks or checkpoints.',
     readOnly: false,
-    schema: z.object({ path, text: z.string().min(1).max(MAX_MEMORY_TOOL_TEXT) }).strict()
+    schema: z.object({ path, text: z.string().min(1).max(MAX_MEMORY_TOOL_TEXT), why: z.string().trim().min(1).max(MAX_WHY).optional() }).strict()
   },
   memory_write: {
     description: 'Replace a memory file’s whole text, only if it is still at the version you read (`expected`: the version memory_read returned, or null for a new file); otherwise nothing is written and you get the file as it is now. The same folders as memory_append, with the same proposals and refusals.',
     readOnly: false,
-    schema: z.object({ path, text: z.string().max(MAX_MEMORY_TOOL_TEXT), expected: version }).strict()
+    schema: z.object({ path, text: z.string().max(MAX_MEMORY_TOOL_TEXT), expected: version, why: z.string().trim().min(1).max(MAX_WHY).optional() }).strict()
   },
   memory_checkpoint: {
     description: 'Commit what this run has written to memory so far, now, as one commit with your name, this run and this task. Your writes are committed when the run ends anyway; checkpoint before a long step, or before you name a file someone else will read.',

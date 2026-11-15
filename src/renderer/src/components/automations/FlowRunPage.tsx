@@ -6,7 +6,7 @@
 // per flow, and a personal flow can take them into its file.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { canRunUnattended, staticCapabilities } from '../../../../shared/agentCatalog'
-import { AGENT_ORDER, AGENTS, effortLabel, modelInfo, modelsFor, type AgentKind, type EffortLevel } from '../../../../shared/agents'
+import { AGENT_ORDER, AGENTS, effortLabel, isSameModel, modelInfo, modelsFor, type AgentKind, type EffortLevel } from '../../../../shared/agents'
 import { canReview } from '../../../../shared/autoReview'
 import { modelWords } from '../../../../shared/flowGraph'
 import { choiceFor, choicesTier, chooseFor, FLOW_TIER_MODELS, flowPeople, pastRunCost, tierChoices, withoutDefaults, writeStepModels, type FlowTier } from '../../../../shared/flowModels'
@@ -285,8 +285,12 @@ function ChoiceSelects({ choice, kinds, name, onChange }: { choice: FlowStepChoi
   const current = { agent: choice.agent as AgentKind, model: choice.model }
   const options: SelectOption<string>[] = agents.flatMap((agent) => {
     const listed = pickerModels(modelsFor(agent), hidden, current).shown
-    const all = listed.some((m) => m.agent === current.agent && m.id === current.model) || agent !== current.agent ? listed : [modelInfo(agent, current.model), ...listed]
-    return all.map((m) => ({ value: `${agent}:${m.id}`, label: m.label, group: AGENTS[agent].label }))
+    // The flow may name a model by another id than the agent lists ("claude-opus-5-5[1m]" for "opus"): that entry stands for
+    // it, under the flow's id so the Select shows it chosen. Only a model the agent doesn't list at all is added.
+    const mine = agent === current.agent
+    const match = mine ? listed.find((m) => isSameModel(agent, m.id, current.model)) : undefined
+    const all = mine && !match ? [{ ...modelInfo(agent, current.model), id: current.model }, ...listed] : listed
+    return all.map((m) => ({ value: `${agent}:${m === match ? current.model : m.id}`, label: m.label, group: AGENTS[agent].label }))
   })
   const efforts = modelInfo(current.agent, current.model).efforts
   return (

@@ -20,6 +20,7 @@ import { archivedTabs, hitRoute } from './archivedView'
 import type { SidebarFilter, SidebarView } from './triage'
 import { DEFAULT_TILE_COUNT, tileCountOf, type TileCount } from './tiles'
 import { editorViewOf, pickEditorView, type EditorView } from './editorLayout'
+import { listFolds } from './narrowLayout'
 import type { AttentionEvent } from '../../shared/attention'
 import type { ComputersView } from '../../shared/remote'
 import type { AgentAccessInfo } from '../../shared/agentAccess'
@@ -33,7 +34,7 @@ import type { OnboardingMilestone } from '../../shared/onboarding'
 import { isNotGitRepoError, type GitIdentity } from '../../shared/types'
 import { shareUnchanged } from '../../shared/reconcile'
 import { appendToItems } from '../../shared/chatAppend'
-import { currentSpace, spaceOf, spacesOn } from '../../shared/organizations'
+import { currentSpace, holdsWorkspaces, newWorkspaceTarget, spaceOf, spacesOn } from '../../shared/organizations'
 import { bridge, clientKind, followLanguage, socketBridge } from './bridge'
 import type { SocketStatus } from './socketBridge'
 
@@ -69,7 +70,8 @@ export type SettingsPage = (
   // #22: `agent` is a catalog id (any level), or one of the Agents pages: 'catalog', 'signin', 'keys'.
   | { section: 'agents'; agent?: AgentKind | AgentsSubpage | string }
   | { section: 'repo'; repoId: string; tab?: RepoSection }
-) & { scrollTo?: string }
+  // `part`: which part of the page to open (settings/pages.ts); without it, the part `scrollTo` sits in, else the first.
+) & { scrollTo?: string; part?: string }
 
 // The window's preload bridge, or the socket bridge in a browser (bridge.ts); components import both from here.
 export { bridge, clientKind }
@@ -105,8 +107,21 @@ interface State {
   // The Create an organization dialog.
   createOrganizationOpen: boolean
   leftPanelOpen: boolean
+  // A narrow window folds the workspace list to its rail (narrowLayout.ts); ⌘B shows the list beside it until folded again.
+  // Held until quit: the next launch in a narrow window starts folded.
+  narrowList: boolean
+  // The workspace on screen is too narrow for its side panel beside the chat, so the panel opens as a sheet (set by that
+  // workspace from its width); and whether the sheet is open. ⌘⌥B opens and closes the sheet then.
+  panelSheet: boolean
+  panelSheetOpen: boolean
   // The repository rail shows each repository's name and state beside its tile (wide), not just the tiles.
   railNames: boolean
+  // The sidebar's Team row shows the organization's employees under it (docs/ai-employees.md §10), remembered like railNames.
+  teamOpen: boolean
+  // Home shows every space ('all', the default) or the one the sidebar shows ('space'); held until quit.
+  homeScope: 'all' | 'space'
+  // Home's Get started row is opened to its full list.
+  checklistOpen: boolean
   rightPanelOpen: boolean
   // The Tiles layout: the workspaces on screen in tile order, how many tiles there are, and the one opened full size.
   tiles: string[]
@@ -252,7 +267,13 @@ let state: State = {
   space: loadPref<string | null>('space', null),
   createOrganizationOpen: false,
   leftPanelOpen: loadPref('leftPanelOpen', true),
+  narrowList: false,
+  panelSheet: false,
+  panelSheetOpen: false,
   railNames: loadPref('railNames', false),
+  teamOpen: loadPref('teamOpen', false),
+  homeScope: 'all',
+  checklistOpen: loadPref('checklistOpen', false),
   tiles: loadPref<string[]>('tiles', []),
   tileCount: tileCountOf(loadPref('tileCount', DEFAULT_TILE_COUNT)),
   tileZoom: null,
@@ -1183,13 +1204,50 @@ export function toggleShowFinished(): void {
 }
 
 export function toggleRightPanel(): void {
+  // A narrow workspace has its side panel as a sheet: the toggle opens and closes that instead.
+  if (state.panelSheet) return setState({ panelSheetOpen: !state.panelSheetOpen })
   savePref('rightPanelOpen', !state.rightPanelOpen)
   setState({ rightPanelOpen: !state.rightPanelOpen })
 }
 
 export function toggleLeftPanel(): void {
+  // A narrow window folds the list to its rail: the toggle shows the list beside the rail, or folds it again, and the rail
+  // stays (as in the Editor layout).
+  if (state.leftPanelOpen && listFolds(window.innerWidth, state.snapshot?.settings.windowLayout)) return setState({ narrowList: !state.narrowList })
   savePref('leftPanelOpen', !state.leftPanelOpen)
   setState({ leftPanelOpen: !state.leftPanelOpen })
+}
+
+/** The workspace on screen says whether its side panel is a sheet (narrowLayout.ts); a panel back beside the chat closes it. */
+export function setPanelSheet(sheet: boolean): void {
+  if (state.panelSheet !== sheet) setState(sheet ? { panelSheet: true } : { panelSheet: false, panelSheetOpen: false })
+}
+
+/** Opens or closes the side panel's sheet in a narrow workspace. */
+export function openPanelSheet(open: boolean): void {
+  if (state.panelSheetOpen !== open) setState({ panelSheetOpen: open })
+}
+
+/** Shows or hides the employees under the sidebar's Team row; kept for next time. */
+export function toggleTeamOpen(): void {
+  savePref('teamOpen', !state.teamOpen)
+  setState({ teamOpen: !state.teamOpen })
+}
+
+/**
+ * Home's Space filter: every space (the sidebar stays where it is), or one space, which also brings the sidebar there
+ * (`space`: an organization's id, or null for Personal).
+ */
+export function setHomeSpace(space: string | null | 'all'): void {
+  if (space === 'all') return setState({ homeScope: 'all' })
+  setState({ homeScope: 'space' })
+  setSpace(space)
+}
+
+/** Opens Home's Get started row to its full list, or folds it back; kept for next time. */
+export function setChecklistOpen(open: boolean): void {
+  savePref('checklistOpen', open)
+  setState({ checklistOpen: open })
 }
 
 /** Widens the repository rail to show each repository's name beside its tile, or narrows it back to the tiles. */
@@ -1205,7 +1263,8 @@ export function toggleBottomPanel(): void {
 }
 
 // The Editor layout keeps the terminal under the files, whatever Terminal placement says.
-const terminalInSidePanel = () => state.snapshot?.settings.terminalPlacement !== 'below-chat' && state.snapshot?.settings.windowLayout !== 'editor'
+// So does a narrow workspace whose side panel is a sheet: its terminal moves under the chat.
+const terminalInSidePanel = () => state.snapshot?.settings.terminalPlacement !== 'below-chat' && state.snapshot?.settings.windowLayout !== 'editor' && !state.panelSheet
 
 export function showBottomPanel(open = true): void {
   const inSidePanel = terminalInSidePanel()
@@ -1460,7 +1519,8 @@ export function openFixChecks(workspaceId: string | null): void {
 
 /** Ask the workspace view to show its Git panel (Checks tab). */
 export function showChecksPanel(workspaceId: string): void {
-  setState({ checksPanelRequest: { workspaceId, nonce: Date.now() }, rightPanelOpen: true })
+  // A narrow workspace's side panel is a sheet: it opens on Checks.
+  setState({ checksPanelRequest: { workspaceId, nonce: Date.now() }, rightPanelOpen: true, ...(state.panelSheet ? { panelSheetOpen: true } : {}) })
 }
 
 /**
@@ -1758,7 +1818,14 @@ export async function quickStartRepository(parentDir: string, name: string): Pro
   repoAdded(repo.id)
 }
 
-export function openNewWorkspace(repoId: string | null, prompt?: string, templateId?: string): void {
+export function openNewWorkspace(asked: string | null, prompt?: string, templateId?: string): void {
+  // An organization's memory repository never has workspaces (docs/ai-employees.md §4): asked for one, New workspace
+  // opens on the repository the sidebar's button would, or not at all.
+  const snapshot = state.snapshot
+  const repoId =
+    asked && snapshot && !holdsWorkspaces(asked, snapshot.organizations)
+      ? newWorkspaceTarget(snapshot, { space: state.space, picked: state.sidebarView.repo, selectedWorkspaceId: state.selectedWorkspaceId }) ?? null
+      : asked
   setState({ newWorkspaceRepo: repoId, newWorkspacePrompt: repoId ? prompt ?? null : null, newWorkspaceTemplate: repoId && prompt ? templateId ?? null : null })
 }
 
