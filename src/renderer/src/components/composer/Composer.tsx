@@ -559,7 +559,7 @@ export function Composer({
   const newChatLabel = newChatHint(draftTemplate, session, t)
   const sendsQueue = running && followUp === 'queue'
   const hasDraft = Boolean(text.trim() || attachments.length || snippets.length)
-  const stopIsPrimary = running && !hasDraft
+  const stopShown = useShownAfterStart(running)
   // Clearing the draft by hand leaves nothing to choose about.
   useEffect(() => {
     if (kept && !hasDraft) setKept(null)
@@ -576,8 +576,9 @@ export function Composer({
         : t('composer.placeholder.queue')
       : t('composer.placeholder.ask', { agent: agent.label })
 
-  // What Enter does now, named on the send button and, in key form, on the line under the box.
-  const action: SendAction = stopIsPrimary ? 'stop' : pendingPlan ? 'sendChanges' : running ? followUp : 'send'
+  // What Enter does now, named on the send button and, in key form, on the line under the box. The button only ever
+  // sends: Stop is its own quieter button beside it, so the click that sent can't land on Stop when the turn starts.
+  const action: SendAction = pendingPlan ? 'sendChanges' : running ? followUp : 'send'
   const sendsOnEnter = settings.messageSendKey === 'enter'
   const canChoose = canSteer || canInterrupt
   const keys = {
@@ -593,28 +594,26 @@ export function Composer({
     ? [['composer.keys.sendChanges', keys.send], ['composer.keys.approve', keys.approve], ['composer.keys.newLine', keys.newLine]]
     : running
       ? [
-          ...(hasDraft ? [] : ([['composer.keys.stopAgent', keys.stop]] as [MessageKey, string][])),
           [MODE_KEY[followUp], keys.send],
           ...(canChoose ? ([[MODE_KEY[other], keys.other]] as [MessageKey, string][]) : []),
-          ...(hasDraft ? ([['composer.keys.newLine', keys.newLine], ['composer.keys.stop', keys.stop]] as [MessageKey, string][]) : [])
+          ...(hasDraft ? ([['composer.keys.newLine', keys.newLine]] as [MessageKey, string][]) : []),
+          ['composer.keys.stop', keys.stop]
         ]
       : !focused && !hasDraft
         ? [['composer.focusHint', shortcutHint('composer.focus', platform) ?? ''], ['composer.keys.send', keys.send]]
         : [['composer.keys.send', keys.send], ['composer.keys.newLine', keys.newLine], ['composer.keys.file', '@'], ['composer.keys.command', '/']]
   const actionTitle =
-    action === 'stop'
-      ? t('composer.action.stopTitle', { key: keys.stop })
-      : action === 'sendChanges'
-        ? t('composer.action.sendChangesTitle', { key: keys.send })
-        : action === 'steer'
-          ? t('composer.action.steerTitle', { key: keys.send })
-          : action === 'interrupt'
-            ? t('composer.action.interruptTitle', { key: keys.send })
-            : action === 'queue'
-              ? canChoose
-                ? t('composer.action.queueTitle', { key: keys.send })
-                : t('composer.mode.cantSteer')
-              : t('composer.action.sendTitle', { key: keys.send })
+    action === 'sendChanges'
+      ? t('composer.action.sendChangesTitle', { key: keys.send })
+      : action === 'steer'
+        ? t('composer.action.steerTitle', { key: keys.send })
+        : action === 'interrupt'
+          ? t('composer.action.interruptTitle', { key: keys.send })
+          : action === 'queue'
+            ? canChoose
+              ? t('composer.action.queueTitle', { key: keys.send })
+              : t('composer.mode.cantSteer')
+            : t('composer.action.sendTitle', { key: keys.send })
   const cancel = () => void attempt(() => api.cancel(session.id))
   // How this message can go while a turn runs, in the menu: the default first.
   const modes: SendMode[] = canSteer ? ['steer', 'queue'] : canInterrupt ? ['queue', 'interrupt'] : ['queue']
@@ -638,11 +637,6 @@ export function Composer({
     pendingPlan && (
       <MenuItem key="approve" icon={<Check size={14} />} hint={<Kbd>{keys.approve}</Kbd>} onSelect={() => void attempt(() => api.respondApproval(pendingPlan.id, { kind: 'plan', approve: true }))}>
         {t('composer.action.approve')}
-      </MenuItem>
-    ),
-    running && (
-      <MenuItem key="stop" icon={<Square size={12} />} hint={<Kbd>{keys.stop}</Kbd>} onSelect={cancel}>
-        {t('composer.action.stopAgent')}
       </MenuItem>
     ),
     !disabled && <AlsoTryItem key="also" workspace={workspace} session={session} text={text} />
@@ -878,29 +872,21 @@ export function Composer({
                 onCompact={canCompact && !disabled ? () => void compactNow() : undefined}
               />
             )}
-            {running && !stopIsPrimary && (
-              <LinkButton size="sm" onClick={cancel}>
-                {t('common.stop')}
-              </LinkButton>
+            {running && stopShown && (
+              <IconButton variant="framed" label={t('composer.action.stopTitle', { key: keys.stop })} aria-keyshortcuts="Escape" onClick={cancel}>
+                <Square size={10} fill="currentColor" />
+              </IconButton>
             )}
             <SplitButton
               variant="primary"
               size="sm"
               placement="top-end"
-              label={
-                action === 'stop' ? (
-                  <>
-                    <Square size={10} fill="currentColor" aria-hidden /> {t('composer.action.stop')}
-                  </>
-                ) : (
-                  t(ACTION_LABEL[action])
-                )
-              }
+              label={t(ACTION_LABEL[action])}
               title={actionTitle}
               menuLabel={t('composer.action.more')}
               menuDisabled={disabled}
-              disabled={action !== 'stop' && (disabled || !hasDraft)}
-              onClick={() => (action === 'stop' ? cancel() : void send())}
+              disabled={disabled || !hasDraft}
+              onClick={() => void send()}
             >
               {sendMenu.flatMap((item, n) => (n ? [<MenuSeparator key={`sep-${n}`} />, item] : [item]))}
             </SplitButton>
@@ -919,19 +905,37 @@ export function Composer({
   )
 }
 
-type SendAction = SendMode | 'send' | 'sendChanges' | 'stop'
+type SendAction = SendMode | 'send' | 'sendChanges'
 
 const ACTION_LABEL: Record<SendAction, PlainKey> = {
   send: 'composer.action.send',
   steer: 'composer.mode.steer',
   queue: 'composer.mode.queue',
   interrupt: 'composer.mode.interrupt',
-  sendChanges: 'composer.action.sendChanges',
-  stop: 'composer.action.stop'
+  sendChanges: 'composer.action.sendChanges'
 }
 const MODE_LABEL: Record<SendMode, PlainKey> = { steer: 'composer.mode.steer', queue: 'composer.mode.queue', interrupt: 'composer.mode.interrupt' }
 const MODE_DESCRIPTION: Record<SendMode, PlainKey> = { steer: 'composer.action.steerDesc', queue: 'composer.action.queueDesc', interrupt: 'composer.action.interruptDesc' }
 const MODE_KEY: Record<SendMode, MessageKey> = { steer: 'composer.keys.steer', queue: 'composer.keys.queue', interrupt: 'composer.keys.interrupt' }
+
+// How long into a turn Stop appears: longer than a double-click, so the second click on the send button never stops
+// the turn the first one started.
+export const STOP_DELAY_MS = 2000
+
+/** True while running, from STOP_DELAY_MS after a turn starts; a chat shown mid-turn has it at once. */
+function useShownAfterStart(running: boolean): boolean {
+  const [shown, setShown] = useState(running)
+  useEffect(() => {
+    if (!running) {
+      if (shown) setShown(false)
+      return
+    }
+    if (shown) return
+    const timer = setTimeout(() => setShown(true), STOP_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [running, shown])
+  return running && shown
+}
 
 /** Add ▾: files or images, a prompt template, a file from the workspace (an @). Each item shows the key that does it. */
 function AddMenu({ platform, disabled, onFiles, onTemplate, onMention, ref }: { platform: string; disabled?: boolean; onFiles: () => void; onTemplate?: () => void; onMention: () => void; ref?: Ref<HTMLButtonElement> }) {

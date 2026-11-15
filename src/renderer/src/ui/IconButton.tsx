@@ -7,9 +7,9 @@ export type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'typ
   children: ReactNode
   // For a toggle (find options, wrap lines): sets aria-pressed and the highlighted look.
   pressed?: boolean
-  // primary: a round filled button for the one action of a bar (send). framed: a bordered square that shows the current
-  // value and opens its picker (the repository icon). dashed: a dashed placeholder tile that adds something (solid
-  // while its menu is open). badge: a small round button with its own edge and
+  // primary: a round filled button for the one action of a bar (send). framed: a bordered square: the repository icon
+  // (shows the current value and opens its picker), the composer's Stop beside its send button. dashed: a dashed
+  // placeholder tile that adds something (solid while its menu is open). badge: a small round button with its own edge and
   // a cut-out ring, for a control that sits over the corner of another surface (remove a card). Everything else is the
   // default bare icon.
   variant?: 'default' | 'primary' | 'framed' | 'dashed' | 'badge'
