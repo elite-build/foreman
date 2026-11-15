@@ -1179,7 +1179,16 @@ export class WorkspaceService {
     if (owned && existsSync(wsPath(ws))) {
       progress('remove', 'running')
       const removed = await git(repo.rootPath, ['worktree', 'remove', '--force', wsPath(ws)], { allowFail: true })
-      if (removed.code !== 0) {
+      // On Windows a handle still open in the folder (a process just exiting, an indexer) makes git fail to delete it, and
+      // git drops the worktree all the same. When it no longer lists it, finish deleting the folder, waiting out the handle.
+      const finished =
+        removed.code !== 0 &&
+        !(await this.ownsFolder(ws)) &&
+        (await rm(wsPath(ws), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).then(
+          () => true,
+          () => false
+        ))
+      if (removed.code !== 0 && !finished) {
         progress('remove', 'failed', { detail: removed.stderr.trim() })
         throw new Error(`Could not remove the worktree: ${removed.stderr.trim()}`)
       }

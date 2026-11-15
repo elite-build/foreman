@@ -15,6 +15,22 @@ import { commit, makeRepo, tempDir } from './helpers'
 import { wsPath } from '../src/shared/workspacePath'
 import { workspacePerson } from '../src/shared/workspacePeople'
 
+// `git worktree remove` failing as it does on Windows with a handle open in the folder: 'dropped' when git couldn't
+// delete the folder but dropped the worktree all the same, 'refused' when it kept the worktree.
+const removeFails = vi.hoisted(() => ({ next: null as 'dropped' | 'refused' | null }))
+vi.mock('../src/main/git', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/main/git')>()
+  const git: typeof actual.git = async (cwd, args, opts) => {
+    const how = removeFails.next
+    if (!how || args[0] !== 'worktree' || args[1] !== 'remove') return actual.git(cwd, args, opts)
+    removeFails.next = null
+    const folder = args[args.length - 1]
+    if (how === 'dropped') await rm(await actual.gitOut(folder, ['rev-parse', '--absolute-git-dir']), { recursive: true, force: true })
+    return { code: 255, stdout: '', stderr: `error: failed to delete '${folder}': Permission denied\n` }
+  }
+  return { ...actual, git }
+})
+
 async function setup() {
   const dataDir = await tempDir('switchyard-data-')
   const store = new Store(dataDir)
@@ -100,6 +116,29 @@ describe('workspaces', () => {
     expect(existsSync(wsPath(ws))).toBe(false)
     expect(ws.state).toBe('archived')
     expect(await gitOut(repo.rootPath, ['branch', '--list', ws.branch])).toBe('')
+  })
+
+  it('finishes deleting the folder when git dropped the worktree but couldn’t delete it, as on Windows with a handle open', async () => {
+    const { service } = await setup()
+    const repo = await service.addRepo(await makeRepo())
+    const ws = await service.createWorkspace(repo.id)
+    await waitForState(ws, ['ready'])
+    removeFails.next = 'dropped'
+    await service.archiveWorkspace(ws.id, false)
+    expect(existsSync(wsPath(ws))).toBe(false)
+    expect(ws.state).toBe('archived')
+    expect(await gitOut(repo.rootPath, ['worktree', 'list', '--porcelain'])).not.toContain(path.basename(wsPath(ws)))
+  })
+
+  it('keeps the folder and says so when git couldn’t remove a worktree it still has', async () => {
+    const { service } = await setup()
+    const repo = await service.addRepo(await makeRepo())
+    const ws = await service.createWorkspace(repo.id)
+    await waitForState(ws, ['ready'])
+    removeFails.next = 'refused'
+    await expect(service.archiveWorkspace(ws.id, false)).rejects.toThrow('Could not remove the worktree')
+    expect(existsSync(wsPath(ws))).toBe(true)
+    expect(ws.state).toBe('ready')
   })
 
   it('gives parallel workspaces distinct names, branches and ports', async () => {

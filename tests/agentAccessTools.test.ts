@@ -19,7 +19,7 @@ import type { ApprovalRequest, PromptTemplate, QueuedMessage, Schedule, Schedule
 import type { FlowListing } from '../src/shared/flows'
 import { ScheduleService } from '../src/main/schedules'
 import { delegationRig } from './foremanDelegationHarness'
-import { tempDir } from './helpers'
+import { startFetchable, tempDir } from './helpers'
 
 const cleanup: (() => Promise<unknown> | void)[] = []
 afterEach(async () => {
@@ -79,7 +79,7 @@ async function rig() {
     }
   })
   service.setMcpHandler(tools.handle)
-  await service.start()
+  await startFetchable(service)
   cleanup.push(() => service.close())
   return { ...d, base, service, approvals, answerQuestion, checksStatus, runChecks, onRevoked, live, origin: service.origin, scheduleStore, propose, listFlows }
 }

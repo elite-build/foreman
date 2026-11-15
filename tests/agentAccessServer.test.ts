@@ -13,7 +13,7 @@ import { makeGitBackupFiles, parseGitBackup } from '../src/main/gitBackup'
 import { SecretStore } from '../src/main/secrets'
 import { Store, defaultSettings } from '../src/main/store'
 import type { AgentAccessLevel, AgentClient } from '../src/shared/agentAccess'
-import { tempDir } from './helpers'
+import { startFetchable, tempDir } from './helpers'
 
 const services: AgentAccessService[] = []
 const stores: Store[] = []
@@ -40,7 +40,7 @@ async function rig(base = fakes()) {
   const onChanged = vi.fn()
   const service = new AgentAccessService({ store: base.store, secrets: base.secrets, onChanged, now: () => clock, port: 0 })
   services.push(service)
-  await service.start()
+  await startFetchable(service)
   const origin = service.origin
   return {
     ...base, service, onChanged, origin,

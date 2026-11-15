@@ -528,6 +528,8 @@ export class Store {
   // state over newer.
   private writes = 0
   private landed = 0
+  // The saves' moves into place, one at a time: an older one retrying its rename can't land after a newer one.
+  private moving: Promise<void> = Promise.resolve()
 
   private writeState(): Promise<void> {
     if (this.closed) return Promise.resolve()
@@ -538,12 +540,16 @@ export class Store {
       const tmp = `${this.statePath}.${seq}.tmp`
       try {
         await writeFile(tmp, this.preferences())
-        if (this.landed > seq || this.closed) {
-          await rm(tmp, { force: true })
-          return
-        }
-        await renameWithRetry(tmp, this.statePath)
-        this.landed = Math.max(this.landed, seq)
+        const move = this.moving.then(async () => {
+          if (this.landed > seq || this.closed) {
+            await rm(tmp, { force: true })
+            return
+          }
+          await renameWithRetry(tmp, this.statePath)
+          this.landed = Math.max(this.landed, seq)
+        })
+        this.moving = move.catch(() => undefined)
+        await move
       } catch (error) {
         await rm(tmp, { force: true }).catch(() => undefined)
         // A save that was in flight when the store closed (quit, or a test's teardown) has nowhere to land; the
