@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Composer } from '../src/renderer/src/components/composer/Composer'
+import { Composer, STOP_DELAY_MS } from '../src/renderer/src/components/composer/Composer'
 import { staticCapabilitiesView } from '../src/shared/agentCatalog'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -508,7 +508,7 @@ describe('the toolbar', () => {
     const [how, add, , send] = Array.from(toolbar.children) as HTMLElement[]
     expect(within(how).getByRole('button', { name: /Plan/ })).toBeTruthy()
     expect(within(add).getByRole('button', { name: /^Add/ }).getAttribute('aria-haspopup')).toBe('menu')
-    expect(within(send).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Stop', 'Queue', 'More ways to send'])
+    expect(within(send).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Stop the agent (Esc)', 'Queue', 'More ways to send'])
     // The running toolbar no longer adds a Steer chip, its key text, a paperclip or a template icon.
     expect(screen.queryByRole('button', { name: /Attach files|Insert a prompt template/ })).toBeNull()
     expect(toolbar.textContent).not.toMatch(/to steer|to queue|Also try/)
@@ -563,7 +563,8 @@ describe('the send button names what Enter does', () => {
       ['Steer', 'Sends into the running turn now', 'Enter', 'true'],
       ['Queue', 'Waits until this turn ends', 'Ctrl+Enter', 'false']
     ])
-    expect(within(menu).getByRole('menuitem', { name: /^Stop the agent/ }).textContent).toContain('Esc')
+    // Stop isn't a way to send: it has its own button, not a place in this menu.
+    expect(within(menu).queryByRole('menuitem', { name: /Stop/ })).toBeNull()
     expect(within(menu).getByRole('menuitem', { name: /^Also try with other models/ })).toBeTruthy()
     // Picking Queue changes the label and the keys, for this message.
     await user.click(rows[1])
@@ -573,8 +574,8 @@ describe('the send button names what Enter does', () => {
     await user.keyboard('{Enter}')
     await waitFor(() => expect(fakeApi.sendMessage).toHaveBeenCalledTimes(1))
     expect(fakeApi.sendMessage.mock.calls[0][2]).toMatchObject({ mode: 'queue' })
-    // Sent: the next message goes by the setting again.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy())
+    // Sent: the next message goes by the setting again, and the button stays a send button, greyed with nothing typed.
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Steer' }) as HTMLButtonElement).disabled).toBe(true))
   })
 
   it('running with Queue as the follow-up: Queue, with Steer on the other key', async () => {
@@ -588,15 +589,47 @@ describe('the send button names what Enter does', () => {
     expect(fakeApi.sendMessage.mock.calls[0][2]).toMatchObject({ mode: 'steer' })
   })
 
-  it('running with nothing typed: the button is Stop, and stops', async () => {
+  it('running with nothing typed: the send button stays a greyed send button; Stop is its own button beside it, and stops', async () => {
     const user = userEvent.setup()
     renderComposer({ status: 'running' })
-    const stop = screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement
-    expect(stop.disabled).toBe(false)
-    expect(stop.title).toBe('Stop the agent (Esc)')
-    expect(keyLine()[0]).toBe('Esc stop the agent')
+    expect((screen.getByRole('button', { name: 'Queue' }) as HTMLButtonElement).disabled).toBe(true)
+    const stop = screen.getByRole('button', { name: 'Stop the agent (Esc)' }) as HTMLButtonElement
+    expect(stop.getAttribute('aria-keyshortcuts')).toBe('Escape')
+    expect(keyLine()).toEqual(['Enter queue', 'Ctrl+Enter steer now', 'Esc stop'])
+    expect(box().placeholder).toBe('Queue a follow-up…')
+    // Typing doesn't move it.
+    await user.type(box(), 'later')
+    expect(screen.getByRole('button', { name: 'Stop the agent (Esc)' })).toBe(stop)
     await user.click(stop)
     expect(fakeApi.cancel).toHaveBeenCalledWith('s1')
+  })
+
+  it('Stop appears only once a turn has run for a moment, so the click after Send can’t stop it', () => {
+    vi.useFakeTimers()
+    try {
+      const view = renderComposer()
+      expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull()
+      view.rerender(<Composer session={session({ status: 'running' })} workspace={workspace} active hasHistory={false} />)
+      // A second click on the send button lands on a greyed send button, not on Stop.
+      const send = screen.getByRole('button', { name: 'Queue' }) as HTMLButtonElement
+      expect(send.disabled).toBe(true)
+      fireEvent.click(send)
+      expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull()
+      act(() => vi.advanceTimersByTime(STOP_DELAY_MS - 1))
+      expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull()
+      act(() => vi.advanceTimersByTime(1))
+      expect(screen.getByRole('button', { name: 'Stop the agent (Esc)' })).toBeTruthy()
+      // The turn ends: it goes, and the next turn waits again.
+      view.rerender(<Composer session={session({ status: 'idle' })} workspace={workspace} active hasHistory={false} />)
+      expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull()
+      view.rerender(<Composer session={session({ status: 'running' })} workspace={workspace} active hasHistory={false} />)
+      expect(screen.queryByRole('button', { name: /Stop the agent/ })).toBeNull()
+      // Esc stops at once all the same.
+      fireEvent.keyDown(box(), { key: 'Escape' })
+      expect(fakeApi.cancel).toHaveBeenCalledWith('s1')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('plan review: Send changes, and the menu and Ctrl+Shift+Enter approve', async () => {
