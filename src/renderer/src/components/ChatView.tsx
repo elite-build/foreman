@@ -1062,8 +1062,8 @@ function causeOf(error: string | undefined): { title: string; rest: string } | n
 
 /**
  * The receipt that closes a turn: how it ended, how long it took and what it cost, then what this turn did (its files and
- * commands) as one fact. On the latest turn the fact is open, a chip per file (which opens it) and per command (which shows
- * its row); older turns keep it folded to one line. Only this turn's own changes: a turn without both checkpoints names none.
+ * commands) as one fact, folded to one line on every turn. Opened, it has a chip per file (which opens it) and per command
+ * (which shows its row). Only this turn's own changes: a turn without both checkpoints names none.
  */
 function TurnReceipt({
   outcome,
@@ -1072,7 +1072,6 @@ function TurnReceipt({
   delta,
   commands,
   files,
-  isLatestEnd,
   menu
 }: {
   outcome: { tone: StatusTone; label: string }
@@ -1081,14 +1080,10 @@ function TurnReceipt({
   delta?: TurnDelta
   commands: ToolItem[]
   files: FileAccess | null
-  isLatestEnd: boolean
   menu: ReactNode
 }) {
   const t = useT()
   const card = useRef<HTMLDivElement>(null)
-  // null until the reader opens or closes it; until then the latest turn's is open.
-  const [toggled, setToggled] = useState<boolean | null>(null)
-  const open = toggled ?? isLatestEnd
   const changed = delta?.files ?? []
   const failed = commands.filter((c) => toolResult(c)?.tone === 'error').length
   const facts: ReactNode[] = []
@@ -1132,7 +1127,7 @@ function TurnReceipt({
           </span>
         )}
         {facts.length > 0 && (
-          <Disclosure quiet className="turn-receipt-fold" open={open} onOpenChange={setToggled} label={facts.flatMap((fact, n) => (n ? [<span key={`dot${n}`}> · </span>, fact] : [fact]))}>
+          <Disclosure quiet className="turn-receipt-fold" label={facts.flatMap((fact, n) => (n ? [<span key={`dot${n}`}> · </span>, fact] : [fact]))}>
             <div className="turn-receipt-facts">
               {changed.length > 0 && (
                 <div className="turn-receipt-group">
@@ -1270,7 +1265,6 @@ function TurnEnd({
         delta={item.delta}
         commands={commands}
         files={files}
-        isLatestEnd={isLatestEnd}
         menu={
           <AnswerMenu
             sessionId={session.id}
