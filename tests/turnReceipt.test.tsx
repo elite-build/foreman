@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Each turn closes with a receipt: how it ended (a shape and a word), its time and cost, and what this turn did (its files and
-// commands, never the workspace's total). The latest turn's is open, with a chip per file and per command; older ones fold to
-// one line. A failed turn's card leads with the cause, names what the turn left, offers its output, Retry (with Restore in its
+// commands, never the workspace's total), folded to one line on every turn; opened, it has a chip per file and per command.
+// A failed turn's card leads with the cause, names what the turn left, offers its output, Retry (with Restore in its
 // menu only when the message has a checkpoint) and "Ask … to fix it", which fills the composer without sending.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -53,14 +53,18 @@ const receipts = (container: HTMLElement) => [...container.querySelectorAll<HTML
 const fold = (receipt: HTMLElement) => within(receipt).getAllByRole('button').find((b) => b.hasAttribute('aria-controls'))!
 
 describe('the receipt', () => {
-  it('says the turn completed, its time and cost, and this turn’s files and commands, open on the latest turn', () => {
+  it('says the turn completed, its time and cost, and this turn’s files and commands, folded even on the latest turn', async () => {
     fakeState.chats = { s1: [user(1), bash(1, true), result(1, 0.18), end(1, { delta: delta('src/session.ts', 1, 1) })] }
+    const u = userEvent.setup()
     const { container } = render(<ChatView session={session} workspace={workspace()} active />)
     const [receipt] = receipts(container)
     expect(receipt.querySelector('.ui-status--ok')?.textContent).toBe('Completed')
     expect(receipt.textContent).toContain('41s · $0.18')
     const button = fold(receipt)
     expect(button.textContent).toBe('1 file +1 −1 · 1 command')
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    expect(within(receipt).queryByRole('button', { name: /npm test -- session/ })).toBeNull()
+    await u.click(button)
     expect(button.getAttribute('aria-expanded')).toBe('true')
     expect(receipt.textContent).toContain('Changed')
     expect(within(receipt).getByRole('button', { name: /src\/session\.ts/ })).toBeTruthy()
@@ -71,16 +75,17 @@ describe('the receipt', () => {
     expect(container.textContent).not.toContain('+7')
   })
 
-  it('folds older turns to one line and opens them on request', async () => {
+  it('folds every turn to one line and opens each on its own request', async () => {
     fakeState.chats = { s1: [user(1), bash(1, true), end(1, { delta: delta('src/login.ts', 2, 2) }), user(2), bash(2, true), end(2, { delta: delta('src/session.ts', 1, 1) })] }
     const u = userEvent.setup()
     const { container } = render(<ChatView session={session} workspace={workspace()} active />)
     const [older, latest] = receipts(container)
     expect(fold(older).getAttribute('aria-expanded')).toBe('false')
     expect(fold(older).textContent).toBe('1 file +2 −2 · 1 command')
-    expect(fold(latest).getAttribute('aria-expanded')).toBe('true')
+    expect(fold(latest).getAttribute('aria-expanded')).toBe('false')
     await u.click(fold(older))
     expect(fold(older).getAttribute('aria-expanded')).toBe('true')
+    expect(fold(latest).getAttribute('aria-expanded')).toBe('false')
   })
 
   it('names no files for a turn without both checkpoints, rather than the workspace’s', () => {
@@ -123,12 +128,14 @@ describe('a failed turn', () => {
     end(1, { outcome: 'error', error: 'The agent stopped: npm test exited with code 1.', delta: delta('src/rateLimit.ts', 1, 0) })
   ]
 
-  it('ends with ◆ Failed, and the command chip says it failed', () => {
+  it('ends with ◆ Failed, and the command chip says it failed', async () => {
     fakeState.chats = { s1: failed() }
+    const u = userEvent.setup()
     const { container } = render(<ChatView session={session} workspace={workspace()} active />)
     const [receipt] = receipts(container)
     expect(receipt.querySelector('.ui-status--error')?.textContent).toBe('Failed')
     expect(fold(receipt).textContent).toBe('1 file +1 · 1 command, 1 failed')
+    await u.click(fold(receipt))
     expect(within(receipt).getByRole('button', { name: /npm test -- session/ }).textContent).toContain('Failed · exit 1')
   })
 
