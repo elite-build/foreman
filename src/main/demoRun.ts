@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { AGENTS, type AgentKind } from '../shared/agents'
+import { translate } from '../shared/i18n'
 import { isActiveRun } from '../shared/flows'
 import type { ChatItem } from '../shared/types'
 import { claudeDriver } from './agents/claude'
@@ -159,10 +160,109 @@ const testRun = (tests: number): Beat => ({
 
 const GENERIC_REPLY = 'This is the demo: no agent runs here, so this reply is a script and nothing in the workspace changed.'
 
-/** A message that is one of the flow run's steps, not a chat of the person's. */
+/** A message the script answers itself: one of the flow run's steps, or a chat asking for background work. */
 const isFlowBeat = (request: TurnRequest): boolean => {
+  if (wantsBackground(request)) return true
   const beats = script(request)
   return !(beats.length === 1 && 'say' in beats[0] && beats[0].say === GENERIC_REPLY)
+}
+
+/** A chat message that mentions background work gets the scripted background turn (BackgroundDemo), to show its block. */
+const wantsBackground = (request: TurnRequest): boolean => /\bbackground\b/i.test(request.prompt)
+
+// The background turn's subagent: what it reads, one call every ~2.5 s, then how it ends.
+const SUBAGENT_STEPS: [string, Record<string, unknown>][] = [
+  ['Grep', { pattern: 'fetch\\(', path: 'src' }],
+  ['Read', { file_path: 'src/login.ts' }],
+  ['Grep', { pattern: 'retry', path: 'src' }],
+  ['Read', { file_path: 'src/session.ts' }],
+  ['Glob', { pattern: 'src/**/*.test.ts' }],
+  ['Read', { file_path: 'tests/session.test.ts' }],
+  ['Grep', { pattern: 'status === 4', path: 'src' }]
+]
+// The background shell's progress lines, one every ~2.5 s.
+const SHELL_LINES = ['Building the app', 'Captured home.png (1/5)', 'Captured workspace-chat.png (2/5)', 'Captured file-diff.png (3/5)', 'Captured settings.png (4/5)']
+
+/**
+ * A Claude-style turn with background work: it starts a shell and a subagent in the background, answers, then waits on
+ * them (as the Claude adapter does, with its "Waiting for…" notice) while they report progress, and adds to its answer
+ * once both have ended. The subagent can be stopped on its own.
+ */
+class BackgroundDemo {
+  private shell: Extract<ChatItem, { kind: 'tool' }>
+  private agent: Extract<ChatItem, { kind: 'tool' }>
+  private agentStopped = false
+
+  constructor(private request: TurnRequest, private cb: TurnCallbacks, private signal: AbortSignal) {
+    const { turnId } = request
+    const startedAt = new Date().toISOString()
+    this.shell = {
+      kind: 'tool', id: `${turnId}:bg-shell`, turnId, name: 'Bash',
+      input: { command: 'npm run screens -- --only home,workspace-chat,file-diff,settings', description: 'Capture the main screens', run_in_background: true },
+      status: 'done', output: 'Command running in background with ID: demo-shell',
+      task: { status: 'running', background: true, startedAt, summary: 'Starting' }
+    }
+    this.agent = {
+      kind: 'tool', id: `${turnId}:bg-agent`, turnId, name: 'Task',
+      input: { description: 'Find every request the retry should cover', subagent_type: 'Explore', run_in_background: true },
+      status: 'done', output: 'Async agent launched.', childId: 'demo-agent',
+      task: { status: 'running', background: true, startedAt, toolUses: 0 }
+    }
+  }
+
+  async run(say: (id: string, text: string) => Promise<void>): Promise<void> {
+    const { turnId } = this.request
+    const started = Date.now()
+    await say(`${turnId}:bg-0`, "I'll capture the screens in the background and send a subagent to find every request the retry should cover.")
+    this.cb.item({ ...this.shell })
+    this.cb.item({ ...this.agent })
+    await say(`${turnId}:bg-1`, 'Both are running. I will add to this answer when they report back.')
+    this.cb.item({ kind: 'result', id: `result:${turnId}`, turnId, ok: true, costUsd: 0.31, durationMs: Date.now() - started, turns: 3 })
+    this.cb.item({ kind: 'notice', id: `${turnId}:notice:0`, turnId, level: 'info', text: translate(this.request.locale ?? 'en', 'chat.background.waiting', { count: 2 }) })
+    for (let step = 0; !this.signal.aborted; step++) {
+      await sleep(2500, this.signal)
+      if (this.signal.aborted) break
+      const shellRunning = this.shell.task!.status === 'running'
+      if (shellRunning) {
+        const line = SHELL_LINES[step]
+        this.update('shell', line ? { summary: line } : { status: 'completed', summary: 'Captured 5 screens in out/screens', durationMs: Date.now() - started })
+      }
+      const agentRunning = this.agent.task!.status === 'running'
+      if (agentRunning) {
+        const next = SUBAGENT_STEPS[step]
+        if (next) this.agentCall(step, next)
+        else this.update('agent', { status: 'completed', summary: 'Three requests need the retry: login, session refresh and the profile save.\nThe sign-out request must not be retried.', durationMs: Date.now() - started })
+      }
+      if (!shellRunning && !agentRunning) break
+    }
+    if (this.signal.aborted) {
+      for (const which of ['shell', 'agent'] as const) if (this[which].task!.status === 'running') this.update(which, { status: 'stopped' })
+      return this.cb.finished({ ok: false, error: 'Stopped.' })
+    }
+    await say(`${turnId}:bg-2`, this.agentStopped
+      ? 'The screens are in `out/screens`. The subagent was stopped before it finished, so I have not checked every request.'
+      : 'The screens are in `out/screens`, and the subagent found three requests the retry should cover: login, session refresh and the profile save. Sign-out must not be retried.')
+    this.cb.finished({ ok: true })
+  }
+
+  /** Stop on the subagent's row: it ends as stopped, the shell carries on. */
+  stopChild(childId: string): void {
+    if (childId !== this.agent.childId || this.agent.task!.status !== 'running') throw new Error('That subagent is not running')
+    this.agentStopped = true
+    this.update('agent', { status: 'stopped', summary: 'Stopped' })
+  }
+
+  private agentCall(step: number, [name, input]: [string, Record<string, unknown>]): void {
+    const call: Extract<ChatItem, { kind: 'tool' }> = { kind: 'tool', id: `${this.agent.id}:${step}`, turnId: this.request.turnId, parentToolUseId: this.agent.id, name, input, status: 'done', output: 'ok' }
+    this.cb.item(call)
+    this.update('agent', { toolUses: step + 1, lastTool: name })
+  }
+
+  private update(which: 'shell' | 'agent', patch: Partial<NonNullable<Extract<ChatItem, { kind: 'tool' }>['task']>>): void {
+    const item = this[which]
+    this[which] = { ...item, task: { ...item.task!, ...patch } }
+    this.cb.item({ ...this[which] })
+  }
 }
 
 /** What the agent does for this message: the flow's steps by what their messages say, and a plain reply for anything else. */
@@ -219,10 +319,29 @@ const sleep = (ms: number, signal: AbortSignal) =>
 
 class DemoTurn implements AgentTurn {
   private stopper = new AbortController()
+  private background: BackgroundDemo | null = null
 
   constructor(private request: TurnRequest, private cb: TurnCallbacks) {}
 
+  /** Streamed a few words at a time, as an agent's answer arrives. */
+  private async say(id: string, said: string): Promise<void> {
+    const { turnId } = this.request
+    const signal = this.stopper.signal
+    const words = said.split(/(?<= )/)
+    let text = ''
+    for (let i = 0; i < words.length && !signal.aborted; i += 4) {
+      text += words.slice(i, i + 4).join('')
+      this.cb.item({ kind: 'assistant', id, turnId, text, streaming: true }, true)
+      await sleep(120, signal)
+    }
+    this.cb.item({ kind: 'assistant', id, turnId, text: said })
+  }
+
   async run(): Promise<void> {
+    if (wantsBackground(this.request)) {
+      this.background = new BackgroundDemo(this.request, this.cb, this.stopper.signal)
+      return this.background.run((id, text) => this.say(id, text))
+    }
     const { turnId, cwd } = this.request
     const signal = this.stopper.signal
     const startedAt = Date.now()
@@ -232,15 +351,7 @@ class DemoTurn implements AgentTurn {
       if (signal.aborted) break
       const id = `${turnId}:demo-${n++}`
       if ('say' in beat) {
-        // Streamed a few words at a time, as an agent's answer arrives.
-        const words = beat.say.split(/(?<= )/)
-        let text = ''
-        for (let i = 0; i < words.length && !signal.aborted; i += 4) {
-          text += words.slice(i, i + 4).join('')
-          this.cb.item({ kind: 'assistant', id, turnId, text, streaming: true }, true)
-          await sleep(120, signal)
-        }
-        this.cb.item({ kind: 'assistant', id, turnId, text: beat.say })
+        await this.say(id, beat.say)
         continue
       }
       const tool: Extract<ChatItem, { kind: 'tool' }> = { kind: 'tool', id, turnId, name: beat.tool, input: beat.input, status: 'running' }
@@ -262,6 +373,11 @@ class DemoTurn implements AgentTurn {
 
   async stop(): Promise<void> {
     this.stopper.abort()
+  }
+
+  async stopChild(childId: string): Promise<void> {
+    if (!this.background) throw new Error('That subagent is not running')
+    this.background.stopChild(childId)
   }
 
   steer(): boolean {

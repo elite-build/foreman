@@ -72,4 +72,38 @@ describe('the demo agent', () => {
     expect(items.filter((i) => i.kind === 'tool')).toEqual([])
     expect(answer(items)).toContain('this reply is a script')
   })
+
+  it('answers a message about background work with a shell and a subagent it waits on, then reports back', async () => {
+    vi.useFakeTimers()
+    registerDemoAgents()
+    const cwd = await tempDir('foreman-demo-run-')
+    const { items, result } = await turn(cwd, 'Run the screens in the background')
+    expect(result).toEqual({ ok: true })
+    const tasks = items.filter((i): i is Extract<ChatItem, { kind: 'tool' }> => i.kind === 'tool' && Boolean(i.task?.background))
+    expect(tasks.map((i) => [i.name, i.task!.status])).toEqual([['Bash', 'completed'], ['Task', 'completed']])
+    // The subagent's own calls hang under its Task call; the answer came before the work ended, the report after.
+    expect(items.filter((i) => i.kind === 'tool' && i.parentToolUseId === tasks[1].id).length).toBeGreaterThan(3)
+    expect(items.find((i) => i.kind === 'notice')).toMatchObject({ text: 'Waiting for 2 background tasks to finish.' })
+    expect(answer(items)).toContain('three requests the retry should cover')
+  })
+
+  it('stops the background subagent on its own, and the shell carries on', async () => {
+    vi.useFakeTimers()
+    registerDemoAgents()
+    const cwd = await tempDir('foreman-demo-run-')
+    const items = new Map<string, ChatItem>()
+    let result: TurnResult | undefined
+    const callbacks = { item: (item: ChatItem, transient?: boolean) => void (transient || items.set(item.id, item)), usage: () => undefined, finished: (r: TurnResult) => void (result = r) } as unknown as TurnCallbacks
+    const demo = driverFor('claude').createTurn({ turnId: 't1', prompt: 'Run it in the background', cwd } as TurnRequest, callbacks)
+    const running = demo.run()
+    await vi.advanceTimersByTimeAsync(4000)
+    await demo.stopChild!('demo-agent')
+    await vi.runAllTimersAsync()
+    await running
+    expect(result).toEqual({ ok: true })
+    const status = (id: string) => (items.get(id) as Extract<ChatItem, { kind: 'tool' }>).task!.status
+    expect(status('t1:bg-agent')).toBe('stopped')
+    expect(status('t1:bg-shell')).toBe('completed')
+    await expect(demo.stopChild!('demo-agent')).rejects.toThrow('not running')
+  })
 })

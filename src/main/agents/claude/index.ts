@@ -39,6 +39,7 @@ import { trackedClaudeSpawn } from './spawn'
 import { alwaysAllowScope } from './alwaysScope'
 import { transportOverride } from '../transport'
 import { claudeContextUsage } from '../../../shared/contextUsage'
+import { translate } from '../../../shared/i18n'
 import { writeScopeDecision } from '../../../shared/permissions'
 import { protectedPathDecision, protectedPathRefusal } from '../../../shared/agentAccess'
 import { isEmployeeTool } from '../../../shared/employeeTools'
@@ -802,8 +803,7 @@ class ClaudeTurn implements AgentTurn {
         if (this.background.size) {
           // Closing the input now would kill the background work Claude is waiting on.
           if (!this.awaitingBackground) {
-            const n = this.background.size
-            this.notice('info', `Waiting for ${n} background task${n === 1 ? '' : 's'} to finish.`)
+            this.notice('info', translate(this.req.locale ?? 'en', 'chat.background.waiting', { count: this.background.size }))
             this.armBackgroundCutoff()
           }
           this.awaitingBackground = true

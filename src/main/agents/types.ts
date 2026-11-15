@@ -8,6 +8,7 @@ import type { ApprovalPolicy } from '../../shared/permissions'
 import type { ReportKind } from '../../shared/agentReports'
 import type { CloudSettings } from '../../shared/types'
 import type { OwnMcpServer } from '../../shared/integrations'
+import type { Locale } from '../../shared/i18n'
 import type { SecretStore } from '../secrets'
 
 /** How tool approvals work for a turn. */
@@ -128,6 +129,9 @@ export interface TurnRequest {
   // Claude only ("Stop waiting for background tasks"): a turn that has answered but still has background shells or
   // subagents ends after `ms`, saying `notice` (already in the app's language), and that background work stops with it.
   backgroundWait?: { ms: number; notice: string }
+  // The app's language, for the notices a driver words itself because they carry a count it alone knows (Claude: waiting for
+  // background tasks). Absent: English.
+  locale?: Locale
   // The Foreman assistant: replaces the prompt, tools and settings of the turn (see AssistantProfile).
   assistant?: AssistantProfile
 }

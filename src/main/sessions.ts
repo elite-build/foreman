@@ -53,7 +53,7 @@ import { workspaceDiffText } from './diff'
 import { commentsBlock } from '../shared/prompts'
 import { carriedHistory, forkCut, forkCutBefore, forkNoticeText, type ForkCut } from '../shared/fork'
 import type { TFunction } from '../shared/i18n'
-import { mainT } from './i18n'
+import { mainLocale, mainT } from './i18n'
 import { answeredBy, isMixed, lastTurnOf, modelDivider, otherAgentTurns, parkedAfterRewind, turnAuthors, type AgentSwitch, type PendingHandOff } from '../shared/switchAgent'
 import { buildHandOff, chooseStrategy, clampBudget, handOffRecord, readChatHistory, renderHandOff, type ChatHandOff, type HandOffBuild, type HandOffParty, type HandOffStrategy, type ReadHistoryArgs, type ReadHistoryResult } from '../shared/chatHandOff'
 import { catalogAgent, DEFAULT_AGENT } from '../shared/agentCatalog'
@@ -1636,7 +1636,8 @@ export class SessionService {
         disabledMcp: integ.disabled.length ? integ.disabled : undefined,
         sessionStore: this.mirrorFor(session, ws),
         forkOnResume: session.forkOnResume && session.agentSessionId ? true : undefined,
-        backgroundWait: this.backgroundWait()
+        backgroundWait: this.backgroundWait(),
+        locale: mainLocale(this.store.state.settings)
       }
     // #130: a conversation started on an account remembers where it lives.
     const state: TurnState = { mirrorNoticed: false, conversationKey: account || session.conversationKey ? conversationKey : undefined, ...(message.origin?.kind === 'idle-compact' ? { idle: true } : {}) }
