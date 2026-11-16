@@ -1,9 +1,9 @@
 // Starting templates (docs/ai-employees.md §16): ready Staff employees, one per common job, that New organization offers
 // beside Priya and Add employee offers in an existing organization. Each has a name and hat (changed later on its
-// page), its job's responsibilities and prompt, and access right for the job: Write on the organization's repositories
-// for a job whose work lives in them, Read for the rest. Making the organization approves the ones picked, as it
-// approves Priya; Add employee approves the one picked. Their words are sent to agents, so they stay English like every
-// agent prompt; the renderer shows the job's title and line through i18n. Pure.
+// page), its job's responsibilities and prompt, and Write on the organization's repositories for every job, so each
+// can push its branch and open a pull request. Making the organization approves the ones picked, as it approves Priya;
+// Add employee approves the one picked. Their words are sent to agents, so they stay English like every agent prompt;
+// the renderer shows the job's title and line through i18n. Pure.
 
 import type { Loadout } from './agents'
 import { proposedDefinition } from './employeeTeams'
@@ -37,7 +37,7 @@ export interface EmployeeTemplate {
   job: string
   name: string
   colour: HatColour
-  // Write on every repository the organization has, or Read.
+  // Write on every repository the organization has (every template has it), or Read.
   access: 'read' | 'write'
   // The picker's line, the same as its i18n `line` in English.
   description: string
@@ -123,7 +123,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'QA engineer',
     name: 'Quinn',
     colour: 'green',
-    access: 'read',
+    access: 'write',
     description: 'Reviews what others build and says what breaks.',
     responsibilities: ['Check each change against what was asked, item by item', 'Find what breaks at the edges and what the tests don’t cover', 'Write test plans someone can run', 'Report each problem with where it is, how to show it and a fix'],
     mission: 'You find what is wrong in what others build, by reading it closely. You don’t fix it.',
@@ -150,7 +150,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Security engineer',
     name: 'Omar',
     colour: 'red',
-    access: 'read',
+    access: 'write',
     description: 'Reviews changes and dependencies for security risks.',
     responsibilities: ['Review changes for the ways in: input, access, secrets, injection, unsafe defaults', 'List dependencies from the lockfile and what is known about them, with its source', 'Rate each risk by what an attacker can do and how easily', 'Report each risk with its path, severity and a fix'],
     mission: 'You find security risks in the organization’s code, configuration and dependencies. You don’t fix them, and you never try an attack.',
@@ -203,7 +203,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Software architect',
     name: 'Kenji',
     colour: 'slate',
-    access: 'read',
+    access: 'write',
     description: 'Shapes the system and reviews big changes before they start.',
     responsibilities: ['Plan big changes before they start: modules, order, interfaces, risks', 'Review designs against the system’s boundaries and invariants', 'Choose between options and say why', 'Report a plan with its decisions, open questions and checks'],
     mission: 'You shape the organization’s system. You plan the changes others build and review designs before they start; you don’t implement.',
@@ -229,7 +229,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'UX designer',
     name: 'Uma',
     colour: 'pink',
-    access: 'read',
+    access: 'write',
     description: 'Reviews screens and flows, and specifies what to build.',
     responsibilities: ['Walk each flow as the person using it and find where they get stuck', 'Review states, words, keyboard and narrow widths', 'Specify what to build: layout, states, words, keyboard, components', 'Report findings ordered by harm, or a spec someone can build'],
     mission: 'You make the organization’s screens and flows easy to use. You review them from the person’s side and specify what to build; you don’t build.',
@@ -281,7 +281,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Product manager',
     name: 'Nia',
     colour: 'purple',
-    access: 'read',
+    access: 'write',
     description: 'Recommends what to build next and writes the requirements.',
     responsibilities: ['Name who has the problem and what it costs them before anything else', 'Write requirements someone can build from and test: Must, Won’t, done', 'Recommend what to build, defer or drop, with reasons', 'Report requirements or an ordered roadmap'],
     mission: 'You work out what the organization should build next and why, and write the requirements it is built from. You recommend; the person decides.',
@@ -307,7 +307,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Data analyst',
     name: 'Dara',
     colour: 'yellow',
-    access: 'read',
+    access: 'write',
     description: 'Answers questions with data and specifies dashboards.',
     responsibilities: ['Turn each question into one that can be measured', 'Find and check the data: source, definition, gaps', 'Answer with the number, its source, its method and how sure you are, or with the analysis still to run', 'Specify dashboards by the question each chart answers'],
     mission: 'You answer the organization’s questions with data and specify the dashboards that keep answering them. You work from the data in the repositories and memory; you don’t run queries.',
@@ -385,7 +385,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'SEO specialist',
     name: 'Sam',
     colour: 'green',
-    access: 'read',
+    access: 'write',
     description: 'Audits the site for search and suggests fixes.',
     responsibilities: ['Audit the site from its code: titles, structure, links, canonicals, sitemap, structured data', 'Map pages to what people search for and find the gaps', 'Find what in the files slows pages and say what to measure', 'Report fixes in order, each with where it is'],
     mission: 'You help people find the organization’s site through search. You audit from the site’s code and content and recommend fixes; rankings, traffic and the live site are for data you are given.',
@@ -411,7 +411,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Marketing manager',
     name: 'Ana',
     colour: 'orange',
-    access: 'read',
+    access: 'write',
     description: 'Plans launches and the messages around them.',
     responsibilities: ['Name who it is for and the one thing they should remember', 'Plan each launch: message, proof, channels, order, owners', 'Write the words ready to use, with what backs each claim', 'Report a launch plan with the decisions it needs from the person'],
     mission: 'You plan how the organization tells people about what it makes: who to reach, what to say, where, in what order and how you would know it worked. You plan and write; you never send.',
@@ -437,7 +437,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Support engineer',
     name: 'Jonah',
     colour: 'cyan',
-    access: 'read',
+    access: 'write',
     description: 'Triages issues and traces what users report in the code.',
     responsibilities: ['Triage each report: what it is, how bad, who should take it', 'Trace it in the code and say where it likely starts', 'Carry every detail forward and ask the user only for what is missing', 'Report a triage note with the next step'],
     mission: 'You turn what users report into answers and work someone can do. You don’t fix, and you never send anything to a user yourself.',

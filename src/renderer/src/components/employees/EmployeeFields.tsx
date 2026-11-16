@@ -141,7 +141,7 @@ const csv = (list: readonly string[]) => list.join(', ')
 const fromCsv = (text: string) => text.split(',').map((s) => s.trim()).filter(Boolean)
 
 /** A whole number field that keeps what is typed until it is a number in range. */
-function NumberField({ label, description, value, min, max, onChange, optional }: { label: string; description?: string; value: number | undefined; min: number; max: number; onChange: (n: number | undefined) => void; optional?: boolean }) {
+function NumberField({ label, description, placeholder, value, min, max, onChange, optional }: { label: string; description?: string; placeholder?: string; value: number | undefined; min: number; max: number; onChange: (n: number | undefined) => void; optional?: boolean }) {
   const [text, setText] = useState(value === undefined ? '' : String(value))
   const n = Number(text)
   const bad = text.trim() === '' ? !optional : !Number.isFinite(n) || n < min || n > max
@@ -154,6 +154,7 @@ function NumberField({ label, description, value, min, max, onChange, optional }
           width={110}
           min={min}
           max={max}
+          placeholder={placeholder}
           value={text}
           aria-invalid={bad || undefined}
           onChange={(e) => {
@@ -306,20 +307,22 @@ export function AccessFields({
       {show('limits') && (
         <Group title={t('employees.access.limits')}>
           <div className="employee-limits">
-            <NumberField
-              label={t('employees.access.runs')}
-              value={value.limits.runs_per_day}
-              min={EMPLOYEE_LIMIT_RANGES.runs_per_day[0]}
-              max={EMPLOYEE_LIMIT_RANGES.runs_per_day[1]}
-              onChange={(n) => n !== undefined && onChange({ ...value, limits: { ...value.limits, runs_per_day: Math.round(n) } })}
-            />
-            <NumberField
-              label={t('employees.access.minutes')}
-              value={value.limits.minutes_per_run}
-              min={EMPLOYEE_LIMIT_RANGES.minutes_per_run[0]}
-              max={EMPLOYEE_LIMIT_RANGES.minutes_per_run[1]}
-              onChange={(n) => n !== undefined && onChange({ ...value, limits: { ...value.limits, minutes_per_run: Math.round(n) } })}
-            />
+            {(['runs_per_day', 'minutes_per_run'] as const).map((field) => (
+              <NumberField
+                key={field}
+                optional
+                label={t(field === 'runs_per_day' ? 'employees.access.runs' : 'employees.access.minutes')}
+                description={t('employees.access.noLimitHint')}
+                placeholder={t('employees.access.noLimit')}
+                value={value.limits[field]}
+                min={EMPLOYEE_LIMIT_RANGES[field][0]}
+                max={EMPLOYEE_LIMIT_RANGES[field][1]}
+                onChange={(n) => {
+                  const { [field]: _old, ...rest } = value.limits
+                  onChange({ ...value, limits: n === undefined ? rest : { ...rest, [field]: Math.round(n) } })
+                }}
+              />
+            ))}
             <NumberField
               optional
               label={t('employees.access.cost')}

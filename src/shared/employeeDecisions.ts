@@ -158,7 +158,7 @@ const triggerSig = (t: EmployeeTrigger) => JSON.stringify({ ...t, id: undefined 
 /**
  * Each difference between the approved definition and this one, old → new, in the order the plan lists them, with
  * whether it widens what the employee may do (more access, a shell, more servers, more hand-offs, an action held or
- * refused before and allowed now, a new trigger, higher limits). Values are raw (ids, names, numbers); the words are the
+ * refused before and allowed now, a new trigger, higher limits or none). Values are raw (ids, names, numbers); the words are the
  * renderer's. The hat changes nothing (it isn't approved), so it isn't listed.
  */
 export function definitionChanges(before: EmployeeDefinition, after: EmployeeDefinition): DefinitionChange[] {
@@ -190,10 +190,15 @@ export function definitionChanges(before: EmployeeDefinition, after: EmployeeDef
   const bs = bt.map(triggerSig).sort().join('\n')
   const as = at.map(triggerSig).sort().join('\n')
   if (bs !== as) out.push({ field: 'triggers', before: String(bt.length), after: String(at.length), wider: at.some((t) => !bt.map(triggerSig).includes(triggerSig(t))) })
-  add('runs', String(before.limits.runs_per_day), String(after.limits.runs_per_day), after.limits.runs_per_day > before.limits.runs_per_day)
-  add('minutes', String(before.limits.minutes_per_run), String(after.limits.minutes_per_run), after.limits.minutes_per_run > before.limits.minutes_per_run)
-  const cost = (d: EmployeeDefinition) => (d.limits.cost_per_day_usd === undefined ? '' : String(d.limits.cost_per_day_usd))
-  add('cost', cost(before), cost(after), before.limits.cost_per_day_usd !== undefined && (after.limits.cost_per_day_usd === undefined || after.limits.cost_per_day_usd > before.limits.cost_per_day_usd))
+  // A limit is '' when there is none; dropping one, or raising it, is wider.
+  const limit = (field: 'runs' | 'minutes' | 'cost', key: keyof EmployeeDefinition['limits']) => {
+    const b = before.limits[key]
+    const a = after.limits[key]
+    add(field, b === undefined ? '' : String(b), a === undefined ? '' : String(a), b !== undefined && (a === undefined || a > b))
+  }
+  limit('runs', 'runs_per_day')
+  limit('minutes', 'minutes_per_run')
+  limit('cost', 'cost_per_day_usd')
   add('persona', before.persona ?? '', after.persona ?? '', false)
   add('instructions', before.instructions, after.instructions, false)
   const words = (d: EmployeeDefinition) => JSON.stringify([d.name, d.role, d.description, d.personality, d.responsibilities, d.ask_me_about])

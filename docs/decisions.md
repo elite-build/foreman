@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-17: Every AI employee writes, pushes and opens pull requests without asking, with no limits
+
+**Decision.** A new employee (Priya, templates, proposals, New employee) gets Write on the organization's repositories, pushes and pull requests allowed, and no limit on runs or minutes; limits are optional. Employees that already existed were given the same once, keeping an approval nothing else changed.
+
+**Why.** The maintainer wants employees to ship their work: a held push and a read-only template stopped that, and 6 runs a day or 30 minutes a run cut work short.
+
+**Turned down.** Write with pushes still held for Send (a person in every loop); new employees only (existing ones would stay stuck); Priya left read-only.
+
+**Revisit when.** Foreman is used by teams who don't want unattended publishing, or an employee pushes something it shouldn't.
+
 ## 2026-11-16: A project starts only by tagging the organization's one program manager, who plans it as data
 
 **Decision.** Small work stays a workspace. A project starts when the person tags the organization's program manager (Priya), made and approved with every organization. She plans each project with `project_plan`; Foreman checks the plan and runs its parts as ordinary employee tasks (`docs/ai-employees.md` §15).

@@ -15,6 +15,7 @@ import {
   employeeStatus,
   freeHatColour,
   HAT_COLOURS,
+  newEmployee,
   newEmployeeId,
   normalizeEmployee,
   parseEmployee,
@@ -23,6 +24,7 @@ import {
   saveAsIsText,
   serializeEmployee,
   shuffledHatColour,
+  withFullAccess,
   type EmployeeDefinition
 } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
@@ -30,7 +32,7 @@ import type { Repo } from '../src/shared/types'
 import { hardHatColours } from '../src/renderer/src/ui/HardHat'
 import { ForemanDb } from '../src/main/db'
 import { gitOut } from '../src/main/git'
-import { employeeFingerprint, EmployeeService, PRIVACY_MODE_ON } from '../src/main/employees'
+import { employeeFingerprint, EmployeeService, FULL_ACCESS_MIGRATION, PRIVACY_MODE_ON } from '../src/main/employees'
 import { MemoryService } from '../src/main/memory'
 import { createMemoryRepository } from '../src/main/organizations'
 import { defaultSettings, type PersistedState } from '../src/main/store'
@@ -70,8 +72,22 @@ describe('employees: the definition', () => {
     expect(Object.values(d.access.actions).every((p) => p === 'held')).toBe(true)
     expect(d.attendance).toBe('unattended')
     expect(d.model).toEqual({ agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium', fallbacks: [] })
-    expect(d.limits).toEqual({ runs_per_day: 6, minutes_per_run: 30 })
+    expect(d.limits).toEqual({})
     expect(d.look).toEqual({ family: 'hardhat', colour: 'teal' })
+  })
+
+  it('gives a new employee Write where it reads, pushes and pull requests without a hold, and no limits', () => {
+    const input = { id: 'e-abcd', colour: 'teal', repos: ['site', 'api'], loadouts: [{ agent: 'claude' as const, model: 'claude-sonnet-5-5' }], text: { name: 'Ada' } }
+    const d = newEmployee(input)
+    expect(d.access.repos).toEqual({ site: 'write', api: 'write' })
+    expect(d.access.actions).toEqual({ 'slack-post': 'held', linear: 'held', push: 'allowed', 'pull-request': 'allowed' })
+    expect(d.limits).toEqual({})
+    expect(serializeEmployee(d).endsWith('\n[limits]\n')).toBe(true)
+    expect(parseEmployee(serializeEmployee(d)).definition).toEqual(normalizeEmployee(d))
+    // Attended runs read-only, so an attended employee keeps Read; a repository given no access stays so.
+    expect(newEmployee({ ...input, loadouts: [{ agent: 'codex', model: 'gpt-6.1-sol' }] }).access.repos).toEqual({ site: 'read', api: 'read' })
+    const limited = { ...defaultEmployee(input), access: { ...defaultEmployee(input).access, repos: { site: 'none' as const, api: 'read' as const } }, limits: { runs_per_day: 3, minutes_per_run: 10, cost_per_day_usd: 2 } }
+    expect(withFullAccess(limited)).toMatchObject({ access: { repos: { site: 'none', api: 'write' } }, limits: {} })
   })
 
   it('makes an employee on an agent that can’t run unattended attended (Codex is offered attended only)', () => {
@@ -109,8 +125,10 @@ describe('employees: the definition', () => {
 
   it('says what is wrong with a file, and gives no definition while anything is', () => {
     expect(parseEmployee('name = ').problems[0]).toMatch(/^This isn’t valid TOML: /)
-    const base = serializeEmployee(max())
+    const base = serializeEmployee(max({ limits: { runs_per_day: 6, minutes_per_run: 30 } }))
     const problems = (toml: string) => parseEmployee(toml).problems
+    // Every limit is optional: one left out has none.
+    expect(problems(base.replace(/runs_per_day = 6\nminutes_per_run = 30\n/, ''))).toEqual([])
     // Triggers are a known field, checked like the rest: a cron trigger needs its expression and time zone.
     expect(problems(`${base}\n[[triggers]]\nkind = "cron"\n`)).toEqual(['triggers[1].cron is missing.', 'triggers[1].timezone is missing.'])
     expect(problems(`${base}\n[[triggers]]\nkind = "cron"\ncron = "0 9 * * 1"\ntimezone = "UTC"\nwhen = "now"\n`)).toEqual(['Unknown field triggers[1].when.'])
@@ -382,6 +400,50 @@ describe('employees: the service', () => {
     expect(approved.approvedText).toBeUndefined()
   })
 
+  it('gives the employees an organization already had full access once, in one commit, and moves their approvals with it', async () => {
+    const { root, employees, state } = await rig()
+    const limited = definitionFor({ limits: { runs_per_day: 6, minutes_per_run: 30 } })
+    const created = await employees.create('o1', limited, { approve: true })
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    await employees.refresh('o1')
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe('Let every AI employee push, open pull requests and run without limits')
+    const [view] = (await employees.list('o1')).employees
+    expect(view.definition).toEqual(withFullAccess(limited))
+    expect(view.definition!.access.repos).toEqual({ 'foreman-website': 'write' })
+    // The person asked for exactly this change, so the approval moved with it: still approved, not changed.
+    expect(view).toMatchObject({ state: 'active', changed: false })
+    expect(state.employees![0].approvedFingerprint).not.toBe(created.fingerprint)
+    expect(state.migrations).toEqual([`${FULL_ACCESS_MIGRATION}:o1`])
+    // Once: a limit set afterwards stays.
+    const again = await employees.update('o1', created.id, { ...view.definition!, limits: { runs_per_day: 3 } }, view.blob)
+    expect(again.ok).toBe(true)
+    await employees.refresh('o1')
+    expect((await employees.list('o1')).employees[0].definition!.limits).toEqual({ runs_per_day: 3 })
+  })
+
+  it('moves an approval when another computer made the change, and only when nothing else changed', async () => {
+    const { memory, employees, state } = await rig()
+    const limited = definitionFor({ limits: { runs_per_day: 6, minutes_per_run: 30 } })
+    const kept = await employees.create('o1', limited, { approve: true })
+    const edited = await employees.create('o1', { ...limited, id: 'e-ab12', name: 'Ada' }, { approve: true })
+    // Another computer's commit: Max only widened, Ada widened and told something new.
+    const result = await memory.commitAsPerson(
+      'o1',
+      [
+        { kind: 'write', path: kept.path, text: serializeEmployee(withFullAccess(limited)), expectedBlob: kept.blob },
+        { kind: 'write', path: edited.path, text: serializeEmployee({ ...withFullAccess({ ...limited, id: 'e-ab12', name: 'Ada' }), instructions: 'Something else.' }), expectedBlob: edited.blob }
+      ],
+      { subject: 'Let every AI employee push, open pull requests and run without limits' }
+    )
+    expect(result.ok).toBe(true)
+    await employees.refresh('o1')
+    const byName = Object.fromEntries((await employees.list('o1')).employees.map((e) => [e.name, e]))
+    expect(byName.Max).toMatchObject({ state: 'active', changed: false })
+    expect(byName.Ada).toMatchObject({ state: 'active', changed: true })
+    expect(state.migrations).toContain(`${FULL_ACCESS_MIGRATION}:o1`)
+  })
+
   it('pauses an employee after two runs in a row that didn’t finish, saying how the last ended; a finished run resets the count, and Resume starts it over', async () => {
     const { employees, state } = await rig()
     const created = await employees.create('o1', definitionFor(), { approve: true })
@@ -549,8 +611,11 @@ describe('employees: adding a job template (docs/ai-employees.md §5.3, §16)', 
     expect(employee.definition!.access.repos).toEqual({ 'foreman-website': 'write' })
     expect(employee.definition!.model).toMatchObject({ agent: 'claude', model: 'claude-sonnet-5-5' })
     expect(state.employees!.find((r) => r.id === employee.id)).toMatchObject({ state: 'active', approvedFingerprint: employee.fingerprint, approvedBlob: employee.blob })
-    // A job that reads gets Read.
-    expect((await employees.addTemplate('o1', 'qa-engineer')).employee.definition!.access.repos).toEqual({ 'foreman-website': 'read' })
+    // Every job writes, and pushes and opens pull requests without a hold.
+    const qa = (await employees.addTemplate('o1', 'qa-engineer')).employee.definition!
+    expect(qa.access.repos).toEqual({ 'foreman-website': 'write' })
+    expect(qa.access.actions).toMatchObject({ push: 'allowed', 'pull-request': 'allowed' })
+    expect(qa.limits).toEqual({})
   })
 
   it('names a job the roster has "<name> (<job>)", then numbers it, counting retired employees’ names', async () => {

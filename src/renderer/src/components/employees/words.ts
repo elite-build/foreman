@@ -156,7 +156,18 @@ export function canDoLines(d: EmployeeDefinition, t: RendererT, names: (id: stri
   if (d.access.delegate_to.length) lines.push({ section: 'actions', text: t('employees.can.delegates', { names: join(d.access.delegate_to.map(names), t) }) })
   const on = (d.triggers ?? []).filter((x) => x.enabled)
   lines.push({ section: 'when', text: on.length ? t('employees.can.whenTriggers', { triggers: join(on.map((x) => triggerWhen(x, t)), t) }) : t('employees.can.whenAsked') })
-  lines.push({ section: 'limits', text: t('employees.can.limits', { runs: d.limits.runs_per_day, minutes: d.limits.minutes_per_run }) })
+  const { runs_per_day: runs, minutes_per_run: minutes } = d.limits
+  lines.push({
+    section: 'limits',
+    text:
+      runs !== undefined && minutes !== undefined
+        ? t('employees.can.limits', { runs, minutes })
+        : runs !== undefined
+          ? t('employees.can.limitRuns', { runs })
+          : minutes !== undefined
+            ? t('employees.can.limitMinutes', { minutes })
+            : t('employees.can.noLimits')
+  })
   if (d.limits.cost_per_day_usd !== undefined) lines.push({ section: 'limits', text: t('employees.can.cost', { cost: new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(d.limits.cost_per_day_usd) }) })
   const model = modelText(d.model.agent, d.model.model, t)
   lines.push({ section: 'model', text: d.attendance === 'unattended' ? t('employees.can.model', { model }) : t('employees.can.modelAttended', { model }) })
@@ -580,9 +591,16 @@ export function planWhen(d: Pick<EmployeeDefinition, 'triggers' | 'limits' | 'at
   const on = (d.triggers ?? []).filter((x) => x.enabled)
   const when = on.length ? t('employees.plan.whenTriggers', { triggers: join(on.map((x) => triggerWhen(x, t)), t) }) : t('employees.plan.whenAsked')
   const cost = d.limits.cost_per_day_usd !== undefined ? new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(d.limits.cost_per_day_usd) : undefined
-  const limits = cost
-    ? t('employees.plan.limitsCost', { runs: d.limits.runs_per_day, minutes: d.limits.minutes_per_run, cost })
-    : t('employees.plan.limits', { runs: d.limits.runs_per_day, minutes: d.limits.minutes_per_run })
+  const { runs_per_day: runs, minutes_per_run: minutes } = d.limits
+  const set =
+    runs !== undefined && minutes !== undefined
+      ? t('employees.plan.limits', { runs, minutes })
+      : runs !== undefined
+        ? t('employees.plan.limitRuns', { runs })
+        : minutes !== undefined
+          ? t('employees.plan.limitMinutes', { minutes })
+          : t('employees.plan.noLimits')
+  const limits = cost ? t('employees.plan.limitsCost', { limits: set, cost }) : set
   const attended = d.attendance === 'unattended' ? t('employees.plan.unattended') : t('employees.plan.attended')
   return { when, limits, attended }
 }
@@ -639,9 +657,9 @@ export function changeText(c: DefinitionChange, before: EmployeeDefinition, afte
       case 'action':
         return t(POLICY_LABEL[v as EmployeeActionPolicy] ?? 'employees.policy.held')
       case 'runs':
-        return t('employees.changed.runs', { count: Number(v) })
+        return v ? t('employees.changed.runs', { count: Number(v) }) : t('employees.access.noLimit')
       case 'minutes':
-        return t('employees.changed.minutes', { count: Number(v) })
+        return v ? t('employees.changed.minutes', { count: Number(v) }) : t('employees.access.noLimit')
       case 'cost':
         return v ? new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(Number(v)) : none
       case 'persona':

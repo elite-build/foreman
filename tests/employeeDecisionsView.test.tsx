@@ -209,7 +209,7 @@ describe('a draft’s page is its plan', () => {
       'Hand work to other employees'
     ])
     expect(group('Asks you first')).toEqual(['Before changing Acme’s shared memory You add or discard each change.'])
-    expect(plan.textContent).toContain('Only when you ask · at most 6 runs a day, 30 minutes a run')
+    expect(plan.textContent).toContain('Only when you ask · no limit on runs or minutes')
     // No Ask while it can't run, and no separate plan dialog: Approve <name> applies at once.
     expect(screen.queryByRole('textbox', { name: 'Ask Lin…' })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Approve Lin' }))
@@ -220,8 +220,8 @@ describe('a draft’s page is its plan', () => {
   })
 
   it('lists each difference since approval first, old → new, the wider ones tagged in words', () => {
-    const before = lin
-    const after: EmployeeDefinition = { ...lin, access: { ...lin.access, mcp: ['foreman-linear'] }, limits: { ...lin.limits, runs_per_day: 10 } }
+    const after: EmployeeDefinition = { ...lin, access: { ...lin.access, mcp: ['foreman-linear'] }, limits: { minutes_per_run: 30 } }
+    const before = { ...lin, limits: { runs_per_day: 6, minutes_per_run: 30 } }
     const approvedAt = '2026-11-12T09:00:00.000Z'
     setSnapshot([summary(ada), summary(lin, { changed: true, approvedAt }), summary(max)])
     render(<EmployeePage orgId="o1" employee={view(after, { changed: true, approvedAt, approvedText: serializeEmployee(before) })} edit={false} data={data()} />)
@@ -230,7 +230,7 @@ describe('a draft’s page is its plan', () => {
     const rows = [...changed.querySelectorAll('.employee-change')].map((r) => [r.querySelector('dt')?.textContent, ...[...r.querySelector('dd')!.children].map((c) => c.textContent)])
     expect(rows).toEqual([
       ['MCP servers', 'None', '→', 'becomes', 'foreman-linear', 'Wider'],
-      ['Runs a day', 'At most 6 runs a day', '→', 'becomes', 'At most 10 runs a day', 'Wider']
+      ['Runs a day', 'At most 6 runs a day', '→', 'becomes', 'No limit', 'Wider']
     ])
     expect(screen.getByRole('button', { name: 'Approve Lin' })).toBeTruthy()
     // The plan below says what it may do now: Linear asks first.

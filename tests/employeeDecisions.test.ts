@@ -103,7 +103,10 @@ describe('what a definition lets an employee do (a draft’s page is its plan)',
 })
 
 describe('what changed since approval', () => {
-  const base = defaultEmployee({ id: 'e-lin3', colour: 'teal', repos: ['site'], loadouts: [{ agent: 'claude', model: 'claude-opus-5-5' }], text: { name: 'Lin', role: 'Triage', instructions: 'Label new issues.' } })
+  const base: EmployeeDefinition = {
+    ...defaultEmployee({ id: 'e-lin3', colour: 'teal', repos: ['site'], loadouts: [{ agent: 'claude', model: 'claude-opus-5-5' }], text: { name: 'Lin', role: 'Triage', instructions: 'Label new issues.' } }),
+    limits: { runs_per_day: 6, minutes_per_run: 30 }
+  }
 
   it('lists each difference, old → new, and tags what widens what it may do', () => {
     const after: EmployeeDefinition = {
@@ -130,6 +133,18 @@ describe('what changed since approval', () => {
       ['runs', false]
     ])
     expect(definitionChanges(base, base)).toEqual([])
+  })
+
+  it('says dropping a limit is wider, and setting one where there was none is not', () => {
+    const none: EmployeeDefinition = { ...base, limits: {} }
+    expect(definitionChanges(base, none).map((c) => [c.field, c.before, c.after, c.wider])).toEqual([
+      ['runs', '6', '', true],
+      ['minutes', '30', '', true]
+    ])
+    expect(definitionChanges(none, base).map((c) => [c.field, c.wider])).toEqual([
+      ['runs', false],
+      ['minutes', false]
+    ])
   })
 })
 

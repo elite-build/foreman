@@ -8,7 +8,7 @@ import { canRunUnattended, catalogAgent, DEFAULT_AGENT } from './agentCatalog'
 import { DEFAULT_MODEL, type AgentKind, type EffortLevel, type Loadout } from './agents'
 import { createT, type TFunction } from './i18n'
 import { isEmployeeId } from './memory'
-import { EMPLOYEE_ACTIONS } from './employeeActions'
+import { EMPLOYEE_ACTIONS, PUBLISH_ACTIONS } from './employeeActions'
 import { normalizeTrigger, parseTriggers, type EmployeeTrigger } from './employeeTriggers'
 
 const enT = createT('en')
@@ -64,8 +64,7 @@ export const EMPLOYEE_TEXT_LIMITS = {
 export const MAX_RESPONSIBILITIES = 12
 export const MAX_LIST = 50
 
-/** A new employee's limits (§9): hard limits on runs a day and minutes a run. */
-export const DEFAULT_EMPLOYEE_LIMITS = { runs_per_day: 6, minutes_per_run: 30 } as const
+/** The ranges a limit (§9) may be set in. Each is optional: a new employee has none, so it runs as often and as long as it needs. */
 export const EMPLOYEE_LIMIT_RANGES = { runs_per_day: [1, 100], minutes_per_run: [1, 240], cost_per_day_usd: [0, 1000] } as const
 
 export interface EmployeeModel {
@@ -89,9 +88,10 @@ export interface EmployeeAccess {
   actions: Record<string, EmployeeActionPolicy>
 }
 
+// Absent: no limit.
 export interface EmployeeLimits {
-  runs_per_day: number
-  minutes_per_run: number
+  runs_per_day?: number
+  minutes_per_run?: number
   // A threshold, not a hard cap (§9).
   cost_per_day_usd?: number
 }
@@ -289,11 +289,12 @@ export function employeeFromObject(raw: unknown, t: TFunction = enT): EmployeePa
   const rawLimits = table(raw.limits, 'limits')
   if (rawLimits) {
     unknown(rawLimits, LIMIT_FIELDS, 'limits.')
-    const whole = (value: unknown, field: 'runs_per_day' | 'minutes_per_run'): number => {
+    const whole = (value: unknown, field: 'runs_per_day' | 'minutes_per_run'): number | undefined => {
       const [min, max] = EMPLOYEE_LIMIT_RANGES[field]
+      if (value === undefined) return undefined
       if (typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max) return value
-      problems.push(value === undefined ? t('employees.problem.missing', { field: `limits.${field}` }) : t('employees.problem.whole', { field: `limits.${field}`, min, max }))
-      return 0
+      problems.push(t('employees.problem.whole', { field: `limits.${field}`, min, max }))
+      return undefined
     }
     const runs = whole(rawLimits.runs_per_day, 'runs_per_day')
     const minutes = whole(rawLimits.minutes_per_run, 'minutes_per_run')
@@ -304,7 +305,7 @@ export function employeeFromObject(raw: unknown, t: TFunction = enT): EmployeePa
       if (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max) cost = value
       else problems.push(t('employees.problem.cost', { min, max }))
     }
-    limits = { runs_per_day: runs, minutes_per_run: minutes, ...(cost !== undefined ? { cost_per_day_usd: cost } : {}) }
+    limits = limitsOf({ runs_per_day: runs, minutes_per_run: minutes, cost_per_day_usd: cost })
   }
 
   if (problems.length || !model || !attendance || !access || !limits) return { problems: problems.length ? problems : [t('employees.problem.notTable')] }
@@ -375,9 +376,16 @@ export function normalizeEmployee(d: EmployeeDefinition): EmployeeDefinition {
       actions: sortedRecord(d.access.actions)
     },
     ...(d.triggers?.length ? { triggers: d.triggers.map(normalizeTrigger) } : {}),
-    limits: { runs_per_day: d.limits.runs_per_day, minutes_per_run: d.limits.minutes_per_run, ...(d.limits.cost_per_day_usd !== undefined ? { cost_per_day_usd: d.limits.cost_per_day_usd } : {}) }
+    limits: limitsOf(d.limits)
   }
 }
+
+/** The limits that are set, in their order; one left out has no limit. */
+const limitsOf = (l: EmployeeLimits): EmployeeLimits => ({
+  ...(l.runs_per_day !== undefined ? { runs_per_day: l.runs_per_day } : {}),
+  ...(l.minutes_per_run !== undefined ? { minutes_per_run: l.minutes_per_run } : {}),
+  ...(l.cost_per_day_usd !== undefined ? { cost_per_day_usd: l.cost_per_day_usd } : {})
+})
 
 /** A TOML basic string: JSON's escapes, which TOML shares, plus the characters TOML refuses raw (DEL, lone surrogates). */
 function tomlString(s: string): string {
@@ -432,7 +440,8 @@ export function serializeEmployee(definition: EmployeeDefinition, { look = true 
   lines.push(`actions = ${tomlInline(d.access.actions)}`)
   for (const trigger of d.triggers ?? []) lines.push('', '[[triggers]]', ...triggerLines(trigger))
   lines.push('', '[limits]')
-  lines.push(`runs_per_day = ${d.limits.runs_per_day}`, `minutes_per_run = ${d.limits.minutes_per_run}`)
+  if (d.limits.runs_per_day !== undefined) lines.push(`runs_per_day = ${d.limits.runs_per_day}`)
+  if (d.limits.minutes_per_run !== undefined) lines.push(`minutes_per_run = ${d.limits.minutes_per_run}`)
   if (d.limits.cost_per_day_usd !== undefined) lines.push(`cost_per_day_usd = ${d.limits.cost_per_day_usd}`)
   return `${lines.join('\n')}\n`
 }
@@ -542,10 +551,10 @@ export interface EmployeeDefaultsInput {
 }
 
 /**
- * A new employee at the safest settings, whatever its words say (§5.3): reads every repository of its organization,
- * writes only its own memory folder, no shell, no MCP server, no delegation, every outward action held, runs only when
- * asked, 6 runs a day and 30 minutes a run, on the person's default agent and model. Unattended when that agent can
- * run with nobody there (§1), attended otherwise (§9: Codex is offered attended and read-only).
+ * The safest settings, whatever its words say: reads every repository of its organization, writes only its own memory
+ * folder, no shell, no MCP server, no delegation, every outward action held, runs only when asked, no limit on runs or
+ * minutes, on the person's default agent and model. Unattended when that agent can run with nobody there (§1), attended
+ * otherwise (§9: Codex is offered attended and read-only). A new employee is this with full access (newEmployee).
  */
 export function defaultEmployee({ id, colour, repos, loadouts, text = {} }: EmployeeDefaultsInput): EmployeeDefinition {
   const first = loadouts[0]
@@ -570,7 +579,33 @@ export function defaultEmployee({ id, colour, repos, loadouts, text = {} }: Empl
       delegate_to: [],
       actions: Object.fromEntries(EMPLOYEE_ACTIONS.map((a) => [a, 'held' as const]))
     },
-    limits: { ...DEFAULT_EMPLOYEE_LIMITS }
+    limits: {}
+  }
+}
+
+/**
+ * A new employee (§5.3): the safest settings, then what every employee has (withFullAccess): it writes every repository
+ * of its organization and pushes and opens pull requests there without a hold (attended, it reads them instead).
+ */
+export function newEmployee(input: EmployeeDefaultsInput): EmployeeDefinition {
+  return withFullAccess(defaultEmployee(input))
+}
+
+/**
+ * The definition with what every employee has: Write where it reads (an attended one runs read-only, so it keeps Read),
+ * pushes and pull requests allowed without a hold, and no limits. A repository it was given no access to stays so, and
+ * nothing else changes. Main applies it once to the employees an organization already had (main/employees.ts).
+ */
+export function withFullAccess(d: EmployeeDefinition): EmployeeDefinition {
+  const write = d.attendance === 'unattended'
+  return {
+    ...d,
+    access: {
+      ...d.access,
+      repos: Object.fromEntries(Object.entries(d.access.repos).map(([r, a]) => [r, write && a === 'read' ? 'write' : a])),
+      actions: { ...d.access.actions, ...Object.fromEntries(PUBLISH_ACTIONS.map((a) => [a, 'allowed' as const])) }
+    },
+    limits: {}
   }
 }
 

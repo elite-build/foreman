@@ -1,20 +1,21 @@
 // The New employee page (docs/ai-employees.md §5.3): two ways, switched at the top. Pick a job (the default, PickJob.tsx)
 // adds one of Foreman's job templates, approved at once. Write your own: describe the employee, optionally pick a
 // personality and a hat, then Generate with AI (one request) or Use my words. The draft is words to read and edit in
-// place, with Refine; what it can do starts at the safest settings whatever the words say, and what the draft suggests is
-// listed switched off: the AI drafts, it never grants. Create saves `bots/<id>.toml` and the employee's memory folder in
-// one commit, as a draft, and opens the draft's page, which is its plan: approving happens there. Nothing is written
-// before Create. Switching only hides a way, so what was entered in each stays while the page is open.
+// place, with Refine; what it can do starts at a new employee's settings whatever the words say (it writes, pushes and
+// opens pull requests in the organization's repositories), and what the draft suggests is listed switched off: the AI
+// drafts, it never grants. Create saves `bots/<id>.toml` and the employee's memory folder in one commit, as a draft, and
+// opens the draft's page, which is its plan: approving happens there. Nothing is written before Create. Switching only
+// hides a way, so what was entered in each stays while the page is open.
 import { Check, RotateCcw, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  defaultEmployee,
   draftTextOf,
   employeeNameProblem,
   employeeProblems,
   freeHatColour,
   MAX_DRAFT_DESCRIPTION,
   MAX_REFINE_REQUEST,
+  newEmployee,
   newEmployeeId,
   PERSONALITY_TRAITS,
   saveAsIsText,
@@ -114,8 +115,11 @@ function WriteYourOwn({ orgId, data }: { orgId: string; data: EmployeesData }) {
   const [undo, setUndo] = useState<{ text: EmployeeDraftText; suggested: EmployeeSuggestion[] } | null>(null)
   const [refined, setRefined] = useState('')
 
+  // Write to a repository isn't something to suggest: a new employee writes every repository it can (attended, it runs
+  // read-only), so only schedules and events are listed.
+  const shown = suggested.filter((s) => s.kind !== 'repo-write')
   const personalityWords = () => [...traits.map((tr) => t(TRAIT_LABEL[tr])), ...(otherOn && other.trim() ? [other.trim()] : [])].join(', ')
-  const newDraft = (text: EmployeeDraftText, colour: string) => defaultEmployee({ id: newEmployeeId(others.map((o) => o.id)), colour, repos, loadouts: snapshot.settings.loadouts, text })
+  const newDraft = (text: EmployeeDraftText, colour: string) => newEmployee({ id: newEmployeeId(others.map((o) => o.id)), colour, repos, loadouts: snapshot.settings.loadouts, text })
 
   const generate = async () => {
     setWorking('generate')
@@ -363,14 +367,14 @@ function WriteYourOwn({ orgId, data }: { orgId: string; data: EmployeesData }) {
             <CanDo value={draft} onChange={setDraft} repos={repos} others={others} heading={t('employees.can.headingUnnamed')} />
           </Card>
 
-          {suggested.length > 0 && (
+          {shown.length > 0 && (
             <Card as="section" className="new-employee-card" aria-labelledby="new-employee-suggested">
               <h2 id="new-employee-suggested" className="employee-subheading">
                 {t('employees.suggest.heading')}
               </h2>
               <p className="employee-faint">{t('employees.suggest.intro')}</p>
               <ul className="new-employee-suggestions">
-                {suggested.map((s, i) => {
+                {shown.map((s, i) => {
                   const label = s.kind === 'repo-write' ? t('employees.suggest.repoWrite', { repo: s.detail }) : s.kind === 'schedule' ? t('employees.suggest.schedule', { detail: s.detail }) : t('employees.suggest.event', { detail: s.detail })
                   const on = s.kind === 'repo-write' && draft.access.repos[s.detail] === 'write'
                   const id = `new-employee-suggestion-${i}`

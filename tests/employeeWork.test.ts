@@ -45,7 +45,8 @@ afterEach(() => {
 
 function definition(id: string, name: string, overrides: Partial<EmployeeDefinition> = {}): EmployeeDefinition {
   const d = defaultEmployee({ id, colour: 'orange', repos: ['site', 'api'], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' }], text: { name, role: 'Marketing', instructions: `You are ${name}.`, responsibilities: ['Write posts', 'Draft the changelog'] } })
-  return { ...d, ...overrides, access: { ...d.access, ...overrides.access }, limits: { ...d.limits, ...overrides.limits } }
+  // Limits that the tests of limits count against (a new employee has none).
+  return { ...d, ...overrides, access: { ...d.access, ...overrides.access }, limits: { runs_per_day: 6, minutes_per_run: 30, ...overrides.limits } }
 }
 
 describe('employee work: the words a run is given and what it may do', () => {
@@ -284,6 +285,16 @@ describe('employee work: admission', () => {
     expect(brief.context).toContain('<foreman-memory path="memory/org/PROJECT.md" commit="head-1">')
     expect(brief.memory).toEqual([{ path: 'memory/org/PROJECT.md', commit: 'head-1', chars: 24, cut: false }])
     expect(f.db.employeeTaskTransitions(task.id).map((t) => t.event)).toEqual(['saved', 'admitted'])
+  })
+
+  it('admits any number of runs a day and stops none for time when the definition sets no limits', async () => {
+    const f = await rig()
+    f.definitions.set('e-max1', { ...definition('e-max1', 'Max'), limits: {} })
+    await f.service.ask('o1', 'e-max1', { body: 'Draft the launch post', repoId: 'site' })
+    await settle()
+    const { plan } = f.launches[0]
+    expect(plan.setupMs).toBeUndefined()
+    expect(f.db.employeeRun(plan.run.id)!.minutes).toBeUndefined()
   })
 
   it('refuses before making a task when there is nothing to ask, or the repository isn’t one it can work in', async () => {

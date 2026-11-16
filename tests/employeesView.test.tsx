@@ -7,7 +7,7 @@ import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultEmployee, type EmployeeSummary, type EmployeeView } from '../src/shared/employees'
+import { defaultEmployee, newEmployee, type EmployeeSummary, type EmployeeView } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
 import { TeamSection } from '../src/renderer/src/components/employees/TeamSection'
 import { NewEmployeePage } from '../src/renderer/src/components/employees/NewEmployeePage'
@@ -177,7 +177,7 @@ describe('the Team page', () => {
 })
 
 describe('the New employee page', () => {
-  it('Use my words keeps the person’s words as the instructions, at the safest settings, and creates a draft', async () => {
+  it('Use my words keeps the person’s words as the instructions, at a new employee’s settings, and creates a draft', async () => {
     const user = userEvent.setup()
     setSnapshot({ employees: [summary('e-1abc', 'Ada')] })
     const d = data()
@@ -193,11 +193,13 @@ describe('the New employee page', () => {
     expect(screen.getByText('Give the employee a name.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create' })).toHaveProperty('disabled', true)
     expect((screen.getByRole('textbox', { name: 'Personality' }) as HTMLInputElement).value).toBe('Concise')
-    // What it can do starts at the safest settings.
-    expect(screen.getByText('Reads foreman-website, foreman.')).toBeTruthy()
+    // What it can do starts at a new employee's settings: it writes, pushes and opens pull requests, with no limits.
+    expect(screen.getByText('Reads only the repositories it writes to.')).toBeTruthy()
+    expect(screen.getByText('Writes to foreman-website, foreman, in its own branch.')).toBeTruthy()
     expect(screen.getByText('No shell: Foreman’s own tools only.')).toBeTruthy()
-    expect(screen.getByText('Messages to other people and every other outward action wait for you.')).toBeTruthy()
+    expect(screen.getByText(/^Sends without waiting for you: .*push/i)).toBeTruthy()
     expect(screen.getByText('Runs only when asked.')).toBeTruthy()
+    expect(screen.getByText('No limit on runs a day or minutes a run.')).toBeTruthy()
     await user.type(name, 'Ada')
     expect(screen.getByText('Another employee in this organization has this name.')).toBeTruthy()
     await user.clear(name)
@@ -211,7 +213,8 @@ describe('the New employee page', () => {
     expect(orgId).toBe('o1')
     expect(options.approve).toBeFalsy()
     expect(definition).toMatchObject({ name: 'Rae', instructions: 'Writes the release notes.', personality: 'Concise', attendance: 'unattended', model: { agent: 'claude', model: 'claude-sonnet-5-5' } })
-    expect(definition.access).toEqual(defaultEmployee({ id: definition.id, colour: 'orange', repos: ['foreman-website', 'foreman'], loadouts: [] }).access)
+    expect(definition.access).toEqual(newEmployee({ id: definition.id, colour: 'orange', repos: ['foreman-website', 'foreman'], loadouts: [] }).access)
+    expect(definition.limits).toEqual({})
     // Ada wears pink, so the first free hat is orange.
     expect(definition.look).toEqual({ family: 'hardhat', colour: 'orange' })
     // The draft's page opens: it is the plan, approved there.
@@ -220,7 +223,7 @@ describe('the New employee page', () => {
     expect(d.reload).toHaveBeenCalled()
   })
 
-  it('Generate drafts the words; suggestions start off; Create saves a draft with nothing granted and opens its page', async () => {
+  it('Generate drafts the words; suggestions start off; Create saves a draft with nothing more granted and opens its page', async () => {
     const user = userEvent.setup()
     setSnapshot()
     fakeApi.generateEmployeeDraft = vi.fn(async () => ({
@@ -243,14 +246,14 @@ describe('the New employee page', () => {
     expect(((await screen.findByRole('textbox', { name: 'Name' })) as HTMLInputElement).value).toBe('Max')
     expect(screen.getByText(/^Drafted by Claude Code · /)).toBeTruthy()
     expect(screen.getByText('Hat: Teal')).toBeTruthy()
-    const write = screen.getByRole('switch', { name: 'Write to foreman-website' })
-    expect(write.getAttribute('aria-checked')).toBe('false')
+    // It already writes every repository, so Write isn't suggested.
+    expect(screen.queryByRole('switch', { name: 'Write to foreman-website' })).toBeNull()
     expect(screen.getByRole('switch', { name: 'A schedule: Mondays at 9' })).toHaveProperty('disabled', true)
     // An event, as a schedule: a trigger to add in Edit once created, never granted from the draft.
     expect(screen.getByRole('switch', { name: 'Start on: a pull request merges in foreman' })).toHaveProperty('disabled', true)
     expect(screen.getByText('Add it as an event trigger in Edit once it is created: a trigger is part of what you approve.')).toBeTruthy()
     expect(screen.getByText('The AI drafts; it never grants.')).toBeTruthy()
-    expect(screen.getByText('Reads foreman-website, foreman.')).toBeTruthy()
+    expect(screen.getByText('Writes to foreman-website, foreman, in its own branch.')).toBeTruthy()
 
     expect(screen.queryByRole('button', { name: /Create and approve/ })).toBeNull()
     const create = screen.getByRole('button', { name: 'Create' })
@@ -262,12 +265,13 @@ describe('the New employee page', () => {
     expect(options.approve).toBeFalsy()
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: definition.id })
     expect(definition).toMatchObject({ name: 'Max', instructions: INSTRUCTIONS, look: { family: 'hardhat', colour: 'teal' } })
-    // The suggestion was never turned on, so nothing was granted.
-    expect(definition.access.repos).toEqual({ 'foreman-website': 'read', foreman: 'read' })
+    // A new employee's access, and no trigger: a suggestion grants nothing.
+    expect(definition.access.repos).toEqual({ 'foreman-website': 'write', foreman: 'write' })
+    expect(definition.triggers).toBeUndefined()
     expect(definition.access.profile).toBe('no-shell')
   })
 
-  it('turning a suggestion on is the person’s grant, and says so', async () => {
+  it('lists no suggestion to write a repository, since a new employee already writes every one', async () => {
     const user = userEvent.setup()
     setSnapshot()
     fakeApi.generateEmployeeDraft = vi.fn(async () => ({
@@ -281,12 +285,9 @@ describe('the New employee page', () => {
     await writeYourOwn(user)
     await user.type(screen.getByRole('textbox', { name: 'Describe your employee' }), 'A marketing person.')
     await user.click(screen.getByRole('button', { name: 'Generate with AI' }))
-    await user.click(await screen.findByRole('switch', { name: 'Write to foreman-website' }))
-    expect(screen.getByText('You turned this on')).toBeTruthy()
-    expect(screen.getByText('Writes to foreman-website, in its own branch.')).toBeTruthy()
-    await user.click(screen.getByRole('button', { name: 'Create' }))
-    await waitFor(() => expect(fakeApi.createEmployee).toHaveBeenCalled())
-    expect(fakeApi.createEmployee.mock.calls[0][1].access.repos).toEqual({ 'foreman-website': 'write', foreman: 'read' })
+    expect(((await screen.findByRole('textbox', { name: 'Name' })) as HTMLInputElement).value).toBe('Max')
+    expect(screen.queryByRole('switch', { name: 'Write to foreman-website' })).toBeNull()
+    expect(screen.queryByText('The AI drafts; it never grants.')).toBeNull()
   })
 
   it('keeps Generate off under Privacy mode, saying why, while Use my words still works', async () => {
@@ -341,7 +342,7 @@ describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => 
     expect(jobs[0].textContent).toBe('Software engineer')
     expect(pressed()).toEqual([])
     // Each is described by its line and its access.
-    expect(described(chip('QA engineer'))).toBe('Reviews what others build and says what breaks. · Read')
+    expect(described(chip('QA engineer'))).toBe('Reviews what others build and says what breaks. · Write')
     const add = screen.getByRole('button', { name: 'Add' })
     expect(add).toHaveProperty('disabled', true)
     expect(described(add)).toBe('Pick a job to add.')
@@ -374,9 +375,9 @@ describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => 
     expect(who.textContent).toContain('Write on foreman-website and foreman')
     const add = screen.getByRole('button', { name: 'Add' })
     expect(add).toHaveProperty('disabled', false)
-    expect(described(add)).toBe('Adding approves Mei at once: Write on foreman-website and foreman. Mei’s pushes and pull requests still wait for you.')
+    expect(described(add)).toBe('Adding approves Mei at once: Write on foreman-website and foreman. Mei pushes and opens pull requests without waiting for you.')
     await user.click(chip('QA engineer'))
-    expect(described(add)).toBe('Adding approves Quinn at once: Read on foreman-website and foreman.')
+    expect(described(add)).toBe('Adding approves Quinn at once: Write on foreman-website and foreman. Quinn pushes and opens pull requests without waiting for you.')
   })
 
   it('marks a job the organization already has, in words, and shows the new name and hat with why', async () => {
@@ -394,7 +395,7 @@ describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => 
     expect(who.textContent).toContain('You already have Quinn')
     expect(who.textContent).toContain('Named Quinn (QA engineer): an employee of Foreman is already called Quinn.')
     expect(who.textContent).toContain('Quinn already wears Green, so the hat is Orange.')
-    expect(described(screen.getByRole('button', { name: 'Add' }))).toBe('Adding approves Quinn (QA engineer) at once: Read on foreman-website and foreman.')
+    expect(described(screen.getByRole('button', { name: 'Add' }))).toBe('Adding approves Quinn (QA engineer) at once: Write on foreman-website and foreman. Quinn (QA engineer) pushes and opens pull requests without waiting for you.')
   })
 
   it('names the last name taken when a third copy is numbered', async () => {

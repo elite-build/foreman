@@ -1,11 +1,12 @@
 // The program manager every organization has (docs/ai-employees.md §15): made with the organization, approved with it
-// (her definition is fixed and the same everywhere), and its lead. She asks before she plans, plans projects, proposes the employees a plan
-// needs, reviews what parts produce and accepts the result; she never changes a repository, never sends anything
-// outward and never starts work herself: Foreman starts each part of the plan the person approved. Pure.
+// (her definition is fixed and the same everywhere), and its lead. She asks before she plans, plans projects, proposes
+// the employees a plan needs, reviews what parts produce and accepts the result; like every employee she may write the
+// organization's repositories, push and open pull requests, but she never starts work herself: Foreman starts each part
+// of the plan the person approved. Pure.
 
 import { canRunUnattended } from './agentCatalog'
 import type { Loadout } from './agents'
-import { defaultEmployee, newEmployeeId, type EmployeeDefinition } from './employees'
+import { newEmployee, newEmployeeId, type EmployeeDefinition } from './employees'
 import { PROGRAM_MANAGER_NAME } from './projects'
 
 const INSTRUCTIONS = `## Role
@@ -21,17 +22,17 @@ You are the program manager. Every project in this organization starts with you:
 Short, plain sentences. Name the user and the problem first. Never estimate effort in time.
 
 ## What you never do
-Change a repository, run a shell, send anything outside this computer, or grant anyone access: Foreman starts the parts of the plan the person approved.
+Run a shell, merge, send anything outside this computer other than pushing your own branch and opening its pull request, or grant anyone access: Foreman starts the parts of the plan the person approved.
 
 ## How you finish
 A planning task ends with project_questions or project_plan, then finish_task done. An acceptance writes acceptance.md and finishes with the decision it asks for. While a part runs, ask the person with ask_person when you can’t go on without them.`
 
-/** Priya's definition: Read on every repository the organization has, no shell, everything outward held, many short runs. */
+/** Priya's definition: Write on every repository the organization has, pushes and pull requests allowed, no shell, no limits. */
 export function programManagerDefinition(input: { repos: readonly string[]; loadouts: readonly Pick<Loadout, 'agent' | 'model' | 'effort'>[]; taken: Iterable<string>; takenNames?: readonly string[] }): EmployeeDefinition {
   const unattended = input.loadouts.find((l) => canRunUnattended(l.agent))
   const names = (input.takenNames ?? []).map((n) => n.toLocaleLowerCase())
   const name = names.includes(PROGRAM_MANAGER_NAME.toLocaleLowerCase()) ? `${PROGRAM_MANAGER_NAME} (PM)` : PROGRAM_MANAGER_NAME
-  const base = defaultEmployee({
+  return newEmployee({
     id: newEmployeeId(input.taken),
     colour: 'teal',
     repos: input.repos,
@@ -45,10 +46,9 @@ export function programManagerDefinition(input: { repos: readonly string[]; load
       instructions: INSTRUCTIONS
     }
   })
-  return { ...base, limits: { ...base.limits, runs_per_day: 100, minutes_per_run: 20 } }
 }
 
-/** A draft for an employee the program manager proposed: the safest settings, Write only where the plan asks for it. */
+/** A draft for an employee the program manager proposed: Write on every repository the plan names, as every employee has. */
 export function proposedDefinition(input: {
   id: string
   colour: string
@@ -61,18 +61,12 @@ export function proposedDefinition(input: {
   loadouts: readonly Pick<Loadout, 'agent' | 'model' | 'effort'>[]
 }): EmployeeDefinition {
   const unattended = input.loadouts.find((l) => canRunUnattended(l.agent))
-  const base = defaultEmployee({
+  // newEmployee gives Write on each, or Read when its agent can't run unattended (an attended employee is read-only).
+  return newEmployee({
     id: input.id,
     colour: input.colour,
     repos: Object.keys(input.repos),
     loadouts: unattended ? [unattended] : input.loadouts,
     text: { name: input.name, role: input.role, description: input.description, responsibilities: [...input.responsibilities], ask_me_about: input.role, instructions: input.instructions }
   })
-  // An agent that can't run unattended is attended, and an attended employee is read-only: Write would never run.
-  const write = base.attendance === 'unattended'
-  return {
-    ...base,
-    access: { ...base.access, repos: Object.fromEntries(Object.entries(input.repos).map(([r, a]) => [r, a === 'write' && write ? 'write' : 'read'])) },
-    limits: { ...base.limits, runs_per_day: 20, minutes_per_run: 45 }
-  }
 }
