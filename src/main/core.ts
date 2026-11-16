@@ -569,8 +569,9 @@ export class Core {
         const takenNames = members.map((m) => m.summary.name)
         const definition = programManagerDefinition({ repos, loadouts, taken, takenNames })
         const picked = templateDefinitions({ templates, repos, loadouts, taken: [...taken, definition.id], takenNames: [...takenNames, definition.name] })
-        await this.employees.createTeam(org.id, [definition, ...picked])
-        for (const d of [definition, ...picked]) await this.employees.approve(org.id, d.id)
+        // Made and approved the way Add employee makes a template employee (EmployeeService.createApproved).
+        const { approveError } = await this.employees.createApproved(org.id, [definition, ...picked])
+        if (approveError) throw new Error(approveError)
         return definition.id
       }
     })
@@ -3475,6 +3476,7 @@ export class Core {
     generateEmployeeDraft: (organizationId, input) => this.employees.generate(organizationId, input),
     refineEmployeeDraft: (organizationId, draft, request) => this.employees.refine(organizationId, draft, request),
     createEmployee: (organizationId, definition, options) => this.employees.create(organizationId, definition, options),
+    addTemplateEmployee: (organizationId, templateId) => this.employees.addTemplate(organizationId, templateId),
     updateEmployee: (organizationId, id, definition, expectedBlob) => this.employees.update(organizationId, id, definition, expectedBlob),
     approveEmployee: (organizationId, id, expectedFingerprint) => this.employees.approve(organizationId, id, expectedFingerprint),
     pauseEmployee: (organizationId, id) => this.employees.pause(organizationId, id),

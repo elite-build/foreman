@@ -2757,6 +2757,9 @@ export interface Api {
   refineEmployeeDraft(organizationId: string, draft: import('./employees').EmployeeDraftText, request: string): Promise<import('./employees').EmployeeDraftResult>
   // bots/<id>.toml and memory/bots/<id>/ in one commit by the person; a draft, or approved here with `approve`.
   createEmployee(organizationId: string, definition: import('./employees').EmployeeDefinition, options: { approve?: boolean }): Promise<import('./employees').EmployeeView>
+  // One of the job templates (docs/ai-employees.md §16), made and approved at once with its own access; main decides its
+  // name, hat and id. Refuses an unknown template. If approving fails it stays a draft and `approveError` says why.
+  addTemplateEmployee(organizationId: string, templateId: string): Promise<{ employee: import('./employees').EmployeeView; approveError?: string }>
   // Against the file's blob as read; a file changed since is a conflict. A moved fingerprint needs approving again.
   updateEmployee(organizationId: string, id: string, definition: import('./employees').EmployeeDefinition, expectedBlob: string): Promise<import('./employees').EmployeeUpdateResult>
   // Records the definition's fingerprint on this computer; with `expectedFingerprint`, refused if it changed meanwhile.
@@ -3345,7 +3348,7 @@ export const API_METHODS = [
   'getSnapshot', 'pickDirectory', 'pickFiles', 'pickPath', 'addRepo', 'cloneRepo', 'githubRepos', 'quickStartRepo', 'makeRepo', 'forgetRecentRepo', 'classifyFolders', 'takeLaunchFolders', 'updateRepo', 'removeRepo',
   'createOrganization', 'renameOrganization', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory',
   'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
-  'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
+  'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'addTemplateEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
   'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',
   'askEmployeeFollowUp', 'startProject', 'decideProject', 'pauseProject', 'stopProject', 'listChannels', 'renameProject', 'archiveProject', 'deleteProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',

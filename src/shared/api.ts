@@ -95,7 +95,7 @@ export const METHOD_SCOPES = {
   // AI employees (docs/ai-employees.md §5): listing them is a read. Drafting sends the person's words to a model, and
   // creating, editing, approving, pausing, resuming and retiring change what may run, so they are admin (§9: never from a turn).
   listEmployees: 'read',
-  generateEmployeeDraft: 'admin', refineEmployeeDraft: 'admin', createEmployee: 'admin', updateEmployee: 'admin', approveEmployee: 'admin',
+  generateEmployeeDraft: 'admin', refineEmployeeDraft: 'admin', createEmployee: 'admin', addTemplateEmployee: 'admin', updateEmployee: 'admin', approveEmployee: 'admin',
   pauseEmployee: 'admin', resumeEmployee: 'admin', retireEmployee: 'admin',
   // Turning a trigger off here or on again changes what runs on its own, as pausing does.
   setEmployeeTriggerOff: 'admin',
