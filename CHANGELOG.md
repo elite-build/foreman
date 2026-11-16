@@ -2,6 +2,12 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.2 (2026-11-16)
+
+### Added
+
+- **New organization** lets you pick ready employees as well as Priya, from fifteen job templates such as software engineer and UX designer: press a job's chip to add them, hover or focus it to see what the job does, or open **Compare jobs…** to see them all as cards. They're approved with the organization. ([#201](https://github.com/elite-build/foreman/pull/201))
+
 ## 1.2.1 (2026-11-16)
 
 ### Added
