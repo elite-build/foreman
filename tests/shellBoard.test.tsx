@@ -220,7 +220,8 @@ describe('clone dialog', () => {
     const [url, location] = textboxes.filter((b) => b.tagName === 'INPUT') as HTMLInputElement[]
     expect(location.value).toBe('/home/me/code')
     await user.type(url, 'https://github.com/user/repo.git{Enter}')
-    await waitFor(() => expect(spy('cloneRepository')).toHaveBeenCalledWith('https://github.com/user/repo.git', '/home/me/code', expect.any(String), undefined))
+    // In Personal: no gh account chosen, and no organization to join.
+    await waitFor(() => expect(spy('cloneRepository')).toHaveBeenCalledWith('https://github.com/user/repo.git', '/home/me/code', expect.any(String), undefined, undefined))
   })
 
   it('names each repo with what its row shows, drops a description with no words, and says when the list is cut off', async () => {

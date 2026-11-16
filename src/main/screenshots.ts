@@ -577,6 +577,7 @@ export const SCREENS = [
   'memory',
   'employee-workspace',
   'new-organization',
+  'new-organization-folder',
   'assistant',
   'phone-pairing',
   // A settings row reached from the navigation, its flash held (renderer/src/screens.ts).

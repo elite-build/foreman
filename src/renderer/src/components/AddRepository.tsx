@@ -2,6 +2,7 @@
 // project, or reopen a recent folder.
 import { Folder, FolderOpen, FolderPlus, Globe, Lock, Network, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { currentSpace, type Organization } from '../../../shared/organizations'
 import { GITHUB_REPOS_LISTED, type GithubRepo, type GitIdentity } from '../../../shared/types'
 import {
   addRepository,
@@ -100,6 +101,26 @@ export function LocationField({ value, onChange, title, description }: { value: 
   )
 }
 
+/**
+ * The organization showing, when it keeps its repositories in a folder of their own: Clone and Quick start start in that
+ * folder, and what they make joins it.
+ */
+function useOrganizationFolder(): (Organization & { folder: string }) | undefined {
+  const org = useStore((s) => {
+    const organizations = s.snapshot!.organizations
+    const space = currentSpace(organizations, s.space)
+    return space ? organizations?.find((o) => o.id === space) : undefined
+  })
+  return org?.folder ? (org as Organization & { folder: string }) : undefined
+}
+
+/** Where a new repository goes, in words: into the organization showing, when it has a folder of its own. */
+function useIntoLine(): (key: 'addRepo.clone.into' | 'addRepo.quick.creates', path: string, organization: Organization | undefined) => string {
+  const t = useT()
+  return (key, path, organization) =>
+    organization ? t(key === 'addRepo.clone.into' ? 'addRepo.clone.intoOrganization' : 'addRepo.quick.createsOrganization', { path, organization: organization.name }) : t(key, { path })
+}
+
 function useSubmitShortcut(submit: () => void) {
   const platform = useStore((s) => s.snapshot!.platform)
   return (e: React.KeyboardEvent) => {
@@ -115,8 +136,10 @@ export function CloneRepoDialog() {
   const t = useT()
   const settings = useStore((s) => s.snapshot!.settings)
   const platform = useStore((s) => s.snapshot!.platform)
+  const organization = useOrganizationFolder()
+  const into = useIntoLine()
   const [url, setUrl] = useState('')
-  const [location, setLocation] = useState(settings.cloneDirectory)
+  const [location, setLocation] = useState(organization?.folder ?? settings.cloneDirectory)
   const [repos, setRepos] = useState<GithubRepo[] | null>(null)
   const [protocol, setProtocol] = useState<'https' | 'ssh'>('https')
   const [listError, setListError] = useState('')
@@ -191,7 +214,7 @@ export function CloneRepoDialog() {
     const cloneId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const stop = onCloneProgress(cloneId, (line) => setLog((lines) => [...lines.slice(-60), line]))
     try {
-      await cloneRepository(url, location.trim(), cloneId, cloneAs)
+      await cloneRepository(url, location.trim(), cloneId, cloneAs, organization?.id)
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
     } finally {
@@ -277,7 +300,7 @@ export function CloneRepoDialog() {
           value={location}
           onChange={setLocation}
           title={t('addRepo.clone.locationTitle')}
-          description={name && location.trim() ? t('addRepo.clone.into', { path: `${location.replace(/[/\\]+$/, '')}/${name}` }) : undefined}
+          description={name && location.trim() ? into('addRepo.clone.into', `${location.replace(/[/\\]+$/, '')}/${name}`, organization) : undefined}
         />
 
         {cloning && (
@@ -302,8 +325,10 @@ export function QuickStartDialog() {
   const t = useT()
   const settings = useStore((s) => s.snapshot!.settings)
   const platform = useStore((s) => s.snapshot!.platform)
+  const organization = useOrganizationFolder()
+  const into = useIntoLine()
   const [name, setName] = useState('')
-  const [location, setLocation] = useState(settings.cloneDirectory)
+  const [location, setLocation] = useState(organization?.folder ?? settings.cloneDirectory)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
 
@@ -312,7 +337,7 @@ export function QuickStartDialog() {
     setWorking(true)
     setError('')
     try {
-      await quickStartRepository(location.trim(), name.trim())
+      await quickStartRepository(location.trim(), name.trim(), organization?.id)
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
     } finally {
@@ -345,7 +370,7 @@ export function QuickStartDialog() {
           value={location}
           onChange={setLocation}
           title={t('addRepo.quick.locationTitle')}
-          description={name.trim() && location.trim() ? t('addRepo.quick.creates', { path: `${location.replace(/[/\\]+$/, '')}/${name.trim()}` }) : undefined}
+          description={name.trim() && location.trim() ? into('addRepo.quick.creates', `${location.replace(/[/\\]+$/, '')}/${name.trim()}`, organization) : undefined}
         />
         {error && (
           <Callout tone="error" role="alert" className="add-repo-error">

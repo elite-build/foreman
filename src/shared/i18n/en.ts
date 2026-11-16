@@ -3106,6 +3106,7 @@ export const en = {
   'addRepo.clone.locationTitle': 'Choose where to clone the repository',
   // {path} is the folder the clone will make.
   'addRepo.clone.into': 'Clones into {path}',
+  'addRepo.clone.intoOrganization': 'Clones into {path}, in {organization}',
   'addRepo.clone.cloning': 'Cloning…',
   'addRepo.clone.submit': 'Clone repo',
   'addRepo.quick.intro': 'Start a new project: a folder with git set up, a README and a first commit.',
@@ -3123,6 +3124,7 @@ export const en = {
   'addRepo.quick.locationTitle': 'Choose where to create the project',
   // {path} is the folder that will be created.
   'addRepo.quick.creates': 'Creates {path}',
+  'addRepo.quick.createsOrganization': 'Creates {path}, in {organization}',
   'addRepo.quick.submit': 'Create project',
   // A template asks for another model than the chat's; {model} is a model's name, e.g. "Opus 5.5".
   'startModel.newChatHint': 'Start in a new chat with {model}',
@@ -7623,6 +7625,9 @@ export const en = {
   'spaces.create.memoryLine': 'Makes {name} beside your repositories, private to this computer.',
   'spaces.create.memoryLineAt': 'Makes {name} in {folder}, private to this computer.',
   'spaces.create.memoryExisting': 'Uses {name} as its memory repository.',
+  'spaces.create.together': 'Keep its repositories in one folder',
+  'spaces.create.togetherHint': 'Repositories you clone for {name}, and its memory, go in a folder of their own.',
+  'spaces.create.folderTitle': 'Choose the folder for the organization’s repositories',
   'spaces.create.more': 'More options',
   'spaces.create.working': 'Creating…',
   'spaces.name.label': 'Name',

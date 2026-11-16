@@ -101,6 +101,19 @@
   gap: 8px;
   padding: 4px 0 4px 24px;
 }
+/* Keep its repositories in one folder: the hint and the folder line up with the checkbox's label (15px box, 8px gap). */
+.space-together {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.space-together-hint {
+  margin: 0;
+  padding-left: 23px;
+}
+.space-together-extra {
+  padding: 4px 0 0 23px;
+}
 .space-heading {
   margin: 0;
   font-size: var(--text-md);

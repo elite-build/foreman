@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../src/shared/organizations'
 import { SpaceSwitcher } from '../src/renderer/src/components/spaces/SpaceSwitcher'
 import { CreateOrganizationDialog } from '../src/renderer/src/components/spaces/CreateOrganizationDialog'
-import { AddRepoItems } from '../src/renderer/src/components/AddRepository'
+import { AddRepoItems, CloneRepoDialog, QuickStartDialog } from '../src/renderer/src/components/AddRepository'
 import { SpacesPage } from '../src/renderer/src/components/settings/SpacesPage'
 import { MenuButton } from '../src/renderer/src/ui'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
@@ -183,6 +183,47 @@ describe('New organization', () => {
     await waitFor(() => expect(fakeApi.createOrganization).toHaveBeenCalledWith({ name: 'Acme', memory: { kind: 'create', name: 'acme-memory', parentDir: PARENT }, repoIds: ['blog', 'dotfiles'] }))
   })
 
+  it('keeps its repositories in one folder when asked: named after it, its memory repository made there', async () => {
+    const user = userEvent.setup()
+    setSnapshot([])
+    fakeApi.createOrganization = vi.fn(async () => org('new', 'Acme'))
+    render(<CreateOrganizationDialog />)
+    await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Acme')
+    const together = screen.getByRole('checkbox', { name: 'Keep its repositories in one folder' })
+    expect((together as HTMLInputElement).checked).toBe(false)
+    expect(together.getAttribute('aria-describedby')).toBeTruthy()
+    expect(screen.getByText('Repositories you clone for Acme, and its memory, go in a folder of their own.')).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Location' })).toBeNull()
+    await user.click(together)
+    expect((screen.getByRole('textbox', { name: 'Location' }) as HTMLInputElement).value).toBe(`${PARENT}\\acme`)
+    expect(screen.getByText(/Makes acme-memory in acme, private to this computer\./)).toBeTruthy()
+    await user.click(create())
+    await waitFor(() =>
+      expect(fakeApi.createOrganization).toHaveBeenCalledWith({ name: 'Acme', memory: { kind: 'create', name: 'acme-memory', parentDir: `${PARENT}\\acme` }, repoIds: [], folder: `${PARENT}\\acme` })
+    )
+  })
+
+  it('names the folder <name>-org when a repository already is <name>, and keeps a memory folder chosen under More options', async () => {
+    const user = userEvent.setup()
+    setSnapshot([])
+    fakeApi.createOrganization = vi.fn(async () => org('new', 'Blog'))
+    render(<CreateOrganizationDialog />)
+    await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Blog')
+    await user.click(screen.getByRole('checkbox', { name: 'Keep its repositories in one folder' }))
+    const location = screen.getByRole('textbox', { name: 'Location' }) as HTMLInputElement
+    expect(location.value).toBe(`${PARENT}\\blog-org`)
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    // Under More options the memory repository's own folder starts as the organization's.
+    const memoryLocation = screen.getAllByRole('textbox', { name: 'Location' })[1] as HTMLInputElement
+    expect(memoryLocation.value).toBe(`${PARENT}\\blog-org`)
+    await user.clear(memoryLocation)
+    await user.type(memoryLocation, 'D:\\memories')
+    await user.click(create())
+    await waitFor(() =>
+      expect(fakeApi.createOrganization).toHaveBeenCalledWith({ name: 'Blog', memory: { kind: 'create', name: 'blog-memory', parentDir: 'D:\\memories' }, repoIds: [], folder: `${PARENT}\\blog-org` })
+    )
+  })
+
   it('refuses a name another organization has, and under More options a memory repository name Quick start would refuse', async () => {
     const user = userEvent.setup()
     setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
@@ -288,5 +329,30 @@ describe('the Spaces page', () => {
     expect(dialog.textContent).toContain('Its 2 repositories, the memory repository too, move back to Personal')
     await user.click(within(dialog).getByRole('button', { name: 'Delete organization' }))
     await waitFor(() => expect(fakeApi.deleteOrganization).toHaveBeenCalledWith('o1'))
+  })
+})
+
+describe('Quick start and Clone while an organization with a folder of its own is showing', () => {
+  const FOLDER = 'C:\\orgs\\foreman'
+  const withFolder = (): Organization => ({ ...org('o1', 'Foreman', 'foreman-memory'), folder: FOLDER })
+
+  it('start in its folder, say so, and make the repository in it', async () => {
+    const user = userEvent.setup()
+    setSnapshot([withFolder()])
+    fakeState.space = 'o1'
+    render(<QuickStartDialog />)
+    const location = screen.getByRole('textbox', { name: 'Location' }) as HTMLInputElement
+    expect(location.value).toBe(FOLDER)
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'site')
+    expect(screen.getByText(`Creates ${FOLDER}/site, in Foreman`)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: /Create project/ }))
+    await waitFor(() => expect(spy('quickStartRepository')).toHaveBeenCalledWith(FOLDER, 'site', 'o1'))
+  })
+
+  it('use the clone location, in Personal, for an organization without one', () => {
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
+    fakeState.space = 'o1'
+    render(<CloneRepoDialog />)
+    expect((screen.getByRole('textbox', { name: 'Location' }) as HTMLInputElement).value).toBe(PARENT)
   })
 })

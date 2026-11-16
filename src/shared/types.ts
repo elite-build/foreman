@@ -2699,8 +2699,9 @@ export interface Api {
   pickPath(options: { title: string; kind: 'file' | 'directory' | 'save'; defaultPath?: string }): Promise<string | null>
   addRepo(path: string): Promise<Repo>
   // Clone into parentDir/<name> and add it. Progress arrives as clone-progress events with this cloneId.
-  // With an account, clones as that gh account and links the new repo to it.
-  cloneRepo(url: string, parentDir: string, cloneId: string, account?: string): Promise<Repo>
+  // With an account, clones as that gh account and links the new repo to it. With an organization, the new repo joins
+  // it, and Personal's clone location is left as it was.
+  cloneRepo(url: string, parentDir: string, cloneId: string, account?: string, organizationId?: string): Promise<Repo>
   // The user's GitHub repos (most recently pushed first) and gh's preferred clone protocol; as `account` when given.
   githubRepos(account?: string): Promise<{ repos: GithubRepo[]; protocol: 'https' | 'ssh'; error?: string }>
   // Every github.com account signed in to gh.
@@ -2709,8 +2710,8 @@ export interface Api {
   detectRepoAccount(repoId: string, save?: boolean): Promise<AccountDetection>
   // Push the repo's remote URL (for the SSH note), or null without one.
   remoteUrl(repoId: string): Promise<string | null>
-  // A new empty repository in parentDir/<name>, added to Foreman.
-  quickStartRepo(parentDir: string, name: string): Promise<Repo>
+  // A new empty repository in parentDir/<name>, added to Foreman; in the organization, when one is given, as cloneRepo.
+  quickStartRepo(parentDir: string, name: string, organizationId?: string): Promise<Repo>
   // A folder outside git becomes a repository (git init, its current files, a first commit) and is added. Without a Git name and email it commits nothing and answers needs-identity; call again with `identity`.
   makeRepo(dir: string, identity?: GitIdentity): Promise<MakeRepoResult>
   forgetRecentRepo(path: string): Promise<void>
