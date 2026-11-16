@@ -216,8 +216,8 @@ describe('the Tasks and Runs tabs', () => {
     expect(spy('selectWorkspace')).toHaveBeenCalledWith('ws-2')
     await userEvent.click(within(rows[1]).getByRole('button', { name: 'Cancel task' }))
     expect(fakeApi.cancelEmployeeTask).toHaveBeenCalledWith('t2')
-    // Done: no action, only its history (its chain and receipts) to open.
-    expect(within(rows[2]).queryAllByRole('button').map((b) => b.textContent)).toEqual(['History'])
+    // Done: no action, only its history (its chain and receipts) to open, and a follow-up to ask.
+    expect(within(rows[2]).queryAllByRole('button').map((b) => b.textContent)).toEqual(['History', 'Ask a follow-up…'])
     expect(within(rows[3]).getByRole('button', { name: 'Retry' })).toBeTruthy()
     expect(within(rows[4]).getByRole('button', { name: 'Retry' })).toBeTruthy()
   })

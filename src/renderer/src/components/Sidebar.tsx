@@ -71,6 +71,7 @@ import { actionNoun } from './employees/words'
 import { AddRepoItems } from './AddRepository'
 import { SpaceRailTile, SpaceSwitcher } from './spaces/SpaceSwitcher'
 import { TeamSection } from './employees/TeamSection'
+import { ProjectsSection } from './employees/ProjectsSection'
 import { currentSpace, holdsWorkspaces, memoryOwner, newWorkspaceTarget, snapshotInSpace, spacesOn, workspaceRepos } from '../../../shared/organizations'
 import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
@@ -786,6 +787,8 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
             </div>
             {/* An organization's employees (docs/ai-employees.md §10), only while it is the space shown: one row. */}
             <TeamSection />
+            {/* Its projects (docs/ai-employees.md §15): the line that starts one, and those going. */}
+            <ProjectsSection />
             {/* Find and the one primary action share a row; Ctrl+N is in New's tooltip and shortcut. */}
             <div className="sidebar-find">
               <div className="sidebar-search">

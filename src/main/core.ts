@@ -131,6 +131,9 @@ import { OrganizationService } from './organizations'
 import { MemoryService } from './memory'
 import { EmployeeService } from './employees'
 import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
+import { ProjectService } from './projects'
+import { programManagerDefinition } from '../shared/employeeTeams'
+import { reposInSpace } from '../shared/organizations'
 import { EmployeeTriggerService } from './employeeTriggers'
 import { EmployeeEventService } from './employeeEvents'
 import { EmployeeTools } from './employeeTools'
@@ -341,6 +344,8 @@ export class Core {
   readonly employees: EmployeeService
   // AI employees' tasks and runs: admission, runs as workspaces and sessions, Stop, recovery (docs/ai-employees.md §6).
   readonly employeeWork: EmployeeWorkService
+  // Projects (docs/ai-employees.md §15): planned by the organization's program manager, its parts run as employee tasks.
+  readonly projects: ProjectService
   // AI employees' triggers, fired by the schedule clock (docs/ai-employees.md §8).
   readonly employeeTriggers: EmployeeTriggerService
   // Event triggers (docs/ai-employees.md §8): what each source shows, heard by the employees that listen.
@@ -551,7 +556,17 @@ export class Core {
       addRepo: (dir) => this.workspaces.addRepo(dir),
       changed: () => this.changed(),
       // .foreman-memory.json names the organization: written again after a rename or a memory repository picked.
-      organizationChanged: (id) => this.memory.organizationChanged(id)
+      organizationChanged: (id) => this.memory.organizationChanged(id),
+      // Its program manager (docs/ai-employees.md §15), on the repositories it has: her definition is fixed and the same
+      // in every organization, so making the organization approves it.
+      createProgramManager: async (org) => {
+        const repos = reposInSpace(store.state.repos, store.state.organizations ?? [], org.id).filter((r) => r.id !== org.memoryRepoId).map((r) => r.name)
+        const members = (await this.employees.members(org.id)) ?? []
+        const definition = programManagerDefinition({ repos, loadouts: store.state.settings.loadouts, taken: members.map((m) => m.summary.id), takenNames: members.map((m) => m.summary.name) })
+        await this.employees.createTeam(org.id, [definition])
+        await this.employees.approve(org.id, definition.id)
+        return definition.id
+      }
     })
     this.repoMcp = new RepoMcp(store, this.workspaces, this.environment)
     // Integrations, before anything runs GitHub work: the old token and linked accounts move into connections once.
@@ -952,6 +967,31 @@ export class Core {
       closeReport: (workspaceId, reportId, how) => this.agentReports.close(workspaceId, reportId, how),
       changed
     })
+    this.projects = new ProjectService({
+      state: () => store.state,
+      db: () => store.db,
+      work: this.employeeWork,
+      employees: this.employees,
+      memory: this.memory,
+      // Another chat can open in it only while it is ready (a new one's setup, or an archived one, can't take it).
+      workspaceAlive: (id) => store.state.workspaces.find((w) => w.id === id)?.state === 'ready',
+      archive: (workspaceId, runId) => this.autoArchive.request(workspaceId, { reason: { kind: 'employee', runId }, deleteBranch: false }),
+      workspaceRepo: (id) => store.state.workspaces.find((w) => w.id === id)?.repoId,
+      // "Hand to Priya…": the last turns of the workspace's chats, oldest chat first.
+      transcript: async (workspaceId) => {
+        const parts: string[] = []
+        for (const s of store.state.sessions.filter((x) => x.workspaceId === workspaceId)) {
+          const index = await this.sessions.readChatHistory(s.id, {}).catch(() => undefined)
+          if (!index?.total) continue
+          const out = await this.sessions.readChatHistory(s.id, { from: Math.max(1, index.total - 5), to: index.total }).catch(() => undefined)
+          if (out?.text) parts.push(`Chat “${s.title || s.id}”:\n${out.text}`)
+        }
+        return parts.join('\n\n')
+      },
+      loadouts: () => store.state.settings.loadouts,
+      changed
+    })
+    this.employeeWork.projects = this.projects
     this.employeeTriggers = new EmployeeTriggerService({
       state: () => store.state,
       employees: this.employees,
@@ -1022,7 +1062,7 @@ export class Core {
       }
     })
     // An AI employee's own tools, on its run's foreman-app server (docs/ai-employees.md §4, §6, §9).
-    this.foremanMcp.employeeTools = new EmployeeTools({ work: this.employeeWork, memory: this.memory, employees: this.employees, actions: this.employeeActions })
+    this.foremanMcp.employeeTools = new EmployeeTools({ work: this.employeeWork, memory: this.memory, employees: this.employees, actions: this.employeeActions, projects: this.projects })
     this.data = new DataService(store, undefined, this.claudeMirror)
     this.gitBackup = new GitBackupService({
       store, secrets, workspaces: this.workspaces,
@@ -2557,6 +2597,12 @@ export class Core {
    * may do) and its first message is the task. Resolves once setup has settled; the turn starts when an agent slot is free.
    */
   private async launchEmployeeRun(plan: EmployeeLaunchPlan, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
+    // A project's run (docs/ai-employees.md §15): a new chat in the project's workspace, which carries its code and branch.
+    const shared = plan.workspaceId ? this.store.state.workspaces.find((w) => w.id === plan.workspaceId) : undefined
+    if (shared?.state === 'ready') {
+      this.startChat(shared.id, plan.message, plan.loadout, undefined, undefined, { employeeRun: { mark: plan.mark, origin: plan.origin }, startedBy: plan.startedBy, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) })
+      return
+    }
     const ws = await this.createFromOptions(
       plan.repoId,
       { prompt: plan.message, baseBranch: plan.baseBranch, branch: { kind: 'new' }, loadout: plan.loadout, location: 'local' },
@@ -3059,6 +3105,7 @@ export class Core {
       memory: this.memory.statuses(),
       employees: this.employees.rosters(),
       employeeWork: this.employeeWork.views(),
+      projects: this.projects.views(),
       employeeTriggers: this.employeeTriggers.view(),
       platform: process.platform,
       homeDir: os.homedir(),
@@ -3427,6 +3474,14 @@ export class Core {
     sendEmployeeAction: (actionId, options) => this.employeeActions.send(actionId, options ?? {}),
     skipEmployeeAction: async (actionId) => this.employeeActions.skip(actionId),
     confirmEmployeeAction: async (actionId) => this.employeeActions.confirmArrived(actionId),
+    askEmployeeFollowUp: (taskId, question) => this.employeeWork.askFollowUp(taskId, question),
+    startProject: (organizationId, input) => this.projects.start(organizationId, input),
+    decideProject: (projectId, waitId, decision, note) => this.projects.decide(projectId, waitId, decision, note),
+    pauseProject: (projectId, paused) => this.projects.setPaused(projectId, paused),
+    stopProject: (projectId) => this.projects.stop(projectId),
+    noteProject: (projectId, text) => this.projects.addNote(projectId, text),
+    askProjectFollowUp: (projectId, employeeId, question) => this.projects.askFollowUp(projectId, employeeId, question),
+    addProgramManager: (organizationId) => this.organizations.ensureProgramManager(organizationId),
     setOrganizationLead: async (organizationId, employeeId) => {
       // Only one of the organization's own employees, as its memory repository has them now.
       if (employeeId !== null) await this.employees.current(organizationId, employeeId)

@@ -8,6 +8,7 @@ import { ACTION_NEEDS_PERSON, type EmployeeAction } from './employeeActions'
 import { employeeStatus, type EmployeeSummary } from './employees'
 import { needsPerson, type EmployeeTask } from './employeeWork'
 import type { MemoryProposal } from './memory'
+import type { Project, ProjectWait } from './projects'
 import { spaceOf } from './organizations'
 import { oldestFirst, triageAll, type Triage, type TriageInput } from './triage'
 import type { AppSnapshot } from './types'
@@ -15,9 +16,9 @@ import type { AppSnapshot } from './types'
 /**
  * What an item is: a workspace that needs you; an employee's question (ask_person) or another task waiting on you; an
  * outward action held for Send or Skip (or uncertain, or failed); a memory proposal to keep or retire; an employee
- * paused after two failing runs.
+ * paused after two failing runs; each thing a project waits on: its plan, a part's gate, a stuck task, the final gate (docs/ai-employees.md §15).
  */
-export type NeedsYouKind = 'workspace' | 'question' | 'task' | 'action' | 'proposal' | 'paused'
+export type NeedsYouKind = 'workspace' | 'question' | 'task' | 'action' | 'proposal' | 'paused' | 'project'
 
 export interface NeedsYouItem {
   // Stable and unique: `ws:<id>`, `task:<id>`, `action:<id>`, `proposal:<id>`, `paused:<org>:<employee>`.
@@ -40,6 +41,9 @@ export interface NeedsYouItem {
   proposal?: MemoryProposal
   // kind 'paused': how the last failing run ended.
   detail?: string
+  // kind 'project': the project, and what it waits on.
+  project?: Project
+  wait?: ProjectWait
 }
 
 /** The space a repository is in (null: Personal, also for a repository that is gone). */
@@ -97,6 +101,11 @@ export function needsYouItems(input: TriageInput, triaged: Triage[] = triageAll(
     }
     for (const proposal of work?.proposals ?? []) {
       items.push({ id: `proposal:${proposal.id}`, kind: 'proposal', space: org.id, since: proposal.createdAt, repoId: org.memoryRepoId, orgId: org.id, employeeId: proposal.employeeId, proposal })
+    }
+    // What a project waits on is the person's own task (§15): the person is one of the team.
+    for (const project of snapshot.projects?.[org.id] ?? []) {
+      if (project.phase === 'closed') continue
+      for (const wait of project.waits) items.push({ id: `project:${project.id}:${wait.id}`, kind: 'project', space: org.id, since: wait.since, repoId: project.repoId, orgId: org.id, project, wait })
     }
     for (const e of snapshot.employees?.[org.id]?.employees ?? []) {
       if (!pausedForFailures(e)) continue

@@ -1,5 +1,5 @@
 // An organization's employees views, covering the main area like the Memory view (docs/ai-employees.md §10): the Team
-// page, the New employee page and one employee's page. It reads the employees in full through the service (the
+// page, the New employee page, one employee's page, the organization's channel and a project's channel (§15). It reads the employees in full through the service (the
 // snapshot carries only their summaries) whenever the memory repository's head or an employee's lifecycle moves.
 import { ArrowLeft, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -9,6 +9,8 @@ import { api, closeEmployees, openEmployees, openSettingsPage, useStore, type Em
 import { Callout, IconButton, LinkButton, Spinner } from '../../ui'
 import { EmployeePage } from './EmployeePage'
 import { NewEmployeePage } from './NewEmployeePage'
+import { OrgChannel } from './OrgChannel'
+import { ProjectPage } from './ProjectPage'
 import { TeamPage } from './TeamPage'
 import './employees.css'
 
@@ -78,12 +80,17 @@ export function EmployeesView({ route }: { route: EmployeesRoute }) {
   }, [unsaved])
 
   const employee = route.page === 'employee' ? employees?.find((e) => e.id === route.id) : undefined
+  const project = useStore((s) => (route.page === 'project' ? s.snapshot!.projects?.[route.orgId]?.find((p) => p.id === route.id) : undefined))
   const title =
     route.page === 'team'
       ? t('employees.view.team', { organization: name })
       : route.page === 'new'
         ? t('employees.view.new', { organization: name })
-        : t('employees.view.employee', { name: employee?.name || (route.page === 'employee' ? route.id : ''), organization: name })
+        : route.page === 'project'
+          ? t('projects.view.title', { title: project?.slug ?? '', organization: name })
+          : route.page === 'channel'
+            ? t('projects.view.channel', { organization: name })
+          : t('employees.view.employee', { name: employee?.name || (route.page === 'employee' ? route.id : ''), organization: name })
   const data: EmployeesData = { employees, error, reload }
 
   return (
@@ -119,6 +126,8 @@ export function EmployeesView({ route }: { route: EmployeesRoute }) {
             )}
             {route.page === 'team' && <TeamPage orgId={route.orgId} data={data} />}
             {route.page === 'new' && <NewEmployeePage orgId={route.orgId} data={data} />}
+            {route.page === 'channel' && <OrgChannel orgId={route.orgId} />}
+            {route.page === 'project' && (project ? <ProjectPage key={project.id} orgId={route.orgId} project={project} /> : <Callout tone="warn">{t('projects.view.notFound', { organization: name })}</Callout>)}
             {route.page === 'employee' &&
               (employee ? (
                 <EmployeePage key={employee.id} orgId={route.orgId} employee={employee} edit={Boolean(route.edit)} data={data} />

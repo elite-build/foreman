@@ -984,6 +984,8 @@ async function main(): Promise<void> {
   // Outward actions Foreman was sending when it closed may have gone: each waits, uncertain, for a person to check (§9).
   core.employeeActions.recover()
   core.employeeWork.start()
+  // Projects whose task closed while Foreman was closed go on from it (docs/ai-employees.md §15).
+  void core.projects.recover()
   // The demo: a flow run going from the start (main/demoRun.ts).
   if (demoRoot) void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow run: ${err instanceof Error ? err.message : String(err)}`))
   // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).

@@ -110,6 +110,11 @@ export const METHOD_SCOPES = {
   // run more on their own, and the lead decides where escalations go, so both are admin (never from a turn: an employee
   // can't raise its own limit or make itself lead).
   employeeTaskChain: 'read', raiseEmployeeRootLimit: 'admin', setOrganizationLead: 'admin',
+  // Projects and follow-ups (docs/ai-employees.md §15): starting one, deciding at its gates, pausing, stopping and asking a
+  // follow-up do work, as asking an employee does; a note is the person's words. Adding the program manager makes and
+  // approves an employee, so it is admin.
+  askEmployeeFollowUp: 'operate', startProject: 'operate', decideProject: 'operate', pauseProject: 'operate', stopProject: 'operate', noteProject: 'operate', askProjectFollowUp: 'operate',
+  addProgramManager: 'admin',
   // An employee's held outward action (docs/ai-employees.md §9): sending it is the person's approval of a Slack message,
   // a Linear change, a push or a pull request, so it is admin, never from a turn (no agent approves an employee's send).
   sendEmployeeAction: 'admin', skipEmployeeAction: 'admin', confirmEmployeeAction: 'admin',

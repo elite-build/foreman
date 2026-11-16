@@ -31,6 +31,9 @@ export interface OrganizationHost {
   changed(): void
   // An organization was renamed or given a memory repository: the memory service keeps its `.foreman-memory.json` current.
   organizationChanged?(id: string): void
+  // Its program manager (docs/ai-employees.md §15): made, and approved, in the organization's memory repository; her id.
+  // A failure is the caller's to report; the organization stays.
+  createProgramManager?(org: Organization): Promise<string>
 }
 
 /** The files a new memory repository starts with (docs/ai-employees.md §4). */
@@ -160,6 +163,34 @@ export class OrganizationService {
     for (const repo of [...brought, ...(memory ? [memory] : [])]) repo.spaceId = org.id
     this.host.changed()
     if (memory) this.host.organizationChanged?.(org.id)
+    // Its program manager lives in the memory repository; without one there is nowhere to make her (setMemory does, later).
+    const teamProblem = memory ? await this.addProgramManager(org) : undefined
+    // Said once, in the answer: never kept on the saved organization.
+    return teamProblem ? { ...org, teamProblem } : org
+  }
+
+  /** Make the organization's program manager if it has none (§15); she is its lead. Returns why it failed, if it did. */
+  private async addProgramManager(org: Organization): Promise<string | undefined> {
+    if (org.programManagerId || !this.host.createProgramManager) return undefined
+    try {
+      const id = await this.host.createProgramManager(org)
+      org.programManagerId = id
+      // Escalations go to her (§7).
+      org.leadEmployeeId = id
+      this.host.changed()
+      return undefined
+    } catch (err) {
+      console.error('Program manager:', err)
+      return err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  /** For an organization made before program managers, or whose making of her failed: make her now. */
+  async ensureProgramManager(id: string): Promise<Organization> {
+    const org = this.organization(id)
+    if (!org.memoryRepoId) throw new Error(`${org.name} has no memory repository. Choose one in Settings → Spaces.`)
+    const problem = await this.addProgramManager(org)
+    if (problem) throw new Error(problem)
     return org
   }
 
@@ -220,6 +251,8 @@ export class OrganizationService {
     repo.spaceId = org.id
     this.host.changed()
     this.host.organizationChanged?.(org.id)
+    // Now there is somewhere to keep her: its program manager (§15).
+    await this.addProgramManager(org)
     return org
   }
 

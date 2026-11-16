@@ -1,6 +1,6 @@
 import { TransferBanner } from './HandOffDialogs'
 import { EmployeeRunBanner } from './employees/EmployeeRunBanner'
-import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, MoreHorizontal, PanelBottom, PanelLeft, PanelRight, Pencil, Plus, RefreshCw, RotateCcw, Upload, Users, X } from 'lucide-react'
+import { Archive, ArrowRightLeft, Globe, Cloud, Code2, Copy, Folder, GitBranch, LayoutGrid, Minimize2, MoreHorizontal, PanelBottom, PanelLeft, PanelRight, Pencil, Plus, RefreshCw, Rocket, RotateCcw, Upload, Users, X } from 'lucide-react'
 import { compareBlockFor } from '../../../shared/compare'
 import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -27,6 +27,7 @@ import {
   forkChat,
   getState,
   openHandOffTo,
+  openHandToPm,
   openCompareDialog,
   openHandOffDialog,
   openMcpConsent,
@@ -75,6 +76,7 @@ import { useT, type RendererT } from '../i18n'
 import { formatChord } from '../shortcuts'
 import { Button, Callout, ChipButton, ContextMenu, IconButton, MenuButton, MenuItem, MenuSeparator, Sheet, SplitButton, Spinner, Status, Tab, TabList, TabPanel, Tabs, Tag, TextInput, type TagTone } from '../ui'
 import { AppIcon, DefaultAppMenu, OpenInMenuItems, openDefault, useDefaultLabel } from './OpenIn'
+import { useHandToPm } from './employees/HandToPm'
 import { refreshOpenInApps } from '../openIn'
 import { runningStep } from '../../../shared/setupSteps'
 import { CloudBanner, CloudPill, useCloudStatusPoll, useWakeOnOpen } from './cloud/CloudBits'
@@ -1171,6 +1173,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
                     <span className="btn-label">{t('workspaceView.handOff.label')}</span>
                   </Button>
                 )}
+                {surfaces.local && <HandToPmButton workspaceId={ws.id} />}
                 {surfaces.local && clientKind === 'window' && <OpenMenu ws={ws} />}
               </>
             )}
@@ -1441,8 +1444,10 @@ function HeaderMore({ ws, sessionId, surfaces }: { ws: Workspace; sessionId?: st
   const compare = surfaces.local
   const exportable = surfaces.exportable && clientKind === 'window'
   const handOff = surfaces.local && !ws.transfer
+  const pm = useHandToPm(ws.id)
+  const toPm = surfaces.local && pm
   const openIn = surfaces.local && clientKind === 'window'
-  if (!compare && !exportable && !handOff && !openIn) return null
+  if (!compare && !exportable && !handOff && !toPm && !openIn) return null
   return (
     <MenuButton look="icon" iconOnly label={t('workspaceView.more')} trigger={<MoreHorizontal size={15} />}>
       {compare && (
@@ -1460,6 +1465,11 @@ function HeaderMore({ ws, sessionId, surfaces }: { ws: Workspace; sessionId?: st
           {t('workspaceView.handOff.label')}
         </MenuItem>
       )}
+      {toPm && (
+        <MenuItem icon={<Rocket size={14} />} description={t('projects.hand.menu', { name: toPm.name })} onSelect={() => openHandToPm(ws.id)}>
+          {t('projects.hand.label2', { name: toPm.name })}
+        </MenuItem>
+      )}
       {openIn && (
         <>
           <MenuSeparator />
@@ -1474,6 +1484,18 @@ function HeaderMore({ ws, sessionId, surfaces }: { ws: Workspace; sessionId?: st
         </>
       )}
     </MenuButton>
+  )
+}
+
+/** "Hand to Priya…" in a wide header: shown only where the workspace can become a project. */
+function HandToPmButton({ workspaceId }: { workspaceId: string }) {
+  const t = useT()
+  const pm = useHandToPm(workspaceId)
+  if (!pm) return null
+  return (
+    <Button size="sm" icon={<Rocket size={12} />} onClick={() => openHandToPm(workspaceId)} title={t('projects.hand.menu', { name: pm.name })} aria-label={t('projects.hand.label2', { name: pm.name })}>
+      <span className="btn-label">{t('projects.hand.label2', { name: pm.name })}</span>
+    </Button>
   )
 }
 

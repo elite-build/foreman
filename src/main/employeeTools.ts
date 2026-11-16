@@ -24,6 +24,8 @@ import type { EmployeeActionService } from './employeeActions'
 import type { EmployeeService } from './employees'
 import type { EmployeeBrief, EmployeeDelegateInput, EmployeeFinishInput, EmployeeWorkService } from './employeeWork'
 import type { MemoryService } from './memory'
+import type { ProjectService } from './projects'
+import type { PlanInput } from '../shared/projects'
 
 export interface EmployeeToolsHost {
   work: Pick<EmployeeWorkService, 'toolRun' | 'finishTask' | 'askPerson' | 'noUpdate' | 'commitMemory' | 'memoryChanged'> &
@@ -32,6 +34,8 @@ export interface EmployeeToolsHost {
   employees: Pick<EmployeeService, 'current'> & Partial<Pick<EmployeeService, 'members'>>
   // Outward actions through Foreman's own routes (docs/ai-employees.md §9): request_push, request_pull_request.
   actions?: Pick<EmployeeActionService, 'requestPush' | 'requestPullRequest'>
+  // A project's plan (docs/ai-employees.md §15): project_plan.
+  projects?: Pick<ProjectService, 'submitPlan'>
   now?(): number
 }
 
@@ -113,6 +117,11 @@ export class EmployeeTools {
         }
         case 'bot_propose':
           return await this.proposeChange(sessionId, args as unknown as EmployeeProposeInput)
+        case 'project_plan': {
+          if (!this.host.projects) throw new Error('Projects aren’t available here.')
+          const { run, task } = this.host.work.toolRun(sessionId)
+          return { text: await this.host.projects.submitPlan(task, run.id, args as unknown as PlanInput) }
+        }
         case 'request_push':
           if (!this.host.actions) throw new Error('Foreman can’t push from here.')
           return await this.host.actions.requestPush(sessionId, args as { commit_message?: string })
@@ -149,8 +158,10 @@ export class EmployeeTools {
       })
     )
     const lead = employees.find((e) => e.lead)
+    // The person is one of the team too (docs/ai-employees.md §15): never a task's recipient, reached with ask_person.
+    const person = JSON.stringify({ id: 'person', name: 'You (the person)', role: 'Decides', ask_me_about: 'Decisions, acceptance, and anything outside your brief', how_to_reach: 'ask_person (or escalate)' })
     return {
-      text: `${organization}’s employees (${employees.length}), one per line:\n\n${dataBlock('employees', lines.join('\n'))}\n\n${lead ? `"lead" in bot_delegate and bot_send means ${lead.name}.` : `${organization} has no lead employee.`} You may hand tasks only to those marked you_may_hand_tasks.\n${ROSTER_NOTE}`
+      text: `${organization}’s employees (${employees.length}) and the person, one per line:\n\n${dataBlock('employees', [...lines, person].join('\n'))}\n\n${lead ? `"lead" in bot_delegate and bot_send means ${lead.name}.` : `${organization} has no lead employee.`} You may hand tasks only to those marked you_may_hand_tasks; reach the person with ask_person.\n${ROSTER_NOTE}`
     }
   }
 
@@ -270,7 +281,7 @@ export class EmployeeTools {
     const { summary, definition } = current
     if (!definition || summary.problems.length || summary.changed || summary.state === 'retired' || summary.state === 'draft')
       throw new Error('Your definition changed since this run was approved (or you were retired), so Foreman takes no memory writes from this run. Finish the task and say so.')
-    return { scopes: brief.memoryWrites.scopes.filter((s) => definition.access.memory_write.includes(s)), readOnly: brief.memoryWrites.readOnly }
+    return { scopes: brief.memoryWrites.scopes.filter((s) => definition.access.memory_write.includes(s)), readOnly: brief.memoryWrites.readOnly, files: brief.memoryWrites.files ?? [] }
   }
 
   /**
@@ -328,7 +339,7 @@ export class EmployeeTools {
     const { task, commit } = await this.host.work.finishTask(sessionId, args)
     const how = closureFor(args.status)
     const as = args.status === 'partial' ? 'blocked on what is left (partly done)' : how
-    return { text: `Recorded: your task is closed as ${as}${commit ? `, and the memory you named went in commit ${commit} first` : ''}. ${task.title ? `(“${task.title}”) ` : ''}End your turn now.` }
+    return { text: `Recorded: your task is closed as ${as}${args.decision ? `, with the decision ${args.decision}` : ''}${commit ? `, and the memory you named went in commit ${commit} first` : ''}. ${task.title ? `(“${task.title}”) ` : ''}End your turn now.` }
   }
 }
 

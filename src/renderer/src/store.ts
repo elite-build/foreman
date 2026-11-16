@@ -81,7 +81,14 @@ export const api = bridge.invoke
 export type ClientState = { kind: 'browser'; status: SocketStatus; name: string }
 
 /** Where the employees views are: an organization's Team page, its New employee page, or one employee (optionally editing). */
-export type EmployeesRoute = { orgId: string; page: 'team' } | { orgId: string; page: 'new' } | { orgId: string; page: 'employee'; id: string; edit?: boolean }
+export type EmployeesRoute =
+  | { orgId: string; page: 'team' }
+  | { orgId: string; page: 'new' }
+  | { orgId: string; page: 'employee'; id: string; edit?: boolean }
+  // The organization's channel (docs/ai-employees.md §15): `@Priya …` starts a project there.
+  | { orgId: string; page: 'channel' }
+  // A project's channel: its plan, its parts as they run, what it waits for you on.
+  | { orgId: string; page: 'project'; id: string }
 
 interface State {
   browserTabs: Record<string, { url: string; request: number; active: boolean; split: boolean; state?: BrowserState }>
@@ -118,6 +125,8 @@ interface State {
   railNames: boolean
   // The sidebar's Team row shows the organization's employees under it (docs/ai-employees.md §10), remembered like railNames.
   teamOpen: boolean
+  // The sidebar's Projects row shows its projects and the line to start one (docs/ai-employees.md §15).
+  projectsOpen: boolean
   // Home shows every space ('all', the default) or the one the sidebar shows ('space'); held until quit.
   homeScope: 'all' | 'space'
   // Home's Get started row is opened to its full list.
@@ -167,6 +176,8 @@ interface State {
   scheduleDialog: { templateId: string } | { scheduleId: string } | null
   // Hand off to another Mac: the dialog for a workspace (and the hand-off once started), and Reconcile for an unresolved one.
   handOffToDialog: { workspaceId: string; transferId?: string } | null
+  // "Hand to Priya…" (docs/ai-employees.md §15): the workspace that becomes a project.
+  handToPmDialog: string | null
   reconcileDialog: string | null
   pairDialog: 'show' | 'enter' | null
   // Other computers (shared/remote.ts): the computer chip's view, from this computer's main (whichever one the window shows).
@@ -272,6 +283,7 @@ let state: State = {
   panelSheetOpen: false,
   railNames: loadPref('railNames', false),
   teamOpen: loadPref('teamOpen', false),
+  projectsOpen: loadPref('projectsOpen', true),
   homeScope: 'all',
   checklistOpen: loadPref('checklistOpen', false),
   tiles: loadPref<string[]>('tiles', []),
@@ -297,6 +309,7 @@ let state: State = {
   compareDialog: null,
   scheduleDialog: null,
   handOffToDialog: null,
+  handToPmDialog: null,
   reconcileDialog: null,
   pairDialog: null,
   computers: null,
@@ -1234,6 +1247,12 @@ export function toggleTeamOpen(): void {
   setState({ teamOpen: !state.teamOpen })
 }
 
+/** Shows or hides the projects (and the line that starts one) under the sidebar's Projects row; kept for next time. */
+export function toggleProjectsOpen(): void {
+  savePref('projectsOpen', !state.projectsOpen)
+  setState({ projectsOpen: !state.projectsOpen })
+}
+
 /**
  * Home's Space filter: every space (the sidebar stays where it is), or one space, which also brings the sidebar there
  * (`space`: an organization's id, or null for Personal).
@@ -1388,6 +1407,10 @@ export function openCompareDialog(dialog: State['compareDialog']): void {
 
 export function openScheduleDialog(dialog: State['scheduleDialog']): void {
   setState({ scheduleDialog: dialog })
+}
+
+export function openHandToPm(workspaceId: string | null): void {
+  setState({ handToPmDialog: workspaceId, overlay: null })
 }
 
 export function openHandOffTo(dialog: State['handOffToDialog']): void {

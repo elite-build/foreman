@@ -74,7 +74,7 @@ export const EMPLOYEE_TOOLS = {
     schema: z.object({}).strict()
   },
   finish_task: {
-    description: 'End your task with its result, once, then end your turn. status: done; partial (some of it, and say in unblock what is left); blocked (say in unblock what would unblock it); declined (you won’t do it, and why). summary: what you did or why not, first line first. artifacts: memory paths or workspace paths of what you made; memory you wrote that is named here is committed first. evidence: what shows it (checks, links, files).',
+    description: 'End your task with its result, once, then end your turn. status: done; partial (some of it, and say in unblock what is left); blocked (say in unblock what would unblock it); declined (you won’t do it, and why). summary: what you did or why not, first line first. artifacts: memory paths or workspace paths of what you made; memory you wrote that is named here is committed first. evidence: what shows it (checks, links, files). decision: when your task asks for one (a project’s acceptance: accept or replan), exactly one of the options it names.',
     readOnly: false,
     schema: z
       .object({
@@ -82,7 +82,8 @@ export const EMPLOYEE_TOOLS = {
         summary: z.string().trim().min(1).max(MAX_FINISH_SUMMARY),
         artifacts: z.array(path).max(MAX_ARTIFACTS).optional(),
         evidence: z.array(z.string().trim().min(1).max(1_000)).max(MAX_ARTIFACTS).optional(),
-        unblock: z.string().trim().min(1).max(1_000).optional()
+        unblock: z.string().trim().min(1).max(1_000).optional(),
+        decision: z.string().trim().min(1).max(40).optional()
       })
       .strict()
   },
@@ -152,6 +153,52 @@ export const EMPLOYEE_TOOLS = {
     readOnly: false,
     schema: z.object({ kind: z.enum(['trigger', 'employee', 'delegate']), spec: z.record(z.string(), z.unknown()), reason: z.string().trim().min(1).max(MAX_DELEGATE_FIELD) }).strict()
   },
+  // ---- a project's plan (docs/ai-employees.md §15) ----
+  project_plan: {
+    description:
+      'Only in a project’s planning task (you are its program manager): give the plan. summary: what will exist when it is done. size: small (at most 3 parts, ends with its last part) or large (at most 8, ends with your acceptance and the person’s final approval). parts: each with id (lowercase, dashes), title, owner (an employee’s id or name from the roster, or new:<key> for one you propose), brief (what to do, in your words), writes (its one markdown file, such as build.md), reads and depends_on (part ids), gate_after (the person checks its result first), accept_as_is (in a replan, for a part that couldn’t finish: count what it did as done instead of running it again). new_employees: who you propose when nobody fits, each with key, name, role, description, responsibilities, instructions and repos ({"<repository>": "read" | "write"}). Foreman checks it and answers what to fix, or records it and writes plan.md; call it again to change it, then finish_task done.',
+    readOnly: false,
+    schema: z
+      .object({
+        summary: z.string().trim().min(1).max(2_000),
+        size: z.enum(['small', 'large']),
+        parts: z
+          .array(
+            z
+              .object({
+                id: z.string().trim().min(1).max(32),
+                title: z.string().trim().min(1).max(120),
+                owner: z.string().trim().min(1).max(80),
+                brief: z.string().trim().min(1).max(4_000),
+                writes: z.string().trim().min(1).max(60),
+                reads: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
+                depends_on: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
+                gate_after: z.boolean().optional(),
+                accept_as_is: z.boolean().optional()
+              })
+              .strict()
+          )
+          .min(1)
+          .max(8),
+        new_employees: z
+          .array(
+            z
+              .object({
+                key: z.string().trim().min(1).max(32),
+                name: z.string().trim().min(1).max(60),
+                role: z.string().trim().min(1).max(60),
+                description: z.string().trim().max(500),
+                responsibilities: z.array(z.string().trim().min(1).max(300)).max(12).optional(),
+                instructions: z.string().trim().min(1).max(32_000),
+                repos: z.record(z.string(), z.enum(['read', 'write']))
+              })
+              .strict()
+          )
+          .max(4)
+          .optional()
+      })
+      .strict()
+  },
   // ---- outward actions through Foreman's own routes (docs/ai-employees.md §9) ----
   request_push: {
     description:
@@ -198,6 +245,8 @@ export interface MemoryWriteGrants {
   scopes: readonly string[]
   // The run writes nothing directly (the persona it wears is read-only): every write becomes a proposal.
   readOnly: boolean
+  // Files its task grants for the task's duration (a project part's file, docs/ai-employees.md §15).
+  files?: readonly string[]
 }
 
 export type MemoryWriteDecision = { kind: 'write' } | { kind: 'propose'; why: string } | { kind: 'refuse'; why: string }
@@ -211,6 +260,8 @@ export function memoryWriteDecision(employeeId: string, file: string, grants: Me
   const problem = memoryPathProblem(file)
   if (problem) return { kind: 'refuse', why: `${file}: ${MEMORY_PATH_REASON[problem]}` }
   const own = `memory/bots/${employeeId}/`
+  // A file its task grants (a project part's file): written, as its own folder is.
+  if (grants.files?.includes(file)) return grants.readOnly ? { kind: 'propose', why: 'This run is read-only, so even the file your task names is a proposal.' } : { kind: 'write' }
   if (file.startsWith(own)) return grants.readOnly ? { kind: 'propose', why: 'This run is read-only, so even your own memory is a proposal.' } : { kind: 'write' }
   if (file.startsWith('memory/bots/')) return { kind: 'refuse', why: `${file} is in another employee’s memory folder. Read it, but write only your own (${own}).` }
   if ((PROPOSAL_ONLY_FILES as readonly string[]).includes(file) || PROPOSAL_ONLY_FOLDERS.some((f) => file.startsWith(f)))

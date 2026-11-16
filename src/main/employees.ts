@@ -383,6 +383,47 @@ export class EmployeeService {
   }
 
   /**
+   * Several at once (docs/ai-employees.md §15: the program manager, the employees a plan proposes): every definition and
+   * its memory folder in one commit by the person, each a draft here (nothing is approved). Their hand-offs may name each
+   * other. Ids already used in the organization are refused rather than replaced, so the ids the caller records still
+   * name these employees.
+   */
+  async createTeam(orgId: string, definitions: EmployeeDefinition[]): Promise<EmployeeView[]> {
+    const org = this.organization(orgId)
+    if (!Array.isArray(definitions) || !definitions.length) return []
+    const checked = definitions.map((d) => this.checked(d))
+    const { entries, folders } = await this.load(orgId)
+    const taken = new Set([...entries.map((e) => e.id), ...folders, ...this.records().filter((r) => r.orgId === orgId).map((r) => r.id)])
+    const ids = new Set<string>()
+    const names: { id: string; name: string }[] = entries.flatMap((e) => (e.definition ? [{ id: e.id, name: e.definition.name }] : []))
+    for (const d of checked) {
+      if (taken.has(d.id) || ids.has(d.id)) throw new Error(`${d.id} is already used in ${org.name}.`)
+      const problem = employeeNameProblem(d.name, names)
+      if (problem) throw new Error(problem === 'taken' ? `There is already an employee named ${d.name.trim()} in ${org.name}.` : 'Give every employee a name.')
+      ids.add(d.id)
+      names.push({ id: d.id, name: d.name })
+    }
+    for (const d of checked) {
+      const unknown = d.access.delegate_to.filter((id) => !ids.has(id) && !entries.some((e) => e.id === id))
+      if (unknown.length) throw new Error(`${d.name} can only hand tasks to employees of ${org.name}: ${unknown.join(', ')} isn’t one.`)
+    }
+    const changes = checked.flatMap((d) => [
+      { kind: 'write' as const, path: employeePath(d.id), text: serializeEmployee(d), expectedBlob: null },
+      ...Object.entries(seedMemoryFiles(d)).map(([file, text]) => ({ kind: 'write' as const, path: file, text, expectedBlob: null }))
+    ])
+    const result = await this.host.memory.commitAsPerson(orgId, changes, { subject: `Add the team: ${checked.map((d) => d.name).join(', ')}` })
+    if (!result.ok) throw new Error(`${result.path} is already in ${org.name}’s memory repository.`)
+    for (const d of checked) this.setRecord(orgId, d.id, { state: 'draft' })
+    this.host.changed()
+    const out: EmployeeView[] = []
+    for (const d of checked) {
+      const { file } = await this.entry(orgId, d.id)
+      out.push(await this.view(orgId, file))
+    }
+    return out
+  }
+
+  /**
    * Save an edit against the file as it was read (`expectedBlob`); a file changed since is a conflict, with how it is
    * now. The id can't change, and a retired employee isn't edited. If the fingerprint moved, an approved employee is
    * "changed since approval" until it is approved again.

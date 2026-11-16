@@ -521,10 +521,10 @@ describe('memory: foreman.db', () => {
     const fresh = new ForemanDb(file)
     expect(tables(fresh).filter((n) => want.includes(n))).toEqual(want)
     expect((fresh.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION)
-    // A database from the version before: the two memory migrations not yet applied (nor the four employee work ones after them).
+    // A database from the version before: the two memory migrations not yet applied (nor the five employee work ones after them).
     fresh.db.exec('DROP TABLE memory_fts; DROP TABLE memory_docs; DROP TABLE memory_mutations; DROP TABLE memory_heads;')
-    fresh.db.exec('DROP TABLE employee_actions; DROP TABLE employee_roots; DROP TABLE employee_questions; DROP TABLE employee_runs; DROP TABLE employee_task_transitions; DROP TABLE employee_tasks;')
-    fresh.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 6}`)
+    fresh.db.exec('DROP TABLE employee_projects; DROP TABLE employee_actions; DROP TABLE employee_roots; DROP TABLE employee_questions; DROP TABLE employee_runs; DROP TABLE employee_task_transitions; DROP TABLE employee_tasks;')
+    fresh.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 7}`)
     fresh.close()
     const upgraded = new ForemanDb(file)
     opened.push(upgraded)

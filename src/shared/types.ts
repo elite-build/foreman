@@ -2279,6 +2279,8 @@ export interface AppSnapshot {
   // Each organization's employee work not yet over, and each employee's last result (docs/ai-employees.md §6). Only while
   // AI employees are on.
   employeeWork?: Record<string, import('./employeeWork').EmployeeWorkView>
+  // Each organization's projects going, and those closed in the last two weeks (docs/ai-employees.md §15).
+  projects?: Record<string, import('./projects').Project[]>
   // Each employee trigger's firing state on this computer: its next planned time, off here, its last firings
   // (docs/ai-employees.md §8). Only while AI employees are on.
   employeeTriggers?: import('./employeeTriggers').EmployeeTriggerState[]
@@ -2793,6 +2795,24 @@ export interface Api {
   employeeTaskChain(taskId: string): Promise<import('./employeeWork').EmployeeTaskChain>
   raiseEmployeeRootLimit(rootId: string): Promise<import('./employeeWork').EmployeeRootLedger>
   setOrganizationLead(organizationId: string, employeeId: string | null): Promise<import('./organizations').Organization>
+  // Ask a follow-up of a finished task's employee: a new task for them in the same chain, reading what the task said and
+  // the memory it named (a project's task: the file it wrote, in the project's workspace).
+  askEmployeeFollowUp(taskId: string, question: string): Promise<import('./employeeWork').EmployeeTask>
+  // Projects (docs/ai-employees.md §15): the person tags the organization's program manager, who plans it; Foreman starts
+  // its parts. A decision answers one thing the project waits on (`waitId`: its plan, a part's gate, a stuck task, the
+  // final gate); anything else is refused.
+  startProject(organizationId: string, input: import('./projects').StartProjectInput): Promise<import('./projects').Project>
+  decideProject(projectId: string, waitId: string, decision: import('./projects').ProjectDecision, note?: string): Promise<import('./projects').Project>
+  // Hold it (what is running finishes, nothing new starts), or let it go on.
+  pauseProject(projectId: string, paused: boolean): Promise<import('./projects').Project>
+  // Its going tasks are canceled and it closes stopped; its artifacts and its employees' memory stay.
+  stopProject(projectId: string): Promise<import('./projects').Project>
+  // A note in the project's channel: kept, wakes nobody.
+  noteProject(projectId: string, text: string): Promise<import('./projects').Project>
+  // `@Name …` in the project's channel: a follow-up to that employee, reading what they last wrote in it.
+  askProjectFollowUp(projectId: string, employeeId: string, question: string): Promise<import('./employeeWork').EmployeeTask>
+  // An organization made before program managers (or whose making of her failed): make and approve her now.
+  addProgramManager(organizationId: string): Promise<import('./organizations').Organization>
   // An employee's held outward action (docs/ai-employees.md §9), in Needs you: Send (with `edits`, Edit then send: its
   // words only, never where it goes), sent at most once; an uncertain one only with `checked` (the person looked and it
   // didn't arrive). Skip sends nothing. Confirm records an uncertain one as arrived, sending nothing.
@@ -3320,6 +3340,7 @@ export const API_METHODS = [
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
   'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',
+  'askEmployeeFollowUp', 'startProject', 'decideProject', 'pauseProject', 'stopProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',
   'sendEmployeeAction', 'skipEmployeeAction', 'confirmEmployeeAction',
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',

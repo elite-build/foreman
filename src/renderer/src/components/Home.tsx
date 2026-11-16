@@ -226,7 +226,7 @@ function HomeRow({ t, repoName, space }: { t: Triage; repoName?: string; space?:
 /** The button an employee's item offers: Answer a question, Review an action or a proposal, else Open. */
 function employeeAction(item: NeedsYouItem, t: RendererT): string {
   if (item.task?.question) return t('needsYou.answer')
-  if (item.kind === 'action' || item.kind === 'proposal') return t('home.action.review')
+  if (item.kind === 'action' || item.kind === 'proposal' || item.kind === 'project') return t('home.action.review')
   return t('common.open')
 }
 

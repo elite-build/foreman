@@ -98,10 +98,11 @@ describe('the Team section', () => {
     expect(screen.getByRole('region', { name: 'Team' })).toBeTruthy()
     const list = screen.getByRole('list', { name: 'Employees of Foreman' })
     const rows = within(list).getAllByRole('button')
-    expect(rows.map((r) => r.textContent)).toEqual(['AdaDeveloperIdle', 'MaxMarketingDraft', 'PatMarketingPaused', 'SamMarketingChanged since approval'])
+    // The person first (docs/ai-employees.md §15), with what waits for them here, then the employees.
+    expect(rows.map((r) => r.textContent)).toEqual(['YoupersonNothing waiting', 'AdaDeveloperIdle', 'MaxMarketingDraft', 'PatMarketingPaused', 'SamMarketingChanged since approval'])
     // The hat is drawn beside the name, so it is hidden from assistive tech.
     expect(list.querySelector('svg.ui-hard-hat')?.getAttribute('aria-hidden')).toBe('true')
-    await user.click(rows[1])
+    await user.click(rows[2])
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: 'e-2abc' })
     await user.click(screen.getByRole('button', { name: 'New employee in Foreman' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'new' })

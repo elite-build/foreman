@@ -154,6 +154,8 @@ interface Fake {
   archived: string[]
   // What runEnded was told, in order: [employeeId, failed, detail].
   ended: [string, boolean, string | undefined][]
+  // The memory files reads find (path → text).
+  files: Record<string, string>
 }
 
 const ORG: Organization = { id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-01T00:00:00.000Z' }
@@ -242,7 +244,7 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
     changed: () => undefined,
     now: () => clock.now
   }
-  return { service: new EmployeeWorkService(host), db, state, definitions, summaries, launches, stopped, chats, memoryStatus, records, slots, writeRecap, commitRun, clock, launchError, autoCreate, sessions, stagedPaths, reports, closedReports, archived, ended }
+  return { service: new EmployeeWorkService(host), db, state, definitions, summaries, launches, stopped, chats, memoryStatus, records, slots, writeRecap, commitRun, clock, launchError, autoCreate, sessions, stagedPaths, reports, closedReports, archived, ended, files }
 }
 
 /** The run's chat, marked as its run and in its turn, as Core makes it (the employee tools find the run from it). */
@@ -1054,13 +1056,13 @@ describe('employee work: foreman.db', () => {
   it('creates the task, transition and run tables on a new database and on one from before them', async () => {
     const file = path.join(await tempDir('foreman-employee-db-'), 'foreman.db')
     const tables = (db: ForemanDb) => (db.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'employee_%' ORDER BY name").all() as { name: string }[]).map((r) => r.name)
-    const want = ['employee_actions', 'employee_questions', 'employee_roots', 'employee_runs', 'employee_task_transitions', 'employee_tasks']
+    const want = ['employee_actions', 'employee_projects', 'employee_questions', 'employee_roots', 'employee_runs', 'employee_task_transitions', 'employee_tasks']
     const fresh = new ForemanDb(file)
     expect(tables(fresh)).toEqual(want)
-    // From before the four employee work migrations (the tables; a task's json and the questions; the chains' ledgers;
-    // the outward actions).
-    fresh.db.exec('DROP TABLE employee_actions; DROP TABLE employee_roots; DROP TABLE employee_questions; DROP TABLE employee_runs; DROP TABLE employee_task_transitions; DROP TABLE employee_tasks;')
-    fresh.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 4}`)
+    // From before the five employee work migrations (the tables; a task's json and the questions; the chains' ledgers;
+    // the outward actions; projects).
+    fresh.db.exec('DROP TABLE employee_projects; DROP TABLE employee_actions; DROP TABLE employee_roots; DROP TABLE employee_questions; DROP TABLE employee_runs; DROP TABLE employee_task_transitions; DROP TABLE employee_tasks;')
+    fresh.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 5}`)
     fresh.close()
     const upgraded = new ForemanDb(file)
     opened.push(upgraded)
@@ -1088,5 +1090,150 @@ describe('employee work: foreman.db', () => {
     expect(upgraded.employeeRun('r1')).toEqual({ id: 'r1', taskId: 't1', employeeId: 'e-1', orgId: 'o1', attempt: 1, state: 'running', started: true, turnIds: ['a'], repoId: 'site', access: 'write', profile: 'no-shell', minutes: 30, memoryBase: 'm', usage: { durationMs: 5 }, createdAt: now, updatedAt: now })
     // A second task with the same request id in the organization is refused.
     expect(() => upgraded.putEmployeeTask({ ...task, id: 't2' })).toThrow()
+  })
+})
+
+describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', () => {
+  const ARTIFACT = 'memory/org/projects/export/requirements.md'
+  const stage = (f: Fake, patch: Partial<Parameters<Fake['service']['projectTask']>[0]> = {}) =>
+    f.service.projectTask({
+      orgId: 'o1',
+      employeeId: 'e-max1',
+      title: 'Requirements: Export',
+      body: 'Write the requirements.',
+      repoId: 'site',
+      requestId: 'project:p1:requirements:1',
+      runsAllowed: 60,
+      contract: { produces: ARTIFACT, writes: [ARTIFACT] },
+      project: { id: 'p1', kind: 'part', partId: 'reqs', round: 1 },
+      ...patch
+    })
+
+  it('records a project’s first task as its chain with its own allowance, finds it again by request id, and joins later ones to it', async () => {
+    const f = await rig()
+    const first = await stage(f)
+    await settle()
+    expect(first).toMatchObject({ rootId: first.id, parentId: null, from: 'person', cause: 'project:p1', project: { id: 'p1', kind: 'part', partId: 'reqs', round: 1 }, contract: { produces: ARTIFACT } })
+    expect(f.db.employeeRoot(first.id)).toMatchObject({ runsAllowed: 60 })
+    expect((await stage(f)).id).toBe(first.id)
+    const next = await stage(f, { requestId: 'project:p1:design:1', rootId: first.id, project: { id: 'p1', kind: 'part', partId: 'design', round: 1 } })
+    expect(next).toMatchObject({ rootId: first.id, parentId: null })
+    // Its run may write the artifact its task names, and only that beyond its own folder.
+    const run = f.db.employeeRuns({ taskId: first.id })[0]
+    expect(f.service.brief(run.id)!.memoryWrites.files).toEqual([ARTIFACT])
+    await expect(stage(f, { requestId: 'other', repoId: 'blog' })).rejects.toThrow('isn’t one of Acme’s')
+  })
+
+  it('refuses done without the decision the task asks for or the artifact it names, and records both once given', async () => {
+    const f = await rig()
+    const task = await stage(f, { contract: { produces: ARTIFACT, writes: [ARTIFACT], options: ['feature', 'small'] } })
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })).rejects.toThrow('give decision as exactly one of feature, small')
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.', decision: 'huge' })).rejects.toThrow('feature, small')
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.', decision: 'small' })).rejects.toThrow(`Write ${ARTIFACT} first`)
+    f.files[ARTIFACT] = '## Problem\n'
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.', decision: 'small' })
+    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'done', result: { decision: 'small', artifacts: [ARTIFACT] } })
+  })
+
+  it('takes no decision from a task that asks for none, and lets a blocked stage finish without its artifact', async () => {
+    const f = await rig()
+    const task = await stage(f)
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.', decision: 'small' })).rejects.toThrow('asks for no decision')
+    await f.service.finishTask(run.sessionId!, { status: 'blocked', summary: 'No data to go on.', unblock: 'Say who the users are.' })
+    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'blocked' })
+  })
+
+  it('asks the project before a planning task finishes done, and refuses with its reason', async () => {
+    const f = await rig()
+    f.service.projects = {
+      workspaceFor: () => undefined,
+      runCreated: () => undefined,
+      keeps: () => false,
+      taskClosed: () => undefined,
+      followUp: async (task) => task,
+      finishCheck: (task, input) => (task.project?.kind === 'plan' && input.status === 'done' ? 'Give your plan with project_plan first; then finish_task done.' : undefined)
+    }
+    const task = await stage(f, { contract: {}, project: { id: 'p1', kind: 'plan', round: 1 } })
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Planned.' })).rejects.toThrow('project_plan first')
+    await f.service.finishTask(run.sessionId!, { status: 'blocked', summary: 'Too thin.', unblock: 'Say who it is for.' })
+    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'blocked' })
+  })
+
+  it('runs the program manager outside the lanes: any number of her runs at once, none taking a place from others', async () => {
+    const f = await rig({ employees: ['e-max1', 'e-ada2', 'e-lin3'] })
+    f.state.organizations = [{ ...ORG, programManagerId: 'e-max1' }]
+    const plans = await Promise.all([1, 2, 3].map((n) => stage(f, { employeeId: 'e-max1', requestId: `project:p${n}:plan:1`, contract: {}, project: { id: `p${n}`, kind: 'plan', round: 1 } })))
+    await settle()
+    expect(plans.map((t) => f.db.employeeTask(t.id)!.state)).toEqual(['running', 'running', 'running'])
+    // Two others still run beside her three; a third waits for one of them.
+    const a = await f.service.ask('o1', 'e-ada2', { body: 'Ada’s' })
+    const b = await f.service.ask('o1', 'e-lin3', { body: 'Lin’s' })
+    const c = await f.service.ask('o1', 'e-ada2', { body: 'Ada’s second' })
+    await settle()
+    expect([a, b].map((t) => f.db.employeeTask(t.id)!.state)).toEqual(['running', 'running'])
+    expect(f.db.employeeTask(c.id)).toMatchObject({ state: 'open', hold: 'queued' })
+  })
+
+  it('opens a project’s runs in its workspace, keeps it after a run, and tells the project when its task closes', async () => {
+    const f = await rig()
+    const closed: string[] = []
+    const created: string[] = []
+    f.service.projects = {
+      workspaceFor: () => 'ws-project',
+      runCreated: (_task, ws) => void created.push(ws),
+      keeps: () => true,
+      taskClosed: (task) => void closed.push(task.id),
+      followUp: async (task) => task
+    }
+    const task = await stage(f)
+    await settle()
+    expect(f.launches.at(-1)!.plan.workspaceId).toBe('ws-project')
+    expect(created).toEqual(['ws-1'])
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    f.files[ARTIFACT] = 'x'
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
+    f.chats.set(run.sessionId!, reply('turn-1', 'Done.'))
+    await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
+    expect(closed).toEqual([task.id])
+    // The project's workspace stays: the run isn't archived.
+    expect(f.archived).toEqual([])
+  })
+
+  it('asks a follow-up of a finished task’s employee in the same chain, with its result and the memory it named', async () => {
+    const f = await rig()
+    const task = await f.service.ask('o1', 'e-max1', { body: 'Draft the post' })
+    await settle()
+    await expect(f.service.askFollowUp(task.id, 'Why?')).rejects.toThrow('isn’t finished')
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Drafted it.', artifacts: ['memory/bots/e-max1/post.md', 'docs/post.md'] })
+    f.chats.set(run.sessionId!, reply('turn-1', 'Done.'))
+    await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
+    await expect(f.service.askFollowUp(task.id, '   ')).rejects.toThrow('Say what you’re asking.')
+    const follow = await f.service.askFollowUp(task.id, 'Can it be shorter?')
+    expect(follow).toMatchObject({ employeeId: 'e-max1', rootId: task.rootId, title: 'Follow-up: Draft the post', cause: `follow-up:${task.id}`, contract: { inputs: [{ path: 'memory/bots/e-max1/post.md' }] } })
+    expect(follow.body).toContain('“Can it be shorter?”')
+    expect(follow.body).toContain('you said: “Drafted it.”')
+    // A project's task asks through its project.
+    const asked: string[] = []
+    f.service.projects = { workspaceFor: () => undefined, runCreated: () => undefined, keeps: () => false, taskClosed: () => undefined, followUp: async (t, q) => (asked.push(q), t) }
+    f.db.putEmployeeTask({ ...f.db.employeeTask(task.id)!, project: { id: 'p1', kind: 'part', partId: 'reqs', round: 1 } })
+    await f.service.askFollowUp(task.id, 'And hidden columns?')
+    expect(asked).toEqual(['And hidden columns?'])
   })
 })

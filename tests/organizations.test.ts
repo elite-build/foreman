@@ -348,3 +348,62 @@ describe('organizations: no workspace in a memory repository', () => {
     store.close()
   })
 })
+
+describe('organizations: the program manager (docs/ai-employees.md §15)', () => {
+  const made = async (parent: string, name: string) => path.join(parent, name)
+  const host = (state: PersistedState, createProgramManager: (org: Organization) => Promise<string>) => ({
+    state: () => state,
+    addRepo: async (dir: string) => {
+      const added = { id: `r-${path.basename(dir)}`, name: path.basename(dir), rootPath: dir, defaultBranch: 'main', local: {}, createdAt: 'x' } as unknown as Repo
+      state.repos.push(added)
+      return added
+    },
+    changed: () => undefined,
+    createProgramManager
+  })
+
+  it('makes her with the organization once it has a memory repository, as its lead, and later when one is chosen', async () => {
+    const state = { repos: [], organizations: [], settings: defaultSettings() } as unknown as PersistedState
+    const asked: string[] = []
+    const service = new OrganizationService(
+      host(state, async (org) => {
+        asked.push(org.id)
+        return 'e-pri1'
+      }),
+      made
+    )
+    const org = await service.create({ name: 'FRLK', memory: { kind: 'create', name: 'frlk-memory', parentDir: path.resolve('/code') }, repoIds: [] })
+    expect(asked).toEqual([org.id])
+    expect(org).toMatchObject({ programManagerId: 'e-pri1', leadEmployeeId: 'e-pri1' })
+    expect(org.teamProblem).toBeUndefined()
+    // Without a memory repository there is nowhere to keep her, until one is chosen.
+    const later = await service.create({ name: 'Later', memory: { kind: 'later' }, repoIds: [] })
+    expect(later.programManagerId).toBeUndefined()
+    const chosen = await service.setMemory(later.id, { kind: 'create', name: 'later-memory', parentDir: path.resolve('/code') })
+    expect(chosen.programManagerId).toBe('e-pri1')
+    expect(asked).toHaveLength(2)
+    // Once she exists, asking again makes nobody.
+    await service.ensureProgramManager(org.id)
+    expect(asked).toHaveLength(2)
+  })
+
+  it('keeps the organization when she can’t be made, says why once without saving it, and can make her later', async () => {
+    const state = { repos: [], organizations: [], settings: defaultSettings() } as unknown as PersistedState
+    let fail = true
+    const service = new OrganizationService(
+      host(state, async () => {
+        if (fail) throw new Error('git refused')
+        return 'e-pri2'
+      }),
+      made
+    )
+    const failed = await service.create({ name: 'Broken', memory: { kind: 'create', name: 'broken-memory', parentDir: path.resolve('/code') }, repoIds: [] })
+    expect(failed.teamProblem).toBe('git refused')
+    const kept = state.organizations!.find((o) => o.id === failed.id)!
+    expect(kept.teamProblem).toBeUndefined()
+    expect(kept.programManagerId).toBeUndefined()
+    await expect(service.ensureProgramManager(failed.id)).rejects.toThrow('git refused')
+    fail = false
+    expect((await service.ensureProgramManager(failed.id)).programManagerId).toBe('e-pri2')
+  })
+})
