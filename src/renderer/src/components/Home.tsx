@@ -6,7 +6,7 @@ import { Plus } from 'lucide-react'
 import { Fragment, useId, useState, type ReactNode } from 'react'
 import { api, attempt, clientKind, markWorkspaceUnread, modKey, openFixCi, openHandOffDialog, openImportDialog, openResolveBase, openNewWorkspace, selectWorkspace, sendUnseenReviews, setHomeSpace, timeWaited, useStore } from '../store'
 import { useClock } from '../clock'
-import { BUCKET_LABEL, liveRepo, triageAll, type Triage } from '../triage'
+import { BUCKET_LABEL, listsWorkspace, liveRepo, projectWorkspaceIds, triageAll, type Triage } from '../triage'
 import { currentSpace, newWorkspaceTarget, snapshotInSpace, spacesOn } from '../../../shared/organizations'
 import { itemsInSpace, type NeedsYouItem } from '../../../shared/needsYou'
 import type { PlainKey } from '../../../shared/i18n'
@@ -388,8 +388,10 @@ export function Home() {
   const mod = modKey(snapshot.platform)
   const scoped = { ...input, snapshot: shown }
   const all = triageAll(scoped, repoId)
-  // Put away for later: out of Home and the board until its day (a Later section can still show them).
-  const items = all.filter((x) => !putAway(x, now))
+  // Put away for later: out of Home and the board until its day (a Later section can still show them). A project's
+  // workspace is its channel's: only listed while it needs you.
+  const projectIds = projectWorkspaceIds(snapshot)
+  const items = all.filter((x) => !putAway(x, now) && listsWorkspace(x, projectIds))
   // What needs you: the shared list over every space, narrowed like the rest of Home.
   const need = needsYouOf(input)
   const needs = itemsInSpace(need.items, allSpaces ? undefined : space).filter((i) => !repoId || i.repoId === repoId)
