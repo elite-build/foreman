@@ -1,15 +1,17 @@
 // The sidebar's Channels row for an organization (docs/ai-employees.md §15), under its Team row: one row like Team's,
-// with how many things its projects wait on the person for and a chevron that shows, remembered open or closed, the
-// organization's channel (where `@Priya …` starts a project) and a channel per project going or lately closed, each with
-// its state and what it is doing on the line under its name. Shown only while the organization is the space shown and
-// has a memory repository.
-import { ChevronDown, ChevronRight, Hash } from 'lucide-react'
+// with how many things its projects wait on the person for, a + that opens the organization's channel with `@Priya`
+// in its box (a new channel is a project she plans), and a chevron that shows, remembered open or closed, the
+// organization's channel and a channel per project going or closed and not archived, each with its state and what it is
+// doing on the line under its name and a ⋯ menu (rename, archive, delete), then All channels (the Channels page, where
+// archived ones are too). Shown only while the organization is the space shown and has a memory repository.
+import { ChevronDown, ChevronRight, Hash, List, Plus } from 'lucide-react'
 import { useId } from 'react'
 import { currentSpace, spacesOn } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { openEmployees, toggleProjectsOpen, useStore } from '../../store'
 import { ActionRow, IconButton, Status } from '../../ui'
-import { channelName, orgChannelSlug, projectStatus } from './projectWords'
+import { ChannelMenu } from './ChannelActions'
+import { channelName, orgChannelSlug, projectChannel, projectStatus } from './projectWords'
 import './employees.css'
 
 export function ProjectsSection() {
@@ -37,9 +39,16 @@ export function ProjectsSection() {
         onPress={toggleProjectsOpen}
         primaryProps={{ 'aria-expanded': open, 'aria-controls': listId, 'aria-label': waiting ? t('sidebar.rail.needYou', { label: t('projects.heading'), count: waiting }) : t('projects.heading') }}
         actions={
-          <IconButton className="team-entry-fold" label={t('projects.fold')} aria-expanded={open} aria-controls={listId} onClick={toggleProjectsOpen}>
-            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </IconButton>
+          <>
+            {org.programManagerId && (
+              <IconButton className="team-entry-fold" label={t('projects.new')} onClick={() => openEmployees({ orgId: org.id, page: 'channel', mention: Date.now() })}>
+                <Plus size={14} />
+              </IconButton>
+            )}
+            <IconButton className="team-entry-fold" label={t('projects.fold')} aria-expanded={open} aria-controls={listId} onClick={toggleProjectsOpen}>
+              {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </IconButton>
+          </>
         }
       >
         <Hash size={14} aria-hidden />
@@ -67,9 +76,16 @@ export function ProjectsSection() {
             const selected = route?.orgId === org.id && route.page === 'project' && route.id === p.id
             return (
               <li key={p.id}>
-                <ActionRow className="team-row" primaryProps={{ className: 'team-row-main', title: p.title }} selected={selected} onPress={() => openEmployees({ orgId: org.id, page: 'project', id: p.id })}>
+                <ActionRow
+                  className="team-row"
+                  primaryProps={{ className: 'team-row-main', title: p.title }}
+                  selected={selected}
+                  onPress={() => openEmployees({ orgId: org.id, page: 'project', id: p.id })}
+                  revealActions
+                  actions={<ChannelMenu project={p} />}
+                >
                   <span className="team-row-who">
-                    <span className="team-row-name">{channelName(p.slug)}</span>
+                    <span className="team-row-name">{projectChannel(p)}</span>
                   </span>
                   <span className="team-row-line">
                     <Status className="team-row-status" tone={status.tone} label={status.label} />
@@ -81,6 +97,14 @@ export function ProjectsSection() {
               </li>
             )
           })}
+          <li>
+            <ActionRow className="team-row" primaryProps={{ className: 'team-row-main' }} selected={route?.orgId === org.id && route.page === 'channels'} onPress={() => openEmployees({ orgId: org.id, page: 'channels' })}>
+              <span className="team-row-who">
+                <List size={13} aria-hidden />
+                <span className="team-row-doing">{t('projects.all.row')}</span>
+              </span>
+            </ActionRow>
+          </li>
         </ul>
         {projects.length === 0 && <p className="team-empty">{t('projects.empty', { name: pmName })}</p>}
       </div>

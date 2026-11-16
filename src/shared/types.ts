@@ -2807,6 +2807,13 @@ export interface Api {
   pauseProject(projectId: string, paused: boolean): Promise<import('./projects').Project>
   // Its going tasks are canceled and it closes stopped; its artifacts and its employees' memory stay.
   stopProject(projectId: string): Promise<import('./projects').Project>
+  // A project's channel (§15): every one of an organization's, archived too (the Channels page); renaming changes only the
+  // name shown; archiving a closed one takes it off the sidebar, read-only, until restored; deleting stops it first and
+  // removes it from Foreman, its files in the memory repository staying unless `removeFiles`.
+  listChannels(organizationId: string): Promise<import('./projects').Project[]>
+  renameProject(projectId: string, name: string): Promise<import('./projects').Project>
+  archiveProject(projectId: string, archived: boolean): Promise<import('./projects').Project>
+  deleteProject(projectId: string, options?: import('./projects').DeleteProjectOptions): Promise<void>
   // A note in the project's channel: kept, wakes nobody.
   noteProject(projectId: string, text: string): Promise<import('./projects').Project>
   // `@Name …` in the project's channel: a follow-up to that employee, reading what they last wrote in it.
@@ -3340,7 +3347,7 @@ export const API_METHODS = [
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
   'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',
-  'askEmployeeFollowUp', 'startProject', 'decideProject', 'pauseProject', 'stopProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',
+  'askEmployeeFollowUp', 'startProject', 'decideProject', 'pauseProject', 'stopProject', 'listChannels', 'renameProject', 'archiveProject', 'deleteProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',
   'sendEmployeeAction', 'skipEmployeeAction', 'confirmEmployeeAction',
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',

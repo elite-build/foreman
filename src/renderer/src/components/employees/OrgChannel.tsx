@@ -2,7 +2,7 @@
 // project as the line that started it with a link to its own channel, then the message box: "@Priya …" starts a project
 // (she plans it in its channel), "@Ravi …" asks Ravi as Ask does. A small change is still a workspace: the line under the
 // box opens New workspace. Beside it: who is here, the projects and the repositories. An organization made before
-// program managers gets an Add button instead.
+// program managers gets an Add button instead. The sidebar's + (a new channel) opens it with "@Priya " in the box.
 import { mentionOf, type Project } from '../../../../shared/projects'
 import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
@@ -10,10 +10,10 @@ import { api, attempt, openEmployees, openNewWorkspace, showToast, useStore } fr
 import { Button, Callout, Card, CardButton, HardHat, LinkButton, Select, Status, type HardHatColour } from '../../ui'
 import { useState } from 'react'
 import { ChannelComposer, Post, type ChannelMember } from './Channel'
-import { channelName, orgChannelSlug, projectStatus } from './projectWords'
+import { channelName, orgChannelSlug, projectChannel, projectStatus } from './projectWords'
 import './employees.css'
 
-export function OrgChannel({ orgId }: { orgId: string }) {
+export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number }) {
   const t = useT()
   const organization = useStore((s) => s.snapshot!.organizations?.find((o) => o.id === orgId))
   const roster = useStore((s) => s.snapshot!.employees?.[orgId]?.employees)
@@ -91,6 +91,8 @@ export function OrgChannel({ orgId }: { orgId: string }) {
           ))}
         </ol>
         <ChannelComposer
+          key={mention}
+          initial={mention && pm ? `@${pmName} ` : undefined}
           label={t('projects.orgChannel.label', { channel: channelName(orgChannelSlug(organization.name)) })}
           placeholder={t('projects.orgChannel.placeholder', { name: pmName })}
           members={members}
@@ -150,7 +152,7 @@ function StartedPost({ orgId, project, pmName }: { orgId: string; project: Proje
         @{pmName} {project.requirement}
       </p>
       <CardButton className="channel-link" onClick={() => openEmployees({ orgId, page: 'project', id: project.id })}>
-        <span className="employee-subheading">{channelName(project.slug)}</span>
+        <span className="employee-subheading">{projectChannel(project)}</span>
         <Status tone={status.tone} label={status.label} />
         <span className="employee-faint">{status.line}</span>
       </CardButton>

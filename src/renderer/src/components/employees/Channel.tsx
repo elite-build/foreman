@@ -37,10 +37,10 @@ export function SystemLine({ children }: { children: ReactNode }) {
   return <li className="channel-system employee-faint">{children}</li>
 }
 
-/** The message box, with a chip per member that puts their name first. Clears once `onSend` resolves true. */
-export function ChannelComposer({ label, placeholder, members, onSend, hint }: { label: string; placeholder: string; members: readonly ChannelMember[]; onSend: (text: string) => Promise<boolean>; hint?: ReactNode }) {
+/** The message box, with a chip per member that puts their name first. Clears once `onSend` resolves true. `initial` starts it with words in it, focused. */
+export function ChannelComposer({ label, placeholder, members, onSend, hint, initial }: { label: string; placeholder: string; members: readonly ChannelMember[]; onSend: (text: string) => Promise<boolean>; hint?: ReactNode; initial?: string }) {
   const t = useT()
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initial ?? '')
   const [busy, setBusy] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
   const send = () => {
@@ -70,6 +70,7 @@ export function ChannelComposer({ label, placeholder, members, onSend, hint }: {
         <TextArea
           ref={box}
           aria-label={label}
+          autoFocus={Boolean(initial)}
           placeholder={placeholder}
           rows={2}
           value={text}

@@ -60,7 +60,8 @@ button.ui-action-row__main::after {
   opacity: 0;
 }
 .ui-action-row[data-reveal-actions]:hover .ui-action-row__actions,
-.ui-action-row[data-reveal-actions]:focus-within .ui-action-row__actions {
+.ui-action-row[data-reveal-actions]:focus-within .ui-action-row__actions,
+.ui-action-row[data-reveal-actions] .ui-action-row__actions:has([aria-expanded='true']) {
   opacity: 1;
 }
 /* Inset, so the ring isn't clipped by a card or list that hides overflow. */

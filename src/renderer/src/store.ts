@@ -85,8 +85,11 @@ export type EmployeesRoute =
   | { orgId: string; page: 'team' }
   | { orgId: string; page: 'new' }
   | { orgId: string; page: 'employee'; id: string; edit?: boolean }
-  // The organization's channel (docs/ai-employees.md §15): `@Priya …` starts a project there.
-  | { orgId: string; page: 'channel' }
+  // The organization's channel (docs/ai-employees.md §15): `@Priya …` starts a project there; `mention` (when it was
+  // asked) opens it with the program manager's name in the box (the sidebar's + and New channel).
+  | { orgId: string; page: 'channel'; mention?: number }
+  // Every channel of the organization, archived ones too: rename, archive and delete them, one or several at once.
+  | { orgId: string; page: 'channels' }
   // A project's channel: its plan, its parts as they run, what it waits for you on.
   | { orgId: string; page: 'project'; id: string }
 

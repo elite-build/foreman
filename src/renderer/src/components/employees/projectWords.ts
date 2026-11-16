@@ -1,7 +1,7 @@
 // The words for projects (docs/ai-employees.md §15) in the person's language: a project's state and the line under its
 // name, a part's state, a plan's status, what a project waits on. Text only; the views lay it out.
 import type { PlainKey } from '../../../../shared/i18n'
-import { projectSlug, type PartState, type Project, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
+import { channelSlug, projectSlug, type PartState, type Project, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
 import type { useT } from '../../i18n'
 import type { StatusTone } from '../../ui'
 
@@ -34,6 +34,10 @@ export const WAIT_KIND_KEY: Record<ProjectWait['kind'], PlainKey> = {
 /** A channel's name: `#csv-export`, `#frlk`. */
 export const channelName = (slug: string) => `#${slug}`
 export const orgChannelSlug = (name: string) => projectSlug(name, [])
+/** What moved in an organization's listed projects (a stable string, where the snapshot's arrays are new each time). */
+export const projectsPulse = (projects: readonly Pick<Project, 'id' | 'updatedAt'>[] | undefined): string => (projects ?? []).map((p) => `${p.id}:${p.updatedAt}`).join(',')
+/** A project's channel name, as the person named it or from its title: `#csv-export`. */
+export const projectChannel = (p: Pick<Project, 'slug' | 'name'>) => channelName(channelSlug(p))
 
 /** A part's title, by id, in the plan in effect (or the newest). */
 export function partTitle(project: Pick<Project, 'plan' | 'plans'>, partId: string | undefined): string {

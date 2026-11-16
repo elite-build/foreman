@@ -3,7 +3,8 @@
 // project_plan (checked, proposed employees made as drafts, plan.md staged, a planning task can't finish without one),
 // the plan gate (refused until every owner is approved), parts in parallel with their contracts, a part's gate, a part
 // that can't finish waking a replan (one that goes ahead, one that waits), the end of a small project and a large one's
-// acceptance and final gate, pause, stop, notes, follow-ups, the shared workspace and its release, and recovery.
+// acceptance and final gate, pause, stop, notes, follow-ups, the shared workspace and its release, recovery, and the
+// channel's name, archive and delete.
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ForemanDb } from '../src/main/db'
@@ -13,7 +14,8 @@ import type { EmployeeProjectTaskInput } from '../src/main/employeeWork'
 import type { EmployeeTask } from '../src/shared/employeeWork'
 import { defaultEmployee, type EmployeeDefinition, type EmployeeSummary } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
-import type { PlanInput } from '../src/shared/projects'
+import type { MemoryChange } from '../src/shared/memory'
+import { listedProjects, type PlanInput } from '../src/shared/projects'
 import type { Repo } from '../src/shared/types'
 import { tempDir } from './helpers'
 
@@ -40,6 +42,9 @@ async function rig(options: { pm?: boolean } = {}) {
   const canceled: string[] = []
   const archived: [string, string][] = []
   const staged: { runId: string; path: string; text: string }[] = []
+  // The memory repository's files at its head, and the commits the person made (deleting a channel's files).
+  const files: { path: string; blob: string }[] = []
+  const personCommits: { changes: MemoryChange[]; subject: string }[] = []
   const alive = new Set<string>()
   let n = 0
   const clock = { now: Date.parse('2026-11-15T10:00:00.000Z') }
@@ -83,6 +88,12 @@ async function rig(options: { pm?: boolean } = {}) {
       stage: async (_org, runId, change) => {
         staged.push({ runId, path: change.path, text: 'text' in change ? change.text : '' })
         return {} as never
+      },
+      tree: async () => ({ head: 'h', entries: files.map((f) => ({ ...f, size: 1 })) }),
+      commitAsPerson: async (_org, changes, { subject }) => {
+        personCommits.push({ changes, subject })
+        for (const c of changes) files.splice(files.findIndex((f) => f.path === c.path), 1)
+        return { ok: true, commit: 'c-person', blobs: {} }
       }
     },
     workspaceAlive: (id) => alive.has(id),
@@ -120,7 +131,7 @@ async function rig(options: { pm?: boolean } = {}) {
     return said
   }
   const get = (id: string) => service.get(id)
-  return { db, state, org, team, service, asked, canceled, archived, staged, alive, close, task, last, plan, get, clock }
+  return { db, state, org, team, service, asked, canceled, archived, staged, files, personCommits, alive, close, task, last, plan, get, clock }
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 15))
@@ -407,5 +418,80 @@ describe('projects: recovery', () => {
     // Again: nothing twice.
     await r.service.recover()
     expect(r.get(project.id).waits).toHaveLength(1)
+  })
+})
+
+describe('projects: the channel’s name, archive and delete', () => {
+  const DAY = 24 * 60 * 60_000
+  /** A project that ran its one part and closed done. */
+  const closedProject = async (r: Awaited<ReturnType<typeof rig>>, requirement = 'Export reports to CSV') => {
+    const project = await r.service.start('o1', { requirement })
+    await r.plan({ ...TWO_PARTS, parts: [TWO_PARTS.parts[0]] })
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    await r.close(r.task(r.last()).id)
+    expect(r.get(project.id).phase).toBe('closed')
+    return project
+  }
+
+  it('renames only the name shown, refusing a bad or taken name', async () => {
+    const r = await rig()
+    const csv = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    await r.service.start('o1', { requirement: 'Team accounts SSO' })
+    expect((await r.service.rename(csv.id, '#csv-export')).name).toBe('csv-export')
+    expect(r.get(csv.id).slug).toBe('export-reports-to-csv')
+    await expect(r.service.rename(csv.id, 'CSV Export')).rejects.toThrow('lowercase letters')
+    await expect(r.service.rename(csv.id, 'team-accounts-sso')).rejects.toThrow('already called #team-accounts-sso')
+    await expect(r.service.rename(csv.id, 'acme')).rejects.toThrow('already called #acme')
+    await expect(r.service.rename(csv.id, 'a'.repeat(33))).rejects.toThrow('32 characters')
+    // Back to its slug: no name of its own.
+    expect((await r.service.rename(csv.id, 'export-reports-to-csv')).name).toBeUndefined()
+  })
+
+  it('archives a closed channel off the list, restores it, and archives one closed two weeks ago on its own', async () => {
+    const r = await rig()
+    const going = await r.service.start('o1', { requirement: 'Team accounts SSO' })
+    await expect(r.service.setArchived(going.id, true)).rejects.toThrow('Only a closed project')
+    const done = await closedProject(r)
+    await r.service.setArchived(done.id, true)
+    expect(r.service.views().o1.map((p) => p.id)).toEqual([going.id])
+    expect(r.service.all('o1').map((p) => p.id).sort()).toEqual([going.id, done.id].sort())
+    await r.service.setArchived(done.id, false)
+    expect(r.service.views().o1.map((p) => p.id)).toContain(done.id)
+    // Restored stays listed past two weeks; one never touched leaves after them.
+    const now = Date.parse(r.get(done.id).closedAt!) + 15 * DAY
+    expect(listedProjects([r.get(done.id)], now)).toHaveLength(1)
+    expect(listedProjects([{ ...r.get(done.id), keptAt: undefined }], now)).toHaveLength(0)
+  })
+
+  it('deletes a going channel by stopping it first, keeping its files unless asked', async () => {
+    const r = await rig()
+    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const planning = r.task(r.last())
+    r.files.push({ path: 'memory/org/projects/export-reports-to-csv/plan.md', blob: 'b1' }, { path: 'memory/org/notes.md', blob: 'b2' })
+    await r.service.remove(project.id)
+    expect(r.canceled).toEqual([planning.id])
+    expect(() => r.get(project.id)).toThrow()
+    expect(r.personCommits).toHaveLength(0)
+    // A new project doesn't take the folder the deleted one left.
+    const again = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    expect(again.slug).toBe('export-reports-to-csv-2')
+  })
+
+  it('deletes a channel’s files from the memory repository, as the person, when asked', async () => {
+    const r = await rig()
+    const project = await closedProject(r)
+    r.files.push({ path: 'memory/org/projects/export-reports-to-csv/plan.md', blob: 'b1' }, { path: 'memory/org/projects/export-reports-to-csv/build.md', blob: 'b2' }, { path: 'memory/org/projects/other/plan.md', blob: 'b3' })
+    await r.service.remove(project.id, { removeFiles: true })
+    expect(r.personCommits).toEqual([
+      {
+        subject: "Delete #export-reports-to-csv's files",
+        changes: [
+          { kind: 'delete', path: 'memory/org/projects/export-reports-to-csv/plan.md', expectedBlob: 'b1' },
+          { kind: 'delete', path: 'memory/org/projects/export-reports-to-csv/build.md', expectedBlob: 'b2' }
+        ]
+      }
+    ])
+    expect(r.files.map((f) => f.path)).toEqual(['memory/org/projects/other/plan.md'])
+    expect(r.service.all('o1')).toHaveLength(0)
   })
 })

@@ -6,21 +6,23 @@
 // part's result (Approve, Send back, Stop), a task that couldn't finish (Try again, Stop), the final check; and what
 // its employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee a follow-up,
 // anything else is a note that wakes nobody. Beside it: the parts with their states, the files, the workspace and the
-// replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay).
-import { FileText, Pause, Play, Square } from 'lucide-react'
+// replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay). Once closed, Archive
+// takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames or deletes it.
+import { Archive, FileText, Pause, Play, Square } from 'lucide-react'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import type { PlainKey } from '../../../../shared/i18n'
 import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
-import { MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
+import { isArchived, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openMemory, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, HardHat, LinkButton, Meter, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
 import { DecisionCard } from '../DecisionCard'
+import { ChannelMenu, DeleteChannelsDialog } from './ChannelActions'
 import { Markdown } from '../Markdown'
 import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
 import { EmployeeDecision, useDecisionItems } from './EmployeeDecisions'
-import { channelName, PART_STATUS, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
+import { PART_STATUS, projectChannel, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
 import './employees.css'
 
 function useRoster(orgId: string): EmployeeSummary[] | undefined {
@@ -29,7 +31,8 @@ function useRoster(orgId: string): EmployeeSummary[] | undefined {
 
 const nameMap = (roster: readonly EmployeeSummary[] | undefined): Record<string, string> => Object.fromEntries((roster ?? []).map((e) => [e.id, e.name || e.id]))
 
-export function ProjectPage({ orgId, project }: { orgId: string; project: Project }) {
+/** `onChanged`: an archived project isn't in the snapshot, so its view reads it again after a change made here. */
+export function ProjectPage({ orgId, project, onChanged }: { orgId: string; project: Project; onChanged?: () => void }) {
   const t = useT()
   const roster = useRoster(orgId)
   const names = nameMap(roster)
@@ -38,7 +41,16 @@ export function ProjectPage({ orgId, project }: { orgId: string; project: Projec
   const status = projectStatus(project, t, pmName)
   const repo = useStore((s) => s.snapshot!.repos.find((r) => r.id === project.repoId))
   const [stopping, setStopping] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const open = project.phase !== 'closed'
+  const archived = isArchived(project, Date.now())
+  const gone = () => openEmployees({ orgId, page: 'channels' })
+  const archive = (to: boolean) =>
+    void attempt(async () => {
+      await api.archiveProject(project.id, to)
+      showToast(t(to ? 'projects.archive.done' : 'projects.archive.restored', { channel: projectChannel(project) }))
+      onChanged?.()
+    })
   // Who the box can name: everyone who worked on it, the program manager first.
   const worked = [...new Set([project.pmId, ...project.steps.map((s) => s.employeeId)])]
   const members: ChannelMember[] = worked.flatMap((id) => {
@@ -66,7 +78,7 @@ export function ProjectPage({ orgId, project }: { orgId: string; project: Projec
       <div className="channel-main">
         <div className="team-page-head">
           <div className="project-head-who">
-            <h2 className="employee-name">{channelName(project.slug)}</h2>
+            <h2 className="employee-name">{projectChannel(project)}</h2>
             <span className="employee-faint">{[project.title, repo?.name, t('projects.meta.started', { when: formatDateTime(project.createdAt, t.locale) })].filter(Boolean).join(' · ')}</span>
           </div>
           <div className="employee-card-actions">
@@ -86,6 +98,12 @@ export function ProjectPage({ orgId, project }: { orgId: string; project: Projec
                 {t('projects.action.stop')}
               </Button>
             )}
+            {!open && !archived && (
+              <Button size="sm" icon={<Archive size={13} />} onClick={() => archive(true)}>
+                {t('projects.menu.archive')}
+              </Button>
+            )}
+            <ChannelMenu project={project} look="button" onChanged={onChanged} onDeleted={gone} />
           </div>
         </div>
         {stopping && (
@@ -118,15 +136,35 @@ export function ProjectPage({ orgId, project }: { orgId: string; project: Projec
           </Callout>
         )}
         {project.paused && open && <Callout tone="info">{t('projects.paused')}</Callout>}
+        {archived && (
+          <Callout
+            tone="info"
+            actions={
+              <>
+                <Button size="sm" onClick={() => archive(false)}>
+                  {t('projects.menu.restore')}
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => setDeleting(true)}>
+                  {t('projects.menu.delete')}
+                </Button>
+              </>
+            }
+          >
+            {t('projects.archive.readOnly', { when: formatDateTime(project.archivedAt ?? project.closedAt ?? project.updatedAt, t.locale) })}
+          </Callout>
+        )}
+        {deleting && <DeleteChannelsDialog projects={[project]} onClose={() => setDeleting(false)} onDeleted={gone} />}
         <Timeline orgId={orgId} project={project} names={names} roster={roster} pmName={pmName} />
         <Waiting orgId={orgId} project={project} names={names} roster={roster} />
-        <ChannelComposer
-          label={t('projects.composer.label', { channel: channelName(project.slug) })}
-          placeholder={t('projects.composer.placeholder')}
-          members={members}
-          onSend={send}
-          hint={t('projects.composer.hint')}
-        />
+        {!archived && (
+          <ChannelComposer
+            label={t('projects.composer.label', { channel: projectChannel(project) })}
+            placeholder={t('projects.composer.placeholder')}
+            members={members}
+            onSend={send}
+            hint={t('projects.composer.hint')}
+          />
+        )}
       </div>
       <SidePanel orgId={orgId} project={project} names={names} roster={roster} />
     </div>
@@ -231,7 +269,7 @@ function Timeline({ orgId, project, names, roster, pmName }: { orgId: string; pr
     entries.push({ at: project.closedAt, key: 'closed', node: <SystemLine>{t(project.outcome === 'done' ? 'projects.log.closedDone' : 'projects.log.closedStopped', { when: formatDateTime(project.closedAt, t.locale) })}</SystemLine> })
   entries.sort((a, b) => a.at.localeCompare(b.at))
   return (
-    <ol className="channel-timeline" aria-label={t('projects.timeline', { channel: channelName(project.slug) })}>
+    <ol className="channel-timeline" aria-label={t('projects.timeline', { channel: projectChannel(project) })}>
       {entries.map((e) => (
         <Fragment key={e.key}>{e.node}</Fragment>
       ))}
@@ -539,7 +577,7 @@ function SidePanel({ orgId, project, names, roster }: { orgId: string; project: 
   const artifacts = Object.values(project.artifacts).sort((a, b) => a.at.localeCompare(b.at))
   const alive = useStore((s) => (project.workspaceId ? s.snapshot!.workspaces.some((w) => w.id === project.workspaceId) : false))
   return (
-    <aside className="channel-side" aria-label={t('projects.side.label', { channel: channelName(project.slug) })}>
+    <aside className="channel-side" aria-label={t('projects.side.label', { channel: projectChannel(project) })}>
       <Card className="channel-side-card">
         <span className="employee-subheading">{t('projects.side.parts', { count: plan?.parts.length ?? 0 })}</span>
         {plan ? (

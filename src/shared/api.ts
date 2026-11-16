@@ -115,6 +115,9 @@ export const METHOD_SCOPES = {
   // approves an employee, so it is admin.
   askEmployeeFollowUp: 'operate', startProject: 'operate', decideProject: 'operate', pauseProject: 'operate', stopProject: 'operate', noteProject: 'operate', askProjectFollowUp: 'operate',
   addProgramManager: 'admin',
+  // A channel's list is a read; renaming and archiving tidy what the person sees. Deleting one stops its work and can
+  // delete its files from the memory repository as the person, so it is admin (never from a turn).
+  listChannels: 'read', renameProject: 'operate', archiveProject: 'operate', deleteProject: 'admin',
   // An employee's held outward action (docs/ai-employees.md §9): sending it is the person's approval of a Slack message,
   // a Linear change, a push or a pull request, so it is admin, never from a turn (no agent approves an employee's send).
   sendEmployeeAction: 'admin', skipEmployeeAction: 'admin', confirmEmployeeAction: 'admin',
