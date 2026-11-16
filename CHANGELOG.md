@@ -2,6 +2,19 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.0 (2026-11-16)
+
+### Added
+
+- Every organization has a program manager, **Priya**. Tag `@Priya` in the organization's channel under **Channels** to start a project: she plans it, proposes employees when nobody fits, and the parts run with your checks where she plans them. ([#194](https://github.com/elite-build/foreman/pull/194))
+- A project's channel shows its plan, each part's result and file, and what waits for you; `@Name` there asks anyone who worked on it a follow-up. ([#194](https://github.com/elite-build/foreman/pull/194))
+- **Hand to Priya…** in a workspace's header turns a workspace that grew into a project into one, with its chat and branch. ([#194](https://github.com/elite-build/foreman/pull/194))
+- **Ask a follow-up** on an employee's finished task. ([#194](https://github.com/elite-build/foreman/pull/194))
+
+### Changed
+
+- **New organization** shows **Your team**: you and Priya. ([#194](https://github.com/elite-build/foreman/pull/194))
+
 ## 1.1.1 (2026-11-15)
 
 ### Changed
