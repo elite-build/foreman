@@ -80,6 +80,16 @@
 }
 .question-tabs {
   align-self: flex-start;
+  min-width: 0;
+}
+/* An answered tab's answer, after its header: cut short, whole in the tab's name. */
+.question-tab-answer {
+  display: inline-block;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 .question-options {
   display: flex;
@@ -97,13 +107,16 @@
 .option-label {
   font-weight: 500;
 }
+/* Other lines up with the options' labels: past the radio (15px) and the gap after it (8px). */
 .question-other {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 0 0 10px;
+  gap: 6px;
+  padding: 0 0 0 23px;
 }
-.question-other-input {
+/* One line to start, like the rows above it; it still grows by dragging. The doubled class beats ui/'s 44px, which loads
+   later. */
+.question-other .question-other-input {
   flex: 1;
   min-height: 32px;
 }
