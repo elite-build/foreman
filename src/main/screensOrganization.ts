@@ -15,7 +15,7 @@ import type { EmployeeAction } from '../shared/employeeActions'
 import { defaultEmployee, employeePath, parseEmployee, serializeEmployee, type EmployeeDefinition, type EmployeeRecord } from '../shared/employees'
 import type { EmployeeQuestion, EmployeeRun, EmployeeTask, EmployeeTaskTransition } from '../shared/employeeWork'
 import type { Organization } from '../shared/organizations'
-import type { Project } from '../shared/projects'
+import type { Project, ProjectPlan } from '../shared/projects'
 import type { ChatItem, Repo, Session, Workspace } from '../shared/types'
 
 export const ORG_ID = 'org-acme'
@@ -240,9 +240,56 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
   })
   const file = (slug: string, name: string, when: number) => [name, { file: name, path: `memory/org/projects/${slug}/${name}`, employeeId: ADA, taskId: 'task-date', version: 1, at: at(when) }] as const
   const DAY = 24 * 60
+  // The single sign-on project's plan, waiting at the gate, and the metrics email's, which went through.
+  const SSO_PLAN: ProjectPlan = {
+    version: 1,
+    summary: 'Find which providers customers ask for, plan the change in Atlas, then write the help page while Lin sorts the sign-in issues.',
+    size: 'large',
+    status: 'waiting',
+    taskId: 'task-sso-plan',
+    at: at(38),
+    proposed: [],
+    proposedIds: {},
+    parts: [
+      { id: 'providers', title: 'Which sign-in providers customers ask for', owner: ADA, brief: 'Read the support tickets and sales notes; list the providers customers ask for, most asked first.', reads: [], writes: 'research.md', dependsOn: [], gate: false },
+      { id: 'tech-plan', title: 'How sign-in changes in Atlas', owner: ADA, brief: 'Read research.md and the sign-in code in site. Write how SAML and Google Workspace sign-in would fit, what changes, and what to test.', reads: [], writes: 'tech-plan.md', dependsOn: ['providers'], gate: true },
+      { id: 'triage', title: 'Sort the sign-in issues by provider', owner: LIN, brief: 'Label the open sign-in issues with the provider each is about, from research.md.', reads: [], writes: 'triage.md', dependsOn: ['providers'], gate: false },
+      { id: 'help', title: 'Help page: set up single sign-on', owner: MAX, brief: 'Write the help page an admin follows to turn single sign-on on, from tech-plan.md.', reads: [], writes: 'help-page.md', dependsOn: ['tech-plan'], gate: false }
+    ]
+  }
+  const METRICS_PLAN: ProjectPlan = {
+    version: 1,
+    summary: 'Pick the five metrics, write the email, test it.',
+    size: 'large',
+    status: 'approved',
+    taskId: 'task-metrics-plan',
+    at: at(6 * DAY - 20),
+    proposed: [],
+    proposedIds: {},
+    parts: [
+      { id: 'metrics', title: 'Pick the five metrics', owner: ADA, brief: 'Pick the five metrics the team looks at every week, and where each comes from.', reads: [], writes: 'metrics.md', dependsOn: [], gate: false },
+      { id: 'email', title: 'Write the weekly email', owner: MAX, brief: 'Write the email from metrics.md.', reads: [], writes: 'email.md', dependsOn: ['metrics'], gate: true },
+      { id: 'test', title: 'Test the email', owner: ADA, brief: 'Send it to yourself in three mail clients and say what breaks.', reads: [], writes: 'test-report.md', dependsOn: ['email'], gate: false }
+    ]
+  }
   const projects: Project[] = [
-    project('proj-sso', 'team-accounts-sso', 'Single sign-on for team accounts', 50),
+    // Its plan waits for you at the plan gate: four parts, one of them Lin's, who is still a draft.
+    project('proj-sso', 'team-accounts-sso', 'Single sign-on for team accounts', 50, {
+      phase: 'plan-gate',
+      plans: [SSO_PLAN],
+      waits: [{ id: 'wait-sso-plan', kind: 'plan', since: at(38) }],
+      steps: [{ kind: 'plan', round: 1, taskId: 'task-sso-plan', employeeId: ADA, state: 'done', summary: 'Plan v1 is ready: four parts, one of them for Lin once you approve her.', startedAt: at(49), endedAt: at(38) }]
+    }),
     project('proj-metrics', 'weekly-metrics-email', 'A weekly email of the five metrics the team watches', 6 * DAY, {
+      // Its plan went through: every part done, each with what its owner said.
+      plan: METRICS_PLAN,
+      plans: [METRICS_PLAN],
+      parts: { metrics: { state: 'done', round: 1, taskId: 'task-metrics-1' }, email: { state: 'done', round: 1, taskId: 'task-metrics-2' }, test: { state: 'done', round: 1, taskId: 'task-metrics-3' } },
+      steps: [
+        { kind: 'part', partId: 'metrics', round: 1, taskId: 'task-metrics-1', employeeId: ADA, state: 'done', summary: 'Signups, activation, weekly active teams, churn and support tickets.', startedAt: at(6 * DAY - 30), endedAt: at(5 * DAY) },
+        { kind: 'part', partId: 'email', round: 1, taskId: 'task-metrics-2', employeeId: MAX, state: 'done', summary: 'Wrote the email: one line per metric, with last week beside it.', startedAt: at(5 * DAY), endedAt: at(4 * DAY) },
+        { kind: 'part', partId: 'test', round: 1, taskId: 'task-metrics-3', employeeId: ADA, state: 'done', summary: 'Sent it to myself in three mail clients; it reads the same in each.', startedAt: at(4 * DAY), endedAt: at(3 * DAY) }
+      ],
       phase: 'closed', outcome: 'done', closedAt: at(3 * DAY), updatedAt: at(3 * DAY), artifacts: Object.fromEntries([file('weekly-metrics-email', 'plan.md', 6 * DAY), file('weekly-metrics-email', 'email.md', 4 * DAY), file('weekly-metrics-email', 'test-report.md', 3 * DAY)])
     }),
     project('proj-billing', 'billing-page-refresh', 'Refresh the billing page', 9 * DAY, { phase: 'closed', outcome: 'stopped', closedAt: at(8 * DAY), updatedAt: at(8 * DAY), artifacts: Object.fromEntries([file('billing-page-refresh', 'plan.md', 9 * DAY)]) }),

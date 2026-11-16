@@ -370,6 +370,22 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openEmployees({ orgId: f.organization.orgId, page: 'channels' })
     return (await waitFor(() => document.querySelector('.channels-list')?.textContent?.includes('#onboarding-emails'))) ? '.channels-page' : null
   },
+  // A project's plan waiting at its gate, drawn as a map (components/employees/PlanMap.tsx), the parts beside it as a list.
+  'project-plan': async (f) => {
+    localStorage.setItem('foreman.projects.planView', 'map')
+    localStorage.setItem('foreman.projects.partsView', 'list')
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'project', id: 'proj-sso' })
+    return (await waitFor(element('.channel-plan .plan-map .ui-graph__node'))) ? '.employees-view' : null
+  },
+  // A project whose plan went through, its parts beside the channel as a map.
+  'project-parts': async (f) => {
+    localStorage.setItem('foreman.projects.planView', 'table')
+    localStorage.setItem('foreman.projects.partsView', 'map')
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'project', id: 'proj-metrics' })
+    return (await waitFor(element('.channel-side .plan-map .ui-graph__node'))) ? '.employees-view' : null
+  },
   employee: (f) => {
     setSpace(f.organization.orgId)
     openEmployees({ orgId: f.organization.orgId, page: 'employee', id: f.organization.employeeId })

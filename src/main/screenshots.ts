@@ -572,6 +572,8 @@ export const SCREENS = [
   // AI employees, in the fixture's organization (main/screensOrganization.ts).
   'team',
   'channels',
+  'project-plan',
+  'project-parts',
   'employee',
   'employee-approve',
   'new-employee',
