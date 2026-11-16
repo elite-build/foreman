@@ -2,6 +2,32 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.3 (2026-11-17)
+
+### Added
+
+- **New employee** opens on **Pick a job**: choose one of Foreman's fifteen jobs and **Add** makes that employee approved and ready at once; **Write your own** keeps the Generate way. ([#204](https://github.com/elite-build/foreman/pull/204))
+- The program manager asks you her questions before she plans, all on one card: answer each, or tell her to **Plan with what you have**. For a large project she assumes nothing she could ask. ([#205](https://github.com/elite-build/foreman/pull/205))
+- A project's plan is drawn as a workflow, with what the program manager understood, when it is done, what is out of scope and any assumptions to check, and `plan.md` carries the same, with the questions and your answers. ([#205](https://github.com/elite-build/foreman/pull/205))
+- A project's **Parts** card can show the parts as a map (**List | Map**): what runs at the same time, what waits for what, and where each part is; selecting a part takes the channel to its newest post. ([#208](https://github.com/elite-build/foreman/pull/208))
+- The **Team** page shows **Hand-offs outside projects**: each chain of work one employee handed to another, drawn as a map with the actions waiting for you on it. ([#208](https://github.com/elite-build/foreman/pull/208))
+- A project's channel shows who is at work on it now, on what and for how long, with **Watch** to open their chat, or **Nothing running** when no one is. Its row in the sidebar and on the **Channels** page shows a turning ring while someone works. ([#209](https://github.com/elite-build/foreman/pull/209))
+- The sidebar's groups, such as **Needs your attention** and **Agents working**, now fold under cards like **Channels**, remembered across launches; a folded **Needs your attention** still shows how many need you. ([#203](https://github.com/elite-build/foreman/pull/203))
+
+### Changed
+
+- Employees picked from a job template follow a prompt written for their job: how it is done, what they hand back, when they ask, and they no longer claim tests passed when nothing ran. ([#210](https://github.com/elite-build/foreman/pull/210))
+- A project started in a channel keeps its workspace in the channel. It no longer appears under the sidebar's or **Home**'s workspaces unless it needs you. ([#207](https://github.com/elite-build/foreman/pull/207))
+- Once a plan is in effect, its table shows each part's **State**. ([#208](https://github.com/elite-build/foreman/pull/208))
+
+### Fixed
+
+- An organization's project no longer stops with "Maximum of 10 chats per workspace" after about ten employee runs; a workspace can now keep up to 100 chats open. ([#206](https://github.com/elite-build/foreman/pull/206))
+
+### Development
+
+- A `project-parts` screen in the screenshot fixture. ([#208](https://github.com/elite-build/foreman/pull/208))
+
 ## 1.2.2 (2026-11-16)
 
 ### Added
