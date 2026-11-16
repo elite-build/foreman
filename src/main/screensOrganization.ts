@@ -3,7 +3,7 @@
 // (writer) handed Ada (researcher) part of a launch post and finished it; his push waits in Needs you. Ada asked a
 // question that waits for an answer and proposed an organization fact. Lin (triage) is a draft nobody has approved. Its
 // repositories sit beside atlas and beacon, which stay in Personal, so every other screen looks as it did. Its projects
-// (one being planned, two closed, one archived) wait for nothing, so they move no Needs you count: the Channels page.
+// (one under way, two closed, one archived) wait for nothing, so they move no Needs you count: the Channels page.
 import path from 'node:path'
 import type { ForemanDb } from './db'
 import { git, gitOut } from './git'
@@ -15,7 +15,7 @@ import type { EmployeeAction } from '../shared/employeeActions'
 import { defaultEmployee, employeePath, parseEmployee, serializeEmployee, type EmployeeDefinition, type EmployeeRecord } from '../shared/employees'
 import type { EmployeeQuestion, EmployeeRun, EmployeeTask, EmployeeTaskTransition } from '../shared/employeeWork'
 import type { Organization } from '../shared/organizations'
-import type { Project, ProjectPlan } from '../shared/projects'
+import type { Project } from '../shared/projects'
 import type { ChatItem, Repo, Session, Workspace } from '../shared/types'
 
 export const ORG_ID = 'org-acme'
@@ -240,56 +240,65 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
   })
   const file = (slug: string, name: string, when: number) => [name, { file: name, path: `memory/org/projects/${slug}/${name}`, employeeId: ADA, taskId: 'task-date', version: 1, at: at(when) }] as const
   const DAY = 24 * 60
-  // The single sign-on project's plan, waiting at the gate, and the metrics email's, which went through.
-  const SSO_PLAN: ProjectPlan = {
+  // Single sign-on is under way: Ada asked first, the person answered, and the plan she gave from those answers was
+  // approved; its requirements are checked and two parts are running (the project screen draws it as a workflow).
+  const SSO = 'team-accounts-sso'
+  const ssoPlan: Project['plans'][number] = {
     version: 1,
-    summary: 'Find which providers customers ask for, plan the change in Atlas, then write the help page while Lin sorts the sign-in issues.',
+    summary: 'Single sign-on for team accounts with any SAML 2.0 provider, set up by each team’s admin, with passwords kept beside it.',
     size: 'large',
-    status: 'waiting',
-    taskId: 'task-sso-plan',
+    understood: ['Teams on the Business plan sign in with their company accounts; Okta first.', 'Any SAML 2.0 provider, set up by each team’s admin in Settings.', 'Passwords stay beside single sign-on.'],
+    doneWhen: ['A test Okta account signs in end to end.', 'An admin can add, test and turn off their connection without our help.', 'Password sign-in still works for everyone.'],
+    outOfScope: ['Requiring single sign-on for a whole team.', 'Syncing people from the provider (SCIM).'],
+    assumptions: [],
+    parts: [
+      { id: 'reqs', title: 'Requirements', owner: ADA, brief: 'Turn the answers into requirements: providers, setup, who can sign in.', reads: [], writes: 'requirements.md', dependsOn: [], gate: true },
+      { id: 'copy', title: 'Sign-in page copy', owner: MAX, brief: 'Write the sign-in page’s words for single sign-on.', reads: [], writes: 'sign-in-copy.md', dependsOn: ['reqs'], gate: false },
+      { id: 'guide', title: 'Admin setup guide', owner: MAX, brief: 'Write the guide an admin follows to connect their provider.', reads: [], writes: 'setup-guide.md', dependsOn: ['reqs'], gate: false },
+      { id: 'review', title: 'Check against requirements', owner: ADA, brief: 'Check the copy and the guide against the requirements.', reads: [], writes: 'review.md', dependsOn: ['copy', 'guide'], gate: false }
+    ],
+    proposed: [],
+    proposedIds: {},
+    taskId: 'proj-sso-plan',
     at: at(38),
-    proposed: [],
-    proposedIds: {},
-    parts: [
-      { id: 'providers', title: 'Which sign-in providers customers ask for', owner: ADA, brief: 'Read the support tickets and sales notes; list the providers customers ask for, most asked first.', reads: [], writes: 'research.md', dependsOn: [], gate: false },
-      { id: 'tech-plan', title: 'How sign-in changes in Atlas', owner: ADA, brief: 'Read research.md and the sign-in code in site. Write how SAML and Google Workspace sign-in would fit, what changes, and what to test.', reads: [], writes: 'tech-plan.md', dependsOn: ['providers'], gate: true },
-      { id: 'triage', title: 'Sort the sign-in issues by provider', owner: LIN, brief: 'Label the open sign-in issues with the provider each is about, from research.md.', reads: [], writes: 'triage.md', dependsOn: ['providers'], gate: false },
-      { id: 'help', title: 'Help page: set up single sign-on', owner: MAX, brief: 'Write the help page an admin follows to turn single sign-on on, from tech-plan.md.', reads: [], writes: 'help-page.md', dependsOn: ['tech-plan'], gate: false }
-    ]
-  }
-  const METRICS_PLAN: ProjectPlan = {
-    version: 1,
-    summary: 'Pick the five metrics, write the email, test it.',
-    size: 'large',
-    status: 'approved',
-    taskId: 'task-metrics-plan',
-    at: at(6 * DAY - 20),
-    proposed: [],
-    proposedIds: {},
-    parts: [
-      { id: 'metrics', title: 'Pick the five metrics', owner: ADA, brief: 'Pick the five metrics the team looks at every week, and where each comes from.', reads: [], writes: 'metrics.md', dependsOn: [], gate: false },
-      { id: 'email', title: 'Write the weekly email', owner: MAX, brief: 'Write the email from metrics.md.', reads: [], writes: 'email.md', dependsOn: ['metrics'], gate: true },
-      { id: 'test', title: 'Test the email', owner: ADA, brief: 'Send it to yourself in three mail clients and say what breaks.', reads: [], writes: 'test-report.md', dependsOn: ['email'], gate: false }
-    ]
+    status: 'approved'
   }
   const projects: Project[] = [
-    // Its plan waits for you at the plan gate: four parts, one of them Lin's, who is still a draft.
-    project('proj-sso', 'team-accounts-sso', 'Single sign-on for team accounts', 50, {
-      phase: 'plan-gate',
-      plans: [SSO_PLAN],
-      waits: [{ id: 'wait-sso-plan', kind: 'plan', since: at(38) }],
-      steps: [{ kind: 'plan', round: 1, taskId: 'task-sso-plan', employeeId: ADA, state: 'done', summary: 'Plan v1 is ready: four parts, one of them for Lin once you approve her.', startedAt: at(49), endedAt: at(38) }]
+    project('proj-sso', SSO, 'Single sign-on for team accounts', 50, {
+      phase: 'working',
+      updatedAt: at(10),
+      asks: [
+        {
+          round: 1,
+          taskId: 'proj-sso-ask',
+          understood: ['Teams on the Business plan want to sign in with their company accounts.'],
+          questions: [
+            { question: 'Which identity providers must work first?', why: 'So I don’t guess Okta only.', options: ['Okta only', 'Okta and Azure AD', 'Any SAML 2.0 provider'] },
+            { question: 'Who sets up a team’s connection?', why: 'It decides whether we build a settings page.', options: ['Each team’s admin, in Settings', 'Our support team'] },
+            { question: 'Does password sign-in stay?', options: [] }
+          ],
+          at: at(48),
+          answers: ['Any SAML 2.0 provider', 'Each team’s admin, in Settings', 'Yes, beside single sign-on.'],
+          answeredAt: at(44)
+        }
+      ],
+      plan: ssoPlan,
+      plans: [ssoPlan],
+      parts: { reqs: { state: 'done', round: 1 }, copy: { state: 'running', round: 1 }, guide: { state: 'running', round: 1 }, review: { state: 'pending', round: 0 } },
+      steps: [
+        { kind: 'plan', round: 1, taskId: 'proj-sso-ask', employeeId: ADA, state: 'done', summary: 'Three questions before I plan.', startedAt: at(50), endedAt: at(48) },
+        { kind: 'plan', round: 2, taskId: 'proj-sso-plan', employeeId: ADA, state: 'done', summary: 'Four parts; you check the requirements.', startedAt: at(43), endedAt: at(38) },
+        { kind: 'part', partId: 'reqs', round: 1, taskId: 'proj-sso-reqs', employeeId: ADA, state: 'done', summary: 'Requirements written.', startedAt: at(36), endedAt: at(20) },
+        { kind: 'part', partId: 'copy', round: 1, taskId: 'proj-sso-copy', employeeId: MAX, state: 'running', startedAt: at(12) },
+        { kind: 'part', partId: 'guide', round: 1, taskId: 'proj-sso-guide', employeeId: MAX, state: 'running', startedAt: at(12) }
+      ],
+      artifacts: Object.fromEntries([file(SSO, 'plan.md', 38), file(SSO, 'requirements.md', 20)]),
+      decisions: [
+        { waitKind: 'plan', decision: 'approve', at: at(37) },
+        { waitKind: 'gate', partId: 'reqs', decision: 'approve', at: at(13) }
+      ]
     }),
     project('proj-metrics', 'weekly-metrics-email', 'A weekly email of the five metrics the team watches', 6 * DAY, {
-      // Its plan went through: every part done, each with what its owner said.
-      plan: METRICS_PLAN,
-      plans: [METRICS_PLAN],
-      parts: { metrics: { state: 'done', round: 1, taskId: 'task-metrics-1' }, email: { state: 'done', round: 1, taskId: 'task-metrics-2' }, test: { state: 'done', round: 1, taskId: 'task-metrics-3' } },
-      steps: [
-        { kind: 'part', partId: 'metrics', round: 1, taskId: 'task-metrics-1', employeeId: ADA, state: 'done', summary: 'Signups, activation, weekly active teams, churn and support tickets.', startedAt: at(6 * DAY - 30), endedAt: at(5 * DAY) },
-        { kind: 'part', partId: 'email', round: 1, taskId: 'task-metrics-2', employeeId: MAX, state: 'done', summary: 'Wrote the email: one line per metric, with last week beside it.', startedAt: at(5 * DAY), endedAt: at(4 * DAY) },
-        { kind: 'part', partId: 'test', round: 1, taskId: 'task-metrics-3', employeeId: ADA, state: 'done', summary: 'Sent it to myself in three mail clients; it reads the same in each.', startedAt: at(4 * DAY), endedAt: at(3 * DAY) }
-      ],
       phase: 'closed', outcome: 'done', closedAt: at(3 * DAY), updatedAt: at(3 * DAY), artifacts: Object.fromEntries([file('weekly-metrics-email', 'plan.md', 6 * DAY), file('weekly-metrics-email', 'email.md', 4 * DAY), file('weekly-metrics-email', 'test-report.md', 3 * DAY)])
     }),
     project('proj-billing', 'billing-page-refresh', 'Refresh the billing page', 9 * DAY, { phase: 'closed', outcome: 'stopped', closedAt: at(8 * DAY), updatedAt: at(8 * DAY), artifacts: Object.fromEntries([file('billing-page-refresh', 'plan.md', 9 * DAY)]) }),

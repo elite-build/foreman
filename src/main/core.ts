@@ -3501,6 +3501,7 @@ export class Core {
     askEmployeeFollowUp: (taskId, question) => this.employeeWork.askFollowUp(taskId, question),
     startProject: (organizationId, input) => this.projects.start(organizationId, input),
     decideProject: (projectId, waitId, decision, note) => this.projects.decide(projectId, waitId, decision, note),
+    answerProject: (projectId, waitId, answers) => this.projects.answer(projectId, waitId, answers),
     pauseProject: (projectId, paused) => this.projects.setPaused(projectId, paused),
     stopProject: (projectId) => this.projects.stop(projectId),
     listChannels: async (organizationId) => this.projects.all(organizationId),

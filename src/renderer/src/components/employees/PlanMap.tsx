@@ -1,17 +1,16 @@
-// A project's plan drawn as a map (docs/ai-employees.md §15), beside the plan's table: one node per part, with its
-// owner's hat and name, its title and the file it writes, its state in a glyph and a word; an edge for each "after",
-// labelled with the file the waiting part reads, strong once that file is written; the parts the person checks in the
-// gate shape; owners still only proposed dim, with Review on the selected part; what changed since the plan before
-// marked in words (New, Changed, Taken out). Wide in the plan card, where selecting a part opens its brief under the map;
-// compact in the side column, where the titles are the files and selecting a part takes the channel to its newest post.
-// The plan's table stays the accessible equivalent: the same parts, owners, files, order and checks.
+// A project's parts drawn as a map in the channel's side column (docs/ai-employees.md §15): one node per part, titled by
+// the file it writes, with its owner's hat and name and its state in a glyph and a word; an edge for each "after", strong
+// once that file is written; the parts the person checks in the gate shape; owners still only proposed dim; what changed
+// since the plan before marked in words (New, Changed, Taken out). Selecting a part takes the channel to its newest post
+// (the caller does). Full screen draws it wide, with each part's title and the files on the edges. Each node's name
+// carries the plan table's columns, so the map reads like the list beside it. The plan card draws the plan's workflow
+// (PlanWorkflow.tsx); this is the parts' live picture.
 import { useMemo, useState, type ReactNode } from 'react'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import { layoutPlan, type PlanLayoutForm } from '../../../../shared/planLayout'
 import { ownerId, ownerName, planDiff, type PartState, type PartStatus, type PlanPart, type Project, type ProjectPlan } from '../../../../shared/projects'
 import { useT, type RendererT } from '../../i18n'
-import { openEmployees } from '../../store'
-import { Button, Card, Dialog, Graph, HardHat, Tag, type GraphEdge, type GraphNode, type GraphTone, type HardHatColour } from '../../ui'
+import { Dialog, Graph, HardHat, Tag, type GraphEdge, type GraphNode, type GraphTone, type HardHatColour } from '../../ui'
 import { useGraphLabels } from '../FlowDiagram'
 import { PART_STATUS } from './projectWords'
 import './employees.css'
@@ -142,10 +141,8 @@ function usePlanGraph(project: Project, plan: ProjectPlan, form: PlanLayoutForm,
 }
 
 export interface PlanMapProps {
-  orgId: string
   project: Project
   plan: ProjectPlan
-  form: PlanLayoutForm
   names: Record<string, string>
   roster?: EmployeeSummary[]
   label: string
@@ -153,23 +150,15 @@ export interface PlanMapProps {
   onSelect: (id: string | null) => void
 }
 
-/** The plan as a Graph, with its zoom and full screen in a bar above it that also says what the plan holds. */
-export function PlanMap({ orgId, project, plan, form, names, roster, label, selected, onSelect }: PlanMapProps) {
+/** The parts as a compact Graph, with what the plan holds, its zoom and full screen in a bar above it. */
+export function PlanMap({ project, plan, names, roster, label, selected, onSelect }: PlanMapProps) {
   const t = useT()
-  const graph = usePlanGraph(project, plan, form, names, roster, t)
+  const graph = usePlanGraph(project, plan, 'compact', names, roster, t)
   const labels = useGraphLabels()
-  const [zoom, setZoom] = useState<number | 'fit' | null>(null)
+  const [zoom, setZoom] = useState<number | 'fit'>('fit')
   const [full, setFull] = useState(false)
-  const start = (
-    <ul className="plan-map-tags" aria-label={t('projects.map.summary')}>
-      {graph.tags.map((tag, i) => (
-        <li key={i}>{tag}</li>
-      ))}
-    </ul>
-  )
-  const part = selected ? plan.parts.find((p) => p.id === selected) : undefined
   return (
-    <div className={`plan-map plan-map-${form}`}>
+    <div className="plan-map">
       <Graph
         label={label}
         width={graph.width}
@@ -179,13 +168,12 @@ export function PlanMap({ orgId, project, plan, form, names, roster, label, sele
         selected={selected}
         onSelect={onSelect}
         labels={labels}
-        zoom={zoom ?? (form === 'compact' ? 'fit' : 1)}
+        zoom={zoom}
         onZoomChange={setZoom}
         onFullScreen={() => setFull(true)}
-        bar={{ start, grow: true }}
+        bar={{ start: <PlanTags tags={graph.tags} />, grow: true }}
         className="plan-map-graph"
       />
-      {form === 'wide' && part && <PartBrief orgId={orgId} project={project} plan={plan} part={part} names={names} roster={roster} />}
       {full && (
         <Dialog title={label} onClose={() => setFull(false)} size="xl" closeOnBackdrop>
           <PlanMapFull project={project} plan={plan} names={names} roster={roster} label={label} selected={selected} onSelect={onSelect} />
@@ -195,45 +183,24 @@ export function PlanMap({ orgId, project, plan, form, names, roster, label, sele
   )
 }
 
-/** Full screen: the wide map with room, whichever form opened it. */
-function PlanMapFull({ project, plan, names, roster, label, selected, onSelect }: Omit<PlanMapProps, 'orgId' | 'form'>) {
+/** What the plan holds, as Tags at the start of the graph's bar. */
+function PlanTags({ tags }: { tags: ReactNode[] }) {
+  const t = useT()
+  return (
+    <ul className="plan-map-tags" aria-label={t('projects.map.summary')}>
+      {tags.map((tag, i) => (
+        <li key={i}>{tag}</li>
+      ))}
+    </ul>
+  )
+}
+
+/** Full screen: the map wide, with each part's title and the files on the edges. */
+function PlanMapFull({ project, plan, names, roster, label, selected, onSelect }: PlanMapProps) {
   const t = useT()
   const graph = usePlanGraph(project, plan, 'wide', names, roster, t)
   const labels = useGraphLabels()
-  return <Graph label={label} width={graph.width} height={graph.height} nodes={graph.nodes} edges={graph.edges} selected={selected} onSelect={onSelect} labels={labels} bar={{}} className="plan-map-full" />
-}
-
-/** The selected part under the wide map: its owner, its brief, what it reads and writes, and Review for a proposed owner. */
-function PartBrief({ orgId, project, plan, part, names, roster }: { orgId: string; project: Project; plan: ProjectPlan; part: PlanPart; names: Record<string, string>; roster?: EmployeeSummary[] }) {
-  const t = useT()
-  const id = ownerId(plan, part.owner)
-  const e = id ? roster?.find((x) => x.id === id) : undefined
-  const proposed = plan.proposed.find((p) => plan.proposedIds[p.key] === id || `new:${p.key}` === part.owner)
-  const approved = ownerApproved(plan, part.owner, roster)
-  const owner = ownerName(plan, part.owner, names)
-  const title = (pid: string) => plan.parts.find((p) => p.id === pid)?.title ?? pid
-  const reads = [...new Set([...part.dependsOn, ...part.reads])].map((pid) => plan.parts.find((p) => p.id === pid)?.writes).filter((f): f is string => Boolean(f))
-  const next = plan.parts.filter((p) => p.dependsOn.includes(part.id)).map((p) => title(p.id))
-  const lines = [reads.length ? t('projects.map.reads', { files: reads.join(', ') }) : '', t('projects.map.writes', { file: part.writes }), part.gate ? (next.length ? t('projects.map.checkBefore', { parts: next.join(', ') }) : t('projects.map.checkResult')) : '']
-  const status = partState(project, plan, part.id)
-  return (
-    <Card as="section" className="plan-map-brief" aria-label={t('projects.map.briefLabel', { part: part.title })}>
-      <div className="plan-map-brief-head">
-        <HardHat colour={(e?.colour ?? 'slate') as HardHatColour} size={20} />
-        <span className="project-head-who">
-          <span className="employee-subheading">{part.title}</span>
-          <span className="employee-faint">{[owner, e?.role ?? proposed?.role, approved ? '' : t('projects.map.notApproved'), status ? t(PART_STATUS[status.state].label) : ''].filter(Boolean).join(' · ')}</span>
-        </span>
-        {!approved && e && (
-          <Button size="sm" onClick={() => openEmployees({ orgId, page: 'employee', id: e.id })}>
-            {t('projects.plan.review', { name: owner })}
-          </Button>
-        )}
-      </div>
-      <p className="channel-text">{part.brief}</p>
-      <p className="employee-faint">{lines.filter(Boolean).join(' · ')}</p>
-    </Card>
-  )
+  return <Graph label={label} width={graph.width} height={graph.height} nodes={graph.nodes} edges={graph.edges} selected={selected} onSelect={onSelect} labels={labels} bar={{ start: <PlanTags tags={graph.tags} /> }} className="plan-map-full" />
 }
 
 /** A choice kept on this computer (like the diff's layout): which way a plan or its parts are shown. */

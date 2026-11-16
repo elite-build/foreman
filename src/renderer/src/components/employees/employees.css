@@ -929,8 +929,8 @@ div.team-row {
   gap: 8px;
   min-width: 0;
 }
-/* A plan drawn as a map (PlanMap.tsx): the graph as tall as the plan (the channel scrolls, not the graph), what the plan
-   holds as Tags in the graph's bar, the selected part's brief under it. */
+/* The parts drawn as a map in the side column (PlanMap.tsx): the graph as tall as the plan (the column scrolls, not the
+   graph), what the plan holds as Tags in the graph's bar. */
 .plan-map {
   display: flex;
   flex-direction: column;
@@ -947,20 +947,6 @@ div.team-row {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-.plan-map-brief {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-}
-.plan-map-brief-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.plan-map-brief-head .project-head-who {
-  flex: 1;
 }
 .plan-map-full {
   height: 72vh;
@@ -1002,6 +988,53 @@ div.team-row {
   margin: 0;
 }
 .channel-briefs dd {
+  margin: 2px 0 0;
+}
+/* A plan's workflow (PlanWorkflow.tsx): as tall as the drawing; the channel scrolls, not the drawing. */
+.channel-workflow {
+  min-width: 0;
+}
+.channel-plan-order,
+.channel-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+/* What she understood, done when, out of scope, assumptions: side by side where there is room. */
+.channel-plan-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+}
+.channel-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.channel-plan-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+}
+/* Each question keeps its number: its parts stack inside the list item rather than making it a flex box. */
+.channel-questions > li > * {
+  display: block;
+}
+.channel-questions > li > * + * {
+  margin-top: 4px;
+}
+.channel-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.channel-answers dd {
   margin: 2px 0 0;
 }
 .channel-proposed-row,

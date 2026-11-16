@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-// A project's plan as a map (docs/ai-employees.md §15): the plan card's Table | Map, kept on this computer; the map's
-// parts with their owner, file and state in words, proposed owners and the parts you check said in the name, what a
-// replan changed marked New, Changed and Taken out; a selected part's brief with Review for a proposed owner; the
-// table's State column once the plan is in effect; the side column's List | Map, whose parts take the channel to their
-// newest post; and the Team page's map of hand-offs outside projects, open while something in it waits for you.
+// A project's parts as a map (docs/ai-employees.md §15): the side column's List | Map, kept on this computer; each part
+// titled by its file, with its owner, whether they are only proposed, whether you check it, what it waits for and its
+// state said in its name; what a replan changed marked New, Changed and Taken out, and said in full screen; a part
+// taking the channel to its newest post; the plan table's State column once the plan is in effect; and the Team page's
+// map of hand-offs outside projects, open while something in it waits for you.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -149,60 +149,41 @@ afterEach(() => {
 })
 
 describe('the plan card', () => {
-  it('shows the table first, then the plan drawn as a map, and keeps the choice on this computer', async () => {
-    const user = userEvent.setup()
-    const first = render(<ProjectPage orgId="o1" project={project()} />)
-    const card = screen.getByRole('region', { name: 'Plan v1' })
-    expect(within(card).getByRole('table')).toBeTruthy()
-    await user.click(within(card).getByRole('radio', { name: 'Map' }))
-    expect(within(card).queryByRole('table')).toBeNull()
-    const map = within(card).getByRole('group', { name: 'Plan v1 as a map' })
-    // Each part names its file, its owner, whether they are only proposed, whether you check it, what it waits for and its state.
-    expect(within(map).getByRole('button', { name: 'How sign-in changes in Atlas, tech-plan.md, Ravi, proposed, you check, After: Which sign-in providers customers ask for, Waiting' })).toBeTruthy()
-    expect(within(map).getByRole('button', { name: 'Which sign-in providers customers ask for, research.md, Ada, Waiting' })).toBeTruthy()
-    expect(within(card).getByText('3 parts')).toBeTruthy()
-    expect(within(card).getByText('1 owner to approve')).toBeTruthy()
-    expect(localStorage.getItem('foreman.projects.planView')).toBe('map')
-    first.unmount()
-    render(<ProjectPage orgId="o1" project={project()} />)
-    expect(within(screen.getByRole('region', { name: 'Plan v1' })).getByRole('group', { name: 'Plan v1 as a map' })).toBeTruthy()
-  })
-
-  it('opens a selected part’s brief, with Review for an owner still to approve', async () => {
-    const user = userEvent.setup()
-    localStorage.setItem('foreman.projects.planView', 'map')
-    render(<ProjectPage orgId="o1" project={project()} />)
-    const map = screen.getByRole('group', { name: 'Plan v1 as a map' })
-    await user.click(within(map).getByRole('button', { name: /^How sign-in changes in Atlas/ }))
-    const brief = screen.getByRole('region', { name: 'What “How sign-in changes in Atlas” is asked to do' })
-    expect(within(brief).getByText('Read research.md and the sign-in code; write how SAML would fit.')).toBeTruthy()
-    expect(within(brief).getByText('Reads research.md · writes tech-plan.md · you check it before “Help page: set up single sign-on” starts')).toBeTruthy()
-    await user.click(within(brief).getByRole('button', { name: 'Review Ravi' }))
-    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: 'e-rav1' })
-    // An approved owner's part has nothing to review.
-    await user.click(within(map).getByRole('button', { name: /^Which sign-in providers/ }))
-    expect(screen.queryByRole('button', { name: 'Review Ada' })).toBeNull()
-  })
-
-  it('says where each part is once the plan is in effect, in the table and on the map', async () => {
-    const user = userEvent.setup()
+  it('says where each part is in its table once the plan is in effect, and not before', () => {
     setSnapshot([PRIYA, ADA, MAX, { ...RAVI, state: 'active' }])
-    render(<ProjectPage orgId="o1" project={running()} />)
+    const first = render(<ProjectPage orgId="o1" project={running()} />)
     const card = screen.getByRole('region', { name: 'Plan v1' })
     expect(within(card).getByRole('columnheader', { name: 'State' })).toBeTruthy()
-    const rows = within(card).getAllByRole('row')
+    const rows = within(within(card).getByRole('table')).getAllByRole('row')
     expect(within(rows[1]).getByText('Done')).toBeTruthy()
     expect(within(rows[2]).getByText('Working')).toBeTruthy()
-    await user.click(within(card).getByRole('radio', { name: 'Map' }))
-    const map = within(card).getByRole('group', { name: 'Plan v1 as a map' })
-    expect(within(map).getByRole('button', { name: 'Which sign-in providers customers ask for, research.md, Ada, Done' })).toBeTruthy()
-    expect(within(map).getByRole('button', { name: 'How sign-in changes in Atlas, tech-plan.md, Ravi, you check, After: Which sign-in providers customers ask for, Working' })).toBeTruthy()
-    expect(within(card).getByText('1 of 3 done')).toBeTruthy()
-    expect(within(card).queryByText(/to approve/)).toBeNull()
+    first.unmount()
+    render(<ProjectPage orgId="o1" project={project()} />)
+    expect(within(screen.getByRole('region', { name: 'Plan v1' })).queryByRole('columnheader', { name: 'State' })).toBeNull()
+  })
+})
+
+describe('the parts beside the channel', () => {
+  it('names each part with its file, owner, check, what it waits for and its state, and keeps the choice', async () => {
+    const user = userEvent.setup()
+    const first = render(<ProjectPage orgId="o1" project={project()} />)
+    const side = screen.getByRole('complementary', { name: 'About #team-accounts-sso' })
+    await user.click(within(side).getByRole('radio', { name: 'Map' }))
+    expect(localStorage.getItem('foreman.projects.partsView')).toBe('map')
+    const map = within(side).getByRole('group', { name: 'The parts of #team-accounts-sso as a map' })
+    expect(within(map).getByRole('button', { name: 'tech-plan.md, How sign-in changes in Atlas, Ravi, proposed, you check, After: Which sign-in providers customers ask for, Waiting' })).toBeTruthy()
+    expect(within(map).getByRole('button', { name: 'research.md, Which sign-in providers customers ask for, Ada, Waiting' })).toBeTruthy()
+    const holds = within(side).getByRole('list', { name: 'What the plan holds' })
+    expect(within(holds).getByText('3 parts')).toBeTruthy()
+    expect(within(holds).getByText('1 owner to approve')).toBeTruthy()
+    first.unmount()
+    render(<ProjectPage orgId="o1" project={project()} />)
+    expect(within(screen.getByRole('complementary', { name: 'About #team-accounts-sso' })).getByRole('group', { name: 'The parts of #team-accounts-sso as a map' })).toBeTruthy()
   })
 
-  it('marks what a replan added, changed and took out', () => {
-    localStorage.setItem('foreman.projects.planView', 'map')
+  it('marks what a replan added, changed and took out, and says how many in full screen', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('foreman.projects.partsView', 'map')
     const v1: ProjectPlan = { ...PLAN, status: 'replaced' }
     const v2: ProjectPlan = {
       ...PLAN,
@@ -227,18 +208,20 @@ describe('the plan card', () => {
         })}
       />
     )
-    const map = screen.getByRole('group', { name: 'Plan v2 as a map' })
-    expect(within(map).getByRole('button', { name: /^Review the SAML design for security, .*New$/ })).toBeTruthy()
-    expect(within(map).getByRole('button', { name: /^How sign-in changes in Atlas, .*Changed$/ })).toBeTruthy()
-    expect(within(map).getByRole('button', { name: 'Help page: set up single sign-on, help-page.md, Max, After: How sign-in changes in Atlas, Taken out' })).toBeTruthy()
-    const card = screen.getByRole('region', { name: 'Plan v2' })
-    expect(within(card).getByText('1 new')).toBeTruthy()
-    expect(within(card).getByText('1 changed')).toBeTruthy()
-    expect(within(card).getByText('1 taken out')).toBeTruthy()
+    const side = screen.getByRole('complementary', { name: 'About #team-accounts-sso' })
+    const map = within(side).getByRole('group', { name: 'The parts of #team-accounts-sso as a map' })
+    expect(within(map).getByRole('button', { name: /^security-review\.md, Review the SAML design for security, .*New$/ })).toBeTruthy()
+    expect(within(map).getByRole('button', { name: /^tech-plan\.md, How sign-in changes in Atlas, .*Changed$/ })).toBeTruthy()
+    expect(within(map).getByRole('button', { name: 'help-page.md, Help page: set up single sign-on, Max, After: How sign-in changes in Atlas, Taken out' })).toBeTruthy()
+    await user.click(within(side).getByRole('button', { name: 'Full screen' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('1 new')).toBeTruthy()
+    expect(within(dialog).getByText('1 changed')).toBeTruthy()
+    expect(within(dialog).getByText('1 taken out')).toBeTruthy()
+    // Wide, each part goes by its title.
+    expect(within(dialog).getByRole('button', { name: /^Review the SAML design for security, security-review\.md/ })).toBeTruthy()
   })
-})
 
-describe('the parts beside the channel', () => {
   it('draws the parts by their files, and a part takes the channel to its newest post', async () => {
     const user = userEvent.setup()
     setSnapshot([PRIYA, ADA, MAX, { ...RAVI, state: 'active' }])
