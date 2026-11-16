@@ -2564,6 +2564,7 @@ export const es: Catalogue = {
   'triage.bucket.working': 'Agentes trabajando',
   'triage.bucket.idle': 'Espacios de trabajo',
   'triage.bucket.finished': 'Terminados',
+  'triage.bucket.fold': 'Mostrar {group}',
   'triage.later.back': 'De vuelta de Más tarde',
   'triage.approval.plan': 'Plan listo para revisar',
   'triage.approval.question': 'Tiene una pregunta',

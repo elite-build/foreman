@@ -2,11 +2,15 @@ import {
   Archive,
   Brain,
   Bug,
+  ChevronDown,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  CircleCheck,
   CircleHelp,
   Cloud,
   FileDown,
+  FolderGit2,
   FolderInput,
   FolderRoot,
   GitBranch,
@@ -56,12 +60,13 @@ import {
   toggleLeftPanel,
   toggleRailNames,
   toggleShowFinished,
+  toggleSidebarGroup,
   useStore
 } from '../store'
 import { resolveFilter, VIEW_LABEL, viewsOn } from '../../../shared/views'
 import { LATER_CHOICES, putAway, waitingLater } from '../../../shared/later'
 import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater, useLaterWake } from '../later'
-import { BUCKET_LABEL, liveRepo, sidebarGroups, sidebarOrder, STATUS_LABEL, type SidebarFilter, type Triage } from '../triage'
+import { BUCKET_LABEL, foldedBuckets, liveRepo, sidebarGroups, sidebarOrder, STATUS_LABEL, type Bucket, type SidebarFilter, type Triage } from '../triage'
 import { promptTitle } from '../../../shared/compare'
 import type { CompareSection } from '../../../shared/triage'
 import { employeeKey, itemsInSpace, type NeedsYouCounts, type NeedsYouItem } from '../../../shared/needsYou'
@@ -446,6 +451,60 @@ function CompareGroupView({ section, order, repoId, repoById }: { section: Compa
   )
 }
 
+// A group's icon on its heading card: what needs you by its shape, what runs spinning, the rest as workspaces.
+function GroupIcon({ bucket }: { bucket: Bucket }) {
+  if (bucket === 'attention') return <Glyph name="warn" />
+  if (bucket === 'working')
+    return (
+      <span className="ws-spin blue">
+        <Spinner size={13} />
+      </span>
+    )
+  if (bucket === 'finished') return <CircleCheck size={14} aria-hidden />
+  return <FolderGit2 size={14} aria-hidden />
+}
+
+/**
+ * A group's heading: a card like the Team and Channels rows, with its icon, name, count and a chevron that folds the
+ * group's rows away, remembered. Folded, Needs your attention says its count with ▲, so a folded group that waits on you
+ * still says so. `foldable` is off while a filter or a search narrows the list: it shows every row it found then.
+ */
+function GroupHead({ bucket, count, folded, foldable, labelId, listId }: { bucket: Bucket; count: number; folded: boolean; foldable: boolean; labelId: string; listId: string }) {
+  const t = useT()
+  const name = t(BUCKET_LABEL[bucket])
+  const toggle = () => toggleSidebarGroup(bucket)
+  return (
+    // Named by the group alone: the card's buttons are inside it, and the chevron's label would repeat the name.
+    <div role="heading" aria-level={3} aria-labelledby={labelId}>
+      <ActionRow
+        card
+        className="ws-group-entry"
+        onPress={foldable ? toggle : undefined}
+        primaryProps={foldable ? { 'aria-expanded': !folded, 'aria-controls': listId } : undefined}
+        actions={
+          foldable && (
+            <IconButton label={t('triage.bucket.fold', { group: name })} aria-expanded={!folded} aria-controls={listId} onClick={toggle}>
+              {folded ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            </IconButton>
+          )
+        }
+      >
+        <GroupIcon bucket={bucket} />
+        <span id={labelId} className="ws-group-label">
+          {name}
+        </span>
+        {bucket === 'attention' && folded ? (
+          <Status className="ws-group-need" compact tone="warn" label={t('home.banner.needYou', { count })}>
+            <span aria-hidden>{count}</span>
+          </Status>
+        ) : (
+          <span className="ws-group-count">{count}</span>
+        )}
+      </ActionRow>
+    </div>
+  )
+}
+
 /** Two letters for a repository without an icon: "kite" → "ki". */
 function repoInitials(name: string): string {
   return (name.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toLowerCase()
@@ -718,6 +777,9 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
       ? grouped.groups.map((g) => ({ ...g, items: g.items.map((x) => (putAway(x, Date.now()) ? { ...x, label: laterWhen(x.ws, t), tone: undefined } : x)) }))
       : grouped.groups
   const order = sidebarOrder(input, view).map((w) => w.id)
+  // The groups folded under their heading cards; a filter or a search shows every group open.
+  const foldedGroups = foldedBuckets(view, snapshot.settings)
+  const foldable = filter === 'all' && !view.query.trim()
   // Archived work and Import stay about everything, whichever space is shown.
   const archived = everything.snapshot.workspaces.filter((w) => w.state === 'archived').length
   const anyUnread = Object.keys(unread).length > 0
@@ -853,15 +915,19 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
               {listed.map((group) => (
                 <Fragment key={group.bucket}>
                   <section className={`ws-group ${group.bucket}`} aria-labelledby={`ws-group-${group.bucket}`}>
-                    <div className="ws-group-head">
-                      <span id={`ws-group-${group.bucket}`} role="heading" aria-level={3}>
-                        {t(BUCKET_LABEL[group.bucket])}
-                      </span>
-                      <span className="ws-group-count">{group.items.length + (group.bucket === 'attention' ? extraRows.length : 0)}</span>
+                    <GroupHead
+                      bucket={group.bucket}
+                      count={group.items.length + (group.bucket === 'attention' ? extraRows.length : 0)}
+                      folded={foldedGroups.has(group.bucket)}
+                      foldable={foldable}
+                      labelId={`ws-group-${group.bucket}`}
+                      listId={`ws-group-rows-${group.bucket}`}
+                    />
+                    <div id={`ws-group-rows-${group.bucket}`} className="ws-group-rows" hidden={foldedGroups.has(group.bucket)}>
+                      {group.bucket === 'attention'
+                        ? attentionRows(group.items)
+                        : group.items.map((t) => <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />)}
                     </div>
-                    {group.bucket === 'attention'
-                      ? attentionRows(group.items)
-                      : group.items.map((t) => <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />)}
                   </section>
                   {group.bucket === 'attention' && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
                 </Fragment>

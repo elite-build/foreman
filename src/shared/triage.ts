@@ -102,6 +102,8 @@ export interface SidebarView {
   filter: SidebarFilter
   query: string
   showFinished: boolean
+  // Groups folded under their heading card (remembered); see foldedBuckets for when they apply.
+  folded?: Bucket[]
 }
 
 function approvalLabel(approval: ApprovalRequest, t: TFunction): string {
@@ -583,9 +585,22 @@ export function sidebarGroups(
   return { groups, compares, hiddenFinished }
 }
 
-/** Workspaces in the order the sidebar shows them (for ⌘1–9 and ⌥⌘↑/↓): attention, compare groups, then the rest. */
+/**
+ * The groups folded in the list. Only All with no search folds: a filter or a search lists exactly what was asked for.
+ */
+export function foldedBuckets(view: SidebarView, settings?: Partial<AppSnapshot['settings']>): Set<Bucket> {
+  if (!view.folded?.length || view.query.trim() || resolveFilter(view.filter, settings?.views) !== 'all') return new Set()
+  return new Set(view.folded)
+}
+
+/**
+ * Workspaces in the order the sidebar shows them (for ⌘1–9 and ⌥⌘↑/↓): attention, compare groups, then the rest. A folded
+ * group's rows aren't shown, so they aren't numbered either.
+ */
 export function sidebarOrder(input: TriageInput, view: SidebarView): Workspace[] {
-  const { groups, compares } = sidebarGroups(input, view)
+  const { groups: all, compares } = sidebarGroups(input, view)
+  const folded = foldedBuckets(view, input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined)
+  const groups = all.filter((g) => !folded.has(g.bucket))
   const first = groups.filter((g) => g.bucket === 'attention')
   const rest = groups.filter((g) => g.bucket !== 'attention')
   return [...first.flatMap((g) => g.items), ...compares.flatMap((c) => c.items), ...rest.flatMap((g) => g.items)].map((t) => t.ws)
