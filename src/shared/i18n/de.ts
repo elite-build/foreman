@@ -2518,6 +2518,7 @@ export const de: Catalogue = {
   'triage.bucket.working': 'Agenten arbeiten',
   'triage.bucket.idle': 'Arbeitsbereiche',
   'triage.bucket.finished': 'Abgeschlossen',
+  'triage.bucket.fold': '{group} anzeigen',
   'triage.later.back': 'Zurück aus „Später“',
   'triage.approval.plan': 'Plan bereit zum Review',
   'triage.approval.question': 'Hat eine Frage',
