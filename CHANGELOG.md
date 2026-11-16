@@ -2,6 +2,19 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.1 (2026-11-16)
+
+### Added
+
+- The **Channels** row has a **+** that starts a new channel with @Priya, and each channel has a menu to **Rename**, **Archive** or **Delete** it; deleting one still going stops it first, and its files stay unless you choose otherwise. ([#199](https://github.com/elite-build/foreman/pull/199))
+- **All channels** opens a page with every channel of the organization, archived ones too, to search, filter, and archive or delete several at once. ([#199](https://github.com/elite-build/foreman/pull/199))
+- **New organization** can **Keep its repositories in one folder**: its memory repository is made there, and while the organization is showing, **Clone** and **Quick start** put new repositories there and add them to it. ([#197](https://github.com/elite-build/foreman/pull/197))
+
+### Changed
+
+- A closed channel is archived after two weeks instead of disappearing, and can be restored. ([#199](https://github.com/elite-build/foreman/pull/199))
+- An agent's **question** card is about half as tall: the question is its title, each tab shows your answer, and the options are a compact list with their descriptions beside them. ([#196](https://github.com/elite-build/foreman/pull/196))
+
 ## 1.2.0 (2026-11-16)
 
 ### Added
