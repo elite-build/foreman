@@ -272,6 +272,18 @@ export function templateName(template: EmployeeTemplate, takenNames: Iterable<st
   for (let n = 2; ; n++) if (!taken.has(`${job} ${n}`.toLocaleLowerCase())) return `${job} ${n}`
 }
 
+/**
+ * The name templateName tried last before `name`, which was taken ("Named Quinn (QA engineer) 2: … already called
+ * Quinn (QA engineer)"): the template's own name for "<name> (<job>)", "<name> (<job>)" for "… 2", "… 2" for "… 3".
+ * The template's own name for any other name.
+ */
+export function templateNameTaken(template: EmployeeTemplate, name: string): string {
+  const job = `${template.name} (${template.job})`
+  const n = name.startsWith(`${job} `) ? Number(name.slice(job.length + 1)) : NaN
+  if (!Number.isInteger(n) || n < 2) return template.name
+  return n === 2 ? job : `${job} ${n - 1}`
+}
+
 /** A template employee's hat: its own colour unless an employee who isn't retired wears it, then the first free one (§5.4). */
 export function templateColour(template: EmployeeTemplate, worn: readonly string[]): HatColour {
   return worn.includes(template.colour) ? freeHatColour(worn) : template.colour

@@ -397,6 +397,19 @@ describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => 
     expect(described(screen.getByRole('button', { name: 'Add' }))).toBe('Adding approves Quinn (QA engineer) at once: Read on foreman-website and foreman.')
   })
 
+  it('names the last name taken when a third copy is numbered', async () => {
+    const user = userEvent.setup()
+    setSnapshot({
+      employees: [
+        summary('e-qu1n', 'Quinn', { role: 'Staff QA engineer', colour: 'green', state: 'active' }),
+        summary('e-qu2n', 'Quinn (QA engineer)', { role: 'Staff QA engineer', colour: 'orange', state: 'active' })
+      ]
+    })
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    await user.click(chip('QA engineer'))
+    expect(screen.getByRole('region', { name: 'Who you get' }).textContent).toContain('Named Quinn (QA engineer) 2: an employee of Foreman is already called Quinn (QA engineer).')
+  })
+
   it('says so when the organization has no repositories', async () => {
     const user = userEvent.setup()
     setSnapshot()
@@ -405,6 +418,12 @@ describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => 
     await user.click(chip('Security engineer'))
     expect(screen.getByRole('region', { name: 'Who you get' }).textContent).toContain('None yet: Foreman has no repositories')
     expect(described(screen.getByRole('button', { name: 'Add' }))).toBe('Adding approves Omar at once. Omar can’t read any repository yet: this organization has none. Give access on Omar’s page once you add one.')
+    // A Write job's tag still says Write, though the access it is saved with lists no repository.
+    await user.click(chip('Software engineer'))
+    const who = screen.getByRole('region', { name: 'Who you get' })
+    expect(who.textContent).toContain('Ravi')
+    expect(within(who).getByText('Write')).toBeTruthy()
+    expect(within(who).queryByText('Read')).toBeNull()
   })
 
   it('Add makes and approves it in main, says the name it got, opens its page, and can’t be pressed twice meanwhile', async () => {
@@ -442,6 +461,10 @@ describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => 
     expect(alert.textContent).toContain('acme-memory has changes Foreman didn’t make.')
     expect(pressed()).toEqual(['QA engineer'])
     expect(spy('openEmployees')).not.toHaveBeenCalled()
+    // The callout names the job it was for, so choosing another clears it.
+    await user.click(chip('Frontend engineer'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    await user.click(chip('QA engineer'))
     fakeApi.addTemplateEmployee = vi.fn(async () => ({ employee: view('e-qu1n', 'Quinn', { state: 'draft' }), approveError: 'The disk is full.' }))
     await user.click(screen.getByRole('button', { name: 'Add' }))
     await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('Quinn was added as a draft, but approving it failed: The disk is full. Approve it on its page.'))

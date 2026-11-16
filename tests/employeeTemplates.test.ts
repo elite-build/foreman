@@ -1,7 +1,7 @@
 // Starting templates (docs/ai-employees.md §16): fifteen ready Staff employees New organization offers beside Priya and
 // Add employee offers in an existing organization: their names and hats around the roster, and who already does a job.
 import { describe, expect, it } from 'vitest'
-import { EMPLOYEE_TEMPLATE_IDS, EMPLOYEE_TEMPLATES, employeeTemplate, isEmployeeTemplateId, staffRole, templateColour, templateDefinitions, templateHolders, templateName } from '../src/shared/employeeTemplates'
+import { EMPLOYEE_TEMPLATE_IDS, EMPLOYEE_TEMPLATES, employeeTemplate, isEmployeeTemplateId, staffRole, templateColour, templateDefinitions, templateHolders, templateName, templateNameTaken } from '../src/shared/employeeTemplates'
 import { HAT_COLOURS, parseEmployee, serializeEmployee } from '../src/shared/employees'
 import { en } from '../src/shared/i18n/en'
 
@@ -55,6 +55,16 @@ describe('employee templates', () => {
     expect(templateName(qa, ['Quinn', 'Quinn (QA engineer)', 'Quinn (QA engineer) 2'])).toBe('Quinn (QA engineer) 3')
     // A third QA engineer no longer gets the second one's name.
     expect(templateDefinitions({ templates: ['qa-engineer'], repos: [], loadouts: claude, taken: [], takenNames: ['Quinn', 'Quinn (QA engineer)'] })[0].name).toBe('Quinn (QA engineer) 2')
+  })
+
+  it('say which name gave way to a renamed one: the last name tried before it', () => {
+    const qa = employeeTemplate('qa-engineer')
+    expect(templateNameTaken(qa, 'Quinn (QA engineer)')).toBe('Quinn')
+    expect(templateNameTaken(qa, 'Quinn (QA engineer) 2')).toBe('Quinn (QA engineer)')
+    expect(templateNameTaken(qa, 'Quinn (QA engineer) 3')).toBe('Quinn (QA engineer) 2')
+    // Anything else gives the template's own name.
+    expect(templateNameTaken(qa, 'Quinn (QA engineer) x')).toBe('Quinn')
+    expect(templateNameTaken(qa, 'Quinn')).toBe('Quinn')
   })
 
   it('wear their own hat unless it is worn, then the first free one; without `worn` (New organization) each wears its own', () => {

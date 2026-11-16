@@ -4,7 +4,7 @@
 // approves, naming Write and the repositories. Main decides the name, hat and id at Add by the same rule this preview
 // runs on the roster the window has, and the toast says the name it got. Nothing here sends anything to a model.
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { EMPLOYEE_TEMPLATES, employeeTemplate, templateDefinitions, templateHolders, type EmployeeTemplateId } from '../../../../shared/employeeTemplates'
+import { EMPLOYEE_TEMPLATES, employeeTemplate, templateDefinitions, templateHolders, templateNameTaken, type EmployeeTemplateId } from '../../../../shared/employeeTemplates'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
@@ -79,7 +79,11 @@ export function PickJob({ orgId, data, onWrite }: { orgId: string; data: Employe
   )
   // One job at a time: choosing another replaces it, choosing it again clears it.
   const picked = useMemo(() => new Set<EmployeeTemplateId>(chosen ? [chosen] : []), [chosen])
-  const choose = (id: EmployeeTemplateId, on: boolean) => setChosen(on ? id : null)
+  // A failed Add's callout names the job it was for, so it goes when the choice changes.
+  const choose = (id: EmployeeTemplateId, on: boolean) => {
+    setChosen(on ? id : null)
+    setError(null)
+  }
 
   const write = preview ? Object.values(preview.access.repos).includes('write') : false
   const repoList = names(repos)
@@ -89,7 +93,7 @@ export function PickJob({ orgId, data, onWrite }: { orgId: string; data: Employe
     template && preview
       ? [
           had?.length ? t('spaces.team.youHave', { names: names(had) }) : '',
-          preview.name !== template.name ? t('employees.add.renamed', { name: preview.name, organization: orgName, taken: template.name }) : '',
+          preview.name !== template.name ? t('employees.add.renamed', { name: preview.name, organization: orgName, taken: templateNameTaken(template, preview.name) }) : '',
           colour && colour !== template.colour
             ? t('employees.add.recoloured', {
                 holder: roster.find((e) => e.state !== 'retired' && e.colour === template.colour)?.name ?? '',
@@ -179,7 +183,8 @@ export function PickJob({ orgId, data, onWrite }: { orgId: string; data: Employe
           <h2 id={whoId} className="employee-subheading">
             {t('employees.add.who')}
           </h2>
-          <PickedWho template={template} name={preview.name} colour={colour} access={write ? 'write' : 'read'} size={40} />
+          {/* With no repositories the saved access lists none, so the tag gives the job's own Read or Write. */}
+          <PickedWho template={template} name={preview.name} colour={colour} access={repos.length ? (write ? 'write' : 'read') : undefined} size={40} />
           <span className="employee-faint">{t('employees.add.roleLine', { role: preview.role, what: text(template).gives })}</span>
           <dl className="new-employee-facts">
             <dt className="employee-faint">{t('employees.add.does')}</dt>

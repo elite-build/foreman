@@ -613,4 +613,24 @@ describe('employees: adding a job template (docs/ai-employees.md §5.3, §16)', 
     expect(state.employees!.find((r) => r.id === employee.id)).toEqual({ orgId: 'o1', id: employee.id, state: 'draft' })
     expect((await employees.list('o1')).employees.map((e) => e.name)).toEqual(['Quinn'])
   })
+
+  it('New organization: Priya and the templates picked with her, in one commit, each approved', async () => {
+    const { root, employees } = await ready()
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    const id = await employees.addProgramManager('o1', ['qa-engineer', 'software-engineer'])
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe('Add the team: Priya, Ravi, Quinn')
+    const made = (await employees.list('o1')).employees
+    expect(made.map((e) => `${e.name}: ${e.state}`).sort()).toEqual(['Priya: active', 'Quinn: active', 'Ravi: active'])
+    expect(made.find((e) => e.name === 'Priya')!.id).toBe(id)
+    const files = (await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n')
+    for (const e of made) expect(files).toEqual(expect.arrayContaining([`bots/${e.id}.toml`, `memory/bots/${e.id}/MEMORY.md`, `memory/bots/${e.id}/journal.md`]))
+  })
+
+  it('New organization: an approval that fails throws, and what was made stays as drafts', async () => {
+    const { employees } = await ready()
+    vi.spyOn(employees, 'approve').mockRejectedValueOnce(new Error('The disk is full.'))
+    await expect(employees.addProgramManager('o1', ['qa-engineer'])).rejects.toThrow('The disk is full.')
+    expect((await employees.list('o1')).employees.map((e) => `${e.name}: ${e.state}`).sort()).toEqual(['Priya: draft', 'Quinn: draft'])
+  })
 })
