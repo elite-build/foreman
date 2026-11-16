@@ -514,6 +514,24 @@ export function triageAll(input: TriageInput, repoId: string | null): Triage[] {
     .map((w) => triageOne(w, sessions.get(w.id) ?? [], input))
 }
 
+/**
+ * The workspaces projects started in a channel work in (docs/ai-employees.md §15): each project's shared workspace, and
+ * any other its open tasks' runs made. They belong to the channel, so the workspace lists leave them out (listsWorkspace).
+ * A workspace handed to the program manager ("Hand to Priya…") was the person's own, so it isn't one.
+ */
+export function projectWorkspaceIds(snapshot: Pick<AppSnapshot, 'workspaces' | 'projects' | 'employeeWork'>): Set<string> {
+  const ids = new Set<string>()
+  for (const project of Object.values(snapshot.projects ?? {}).flat()) {
+    if (project.workspaceId && project.workspaceId !== project.fromWorkspaceId) ids.add(project.workspaceId)
+  }
+  const tasks = new Set(Object.values(snapshot.employeeWork ?? {}).flatMap((w) => w.tasks.filter((t) => t.project).map((t) => t.id)))
+  for (const w of snapshot.workspaces) if (w.startedBy?.via === 'employee' && tasks.has(w.startedBy.taskId)) ids.add(w.id)
+  return ids
+}
+
+/** Whether a workspace list shows a row: a project's workspace only while it needs the person (its channel shows the rest). */
+export const listsWorkspace = (t: Triage, projectIds: ReadonlySet<string>): boolean => t.bucket === 'attention' || !projectIds.has(t.ws.id)
+
 /** Waiting longest first, so nothing sits forgotten at the bottom. */
 export function oldestFirst(items: Triage[]): Triage[] {
   return items.slice().sort((a, b) => a.since.localeCompare(b.since))
@@ -565,7 +583,8 @@ export function sidebarGroups(
   view: SidebarView
 ): { groups: { bucket: Bucket; items: Triage[] }[]; compares: CompareSection[]; hiddenFinished: number } {
   const query = view.query.trim().toLowerCase()
-  let items = triageAll(input, liveRepo(input.snapshot, view.repo))
+  const projectIds = projectWorkspaceIds(input.snapshot)
+  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds))
   if (query) items = items.filter((t) => t.ws.name.toLowerCase().includes(query) || t.ws.branch.toLowerCase().includes(query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)
