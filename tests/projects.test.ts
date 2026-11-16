@@ -1,7 +1,7 @@
 // Projects (docs/ai-employees.md §15), the pure part: titles and slugs, @mentions, Foreman's checks on a plan (owners,
 // files, dependencies, sizes, proposed employees, what a replan must keep), which replans go ahead on their own, the
 // parts that may start, plan.md, the words a task carries, the program manager's and a proposed employee's definitions,
-// and the memory file a task grants.
+// the memory file a task grants, and what a project's employees are doing right now.
 import { describe, expect, it } from 'vitest'
 import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
 import { memoryWriteDecision } from '../src/shared/employeeTools'
@@ -18,6 +18,7 @@ import {
   partsAfter,
   planDiff,
   planMarkdown,
+  projectLive,
   planningBody,
   projectSlug,
   projectTitle,
@@ -276,5 +277,44 @@ describe('the memory file a task grants', () => {
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: true, files: [file] }).kind).toBe('propose')
     expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/design.md', { scopes: [], readOnly: false, files: [file] }).kind).toBe('refuse')
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: false }).kind).toBe('refuse')
+  })
+})
+
+describe('what a project’s employees are doing now', () => {
+  const at = (m: number) => `2026-11-15T10:${String(m).padStart(2, '0')}:00.000Z`
+  const step = (taskId: string, kind: 'plan' | 'part' | 'accept' | 'follow-up', state: 'running' | 'done' | 'stuck' = 'running') => ({ kind, round: 1, taskId, employeeId: `e-${taskId}`, state, startedAt: at(0), ...(kind === 'part' ? { partId: taskId } : {}) })
+
+  it('pairs each running step with its task’s run not ended: working first, then starting, then queued', () => {
+    const steps = [step('t1', 'part'), step('t2', 'part'), step('t3', 'part'), step('t4', 'plan', 'done')]
+    const runs = [
+      { id: 'r1', taskId: 't1', state: 'queued' as const, createdAt: at(1), reason: 'Ravi is busy with another task' },
+      { id: 'r2', taskId: 't2', state: 'provisioning' as const, createdAt: at(1), admittedAt: at(2) },
+      { id: 'r3', taskId: 't3', state: 'running' as const, createdAt: at(1), admittedAt: at(2), startedAt: at(3), workspaceId: 'w3', sessionId: 's3' },
+      // A finished step's task has no live run, and isn't listed even if a stray one is.
+      { id: 'r4', taskId: 't4', state: 'running' as const, createdAt: at(1) }
+    ]
+    const live = projectLive({ phase: 'working', steps }, runs)
+    expect(live.map((l) => [l.runId, l.state, l.since])).toEqual([
+      ['r3', 'working', at(3)],
+      ['r2', 'starting', at(2)],
+      ['r1', 'queued', at(1)]
+    ])
+    expect(live[0]).toMatchObject({ workspaceId: 'w3', sessionId: 's3' })
+    expect(live[2].reason).toBe('Ravi is busy with another task')
+  })
+
+  it('leaves out a running step whose task has no run going (it waits on an answer), and everything once closed', () => {
+    const steps = [step('t1', 'follow-up')]
+    expect(projectLive({ phase: 'working', steps }, [])).toEqual([])
+    expect(projectLive({ phase: 'working', steps }, [{ id: 'r9', taskId: 'other', state: 'running', createdAt: at(1) }])).toEqual([])
+    expect(projectLive({ phase: 'closed', steps }, [{ id: 'r1', taskId: 't1', state: 'running', createdAt: at(1) }])).toEqual([])
+  })
+
+  it('takes the newest run of a task that was tried again', () => {
+    const runs = [
+      { id: 'old', taskId: 't1', state: 'admitted' as const, createdAt: at(1) },
+      { id: 'new', taskId: 't1', state: 'running' as const, createdAt: at(4), startedAt: at(5) }
+    ]
+    expect(projectLive({ phase: 'working', steps: [step('t1', 'part')] }, runs).map((l) => l.runId)).toEqual(['new'])
   })
 })

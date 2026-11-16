@@ -1,19 +1,20 @@
 // A project's channel (docs/ai-employees.md §15), read top to bottom as it happened: your request; the program manager
 // planning, then each plan as a card (its parts, who owns each, what each writes and waits for, Foreman's checks, what
 // changed since the plan before, the employees it proposes, each to approve); each part starting and what it said when
-// it finished, with the file it wrote; the decisions you made and the notes you left; follow-ups and their answers. At
-// the bottom, what it waits for you on: the plan (Approve once every owner is approved, Send back with a note, Stop), a
-// part's result (Approve, Send back, Stop), a task that couldn't finish (Try again, Stop), the final check; and what
-// its employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee a follow-up,
-// anything else is a note that wakes nobody. Beside it: the parts with their states, the files, the workspace and the
-// replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay). Once closed, Archive
-// takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames or deletes it.
+// it finished, with the file it wrote; the decisions you made and the notes you left; follow-ups and their answers; and
+// last, who is at work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you
+// on: the plan (Approve once every owner is approved, Send back with a note, Stop), a part's result (Approve, Send back,
+// Stop), a task that couldn't finish (Try again, Stop), the final check; and what its employees ask or hold (a
+// question, a pull request). The message box: "@Name …" asks that employee a follow-up, anything else is a note that
+// wakes nobody. Beside it: the parts with their states, the files, the workspace and the replans left. Pause holds it
+// (what runs finishes); Stop cancels what is going (its files stay). Once closed, Archive takes it off the sidebar; an
+// archived channel is read-only, with Restore and Delete. More renames or deletes it.
 import { Archive, FileText, Pause, Play, Square } from 'lucide-react'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import type { PlainKey } from '../../../../shared/i18n'
 import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
-import { isArchived, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
+import { isArchived, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, type PlanPart, type Project, type ProjectLive, type ProjectArtifact, type ProjectDecision, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openMemory, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, HardHat, LinkButton, Meter, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
@@ -21,6 +22,7 @@ import { DecisionCard } from '../DecisionCard'
 import { ChannelMenu, DeleteChannelsDialog } from './ChannelActions'
 import { Markdown } from '../Markdown'
 import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
+import { LiveLines, LiveTag, useProjectLive } from './ProjectLive'
 import { EmployeeDecision, useDecisionItems } from './EmployeeDecisions'
 import { PART_STATUS, projectChannel, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
 import './employees.css'
@@ -39,6 +41,7 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
   const pm = roster?.find((e) => e.id === project.pmId)
   const pmName = pm?.name || t('projects.pmDefault')
   const status = projectStatus(project, t, pmName)
+  const live = useProjectLive(project)
   const repo = useStore((s) => s.snapshot!.repos.find((r) => r.id === project.repoId))
   const [stopping, setStopping] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -83,6 +86,8 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
           </div>
           <div className="employee-card-actions">
             <Status tone={status.tone} label={status.label} />
+            {/* Its stage says where it is; this says whether anyone is at it now. */}
+            {open && <LiveTag live={live} busyStage={status.tone === 'info'} who={(id) => names[id] ?? id} />}
             {open &&
               (project.paused ? (
                 <Button size="sm" icon={<Play size={13} />} onClick={() => void attempt(() => api.pauseProject(project.id, false))}>
@@ -154,7 +159,7 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
           </Callout>
         )}
         {deleting && <DeleteChannelsDialog projects={[project]} onClose={() => setDeleting(false)} onDeleted={gone} />}
-        <Timeline orgId={orgId} project={project} names={names} roster={roster} pmName={pmName} />
+        <Timeline orgId={orgId} project={project} names={names} roster={roster} pmName={pmName} live={live} />
         <Waiting orgId={orgId} project={project} names={names} roster={roster} />
         {!archived && (
           <ChannelComposer
@@ -166,7 +171,7 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
           />
         )}
       </div>
-      <SidePanel orgId={orgId} project={project} names={names} roster={roster} />
+      <SidePanel orgId={orgId} project={project} names={names} roster={roster} live={live} />
     </div>
   )
 }
@@ -178,7 +183,7 @@ interface Entry {
 }
 
 /** Everything that happened, in order. */
-function Timeline({ orgId, project, names, roster, pmName }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; pmName: string }) {
+function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; pmName: string; live: readonly ProjectLive[] }) {
   const t = useT()
   const member = (id: string) => roster?.find((e) => e.id === id)
   const who = (id: string) => member(id)?.name || names[id] || id
@@ -273,6 +278,8 @@ function Timeline({ orgId, project, names, roster, pmName }: { orgId: string; pr
       {entries.map((e) => (
         <Fragment key={e.key}>{e.node}</Fragment>
       ))}
+      {/* Now, after everything that happened: where each answer will appear. */}
+      <LiveLines project={project} live={live} who={who} />
     </ol>
   )
 }
@@ -571,7 +578,7 @@ function WaitCard({ orgId, project, wait, names, roster }: { orgId: string; proj
 }
 
 /** Beside the channel: the parts and their states, the files, the workspace, the replans left. */
-function SidePanel({ orgId, project, names, roster }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[] }) {
+function SidePanel({ orgId, project, names, roster, live }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; live: readonly ProjectLive[] }) {
   const t = useT()
   const plan = project.plan ?? project.plans.at(-1)
   const artifacts = Object.values(project.artifacts).sort((a, b) => a.at.localeCompare(b.at))
@@ -594,7 +601,11 @@ function SidePanel({ orgId, project, names, roster }: { orgId: string; project: 
                     <span>{p.title}</span>
                     <span className="employee-faint">{ownerName(plan, p.owner, names)}</span>
                   </span>
-                  <Status tone={st.tone} label={s.round > 1 ? `${t(st.label)} · ${t('projects.round', { round: s.round })}` : t(st.label)} />
+                  <Status
+                    tone={st.tone}
+                    busy={live.some((l) => l.state === 'working' && l.step.partId === p.id)}
+                    label={s.round > 1 ? `${t(st.label)} · ${t('projects.round', { round: s.round })}` : t(st.label)}
+                  />
                 </li>
               )
             })}

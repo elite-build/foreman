@@ -8,6 +8,7 @@
 // goes ahead; one that adds a person or another owner's part waits for the person. A large project ends with Priya's
 // acceptance and the person's final gate; a small one ends when its last part does. Pure, so main, the renderer and the
 // tests read the same rules. The words a task carries are English: the agent reads them.
+import type { EmployeeRunState } from './employeeWork'
 
 export const MAX_PARTS = 8
 export const SMALL_MAX_PARTS = 3
@@ -618,3 +619,52 @@ export function channelNameProblem(name: string, taken: readonly string[]): 'emp
 
 /** Whether a project waits for the person on anything. */
 export const projectWaits = (p: Pick<Project, 'waits' | 'phase'>): boolean => p.phase !== 'closed' && p.waits.length > 0
+
+/** A run as projectLive reads it (EmployeeRun's fields, so the snapshot's runs pass as they are). */
+export interface LiveRunInput {
+  id: string
+  taskId: string
+  state: EmployeeRunState
+  workspaceId?: string
+  sessionId?: string
+  reason?: string
+  createdAt: string
+  admittedAt?: string
+  startedAt?: string
+}
+
+/** working: its turn is with the agent. starting: admitted, its workspace being made. queued: waits for a slot. */
+export type ProjectLiveState = 'working' | 'starting' | 'queued'
+
+/** A step of a project being done now, with the run doing it: since when it has been in that state, and where it runs. */
+export interface ProjectLive {
+  step: ProjectStep
+  state: ProjectLiveState
+  since: string
+  runId: string
+  workspaceId?: string
+  sessionId?: string
+  reason?: string
+}
+
+const LIVE_OF: Partial<Record<EmployeeRunState, ProjectLiveState>> = { running: 'working', provisioning: 'starting', admitted: 'starting', queued: 'queued' }
+const LIVE_ORDER: Record<ProjectLiveState, number> = { working: 0, starting: 1, queued: 2 }
+
+/**
+ * What a project's employees are doing right now (docs/ai-employees.md §15): each running step whose task has a run that
+ * hasn't ended, working first, then starting, then queued. A running step without such a run (its task waits on an answer
+ * or a hand-off) does nothing now and isn't here; nor is anything of a closed project.
+ */
+export function projectLive(project: Pick<Project, 'phase' | 'steps'>, runs: readonly LiveRunInput[]): ProjectLive[] {
+  if (project.phase === 'closed') return []
+  const out: ProjectLive[] = []
+  for (const step of project.steps) {
+    if (step.state !== 'running') continue
+    const run = runs.findLast((r) => r.taskId === step.taskId && LIVE_OF[r.state])
+    if (!run) continue
+    const state = LIVE_OF[run.state]!
+    const since = state === 'working' ? (run.startedAt ?? run.createdAt) : state === 'starting' ? (run.admittedAt ?? run.createdAt) : run.createdAt
+    out.push({ step, state, since, runId: run.id, ...(run.workspaceId ? { workspaceId: run.workspaceId } : {}), ...(run.sessionId ? { sessionId: run.sessionId } : {}), ...(run.reason ? { reason: run.reason } : {}) })
+  }
+  return out.sort((a, b) => LIVE_ORDER[a.state] - LIVE_ORDER[b.state])
+}

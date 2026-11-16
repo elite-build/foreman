@@ -191,7 +191,7 @@ Replaces `.tag`, `.pill`, `.ag-badge`, `.set-details-tag`, `.int-problem-tag`, `
 
 Replaces the colour-only dots (`.dot`, `.set-dot`, `.blane-dot`, `.phone-dot`) and `.ws-cloud`.
 
-- Props: `tone` (`ok` / `warn` / `error` / `info` / `off`), `label` (required: the state in words), `compact` (glyph only; the word stays in the DOM as screen-reader text), `children` (extra visible content after the word, such as a count).
+- Props: `tone` (`ok` / `warn` / `error` / `info` / `off`), `label` (required: the state in words), `compact` (glyph only; the word stays in the DOM as screen-reader text), `busy` (work going on now, such as an employee at work in a channel: a `Spinner` in place of the glyph, so motion says it rather than colour; a still open ring under Reduce Motion, and the word says it either way), `children` (extra visible content after the word, such as a count).
 - Where space is tight, use `compact` and show the same word in a tooltip that opens on the parent's hover **and** focus.
 
 ```tsx

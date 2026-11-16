@@ -4,11 +4,12 @@
 // several at once. The organization's own channel is listed first and can't be ticked: every organization keeps it.
 import { useEffect, useState } from 'react'
 import { timeAgo } from '../../../../shared/i18n/time'
-import { isArchived, type Project } from '../../../../shared/projects'
+import { isArchived, projectLive, type Project } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, showToast, useStore } from '../../store'
 import { ActionRow, Button, Callout, Card, Checkbox, Field, Segmented, Spinner, Status, TextInput } from '../../ui'
 import { ChannelMenu, DeleteChannelsDialog } from './ChannelActions'
+import { isWorking, useOrgRuns } from './ProjectLive'
 import { channelName, orgChannelSlug, projectChannel, projectsPulse, projectStatus } from './projectWords'
 import './employees.css'
 
@@ -22,6 +23,7 @@ export function ChannelsPage({ orgId }: { orgId: string }) {
   const roster = useStore((s) => s.snapshot!.employees?.[orgId]?.employees)
   // Read them all again when a listed one moves, or after something done here (an archived one isn't in the snapshot).
   const pulse = useStore((s) => projectsPulse(s.snapshot!.projects?.[orgId]))
+  const runs = useOrgRuns(orgId)
   const [round, setRound] = useState(0)
   const reload = () => setRound((n) => n + 1)
   const [all, setAll] = useState<Project[] | null>(null)
@@ -150,7 +152,7 @@ export function ChannelsPage({ orgId }: { orgId: string }) {
                     <span className="employee-subheading">{name}</span>
                     <span className="employee-faint">{p.title}</span>
                   </span>
-                  <span className="channels-row-state">{archived ? <Status tone="off" label={t('projects.all.archived')} /> : <Status tone={status.tone} label={status.label} />}</span>
+                  <span className="channels-row-state">{archived ? <Status tone="off" label={t('projects.all.archived')} /> : <Status tone={status.tone} busy={isWorking(projectLive(p, runs))} label={status.label} />}</span>
                   <span className="channels-row-meta employee-faint">{timeAgo(p.closedAt ?? p.updatedAt, t.locale)}</span>
                   <span className="channels-row-meta employee-faint">{t('projects.all.files', { count: files })}</span>
                 </ActionRow>
