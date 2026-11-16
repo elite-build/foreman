@@ -6,7 +6,8 @@
 // part's result (Approve, Send back, Stop), a task that couldn't finish (Try again, Stop), the final check; and what
 // its employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee a follow-up,
 // anything else is a note that wakes nobody. Beside it: the parts with their states, the files, the workspace and the
-// replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay). Once closed, Archive
+// replans left. A plan, and the parts beside the channel, can be read as a table or list or drawn as a map (PlanMap.tsx).
+// Pause holds it (what runs finishes); Stop cancels what is going (its files stay). Once closed, Archive
 // takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames or deletes it.
 import { Archive, FileText, Pause, Play, Square } from 'lucide-react'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
@@ -16,13 +17,15 @@ import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
 import { isArchived, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openMemory, selectWorkspace, showToast, useStore } from '../../store'
-import { Button, Callout, Card, Disclosure, Field, HardHat, LinkButton, Meter, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
+import { Button, Callout, Card, Disclosure, Field, flash, HardHat, LinkButton, Meter, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
+import { reduceMotion } from '../../theme'
 import { DecisionCard } from '../DecisionCard'
 import { ChannelMenu, DeleteChannelsDialog } from './ChannelActions'
 import { Markdown } from '../Markdown'
 import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
 import { EmployeeDecision, useDecisionItems } from './EmployeeDecisions'
 import { PART_STATUS, projectChannel, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
+import { partState, planBefore, planInEffect, PlanMap, useViewChoice } from './PlanMap'
 import './employees.css'
 
 function useRoster(orgId: string): EmployeeSummary[] | undefined {
@@ -177,6 +180,24 @@ interface Entry {
   node: ReactNode
 }
 
+/** Where a step's line is in the channel, so the side column's map can take the channel there. */
+const stepDomId = (projectId: string, taskId: string, end: 'start' | 'end') => `project-${projectId}-${end}-${taskId}`
+const planDomId = (projectId: string, version: number) => `project-${projectId}-plan-${version}`
+
+/** Takes the channel to a part's newest post (or the plan, before the part has started) and flashes it. */
+function jumpToPart(project: Project, partId: string): void {
+  const step = project.steps
+    .filter((s) => s.partId === partId)
+    .sort((a, b) => (a.endedAt ?? a.startedAt).localeCompare(b.endedAt ?? b.startedAt))
+    .at(-1)
+  const plan = project.plan ?? project.plans.at(-1)
+  const id = step ? stepDomId(project.id, step.taskId, step.state !== 'running' && step.endedAt ? 'end' : 'start') : undefined
+  const el = (id ? document.getElementById(id) : null) ?? (plan ? document.getElementById(planDomId(project.id, plan.version)) : null)
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' })
+  flash(el, { duration: 1800 })
+}
+
 /** Everything that happened, in order. */
 function Timeline({ orgId, project, names, roster, pmName }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; pmName: string }) {
   const t = useT()
@@ -219,7 +240,7 @@ function Timeline({ orgId, project, names, roster, pmName }: { orgId: string; pr
           : step.kind === 'accept'
             ? t('projects.log.accepting', { name: who(step.employeeId) })
             : t('projects.log.partStarted', { name: who(step.employeeId), part })
-      entries.push({ at: step.startedAt, key: `start:${step.taskId}`, node: <SystemLine>{`${started}${round}`}</SystemLine> })
+      entries.push({ at: step.startedAt, key: `start:${step.taskId}`, node: <SystemLine id={stepDomId(project.id, step.taskId, 'start')}>{`${started}${round}`}</SystemLine> })
     }
     if (step.state !== 'running' && step.endedAt) {
       const artifact = Object.values(project.artifacts).find((a) => a.taskId === step.taskId)
@@ -228,7 +249,7 @@ function Timeline({ orgId, project, names, roster, pmName }: { orgId: string; pr
         at: step.endedAt,
         key: `end:${step.taskId}`,
         node: (
-          <Post who={who(step.employeeId)} colour={e?.colour} role={e?.role} at={step.endedAt}>
+          <Post id={stepDomId(project.id, step.taskId, 'end')} who={who(step.employeeId)} colour={e?.colour} role={e?.role} at={step.endedAt}>
             {step.state === 'stuck' && <Status tone="error" label={t('projects.part.stuck')} />}
             {step.summary && <Markdown text={step.summary} />}
             {!step.summary && step.reason && <p className="channel-text">{step.reason}</p>}
@@ -344,52 +365,77 @@ function ArtifactText({ orgId, artifact }: { orgId: string; artifact: ProjectArt
   )
 }
 
-/** A plan as the program manager gave it, checked by Foreman. */
+/** A plan as the program manager gave it, checked by Foreman: its parts as a table, or drawn as a map. */
 function PlanCard({ orgId, project, plan, names, roster }: { orgId: string; project: Project; plan: ProjectPlan; names: Record<string, string>; roster?: EmployeeSummary[] }) {
   const t = useT()
-  const before = [...project.plans].reverse().find((p) => p.version < plan.version && (p.status === 'approved' || p.status === 'went-ahead' || p.status === 'replaced'))
+  const before = planBefore(project, plan)
   const diff = before ? planDiff(before, plan) : undefined
   const owner = (part: PlanPart) => ownerName(plan, part.owner, names)
   const colour = (part: PlanPart) => roster?.find((e) => e.id === ownerId(plan, part.owner))?.colour ?? 'slate'
+  const [view, setView] = useViewChoice('foreman.projects.planView', ['table', 'map'] as const, 'table')
+  const [picked, setPicked] = useState<string | null>(null)
+  // Once the plan is in effect, the table says where each part is: the outline the map draws.
+  const live = planInEffect(project, plan)
   return (
-    <Card as="section" className="channel-plan" aria-label={t('projects.plan.label', { version: plan.version })}>
-      <div className="channel-plan-head">
-        <span className="employee-subheading">{t('projects.plan.title', { version: plan.version })}</span>
-        <Tag>{t(plan.size === 'small' ? 'projects.size.small' : 'projects.size.large')}</Tag>
-        <Tag>{t(PLAN_STATUS_KEY[plan.status])}</Tag>
+    <Card as="section" id={planDomId(project.id, plan.version)} className="channel-plan" aria-label={t('projects.plan.label', { version: plan.version })}>
+      <div className="channel-plan-top">
+        <div className="channel-plan-head">
+          <span className="employee-subheading">{t('projects.plan.title', { version: plan.version })}</span>
+          <Tag>{t(plan.size === 'small' ? 'projects.size.small' : 'projects.size.large')}</Tag>
+          <Tag>{t(PLAN_STATUS_KEY[plan.status])}</Tag>
+        </div>
+        <Segmented
+          small
+          label={t('projects.view.label', { version: plan.version })}
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'table', label: t('projects.view.table') },
+            { value: 'map', label: t('projects.view.map') }
+          ]}
+        />
       </div>
       <p className="channel-text">{plan.summary}</p>
-      <table className="channel-plan-parts">
-        <thead>
-          <tr>
-            <th scope="col">{t('projects.plan.col.part')}</th>
-            <th scope="col">{t('projects.plan.col.owner')}</th>
-            <th scope="col">{t('projects.plan.col.writes')}</th>
-            <th scope="col">{t('projects.plan.col.after')}</th>
-            <th scope="col">{t('projects.plan.col.check')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {plan.parts.map((p) => (
-            <tr key={p.id}>
-              <td>
-                {p.title}
-                {diff?.added.includes(p.id) && <Tag>{t('projects.plan.added')}</Tag>}
-                {diff?.changed.includes(p.id) && <Tag>{t('projects.plan.changed')}</Tag>}
-              </td>
-              <td>
-                <span className="channel-owner">
-                  <HardHat colour={colour(p) as HardHatColour} size={14} /> {owner(p)}
-                </span>
-              </td>
-              <td className="mono">{p.writes}</td>
-              <td>{p.dependsOn.map((d) => partTitle({ plan, plans: [] }, d)).join(', ') || '—'}</td>
-              <td>{p.gate ? t('projects.plan.youCheck') : '—'}</td>
+      {view === 'map' ? (
+        <PlanMap orgId={orgId} project={project} plan={plan} form="wide" names={names} roster={roster} label={t('projects.map.label', { version: plan.version })} selected={picked} onSelect={setPicked} />
+      ) : (
+        <table className="channel-plan-parts">
+          <thead>
+            <tr>
+              <th scope="col">{t('projects.plan.col.part')}</th>
+              <th scope="col">{t('projects.plan.col.owner')}</th>
+              <th scope="col">{t('projects.plan.col.writes')}</th>
+              <th scope="col">{t('projects.plan.col.after')}</th>
+              <th scope="col">{t('projects.plan.col.check')}</th>
+              {live && <th scope="col">{t('projects.plan.col.state')}</th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
-      {diff && diff.removed.length > 0 && <p className="employee-faint">{t('projects.plan.removed', { parts: diff.removed.map((id) => partTitle({ plan: before, plans: [] }, id)).join(', ') })}</p>}
+          </thead>
+          <tbody>
+            {plan.parts.map((p) => {
+              const state = live ? partState(project, plan, p.id) : undefined
+              return (
+                <tr key={p.id}>
+                  <td>
+                    {p.title}
+                    {diff?.added.includes(p.id) && <Tag>{t('projects.plan.added')}</Tag>}
+                    {diff?.changed.includes(p.id) && <Tag>{t('projects.plan.changed')}</Tag>}
+                  </td>
+                  <td>
+                    <span className="channel-owner">
+                      <HardHat colour={colour(p) as HardHatColour} size={14} /> {owner(p)}
+                    </span>
+                  </td>
+                  <td className="mono">{p.writes}</td>
+                  <td>{p.dependsOn.map((d) => partTitle({ plan, plans: [] }, d)).join(', ') || '—'}</td>
+                  <td>{p.gate ? t('projects.plan.youCheck') : '—'}</td>
+                  {live && <td>{state && <Status tone={PART_STATUS[state.state].tone} label={state.round > 1 ? `${t(PART_STATUS[state.state].label)} · ${t('projects.round', { round: state.round })}` : t(PART_STATUS[state.state].label)} />}</td>}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+      {view === 'table' && diff && diff.removed.length > 0 && <p className="employee-faint">{t('projects.plan.removed', { parts: diff.removed.map((id) => partTitle({ plan: before, plans: [] }, id)).join(', ') })}</p>}
       <p className="employee-faint">{t('projects.plan.checked', { count: plan.parts.length })}</p>
       {plan.proposed.length > 0 && <Proposed orgId={orgId} plan={plan} roster={roster} />}
       <Disclosure quiet label={t('projects.plan.briefs')}>
@@ -570,17 +616,39 @@ function WaitCard({ orgId, project, wait, names, roster }: { orgId: string; proj
   )
 }
 
-/** Beside the channel: the parts and their states, the files, the workspace, the replans left. */
+/** Beside the channel: the parts and their states (a list, or a map that takes the channel to a part), the files, the workspace, the replans left. */
 function SidePanel({ orgId, project, names, roster }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[] }) {
   const t = useT()
   const plan = project.plan ?? project.plans.at(-1)
   const artifacts = Object.values(project.artifacts).sort((a, b) => a.at.localeCompare(b.at))
   const alive = useStore((s) => (project.workspaceId ? s.snapshot!.workspaces.some((w) => w.id === project.workspaceId) : false))
+  const [view, setView] = useViewChoice('foreman.projects.partsView', ['list', 'map'] as const, 'list')
+  const [picked, setPicked] = useState<string | null>(null)
+  const pick = (id: string | null) => {
+    setPicked(id)
+    if (id) jumpToPart(project, id)
+  }
   return (
     <aside className="channel-side" aria-label={t('projects.side.label', { channel: projectChannel(project) })}>
       <Card className="channel-side-card">
-        <span className="employee-subheading">{t('projects.side.parts', { count: plan?.parts.length ?? 0 })}</span>
-        {plan ? (
+        <div className="channel-side-top">
+          <span className="employee-subheading">{t('projects.side.parts', { count: plan?.parts.length ?? 0 })}</span>
+          {plan && (
+            <Segmented
+              small
+              label={t('projects.side.view')}
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'list', label: t('projects.side.list') },
+                { value: 'map', label: t('projects.view.map') }
+              ]}
+            />
+          )}
+        </div>
+        {plan && view === 'map' ? (
+          <PlanMap orgId={orgId} project={project} plan={plan} form="compact" names={names} roster={roster} label={t('projects.map.sideLabel', { channel: projectChannel(project) })} selected={picked} onSelect={pick} />
+        ) : plan ? (
           <ul className="channel-side-list">
             {plan.parts.map((p) => {
               const s = project.plan ? (project.parts[p.id] ?? { state: 'pending' as const, round: 0 }) : { state: 'pending' as const, round: 0 }

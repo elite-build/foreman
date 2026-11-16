@@ -15,10 +15,10 @@ export interface ChannelMember {
 }
 
 /** One post: who (a hat, the person's when no colour), what they are, how long ago, and what they said. */
-export function Post({ who, colour, role, at, children, className }: { who: string; colour?: string; role?: string; at: string; children: ReactNode; className?: string }) {
+export function Post({ who, colour, role, at, children, className, id }: { who: string; colour?: string; role?: string; at: string; children: ReactNode; className?: string; id?: string }) {
   const t = useT()
   return (
-    <li className={className ? `channel-post ${className}` : 'channel-post'}>
+    <li id={id} className={className ? `channel-post ${className}` : 'channel-post'}>
       <HardHat colour={(colour ?? 'slate') as HardHatColour} size={24} />
       <div className="channel-post-body">
         <div className="channel-post-head">
@@ -33,8 +33,12 @@ export function Post({ who, colour, role, at, children, className }: { who: stri
 }
 
 /** A line Foreman says (a part started, a replan went ahead): no hat, quiet. */
-export function SystemLine({ children }: { children: ReactNode }) {
-  return <li className="channel-system employee-faint">{children}</li>
+export function SystemLine({ children, id }: { children: ReactNode; id?: string }) {
+  return (
+    <li id={id} className="channel-system employee-faint">
+      {children}
+    </li>
+  )
 }
 
 /** The message box, with a chip per member that puts their name first. Clears once `onSend` resolves true. `initial` starts it with words in it, focused. */
