@@ -54,6 +54,8 @@ function setSnapshot({ organizations = [org('o1', 'Foreman', 'mem')], employees 
 }
 
 const data = () => ({ employees: [], error: '', reload: vi.fn() })
+// The page opens on Pick a job; Write your own is today's page behind the switch.
+const writeYourOwn = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('radio', { name: 'Write your own' }))
 
 beforeEach(() => {
   resetFake()
@@ -180,6 +182,7 @@ describe('the New employee page', () => {
     setSnapshot({ employees: [summary('e-1abc', 'Ada')] })
     const d = data()
     render(<NewEmployeePage orgId="o1" data={d} />)
+    await writeYourOwn(user)
     await user.type(screen.getByRole('textbox', { name: 'Describe your employee' }), 'Writes the release notes.')
     await user.click(screen.getByRole('button', { name: 'Concise' }))
     expect(screen.getByRole('button', { name: 'Concise' }).getAttribute('aria-pressed')).toBe('true')
@@ -232,6 +235,7 @@ describe('the New employee page', () => {
       model: 'claude-sonnet-5-5'
     }))
     render(<NewEmployeePage orgId="o1" data={data()} />)
+    await writeYourOwn(user)
     await user.type(screen.getByRole('textbox', { name: 'Describe your employee' }), 'A marketing person.')
     await user.click(screen.getByRole('button', { name: 'Casual' }))
     await user.click(screen.getByRole('button', { name: 'Generate with AI' }))
@@ -274,6 +278,7 @@ describe('the New employee page', () => {
       model: ''
     }))
     render(<NewEmployeePage orgId="o1" data={data()} />)
+    await writeYourOwn(user)
     await user.type(screen.getByRole('textbox', { name: 'Describe your employee' }), 'A marketing person.')
     await user.click(screen.getByRole('button', { name: 'Generate with AI' }))
     await user.click(await screen.findByRole('switch', { name: 'Write to foreman-website' }))
@@ -288,6 +293,7 @@ describe('the New employee page', () => {
     const user = userEvent.setup()
     setSnapshot({ privacyMode: true })
     render(<NewEmployeePage orgId="o1" data={data()} />)
+    await writeYourOwn(user)
     await user.type(screen.getByRole('textbox', { name: 'Describe your employee' }), 'Writes notes.')
     expect(screen.getByRole('button', { name: 'Generate with AI' })).toHaveProperty('disabled', true)
     expect(screen.getByText('Privacy mode is on, so nothing leaves this computer: only Use my words is available.')).toBeTruthy()
@@ -301,6 +307,7 @@ describe('the New employee page', () => {
       throw new Error('The draft didn’t come back as expected: The answer wasn’t a JSON object. Try again, or press Use my words.')
     })
     render(<NewEmployeePage orgId="o1" data={data()} />)
+    await writeYourOwn(user)
     const box = screen.getByRole('textbox', { name: 'Describe your employee' })
     await user.type(box, 'A marketing person.')
     await user.click(screen.getByRole('button', { name: 'Generate with AI' }))
@@ -309,6 +316,210 @@ describe('the New employee page', () => {
     expect(alert.textContent).toContain('Try again, or press Use my words.')
     expect((screen.getByRole('textbox', { name: 'Describe your employee' }) as HTMLTextAreaElement).value).toBe('A marketing person.')
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
+  })
+})
+
+describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => {
+  const view = (id: string, name: string, patch: Partial<EmployeeSummary> = {}): EmployeeView => ({ ...summary(id, name, { state: 'active', ...patch }), blob: 'b1', text: '' })
+  const chip = (name: string) => within(screen.getByRole('group', { name: 'Pick a job' })).getByRole('button', { name })
+  const pressed = () =>
+    within(screen.getByRole('group', { name: 'Pick a job' }))
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.textContent)
+  const described = (el: HTMLElement) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+
+  it('opens on Pick a job with every job listed and Add off until one is chosen, and says both ways are there', () => {
+    setSnapshot()
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    const ways = screen.getByRole('radiogroup', { name: 'How to add' })
+    expect(within(ways).getByRole('radio', { name: 'Pick a job' }).getAttribute('aria-checked')).toBe('true')
+    expect(within(ways).getByRole('radio', { name: 'Write your own' }).getAttribute('aria-checked')).toBe('false')
+    // Every job, in the catalogue's order, named by its title; none chosen.
+    const jobs = within(screen.getByRole('group', { name: 'Pick a job' })).getAllByRole('button')
+    expect(jobs).toHaveLength(15)
+    expect(jobs[0].textContent).toBe('Software engineer')
+    expect(pressed()).toEqual([])
+    // Each is described by its line and its access.
+    expect(described(chip('QA engineer'))).toBe('Tests what others build and says what breaks. · Read')
+    const add = screen.getByRole('button', { name: 'Add' })
+    expect(add).toHaveProperty('disabled', true)
+    expect(described(add)).toBe('Pick a job to add.')
+    // The fallback is always in sight; Write your own's form is hidden until it is chosen.
+    expect(screen.getByRole('button', { name: 'Write your own' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Describe your employee' })).toBeNull()
+  })
+
+  it('chooses one job at a time: another replaces it, the same one again clears it', async () => {
+    const user = userEvent.setup()
+    setSnapshot()
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    await user.click(chip('Frontend engineer'))
+    expect(pressed()).toEqual(['Frontend engineer'])
+    await user.click(chip('QA engineer'))
+    expect(pressed()).toEqual(['QA engineer'])
+    await user.click(chip('QA engineer'))
+    expect(pressed()).toEqual([])
+    expect(screen.getByRole('button', { name: 'Add' })).toHaveProperty('disabled', true)
+  })
+
+  it('shows who Add makes and says what it approves, naming Write and the repositories', async () => {
+    const user = userEvent.setup()
+    setSnapshot()
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    await user.click(chip('Frontend engineer'))
+    const who = screen.getByRole('region', { name: 'Who you get' })
+    expect(who.textContent).toContain('Mei')
+    expect(who.textContent).toContain('Staff frontend engineer · hands back')
+    expect(who.textContent).toContain('Write on foreman-website and foreman')
+    const add = screen.getByRole('button', { name: 'Add' })
+    expect(add).toHaveProperty('disabled', false)
+    expect(described(add)).toBe('Adding approves Mei at once: Write on foreman-website and foreman. Mei’s pushes and pull requests still wait for you.')
+    await user.click(chip('QA engineer'))
+    expect(described(add)).toBe('Adding approves Quinn at once: Read on foreman-website and foreman.')
+  })
+
+  it('marks a job the organization already has, in words, and shows the new name and hat with why', async () => {
+    const user = userEvent.setup()
+    setSnapshot({ employees: [summary('e-qu1n', 'Quinn', { role: 'Staff QA engineer', colour: 'green', state: 'active' }), summary('e-old1', 'Old', { role: 'Staff UX designer', state: 'retired' })] })
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    const qa = chip('QA engineer')
+    expect(qa.textContent).toBe('QA engineer · you have Quinn')
+    expect(described(qa)).toContain('You already have Quinn')
+    // A job only a retired employee held isn't marked.
+    expect(chip('UX designer').textContent).toBe('UX designer')
+    await user.click(qa)
+    const who = screen.getByRole('region', { name: 'Who you get' })
+    expect(who.textContent).toContain('Quinn (QA engineer)')
+    expect(who.textContent).toContain('You already have Quinn')
+    expect(who.textContent).toContain('Named Quinn (QA engineer): an employee of Foreman is already called Quinn.')
+    expect(who.textContent).toContain('Quinn already wears Green, so the hat is Orange.')
+    expect(described(screen.getByRole('button', { name: 'Add' }))).toBe('Adding approves Quinn (QA engineer) at once: Read on foreman-website and foreman.')
+  })
+
+  it('names the last name taken when a third copy is numbered', async () => {
+    const user = userEvent.setup()
+    setSnapshot({
+      employees: [
+        summary('e-qu1n', 'Quinn', { role: 'Staff QA engineer', colour: 'green', state: 'active' }),
+        summary('e-qu2n', 'Quinn (QA engineer)', { role: 'Staff QA engineer', colour: 'orange', state: 'active' })
+      ]
+    })
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    await user.click(chip('QA engineer'))
+    expect(screen.getByRole('region', { name: 'Who you get' }).textContent).toContain('Named Quinn (QA engineer) 2: an employee of Foreman is already called Quinn (QA engineer).')
+  })
+
+  it('says so when the organization has no repositories', async () => {
+    const user = userEvent.setup()
+    setSnapshot()
+    fakeState.snapshot = { ...fakeState.snapshot, repos: fakeState.snapshot.repos.filter((r: { id: string }) => r.id === 'mem' || r.id === 'blog') }
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    await user.click(chip('Security engineer'))
+    expect(screen.getByRole('region', { name: 'Who you get' }).textContent).toContain('None yet: Foreman has no repositories')
+    expect(described(screen.getByRole('button', { name: 'Add' }))).toBe('Adding approves Omar at once. Omar can’t read any repository yet: this organization has none. Give access on Omar’s page once you add one.')
+    // A Write job's tag still says Write, though the access it is saved with lists no repository.
+    await user.click(chip('Software engineer'))
+    const who = screen.getByRole('region', { name: 'Who you get' })
+    expect(who.textContent).toContain('Ravi')
+    expect(within(who).getByText('Write')).toBeTruthy()
+    expect(within(who).queryByText('Read')).toBeNull()
+  })
+
+  it('Add makes and approves it in main, says the name it got, opens its page, and can’t be pressed twice meanwhile', async () => {
+    const user = userEvent.setup()
+    setSnapshot()
+    let answer: (value: { employee: EmployeeView }) => void = () => undefined
+    fakeApi.addTemplateEmployee = vi.fn(() => new Promise((resolve) => (answer = resolve)))
+    const d = data()
+    render(<NewEmployeePage orgId="o1" data={d} />)
+    await user.click(chip('Frontend engineer'))
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    expect(fakeApi.addTemplateEmployee).toHaveBeenCalledWith('o1', 'frontend-engineer')
+    const working = screen.getByRole('button', { name: 'Adding…' })
+    expect(working).toHaveProperty('disabled', true)
+    await user.click(working)
+    expect(fakeApi.addTemplateEmployee).toHaveBeenCalledTimes(1)
+    // Main chose the name: someone took Mei meanwhile.
+    answer({ employee: view('e-me12', 'Mei (Frontend engineer)') })
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('Mei (Frontend engineer) added and approved.'))
+    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: 'e-me12' })
+    expect(d.reload).toHaveBeenCalled()
+  })
+
+  it('keeps the job chosen and says why when Add fails; a failed approval still opens the draft’s page', async () => {
+    const user = userEvent.setup()
+    setSnapshot()
+    fakeApi.addTemplateEmployee = vi.fn(async () => {
+      throw new Error('acme-memory has changes Foreman didn’t make.')
+    })
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    await user.click(chip('QA engineer'))
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Couldn’t add Quinn')
+    expect(alert.textContent).toContain('acme-memory has changes Foreman didn’t make.')
+    expect(pressed()).toEqual(['QA engineer'])
+    expect(spy('openEmployees')).not.toHaveBeenCalled()
+    // The callout names the job it was for, so choosing another clears it.
+    await user.click(chip('Frontend engineer'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    await user.click(chip('QA engineer'))
+    fakeApi.addTemplateEmployee = vi.fn(async () => ({ employee: view('e-qu1n', 'Quinn', { state: 'draft' }), approveError: 'The disk is full.' }))
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('Quinn was added as a draft, but approving it failed: The disk is full. Approve it on its page.'))
+    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: 'e-qu1n' })
+  })
+
+  it('works under Privacy mode: picking a job sends nothing to a model', async () => {
+    const user = userEvent.setup()
+    setSnapshot({ privacyMode: true })
+    fakeApi.addTemplateEmployee = vi.fn(async () => ({ employee: view('e-qu1n', 'Quinn') }))
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    await user.click(chip('QA engineer'))
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(fakeApi.addTemplateEmployee).toHaveBeenCalled())
+    expect(fakeApi.generateEmployeeDraft).toBeUndefined()
+  })
+
+  it('works from the keyboard: the switch, the jobs with their hover card, Compare jobs and back, and the way into Write your own', async () => {
+    const user = userEvent.setup()
+    setSnapshot({ employees: [summary('e-qu1n', 'Quinn', { role: 'Staff QA engineer', colour: 'green', state: 'active' })] })
+    render(<NewEmployeePage orgId="o1" data={data()} />)
+    // The switch is one Tab stop; the arrows change the way, and what each holds stays.
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'Pick a job' }))
+    await user.keyboard('{ArrowRight}')
+    expect(screen.getByRole('radio', { name: 'Write your own' }).getAttribute('aria-checked')).toBe('true')
+    await user.type(screen.getByRole('textbox', { name: 'Describe your employee' }), 'Writes notes.')
+    screen.getByRole('radio', { name: 'Write your own' }).focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByRole('radio', { name: 'Pick a job' }).getAttribute('aria-checked')).toBe('true')
+    // Tab: Compare jobs, then the jobs; focus opens a job's hover card, and Space chooses it.
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Compare jobs…' }))
+    await user.tab()
+    expect(document.activeElement).toBe(chip('Software engineer'))
+    expect(screen.getByRole('group', { name: 'Software engineer' }).textContent).toContain('Ravi · hands back')
+    await user.keyboard(' ')
+    expect(pressed()).toEqual(['Software engineer'])
+    // Compare jobs: focus to its first card, the same single choice, and Done back to the link.
+    await user.click(screen.getByRole('button', { name: 'Compare jobs…' }))
+    expect(document.activeElement?.textContent).toContain('Software engineer')
+    const qa = screen.getByRole('button', { name: 'QA engineer' })
+    expect(described(qa)).toContain('You already have Quinn')
+    await user.click(qa)
+    expect(qa.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Software engineer' }).getAttribute('aria-pressed')).toBe('false')
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Compare jobs…' }))
+    expect(pressed()).toEqual(['QA engineer · you have Quinn'])
+    // "None of these fits? Write your own": the switch moves, with focus on it, and the words typed are still there.
+    await user.click(screen.getByRole('button', { name: 'Write your own' }))
+    const write = screen.getByRole('radio', { name: 'Write your own' })
+    expect(write.getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement).toBe(write)
+    expect((screen.getByRole('textbox', { name: 'Describe your employee' }) as HTMLTextAreaElement).value).toBe('Writes notes.')
   })
 })
 
