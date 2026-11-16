@@ -154,14 +154,40 @@ export const EMPLOYEE_TOOLS = {
     schema: z.object({ kind: z.enum(['trigger', 'employee', 'delegate']), spec: z.record(z.string(), z.unknown()), reason: z.string().trim().min(1).max(MAX_DELEGATE_FIELD) }).strict()
   },
   // ---- a project's plan (docs/ai-employees.md §15) ----
+  project_questions: {
+    description:
+      'Only in a project’s planning task (you are its program manager): before you plan, ask the person what you need to know, all in one round. questions: each one thing, plainly put, with why (what you would otherwise have to guess) and options when there are a few likely answers (they can always answer in their own words). understood: what you understood so far, as short lines. At most 10 questions a round and 3 rounds before your first plan; Foreman refuses a first plan until the person has answered. Then finish_task done: their answers start your next run.',
+    readOnly: false,
+    schema: z
+      .object({
+        understood: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        questions: z
+          .array(
+            z
+              .object({
+                question: z.string().trim().min(1).max(MAX_QUESTION),
+                why: z.string().trim().min(1).max(500).optional(),
+                options: z.array(z.string().trim().min(1).max(MAX_OPTION)).max(MAX_QUESTION_OPTIONS).optional()
+              })
+              .strict()
+          )
+          .min(1)
+          .max(10)
+      })
+      .strict()
+  },
   project_plan: {
     description:
-      'Only in a project’s planning task (you are its program manager): give the plan. summary: what will exist when it is done. size: small (at most 3 parts, ends with its last part) or large (at most 8, ends with your acceptance and the person’s final approval). parts: each with id (lowercase, dashes), title, owner (an employee’s id or name from the roster, or new:<key> for one you propose), brief (what to do, in your words), writes (its one markdown file, such as build.md), reads and depends_on (part ids), gate_after (the person checks its result first), accept_as_is (in a replan, for a part that couldn’t finish: count what it did as done instead of running it again). new_employees: who you propose when nobody fits, each with key, name, role, description, responsibilities, instructions and repos ({"<repository>": "read" | "write"}). Foreman checks it and answers what to fix, or records it and writes plan.md; call it again to change it, then finish_task done.',
+      'Only in a project’s planning task (you are its program manager), once the person has answered your project_questions: give the plan. summary: what will exist when it is done. size: small (at most 3 parts, ends with its last part) or large (at most 8, ends with your acceptance and the person’s final approval). understood: what you understood (the goal, who it is for, what the person told you). done_when: what must be true for it to be done, each a thing the person can check. out_of_scope: what it leaves out. assumptions: what you assumed (a large plan assumes nothing while you can still ask; ask instead). parts: each with id (lowercase, dashes), title, owner (an employee’s id or name from the roster, or new:<key> for one you propose), brief (what to do, in your words), writes (its one markdown file, such as build.md), reads and depends_on (part ids), gate_after (the person checks its result first), accept_as_is (in a replan, for a part that couldn’t finish: count what it did as done instead of running it again). new_employees: who you propose when nobody fits, each with key, name, role, description, responsibilities, instructions and repos ({"<repository>": "read" | "write"}). Foreman checks it and answers what to fix, or records it and writes plan.md; call it again to change it, then finish_task done.',
     readOnly: false,
     schema: z
       .object({
         summary: z.string().trim().min(1).max(2_000),
         size: z.enum(['small', 'large']),
+        understood: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        done_when: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        out_of_scope: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
+        assumptions: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
         parts: z
           .array(
             z

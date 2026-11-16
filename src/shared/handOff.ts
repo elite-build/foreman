@@ -10,7 +10,7 @@ import type { ChatItem, MessageFollowUp, Session } from './types'
 
 const enT = createT('en')
 
-export const MAX_OPEN_TABS = 10
+export const MAX_OPEN_TABS = 100
 /** Context up to this size goes into the message itself; the rest is attached. */
 export const MAX_INLINE_BYTES = 40 * 1024
 /** An attachment longer than this is cut and labelled truncated. */

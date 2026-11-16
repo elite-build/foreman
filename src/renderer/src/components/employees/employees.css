@@ -938,6 +938,53 @@ div.team-row {
 .channel-briefs dd {
   margin: 2px 0 0;
 }
+/* A plan's workflow (PlanWorkflow.tsx): as tall as the drawing; the channel scrolls, not the drawing. */
+.channel-workflow {
+  min-width: 0;
+}
+.channel-plan-order,
+.channel-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+/* What she understood, done when, out of scope, assumptions: side by side where there is room. */
+.channel-plan-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+}
+.channel-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.channel-plan-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+}
+/* Each question keeps its number: its parts stack inside the list item rather than making it a flex box. */
+.channel-questions > li > * {
+  display: block;
+}
+.channel-questions > li > * + * {
+  margin-top: 4px;
+}
+.channel-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.channel-answers dd {
+  margin: 2px 0 0;
+}
 .channel-proposed-row,
 .channel-side-part {
   display: grid;

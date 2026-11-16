@@ -2804,6 +2804,9 @@ export interface Api {
   // final gate); anything else is refused.
   startProject(organizationId: string, input: import('./projects').StartProjectInput): Promise<import('./projects').Project>
   decideProject(projectId: string, waitId: string, decision: import('./projects').ProjectDecision, note?: string): Promise<import('./projects').Project>
+  // Answer the program manager's questions before she plans (`waitId`: the questions it waits on), one answer per
+  // question, or null: she plans with what she has and lists what she assumed.
+  answerProject(projectId: string, waitId: string, answers: string[] | null): Promise<import('./projects').Project>
   // Hold it (what is running finishes, nothing new starts), or let it go on.
   pauseProject(projectId: string, paused: boolean): Promise<import('./projects').Project>
   // Its going tasks are canceled and it closes stopped; its artifacts and its employees' memory stay.
@@ -3348,7 +3351,7 @@ export const API_METHODS = [
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
   'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',
-  'askEmployeeFollowUp', 'startProject', 'decideProject', 'pauseProject', 'stopProject', 'listChannels', 'renameProject', 'archiveProject', 'deleteProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',
+  'askEmployeeFollowUp', 'startProject', 'decideProject', 'answerProject', 'pauseProject', 'stopProject', 'listChannels', 'renameProject', 'archiveProject', 'deleteProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',
   'sendEmployeeAction', 'skipEmployeeAction', 'confirmEmployeeAction',
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',
