@@ -15,7 +15,7 @@
 //    attempt queued) until the limit resets; then a fresh run starts with the whole brief, never the cut-off turn. New
 //    work for an account known to be at its limit is held the same way instead of starting a run that would stop there;
 //  - every transition is logged; a run's start is recorded before its turn reaches the agent;
-//  - the definition's minutes per run stop the turn (time waiting for an agent slot, or for a person to answer an
+//  - the definition's minutes per run, when it sets them, stop the turn (time waiting for an agent slot, or for a person to answer an
 //    attended employee's approval, doesn't count);
 //  - after a crash, a run whose turn never reached the agent is queued again as the next attempt at the same task; one
 //    whose turn did is uncertain, and its task waits for a person. Nothing is replayed silently;
@@ -201,8 +201,8 @@ export interface EmployeeLaunchPlan {
   message: string
   startedBy: Extract<WorkspaceStartedBy, { via: 'employee' }>
   origin: Extract<MessageOrigin, { kind: 'employee' }>
-  // How long setup may take before the run fails.
-  setupMs: number
+  // How long setup may take before the run fails; absent (no minutes limit), the usual wait for setup.
+  setupMs?: number
   // A project's run (docs/ai-employees.md §15): the project's workspace, where it opens a new chat instead of making one.
   workspaceId?: string
 }
@@ -748,11 +748,11 @@ export class EmployeeWorkService {
     const limited = own && (!account || Date.parse(own.retryAt) >= Date.parse(account.retryAt)) ? own : account
     if (limited) return { kind: 'hold', hold: 'usage-limit', reason: limitHoldReason(limited), limit: limited }
 
-    // The hard daily limit, counted over runs admitted since local midnight.
+    // The hard daily limit, if it has one, counted over runs admitted since local midnight.
     const midnight = midnightOf(this.now())
     const runs = this.db.employeeRuns({ orgId: org.id, employeeId: task.employeeId })
     const today = runs.filter((r) => r.id !== exceptRun && r.admittedAt && Date.parse(r.admittedAt) >= midnight).length
-    if (today >= definition.limits.runs_per_day) return { kind: 'refuse', reason: `${name} has had ${today} runs today, its limit. Retry tomorrow, or raise its runs per day in Edit.` }
+    if (definition.limits.runs_per_day !== undefined && today >= definition.limits.runs_per_day) return { kind: 'refuse', reason: `${name} has had ${today} runs today, its limit. Retry tomorrow, or raise its runs per day in Edit.` }
 
     // The lanes: one going run per employee, at most two per organization. The program manager (§15) is outside them:
     // she plans and accepts any number of projects at once, in short runs that change no repository, and hers don't
@@ -994,7 +994,7 @@ export class EmployeeWorkService {
           message: opening,
           startedBy: { via: 'employee', orgId: task.orgId, employeeId: task.employeeId, runId: run.id, taskId: task.id, title: task.title },
           origin: { kind: 'employee', orgId: task.orgId, employeeId: task.employeeId, runId: run.id, taskId: task.id },
-          setupMs: d.limits.minutes_per_run * 60_000,
+          ...(d.limits.minutes_per_run !== undefined ? { setupMs: d.limits.minutes_per_run * 60_000 } : {}),
           ...(shared ? { workspaceId: shared } : {})
         },
         {

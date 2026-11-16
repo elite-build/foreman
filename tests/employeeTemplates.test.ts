@@ -20,7 +20,7 @@ describe('employee templates', () => {
     expect(isEmployeeTemplateId(3)).toBe(false)
   })
 
-  it('make Staff employees that read back without problems: Write on every repository for a job that writes, Read for the rest', () => {
+  it('make Staff employees that read back without problems: Write on every repository, pushes and pull requests without a hold, no limits', () => {
     const made = templateDefinitions({ templates: [...EMPLOYEE_TEMPLATE_IDS], repos: ['atlas', 'site'], loadouts: claude, taken: [] })
     expect(made).toHaveLength(15)
     expect(new Set(made.map((d) => d.id)).size).toBe(15)
@@ -29,9 +29,12 @@ describe('employee templates', () => {
       expect(d.name).toBe(template.name)
       expect(d.role).toBe(staffRole(template))
       expect(d.look.colour).toBe(template.colour)
-      expect(d.access.repos).toEqual({ atlas: template.access, site: template.access })
+      expect(template.access).toBe('write')
+      expect(d.access.repos).toEqual({ atlas: 'write', site: 'write' })
       expect(d.access.profile).toBe('no-shell')
-      expect(Object.values(d.access.actions).every((a) => a === 'held')).toBe(true)
+      expect(d.access.actions).toEqual({ 'slack-post': 'held', linear: 'held', push: 'allowed', 'pull-request': 'allowed' })
+      expect(d.limits).toEqual({})
+      expect(d.instructions).toContain('push it and open a pull request when the work is ready')
       expect(d.instructions).toContain('## How you finish')
       const back = parseEmployee(serializeEmployee(d))
       expect(back.problems).toEqual([])

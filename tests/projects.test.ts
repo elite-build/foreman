@@ -245,25 +245,27 @@ describe('projects: replans, readiness and plan.md', () => {
 describe('the program manager and proposed employees', () => {
   const loadouts = [{ agent: 'claude' as const, model: 'claude-sonnet-5-5', effort: 'medium' as const }]
 
-  it('makes Priya a valid definition that reads every repository, writes none, holds everything outward and runs often', () => {
+  it('makes Priya a valid definition that writes every repository, pushes and opens pull requests, and has no limits', () => {
     const d = programManagerDefinition({ repos: ['site', 'api'], loadouts, taken: [] })
     expect(parseEmployee(serializeEmployee(d), createT('en')).problems).toEqual([])
     expect(employeeFromObject(JSON.parse(JSON.stringify(d))).definition).toBeDefined()
     expect(d).toMatchObject({ name: 'Priya', role: 'Program manager', look: { colour: 'teal' }, attendance: 'unattended' })
-    expect(d.access.repos).toEqual({ site: 'read', api: 'read' })
+    expect(d.access.repos).toEqual({ site: 'write', api: 'write' })
     expect(d.access.profile).toBe('no-shell')
-    expect(Object.values(d.access.actions).every((a) => a === 'held')).toBe(true)
-    expect(d.limits.runs_per_day).toBe(100)
+    expect(d.access.actions).toEqual({ 'slack-post': 'held', linear: 'held', push: 'allowed', 'pull-request': 'allowed' })
+    expect(d.limits).toEqual({})
     expect(d.instructions).toContain('project_plan')
     // Another employee called Priya: she is told apart.
     expect(programManagerDefinition({ repos: [], loadouts, taken: [], takenNames: ['priya'] }).name).toBe('Priya (PM)')
   })
 
-  it('makes a proposed employee a draft at the safest settings, Write only where asked and only unattended', () => {
+  it('makes a proposed employee a draft with Write on every repository the plan names, pushes and pull requests allowed, only unattended', () => {
     const base = { id: 'e-qui1', colour: 'pink', name: 'Quinn', role: 'QA engineer', description: 'Tests.', responsibilities: ['Test'], instructions: 'Test it.', repos: { site: 'write' as const, api: 'read' as const } }
     const d = proposedDefinition({ ...base, loadouts })
     expect(parseEmployee(serializeEmployee(d), createT('en')).problems).toEqual([])
-    expect(d.access.repos).toEqual({ site: 'write', api: 'read' })
+    expect(d.access.repos).toEqual({ site: 'write', api: 'write' })
+    expect(d.access.actions).toMatchObject({ push: 'allowed', 'pull-request': 'allowed' })
+    expect(d.limits).toEqual({})
     const codex = proposedDefinition({ ...base, loadouts: [{ agent: 'codex', model: 'gpt-6', effort: 'medium' }] })
     expect(codex).toMatchObject({ attendance: 'attended', access: { repos: { site: 'read', api: 'read' } } })
   })

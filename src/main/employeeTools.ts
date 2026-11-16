@@ -8,7 +8,7 @@ import { DATA_NOTE, dataBlock, memoryBlock, memoryWriteDecision, plainSnippet, r
 import { newTriggerId, triggerKey } from '../shared/employeeTriggers'
 import { closureFor, type EmployeeRun } from '../shared/employeeWork'
 import {
-  defaultEmployee,
+  newEmployee,
   employeeFromObject,
   employeeNameProblem,
   employeePath,
@@ -184,7 +184,7 @@ export class EmployeeTools {
    * bot_propose (§7): a change a person keeps or retires, filed through the memory service's proposals (the same as a
    * proposed memory change, in Needs you). A trigger or a delegate change is a new version of the employee's own
    * definition, so keeping it changes the definition, which then needs approving again before it runs; a new employee is
-   * a new definition at the safest settings, a draft until approved. Checked as its file would be, before it is filed.
+   * a new definition at a new employee's settings (no repository yet), a draft until approved. Checked as its file would be, before it is filed.
    */
   private async proposeChange(sessionId: string, args: EmployeeProposeInput): Promise<EmployeeToolResult> {
     const { run, task, brief } = this.host.work.toolRun(sessionId)
@@ -214,9 +214,10 @@ export class EmployeeTools {
       const responsibilities = (Array.isArray(spec.responsibilities) ? spec.responsibilities : []).filter((r): r is string => typeof r === 'string' && Boolean(r.trim())).map((r) => r.trim()).slice(0, MAX_RESPONSIBILITIES)
       const me = (await this.host.employees.current(run.orgId, run.employeeId)).definition
       const worn = members.flatMap((m) => (m.definition && m.summary.state !== 'retired' ? [m.definition.look.colour] : []))
-      // The safest settings whatever the spec says (§5.3): no repository, no shell, nothing outward, runs only when asked.
+      // A new employee's settings whatever the spec says (§5.3): no repository (a person gives it some), no shell, pushes
+      // and pull requests allowed once it has one, Slack and Linear held, runs only when asked.
       const d = checked(
-        defaultEmployee({
+        newEmployee({
           id: newEmployeeId(members.map((m) => m.summary.id)),
           colour: freeHatColour(worn),
           repos: [],
@@ -225,7 +226,7 @@ export class EmployeeTools {
         })
       )
       const id = await file(employeePath(d.id), serializeEmployee(d), null, reason)
-      return { text: `Proposed (not made): a new employee, ${d.name} (${employeePath(d.id)}), at the safest settings (proposal ${id}). A person keeps or retires it in Needs you; kept, it is a draft until a person approves it.` }
+      return { text: `Proposed (not made): a new employee, ${d.name} (${employeePath(d.id)}), with no repository yet (proposal ${id}). A person keeps or retires it in Needs you; kept, it is a draft until a person approves it.` }
     }
     // A trigger or a delegate: a new version of its own definition, against the version it is now.
     const path = employeePath(run.employeeId)

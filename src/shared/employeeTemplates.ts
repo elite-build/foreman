@@ -1,6 +1,6 @@
 // Starting templates (docs/ai-employees.md §16): ready Staff employees, one per common job, that New organization offers
 // beside Priya. Each has a name and hat (changed later on its page), its job's responsibilities and prompt, and access
-// right for the job: Write on the organization's repositories for a job whose work lives in them, Read for the rest.
+// on the organization's repositories: Write for every job, so each can push its branch and open a pull request.
 // Making the organization approves the ones picked, as it approves Priya. Their words are sent to agents, so they stay
 // English like every agent prompt; the renderer shows the job's title and line through i18n. Pure.
 
@@ -36,7 +36,7 @@ export interface EmployeeTemplate {
   job: string
   name: string
   colour: HatColour
-  // Write on every repository the organization has, or Read.
+  // Write on every repository the organization has (every template has it), or Read.
   access: 'read' | 'write'
   description: string
   responsibilities: string[]
@@ -76,7 +76,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'QA engineer',
     name: 'Quinn',
     colour: 'green',
-    access: 'read',
+    access: 'write',
     description: 'Tests what others build and says what breaks.',
     responsibilities: ['Check changes against what was asked', 'Find what breaks and what the tests don’t cover', 'Hand back a QA review: each problem with where it is and what a fix would be'],
     mission: 'You find problems in what others build; you don’t fix them.',
@@ -88,7 +88,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Security engineer',
     name: 'Omar',
     colour: 'red',
-    access: 'read',
+    access: 'write',
     description: 'Reviews changes and dependencies for security risks.',
     responsibilities: ['Review changes for security risks', 'Check dependencies for known problems', 'Hand back a security review: each risk with its severity and a fix'],
     mission: 'You find security risks in the organization’s code and dependencies.',
@@ -112,7 +112,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Software architect',
     name: 'Kenji',
     colour: 'slate',
-    access: 'read',
+    access: 'write',
     description: 'Shapes the system and reviews big changes before they start.',
     responsibilities: ['Plan big changes before they start', 'Review designs for how they fit the system', 'Hand back a tech plan or an architecture review'],
     mission: 'You shape the organization’s system; you plan, you don’t implement.',
@@ -124,7 +124,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'UX designer',
     name: 'Uma',
     colour: 'pink',
-    access: 'read',
+    access: 'write',
     description: 'Reviews screens and flows, and specifies what to build.',
     responsibilities: ['Review screens and flows for how people use them', 'Specify what to build: layout, states, words and keyboard', 'Hand back a UX review or a design spec'],
     mission: 'You make the organization’s screens and flows easy to use.',
@@ -148,7 +148,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Product manager',
     name: 'Nia',
     colour: 'purple',
-    access: 'read',
+    access: 'write',
     description: 'Decides what to build next and writes the requirements.',
     responsibilities: ['Decide what to build next, and what not to', 'Write requirements someone can build from', 'Hand back requirements or a roadmap'],
     mission: 'You decide what the organization builds next, and why.',
@@ -160,7 +160,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Data analyst',
     name: 'Dara',
     colour: 'yellow',
-    access: 'read',
+    access: 'write',
     description: 'Answers questions with data and specifies dashboards.',
     responsibilities: ['Answer questions with the data the organization has', 'Specify dashboards and the metrics on them', 'Hand back an analysis or a dashboard spec'],
     mission: 'You answer the organization’s questions with data.',
@@ -196,7 +196,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'SEO specialist',
     name: 'Sam',
     colour: 'green',
-    access: 'read',
+    access: 'write',
     description: 'Audits the site for search and suggests fixes.',
     responsibilities: ['Audit the site for search: titles, structure, speed, links', 'Find what people search for that the site doesn’t answer', 'Hand back an SEO audit with fixes in order'],
     mission: 'You help people find the organization’s site through search.',
@@ -208,7 +208,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Marketing manager',
     name: 'Ana',
     colour: 'orange',
-    access: 'read',
+    access: 'write',
     description: 'Plans launches and the messages around them.',
     responsibilities: ['Plan launches: who they are for, what to say, where and when', 'Keep the organization’s message consistent', 'Hand back a launch plan or copy'],
     mission: 'You plan how the organization tells people about what it makes.',
@@ -220,7 +220,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     job: 'Support engineer',
     name: 'Jonah',
     colour: 'cyan',
-    access: 'read',
+    access: 'write',
     description: 'Triages issues and reproduces what users report.',
     responsibilities: ['Triage what users report: what it is, how bad, who should take it', 'Reproduce problems and find where they start in the code', 'Hand back a triage'],
     mission: 'You turn what users report into work someone can do.',
@@ -239,7 +239,7 @@ export const staffRole = (template: EmployeeTemplate): string => `Staff ${/^[A-Z
 export function templateInstructions(template: EmployeeTemplate): string {
   const never =
     template.access === 'write'
-      ? 'Merge, publish, or send anything outside this computer yourself: work on your own branch, and your pushes and pull requests wait for the person to send them.'
+      ? 'Merge, or send anything outside this computer other than your own branch: work on your own branch, push it and open a pull request when the work is ready.'
       : 'Change a repository: you read it, and your findings go in what you hand back. Never send anything outside this computer yourself.'
   return [
     '## Role',

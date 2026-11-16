@@ -518,7 +518,7 @@ describe('organizations: Clone and Quick start for one that keeps its repositori
     expect(store.state.settings.cloneDirectory).toBe(elsewhere)
   })
 
-  it('makes and approves the starting templates picked with Priya, in one commit, with access right for each job', async () => {
+  it('makes and approves the starting templates picked with Priya, in one commit, each writing the organization’s repositories', async () => {
     const { core: c, store } = await core()
     const repo = await c.api.addRepo(await makeRepo({ 'README.md': 'hello\n' }))
     const org = await c.api.createOrganization({
@@ -535,8 +535,7 @@ describe('organizations: Clone and Quick start for one that keeps its repositori
       ['Uma', 'Staff UX designer', 'active']
     ])
     const access = (name: string) => employees.find((e) => e.name === name)!.definition!.access.repos
-    expect(access('Ravi')).toEqual({ [repo.name]: 'write' })
-    expect(access('Uma')).toEqual({ [repo.name]: 'read' })
+    for (const name of ['Priya', 'Ravi', 'Uma']) expect(access(name)).toEqual({ [repo.name]: 'write' })
     const memoryRoot = store.state.repos.find((r) => r.id === org.memoryRepoId)!.rootPath
     expect(await gitOut(memoryRoot, ['log', '-1', '--format=%s'])).toBe('Add the team: Priya, Ravi, Uma')
   })
