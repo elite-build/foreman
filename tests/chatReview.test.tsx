@@ -74,22 +74,24 @@ describe('questions', () => {
   it('keys 1-n choose an option without moving on; Enter goes to the next question, then sends every answer', async () => {
     const user = userEvent.setup()
     render(<QuestionPanel request={question()} />)
-    const card = screen.getByRole('group', { name: '2 questions' })
+    // The card is named by the open question, its title.
+    const card = screen.getByRole('group', { name: 'Question 1?' })
     expect(screen.getByRole('tab', { name: /H0/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('tab', { name: /H0/ }).textContent).toContain('not answered yet')
-    expect(card.textContent).toContain('0 of 2 answered')
     card.focus()
     await user.keyboard('2')
     expect((screen.getByRole('radio', { name: 'Beta' }) as HTMLInputElement).checked).toBe(true)
     // Picking doesn't advance: the first question stays, marked answered, and the main button names the next one.
     expect(screen.getByRole('tab', { name: /H0/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('tab', { name: /H0/ }).textContent).not.toContain('not answered yet')
-    expect(card.textContent).toContain('1 of 2 answered')
+    // The answered tab shows its answer.
+    expect(screen.getByRole('tab', { name: /H0/ }).textContent).toContain('Beta')
     expect(screen.getByRole('button', { name: /^Next: H1/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Send/ })).toBeNull()
     await user.keyboard('{Enter}')
     expect(fakeApi.respondApproval).not.toHaveBeenCalled()
     expect(screen.getByRole('tab', { name: /H1/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('group', { name: 'Question 2?' })).toBe(card)
     await user.keyboard('1')
     expect(screen.getByRole('button', { name: /^Send answers/ })).toBeTruthy()
     await user.keyboard('{Enter}')

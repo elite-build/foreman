@@ -1,15 +1,18 @@
 // New organization (docs/ai-employees.md §3): a name, and the repositories to bring from Personal (the one the sidebar
 // shows ticked). Its memory repository is made beside the others unless More options says otherwise (another folder, an
-// existing repository, or later). Its team (§15) is always the same two: the person, and Priya, its program manager,
-// made and approved with it (her definition is fixed). One dialog, one call: main makes the memory repository (one
+// existing repository, or later), or its repositories are kept in a folder of their own: then it is made there, and
+// Clone and Quick start start there while the organization is showing. Its team (§15) is always the same two: the
+// person, and Priya, its program manager, made and approved with it (her definition is fixed). One dialog, one call: main makes the memory repository (one
 // commit) if asked, Priya (one more), and moves the ticked repositories with their workspaces and chats.
 import { useId, useState } from 'react'
 import {
   defaultMemoryName,
+  defaultOrganizationFolder,
   isRepoFolderName,
   memoryChoices,
   organizationNameProblem,
   reposInSpace,
+  samePath,
   type MemoryRefusal,
   type Organization,
   type OrganizationMemory,
@@ -142,6 +145,9 @@ export function MemoryFields({
   )
 }
 
+/** The last part of a folder's path: "foreman-org" for C:\code\foreman-org. */
+const folderName = (dir: string) => dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? dir
+
 /** "3 workspaces", for a repository in a list. */
 function useWorkspaceCount(): (repo: Repo) => number {
   const workspaces = useStore((s) => s.snapshot!.workspaces)
@@ -163,25 +169,34 @@ export function CreateOrganizationDialog() {
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(viewing && reposInSpace(repos, organizations, null).some((r) => r.id === viewing) ? [viewing] : []))
   // The memory repository's other choices (its folder, an existing repository, later) wait behind More options.
   const [more, setMore] = useState(false)
+  // Its repositories in a folder of their own: the folder follows the name until one is typed or browsed to.
+  const [together, setTogether] = useState(false)
+  const [folder, setFolder] = useState<string | null>(null)
+  // The memory repository goes in that folder until More options puts it somewhere else.
+  const [memoryPlaced, setMemoryPlaced] = useState(false)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
   const headingId = useId()
   const teamHeadingId = useId()
+  const togetherHintId = useId()
 
   const close = () => !working && openCreateOrganization(false)
   // Shown once something is typed: an empty name only keeps Create off.
   // Not while it is being made: the organization it is making already has the name.
   const problem = name.trim() && !working ? organizationNameProblem(name, organizations) : null
-  const chosen = memoryOf(memory, name)
+  const folderPath = folder ?? defaultOrganizationFolder(name, cloneDirectory, repos)
+  const memoryParent = together && !memoryPlaced ? folderPath : memory.parentDir
+  const placedMemory = { ...memory, parentDir: memoryParent }
+  const chosen = memoryOf(placedMemory, name)
   // The memory repository picked from Personal moves with them; it isn't offered twice.
   const personal = reposInSpace(repos, organizations, null).filter((r) => !(memory.kind === 'existing' && r.id === memory.repoId))
-  const ready = Boolean(name.trim()) && !problem && chosen !== null && !working
+  const ready = Boolean(name.trim()) && !problem && chosen !== null && !(together && !folderPath.trim()) && !working
   // What happens to memory, in one line while More options is closed (the default: a new repository beside the others).
   const memoryLine =
     memory.kind === 'create'
-      ? memory.parentDir.trim() === cloneDirectory
+      ? samePath(memoryParent, cloneDirectory)
         ? t('spaces.create.memoryLine', { name: memoryName(memory, name) })
-        : t('spaces.create.memoryLineAt', { name: memoryName(memory, name), folder: memory.parentDir.trim() })
+        : t('spaces.create.memoryLineAt', { name: memoryName(memory, name), folder: together && samePath(memoryParent, folderPath) ? folderName(folderPath) : memoryParent.trim() })
       : memory.kind === 'existing'
         ? t('spaces.create.memoryExisting', { name: repos.find((r) => r.id === memory.repoId)?.name ?? '' })
         : t('spaces.memory.laterHint')
@@ -203,7 +218,8 @@ export function CreateOrganizationDialog() {
       const org: Organization = await api.createOrganization({
         name: name.trim(),
         memory: chosen,
-        repoIds: personal.filter((r) => picked.has(r.id)).map((r) => r.id)
+        repoIds: personal.filter((r) => picked.has(r.id)).map((r) => r.id),
+        ...(together ? { folder: folderPath.trim() } : {})
       })
       openCreateOrganization(false)
       setSpace(org.id, { home: !inSettings })
@@ -291,8 +307,31 @@ export function CreateOrganizationDialog() {
           </Card>
           <p className="faint small space-team-note">{teamPossible ? t('spaces.team.proposes', { name: PROGRAM_MANAGER_NAME }) : t('spaces.team.needsMemory', { name: PROGRAM_MANAGER_NAME })}</p>
         </div>
+        <div className="space-together">
+          <Checkbox checked={together} onChange={(e) => setTogether(e.target.checked)} aria-describedby={togetherHintId}>
+            {t('spaces.create.together')}
+          </Checkbox>
+          <p id={togetherHintId} className="faint small space-together-hint">
+            {t('spaces.create.togetherHint', { name: name.trim() || t('spaces.memory.thisOrganization') })}
+          </p>
+          {together && (
+            <div className="space-together-extra">
+              <LocationField value={folderPath} onChange={setFolder} title={t('spaces.create.folderTitle')} />
+            </div>
+          )}
+        </div>
         {more ? (
-          <MemoryFields draft={memory} onChange={setMemory} organization={name} allowLater />
+          <MemoryFields
+            draft={placedMemory}
+            onChange={(next) => {
+              // Until a folder of its own is chosen here, the draft keeps the one it would go back to.
+              const placed = memoryPlaced || next.parentDir !== memoryParent
+              setMemoryPlaced(placed)
+              setMemory(placed ? next : { ...next, parentDir: memory.parentDir })
+            }}
+            organization={name}
+            allowLater
+          />
         ) : (
           <p className="faint small">
             {memoryLine}{' '}

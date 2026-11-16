@@ -1830,14 +1830,17 @@ export async function openRecentRepo(path: string): Promise<void> {
   if (repo) repoAdded(repo.id)
 }
 
-/** Clone and add; throws on failure so the dialog can show the error. */
-export async function cloneRepository(url: string, parentDir: string, cloneId: string, account?: string): Promise<void> {
-  const repo = await api.cloneRepo(url, parentDir, cloneId, account)
+/**
+ * Clone and add; throws on failure so the dialog can show the error. With an organization (one that keeps its
+ * repositories in a folder of their own), the new repository joins it; Quick start likewise.
+ */
+export async function cloneRepository(url: string, parentDir: string, cloneId: string, account?: string, organizationId?: string): Promise<void> {
+  const repo = await api.cloneRepo(url, parentDir, cloneId, account, organizationId)
   repoAdded(repo.id)
 }
 
-export async function quickStartRepository(parentDir: string, name: string): Promise<void> {
-  const repo = await api.quickStartRepo(parentDir, name)
+export async function quickStartRepository(parentDir: string, name: string, organizationId?: string): Promise<void> {
+  const repo = await api.quickStartRepo(parentDir, name, organizationId)
   repoAdded(repo.id)
 }
 

@@ -37,6 +37,8 @@ export interface DecisionCardProps {
   age?: string
   // At the header's end (the key that reaches a docked card).
   headEnd?: ReactNode
+  // Before the header's end: a way between the parts of one decision (a question's tabs). In a row, atop the body.
+  headNav?: ReactNode
   // The thing being decided, in one line: the card's name.
   subject: ReactNode
   children?: ReactNode
@@ -63,7 +65,7 @@ export interface DecisionCardProps {
 }
 
 /** The card. A named group (by its subject) that a key can reach (`tabIndex` -1, `data-decision`). */
-export function DecisionCard({ who, kind, age, headEnd, subject, children, consequence, leaves, decline, alternate, main, footStart, inRow, labelledBy, docked, guardMs = 0, onKeyDown, className, ref }: DecisionCardProps) {
+export function DecisionCard({ who, kind, age, headEnd, headNav, subject, children, consequence, leaves, decline, alternate, main, footStart, inRow, labelledBy, docked, guardMs = 0, onKeyDown, className, ref }: DecisionCardProps) {
   const t = useT()
   const platform = useStore((s) => s.snapshot?.platform)
   const subjectId = useId()
@@ -110,6 +112,7 @@ export function DecisionCard({ who, kind, age, headEnd, subject, children, conse
     )
   const body = (
     <>
+      {inRow && headNav && <div className="decision-nav">{headNav}</div>}
       {children !== undefined && children !== null && children !== false && <div className="decision-body">{children}</div>}
       {consequence && (
         <div className="decision-consequence">
@@ -173,8 +176,9 @@ export function DecisionCard({ who, kind, age, headEnd, subject, children, conse
           ·
         </span>
         <span className="decision-kind">{kind}</span>
-        {(age || headEnd) && (
+        {(age || headEnd || headNav) && (
           <span className="decision-head-end">
+            {headNav && <span className="decision-nav">{headNav}</span>}
             {age && <span className="decision-age">{age}</span>}
             {headEnd}
           </span>

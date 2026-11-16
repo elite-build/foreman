@@ -23,17 +23,20 @@ export type RadioListProps<T extends string> = Omit<ComponentPropsWithRef<'field
   onChange: (value: T) => void
   // Lay the options out in a row that wraps, for short labels.
   inline?: boolean
+  // Where each description goes: under its label (the default), or beside it on the same line, the descriptions lined
+  // up in one column, for a short list read at a glance. Not with `inline`.
+  descriptions?: 'below' | 'beside'
   // The radios' shared `name`; generated when omitted.
   name?: string
 }
 
 // A group of native radio buttons: one Tab stop, arrow keys choose, all by the browser. A fieldset with a legend names
 // the group. Use RadioCards instead when each choice needs a description or buttons of its own.
-export function RadioList<T extends string>({ legend, hideLegend, value, options, onChange, inline, name, className, ref, ...rest }: RadioListProps<T>) {
+export function RadioList<T extends string>({ legend, hideLegend, value, options, onChange, inline, descriptions = 'below', name, className, ref, ...rest }: RadioListProps<T>) {
   const uid = useId()
   const group = name ?? `${uid}-group`
   return (
-    <fieldset {...rest} ref={ref} className={joinClass('ui-radio-list', inline && 'ui-radio-list--inline', className)}>
+    <fieldset {...rest} ref={ref} className={joinClass('ui-radio-list', inline ? 'ui-radio-list--inline' : descriptions === 'beside' && 'ui-radio-list--beside', className)}>
       <legend className="ui-radio-list__legend" data-hidden={hideLegend ? '' : undefined}>
         {legend}
       </legend>
@@ -56,7 +59,9 @@ export function RadioList<T extends string>({ legend, hideLegend, value, options
                 onChange={() => onChange(option.value)}
               />
               <span className="ui-radio-list__text">
-                <span id={titleId}>{option.label}</span>
+                <span id={titleId} className="ui-radio-list__title">
+                  {option.label}
+                </span>
                 {option.description && (
                   <small id={`${base}-description`} className="ui-radio-list__description">
                     {option.description}

@@ -2,6 +2,8 @@
 // one its memory repository (§4), made here as a new git repository with the layout below and one commit. Nothing
 // here deletes anything on disk.
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import {
   isRepoFolderName,
@@ -11,6 +13,7 @@ import {
   memoryOwner,
   moveRefusal,
   organizationNameProblem,
+  samePath,
   spaceOf,
   type CreateOrganizationInput,
   type MemoryRefusal,
@@ -134,17 +137,42 @@ export class OrganizationService {
     return repo
   }
 
+  /**
+   * Checks the folder an organization keeps its repositories in: absolute, and not a repository or inside one (a clone
+   * there would nest one repository in another). Returns it trimmed and resolved.
+   */
+  private checkFolder(folder: string): string {
+    const clean = folder.trim()
+    if (!clean || !path.isAbsolute(clean)) throw new Error('Choose the folder the organization’s repositories go in')
+    const dir = path.resolve(clean)
+    const holder = this.state.repos.find((r) => {
+      const rel = path.relative(r.rootPath, dir)
+      return !rel || (!rel.startsWith('..') && !path.isAbsolute(rel))
+    })
+    if (holder) throw new Error(`${dir} is ${samePath(holder.rootPath, dir) ? '' : 'inside '}the ${holder.name} repository. Choose a folder of its own.`)
+    if (existsSync(path.join(dir, '.git'))) throw new Error(`${dir} is a Git repository. Choose a folder of its own.`)
+    return dir
+  }
+
   /** Make or pick the memory repository; the repository it names is moved into the organization's space by the caller. */
-  private async memoryRepo(memory: OrganizationMemory, organization: string, existing: Repo | undefined): Promise<Repo | undefined> {
+  private async memoryRepo(memory: OrganizationMemory, organization: string, existing: Repo | undefined, folder?: string): Promise<Repo | undefined> {
     if (memory.kind === 'existing') return existing
     if (memory.kind !== 'create') return undefined
     const dir = await this.makeMemory(memory.parentDir.trim(), memory.name.trim(), organization)
-    this.state.settings.cloneDirectory = memory.parentDir.trim()
+    // The organization's own folder isn't where Personal's next clone should start.
+    if (!folder || !samePath(memory.parentDir, folder)) this.state.settings.cloneDirectory = memory.parentDir.trim()
     return this.host.addRepo(dir)
   }
 
   async create(input: CreateOrganizationInput): Promise<Organization> {
-    if (!input || typeof input.name !== 'string' || !isMemory(input.memory) || !Array.isArray(input.repoIds) || input.repoIds.some((id) => typeof id !== 'string')) {
+    if (
+      !input ||
+      typeof input.name !== 'string' ||
+      !isMemory(input.memory) ||
+      !Array.isArray(input.repoIds) ||
+      input.repoIds.some((id) => typeof id !== 'string') ||
+      (input.folder !== undefined && typeof input.folder !== 'string')
+    ) {
       throw new Error('Invalid organization')
     }
     const name = input.name.trim()
@@ -157,8 +185,10 @@ export class OrganizationService {
       if (space) throw new Error(`${repo.name} is in ${this.organization(space).name}, not Personal`)
     }
     const existing = this.checkMemory(input.memory)
-    const memory = await this.memoryRepo(input.memory, name, existing)
-    const org: Organization = { id: randomUUID(), name, ...(memory ? { memoryRepoId: memory.id } : {}), createdAt: new Date().toISOString() }
+    const folder = input.folder === undefined ? undefined : this.checkFolder(input.folder)
+    if (folder) await mkdir(folder, { recursive: true })
+    const memory = await this.memoryRepo(input.memory, name, existing, folder)
+    const org: Organization = { id: randomUUID(), name, ...(memory ? { memoryRepoId: memory.id } : {}), ...(folder ? { folder } : {}), createdAt: new Date().toISOString() }
     this.organizations.push(org)
     for (const repo of [...brought, ...(memory ? [memory] : [])]) repo.spaceId = org.id
     this.host.changed()
