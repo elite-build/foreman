@@ -30,6 +30,8 @@ import {
   acceptanceBody,
   allPartsDone,
   artifactPath,
+  channelNameProblem,
+  channelSlug,
   checkPlan,
   followUpBody,
   listedProjects,
@@ -46,11 +48,13 @@ import {
   planMarkdown,
   planningBody,
   planStateText,
+  projectFolder,
   projectSlug,
   projectTitle,
   PROJECT_RUNS,
   readyParts,
   replanGoesAhead,
+  type DeleteProjectOptions,
   type PlanInput,
   type PlanPart,
   type Project,
@@ -74,7 +78,7 @@ export interface ProjectHost {
   db(): ForemanDb
   work: Pick<EmployeeWorkService, 'projectTask' | 'cancel'>
   employees: Pick<EmployeeService, 'current' | 'members' | 'createTeam'>
-  memory: Pick<MemoryService, 'read' | 'stage'>
+  memory: Pick<MemoryService, 'read' | 'stage' | 'tree' | 'commitAsPerson'>
   // The project's workspace is still there and can take another chat (not archived, not being removed).
   workspaceAlive(workspaceId: string): boolean
   // A workspace's repository, for "Hand to Priya…", and its chat so far, as text (newest last, cut to fit).
@@ -208,7 +212,7 @@ export class ProjectService implements EmployeeProjectHooks {
       const project: Project = {
         id: randomUUID(),
         orgId: org.id,
-        slug: projectSlug(title, this.db.projectSlugs(org.id)),
+        slug: projectSlug(title, [...this.takenNames(org.id), ...(await this.leftFolders(org.id))]),
         title,
         requirement,
         repoId: repo.id,
@@ -702,6 +706,85 @@ export class ProjectService implements EmployeeProjectHooks {
       if (task && task.state !== 'closed') await this.host.work.cancel(step.taskId).catch((err: unknown) => console.error('Project stop:', err))
     }
     this.release(project)
+  }
+
+  // ---- the channel's name, archive and delete ----
+
+  /** Every project of an organization, its archived channels too, newest first: the Channels page. */
+  all(orgId: string): Project[] {
+    this.organization(orgId)
+    return this.db.projects(orgId).filter((p) => Array.isArray(p.waits))
+  }
+
+  /** The channel names an organization's projects use (their slugs, and the names they were given), but `except`'s. */
+  private takenNames(orgId: string, except?: string): string[] {
+    const org = this.organization(orgId)
+    return [projectSlug(org.name, []), ...this.db.projects(orgId).flatMap((p) => (p.id === except ? [] : [p.slug, channelSlug(p)]))]
+  }
+
+  /** The project folders in the memory repository whose project was deleted with its files kept: a new one doesn't take them. */
+  private async leftFolders(orgId: string): Promise<string[]> {
+    const prefix = `${projectFolder('')}`
+    const tree = await this.host.memory.tree(orgId).catch(() => undefined)
+    return [...new Set((tree?.entries ?? []).flatMap((e) => (e.path.startsWith(prefix) ? [e.path.slice(prefix.length).split('/')[0]] : [])))]
+  }
+
+  /** Rename a project's channel. Only the name shown changes: its slug stays its folder in the memory repository. */
+  rename(projectId: string, name: string): Promise<Project> {
+    return this.serial(async () => {
+      const project = this.project(projectId)
+      const clean = typeof name === 'string' ? name.trim().replace(/^#/, '') : ''
+      const problem = channelNameProblem(clean, this.takenNames(project.orgId, project.id))
+      if (problem === 'empty') throw new Error('Give the channel a name.')
+      if (problem === 'long') throw new Error('Keep the name to 32 characters.')
+      if (problem === 'form') throw new Error('Use lowercase letters, numbers and dashes.')
+      if (problem === 'taken') throw new Error(`Another channel is already called #${clean}.`)
+      if (clean === project.slug) delete project.name
+      else project.name = clean
+      return this.save(project)
+    })
+  }
+
+  /** Archive a closed project's channel (it leaves the sidebar, read-only), or restore it. */
+  setArchived(projectId: string, archived: boolean): Promise<Project> {
+    return this.serial(async () => {
+      const project = this.project(projectId)
+      if (project.phase !== 'closed') throw new Error('Only a closed project can be archived. Stop it first.')
+      if (archived) {
+        project.archivedAt = this.iso()
+        delete project.keptAt
+      } else {
+        delete project.archivedAt
+        project.keptAt = this.iso()
+      }
+      return this.save(project)
+    })
+  }
+
+  /**
+   * Delete a project's channel: what is going is stopped first, as Stop does, and the project leaves Foreman. Its files
+   * in the memory repository stay unless `removeFiles` (one commit by the person); its workspace's branch always stays.
+   */
+  remove(projectId: string, options: DeleteProjectOptions = {}): Promise<void> {
+    return this.serial(async () => {
+      const project = this.project(projectId)
+      if (project.phase !== 'closed') await this.close(project, 'stopped')
+      if (options.removeFiles) {
+        const folder = `${projectFolder(project.slug)}/`
+        const tree = await this.host.memory.tree(project.orgId)
+        const files = tree.entries.filter((e) => e.path.startsWith(folder))
+        if (files.length) {
+          const out = await this.host.memory.commitAsPerson(
+            project.orgId,
+            files.map((f) => ({ kind: 'delete' as const, path: f.path, expectedBlob: f.blob })),
+            { subject: `Delete #${channelSlug(project)}'s files` }
+          )
+          if (!out.ok) throw new Error(`${out.path} changed while it was being deleted. Try again.`)
+        }
+      }
+      this.db.deleteProject(project.id)
+      this.host.changed()
+    })
   }
 
   /** A closed project's workspace is archived, unless a push or pull request of its runs still waits for the person there. */

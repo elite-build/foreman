@@ -571,6 +571,7 @@ export const SCREENS = [
   'workspace-lineage',
   // AI employees, in the fixture's organization (main/screensOrganization.ts).
   'team',
+  'channels',
   'employee',
   'employee-approve',
   'new-employee',

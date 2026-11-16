@@ -21,7 +21,7 @@ export type ActionRowProps = Omit<HTMLAttributes<HTMLDivElement>, 'children' | '
   pending?: boolean
   // Buttons beside the main area (archive, rename, more). Siblings of the primary button, never inside it.
   actions?: ReactNode
-  // Show the actions only while the row is hovered or has focus inside (they stay reachable by keyboard).
+  // Show the actions only while the row is hovered, has focus inside or its menu is open (they stay reachable by keyboard).
   revealActions?: boolean
   // An inline editor (rename field) that replaces the main area. Not inside a button.
   editor?: ReactNode

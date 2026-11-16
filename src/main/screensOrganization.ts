@@ -2,7 +2,8 @@
 // code repository of its own, three AI employees and their work, written as the real services would have left it. Max
 // (writer) handed Ada (researcher) part of a launch post and finished it; his push waits in Needs you. Ada asked a
 // question that waits for an answer and proposed an organization fact. Lin (triage) is a draft nobody has approved. Its
-// repositories sit beside atlas and beacon, which stay in Personal, so every other screen looks as it did.
+// repositories sit beside atlas and beacon, which stay in Personal, so every other screen looks as it did. Its projects
+// (one being planned, two closed, one archived) wait for nothing, so they move no Needs you count: the Channels page.
 import path from 'node:path'
 import type { ForemanDb } from './db'
 import { git, gitOut } from './git'
@@ -14,6 +15,7 @@ import type { EmployeeAction } from '../shared/employeeActions'
 import { defaultEmployee, employeePath, parseEmployee, serializeEmployee, type EmployeeDefinition, type EmployeeRecord } from '../shared/employees'
 import type { EmployeeQuestion, EmployeeRun, EmployeeTask, EmployeeTaskTransition } from '../shared/employeeWork'
 import type { Organization } from '../shared/organizations'
+import type { Project } from '../shared/projects'
 import type { ChatItem, Repo, Session, Workspace } from '../shared/types'
 
 export const ORG_ID = 'org-acme'
@@ -232,7 +234,24 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
     },
     policy: 'held', state: 'held', key: 'fixture-push-launch', createdAt: at(42), updatedAt: at(42)
   }
+  const project = (id: string, slug: string, title: string, created: number, patch: Partial<Project> = {}): Project => ({
+    id, orgId: ORG_ID, slug, title, requirement: title, repoId: SITE_REPO, pmId: ADA, phase: 'planning', plans: [], parts: {}, replans: 0,
+    steps: [], artifacts: {}, waits: [], decisions: [], notes: [], createdAt: at(created), updatedAt: at(created), ...patch
+  })
+  const file = (slug: string, name: string, when: number) => [name, { file: name, path: `memory/org/projects/${slug}/${name}`, employeeId: ADA, taskId: 'task-date', version: 1, at: at(when) }] as const
+  const DAY = 24 * 60
+  const projects: Project[] = [
+    project('proj-sso', 'team-accounts-sso', 'Single sign-on for team accounts', 50),
+    project('proj-metrics', 'weekly-metrics-email', 'A weekly email of the five metrics the team watches', 6 * DAY, {
+      phase: 'closed', outcome: 'done', closedAt: at(3 * DAY), updatedAt: at(3 * DAY), artifacts: Object.fromEntries([file('weekly-metrics-email', 'plan.md', 6 * DAY), file('weekly-metrics-email', 'email.md', 4 * DAY), file('weekly-metrics-email', 'test-report.md', 3 * DAY)])
+    }),
+    project('proj-billing', 'billing-page-refresh', 'Refresh the billing page', 9 * DAY, { phase: 'closed', outcome: 'stopped', closedAt: at(8 * DAY), updatedAt: at(8 * DAY), artifacts: Object.fromEntries([file('billing-page-refresh', 'plan.md', 9 * DAY)]) }),
+    project('proj-onboarding', 'onboarding-emails', 'Three onboarding emails for new teams', 40 * DAY, {
+      phase: 'closed', outcome: 'done', closedAt: at(35 * DAY), updatedAt: at(30 * DAY), archivedAt: at(30 * DAY), artifacts: Object.fromEntries([file('onboarding-emails', 'plan.md', 40 * DAY), file('onboarding-emails', 'emails.md', 36 * DAY)])
+    })
+  ]
   db.transaction(() => {
+    for (const p of projects) db.putProject(p)
     for (const t of tasks) db.putEmployeeTask(t)
     for (const r of runs) db.putEmployeeRun(r)
     for (const tr of transitions) db.addEmployeeTaskTransition(tr)

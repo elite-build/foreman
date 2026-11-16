@@ -171,6 +171,16 @@ export interface Project {
   createdAt: string
   updatedAt: string
   closedAt?: string
+  // The channel's name when the person renamed it (without "#"); `slug` stays its folder in the memory repository.
+  name?: string
+  // Archived by the person (closed projects only), or restored after it was archived (kept listed until archived again).
+  archivedAt?: string
+  keptAt?: string
+}
+
+/** Deleting a project's channel: its files in the memory repository stay unless `removeFiles`. */
+export interface DeleteProjectOptions {
+  removeFiles?: boolean
 }
 
 /** What a task of a project carries (EmployeeTask.project). */
@@ -575,10 +585,35 @@ export function planStateText(plan: Pick<ProjectPlan, 'parts' | 'proposed' | 'pr
     .join('\n')
 }
 
-/** The projects of an organization that are not closed, and those closed in the last `days`, newest first. */
-export function listedProjects(projects: readonly Project[], now: number, days = 14): Project[] {
-  const since = now - days * 24 * 60 * 60_000
-  return projects.filter((p) => p.phase !== 'closed' || Date.parse(p.closedAt ?? p.updatedAt) >= since).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+/** How long a closed project's channel stays in the sidebar before it is archived on its own. */
+export const ARCHIVE_AFTER_DAYS = 14
+
+/**
+ * Whether a project's channel is archived: closed, and archived by the person, or closed more than `days` ago and not
+ * restored since (Restore keeps it listed until it is archived again).
+ */
+export function isArchived(p: Pick<Project, 'phase' | 'closedAt' | 'updatedAt' | 'archivedAt' | 'keptAt'>, now: number, days = ARCHIVE_AFTER_DAYS): boolean {
+  if (p.phase !== 'closed') return false
+  if (p.archivedAt) return true
+  return !p.keptAt && Date.parse(p.closedAt ?? p.updatedAt) < now - days * 24 * 60 * 60_000
+}
+
+/** The projects of an organization whose channels are listed: not closed, or closed and not archived, newest first. */
+export function listedProjects(projects: readonly Project[], now: number, days = ARCHIVE_AFTER_DAYS): Project[] {
+  return projects.filter((p) => !isArchived(p, now, days)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+/** A project's channel name without its "#": the name the person gave it, else its slug. */
+export const channelSlug = (p: Pick<Project, 'slug' | 'name'>): string => p.name ?? p.slug
+
+const CHANNEL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/** What is wrong with a channel name (lowercase letters, numbers and dashes, at most 32, not another channel's), or null. */
+export function channelNameProblem(name: string, taken: readonly string[]): 'empty' | 'form' | 'long' | 'taken' | null {
+  if (!name) return 'empty'
+  if (name.length > 32) return 'long'
+  if (!CHANNEL_NAME.test(name)) return 'form'
+  return taken.includes(name) ? 'taken' : null
 }
 
 /** Whether a project waits for the person on anything. */

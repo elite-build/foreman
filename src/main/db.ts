@@ -1074,8 +1074,8 @@ export class ForemanDb {
     return rows.filter((r) => !states || states.includes(r.state)).map((r) => JSON.parse(r.json) as Project)
   }
 
-  projectSlugs(orgId: string): string[] {
-    return (this.stmt('SELECT slug FROM employee_projects WHERE org_id = ?').all(orgId) as { slug: string }[]).map((r) => r.slug)
+  deleteProject(id: string): void {
+    this.stmt('DELETE FROM employee_projects WHERE id = ?').run(id)
   }
 
   // ---- AI employees' tasks and runs (main/employeeWork.ts) ----

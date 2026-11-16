@@ -980,3 +980,78 @@ div.team-row {
   gap: 8px;
   padding-top: 4px;
 }
+
+/* The Channels page (docs/ai-employees.md §15): search and filter, a selection bar, then a row per channel with its box. */
+.channels-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 1100px;
+  container-type: inline-size;
+}
+.channels-bar,
+.channels-selection,
+.channels-selection-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.channels-search {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+.channels-selection {
+  justify-content: space-between;
+  padding: 8px 12px;
+}
+.channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.channels-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.channels-check {
+  flex: none;
+  width: 18px;
+}
+.channels-row {
+  flex: 1;
+  min-width: 0;
+}
+.channels-row .channels-row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 110px 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+.channels-row-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.channels-row-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container (max-width: 640px) {
+  .channels-row .channels-row-main {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .channels-row-meta {
+    display: none;
+  }
+}
+.channel-dialog-text {
+  margin: 0;
+}
