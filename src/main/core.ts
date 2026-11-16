@@ -132,9 +132,6 @@ import { MemoryService } from './memory'
 import { EmployeeService } from './employees'
 import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
 import { ProjectService } from './projects'
-import { programManagerDefinition } from '../shared/employeeTeams'
-import { templateDefinitions } from '../shared/employeeTemplates'
-import { reposInSpace } from '../shared/organizations'
 import { EmployeeTriggerService } from './employeeTriggers'
 import { EmployeeEventService } from './employeeEvents'
 import { EmployeeTools } from './employeeTools'
@@ -561,18 +558,8 @@ export class Core {
       // Its program manager (docs/ai-employees.md §15), on the repositories it has: her definition is fixed and the same
       // in every organization, so making the organization approves it. The starting templates the person picked in the
       // same dialog are approved with her: the dialog names each one Create approves.
-      createProgramManager: async (org, templates = []) => {
-        const repos = reposInSpace(store.state.repos, store.state.organizations ?? [], org.id).filter((r) => r.id !== org.memoryRepoId).map((r) => r.name)
-        const members = (await this.employees.members(org.id)) ?? []
-        const loadouts = store.state.settings.loadouts
-        const taken = members.map((m) => m.summary.id)
-        const takenNames = members.map((m) => m.summary.name)
-        const definition = programManagerDefinition({ repos, loadouts, taken, takenNames })
-        const picked = templateDefinitions({ templates, repos, loadouts, taken: [...taken, definition.id], takenNames: [...takenNames, definition.name] })
-        await this.employees.createTeam(org.id, [definition, ...picked])
-        for (const d of [definition, ...picked]) await this.employees.approve(org.id, d.id)
-        return definition.id
-      }
+      // Made and approved the way Add employee makes a template employee (EmployeeService.createApproved).
+      createProgramManager: (org, templates = []) => this.employees.addProgramManager(org.id, templates)
     })
     this.repoMcp = new RepoMcp(store, this.workspaces, this.environment)
     // Integrations, before anything runs GitHub work: the old token and linked accounts move into connections once.
@@ -3475,6 +3462,7 @@ export class Core {
     generateEmployeeDraft: (organizationId, input) => this.employees.generate(organizationId, input),
     refineEmployeeDraft: (organizationId, draft, request) => this.employees.refine(organizationId, draft, request),
     createEmployee: (organizationId, definition, options) => this.employees.create(organizationId, definition, options),
+    addTemplateEmployee: (organizationId, templateId) => this.employees.addTemplate(organizationId, templateId),
     updateEmployee: (organizationId, id, definition, expectedBlob) => this.employees.update(organizationId, id, definition, expectedBlob),
     approveEmployee: (organizationId, id, expectedFingerprint) => this.employees.approve(organizationId, id, expectedFingerprint),
     pauseEmployee: (organizationId, id) => this.employees.pause(organizationId, id),

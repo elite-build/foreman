@@ -334,6 +334,31 @@ div.team-row {
   flex: 1;
   min-width: 200px;
 }
+/* Pick a job · Write your own, under the intro; Pick a job's heading with Compare jobs (or Back and Done) beside it. */
+.new-employee-ways {
+  display: flex;
+}
+.new-employee-pick-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.new-employee-pick-head > :first-child {
+  flex: 1;
+  margin: 0;
+}
+/* Who you get: what it does, its access and why its name or hat changed, as label and value. */
+.new-employee-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 0;
+}
+.new-employee-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 
 /* The draft's words and the precise form. */
 .employee-words,

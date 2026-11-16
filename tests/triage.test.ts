@@ -191,6 +191,29 @@ describe('triage: flow runs', () => {
     expect(sidebarGroups({ snapshot: alone, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true }).compares).toEqual([])
   })
 
+  it('leaves a project’s workspaces to its channel unless one needs you; a workspace handed to Priya stays', () => {
+    const by = (taskId: string) => ({ startedBy: { via: 'employee', orgId: 'o', employeeId: 'pm', runId: 'run', taskId, title: 'Plan' } }) as Partial<Workspace>
+    const workspaces = [
+      ws({ id: 'shared', name: 'shared', ...by('plan') }),
+      ws({ id: 'part', name: 'part', ...by('part') }),
+      ws({ id: 'asked', name: 'asked', ...by('ask') }),
+      ws({ id: 'handed', name: 'handed' }),
+      ws({ id: 'waiting', name: 'waiting', ...by('part') }),
+      ws({ id: 'mine', name: 'mine' })
+    ]
+    const sessions = [session('s1', { workspaceId: 'waiting' })]
+    const projects = { o: [{ id: 'p1', workspaceId: 'shared' }, { id: 'p2', workspaceId: 'handed', fromWorkspaceId: 'handed' }] }
+    const employeeWork = { o: { tasks: [{ id: 'part', project: { id: 'p1', kind: 'part', round: 1 } }, { id: 'ask' }] } }
+    const snapshot = { workspaces, sessions, projects, employeeWork, settings: defaultSettings() } as unknown as AppSnapshot
+    const input = { snapshot, approvals: [approval('s1')], unread: {}, unreadSessions: {}, now: NOW }
+    const view: SidebarView = { repo: null, filter: 'all', query: '', showFinished: true }
+    const shown = sidebarGroups(input, view).groups.flatMap((g) => g.items.map((t) => t.ws.id))
+    expect(shown.sort()).toEqual(['asked', 'handed', 'mine', 'waiting'])
+    // A search doesn't bring them back either: the channel is where they are.
+    expect(sidebarGroups(input, { ...view, query: 'part' }).groups).toEqual([])
+    expect(sidebarOrder(input, view).map((w) => w.id)).not.toContain('shared')
+  })
+
   it('groups nothing by flow run while Flows are off: the run’s workspaces are plain rows, with no nameless “Flow ·” header', () => {
     const made = (id: string) => ws({ id, name: id, flowRun: { runId: 'run' } })
     // Off, the snapshot carries no runs, but each workspace still says which run made it.
