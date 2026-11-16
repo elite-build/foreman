@@ -3,8 +3,9 @@
 // project, with its state); the organization's channel, where "@Priya …" starts a project and "@Ravi …" asks Ravi; a
 // project's channel with its plan (drawn as a workflow, what the program manager understood and assumed, the parts, the
 // employees it proposes, Approve plan only once each is approved, Send back only with a note), her questions answered
-// on one card (or Plan with what you have), a part waiting at its gate, follow-ups and notes from the message box, and Stop only after you
-// confirm; the person's row in the Team list; and Add Priya for an organization without her.
+// on one card (or Plan with what you have), a part waiting at its gate, follow-ups and notes from the message box, and
+// Stop only after you confirm; who is at work on a project right now (in its channel, beside its state, on its row) or
+// that nothing runs; the person's row in the Team list; and Add Priya for an organization without her.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -289,5 +290,64 @@ describe('the person on the team', () => {
     const rows = within(list).getAllByRole('listitem')
     expect(within(rows[0]).getByText('You')).toBeTruthy()
     expect(within(rows[0]).getByText('Needs you · 1')).toBeTruthy()
+  })
+})
+
+describe('who is at work on a project now', () => {
+  const working = (steps: Project['steps'] = [{ kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'running', startedAt: '2026-11-15T10:06:00.000Z' }]) =>
+    project({ phase: 'working', plan: { ...PLAN, status: 'approved' }, plans: [{ ...PLAN, status: 'approved' }], parts: { build: { state: 'running', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } }, steps: [...project().steps, ...steps], waits: [] })
+  const run = (patch: Record<string, unknown>) => ({ id: 'r2', taskId: 't2', employeeId: 'e-rav1', orgId: 'o1', attempt: 1, started: true, turnIds: [], createdAt: NOW, updatedAt: NOW, ...patch })
+  const withRuns = (runs: Record<string, unknown>[], workspaces: { id: string }[] = []) => {
+    const snapshot = fakeState.snapshot!
+    fakeState.snapshot = { ...snapshot, workspaces: workspaces as never, employeeWork: { o1: { ...snapshot.employeeWork!.o1, runs: runs as never } } }
+  }
+
+  it('shows who works on what, for how long, with a link to their chat, in the channel, beside its state and on the part', async () => {
+    const user = userEvent.setup()
+    spy('selectSession').mockReset()
+    const p = working()
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    withRuns([run({ state: 'running', startedAt: '2026-11-15T10:06:00.000Z', workspaceId: 'w1', sessionId: 's1' })], [{ id: 'w1' }])
+    render(<ProjectPage orgId="o1" project={p} />)
+    const timeline = screen.getByRole('list', { name: /csv-export/ })
+    expect(within(timeline).getByText('Ravi is working on “Build the export”')).toBeTruthy()
+    expect(screen.getByText('Ravi working').closest('.ui-status')!.className).toContain('ui-status--busy')
+    const side = screen.getByRole('complementary', { name: 'About #csv-export' })
+    expect(within(side).getByText('Working').closest('.ui-status')!.className).toContain('ui-status--busy')
+    await user.click(screen.getByRole('button', { name: 'Watch Ravi' }))
+    expect(spy('selectWorkspace')).toHaveBeenCalledWith('w1')
+    expect(spy('selectSession')).toHaveBeenCalledWith('w1', 's1')
+  })
+
+  it('says a run is queued and why, and says Nothing running when the stage is working but no run is', () => {
+    const p = working()
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    withRuns([run({ state: 'queued', started: false, reason: 'Waits for Ravi’s other task' })])
+    const { unmount } = render(<ProjectPage orgId="o1" project={p} />)
+    expect(screen.getByText('Waits for Ravi’s other task')).toBeTruthy()
+    expect(screen.getAllByText('Queued').length).toBeGreaterThan(0)
+    // No chat yet, so nothing to watch.
+    expect(screen.queryByRole('button', { name: 'Watch Ravi' })).toBeNull()
+    unmount()
+    withRuns([])
+    render(<ProjectPage orgId="o1" project={p} />)
+    expect(screen.getByText('Nothing running')).toBeTruthy()
+    expect(screen.queryByText(/is working on/)).toBeNull()
+  })
+
+  it('says nothing about running while the project waits for you', () => {
+    setSnapshot()
+    render(<ProjectPage orgId="o1" project={project()} />)
+    expect(screen.queryByText('Nothing running')).toBeNull()
+  })
+
+  it('marks the channel’s row in the sidebar with who is at it', () => {
+    const p = working()
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    withRuns([run({ state: 'running', startedAt: NOW })])
+    render(<ProjectsSection />)
+    const list = screen.getByRole('list', { name: 'Channels in FRLK' })
+    expect(within(list).getByText('Ravi is working on “Build the export”')).toBeTruthy()
+    expect(within(list).getByText('Working').closest('.ui-status')!.className).toContain('ui-status--busy')
   })
 })

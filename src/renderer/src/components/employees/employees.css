@@ -924,6 +924,14 @@ div.team-row {
 .channel-system {
   padding-left: 34px;
 }
+/* Who is at work now, at the foot of the timeline: the state, how long, Watch. */
+.channel-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding-left: 34px;
+}
 /* Two classes: the pressable's own display loads after this file with one. */
 .channel-post-body .channel-link {
   display: flex;
