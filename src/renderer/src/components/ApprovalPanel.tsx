@@ -13,7 +13,7 @@ import { announce } from '../announce'
 import { useT, type RendererT } from '../i18n'
 import { api, attempt, selectWorkspace, sendUiCommand, showChecksPanel, useCapabilities, useStore } from '../store'
 import { shortcutHint } from '../shortcuts'
-import { Button, CardButton, Checkbox, Disclosure, Field, Kbd, LinkButton, RadioCards, Status, Tab, TabList, Tabs, Tag, TextArea, TextInput } from '../ui'
+import { Button, CardButton, Checkbox, Disclosure, Field, Kbd, LinkButton, RadioList, Status, Tab, TabList, Tabs, Tag, TextArea, TextInput } from '../ui'
 import { DecisionCard } from './DecisionCard'
 import { Markdown } from './Markdown'
 import { describe, EditPreview, toolSummary, type ToolItem } from './ToolRow'
@@ -301,9 +301,10 @@ export function ToolApprovalPanel({ request, workspacePath, docked, headEnd }: {
 const isTextField = (el: EventTarget) => el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !['radio', 'checkbox'].includes(el.type))
 
 /**
- * The agent's questions: tabs named by their headers, each marked answered or not; a single-choice question's options
- * as radio cards and a multiple-choice one's as checkboxes, then Other in your own words, keyed 1 to n+1. The main
- * button reads "Next: <header>" until every question has an answer, so nothing is ever sent unanswered.
+ * The agent's questions, the open one as the card's title. Several get tabs in the header, named by their headers, each
+ * marked answered or not and showing its answer. A single-choice question's options are a quiet list of radios, each
+ * description beside its label; a multiple-choice one's are checkboxes; then Other in your own words, keyed 1 to n+1.
+ * The main button reads "Next: <header>" until every question has an answer, so nothing is ever sent unanswered.
  */
 export function QuestionPanel({ request, docked, headEnd }: { request: QuestionRequest } & Placement) {
   const t = useT()
@@ -317,7 +318,8 @@ export function QuestionPanel({ request, docked, headEnd }: { request: QuestionR
   const question = questions[Math.min(index, questions.length - 1)]
   const many = questions.length > 1
 
-  const answered = (n: number) => Boolean(choices[n]?.length || other[n]?.trim())
+  const answer = (n: number) => [...(choices[n] ?? []), ...(other[n]?.trim() ? [other[n].trim()] : [])].join(', ')
+  const answered = (n: number) => answer(n) !== ''
   const done = questions.filter((_, n) => answered(n)).length
   const header = (n: number) => questions[n].header?.trim() || t('approval.question.tab', { n: n + 1 })
   // The next question without an answer, after this one (round to the start).
@@ -333,9 +335,7 @@ export function QuestionPanel({ request, docked, headEnd }: { request: QuestionR
     if (done < questions.length) return
     const answers: Record<string, string> = {}
     questions.forEach((q, n) => {
-      const parts = [...(choices[n] ?? [])]
-      if (other[n]?.trim()) parts.push(other[n].trim())
-      answers[q.question] = parts.join(', ')
+      answers[q.question] = answer(n)
     })
     void attempt(() => api.respondApproval(request.id, { kind: 'question', answers }))
   }
@@ -365,36 +365,39 @@ export function QuestionPanel({ request, docked, headEnd }: { request: QuestionR
   }
 
   const chosen = choices[index] ?? []
+  // Several questions: a tab each, with its answer once it has one ("✓ Version · 1.2.0").
+  const tabs = many ? (
+    <Tabs className="question-tabs" variant="pill" value={String(index)} onChange={(v) => setIndex(Number(v))}>
+      <TabList label={t('approval.question.tabs')}>
+        {questions.map((_, n) => (
+          <Tab key={n} value={String(n)}>
+            <Status compact tone={answered(n) ? 'ok' : 'off'} label={answered(n) ? t('approval.question.isAnswered') : t('approval.question.notAnswered')} /> {header(n)}
+            {answered(n) && (
+              <span className="faint question-tab-answer">
+                <span aria-hidden="true"> · </span>
+                {answer(n)}
+              </span>
+            )}
+          </Tab>
+        ))}
+      </TabList>
+    </Tabs>
+  ) : undefined
   return (
     <DecisionCard
       who={who}
-      kind={many ? t('decision.kind.questions', { count: questions.length }) : t('decision.kind.question')}
-      subject={many ? t('approval.question.count', { count: questions.length }) : question.question}
+      kind={t('decision.kind.question')}
+      subject={question.question}
       headEnd={headEnd}
+      headNav={tabs}
       docked={docked}
       guardMs={docked ? ARRIVAL_GUARD_MS : 0}
       className="approval-panel question"
       onKeyDown={onKeyDown}
-      consequence={t('approval.question.consequence', { agent: who })}
-      footStart={many ? t('approval.question.answered', { done, count: questions.length }) : undefined}
       decline={{ label: t('approval.question.skip'), onAct: skip }}
       main={main}
     >
       <FromSubagent subagent={request.subagent} id={fromId} />
-      {many && (
-        <>
-          <Tabs className="question-tabs" variant="pill" value={String(index)} onChange={(v) => setIndex(Number(v))}>
-            <TabList label={t('approval.question.tabs')}>
-              {questions.map((_, n) => (
-                <Tab key={n} value={String(n)}>
-                  <Status compact tone={answered(n) ? 'ok' : 'off'} label={answered(n) ? t('approval.question.isAnswered') : t('approval.question.notAnswered')} /> {header(n)}
-                </Tab>
-              ))}
-            </TabList>
-          </Tabs>
-          <p className="question-ask">{question.question}</p>
-        </>
-      )}
       {question.multiSelect ? (
         <div className="question-checks" role="group" aria-label={t('approval.question.chooseAny')}>
           <span className="faint small">{t('approval.question.chooseAny')}</span>
@@ -406,16 +409,17 @@ export function QuestionPanel({ request, docked, headEnd }: { request: QuestionR
           ))}
         </div>
       ) : (
-        <RadioCards
-          layout="stack"
+        <RadioList
           legend={t('approval.question.chooseOne')}
+          hideLegend
+          descriptions="beside"
           value={chosen[0]}
           onChange={toggle}
           options={question.options.map((option, n) => ({
             value: option.label,
             label: (
               <>
-                <Kbd aria-hidden="true">{n + 1}</Kbd> {option.label}
+                <Kbd aria-hidden="true">{n + 1}</Kbd> <span className="option-label">{option.label}</span>
               </>
             ),
             ...(option.description ? { description: option.description } : {})

@@ -48,6 +48,18 @@ describe('RadioList', () => {
     expect(radio.getAttribute('aria-describedby')).toBe(screen.getByText('Branches start with it').id)
   })
 
+  it('can put each description beside its label, still read as the description of its radio', () => {
+    const { container } = render(<RadioList legend="Merge" descriptions="beside" value={undefined} onChange={() => {}} options={options} />)
+    expect(container.querySelector('fieldset')?.classList.contains('ui-radio-list--beside')).toBe(true)
+    const radio = screen.getByRole('radio', { name: 'GitHub username' })
+    expect(radio.getAttribute('aria-describedby')).toBe(screen.getByText('Branches start with it').id)
+    expect(screen.getByRole('textbox', { name: 'Prefix' })).toBeTruthy()
+    cleanup()
+    // Inline wins: a row of short labels has no column for descriptions.
+    const inline = render(<RadioList legend="Merge" inline descriptions="beside" value={undefined} onChange={() => {}} options={options} />)
+    expect(inline.container.querySelector('fieldset')?.className).toBe('ui-radio-list ui-radio-list--inline')
+  })
+
   it('chooses on click and on the label text', async () => {
     const onChange = vi.fn()
     render(<Box onChange={onChange} />)
