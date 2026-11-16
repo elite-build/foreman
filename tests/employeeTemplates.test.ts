@@ -58,13 +58,13 @@ describe('employee templates', () => {
       expect(back.problems).toEqual([])
     }
     expect(made.find((d) => d.name === 'Uma')!.role).toBe('Staff UX designer')
+    expect(made.find((d) => d.name === 'Ravi')!.role).toBe('Staff software engineer')
     for (const t of EMPLOYEE_TEMPLATES) {
       expect(t.description).toBe(en[`spaces.template.${t.id}.line`])
       expect(t.responsibilities.length).toBeGreaterThanOrEqual(3)
       expect(t.responsibilities.length).toBeLessThanOrEqual(4)
       for (const r of t.responsibilities) expect(r.length).toBeLessThanOrEqual(EMPLOYEE_TEXT_LIMITS.responsibility)
     }
-    expect(made.find((d) => d.name === 'Ravi')!.role).toBe('Staff software engineer')
   })
 
   it('make only those picked, each once, in the catalogue’s order, around the ids and names already taken', () => {
