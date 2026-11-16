@@ -3,7 +3,7 @@
 // (writer) handed Ada (researcher) part of a launch post and finished it; his push waits in Needs you. Ada asked a
 // question that waits for an answer and proposed an organization fact. Lin (triage) is a draft nobody has approved. Its
 // repositories sit beside atlas and beacon, which stay in Personal, so every other screen looks as it did. Its projects
-// (one being planned, two closed, one archived) wait for nothing, so they move no Needs you count: the Channels page.
+// (one under way, two closed, one archived) wait for nothing, so they move no Needs you count: the Channels page.
 import path from 'node:path'
 import type { ForemanDb } from './db'
 import { git, gitOut } from './git'
@@ -240,8 +240,64 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
   })
   const file = (slug: string, name: string, when: number) => [name, { file: name, path: `memory/org/projects/${slug}/${name}`, employeeId: ADA, taskId: 'task-date', version: 1, at: at(when) }] as const
   const DAY = 24 * 60
+  // Single sign-on is under way: Ada asked first, the person answered, and the plan she gave from those answers was
+  // approved; its requirements are checked and two parts are running (the project screen draws it as a workflow).
+  const SSO = 'team-accounts-sso'
+  const ssoPlan: Project['plans'][number] = {
+    version: 1,
+    summary: 'Single sign-on for team accounts with any SAML 2.0 provider, set up by each team’s admin, with passwords kept beside it.',
+    size: 'large',
+    understood: ['Teams on the Business plan sign in with their company accounts; Okta first.', 'Any SAML 2.0 provider, set up by each team’s admin in Settings.', 'Passwords stay beside single sign-on.'],
+    doneWhen: ['A test Okta account signs in end to end.', 'An admin can add, test and turn off their connection without our help.', 'Password sign-in still works for everyone.'],
+    outOfScope: ['Requiring single sign-on for a whole team.', 'Syncing people from the provider (SCIM).'],
+    assumptions: [],
+    parts: [
+      { id: 'reqs', title: 'Requirements', owner: ADA, brief: 'Turn the answers into requirements: providers, setup, who can sign in.', reads: [], writes: 'requirements.md', dependsOn: [], gate: true },
+      { id: 'copy', title: 'Sign-in page copy', owner: MAX, brief: 'Write the sign-in page’s words for single sign-on.', reads: [], writes: 'sign-in-copy.md', dependsOn: ['reqs'], gate: false },
+      { id: 'guide', title: 'Admin setup guide', owner: MAX, brief: 'Write the guide an admin follows to connect their provider.', reads: [], writes: 'setup-guide.md', dependsOn: ['reqs'], gate: false },
+      { id: 'review', title: 'Check against requirements', owner: ADA, brief: 'Check the copy and the guide against the requirements.', reads: [], writes: 'review.md', dependsOn: ['copy', 'guide'], gate: false }
+    ],
+    proposed: [],
+    proposedIds: {},
+    taskId: 'proj-sso-plan',
+    at: at(38),
+    status: 'approved'
+  }
   const projects: Project[] = [
-    project('proj-sso', 'team-accounts-sso', 'Single sign-on for team accounts', 50),
+    project('proj-sso', SSO, 'Single sign-on for team accounts', 50, {
+      phase: 'working',
+      updatedAt: at(10),
+      asks: [
+        {
+          round: 1,
+          taskId: 'proj-sso-ask',
+          understood: ['Teams on the Business plan want to sign in with their company accounts.'],
+          questions: [
+            { question: 'Which identity providers must work first?', why: 'So I don’t guess Okta only.', options: ['Okta only', 'Okta and Azure AD', 'Any SAML 2.0 provider'] },
+            { question: 'Who sets up a team’s connection?', why: 'It decides whether we build a settings page.', options: ['Each team’s admin, in Settings', 'Our support team'] },
+            { question: 'Does password sign-in stay?', options: [] }
+          ],
+          at: at(48),
+          answers: ['Any SAML 2.0 provider', 'Each team’s admin, in Settings', 'Yes, beside single sign-on.'],
+          answeredAt: at(44)
+        }
+      ],
+      plan: ssoPlan,
+      plans: [ssoPlan],
+      parts: { reqs: { state: 'done', round: 1 }, copy: { state: 'running', round: 1 }, guide: { state: 'running', round: 1 }, review: { state: 'pending', round: 0 } },
+      steps: [
+        { kind: 'plan', round: 1, taskId: 'proj-sso-ask', employeeId: ADA, state: 'done', summary: 'Three questions before I plan.', startedAt: at(50), endedAt: at(48) },
+        { kind: 'plan', round: 2, taskId: 'proj-sso-plan', employeeId: ADA, state: 'done', summary: 'Four parts; you check the requirements.', startedAt: at(43), endedAt: at(38) },
+        { kind: 'part', partId: 'reqs', round: 1, taskId: 'proj-sso-reqs', employeeId: ADA, state: 'done', summary: 'Requirements written.', startedAt: at(36), endedAt: at(20) },
+        { kind: 'part', partId: 'copy', round: 1, taskId: 'proj-sso-copy', employeeId: MAX, state: 'running', startedAt: at(12) },
+        { kind: 'part', partId: 'guide', round: 1, taskId: 'proj-sso-guide', employeeId: MAX, state: 'running', startedAt: at(12) }
+      ],
+      artifacts: Object.fromEntries([file(SSO, 'plan.md', 38), file(SSO, 'requirements.md', 20)]),
+      decisions: [
+        { waitKind: 'plan', decision: 'approve', at: at(37) },
+        { waitKind: 'gate', partId: 'reqs', decision: 'approve', at: at(13) }
+      ]
+    }),
     project('proj-metrics', 'weekly-metrics-email', 'A weekly email of the five metrics the team watches', 6 * DAY, {
       phase: 'closed', outcome: 'done', closedAt: at(3 * DAY), updatedAt: at(3 * DAY), artifacts: Object.fromEntries([file('weekly-metrics-email', 'plan.md', 6 * DAY), file('weekly-metrics-email', 'email.md', 4 * DAY), file('weekly-metrics-email', 'test-report.md', 3 * DAY)])
     }),

@@ -2,15 +2,18 @@
 // with how many things its projects wait on the person for, a + that opens the organization's channel with `@Priya`
 // in its box (a new channel is a project she plans), and a chevron that shows, remembered open or closed, the
 // organization's channel and a channel per project going or closed and not archived, each with its state and what it is
-// doing on the line under its name and a ⋯ menu (rename, archive, delete), then All channels (the Channels page, where
-// archived ones are too). Shown only while the organization is the space shown and has a memory repository.
+// doing on the line under its name (a turning ring and who is at it while an employee works on it) and a ⋯ menu
+// (rename, archive, delete), then All channels (the Channels page, where archived ones are too). Shown only while the
+// organization is the space shown and has a memory repository.
 import { ChevronDown, ChevronRight, Hash, List, Plus } from 'lucide-react'
 import { useId } from 'react'
 import { currentSpace, spacesOn } from '../../../../shared/organizations'
+import { projectLive } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { openEmployees, toggleProjectsOpen, useStore } from '../../store'
 import { ActionRow, IconButton, Status } from '../../ui'
 import { ChannelMenu } from './ChannelActions'
+import { isWorking, liveWhat } from './ProjectLive'
 import { channelName, orgChannelSlug, projectChannel, projectStatus } from './projectWords'
 import './employees.css'
 
@@ -31,6 +34,8 @@ export function ProjectsSection() {
   const pm = org.programManagerId ? snapshot.employees?.[org.id]?.employees.find((e) => e.id === org.programManagerId) : undefined
   const pmName = pm?.name || t('projects.pmDefault')
   const orgSelected = route?.orgId === org.id && route.page === 'channel'
+  const runs = snapshot.employeeWork?.[org.id]?.runs ?? []
+  const nameOf = (id: string) => snapshot.employees?.[org.id]?.employees.find((e) => e.id === id)?.name || id
   return (
     <section className="team-section projects-section" aria-label={t('projects.heading')}>
       <ActionRow
@@ -73,6 +78,9 @@ export function ProjectsSection() {
           </li>
           {projects.map((p) => {
             const status = projectStatus(p, t, pmName)
+            const live = projectLive(p, runs)
+            // While someone works on it, the line says who and on what; else what its stage is.
+            const line = isWorking(live) ? liveWhat(p, live[0], nameOf(live[0].step.employeeId), t) : status.line
             const selected = route?.orgId === org.id && route.page === 'project' && route.id === p.id
             return (
               <li key={p.id}>
@@ -88,9 +96,9 @@ export function ProjectsSection() {
                     <span className="team-row-name">{projectChannel(p)}</span>
                   </span>
                   <span className="team-row-line">
-                    <Status className="team-row-status" tone={status.tone} label={status.label} />
-                    <span className="team-row-doing" title={status.line}>
-                      {status.line}
+                    <Status className="team-row-status" tone={status.tone} busy={isWorking(live)} label={status.label} />
+                    <span className="team-row-doing" title={line}>
+                      {line}
                     </span>
                   </span>
                 </ActionRow>

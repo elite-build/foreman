@@ -24,6 +24,18 @@ describe('Status', () => {
     expect(container.textContent).toBe('Needs you')
   })
 
+  it('shows a turning ring in place of the glyph when busy, with the word', () => {
+    const { container } = render(<Status tone="info" label="Ravi working" busy />)
+    const root = container.firstElementChild!
+    expect(root.className).toContain('ui-status--busy')
+    expect(root.querySelector('[data-glyph]')).toBeNull()
+    const ring = root.querySelector('.ui-spinner')!
+    expect(ring.getAttribute('aria-hidden')).toBe('true')
+    // The ring isn't a live region of its own: the word is the state.
+    expect(root.querySelector('[role="status"]')).toBeNull()
+    expect(screen.getByText('Ravi working')).toBeTruthy()
+  })
+
   it('shows extra content after the word', () => {
     render(<Status tone="warn" label="Needs you">2</Status>)
     expect(screen.getByText('2')).toBeTruthy()

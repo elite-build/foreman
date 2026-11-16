@@ -370,6 +370,27 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openEmployees({ orgId: f.organization.orgId, page: 'channels' })
     return (await waitFor(() => document.querySelector('.channels-list')?.textContent?.includes('#onboarding-emails'))) ? '.channels-page' : null
   },
+  // A project under way: the program manager's questions and your answers, then the plan drawn as a workflow.
+  project: async (f) => {
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'project', id: 'proj-sso' })
+    return (await waitFor(() => Boolean(document.querySelector('.channel-page .channel-workflow .ui-graph__node')))) ? '.channel-page' : null
+  },
+  // The same project scrolled to its plan: the workflow, the order, and what she understood.
+  'project-plan': async (f) => {
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'project', id: 'proj-sso' })
+    if (!(await waitFor(() => Boolean(document.querySelector('.channel-page .channel-workflow .ui-graph__node'))))) return null
+    document.querySelector('.channel-page .channel-plan[aria-label="Plan v1"]')?.scrollIntoView({ block: 'start' })
+    return '.channel-page'
+  },
+  // The same project with the parts beside the channel drawn as a map (components/employees/PlanMap.tsx).
+  'project-parts': async (f) => {
+    localStorage.setItem('foreman.projects.partsView', 'map')
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'project', id: 'proj-sso' })
+    return (await waitFor(() => Boolean(document.querySelector('.channel-side .plan-map .ui-graph__node')))) ? '.channel-page' : null
+  },
   employee: (f) => {
     setSpace(f.organization.orgId)
     openEmployees({ orgId: f.organization.orgId, page: 'employee', id: f.organization.employeeId })

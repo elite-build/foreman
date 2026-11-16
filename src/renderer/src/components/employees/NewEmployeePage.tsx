@@ -1,11 +1,13 @@
-// The New employee page (docs/ai-employees.md §5.3): describe the employee, optionally pick a personality and a hat,
-// then Generate with AI (one request) or Use my words. The draft is words to read and edit in place, with Refine; what it
-// can do starts at a new employee's settings whatever the words say (it writes, pushes and opens pull requests in the
-// organization's repositories), and what the draft suggests is listed switched off: the
-// AI drafts, it never grants. Create saves `bots/<id>.toml` and the employee's memory folder in one commit, as a draft,
-// and opens the draft's page, which is its plan: approving happens there. Nothing is written before Create.
+// The New employee page (docs/ai-employees.md §5.3): two ways, switched at the top. Pick a job (the default, PickJob.tsx)
+// adds one of Foreman's job templates, approved at once. Write your own: describe the employee, optionally pick a
+// personality and a hat, then Generate with AI (one request) or Use my words. The draft is words to read and edit in
+// place, with Refine; what it can do starts at a new employee's settings whatever the words say (it writes, pushes and
+// opens pull requests in the organization's repositories), and what the draft suggests is listed switched off: the AI
+// drafts, it never grants. Create saves `bots/<id>.toml` and the employee's memory folder in one commit, as a draft, and
+// opens the draft's page, which is its plan: approving happens there. Nothing is written before Create. Switching only
+// hides a way, so what was entered in each stays while the page is open.
 import { Check, RotateCcw, Wand2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   draftTextOf,
   employeeNameProblem,
@@ -26,14 +28,63 @@ import {
 import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { api, openEmployees, showToast, useStore } from '../../store'
-import { Button, Callout, Card, ChipButton, Disclosure, Field, HardHat, LinkButton, Spinner, Status, Switch, Tag, TextArea, TextInput, type HardHatColour } from '../../ui'
+import { Button, Callout, Card, ChipButton, Disclosure, Field, HardHat, LinkButton, Segmented, Spinner, Status, Switch, Tag, TextArea, TextInput, type HardHatColour } from '../../ui'
 import { CanDo, HatPicker, InstructionsField, WordFields, type Wearers } from './EmployeeFields'
 import type { EmployeesData } from './EmployeesView'
+import { PickJob } from './PickJob'
 import { agentLabel, colourName, modelText, TRAIT_LABEL } from './words'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
+type Way = 'pick' | 'write'
+
 export function NewEmployeePage({ orgId, data }: { orgId: string; data: EmployeesData }) {
+  const t = useT()
+  const orgName = useStore((s) => s.snapshot!.organizations?.find((o) => o.id === orgId)?.name ?? '')
+  const [way, setWay] = useState<Way>('pick')
+  const ways = useRef<HTMLDivElement>(null)
+  // "None of these fits? Write your own" moves focus to the switch, now on Write your own.
+  const focusWays = useRef(false)
+  useEffect(() => {
+    if (!focusWays.current) return
+    focusWays.current = false
+    ways.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus()
+  }, [way])
+
+  return (
+    <div className="new-employee">
+      <p className="employee-faint">{t('employees.add.intro', { organization: orgName })}</p>
+      <div className="new-employee-ways">
+        <Segmented
+          ref={ways}
+          label={t('employees.add.how')}
+          value={way}
+          onChange={setWay}
+          options={[
+            { value: 'pick', label: t('employees.add.pick') },
+            { value: 'write', label: t('employees.add.write') }
+          ]}
+        />
+      </div>
+      <div hidden={way !== 'pick'}>
+        <PickJob
+          orgId={orgId}
+          data={data}
+          onWrite={() => {
+            focusWays.current = true
+            setWay('write')
+          }}
+        />
+      </div>
+      <div hidden={way !== 'write'}>
+        <WriteYourOwn orgId={orgId} data={data} />
+      </div>
+    </div>
+  )
+}
+
+/** Write your own: today's describe → Generate or Use my words → draft → Create, unchanged. */
+function WriteYourOwn({ orgId, data }: { orgId: string; data: EmployeesData }) {
   const t = useT()
   const snapshot = useStore((s) => s.snapshot!)
   const organization = snapshot.organizations?.find((o) => o.id === orgId)

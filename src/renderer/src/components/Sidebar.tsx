@@ -66,7 +66,7 @@ import {
 import { resolveFilter, VIEW_LABEL, viewsOn } from '../../../shared/views'
 import { LATER_CHOICES, putAway, waitingLater } from '../../../shared/later'
 import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater, useLaterWake } from '../later'
-import { BUCKET_LABEL, foldedBuckets, liveRepo, sidebarGroups, sidebarOrder, STATUS_LABEL, type Bucket, type SidebarFilter, type Triage } from '../triage'
+import { BUCKET_LABEL, foldedBuckets, liveRepo, listsWorkspace, projectWorkspaceIds, sidebarGroups, sidebarOrder, STATUS_LABEL, type Bucket, type SidebarFilter, type Triage } from '../triage'
 import { promptTitle } from '../../../shared/compare'
 import type { CompareSection } from '../../../shared/triage'
 import { employeeKey, itemsInSpace, type NeedsYouCounts, type NeedsYouItem } from '../../../shared/needsYou'
@@ -744,7 +744,9 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
   const need = needsYouOf(everything)
   const shownSpace = currentSpace(everything.snapshot.organizations, space)
   const inSpace = new Set(snapshot.workspaces.map((w) => w.id))
-  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id))
+  // A project's workspace is its channel's, not a row here (unless it needs you), so it isn't counted either.
+  const projectIds = projectWorkspaceIds(snapshot)
+  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds))
   const scoped = repoId ? spaceTriage.filter((x) => x.ws.repoId === repoId) : spaceTriage
   const spaceNeeds = itemsInSpace(need.items, shownSpace)
   const scopedNeeds = repoId ? spaceNeeds.filter((i) => i.repoId === repoId) : spaceNeeds

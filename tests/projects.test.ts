@@ -1,7 +1,8 @@
 // Projects (docs/ai-employees.md §15), the pure part: titles and slugs, @mentions, Foreman's checks on a plan (owners,
 // files, dependencies, sizes, proposed employees, what a replan must keep), which replans go ahead on their own, the
-// parts that may start, plan.md, the words a task carries, the program manager's and a proposed employee's definitions,
-// and the memory file a task grants.
+// parts that may start, asking before planning (questions, answers, what a plan may assume), the plan's workflow
+// and order, plan.md, the words a task carries, the program manager's and a proposed employee's definitions, the
+// memory file a task grants, and what a project's employees are doing right now.
 import { describe, expect, it } from 'vitest'
 import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
 import { memoryWriteDecision } from '../src/shared/employeeTools'
@@ -9,8 +10,11 @@ import { employeeFromObject, parseEmployee, serializeEmployee } from '../src/sha
 import { createT } from '../src/shared/i18n'
 import {
   allPartsDone,
+  answersProblem,
   artifactPath,
   checkPlan,
+  checkQuestions,
+  MAX_QUESTION_ROUNDS,
   followUpBody,
   listedProjects,
   mentionOf,
@@ -18,15 +22,20 @@ import {
   partsAfter,
   planDiff,
   planMarkdown,
+  projectLive,
   planningBody,
+  planStages,
+  planWorkflow,
   projectSlug,
   projectTitle,
+  questionState,
   readyParts,
   replanGoesAhead,
   type PlanContext,
   type PlanInput,
   type Project,
-  type ProjectPlan
+  type ProjectPlan,
+  type QuestionRound
 } from '../src/shared/projects'
 
 const NOW = '2026-11-15T10:00:00.000Z'
@@ -79,7 +88,7 @@ const PLAN: PlanInput = {
 function checked(input: PlanInput = PLAN, ctx: PlanContext = CTX): ProjectPlan {
   const out = checkPlan(input, ctx)
   if (!out.ok) throw new Error(out.problems.join('\n'))
-  return { version: 1, summary: out.summary, size: out.size, parts: out.parts, proposed: out.proposed, proposedIds: { qa: 'e-qui1' }, taskId: 't1', at: NOW, status: 'approved' }
+  return { version: 1, summary: out.summary, size: out.size, understood: out.understood, doneWhen: out.doneWhen, outOfScope: out.outOfScope, assumptions: out.assumptions, parts: out.parts, proposed: out.proposed, proposedIds: { qa: 'e-qui1' }, taskId: 't1', at: NOW, status: 'approved' }
 }
 
 describe('projects: names and mentions', () => {
@@ -226,7 +235,7 @@ describe('projects: replans, readiness and plan.md', () => {
 
   it('tells the program manager the roster and how to plan, a part its file and inputs, and a follow-up what to read', () => {
     const body = planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster: [{ id: 'e-rav1', name: 'Ravi', role: 'Developer', askMeAbout: 'code', state: 'approved' }], transcript: 'You: add a button' })
-    expect(body).toContain('Plan a new project in Acme')
+    expect(body).toContain('Before you plan it, understand it: ask the person')
     expect(body).toContain('- Ravi (id e-rav1): Developer; ask about: code; approved')
     expect(body).toContain('<foreman-data kind="workspace-chat">')
     expect(body).toContain('call project_plan')
@@ -278,5 +287,183 @@ describe('the memory file a task grants', () => {
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: true, files: [file] }).kind).toBe('propose')
     expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/design.md', { scopes: [], readOnly: false, files: [file] }).kind).toBe('refuse')
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: false }).kind).toBe('refuse')
+  })
+})
+
+describe('what a project’s employees are doing now', () => {
+  const at = (m: number) => `2026-11-15T10:${String(m).padStart(2, '0')}:00.000Z`
+  const step = (taskId: string, kind: 'plan' | 'part' | 'accept' | 'follow-up', state: 'running' | 'done' | 'stuck' = 'running') => ({ kind, round: 1, taskId, employeeId: `e-${taskId}`, state, startedAt: at(0), ...(kind === 'part' ? { partId: taskId } : {}) })
+
+  it('pairs each running step with its task’s run not ended: working first, then starting, then queued', () => {
+    const steps = [step('t1', 'part'), step('t2', 'part'), step('t3', 'part'), step('t4', 'plan', 'done')]
+    const runs = [
+      { id: 'r1', taskId: 't1', state: 'queued' as const, createdAt: at(1), reason: 'Ravi is busy with another task' },
+      { id: 'r2', taskId: 't2', state: 'provisioning' as const, createdAt: at(1), admittedAt: at(2) },
+      { id: 'r3', taskId: 't3', state: 'running' as const, createdAt: at(1), admittedAt: at(2), startedAt: at(3), workspaceId: 'w3', sessionId: 's3' },
+      // A finished step's task has no live run, and isn't listed even if a stray one is.
+      { id: 'r4', taskId: 't4', state: 'running' as const, createdAt: at(1) }
+    ]
+    const live = projectLive({ phase: 'working', steps }, runs)
+    expect(live.map((l) => [l.runId, l.state, l.since])).toEqual([
+      ['r3', 'working', at(3)],
+      ['r2', 'starting', at(2)],
+      ['r1', 'queued', at(1)]
+    ])
+    expect(live[0]).toMatchObject({ workspaceId: 'w3', sessionId: 's3' })
+    expect(live[2].reason).toBe('Ravi is busy with another task')
+  })
+
+  it('leaves out a running step whose task has no run going (it waits on an answer), and everything once closed', () => {
+    const steps = [step('t1', 'follow-up')]
+    expect(projectLive({ phase: 'working', steps }, [])).toEqual([])
+    expect(projectLive({ phase: 'working', steps }, [{ id: 'r9', taskId: 'other', state: 'running', createdAt: at(1) }])).toEqual([])
+    expect(projectLive({ phase: 'closed', steps }, [{ id: 'r1', taskId: 't1', state: 'running', createdAt: at(1) }])).toEqual([])
+  })
+
+  it('takes the newest run of a task that was tried again', () => {
+    const runs = [
+      { id: 'old', taskId: 't1', state: 'admitted' as const, createdAt: at(1) },
+      { id: 'new', taskId: 't1', state: 'running' as const, createdAt: at(4), startedAt: at(5) }
+    ]
+    expect(projectLive({ phase: 'working', steps: [step('t1', 'part')] }, runs).map((l) => l.runId)).toEqual(['new'])
+  })
+})
+
+describe('projects: asking before planning', () => {
+  const round = (patch: Partial<QuestionRound> = {}): QuestionRound => ({ round: 1, taskId: 't1', understood: [], questions: [{ question: 'Which formats?', options: ['CSV', 'CSV and Excel'] }], at: NOW, ...patch })
+  const answered = questionState([round({ answers: ['CSV only'], answeredAt: NOW })])
+  const unasked = questionState([])
+
+  it('checks a round of questions: some, not too many, each once, while rounds are left and none waits', () => {
+    const ok = checkQuestions({ understood: ['Finance exports reports.'], questions: [{ question: 'Which formats?', why: 'So I don’t guess Excel.', options: ['CSV', 'Excel'] }] }, unasked)
+    expect(ok).toEqual({ ok: true, understood: ['Finance exports reports.'], questions: [{ question: 'Which formats?', why: 'So I don’t guess Excel.', options: ['CSV', 'Excel'] }] })
+    const problems = (input: Parameters<typeof checkQuestions>[0], state = unasked) => {
+      const out = checkQuestions(input, state)
+      return out.ok ? [] : out.problems
+    }
+    expect(problems({ questions: [] })).toContain('Ask at least one question.')
+    expect(problems({ questions: Array.from({ length: 11 }, (_, i) => ({ question: `Q${i}?` })) })[0]).toContain('at most 10 questions')
+    expect(problems({ questions: [{ question: 'Why?' }, { question: 'why?' }] })).toContain('Two questions are the same: ask each once.')
+    expect(problems({ questions: [{ question: 'Which?', options: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }] })[0]).toContain('more than 6 options')
+    expect(problems({ questions: [{ question: 'More?' }] }, questionState([round()]))[0]).toContain('still waiting for the person’s answers')
+    const all = Array.from({ length: MAX_QUESTION_ROUNDS }, (_, i) => round({ round: i + 1, answers: ['x'] }))
+    expect(problems({ questions: [{ question: 'More?' }] }, questionState(all))[0]).toContain('plan with what you know')
+  })
+
+  it('takes the person’s answers only when every question has one', () => {
+    const r = round({ questions: [{ question: 'A?', options: [] }, { question: 'B?', options: [] }] })
+    expect(answersProblem(r, ['yes', 'no'])).toBeNull()
+    expect(answersProblem(r, ['yes'])).toBe('missing')
+    expect(answersProblem(r, ['yes', '  '])).toBe('missing')
+    expect(answersProblem(r, ['yes', 'x'.repeat(2_001)])).toBe('long')
+  })
+
+  it('refuses a first plan until the person has answered, and lets a replan through without asking', () => {
+    const small: PlanInput = { summary: 's', size: 'small', parts: [{ id: 'build', title: 'Build', owner: 'Ravi', brief: 'b', writes: 'build.md' }] }
+    const first = checkPlan(small, { ...CTX, asked: unasked })
+    expect(first.ok ? '' : first.problems[0]).toContain('Ask before you plan: call project_questions')
+    const waiting = checkPlan(small, { ...CTX, asked: questionState([round()]) })
+    expect(waiting.ok ? '' : waiting.problems[0]).toContain('still waiting for the person’s answers')
+    expect(checkPlan(small, { ...CTX, asked: answered }).ok).toBe(true)
+    expect(checkPlan(small, { ...CTX, asked: questionState([round({ skipped: true })]) }).ok).toBe(true)
+    // A replan: nothing to ask first, though a large one still says what was understood and when it is done.
+    const current = checked()
+    expect(checkPlan({ ...PLAN, understood: ['u'], done_when: ['d'] }, { ...CTX, asked: unasked, current, parts: {} }).ok).toBe(true)
+  })
+
+  it('makes a large plan say what was understood and when it is done, and assume nothing while she can still ask', () => {
+    const problems = (input: PlanInput, asked = answered) => {
+      const out = checkPlan(input, { ...CTX, asked })
+      return out.ok ? [] : out.problems
+    }
+    expect(problems(PLAN)).toEqual([expect.stringContaining('(understood)'), expect.stringContaining('(done_when)')])
+    const full = { ...PLAN, understood: ['Finance exports monthly reports.'], done_when: ['A report downloads as CSV.'], out_of_scope: ['Excel'] }
+    expect(problems(full)).toEqual([])
+    expect(problems({ ...full, assumptions: ['UTF-8 is fine'] })).toEqual([expect.stringContaining('ask about these with project_questions instead (2 rounds left): UTF-8 is fine')])
+    // Told to plan with what she has, or out of rounds, she lists them for the person to check.
+    expect(problems({ ...full, assumptions: ['UTF-8 is fine'] }, questionState([round({ skipped: true })]))).toEqual([])
+    const spent = questionState(Array.from({ length: MAX_QUESTION_ROUNDS }, (_, i) => round({ round: i + 1, answers: ['x'] })))
+    expect(problems({ ...full, assumptions: ['UTF-8 is fine'] }, spent)).toEqual([])
+    // A small plan may assume.
+    const out = checkPlan({ summary: 's', size: 'small', assumptions: ['UTF-8 is fine'], parts: [{ id: 'build', title: 'Build', owner: 'Ravi', brief: 'b', writes: 'build.md' }] }, { ...CTX, asked: answered })
+    expect(out).toMatchObject({ ok: true, assumptions: ['UTF-8 is fine'] })
+  })
+
+  it('tells her to ask first, then gives her the answers, or says to plan with what she has', () => {
+    const roster = [{ id: 'e-rav1', name: 'Ravi', role: 'Developer', askMeAbout: '', state: 'approved' }]
+    const first = planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster, asks: [] })
+    expect(first).toContain('Foreman refuses a first plan until they have answered')
+    expect(first).toContain('How to ask:')
+    expect(first).toContain('Call project_questions')
+    const after = planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster, asks: [round({ answers: ['CSV only'], answeredAt: NOW })] })
+    expect(after).toContain('Plan the project “Export reports to CSV” in Acme.')
+    expect(after).toContain('1. Which formats?\n   Answer: CSV only')
+    expect(after).toContain('2 rounds left')
+    const skipped = planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster, asks: [round({ skipped: true, answeredAt: NOW })] })
+    expect(skipped).toContain('plan with what you have: don’t ask again')
+    expect(skipped).not.toContain('How to ask:')
+  })
+})
+
+describe('projects: the plan as a workflow', () => {
+  it('orders the parts in stages: what waits for nothing first, parts that wait for the same things together', () => {
+    expect(planStages(checked().parts)).toEqual([['reqs'], ['build'], ['qa']])
+    const parts = [
+      { id: 'a', dependsOn: [] },
+      { id: 'b', dependsOn: ['a'] },
+      { id: 'c', dependsOn: ['a'] },
+      { id: 'd', dependsOn: ['b', 'c'] }
+    ]
+    expect(planStages(parts)).toEqual([['a'], ['b', 'c'], ['d']])
+  })
+
+  it('draws the request, the questions, each part, your checks, her acceptance and your final check, in order', () => {
+    const flow = planWorkflow(checked(), { questions: true })
+    expect(flow.steps.map((s) => [s.id, s.stage, s.lane])).toEqual([
+      ['request', 0, 0],
+      ['questions', 1, 0],
+      ['part:reqs', 2, 0],
+      ['check:reqs', 3, 0],
+      ['part:build', 4, 0],
+      ['part:qa', 5, 0],
+      ['accept', 6, 0],
+      ['final', 7, 0],
+      ['end', 8, 0]
+    ])
+    expect(flow.steps.find((s) => s.id === 'check:reqs')).toMatchObject({ kind: 'check', partId: 'reqs' })
+    expect(flow.links).toContainEqual({ from: 'check:reqs', to: 'part:build' })
+    expect(flow.links).toContainEqual({ from: 'part:qa', to: 'accept' })
+    expect(flow).toMatchObject({ stages: 9, lanes: 1 })
+    // A small plan without questions ends at its last parts; parts side by side share a column.
+    const [, build, qa] = checked().parts
+    const small = planWorkflow({ size: 'small', parts: [{ ...build, dependsOn: [] }, { ...qa, dependsOn: [], reads: [] }] }, { questions: false })
+    expect(small.steps.map((s) => [s.id, s.stage, s.lane])).toEqual([
+      ['request', 0, 0],
+      ['part:build', 1, 0],
+      ['part:qa', 1, 1],
+      ['end', 2, 0]
+    ])
+    expect(small.links).toEqual([
+      { from: 'request', to: 'part:build' },
+      { from: 'request', to: 'part:qa' },
+      { from: 'part:build', to: 'end' },
+      { from: 'part:qa', to: 'end' }
+    ])
+  })
+
+  it('writes plan.md with what she understood, done when, out of scope, assumptions, the workflow, the order and the questions asked', () => {
+    const plan = checked({ ...PLAN, understood: ['Finance exports monthly.'], done_when: ['It downloads.'], out_of_scope: ['Excel'] })
+    const asks: QuestionRound[] = [{ round: 1, taskId: 't1', understood: [], questions: [{ question: 'Which formats?', options: [] }], at: NOW, answers: ['CSV only'], answeredAt: NOW }]
+    const md = planMarkdown(project({ asks }), plan, { 'e-pri1': 'Priya', 'e-rav1': 'Ravi' })
+    expect(md).toContain('## What I understood\n\n- Finance exports monthly.')
+    expect(md).toContain('## Done when\n\n- It downloads.')
+    expect(md).toContain('## Out of scope\n\n- Excel')
+    expect(md).toContain('## Assumptions\n\nNone: every open point was asked.')
+    expect(md).toContain('```mermaid\nflowchart TD')
+    expect(md).toContain('  check_reqs{{"You check: Requirements"}}')
+    expect(md).toContain('  questions --> part_reqs')
+    expect(md).toContain('1. Requirements (Priya). Then the person checks Requirements.')
+    expect(md).toContain('4. The program manager checks the result against the request')
+    expect(md).toContain('## Questions asked\n\nRound 1:\n1. Which formats?\n   Answer: CSV only')
   })
 })

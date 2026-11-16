@@ -43,6 +43,8 @@ import {
   type EmployeeView,
   type PersonalityTrait
 } from '../shared/employees'
+import { programManagerDefinition } from '../shared/employeeTeams'
+import { isEmployeeTemplateId, templateDefinitions, type EmployeeTemplateId } from '../shared/employeeTemplates'
 import { createT, type Locale } from '../shared/i18n'
 import { isEmployeeId } from '../shared/memory'
 import { reposInSpace, type Organization } from '../shared/organizations'
@@ -466,7 +468,8 @@ export class EmployeeService {
       { kind: 'write' as const, path: employeePath(d.id), text: serializeEmployee(d), expectedBlob: null },
       ...Object.entries(seedMemoryFiles(d)).map(([file, text]) => ({ kind: 'write' as const, path: file, text, expectedBlob: null }))
     ])
-    const result = await this.host.memory.commitAsPerson(orgId, changes, { subject: `Add the team: ${checked.map((d) => d.name).join(', ')}` })
+    const subject = checked.length === 1 ? `Add AI employee ${checked[0].name} (${employeePath(checked[0].id)})` : `Add the team: ${checked.map((d) => d.name).join(', ')}`
+    const result = await this.host.memory.commitAsPerson(orgId, changes, { subject })
     if (!result.ok) throw new Error(`${result.path} is already in ${org.name}’s memory repository.`)
     for (const d of checked) this.setRecord(orgId, d.id, { state: 'draft' })
     this.host.changed()
@@ -476,6 +479,71 @@ export class EmployeeService {
       out.push(await this.view(orgId, file))
     }
     return out
+  }
+
+  /**
+   * Make several in one commit, as createTeam does, then approve each as it is (§15, §16): the program manager and the
+   * templates New organization picked, or the one template Add employee picked. An approval that fails leaves that
+   * employee and the ones after it as drafts, approved on their pages, and says why; nothing made is taken back.
+   */
+  async createApproved(orgId: string, definitions: EmployeeDefinition[]): Promise<{ employees: EmployeeView[]; approveError?: string }> {
+    const made = await this.createTeam(orgId, definitions)
+    const employees: EmployeeView[] = []
+    for (const [i, e] of made.entries()) {
+      try {
+        employees.push(await this.approve(orgId, e.id))
+      } catch (err) {
+        return { employees: [...employees, ...made.slice(i)], approveError: message(err) }
+      }
+    }
+    return { employees }
+  }
+
+  /**
+   * Add employee's Pick a job (§5.3, §16): one template employee, made and approved at once with the template's own
+   * access on the organization's repositories (its memory repository left out) and the person's loadouts. Its name,
+   * hat and id are decided here from the roster as it is now; the window previews the same with templateDefinitions on
+   * the roster it has (PickJob.tsx).
+   */
+  async addTemplate(orgId: string, templateId: string): Promise<{ employee: EmployeeView; approveError?: string }> {
+    const org = this.organization(orgId)
+    if (!isEmployeeTemplateId(templateId)) throw new Error('There is no such job to add.')
+    const { entries, folders } = await this.load(orgId)
+    const repos = reposInSpace(this.state.repos, this.state.organizations ?? [], org.id)
+      .filter((r) => r.id !== org.memoryRepoId)
+      .map((r) => r.name)
+    const [definition] = templateDefinitions({
+      templates: [templateId],
+      repos,
+      loadouts: this.state.settings.loadouts,
+      taken: [...entries.map((e) => e.id), ...folders, ...this.records().filter((r) => r.orgId === orgId).map((r) => r.id)],
+      takenNames: entries.flatMap((e) => (e.definition ? [e.definition.name] : [])),
+      worn: entries.flatMap((e) => (e.definition && this.record(orgId, e.id)?.state !== 'retired' ? [e.definition.look.colour] : []))
+    })
+    const { employees, approveError } = await this.createApproved(orgId, [definition])
+    return { employee: employees[0], ...(approveError ? { approveError } : {}) }
+  }
+
+  /**
+   * New organization's program manager (§15) and the templates the person picked in the same dialog, on the repositories
+   * it has (its memory repository left out): made in one commit and approved, the way addTemplate makes one. Her
+   * definition is fixed and the same in every organization, and the dialog names each one Create approves, so an
+   * approval that fails throws. Returns her id.
+   */
+  async addProgramManager(orgId: string, templates: readonly EmployeeTemplateId[] = []): Promise<string> {
+    const org = this.organization(orgId)
+    const repos = reposInSpace(this.state.repos, this.state.organizations ?? [], org.id)
+      .filter((r) => r.id !== org.memoryRepoId)
+      .map((r) => r.name)
+    const members = await this.members(orgId)
+    const loadouts = this.state.settings.loadouts
+    const taken = members.map((m) => m.summary.id)
+    const takenNames = members.map((m) => m.summary.name)
+    const definition = programManagerDefinition({ repos, loadouts, taken, takenNames })
+    const picked = templateDefinitions({ templates, repos, loadouts, taken: [...taken, definition.id], takenNames: [...takenNames, definition.name] })
+    const { approveError } = await this.createApproved(orgId, [definition, ...picked])
+    if (approveError) throw new Error(approveError)
+    return definition.id
   }
 
   /**

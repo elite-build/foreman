@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 // Projects in the window (docs/ai-employees.md §15): the sidebar's Channels row (the organization's channel and one per
 // project, with its state); the organization's channel, where "@Priya …" starts a project and "@Ravi …" asks Ravi; a
-// project's channel with its plan (the parts, the employees it proposes, Approve plan only once each is approved, Send
-// back only with a note), a part waiting at its gate, follow-ups and notes from the message box, and Stop only after you
-// confirm; the person's row in the Team list; and Add Priya for an organization without her.
+// project's channel with its plan (drawn as a workflow, what the program manager understood and assumed, the parts, the
+// employees it proposes, Approve plan only once each is approved, Send back only with a note), her questions answered
+// on one card (or Plan with what you have), a part waiting at its gate, follow-ups and notes from the message box, and
+// Stop only after you confirm; who is at work on a project right now (in its channel, beside its state, on its row) or
+// that nothing runs; the person's row in the Team list; and Add Priya for an organization without her.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -191,6 +193,44 @@ describe('a project’s channel', () => {
     await waitFor(() => expect(fakeApi.decideProject).toHaveBeenLastCalledWith('p1', 'w1', 'approve', undefined))
   })
 
+  it('draws the plan as a workflow, in order, with what she understood, done when, out of scope and her assumptions', () => {
+    const plan = { ...PLAN, understood: ['Finance exports monthly reports.'], doneWhen: ['A report downloads as CSV.'], outOfScope: ['Excel'], assumptions: [] }
+    setSnapshot([project({ plans: [plan] })])
+    render(<ProjectPage orgId="o1" project={project({ plans: [plan] })} />)
+    const card = screen.getByRole('region', { name: 'Plan v1' })
+    const drawn = within(card).getByRole('img', { name: 'Plan v1 as a workflow' })
+    for (const step of ['Your request', 'Build the export', 'You check', 'Test it', 'Acceptance', 'Your final check', 'Done']) expect(within(drawn).getAllByText(step).length).toBeGreaterThan(0)
+    const order = within(card).getByRole('list', { name: 'In order' })
+    expect(within(order).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Build the export (Ravi) then you check Build the export', 'Test it (Quinn)', 'Priya checks the result against your request, then your final check'])
+    expect(within(card).getByText('Finance exports monthly reports.')).toBeTruthy()
+    expect(within(card).getByText('A report downloads as CSV.')).toBeTruthy()
+    expect(within(card).getByText('Excel')).toBeTruthy()
+    expect(within(card).getByText('None: every open point was asked.')).toBeTruthy()
+  })
+
+  it('asks you her questions on one card: Send answers once each is answered, or let her plan with what is known', async () => {
+    const user = userEvent.setup()
+    const asks = [{ round: 1, taskId: 't1', understood: ['Enterprise customers log in with company accounts.'], questions: [{ question: 'Which identity providers?', why: 'So I don’t guess Okta only.', options: ['Okta only', 'Any SAML 2.0'] }, { question: 'Does password login stay?', options: [] }], at: NOW }]
+    const asking = project({ phase: 'planning', plans: [], asks, steps: [{ kind: 'plan', round: 1, taskId: 't1', employeeId: 'e-pri1', state: 'done', summary: 'Two questions first.', startedAt: NOW, endedAt: NOW }], artifacts: {}, waits: [{ id: 'wq', kind: 'questions', since: NOW }] })
+    setSnapshot([asking])
+    fakeApi.answerProject = vi.fn(async () => asking)
+    render(<ProjectPage orgId="o1" project={asking} />)
+    // Her post lists them, with why she asks.
+    const post = screen.getByRole('region', { name: 'Questions, round 1' })
+    expect(within(post).getByText('So I don’t guess Okta only.')).toBeTruthy()
+    expect(within(post).getByText('Enterprise customers log in with company accounts.')).toBeTruthy()
+    const send = screen.getByRole('button', { name: /^Send answers/ }) as HTMLButtonElement
+    expect(send.disabled).toBe(true)
+    expect(screen.getByText('0 of 2 answered')).toBeTruthy()
+    await user.click(screen.getByRole('radio', { name: 'Any SAML 2.0' }))
+    await user.type(screen.getByRole('textbox', { name: 'Your answer' }), 'Yes, for small teams')
+    expect(screen.getByText('2 of 2 answered')).toBeTruthy()
+    await user.click(send)
+    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes, for small teams']))
+    await user.click(screen.getByRole('button', { name: /^Plan with what you have/ }))
+    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenLastCalledWith('p1', 'wq', null))
+  })
+
   it('shows a part waiting at its gate with what it wrote, and the parts beside the channel', async () => {
     const user = userEvent.setup()
     const atGate = project({
@@ -250,5 +290,64 @@ describe('the person on the team', () => {
     const rows = within(list).getAllByRole('listitem')
     expect(within(rows[0]).getByText('You')).toBeTruthy()
     expect(within(rows[0]).getByText('Needs you · 1')).toBeTruthy()
+  })
+})
+
+describe('who is at work on a project now', () => {
+  const working = (steps: Project['steps'] = [{ kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'running', startedAt: '2026-11-15T10:06:00.000Z' }]) =>
+    project({ phase: 'working', plan: { ...PLAN, status: 'approved' }, plans: [{ ...PLAN, status: 'approved' }], parts: { build: { state: 'running', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } }, steps: [...project().steps, ...steps], waits: [] })
+  const run = (patch: Record<string, unknown>) => ({ id: 'r2', taskId: 't2', employeeId: 'e-rav1', orgId: 'o1', attempt: 1, started: true, turnIds: [], createdAt: NOW, updatedAt: NOW, ...patch })
+  const withRuns = (runs: Record<string, unknown>[], workspaces: { id: string }[] = []) => {
+    const snapshot = fakeState.snapshot!
+    fakeState.snapshot = { ...snapshot, workspaces: workspaces as never, employeeWork: { o1: { ...snapshot.employeeWork!.o1, runs: runs as never } } }
+  }
+
+  it('shows who works on what, for how long, with a link to their chat, in the channel, beside its state and on the part', async () => {
+    const user = userEvent.setup()
+    spy('selectSession').mockReset()
+    const p = working()
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    withRuns([run({ state: 'running', startedAt: '2026-11-15T10:06:00.000Z', workspaceId: 'w1', sessionId: 's1' })], [{ id: 'w1' }])
+    render(<ProjectPage orgId="o1" project={p} />)
+    const timeline = screen.getByRole('list', { name: /csv-export/ })
+    expect(within(timeline).getByText('Ravi is working on “Build the export”')).toBeTruthy()
+    expect(screen.getByText('Ravi working').closest('.ui-status')!.className).toContain('ui-status--busy')
+    const side = screen.getByRole('complementary', { name: 'About #csv-export' })
+    expect(within(side).getByText('Working').closest('.ui-status')!.className).toContain('ui-status--busy')
+    await user.click(screen.getByRole('button', { name: 'Watch Ravi' }))
+    expect(spy('selectWorkspace')).toHaveBeenCalledWith('w1')
+    expect(spy('selectSession')).toHaveBeenCalledWith('w1', 's1')
+  })
+
+  it('says a run is queued and why, and says Nothing running when the stage is working but no run is', () => {
+    const p = working()
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    withRuns([run({ state: 'queued', started: false, reason: 'Waits for Ravi’s other task' })])
+    const { unmount } = render(<ProjectPage orgId="o1" project={p} />)
+    expect(screen.getByText('Waits for Ravi’s other task')).toBeTruthy()
+    expect(screen.getAllByText('Queued').length).toBeGreaterThan(0)
+    // No chat yet, so nothing to watch.
+    expect(screen.queryByRole('button', { name: 'Watch Ravi' })).toBeNull()
+    unmount()
+    withRuns([])
+    render(<ProjectPage orgId="o1" project={p} />)
+    expect(screen.getByText('Nothing running')).toBeTruthy()
+    expect(screen.queryByText(/is working on/)).toBeNull()
+  })
+
+  it('says nothing about running while the project waits for you', () => {
+    setSnapshot()
+    render(<ProjectPage orgId="o1" project={project()} />)
+    expect(screen.queryByText('Nothing running')).toBeNull()
+  })
+
+  it('marks the channel’s row in the sidebar with who is at it', () => {
+    const p = working()
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    withRuns([run({ state: 'running', startedAt: NOW })])
+    render(<ProjectsSection />)
+    const list = screen.getByRole('list', { name: 'Channels in FRLK' })
+    expect(within(list).getByText('Ravi is working on “Build the export”')).toBeTruthy()
+    expect(within(list).getByText('Working').closest('.ui-status')!.className).toContain('ui-status--busy')
   })
 })

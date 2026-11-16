@@ -1,7 +1,8 @@
-// Starting templates (docs/ai-employees.md §16): fifteen ready Staff employees New organization offers beside Priya.
+// Starting templates (docs/ai-employees.md §16): fifteen ready Staff employees New organization offers beside Priya and
+// Add employee offers in an existing organization: their names and hats around the roster, and who already does a job.
 import { describe, expect, it } from 'vitest'
-import { EMPLOYEE_TEMPLATE_IDS, EMPLOYEE_TEMPLATES, isEmployeeTemplateId, staffRole, templateDefinitions } from '../src/shared/employeeTemplates'
-import { parseEmployee, serializeEmployee } from '../src/shared/employees'
+import { EMPLOYEE_TEMPLATE_IDS, EMPLOYEE_TEMPLATES, employeeTemplate, isEmployeeTemplateId, staffRole, templateColour, templateDefinitions, templateHolders, templateName, templateNameTaken } from '../src/shared/employeeTemplates'
+import { HAT_COLOURS, parseEmployee, serializeEmployee } from '../src/shared/employees'
 import { en } from '../src/shared/i18n/en'
 
 const claude = [{ agent: 'claude' as const, model: 'claude-sonnet-5-5', effort: 'high' as const }]
@@ -47,6 +48,48 @@ describe('employee templates', () => {
     const made = templateDefinitions({ templates: ['ux-designer', 'software-engineer', 'ux-designer'], repos: ['atlas'], loadouts: claude, taken: ['e-pri1'], takenNames: ['Priya', 'ravi'] })
     expect(made.map((d) => d.name)).toEqual(['Ravi (Software engineer)', 'Uma'])
     expect(made.map((d) => d.id)).not.toContain('e-pri1')
+  })
+
+  it('name a job whose name is taken "<name> (<job>)", then number it, ignoring case and spaces', () => {
+    const qa = employeeTemplate('qa-engineer')
+    expect(templateName(qa, ['Priya'])).toBe('Quinn')
+    expect(templateName(qa, [' quinn '])).toBe('Quinn (QA engineer)')
+    expect(templateName(qa, ['Quinn', 'quinn (qa engineer)'])).toBe('Quinn (QA engineer) 2')
+    expect(templateName(qa, ['Quinn', 'Quinn (QA engineer)', 'Quinn (QA engineer) 2'])).toBe('Quinn (QA engineer) 3')
+    // A third QA engineer no longer gets the second one's name.
+    expect(templateDefinitions({ templates: ['qa-engineer'], repos: [], loadouts: claude, taken: [], takenNames: ['Quinn', 'Quinn (QA engineer)'] })[0].name).toBe('Quinn (QA engineer) 2')
+  })
+
+  it('say which name gave way to a renamed one: the last name tried before it', () => {
+    const qa = employeeTemplate('qa-engineer')
+    expect(templateNameTaken(qa, 'Quinn (QA engineer)')).toBe('Quinn')
+    expect(templateNameTaken(qa, 'Quinn (QA engineer) 2')).toBe('Quinn (QA engineer)')
+    expect(templateNameTaken(qa, 'Quinn (QA engineer) 3')).toBe('Quinn (QA engineer) 2')
+    // Anything else gives the template's own name.
+    expect(templateNameTaken(qa, 'Quinn (QA engineer) x')).toBe('Quinn')
+    expect(templateNameTaken(qa, 'Quinn')).toBe('Quinn')
+  })
+
+  it('wear their own hat unless it is worn, then the first free one; without `worn` (New organization) each wears its own', () => {
+    const qa = employeeTemplate('qa-engineer')
+    expect(templateColour(qa, ['teal'])).toBe('green')
+    expect(templateColour(qa, ['green', 'orange'])).toBe('pink')
+    // All twelve worn: the first of the least worn repeats.
+    expect(templateColour(qa, [...HAT_COLOURS])).toBe('orange')
+    // Quinn and Sam are both green: the second gives way to the first one free.
+    expect(templateDefinitions({ templates: ['qa-engineer', 'seo-specialist'], repos: [], loadouts: claude, taken: [], worn: ['teal'] }).map((d) => d.look.colour)).toEqual(['green', 'orange'])
+    expect(templateDefinitions({ templates: ['qa-engineer', 'seo-specialist'], repos: [], loadouts: claude, taken: [] }).map((d) => d.look.colour)).toEqual(['green', 'green'])
+  })
+
+  it('know who already does a job by its Staff role, ignoring case, leaving retired employees out', () => {
+    const roster = [
+      { name: 'Quinn', role: 'Staff QA engineer', retired: false },
+      { name: 'Q2', role: ' staff qa engineer ', retired: false },
+      { name: 'Old', role: 'Staff QA engineer', retired: true },
+      { name: 'Ravi', role: 'Staff software engineer', retired: false }
+    ]
+    expect(templateHolders(employeeTemplate('qa-engineer'), roster)).toEqual(['Quinn', 'Q2'])
+    expect(templateHolders(employeeTemplate('ux-designer'), roster)).toEqual([])
   })
 
   it('stay read-only with an agent that can’t run unattended, where Write would never run', () => {

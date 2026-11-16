@@ -235,7 +235,7 @@ describe('second opinion', () => {
     const { handOffs, sessions, source, open, request, ws } = await setup()
     const req = await request()
     while (open().length < MAX_OPEN_TABS) sessions.createSession(ws.id)
-    await expect(handOffs.start(source.id, req)).rejects.toThrow(/Maximum of 10 chats/)
+    await expect(handOffs.start(source.id, req)).rejects.toThrow(new RegExp(`Maximum of ${MAX_OPEN_TABS} chats`))
     expect(open()).toHaveLength(MAX_OPEN_TABS)
   })
 

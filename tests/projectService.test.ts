@@ -1,5 +1,6 @@
 // Projects (docs/ai-employees.md §15), the service: against a real foreman.db with a stand-in work service that records
-// the tasks it is asked for. Starting with the program manager (refused without her or without words), her plan through
+// the tasks it is asked for. Starting with the program manager (refused without her or without words), her questions
+// before her first plan (asked, waited for, answered or skipped, a plan refused until then), her plan through
 // project_plan (checked, proposed employees made as drafts, plan.md staged, a planning task can't finish without one),
 // the plan gate (refused until every owner is approved), parts in parallel with their contracts, a part's gate, a part
 // that can't finish waking a replan (one that goes ahead, one that waits), the end of a small project and a large one's
@@ -131,7 +132,16 @@ async function rig(options: { pm?: boolean } = {}) {
     return said
   }
   const get = (id: string) => service.get(id)
-  return { db, state, org, team, service, asked, canceled, archived, staged, files, personCommits, alive, close, task, last, plan, get, clock }
+  /** Start a project whose questions the person has already answered, so her planning task may plan. */
+  const start = async (input: { requirement: string }) => {
+    const project = await service.start('o1', input)
+    const fresh = db.project(project.id)!
+    const at = new Date(clock.now).toISOString()
+    fresh.asks = [{ round: 1, taskId: 'earlier', understood: [], questions: [{ question: 'Which formats?', options: [] }], at, answers: ['CSV only'], answeredAt: at }]
+    db.putProject(fresh)
+    return service.get(project.id)
+  }
+  return { db, state, org, team, service, asked, canceled, archived, staged, files, personCommits, alive, close, task, last, plan, get, start, clock }
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 15))
@@ -177,7 +187,7 @@ describe('projects: starting with the program manager', () => {
 describe('projects: the plan', () => {
   it('answers the problems of a bad plan, records a good one with plan.md, and won’t let her finish without one', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     const planning = r.task(r.last())
     expect(r.service.finishCheck(planning, { status: 'done' })).toContain('project_plan first')
     expect(r.service.finishCheck(planning, { status: 'blocked' })).toBeUndefined()
@@ -197,7 +207,7 @@ describe('projects: the plan', () => {
 
   it('makes the employees a plan proposes as drafts, and approves the plan only once each is approved', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     await r.plan({ ...TWO_PARTS, parts: [...TWO_PARTS.parts, { id: 'qa', title: 'QA', owner: 'new:qa', brief: 'Test it.', writes: 'qa.md', depends_on: ['build'] }], new_employees: [{ key: 'qa', name: 'Quinn', role: 'QA engineer', description: 'Tests.', instructions: 'Test.', repos: { site: 'write' } }] })
     const p = r.get(project.id)
     const quinn = p.plans[0].proposedIds.qa
@@ -221,7 +231,7 @@ describe('projects: the plan', () => {
 
   it('sends a plan back with the person’s note: she plans again', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     await r.plan(TWO_PARTS)
     await r.service.decide(project.id, r.get(project.id).waits[0].id, 'send-back', 'Excel needs a BOM')
     const p = r.get(project.id)
@@ -234,7 +244,7 @@ describe('projects: the plan', () => {
 describe('projects: parts, gates and the end', () => {
   async function approved(input: PlanInput) {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     await r.plan(input)
     await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
     return { ...r, id: project.id }
@@ -294,7 +304,7 @@ describe('projects: parts, gates and the end', () => {
 
   it('keeps a proposed owner’s part with them in a replan that names them as an employee', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     await r.plan({ summary: 's', size: 'small', parts: [{ id: 'build', title: 'Build', owner: 'new:dev', brief: 'Build it.', writes: 'build.md' }], new_employees: [{ key: 'dev', name: 'Dev', role: 'Developer', description: '', instructions: 'Build.', repos: { site: 'write' } }] })
     const dev = r.get(project.id).plans[0].proposedIds.dev
     r.team.get(dev)!.state = 'active'
@@ -310,7 +320,7 @@ describe('projects: parts, gates and the end', () => {
 
   it('counts a part that couldn’t finish as done when the replan takes it as it is, and runs only what it adds', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     await r.plan({ summary: 's', size: 'small', parts: [{ id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build it.', writes: 'build.md' }] })
     await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
     await r.close(r.task(r.last()).id, { reason: 'blocked', detail: 'Code written; tests not run' })
@@ -348,7 +358,7 @@ describe('projects: parts, gates and the end', () => {
   })
 
   it('ends a large project with her acceptance and the person’s final gate, then archives its workspace', async () => {
-    const r = await approved({ ...TWO_PARTS, size: 'large' })
+    const r = await approved({ ...TWO_PARTS, size: 'large', understood: ['Finance wants reports as CSV.'], done_when: ['Reports download as CSV.'] })
     r.service.runCreated(r.task(r.asked[1]), 'ws-1')
     r.alive.add('ws-1')
     expect(r.service.workspaceFor(r.task(r.asked[2]))).toBe('ws-1')
@@ -373,7 +383,7 @@ describe('projects: parts, gates and the end', () => {
 describe('projects: the person in the channel', () => {
   it('pauses (nothing new starts), resumes, takes notes, and stops what is going', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     await r.plan({ ...TWO_PARTS, parts: [TWO_PARTS.parts[0], { ...TWO_PARTS.parts[1], depends_on: ['build'] }] })
     await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
     await r.service.setPaused(project.id, true)
@@ -391,7 +401,7 @@ describe('projects: the person in the channel', () => {
 
   it('asks a follow-up of whoever worked on it, reading what they wrote, even after it closed', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     await r.plan({ ...TWO_PARTS, parts: [TWO_PARTS.parts[0]] })
     await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
     const build = r.task(r.last())
@@ -408,7 +418,7 @@ describe('projects: the person in the channel', () => {
 describe('projects: recovery', () => {
   it('goes on from a task that closed while Foreman wasn’t looking', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     const planning = r.task(r.last())
     await r.service.submitPlan(planning, 'run-1', TWO_PARTS)
     // Closed in the database, but the project never heard.
@@ -425,7 +435,7 @@ describe('projects: the channel’s name, archive and delete', () => {
   const DAY = 24 * 60 * 60_000
   /** A project that ran its one part and closed done. */
   const closedProject = async (r: Awaited<ReturnType<typeof rig>>, requirement = 'Export reports to CSV') => {
-    const project = await r.service.start('o1', { requirement })
+    const project = await r.start({ requirement })
     await r.plan({ ...TWO_PARTS, parts: [TWO_PARTS.parts[0]] })
     await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
     await r.close(r.task(r.last()).id)
@@ -435,7 +445,7 @@ describe('projects: the channel’s name, archive and delete', () => {
 
   it('renames only the name shown, refusing a bad or taken name', async () => {
     const r = await rig()
-    const csv = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const csv = await r.start({ requirement: 'Export reports to CSV' })
     await r.service.start('o1', { requirement: 'Team accounts SSO' })
     expect((await r.service.rename(csv.id, '#csv-export')).name).toBe('csv-export')
     expect(r.get(csv.id).slug).toBe('export-reports-to-csv')
@@ -465,7 +475,7 @@ describe('projects: the channel’s name, archive and delete', () => {
 
   it('deletes a going channel by stopping it first, keeping its files unless asked', async () => {
     const r = await rig()
-    const project = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
     const planning = r.task(r.last())
     r.files.push({ path: 'memory/org/projects/export-reports-to-csv/plan.md', blob: 'b1' }, { path: 'memory/org/notes.md', blob: 'b2' })
     await r.service.remove(project.id)
@@ -473,7 +483,7 @@ describe('projects: the channel’s name, archive and delete', () => {
     expect(() => r.get(project.id)).toThrow()
     expect(r.personCommits).toHaveLength(0)
     // A new project doesn't take the folder the deleted one left.
-    const again = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const again = await r.start({ requirement: 'Export reports to CSV' })
     expect(again.slug).toBe('export-reports-to-csv-2')
   })
 
@@ -493,5 +503,88 @@ describe('projects: the channel’s name, archive and delete', () => {
     ])
     expect(r.files.map((f) => f.path)).toEqual(['memory/org/projects/other/plan.md'])
     expect(r.service.all('o1')).toHaveLength(0)
+  })
+})
+
+describe('projects: asking before planning', () => {
+  it('makes her ask first, waits for your answers, and plans again with them', async () => {
+    const r = await rig()
+    const project = await r.service.start('o1', { requirement: 'Add single sign-on with Okta' })
+    const planning = r.task(r.last())
+    expect(r.last().body).toContain('How to ask:')
+    // Neither finishing nor a plan before she has asked.
+    expect(r.service.finishCheck(planning, { status: 'done' })).toContain('Ask the person first with project_questions')
+    await expect(r.service.submitPlan(planning, 'run-1', TWO_PARTS)).rejects.toThrow('Ask before you plan')
+    await expect(r.service.submitQuestions(planning, { questions: [] })).rejects.toThrow('Ask at least one question')
+    const said = await r.service.submitQuestions(planning, {
+      understood: ['Enterprise customers want to log in with their company accounts.'],
+      questions: [
+        { question: 'Which identity providers?', why: 'So I don’t guess Okta only.', options: ['Okta only', 'Any SAML 2.0'] },
+        { question: 'Does password login stay?' }
+      ]
+    })
+    expect(said).toContain('2 questions recorded (round 1)')
+    expect(r.service.finishCheck(planning, { status: 'done' })).toBeUndefined()
+    // Asked in this task: no plan in it too.
+    await expect(r.service.submitPlan(planning, 'run-1', TWO_PARTS)).rejects.toThrow('You asked questions in this task')
+    await r.close(planning.id)
+    let p = r.get(project.id)
+    expect(p.phase).toBe('planning')
+    expect(p.waits).toEqual([expect.objectContaining({ kind: 'questions' })])
+    expect(p.asks).toEqual([expect.objectContaining({ round: 1, taskId: planning.id, questions: [expect.objectContaining({ question: 'Which identity providers?', options: ['Okta only', 'Any SAML 2.0'] }), expect.objectContaining({ options: [] })] })])
+    const wait = p.waits[0]
+    // Only answers (or Stop) answer it.
+    await expect(r.service.decide(project.id, wait.id, 'approve')).rejects.toThrow('isn’t one of this decision’s choices')
+    await expect(r.service.answer(project.id, wait.id, ['Any SAML 2.0'])).rejects.toThrow('Answer every question')
+    await expect(r.service.answer(project.id, wait.id, ['Any SAML 2.0', ' '])).rejects.toThrow('Answer every question')
+    await r.service.answer(project.id, wait.id, ['Any SAML 2.0', 'Yes, for small teams'])
+    p = r.get(project.id)
+    expect(p.waits).toEqual([])
+    expect(p.asks?.[0]).toMatchObject({ answers: ['Any SAML 2.0', 'Yes, for small teams'] })
+    expect(r.last()).toMatchObject({ employeeId: PM, project: { kind: 'plan', round: 2 } })
+    expect(r.last().body).toContain('1. Which identity providers?\n   Answer: Any SAML 2.0')
+    await expect(r.service.answer(project.id, wait.id, ['x', 'y'])).rejects.toThrow('isn’t waiting for answers')
+    // Now she may plan; a large plan says what she understood and assumes nothing while she can still ask.
+    const second = r.task(r.last())
+    const large = { ...TWO_PARTS, size: 'large' as const, understood: ['Any SAML 2.0 provider; passwords stay.'], done_when: ['A test Okta tenant can log in.'] }
+    await expect(r.service.submitPlan(second, 'run-2', { ...large, assumptions: ['JIT accounts'] })).rejects.toThrow('A large plan assumes nothing while you can still ask')
+    await r.service.submitPlan(second, 'run-2', large)
+    expect(r.staged.at(-1)?.text).toContain('## Questions asked')
+    await r.close(second.id)
+    expect(r.get(project.id).plans[0]).toMatchObject({ understood: ['Any SAML 2.0 provider; passwords stay.'], doneWhen: ['A test Okta tenant can log in.'], assumptions: [] })
+  })
+
+  it('plans with what she has when you say so, listing what she assumed, and asks no more', async () => {
+    const r = await rig()
+    const project = await r.service.start('o1', { requirement: 'Add single sign-on with Okta' })
+    const planning = r.task(r.last())
+    await r.service.submitQuestions(planning, { questions: [{ question: 'Which identity providers?' }] })
+    await r.close(planning.id)
+    await r.service.answer(project.id, r.get(project.id).waits[0].id, null)
+    expect(r.get(project.id).asks?.[0]).toMatchObject({ skipped: true })
+    expect(r.last().body).toContain('plan with what you have: don’t ask again')
+    const second = r.task(r.last())
+    await r.service.submitPlan(second, 'run-2', { ...TWO_PARTS, size: 'large', understood: ['SSO for enterprise customers.'], done_when: ['Okta works.'], assumptions: ['Okta only'] })
+    await r.close(second.id)
+    expect(r.get(project.id).plans[0]).toMatchObject({ assumptions: ['Okta only'] })
+    expect(r.get(project.id).waits).toEqual([expect.objectContaining({ kind: 'plan' })])
+  })
+
+  it('stops a project waiting on its questions, and keeps project_questions out of a replan', async () => {
+    const r = await rig()
+    const asking = await r.service.start('o1', { requirement: 'Add single sign-on with Okta' })
+    const planning = r.task(r.last())
+    await r.service.submitQuestions(planning, { questions: [{ question: 'Which identity providers?' }] })
+    await r.close(planning.id)
+    await r.service.decide(asking.id, r.get(asking.id).waits[0].id, 'stop')
+    expect(r.get(asking.id)).toMatchObject({ phase: 'closed', outcome: 'stopped' })
+    // A plan in effect: a replan asks with ask_person instead.
+    const going = await r.start({ requirement: 'Export reports to CSV' })
+    await r.plan(TWO_PARTS)
+    await r.service.decide(going.id, r.get(going.id).waits[0].id, 'approve')
+    await r.close(r.task(r.asked.find((a) => a.project.partId === 'build')!).id, { reason: 'blocked', detail: 'No test data' })
+    const replanning = r.task(r.last())
+    expect(replanning.project?.kind).toBe('plan')
+    await expect(r.service.submitQuestions(replanning, { questions: [{ question: 'Where is the test data?' }] })).rejects.toThrow('A plan is in effect')
   })
 })
