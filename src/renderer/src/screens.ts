@@ -364,6 +364,12 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     // Done once the held push is drawn, the last part to arrive.
     return (await waitFor(() => document.querySelector('.team-page')?.textContent?.includes('max/launch-2.4'))) ? '.team-page' : null
   },
+  // Every channel of the organization on one page, its archived one too (docs/ai-employees.md §15).
+  channels: async (f) => {
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'channels' })
+    return (await waitFor(() => document.querySelector('.channels-list')?.textContent?.includes('#onboarding-emails'))) ? '.channels-page' : null
+  },
   employee: (f) => {
     setSpace(f.organization.orgId)
     openEmployees({ orgId: f.organization.orgId, page: 'employee', id: f.organization.employeeId })
