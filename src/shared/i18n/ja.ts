@@ -2518,6 +2518,7 @@ export const ja: Catalogue = {
   'triage.bucket.working': 'エージェントが作業中',
   'triage.bucket.idle': 'ワークスペース',
   'triage.bucket.finished': '完了',
+  'triage.bucket.fold': '{group}を表示',
   'triage.later.back': '「後で」から戻りました',
   'triage.approval.plan': 'プランのレビュー待ち',
   'triage.approval.question': '質問があります',

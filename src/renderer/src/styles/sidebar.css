@@ -283,22 +283,26 @@
   height: 8px;
 }
 /* The Team row: the Automations frame, with the employees' hats overlapping a little, the ▲ count, and the chevron
-   (its own button, in the row's actions) at the end. */
-div.team-entry {
+   (its own button, in the row's actions) at the end. A workspace group's heading card is the same row. */
+div.team-entry,
+div.ws-group-entry {
   flex: none;
   height: var(--sb-row-h);
   padding: 0 2px 0 calc(var(--sb-row-inset) - 1px);
 }
-.team-entry .ui-action-row__main {
+.team-entry .ui-action-row__main,
+.ws-group-entry .ui-action-row__main {
   display: flex;
   align-items: center;
   gap: var(--sb-row-gap);
   min-width: 0;
 }
-.team-entry .ui-action-row__main > svg {
+.team-entry .ui-action-row__main > svg,
+.ws-group-entry .ui-action-row__main > svg {
   flex: none;
 }
-.team-entry-label {
+.team-entry-label,
+.ws-group-label {
   flex: none;
   font-weight: 500;
 }
@@ -313,11 +317,14 @@ div.team-entry {
 .team-entry-hats > * + * {
   margin-left: -4px;
 }
-.team-entry-count {
+.team-entry-count,
+.ws-group-entry .ws-group-count,
+.ws-group-need {
   margin-left: auto;
   flex: none;
 }
-.team-entry > .ui-action-row__actions {
+.team-entry > .ui-action-row__actions,
+.ws-group-entry > .ui-action-row__actions {
   display: flex;
   align-items: center;
 }
@@ -360,6 +367,15 @@ div.team-entry {
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-soft);
+}
+/* The spinner on Agents working's card sits in the icon column like the others' icons. */
+.ws-group-entry .ws-spin {
+  display: flex;
+  flex: none;
+}
+/* A group's rows under its card; folded, they're hidden. */
+.ws-group-rows {
+  padding-top: 4px;
 }
 .ws-group-count {
   font-weight: 400;

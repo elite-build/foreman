@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { elapsed, finishedFacts, REASONS, runningFact, triageAll, type TriageInput } from '../src/renderer/src/triage'
-import { sidebarGroups } from '../src/shared/triage'
+import { foldedBuckets, sidebarGroups, sidebarOrder, type SidebarView } from '../src/shared/triage'
 import { defaultSettings } from '../src/main/store'
 import type { FlowRun } from '../src/shared/flows'
 import type { AppSnapshot, ApprovalRequest, Session, Workspace } from '../src/shared/types'
@@ -202,5 +202,31 @@ describe('triage: flow runs', () => {
 
   it('a stopped run is idle, with why', () => {
     expect(withRuns([run({ state: 'stopped', endedAt: ago(5), reason: 'Stopped by you.' })], [session('s1')])).toMatchObject({ bucket: 'idle', label: 'Flow stopped', detail: 'Stopped by you.' })
+  })
+})
+
+describe('folded sidebar groups', () => {
+  const asks = ws({ id: 'asks', name: 'asks' })
+  const quiet = ws({ id: 'quiet', name: 'quiet', createdAt: ago(50) })
+  const input = {
+    snapshot: { workspaces: [asks, quiet], sessions: [session('s1', { workspaceId: 'asks' })], settings: defaultSettings() } as unknown as AppSnapshot,
+    approvals: [approval('s1')],
+    unread: {},
+    unreadSessions: {},
+    now: NOW
+  }
+  const view = (patch: Partial<SidebarView> = {}): SidebarView => ({ repo: null, filter: 'all', query: '', showFinished: false, ...patch })
+
+  it('leaves a folded group’s workspaces out of the ⌘1–9 order, as they aren’t shown', () => {
+    expect(sidebarOrder(input, view()).map((w) => w.id)).toEqual(['asks', 'quiet'])
+    expect(sidebarOrder(input, view({ folded: ['attention'] })).map((w) => w.id)).toEqual(['quiet'])
+    expect(sidebarOrder(input, view({ folded: ['attention', 'idle'] }))).toEqual([])
+  })
+
+  it('folds nothing while a filter or a search narrows the list: it shows every row it found', () => {
+    expect([...foldedBuckets(view({ folded: ['attention'] }))]).toEqual(['attention'])
+    expect(foldedBuckets(view({ folded: ['attention'], filter: 'needs-you' })).size).toBe(0)
+    expect(foldedBuckets(view({ folded: ['attention'], query: 'ask' })).size).toBe(0)
+    expect(sidebarOrder(input, view({ folded: ['attention'], query: 'as' })).map((w) => w.id)).toEqual(['asks'])
   })
 })

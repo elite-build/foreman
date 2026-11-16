@@ -2795,6 +2795,7 @@ export const en = {
   'triage.bucket.working': 'Agents working',
   'triage.bucket.idle': 'Workspaces',
   'triage.bucket.finished': 'Finished',
+  'triage.bucket.fold': 'Show {group}',
   'triage.later.back': 'Back from Later',
   'triage.approval.plan': 'Plan ready for review',
   'triage.approval.question': 'Has a question',

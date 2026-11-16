@@ -546,6 +546,43 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
   })
 
+  it('heads each group with a card like Channels’ that folds its rows away, remembered, and still says ▲ 3 folded', async () => {
+    render(<Sidebar />)
+    const group = screen.getByRole('region', { name: 'Needs your attention' })
+    const card = within(group).getByRole('heading', { level: 3, name: 'Needs your attention' })
+    const fold = within(card).getByRole('button', { name: 'Show Needs your attention' })
+    expect(fold.getAttribute('aria-expanded')).toBe('true')
+    const rows = document.getElementById(fold.getAttribute('aria-controls')!)!
+    expect(group.contains(rows) && !rows.hidden).toBe(true)
+    // The whole card folds too, as the Channels row does.
+    const user = userEvent.setup()
+    await user.click(within(card).getByRole('button', { name: /^Needs your attention/ }))
+    await user.click(fold)
+    expect(spy('toggleSidebarGroup').mock.calls).toEqual([['attention'], ['attention']])
+    cleanup()
+
+    // Folded: the rows are hidden and the count says it waits on you, by ▲ and in words.
+    fakeState.sidebarView = { ...fakeState.sidebarView, folded: ['attention'] }
+    render(<Sidebar />)
+    const folded = screen.getByRole('region', { name: 'Needs your attention' })
+    expect(within(folded).getByRole('button', { name: 'Show Needs your attention' }).getAttribute('aria-expanded')).toBe('false')
+    expect(within(folded).queryAllByRole('button').filter((b) => b.classList.contains('ws-flow'))).toEqual([])
+    const need = folded.querySelector('.ws-group-need')!
+    expect(need.querySelector('[data-glyph="warn"]')).not.toBeNull()
+    expect(need.textContent).toContain('3 need you')
+    // The other groups stay open.
+    expect(screen.getByRole('button', { name: /^kyoto/ })).toBeTruthy()
+    cleanup()
+
+    // A filter lists exactly what it found: no fold, every row shown.
+    fakeState.sidebarView = { ...fakeState.sidebarView, filter: 'needs-you' }
+    render(<Sidebar />)
+    const filtered = screen.getByRole('region', { name: 'Needs your attention' })
+    expect(within(filtered).queryByRole('button', { name: 'Show Needs your attention' })).toBeNull()
+    expect(within(filtered).getAllByRole('button').filter((b) => b.classList.contains('ws-flow'))).toHaveLength(3)
+    fakeState.sidebarView = { repo: null, query: '', filter: 'all', showFinished: false }
+  })
+
   it('shows an employee’s run with its hat and name on the second line, and the question it asks', () => {
     render(<Sidebar />)
     const limaRow = screen.getByRole('button', { name: /^lima/ })

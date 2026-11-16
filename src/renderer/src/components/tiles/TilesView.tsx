@@ -28,7 +28,8 @@ export function TilesView({ hidden }: { hidden: boolean }) {
   const recent = useRef<string[]>([])
 
   const live = new Set(input.snapshot.workspaces.filter((w) => w.state !== 'archived').map((w) => w.id))
-  const order = sidebarOrder(input, view).map((w) => w.id)
+  // A group folded in the sidebar only saves the sidebar room: its workspaces still fill tiles.
+  const order = sidebarOrder(input, { ...view, folded: [] }).map((w) => w.id)
   let shown = tilesShown(remembered, order, live, count)
   if (selectedId && live.has(selectedId)) shown = placeTile(shown, selectedId, recent.current, count)
   const triage = new Map<string, Triage>(triageAll(input, null).map((item) => [item.ws.id, item]))
