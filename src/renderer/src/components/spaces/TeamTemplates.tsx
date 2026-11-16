@@ -1,14 +1,19 @@
-// The starting templates in New organization (docs/ai-employees.md §16): a chip per job adds that employee to the team,
-// a hover card on the chip says what the job does and hands back, and Compare jobs shows the same choice as a grid of
-// cards. Both read and change one picked set, which the dialog owns.
+// The job templates (docs/ai-employees.md §16), in New organization and in Add employee: a chip per job picks that
+// employee, a hover card on the chip says what the job does and hands back, and Compare jobs shows the same choice as a
+// grid of cards. Both read and change one picked set, which the page or dialog owns: New organization picks several,
+// Add employee one (`single`: the owner replaces the choice, and the chips show no ＋). `holders` names who already does
+// a job, said on its chip, its hover card and its card.
 import { Check, Plus } from 'lucide-react'
 import { useId, type RefObject } from 'react'
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate, type EmployeeTemplateId } from '../../../../shared/employeeTemplates'
 import { useT } from '../../i18n'
-import { CardButton, ChipButton, HardHat, HoverCard, Tag } from '../../ui'
+import { CardButton, ChipButton, HardHat, HoverCard, Tag, type HardHatColour } from '../../ui'
+import './spaces.css'
 
 type Picked = ReadonlySet<EmployeeTemplateId>
 type Toggle = (id: EmployeeTemplateId, on: boolean) => void
+/** Per job, the names of the employees who already do it. */
+export type JobHolders = Partial<Record<EmployeeTemplateId, readonly string[]>>
 
 /** The job's title, its line and what it hands back, in the person's language. */
 export function useTemplateText() {
@@ -20,12 +25,19 @@ export function useTemplateText() {
   })
 }
 
-/**
- * What a job is, as its card says it: family, hat and title, its line, its access, who you get and what they hand back.
- * `titleId` and `detailId` let a card be named by the title and described by the rest.
- */
-function JobFacts({ template, titleId, detailId }: { template: EmployeeTemplate; titleId?: string; detailId?: string }) {
+/** "Quinn", "Quinn and Ravi": names in a sentence, in the person's language. */
+export function useNameList() {
   const t = useT()
+  return (list: readonly string[]) => new Intl.ListFormat(t.locale, { type: 'conjunction' }).format(list)
+}
+
+/**
+ * What a job is, as its card says it: family, hat and title, its line, its access, who you get and what they hand back,
+ * and who already does it. `titleId` and `detailId` let a card be named by the title and described by the rest.
+ */
+function JobFacts({ template, holders, titleId, detailId }: { template: EmployeeTemplate; holders?: readonly string[]; titleId?: string; detailId?: string }) {
+  const t = useT()
+  const names = useNameList()
   const text = useTemplateText()(template)
   return (
     <span className="space-job">
@@ -40,19 +52,29 @@ function JobFacts({ template, titleId, detailId }: { template: EmployeeTemplate;
           <Tag>{t(template.access === 'write' ? 'employees.access.write' : 'employees.access.read')}</Tag>
           <span className="faint small">{t('spaces.team.handsBack', { name: template.name, what: text.gives })}</span>
         </span>
+        {holders?.length ? <strong className="small">{t('spaces.team.youHave', { names: names(holders) })}</strong> : null}
       </span>
     </span>
   )
 }
 
-/** A chip per template; pressing one adds that employee, pressing it again takes them out. */
-export function TemplateChips({ picked, onToggle, labelledBy }: { picked: Picked; onToggle: Toggle; labelledBy: string }) {
+/**
+ * A chip per template; pressing one picks that employee, pressing it again takes them out. With `single`, each chip
+ * is named by its title and described by its line, its access and who already does the job, for choosing one.
+ */
+export function TemplateChips({ picked, onToggle, labelledBy, single, holders }: { picked: Picked; onToggle: Toggle; labelledBy: string; single?: boolean; holders?: JobHolders }) {
+  const t = useT()
+  const names = useNameList()
   const text = useTemplateText()
+  const base = useId()
   return (
     <div className="space-chips" role="group" aria-labelledby={labelledBy}>
       {EMPLOYEE_TEMPLATES.map((template) => {
         const on = picked.has(template.id)
-        const { title } = text(template)
+        const { title, line } = text(template)
+        const had = holders?.[template.id]
+        const detailId = `${base}-${template.id}`
+        const access = t(template.access === 'write' ? 'employees.access.write' : 'employees.access.read')
         return (
           <HoverCard
             key={template.id}
@@ -60,13 +82,26 @@ export function TemplateChips({ picked, onToggle, labelledBy }: { picked: Picked
             width={300}
             openDelay={400}
             trigger={(h) => (
-              <ChipButton {...h} pressed={on} onClick={() => onToggle(template.id, !on)}>
-                {on ? <Check size={12} aria-hidden /> : <Plus size={12} aria-hidden />}
-                {title}
-              </ChipButton>
+              <>
+                <ChipButton {...h} pressed={on} aria-describedby={single ? detailId : undefined} onClick={() => onToggle(template.id, !on)}>
+                  {on ? <Check size={12} aria-hidden /> : single ? null : <Plus size={12} aria-hidden />}
+                  {title}
+                  {had?.length ? (
+                    <span className="faint" aria-hidden>
+                      {' '}
+                      {t('spaces.team.youHaveShort', { names: names(had) })}
+                    </span>
+                  ) : null}
+                </ChipButton>
+                {single && (
+                  <span id={detailId} className="sr-only">
+                    {[line, access, had?.length ? t('spaces.team.youHave', { names: names(had) }) : ''].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+              </>
             )}
           >
-            <JobFacts template={template} />
+            <JobFacts template={template} holders={had} />
           </HoverCard>
         )
       })}
@@ -75,7 +110,7 @@ export function TemplateChips({ picked, onToggle, labelledBy }: { picked: Picked
 }
 
 /** Compare jobs: every template as a card to pick, the same choice as the chips. */
-export function CompareJobs({ picked, onToggle, firstRef }: { picked: Picked; onToggle: Toggle; firstRef?: RefObject<HTMLButtonElement | null> }) {
+export function CompareJobs({ picked, onToggle, firstRef, holders }: { picked: Picked; onToggle: Toggle; firstRef?: RefObject<HTMLButtonElement | null>; holders?: JobHolders }) {
   const base = useId()
   return (
     <div className="space-compare">
@@ -94,7 +129,7 @@ export function CompareJobs({ picked, onToggle, firstRef }: { picked: Picked; on
             aria-describedby={detailId}
             onClick={() => onToggle(template.id, !on)}
           >
-            <JobFacts template={template} titleId={titleId} detailId={detailId} />
+            <JobFacts template={template} holders={holders?.[template.id]} titleId={titleId} detailId={detailId} />
           </CardButton>
         )
       })}
@@ -102,17 +137,21 @@ export function CompareJobs({ picked, onToggle, firstRef }: { picked: Picked; on
   )
 }
 
-/** A picked employee in the team list, as the label of the checkbox that takes them out. */
-export function PickedWho({ template }: { template: EmployeeTemplate }) {
+/**
+ * A picked employee: hat, name, job and access, as the label of the checkbox that takes them out (New organization) or
+ * at the head of who Add employee makes. `name`, `colour` and `access` are what will be saved when they differ from the
+ * template's own (a name or hat already taken, Write held back for an agent that can't run unattended).
+ */
+export function PickedWho({ template, name, colour, access, size = 18 }: { template: EmployeeTemplate; name?: string; colour?: HardHatColour; access?: 'read' | 'write'; size?: number }) {
   const t = useT()
   const { title } = useTemplateText()(template)
   return (
     <span className="space-team-who">
-      <HardHat colour={template.colour} size={18} />
+      <HardHat colour={colour ?? template.colour} size={size} />
       <span className="space-bring-name">
-        {template.name} <span className="faint small">{title}</span>
+        {name ?? template.name} <span className="faint small">{title}</span>
       </span>
-      <Tag>{t(template.access === 'write' ? 'employees.access.write' : 'employees.access.read')}</Tag>
+      <Tag>{t((access ?? template.access) === 'write' ? 'employees.access.write' : 'employees.access.read')}</Tag>
     </span>
   )
 }

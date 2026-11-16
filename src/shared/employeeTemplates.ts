@@ -1,12 +1,13 @@
 // Starting templates (docs/ai-employees.md §16): ready Staff employees, one per common job, that New organization offers
-// beside Priya. Each has a name and hat (changed later on its page), its job's responsibilities and prompt, and access
-// right for the job: Write on the organization's repositories for a job whose work lives in them, Read for the rest.
-// Making the organization approves the ones picked, as it approves Priya. Their words are sent to agents, so they stay
-// English like every agent prompt; the renderer shows the job's title and line through i18n. Pure.
+// beside Priya and Add employee offers in an existing organization. Each has a name and hat (changed later on its
+// page), its job's responsibilities and prompt, and access right for the job: Write on the organization's repositories
+// for a job whose work lives in them, Read for the rest. Making the organization approves the ones picked, as it
+// approves Priya; Add employee approves the one picked. Their words are sent to agents, so they stay English like every
+// agent prompt; the renderer shows the job's title and line through i18n. Pure.
 
 import type { Loadout } from './agents'
 import { proposedDefinition } from './employeeTeams'
-import { newEmployeeId, type EmployeeDefinition, type HatColour } from './employees'
+import { freeHatColour, newEmployeeId, type EmployeeDefinition, type HatColour } from './employees'
 
 export const EMPLOYEE_TEMPLATE_IDS = [
   'software-engineer',
@@ -513,9 +514,48 @@ export function templateInstructions(template: EmployeeTemplate, access: 'read' 
 }
 
 /**
+ * A template employee's name: its own, else "<name> (<job>)" once an employee has that, then "<name> (<job>) 2", 3…
+ * `takenNames` are every employee's names, retired ones too; compared ignoring case and surrounding spaces.
+ */
+export function templateName(template: EmployeeTemplate, takenNames: Iterable<string>): string {
+  const taken = new Set([...takenNames].map((n) => n.trim().toLocaleLowerCase()))
+  if (!taken.has(template.name.toLocaleLowerCase())) return template.name
+  const job = `${template.name} (${template.job})`
+  if (!taken.has(job.toLocaleLowerCase())) return job
+  for (let n = 2; ; n++) if (!taken.has(`${job} ${n}`.toLocaleLowerCase())) return `${job} ${n}`
+}
+
+/**
+ * The name templateName tried last before `name`, which was taken ("Named Quinn (QA engineer) 2: … already called
+ * Quinn (QA engineer)"): the template's own name for "<name> (<job>)", "<name> (<job>)" for "… 2", "… 2" for "… 3".
+ * The template's own name for any other name.
+ */
+export function templateNameTaken(template: EmployeeTemplate, name: string): string {
+  const job = `${template.name} (${template.job})`
+  const n = name.startsWith(`${job} `) ? Number(name.slice(job.length + 1)) : NaN
+  if (!Number.isInteger(n) || n < 2) return template.name
+  return n === 2 ? job : `${job} ${n - 1}`
+}
+
+/** A template employee's hat: its own colour unless an employee who isn't retired wears it, then the first free one (§5.4). */
+export function templateColour(template: EmployeeTemplate, worn: readonly string[]): HatColour {
+  return worn.includes(template.colour) ? freeHatColour(worn) : template.colour
+}
+
+/**
+ * Who already does the template's job: the names of the employees who aren't retired whose role is its Staff role,
+ * ignoring case ("You already have Quinn"). The role stands for the job until a definition records its profile (§16.1).
+ */
+export function templateHolders(template: EmployeeTemplate, roster: readonly { name: string; role: string; retired: boolean }[]): string[] {
+  const role = staffRole(template).toLocaleLowerCase()
+  return roster.filter((e) => !e.retired && e.role.trim().toLocaleLowerCase() === role).map((e) => e.name)
+}
+
+/**
  * The definitions for the templates picked, in the catalogue's order and each once, on the organization's repositories.
- * `taken` and `takenNames` are the ids and names already in it (Priya's too): a template whose name is taken is named
- * "<name> (<job>)" instead.
+ * `taken` and `takenNames` are the ids and names already in it (Priya's too, retired employees' too): a template whose
+ * name is taken is named as templateName says. With `worn` (the hats of the employees who aren't retired), a template
+ * whose colour is worn gets a free one, as Add employee does; without it each wears its own, as in New organization.
  */
 export function templateDefinitions(input: {
   templates: readonly EmployeeTemplateId[]
@@ -523,18 +563,22 @@ export function templateDefinitions(input: {
   loadouts: readonly Pick<Loadout, 'agent' | 'model' | 'effort'>[]
   taken: Iterable<string>
   takenNames?: readonly string[]
+  worn?: readonly string[]
 }): EmployeeDefinition[] {
   const ids = new Set(input.taken)
-  const names = new Set((input.takenNames ?? []).map((n) => n.toLocaleLowerCase()))
+  const names = [...(input.takenNames ?? [])]
+  const worn = input.worn ? [...input.worn] : null
   const wanted = new Set(input.templates)
   return EMPLOYEE_TEMPLATES.filter((t) => wanted.has(t.id)).map((t) => {
     const id = newEmployeeId(ids)
     ids.add(id)
-    const name = names.has(t.name.toLocaleLowerCase()) ? `${t.name} (${t.job})` : t.name
-    names.add(name.toLocaleLowerCase())
+    const name = templateName(t, names)
+    names.push(name)
+    const colour = worn ? templateColour(t, worn) : t.colour
+    worn?.push(colour)
     const made = proposedDefinition({
       id,
-      colour: t.colour,
+      colour,
       name,
       role: staffRole(t),
       description: t.description,

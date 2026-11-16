@@ -3,7 +3,8 @@
 // and a word (Idle, Working on “…”, Needs you, Draft — review and approve), when it next runs, what of it waits for you
 // as one-line decisions that open in place (components/DecisionCard.tsx), its last task, and Open, Pause or Resume, Edit
 // and the lead. What waits for you from the whole organization rather than one employee (a change to PROJECT.md) is a
-// strip above the columns. What went out without asking you in the last day is under Decided for you (§6.6). New
+// strip above the columns. Work one employee handed to another outside any project is drawn as a map under it
+// (HandOffMap.tsx). What went out without asking you in the last day is under Decided for you (§6.6). New
 // employee is a secondary button in the header: the decisions are the page's main acts.
 import { Plus, Star } from 'lucide-react'
 import { isOrganizationWide } from '../../../../shared/employeeDecisions'
@@ -14,6 +15,7 @@ import { api, attempt, openEmployees, showToast, useStore } from '../../store'
 import { Button, Callout, Card, HardHat, LinkButton, Spinner, Status, Tag, type HardHatColour, type StatusTone } from '../../ui'
 import { DecisionRows, useDecisionItems, type DecisionItem } from './EmployeeDecisions'
 import { DecidedForYou } from './HeldActions'
+import { HandOffs } from './HandOffMap'
 import { AddProgramManager, PersonColumn } from './TeamRoles'
 import type { EmployeesData } from './EmployeesView'
 import { lastResultText, modelText, nextRunText, workStatus } from './words'
@@ -55,6 +57,7 @@ export function TeamPage({ orgId, data }: { orgId: string; data: EmployeesData }
           <DecisionRows orgId={orgId} items={shared} label={t('employees.team.sharedLabel', { organization: name })} />
         </section>
       )}
+      <HandOffs orgId={orgId} />
       {!roster && !data.employees && !data.error ? (
         <div className="employees-loading" role="status">
           <Spinner size={13} /> <span>{t('common.loading')}</span>

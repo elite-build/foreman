@@ -10,6 +10,7 @@ import { api, attempt, openEmployees, openNewWorkspace, showToast, useStore } fr
 import { Button, Callout, Card, CardButton, HardHat, LinkButton, Select, Status, type HardHatColour } from '../../ui'
 import { useState } from 'react'
 import { ChannelComposer, Post, type ChannelMember } from './Channel'
+import { isWorking, useProjectLive } from './ProjectLive'
 import { channelName, orgChannelSlug, projectChannel, projectStatus } from './projectWords'
 import './employees.css'
 
@@ -146,6 +147,7 @@ export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number
 function StartedPost({ orgId, project, pmName }: { orgId: string; project: Project; pmName: string }) {
   const t = useT()
   const status = projectStatus(project, t, pmName)
+  const live = useProjectLive(project)
   return (
     <Post who={t('projects.you')} at={project.createdAt}>
       <p className="channel-text">
@@ -153,7 +155,7 @@ function StartedPost({ orgId, project, pmName }: { orgId: string; project: Proje
       </p>
       <CardButton className="channel-link" onClick={() => openEmployees({ orgId, page: 'project', id: project.id })}>
         <span className="employee-subheading">{projectChannel(project)}</span>
-        <Status tone={status.tone} label={status.label} />
+        <Status tone={status.tone} busy={isWorking(live)} label={status.label} />
         <span className="employee-faint">{status.line}</span>
       </CardButton>
     </Post>

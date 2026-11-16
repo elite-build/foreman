@@ -189,6 +189,7 @@ export function Gallery2a() {
           <Status tone="error" label="Linear: sign-in expired" />
           <Status tone="info" label="PR open">1</Status>
           <Status tone="off" label="Slack: off" />
+          <Status tone="info" label="Ravi working" busy />
         </div>
         <div style={row}>
           <span title="Needs you" style={{ display: 'inline-flex', gap: 6 }}>
