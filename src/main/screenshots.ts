@@ -574,6 +574,7 @@ export const SCREENS = [
   'channels',
   'project',
   'project-plan',
+  'project-parts',
   'employee',
   'employee-approve',
   'new-employee',

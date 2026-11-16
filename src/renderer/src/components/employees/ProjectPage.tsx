@@ -19,7 +19,8 @@ import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
 import { isArchived, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planStages, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectLive, type ProjectPlan, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openMemory, selectWorkspace, showToast, useStore } from '../../store'
-import { Button, Callout, Card, Disclosure, Field, HardHat, LinkButton, Meter, RadioList, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
+import { Button, Callout, Card, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
+import { reduceMotion } from '../../theme'
 import { DecisionCard, type DecisionAct } from '../DecisionCard'
 import { ChannelMenu, DeleteChannelsDialog } from './ChannelActions'
 import { Markdown } from '../Markdown'
@@ -27,6 +28,7 @@ import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel
 import { LiveLines, LiveTag, useProjectLive } from './ProjectLive'
 import { EmployeeDecision, useDecisionItems } from './EmployeeDecisions'
 import { PlanWorkflow } from './PlanWorkflow'
+import { partState, planInEffect, PlanMap, useViewChoice } from './PlanMap'
 import { PART_STATUS, projectChannel, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
 import './employees.css'
 
@@ -185,6 +187,24 @@ interface Entry {
   node: ReactNode
 }
 
+/** Where a step's line is in the channel, so the side column's map can take the channel there. */
+const stepDomId = (projectId: string, taskId: string, end: 'start' | 'end') => `project-${projectId}-${end}-${taskId}`
+const planDomId = (projectId: string, version: number) => `project-${projectId}-plan-${version}`
+
+/** Takes the channel to a part's newest post (or the plan, before the part has started) and flashes it. */
+function jumpToPart(project: Project, partId: string): void {
+  const step = project.steps
+    .filter((s) => s.partId === partId)
+    .sort((a, b) => (a.endedAt ?? a.startedAt).localeCompare(b.endedAt ?? b.startedAt))
+    .at(-1)
+  const plan = project.plan ?? project.plans.at(-1)
+  const id = step ? stepDomId(project.id, step.taskId, step.state !== 'running' && step.endedAt ? 'end' : 'start') : undefined
+  const el = (id ? document.getElementById(id) : null) ?? (plan ? document.getElementById(planDomId(project.id, plan.version)) : null)
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' })
+  flash(el, { duration: 1800 })
+}
+
 /** Everything that happened, in order. */
 function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; pmName: string; live: readonly ProjectLive[] }) {
   const t = useT()
@@ -227,7 +247,7 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
           : step.kind === 'accept'
             ? t('projects.log.accepting', { name: who(step.employeeId) })
             : t('projects.log.partStarted', { name: who(step.employeeId), part })
-      entries.push({ at: step.startedAt, key: `start:${step.taskId}`, node: <SystemLine>{`${started}${round}`}</SystemLine> })
+      entries.push({ at: step.startedAt, key: `start:${step.taskId}`, node: <SystemLine id={stepDomId(project.id, step.taskId, 'start')}>{`${started}${round}`}</SystemLine> })
     }
     if (step.state !== 'running' && step.endedAt) {
       const artifact = Object.values(project.artifacts).find((a) => a.taskId === step.taskId)
@@ -237,7 +257,7 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
         at: step.endedAt,
         key: `end:${step.taskId}`,
         node: (
-          <Post who={who(step.employeeId)} colour={e?.colour} role={e?.role} at={step.endedAt}>
+          <Post id={stepDomId(project.id, step.taskId, 'end')} who={who(step.employeeId)} colour={e?.colour} role={e?.role} at={step.endedAt}>
             {step.state === 'stuck' && <Status tone="error" label={t('projects.part.stuck')} />}
             {step.summary && <Markdown text={step.summary} />}
             {!step.summary && step.reason && <p className="channel-text">{step.reason}</p>}
@@ -381,6 +401,15 @@ function ArtifactText({ orgId, artifact }: { orgId: string; artifact: ProjectArt
   )
 }
 
+/** A part's state in a plan in effect, as the side column says it. */
+function PartState({ project, plan, partId }: { project: Project; plan: ProjectPlan; partId: string }) {
+  const t = useT()
+  const state = partState(project, plan, partId)
+  if (!state) return null
+  const word = t(PART_STATUS[state.state].label)
+  return <Status tone={PART_STATUS[state.state].tone} label={state.round > 1 ? `${word} · ${t('projects.round', { round: state.round })}` : word} />
+}
+
 /** A plan's list (what she understood, done when, out of scope, assumptions) under its heading, or a line saying there is none. */
 function PlanList({ heading, items, none }: { heading: string; items: string[] | undefined; none?: string }) {
   if (!items?.length && !none) return null
@@ -413,7 +442,7 @@ function PlanCard({ orgId, project, plan, names, roster, pmName }: { orgId: stri
   // Plans made before she asked first have none of these lists.
   const asked = plan.understood !== undefined
   return (
-    <Card as="section" className="channel-plan" aria-label={t('projects.plan.label', { version: plan.version })}>
+    <Card as="section" id={planDomId(project.id, plan.version)} className="channel-plan" aria-label={t('projects.plan.label', { version: plan.version })}>
       <div className="channel-plan-head">
         <span className="employee-subheading">{t('projects.plan.title', { version: plan.version })}</span>
         <Tag>{t(plan.size === 'small' ? 'projects.size.small' : 'projects.size.large')}</Tag>
@@ -450,6 +479,7 @@ function PlanCard({ orgId, project, plan, names, roster, pmName }: { orgId: stri
             <th scope="col">{t('projects.plan.col.writes')}</th>
             <th scope="col">{t('projects.plan.col.after')}</th>
             <th scope="col">{t('projects.plan.col.check')}</th>
+            {planInEffect(project, plan) && <th scope="col">{t('projects.plan.col.state')}</th>}
           </tr>
         </thead>
         <tbody>
@@ -468,6 +498,7 @@ function PlanCard({ orgId, project, plan, names, roster, pmName }: { orgId: stri
               <td className="mono">{p.writes}</td>
               <td>{p.dependsOn.map((d) => partTitle({ plan, plans: [] }, d)).join(', ') || '—'}</td>
               <td>{p.gate ? t('projects.plan.youCheck') : '—'}</td>
+              {planInEffect(project, plan) && <td><PartState project={project} plan={plan} partId={p.id} /></td>}
             </tr>
           ))}
         </tbody>
@@ -750,17 +781,39 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
   )
 }
 
-/** Beside the channel: the parts and their states, the files, the workspace, the replans left. */
+/** Beside the channel: the parts and their states (a list, or a map that takes the channel to a part), the files, the workspace, the replans left. */
 function SidePanel({ orgId, project, names, roster, live }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; live: readonly ProjectLive[] }) {
   const t = useT()
   const plan = project.plan ?? project.plans.at(-1)
   const artifacts = Object.values(project.artifacts).sort((a, b) => a.at.localeCompare(b.at))
   const alive = useStore((s) => (project.workspaceId ? s.snapshot!.workspaces.some((w) => w.id === project.workspaceId) : false))
+  const [view, setView] = useViewChoice('foreman.projects.partsView', ['list', 'map'] as const, 'list')
+  const [picked, setPicked] = useState<string | null>(null)
+  const pick = (id: string | null) => {
+    setPicked(id)
+    if (id) jumpToPart(project, id)
+  }
   return (
     <aside className="channel-side" aria-label={t('projects.side.label', { channel: projectChannel(project) })}>
       <Card className="channel-side-card">
-        <span className="employee-subheading">{t('projects.side.parts', { count: plan?.parts.length ?? 0 })}</span>
-        {plan ? (
+        <div className="channel-side-top">
+          <span className="employee-subheading">{t('projects.side.parts', { count: plan?.parts.length ?? 0 })}</span>
+          {plan && (
+            <Segmented
+              small
+              label={t('projects.side.view')}
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'list', label: t('projects.side.list') },
+                { value: 'map', label: t('projects.view.map') }
+              ]}
+            />
+          )}
+        </div>
+        {plan && view === 'map' ? (
+          <PlanMap project={project} plan={plan} names={names} roster={roster} label={t('projects.map.sideLabel', { channel: projectChannel(project) })} selected={picked} onSelect={pick} />
+        ) : plan ? (
           <ul className="channel-side-list">
             {plan.parts.map((p) => {
               const s = project.plan ? (project.parts[p.id] ?? { state: 'pending' as const, round: 0 }) : { state: 'pending' as const, round: 0 }

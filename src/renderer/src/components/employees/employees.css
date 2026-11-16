@@ -952,6 +952,58 @@ div.team-row {
   gap: 6px;
   min-width: 0;
 }
+/* The plan's head and the Parts card's head: the name and its tags at the start, Table | Map (List | Map) at the end. */
+.channel-plan-top,
+.channel-side-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+/* The parts drawn as a map in the side column (PlanMap.tsx): the graph as tall as the plan (the column scrolls, not the
+   graph), what the plan holds as Tags in the graph's bar. */
+.plan-map {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.plan-map-graph {
+  min-width: 0;
+}
+.plan-map-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-map-full {
+  height: 72vh;
+}
+/* Hand-offs outside projects on the Team page (HandOffMap.tsx): a map per chain, what waits for you under it. */
+.team-handoffs-head,
+.team-handoffs-bar,
+.team-handoffs-task {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.team-handoffs-body,
+.team-handoffs-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.team-handoffs-body {
+  padding-top: 6px;
+}
 .channel-plan-parts {
   width: 100%;
   border-collapse: collapse;

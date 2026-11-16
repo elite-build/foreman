@@ -384,6 +384,13 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     document.querySelector('.channel-page .channel-plan[aria-label="Plan v1"]')?.scrollIntoView({ block: 'start' })
     return '.channel-page'
   },
+  // The same project with the parts beside the channel drawn as a map (components/employees/PlanMap.tsx).
+  'project-parts': async (f) => {
+    localStorage.setItem('foreman.projects.partsView', 'map')
+    setSpace(f.organization.orgId)
+    openEmployees({ orgId: f.organization.orgId, page: 'project', id: 'proj-sso' })
+    return (await waitFor(() => Boolean(document.querySelector('.channel-side .plan-map .ui-graph__node')))) ? '.channel-page' : null
+  },
   employee: (f) => {
     setSpace(f.organization.orgId)
     openEmployees({ orgId: f.organization.orgId, page: 'employee', id: f.organization.employeeId })
