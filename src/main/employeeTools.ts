@@ -25,7 +25,7 @@ import type { EmployeeService } from './employees'
 import type { EmployeeBrief, EmployeeDelegateInput, EmployeeFinishInput, EmployeeWorkService } from './employeeWork'
 import type { MemoryService } from './memory'
 import type { ProjectService } from './projects'
-import type { PlanInput } from '../shared/projects'
+import type { PlanInput, QuestionsInput } from '../shared/projects'
 
 export interface EmployeeToolsHost {
   work: Pick<EmployeeWorkService, 'toolRun' | 'finishTask' | 'askPerson' | 'noUpdate' | 'commitMemory' | 'memoryChanged'> &
@@ -34,8 +34,8 @@ export interface EmployeeToolsHost {
   employees: Pick<EmployeeService, 'current'> & Partial<Pick<EmployeeService, 'members'>>
   // Outward actions through Foreman's own routes (docs/ai-employees.md §9): request_push, request_pull_request.
   actions?: Pick<EmployeeActionService, 'requestPush' | 'requestPullRequest'>
-  // A project's plan (docs/ai-employees.md §15): project_plan.
-  projects?: Pick<ProjectService, 'submitPlan'>
+  // A project's questions and plan (docs/ai-employees.md §15): project_questions, project_plan.
+  projects?: Pick<ProjectService, 'submitPlan' | 'submitQuestions'>
   now?(): number
 }
 
@@ -117,6 +117,11 @@ export class EmployeeTools {
         }
         case 'bot_propose':
           return await this.proposeChange(sessionId, args as unknown as EmployeeProposeInput)
+        case 'project_questions': {
+          if (!this.host.projects) throw new Error('Projects aren’t available here.')
+          const { task } = this.host.work.toolRun(sessionId)
+          return { text: await this.host.projects.submitQuestions(task, args as unknown as QuestionsInput) }
+        }
         case 'project_plan': {
           if (!this.host.projects) throw new Error('Projects aren’t available here.')
           const { run, task } = this.host.work.toolRun(sessionId)
