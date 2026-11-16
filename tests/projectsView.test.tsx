@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 // Projects in the window (docs/ai-employees.md §15): the sidebar's Channels row (the organization's channel and one per
 // project, with its state); the organization's channel, where "@Priya …" starts a project and "@Ravi …" asks Ravi; a
-// project's channel with its plan (the parts, the employees it proposes, Approve plan only once each is approved, Send
-// back only with a note), a part waiting at its gate, follow-ups and notes from the message box, and Stop only after you
-// confirm; who is at work on a project right now (in its channel, beside its state, on its row) or that nothing runs; the
-// person's row in the Team list; and Add Priya for an organization without her.
+// project's channel with its plan (drawn as a workflow, what the program manager understood and assumed, the parts, the
+// employees it proposes, Approve plan only once each is approved, Send back only with a note), her questions answered
+// on one card (or Plan with what you have), a part waiting at its gate, follow-ups and notes from the message box, and
+// Stop only after you confirm; who is at work on a project right now (in its channel, beside its state, on its row) or
+// that nothing runs; the person's row in the Team list; and Add Priya for an organization without her.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -190,6 +191,44 @@ describe('a project’s channel', () => {
     render(<ProjectPage orgId="o1" project={project()} />)
     await user.click(screen.getByRole('button', { name: /^Approve plan/ }))
     await waitFor(() => expect(fakeApi.decideProject).toHaveBeenLastCalledWith('p1', 'w1', 'approve', undefined))
+  })
+
+  it('draws the plan as a workflow, in order, with what she understood, done when, out of scope and her assumptions', () => {
+    const plan = { ...PLAN, understood: ['Finance exports monthly reports.'], doneWhen: ['A report downloads as CSV.'], outOfScope: ['Excel'], assumptions: [] }
+    setSnapshot([project({ plans: [plan] })])
+    render(<ProjectPage orgId="o1" project={project({ plans: [plan] })} />)
+    const card = screen.getByRole('region', { name: 'Plan v1' })
+    const drawn = within(card).getByRole('img', { name: 'Plan v1 as a workflow' })
+    for (const step of ['Your request', 'Build the export', 'You check', 'Test it', 'Acceptance', 'Your final check', 'Done']) expect(within(drawn).getAllByText(step).length).toBeGreaterThan(0)
+    const order = within(card).getByRole('list', { name: 'In order' })
+    expect(within(order).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Build the export (Ravi) then you check Build the export', 'Test it (Quinn)', 'Priya checks the result against your request, then your final check'])
+    expect(within(card).getByText('Finance exports monthly reports.')).toBeTruthy()
+    expect(within(card).getByText('A report downloads as CSV.')).toBeTruthy()
+    expect(within(card).getByText('Excel')).toBeTruthy()
+    expect(within(card).getByText('None: every open point was asked.')).toBeTruthy()
+  })
+
+  it('asks you her questions on one card: Send answers once each is answered, or let her plan with what is known', async () => {
+    const user = userEvent.setup()
+    const asks = [{ round: 1, taskId: 't1', understood: ['Enterprise customers log in with company accounts.'], questions: [{ question: 'Which identity providers?', why: 'So I don’t guess Okta only.', options: ['Okta only', 'Any SAML 2.0'] }, { question: 'Does password login stay?', options: [] }], at: NOW }]
+    const asking = project({ phase: 'planning', plans: [], asks, steps: [{ kind: 'plan', round: 1, taskId: 't1', employeeId: 'e-pri1', state: 'done', summary: 'Two questions first.', startedAt: NOW, endedAt: NOW }], artifacts: {}, waits: [{ id: 'wq', kind: 'questions', since: NOW }] })
+    setSnapshot([asking])
+    fakeApi.answerProject = vi.fn(async () => asking)
+    render(<ProjectPage orgId="o1" project={asking} />)
+    // Her post lists them, with why she asks.
+    const post = screen.getByRole('region', { name: 'Questions, round 1' })
+    expect(within(post).getByText('So I don’t guess Okta only.')).toBeTruthy()
+    expect(within(post).getByText('Enterprise customers log in with company accounts.')).toBeTruthy()
+    const send = screen.getByRole('button', { name: /^Send answers/ }) as HTMLButtonElement
+    expect(send.disabled).toBe(true)
+    expect(screen.getByText('0 of 2 answered')).toBeTruthy()
+    await user.click(screen.getByRole('radio', { name: 'Any SAML 2.0' }))
+    await user.type(screen.getByRole('textbox', { name: 'Your answer' }), 'Yes, for small teams')
+    expect(screen.getByText('2 of 2 answered')).toBeTruthy()
+    await user.click(send)
+    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes, for small teams']))
+    await user.click(screen.getByRole('button', { name: /^Plan with what you have/ }))
+    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenLastCalledWith('p1', 'wq', null))
   })
 
   it('shows a part waiting at its gate with what it wrote, and the parts beside the channel', async () => {

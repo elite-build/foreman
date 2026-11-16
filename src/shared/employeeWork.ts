@@ -557,7 +557,7 @@ export function runAccessText(a: EmployeeRunAccessText): string {
     lines.push(`You may change files in it with the file tools. You have no shell: Foreman refuses every command. Writing ${protectedPaths} or the git folder is refused too.`)
   else lines.push(`You may change files in it and use a shell; what the shell does is not held for anyone. Writing ${protectedPaths} or the git folder with the file tools is refused.`)
   lines.push(
-    'Foreman’s own tools on the foreman-app server (memory_search, memory_read, remember, memory_append, memory_write, memory_checkpoint, ask_person, finish_task, report_no_update, escalate, bot_list, bot_delegate, bot_send, bot_cancel, bot_wake_me, bot_propose, request_push, request_pull_request, project_plan) always work in this run, whatever its mode, and never need approval. Foreman checks each call itself.'
+    'Foreman’s own tools on the foreman-app server (memory_search, memory_read, remember, memory_append, memory_write, memory_checkpoint, ask_person, finish_task, report_no_update, escalate, bot_list, bot_delegate, bot_send, bot_cancel, bot_wake_me, bot_propose, request_push, request_pull_request, project_questions, project_plan) always work in this run, whatever its mode, and never need approval. Foreman checks each call itself.'
   )
   if (a.access === 'write')
     lines.push(

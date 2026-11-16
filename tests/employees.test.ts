@@ -527,3 +527,110 @@ describe('employees: several at once (docs/ai-employees.md §15)', () => {
     await expect(employees.createTeam('o2', [again])).rejects.toThrow('has no memory repository')
   })
 })
+
+describe('employees: adding a job template (docs/ai-employees.md §5.3, §16)', () => {
+  const claude = [{ agent: 'claude' as const, model: 'claude-sonnet-5-5', fast: false }]
+  const ready = async () => {
+    const r = await rig()
+    r.state.settings.loadouts = claude as typeof r.state.settings.loadouts
+    return r
+  }
+
+  it('makes the employee and approves it at once, in one commit, with the template’s access on the organization’s repositories', async () => {
+    const { root, employees, state } = await ready()
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    const { employee, approveError } = await employees.addTemplate('o1', 'software-engineer')
+    expect(approveError).toBeUndefined()
+    expect(employee).toMatchObject({ name: 'Ravi', role: 'Staff software engineer', colour: 'blue', state: 'active', changed: false, approvedAt: '2026-11-13T10:42:00.000Z' })
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    expect((await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n').sort()).toEqual([`bots/${employee.id}.toml`, `memory/bots/${employee.id}/MEMORY.md`, `memory/bots/${employee.id}/journal.md`])
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe(`Add AI employee Ravi (bots/${employee.id}.toml)`)
+    // Write on its own organization's repositories: not the memory repository, not Personal's; on the person's agent.
+    expect(employee.definition!.access.repos).toEqual({ 'foreman-website': 'write' })
+    expect(employee.definition!.model).toMatchObject({ agent: 'claude', model: 'claude-sonnet-5-5' })
+    expect(state.employees!.find((r) => r.id === employee.id)).toMatchObject({ state: 'active', approvedFingerprint: employee.fingerprint, approvedBlob: employee.blob })
+    // A job that reads gets Read.
+    expect((await employees.addTemplate('o1', 'qa-engineer')).employee.definition!.access.repos).toEqual({ 'foreman-website': 'read' })
+  })
+
+  it('names a job the roster has "<name> (<job>)", then numbers it, counting retired employees’ names', async () => {
+    const { employees } = await ready()
+    const first = await employees.addTemplate('o1', 'qa-engineer')
+    expect(first.employee.name).toBe('Quinn')
+    expect((await employees.addTemplate('o1', 'qa-engineer')).employee.name).toBe('Quinn (QA engineer)')
+    expect((await employees.addTemplate('o1', 'qa-engineer')).employee.name).toBe('Quinn (QA engineer) 2')
+    await employees.retire('o1', first.employee.id)
+    expect((await employees.addTemplate('o1', 'qa-engineer')).employee.name).toBe('Quinn (QA engineer) 3')
+  })
+
+  it('wears the template’s hat unless someone who isn’t retired wears it, Priya included; then the first free one', async () => {
+    const { employees } = await ready()
+    await employees.createTeam('o1', [programManagerDefinition({ repos: [], loadouts: claude, taken: [] })])
+    expect((await employees.addTemplate('o1', 'technical-writer')).employee.colour).toBe('orange')
+    expect((await employees.addTemplate('o1', 'ux-designer')).employee.colour).toBe('pink')
+    // Ana's orange is Theo's; pink is Uma's and teal Priya's: blue.
+    const ana = await employees.addTemplate('o1', 'marketing-manager')
+    expect(ana.employee.colour).toBe('blue')
+    // A colour only a retired employee wears is free again.
+    await employees.retire('o1', ana.employee.id)
+    expect((await employees.addTemplate('o1', 'software-engineer')).employee.colour).toBe('blue')
+  })
+
+  it('repeats the least-worn colour once all twelve are worn', async () => {
+    const { employees } = await ready()
+    const ids: string[] = []
+    const team = HAT_COLOURS.map((colour, i) => {
+      const id = newEmployeeId(ids)
+      ids.push(id)
+      return proposedDefinition({ id, colour, name: `Helper ${i + 1}`, role: 'Helper', description: 'Helps.', responsibilities: ['Help'], instructions: INSTRUCTIONS, repos: {}, loadouts: claude })
+    })
+    await employees.createTeam('o1', team)
+    expect((await employees.addTemplate('o1', 'qa-engineer')).employee.colour).toBe('orange')
+  })
+
+  it('adds a template with no repository access when the organization has only its memory repository', async () => {
+    const { employees, state } = await ready()
+    state.repos = state.repos.filter((r) => r.id !== 'site')
+    const { employee } = await employees.addTemplate('o1', 'software-engineer')
+    expect(employee).toMatchObject({ name: 'Ravi', state: 'active' })
+    expect(employee.definition!.access.repos).toEqual({})
+  })
+
+  it('refuses a job it doesn’t know, and an organization without a memory repository, writing nothing', async () => {
+    const { root, employees } = await ready()
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    await expect(employees.addTemplate('o1', 'wizard')).rejects.toThrow('There is no such job to add.')
+    await expect(employees.addTemplate('o2', 'qa-engineer')).rejects.toThrow('Later has no memory repository')
+    expect(await gitOut(root, ['rev-parse', 'HEAD'])).toBe(before)
+  })
+
+  it('leaves the employee a draft and says why when approving fails; what was made stays', async () => {
+    const { employees, state } = await ready()
+    vi.spyOn(employees, 'approve').mockRejectedValueOnce(new Error('The disk is full.'))
+    const { employee, approveError } = await employees.addTemplate('o1', 'qa-engineer')
+    expect(approveError).toBe('The disk is full.')
+    expect(employee).toMatchObject({ name: 'Quinn', state: 'draft' })
+    expect(state.employees!.find((r) => r.id === employee.id)).toEqual({ orgId: 'o1', id: employee.id, state: 'draft' })
+    expect((await employees.list('o1')).employees.map((e) => e.name)).toEqual(['Quinn'])
+  })
+
+  it('New organization: Priya and the templates picked with her, in one commit, each approved', async () => {
+    const { root, employees } = await ready()
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    const id = await employees.addProgramManager('o1', ['qa-engineer', 'software-engineer'])
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe('Add the team: Priya, Ravi, Quinn')
+    const made = (await employees.list('o1')).employees
+    expect(made.map((e) => `${e.name}: ${e.state}`).sort()).toEqual(['Priya: active', 'Quinn: active', 'Ravi: active'])
+    expect(made.find((e) => e.name === 'Priya')!.id).toBe(id)
+    const files = (await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n')
+    for (const e of made) expect(files).toEqual(expect.arrayContaining([`bots/${e.id}.toml`, `memory/bots/${e.id}/MEMORY.md`, `memory/bots/${e.id}/journal.md`]))
+  })
+
+  it('New organization: an approval that fails throws, and what was made stays as drafts', async () => {
+    const { employees } = await ready()
+    vi.spyOn(employees, 'approve').mockRejectedValueOnce(new Error('The disk is full.'))
+    await expect(employees.addProgramManager('o1', ['qa-engineer'])).rejects.toThrow('The disk is full.')
+    expect((await employees.list('o1')).employees.map((e) => `${e.name}: ${e.state}`).sort()).toEqual(['Priya: draft', 'Quinn: draft'])
+  })
+})

@@ -25,6 +25,7 @@ export const PLAN_STATUS_KEY: Record<ProjectPlan['status'], PlainKey> = {
 }
 
 export const WAIT_KIND_KEY: Record<ProjectWait['kind'], PlainKey> = {
+  questions: 'projects.wait.questions',
   plan: 'projects.wait.plan',
   gate: 'projects.wait.gate',
   stuck: 'projects.wait.stuck',
@@ -50,7 +51,7 @@ export function projectStatus(project: Project, t: T, pmName: string): { tone: S
   if (project.phase === 'closed') return { tone: project.outcome === 'done' ? 'ok' : 'off', label: t(project.outcome === 'done' ? 'projects.state.done' : 'projects.state.stopped'), line: project.title }
   const wait = project.waits[0]
   if (wait?.kind === 'stuck') return { tone: 'error', label: t('projects.state.stuck'), line: wait.reason ?? project.title }
-  if (wait) return { tone: 'warn', label: t('projects.state.waitingYou'), line: wait.kind === 'gate' ? t('projects.line.gate', { part: partTitle(project, wait.partId) }) : t(WAIT_KIND_KEY[wait.kind]) }
+  if (wait) return { tone: 'warn', label: t('projects.state.waitingYou'), line: wait.kind === 'gate' ? t('projects.line.gate', { part: partTitle(project, wait.partId) }) : wait.kind === 'questions' ? t('projects.line.questions', { name: pmName }) : t(WAIT_KIND_KEY[wait.kind]) }
   if (project.paused) return { tone: 'off', label: t('projects.state.paused'), line: project.title }
   if (project.phase === 'planning' || project.replanning) return { tone: 'info', label: t('projects.state.planning'), line: t('projects.line.planning', { name: pmName }) }
   if (project.phase === 'accepting') return { tone: 'info', label: t('projects.state.accepting'), line: t('projects.line.accepting', { name: pmName }) }

@@ -71,6 +71,8 @@ export function itemTitle(item: NeedsYouItem, snapshot: AppSnapshot, t: Renderer
   if (item.kind === 'project' && item.project && item.wait) {
     const title = item.project.title
     switch (item.wait.kind) {
+      case 'questions':
+        return t('needsYou.title.projectQuestions', { title })
       case 'plan':
         return t('needsYou.title.projectPlan', { title })
       case 'gate':
@@ -98,7 +100,7 @@ export function itemSub(item: NeedsYouItem, t: RendererT): string[] {
     return text ? [t('triage.quote', { text })] : []
   }
   if (item.kind === 'paused') return [item.detail].filter((x): x is string => Boolean(x))
-  if (item.kind === 'project' && item.wait) return [item.wait.kind === 'stuck' ? item.wait.reason : t(item.wait.kind === 'plan' ? 'needsYou.projectPlanSub' : 'needsYou.projectGateSub')].filter((x): x is string => Boolean(x))
+  if (item.kind === 'project' && item.wait) return [item.wait.kind === 'stuck' ? item.wait.reason : t(item.wait.kind === 'plan' ? 'needsYou.projectPlanSub' : item.wait.kind === 'questions' ? 'needsYou.projectQuestionsSub' : 'needsYou.projectGateSub')].filter((x): x is string => Boolean(x))
   return []
 }
 
