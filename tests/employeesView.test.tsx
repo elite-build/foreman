@@ -342,7 +342,7 @@ describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => 
     expect(jobs[0].textContent).toBe('Software engineer')
     expect(pressed()).toEqual([])
     // Each is described by its line and its access.
-    expect(described(chip('QA engineer'))).toBe('Tests what others build and says what breaks. · Read')
+    expect(described(chip('QA engineer'))).toBe('Tests what others build and says what breaks. · Write')
     const add = screen.getByRole('button', { name: 'Add' })
     expect(add).toHaveProperty('disabled', true)
     expect(described(add)).toBe('Pick a job to add.')
