@@ -1,10 +1,12 @@
 // New organization (docs/ai-employees.md §3): a name, and the repositories to bring from Personal (the one the sidebar
 // shows ticked). Its memory repository is made beside the others unless More options says otherwise (another folder, an
 // existing repository, or later), or its repositories are kept in a folder of their own: then it is made there, and
-// Clone and Quick start start there while the organization is showing. Its team (§15) is always the same two: the
-// person, and Priya, its program manager, made and approved with it (her definition is fixed). One dialog, one call: main makes the memory repository (one
-// commit) if asked, Priya (one more), and moves the ticked repositories with their workspaces and chats.
-import { useId, useState } from 'react'
+// Clone and Quick start start there while the organization is showing. Its team (§15) is always the person and Priya,
+// its program manager, made and approved with it (her definition is fixed), and any starting templates (§16) the person
+// picks with the chips or Compare jobs, approved with her. One dialog, one call: main makes the memory repository (one
+// commit) if asked, the team (one more), and moves the ticked repositories with their workspaces and chats.
+import { useEffect, useId, useRef, useState } from 'react'
+import { EMPLOYEE_TEMPLATES, type EmployeeTemplateId } from '../../../../shared/employeeTemplates'
 import {
   defaultMemoryName,
   defaultOrganizationFolder,
@@ -26,6 +28,7 @@ import { useT } from '../../i18n'
 import { api, openCreateOrganization, setSpace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Checkbox, Dialog, Field, HardHat, LinkButton, RadioList, Select, Tag, TextInput, type SelectOption } from '../../ui'
 import { LocationField } from '../AddRepository'
+import { CompareJobs, PickedWho, TemplateChips } from './TeamTemplates'
 import './spaces.css'
 
 /** What the memory repository fields hold while the dialog is open. `named`: the person typed a name of their own. */
@@ -176,9 +179,24 @@ export function CreateOrganizationDialog() {
   const [memoryPlaced, setMemoryPlaced] = useState(false)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
+  // The starting templates picked, and whether Compare jobs is showing them as cards instead of the form.
+  const [templates, setTemplates] = useState<ReadonlySet<EmployeeTemplateId>>(() => new Set())
+  const [comparing, setComparing] = useState(false)
+  const firstCard = useRef<HTMLButtonElement>(null)
+  const compareLink = useRef<HTMLButtonElement>(null)
+  const comparedOnce = useRef(false)
   const headingId = useId()
   const teamHeadingId = useId()
+  const addHeadingId = useId()
   const togetherHintId = useId()
+
+  // Into Compare jobs, focus goes to its first card; back out, to the link that opened it.
+  useEffect(() => {
+    if (comparing) {
+      comparedOnce.current = true
+      firstCard.current?.focus()
+    } else if (comparedOnce.current) compareLink.current?.focus()
+  }, [comparing])
 
   const close = () => !working && openCreateOrganization(false)
   // Shown once something is typed: an empty name only keeps Create off.
@@ -207,8 +225,16 @@ export function CreateOrganizationDialog() {
     else next.delete(id)
     setPicked(next)
   }
-  // Priya lives in the memory repository: while it is decided later, she comes with it.
+  const toggleTemplate = (id: EmployeeTemplateId, on: boolean) => {
+    const next = new Set(templates)
+    if (on) next.add(id)
+    else next.delete(id)
+    setTemplates(next)
+  }
+  // Priya lives in the memory repository: while it is decided later, she comes with it, and so do the templates.
   const teamPossible = memory.kind !== 'later'
+  const hired = teamPossible ? EMPLOYEE_TEMPLATES.filter((tpl) => templates.has(tpl.id)) : []
+  const names = (list: string[]) => new Intl.ListFormat(t.locale, { type: 'conjunction' }).format(list)
 
   const submit = async () => {
     if (!ready || !chosen) return
@@ -219,7 +245,8 @@ export function CreateOrganizationDialog() {
         name: name.trim(),
         memory: chosen,
         repoIds: personal.filter((r) => picked.has(r.id)).map((r) => r.id),
-        ...(together ? { folder: folderPath.trim() } : {})
+        ...(together ? { folder: folderPath.trim() } : {}),
+        ...(hired.length ? { templates: hired.map((tpl) => tpl.id) } : {})
       })
       openCreateOrganization(false)
       setSpace(org.id, { home: !inSettings })
@@ -232,6 +259,27 @@ export function CreateOrganizationDialog() {
     }
   }
 
+  if (comparing)
+    return (
+      <Dialog
+        title={t('spaces.compare.title')}
+        description={t('spaces.compare.desc')}
+        size="lg"
+        closeLabel={t('common.back')}
+        onClose={() => setComparing(false)}
+        footer={
+          <div className="space-dialog-footer">
+            <span className="faint small">{hired.length ? t('spaces.compare.picked', { count: hired.length, names: names(hired.map((tpl) => tpl.name)) }) : t('spaces.compare.none')}</span>
+            <Button variant="primary" onClick={() => setComparing(false)}>
+              {t('common.done')}
+            </Button>
+          </div>
+        }
+      >
+        <CompareJobs picked={templates} onToggle={toggleTemplate} firstRef={firstCard} />
+      </Dialog>
+    )
+
   return (
     <Dialog
       title={t('spaces.create.title')}
@@ -242,7 +290,13 @@ export function CreateOrganizationDialog() {
       footer={
         <div className="space-dialog-footer">
           <span className="faint small">
-            {more && chosen?.kind === 'create' ? t('spaces.create.creates', { path: joinWorkspace(chosen.parentDir, chosen.name) }) : teamPossible ? t('spaces.team.approves', { name: PROGRAM_MANAGER_NAME }) : null}
+            {more && chosen?.kind === 'create'
+              ? t('spaces.create.creates', { path: joinWorkspace(chosen.parentDir, chosen.name) })
+              : !teamPossible
+                ? null
+                : hired.length
+                  ? t('spaces.team.approvesMany', { names: names([PROGRAM_MANAGER_NAME, ...hired.map((tpl) => tpl.name)]) })
+                  : t('spaces.team.approves', { name: PROGRAM_MANAGER_NAME })}
           </span>
           <Button onClick={close} disabled={working}>
             {t('common.cancel')}
@@ -283,7 +337,7 @@ export function CreateOrganizationDialog() {
         <div className="space-bring" role="group" aria-labelledby={teamHeadingId}>
           <div className="space-heading space-team-heading">
             <span id={teamHeadingId}>{t('spaces.team.heading')}</span>
-            <span className="faint small">{t('spaces.team.count', { count: teamPossible ? 2 : 1 })}</span>
+            <span className="faint small">{t('spaces.team.count', { count: teamPossible ? 2 + hired.length : 1 })}</span>
           </div>
           <Card className="space-bring-list space-team-list">
             <Checkbox className="space-bring-row" checked disabled>
@@ -304,7 +358,26 @@ export function CreateOrganizationDialog() {
                 <Tag>{t('spaces.team.always')}</Tag>
               </span>
             </Checkbox>
+            {hired.map((tpl) => (
+              <Checkbox key={tpl.id} className="space-bring-row" checked onChange={(e) => toggleTemplate(tpl.id, e.target.checked)}>
+                <PickedWho template={tpl} />
+              </Checkbox>
+            ))}
           </Card>
+          {teamPossible && (
+            <>
+              <div className="space-team-heading">
+                <span id={addHeadingId} className="space-heading">
+                  {t('spaces.team.add')}
+                </span>
+                <LinkButton ref={compareLink} onClick={() => setComparing(true)}>
+                  {t('spaces.team.compare')}
+                </LinkButton>
+              </div>
+              <TemplateChips picked={templates} onToggle={toggleTemplate} labelledBy={addHeadingId} />
+              <p className="faint small space-team-note">{t('spaces.team.addNote')}</p>
+            </>
+          )}
           <p className="faint small space-team-note">{teamPossible ? t('spaces.team.proposes', { name: PROGRAM_MANAGER_NAME }) : t('spaces.team.needsMemory', { name: PROGRAM_MANAGER_NAME })}</p>
         </div>
         <div className="space-together">

@@ -150,6 +150,34 @@
   justify-content: space-between;
   gap: 8px;
 }
+/* Add: a chip per starting template, wrapping; Compare jobs: the same templates as a grid of cards. */
+.space-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.space-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.space-compare-card {
+  display: flex;
+  padding: 8px 10px;
+}
+.space-job {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.space-job-title,
+.space-job-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .space-dialog-footer {
   display: flex;
   align-items: center;

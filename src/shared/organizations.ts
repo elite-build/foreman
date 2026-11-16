@@ -36,6 +36,9 @@ export interface CreateOrganizationInput {
   repoIds: string[]
   // Keep its repositories in a folder of their own (Organization.folder): an absolute path, made if it isn't there.
   folder?: string
+  // Starting templates (shared/employeeTemplates.ts) to make with Priya and approve with the organization. They need its
+  // memory repository, as she does: with none yet, they aren't made.
+  templates?: import('./employeeTemplates').EmployeeTemplateId[]
 }
 
 export const MAX_ORGANIZATION_NAME = 60
