@@ -77,3 +77,49 @@
   gap: 6px;
   margin: 2px 0 2px 23px;
 }
+
+/* Descriptions beside their labels: one grid (radio, label, description) whose cells are the radios, labels and
+   descriptions themselves (the wrappers between are display: contents), so the descriptions line up. Not a subgrid: a
+   docked card measuring its content got a subgrid's height wrong and scrolled. The label column takes at most 18em and
+   wraps past it, so a narrow window keeps room for the descriptions. */
+.ui-radio-list--beside {
+  display: grid;
+  grid-template-columns: auto fit-content(18em) minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 2px;
+}
+.ui-radio-list--beside > .ui-radio-list__item,
+.ui-radio-list--beside .ui-radio-list__option,
+.ui-radio-list--beside .ui-radio-list__text {
+  display: contents;
+}
+.ui-radio-list--beside .ui-radio-list__input {
+  grid-column: 1;
+}
+.ui-radio-list--beside .ui-radio-list__title {
+  grid-column: 2;
+  min-height: var(--target-min);
+  padding: 2px 8px 0 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.ui-radio-list--beside .ui-radio-list__description,
+.ui-radio-list--beside .ui-radio-list__reason {
+  grid-column: 3;
+  padding-top: 3px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+/* A reason under a description starts its own row, in the description column. */
+.ui-radio-list--beside .ui-radio-list__description + .ui-radio-list__reason {
+  grid-row: span 1;
+}
+.ui-radio-list--beside [data-disabled] .ui-radio-list__title,
+.ui-radio-list--beside [data-disabled] .ui-radio-list__description,
+.ui-radio-list--beside [data-disabled] .ui-radio-list__reason {
+  cursor: default;
+}
+.ui-radio-list--beside .ui-radio-list__extra {
+  grid-column: 2 / -1;
+  margin: 2px 0;
+}

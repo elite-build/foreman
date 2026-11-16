@@ -169,12 +169,16 @@ describe('questions', () => {
     render(<QuestionPanel request={questions} />)
     const tabs = screen.getByRole('tablist', { name: 'Questions' })
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['not answered yet Expired token', 'not answered yet Tests'])
+    // The card is named by the open question, its title; the count isn't said again.
+    expect(screen.getByRole('group', { name: 'What happens when the refresh token has expired?' })).toBeTruthy()
+    expect(screen.queryByText(/of 2 answered|2 questions/)).toBeNull()
     // A single choice is a radio list, so it reads as choose one; picking doesn't jump to the next question.
     await user.click(screen.getByRole('radio', { name: 'Sign out' }))
     expect(screen.getByRole('radio', { name: 'Sign out' })).toHaveProperty('checked', true)
-    expect(within(tabs).getAllByRole('tab')[0].textContent).toBe('answered Expired token')
-    expect(screen.getByText('1 of 2 answered')).toBeTruthy()
+    // An answered tab shows its answer.
+    expect(within(tabs).getAllByRole('tab')[0].textContent).toBe('answered Expired token · Sign out')
     await user.click(screen.getByRole('button', { name: /^Next: Tests/ }))
+    expect(screen.getByRole('group', { name: 'Which tests should I add?' })).toBeTruthy()
     expect(fakeApi.respondApproval).not.toHaveBeenCalled()
     await user.click(screen.getByRole('checkbox', { name: 'End to end' }))
     await user.click(screen.getByRole('button', { name: /^Send answers/ }))

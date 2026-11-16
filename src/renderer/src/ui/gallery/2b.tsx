@@ -97,6 +97,7 @@ export function Gallery2b() {
   const [tree, setTree] = useState<string | undefined>('main')
   const [conn, setConn] = useState<string | undefined>(undefined)
   const [prefix, setPrefix] = useState<string | undefined>('custom')
+  const [merge, setMerge] = useState<string | undefined>('wait')
   const [flow, setFlow] = useState(FLOW)
   const [caretLine, setCaretLine] = useState(1)
 
@@ -233,6 +234,17 @@ export function Gallery2b() {
             { value: 'custom', label: 'Custom', extra: prefix === 'custom' ? <TextInput aria-label="Custom prefix" mono defaultValue="yatin/" /> : undefined },
             { value: 'none', label: 'None', disabled: true, reason: 'Needs a connected repository' },
             { value: 'long', label: LONG }
+          ]}
+        />
+        <RadioList
+          legend="Descriptions beside their labels"
+          descriptions="beside"
+          value={merge}
+          onChange={setMerge}
+          options={[
+            { value: 'admin', label: 'Merge now with admin bypass', description: 'gh pr merge --squash --admin, then tag and build straight away' },
+            { value: 'wait', label: 'Wait for an approval', description: 'I open the PR and stop. Run the skill again after it merges.' },
+            { value: 'long', label: LONG, description: 'A long label wraps in its column; the descriptions stay lined up.' }
           ]}
         />
         <RadioList

@@ -38,6 +38,11 @@
   margin-left: auto;
   color: var(--text-faint);
 }
+/* A question's tabs, in the header row before the key hint. */
+.decision-nav {
+  display: inline-flex;
+  min-width: 0;
+}
 .decision-subject {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -97,9 +102,13 @@
   min-height: 0;
   overflow-y: auto;
 }
+/* The scrollbar's room is kept from the start: one that appeared over a fraction of a pixel would narrow the body, wrap a
+   line more and keep itself there (a question's descriptions beside their labels did). */
 .decision-card--docked > .decision-body {
   flex: 0 1 auto;
   overflow: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 /* The row form: ▲ kind · who · what · age, then one button. */
