@@ -20,6 +20,7 @@ import {
   type Organization,
   type OrganizationMemory
 } from '../shared/organizations'
+import { isEmployeeTemplateId, type EmployeeTemplateId } from '../shared/employeeTemplates'
 import { isEmployeeId } from '../shared/memory'
 import type { Repo } from '../shared/types'
 import { quickStart } from './repoSources'
@@ -35,8 +36,9 @@ export interface OrganizationHost {
   // An organization was renamed or given a memory repository: the memory service keeps its `.foreman-memory.json` current.
   organizationChanged?(id: string): void
   // Its program manager (docs/ai-employees.md §15): made, and approved, in the organization's memory repository; her id.
+  // The starting templates picked in New organization are made and approved with her, in the same commit.
   // A failure is the caller's to report; the organization stays.
-  createProgramManager?(org: Organization): Promise<string>
+  createProgramManager?(org: Organization, templates?: readonly EmployeeTemplateId[]): Promise<string>
 }
 
 /** The files a new memory repository starts with (docs/ai-employees.md §4). */
@@ -171,7 +173,8 @@ export class OrganizationService {
       !isMemory(input.memory) ||
       !Array.isArray(input.repoIds) ||
       input.repoIds.some((id) => typeof id !== 'string') ||
-      (input.folder !== undefined && typeof input.folder !== 'string')
+      (input.folder !== undefined && typeof input.folder !== 'string') ||
+      (input.templates !== undefined && (!Array.isArray(input.templates) || !input.templates.every(isEmployeeTemplateId)))
     ) {
       throw new Error('Invalid organization')
     }
@@ -194,16 +197,16 @@ export class OrganizationService {
     this.host.changed()
     if (memory) this.host.organizationChanged?.(org.id)
     // Its program manager lives in the memory repository; without one there is nowhere to make her (setMemory does, later).
-    const teamProblem = memory ? await this.addProgramManager(org) : undefined
+    const teamProblem = memory ? await this.addProgramManager(org, [...new Set(input.templates ?? [])]) : undefined
     // Said once, in the answer: never kept on the saved organization.
     return teamProblem ? { ...org, teamProblem } : org
   }
 
   /** Make the organization's program manager if it has none (§15); she is its lead. Returns why it failed, if it did. */
-  private async addProgramManager(org: Organization): Promise<string | undefined> {
+  private async addProgramManager(org: Organization, templates: readonly EmployeeTemplateId[] = []): Promise<string | undefined> {
     if (org.programManagerId || !this.host.createProgramManager) return undefined
     try {
-      const id = await this.host.createProgramManager(org)
+      const id = await this.host.createProgramManager(org, templates)
       org.programManagerId = id
       // Escalations go to her (§7).
       org.leadEmployeeId = id

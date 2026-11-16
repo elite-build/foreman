@@ -133,6 +133,7 @@ import { EmployeeService } from './employees'
 import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
 import { ProjectService } from './projects'
 import { programManagerDefinition } from '../shared/employeeTeams'
+import { templateDefinitions } from '../shared/employeeTemplates'
 import { reposInSpace } from '../shared/organizations'
 import { EmployeeTriggerService } from './employeeTriggers'
 import { EmployeeEventService } from './employeeEvents'
@@ -558,13 +559,18 @@ export class Core {
       // .foreman-memory.json names the organization: written again after a rename or a memory repository picked.
       organizationChanged: (id) => this.memory.organizationChanged(id),
       // Its program manager (docs/ai-employees.md §15), on the repositories it has: her definition is fixed and the same
-      // in every organization, so making the organization approves it.
-      createProgramManager: async (org) => {
+      // in every organization, so making the organization approves it. The starting templates the person picked in the
+      // same dialog are approved with her: the dialog names each one Create approves.
+      createProgramManager: async (org, templates = []) => {
         const repos = reposInSpace(store.state.repos, store.state.organizations ?? [], org.id).filter((r) => r.id !== org.memoryRepoId).map((r) => r.name)
         const members = (await this.employees.members(org.id)) ?? []
-        const definition = programManagerDefinition({ repos, loadouts: store.state.settings.loadouts, taken: members.map((m) => m.summary.id), takenNames: members.map((m) => m.summary.name) })
-        await this.employees.createTeam(org.id, [definition])
-        await this.employees.approve(org.id, definition.id)
+        const loadouts = store.state.settings.loadouts
+        const taken = members.map((m) => m.summary.id)
+        const takenNames = members.map((m) => m.summary.name)
+        const definition = programManagerDefinition({ repos, loadouts, taken, takenNames })
+        const picked = templateDefinitions({ templates, repos, loadouts, taken: [...taken, definition.id], takenNames: [...takenNames, definition.name] })
+        await this.employees.createTeam(org.id, [definition, ...picked])
+        for (const d of [definition, ...picked]) await this.employees.approve(org.id, d.id)
         return definition.id
       }
     })

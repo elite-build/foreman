@@ -438,6 +438,26 @@ describe('organizations: the program manager (docs/ai-employees.md §15)', () =>
     expect(asked).toHaveLength(2)
   })
 
+  it('makes the starting templates picked with her, each once, and refuses one that isn’t a template', async () => {
+    const state = { repos: [], organizations: [], settings: defaultSettings() } as unknown as PersistedState
+    const asked: (readonly string[] | undefined)[] = []
+    const service = new OrganizationService(
+      host(state, async (_org, templates?: readonly string[]) => {
+        asked.push(templates)
+        return 'e-pri3'
+      }),
+      made
+    )
+    const memory = { kind: 'create' as const, name: 'acme-memory', parentDir: path.resolve('/code') }
+    await service.create({ name: 'Acme', memory, repoIds: [], templates: ['software-engineer', 'ux-designer', 'software-engineer'] })
+    expect(asked).toEqual([['software-engineer', 'ux-designer']])
+    await expect(service.create({ name: 'Wizards', memory: { ...memory, name: 'wizards-memory' }, repoIds: [], templates: ['wizard' as never] })).rejects.toThrow('Invalid organization')
+    expect(state.organizations!.map((o) => o.name)).toEqual(['Acme'])
+    // Without a memory repository there is nowhere to keep them either.
+    await service.create({ name: 'Later', memory: { kind: 'later' }, repoIds: [], templates: ['ux-designer'] })
+    expect(asked).toHaveLength(1)
+  })
+
   it('keeps the organization when she can’t be made, says why once without saving it, and can make her later', async () => {
     const state = { repos: [], organizations: [], settings: defaultSettings() } as unknown as PersistedState
     let fail = true
@@ -496,6 +516,29 @@ describe('organizations: Clone and Quick start for one that keeps its repositori
     const mine = await c.api.quickStartRepo(elsewhere, 'notes')
     expect(mine.spaceId).toBeUndefined()
     expect(store.state.settings.cloneDirectory).toBe(elsewhere)
+  })
+
+  it('makes and approves the starting templates picked with Priya, in one commit, with access right for each job', async () => {
+    const { core: c, store } = await core()
+    const repo = await c.api.addRepo(await makeRepo({ 'README.md': 'hello\n' }))
+    const org = await c.api.createOrganization({
+      name: 'Acme',
+      memory: { kind: 'create', name: 'acme-memory', parentDir: await tempDir('foreman-org-mem-') },
+      repoIds: [repo.id],
+      templates: ['software-engineer', 'ux-designer']
+    })
+    expect(org.teamProblem).toBeUndefined()
+    const { employees } = await c.api.listEmployees(org.id)
+    expect(employees.map((e) => [e.name, e.role, e.state])).toEqual([
+      ['Priya', 'Program manager', 'active'],
+      ['Ravi', 'Staff software engineer', 'active'],
+      ['Uma', 'Staff UX designer', 'active']
+    ])
+    const access = (name: string) => employees.find((e) => e.name === name)!.definition!.access.repos
+    expect(access('Ravi')).toEqual({ [repo.name]: 'write' })
+    expect(access('Uma')).toEqual({ [repo.name]: 'read' })
+    const memoryRoot = store.state.repos.find((r) => r.id === org.memoryRepoId)!.rootPath
+    expect(await gitOut(memoryRoot, ['log', '-1', '--format=%s'])).toBe('Add the team: Priya, Ravi, Uma')
   })
 
   it('refuses an organization that isn’t there before making anything', async () => {
