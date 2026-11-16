@@ -29,12 +29,15 @@ import {
   ACCEPTANCE_FILE,
   acceptanceBody,
   allPartsDone,
+  answersProblem,
   artifactPath,
   channelNameProblem,
   channelSlug,
   checkPlan,
+  checkQuestions,
   followUpBody,
   listedProjects,
+  MAX_ANSWER,
   MAX_FOLLOW_UP,
   MAX_NOTE,
   MAX_REPLANS,
@@ -52,6 +55,7 @@ import {
   projectSlug,
   projectTitle,
   PROJECT_RUNS,
+  questionState,
   readyParts,
   replanGoesAhead,
   type DeleteProjectOptions,
@@ -62,6 +66,7 @@ import {
   type ProjectOutcome,
   type ProjectPlan,
   type ProjectWait,
+  type QuestionsInput,
   type RosterLine,
   type StartProjectInput,
   withOwnersResolved
@@ -296,13 +301,73 @@ export class ProjectService implements EmployeeProjectHooks {
         kind: 'plan',
         employeeId: project.pmId,
         title: `${replan ? `Replan v${replan.version}` : round > 1 ? `Plan again` : 'Plan'}: ${project.title}`,
-        body: planningBody({ project, organization: org.name, repos: this.workRepos(org).map((r) => r.name), roster: await this.roster(org.id), ...(transcript ? { transcript } : {}), ...(replan ? { replan } : {}), ...(opts.note ? { note: opts.note } : {}) }),
+        body: planningBody({
+          project,
+          organization: org.name,
+          repos: this.workRepos(org).map((r) => r.name),
+          roster: await this.roster(org.id),
+          asks: project.asks ?? [],
+          ...(transcript ? { transcript } : {}),
+          ...(replan ? { replan } : {}),
+          ...(opts.note ? { note: opts.note } : {})
+        }),
         requestId: `project:${project.id}:plan:${round}`,
         round,
         contract: { writes: [planPath], ...(inputs.length ? { inputs } : {}) }
       },
       { kind: 'stuck' }
     )
+  }
+
+  // ---- the questions (EmployeeTools: project_questions) ----
+
+  /**
+   * The program manager's project_questions (§15), from a planning task's run: checked and recorded as a round, which
+   * waits for the person's answers once the task finishes. Not with a plan in the same task, and not past the rounds.
+   */
+  submitQuestions(task: EmployeeTask, input: QuestionsInput): Promise<string> {
+    return this.serial(async () => {
+      const mark = task.project
+      if (!mark || mark.kind !== 'plan') throw new Error('Only a project’s planning task asks its questions.')
+      const project = this.project(mark.id)
+      if (project.phase === 'closed') throw new Error('This project is closed.')
+      if (project.plan) throw new Error('A plan is in effect: in a replan, ask the person with ask_person if you can’t go on without them.')
+      if (project.plans.some((p) => p.taskId === task.id)) throw new Error('You gave a plan in this task already: finish_task done, or change the plan with project_plan.')
+      const asks = (project.asks ?? []).filter((r) => r.taskId !== task.id)
+      const result = checkQuestions(input, questionState(asks))
+      if (!result.ok) throw new Error(`Foreman didn’t accept the questions:\n${result.problems.map((p) => `- ${p}`).join('\n')}`)
+      // A second call in the same task replaces its round.
+      const round = (project.asks ?? []).find((r) => r.taskId === task.id)?.round ?? asks.length + 1
+      project.asks = [...asks, { round, taskId: task.id, understood: result.understood, questions: result.questions, at: this.iso() }].sort((a, b) => a.round - b.round)
+      this.save(project)
+      return `${result.questions.length} ${result.questions.length === 1 ? 'question' : 'questions'} recorded (round ${round}). Now finish_task done: the person answers them all at once, and their answers start your next run. Don’t plan in this run.`
+    })
+  }
+
+  /**
+   * The person answers a round of questions (§15), or tells the program manager to plan with what she has (`answers`
+   * null): her planning starts again with every answer so far.
+   */
+  answer(projectId: string, waitId: string, answers: string[] | null): Promise<Project> {
+    return this.serial(async () => {
+      const project = this.project(projectId)
+      const wait = project.waits.find((w) => w.id === waitId)
+      if (project.phase === 'closed' || wait?.kind !== 'questions') throw new Error('This project isn’t waiting for answers any more.')
+      const round = (project.asks ?? []).find((r) => !r.answers && !r.skipped)
+      if (!round) throw new Error('There are no questions waiting.')
+      if (answers === null) round.skipped = true
+      else {
+        const problem = answersProblem(round, answers)
+        if (problem === 'missing') throw new Error('Answer every question, or let her plan with what she has.')
+        if (problem === 'long') throw new Error(`Keep each answer under ${MAX_ANSWER} characters.`)
+        round.answers = answers.map((a) => a.trim())
+      }
+      round.answeredAt = this.iso()
+      project.waits = project.waits.filter((w) => w.id !== wait.id)
+      project.phase = 'planning'
+      await this.startPlanning(project, {})
+      return this.project(project.id)
+    })
   }
 
   // ---- the plan (EmployeeTools: project_plan) ----
@@ -318,6 +383,7 @@ export class ProjectService implements EmployeeProjectHooks {
       if (!mark || mark.kind !== 'plan') throw new Error('Only a project’s planning task gives a plan.')
       const project = this.project(mark.id)
       if (project.phase === 'closed') throw new Error('This project is closed.')
+      if (project.asks?.some((r) => r.taskId === task.id)) throw new Error('You asked questions in this task: finish_task done and wait for the person’s answers, then plan.')
       const org = this.organization(project.orgId)
       const members = (await this.host.employees.members(org.id)) ?? []
       // A second call in the same task replaces its plan; drafts the first proposed are on the team now, by name.
@@ -325,6 +391,7 @@ export class ProjectService implements EmployeeProjectHooks {
         employees: members.map((m) => ({ id: m.summary.id, name: m.summary.name || m.summary.id, state: m.summary.state })),
         pmId: project.pmId,
         repos: this.workRepos(org).map((r) => r.name),
+        asked: questionState(project.asks),
         ...(project.plan ? { current: project.plan, parts: project.parts } : {})
       })
       if (!result.ok) throw new Error(`Foreman didn’t accept the plan:\n${result.problems.map((p) => `- ${p}`).join('\n')}\nFix it and call project_plan again.`)
@@ -346,7 +413,21 @@ export class ProjectService implements EmployeeProjectHooks {
       const fresh = this.project(project.id)
       const existing = fresh.plans.find((p) => p.taskId === task.id)
       const version = existing?.version ?? fresh.plans.length + 1
-      const plan: ProjectPlan = { version, summary: result.summary, size: result.size, parts: result.parts, proposed: result.proposed, proposedIds, taskId: task.id, at: this.iso(), status: 'waiting' }
+      const plan: ProjectPlan = {
+        version,
+        summary: result.summary,
+        size: result.size,
+        understood: result.understood,
+        doneWhen: result.doneWhen,
+        outOfScope: result.outOfScope,
+        assumptions: result.assumptions,
+        parts: result.parts,
+        proposed: result.proposed,
+        proposedIds,
+        taskId: task.id,
+        at: this.iso(),
+        status: 'waiting'
+      }
       fresh.plans = [...fresh.plans.filter((p) => p.taskId !== task.id), plan].sort((a, b) => a.version - b.version)
       this.save(fresh)
       const names = { ...(await this.names(org.id)) }
@@ -363,12 +444,13 @@ export class ProjectService implements EmployeeProjectHooks {
     })
   }
 
-  /** EmployeeProjectHooks: a planning task finishes done only once it has given a plan. */
+  /** EmployeeProjectHooks: a planning task finishes done only once it has given a plan, or questions for the person. */
   finishCheck(task: EmployeeTask, input: Pick<EmployeeFinishInput, 'status'>): string | undefined {
     if (task.project?.kind !== 'plan' || input.status !== 'done') return undefined
     const project = this.db.project(task.project.id)
-    if (project && !project.plans?.some((p) => p.taskId === task.id)) return 'Give your plan with project_plan first; then finish_task done.'
-    return undefined
+    if (!project || project.plans?.some((p) => p.taskId === task.id) || project.asks?.some((r) => r.taskId === task.id)) return undefined
+    const asked = questionState(project.asks)
+    return !project.plan && !asked.answered && !asked.skipped ? 'Ask the person first with project_questions; then finish_task done.' : 'Give your plan with project_plan first; then finish_task done.'
   }
 
   // ---- moving on ----
@@ -410,6 +492,14 @@ export class ProjectService implements EmployeeProjectHooks {
 
   private async planClosed(project: Project, task: EmployeeTask, done: boolean, why: string): Promise<void> {
     const plan = project.plans.find((p) => p.taskId === task.id)
+    const asked = project.asks?.find((r) => r.taskId === task.id && !r.answers && !r.skipped)
+    if (done && asked && !plan) {
+      // Her questions wait for the person: their answers start her planning again.
+      project.replanning = false
+      project.waits = project.waits.filter((w) => w.kind !== 'questions')
+      this.addWait(project, { kind: 'questions' })
+      return
+    }
     if (!done || !plan) {
       project.replanning = false
       this.addWait(project, { kind: 'stuck', reason: done ? 'The program manager finished without a plan.' : why })
@@ -597,7 +687,7 @@ export class ProjectService implements EmployeeProjectHooks {
       if (project.phase === 'closed' || !wait) throw new Error('This project isn’t waiting for that decision any more.')
       const text = typeof note === 'string' ? note.trim() : ''
       if (text.length > MAX_NOTE) throw new Error(`Keep the note under ${MAX_NOTE} characters.`)
-      const allowed: Record<ProjectWait['kind'], ProjectDecision[]> = { plan: ['approve', 'send-back', 'stop'], gate: ['approve', 'send-back', 'stop'], final: ['approve', 'send-back', 'stop'], stuck: ['retry', 'stop'] }
+      const allowed: Record<ProjectWait['kind'], ProjectDecision[]> = { questions: ['stop'], plan: ['approve', 'send-back', 'stop'], gate: ['approve', 'send-back', 'stop'], final: ['approve', 'send-back', 'stop'], stuck: ['retry', 'stop'] }
       if (!allowed[wait.kind].includes(decision)) throw new Error('That isn’t one of this decision’s choices.')
       if (decision === 'send-back' && !text) throw new Error('Say what to change: your note goes with it.')
       const record = () => project.decisions.push({ waitKind: wait.kind, ...(wait.partId ? { partId: wait.partId } : {}), decision, ...(text ? { note: text } : {}), at: this.iso() })
