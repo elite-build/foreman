@@ -157,8 +157,8 @@ describe('the plan card', () => {
     await user.click(within(card).getByRole('radio', { name: 'Map' }))
     expect(within(card).queryByRole('table')).toBeNull()
     const map = within(card).getByRole('group', { name: 'Plan v1 as a map' })
-    // Each part names its owner, whether they are only proposed, whether you check it, its file and its state.
-    expect(within(map).getByRole('button', { name: 'How sign-in changes in Atlas, tech-plan.md, Ravi, proposed, you check, Waiting' })).toBeTruthy()
+    // Each part names its file, its owner, whether they are only proposed, whether you check it, what it waits for and its state.
+    expect(within(map).getByRole('button', { name: 'How sign-in changes in Atlas, tech-plan.md, Ravi, proposed, you check, After: Which sign-in providers customers ask for, Waiting' })).toBeTruthy()
     expect(within(map).getByRole('button', { name: 'Which sign-in providers customers ask for, research.md, Ada, Waiting' })).toBeTruthy()
     expect(within(card).getByText('3 parts')).toBeTruthy()
     expect(within(card).getByText('1 owner to approve')).toBeTruthy()
@@ -196,7 +196,7 @@ describe('the plan card', () => {
     await user.click(within(card).getByRole('radio', { name: 'Map' }))
     const map = within(card).getByRole('group', { name: 'Plan v1 as a map' })
     expect(within(map).getByRole('button', { name: 'Which sign-in providers customers ask for, research.md, Ada, Done' })).toBeTruthy()
-    expect(within(map).getByRole('button', { name: 'How sign-in changes in Atlas, tech-plan.md, Ravi, you check, Working' })).toBeTruthy()
+    expect(within(map).getByRole('button', { name: 'How sign-in changes in Atlas, tech-plan.md, Ravi, you check, After: Which sign-in providers customers ask for, Working' })).toBeTruthy()
     expect(within(card).getByText('1 of 3 done')).toBeTruthy()
     expect(within(card).queryByText(/to approve/)).toBeNull()
   })
@@ -230,7 +230,7 @@ describe('the plan card', () => {
     const map = screen.getByRole('group', { name: 'Plan v2 as a map' })
     expect(within(map).getByRole('button', { name: /^Review the SAML design for security, .*New$/ })).toBeTruthy()
     expect(within(map).getByRole('button', { name: /^How sign-in changes in Atlas, .*Changed$/ })).toBeTruthy()
-    expect(within(map).getByRole('button', { name: 'Help page: set up single sign-on, help-page.md, Max, Taken out' })).toBeTruthy()
+    expect(within(map).getByRole('button', { name: 'Help page: set up single sign-on, help-page.md, Max, After: How sign-in changes in Atlas, Taken out' })).toBeTruthy()
     const card = screen.getByRole('region', { name: 'Plan v2' })
     expect(within(card).getByText('1 new')).toBeTruthy()
     expect(within(card).getByText('1 changed')).toBeTruthy()

@@ -58,6 +58,10 @@ function usePlanGraph(project: Project, plan: ProjectPlan, form: PlanLayoutForm,
     const live = planInEffect(project, plan)
     const colour = (of: Pick<ProjectPlan, 'proposedIds'>, owner: string) => (roster?.find((e) => e.id === ownerId(of, owner))?.colour ?? 'slate') as HardHatColour
     const writes = new Map([...removed, ...plan.parts].map((p) => [p.id, p.writes]))
+    const after = (of: ProjectPlan, part: PlanPart) => {
+      const titles = part.dependsOn.map((d) => of.parts.find((p) => p.id === d)?.title).filter(Boolean)
+      return titles.length ? `${t('projects.plan.col.after')}: ${titles.join(', ')}` : ''
+    }
 
     // A part a replan took out has no state: its badge says it is taken out.
     const node = (part: PlanPart, of: ProjectPlan, gone: boolean): GraphNode => {
@@ -87,8 +91,9 @@ function usePlanGraph(project: Project, plan: ProjectPlan, form: PlanLayoutForm,
         ...(status ? { tone: TONE[status.state], toneLabel: word } : {}),
         ...(proposed && !live ? { dim: true } : {}),
         ...(mark && markLabel ? { mark, markLabel } : {}),
-        // The kicker isn't read with the node, so the name says everything on it.
-        label: [title, form === 'compact' ? part.title : part.writes, ...who, word, markLabel].filter(Boolean).join(', ')
+        // The kicker isn't read with the node, and the arrows aren't read at all, so the name says both: with the
+        // table's columns in it, a screen reader hears the same plan in either view.
+        label: [title, form === 'compact' ? part.title : part.writes, ...who, after(of, part), word, markLabel].filter(Boolean).join(', ')
       }
     }
     const nodes = [...plan.parts.map((p) => node(p, plan, false)), ...removed.map((p) => node(p, before!, true))]
