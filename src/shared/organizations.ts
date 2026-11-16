@@ -3,6 +3,7 @@
 // the organization; absent, the repository is in Personal. Pure, so main, the renderer and the tests read the same rules.
 import { parseWorkLimits, type WorkLimits } from './employeeBroker'
 import { isEmployeeId } from './memory'
+import { joinWorkspace } from './openIn'
 import type { AppSnapshot, Repo } from './types'
 
 export interface Organization {
@@ -17,6 +18,9 @@ export interface Organization {
   workLimits?: Partial<WorkLimits>
   // Its program manager (docs/ai-employees.md §15): made with it, and where every project starts.
   programManagerId?: string
+  // The folder its new repositories go in: Clone and Quick start while it is showing start there, and what they make
+  // joins it. Its memory repository is made there too when made with it. Absent: they go where Personal's do.
+  folder?: string
   // Only in createOrganization's answer: why its program manager couldn't be made (the organization was). Never saved.
   teamProblem?: string
   createdAt: string
@@ -28,8 +32,10 @@ export type OrganizationMemory = { kind: 'create'; name: string; parentDir: stri
 export interface CreateOrganizationInput {
   name: string
   memory: OrganizationMemory
-  // Repositories brought from Personal; their workspaces and chats come with them.
+  // Repositories brought from Personal; their workspaces and chats come with them. They stay where they are on disk.
   repoIds: string[]
+  // Keep its repositories in a folder of their own (Organization.folder): an absolute path, made if it isn't there.
+  folder?: string
 }
 
 export const MAX_ORGANIZATION_NAME = 60
@@ -51,6 +57,22 @@ export function organizationSlug(name: string): string {
 export function defaultMemoryName(name: string): string {
   const slug = organizationSlug(name)
   return `${slug || 'organization'}-memory`
+}
+
+/** Whether two paths name the same folder, ignoring separators, a trailing one and case. */
+export function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  return norm(a) === norm(b)
+}
+
+/**
+ * The folder a new organization's repositories start in: `<clone location>/<organization>`, or `…/<organization>-org`
+ * when a registered repository is already that folder (an organization named after one of its repositories).
+ */
+export function defaultOrganizationFolder(name: string, cloneDirectory: string, repos: readonly Pick<Repo, 'rootPath'>[]): string {
+  const slug = organizationSlug(name) || 'organization'
+  const plain = joinWorkspace(cloneDirectory, slug)
+  return repos.some((r) => samePath(r.rootPath, plain)) ? joinWorkspace(cloneDirectory, `${slug}-org`) : plain
 }
 
 /** A folder name Quick start accepts: letters, digits, dots, dashes and underscores. */
@@ -174,7 +196,7 @@ export function parseOrganizations(value: unknown): Organization[] {
   const out: Organization[] = []
   for (const entry of value as Record<string, unknown>[]) {
     if (!entry || typeof entry !== 'object') continue
-    const { id, name, memoryRepoId, leadEmployeeId, workLimits, programManagerId, createdAt } = entry
+    const { id, name, memoryRepoId, leadEmployeeId, workLimits, programManagerId, folder, createdAt } = entry
     if (typeof id !== 'string' || !id || typeof name !== 'string' || !name.trim() || typeof createdAt !== 'string') continue
     if (out.some((o) => o.id === id)) continue
     const limits = parseWorkLimits(workLimits)
@@ -185,6 +207,7 @@ export function parseOrganizations(value: unknown): Organization[] {
       ...(typeof leadEmployeeId === 'string' && isEmployeeId(leadEmployeeId) ? { leadEmployeeId } : {}),
       ...(limits ? { workLimits: limits } : {}),
       ...(typeof programManagerId === 'string' && isEmployeeId(programManagerId) ? { programManagerId } : {}),
+      ...(typeof folder === 'string' && folder.trim() ? { folder } : {}),
       createdAt
     })
   }

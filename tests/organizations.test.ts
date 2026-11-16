@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   currentSpace,
   defaultMemoryName,
+  defaultOrganizationFolder,
   holdsWorkspaces,
   memoryChoices,
   moveRefusal,
@@ -16,6 +17,7 @@ import {
   parseOrganizations,
   reconcileSpaces,
   reposInSpace,
+  samePath,
   snapshotInSpace,
   spaceOf,
   spacesOn,
@@ -23,6 +25,7 @@ import {
   type Organization
 } from '../src/shared/organizations'
 import type { AppSnapshot, Repo, Workspace } from '../src/shared/types'
+import { Core, type Host } from '../src/main/core'
 import { Environment } from '../src/main/environment'
 import { gitOut } from '../src/main/git'
 import { memoryRepositoryFiles, OrganizationService } from '../src/main/organizations'
@@ -132,6 +135,21 @@ describe('organizations: the shared rules', () => {
     expect(moveRefusal('xyz-ui', 'o1', organizations)).toBeNull()
   })
 
+  it('starts an organization’s folder in the clone location, named after it, unless a repository already is that folder', () => {
+    const repos = [{ rootPath: 'C:\\Users\\me\\repos\\foreman' }]
+    expect(defaultOrganizationFolder('Acme Labs', 'C:\\Users\\me\\repos\\', repos)).toBe('C:\\Users\\me\\repos\\acme-labs')
+    // The Foreman organization next to the foreman repository: a clone in that folder would nest one in the other.
+    expect(defaultOrganizationFolder('Foreman', 'C:\\Users\\me\\repos', repos)).toBe('C:\\Users\\me\\repos\\foreman-org')
+    expect(defaultOrganizationFolder('中文', '/home/me/code', [])).toBe('/home/me/code/organization')
+    expect(samePath('C:\\Code\\App\\', 'c:/code/app')).toBe(true)
+    expect(samePath('/code/app', '/code/apps')).toBe(false)
+  })
+
+  it('reads an organization’s folder back, and drops one that isn’t text', () => {
+    const parsed = parseOrganizations([{ ...org('o1', 'A'), folder: '/code/a' }, { ...org('o2', 'B'), folder: 7 }, { ...org('o3', 'C'), folder: ' ' }])
+    expect(parsed.map((o) => o.folder)).toEqual(['/code/a', undefined, undefined])
+  })
+
   it('reads organizations entry by entry and brings spaces into agreement', () => {
     const parsed = parseOrganizations([org('o1', 'A', 'mem'), { id: 'o1', name: 'again', createdAt: 'x' }, { id: 'o2', name: '' }, null, 'x', org('o3', 'B', 'mem'), org('o4', 'C', 'missing')])
     expect(parsed.map((o) => o.id)).toEqual(['o1', 'o3', 'o4'])
@@ -230,6 +248,39 @@ describe('organizations: the service', () => {
     await expect(service.create({ name: 'A', memory: { kind: 'create', name: 'bad name!', parentDir: await tempDir() }, repoIds: [] })).rejects.toThrow(/letters, numbers/)
     await expect(service.create({ name: 'A', memory: { kind: 'create', name: 'a-memory', parentDir: '' }, repoIds: [] })).rejects.toThrow(/folder/)
     await expect(service.create({ name: 'A', memory: { kind: 'nonsense' } as never, repoIds: [] })).rejects.toThrow(/Invalid organization/)
+  })
+
+  it('keeps its repositories in a folder of their own: made, remembered, and its memory repository made there', async () => {
+    const parent = await tempDir('foreman-org-')
+    const folder = path.join(parent, 'acme')
+    const { state, service } = rig({ repos: [repo('app')] })
+    const before = state.settings.cloneDirectory
+    const created = await service.create({ name: 'Acme', memory: { kind: 'create', name: 'acme-memory', parentDir: folder }, repoIds: ['app'], folder: ` ${folder} ` })
+    expect(created.folder).toBe(folder)
+    expect(state.organizations![0].folder).toBe(folder)
+    expect(state.repos.find((r) => r.name === 'acme-memory')!.rootPath).toBe(path.join(folder, 'acme-memory'))
+    // A repository brought in stays where it is; Personal's next clone still starts where it did.
+    expect(state.repos[0].rootPath).toBe('/code/app')
+    expect(state.settings.cloneDirectory).toBe(before)
+
+    // Made even when nothing goes in it yet.
+    const later = path.join(parent, 'later')
+    expect((await service.create({ name: 'Later', memory: { kind: 'later' }, repoIds: [], folder: later })).folder).toBe(later)
+    expect(existsSync(later)).toBe(true)
+  })
+
+  it('refuses a folder that is a repository or inside one, or not a full path, before making anything', async () => {
+    const parent = await tempDir('foreman-org-')
+    const outside = await makeRepo()
+    const { state, service } = rig({ repos: [repo('foreman', { rootPath: path.join(parent, 'foreman') })] })
+    const memory = { kind: 'create' as const, name: 'foreman-memory', parentDir: parent }
+    await expect(service.create({ name: 'Foreman', memory, repoIds: [], folder: path.join(parent, 'foreman') })).rejects.toThrow(/is the foreman repository/)
+    await expect(service.create({ name: 'Foreman', memory, repoIds: [], folder: path.join(parent, 'foreman', 'orgs') })).rejects.toThrow(/inside the foreman repository/)
+    await expect(service.create({ name: 'Foreman', memory, repoIds: [], folder: outside })).rejects.toThrow(/is a Git repository/)
+    await expect(service.create({ name: 'Foreman', memory, repoIds: [], folder: 'relative/here' })).rejects.toThrow(/Choose the folder/)
+    await expect(service.create({ name: 'Foreman', memory, repoIds: [], folder: 7 as never })).rejects.toThrow(/Invalid organization/)
+    expect(existsSync(path.join(parent, 'foreman-memory'))).toBe(false)
+    expect(state.organizations).toEqual([])
   })
 
   it('moves a repository between spaces, but keeps a memory repository in its organization', async () => {
@@ -405,5 +456,53 @@ describe('organizations: the program manager (docs/ai-employees.md §15)', () =>
     await expect(service.ensureProgramManager(failed.id)).rejects.toThrow('git refused')
     fail = false
     expect((await service.ensureProgramManager(failed.id)).programManagerId).toBe('e-pri2')
+  })
+})
+
+describe('organizations: Clone and Quick start for one that keeps its repositories in a folder', () => {
+  async function core() {
+    const dir = await tempDir('foreman-org-core-')
+    const store = new Store(dir)
+    await store.load()
+    const host: Host = {
+      broadcast: () => undefined,
+      applyTheme() {},
+      setBadge() {},
+      setZoom() {},
+      keepAwake() {},
+      pickDirectory: async () => null,
+      pickFiles: async () => [],
+      pickPath: async () => null,
+      openPath: async () => {},
+      openExternal: async () => {},
+      metrics: () => ({ cpuPercent: 0, memoryMb: 0 }),
+      cliShim: () => ''
+    }
+    const secrets = new SecretStore(path.join(dir, 'secrets.bin'), { available: () => true, encrypt: (s) => Buffer.from(s), decrypt: (b) => b.toString() })
+    return { core: new Core(store, secrets, host), store }
+  }
+
+  it('makes the new repository in the organization, leaving Personal’s clone location alone; in Personal, as before', async () => {
+    const { core: c, store } = await core()
+    const folder = path.join(await tempDir('foreman-org-folder-'), 'acme')
+    const org = await c.api.createOrganization({ name: 'Acme', memory: { kind: 'later' }, repoIds: [], folder })
+    const personalFolder = store.state.settings.cloneDirectory
+    const made = await c.api.quickStartRepo(folder, 'site', org.id)
+    expect(made.spaceId).toBe(org.id)
+    expect(path.normalize(made.rootPath).toLowerCase()).toBe(path.join(folder, 'site').toLowerCase())
+    expect(store.state.settings.cloneDirectory).toBe(personalFolder)
+
+    const elsewhere = await tempDir('foreman-personal-')
+    const mine = await c.api.quickStartRepo(elsewhere, 'notes')
+    expect(mine.spaceId).toBeUndefined()
+    expect(store.state.settings.cloneDirectory).toBe(elsewhere)
+  })
+
+  it('refuses an organization that isn’t there before making anything', async () => {
+    const { core: c } = await core()
+    const parent = await tempDir('foreman-org-folder-')
+    await expect(c.api.quickStartRepo(parent, 'site', 'gone')).rejects.toThrow(/Organization not found/)
+    await expect(c.api.cloneRepo('https://example.invalid/acme/site.git', parent, 'c1', undefined, 'gone')).rejects.toThrow(/Organization not found/)
+    expect(existsSync(path.join(parent, 'site'))).toBe(false)
   })
 })

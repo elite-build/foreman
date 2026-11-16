@@ -3385,16 +3385,34 @@ export class Core {
     }
   }
 
+  /** Checked before cloning or making anything: the organization a new repository is to join is there. */
+  private joinable(organizationId: string | undefined): void {
+    if (organizationId !== undefined && !this.store.state.organizations?.some((o) => o.id === organizationId)) throw new Error('Organization not found')
+  }
+
+  /**
+   * A cloned or Quick-started repository, registered: in Personal, the folder it went in is where the next one starts;
+   * made for an organization, it joins it and Personal's clone location stays as it was.
+   */
+  private added(repo: Repo, parentDir: string, organizationId: string | undefined): Repo {
+    if (organizationId === undefined) {
+      this.store.state.settings.cloneDirectory = parentDir
+      return repo
+    }
+    this.organizations.moveRepo(repo.id, organizationId)
+    return repo
+  }
+
   readonly api: Api = {
     getSnapshot: async () => this.snapshot(),
     pickDirectory: () => this.host.pickDirectory(),
     pickFiles: () => this.host.pickFiles(),
     pickPath: (options) => this.host.pickPath(options),
     addRepo: (path) => this.workspaces.addRepo(path),
-    cloneRepo: async (url, parentDir, cloneId, account) => {
+    cloneRepo: async (url, parentDir, cloneId, account, organizationId) => {
+      this.joinable(organizationId)
       const dir = await cloneRepo(url, parentDir, (line) => this.host.broadcast({ type: 'clone-progress', cloneId, line }), account)
-      this.store.state.settings.cloneDirectory = parentDir
-      return this.workspaces.addRepo(dir, account)
+      return this.added(await this.workspaces.addRepo(dir, account), parentDir, organizationId)
     },
     githubRepos: async (account) => {
       const protocol = await gitProtocol()
@@ -3404,10 +3422,10 @@ export class Core {
         return { repos: [], protocol, error: err instanceof Error ? err.message : String(err) }
       }
     },
-    quickStartRepo: async (parentDir, name) => {
+    quickStartRepo: async (parentDir, name, organizationId) => {
+      this.joinable(organizationId)
       const dir = await quickStart(parentDir, name)
-      this.store.state.settings.cloneDirectory = parentDir
-      return this.workspaces.addRepo(dir)
+      return this.added(await this.workspaces.addRepo(dir), parentDir, organizationId)
     },
     makeRepo: async (dir, identity) => {
       const made = await makeRepository(dir, identity)

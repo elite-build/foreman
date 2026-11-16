@@ -35,7 +35,7 @@ The interface says "employee" and "memory repository". "Bot" appears only in fil
 
 **The space switcher** is always in the sidebar header, reading **Personal** until an organization exists. It lists each space with its repository count and memory repository, plus "New organization…" and "Manage spaces…". Home can show one space or all of them.
 
-**New organization…** (in the switcher, the Add repository menu and **Settings → Spaces**) asks for a name, and which of Personal's repositories to bring, with the one the sidebar shows already ticked. Its memory repository, `<name>-memory`, is made beside the other repositories, private to this computer, and one line says so; **More options** opens the rest (another folder, an existing repository, or deciding later).
+**New organization…** (in the switcher, the Add repository menu and **Settings → Spaces**) asks for a name, and which of Personal's repositories to bring, with the one the sidebar shows already ticked. Its memory repository, `<name>-memory`, is made beside the other repositories, private to this computer, and one line says so; **More options** opens the rest (another folder, an existing repository, or deciding later). **Keep its repositories in one folder** gives the organization a folder of its own (`<clone location>/<name>`, or `<name>-org` when a registered repository already is that folder): its memory repository is made there, and while the organization is showing, Clone and Quick start start there and what they make joins the organization rather than Personal. Repositories brought in stay where they are on disk, and Personal's clone location is left as it was. A folder that is a Git repository, or inside one, is refused.
 
 **Where a repository's Foreman files live** is a per-repository choice, shown in Repository settings:
 
@@ -66,6 +66,7 @@ Layering, first wins: this computer's settings, then the private or memory-repos
       *.md, data/*                the employee's working knowledge
   bots/<id>.toml                  employee definitions (section 5)
   repos/<name>/                   Foreman files for repositories that chose option 3 in section 3
+  wiki/                           the organization's wiki: people, each repository's reports and findings, projects (section 16)
   .foreman-memory.json            schema version; written by Foreman only
 ```
 
@@ -373,3 +374,171 @@ Small work is a workspace, as it always was. Mid-to-large work is a **project**,
 **As built.** `ProjectService` (`src/main/projects.ts`) owns the record (`employee_projects` in `foreman.db`, an appended migration) and moves it on, one change at a time; `submitPlan` answers `project_plan` (`shared/employeeTools.ts`, `main/employeeTools.ts`); `EmployeeWorkService.projectTask` makes each task and `askFollowUp` a follow-up; `EmployeeProjectHooks` is how the work service asks the project service about its tasks (their workspace, whether a planning task may finish, a task closing). Pure rules are in `shared/projects.ts` (checks, readiness, replans, `plan.md`, the words each task carries) and `shared/employeeTeams.ts` (the two definitions). The window: `components/employees/ProjectsSection.tsx` (Channels), `OrgChannel.tsx`, `ProjectPage.tsx` (a project's channel), `Channel.tsx` (posts and the message box), `ChannelActions.tsx` (the ⋯ menu, Rename and Delete), `ChannelsPage.tsx` (All channels), `HandToPm.tsx` and `TeamRoles.tsx` (the person's column, Add Priya). API: `startProject`, `decideProject`, `pauseProject`, `stopProject`, `noteProject`, `askProjectFollowUp`, `askEmployeeFollowUp`, `renameProject`, `archiveProject` (operate), `listChannels` (read), `deleteProject` and `addProgramManager` (admin); the snapshot's `projects` (those not archived).
 
 **Not built yet.** Projects don't run as flows (flow steps run as tabs of one flow workspace behind the Experimental switch, while employee tasks have their own admission). No checks run between parts (Priya has no shell; a builder says in its file what to run). The plan is a table, not a drawn graph. The message box puts a name first with a chip, not an @ list as you type. Plan gates reach the phone and Slack only as Needs you counts. Codex employees can't finish a task (section 13, Known gaps).
+
+## 16. Job profiles, work reports and the wiki
+
+This section is a design, not yet built. It changes three things: who an employee can be, what it hands back, and where that is kept.
+
+### 16.1 Every employee holds a real job
+
+An employee is hired into a job that exists among people, never one named after its first task. Asked to evaluate a UI, Generate makes a **UX designer** whose focus is interface evaluation, not a "UI evaluator": an organization asks the designer it has, as a company would, and a job everyone recognises says what the employee knows, what it is responsible for and what it hands back.
+
+**An organization isn't always a software company.** One may be a codebase, a website, a job search kept in a repository, a book or a small business. The catalogue covers the work people actually hire for across all of them, in families, and the same rules hold everywhere: a job someone could be hired as, an anchor in an official occupation list, and the work products that job hands back.
+
+**A closed catalogue.** `src/shared/jobProfiles.ts` lists the profiles, each anchored to an occupation in O\*NET-SOC 2019 or ESCO (the anchors are checked when the catalogue is written; a profile with no anchor isn't added). A profile has an id, a family, a title, its anchor, its standard responsibilities, the report kinds it produces (16.2), the persona it wears where a starter fits (`developer`, `qa-engineer`, `security-reviewer`, `ux-designer`, `designer`, `product-manager`, `architect`, `docs-writer`, `researcher`), and whether it suggests Write. The first catalogue:
+
+| Family | Profile | Anchor | Produces | Suggests |
+| --- | --- | --- | --- | --- |
+| Engineering | Software engineer | O\*NET 15-1252 Software Developers | change, tech-plan | Write |
+| | Frontend engineer | O\*NET 15-1254 Web Developers | change, tech-plan | Write |
+| | Mobile engineer | O\*NET 15-1252 Software Developers | change, tech-plan | Write |
+| | Software architect | O\*NET 15-1299.08 Computer Systems Engineers/Architects | tech-plan, architecture-review | Read |
+| | QA engineer | O\*NET 15-1253 Software Quality Assurance Analysts and Testers | test-plan, qa-review | Read |
+| | Security engineer | O\*NET 15-1212 Information Security Analysts | security-review | Read |
+| | Site reliability engineer | O\*NET 15-1244 Network and Computer Systems Administrators (closest) | ops-review, change | Write |
+| | Database administrator | O\*NET 15-1242 Database Administrators | ops-review, change | Write |
+| Data | Data scientist | O\*NET 15-2051 Data Scientists | analysis | Read |
+| | Data analyst | O\*NET 15-2051.01 Business Intelligence Analysts | analysis, dashboard-spec | Read |
+| | Data engineer | O\*NET 15-1243 Database Architects (closest) | change, tech-plan | Write |
+| | Machine learning engineer | O\*NET 15-1221 Computer and Information Research Scientists (closest) | change, analysis | Write |
+| Design | UX designer | O\*NET 15-1255 Web and Digital Interface Designers | ux-review, design-spec | Read |
+| | Web designer | O\*NET 15-1255 Web and Digital Interface Designers | site-design, change | Write |
+| | UX researcher | ESCO user experience analyst | research | Read |
+| | Graphic designer | O\*NET 27-1024 Graphic Designers | brand-kit, design-spec | Write |
+| | Motion designer | O\*NET 27-1014 Special Effects Artists and Animators | design-spec | Write |
+| | Video editor | O\*NET 27-4032 Film and Video Editors | edit-plan | Write |
+| Product and delivery | Product manager | ESCO ICT product manager | requirements, roadmap | Read |
+| | Program manager | O\*NET 13-1082 Project Management Specialists | plan, acceptance | Read |
+| | Business analyst | O\*NET 13-1111 Management Analysts | requirements, process-review | Read |
+| Writing and communications | Technical writer | O\*NET 27-3042 Technical Writers | doc | Write |
+| | Copywriter | O\*NET 27-3043 Writers and Authors | copy | Write |
+| | Editor | O\*NET 27-3041 Editors | edit-review | Write |
+| | Public relations specialist | O\*NET 27-3031 Public Relations Specialists | comms-plan, copy | Read |
+| | Translator | O\*NET 27-3091 Interpreters and Translators | translation, translation-review | Write |
+| Marketing and growth | Marketing manager | O\*NET 11-2021 Marketing Managers | launch-plan, copy | Read |
+| | SEO specialist | O\*NET 13-1161.01 Search Marketing Strategists | seo-audit | Read |
+| | Social media manager | ESCO social media manager | content-calendar, copy | Read |
+| | Market research analyst | O\*NET 13-1161 Market Research Analysts and Marketing Specialists | market-analysis | Read |
+| Sales and customers | Sales engineer | O\*NET 41-9031 Sales Engineers | solution-brief | Read |
+| | Support engineer | O\*NET 15-1232 Computer User Support Specialists | triage | Read |
+| Careers and people | Career coach | O\*NET 21-1012 Educational, Guidance, and Career Counselors and Advisors | profile-review, career-plan | Write |
+| | Recruiter | O\*NET 13-1071 Human Resources Specialists | role-shortlist, candidate-review | Read |
+| | Learning and development specialist | O\*NET 13-1151 Training and Development Specialists | learning-plan | Write |
+| Business and finance | Financial analyst | O\*NET 13-2051 Financial and Investment Analysts | analysis | Read |
+| | Compliance specialist | O\*NET 13-1041 Compliance Officers | compliance-review | Read |
+
+**Rules for the catalogue:**
+
+- **Titles are the market's.** A profile's title is what job postings call the job, not the occupation list's wording ("Career coach", anchored to Career Counselors). Two profiles may share an anchor when people are hired for them separately: a UX designer and a web designer are both O\*NET 15-1255, but one reviews and specifies, and the other designs and builds a site.
+- **Choose the most specific fit.** Generate and Priya pick the narrowest profile whose title fits the work, and between two that fit, the one whose report kinds match what is asked: a marketing site is a web designer's, an app's settings screen a UX designer's, a LinkedIn profile a career coach's.
+- **No licensed professions.** A job that needs a licence to practise (lawyer, doctor, therapist, licensed financial adviser, certified accountant) is never a profile, because an employee can't hold the licence. The nearest unlicensed job is offered (compliance specialist, financial analyst), and its prompt says its work is not professional advice.
+- **A job doesn't grant the world.** Profiles that would act for the person outside the computer (a recruiter applying for a role, a social media manager posting, a PR specialist sending a pitch) get exactly the held actions every employee has (section 9). The profile shapes the work, never the access.
+- **Write follows the work product.** A profile suggests Write when what it makes lives in a repository (a site, a résumé in Markdown, translations); a reviewer's work lives in its reports and suggests Read. Either way it is a suggestion the person switches on.
+- **The catalogue grows by adding to it.** A new profile is a change to `jobProfiles.ts` with its anchor, market title, responsibilities and report kinds, made when a real case doesn't fit. Never by a draft, a plan or an employee; until then, the person's custom title (below) is the way through.
+
+**Examples.** A job-search repository gets a **Staff career coach** (focus: LinkedIn profile and positioning, writing the profile and résumé in the repository), a **Staff recruiter** (focus: finding roles and projects that fit, a shortlist report per search), and, for personal brand, a **Staff public relations specialist**. A website for Foreman gets a **Staff web designer** (focus: the Foreman marketing site), with a **Staff copywriter** and a **Staff SEO specialist** when it grows; the app's own screens stay with the UX designer.
+
+**Everyone is Staff.** There are no levels to pick and no junior employees: every employee is hired at Staff level, and its role reads "Staff UX designer". The prompt says what that means (owns the outcome, makes judgment calls and says why, raises risks unprompted, needs no step-by-step direction), and a new employee's effort starts at high, which the person may lower. Small work is still a workspace (section 15); nothing here changes the workspace personas.
+
+**Focus, not role.** The task-shaped words go into `focus` ("interface evaluation and accessibility"), shown after the title: Staff UX designer · interface evaluation and accessibility. The definition gains two fields, and `role` stops being free text: Foreman writes it from the profile.
+
+```toml
+profile = "ux-designer"
+focus = "Interface evaluation and accessibility"
+role = "Staff UX designer"        # written by Foreman from the profile; free text only for a custom title
+```
+
+**Generate and Refine** send the catalogue (id, title, responsibilities) and must answer with a `profile` from it; the parser refuses any other, the same way it refuses a missing instruction heading. The draft's responsibilities start from the profile's and add the focus.
+
+**Priya** proposes `new_employees` with a `profile`. `checkPlan` refuses one outside the catalogue, and refuses hiring a profile someone on the roster already holds unless the proposal says why one isn't enough (two parts at once that both need a designer, say). The roster she reads gives each employee's profile. Her own definition takes `profile = "program-manager"`; since it is fixed and approved with the organization, the upgrade that changes it is approved the way the organization's approval is.
+
+**A custom title is the person's exception.** New employee's **More options** offers **Other job title…**, for the case no profile fits. The person types a specific title (refused when it matches a profile's title, so a near-duplicate of the catalogue isn't made) and picks what it produces from the report kinds; Generate drafts from that title but can't choose it, and Priya can't propose one. Its page and card say "Custom title". Employees made before this section have no profile and are shown as custom titles; Edit offers to pick a profile, which changes the definition and so needs approving again, as any edit does.
+
+### 16.2 One format for what an employee hands back
+
+Every task whose result is a document ends with one **work report**: a Markdown file with front matter, in format `foreman-report/1`. Foreman tells the run the report's path (as it names a project part's file today) and `finish_task done` refuses until the file is there and parses; `partial` and `blocked` take one too, saying what is left. Reports are data: nothing in one raises authority.
+
+```markdown
+---
+format: foreman-report/1
+kind: ux-review                  # one of the author's profile's report kinds
+title: "Settings: keyboard and contrast review"
+author: e-7k2m                   # the id; the name and title are looked up
+task: t-…                        # and project, part and round when it is a project's
+repo: foreman@3d91ea19           # what it looked at, at which commit; one line per repository
+status: done                     # done | partial | blocked
+date: 2026-11-16
+---
+# Settings: keyboard and contrast review
+
+## Summary
+The answer first, in at most three lines.
+
+## Findings
+Each a heading `### <severity> · <title>` (critical, high, medium, low), then where (file:line or screen), the evidence, and what a fix would be.
+
+## Recommendations
+## Open questions
+## Not checked
+What was out of scope or couldn't be looked at, so nobody reads more into the report than is there.
+
+## Sources
+```
+
+The front matter and Summary, Findings, Open questions and Not checked are the same for every kind; Findings and Open questions may say "None". Each kind adds its own sections between Findings and Recommendations: `change` adds What changed and Checks run, `ux-review` adds Screens, `test-plan` adds Cases, `requirements` adds Must and Won't. Findings are written twice, as prose for people and as the `foreman-findings` block reviewer personas already end with, which is what Foreman files (16.3); the check refuses a report whose two lists don't match in number. `plan.md` and `acceptance.md` keep their own fixed formats, written as today.
+
+The format is versioned. A later `foreman-report/2` comes with a migration (16.4); Foreman reads every version it has shipped and writes only the newest.
+
+### 16.3 The wiki
+
+The memory repository is the organization's wiki. `memory/` stays each employee's working memory as section 4 describes; `wiki/` is the structured, readable layer beside it:
+
+```
+wiki/
+  index.md                                   generated: the organization, its people, repositories and projects
+  people/<id>.md                             generated: profile, focus, responsibilities, reports written, findings raised
+  repos/<repo>/
+    index.md                                 generated: open findings by severity, latest reports, projects that touched it
+    reports/<date>-<kind>-<task>.md          work reports from tasks outside a project
+    findings/F-0042.md                       one page per finding
+  projects/<slug>/
+    project.md                               generated: the request, the state, the plan's version, the parts and their files
+    plan.md, acceptance.md                   the program manager's, as today
+    <part>.md                                each part's work report
+.foreman-memory.json                         { "schema": 2, "wiki": 1, … }
+```
+
+Pages link with `[[F-0042]]` and `[[people/e-7k2m]]`, and the generated pages carry back-links, so the folder opens as it is in Obsidian or reads on GitHub. Generated pages are written by Foreman whenever what they summarise changes, never by an employee, and say so in their first line. Reports are written by their authors through the memory tools, within the path their task names; the write rules of section 4 hold (`wiki/` is Foreman's, except each task's own report path for that task). A findings index in `foreman.db` is a disposable cache, as the search index is.
+
+**Findings.** When a report is committed, Foreman files each of its findings as a page: an id unique in the organization (`F-0042`), the repository, where, severity, the report that raised it, and `status: open`. That is the only thing Foreman does by itself. **A finding's status never changes on its own**: Foreman doesn't close a finding because a later report doesn't mention it, and doesn't merge two that look alike; a new one that looks like an open one (same repository, same file or screen, same kind) is filed with "May be the same as F-0042" for the person to decide. Statuses (open, fixed, won't fix, duplicate of) change in two ways only:
+
+- **By the person**, on the finding's page in the Wiki view, as a commit with the person as author.
+- **By a re-check the person starts**: **Re-check findings** on a repository's page (all open, or the ones picked) makes a task for an employee with the profile that raised them (the author, if still on the team). Its report, kind `recheck`, says for each finding what it found now, with evidence; the statuses it proposes wait as one decision card ("Mark 5 fixed, keep 1 open") until the person applies them, and only what the person keeps changes.
+
+Nothing schedules a re-check. A trigger that would start one is refused when the definition is checked.
+
+**In the app**, the Memory view becomes the **Wiki** view: rendered pages with working links, a page per repository with its findings as a list filtered by status and severity, a page per person and per project, and the raw folders, proposals and conflicts the Memory view has today one tab away. It composes existing `ui/` components.
+
+### 16.4 One project format, versioned, and moving what exists
+
+Every project uses the one format above: its folder is `wiki/projects/<slug>/`, its parts' files are work reports, and `project.md` is generated. The layout is versioned by `wiki` in `.foreman-memory.json`, starting at 1; changing the layout or the report format later is a new version with its own migration, never a silent change.
+
+**Migrating an organization** (memory `schema` 1 to 2) happens once, when the memory service first opens the repository after the upgrade, as one commit by Foreman with a `Foreman-Migration: wiki/1` trailer, through the same intent, commit and finalise as any write:
+
+1. It waits while the repository has foreign changes (section 4) or any of the organization's project tasks is running; new project tasks wait for it.
+2. It moves each `memory/org/projects/<slug>/` to `wiki/projects/<slug>/`, unchanged except for what follows.
+3. It gives each part's file front matter from the project record (kind `report`, the part's owner, task, round and status), keeping the body as it was; a file that already has front matter keeps it. `plan.md` and `acceptance.md` move as they are.
+4. It writes `project.md` for each project and the generated pages, and sets `schema: 2, wiki: 1`.
+5. On finalise, it rewrites the current paths in each project's record (part files, inputs not yet read) to the new folder. A reference that carries a commit keeps its old path, which still reads at that commit.
+
+Findings in the moved files are not filed: they were written before the format, and filing them is a re-check the person may start. An organization whose migration can't finish yet (a foreign change it waits on) says so in the Wiki view and in Needs you, and the old paths keep working until it does.
+
+### 16.5 Building it
+
+| # | Slice | Contents |
+| --- | --- | --- |
+| 1 | Job profiles | The catalogue with anchors; `profile`, `focus` and Staff in the definition; Generate, Refine and Priya constrained to it; Other job title; existing employees shown as custom |
+| 2 | Work reports | `foreman-report/1`, its check in `finish_task`, report paths for every task, project parts writing reports |
+| 3 | Wiki and migration | The `wiki/` layout, generated pages, memory schema 2, moving existing projects |
+| 4 | Findings | Filing from reports, finding pages, statuses by the person, Re-check findings and its decision card |
+| 5 | Wiki view | The Memory view grown into the Wiki view |

@@ -407,6 +407,16 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     typeInto(name, 'Northwind')
     return '.space-dialog-body'
   },
+  // The same, its repositories kept in a folder of their own: the folder field, and the memory line naming it.
+  'new-organization-folder': async () => {
+    showRepoHome(null)
+    openCreateOrganization(true)
+    const name = await waitFor(() => document.querySelector<HTMLInputElement>('.space-dialog-body input[type="text"]'))
+    if (!name) return null
+    typeInto(name, 'Northwind')
+    document.querySelector<HTMLInputElement>('.space-together input[type="checkbox"]')?.click()
+    return '.space-together-extra'
+  },
   assistant: () => (openAssistant(), '.assistant-view'),
   'phone-pairing': () => {
     showRepoHome(null)
