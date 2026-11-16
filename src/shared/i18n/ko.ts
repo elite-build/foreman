@@ -2518,6 +2518,7 @@ export const ko: Catalogue = {
   'triage.bucket.working': '작업 중인 에이전트',
   'triage.bucket.idle': '워크스페이스',
   'triage.bucket.finished': '완료됨',
+  'triage.bucket.fold': '{group} 표시',
   'triage.later.back': '나중에에서 돌아옴',
   'triage.approval.plan': '계획 검토 준비됨',
   'triage.approval.question': '질문 있음',

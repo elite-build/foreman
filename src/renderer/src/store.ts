@@ -17,7 +17,7 @@ import { narratedNotice } from './agentStatus'
 import { playCompletionSound } from './sound'
 import { PtyEventRouter } from './ptyEvents'
 import { archivedTabs, hitRoute } from './archivedView'
-import type { SidebarFilter, SidebarView } from './triage'
+import type { Bucket, SidebarFilter, SidebarView } from './triage'
 import { DEFAULT_TILE_COUNT, tileCountOf, type TileCount } from './tiles'
 import { editorViewOf, pickEditorView, type EditorView } from './editorLayout'
 import { listFolds } from './narrowLayout'
@@ -277,7 +277,7 @@ let state: State = {
   chatJump: null,
   unread: {},
   unreadSessions: {},
-  sidebarView: { repo: loadPref('sidebarRepo', null), filter: loadPref('sidebarFilter', 'all'), query: '', showFinished: loadPref('showFinished', false) },
+  sidebarView: { repo: loadPref('sidebarRepo', null), filter: loadPref('sidebarFilter', 'all'), query: '', showFinished: loadPref('showFinished', false), folded: loadPref('sidebarFolded', []) },
   space: loadPref<string | null>('space', null),
   createOrganizationOpen: false,
   leftPanelOpen: loadPref('leftPanelOpen', true),
@@ -1217,6 +1217,14 @@ export function setSidebarQuery(query: string): void {
 export function toggleShowFinished(): void {
   savePref('showFinished', !state.sidebarView.showFinished)
   updateSidebarView({ showFinished: !state.sidebarView.showFinished })
+}
+
+/** Folds or unfolds one of the sidebar's groups under its heading card; kept for next time. */
+export function toggleSidebarGroup(bucket: Bucket): void {
+  const folded = state.sidebarView.folded ?? []
+  const next = folded.includes(bucket) ? folded.filter((b) => b !== bucket) : [...folded, bucket]
+  savePref('sidebarFolded', next)
+  updateSidebarView({ folded: next })
 }
 
 export function toggleRightPanel(): void {

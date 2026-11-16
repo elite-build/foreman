@@ -2518,6 +2518,7 @@ export const ptBR: Catalogue = {
   'triage.bucket.working': 'Agentes trabalhando',
   'triage.bucket.idle': 'Espaços de trabalho',
   'triage.bucket.finished': 'Finalizados',
+  'triage.bucket.fold': 'Mostrar {group}',
   'triage.later.back': 'De volta de Depois',
   'triage.approval.plan': 'Plano pronto para revisão',
   'triage.approval.question': 'Tem uma pergunta',

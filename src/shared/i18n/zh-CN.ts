@@ -2518,6 +2518,7 @@ export const zhCN: Catalogue = {
   'triage.bucket.working': '智能体工作中',
   'triage.bucket.idle': '工作区',
   'triage.bucket.finished': '已完成',
+  'triage.bucket.fold': '显示{group}',
   'triage.later.back': '从“稍后”回来',
   'triage.approval.plan': '计划待审查',
   'triage.approval.question': '有一个问题',
