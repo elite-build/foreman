@@ -3,6 +3,9 @@
 // ordinary employee task (main/employeeWork.ts), admitted, run, held and refused like any, in one chain per project.
 //
 // The rules, in the order they matter:
+//  - the program manager asks first: her first planning task gives questions with project_questions, the project waits
+//    for the person's answers (or "plan with what you have"), and those start her planning again; her first plan is
+//    refused until then, and project_questions once a plan is in effect;
 //  - the program manager plans: her planning task gives the plan with project_plan, which Foreman checks (checkPlan) and
 //    writes as plan.md in her run; a planning task can't finish done without one. Employees the plan proposes are made
 //    as drafts at once, so the person can read and approve each at the plan gate; the plan is approved only once every

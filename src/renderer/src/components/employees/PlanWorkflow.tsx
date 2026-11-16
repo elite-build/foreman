@@ -1,9 +1,10 @@
 // A plan drawn as its workflow (docs/ai-employees.md §15), with the design system's Graph: your request, the program
 // manager's questions, each part with its owner and the file it writes, your check after each part that has one, then
-// her acceptance and your final check for a large plan, and the end, left to right in the order things happen, each
-// check under what it checks (planWorkflow in shared/projects.ts places them; plan.md draws the same as a Mermaid
-// flowchart). Once the plan is in effect each part shows its state. A picture that scrolls, with full screen for a wide
-// one: the order and the parts table under it say the same in words.
+// her acceptance and your final check for a large plan, and the end, top to bottom in the order things happen, with
+// what runs at the same time side by side (planWorkflow in shared/projects.ts places them; plan.md draws the same as a
+// Mermaid flowchart). Top to bottom because a channel is narrow and scrolls down: the drawing is as tall as it needs and
+// the page scrolls, never the drawing. Once the plan is in effect each part shows its state. A picture: the order and
+// the parts table under it say the same in words.
 import { CircleCheck, FileText, MessageCircleQuestion, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { ownerId, ownerName, planWorkflow, type PartStatus, type ProjectPlan } from '../../../../shared/projects'
@@ -13,10 +14,10 @@ import { Dialog, Graph, HardHat, type GraphEdge, type GraphNode, type GraphTone,
 import { useGraphLabels } from '../FlowDiagram'
 import { PART_STATUS } from './projectWords'
 
-const CARD = { width: 188, height: 64 }
-const PILL = { width: 132, height: 36 }
-const COLUMN = CARD.width + 52
-const ROW = CARD.height + 24
+const CARD = { width: 180, height: 60 }
+const PILL = { width: 132, height: 34 }
+const LANE = CARD.width + 24
+const STAGE = CARD.height + 36
 
 const TONE: Record<PartStatus['state'], GraphTone | undefined> = { pending: undefined, running: 'running', gate: 'waiting', done: 'ok', stuck: 'error' }
 
@@ -42,15 +43,16 @@ export function PlanWorkflow({
   const [full, setFull] = useState(false)
   const drawn = useMemo(() => {
     const flow = planWorkflow(plan, { questions: questions > 0 })
-    const height = flow.rows * ROW
-    const inColumn = new Map<number, number>()
-    for (const s of flow.steps) inColumn.set(s.column, (inColumn.get(s.column) ?? 0) + 1)
+    const width = flow.lanes * LANE - (LANE - CARD.width)
+    const inStage = new Map<number, number>()
+    for (const s of flow.steps) inStage.set(s.stage, (inStage.get(s.stage) ?? 0) + 1)
     const nodes: GraphNode[] = flow.steps.map((s) => {
       const part = s.partId ? plan.parts.find((p) => p.id === s.partId) : undefined
       const pill = s.kind === 'request' || s.kind === 'end'
       const size = pill ? PILL : CARD
-      const top = (height - (inColumn.get(s.column) ?? 1) * ROW) / 2 + s.row * ROW + (ROW - size.height) / 2
-      const box = { id: s.id, x: s.column * COLUMN + (CARD.width - size.width) / 2, y: top, ...size }
+      // Each stage's steps side by side, the stage centred.
+      const left = (width - ((inStage.get(s.stage) ?? 1) * LANE - (LANE - CARD.width))) / 2
+      const box = { id: s.id, x: left + s.lane * LANE + (CARD.width - size.width) / 2, y: s.stage * STAGE + (CARD.height - size.height) / 2, ...size }
       switch (s.kind) {
         case 'request':
           return { ...box, shape: 'pill', title: t('projects.workflow.request') }
@@ -120,17 +122,13 @@ export function PlanWorkflow({
           }
       }
     })
-    // A check stands under what it checks: the way between them goes down; every other way goes right.
-    const column = new Map(flow.steps.map((s) => [s.id, s.column]))
-    const edges: GraphEdge[] = flow.links.map((l, i) =>
-      column.get(l.from) === column.get(l.to) ? { id: `link:${i}`, from: { node: l.from, side: 'bottom' }, to: { node: l.to, side: 'top' } } : { id: `link:${i}`, from: { node: l.from, side: 'right' }, to: { node: l.to, side: 'left' } }
-    )
-    return { nodes, edges, width: flow.columns * COLUMN - (COLUMN - CARD.width), height }
+    const edges: GraphEdge[] = flow.links.map((l, i) => ({ id: `link:${i}`, from: { node: l.from, side: 'bottom' }, to: { node: l.to, side: 'top' } }))
+    return { nodes, edges, width, height: flow.stages * STAGE - (STAGE - CARD.height) }
   }, [plan, questions, parts, names, roster, pmName, t])
   const label = t('projects.workflow.label', { version: plan.version })
   return (
     <>
-      <Graph label={label} labels={labels} bar={{}} onFullScreen={() => setFull(true)} className="channel-workflow" {...drawn} />
+      <Graph label={label} labels={labels} bar={{ grow: true }} onFullScreen={() => setFull(true)} className="channel-workflow" {...drawn} />
       {full && (
         <Dialog title={label} onClose={() => setFull(false)} size="xl" closeOnBackdrop>
           <Graph label={label} labels={labels} bar={{}} className="flow-graph-full" {...drawn} />

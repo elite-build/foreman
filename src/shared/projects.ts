@@ -385,7 +385,9 @@ function hasCycle(parts: readonly Pick<PlanPart, 'id' | 'dependsOn'>[]): boolean
  * Foreman's checks on a plan (the plan gate shows them): at most MAX_PARTS parts (SMALL_MAX_PARTS for a small one), ids
  * and files well-formed and unique, every owner one of the organization's employees (by id or name) or one it proposes,
  * every dependency and read a part of the plan, no cycles, every proposed employee new, owning a part, and given only
- * the organization's repositories; and for a replan, every part done or running kept with its owner. Owners come back as
+ * the organization's repositories; for a replan, every part done or running kept with its owner; and with `ctx.asked`,
+ * a first plan only once the person answered her questions, a large one with what she understood and when it is done,
+ * and no assumptions while she can still ask. Owners come back as
  * employee ids, or `new:<key>` for a proposed one.
  */
 export function checkPlan(
@@ -549,21 +551,21 @@ export function planStages(parts: readonly Pick<PlanPart, 'id' | 'dependsOn'>[])
 
 export type WorkflowStepKind = 'request' | 'questions' | 'part' | 'check' | 'accept' | 'final' | 'end'
 
-/** One step of a plan's workflow, in a column (left to right, in the order things happen) and a row within it (a check under what it checks). */
+/** One step of a plan's workflow: its stage (top to bottom, in the order things happen) and its lane within the stage (side by side). */
 export interface WorkflowStep {
   id: string
   kind: WorkflowStepKind
   partId?: string
-  column: number
-  row: number
+  stage: number
+  lane: number
 }
 
 /**
  * A plan as a workflow, the same drawn in the channel and written in plan.md: your request, her questions (when she
  * asked), each part, your check after each part that has one, then her acceptance and your final check for a large
- * plan, and the end. Each step sits in the column after the latest step it waits for.
+ * plan, and the end. Each step sits in the stage after the latest step it waits for; steps of one stage run side by side.
  */
-export function planWorkflow(plan: Pick<ProjectPlan, 'parts' | 'size'>, opts: { questions: boolean }): { steps: WorkflowStep[]; links: { from: string; to: string }[]; columns: number; rows: number } {
+export function planWorkflow(plan: Pick<ProjectPlan, 'parts' | 'size'>, opts: { questions: boolean }): { steps: WorkflowStep[]; links: { from: string; to: string }[]; stages: number; lanes: number } {
   const ids = new Set(plan.parts.map((p) => p.id))
   const partStep = (id: string) => `part:${id}`
   const out = (id: string) => (plan.parts.find((p) => p.id === id)?.gate ? `check:${id}` : partStep(id))
@@ -594,29 +596,27 @@ export function planWorkflow(plan: Pick<ProjectPlan, 'parts' | 'size'>, opts: { 
   for (const p of plan.parts) if (!plan.parts.some((o) => o.id !== p.id && o.dependsOn.includes(p.id))) links.push({ from: out(p.id), to: last })
   if (!plan.parts.length) links.push({ from: entry, to: last })
   if (plan.size === 'large') links.push({ from: 'accept', to: 'final' }, { from: 'final', to: 'end' })
-  // Columns: the longest way from the request. A check stands under what it checks, in the same column, so the
-  // drawing stays narrow enough for the channel.
+  // Stages: the longest way from the request.
   const before = new Map<string, string[]>()
   for (const l of links) before.set(l.to, [...(before.get(l.to) ?? []), l.from])
-  const column = new Map<string, number>()
-  const col = (id: string, seen: Set<string>): number => {
-    const known = column.get(id)
+  const depth = new Map<string, number>()
+  const stageOf = (id: string, seen: Set<string>): number => {
+    const known = depth.get(id)
     if (known !== undefined) return known
     if (seen.has(id)) return 0
     seen.add(id)
-    const kind = kinds.get(id)?.kind
-    const c = Math.max(-1, ...(before.get(id) ?? []).map((x) => col(x, seen))) + (kind === 'check' || kind === 'final' ? 0 : 1)
-    column.set(id, c)
-    return c
+    const d = Math.max(-1, ...(before.get(id) ?? []).map((x) => stageOf(x, seen))) + 1
+    depth.set(id, d)
+    return d
   }
-  const rows = new Map<number, number>()
+  const lanes = new Map<number, number>()
   const steps: WorkflowStep[] = [...kinds.entries()].map(([id, k]) => {
-    const c = col(id, new Set())
-    const row = rows.get(c) ?? 0
-    rows.set(c, row + 1)
-    return { id, ...k, column: c, row }
+    const stage = stageOf(id, new Set())
+    const lane = lanes.get(stage) ?? 0
+    lanes.set(stage, lane + 1)
+    return { id, ...k, stage, lane }
   })
-  return { steps, links, columns: Math.max(...steps.map((s) => s.column)) + 1, rows: Math.max(...rows.values()) }
+  return { steps, links, stages: Math.max(...steps.map((s) => s.stage)) + 1, lanes: Math.max(...lanes.values()) }
 }
 
 /** The plan's workflow as a Mermaid flowchart, for plan.md. */
@@ -644,7 +644,7 @@ function workflowMermaid(plan: Pick<ProjectPlan, 'parts' | 'size' | 'proposed' |
         return `(["Done"])`
     }
   }
-  return ['```mermaid', 'flowchart LR', ...flow.steps.map((s) => `  ${node(s.id)}${shape(s)}`), ...flow.links.map((l) => `  ${node(l.from)} --> ${node(l.to)}`), '```'].join('\n')
+  return ['```mermaid', 'flowchart TD', ...flow.steps.map((s) => `  ${node(s.id)}${shape(s)}`), ...flow.links.map((l) => `  ${node(l.from)} --> ${node(l.to)}`), '```'].join('\n')
 }
 
 /** The parts that may start now: pending, every dependency done. */

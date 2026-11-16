@@ -938,9 +938,8 @@ div.team-row {
 .channel-briefs dd {
   margin: 2px 0 0;
 }
-/* A plan's workflow (PlanWorkflow.tsx): as tall as the drawing, up to a height, then it scrolls. */
+/* A plan's workflow (PlanWorkflow.tsx): as tall as the drawing; the channel scrolls, not the drawing. */
 .channel-workflow {
-  max-height: 420px;
   min-width: 0;
 }
 .channel-plan-order,

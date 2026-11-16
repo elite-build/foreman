@@ -375,27 +375,27 @@ describe('projects: the plan as a workflow', () => {
     expect(planStages(parts)).toEqual([['a'], ['b', 'c'], ['d']])
   })
 
-  it('draws the request, the questions, each part with your check under it, her acceptance and your final check', () => {
+  it('draws the request, the questions, each part, your checks, her acceptance and your final check, in order', () => {
     const flow = planWorkflow(checked(), { questions: true })
-    expect(flow.steps.map((s) => [s.id, s.column, s.row])).toEqual([
+    expect(flow.steps.map((s) => [s.id, s.stage, s.lane])).toEqual([
       ['request', 0, 0],
       ['questions', 1, 0],
       ['part:reqs', 2, 0],
-      ['check:reqs', 2, 1],
-      ['part:build', 3, 0],
-      ['part:qa', 4, 0],
-      ['accept', 5, 0],
-      ['final', 5, 1],
-      ['end', 6, 0]
+      ['check:reqs', 3, 0],
+      ['part:build', 4, 0],
+      ['part:qa', 5, 0],
+      ['accept', 6, 0],
+      ['final', 7, 0],
+      ['end', 8, 0]
     ])
     expect(flow.steps.find((s) => s.id === 'check:reqs')).toMatchObject({ kind: 'check', partId: 'reqs' })
     expect(flow.links).toContainEqual({ from: 'check:reqs', to: 'part:build' })
     expect(flow.links).toContainEqual({ from: 'part:qa', to: 'accept' })
-    expect(flow).toMatchObject({ columns: 7, rows: 2 })
+    expect(flow).toMatchObject({ stages: 9, lanes: 1 })
     // A small plan without questions ends at its last parts; parts side by side share a column.
     const [, build, qa] = checked().parts
     const small = planWorkflow({ size: 'small', parts: [{ ...build, dependsOn: [] }, { ...qa, dependsOn: [], reads: [] }] }, { questions: false })
-    expect(small.steps.map((s) => [s.id, s.column, s.row])).toEqual([
+    expect(small.steps.map((s) => [s.id, s.stage, s.lane])).toEqual([
       ['request', 0, 0],
       ['part:build', 1, 0],
       ['part:qa', 1, 1],
@@ -417,7 +417,7 @@ describe('projects: the plan as a workflow', () => {
     expect(md).toContain('## Done when\n\n- It downloads.')
     expect(md).toContain('## Out of scope\n\n- Excel')
     expect(md).toContain('## Assumptions\n\nNone: every open point was asked.')
-    expect(md).toContain('```mermaid\nflowchart LR')
+    expect(md).toContain('```mermaid\nflowchart TD')
     expect(md).toContain('  check_reqs{{"You check: Requirements"}}')
     expect(md).toContain('  questions --> part_reqs')
     expect(md).toContain('1. Requirements (Priya). Then the person checks Requirements.')
