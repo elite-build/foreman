@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-16: A project starts only by tagging the organization's one program manager, who plans it as data
+
+**Decision.** Small work stays a workspace. A project starts when the person tags the organization's program manager (Priya), made and approved with every organization. She plans each project with `project_plan`; Foreman checks the plan and runs its parts as ordinary employee tasks (`docs/ai-employees.md` §15).
+
+**Why.** Fixed procedures fit one kind of feature; a plan as data fits research, small changes and large features alike, and Foreman can still check it and hold what matters for the person.
+
+**Turned down.** A standard team (chief product officer, product officer, user experimenter, developer, QA) running fixed stages: rigid, and five drafts to approve before anything runs. Projects as flow runs: flow steps are tabs of one flow workspace behind Experimental, while employee tasks have their own admission.
+
+**Revisit when.** Flows and employee tasks share one ledger, or organizations need more than one program manager.
+
 ## 2026-11-13: An organization keeps its memory in one dedicated repository that only Foreman's memory service writes
 
 **Decision.** Each organization has its own memory repository (for example `foreman-memory`), never shared with another organization. It holds organization memory, each AI employee's memory and definition, and Foreman's files for repositories that shouldn't carry `.foreman/`. Foreman's memory service is its only automatic writer, one commit per run; code repositories stay untouched (`docs/ai-employees.md`).

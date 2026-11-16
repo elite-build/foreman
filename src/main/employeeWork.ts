@@ -106,6 +106,7 @@ import { isEmployeeId, MEMORY_PATH_REASON, memoryPathProblem } from '../shared/m
 import { reposInSpace, spaceOf, type Organization } from '../shared/organizations'
 import { readOnlyEnforcement } from '../shared/permissions'
 import type { Persona } from '../shared/personas'
+import type { ProjectTaskMark } from '../shared/projects'
 import type { ChatItem, EmployeeTurnMark, Loadout, MessageOrigin, Repo, Session, TurnOutcome, WorkspaceStartedBy } from '../shared/types'
 import type { ForemanDb } from './db'
 import type { EmployeeService } from './employees'
@@ -133,8 +134,9 @@ export interface EmployeeBrief {
   orgInstructions?: { path: string; commit: string; cut: boolean }
   memory: { path: string; commit: string; chars: number; cut: boolean }[]
   // What its memory tools may write (§4), as admitted: the definition's memory_write scopes, and whether the run writes
-  // nothing directly (the persona it wears is read-only), so every write is a proposal.
-  memoryWrites: { scopes: string[]; readOnly: boolean }
+  // nothing directly (the persona it wears is read-only), so every write is a proposal; and the files its task grants
+  // (a project part's file, §15).
+  memoryWrites: { scopes: string[]; readOnly: boolean; files?: string[] }
 }
 
 /** A going run's tool call, resolved from its chat (main/employeeTools.ts). */
@@ -152,6 +154,39 @@ export interface EmployeeFinishInput {
   artifacts?: string[]
   evidence?: string[]
   unblock?: string
+  decision?: string
+}
+
+/**
+ * What the project service (main/projects.ts, docs/ai-employees.md §15) tells the work service about a project's tasks:
+ * the workspace a task's run shares with the project's other runs, whether a run's workspace stays until its project
+ * closes, and what to do when one of its tasks closes. Set once both services exist (each needs the other).
+ */
+export interface EmployeeProjectHooks {
+  workspaceFor(task: EmployeeTask): string | undefined
+  runCreated(task: EmployeeTask, workspaceId: string): void
+  keeps(task: EmployeeTask): boolean
+  taskClosed(task: EmployeeTask): void
+  // Why a project task can't finish yet (a planning task gave no plan), or undefined.
+  finishCheck?(task: EmployeeTask, input: Pick<EmployeeFinishInput, 'status'>): string | undefined
+  // A follow-up asked of a project task's employee (Ask a follow-up on the task): the project's own follow-up.
+  followUp(task: EmployeeTask, question: string): Promise<EmployeeTask>
+}
+
+/** A project's task, as the project service asks for it (main/projects.ts). */
+export interface EmployeeProjectTaskInput {
+  orgId: string
+  employeeId: string
+  title: string
+  body: string
+  repoId: string
+  // Stable for the part and round: asking again finds the task already made.
+  requestId: string
+  // The chain it joins; absent, it starts one (the project's first task) with `runsAllowed` runs.
+  rootId?: string
+  runsAllowed?: number
+  contract: EmployeeTaskContract
+  project: ProjectTaskMark
 }
 
 /** Everything the host needs to make a run's workspace and session. */
@@ -168,6 +203,8 @@ export interface EmployeeLaunchPlan {
   origin: Extract<MessageOrigin, { kind: 'employee' }>
   // How long setup may take before the run fails.
   setupMs: number
+  // A project's run (docs/ai-employees.md §15): the project's workspace, where it opens a new chat instead of making one.
+  workspaceId?: string
 }
 
 export interface EmployeeWorkHost {
@@ -315,6 +352,8 @@ export class EmployeeWorkService {
   private cached: Record<string, EmployeeWorkView> | null = null
   // Recaps being written and committed: Foreman waits for them before it closes (settle).
   private pending = new Set<Promise<unknown>>()
+  // The project service (main/projects.ts), once it exists.
+  projects?: EmployeeProjectHooks
 
   constructor(private host: EmployeeWorkHost) {}
 
@@ -419,6 +458,14 @@ export class EmployeeWorkService {
         this.db.addEmployeeTaskTransition({ taskId: parent.id, runId: null, at: this.iso(), from: 'closed', to: 'closed', event: 'late-result', detail: `“${task.title}” closed (${task.closureReason ?? 'done'}) after this task had; nothing restarted.` })
     }
     this.later(() => this.settleWaits(task.rootId))
+    // A project's task: the project goes on from it (on its own turn, never inside this one).
+    if (task.project) {
+      try {
+        this.projects?.taskClosed(task)
+      } catch (err) {
+        console.error('Project:', err)
+      }
+    }
   }
 
   private saveRun(run: EmployeeRun, patch: Partial<EmployeeRun> = {}): EmployeeRun {
@@ -511,6 +558,115 @@ export class EmployeeWorkService {
     })
   }
 
+  /**
+   * A project's task (docs/ai-employees.md §15, main/projects.ts): a planning, a part, an acceptance or a follow-up,
+   * recorded with its contract (the artifact it writes, the decision it gives, the files it may write) and admitted like
+   * any task. The first starts the project's chain with its own allowance of runs; the rest join it. Its request id is
+   * stable for the part and round, so asking again (after a crash) finds the task already made.
+   */
+  async projectTask(input: EmployeeProjectTaskInput): Promise<EmployeeTask> {
+    const org = this.organization(input.orgId)
+    const existing = this.db.employeeTaskByRequest(org.id, input.requestId)
+    if (existing) return existing
+    if (!isEmployeeId(input.employeeId)) throw new Error('Employee not found')
+    const current = await this.host.employees.current(org.id, input.employeeId)
+    const name = current.summary.name || input.employeeId
+    const repo = this.orgRepos(org).find((r) => r.id === input.repoId)
+    if (!repo) throw new Error(`That repository isn’t one of ${org.name}’s, so ${name} can’t work in it.`)
+    if (current.definition && repoAccess(current.definition, repo.name) === 'none') throw new Error(`${name} has no access to ${repo.name}. Give it access in Edit first.`)
+    const now = this.iso()
+    const id = randomUUID()
+    const rootId = input.rootId ?? id
+    const task: EmployeeTask = {
+      id,
+      orgId: org.id,
+      employeeId: input.employeeId,
+      requestId: input.requestId,
+      rootId,
+      parentId: null,
+      title: taskTitle(input.title, input.body),
+      body: input.body.slice(0, MAX_TASK_BODY),
+      from: 'person',
+      targetRepoId: repo.id,
+      state: 'open',
+      depth: 0,
+      cause: `project:${input.project.id}`,
+      contract: input.contract,
+      project: input.project,
+      createdAt: now,
+      updatedAt: now
+    }
+    this.db.transaction(() => {
+      this.db.putEmployeeTask(task)
+      this.db.addEmployeeTaskTransition({ taskId: id, runId: null, at: now, from: null, to: 'open', event: 'saved', detail: input.project.kind === 'follow-up' ? 'A follow-up in a project.' : `A project's ${input.project.kind}${input.project.partId ? ` (${input.project.partId})` : ''}, round ${input.project.round}.` })
+      if (!input.rootId) {
+        const ledger = newRootLedger(id, org.id, workLimitsOf(org), now)
+        this.db.putEmployeeRoot(input.runsAllowed ? { ...ledger, runsAllowed: Math.min(input.runsAllowed, ROOT_RUNS_MAX) } : ledger)
+      } else this.touchRoot(rootId)
+    })
+    this.touched()
+    return this.exclusive(async () => {
+      await this.admitQueued()
+      return this.admit(task)
+    })
+  }
+
+  /**
+   * Ask a follow-up of a task's employee (§6, "an employee doesn't disappear once its task is done"): a new task for the
+   * same employee in the same chain, carrying the question, what the task said and the memory it named, admitted like
+   * any. A project's task asks through its project (its artifact, its workspace).
+   */
+  async askFollowUp(taskId: string, question: string): Promise<EmployeeTask> {
+    const asked = typeof question === 'string' ? question.trim() : ''
+    if (!asked) throw new Error('Say what you’re asking.')
+    if (asked.length > MAX_TASK_BODY) throw new Error(`Keep the question under ${MAX_TASK_BODY} characters.`)
+    const task = this.task(taskId)
+    if (task.state !== 'closed') throw new Error('This task isn’t finished: answer what it asks, or wait for its result.')
+    if (task.project && this.projects) return this.projects.followUp(task, asked)
+    const memory = (task.result?.artifacts ?? []).filter((a) => !memoryPathProblem(a))
+    const lines = [
+      `The person asks a follow-up about your task “${task.title}”, in their words: “${asked}”`,
+      '',
+      `That task closed ${task.closureReason ?? 'done'}${task.result?.summary ? `, and you said: “${firstLine(task.result.summary, 1_000)}”` : '.'}`
+    ]
+    if (memory.length) lines.push('', `Read what you wrote then with memory_read first: ${memory.join(', ')}.`)
+    lines.push('', 'Answer in finish_task’s summary (status done), or ask_person if you need more from them.')
+    const ledger = this.db.employeeRoot(task.rootId)
+    const sameChain = ledger && ledger.state !== 'canceled'
+    const now = this.iso()
+    const id = randomUUID()
+    const follow: EmployeeTask = {
+      id,
+      orgId: task.orgId,
+      employeeId: task.employeeId,
+      requestId: randomUUID(),
+      rootId: sameChain ? task.rootId : id,
+      parentId: null,
+      title: taskTitle(`Follow-up: ${task.title}`, asked),
+      body: lines.join('\n'),
+      from: 'person',
+      targetRepoId: task.targetRepoId,
+      state: 'open',
+      depth: 0,
+      cause: `follow-up:${task.id}`,
+      ...(memory.length ? { contract: { inputs: memory.map((path) => ({ path, ...(task.result?.commit ? { commit: task.result.commit } : {}) })) } } : {}),
+      createdAt: now,
+      updatedAt: now
+    }
+    const org = this.organization(task.orgId)
+    this.db.transaction(() => {
+      this.db.putEmployeeTask(follow)
+      this.db.addEmployeeTaskTransition({ taskId: id, runId: null, at: now, from: null, to: 'open', event: 'saved', detail: `A follow-up to “${task.title}”.` })
+      if (!sameChain) this.db.putEmployeeRoot(newRootLedger(id, org.id, workLimitsOf(org), now))
+      else this.touchRoot(task.rootId)
+    })
+    this.touched()
+    return this.exclusive(async () => {
+      await this.admitQueued()
+      return this.admit(follow)
+    })
+  }
+
   // ---- admission ----
 
   /**
@@ -598,10 +754,13 @@ export class EmployeeWorkService {
     const today = runs.filter((r) => r.id !== exceptRun && r.admittedAt && Date.parse(r.admittedAt) >= midnight).length
     if (today >= definition.limits.runs_per_day) return { kind: 'refuse', reason: `${name} has had ${today} runs today, its limit. Retry tomorrow, or raise its runs per day in Edit.` }
 
-    // The lanes: one going run per employee, at most two per organization.
-    if (runs.some((r) => r.id !== exceptRun && isRunGoing(r.state))) return { kind: 'hold', hold: 'queued', reason: `Waiting for ${name}’s current run to finish.` }
-    const going = this.db.employeeRuns({ orgId: org.id, states: RUN_GOING }).filter((r) => r.id !== exceptRun).length
-    if (going >= ORG_RUN_LIMIT) return { kind: 'hold', hold: 'queued', reason: `${ORG_RUN_LIMIT} employee runs are going in ${org.name}; this runs when one finishes.` }
+    // The lanes: one going run per employee, at most two per organization. The program manager (§15) is outside them:
+    // she plans and accepts any number of projects at once, in short runs that change no repository, and hers don't
+    // take a place from anyone else's.
+    const pm = org.programManagerId
+    if (task.employeeId !== pm && runs.some((r) => r.id !== exceptRun && isRunGoing(r.state))) return { kind: 'hold', hold: 'queued', reason: `Waiting for ${name}’s current run to finish.` }
+    const going = this.db.employeeRuns({ orgId: org.id, states: RUN_GOING }).filter((r) => r.id !== exceptRun && r.employeeId !== pm).length
+    if (task.employeeId !== pm && going >= ORG_RUN_LIMIT) return { kind: 'hold', hold: 'queued', reason: `${ORG_RUN_LIMIT} employee runs are going in ${org.name}; this runs when one finishes.` }
 
     const mark: EmployeeTurnMark = { employeeRunId: '', employeeId: task.employeeId, orgId: org.id, persona: limits, ...(attended ? { attended: true as const } : {}) }
     return { kind: 'admit', ctx: { org, definition, repo, access, mark, memoryReadOnly: Boolean(persona?.read_only) } }
@@ -815,6 +974,8 @@ export class EmployeeWorkService {
       const d = ctx.definition
       // What became of the outward actions it asked for while it waited (§9) goes first, once; its log keeps them.
       const fresh = this.db.employeeTask(task.id) ?? task
+      // A project's task works in the project's workspace (its code, its branch) once it has one.
+      const shared = fresh.project ? this.projects?.workspaceFor(fresh) : undefined
       const news = fresh.actionNews ?? []
       const opening = continuationMessage(fresh, this.db.employeeQuestions(task.id).filter((q) => q.state === 'answered'), fresh.deliveries ?? [], news)
       if (news.length) {
@@ -833,7 +994,8 @@ export class EmployeeWorkService {
           message: opening,
           startedBy: { via: 'employee', orgId: task.orgId, employeeId: task.employeeId, runId: run.id, taskId: task.id, title: task.title },
           origin: { kind: 'employee', orgId: task.orgId, employeeId: task.employeeId, runId: run.id, taskId: task.id },
-          setupMs: d.limits.minutes_per_run * 60_000
+          setupMs: d.limits.minutes_per_run * 60_000,
+          ...(shared ? { workspaceId: shared } : {})
         },
         {
           created: (workspaceId, sessionId) => {
@@ -841,6 +1003,7 @@ export class EmployeeWorkService {
             if (!now) return
             this.saveRun(now, { workspaceId, sessionId })
             Object.assign(run, { workspaceId, sessionId })
+            if (fresh.project) this.projects?.runCreated(fresh, workspaceId)
             this.touched()
             // Stopped while its workspace was being made.
             if (!isRunGoing(now.state)) void this.host.stop(sessionId).catch(() => undefined)
@@ -882,7 +1045,7 @@ export class EmployeeWorkService {
       definitionPath: `bots/${d.id}.toml`,
       ...(org.text?.trim() ? { orgInstructions: { path: ORG_INSTRUCTIONS_PATH, commit: head, cut: system.orgCut } } : {}),
       memory: pinnedFiles.filter((f) => f.text !== null && f.text.trim()).map((f) => ({ path: f.path, commit: f.commit, chars: f.chars, cut: f.cut })),
-      memoryWrites: { scopes: [...d.access.memory_write], readOnly: ctx.memoryReadOnly }
+      memoryWrites: { scopes: [...d.access.memory_write], readOnly: ctx.memoryReadOnly, files: [...(this.db.employeeTask(run.taskId)?.contract?.writes ?? [])] }
     }
   }
 
@@ -1190,7 +1353,19 @@ export class EmployeeWorkService {
   async finishTask(sessionId: string, input: EmployeeFinishInput): Promise<{ task: EmployeeTask; commit?: string }> {
     const { run, task } = this.toolRun(sessionId)
     this.stillRunning(task.id)
-    const artifacts = [...new Set((input.artifacts ?? []).map((a) => a.trim()).filter(Boolean))]
+    const contract = task.contract
+    const decision = input.decision?.trim() || undefined
+    const unfinished = task.project ? this.projects?.finishCheck?.(task, input) : undefined
+    if (unfinished) throw new Error(unfinished)
+    // A project's task (§15): done needs the decision it asks for, and the file it names, written.
+    if (input.status === 'done' && contract?.options?.length && (!decision || !contract.options.includes(decision)))
+      throw new Error(`Your task asks for a decision: give decision as exactly one of ${contract.options.join(', ')}.`)
+    if (decision && !contract?.options?.includes(decision)) throw new Error(contract?.options?.length ? `decision must be one of ${contract.options.join(', ')}.` : 'Your task asks for no decision: leave decision out.')
+    const artifacts = [...new Set([...(input.artifacts ?? []), ...(input.status === 'done' && contract?.produces ? [contract.produces] : [])].map((a) => a.trim()).filter(Boolean))]
+    if (input.status === 'done' && contract?.produces) {
+      const file = await this.host.memory.read(run.orgId, contract.produces, { runId: run.id })
+      if (file.blob === null) throw new Error(`Write ${contract.produces} first (memory_write, expected: null): it is the artifact your task asks for. Then finish_task again.`)
+    }
     const commit = await this.commitNamed(run, task, (p) => artifacts.includes(p))
     const now = this.stillRunning(task.id)
     const unblock = input.unblock?.trim() || undefined
@@ -1201,6 +1376,7 @@ export class EmployeeWorkService {
       ...(input.evidence?.length ? { evidence: input.evidence.map((e) => e.trim()).filter(Boolean) } : {}),
       ...(unblock ? { unblock } : {}),
       ...(commit ? { commit } : {}),
+      ...(decision ? { decision } : {}),
       runId: run.id,
       at: this.iso()
     }
@@ -1318,6 +1494,10 @@ export class EmployeeWorkService {
 
   /** Whether a push or pull request the run asked for may still be sent from its workspace (held, going, uncertain, failed). */
   private keepsWorkspace(runId: string): boolean {
+    // A project's runs share its workspace, which stays until the project closes (§15).
+    const run = this.db.employeeRun(runId)
+    const task = run ? this.db.employeeTask(run.taskId) : undefined
+    if (task?.project && this.projects?.keeps(task)) return true
     return this.db.employeeActions({ runId, states: ACTION_KEEPS_WORKSPACE }).some((a) => a.kind === 'push' || a.kind === 'pull-request')
   }
 

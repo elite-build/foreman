@@ -2,6 +2,7 @@
 // item's kind as a tag, its title, the line under it, and where opening it goes. Text only; the views lay it out.
 import type { EmployeeActionPayload } from '../../../shared/employeeActions'
 import type { NeedsYouItem } from '../../../shared/needsYou'
+import { partTitle, WAIT_KIND_KEY } from './employees/projectWords'
 import type { AppSnapshot } from '../../../shared/types'
 import type { RendererT } from '../i18n'
 import { openEmployees } from '../store'
@@ -40,6 +41,8 @@ export function kindTag(item: NeedsYouItem, t: RendererT): { label: string; tone
       return { label: t('needsYou.kind.proposal'), tone: 'warn' }
     case 'paused':
       return { label: t('needsYou.kind.paused'), tone: 'warn' }
+    case 'project':
+      return { label: t(item.wait?.kind === 'stuck' ? 'needsYou.kind.projectStuck' : 'needsYou.kind.project'), tone: 'warn' }
   }
 }
 
@@ -65,6 +68,19 @@ export function itemTitle(item: NeedsYouItem, snapshot: AppSnapshot, t: Renderer
   if (item.kind === 'action' && item.action) return actionTitle(name, item.action.payload, t)
   if (item.kind === 'proposal' && item.proposal) return t('needsYou.title.proposal', { name, path: item.proposal.path })
   if (item.kind === 'paused') return t('needsYou.title.paused', { name })
+  if (item.kind === 'project' && item.project && item.wait) {
+    const title = item.project.title
+    switch (item.wait.kind) {
+      case 'plan':
+        return t('needsYou.title.projectPlan', { title })
+      case 'gate':
+        return t('needsYou.title.projectGate', { title, part: partTitle(item.project, item.wait.partId) })
+      case 'stuck':
+        return t('needsYou.title.projectStuck', { title })
+      case 'final':
+        return t('needsYou.title.projectFinal', { title })
+    }
+  }
   return undefined
 }
 
@@ -82,6 +98,7 @@ export function itemSub(item: NeedsYouItem, t: RendererT): string[] {
     return text ? [t('triage.quote', { text })] : []
   }
   if (item.kind === 'paused') return [item.detail].filter((x): x is string => Boolean(x))
+  if (item.kind === 'project' && item.wait) return [item.wait.kind === 'stuck' ? item.wait.reason : t(item.wait.kind === 'plan' ? 'needsYou.projectPlanSub' : 'needsYou.projectGateSub')].filter((x): x is string => Boolean(x))
   return []
 }
 
@@ -93,6 +110,7 @@ export function rowWords(item: NeedsYouItem, snapshot: AppSnapshot, t: RendererT
   if (item.kind === 'task' && item.task) return { title: item.task.title, label: [tag, item.task.reason].filter(Boolean).join(' · ') }
   if (item.kind === 'action' && item.action) return { title: noun(item.action.payload), label: `${tag} · ${t('needsYou.leavesShort')}` }
   if (item.kind === 'proposal' && item.proposal) return { title: t('needsYou.proposalRow'), label: `${tag} · ${item.proposal.path.split('/').at(-1)}` }
+  if (item.kind === 'project' && item.project && item.wait) return { title: item.project.title, label: `${tag} · ${item.wait.kind === 'gate' ? partTitle(item.project, item.wait.partId) : t(WAIT_KIND_KEY[item.wait.kind])}` }
   return { title: name, label: [tag, item.detail].filter(Boolean).join(' · ') }
 }
 
@@ -102,6 +120,7 @@ export function rowWords(item: NeedsYouItem, snapshot: AppSnapshot, t: RendererT
  */
 export function openEmployeeItem(item: NeedsYouItem): void {
   if (!item.orgId) return
+  if (item.kind === 'project' && item.project) return openEmployees({ orgId: item.orgId, page: 'project', id: item.project.id })
   if (item.kind === 'paused' && item.employeeId) return openEmployees({ orgId: item.orgId, page: 'employee', id: item.employeeId })
   openEmployees({ orgId: item.orgId, page: 'team' })
 }

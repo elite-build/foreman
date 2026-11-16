@@ -118,6 +118,25 @@
 .space-bring-name {
   margin-right: 8px;
 }
+/* Your team: You and the program manager, one to a line with a hat, name and what they do; the count beside the heading. */
+.space-team-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+.space-team-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.space-team-note {
+  margin: 0;
+}
+.space-team-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .space-dialog-footer {
   display: flex;
   align-items: center;

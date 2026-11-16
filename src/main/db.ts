@@ -9,6 +9,7 @@ import type { ChatItem, CheckResult, DiffComment, Session, Workspace } from '../
 import type { MemoryChange, MemoryMutationState } from '../shared/memory'
 import type { EmployeeQuestion, EmployeeRootLedger, EmployeeRun, EmployeeTask, EmployeeTaskTransition } from '../shared/employeeWork'
 import type { EmployeeAction } from '../shared/employeeActions'
+import type { Project } from '../shared/projects'
 import { perf } from './perf'
 
 type SqliteModule = typeof import('node:sqlite')
@@ -311,6 +312,23 @@ const SCHEMA: string[] = [
   CREATE INDEX employee_actions_task ON employee_actions (task_id, created_at);
   CREATE INDEX employee_actions_org ON employee_actions (org_id, state);
   CREATE INDEX employee_actions_run ON employee_actions (run_id);
+  `,
+  // Projects (docs/ai-employees.md §15): planned by the organization's program manager, each part a task of its owner.
+  // The row keeps what is searched by; the rest (its plans, parts, steps, files, waits, decisions, notes) is the JSON,
+  // read whole.
+  `
+  CREATE TABLE employee_projects (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    -- its phase: planning | plan-gate | working | accepting | final-gate | closed
+    state TEXT NOT NULL,
+    json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX employee_projects_slug ON employee_projects (org_id, slug);
+  CREATE INDEX employee_projects_org ON employee_projects (org_id, state);
   `
 ]
 
@@ -382,7 +400,7 @@ type RawTask = {
 }
 
 /** The fields a task keeps in its `json` column. */
-const TASK_EXTRA = ['result', 'question', 'trigger', 'depth', 'cause', 'kind', 'requestedBy', 'contract', 'waitingFor', 'deliveries', 'awaiting', 'successorId', 'actionNews', 'event', 'causedBy', 'limitHold'] as const
+const TASK_EXTRA = ['result', 'question', 'trigger', 'depth', 'cause', 'kind', 'requestedBy', 'contract', 'waitingFor', 'deliveries', 'awaiting', 'successorId', 'actionNews', 'event', 'causedBy', 'limitHold', 'project'] as const
 
 type RawRoot = { root_id: string; org_id: string; runs_used: number; runs_allowed: number; descendants: number; active: number; state: string; created_at: string; updated_at: string }
 
@@ -1034,6 +1052,30 @@ export class ForemanDb {
        WHERE memory_fts MATCH ? AND d.org_id = ?
        ORDER BY rank, d.path LIMIT ?`
     ).all(match, orgId, limit) as { path: string; blob: string; snippet: string; rank: number }[]
+  }
+
+  // ---- projects (main/projects.ts) ----
+
+  putProject(p: Project): void {
+    this.stmt(
+      `INSERT INTO employee_projects (id, org_id, slug, state, json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET state = excluded.state, json = excluded.json, updated_at = excluded.updated_at`
+    ).run(p.id, p.orgId, p.slug, p.phase, JSON.stringify(p), p.createdAt, p.updatedAt)
+  }
+
+  project(id: string): Project | undefined {
+    const r = this.stmt('SELECT json FROM employee_projects WHERE id = ?').get(id) as { json: string } | undefined
+    return r ? (JSON.parse(r.json) as Project) : undefined
+  }
+
+  /** An organization's projects (every organization's when none is given), newest first; only those in `states` when given. */
+  projects(orgId?: string, states?: readonly string[]): Project[] {
+    const rows = (orgId ? this.stmt('SELECT json, state FROM employee_projects WHERE org_id = ? ORDER BY created_at DESC').all(orgId) : this.stmt('SELECT json, state FROM employee_projects ORDER BY created_at DESC').all()) as { json: string; state: string }[]
+    return rows.filter((r) => !states || states.includes(r.state)).map((r) => JSON.parse(r.json) as Project)
+  }
+
+  projectSlugs(orgId: string): string[] {
+    return (this.stmt('SELECT slug FROM employee_projects WHERE org_id = ?').all(orgId) as { slug: string }[]).map((r) => r.slug)
   }
 
   // ---- AI employees' tasks and runs (main/employeeWork.ts) ----

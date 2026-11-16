@@ -39,6 +39,8 @@ export function TeamSection() {
   // One count per employee, from the same list every other surface counts (a question with its workspace once).
   const waiting = (id: string) => counts.byEmployee.get(employeeKey(org.id, id)) ?? 0
   const total = employees.reduce((sum, e) => sum + waiting(e.id), 0)
+  // Everything of this organization that waits for the person, theirs and the projects' alike.
+  const mine = counts.bySpace.get(org.id) ?? 0
   const teamOpen = route?.orgId === org.id && route.page === 'team'
   return (
     <section className="team-section" aria-label={t('employees.team.heading')}>
@@ -72,6 +74,19 @@ export function TeamSection() {
       <div id={listId} className="team-fold" hidden={!open}>
         {employees.length ? (
           <ul className="team-list" aria-label={t('employees.team.label', { organization: org.name })}>
+            {/* The person is one of the team (docs/ai-employees.md §15): what waits for them here, opening the Team page. */}
+            <li>
+              <ActionRow className="team-row" primaryProps={{ className: 'team-row-main' }} onPress={() => openEmployees({ orgId: org.id, page: 'team' })}>
+                <HardHat className="team-row-hat" colour="slate" size={20} />
+                <span className="team-row-who">
+                  <span className="team-row-name">{t('projects.you')}</span>
+                  <span className="team-row-role">{t('projects.person.short')}</span>
+                </span>
+                <span className="team-row-line">
+                  <Status className="team-row-status" tone={mine ? 'warn' : 'off'} label={mine ? t('employees.needsYou.count', { count: mine }) : t('projects.person.nothing')} />
+                </span>
+              </ActionRow>
+            </li>
             {employees.map((e) => {
               const activity = { ...employeeActivity(work, e.id), needsYou: waiting(e.id) - (e.pausedKind === 'failures' ? 1 : 0) }
               const state = rowStatus(e, activity, t)

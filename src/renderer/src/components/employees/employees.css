@@ -207,7 +207,8 @@ div.team-row {
   flex-direction: column;
   gap: 8px;
 }
-.employee-card {
+.employee-card,
+.team-person {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -814,4 +815,168 @@ div.team-row {
 /* A run's banner opens its decision under it. */
 .employee-run-drawer {
   padding: 8px 16px;
+}
+
+/* Channels (docs/ai-employees.md §15): the messages and the box under them, beside a panel that folds under them when narrow. */
+.channel-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  align-items: start;
+  gap: 16px;
+  max-width: 1280px;
+  container-type: inline-size;
+}
+@container (max-width: 760px) {
+  .channel-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.channel-main,
+.channel-side,
+.channel-side-card,
+.channel-waiting,
+.channel-plan,
+.channel-proposed,
+.channel-composer,
+.project-artifact {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.channel-side-card,
+.channel-plan {
+  padding: 12px;
+}
+.project-head-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.channel-timeline,
+.channel-side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.channel-side-list {
+  gap: 6px;
+}
+.channel-post {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0 10px;
+}
+.channel-post-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.channel-post-body > .channel-plan,
+.channel-post-body > .channel-artifact,
+.channel-post-body > .channel-link {
+  align-self: stretch;
+  max-width: 760px;
+}
+.channel-post-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.channel-text,
+.channel-quote {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.channel-system {
+  padding-left: 34px;
+}
+/* Two classes: the pressable's own display loads after this file with one. */
+.channel-post-body .channel-link {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.channel-artifact {
+  padding: 4px 10px;
+}
+.channel-artifact-head,
+.channel-owner,
+.channel-plan-head {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.channel-plan-parts {
+  width: 100%;
+  border-collapse: collapse;
+}
+.channel-plan-parts th,
+.channel-plan-parts td {
+  padding: 3px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+.channel-briefs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.channel-briefs dd {
+  margin: 2px 0 0;
+}
+.channel-proposed-row,
+.channel-side-part {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.channel-side-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.channel-mentions,
+.channel-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.channel-composer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+.channel-hand-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+.project-artifact {
+  max-height: 520px;
+  overflow: auto;
+}
+
+/* Ask a follow-up, under a finished task. */
+.employee-follow-up {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
 }

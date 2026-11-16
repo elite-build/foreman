@@ -11,7 +11,7 @@ import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { formatChord } from '../../shortcuts'
 import { api, attempt, selectWorkspace, showToast, useStore } from '../../store'
-import { Button, Callout, Card, Disclosure, Field, Kbd, LinkButton, Select, Spinner, Status, Stepper, TextInput, type StepperStep } from '../../ui'
+import { Button, Callout, Card, Disclosure, Field, Kbd, LinkButton, Select, Spinner, Status, Stepper, TextArea, TextInput, type StepperStep } from '../../ui'
 import { formatDuration } from '../turnResult'
 import { ActionLog } from './HeldActions'
 import { ACCESS_LABEL, activityText, holdText, modelText, RUN_LABEL, RUN_TONE, taskWord } from './words'
@@ -344,8 +344,45 @@ export function TaskRow({ task, runs, who }: { task: EmployeeTask; runs: Employe
       <Disclosure quiet label={t('employees.chain.details')} open={open} onOpenChange={setOpen}>
         {open && <TaskChain task={task} />}
       </Disclosure>
+      {task.state === 'closed' && task.closureReason !== 'canceled' && <FollowUp task={task} who={who} />}
       <TaskActions task={task} runs={runs} />
     </Card>
+  )
+}
+
+/**
+ * Ask a follow-up of a finished task's employee (docs/ai-employees.md §15: an employee doesn't disappear once its task is
+ * done): a new task for them in the same chain, reading what this one said and the memory it named.
+ */
+function FollowUp({ task, who }: { task: EmployeeTask; who?: string }) {
+  const t = useT()
+  const name = useStore((s) => s.snapshot!.employees?.[task.orgId]?.employees.find((e) => e.id === task.employeeId)?.name) || who || task.employeeId
+  const [open, setOpen] = useState(false)
+  const [question, setQuestion] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ask = () => {
+    if (!question.trim() || busy) return
+    setBusy(true)
+    void attempt(async () => {
+      await api.askEmployeeFollowUp(task.id, question)
+      setQuestion('')
+      setOpen(false)
+      showToast(t('projects.followUp.sent', { name }))
+    }).finally(() => setBusy(false))
+  }
+  return (
+    <Disclosure quiet label={t('employees.followUp.open')} open={open} onOpenChange={setOpen}>
+      <div className="employee-follow-up">
+        <Field label={t('projects.followUp.label', { name })} description={t('employees.followUp.hint')}>
+          {(control) => <TextArea {...control} rows={2} value={question} placeholder={t('projects.followUp.placeholder')} onChange={(e) => setQuestion(e.target.value)} />}
+        </Field>
+        <div className="employee-card-actions">
+          <Button size="sm" disabled={!question.trim() || busy} onClick={ask}>
+            {busy ? t('employees.ask.sending') : t('projects.followUp.ask')}
+          </Button>
+        </div>
+      </div>
+    </Disclosure>
   )
 }
 

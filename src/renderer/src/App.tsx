@@ -10,6 +10,7 @@ import { McpConsentDialog } from './components/McpConsent'
 import { CompareArchiveDialog, CompareDialog } from './components/CompareDialogs'
 import { ScheduleDialog } from './components/ScheduleDialogs'
 import { HandOffToDialog, PairDialog, ReconcileDialog } from './components/HandOffDialogs'
+import { HandToPmDialog } from './components/employees/HandToPm'
 import { SecondOpinionDialog } from './components/SecondOpinionDialog'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { usePanelSize, useWindowWidth } from './components/resize'
@@ -183,6 +184,7 @@ export function App() {
   const compareArchive = useStore((s) => s.compareArchive)
   const scheduleDialog = useStore((s) => s.scheduleDialog)
   const handOffToDialog = useStore((s) => s.handOffToDialog)
+  const handToPmDialog = useStore((s) => s.handToPmDialog)
   const reconcileDialog = useStore((s) => s.reconcileDialog)
   const pairDialog = useStore((s) => s.pairDialog)
   const mcpConsent = useStore((s) => s.mcpConsent)
@@ -292,6 +294,7 @@ export function App() {
       {compareDialog && <CompareDialog key={compareDialog.workspaceId} {...compareDialog} />}
       {scheduleDialog && <ScheduleDialog key={'templateId' in scheduleDialog ? scheduleDialog.templateId : scheduleDialog.scheduleId} {...scheduleDialog} />}
       {handOffToDialog && <HandOffToDialog key={handOffToDialog.workspaceId} {...handOffToDialog} />}
+      {handToPmDialog && <HandToPmDialog key={handToPmDialog} workspaceId={handToPmDialog} />}
       {reconcileDialog && <ReconcileDialog key={reconcileDialog} transferId={reconcileDialog} />}
       {pairDialog && <PairDialog key={pairDialog} kind={pairDialog} />}
       {phoneSetupOpen && <PhoneSetupDialog />}

@@ -35,6 +35,7 @@ import { MemoryService } from '../src/main/memory'
 import { createMemoryRepository } from '../src/main/organizations'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import { tempDir } from './helpers'
+import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
 
 const INSTRUCTIONS = ['## Role', 'You write launch posts.', '', '## What you do', 'Read what merged.', '', '## How you write', 'Short.', '', '## What you never do', 'Publish.', '', '## How you finish', 'A summary and a reason.'].join('\n')
 
@@ -484,5 +485,45 @@ describe('employees: the service', () => {
     await expect(employees.generate('o1', { description: 'x', traits: [] })).rejects.toThrow(PRIVACY_MODE_ON)
     await expect(employees.refine('o1', { name: 'Max', role: '', description: '', personality: '', responsibilities: [], ask_me_about: '', instructions: '' }, 'more')).rejects.toThrow(PRIVACY_MODE_ON)
     expect(draft).not.toHaveBeenCalled()
+  })
+})
+
+describe('employees: several at once (docs/ai-employees.md §15)', () => {
+  const loadouts = [{ agent: 'claude' as const, model: 'claude-sonnet-5-5' }]
+  const team = () => {
+    const priya = programManagerDefinition({ repos: ['foreman-website'], loadouts, taken: [] })
+    const ravi = proposedDefinition({ id: 'e-rav1', colour: 'orange', name: 'Ravi', role: 'Developer', description: 'Builds it.', responsibilities: ['Build'], instructions: INSTRUCTIONS, repos: { 'foreman-website': 'write' }, loadouts })
+    return [priya, ravi]
+  }
+
+  it('makes each a draft in one commit by the person, its definition and memory folder each', async () => {
+    const { root, employees, state } = await rig()
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    const definitions = team()
+    const made = await employees.createTeam('o1', definitions)
+    expect(made.map((e) => [e.name, e.state])).toEqual([
+      ['Priya', 'draft'],
+      ['Ravi', 'draft']
+    ])
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    const files = (await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n')
+    for (const d of definitions) expect(files).toEqual(expect.arrayContaining([`bots/${d.id}.toml`, `memory/bots/${d.id}/MEMORY.md`, `memory/bots/${d.id}/journal.md`]))
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe('Add the team: Priya, Ravi')
+    // Nothing is approved here.
+    expect((state.employees ?? []).every((r) => r.state === 'draft')).toBe(true)
+    expect(made.find((e) => e.name === 'Ravi')!.definition!.access.repos).toEqual({ 'foreman-website': 'write' })
+  })
+
+  it('refuses a hand-off outside the team or the organization, a name in use, and an id in use, writing nothing', async () => {
+    const { root, employees } = await rig()
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    const [priya] = team()
+    await expect(employees.createTeam('o1', [{ ...priya, access: { ...priya.access, delegate_to: ['e-zzzz'] } }])).rejects.toThrow('e-zzzz isn’t one')
+    await employees.createTeam('o1', [priya])
+    const again = { ...programManagerDefinition({ repos: [], loadouts, taken: [priya.id] }), name: 'Priya' }
+    await expect(employees.createTeam('o1', [again])).rejects.toThrow('There is already an employee named Priya')
+    await expect(employees.createTeam('o1', [{ ...again, name: 'Nina' }, { ...again, name: 'Nora' }])).rejects.toThrow('already used')
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    await expect(employees.createTeam('o2', [again])).rejects.toThrow('has no memory repository')
   })
 })

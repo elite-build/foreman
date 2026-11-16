@@ -10,6 +10,7 @@ import { employeeMemoryFolder } from './employees'
 import type { MemoryProposal } from './memory'
 import { accountState, blockedUntil, limitsOf, type AccountLimits } from './limits'
 import type { Persona, TurnPersona } from './personas'
+import type { ProjectTaskMark } from './projects'
 import type { AgentKind, UsageLimit } from './types'
 import { RESUME_BUFFER_MS } from './usageLimit'
 
@@ -118,6 +119,11 @@ export interface EmployeeTaskContract {
   dependsOn?: string[]
   // When it expires if not finished (ISO).
   deadline?: string
+  // A project's task (docs/ai-employees.md §15): the memory file it must write before it can finish done, the decision it
+  // must give with finish_task (one of these), and the memory files it may write for the task's duration.
+  produces?: string
+  options?: string[]
+  writes?: string[]
 }
 
 /** Who handed a task over (from 'employee'): the employee, its name then, and the task and run it was handed from. */
@@ -244,6 +250,8 @@ export interface EmployeeTask {
   // What became of outward actions its runs asked for (held, then sent or skipped by a person) while it waited: its next
   // continuation starts with them, then they are cleared (each is on its log too).
   actionNews?: EmployeeActionNews[]
+  // Part of a project (docs/ai-employees.md §15): which, what it is (planning, a part, acceptance, a follow-up), its round.
+  project?: ProjectTaskMark
   createdAt: string
   updatedAt: string
 }
@@ -265,6 +273,8 @@ export interface EmployeeTaskResult {
   synthetic?: true
   // The memory commit its artifacts were committed in before it closed (§4, "Ordering").
   commit?: string
+  // The decision its task asked for (a project's acceptance: one of its contract's options).
+  decision?: string
   runId: string
   at: string
 }
@@ -547,7 +557,7 @@ export function runAccessText(a: EmployeeRunAccessText): string {
     lines.push(`You may change files in it with the file tools. You have no shell: Foreman refuses every command. Writing ${protectedPaths} or the git folder is refused too.`)
   else lines.push(`You may change files in it and use a shell; what the shell does is not held for anyone. Writing ${protectedPaths} or the git folder with the file tools is refused.`)
   lines.push(
-    'Foreman’s own tools on the foreman-app server (memory_search, memory_read, remember, memory_append, memory_write, memory_checkpoint, ask_person, finish_task, report_no_update, escalate, bot_list, bot_delegate, bot_send, bot_cancel, bot_wake_me, bot_propose, request_push, request_pull_request) always work in this run, whatever its mode, and never need approval. Foreman checks each call itself.'
+    'Foreman’s own tools on the foreman-app server (memory_search, memory_read, remember, memory_append, memory_write, memory_checkpoint, ask_person, finish_task, report_no_update, escalate, bot_list, bot_delegate, bot_send, bot_cancel, bot_wake_me, bot_propose, request_push, request_pull_request, project_plan) always work in this run, whatever its mode, and never need approval. Foreman checks each call itself.'
   )
   if (a.access === 'write')
     lines.push(

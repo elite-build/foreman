@@ -14,6 +14,7 @@ import { api, attempt, openEmployees, showToast, useStore } from '../../store'
 import { Button, Callout, Card, HardHat, LinkButton, Spinner, Status, Tag, type HardHatColour, type StatusTone } from '../../ui'
 import { DecisionRows, useDecisionItems, type DecisionItem } from './EmployeeDecisions'
 import { DecidedForYou } from './HeldActions'
+import { AddProgramManager, PersonColumn } from './TeamRoles'
 import type { EmployeesData } from './EmployeesView'
 import { lastResultText, modelText, nextRunText, workStatus } from './words'
 
@@ -40,6 +41,7 @@ export function TeamPage({ orgId, data }: { orgId: string; data: EmployeesData }
           {t('employees.page.new')}
         </Button>
       </div>
+      <AddProgramManager orgId={orgId} />
       {roster?.error && (
         <Callout tone="warn" role="status">
           {roster.error}
@@ -61,6 +63,8 @@ export function TeamPage({ orgId, data }: { orgId: string; data: EmployeesData }
         <Callout tone="neutral">{t('employees.page.empty')}</Callout>
       ) : (
         <ul className="team-columns" aria-label={t('employees.team.label', { organization: name })}>
+          {/* The person is one of the team (§15): first, deciding at every gate. */}
+          <PersonColumn orgId={orgId} />
           {current.map((e) => (
             <EmployeeColumn key={e.id} orgId={orgId} employee={e} items={items.filter((i) => i.employeeId === e.id && !orgWide(i))} />
           ))}

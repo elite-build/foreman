@@ -120,6 +120,35 @@ describe('the Add repository menu', () => {
 describe('New organization', () => {
   const create = () => screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement
 
+  it('starts with you and Priya, both always; without a memory repository she comes later', async () => {
+    const user = userEvent.setup()
+    setSnapshot([])
+    fakeApi.createOrganization = vi.fn(async () => org('new', 'FRLK'))
+    render(<CreateOrganizationDialog />)
+    const team = await screen.findByRole('group', { name: 'Your team' })
+    for (const who of [/You/, /Priya/]) {
+      const box = within(team).getByRole('checkbox', { name: who }) as HTMLInputElement
+      expect(box.checked && box.disabled).toBe(true)
+    }
+    expect(within(team).getByText('2 members')).toBeTruthy()
+    expect(within(team).getByText('Priya proposes employees as projects need them. Each one waits for your approval.')).toBeTruthy()
+    expect(screen.getByText('Create approves Priya’s fixed definition on this computer.')).toBeTruthy()
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'FRLK')
+    await user.click(create())
+    await waitFor(() => expect(fakeApi.createOrganization).toHaveBeenCalled())
+    expect((fakeApi.createOrganization as ReturnType<typeof vi.fn>).mock.calls[0][0]).not.toHaveProperty('team')
+  })
+
+  it('says so when its program manager couldn’t be made', async () => {
+    const user = userEvent.setup()
+    setSnapshot([])
+    fakeApi.createOrganization = vi.fn(async () => ({ ...org('new', 'Solo'), teamProblem: 'git refused' }))
+    render(<CreateOrganizationDialog />)
+    await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Solo')
+    await user.click(create())
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('The organization was made, but its program manager wasn’t: git refused'))
+  })
+
   it('needs only a name: its memory repository is named after it and made beside the others, said in one line', async () => {
     const user = userEvent.setup()
     setSnapshot([])

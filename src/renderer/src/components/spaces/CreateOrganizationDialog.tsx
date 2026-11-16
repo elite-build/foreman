@@ -1,7 +1,8 @@
 // New organization (docs/ai-employees.md §3): a name, and the repositories to bring from Personal (the one the sidebar
 // shows ticked). Its memory repository is made beside the others unless More options says otherwise (another folder, an
-// existing repository, or later). One dialog, one call: main makes the memory repository (one commit) if asked, and
-// moves the ticked repositories with their workspaces and chats.
+// existing repository, or later). Its team (§15) is always the same two: the person, and Priya, its program manager,
+// made and approved with it (her definition is fixed). One dialog, one call: main makes the memory repository (one
+// commit) if asked, Priya (one more), and moves the ticked repositories with their workspaces and chats.
 import { useId, useState } from 'react'
 import {
   defaultMemoryName,
@@ -16,10 +17,11 @@ import {
 } from '../../../../shared/organizations'
 import type { PlainKey } from '../../../../shared/i18n'
 import { joinWorkspace } from '../../../../shared/openIn'
+import { PROGRAM_MANAGER_NAME } from '../../../../shared/projects'
 import type { Repo } from '../../../../shared/types'
 import { useT } from '../../i18n'
-import { api, openCreateOrganization, setSpace, useStore } from '../../store'
-import { Button, Callout, Card, Checkbox, Dialog, Field, LinkButton, RadioList, Select, TextInput, type SelectOption } from '../../ui'
+import { api, openCreateOrganization, setSpace, showToast, useStore } from '../../store'
+import { Button, Callout, Card, Checkbox, Dialog, Field, HardHat, LinkButton, RadioList, Select, Tag, TextInput, type SelectOption } from '../../ui'
 import { LocationField } from '../AddRepository'
 import './spaces.css'
 
@@ -164,10 +166,12 @@ export function CreateOrganizationDialog() {
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
   const headingId = useId()
+  const teamHeadingId = useId()
 
   const close = () => !working && openCreateOrganization(false)
   // Shown once something is typed: an empty name only keeps Create off.
-  const problem = name.trim() ? organizationNameProblem(name, organizations) : null
+  // Not while it is being made: the organization it is making already has the name.
+  const problem = name.trim() && !working ? organizationNameProblem(name, organizations) : null
   const chosen = memoryOf(memory, name)
   // The memory repository picked from Personal moves with them; it isn't offered twice.
   const personal = reposInSpace(repos, organizations, null).filter((r) => !(memory.kind === 'existing' && r.id === memory.repoId))
@@ -188,15 +192,23 @@ export function CreateOrganizationDialog() {
     else next.delete(id)
     setPicked(next)
   }
+  // Priya lives in the memory repository: while it is decided later, she comes with it.
+  const teamPossible = memory.kind !== 'later'
 
   const submit = async () => {
     if (!ready || !chosen) return
     setWorking(true)
     setError('')
     try {
-      const org: Organization = await api.createOrganization({ name: name.trim(), memory: chosen, repoIds: personal.filter((r) => picked.has(r.id)).map((r) => r.id) })
+      const org: Organization = await api.createOrganization({
+        name: name.trim(),
+        memory: chosen,
+        repoIds: personal.filter((r) => picked.has(r.id)).map((r) => r.id)
+      })
       openCreateOrganization(false)
       setSpace(org.id, { home: !inSettings })
+      // The organization was made; only its program manager wasn't (said once, never kept).
+      if (org.teamProblem) showToast(t('spaces.team.failed', { reason: org.teamProblem }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -213,7 +225,9 @@ export function CreateOrganizationDialog() {
       onClose={close}
       footer={
         <div className="space-dialog-footer">
-          <span className="faint small">{more && chosen?.kind === 'create' ? t('spaces.create.creates', { path: joinWorkspace(chosen.parentDir, chosen.name) }) : null}</span>
+          <span className="faint small">
+            {more && chosen?.kind === 'create' ? t('spaces.create.creates', { path: joinWorkspace(chosen.parentDir, chosen.name) }) : teamPossible ? t('spaces.team.approves', { name: PROGRAM_MANAGER_NAME }) : null}
+          </span>
           <Button onClick={close} disabled={working}>
             {t('common.cancel')}
           </Button>
@@ -250,6 +264,33 @@ export function CreateOrganizationDialog() {
             </Card>
           </div>
         )}
+        <div className="space-bring" role="group" aria-labelledby={teamHeadingId}>
+          <div className="space-heading space-team-heading">
+            <span id={teamHeadingId}>{t('spaces.team.heading')}</span>
+            <span className="faint small">{t('spaces.team.count', { count: teamPossible ? 2 : 1 })}</span>
+          </div>
+          <Card className="space-bring-list space-team-list">
+            <Checkbox className="space-bring-row" checked disabled>
+              <span className="space-team-who">
+                <HardHat colour="slate" size={18} />
+                <span className="space-bring-name">
+                  {t('projects.you')} <span className="faint small">{t('spaces.team.you')}</span>
+                </span>
+                <Tag>{t('spaces.team.always')}</Tag>
+              </span>
+            </Checkbox>
+            <Checkbox className="space-bring-row" checked={teamPossible} disabled>
+              <span className="space-team-who">
+                <HardHat colour="teal" size={18} />
+                <span className="space-bring-name">
+                  {PROGRAM_MANAGER_NAME} <span className="faint small">{t('spaces.team.pm')}</span>
+                </span>
+                <Tag>{t('spaces.team.always')}</Tag>
+              </span>
+            </Checkbox>
+          </Card>
+          <p className="faint small space-team-note">{teamPossible ? t('spaces.team.proposes', { name: PROGRAM_MANAGER_NAME }) : t('spaces.team.needsMemory', { name: PROGRAM_MANAGER_NAME })}</p>
+        </div>
         {more ? (
           <MemoryFields draft={memory} onChange={setMemory} organization={name} allowLater />
         ) : (

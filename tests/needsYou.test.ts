@@ -120,4 +120,28 @@ describe('one list of what needs you', () => {
     expect(items.every((i) => i.kind === 'workspace' && i.space === null)).toBe(true)
     expect(needsYouCounts(items).bySpace.get(null)).toBe(items.length)
   })
+
+  it('lists each thing a project waits on as the person’s own item in its organization, never one going or closed', () => {
+    const project = (id: string, patch: Record<string, unknown>) => ({ id, orgId: 'acme', slug: id, title: id, requirement: id, repoId: 'site', pmId: 'pri', phase: 'working', plans: [], parts: {}, replans: 0, steps: [], artifacts: {}, waits: [], decisions: [], notes: [], createdAt: ago(100), updatedAt: ago(10), ...patch })
+    const snapshot = fixture({}, {
+      projects: {
+        acme: [
+          project('two', { waits: [{ id: 'w1', kind: 'gate', partId: 'reqs', since: ago(5) }, { id: 'w2', kind: 'stuck', partId: 'build', since: ago(2), reason: 'No access' }] }),
+          project('going', {}),
+          project('closed', { phase: 'closed', waits: [{ id: 'w3', kind: 'final', since: ago(1) }] })
+        ]
+      }
+    } as unknown as Partial<AppSnapshot>)
+    const items = needsYouItems(input(snapshot))
+    const projects = items.filter((i) => i.kind === 'project')
+    expect(projects.map((i) => [i.id, i.space, i.repoId, i.employeeId, i.wait?.kind])).toEqual([
+      ['project:two:w1', 'acme', 'site', undefined, 'gate'],
+      ['project:two:w2', 'acme', 'site', undefined, 'stuck']
+    ])
+    const counts = needsYouCounts(items)
+    expect(counts.bySpace.get('acme')).toBe(5)
+    // Nobody's employee count moves: it is the person's own.
+    expect(counts.byEmployee.get(employeeKey('acme', 'ada'))).toBe(2)
+  })
 })
+

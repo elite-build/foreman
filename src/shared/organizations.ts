@@ -15,6 +15,10 @@ export interface Organization {
   leadEmployeeId?: string
   // Its guards on chains of employee work, where they differ from the defaults (shared/employeeBroker.ts).
   workLimits?: Partial<WorkLimits>
+  // Its program manager (docs/ai-employees.md §15): made with it, and where every project starts.
+  programManagerId?: string
+  // Only in createOrganization's answer: why its program manager couldn't be made (the organization was). Never saved.
+  teamProblem?: string
   createdAt: string
 }
 
@@ -170,7 +174,7 @@ export function parseOrganizations(value: unknown): Organization[] {
   const out: Organization[] = []
   for (const entry of value as Record<string, unknown>[]) {
     if (!entry || typeof entry !== 'object') continue
-    const { id, name, memoryRepoId, leadEmployeeId, workLimits, createdAt } = entry
+    const { id, name, memoryRepoId, leadEmployeeId, workLimits, programManagerId, createdAt } = entry
     if (typeof id !== 'string' || !id || typeof name !== 'string' || !name.trim() || typeof createdAt !== 'string') continue
     if (out.some((o) => o.id === id)) continue
     const limits = parseWorkLimits(workLimits)
@@ -180,6 +184,7 @@ export function parseOrganizations(value: unknown): Organization[] {
       ...(typeof memoryRepoId === 'string' && memoryRepoId ? { memoryRepoId } : {}),
       ...(typeof leadEmployeeId === 'string' && isEmployeeId(leadEmployeeId) ? { leadEmployeeId } : {}),
       ...(limits ? { workLimits: limits } : {}),
+      ...(typeof programManagerId === 'string' && isEmployeeId(programManagerId) ? { programManagerId } : {}),
       createdAt
     })
   }
