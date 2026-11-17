@@ -1,5 +1,5 @@
 // AI employees (docs/ai-employees.md §5): an employee's definition, kept in its organization's memory repository as
-// `bots/<id>.toml`; reading and writing it as TOML, checked strictly; the safe settings a new one starts at; its stable
+// `bots/<id>.toml` with its own prompt beside it in `bots/<id>.md`; reading and writing them, checked strictly; the safe settings a new one starts at; its stable
 // id and free hat colour; the text an approval's fingerprint is taken over; and the one request that drafts the words of
 // a new employee (its prompt and how its answer is checked). Pure, so main, the renderer and the tests read the same
 // rules; the service is src/main/employees.ts.
@@ -9,6 +9,7 @@ import { DEFAULT_MODEL, type AgentKind, type EffortLevel, type Loadout } from '.
 import { createT, type TFunction } from './i18n'
 import { isEmployeeId } from './memory'
 import { EMPLOYEE_ACTIONS, PUBLISH_ACTIONS } from './employeeActions'
+import { JOB_PROMPT_IDS, type JobPromptId } from './employeePrompts'
 import { normalizeTrigger, parseTriggers, type EmployeeTrigger } from './employeeTriggers'
 
 const enT = createT('en')
@@ -96,7 +97,7 @@ export interface EmployeeLimits {
   cost_per_day_usd?: number
 }
 
-/** `bots/<id>.toml` (docs/ai-employees.md §5.1). The id is stable and never shown as a name. */
+/** `bots/<id>.toml` and `bots/<id>.md` (docs/ai-employees.md §5.1). The id is stable and never shown as a name. */
 export interface EmployeeDefinition {
   id: string
   name: string
@@ -107,6 +108,10 @@ export interface EmployeeDefinition {
   personality: string
   responsibilities: string[]
   ask_me_about: string
+  // The job whose prompt it is given first (shared/employeePrompts), when it was hired from a template or is the program
+  // manager; `instructions` is then only what its organization adds.
+  template?: JobPromptId
+  // Its own prompt, the text of `bots/<id>.md` (a file written before prompts had their own kept it in the TOML).
   instructions: string
   persona?: string
   model: EmployeeModel
@@ -120,6 +125,9 @@ export interface EmployeeDefinition {
 /** The file an employee's definition is kept in, in its organization's memory repository. */
 export const employeePath = (id: string): string => `bots/${id}.toml`
 
+/** The file an employee's own prompt is kept in, beside its definition. */
+export const employeePromptPath = (id: string): string => `bots/${id}.md`
+
 /** The employee's own memory folder. */
 export const employeeMemoryFolder = (id: string): string => `memory/bots/${id}`
 
@@ -129,9 +137,15 @@ export function employeeIdOfPath(file: string): string | null {
   return m ? m[1] : null
 }
 
+/** The id an own prompt file's name says (`bots/e-7k2m.md` → `e-7k2m`), or null for any other path. */
+export function employeeIdOfPromptPath(file: string): string | null {
+  const m = /^bots\/([^/]+)\.md$/.exec(file)
+  return m ? m[1] : null
+}
+
 // ---- reading ----
 
-const TOP_FIELDS = ['id', 'name', 'role', 'description', 'look', 'personality', 'responsibilities', 'ask_me_about', 'instructions', 'persona', 'model', 'attendance', 'access', 'triggers', 'limits']
+const TOP_FIELDS = ['id', 'name', 'role', 'description', 'look', 'personality', 'responsibilities', 'ask_me_about', 'template', 'instructions', 'persona', 'model', 'attendance', 'access', 'triggers', 'limits']
 const LOOK_FIELDS = ['family', 'colour']
 const MODEL_FIELDS = ['agent', 'model', 'effort', 'fallbacks']
 const ACCESS_FIELDS = ['repos', 'memory_write', 'profile', 'mcp', 'delegate_to', 'actions']
@@ -150,10 +164,12 @@ const isTable = (v: unknown): v is Table => {
 export type EmployeeParse = { definition: EmployeeDefinition; problems: [] } | { definition?: undefined; problems: string[] }
 
 /**
- * Read a definition file. Bad TOML, an unknown field, a wrong type, a value outside its choices or a missing field each
- * make a problem, and a file with any problem has no definition: what runs must be exactly what was approved.
+ * Read a definition file, with its own prompt file's text when there is one (`bots/<id>.md`; null or left out: none, as
+ * for a file written before prompts had their own, which kept it in `instructions`). Bad TOML, an unknown field, a wrong
+ * type, a value outside its choices, a missing field or two different prompts each make a problem, and a file with any
+ * problem has no definition: what runs must be exactly what was approved.
  */
-export function parseEmployee(toml: string, t: TFunction = enT): EmployeeParse {
+export function parseEmployee(toml: string, t: TFunction = enT, prompt: string | null = null): EmployeeParse {
   let raw: unknown
   try {
     raw = parse(toml)
@@ -161,7 +177,11 @@ export function parseEmployee(toml: string, t: TFunction = enT): EmployeeParse {
     const message = (err instanceof Error ? err.message : String(err)).split('\n')[0].trim()
     return { problems: [t('employees.problem.toml', { error: message })] }
   }
-  return employeeFromObject(raw, t)
+  if (prompt === null || !isTable(raw)) return employeeFromObject(raw, t)
+  // A prompt left in the definition too (an older Foreman wrote it there) must be the same one, or nobody can say which runs.
+  const inFile = typeof raw.instructions === 'string' ? raw.instructions.replace(/\r\n?/g, '\n').trim() : ''
+  if (inFile && inFile !== prompt.replace(/\r\n?/g, '\n').trim()) return { problems: [t('employees.problem.twoPrompts')] }
+  return employeeFromObject({ ...raw, instructions: prompt }, t)
 }
 
 /** A definition from a parsed table (or from JSON), checked. */
@@ -223,6 +243,7 @@ export function employeeFromObject(raw: unknown, t: TFunction = enT): EmployeePa
   const responsibilities = list(raw.responsibilities, 'responsibilities', MAX_RESPONSIBILITIES, EMPLOYEE_TEXT_LIMITS.responsibility)
   const askMeAbout = text(raw.ask_me_about, 'ask_me_about', EMPLOYEE_TEXT_LIMITS.ask_me_about, false)
   const instructions = text(raw.instructions, 'instructions', EMPLOYEE_TEXT_LIMITS.instructions, false)
+  const template = raw.template === undefined ? undefined : oneOf(raw.template, 'template', JOB_PROMPT_IDS)
   const persona = raw.persona === undefined ? undefined : text(raw.persona, 'persona', EMPLOYEE_TEXT_LIMITS.persona, false)
 
   let colour = ''
@@ -319,6 +340,7 @@ export function employeeFromObject(raw: unknown, t: TFunction = enT): EmployeePa
       personality,
       responsibilities,
       ask_me_about: askMeAbout,
+      ...(template ? { template } : {}),
       instructions,
       ...(persona ? { persona } : {}),
       model,
@@ -358,6 +380,7 @@ export function normalizeEmployee(d: EmployeeDefinition): EmployeeDefinition {
     personality: oneLine(d.personality),
     responsibilities: d.responsibilities.map(oneLine).filter(Boolean),
     ask_me_about: oneLine(d.ask_me_about),
+    ...(d.template ? { template: d.template } : {}),
     instructions: d.instructions.replace(/\r\n?/g, '\n').trim(),
     ...(persona ? { persona } : {}),
     model: {
@@ -416,17 +439,19 @@ const tomlInline = (record: Record<string, string>) => {
 }
 
 /**
- * The definition as its file, laid out as docs/ai-employees.md §5.1 shows it. `look: false` leaves the hat out: the
- * fingerprint's text, since a hat is who an employee is, never what it may do.
+ * The definition as its file, laid out as docs/ai-employees.md §5.1 shows it, without its prompt, which is a file of its
+ * own (employeePromptFile). `look: false` leaves the hat out and `instructions: true` puts the prompt in, as the file kept
+ * it before prompts had their own: together, the fingerprint's text (a hat is who an employee is, never what it may do).
  */
-export function serializeEmployee(definition: EmployeeDefinition, { look = true }: { look?: boolean } = {}): string {
+export function serializeEmployee(definition: EmployeeDefinition, { look = true, instructions = false }: { look?: boolean; instructions?: boolean } = {}): string {
   const d = normalizeEmployee(definition)
   const lines = [`id = ${tomlString(d.id)}`, `name = ${tomlString(d.name)}`, `role = ${tomlString(d.role)}`, `description = ${tomlString(d.description)}`]
   if (look) lines.push(`look = { family = "hardhat", colour = ${tomlString(d.look.colour)} }`)
   lines.push(`personality = ${tomlString(d.personality)}`)
   lines.push(d.responsibilities.length ? `responsibilities = [\n${d.responsibilities.map((r) => `  ${tomlString(r)},`).join('\n')}\n]` : 'responsibilities = []')
   lines.push(`ask_me_about = ${tomlString(d.ask_me_about)}`)
-  lines.push(`instructions = ${tomlBlock(d.instructions)}`)
+  if (d.template) lines.push(`template = ${tomlString(d.template)}`)
+  if (instructions) lines.push(`instructions = ${tomlBlock(d.instructions)}`)
   if (d.persona) lines.push(`persona = ${tomlString(d.persona)}`)
   const model = [`agent = ${tomlString(d.model.agent)}`, `model = ${tomlString(d.model.model)}`, ...(d.model.effort ? [`effort = ${tomlString(d.model.effort)}`] : []), `fallbacks = ${tomlList(d.model.fallbacks)}`]
   lines.push(`model = { ${model.join(', ')} }`)
@@ -479,12 +504,21 @@ function triggerLines(trigger: EmployeeTrigger): string[] {
   return lines
 }
 
+/** An employee's own prompt file (`bots/<id>.md`): its prompt with plain line ends, ending in one. */
+export function employeePromptFile(definition: Pick<EmployeeDefinition, 'instructions'>): string {
+  const text = definition.instructions.replace(/\r\n?/g, '\n').trim()
+  return text ? `${text}\n` : ''
+}
+
 /**
- * The text an approval's fingerprint is a hash of (main/employees.ts takes its SHA-256): the normalized file without the
- * hat. Two definitions that would run the same way have the same text, whatever their key order or line ends.
+ * The text an approval's fingerprint is a hash of (main/employees.ts takes its SHA-256): the normalized definition
+ * without the hat, with its prompt in it as one file had it before prompts had their own, so moving a prompt to its own
+ * file moves no approval. Two definitions that would run the same way have the same text, whatever their key order or
+ * line ends. A template employee's job prompt is Foreman's, not the definition's: a better one in a newer Foreman moves
+ * no approval, as Foreman's own rules don't.
  */
 export function employeeFingerprintText(definition: EmployeeDefinition): string {
-  return serializeEmployee(definition, { look: false })
+  return serializeEmployee(definition, { look: false, instructions: true })
 }
 
 // ---- ids, colours and the safe defaults ----
@@ -652,10 +686,11 @@ export interface EmployeeRecord {
   id: string
   state: EmployeeState
   pausedKind?: EmployeePausedKind
-  // The fingerprint (SHA-256 of employeeFingerprintText) of the definition approved here, the file's blob then (for a
-  // diff of what changed since), and when.
+  // The fingerprint (SHA-256 of employeeFingerprintText) of the definition approved here, its files' blobs then (for a
+  // diff of what changed since; no prompt blob when the prompt was in the definition's file), and when.
   approvedFingerprint?: string
   approvedBlob?: string
+  approvedPromptBlob?: string
   approvedAt?: string
   // Runs in a row that didn't finish (failed, timed out, stopped for an approval, or ended without a result); two pause it.
   failures?: number
@@ -669,7 +704,7 @@ export function parseEmployeeRecords(value: unknown): EmployeeRecord[] {
   const out: EmployeeRecord[] = []
   for (const entry of value as Record<string, unknown>[]) {
     if (!entry || typeof entry !== 'object') continue
-    const { orgId, id, state, pausedKind, approvedFingerprint, approvedBlob, approvedAt, failures, pausedDetail } = entry
+    const { orgId, id, state, pausedKind, approvedFingerprint, approvedBlob, approvedPromptBlob, approvedAt, failures, pausedDetail } = entry
     if (typeof orgId !== 'string' || !orgId || typeof id !== 'string' || !isEmployeeId(id)) continue
     if (typeof state !== 'string' || !(EMPLOYEE_STATES as readonly string[]).includes(state)) continue
     if (out.some((r) => r.orgId === orgId && r.id === id)) continue
@@ -685,6 +720,7 @@ export function parseEmployeeRecords(value: unknown): EmployeeRecord[] {
       ...(typeof failures === 'number' && Number.isInteger(failures) && failures > 0 ? { failures } : {}),
       ...(approved ? { approvedFingerprint: approvedFingerprint as string } : {}),
       ...(approved && typeof approvedBlob === 'string' && /^[0-9a-f]{40,64}$/.test(approvedBlob) ? { approvedBlob } : {}),
+      ...(approved && typeof approvedPromptBlob === 'string' && /^[0-9a-f]{40,64}$/.test(approvedPromptBlob) ? { approvedPromptBlob } : {}),
       ...(approved && typeof approvedAt === 'string' ? { approvedAt } : {})
     })
   }
@@ -727,14 +763,18 @@ export interface EmployeeRoster {
 
 /** An employee in full, for its page, its Edit view and the approval plan. */
 export interface EmployeeView extends EmployeeSummary {
-  // The file's blob at the head: what an edit is made against (compare-and-set).
+  // The definition file's blob at the head: what an edit is made against (compare-and-set).
   blob: string
   // The file's text, or null when it is binary or too large.
   text: string | null
+  // Its own prompt file (`bots/<id>.md`): its blob, checked on an edit too, and its text; both null while it has none.
+  promptBlob: string | null
+  prompt: string | null
   definition?: EmployeeDefinition
   fingerprint?: string
-  // While changed since approval: the file as it was approved, for a diff.
+  // While changed since approval: the files as they were approved, for a diff (no prompt when it was in the definition).
   approvedText?: string
+  approvedPrompt?: string
 }
 
 export interface EmployeeList {
@@ -806,7 +846,7 @@ const ANSWER_SHAPE = [
   '  "personality": "one line: how it writes, for example \\"Casual, data-driven: short sentences, numbers over adjectives, no hype.\\"",',
   '  "responsibilities": ["two to five lines, each one thing it is responsible for"],',
   '  "ask_me_about": "what other employees should ask it about, in a few words",',
-  `  "instructions": "its full prompt in Markdown, with exactly these ## headings in this order: ${INSTRUCTION_SECTIONS.join(', ')}",`,
+  `  "instructions": "its full prompt in Markdown, with exactly these ### headings (it goes under Foreman’s own ## Your instructions) in this order: ${INSTRUCTION_SECTIONS.join(', ')}",`,
   '  "colour": "one of the free hat colours",',
   '  "suggested": [{ "kind": "repo-write | schedule | event", "detail": "…", "reason": "one sentence" }]',
   '}'

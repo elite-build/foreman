@@ -1574,6 +1574,7 @@ export class SessionService {
             name: brief.name,
             text: brief.system,
             definitionPath: brief.definitionPath,
+            ...(brief.jobPrompt ? { jobPrompt: brief.jobPrompt } : {}),
             ...(brief.orgInstructions ? { orgInstructions: brief.orgInstructions } : {}),
             ...(persona?.readOnly ? { readOnly: true } : {}),
             mcp: persona?.mcp ?? [],

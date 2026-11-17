@@ -673,7 +673,7 @@ export class ProjectService implements EmployeeProjectHooks {
         kind: 'accept',
         employeeId: project.pmId,
         title: `Accept: ${project.title}`,
-        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}) }),
+        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}), replansLeft: MAX_REPLANS - project.replans }),
         requestId: `project:${project.id}:accept:${round}`,
         round,
         contract: { inputs, produces: path, writes: [path], options: ['accept', 'replan'] }

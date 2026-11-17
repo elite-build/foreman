@@ -183,7 +183,7 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     // Its own tools come on Foreman's in-process server (Claude), in place of the workspace agents'.
     expect(Object.keys(req.inProcessMcp ?? {})).toEqual(['foreman-app'])
     expect(Object.keys(req.mcpServers ?? {})).toEqual([])
-    expect(req.systemPromptAppend).toContain('End every task with exactly one of Foreman’s tools')
+    expect(req.systemPromptAppend).toContain('To close the task or ask for a decision, use one of the following tools')
     // The three layers, in order, after Foreman's rules.
     const sys = req.systemPromptAppend
     expect(sys.indexOf('Foreman’s rules come first')).toBeGreaterThan(-1)
@@ -202,7 +202,7 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     expect(message.text).toBe('Draft the launch post for 1.0.23')
     expect(message.origin).toEqual({ kind: 'employee', orgId: org.id, employeeId: 'e-max1', runId: run.id, taskId: task.id })
     expect(message.readOnly).toBe('plan')
-    expect(message.added?.find((p) => p.kind === 'employee')).toMatchObject({ label: 'Max’s instructions', source: 'Foreman’s rules, the organization’s instructions and bots/e-max1.toml' })
+    expect(message.added?.find((p) => p.kind === 'employee')).toMatchObject({ label: 'Max’s instructions', source: 'Foreman’s rules, the organization’s instructions and bots/e-max1.toml, bots/e-max1.md' })
     expect(message.added?.filter((p) => p.kind === 'memory').map((p) => [p.label, p.source])).toEqual([
       ['memory/org/PROJECT.md', `pinned memory at ${head.slice(0, 7)}`],
       ['memory/bots/e-max1/MEMORY.md', `pinned memory at ${head.slice(0, 7)}`]
@@ -238,7 +238,8 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     await vi.waitFor(() => expect(a.requests).toHaveLength(1), WAIT)
     expect(a.requests[0]).toMatchObject({ writeScope: ['**'], writeScopeSubject: 'AI employee’s run', planMode: false })
     expect(a.requests[0].readOnly).toBeUndefined()
-    expect(a.requests[0].systemPromptAppend).toContain('You have no shell: Foreman refuses every command.')
+    expect(a.requests[0].systemPromptAppend).toContain('You have no shell: every shell command is refused, including read-only commands.')
+    expect(a.requests[0].systemPromptAppend).toContain('Never merge, and never get a change out any other way.')
     a.release()
     await quiet(write.core, write.store, write.org.id)
     await write.core.shutdown()

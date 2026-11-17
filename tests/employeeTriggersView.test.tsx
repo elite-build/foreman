@@ -44,7 +44,7 @@ const summary = (patch: Partial<EmployeeSummary> = {}): EmployeeSummary => ({
   ...patch
 })
 
-const view = (patch: Partial<EmployeeView> = {}): EmployeeView => ({ ...summary(), blob: 'b1', text: '', definition: max([MONDAYS, OFF]), fingerprint: 'f'.repeat(64), ...patch })
+const view = (patch: Partial<EmployeeView> = {}): EmployeeView => ({ ...summary(), blob: 'b1', text: '', promptBlob: null, prompt: null, definition: max([MONDAYS, OFF]), fingerprint: 'f'.repeat(64), ...patch })
 
 const STATES: EmployeeTriggerState[] = [
   { orgId: 'o1', employeeId: 'e-max1', triggerId: 't-mon1', timing: 'x', nextAt: '2026-11-16T09:00:00.000Z', firings: [{ plannedAt: '2026-11-09T09:00:00.000Z', at: '2026-11-09T09:20:00.000Z', outcome: 'skipped', skip: 'missed' }] },

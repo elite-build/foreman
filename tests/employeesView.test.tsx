@@ -62,7 +62,7 @@ beforeEach(() => {
   for (const name of ['openEmployees', 'openMemory', 'toggleTeamOpen']) spy(name).mockReset()
   ;(storeModule.showToast as ReturnType<typeof vi.fn>).mockReset()
   fakeState.space = 'o1'
-  fakeApi.createEmployee = vi.fn(async (_org: string, definition: { id: string; name: string }) => ({ ...summary(definition.id, definition.name), blob: 'b1', text: '' }))
+  fakeApi.createEmployee = vi.fn(async (_org: string, definition: { id: string; name: string }) => ({ ...summary(definition.id, definition.name), blob: 'b1', text: '', promptBlob: null, prompt: null }))
 })
 afterEach(() => {
   cleanup()
@@ -321,7 +321,7 @@ describe('the New employee page', () => {
 })
 
 describe('the New employee page: Pick a job (docs/ai-employees.md §16)', () => {
-  const view = (id: string, name: string, patch: Partial<EmployeeSummary> = {}): EmployeeView => ({ ...summary(id, name, { state: 'active', ...patch }), blob: 'b1', text: '' })
+  const view = (id: string, name: string, patch: Partial<EmployeeSummary> = {}): EmployeeView => ({ ...summary(id, name, { state: 'active', ...patch }), blob: 'b1', text: '', promptBlob: null, prompt: null })
   const chip = (name: string) => within(screen.getByRole('group', { name: 'Pick a job' })).getByRole('button', { name })
   const pressed = () =>
     within(screen.getByRole('group', { name: 'Pick a job' }))
@@ -533,7 +533,7 @@ describe('the approval plan: a draft’s page', () => {
     }
     definition.model.fallbacks = ['claude-haiku-5-5']
     definition.access.actions['push'] = 'allowed'
-    const view: EmployeeView = { ...summary('e-7k2m', 'Max'), blob: 'b1', text: null, definition, fingerprint: 'f1' }
+    const view: EmployeeView = { ...summary('e-7k2m', 'Max'), blob: 'b1', text: null, promptBlob: null, prompt: null, definition, fingerprint: 'f1' }
     return { definition, view }
   }
   const group = (name: string) => {

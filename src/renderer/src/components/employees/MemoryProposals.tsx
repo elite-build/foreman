@@ -5,7 +5,7 @@
 // memory service; Discard writes nothing). Shown on the Team page, an employee's page and in the Memory view.
 import { useState, type ReactNode } from 'react'
 import { fileName } from '../../../../shared/employeeDecisions'
-import { employeeIdOfPath } from '../../../../shared/employees'
+import { employeeIdOfPath, employeeIdOfPromptPath } from '../../../../shared/employees'
 import { timeAgo } from '../../../../shared/i18n/time'
 import type { MemoryProposal } from '../../../../shared/memory'
 import { useT } from '../../i18n'
@@ -32,7 +32,8 @@ export function ProposalDecision({ proposal, place, who }: { proposal: MemoryPro
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const file = fileName(proposal.path)
-  const definition = employeeIdOfPath(proposal.path) !== null
+  // A definition or an employee's own prompt: keeping either changes what it runs with, so it is approved again.
+  const definition = employeeIdOfPath(proposal.path) !== null || employeeIdOfPromptPath(proposal.path) !== null
   const act = async (keep: boolean) => {
     setBusy(true)
     setError('')

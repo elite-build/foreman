@@ -14,9 +14,10 @@ import { Ban, Check, Hand } from 'lucide-react'
 import { useState } from 'react'
 import { quoteChanges } from '../../../../shared/diffSelection'
 import { definitionChanges, planGroups } from '../../../../shared/employeeDecisions'
-import { employeeMemoryFolder, employeeNameProblem, employeeProblems, employeeStatus, parseEmployee, type EmployeeDefinition, type EmployeeView } from '../../../../shared/employees'
+import { employeeMemoryFolder, employeeNameProblem, employeeProblems, employeePromptPath, employeeStatus, parseEmployee, type EmployeeDefinition, type EmployeeView } from '../../../../shared/employees'
 import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
 import { reposInSpace } from '../../../../shared/organizations'
+import { employeeInstructions, jobPrompt } from '../../../../shared/employeePrompts'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openMemory, showToast, useStore } from '../../store'
 import { employeeActivity } from '../../../../shared/employeeWork'
@@ -28,7 +29,7 @@ import { ActionRules } from './HeldActions'
 import { AccessFields, CanDo, HatPicker, InstructionsField, WordFields } from './EmployeeFields'
 import { TriggersField, TriggersTab } from './EmployeeTriggers'
 import type { EmployeesData } from './EmployeesView'
-import { changeText, colourName, decisionWhat, modelText, planModel, planText, planWhen, workStatus } from './words'
+import { changeText, colourName, decisionWhat, jobName, modelText, planModel, planText, planWhen, workStatus } from './words'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -66,7 +67,7 @@ export function EmployeePage({ orgId, employee, edit, data }: { orgId: string; e
   // A draft or a changed definition: its page is the plan, and Approve is the header's main button.
   const reviewing = Boolean(d && e.state !== 'retired' && !e.problems.length && (e.state === 'draft' || e.changed))
 
-  if (edit && d && e.state !== 'retired') return <EmployeeEdit orgId={orgId} employee={e} definition={d} repos={repos} memory={memory} data={data} />
+  if (edit && d && e.state !== 'retired') return <EmployeeEdit orgId={orgId} employee={e} definition={d} repos={repos} memory={memory} organization={organization} data={data} />
 
   const approve = async () => {
     if (!e.fingerprint) return
@@ -253,13 +254,7 @@ export function EmployeePage({ orgId, employee, edit, data }: { orgId: string; e
                 <p className="employee-faint">{t('employees.employee.definitionIn', { name, memory })}</p>
               </Card>
               <Disclosure label={t('employees.field.instructions')}>
-                {d.instructions ? (
-                  <div className="employee-instructions">
-                    <Markdown text={d.instructions} />
-                  </div>
-                ) : (
-                  <p className="employee-faint">{t('employees.employee.noInstructions')}</p>
-                )}
+                <Told definition={d} name={name} organization={organization} />
               </Disclosure>
             </div>
           )}
@@ -306,7 +301,7 @@ const GROUP_ICON = { can: Check, cant: Ban, asks: Hand }
 export function EmployeeReview({ employee: e, definition: d, memory, organization, names }: { employee: EmployeeView; definition: EmployeeDefinition; memory: string; organization: string; names: (id: string) => string }) {
   const t = useT()
   const name = e.name || e.id
-  const before = e.changed && e.approvedText !== undefined ? parseEmployee(e.approvedText, t).definition : undefined
+  const before = e.changed && e.approvedText !== undefined ? parseEmployee(e.approvedText, t, e.approvedPrompt ?? null).definition : undefined
   const changes = before ? definitionChanges(before, d) : []
   const groups = planText(planGroups(d), { memory, organization, names }, t)
   const when = planWhen(d, t)
@@ -345,7 +340,8 @@ export function EmployeeReview({ employee: e, definition: d, memory, organizatio
           )}
           {e.approvedText !== undefined && e.text !== null && (
             <Disclosure quiet label={t('employees.changed.exact')}>
-              <DefinitionDiff before={e.approvedText} after={e.text} path={e.path} />
+              {e.approvedText !== e.text && <DefinitionDiff before={e.approvedText} after={e.text} path={e.path} />}
+              {e.approvedPrompt !== undefined && e.prompt !== null && e.approvedPrompt !== e.prompt && <DefinitionDiff before={e.approvedPrompt} after={e.prompt} path={employeePromptPath(e.id)} />}
             </Disclosure>
           )}
         </Card>
@@ -386,13 +382,7 @@ export function EmployeeReview({ employee: e, definition: d, memory, organizatio
           <dd>{planModel(d, t)}</dd>
         </dl>
         <Disclosure quiet label={t('employees.plan.told', { name })}>
-          {d.instructions ? (
-            <div className="employee-instructions">
-              <Markdown text={d.instructions} />
-            </div>
-          ) : (
-            <p className="employee-faint">{t('employees.employee.noInstructions')}</p>
-          )}
+          <Told definition={d} name={name} organization={organization} />
         </Disclosure>
         <Disclosure quiet label={t('employees.approve.notCovered')}>
           <ul className="employee-plan-bullets">
@@ -405,6 +395,27 @@ export function EmployeeReview({ employee: e, definition: d, memory, organizatio
         </Disclosure>
         <p className="employee-faint">{t('employees.approve.local')}</p>
       </Card>
+    </>
+  )
+}
+
+/**
+ * What the employee is told under Foreman's own words, as a run is (shared/employeePrompts): a job's prompt, then what
+ * the organization adds, saying so; or its own prompt.
+ */
+function Told({ definition: d, name, organization }: { definition: EmployeeDefinition; name: string; organization: string }) {
+  const t = useT()
+  const text = employeeInstructions(d, organization)
+  return (
+    <>
+      {d.template && <p className="employee-faint">{t('employees.employee.fromJob', { name, job: jobName(d.template, t), organization })}</p>}
+      {text ? (
+        <div className="employee-instructions">
+          <Markdown text={text} />
+        </div>
+      ) : (
+        <p className="employee-faint">{t('employees.employee.noInstructions')}</p>
+      )}
     </>
   )
 }
@@ -439,7 +450,7 @@ export function DefinitionDiff({ before, after, path }: { before: string; after:
 }
 
 /** The precise form for every field (§5.3: the step-by-step form survives as Edit). */
-function EmployeeEdit({ orgId, employee, definition, repos, memory, data }: { orgId: string; employee: EmployeeView; definition: EmployeeDefinition; repos: string[]; memory: string; data: EmployeesData }) {
+function EmployeeEdit({ orgId, employee, definition, repos, memory, organization, data }: { orgId: string; employee: EmployeeView; definition: EmployeeDefinition; repos: string[]; memory: string; organization: string; data: EmployeesData }) {
   const t = useT()
   const roster = useStore((s) => s.snapshot!.employees?.[orgId]?.employees ?? [])
   const [draft, setDraft] = useState<EmployeeDefinition>(definition)
@@ -457,7 +468,7 @@ function EmployeeEdit({ orgId, employee, definition, repos, memory, data }: { or
     setSaving(true)
     setError('')
     try {
-      const result = await api.updateEmployee(orgId, employee.id, draft, employee.blob)
+      const result = await api.updateEmployee(orgId, employee.id, draft, employee.blob, employee.promptBlob)
       if (!result.ok) {
         setConflict(true)
         return
@@ -514,7 +525,23 @@ function EmployeeEdit({ orgId, employee, definition, repos, memory, data }: { or
         <h3 id="employee-edit-instructions" className="employee-subheading">
           {t('employees.field.instructions')}
         </h3>
-        <InstructionsField value={draft.instructions} onChange={(instructions) => setDraft({ ...draft, instructions })} />
+        {draft.template ? (
+          <>
+            <Disclosure quiet label={t('employees.field.jobPrompt', { job: jobName(draft.template, t) })}>
+              <div className="employee-instructions">
+                <Markdown text={jobPrompt(draft.template)} />
+              </div>
+            </Disclosure>
+            <InstructionsField
+              label={t('employees.field.additions', { organization })}
+              description={t('employees.field.additionsHint', { name: employee.name || employee.id, job: jobName(draft.template, t) })}
+              value={draft.instructions}
+              onChange={(instructions) => setDraft({ ...draft, instructions })}
+            />
+          </>
+        ) : (
+          <InstructionsField value={draft.instructions} onChange={(instructions) => setDraft({ ...draft, instructions })} />
+        )}
         <Field label={t('employees.field.persona')} description={t('employees.field.personaHint')}>
           {(c) => (
             <TextInput
