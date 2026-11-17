@@ -168,6 +168,25 @@ describe('the Memory view', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Saved now' })).toBeNull())
   })
 
+  it('opens a page (an employee’s mock) in the browser; a Markdown file has no such button', async () => {
+    const user = userEvent.setup()
+    setSnapshot({ state: 'ok', head: 'h1' })
+    fakeApi.memoryTree = vi.fn(async () => ({ head: 'h1', entries: [...ENTRIES, { path: 'memory/bots/e-1/mocks/index.html', blob: 'b3', size: 40 }] }))
+    fakeApi.memoryOpenFile = vi.fn(async () => undefined)
+    render(<MemoryView organizationId="o1" />)
+    const tree = await screen.findByRole('tree', { name: 'Memory files' })
+    await user.click(within(tree).getByRole('treeitem', { name: 'PROJECT.md' }))
+    await waitFor(() => expect(fakeApi.memoryReadFile).toHaveBeenCalledWith('o1', 'memory/org/PROJECT.md'))
+    expect(screen.queryByRole('button', { name: 'Open in browser' })).toBeNull()
+    // memory/bots, then the employee's folder, then mocks: closed until opened.
+    await user.click(within(tree).getAllByRole('treeitem', { name: 'bots' })[1])
+    await user.click(within(tree).getByRole('treeitem', { name: 'e-1' }))
+    await user.click(within(tree).getByRole('treeitem', { name: 'mocks' }))
+    await user.click(within(tree).getByRole('treeitem', { name: 'index.html' }))
+    await user.click(await screen.findByRole('button', { name: 'Open in browser' }))
+    expect(fakeApi.memoryOpenFile).toHaveBeenCalledWith('o1', 'memory/bots/e-1/mocks/index.html')
+  })
+
   it('searches the index and opens a result', async () => {
     const user = userEvent.setup()
     setSnapshot({ state: 'ok', head: 'h1' })

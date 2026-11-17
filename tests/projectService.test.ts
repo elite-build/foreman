@@ -285,6 +285,23 @@ describe('projects: parts, gates and the end', () => {
     expect(p).toMatchObject({ phase: 'closed', outcome: 'done', waits: [] })
   })
 
+  it('keeps the memory files a part’s task named, for the channel to link its pages, and finds them for a step closed before', async () => {
+    const r = await approved(TWO_PARTS)
+    const build = r.task(r.last())
+    const pages = ['memory/bots/e-rav1/mocks/csv/index.html', 'memory/bots/e-rav1/mocks/csv/1-button.html']
+    await r.close(build.id, { artifacts: ['memory/org/projects/export-reports-to-csv/build.md', ...pages, pages[0], 'src/export.ts', 'C:/elsewhere/mock.html'] })
+    const step = () => r.service.all('o1')[0].steps.find((s) => s.taskId === build.id)!
+    // Workspace and absolute paths go with their workspace or aren't memory: only memory files, each once.
+    expect(step().files).toEqual(['memory/org/projects/export-reports-to-csv/build.md', ...pages])
+    expect(r.service.views().o1[0].steps.find((s) => s.taskId === build.id)!.files).toEqual(step().files)
+    // A step closed before steps kept their files reads them from its task's result.
+    const stored = r.db.project(r.id)!
+    for (const s of stored.steps) delete s.files
+    r.db.putProject(stored)
+    expect(step().files).toEqual(['memory/org/projects/export-reports-to-csv/build.md', ...pages])
+    expect(r.db.project(r.id)!.steps.find((s) => s.taskId === build.id)!.files).toBeUndefined()
+  })
+
   it('records the mocks a part drew in its folder, and hands them with its file to the part that reads it', async () => {
     const r = await approved({
       summary: 's',

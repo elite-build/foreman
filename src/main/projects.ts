@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto'
 import { ACTION_KEEPS_WORKSPACE } from '../shared/employeeActions'
 import { proposedDefinition } from '../shared/employeeTeams'
 import type { EmployeeTask } from '../shared/employeeWork'
+import { memoryArtifacts } from '../shared/memory'
 import { employeeStatus, HAT_COLOURS, newEmployeeId, type EmployeeDefinition } from '../shared/employees'
 import { reposInSpace, type Organization } from '../shared/organizations'
 import {
@@ -169,9 +170,19 @@ export class ProjectService implements EmployeeProjectHooks {
         this.db.projects(org.id).filter((p) => Array.isArray(p.waits)),
         now
       )
-      if (listed.length) out[org.id] = listed
+      if (listed.length) out[org.id] = listed.map((p) => this.withFiles(p))
     }
     return out
+  }
+
+  /** A step closed before steps kept their files takes them from its task's result, for the channel (read, not saved). */
+  private withFiles(project: Project): Project {
+    for (const step of project.steps) {
+      if (step.files || !step.endedAt) continue
+      const files = memoryArtifacts(this.db.employeeTask(step.taskId)?.result?.artifacts)
+      if (files.length) step.files = files
+    }
+    return project
   }
 
   /** The organization's employees by id → name, for words. */
@@ -484,6 +495,8 @@ export class ProjectService implements EmployeeProjectHooks {
     if (task.result?.decision) step.decision = task.result.decision
     const said = task.result?.summary ?? task.resultSummary
     if (said) step.summary = said.slice(0, 2_000)
+    const files = memoryArtifacts(task.result?.artifacts)
+    if (files.length) step.files = files
     const why = task.closureDetail ?? task.result?.unblock ?? task.resultSummary ?? `It closed ${task.closureReason ?? 'without a result'}.`
     if (!done) step.reason = why
     if (step.kind === 'follow-up' || project.phase === 'closed') {
@@ -819,7 +832,7 @@ export class ProjectService implements EmployeeProjectHooks {
   /** Every project of an organization, its archived channels too, newest first: the Channels page. */
   all(orgId: string): Project[] {
     this.organization(orgId)
-    return this.db.projects(orgId).filter((p) => Array.isArray(p.waits))
+    return this.db.projects(orgId).filter((p) => Array.isArray(p.waits)).map((p) => this.withFiles(p))
   }
 
   /** The channel names an organization's projects use (their slugs, and the names they were given), but `except`'s. */

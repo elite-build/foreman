@@ -7,6 +7,7 @@ import { RECEIPT_STAGES, receipts, type ReceiptStage } from '../../../../shared/
 import { canCancelTask, canRetryTask, isRunActive, isRunGoing, workableRepos, type EmployeeRun, type EmployeeTask, type EmployeeTaskChain } from '../../../../shared/employeeWork'
 import { employeeStatus, type EmployeeDefinition, type EmployeeSummary } from '../../../../shared/employees'
 import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
+import { memoryArtifacts } from '../../../../shared/memory'
 import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { formatChord } from '../../shortcuts'
@@ -14,6 +15,7 @@ import { api, attempt, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, Kbd, LinkButton, Select, Spinner, Status, Stepper, TextArea, TextInput, type StepperStep } from '../../ui'
 import { formatDuration } from '../turnResult'
 import { ActionLog } from './HeldActions'
+import { PageLinks } from './PageLinks'
 import { ACCESS_LABEL, activityText, holdText, modelText, RUN_LABEL, RUN_TONE, taskWord } from './words'
 
 export { EmployeesNeedYou } from './EmployeeDecisions'
@@ -327,6 +329,7 @@ export function TaskRow({ task, runs, who }: { task: EmployeeTask; runs: Employe
       {why && !task.question && <p className="employee-task-why">{why}</p>}
       {task.question && <p className="employee-task-why">{activityText({ current: task, running: false, needsYou: 1, queued: 0 }, t)}</p>}
       {task.resultSummary && <p className="employee-task-result">{task.resultSummary}</p>}
+      <PageLinks orgId={task.orgId} files={memoryArtifacts(task.result?.artifacts)} />
       <span className="employee-faint">
         {[
           task.requestedBy ? t(task.kind === 'message' ? 'employees.chain.sentBy' : 'employees.chain.askedBy', { name: task.requestedBy.name }) : '',

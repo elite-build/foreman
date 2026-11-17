@@ -144,6 +144,22 @@ export function memoryPathProblem(path: string): MemoryPathProblem | null {
   return null
 }
 
+/** The memory files among a task's artifacts, each once, in order. A workspace path isn't one: it goes with its workspace. */
+export function memoryArtifacts(paths: readonly unknown[] | undefined): string[] {
+  const out: string[] = []
+  for (const p of paths ?? []) if (typeof p === 'string' && !memoryPathProblem(p) && !out.includes(p)) out.push(p)
+  return out
+}
+
+/** The pages among memory files that open in a browser (a mock): a folder's index.html stands for the pages beside it. */
+export function memoryPages(paths: readonly string[]): string[] {
+  const html = paths.filter((p) => /\.html?$/i.test(p))
+  const isIndex = (p: string) => /(^|\/)index\.html?$/i.test(p)
+  const folder = (p: string) => p.slice(0, p.lastIndexOf('/'))
+  const indexed = new Set(html.filter(isIndex).map(folder))
+  return html.filter((p) => isIndex(p) || !indexed.has(folder(p)))
+}
+
 /** What a refused path is told, in the words the model and the person read (main-process errors are English). */
 export const MEMORY_PATH_REASON: Record<MemoryPathProblem, string> = {
   empty: 'Name a file.',

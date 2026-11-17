@@ -282,6 +282,40 @@ describe('a project’s channel', () => {
     await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', undefined))
   })
 
+  it('gives each page a part made (a mock’s index.html) a button that opens it in the browser', async () => {
+    const user = userEvent.setup()
+    const mocks = 'memory/bots/e-rav1/mocks/csv-button'
+    const made = project({
+      phase: 'working',
+      plan: { ...PLAN, status: 'approved' },
+      plans: [{ ...PLAN, status: 'approved' }],
+      parts: { build: { state: 'done', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } },
+      steps: [
+        ...project().steps,
+        {
+          kind: 'part',
+          partId: 'build',
+          round: 1,
+          taskId: 't2',
+          employeeId: 'e-rav1',
+          state: 'done',
+          summary: 'Drew two mocks.',
+          files: ['memory/org/projects/csv-export/build.md', `${mocks}/index.html`, `${mocks}/1-button.html`, `${mocks}/2-menu.html`],
+          startedAt: '2026-11-15T10:06:00.000Z',
+          endedAt: '2026-11-15T10:20:00.000Z'
+        }
+      ],
+      waits: []
+    })
+    setSnapshot([made], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    fakeApi.memoryOpenFile = vi.fn(async () => undefined)
+    render(<ProjectPage orgId="o1" project={made} />)
+    // The index stands for the pages it links; the Markdown file isn't a page.
+    expect(screen.getAllByRole('button', { name: /in your browser$/ }).map((b) => b.textContent)).toEqual(['Open csv-button/index.html in your browser'])
+    await user.click(screen.getByRole('button', { name: 'Open csv-button/index.html in your browser' }))
+    await waitFor(() => expect(fakeApi.memoryOpenFile).toHaveBeenCalledWith('o1', `${mocks}/index.html`))
+  })
+
   it('says a note written at a gate goes with Approve to what starts next, and holds Approve plan while one is written', async () => {
     const user = userEvent.setup()
     const atGate = project({

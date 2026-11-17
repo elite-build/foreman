@@ -3457,6 +3457,7 @@ export class Core {
     memoryStatus: (organizationId) => this.memory.status(organizationId),
     memoryTree: (organizationId) => this.memory.tree(organizationId),
     memoryReadFile: (organizationId, path) => this.memory.read(organizationId, path),
+    memoryOpenFile: async (organizationId, path) => this.openFile(this.memory.filePath(organizationId, path), 'open'),
     memoryFileHistory: (organizationId, path) => this.memory.history(organizationId, path),
     memorySearch: (organizationId, query) => this.memory.search(organizationId, query),
     memoryWriteFile: (organizationId, path, text, expectedBlob) => this.memory.writeAsPerson(organizationId, path, text, expectedBlob),
