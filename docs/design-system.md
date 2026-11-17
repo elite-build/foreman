@@ -96,6 +96,7 @@ Replaces `.icon-btn` (and its `.active`).
 
 - Props: `label` (required: the accessible name and the tooltip; `aria-label` and `title` can't be set separately), `children` (the icon, hidden from assistive tech), `pressed` (a toggle: sets `aria-pressed` and the highlighted look), `variant` (`default`; `primary`: a 28px round filled button for a bar's one action, the composer's send and stop; `framed`: a bordered square, for the repository icon (shows the current value and opens its picker) and the composer's Stop beside its send button while a turn runs; `dashed`: a dashed placeholder tile that adds something, the rail's "add a repository", solid while its menu is open; `badge`: a small round button with its own edge and a cut-out ring, for a control that sits over the corner of another surface, the loadout card's remove ×), `tone` (`default`, or `danger`: red on hover and keyboard focus, for delete), plus native button props except `type`, `role`, `aria-pressed`, `title`.
 - 24×24 minimum. A menu trigger passes `aria-haspopup` and `aria-expanded` straight through; the button is highlighted while `aria-expanded` is true.
+- A button that opens a page passes `aria-current="page"` while that page is shown (a sidebar hat); it then has the neutral selected fill (`--selected-bg`) a selected row has.
 
 ```tsx
 <IconButton label={t('terminal.find.next')} onClick={next}><ArrowDown size={14} /></IconButton>
@@ -108,6 +109,7 @@ Replaces `.link-btn` (and its `.danger`).
 - Props: `danger`, `size` (`inherit` follows the surrounding text, `sm` is 12px), `underline` (an inline link inside a sentence: blue, as every link is, with an underline that is always drawn, firming up on hover, and no 24px minimum height since it sits in running text), `mono` (the code font, for a path or a pattern), plus native button props except `type`, `role`.
 - A button that looks like a link, for actions ("Refresh", "Show more", an action inside a sentence). Navigation to a URL is an `<a href>`.
 - Text goes underlined on hover; 24px minimum height.
+- A link button that opens a page passes `aria-current="page"` while that page is shown ("Team page", "All channels" in the sidebar); it then reads in the full text colour and weight 600, so the mark isn't colour alone.
 
 ```tsx
 <LinkButton onClick={refresh}>{t('cloud.refresh')}</LinkButton>
@@ -462,7 +464,7 @@ Replaces `.split-btn` (four places).
 
 Replaces `.repo-prompt-toggle`, `.env-doc-toggle` and `<details>` used as a control.
 
-- Props: `label` (the button's content), `children` (the panel), `open` + `onOpenChange` (controlled) or `defaultOpen`, `quiet` (lighter, link-like), native div props. `className` goes to the wrapper.
+- Props: `label` (the button's content), `children` (the panel), `open` + `onOpenChange` (controlled) or `defaultOpen`, `quiet` (lighter, link-like), `headingLevel` (1–6: the button is the section's heading, wrapped in `div.ui-disclosure__heading` with `role="heading"` at that level, as the sidebar's group headings are), native div props. `className` goes to the wrapper.
 - `aria-expanded` and `aria-controls` on the button; the panel stays mounted while closed, hidden, so its state survives and `aria-controls` always points at it. The chevron turns, but not under Reduce Motion. 24px minimum height.
 
 ```tsx
@@ -526,6 +528,7 @@ Replaces `role="tooltip"` cards that hold buttons (`Attention.tsx`, `HomeBoard.t
 | `label` (required) | Accessible name of the card (`role="group"`). |
 | `side` (`bottom` default, `right`), `width`, `openDelay` (300), `closeDelay` (200), `className` | Placement and layout. |
 | `open`, `onOpenChange` | Optional control. |
+| `openOnFocus` (`any` default, `keyboard`) | Which focus opens it at once. `keyboard` is for a trigger people click to act on (a sidebar row): the focus a click gives it neither opens the card nor holds it open, so the card opens only by hovering and closes when the pointer leaves; Tab still opens it at once. |
 
 Opens on hover (after the delay) and on focus; stays open while the pointer or focus is on the trigger or the card. Tab goes from the trigger into the card and, past its last control, closes it and carries on to whatever follows the trigger; Shift+Tab returns to the trigger. Escape dismisses it wherever focus is (window capture; focus goes back to the trigger when it was inside the card) and does not reach a dialog behind.
 

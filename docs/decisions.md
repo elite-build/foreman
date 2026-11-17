@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-17: A sidebar row is one line, and its details are in a hover card that a click never opens
+
+**Decision.** Each workspace row shows its glyph, title, label and hat. Repository, branch, age, cloud state and the shortcut are in a HoverCard that opens after the hover delay or on keyboard focus (`openOnFocus="keyboard"`); the selected row keeps them on a second line.
+
+**Why.** The person picked the dense 7a sidebar to cut clutter. A card that opened on the focus a click gives covered the workspace just opened, on the sidebar's most frequent action.
+
+**Turned down.** Keeping the details on every row (the clutter the redesign removes). Opening the card on any focus (every click pops it). No focus opening (keyboard users would lose the details). This narrows the 2026-11-06 refusal of a repository hover preview ("accidental triggers"): rows get a delayed card, and the rail still has none.
+
+**Revisit when.** People miss branch and age at a glance, or touch use matters.
+
 ## 2026-11-17: A template employee is linked to its job's prompt, which improves without asking again
 
 **Decision.** Each job (the fifteen templates and the program manager) has its own prompt file in `src/shared/employeePrompts/`. An employee hired from one records `template = "<job>"` and keeps only its organization's additions in its own `bots/<id>.md`; every run gets the job's prompt as that Foreman has it, then the additions. The fingerprint covers the link and the additions, not the job's text.

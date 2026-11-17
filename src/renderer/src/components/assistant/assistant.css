@@ -3,8 +3,10 @@
 /* ---- sidebar entry (shares .automations-entry's frame) ---- */
 
 .assistant-entry-dot {
-  margin-left: auto;
-  flex: none;
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  display: inline-flex;
 }
 
 /* ---- frame ---- */

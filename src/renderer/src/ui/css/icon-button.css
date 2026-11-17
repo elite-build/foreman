@@ -22,6 +22,11 @@
   color: var(--text);
   background: var(--bg-hover);
 }
+/* The page shown (a sidebar hat while its employee's page is open): the neutral selected fill a selected row has. */
+.ui-icon-btn[aria-current='page'] {
+  color: var(--text);
+  background: var(--selected-bg);
+}
 .ui-icon-btn:disabled {
   opacity: 0.45;
   cursor: default;

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Spaces in the window (docs/ai-employees.md §3 and §10): the switcher always there (Personal until an organization
-// exists), New organization… in it and in the Add repository menu, and the New organization dialog: one name, the
-// repositories to bring (the one in view ticked), its memory repository in a line, the rest behind More options.
+// exists), New organization… in the sidebar's + menu (the one place things are added), and the New organization dialog:
+// one name, the repositories to bring (the one in view ticked), its memory repository in a line, the rest behind More
+// options.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -9,9 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../src/shared/organizations'
 import { SpaceSwitcher } from '../src/renderer/src/components/spaces/SpaceSwitcher'
 import { CreateOrganizationDialog } from '../src/renderer/src/components/spaces/CreateOrganizationDialog'
-import { AddRepoItems, CloneRepoDialog, QuickStartDialog } from '../src/renderer/src/components/AddRepository'
+import { CloneRepoDialog, QuickStartDialog } from '../src/renderer/src/components/AddRepository'
+import { NewMenu } from '../src/renderer/src/components/NewMenu'
 import { SpacesPage } from '../src/renderer/src/components/settings/SpacesPage'
-import { MenuButton } from '../src/renderer/src/ui'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -53,20 +54,21 @@ afterEach(() => {
 })
 
 describe('the space switcher', () => {
-  it('is there before any organization exists: Personal, with New organization… to make one', async () => {
+  it('is there before any organization exists: Personal, with its line first in the menu', async () => {
     const user = userEvent.setup()
     setSnapshot([], [repo('blog'), repo('dotfiles')])
-    render(<SpaceSwitcher />)
-    await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
+    render(<SpaceSwitcher line="2 repositories" />)
+    const trigger = screen.getByRole('button', { name: 'Space: Personal' })
+    expect(trigger.getAttribute('title')).toBe('2 repositories')
+    await user.click(trigger)
     const menu = screen.getByRole('menu', { name: 'Spaces' })
+    expect(menu.textContent).toMatch(/^2 repositories/)
     expect(within(menu).getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Personal2 repositories · no memory repository', 'true']])
-    const make = screen.getByRole('menuitem', { name: /New organization…/ })
-    expect(make.textContent).toContain('Repositories you work on with others, with AI employees and a memory they share')
-    await user.click(make)
-    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
+    // New organization… is in the sidebar's + menu, not here.
+    expect(screen.queryByRole('menuitem', { name: /New organization…/ })).toBeNull()
   })
 
-  it('lists each space with its counts, the current one checked, then New organization and Manage', async () => {
+  it('lists each space with its counts, the current one checked, then Manage', async () => {
     const user = userEvent.setup()
     setSnapshot([org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')])
     render(<SpaceSwitcher />)
@@ -82,9 +84,6 @@ describe('the space switcher', () => {
     await user.click(items[1])
     expect(spy('setSpace')).toHaveBeenCalledWith('o1')
 
-    await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
-    await user.click(screen.getByRole('menuitem', { name: /New organization…/ }))
-    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
     await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
     await user.click(screen.getByRole('menuitem', { name: 'Manage spaces…' }))
     expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'spaces' })
@@ -102,17 +101,15 @@ describe('the space switcher', () => {
   })
 })
 
-describe('the Add repository menu', () => {
-  it('offers New organization…', async () => {
+describe('the sidebar’s + menu', () => {
+  it('offers New organization…, before any organization exists too', async () => {
     setSnapshot([])
     const user = userEvent.setup()
-    render(
-      <MenuButton label="Add repository" trigger="+">
-        <AddRepoItems />
-      </MenuButton>
-    )
-    await user.click(screen.getByRole('button', { name: '+' }))
-    await user.click(screen.getByRole('menuitem', { name: /New organization…/ }))
+    render(<NewMenu repoId="blog" />)
+    await user.click(screen.getByRole('button', { name: 'New' }))
+    const make = screen.getByRole('menuitem', { name: /New organization…/ })
+    expect(make.textContent).toContain('Repositories you work on with others, with AI employees and a memory they share')
+    await user.click(make)
     expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
   })
 })

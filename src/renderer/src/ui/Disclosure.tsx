@@ -12,12 +12,15 @@ export type DisclosureProps = Omit<HTMLAttributes<HTMLDivElement>, 'children' | 
   onOpenChange?: (open: boolean) => void
   // A lighter, link-like button for a note ("How variables are loaded").
   quiet?: boolean
+  // The button is a section's heading at this level (a sidebar group): wrapped in role="heading", so heading
+  // navigation stops at it.
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6
   ref?: Ref<HTMLDivElement>
 }
 
 // A button that shows or hides a panel: aria-expanded and aria-controls on the button, a chevron that turns
 // (not when Reduce Motion is on). The panel stays mounted while closed, hidden, so aria-controls always points at it.
-export function Disclosure({ label, children, open: openProp, defaultOpen = false, onOpenChange, quiet, className, ref, ...rest }: DisclosureProps) {
+export function Disclosure({ label, children, open: openProp, defaultOpen = false, onOpenChange, quiet, headingLevel, className, ref, ...rest }: DisclosureProps) {
   const [inner, setInner] = useState(defaultOpen)
   const open = openProp ?? inner
   const panelId = useId()
@@ -25,12 +28,21 @@ export function Disclosure({ label, children, open: openProp, defaultOpen = fals
     if (openProp === undefined) setInner(!open)
     onOpenChange?.(!open)
   }
+  const button = (
+    <button type="button" className={quiet ? 'ui-disclosure__button ui-disclosure__button--quiet' : 'ui-disclosure__button'} aria-expanded={open} aria-controls={panelId} onClick={toggle}>
+      <ChevronRight className="ui-disclosure__chevron" size={14} aria-hidden="true" />
+      {label}
+    </button>
+  )
   return (
     <div {...rest} ref={ref} className={className ? `ui-disclosure ${className}` : 'ui-disclosure'}>
-      <button type="button" className={quiet ? 'ui-disclosure__button ui-disclosure__button--quiet' : 'ui-disclosure__button'} aria-expanded={open} aria-controls={panelId} onClick={toggle}>
-        <ChevronRight className="ui-disclosure__chevron" size={14} aria-hidden="true" />
-        {label}
-      </button>
+      {headingLevel ? (
+        <div className="ui-disclosure__heading" role="heading" aria-level={headingLevel}>
+          {button}
+        </div>
+      ) : (
+        button
+      )}
       <div className="ui-disclosure__panel" id={panelId} hidden={!open}>
         {children}
       </div>

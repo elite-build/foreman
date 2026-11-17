@@ -1,20 +1,12 @@
 /* ---- spaces and organizations (docs/ai-employees.md §3): layout only; the controls are ui/ components ---- */
 
-/* The switcher is the sidebar's heading: the space's name at the title's size (its trigger), the line under it, and the
-   picked repository's settings at its end. The trigger's inset is taken back so the name lines up with the rows below. */
+/* The switcher starts the sidebar's top row: the space's name (its trigger) takes what the row's icons leave, and gives
+   way first. The trigger's inset is taken back so the name lines up with the rows below. */
 .space-switcher {
-  flex: none;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 12px 10px;
-}
-.space-switcher-text {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  align-items: center;
 }
 .space-switcher-title {
   display: flex;
@@ -32,8 +24,8 @@
   gap: 6px;
   min-width: 0;
   height: auto;
-  margin-left: -8px;
-  padding: 1px 8px;
+  margin-left: -6px;
+  padding: 1px 6px;
 }
 /* The name keeps its width; "▲ 3 in Acme" beside it gives way first. */
 .space-switcher-name {
@@ -42,9 +34,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
 /* "▲ 3 in Acme": another space waits. The glyph says it by shape; the words say where. */
 .space-switcher-elsewhere,
@@ -67,6 +58,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The count alone stands in for the words in a narrow sidebar (the panel is a size container: sidebar.css). */
+.space-switcher-elsewhere-count {
+  display: none;
+}
+@container sidebar-panel (max-width: 228px) {
+  .space-switcher-elsewhere-count {
+    display: inline;
+  }
+  .space-switcher-elsewhere-text {
+    display: none;
+  }
+}
 .space-switcher-mark {
   display: inline-flex;
   flex: none;
@@ -76,14 +79,6 @@
   width: 9px;
   height: 9px;
 }
-.space-switcher-line {
-  font-size: var(--text-sm);
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Create an organization and its memory repository fields. */
 .space-dialog-body,
 .space-memory,

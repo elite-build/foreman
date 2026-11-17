@@ -279,12 +279,30 @@ describe('the rail with the list folded', () => {
     expect(screen.queryByRole('searchbox')).toBeNull()
   })
 
-  it('has neither while the list shows beside it (the heading and the Team row are there instead)', () => {
+  it('carries the one + and the Automations icon, since the top row they live in is folded away', async () => {
+    const user = userEvent.setup()
+    setUpSpace()
+    render(<Sidebar list={false} folded />)
+    const rail = screen.getByRole('navigation', { name: 'Repositories' })
+    // Space, +, Team lead the rail; Automations comes after the repositories.
+    const names = within(rail)
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label') ?? '')
+    expect(names.slice(0, 3)).toEqual(['Space: Acme', 'New', 'Team'])
+    expect(names.some((n) => n.startsWith('Automations'))).toBe(true)
+    await user.click(within(rail).getByRole('button', { name: 'New' }))
+    expect(screen.getByRole('menuitem', { name: /New workspace/ }).textContent).toContain('in site')
+    expect(screen.getByRole('menuitem', { name: /New organization…/ })).toBeTruthy()
+  })
+
+  it('has none of them while the list shows beside it (the top row and the Team section are there instead)', () => {
     setUpSpace()
     render(<Sidebar />)
     const rail = screen.getByRole('navigation', { name: 'Repositories' })
     expect(within(rail).queryByRole('button', { name: /^Space:/ })).toBeNull()
     expect(within(rail).queryByRole('button', { name: /^Team/ })).toBeNull()
+    expect(within(rail).queryByRole('button', { name: 'New' })).toBeNull()
+    expect(within(rail).queryByRole('button', { name: /^Automations/ })).toBeNull()
     expect(screen.getByRole('button', { name: 'Space: Acme' })).toBeTruthy()
   })
 

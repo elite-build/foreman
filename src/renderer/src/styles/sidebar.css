@@ -131,11 +131,16 @@
 .repo-rail .rail-tile:active {
   transform: scale(0.95);
 }
-/* Add: a dashed IconButton (ui/) of the same size. */
-.repo-rail .rail-add {
+/* The one + (NewMenu, a primary MenuButton from ui/) when the rail carries it, and the Automations and Assistant icons
+   on the folded rail: the tiles' size. */
+.repo-rail .rail-add,
+.repo-rail .rail-entry {
   position: relative;
   width: 34px;
   height: 34px;
+  min-height: 0;
+  padding: 0;
+  justify-content: center;
 }
 /* The list folded to the rail (a narrow window, narrowLayout.ts): the space switcher's tile, a MenuButton (ui/) of the
    tiles' size with the space's initial and the rail's badge, then a divider before the repositories. */
@@ -185,7 +190,8 @@
   height: 8px;
 }
 
-/* The panel: header, new, search, summary, filters, groups. */
+/* The panel: the top row, then one list that scrolls (Team, Channels, the filters, the groups), then the footer line. It
+   is a size container, so the switcher can shorten "▲ 1 in Personal" to "▲ 1" in a narrow sidebar (spaces.css). */
 .sidebar-panel {
   flex: 1;
   min-width: 0;
@@ -194,79 +200,70 @@
   /* The line between the rail and the list is the list's, so the rail alone (the Editor layout's activity bar) has only
      the sidebar's own edge. */
   border-left: 1px solid var(--border);
-  /* The top block (Automations, Assistant, New workspace, search) is four rows of one size: the same height, the same
-     inset from the edge to the icon (one icon column), the same gap from the icon to the label (one label column). */
-  --sb-row-h: 34px;
-  --sb-row-inset: 11px; /* border + padding: the row's edge to its icon */
-  --sb-row-gap: 8px; /* the icon to the label */
+  container: sidebar-panel / inline-size;
 }
-/* Automations and the Assistant share one row: two half-width entries (ActionRow cards). Where the panel is too narrow
-   for both (200% zoom), they stack again. */
-.sidebar-pair {
-  flex: none; /* a short window (200% zoom) shrinks the list, not these rows */
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 12px 8px;
-}
-/* The element in the selector outranks the entries' own `div.automations-entry { flex: none }`. */
-.sidebar-pair > div.automations-entry {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 0 8px;
-}
-.sidebar-pair .automations-entry .ui-action-row__main {
-  gap: 6px;
-}
-/* Find takes the row and the one primary action, New, sits at its end. */
-.sidebar-find {
+/* The top row: the switcher, the picked repository's ⚙, Automations, the Assistant, ⌕ and the one +. It never wraps: the
+   switcher's name gives way first. */
+.sidebar-top {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 12px;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 8px 4px 12px;
 }
-.sidebar-panel .sidebar-new {
+.sidebar-top > .ui-icon-btn {
   flex: none;
-  gap: 6px;
-  height: var(--sb-row-h);
-  padding: 0 12px;
 }
-/* The magnifier and the clear button sit inside the field (a ui/TextInput); the doubled selectors beat .ui-control. */
+.sidebar-add-wrap {
+  flex: none;
+  display: inline-flex;
+  margin-left: 2px;
+}
+/* The + is a primary MenuButton (ui/) the size of the icons beside it. */
+.sidebar-top .sidebar-add {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  justify-content: center;
+}
+/* Find, open: the box (a ui/TextInput) takes the row up to the +, with the magnifier and Clear inside it. The doubled
+   selectors beat .ui-control. */
 .sidebar-search {
   flex: 1;
   min-width: 0;
   position: relative;
+  display: flex;
+  align-items: center;
   color: var(--text-muted);
 }
 .sidebar-search .sidebar-search-input {
   display: block;
   width: 100%;
-  height: var(--sb-row-h);
-  /* The text starts where the label of the rows above starts: inset + 14px icon + gap, less the field's own border. */
-  padding: 0 28px 0 calc(var(--sb-row-inset) + 14px + var(--sb-row-gap) - 1px);
+  padding: 0 26px;
 }
 /* The room kept for the clear button is only needed while there is a query (and so a button). */
 .sidebar-search:not(:has(.ui-icon-btn)) .sidebar-search-input {
-  padding-right: 10px;
+  padding-right: 8px;
 }
 .sidebar-search > svg {
   position: absolute;
   top: 50%;
-  left: var(--sb-row-inset);
+  left: 8px;
   transform: translateY(-50%);
   pointer-events: none;
 }
 .sidebar-search .ui-icon-btn {
   position: absolute;
   top: 50%;
-  right: 3px;
+  right: 2px;
   transform: translateY(-50%);
 }
-/* The filters are ui/Tabs (pill); only their place in the panel is ours. A tab's count follows its name: ▲ and the number
+/* The filters are ui/Tabs (pill); only their place in the list is ours. A tab's count follows its name: ▲ and the number
    for what needs you (the glyph says it by shape), the number alone for what runs. */
 .sidebar-filters {
-  margin: 10px 12px 0;
+  margin: 8px 2px 0;
 }
 .sidebar-tab-count {
   display: inline-flex;
@@ -282,115 +279,179 @@
   width: 8px;
   height: 8px;
 }
-/* The Team row: the Automations frame, with the employees' hats overlapping a little, the ▲ count, and the chevron
-   (its own button, in the row's actions) at the end. A workspace group's heading card is the same row. */
-div.team-entry,
-div.ws-group-entry {
-  flex: none;
-  height: var(--sb-row-h);
-  padding: 0 2px 0 calc(var(--sb-row-inset) - 1px);
+/* Every section (Team, Channels, each group of the list): its heading is a quiet ui/Disclosure the width of the list;
+   folded or not, it is one line of name, count and, folded, ▲ and what needs you. The panel under it starts at the
+   list's edge. A heading that can't fold (a filter or a search is on) is plain text where the name would be. */
+.sb-section {
+  min-width: 0;
+  margin-top: 6px;
 }
-.team-entry .ui-action-row__main,
-.ws-group-entry .ui-action-row__main {
+.sb-fold > .ui-disclosure__heading > .ui-disclosure__button {
+  display: flex;
+  width: 100%;
+  padding-left: 4px;
+}
+.sb-fold > .ui-disclosure__panel {
+  padding: 0;
+}
+.sb-head {
   display: flex;
   align-items: center;
-  gap: var(--sb-row-gap);
-  min-width: 0;
+  gap: 6px;
+  min-height: var(--target-min);
+  padding: 0 4px 0 24px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
-.team-entry .ui-action-row__main > svg,
-.ws-group-entry .ui-action-row__main > svg {
-  flex: none;
-}
-.team-entry-label,
-.ws-group-label {
-  flex: none;
-  font-weight: 500;
-}
-.team-entry-hats {
-  display: inline-flex;
+.sb-head-name {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.team-entry-hats > * {
+.sb-head-count {
   flex: none;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
-.team-entry-hats > * + * {
-  margin-left: -4px;
-}
-.team-entry-count,
-.ws-group-entry .ws-group-count,
-.ws-group-need {
-  margin-left: auto;
+.sb-head-need {
+  display: inline-flex;
   flex: none;
-}
-.team-entry > .ui-action-row__actions,
-.ws-group-entry > .ui-action-row__actions {
-  display: flex;
   align-items: center;
+  gap: 2px;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
 }
-.team-fold {
+.sb-head-need .ui-glyph {
+  width: 8px;
+  height: 8px;
+}
+/* Team: one button per employee, a hat with its state on the corner (▲ or a turning ring); they wrap in a narrow sidebar. */
+.sb-hats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 0;
+  padding: 2px 2px 0 20px;
+  list-style: none;
+}
+.sb-hat {
+  position: relative;
+}
+.sb-hat-mark {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: inline-flex;
+}
+.sb-hat-mark .ui-glyph {
+  width: 9px;
+  height: 9px;
+}
+/* "Team page" and "All channels": links under their lists, where pages open from. */
+.sb-link {
+  margin: 2px 0 0 24px;
+}
+.sb-empty {
+  margin: 0;
+  padding: 2px 4px 4px 24px;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+/* Channels: one line each, its state by shape, its name, then what it is doing (that gives way first). */
+.sb-list {
   display: flex;
   flex-direction: column;
-  padding-top: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.team-fold[hidden] {
-  display: none;
+.sb-list .sb-row {
+  min-height: var(--target-min);
+  padding: 0 6px;
 }
-.team-fold .team-new {
-  align-self: flex-start;
+.sb-row .sb-row-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: var(--target-min);
+  white-space: nowrap;
 }
-/* An employee's hat at the start of a row's line: identity, never state (the leading glyph says the state). */
+.sb-row-icon {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 14px;
+  color: var(--text-muted);
+}
+.sb-row-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.sb-row-line {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+/* An employee's hat at the end of a row: identity, never state (the leading glyph says the state). */
 .ws-hat {
   display: inline-flex;
-  vertical-align: -2px;
-  margin-right: 4px;
+  flex: none;
 }
 .sidebar-actions {
-  margin: 8px 12px 0;
+  margin: 6px 4px 0;
 }
 /* The list scrolls down, never sideways: a row cuts its own text off instead. */
 .sidebar-scroll {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  margin-top: 4px;
   padding: 0 6px 12px;
 }
-.ws-group {
-  margin-top: 10px;
-}
-.ws-group-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 4px 8px;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-soft);
-}
-/* The spinner on Agents working's card sits in the icon column like the others' icons. */
-.ws-group-entry .ws-spin {
-  display: flex;
-  flex: none;
-}
-/* A group's rows under its card; folded, they're hidden. */
 .ws-group-rows {
-  padding-top: 4px;
+  padding-top: 2px;
 }
-.ws-group-count {
-  font-weight: 400;
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
+/* A row's hover card (ui/HoverCard draws it): the title, then its lines (repository, branch and age; what is going on;
+   the shortcut that opens it). */
+.ws-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-/* A workspace row is an ActionRow: its main button holds the icon, name, state and sub-line; the PR glyph, diff,
-   shortcut and archive button sit beside it. */
-/* The row is a grid of icon | text | end. The main button spans all three and takes them as a subgrid, so its title stops
-   before the end column while the label and sub-line run on under it, as they always did. */
+.ws-card-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ws-card-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+.ws-card-key {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+/* A workspace row is an ActionRow on one line: its main button holds the glyph, title, label and the employee's hat;
+   the PR glyph, diff, shortcut and archive button sit beside it. The row is a grid of glyph | title | label | hat | end:
+   the main button spans them all and takes them as a subgrid, so its text stops before the end column. The title takes
+   what it needs first and the label gives way. The selected row adds its line under them (repository, branch, age). */
 .sidebar-scroll .ws-row {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  column-gap: 8px;
+  grid-template-columns: 16px minmax(0, max-content) minmax(0, 1fr) auto auto;
+  column-gap: 7px;
   align-items: start;
+  padding: 0 6px;
 }
 .ws-row .ws-flow {
   display: grid;
@@ -398,16 +459,27 @@ div.ws-group-entry {
   grid-row: 1;
   grid-template-columns: subgrid;
   grid-template-rows: minmax(var(--target-min), auto);
-  row-gap: 1px;
   align-items: center;
 }
-.ws-row > .ui-action-row__actions {
+.ws-row .ws-icon {
+  grid-column: 1;
+}
+.ws-row .ws-title {
+  grid-column: 2;
+}
+.ws-row .ws-label {
   grid-column: 3;
+}
+.ws-row .ws-hat {
+  grid-column: 4;
+}
+.ws-row > .ui-action-row__actions {
+  grid-column: 5;
   grid-row: 1;
   align-self: start;
 }
 .ws-row > .ui-action-row__editor {
-  grid-column: 1 / 3;
+  grid-column: 1 / 5;
   grid-row: 1;
 }
 .ws-row.finished .ws-title,
@@ -448,10 +520,14 @@ div.ws-group-entry {
 }
 .ws-label,
 .ws-sub {
-  grid-column: 2 / 4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ws-row .ws-sub {
+  grid-column: 2 / 5;
+  grid-row: 2;
+  padding-bottom: 3px;
 }
 .ws-label {
   font-size: var(--text-sm);
@@ -526,12 +602,14 @@ div.ws-group-entry {
   font-size: var(--text-xs);
   line-height: 16px;
 }
+/* One line: resource usage, Archived and its count, the version. */
 .sidebar-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  padding: 8px 10px;
+  min-height: 28px;
+  padding: 1px 8px;
   border-top: 1px solid var(--border);
 }
 /* The running version, at the footer's far end. */

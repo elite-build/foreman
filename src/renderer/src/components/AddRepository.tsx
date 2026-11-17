@@ -1,6 +1,6 @@
 // Add repository: open a folder, clone from GitHub or a URL, start a new
 // project, or reopen a recent folder.
-import { Folder, FolderOpen, FolderPlus, Globe, Lock, Network, Search, X } from 'lucide-react'
+import { Folder, FolderOpen, FolderPlus, Globe, Lock, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { currentSpace, type Organization } from '../../../shared/organizations'
 import { GITHUB_REPOS_LISTED, type GithubRepo, type GitIdentity } from '../../../shared/types'
@@ -11,7 +11,6 @@ import {
   makeRepository,
   onCloneProgress,
   openAddRepoDialog,
-  openCreateOrganization,
   openMakeRepo,
   openRecentRepo,
   quickStartRepository,
@@ -20,7 +19,7 @@ import {
 import { useT } from '../i18n'
 import { formatChord } from '../shortcuts'
 import { timeAgo } from '../../../shared/i18n/time'
-import { Button, Callout, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, MenuControlRow, MenuGroup, MenuItem, MenuSeparator, CardButton, Spinner, TextInput } from '../ui'
+import { Button, Callout, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, MenuControlRow, MenuGroup, MenuItem, MenuLabel, CardButton, Spinner, TextInput } from '../ui'
 import { AccountPicker, useGithubAccounts } from './settings/GithubAccount'
 
 /** ~ for the home folder in displayed paths. */
@@ -33,9 +32,8 @@ function repoNameFromUrl(url: string): string {
 }
 
 /**
- * The items of the Add repository menu: Open project, Open GitHub project, Quick start, Recents, and, while AI employees
- * are on, Create an organization…. Rendered inside a `MenuButton` (the rail's Add button draws it beside itself, in the
- * document, so the scrolling rail can't clip it).
+ * The ways to add a repository, inside the sidebar's + menu (NewMenu): Open project, Open GitHub project, Quick start,
+ * then the recent folders under their label, each with Open and × (forget).
  */
 export function AddRepoItems() {
   const t = useT()
@@ -54,7 +52,7 @@ export function AddRepoItems() {
       </MenuItem>
       {recents.length > 0 && (
         <>
-          <MenuSeparator />
+          <MenuLabel>{t('addRepo.recents')}</MenuLabel>
           <MenuGroup label={t('addRepo.recents')}>
             {recents.map((p) => (
               // DS-TODO(B1): a MenuItem can't carry a second action, so each recent folder is a row of two buttons (Open, and forget with ×) instead of one item with a × beside it.
@@ -70,10 +68,6 @@ export function AddRepoItems() {
           </MenuGroup>
         </>
       )}
-      <MenuSeparator />
-      <MenuItem icon={<Network size={15} />} description={t('spaces.create.menuDetail')} onSelect={() => openCreateOrganization(true)}>
-        {t('spaces.create.menu')}
-      </MenuItem>
     </>
   )
 }

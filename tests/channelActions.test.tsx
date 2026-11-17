@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// Making, renaming, archiving and deleting channels (docs/ai-employees.md §15): the sidebar's + opens the organization's
-// channel with "@Priya " in its box; a channel's ⋯ menu renames it (refusing a taken name) and deletes it (one still going
+// Making, renaming, archiving and deleting channels (docs/ai-employees.md §15): New channel in the sidebar's + menu opens
+// the organization's channel with "@Priya " in its box; a channel's ⋯ menu renames it (refusing a taken name) and deletes it (one still going
 // is stopped first, its files kept unless the box is ticked); a closed channel archives from its header, an archived one
 // is read-only with Restore; and the Channels page lists every channel, archived ones too, filters them and deletes
 // several at once, never the organization's own.
@@ -15,6 +15,7 @@ import { ChannelsPage } from '../src/renderer/src/components/employees/ChannelsP
 import { OrgChannel } from '../src/renderer/src/components/employees/OrgChannel'
 import { ProjectPage } from '../src/renderer/src/components/employees/ProjectPage'
 import { ProjectsSection } from '../src/renderer/src/components/employees/ProjectsSection'
+import { NewMenu } from '../src/renderer/src/components/NewMenu'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -83,26 +84,34 @@ afterEach(() => {
 })
 
 describe('making a channel', () => {
-  it('opens the organization’s channel from the sidebar’s +, with Priya’s name in the box', async () => {
+  it('opens the organization’s channel from the sidebar’s + menu, with Priya’s name in the box', async () => {
     const user = userEvent.setup()
     setSnapshot([going])
-    const sidebar = render(<ProjectsSection />)
-    await user.click(screen.getByRole('button', { name: 'New channel' }))
+    // The Channels section has no + of its own: the sidebar's one + menu has New channel.
+    const section = render(<ProjectsSection />)
+    expect(screen.queryByRole('button', { name: 'New channel' })).toBeNull()
+    section.unmount()
+    fakeState.snapshot = { ...fakeState.snapshot!, recentRepos: [] }
+    const menu = render(<NewMenu repoId="site" />)
+    await user.click(screen.getByRole('button', { name: 'New' }))
+    const item = screen.getByRole('menuitem', { name: /New channel/ })
+    expect(item.textContent).toContain('@Priya plans it with you')
+    await user.click(item)
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channel', mention: expect.any(Number) })
-    sidebar.unmount()
+    menu.unmount()
     render(<OrgChannel orgId="o1" mention={1} />)
     const box = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message #frlk' })
     expect(box.value).toBe('@Priya ')
     expect(document.activeElement).toBe(box)
   })
 
-  it('lists All channels under the projects and shows a renamed channel by its new name', async () => {
+  it('links All channels under the list and shows a renamed channel by its new name', async () => {
     const user = userEvent.setup()
     setSnapshot([project({ name: 'csv' })])
     render(<ProjectsSection />)
     const list = screen.getByRole('list', { name: 'Channels in FRLK' })
     expect(within(list).getByText('#csv')).toBeTruthy()
-    await user.click(within(list).getByText('All channels'))
+    await user.click(screen.getByRole('button', { name: 'All channels' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channels' })
   })
 })

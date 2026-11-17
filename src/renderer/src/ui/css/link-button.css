@@ -21,6 +21,11 @@
 .ui-link-btn--danger {
   color: var(--red);
 }
+/* The page shown ("Team page" while it is open): full text colour and weight, so it isn't marked by colour alone. */
+.ui-link-btn[aria-current='page'] {
+  color: var(--text);
+  font-weight: 600;
+}
 .ui-link-btn--danger:hover:not(:disabled) {
   color: var(--red);
 }

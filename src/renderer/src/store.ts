@@ -17,7 +17,7 @@ import { narratedNotice } from './agentStatus'
 import { playCompletionSound } from './sound'
 import { PtyEventRouter } from './ptyEvents'
 import { archivedTabs, hitRoute } from './archivedView'
-import type { Bucket, SidebarFilter, SidebarView } from './triage'
+import { liveFoldKeys, type Bucket, type SidebarFilter, type SidebarView } from './triage'
 import { DEFAULT_TILE_COUNT, tileCountOf, type TileCount } from './tiles'
 import { editorViewOf, pickEditorView, type EditorView } from './editorLayout'
 import { listFolds } from './narrowLayout'
@@ -285,7 +285,8 @@ let state: State = {
   panelSheet: false,
   panelSheetOpen: false,
   railNames: loadPref('railNames', false),
-  teamOpen: loadPref('teamOpen', false),
+  // The Team section's hats are one line, so it starts open (the 7a sidebar); a fold the person chose is kept.
+  teamOpen: loadPref('teamOpen', true),
   projectsOpen: loadPref('projectsOpen', true),
   homeScope: 'all',
   checklistOpen: loadPref('checklistOpen', false),
@@ -1225,10 +1226,15 @@ export function toggleShowFinished(): void {
   updateSidebarView({ showFinished: !state.sidebarView.showFinished })
 }
 
-/** Folds or unfolds one of the sidebar's groups under its heading card; kept for next time. */
-export function toggleSidebarGroup(bucket: Bucket): void {
+/**
+ * Folds or unfolds one of the sidebar's groups under its heading; kept for next time. `key`: a group's bucket, or
+ * `compare:<id>` for a comparison's or a flow run's group (compareFoldKey); those of groups with no live workspace left
+ * are dropped as it saves.
+ */
+export function toggleSidebarGroup(key: Bucket | string): void {
   const folded = state.sidebarView.folded ?? []
-  const next = folded.includes(bucket) ? folded.filter((b) => b !== bucket) : [...folded, bucket]
+  const toggled = folded.includes(key) ? folded.filter((b) => b !== key) : [...folded, key]
+  const next = state.snapshot ? liveFoldKeys(toggled, state.snapshot.workspaces) : toggled
   savePref('sidebarFolded', next)
   updateSidebarView({ folded: next })
 }

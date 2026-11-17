@@ -1,17 +1,17 @@
-// The sidebar's Channels row for an organization (docs/ai-employees.md §15), under its Team row: one row like Team's,
-// with how many things its projects wait on the person for, a + that opens the organization's channel with `@Priya`
-// in its box (a new channel is a project she plans), and a chevron that shows, remembered open or closed, the
-// organization's channel and a channel per project going or closed and not archived, each with its state and what it is
-// doing on the line under its name (a turning ring and who is at it while an employee works on it) and a ⋯ menu
-// (rename, archive, delete), then All channels (the Channels page, where archived ones are too). Shown only while the
+// The sidebar's Channels section for an organization (docs/ai-employees.md §15), under its Team section: a heading like
+// every other section's (SidebarSection: it folds, remembered, and says ▲ and how many things its projects wait on the
+// person for while folded), then one line per channel: the organization's channel, and a channel per project going or
+// closed and not archived, with its state by shape, its name and what it is doing (who is at it while an employee works
+// on it, else its stage), and a ⋯ menu (rename, archive, delete) shown on hover and focus. "All channels" under them opens
+// the Channels page, where archived ones are too; a new channel is in the sidebar's + menu (NewMenu). Shown only while the
 // organization is the space shown and has a memory repository.
-import { ChevronDown, ChevronRight, Hash, List, Plus } from 'lucide-react'
-import { useId } from 'react'
+import { Hash } from 'lucide-react'
 import { currentSpace, spacesOn } from '../../../../shared/organizations'
 import { projectLive } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { openEmployees, toggleProjectsOpen, useStore } from '../../store'
-import { ActionRow, IconButton, Status } from '../../ui'
+import { ActionRow, LinkButton, Status } from '../../ui'
+import { SidebarSection } from '../SidebarSection'
 import { ChannelMenu } from './ChannelActions'
 import { isWorking, liveWhat } from './ProjectLive'
 import { channelName, orgChannelSlug, projectChannel, projectStatus } from './projectWords'
@@ -23,7 +23,6 @@ export function ProjectsSection() {
   const wanted = useStore((s) => s.space)
   const route = useStore((s) => s.employeesView)
   const open = useStore((s) => Boolean(s.projectsOpen))
-  const listId = useId()
   const organizations = snapshot.organizations ?? []
   if (!spacesOn(organizations)) return null
   const space = currentSpace(organizations, wanted)
@@ -37,85 +36,48 @@ export function ProjectsSection() {
   const runs = snapshot.employeeWork?.[org.id]?.runs ?? []
   const nameOf = (id: string) => snapshot.employees?.[org.id]?.employees.find((e) => e.id === id)?.name || id
   return (
-    <section className="team-section projects-section" aria-label={t('projects.heading')}>
-      <ActionRow
-        card
-        className="team-entry"
-        onPress={toggleProjectsOpen}
-        primaryProps={{ 'aria-expanded': open, 'aria-controls': listId, 'aria-label': waiting ? t('sidebar.rail.needYou', { label: t('projects.heading'), count: waiting }) : t('projects.heading') }}
-        actions={
-          <>
-            {org.programManagerId && (
-              <IconButton className="team-entry-fold" label={t('projects.new')} onClick={() => openEmployees({ orgId: org.id, page: 'channel', mention: Date.now() })}>
-                <Plus size={14} />
-              </IconButton>
-            )}
-            <IconButton className="team-entry-fold" label={t('projects.fold')} aria-expanded={open} aria-controls={listId} onClick={toggleProjectsOpen}>
-              {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </IconButton>
-          </>
-        }
-      >
-        <Hash size={14} aria-hidden />
-        <span className="team-entry-label">{t('projects.heading')}</span>
-        {waiting > 0 && (
-          <Status className="team-entry-count" compact tone="warn" label={t('home.banner.needYou', { count: waiting })}>
-            <span aria-hidden>{waiting}</span>
-          </Status>
-        )}
-      </ActionRow>
-      <div id={listId} className="team-fold" hidden={!open}>
-        <ul className="team-list" aria-label={t('projects.listLabel', { organization: org.name })}>
-          <li>
-            <ActionRow className="team-row" primaryProps={{ className: 'team-row-main' }} selected={orgSelected} onPress={() => openEmployees({ orgId: org.id, page: 'channel' })}>
-              <span className="team-row-who">
-                <span className="team-row-name">{channelName(orgChannelSlug(org.name))}</span>
-              </span>
-              <span className="team-row-line">
-                <span className="team-row-doing">{t('projects.orgChannel.line', { name: pmName })}</span>
-              </span>
-            </ActionRow>
-          </li>
-          {projects.map((p) => {
-            const status = projectStatus(p, t, pmName)
-            const live = projectLive(p, runs)
-            // While someone works on it, the line says who and on what; else what its stage is.
-            const line = isWorking(live) ? liveWhat(p, live[0], nameOf(live[0].step.employeeId), t) : status.line
-            const selected = route?.orgId === org.id && route.page === 'project' && route.id === p.id
-            return (
-              <li key={p.id}>
-                <ActionRow
-                  className="team-row"
-                  primaryProps={{ className: 'team-row-main', title: p.title }}
-                  selected={selected}
-                  onPress={() => openEmployees({ orgId: org.id, page: 'project', id: p.id })}
-                  revealActions
-                  actions={<ChannelMenu project={p} />}
-                >
-                  <span className="team-row-who">
-                    <span className="team-row-name">{projectChannel(p)}</span>
-                  </span>
-                  <span className="team-row-line">
-                    <Status className="team-row-status" tone={status.tone} busy={isWorking(live)} label={status.label} />
-                    <span className="team-row-doing" title={line}>
-                      {line}
-                    </span>
-                  </span>
-                </ActionRow>
-              </li>
-            )
-          })}
-          <li>
-            <ActionRow className="team-row" primaryProps={{ className: 'team-row-main' }} selected={route?.orgId === org.id && route.page === 'channels'} onPress={() => openEmployees({ orgId: org.id, page: 'channels' })}>
-              <span className="team-row-who">
-                <List size={13} aria-hidden />
-                <span className="team-row-doing">{t('projects.all.row')}</span>
-              </span>
-            </ActionRow>
-          </li>
-        </ul>
-        {projects.length === 0 && <p className="team-empty">{t('projects.empty', { name: pmName })}</p>}
-      </div>
-    </section>
+    <SidebarSection className="projects-section" name={t('projects.heading')} count={projects.length + 1} needs={waiting} open={open} onToggle={toggleProjectsOpen}>
+      <ul className="sb-list" aria-label={t('projects.listLabel', { organization: org.name })}>
+        <li>
+          <ActionRow className="sb-row" primaryProps={{ className: 'sb-row-main' }} selected={orgSelected} onPress={() => openEmployees({ orgId: org.id, page: 'channel' })}>
+            <span className="sb-row-icon">
+              <Hash size={13} aria-hidden />
+            </span>
+            <span className="sb-row-name">{channelName(orgChannelSlug(org.name))}</span>
+            <span className="sb-row-line">{t('projects.orgChannel.line', { name: pmName })}</span>
+          </ActionRow>
+        </li>
+        {projects.map((p) => {
+          const status = projectStatus(p, t, pmName)
+          const live = projectLive(p, runs)
+          // While someone works on it, the line says who and on what; else what its stage is.
+          const line = isWorking(live) ? liveWhat(p, live[0], nameOf(live[0].step.employeeId), t) : status.line
+          const selected = route?.orgId === org.id && route.page === 'project' && route.id === p.id
+          return (
+            <li key={p.id}>
+              <ActionRow
+                className="sb-row"
+                primaryProps={{ className: 'sb-row-main', title: [p.title, line].filter(Boolean).join(' · ') }}
+                selected={selected}
+                onPress={() => openEmployees({ orgId: org.id, page: 'project', id: p.id })}
+                revealActions
+                actions={<ChannelMenu project={p} />}
+              >
+                {/* Its state by shape; the word is the button's too. */}
+                <span className="sb-row-icon">
+                  <Status compact tone={status.tone} busy={isWorking(live)} label={status.label} />
+                </span>
+                <span className="sb-row-name">{projectChannel(p)}</span>
+                <span className="sb-row-line">{line}</span>
+              </ActionRow>
+            </li>
+          )
+        })}
+      </ul>
+      {projects.length === 0 && <p className="sb-empty">{t('projects.empty', { name: pmName })}</p>}
+      <LinkButton size="sm" className="sb-link" aria-current={route?.orgId === org.id && route.page === 'channels' ? 'page' : undefined} onClick={() => openEmployees({ orgId: org.id, page: 'channels' })}>
+        {t('projects.all.row')}
+      </LinkButton>
+    </SidebarSection>
   )
 }

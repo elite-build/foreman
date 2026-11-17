@@ -9,11 +9,11 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function Glyph({ onRefresh = () => {}, openDelay = 300, closeDelay = 200 }: { onRefresh?: () => void; openDelay?: number; closeDelay?: number }) {
+function Glyph({ onRefresh = () => {}, openDelay = 300, closeDelay = 200, openOnFocus }: { onRefresh?: () => void; openDelay?: number; closeDelay?: number; openOnFocus?: 'any' | 'keyboard' }) {
   return (
     <div>
       <button>Before</button>
-      <HoverCard label="PR 42" openDelay={openDelay} closeDelay={closeDelay} trigger={(props) => <button {...props}>PR glyph</button>}>
+      <HoverCard label="PR 42" openDelay={openDelay} closeDelay={closeDelay} openOnFocus={openOnFocus} trigger={(props) => <button {...props}>PR glyph</button>}>
         <span>CI failing</span>
         <button onClick={onRefresh}>Refresh</button>
       </HoverCard>
@@ -141,6 +141,66 @@ describe('HoverCard: pointer', () => {
     expect(screen.getByRole('group', { name: 'Card' })).toBeTruthy()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('HoverCard: openOnFocus="keyboard"', () => {
+  it('a click focuses the trigger without opening the card', () => {
+    vi.useFakeTimers()
+    render(<Glyph openOnFocus="keyboard" />)
+    const trigger = screen.getByRole('button', { name: 'PR glyph' })
+    fireEvent.pointerDown(trigger)
+    act(() => trigger.focus())
+    act(() => void vi.advanceTimersByTime(1000))
+    expect(document.activeElement).toBe(trigger)
+    expect(screen.queryByRole('group')).toBeNull()
+    expect(trigger.getAttribute('aria-details')).toBeNull()
+  })
+
+  it('after a click, hovering opens it and leaving closes it, though the trigger keeps focus', () => {
+    vi.useFakeTimers()
+    render(<Glyph openOnFocus="keyboard" />)
+    const trigger = screen.getByRole('button', { name: 'PR glyph' })
+    fireEvent.pointerDown(trigger)
+    act(() => trigger.focus())
+    fireEvent.mouseEnter(trigger)
+    act(() => void vi.advanceTimersByTime(301))
+    expect(screen.getByRole('group', { name: 'PR 42' })).toBeTruthy()
+    fireEvent.mouseLeave(trigger)
+    act(() => void vi.advanceTimersByTime(201))
+    expect(document.activeElement).toBe(trigger)
+    expect(screen.queryByRole('group')).toBeNull()
+  })
+
+  it('Tab still opens it at once, and Escape closes it', async () => {
+    const user = userEvent.setup()
+    render(<Glyph openOnFocus="keyboard" />)
+    await user.tab()
+    await user.tab()
+    expect(screen.getByRole('group', { name: 'PR 42' })).toBeTruthy()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('group')).toBeNull()
+  })
+
+  it('a click that left the trigger focused does not stop the next keyboard focus opening it', async () => {
+    const user = userEvent.setup()
+    render(<Glyph openOnFocus="keyboard" />)
+    const trigger = screen.getByRole('button', { name: 'PR glyph' })
+    fireEvent.pointerDown(trigger)
+    act(() => trigger.focus())
+    expect(screen.queryByRole('group')).toBeNull()
+    await user.tab({ shift: true })
+    await user.tab()
+    expect(document.activeElement).toBe(trigger)
+    expect(screen.getByRole('group', { name: 'PR 42' })).toBeTruthy()
+  })
+
+  it('by default, focus from a click opens it as before', () => {
+    render(<Glyph />)
+    const trigger = screen.getByRole('button', { name: 'PR glyph' })
+    fireEvent.pointerDown(trigger)
+    act(() => trigger.focus())
+    expect(screen.getByRole('group', { name: 'PR 42' })).toBeTruthy()
   })
 })
 

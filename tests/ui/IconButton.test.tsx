@@ -66,6 +66,14 @@ describe('IconButton', () => {
   })
 })
 
+describe('IconButton current page', () => {
+  it('passes aria-current through, and the page shown has the selected fill', () => {
+    render(<IconButton label="Ada" aria-current="page">{icon}</IconButton>)
+    expect(screen.getByRole('button', { name: 'Ada' }).getAttribute('aria-current')).toBe('page')
+    expect(ruleBody(readCss('icon-button'), ".ui-icon-btn[aria-current='page']")).toMatch(/background:\s*var\(--selected-bg\)/)
+  })
+})
+
 describe('IconButton variant', () => {
   it('primary is the filled round button; the default has no modifier', () => {
     render(
