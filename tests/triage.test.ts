@@ -191,7 +191,7 @@ describe('triage: flow runs', () => {
     expect(sidebarGroups({ snapshot: alone, approvals: [], unread: {}, unreadSessions: {}, now: NOW }, { repo: null, filter: 'all', query: '', showFinished: true }).compares).toEqual([])
   })
 
-  it('leaves a project’s workspaces to its channel unless one needs you; a workspace handed to Priya stays', () => {
+  it('leaves a project’s workspaces to its channel unless one waits on an approval; a workspace handed to Priya stays', () => {
     const by = (taskId: string) => ({ startedBy: { via: 'employee', orgId: 'o', employeeId: 'pm', runId: 'run', taskId, title: 'Plan' } }) as Partial<Workspace>
     const workspaces = [
       ws({ id: 'shared', name: 'shared', ...by('plan') }),
@@ -201,11 +201,13 @@ describe('triage: flow runs', () => {
       ws({ id: 'waiting', name: 'waiting', ...by('part') }),
       ws({ id: 'mine', name: 'mine' })
     ]
-    const sessions = [session('s1', { workspaceId: 'waiting' })]
+    const sessions = [session('s1', { workspaceId: 'waiting' }), session('s2', { workspaceId: 'shared' })]
     const projects = { o: [{ id: 'p1', workspaceId: 'shared' }, { id: 'p2', workspaceId: 'handed', fromWorkspaceId: 'handed' }] }
     const employeeWork = { o: { tasks: [{ id: 'part', project: { id: 'p1', kind: 'part', round: 1 } }, { id: 'ask' }] } }
     const snapshot = { workspaces, sessions, projects, employeeWork, settings: defaultSettings() } as unknown as AppSnapshot
-    const input = { snapshot, approvals: [approval('s1')], unread: {}, unreadSessions: {}, now: NOW }
+    // The shared workspace's run just finished ("Ready for review"): still the channel's, not a row here.
+    const input = { snapshot, approvals: [approval('s1')], unread: { shared: true as const }, unreadSessions: { s2: true as const }, now: NOW }
+    expect(triageAll(input, null).find((t) => t.ws.id === 'shared')).toMatchObject({ bucket: 'attention', label: 'Ready for review' })
     const view: SidebarView = { repo: null, filter: 'all', query: '', showFinished: true }
     const shown = sidebarGroups(input, view).groups.flatMap((g) => g.items.map((t) => t.ws.id))
     expect(shown.sort()).toEqual(['asked', 'handed', 'mine', 'waiting'])

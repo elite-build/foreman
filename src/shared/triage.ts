@@ -529,8 +529,13 @@ export function projectWorkspaceIds(snapshot: Pick<AppSnapshot, 'workspaces' | '
   return ids
 }
 
-/** Whether a workspace list shows a row: a project's workspace only while it needs the person (its channel shows the rest). */
-export const listsWorkspace = (t: Triage, projectIds: ReadonlySet<string>): boolean => t.bucket === 'attention' || !projectIds.has(t.ws.id)
+/**
+ * Whether a workspace list shows a row: a project's workspace only while one of its chats waits on an approval, which only
+ * that chat can give. The rest is its channel's: "Ready for review" after each run, and what the project waits on (her
+ * questions, a part to accept, a task that couldn't finish), which the channel lists as its waits.
+ */
+export const listsWorkspace = (t: Triage, projectIds: ReadonlySet<string>, approvals: readonly Pick<ApprovalRequest, 'sessionId'>[]): boolean =>
+  !projectIds.has(t.ws.id) || (t.bucket === 'attention' && Boolean(t.sessionId) && approvals.some((a) => a.sessionId === t.sessionId))
 
 /** Waiting longest first, so nothing sits forgotten at the bottom. */
 export function oldestFirst(items: Triage[]): Triage[] {
@@ -584,7 +589,7 @@ export function sidebarGroups(
 ): { groups: { bucket: Bucket; items: Triage[] }[]; compares: CompareSection[]; hiddenFinished: number } {
   const query = view.query.trim().toLowerCase()
   const projectIds = projectWorkspaceIds(input.snapshot)
-  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds))
+  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals))
   if (query) items = items.filter((t) => t.ws.name.toLowerCase().includes(query) || t.ws.branch.toLowerCase().includes(query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)
