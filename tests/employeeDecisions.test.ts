@@ -76,25 +76,25 @@ describe('what a definition lets an employee do (a draft’s page is its plan)',
     patch(defaultEmployee({ id: 'e-lin3', colour: 'teal', repos: ['site'], loadouts: [{ agent: 'claude', model: 'claude-opus-5-5' }], text: { name: 'Lin', role: 'Triage' } }))
   const kinds = (lines: { kind: string; action?: string }[]) => lines.map((l) => (l.kind === 'action' ? `action:${l.action}` : l.kind))
 
-  it('says a read-only employee with no MCP servers can’t change a repository, publish, post to Slack or change Linear', () => {
+  it('says a read-only employee can’t change a repository or publish, and has a shell and every MCP server', () => {
     const groups = planGroups(lin())
-    expect(kinds(groups.can)).toEqual(['read', 'notes'])
-    expect(kinds(groups.cant)).toEqual(['no-repo-change', 'no-publish', 'no-slack', 'no-linear', 'no-shell', 'no-delegate'])
-    // Nothing it can't reach is listed as asking first: only shared memory.
-    expect(kinds(groups.asks)).toEqual(['shared-memory'])
+    expect(kinds(groups.can)).toEqual(['read', 'notes', 'shell', 'mcp'])
+    expect(kinds(groups.cant)).toEqual(['no-repo-change', 'no-publish', 'no-delegate'])
+    // Slack and Linear are reachable from every run (every MCP server is there), and held until it allows them.
+    expect(kinds(groups.asks)).toEqual(['shared-memory', 'action:slack-post', 'action:linear'])
     expect(groups.cant[0]).toMatchObject({ kind: 'no-repo-change', reads: ['site'] })
   })
 
-  it('lists pushes as asking first once it can write, and Slack once it keeps its tools', () => {
-    const d = lin((x) => ({ ...x, access: { ...x.access, repos: { site: 'write' }, mcp: ['foreman-slack'] } }))
+  it('lists pushes as asking first once it can write, and no shell under Can’t once it is turned off', () => {
+    const d = lin((x) => ({ ...x, access: { ...x.access, repos: { site: 'write' }, profile: 'no-shell' } }))
     const groups = planGroups(d)
-    expect(kinds(groups.can)).toEqual(['write', 'notes'])
-    expect(kinds(groups.cant)).toEqual(['no-linear', 'no-shell', 'no-delegate'])
-    expect(kinds(groups.asks)).toEqual(['shared-memory', 'action:push', 'action:pull-request', 'action:slack-post'])
+    expect(kinds(groups.can)).toEqual(['write', 'notes', 'mcp'])
+    expect(kinds(groups.cant)).toEqual(['no-shell', 'no-delegate'])
+    expect(kinds(groups.asks)).toEqual(['shared-memory', 'action:push', 'action:pull-request', 'action:slack-post', 'action:linear'])
   })
 
   it('puts an action the definition allows under Can and one it never allows under Can’t', () => {
-    const d = lin((x) => ({ ...x, access: { ...x.access, repos: { site: 'write' }, profile: 'shell', mcp: ['github'], delegate_to: ['e-ada'], actions: { ...x.access.actions, push: 'allowed', 'pull-request': 'never' } } }))
+    const d = lin((x) => ({ ...x, access: { ...x.access, repos: { site: 'write' }, delegate_to: ['e-ada'], actions: { ...x.access.actions, push: 'allowed', 'pull-request': 'never' } } }))
     const groups = planGroups(d)
     expect(kinds(groups.can)).toEqual(['write', 'notes', 'shell', 'mcp', 'delegate', 'action:push'])
     expect(kinds(groups.cant)).toContain('action:pull-request')
@@ -103,48 +103,33 @@ describe('what a definition lets an employee do (a draft’s page is its plan)',
 })
 
 describe('what changed since approval', () => {
-  const base: EmployeeDefinition = {
-    ...defaultEmployee({ id: 'e-lin3', colour: 'teal', repos: ['site'], loadouts: [{ agent: 'claude', model: 'claude-opus-5-5' }], text: { name: 'Lin', role: 'Triage', instructions: 'Label new issues.' } }),
-    limits: { runs_per_day: 6, minutes_per_run: 30 }
-  }
+  const base: EmployeeDefinition = defaultEmployee({ id: 'e-lin3', colour: 'teal', repos: ['site'], loadouts: [{ agent: 'claude', model: 'claude-opus-5-5' }], text: { name: 'Lin', role: 'Triage', instructions: 'Label new issues.' } })
 
   it('lists each difference, old → new, and tags what widens what it may do', () => {
     const after: EmployeeDefinition = {
       ...base,
       instructions: 'Label new issues by priority.',
-      access: { ...base.access, repos: { site: 'write' }, mcp: ['foreman-linear'], actions: { ...base.access.actions, linear: 'held' } },
-      limits: { ...base.limits, runs_per_day: 10 },
+      access: { ...base.access, repos: { site: 'write' }, actions: { ...base.access.actions, linear: 'allowed' } },
       triggers: [{ id: 't-1', kind: 'cron', cron: '0 8 * * 1-5', timezone: 'Europe/London', missed: 'skip', overlap: 'skip', enabled: true }]
     }
     const changes = definitionChanges(base, after)
     expect(changes.map((c) => [c.field, c.subject, c.before, c.after, c.wider])).toEqual([
       ['repo', 'site', 'read', 'write', true],
-      ['mcp', undefined, '', 'foreman-linear', true],
+      ['action', 'linear', 'held', 'allowed', true],
       ['triggers', undefined, '0', '1', true],
-      ['runs', undefined, '6', '10', true],
       ['instructions', undefined, `\n${base.instructions}`, `\n${after.instructions}`, false]
     ])
   })
 
   it('says a narrowing is not wider, and the hat isn’t a change at all', () => {
-    const after: EmployeeDefinition = { ...base, look: { family: 'hardhat', colour: 'pink' }, limits: { ...base.limits, runs_per_day: 2 }, access: { ...base.access, repos: {} } }
+    const after: EmployeeDefinition = { ...base, look: { family: 'hardhat', colour: 'pink' }, access: { ...base.access, repos: {}, profile: 'no-shell' } }
     expect(definitionChanges(base, after).map((c) => [c.field, c.wider])).toEqual([
       ['repo', false],
-      ['runs', false]
+      ['profile', false]
     ])
     expect(definitionChanges(base, base)).toEqual([])
-  })
-
-  it('says dropping a limit is wider, and setting one where there was none is not', () => {
-    const none: EmployeeDefinition = { ...base, limits: {} }
-    expect(definitionChanges(base, none).map((c) => [c.field, c.before, c.after, c.wider])).toEqual([
-      ['runs', '6', '', true],
-      ['minutes', '30', '', true]
-    ])
-    expect(definitionChanges(none, base).map((c) => [c.field, c.wider])).toEqual([
-      ['runs', false],
-      ['minutes', false]
-    ])
+    // Turning the shell back on is wider.
+    expect(definitionChanges(after, base).find((c) => c.field === 'profile')).toMatchObject({ before: 'no-shell', after: 'shell', wider: true })
   })
 })
 

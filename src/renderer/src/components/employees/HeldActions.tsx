@@ -382,15 +382,14 @@ const RULE: Record<EmployeeActionPolicy, PlainKey> = { held: 'employees.rules.he
 /**
  * Each outward action class with its rule in words (§9), for the approval plan and the employee's page: Foreman's
  * brokered routes the definition can take (one it doesn't list is held), then any other class it lists, which Foreman
- * can't hold; plainly that one with no Write access can't push or open pull requests at all; and that a shell, and MCP
- * servers it keeps, act with no hold.
+ * can't hold; plainly that one with no Write access can't push or open pull requests at all; and that a shell, and the
+ * MCP servers every run has, act with no hold.
  */
 export function ActionRules({ definition: d }: { definition: Pick<EmployeeDefinition, 'access'> }) {
   const t = useT()
   const publishes = canPublish(d)
   const kinds = EMPLOYEE_ACTIONS.filter((kind) => publishes || !PUBLISH_ACTIONS.includes(kind))
   const others = Object.keys(d.access.actions).filter((a) => !isActionKind(a))
-  const ownServers = d.access.mcp.filter((s) => !s.startsWith('foreman-'))
   return (
     <div className="employee-plan-section">
       <ul className="employee-plan-items">
@@ -413,7 +412,7 @@ export function ActionRules({ definition: d }: { definition: Pick<EmployeeDefini
       </ul>
       {!publishes && <p className="employee-faint">{t('employees.rules.noWrite')}</p>}
       <p className="employee-faint">{d.access.profile === 'shell' ? t('employees.rules.shell') : t('employees.rules.noShell')}</p>
-      {ownServers.length > 0 && <p className="employee-faint">{t('employees.rules.mcp', { servers: ownServers.join(t('employees.list.separator')) })}</p>}
+      <p className="employee-faint">{t('employees.rules.mcpAll')}</p>
     </div>
   )
 }

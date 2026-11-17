@@ -720,10 +720,7 @@ export class Core {
         // #17: a worker's completed turn may make a review owed (only where the repo opted in); a reviewer's settles its review.
         this.autoReview.turnEnded(sessionId, outcome)
       },
-      attendedApproval: (sessionId, waiting) => {
-        this.flows.attendedApproval(sessionId, waiting)
-        this.employeeWork.attendedApproval(sessionId, waiting)
-      },
+      attendedApproval: (sessionId, waiting) => this.flows.attendedApproval(sessionId, waiting),
       unattendedStopped: (sessionId, what) => {
         this.schedules.needsHuman(sessionId, what)
         this.flows.needsHuman(sessionId, what)
@@ -943,11 +940,6 @@ export class Core {
       persona: (name, repoId) => findPersona(this.personaListings(repoId), name, repoId),
       launch: (plan, handle) => this.launchEmployeeRun(plan, handle),
       stop: (sessionId) => this.sessions.cancel(sessionId),
-      turnStart: (sessionId) => {
-        const session = this.store.state.sessions.find((s) => s.id === sessionId)
-        if (session?.waitingForSlot) return 'waiting'
-        return session?.turnId ? session.turnStartedAt : undefined
-      },
       readChat: (sessionId) => this.store.readChat(sessionId),
       session: (sessionId) => this.store.state.sessions.find((s) => s.id === sessionId),
       workspaceName: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.name,
@@ -2604,7 +2596,7 @@ export class Core {
       { prompt: plan.message, baseBranch: plan.baseBranch, branch: { kind: 'new' }, loadout: plan.loadout, location: 'local' },
       { employeeRun: { mark: plan.mark, origin: plan.origin }, startedBy: plan.startedBy, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
     )
-    const setup = await this.setupOutcome(ws.id, plan.setupMs)
+    const setup = await this.setupOutcome(ws.id)
     if (setup.failed || setup.held) throw new Error(`Setup failed, so the task was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
   }
 

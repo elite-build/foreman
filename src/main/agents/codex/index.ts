@@ -1278,8 +1278,6 @@ export class CodexTurn implements AgentTurn {
       const decided = writeScopeDecision('Write', { file_path: file }, writes, cwd, this.req.writeScopeSubject)
       if (decided && !decided.allow) return this.declineScoped(`writing “${workspaceRelative(file, cwd) ?? file}” is outside the folders this step may write in.`)
       if (capped && isCeilingProtected(file, cwd, capped.gitDir)) return this.declineScoped(`“${workspaceRelative(file, cwd) ?? file}” is agent or git configuration, which this turn’s ceiling keeps from being written.`)
-      // docs/ai-employees.md §9: an AI employee's run never writes agent or git configuration.
-      if (this.req.protect && isCeilingProtected(file, cwd, this.req.protect.gitDir)) return this.declineScoped(`“${workspaceRelative(file, cwd) ?? file}” is agent or git configuration, which an AI employee’s run never writes.`)
     }
     return { decision: 'accept' }
   }

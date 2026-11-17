@@ -9,7 +9,6 @@ import { chatAgentKinds, DEFAULT_MODEL, effortLabel, modelInfo, modelsFor, type 
 import {
   ACTION_POLICIES,
   EMPLOYEE_ACTIONS,
-  EMPLOYEE_LIMIT_RANGES,
   EMPLOYEE_TEXT_LIMITS,
   HAT_COLOURS,
   MAX_RESPONSIBILITIES,
@@ -140,38 +139,10 @@ export function InstructionsField({ value, onChange, rows = 14, label, descripti
 const csv = (list: readonly string[]) => list.join(', ')
 const fromCsv = (text: string) => text.split(',').map((s) => s.trim()).filter(Boolean)
 
-/** A whole number field that keeps what is typed until it is a number in range. */
-function NumberField({ label, description, placeholder, value, min, max, onChange, optional }: { label: string; description?: string; placeholder?: string; value: number | undefined; min: number; max: number; onChange: (n: number | undefined) => void; optional?: boolean }) {
-  const [text, setText] = useState(value === undefined ? '' : String(value))
-  const n = Number(text)
-  const bad = text.trim() === '' ? !optional : !Number.isFinite(n) || n < min || n > max
-  return (
-    <Field label={label} description={description}>
-      {(c) => (
-        <TextInput
-          {...c}
-          type="number"
-          width={110}
-          min={min}
-          max={max}
-          placeholder={placeholder}
-          value={text}
-          aria-invalid={bad || undefined}
-          onChange={(e) => {
-            setText(e.target.value)
-            const v = e.target.value.trim()
-            if (!v && optional) onChange(undefined)
-            else if (v && Number.isFinite(Number(v)) && Number(v) >= min && Number(v) <= max) onChange(Number(v))
-          }}
-        />
-      )}
-    </Field>
-  )
-}
-
 /**
  * The precise form for what an employee may do, by section: repositories (None, Read or Write each), shared memory,
- * the execution profile and MCP servers, outward actions and delegation, limits, and the model with how it is attended.
+ * the execution profile, outward actions and delegation, and the model with how it is attended. Every run has every MCP
+ * server a workspace's agent has, and no employee has limits (§9), so neither has a field.
  * Read and Write are offered only where the agent's capability record enforces them (§9).
  */
 export function AccessFields({
@@ -259,13 +230,11 @@ export function AccessFields({
             value={access.profile}
             onChange={(profile) => setAccess({ profile })}
             options={[
-              { value: 'no-shell', label: t('employees.access.noShell'), description: t('employees.access.noShellHint') },
-              { value: 'shell', label: t('employees.access.shell'), description: t('employees.access.shellHint') }
+              { value: 'shell', label: t('employees.access.shell'), description: t('employees.access.shellHint') },
+              { value: 'no-shell', label: t('employees.access.noShell'), description: t('employees.access.noShellHint') }
             ]}
           />
-          <Field label={t('employees.access.mcp')} description={t('employees.access.mcpHint')}>
-            {(c) => <TextInput {...c} mono value={csv(access.mcp)} onChange={(e) => setAccess({ mcp: fromCsv(e.target.value) })} />}
-          </Field>
+          <p className="employee-faint">{t('employees.access.mcpAll')}</p>
         </>
       )}
       {show('actions') && (
@@ -303,40 +272,6 @@ export function AccessFields({
             )}
           </Group>
         </>
-      )}
-      {show('limits') && (
-        <Group title={t('employees.access.limits')}>
-          <div className="employee-limits">
-            {(['runs_per_day', 'minutes_per_run'] as const).map((field) => (
-              <NumberField
-                key={field}
-                optional
-                label={t(field === 'runs_per_day' ? 'employees.access.runs' : 'employees.access.minutes')}
-                description={t('employees.access.noLimitHint')}
-                placeholder={t('employees.access.noLimit')}
-                value={value.limits[field]}
-                min={EMPLOYEE_LIMIT_RANGES[field][0]}
-                max={EMPLOYEE_LIMIT_RANGES[field][1]}
-                onChange={(n) => {
-                  const { [field]: _old, ...rest } = value.limits
-                  onChange({ ...value, limits: n === undefined ? rest : { ...rest, [field]: Math.round(n) } })
-                }}
-              />
-            ))}
-            <NumberField
-              optional
-              label={t('employees.access.cost')}
-              description={t('employees.access.costHint')}
-              value={value.limits.cost_per_day_usd}
-              min={EMPLOYEE_LIMIT_RANGES.cost_per_day_usd[0]}
-              max={EMPLOYEE_LIMIT_RANGES.cost_per_day_usd[1]}
-              onChange={(n) => {
-                const { cost_per_day_usd: _cost, ...rest } = value.limits
-                onChange({ ...value, limits: n === undefined ? rest : { ...rest, cost_per_day_usd: n } })
-              }}
-            />
-          </div>
-        </Group>
       )}
       {show('model') && (
         <Group title={t('employees.access.model')}>
@@ -394,13 +329,12 @@ export function AccessFields({
   )
 }
 
-const SECTION_TITLE: Record<CanDoSection, 'employees.access.repos' | 'employees.access.memory' | 'employees.access.profile' | 'employees.access.actions' | 'employees.access.limits' | 'employees.access.model' | 'employees.can.whenTitle'> = {
+const SECTION_TITLE: Record<CanDoSection, 'employees.access.repos' | 'employees.access.memory' | 'employees.access.profile' | 'employees.access.actions' | 'employees.access.model' | 'employees.can.whenTitle'> = {
   repos: 'employees.access.repos',
   memory: 'employees.access.memory',
   profile: 'employees.access.profile',
   actions: 'employees.access.actions',
   when: 'employees.can.whenTitle',
-  limits: 'employees.access.limits',
   model: 'employees.access.model'
 }
 

@@ -373,9 +373,7 @@ export function EmployeeReview({ employee: e, definition: d, memory, organizatio
         <dl className="employee-plan-list">
           <dt>{t('employees.plan.when')}</dt>
           <dd>
-            <span>
-              {when.when} · {when.limits}
-            </span>
+            <span>{when.when}</span>
             <span className="employee-faint">{when.attended}</span>
           </dd>
           <dt>{t('employees.approve.model')}</dt>
@@ -560,7 +558,7 @@ function EmployeeEdit({ orgId, employee, definition, repos, memory, organization
         <h3 id="employee-edit-access" className="employee-subheading">
           {t('employees.edit.sectionAccess')}
         </h3>
-        <AccessFields value={draft} onChange={setDraft} sections={['model', 'repos', 'memory', 'profile', 'actions', 'limits']} repos={repos} others={others} />
+        <AccessFields value={draft} onChange={setDraft} sections={['model', 'repos', 'memory', 'profile', 'actions']} repos={repos} others={others} />
       </Card>
       <Card as="section" className="employee-section" aria-labelledby="employee-edit-triggers">
         <h3 id="employee-edit-triggers" className="employee-subheading">

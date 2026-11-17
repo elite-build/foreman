@@ -193,13 +193,14 @@ describe('the New employee page', () => {
     expect(screen.getByText('Give the employee a name.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create' })).toHaveProperty('disabled', true)
     expect((screen.getByRole('textbox', { name: 'Personality' }) as HTMLInputElement).value).toBe('Concise')
-    // What it can do starts at a new employee's settings: it writes, pushes and opens pull requests, with no limits.
+    // What it can do starts at a new employee's settings: a shell and every MCP server; it writes, pushes and opens pull requests, with no limits.
     expect(screen.getByText('Reads only the repositories it writes to.')).toBeTruthy()
     expect(screen.getByText('Writes to foreman-website, foreman, in its own branch.')).toBeTruthy()
-    expect(screen.getByText('No shell: Foreman’s own tools only.')).toBeTruthy()
+    expect(screen.getByText('Has a shell: its shell and tools act with no hold.')).toBeTruthy()
+    expect(screen.getByText('Has every MCP server an agent in a workspace has.')).toBeTruthy()
     expect(screen.getByText(/^Sends without waiting for you: .*push/i)).toBeTruthy()
     expect(screen.getByText('Runs only when asked.')).toBeTruthy()
-    expect(screen.getByText('No limit on runs a day or minutes a run.')).toBeTruthy()
+    expect(screen.queryByText(/runs a day|minutes a run/)).toBeNull()
     await user.type(name, 'Ada')
     expect(screen.getByText('Another employee in this organization has this name.')).toBeTruthy()
     await user.clear(name)
@@ -214,7 +215,7 @@ describe('the New employee page', () => {
     expect(options.approve).toBeFalsy()
     expect(definition).toMatchObject({ name: 'Rae', instructions: 'Writes the release notes.', personality: 'Concise', attendance: 'unattended', model: { agent: 'claude', model: 'claude-sonnet-5-5' } })
     expect(definition.access).toEqual(newEmployee({ id: definition.id, colour: 'orange', repos: ['foreman-website', 'foreman'], loadouts: [] }).access)
-    expect(definition.limits).toEqual({})
+    expect(definition).not.toHaveProperty('limits')
     // Ada wears pink, so the first free hat is orange.
     expect(definition.look).toEqual({ family: 'hardhat', colour: 'orange' })
     // The draft's page opens: it is the plan, approved there.
@@ -268,7 +269,7 @@ describe('the New employee page', () => {
     // A new employee's access, and no trigger: a suggestion grants nothing.
     expect(definition.access.repos).toEqual({ 'foreman-website': 'write', foreman: 'write' })
     expect(definition.triggers).toBeUndefined()
-    expect(definition.access.profile).toBe('no-shell')
+    expect(definition.access.profile).toBe('shell')
   })
 
   it('lists no suggestion to write a repository, since a new employee already writes every one', async () => {
@@ -528,8 +529,7 @@ describe('the approval plan: a draft’s page', () => {
   const plan = () => {
     const definition = {
       ...defaultEmployee({ id: 'e-7k2m', colour: 'orange', repos: ['foreman', 'foreman-website'], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5' }], text: { name: 'Max', role: 'Marketing' } }),
-      access: { ...defaultEmployee({ id: 'e-7k2m', colour: 'orange', repos: [], loadouts: [] }).access, repos: { foreman: 'read' as const, 'foreman-website': 'write' as const }, delegate_to: ['e-1abc'] },
-      limits: { runs_per_day: 6, minutes_per_run: 30, cost_per_day_usd: 5 }
+      access: { ...defaultEmployee({ id: 'e-7k2m', colour: 'orange', repos: [], loadouts: [] }).access, repos: { foreman: 'read' as const, 'foreman-website': 'write' as const }, profile: 'no-shell' as const, delegate_to: ['e-1abc'] }
     }
     definition.model.fallbacks = ['claude-haiku-5-5']
     definition.access.actions['push'] = 'allowed'
@@ -550,13 +550,21 @@ describe('the approval plan: a draft’s page', () => {
     render(<EmployeeReview employee={view} definition={definition} memory="foreman-memory" organization="Foreman" names={(id) => (id === 'e-1abc' ? 'Ada' : id)} />)
     const review = screen.getByRole('region', { name: 'What Max may do once you approve it' })
     // Only what is true for this definition, in three groups.
-    expect(group('Can')).toEqual(['Read foreman', 'Change foreman-website, in its own branch', 'Keep its own notes in foreman-memory', 'Hand work to Ada', 'Push its branches without asking you'])
-    expect(group('Can’t')).toEqual(['Post to Slack or change Linear It keeps no Slack or Linear tools.', 'Use a shell'])
-    expect(group('Asks you first')).toEqual(['Before changing Foreman’s shared memory You add or discard each change.', 'Before each pull request'])
+    expect(group('Can')).toEqual([
+      'Read foreman',
+      'Change foreman-website, in its own branch',
+      'Keep its own notes in foreman-memory',
+      'Use every MCP server an agent in a workspace has Nothing it does with them waits for you.',
+      'Hand work to Ada',
+      'Push its branches without asking you'
+    ])
+    expect(group('Can’t')).toEqual(['Use a shell'])
+    expect(group('Asks you first')).toEqual(['Before changing Foreman’s shared memory You add or discard each change.', 'Before each pull request', 'Before each Slack post', 'Before each Linear change'])
     const text = review.textContent ?? ''
-    // When it runs, with its limits and who watches; the model on one line.
-    expect(text).toContain('Only when you ask · at most 6 runs a day, 30 minutes a run, $5.00 a day')
-    expect(text).toContain('With nobody watching: if a run needs your approval, it stops.')
+    // When it runs and who watches (no employee has limits); the model on one line.
+    expect(text).toContain('Only when you ask')
+    expect(text).not.toContain('runs a day')
+    expect(text).toContain('With nobody watching: nothing it does waits for an approval.')
     expect(text).toMatch(/Model\s*Claude Code · /)
     expect(text).toContain('Recorded on this computer only.')
     // What it is told, and what approval doesn't cover, are folded away.

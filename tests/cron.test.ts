@@ -1,9 +1,9 @@
 // Cron for AI employees' triggers (docs/ai-employees.md §8): the five fields with lists, ranges, steps and names; the
 // next firing on the wall clock of an IANA time zone, across daylight saving (a skipped local time fires once at the
 // first minute after the gap, a repeated one fires once, the first time); classic cron's day-of-month or day-of-week
-// rule; and the shortest gap between firings for the 15-minute floor. Intervals and calendar triggers' next times too.
+// rule, with no minimum gap between firings. Intervals and calendar triggers' next times too.
 import { describe, expect, it } from 'vitest'
-import { cronInstant, cronMinGapMinutes, nextCron, nextCrons, parseCron, type CronSpec } from '../src/shared/cron'
+import { cronInstant, nextCron, nextCrons, parseCron, type CronSpec } from '../src/shared/cron'
 import { intervalMinutes, nextFire, nextFires, triggerTimingProblem, type CronTrigger, type EmployeeTrigger } from '../src/shared/employeeTriggers'
 
 const spec = (expression: string): CronSpec => {
@@ -96,26 +96,16 @@ describe('cron: the next firing', () => {
   })
 })
 
-describe('cron and intervals: the 15-minute floor', () => {
-  it('measures the shortest gap on the wall clock, from a day’s last firing to the next day’s first too', () => {
-    expect(cronMinGapMinutes(spec('*/15 * * * *'))).toBe(15)
-    expect(cronMinGapMinutes(spec('*/10 * * * *'))).toBe(10)
-    expect(cronMinGapMinutes(spec('0,5 9 * * *'))).toBe(5)
-    expect(cronMinGapMinutes(spec('0 9 * * 1'))).toBe(24 * 60)
-    expect(cronMinGapMinutes(spec('55 0,23 * * *'))).toBe(60)
-    expect(cronMinGapMinutes(spec('50 23 * * *'))).toBe(24 * 60)
-    expect(cronMinGapMinutes(spec('0,50 0,23 * * *'))).toBe(10)
-  })
-
-  it('refuses a cron trigger or an interval under the floor, and an interval it can’t read', () => {
+describe('cron and intervals: no minimum gap (§9: no employee has limits)', () => {
+  it('takes a cron trigger or an interval however often it runs, and refuses an interval it can’t read', () => {
     const cron = (expression: string): CronTrigger => ({ kind: 'cron', cron: expression, timezone: 'Europe/London', ...common })
     const every = (e: string): EmployeeTrigger => ({ kind: 'interval', every: e, ...common })
     expect(triggerTimingProblem(cron('*/15 * * * *'))).toBeNull()
-    expect(triggerTimingProblem(cron('*/10 * * * *'))).toBe('Trigger 1 would run 10 minutes apart; triggers run at most every 15 minutes.')
+    expect(triggerTimingProblem(cron('* * * * *'))).toBeNull()
     expect(triggerTimingProblem(cron('0 9 * * 1'), undefined, 3)).toBeNull()
     expect(triggerTimingProblem({ ...cron('0 9 * * 1'), timezone: 'Mars/Olympus' })).toMatch(/“Mars\/Olympus” isn’t a time zone name/)
     expect(triggerTimingProblem(every('15m'))).toBeNull()
-    expect(triggerTimingProblem(every('10m'))).toBe('Trigger 1 would run 10 minutes apart; triggers run at most every 15 minutes.')
+    expect(triggerTimingProblem(every('1m'))).toBeNull()
     expect(triggerTimingProblem(every('31d'))).toMatch(/isn’t an interval like 90m/)
     expect(triggerTimingProblem(every('soon'))).toMatch(/“soon” isn’t an interval/)
     expect([intervalMinutes('90m'), intervalMinutes('2h'), intervalMinutes('1d'), intervalMinutes('0m'), intervalMinutes('2 weeks')]).toEqual([90, 120, 1440, undefined, undefined])
@@ -138,6 +128,8 @@ describe('triggers: the next planned times', () => {
     expect(isoOf(nextFire(once, at('2026-11-13T10:00:00Z')))).toBe('2026-11-14T09:00:00.000Z')
     expect(nextFire(once, at('2026-11-14T09:00:00Z'))).toBeUndefined()
     // An invalid trigger has no next time.
-    expect(nextFire({ kind: 'cron', cron: '*/5 * * * *', timezone: 'UTC', ...common }, at('2026-11-13T10:00:00Z'))).toBeUndefined()
+    expect(nextFire({ kind: 'cron', cron: '0 25 * * *', timezone: 'UTC', ...common }, at('2026-11-13T10:00:00Z'))).toBeUndefined()
+    // Every five minutes is a trigger like any other (no minimum gap).
+    expect(nextFire({ kind: 'cron', cron: '*/5 * * * *', timezone: 'UTC', ...common }, at('2026-11-13T10:00:00Z'))).toBe(Date.parse('2026-11-13T10:05:00Z'))
   })
 })

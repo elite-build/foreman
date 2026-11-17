@@ -27,7 +27,7 @@ export type HatColour = (typeof HAT_COLOURS)[number]
 export type EmployeeRepoAccess = 'none' | 'read' | 'write'
 export const REPO_ACCESS: readonly EmployeeRepoAccess[] = ['none', 'read', 'write']
 
-/** No shell (the default): Foreman's brokered tools only. Shell: approved with the plain statement that it acts with no hold. */
+/** Shell (the default): a shell and every tool with no hold, as a workspace's agent has. No shell: file tools only. */
 export type EmployeeProfile = 'no-shell' | 'shell'
 export const EMPLOYEE_PROFILES: readonly EmployeeProfile[] = ['no-shell', 'shell']
 
@@ -65,9 +65,6 @@ export const EMPLOYEE_TEXT_LIMITS = {
 export const MAX_RESPONSIBILITIES = 12
 export const MAX_LIST = 50
 
-/** The ranges a limit (§9) may be set in. Each is optional: a new employee has none, so it runs as often and as long as it needs. */
-export const EMPLOYEE_LIMIT_RANGES = { runs_per_day: [1, 100], minutes_per_run: [1, 240], cost_per_day_usd: [0, 1000] } as const
-
 export interface EmployeeModel {
   agent: string
   model: string
@@ -82,19 +79,9 @@ export interface EmployeeAccess {
   // Shared memory folders it may write besides its own (MEMORY_WRITE_SCOPES).
   memory_write: string[]
   profile: EmployeeProfile
-  // MCP servers it keeps; every other one is disabled for its runs.
-  mcp: string[]
   // Employees (by id) it may hand tasks to; absence is refusal.
   delegate_to: string[]
   actions: Record<string, EmployeeActionPolicy>
-}
-
-// Absent: no limit.
-export interface EmployeeLimits {
-  runs_per_day?: number
-  minutes_per_run?: number
-  // A threshold, not a hard cap (§9).
-  cost_per_day_usd?: number
 }
 
 /** `bots/<id>.toml` and `bots/<id>.md` (docs/ai-employees.md §5.1). The id is stable and never shown as a name. */
@@ -119,7 +106,6 @@ export interface EmployeeDefinition {
   access: EmployeeAccess
   // When it works on its own (§5.1, §8): absent or empty, only when asked. Part of the fingerprint, like everything but the hat.
   triggers?: EmployeeTrigger[]
-  limits: EmployeeLimits
 }
 
 /** The file an employee's definition is kept in, in its organization's memory repository. */
@@ -149,7 +135,6 @@ const TOP_FIELDS = ['id', 'name', 'role', 'description', 'look', 'personality', 
 const LOOK_FIELDS = ['family', 'colour']
 const MODEL_FIELDS = ['agent', 'model', 'effort', 'fallbacks']
 const ACCESS_FIELDS = ['repos', 'memory_write', 'profile', 'mcp', 'delegate_to', 'actions']
-const LIMIT_FIELDS = ['runs_per_day', 'minutes_per_run', 'cost_per_day_usd']
 const EFFORTS: readonly EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const NAME_KEY = /^[a-z0-9][a-z0-9-]{0,39}$/
 
@@ -285,7 +270,8 @@ export function employeeFromObject(raw: unknown, t: TFunction = enT): EmployeePa
     const memoryWrite = list(rawAccess.memory_write, 'access.memory_write', MEMORY_WRITE_SCOPES.length, 20)
     for (const scope of memoryWrite) if (!(MEMORY_WRITE_SCOPES as readonly string[]).includes(scope)) problems.push(t('employees.problem.oneOf', { field: 'access.memory_write', values: MEMORY_WRITE_SCOPES.join(', ') }))
     const profile = oneOf(rawAccess.profile, 'access.profile', EMPLOYEE_PROFILES)
-    const mcp = list(rawAccess.mcp, 'access.mcp', MAX_LIST, 100)
+    // `mcp`, the servers it kept before every run had every one, is still read from an older file and means nothing now.
+    list(rawAccess.mcp, 'access.mcp', MAX_LIST, 100)
     const delegateTo = list(rawAccess.delegate_to, 'access.delegate_to', MAX_LIST, 64)
     for (const other of delegateTo) {
       if (!isEmployeeId(other)) problems.push(t('employees.problem.delegateId', { id: other }))
@@ -299,37 +285,18 @@ export function employeeFromObject(raw: unknown, t: TFunction = enT): EmployeePa
         const value = oneOf(policy, `access.actions."${action}"`, ACTION_POLICIES)
         if (value) actions[action] = value
       }
-    if (profile) access = { repos, memory_write: memoryWrite, profile, mcp, delegate_to: delegateTo, actions }
+    if (profile) access = { repos, memory_write: memoryWrite, profile, delegate_to: delegateTo, actions }
   }
 
   // After access: a trigger's repository must be one the employee can work in.
   const parsedTriggers = parseTriggers(raw.triggers, access?.repos ?? {}, t)
   problems.push(...parsedTriggers.problems)
 
-  let limits: EmployeeLimits | undefined
-  const rawLimits = table(raw.limits, 'limits')
-  if (rawLimits) {
-    unknown(rawLimits, LIMIT_FIELDS, 'limits.')
-    const whole = (value: unknown, field: 'runs_per_day' | 'minutes_per_run'): number | undefined => {
-      const [min, max] = EMPLOYEE_LIMIT_RANGES[field]
-      if (value === undefined) return undefined
-      if (typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max) return value
-      problems.push(t('employees.problem.whole', { field: `limits.${field}`, min, max }))
-      return undefined
-    }
-    const runs = whole(rawLimits.runs_per_day, 'runs_per_day')
-    const minutes = whole(rawLimits.minutes_per_run, 'minutes_per_run')
-    let cost: number | undefined
-    if (rawLimits.cost_per_day_usd !== undefined) {
-      const [min, max] = EMPLOYEE_LIMIT_RANGES.cost_per_day_usd
-      const value = rawLimits.cost_per_day_usd
-      if (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max) cost = value
-      else problems.push(t('employees.problem.cost', { min, max }))
-    }
-    limits = limitsOf({ runs_per_day: runs, minutes_per_run: minutes, cost_per_day_usd: cost })
-  }
+  // `[limits]` (runs a day, minutes a run, cost a day) is still read from an older file and limits nothing now: no
+  // employee has limits (§9).
+  if (raw.limits !== undefined && !isTable(raw.limits)) problems.push(t('employees.problem.table', { field: 'limits' }))
 
-  if (problems.length || !model || !attendance || !access || !limits) return { problems: problems.length ? problems : [t('employees.problem.notTable')] }
+  if (problems.length || !model || !attendance || !access) return { problems: problems.length ? problems : [t('employees.problem.notTable')] }
   return {
     definition: normalizeEmployee({
       id,
@@ -346,8 +313,7 @@ export function employeeFromObject(raw: unknown, t: TFunction = enT): EmployeePa
       model,
       attendance,
       access,
-      ...(parsedTriggers.triggers.length ? { triggers: parsedTriggers.triggers } : {}),
-      limits
+      ...(parsedTriggers.triggers.length ? { triggers: parsedTriggers.triggers } : {})
     }),
     problems: []
   }
@@ -366,7 +332,7 @@ const sortedRecord = <T>(record: Record<string, T>): Record<string, T> => Object
 
 /**
  * The definition as it is saved: one-line texts on one line and trimmed, the prompt with plain line ends, empty
- * responsibilities dropped, sets (memory folders, MCP servers, delegates) sorted without repeats and tables in key
+ * responsibilities dropped, sets (memory folders, delegates) sorted without repeats and tables in key
  * order. Saving the same definition always writes the same file, so its fingerprint doesn't move.
  */
 export function normalizeEmployee(d: EmployeeDefinition): EmployeeDefinition {
@@ -394,21 +360,12 @@ export function normalizeEmployee(d: EmployeeDefinition): EmployeeDefinition {
       repos: sortedRecord(d.access.repos),
       memory_write: sortedUnique(d.access.memory_write),
       profile: d.access.profile,
-      mcp: sortedUnique(d.access.mcp),
       delegate_to: sortedUnique(d.access.delegate_to),
       actions: sortedRecord(d.access.actions)
     },
-    ...(d.triggers?.length ? { triggers: d.triggers.map(normalizeTrigger) } : {}),
-    limits: limitsOf(d.limits)
+    ...(d.triggers?.length ? { triggers: d.triggers.map(normalizeTrigger) } : {})
   }
 }
-
-/** The limits that are set, in their order; one left out has no limit. */
-const limitsOf = (l: EmployeeLimits): EmployeeLimits => ({
-  ...(l.runs_per_day !== undefined ? { runs_per_day: l.runs_per_day } : {}),
-  ...(l.minutes_per_run !== undefined ? { minutes_per_run: l.minutes_per_run } : {}),
-  ...(l.cost_per_day_usd !== undefined ? { cost_per_day_usd: l.cost_per_day_usd } : {})
-})
 
 /** A TOML basic string: JSON's escapes, which TOML shares, plus the characters TOML refuses raw (DEL, lone surrogates). */
 function tomlString(s: string): string {
@@ -460,14 +417,9 @@ export function serializeEmployee(definition: EmployeeDefinition, { look = true,
   lines.push(`repos = ${tomlInline(d.access.repos)}`)
   lines.push(`memory_write = ${tomlList(d.access.memory_write)}`)
   lines.push(`profile = ${tomlString(d.access.profile)}`)
-  lines.push(`mcp = ${tomlList(d.access.mcp)}`)
   lines.push(`delegate_to = ${tomlList(d.access.delegate_to)}`)
   lines.push(`actions = ${tomlInline(d.access.actions)}`)
   for (const trigger of d.triggers ?? []) lines.push('', '[[triggers]]', ...triggerLines(trigger))
-  lines.push('', '[limits]')
-  if (d.limits.runs_per_day !== undefined) lines.push(`runs_per_day = ${d.limits.runs_per_day}`)
-  if (d.limits.minutes_per_run !== undefined) lines.push(`minutes_per_run = ${d.limits.minutes_per_run}`)
-  if (d.limits.cost_per_day_usd !== undefined) lines.push(`cost_per_day_usd = ${d.limits.cost_per_day_usd}`)
   return `${lines.join('\n')}\n`
 }
 
@@ -585,9 +537,9 @@ export interface EmployeeDefaultsInput {
 }
 
 /**
- * The safest settings, whatever its words say: reads every repository of its organization, writes only its own memory
- * folder, no shell, no MCP server, no delegation, every outward action held, runs only when asked, no limit on runs or
- * minutes, on the person's default agent and model. Unattended when that agent can run with nobody there (§1), attended
+ * The base settings, whatever its words say: reads every repository of its organization, writes only its own memory
+ * folder, a shell, no delegation, every outward action held, runs only when asked, on the person's default agent and
+ * model. Every run has every MCP server a workspace's agent has, and no employee has limits (§9). Unattended when that agent can run with nobody there (§1), attended
  * otherwise (§9: Codex is offered attended and read-only). A new employee is this with full access (newEmployee).
  */
 export function defaultEmployee({ id, colour, repos, loadouts, text = {} }: EmployeeDefaultsInput): EmployeeDefinition {
@@ -608,12 +560,10 @@ export function defaultEmployee({ id, colour, repos, loadouts, text = {} }: Empl
     access: {
       repos: Object.fromEntries(repos.map((r) => [r, 'read' as const])),
       memory_write: [],
-      profile: 'no-shell',
-      mcp: [],
+      profile: 'shell',
       delegate_to: [],
       actions: Object.fromEntries(EMPLOYEE_ACTIONS.map((a) => [a, 'held' as const]))
-    },
-    limits: {}
+    }
   }
 }
 
@@ -627,8 +577,9 @@ export function newEmployee(input: EmployeeDefaultsInput): EmployeeDefinition {
 
 /**
  * The definition with what every employee has: Write where it reads (an attended one runs read-only, so it keeps Read),
- * pushes and pull requests allowed without a hold, and no limits. A repository it was given no access to stays so, and
- * nothing else changes. Main applies it once to the employees an organization already had (main/employees.ts).
+ * a shell, and pushes and pull requests allowed without a hold. A repository it was given no access to stays so, and
+ * nothing else changes. Main applies it once to the employees an organization already had (main/employees.ts); turning
+ * the shell off afterwards is the person's choice in Edit.
  */
 export function withFullAccess(d: EmployeeDefinition): EmployeeDefinition {
   const write = d.attendance === 'unattended'
@@ -637,9 +588,9 @@ export function withFullAccess(d: EmployeeDefinition): EmployeeDefinition {
     access: {
       ...d.access,
       repos: Object.fromEntries(Object.entries(d.access.repos).map(([r, a]) => [r, write && a === 'read' ? 'write' : a])),
+      profile: 'shell',
       actions: { ...d.access.actions, ...Object.fromEntries(PUBLISH_ACTIONS.map((a) => [a, 'allowed' as const])) }
-    },
-    limits: {}
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // An employee's triggers in the window (docs/ai-employees.md §8): the Triggers tab says each in words with what it asks,
 // its next time and its last firing here, with a switch that turns it off on this computer; the Edit view's Triggers
-// section adds one in a dialog with the kind, a live preview of the next three times and the floor's error, and says
+// section adds one in a dialog with the kind, a live preview of the next three times and a timing's error, and says
 // saving means approving again; the approval plan lists the triggers in words; Automations lists them with the hat and
 // name, read-only, with "Edit on Max’s page"; and a Team card says when it next runs.
 import './domShims'
@@ -116,7 +116,7 @@ describe('the Triggers tab', () => {
 })
 
 describe('the Edit view’s Triggers section', () => {
-  it('adds a trigger in a dialog with a live preview and the floor’s error, and says saving means approving again', async () => {
+  it('adds a trigger in a dialog with a live preview and a timing’s error, and says saving means approving again', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     render(<TriggersField value={max()} onChange={onChange} approved />)
@@ -128,11 +128,15 @@ describe('the Edit view’s Triggers section', () => {
     const cron = within(dialog).getByRole('textbox', { name: 'Cron expression' }) as HTMLInputElement
     expect(cron.value).toBe('0 9 * * 1')
     expect(within(within(dialog).getByRole('group', { name: 'Next three times' })).getAllByRole('listitem')).toHaveLength(3)
-    // Under the floor: said where it is typed, and Done waits.
+    // A timing that doesn't parse: said where it is typed, and Done waits.
+    await user.clear(cron)
+    await user.type(cron, '0 25 * * *')
+    expect(within(dialog).getByText('Trigger 1: The hour field goes from 0 to 23; “25” is outside that.')).toBeTruthy()
+    expect((within(dialog).getByRole('button', { name: 'Done' }) as HTMLButtonElement).disabled).toBe(true)
+    // Every five minutes is fine: no trigger has a minimum gap.
     await user.clear(cron)
     await user.type(cron, '*/5 * * * *')
-    expect(within(dialog).getByText('Trigger 1 would run 5 minutes apart; triggers run at most every 15 minutes.')).toBeTruthy()
-    expect((within(dialog).getByRole('button', { name: 'Done' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((within(dialog).getByRole('button', { name: 'Done' }) as HTMLButtonElement).disabled).toBe(false)
     // An interval instead: every 2 hours by default; 3 hours here, in api, collapsing missed times, coalescing.
     await user.click(within(dialog).getByRole('radio', { name: 'Interval' }))
     const amount = within(dialog).getByRole('spinbutton', { name: 'Every' })
@@ -171,7 +175,7 @@ describe('triggers elsewhere', () => {
     const d = max([MONDAYS, OFF])
     const { unmount } = render(<EmployeeReview employee={view({ state: 'draft', definition: d })} definition={d} memory="acme-memory" organization="Acme" names={(id) => id} />)
     const when = screen.getByText('When it runs').nextElementSibling as HTMLElement
-    expect(when.textContent).toContain('Every Mon at 09:00 (Europe/London), and when you ask · no limit on runs or minutes')
+    expect(when.textContent).toContain('Every Mon at 09:00 (Europe/London), and when you ask')
     expect(when.textContent).not.toMatch(/Every 90 minutes|Every 1.5/)
     expect(when.textContent).not.toContain('Only when you ask')
     expect(screen.getByText('A trigger other than these, or a change to one of them.')).toBeTruthy()
@@ -179,7 +183,7 @@ describe('triggers elsewhere', () => {
     // With none, it runs only when asked, and a new trigger is what the approval doesn't cover.
     const none = max()
     render(<EmployeeReview employee={view({ state: 'draft', definition: none, triggers: [] })} definition={none} memory="acme-memory" organization="Acme" names={(id) => id} />)
-    expect((screen.getByText('When it runs').nextElementSibling as HTMLElement).textContent).toMatch(/^Only when you ask · /)
+    expect((screen.getByText('When it runs').nextElementSibling as HTMLElement).textContent).toMatch(/^Only when you ask/)
     expect(screen.getByText('A new trigger or schedule.')).toBeTruthy()
   })
 

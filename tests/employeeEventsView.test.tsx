@@ -166,7 +166,7 @@ describe('event triggers elsewhere', () => {
     const d = max([{ ...MERGED, branch: 'release/*', authored_by: 'employees' }])
     render(<EmployeeReview employee={view({ state: 'draft', definition: d })} definition={d} memory="acme-memory" organization="Acme" names={(id) => id} />)
     const when = screen.getByText('When it runs').nextElementSibling as HTMLElement
-    expect(when.textContent).toContain('When a pull request merges in site (branch release/*, by an employee), and when you ask · no limit on runs or minutes')
+    expect(when.textContent).toContain('When a pull request merges in site (branch release/*, by an employee), and when you ask')
     // What it doesn't cover names these triggers.
     expect(screen.getByText('A trigger other than these, or a change to one of them.')).toBeTruthy()
   })

@@ -172,14 +172,15 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
 
     // The workspace and its chat: a new branch of the target repository, marked as the employee's run.
     expect(ws).toMatchObject({ repoId: repo.id, baseBranch: 'main', startedBy: { via: 'employee', orgId: org.id, employeeId: 'e-max1', runId: run.id, taskId: task.id, title: 'Draft the launch post for 1.0.23' } })
-    expect(a.marks[0]).toEqual({ employeeRunId: run.id, employeeId: 'e-max1', orgId: org.id, persona: { readOnly: true, mcp: [] } })
+    expect(a.marks[0]).toEqual({ employeeRunId: run.id, employeeId: 'e-max1', orgId: org.id, persona: { readOnly: true } })
     expect(run).toMatchObject({ state: 'running', started: true, sessionId: run.sessionId, agent: 'claude', model: 'claude-sonnet-5-5', access: 'read', memoryBase: head })
 
-    // What the agent gets: held read-only (Claude's plan mode), auto mode, scoped to nothing, only its MCP servers, no
-    // delegation tools, agent and git configuration refused, and never the background host.
-    expect(req).toMatchObject({ readOnly: true, planMode: true, approvals: 'auto', onlyMcp: true, model: 'claude-sonnet-5-5', effort: 'medium' })
+    // What the agent gets: held read-only (Claude's plan mode), never asking (as a workspace's agent), scoped to nothing,
+    // every MCP server a workspace's agent has, no delegation tools, no paths refused, and never the background host.
+    expect(req).toMatchObject({ readOnly: true, planMode: true, approvals: 'never-ask', employee: true, model: 'claude-sonnet-5-5', effort: 'medium' })
     expect(req.writeScope).toBeUndefined()
-    expect(req.protect).toEqual({ gitDir: expect.stringMatching(/\.git$/) })
+    expect(req).not.toHaveProperty('onlyMcp')
+    expect(req).not.toHaveProperty('protect')
     // Its own tools come on Foreman's in-process server (Claude), in place of the workspace agents'.
     expect(Object.keys(req.inProcessMcp ?? {})).toEqual(['foreman-app'])
     expect(Object.keys(req.mcpServers ?? {})).toEqual([])
@@ -231,8 +232,8 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     await core.shutdown()
   })
 
-  it('writes without a shell as scoped writes over the workspace', async () => {
-    const write = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'write' } } }))
+  it('writes without a shell, once it is turned off, as scoped writes over the workspace', async () => {
+    const write = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'write' }, profile: 'no-shell' } }))
     const a = agent(write.store)
     await write.core.api.askEmployee(write.org.id, 'e-max1', { body: 'Fix the README' })
     await vi.waitFor(() => expect(a.requests).toHaveLength(1), WAIT)
@@ -245,14 +246,15 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     await write.core.shutdown()
   })
 
-  it('with a shell has no write scope; Run now asks for the standing responsibilities', async () => {
-    const shell = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'write' }, profile: 'shell' } }))
+  it('with a shell, its default, has no write scope and may push itself; Run now asks for the standing responsibilities', async () => {
+    const shell = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'write' } } }))
     const b = agent(shell.store)
     await shell.core.api.runEmployeeNow(shell.org.id, 'e-max1')
     await vi.waitFor(() => expect(b.requests).toHaveLength(1), WAIT)
     expect(b.requests[0].writeScope).toBeUndefined()
     expect(b.requests[0].readOnly).toBeUndefined()
-    expect(b.requests[0].protect).toBeTruthy()
+    expect(b.requests[0]).toMatchObject({ approvals: 'never-ask', employee: true })
+    expect(b.requests[0].systemPromptAppend).toContain('push it and open its pull request yourself (git push, gh pr create)')
     expect(b.requests[0].prompt).toContain('Work through your standing responsibilities now and report what you did:\n- Write launch posts')
     expect((await shell.core.api.listEmployeeTasks(shell.org.id))[0].title).toBe('Run now: standing responsibilities')
     b.release()

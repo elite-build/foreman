@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-17: An AI employee has what a workspace's agent has, and no limits
+
+**Decision.** Every employee gets a shell by default (Edit turns it off), every MCP server a workspace's agent has, Never ask when unattended, no refused paths, and no limits: no runs a day, minutes, cost threshold, lanes, organization cap, failure pause, hand-off depth or counts, or trigger floor. Kept: the memory repository's rules, held Slack and Linear posts, a chain's 20 runs, the event guards and a trigger's own overlap.
+
+**Why.** The maintainer wants employees to work like a workspace's agent, and found the old limits stopped real work.
+
+**Turned down.** Dropping the chain's runs too (a loop of employees would run until someone stopped it); per-employee MCP lists as opt-outs (nobody needed one); auto mode for unattended runs (it could deny a push and stop the run).
+
+**Revisit when.** An employee loses work or does damage a guard would have stopped, or teams want limits back.
+
 ## 2026-11-17: A template employee is linked to its job's prompt, which improves without asking again
 
 **Decision.** Each job (the fifteen templates and the program manager) has its own prompt file in `src/shared/employeePrompts/`. An employee hired from one records `template = "<job>"` and keeps only its organization's additions in its own `bots/<id>.md`; every run gets the job's prompt as that Foreman has it, then the additions. The fingerprint covers the link and the additions, not the job's text.
@@ -45,6 +55,8 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 **Revisit when.** People need an employee frozen at one version of its job's prompt.
 
 ## 2026-11-17: Every AI employee writes, pushes and opens pull requests without asking, with no limits
+
+**Superseded** by 2026-11-17: An AI employee has what a workspace's agent has, and no limits.
 
 **Decision.** A new employee (Priya, templates, proposals, New employee) gets Write on the organization's repositories, pushes and pull requests allowed, and no limit on runs or minutes; limits are optional. Employees that already existed were given the same once, keeping an approval nothing else changed.
 
