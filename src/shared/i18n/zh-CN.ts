@@ -8122,7 +8122,7 @@ export const zhCN: Catalogue = {
   'projects.questions.skip': '按现有信息计划',
   'projects.questions.skipHint': '{name} 不再等待回答直接计划，并列出所有假设，供你在计划中核对。',
   'projects.questions.send': '发送回答',
-  'projects.questions.answerAll': '请先回答每个问题。',
+  'projects.questions.missing': { other: '问题 {list} 尚未回答' },
   'projects.questions.sent': '已将回答发送给 {name}。',
   'projects.questions.skipped': '{name} 将按现有信息计划。',
   'projects.questions.skippedLog': '{name}，请按现有信息计划，并列出你的假设。',

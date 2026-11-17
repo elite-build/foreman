@@ -8167,7 +8167,7 @@ export const es: Catalogue = {
   'projects.questions.skip': 'Planificar con lo que hay',
   'projects.questions.skipHint': '{name} planifica sin más respuestas y enumera cada supuesto, para que lo revises en el plan.',
   'projects.questions.send': 'Enviar respuestas',
-  'projects.questions.answerAll': 'Responde primero a todas las preguntas.',
+  'projects.questions.missing': { one: 'La pregunta {list} aún no tiene respuesta', other: 'Las preguntas {list} aún no tienen respuesta' },
   'projects.questions.sent': 'Respuestas enviadas a {name}.',
   'projects.questions.skipped': '{name} planifica con lo que tiene.',
   'projects.questions.skippedLog': 'Planifica con lo que tienes, {name}: enumera lo que supones.',

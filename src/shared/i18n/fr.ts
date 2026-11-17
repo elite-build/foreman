@@ -8121,7 +8121,7 @@ export const fr: Catalogue = {
   'projects.questions.skip': 'Planifier avec ce qui est connu',
   'projects.questions.skipHint': '{name} planifie sans autres réponses et liste chaque hypothèse, pour que vous la vérifiiez dans le plan.',
   'projects.questions.send': 'Envoyer les réponses',
-  'projects.questions.answerAll': 'Répondez d’abord à chaque question.',
+  'projects.questions.missing': { one: 'La question {list} n’a pas encore de réponse', other: 'Les questions {list} n’ont pas encore de réponse' },
   'projects.questions.sent': 'Réponses envoyées à {name}.',
   'projects.questions.skipped': '{name} planifie avec ce qui est connu.',
   'projects.questions.skippedLog': 'Planifie avec ce que tu as, {name} : liste ce que tu supposes.',

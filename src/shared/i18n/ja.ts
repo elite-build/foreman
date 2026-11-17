@@ -8121,7 +8121,7 @@ export const ja: Catalogue = {
   'projects.questions.skip': '今ある情報で計画する',
   'projects.questions.skipHint': '{name}はこれ以上の回答なしで計画し、前提にしたことをすべて挙げます。計画で確認してください。',
   'projects.questions.send': '回答を送信',
-  'projects.questions.answerAll': 'まずすべての質問に回答してください。',
+  'projects.questions.missing': { other: '質問 {list} はまだ回答されていません' },
   'projects.questions.sent': '{name}に回答を送信しました。',
   'projects.questions.skipped': '{name}は今ある情報で計画します。',
   'projects.questions.skippedLog': '{name}、今ある情報で計画してください。前提にしたことを挙げてください。',

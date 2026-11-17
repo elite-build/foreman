@@ -8868,7 +8868,7 @@ export const en = {
   'projects.questions.skip': 'Plan with what you have',
   'projects.questions.skipHint': '{name} plans without more answers and lists every assumption, for you to check at the plan.',
   'projects.questions.send': 'Send answers',
-  'projects.questions.answerAll': 'Answer every question first.',
+  'projects.questions.missing': { one: 'Question {list} isn’t answered yet', other: 'Questions {list} aren’t answered yet' },
   'projects.questions.sent': 'Answers sent to {name}.',
   'projects.questions.skipped': '{name} plans with what is known.',
   'projects.questions.skippedLog': 'Plan with what you have, {name}: list what you assume.',

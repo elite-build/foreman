@@ -8121,7 +8121,7 @@ export const ko: Catalogue = {
   'projects.questions.skip': '있는 정보로 계획하기',
   'projects.questions.skipHint': '{name}님이 더 이상 답변 없이 계획하고, 가정한 내용을 모두 적어 계획에서 확인할 수 있게 합니다.',
   'projects.questions.send': '답변 보내기',
-  'projects.questions.answerAll': '먼저 모든 질문에 답하세요.',
+  'projects.questions.missing': { other: '질문 {list}에 아직 답하지 않았습니다' },
   'projects.questions.sent': '{name}님에게 답변을 보냈습니다.',
   'projects.questions.skipped': '{name}님이 있는 정보로 계획합니다.',
   'projects.questions.skippedLog': '{name}님, 있는 정보로 계획해 주세요. 가정한 내용을 적어 주세요.',
