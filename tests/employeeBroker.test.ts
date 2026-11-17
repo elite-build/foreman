@@ -53,7 +53,7 @@ const MIN = 60_000
 
 function definition(id: string, overrides: Partial<EmployeeDefinition> = {}): EmployeeDefinition {
   const d = defaultEmployee({ id, colour: 'orange', repos: ['site', 'api'], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5' }], text: { name: NAMES[id] ?? id, role: 'Engineer', ask_me_about: `${NAMES[id]}’s things`, instructions: 'Work.' } })
-  return { ...d, ...overrides, access: { ...d.access, ...overrides.access }, limits: { runs_per_day: 100, minutes_per_run: 240, ...overrides.limits } }
+  return { ...d, ...overrides, access: { ...d.access, ...overrides.access } }
 }
 
 interface Fake {
@@ -117,8 +117,7 @@ async function rig(options: { employees?: string[]; delegates?: Record<string, s
         const summary = summaryOf(id)
         return { summary, ...(summary.problems.length ? {} : { definition: definitions.get(id)! }), head: 'head-1' }
       },
-      members: async (orgId) => [...orgOf.entries()].filter(([, o]) => o === orgId).map(([id]) => ({ summary: summaryOf(id), definition: definitions.get(id)! })),
-      runEnded: () => undefined
+      members: async (orgId) => [...orgOf.entries()].filter(([, o]) => o === orgId).map(([id]) => ({ summary: summaryOf(id), definition: definitions.get(id)! }))
     },
     memory: {
       status: async () => ({ state: 'ok', head: 'head-1' }),
@@ -139,7 +138,6 @@ async function rig(options: { employees?: string[]; delegates?: Record<string, s
       handle.created(`ws-${plan.run.id}`, `s-${plan.run.id}`)
     },
     stop: async (sessionId) => void stopped.push(sessionId),
-    turnStart: () => undefined,
     readChat: async (sessionId) => chats.get(sessionId) ?? [],
     session: (id) => sessions.get(id),
     changed: () => undefined,
@@ -245,9 +243,12 @@ describe('working together: the rules', () => {
 
   it('keeps an organization’s limits within their ranges, and a ledger’s state from its counts', () => {
     expect(workLimitsOf(undefined)).toEqual(DEFAULT_WORK_LIMITS)
-    expect(DEFAULT_WORK_LIMITS).toEqual({ runs: 20, depth: 2, delegationsPerRun: 3, descendants: 8 })
-    expect(workLimitsOf({ workLimits: { depth: 0, runs: 9999 } })).toEqual({ ...DEFAULT_WORK_LIMITS, depth: 0 })
-    expect(parseWorkLimits({ depth: 1, runs: 'x', other: 3 })).toEqual({ depth: 1 })
+    // The chain's runs are its one guard (§9: no employee has limits); an older state.json's depth and counts are dropped.
+    expect(DEFAULT_WORK_LIMITS).toEqual({ runs: 20 })
+    expect(workLimitsOf({ workLimits: { runs: 9999 } })).toEqual(DEFAULT_WORK_LIMITS)
+    expect(workLimitsOf({ workLimits: { runs: 30 } })).toEqual({ runs: 30 })
+    expect(parseWorkLimits({ depth: 1, runs: 'x', other: 3 })).toBeUndefined()
+    expect(parseWorkLimits({ depth: 1, runs: 30 })).toEqual({ runs: 30 })
     expect(parseOrganizations([{ id: 'o', name: 'A', createdAt: 'x', leadEmployeeId: 'e-1', workLimits: { runs: 30 } }])).toEqual([{ id: 'o', name: 'A', createdAt: 'x', leadEmployeeId: 'e-1', workLimits: { runs: 30 } }])
     expect(parseOrganizations([{ id: 'o', name: 'A', createdAt: 'x', leadEmployeeId: '../x' }])[0].leadEmployeeId).toBeUndefined()
     expect(rootState({ state: 'open', runsUsed: 20, runsAllowed: 20, active: 1 })).toBe('spent')
@@ -401,48 +402,43 @@ describe('working together: a hand-off and its result', () => {
     expect(task(f, a.id)).toMatchObject({ state: 'closed', closureReason: 'blocked' })
     expect(task(f, root.id).deliveries![0].results[0]).toMatchObject({ closure: 'blocked', synthetic: true, summary: 'The model is overloaded.' })
     expect(f.launches.at(-1)!.message).toContain('status blocked')
-    // Refused at admission (Lin has had its runs for today): closed blocked, and the requester told.
+    // Refused at admission (Lin wears a persona that isn't here): closed blocked, and the requester told.
     const g = await rig()
-    g.definitions.set('e-lin3', definition('e-lin3', { limits: { runs_per_day: 1, minutes_per_run: 240 } }))
-    await finishDone(g, (await begin(g, 'e-lin3', 'Earlier work')).task.id)
+    g.definitions.set('e-lin3', definition('e-lin3', { persona: 'docs-writer' }))
     const second = await begin(g)
     const refused = (await delegate(g, second.run, 'e-lin3', 'Charts')).task
     await end(g, second.run)
     await settle()
-    expect(task(g, refused.id)).toMatchObject({ state: 'closed', closureReason: 'blocked', closureDetail: expect.stringMatching(/^Refused: Lin has had 1 runs today/) })
-    expect(task(g, second.task.id).deliveries![0].results[0]).toMatchObject({ closure: 'blocked', synthetic: true, summary: expect.stringMatching(/^Foreman didn’t run it: Lin has had 1 runs today/) })
+    expect(task(g, refused.id)).toMatchObject({ state: 'closed', closureReason: 'blocked', closureDetail: expect.stringMatching(/^Refused: Lin wears the persona “docs-writer”, which isn’t here/) })
+    expect(task(g, second.task.id).deliveries![0].results[0]).toMatchObject({ closure: 'blocked', synthetic: true, summary: expect.stringMatching(/^Foreman didn’t run it: Lin wears the persona “docs-writer”/) })
   })
 })
 
 describe('working together: the guards', () => {
-  it('refuses past the chain’s depth (2 by default; 0 turns delegation off)', async () => {
+  it('hands off at any depth (§9: no employee has limits)', async () => {
     const f = await rig({ employees: ['e-max1', 'e-ada2', 'e-lin3', 'e-bo4'] })
     const { run } = await begin(f)
     const a = (await delegate(f, run, 'e-ada2', 'Level one')).task
     await end(f, run)
     const adaRun = going(f, a.id)
     const b = (await delegate(f, adaRun, 'e-lin3', 'Level two')).task
-    expect(task(f, b.id).depth).toBe(2)
     await end(f, adaRun)
     const linRun = going(f, b.id)
-    await expect(delegate(f, linRun, 'e-bo4', 'Level three')).rejects.toThrow('This chain of work is already 2 hand-offs deep, the most Acme allows.')
-    const off = await rig({ workLimits: { depth: 0 } })
-    const first = await begin(off)
-    await expect(delegate(off, first.run, 'e-ada2', 'Anything')).rejects.toThrow('Handing off tasks is off in Acme')
-    expect(off.db.employeeTasks('o1')).toHaveLength(1)
+    const c = (await delegate(f, linRun, 'e-bo4', 'Level three')).task
+    expect(task(f, c.id).depth).toBe(3)
   })
 
-  it('refuses a fourth hand-off in one run, and past the chain’s handed-off tasks', async () => {
+  it('hands off and messages as many times in one run as it needs, and the chain holds as many tasks', async () => {
     const f = await rig()
     const { task: root, run } = await begin(f)
-    for (const title of ['One', 'Two', 'Three']) await delegate(f, run, 'e-ada2', title)
-    await expect(delegate(f, run, 'e-lin3', 'Four')).rejects.toThrow('You have handed off 3 tasks in this run, the most one run may.')
-    expect(ledger(f, root.id).descendants).toBe(3)
-    const g = await rig({ workLimits: { descendants: 2, delegationsPerRun: 5 } })
+    for (const title of ['One', 'Two', 'Three', 'Four', 'Five']) await delegate(f, run, 'e-ada2', title)
+    await delegate(f, run, 'e-lin3', 'Six')
+    expect(ledger(f, root.id).descendants).toBe(6)
+    const g = await rig()
     const second = await begin(g)
-    await delegate(g, second.run, 'e-ada2', 'One')
-    await delegate(g, second.run, 'e-lin3', 'Two')
-    await expect(delegate(g, second.run, 'e-ada2', 'Three')).rejects.toThrow('This chain of work already holds 2 handed-off tasks, the most Acme allows.')
+    for (const n of [1, 2, 3, 4]) await g.service.send(second.run.sessionId!, { to: n % 2 ? 'e-ada2' : 'e-lin3', body: `note ${n}` })
+    // Each starts at once (no lanes), so none waits unread for the next to join.
+    expect(g.db.employeeTasksOfRoot(second.task.id).filter((t) => t.kind === 'message')).toHaveLength(4)
   })
 
   it('ends a ping-pong of messages at the chain’s 20 runs, holds the next as root-limit, and runs it once a person raises the limit', async () => {
@@ -669,15 +665,17 @@ describe('working together: messages, follow-ups, the roster, the lead and escal
   it('a message wakes its recipient in the same chain without being waited for; a second one joins it while unread', async () => {
     const f = await rig({ employees: ['e-max1', 'e-ada2'] })
     const { task: root, run } = await begin(f)
-    // Ada is busy with something else, so the message waits.
-    const busy = await begin(f, 'e-ada2', 'Busy')
+    // The account is at its usage limit until 11:00, so the message waits (Max's run had already started).
+    f.state.limits = [{ agent: 'claude', windows: [{ kind: 'session', usedPercent: 100, resetsAt: '2026-11-13T11:00:00.000Z', state: 'blocked' }], updatedAt: '2026-11-13T09:59:00.000Z' }]
     const sent = await f.service.send(run.sessionId!, { to: 'e-ada2', body: 'The launch moved to Friday.' })
-    expect(sent).toMatchObject({ outcome: 'sent', task: { kind: 'message', state: 'open', hold: 'queued', parentId: root.id, rootId: root.id, depth: 0, title: 'Message from Max' } })
+    expect(sent).toMatchObject({ outcome: 'sent', task: { kind: 'message', state: 'open', hold: 'usage-limit', parentId: root.id, rootId: root.id, depth: 0, title: 'Message from Max' } })
     expect(task(f, root.id).state).toBe('running')
     const more = await f.service.send(run.sessionId!, { to: 'e-ada2', body: 'And it is in Lisbon.' })
     expect(more).toMatchObject({ outcome: 'added', task: { id: sent.task.id } })
     expect(task(f, sent.task.id).body).toContain('And it is in Lisbon.')
-    await finishDone(f, busy.task.id)
+    f.state.limits = []
+    f.clock.now = Date.parse('2026-11-13T11:01:30.000Z')
+    await f.service.tick()
     await settle()
     expect(task(f, sent.task.id).state).toBe('running')
     expect(f.launches.at(-1)!.message).toMatch(/^Message from Max\n\nMax, another AI employee of your organization, sent you this for your information\. It expects no reply\./)
@@ -863,7 +861,7 @@ describe('working together: bot_propose, kept or retired by a person', () => {
     expect(after.summary.changed).toBe(true)
   })
 
-  it('proposes a new employee at the safest settings: retired, nothing is made; kept, it is a draft', async () => {
+  it('proposes a new employee at the base settings: retired, nothing is made; kept, it is a draft', async () => {
     const r = await real()
     const spec = { name: 'Bo', role: 'QA', description: 'Checks releases.', instructions: 'Check.', responsibilities: ['Check releases'], ask_me_about: 'Releases' }
     await r.tools.call('s', 'bot_propose', { kind: 'employee', spec, reason: 'Nobody checks releases.' })
@@ -876,7 +874,7 @@ describe('working together: bot_propose, kept or retired by a person', () => {
     await r.memory.keepProposal('o1', r.memory.proposals('o1')[0].id)
     const bo = (await r.employees.list('o1')).employees.find((e) => e.name === 'Bo')!
     expect(bo).toMatchObject({ state: 'draft', role: 'QA' })
-    expect(bo.definition!.access).toMatchObject({ repos: {}, profile: 'no-shell', delegate_to: [], memory_write: [] })
+    expect(bo.definition!.access).toMatchObject({ repos: {}, profile: 'shell', delegate_to: [], memory_write: [] })
     expect(bo.definition!.triggers ?? []).toEqual([])
   })
 

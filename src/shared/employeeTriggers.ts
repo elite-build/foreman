@@ -8,15 +8,13 @@
 //
 // Also the per-computer firing state kept in state.json (§12): each trigger's next planned time, whether it is turned
 // off here, and its last firings with what became of each. Pure; the service is src/main/employeeTriggers.ts.
-import { cronMinGapMinutes, nextCron, parseCron, type CronSpec } from './cron'
+import { nextCron, parseCron, type CronSpec } from './cron'
 import { createT, type TFunction } from './i18n'
 import { nextRuns, parseDate, parseTime, specProblem, validTimezone, zonedTime, type ScheduleSpec } from './schedule'
 import { globToRegExp } from './sensitive'
 
 const enT = createT('en')
 
-/** No trigger fires more often than this (§8). */
-export const TRIGGER_FLOOR_MINUTES = 15
 export const MAX_TRIGGERS = 10
 export const MAX_TRIGGER_PROMPT = 2000
 /** The longest interval: 30 days. */
@@ -210,14 +208,11 @@ export function triggerTimingProblem(trigger: EmployeeTrigger, t: TFunction = en
     if (!validTimezone(trigger.timezone)) return t('employees.problem.triggerTimezone', { n, timezone: trigger.timezone })
     const parsed = parseCron(trigger.cron, t)
     if (!parsed.ok) return t('employees.problem.triggerCron', { n, problem: parsed.problem })
-    const gap = cronMinGapMinutes(parsed.spec)
-    if (gap < TRIGGER_FLOOR_MINUTES) return t('employees.problem.triggerFloor', { n, minutes: TRIGGER_FLOOR_MINUTES, gap })
     return null
   }
   if (trigger.kind === 'interval') {
     const minutes = intervalMinutes(trigger.every)
     if (minutes === undefined || minutes > MAX_INTERVAL_MINUTES) return t('employees.problem.triggerEvery', { n, every: trigger.every })
-    if (minutes < TRIGGER_FLOOR_MINUTES) return t('employees.problem.triggerFloor', { n, minutes: TRIGGER_FLOOR_MINUTES, gap: minutes })
     if (trigger.timezone !== undefined && !validTimezone(trigger.timezone)) return t('employees.problem.triggerTimezone', { n, timezone: trigger.timezone })
     if (trigger.anchor !== undefined) {
       const m = ANCHOR.exec(trigger.anchor)
@@ -231,7 +226,7 @@ export function triggerTimingProblem(trigger: EmployeeTrigger, t: TFunction = en
 
 /**
  * Read `[[triggers]]` (absent: none), checked strictly as the rest of the definition is: an unknown field, a wrong type,
- * a value outside its choices, a timing that doesn't parse, one under the 15-minute floor, a repository the employee
+ * a value outside its choices, a timing that doesn't parse, a repository the employee
  * can't work in (`repos`: its access by repository name) or two triggers with one id each make a problem.
  */
 export function parseTriggers(raw: unknown, repos: Record<string, string>, t: TFunction = enT): { triggers: EmployeeTrigger[]; problems: string[] } {

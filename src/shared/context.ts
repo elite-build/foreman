@@ -41,7 +41,7 @@ export interface AssembledAdditions {
   // MCP servers it kept (undefined: it narrowed none).
   persona?: { name: string; text: string; readOnly?: boolean; mcp?: string[] }
   // docs/ai-employees.md §5.2: an AI employee's run: its instructions as appended (Foreman's rules, the organization's
-  // instructions at a commit, its definition's), whether it ran read-only and the MCP servers it kept; and each pinned
+  // instructions at a commit, its definition's), whether it ran read-only and the MCP servers a persona kept; and each pinned
   // memory file it was given, with its path, the commit it was read at, its length and whether it was cut.
   employee?: {
     name: string
@@ -51,7 +51,8 @@ export interface AssembledAdditions {
     jobPrompt?: { id: string; version: string }
     orgInstructions?: { path: string; commit: string; cut: boolean }
     readOnly?: boolean
-    mcp: string[]
+    // Absent: every MCP server, as a workspace's agent has; a persona it wears may keep fewer.
+    mcp?: string[]
     memory: { path: string; commit: string; chars: number; cut: boolean }[]
   }
 }
@@ -90,7 +91,7 @@ export function contextParts(a: AssembledAdditions, t: TFunction = enT): Context
       e.jobPrompt ? t('context.employee.jobPrompt', { job: e.jobPrompt.id, version: e.jobPrompt.version }) : '',
       e.orgInstructions ? t('context.employee.orgInstructions', { path: e.orgInstructions.path, commit: e.orgInstructions.commit.slice(0, 7) }) : '',
       e.readOnly ? t('context.persona.readOnly') : '',
-      t('context.persona.mcp', { names: e.mcp.join(', ') || '—' })
+      e.mcp ? t('context.persona.mcp', { names: e.mcp.join(', ') || '—' }) : ''
     ].filter(Boolean)
     parts.push({ kind: 'employee', label: t('context.employee.label', { name: e.name }), size: e.text.length, unit: 'chars', source: t('context.employee.source', { file: e.definitionPath }), detail: detail.join(' · ') })
     for (const m of e.memory) {

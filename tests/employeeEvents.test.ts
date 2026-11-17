@@ -45,7 +45,7 @@ const NAMES: Record<string, string> = { 'e-max1': 'Max', 'e-ada2': 'Ada' }
 
 function definition(id: string, triggers: EmployeeTrigger[] = []): EmployeeDefinition {
   const d = defaultEmployee({ id, colour: 'orange', repos: ['site', 'api'], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5' }], text: { name: NAMES[id] ?? id, role: 'Engineer', instructions: 'Work.', responsibilities: ['Keep the site right'] } })
-  return { ...d, access: { ...d.access, repos: { site: 'write', api: 'read' } }, limits: { runs_per_day: 100, minutes_per_run: 240 }, ...(triggers.length ? { triggers } : {}) }
+  return { ...d, access: { ...d.access, repos: { site: 'write', api: 'read' } }, ...(triggers.length ? { triggers } : {}) }
 }
 
 const MERGED: EventTrigger = { id: 't-prm1', kind: 'event', source: 'pull-request', on: ['merged'], repo: 'site', debounce: 0, overlap: 'skip', enabled: true }
@@ -254,7 +254,7 @@ async function rig(options: { triggers?: Record<string, EmployeeTrigger[]>; work
   const host: EmployeeWorkHost = {
     state: () => state,
     db: () => db,
-    employees: { current: async (_org, id) => ({ summary: summaryOf(id), definition: definitions.get(id)!, head: 'head-1' }), runEnded: () => undefined },
+    employees: { current: async (_org, id) => ({ summary: summaryOf(id), definition: definitions.get(id)!, head: 'head-1' }) },
     memory: {
       status: async () => ({ state: 'ok', head: 'head-1' }),
       read: async (_org, file) => ({ path: file, head: 'head-1', blob: null, size: 0, binary: false, tooLarge: false }),
@@ -273,7 +273,6 @@ async function rig(options: { triggers?: Record<string, EmployeeTrigger[]>; work
       handle.created(`ws-${plan.run.id}`, `s-${plan.run.id}`)
     },
     stop: async () => undefined,
-    turnStart: () => undefined,
     readChat: async (sessionId) => chats.get(sessionId) ?? [],
     session: (id) => sessions.get(id),
     changed: () => undefined,

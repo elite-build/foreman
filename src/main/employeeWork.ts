@@ -7,16 +7,15 @@
 //  - admission is one function, used by every start (Ask, Run now, Retry, a held task released): AI employees on, the
 //    organization's memory repository ok, the employee approved here and unchanged since, the definition's agent able to
 //    hold the run to its access (unattended, read-only, scoped writes: its capability record, never its id), the target
-//    repository the organization's and open to the employee, the runs-per-day limit; then the lanes: one going run per
-//    employee, two per organization. A paused employee's work is held, never dropped, and runs on Resume;
+//    repository the organization's and open to the employee, its chain's runs. No employee has limits (§9): no lanes,
+//    no runs a day, no minutes, no cost threshold; an employee runs as many tasks at once as it is given. A paused
+//    employee's work is held, never dropped, and runs on Resume;
 //  - a refusal is recorded on the task with a plain reason, and the task waits for a person (Retry or Cancel);
-//  - a usage limit is a hold, not a failure (§9): a run that ends at its account's limit ends as usage-limit, counts
-//    neither way towards the two-failures pause, and its task waits open (hold usage-limit, the same request, its next
-//    attempt queued) until the limit resets; then a fresh run starts with the whole brief, never the cut-off turn. New
-//    work for an account known to be at its limit is held the same way instead of starting a run that would stop there;
+//  - a usage limit is a hold, not a failure (§9): a run that ends at its account's limit ends as usage-limit, and its
+//    task waits open (hold usage-limit, the same request, its next attempt queued) until the limit resets; then a fresh
+//    run starts with the whole brief, never the cut-off turn. New work for an account known to be at its limit is held
+//    the same way instead of starting a run that would stop there;
 //  - every transition is logged; a run's start is recorded before its turn reaches the agent;
-//  - the definition's minutes per run, when it sets them, stop the turn (time waiting for an agent slot, or for a person to answer an
-//    attended employee's approval, doesn't count);
 //  - after a crash, a run whose turn never reached the agent is queued again as the next attempt at the same task; one
 //    whose turn did is uncertain, and its task waits for a person. Nothing is replayed silently;
 //  - a run ends its task itself, with one of its own tools (main/employeeTools.ts): finish_task closes it with the reason
@@ -48,7 +47,6 @@ import {
   ROOT_RAISE,
   ROOT_RUNS_MAX,
   rootState,
-  SENDS_PER_RUN,
   SIBLING_HOLD_MS,
   subtree,
   TITLE_WARNING_MS,
@@ -116,9 +114,6 @@ import type { EmployeeService } from './employees'
 import type { MemoryService } from './memory'
 import { mainT } from './i18n'
 import type { PersistedState } from './store'
-
-/** At most this many employee runs go at once in one organization (§9, "active runs per organization"). */
-export const ORG_RUN_LIMIT = 2
 
 const TICK_MS = 30_000
 /** What was decided for the person is listed for this long (§6.6). */
@@ -206,8 +201,6 @@ export interface EmployeeLaunchPlan {
   message: string
   startedBy: Extract<WorkspaceStartedBy, { via: 'employee' }>
   origin: Extract<MessageOrigin, { kind: 'employee' }>
-  // How long setup may take before the run fails; absent (no minutes limit), the usual wait for setup.
-  setupMs?: number
   // A project's run (docs/ai-employees.md §15): the project's workspace, where it opens a new chat instead of making one.
   workspaceId?: string
 }
@@ -215,9 +208,8 @@ export interface EmployeeLaunchPlan {
 export interface EmployeeWorkHost {
   state(): PersistedState
   db(): ForemanDb
-  // `runEnded` counts runs in a row that didn't finish, and pauses the employee at two (§9). `members`: the organization's
-  // employees for bot_list (§7).
-  employees: Pick<EmployeeService, 'current'> & Partial<Pick<EmployeeService, 'runEnded' | 'members'>>
+  // `members`: the organization's employees for bot_list (§7).
+  employees: Pick<EmployeeService, 'current'> & Partial<Pick<EmployeeService, 'members'>>
   memory: Pick<MemoryService, 'status' | 'read' | 'writeRecap' | 'commitRun' | 'stagedChanges' | 'runWrittenPaths' | 'proposals' | 'keepProposal' | 'retireProposal'>
   // ask_person's question as a needs-input report on the run's chat and turn (Needs you, the phone, Slack's needs-me
   // event, as any agent report): its id. And closing it once answered (replied) or its task canceled (dismissed).
@@ -235,8 +227,6 @@ export interface EmployeeWorkHost {
   launch(plan: EmployeeLaunchPlan, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void>
   // Stop the run's turn (it ends as cancelled).
   stop(sessionId: string): Promise<void>
-  // Where the run's turn is for its minutes: 'waiting' for an agent slot, its start (ISO) once it has one, undefined before.
-  turnStart(sessionId: string): 'waiting' | string | undefined
   readChat(sessionId: string): Promise<ChatItem[]>
   session(sessionId: string): Session | undefined
   workspaceName?(workspaceId: string): string | undefined
@@ -248,7 +238,7 @@ export interface EmployeeWorkHost {
 
 type Verdict =
   | { kind: 'admit'; ctx: RunContext }
-  | { kind: 'hold'; hold: 'paused' | 'queued' | 'budget' | 'root-limit' | 'usage-limit'; reason: string; limit?: EmployeeLimitHold }
+  | { kind: 'hold'; hold: 'paused' | 'queued' | 'root-limit' | 'usage-limit'; reason: string; limit?: EmployeeLimitHold }
   | { kind: 'refuse'; reason: string }
 
 interface RunContext {
@@ -345,16 +335,6 @@ export interface EmployeeFireInput {
 
 export type EmployeeFireResult = { outcome: 'fired'; taskId: string; duplicate?: true } | { outcome: 'coalesced'; taskId: string } | { outcome: 'skipped'; skip: 'overlap'; taskId: string }
 
-/** Local midnight before `now`, the day's start for the daily limits (runs per day, the cost threshold). */
-const midnightOf = (now: number): number => {
-  const day = new Date(now)
-  day.setHours(0, 0, 0, 0)
-  return day.getTime()
-}
-
-/** "$5.00", for the reasons a run is held (English, as every reason main writes). */
-const usd = (n: number) => `$${n.toFixed(2)}`
-
 /** The first line of a text, cut to `max`. */
 const firstLine = (text: string, max = 300) => {
   const line = (text.split(/\r?\n/).find((l) => l.trim()) ?? '').trim()
@@ -368,9 +348,6 @@ export class EmployeeWorkService {
   private lock: Promise<unknown> = Promise.resolve()
   // What each going run's turn is given, by run id (in memory: after a restart a run is never resumed).
   private briefs = new Map<string, EmployeeBrief>()
-  // An attended run waiting for a person to answer, since when; and how long such waits took, by run id.
-  private answering = new Map<string, number>()
-  private waited = new Map<string, number>()
   private revision = 0
   private cached: Record<string, EmployeeWorkView> | null = null
   // Recaps being written and committed: Foreman waits for them before it closes (settle).
@@ -694,9 +671,9 @@ export class EmployeeWorkService {
 
   /**
    * Whether the task may run now (§9: checked at admission, every time). Refusals come first, then a pause (held), then
-   * the hard daily limit, then the lanes (held, queued).
+   * the chain's runs and a usage limit (held), then a trigger's overlap (held, queued). No employee has limits.
    */
-  private async verdict(task: EmployeeTask, exceptRun?: string): Promise<Verdict> {
+  private async verdict(task: EmployeeTask): Promise<Verdict> {
     const org = (this.state.organizations ?? []).find((o) => o.id === task.orgId)
     if (!org) return { kind: 'refuse', reason: 'Its organization is gone.' }
     if (!org.memoryRepoId || !this.state.repos.some((r) => r.id === org.memoryRepoId)) return { kind: 'refuse', reason: `${org.name} has no memory repository. Choose one in Settings → Spaces.` }
@@ -721,14 +698,6 @@ export class EmployeeWorkService {
     if (summary.state === 'draft') return { kind: 'refuse', reason: `${name} isn’t approved on this computer. Approve it first.` }
     if (summary.changed) return { kind: 'refuse', reason: `${name}’s definition changed since it was approved. Look at what changed and approve it again.` }
     if (summary.state === 'paused') return { kind: 'hold', hold: 'paused', reason: `${name} is paused. This runs when you resume ${name}.` }
-    // The cost threshold (§9): cost is known only once a turn ends, so it holds new work once crossed, until the next
-    // local day; a run already going can take it over.
-    const threshold = definition.limits.cost_per_day_usd
-    if (threshold !== undefined) {
-      const spent = this.spentToday(org.id, task.employeeId)
-      if (spent > 0 && spent >= threshold)
-        return { kind: 'hold', hold: 'budget', reason: `${name}’s runs cost ${usd(spent)} today, past its threshold of ${usd(threshold)} a day. This runs tomorrow, or once you raise the threshold in Edit.` }
-    }
     // Its chain's runs (§7): every run, whatever started it, counts against its root, so even a ping-pong of messages ends.
     const ledger = this.ledger(task)
     if (ledger.state === 'canceled') return { kind: 'refuse', reason: 'Its chain of work was canceled, so nothing more of it runs.' }
@@ -771,20 +740,12 @@ export class EmployeeWorkService {
     const limited = own && (!account || Date.parse(own.retryAt) >= Date.parse(account.retryAt)) ? own : account
     if (limited) return { kind: 'hold', hold: 'usage-limit', reason: limitHoldReason(limited), limit: limited }
 
-    // The hard daily limit, if it has one, counted over runs admitted since local midnight.
-    const midnight = midnightOf(this.now())
-    const runs = this.db.employeeRuns({ orgId: org.id, employeeId: task.employeeId })
-    const today = runs.filter((r) => r.id !== exceptRun && r.admittedAt && Date.parse(r.admittedAt) >= midnight).length
-    if (definition.limits.runs_per_day !== undefined && today >= definition.limits.runs_per_day) return { kind: 'refuse', reason: `${name} has had ${today} runs today, its limit. Retry tomorrow, or raise its runs per day in Edit.` }
-
-    // The lanes: one going run per employee, at most two per organization. The program manager (§15) is outside them:
-    // she plans and accepts any number of projects at once, in short runs that change no repository, and hers don't
-    // take a place from anyone else's.
-    const pm = org.programManagerId
-    if (task.employeeId !== pm && runs.some((r) => r.id !== exceptRun && isRunGoing(r.state))) return { kind: 'hold', hold: 'queued', reason: `Waiting for ${name}’s current run to finish.` }
-    const going = this.db.employeeRuns({ orgId: org.id, states: RUN_GOING }).filter((r) => r.id !== exceptRun && r.employeeId !== pm).length
-    if (task.employeeId !== pm && going >= ORG_RUN_LIMIT) return { kind: 'hold', hold: 'queued', reason: `${ORG_RUN_LIMIT} employee runs are going in ${org.name}; this runs when one finishes.` }
-
+    // No lanes and no runs a day (§9): an employee runs every task it is given at once, each in its own workspace. Only
+    // a trigger's own overlap (§8) makes work wait: the task one firing queued or coalesced runs once the trigger's
+    // earlier task is no longer running or waiting.
+    const trigger = task.trigger?.id
+    if (trigger && this.db.employeeTasks(org.id, { employeeId: task.employeeId, states: ['running', 'waiting'] }).some((t) => t.id !== task.id && t.trigger?.id === trigger))
+      return { kind: 'hold', hold: 'queued', reason: 'Waiting for the last task its trigger started to finish.' }
     const mark: EmployeeTurnMark = { employeeRunId: '', employeeId: task.employeeId, orgId: org.id, persona: limits, ...(attended ? { attended: true as const } : {}) }
     return { kind: 'admit', ctx: { org, definition, repo, access, mark, memoryReadOnly: Boolean(persona?.read_only) } }
   }
@@ -795,7 +756,7 @@ export class EmployeeWorkService {
    */
   private async admit(given: EmployeeTask, queued?: EmployeeRun, cause?: string): Promise<EmployeeTask> {
     const entry = this.db.employeeTask(given.id) ?? given
-    const verdict = await this.verdict(entry, queued?.id)
+    const verdict = await this.verdict(entry)
     // Stop and Cancel don't wait for the lock: one that came while the checks ran wins, and nothing here undoes it.
     const task = this.db.employeeTask(given.id)
     if (!task) return entry
@@ -844,7 +805,6 @@ export class EmployeeWorkService {
         agent: d.model.agent,
         model: d.model.model,
         effort: d.model.effort,
-        minutes: d.limits.minutes_per_run,
         rootId: task.rootId,
         ...(d.attendance === 'attended' ? { attended: true } : {}),
         ...(d.persona ? { persona: d.persona } : {})
@@ -859,14 +819,6 @@ export class EmployeeWorkService {
     return task
   }
 
-  /** What the employee's runs that ended since local midnight cost, where their agent said (§9, the cost threshold). */
-  spentToday(orgId: string, employeeId: string): number {
-    const midnight = midnightOf(this.now())
-    return this.db
-      .employeeRuns({ orgId, employeeId })
-      .filter((r) => r.endedAt && Date.parse(r.endedAt) >= midnight && typeof r.usage?.costUsd === 'number')
-      .reduce((sum, r) => sum + (r.usage!.costUsd ?? 0), 0)
-  }
 
   /**
    * A trigger fired (§8): a task from 'schedule' with the firing's request id, admitted, held or refused like any. A
@@ -1017,7 +969,6 @@ export class EmployeeWorkService {
           message: opening,
           startedBy: { via: 'employee', orgId: task.orgId, employeeId: task.employeeId, runId: run.id, taskId: task.id, title: task.title },
           origin: { kind: 'employee', orgId: task.orgId, employeeId: task.employeeId, runId: run.id, taskId: task.id },
-          ...(d.limits.minutes_per_run !== undefined ? { setupMs: d.limits.minutes_per_run * 60_000 } : {}),
           ...(shared ? { workspaceId: shared } : {})
         },
         {
@@ -1172,20 +1123,6 @@ export class EmployeeWorkService {
     void this.finish(run, 'needs-you', reason, { state: 'waiting', reason }).catch((err: unknown) => console.error('Employee run:', err))
   }
 
-  /** An attended employee's approval waits for a person, or was answered: that time doesn't count against its minutes. */
-  attendedApproval(sessionId: string, waiting: boolean): void {
-    const run = this.runOfSession(sessionId)
-    if (!run) return
-    if (waiting) {
-      if (!this.answering.has(run.id)) this.answering.set(run.id, this.now())
-      return
-    }
-    const since = this.answering.get(run.id)
-    if (since === undefined) return
-    this.answering.delete(run.id)
-    this.waited.set(run.id, (this.waited.get(run.id) ?? 0) + Math.max(0, this.now() - since))
-  }
-
   /**
    * End a run and leave its task as `after` says (default: what the end means). A run whose turn started gets its recap
    * and journal entry from the run record, and its memory is committed with its trailers. Then held work is admitted.
@@ -1206,8 +1143,6 @@ export class EmployeeWorkService {
       : undefined
     this.saveRun(run, { state, endedAt: this.iso(), reason, ...(usage && Object.keys(usage).length ? { usage } : {}) })
     this.briefs.delete(run.id)
-    this.answering.delete(run.id)
-    this.waited.delete(run.id)
     const task = this.db.employeeTask(run.taskId)
     const outcome =
       after !== undefined
@@ -1227,19 +1162,6 @@ export class EmployeeWorkService {
       if (outcome?.state === 'open' && outcome.hold === 'usage-limit') this.saveRun(this.newRun(task, 'usage-limit'), { reason: outcome.reason })
     }
     this.touched()
-    // Two runs in a row that didn't finish pause the employee (§9): one that failed, timed out, was stopped for an
-    // approval nobody could give, or ended without a result. One that finished resets the count; one a person stopped,
-    // one Foreman closed on, or one that stopped at its account's usage limit (a hold, not its failure) says nothing
-    // either way.
-    const synthetic = after && after.state === 'closed' && after.result?.synthetic
-    const failed = state === 'failed' || state === 'timed-out' || state === 'needs-you' || (state === 'completed' && Boolean(synthetic))
-    if (failed || state === 'completed') {
-      try {
-        this.host.employees.runEnded?.(run.orgId, run.employeeId, { failed, ...(failed ? { detail: synthetic ? 'it ended without a result' : reason ?? state } : {}) })
-      } catch (err) {
-        console.error('Employee run:', err)
-      }
-    }
     if (run.started && task) await this.track(this.recap(run, task, reply))
     // Its workspace is archived once quiet, unless its question waits there (in Needs you, by its chat); with it, those of
     // the task's earlier runs whose questions are answered.
@@ -1748,7 +1670,6 @@ export class EmployeeWorkService {
     return this.exclusive(async () => {
       const task = this.parkable(own.id, run)
       const org = this.organization(run.orgId)
-      const limits = workLimitsOf(org)
       const sender = await this.sender(run)
       const to = await this.recipient(org, input.to, run.employeeId)
       this.allowed(sender, to)
@@ -1772,15 +1693,10 @@ export class EmployeeWorkService {
         this.touched()
         return { outcome: 'already', task: existing, name: to.name }
       }
-      // The guards, before anything is written or reserved.
+      // The guards, before anything is written or reserved: no limit on depth or on how many (§9), only no circles.
       const chain = this.db.employeeTasksOfRoot(task.rootId)
       const depth = (task.depth ?? 0) + 1
-      if (limits.depth === 0) throw new Error(`Handing off tasks is off in ${org.name}: do the work yourself.`)
-      if (depth > limits.depth) throw new Error(`This chain of work is already ${limits.depth} hand-offs deep, the most ${org.name} allows. Do this part yourself, or finish with what you have and say what is left.`)
-      const handed = chain.filter((t) => t.requestedBy?.runId === run.id && t.kind !== 'message')
-      if (handed.length >= limits.delegationsPerRun) throw new Error(`You have handed off ${handed.length} tasks in this run, the most one run may. End your turn to wait for their results, then hand off more if you still need to.`)
       const ledger = this.ledger(task)
-      if (ledger.descendants >= limits.descendants) throw new Error(`This chain of work already holds ${ledger.descendants} handed-off tasks, the most ${org.name} allows. Do the rest yourself, or finish with what you have.`)
       if (chainEmployees(chain, task.id).includes(to.id)) throw new Error(`${to.name} is already working on this chain, so handing them part of it could go round in circles. Say what you need from them in your result instead.`)
       for (const id of dependsOn) {
         const dep = chain.find((t) => t.id === id)
@@ -1846,7 +1762,7 @@ export class EmployeeWorkService {
   /**
    * bot_send (§7): information only, never waited for. It wakes the recipient with a message task in the same chain (a
    * counted run, so a ping-pong ends at the chain's limit), or joins a message from the same sender the recipient hasn't
-   * read yet, rather than waking another run. At most SENDS_PER_RUN a run; not counted as a handed-off task.
+   * read yet, rather than waking another run. Not counted as a handed-off task.
    */
   async send(sessionId: string, input: { to: string; body: string }): Promise<{ outcome: 'sent' | 'added'; task: EmployeeTask; name: string }> {
     const { run, task: own } = this.toolRun(sessionId)
@@ -1863,8 +1779,6 @@ export class EmployeeWorkService {
         this.touched()
         return { outcome: 'added', task: unread, name: to.name }
       }
-      const sent = chain.filter((t) => t.kind === 'message' && t.requestedBy?.runId === run.id).length
-      if (sent >= SENDS_PER_RUN) throw new Error(`You have sent ${sent} messages in this run, the most one run may.`)
       const repoId = this.repoFor(org, to, task.targetRepoId)
       const now = this.iso()
       const id = randomUUID()
@@ -2040,12 +1954,10 @@ export class EmployeeWorkService {
   private async leadFor(org: Organization, task: EmployeeTask, run: EmployeeRun): Promise<{ id: string; name: string; repoId: string; depth: number } | undefined> {
     const leadId = org.leadEmployeeId
     if (!leadId || leadId === run.employeeId) return undefined
-    const limits = workLimitsOf(org)
     const chain = this.db.employeeTasksOfRoot(task.rootId)
     if (task.parentId && chainEmployees(chain, task.parentId).includes(leadId)) return undefined
     // It takes this task's place under its requester, or goes one deeper under a root.
     const depth = task.parentId ? (task.depth ?? 1) : (task.depth ?? 0) + 1
-    if (depth > limits.depth || this.ledger(task).descendants >= limits.descendants) return undefined
     try {
       const lead = await this.recipient(org, leadId, run.employeeId)
       return { id: lead.id, name: lead.name, repoId: this.repoFor(org, lead, task.targetRepoId), depth }
@@ -2392,20 +2304,8 @@ export class EmployeeWorkService {
     }
   }
 
-  /** The minutes per run (§9: a hard limit), then whatever waits. */
+  /** Whatever waits: no employee has a minutes limit (§9), so nothing is timed here. */
   async tick(): Promise<void> {
-    const now = this.now()
-    for (const run of this.db.employeeRuns({ states: RUN_GOING })) {
-      if (!run.minutes || this.answering.has(run.id)) continue
-      const turn = run.sessionId ? this.host.turnStart(run.sessionId) : undefined
-      // Waiting for an agent slot hasn't started it.
-      if (turn === 'waiting') continue
-      const from = Date.parse(turn ?? run.admittedAt ?? run.createdAt)
-      if (now - from - (this.waited.get(run.id) ?? 0) < run.minutes * 60_000) continue
-      const ended = this.finish(run, 'timed-out', `Stopped after the maximum of ${run.minutes} minutes.`)
-      if (run.sessionId) await this.host.stop(run.sessionId).catch(() => undefined)
-      await ended
-    }
     // Deadlines, sibling holds and follow-ups (§7) come due on this clock too.
     await this.exclusive(() => this.settleWaits())
     await this.pump()

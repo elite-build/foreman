@@ -13,6 +13,7 @@ import {
   employeeDraftPrompt,
   employeePath,
   employeePromptFile,
+  employeePromptPath,
   employeeProblems,
   employeeRefinePrompt,
   employeeStatus,
@@ -63,35 +64,35 @@ describe('employees: the definition', () => {
     expect([...HAT_COLOURS]).toEqual([...hardHatColours])
   })
 
-  it('starts a new employee at the safest settings, on the person’s default agent and model', () => {
+  it('starts a new employee with a shell, reading its repositories, on the person’s default agent and model', () => {
     const d = defaultEmployee({ id: 'e-abcd', colour: 'teal', repos: ['site', 'api'], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' }] })
     expect(d.access).toEqual({
       repos: { site: 'read', api: 'read' },
       memory_write: [],
-      profile: 'no-shell',
-      mcp: [],
+      profile: 'shell',
       delegate_to: [],
       actions: Object.fromEntries(EMPLOYEE_ACTIONS.map((a) => [a, 'held']))
     })
     expect(Object.values(d.access.actions).every((p) => p === 'held')).toBe(true)
     expect(d.attendance).toBe('unattended')
     expect(d.model).toEqual({ agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium', fallbacks: [] })
-    expect(d.limits).toEqual({})
+    expect(d).not.toHaveProperty('limits')
     expect(d.look).toEqual({ family: 'hardhat', colour: 'teal' })
   })
 
-  it('gives a new employee Write where it reads, pushes and pull requests without a hold, and no limits', () => {
+  it('gives a new employee Write where it reads, a shell, pushes and pull requests without a hold, and no limits', () => {
     const input = { id: 'e-abcd', colour: 'teal', repos: ['site', 'api'], loadouts: [{ agent: 'claude' as const, model: 'claude-sonnet-5-5' }], text: { name: 'Ada' } }
     const d = newEmployee(input)
     expect(d.access.repos).toEqual({ site: 'write', api: 'write' })
     expect(d.access.actions).toEqual({ 'slack-post': 'held', linear: 'held', push: 'allowed', 'pull-request': 'allowed' })
-    expect(d.limits).toEqual({})
-    expect(serializeEmployee(d).endsWith('\n[limits]\n')).toBe(true)
+    expect(d.access.profile).toBe('shell')
+    // No MCP list and no limits in the file: every run has every MCP server, and no employee has limits.
+    expect(serializeEmployee(d)).not.toMatch(/^mcp = |\[limits\]/m)
     expect(parseEmployee(serializeEmployee(d)).definition).toEqual(normalizeEmployee(d))
     // Attended runs read-only, so an attended employee keeps Read; a repository given no access stays so.
     expect(newEmployee({ ...input, loadouts: [{ agent: 'codex', model: 'gpt-6.1-sol' }] }).access.repos).toEqual({ site: 'read', api: 'read' })
-    const limited = { ...defaultEmployee(input), access: { ...defaultEmployee(input).access, repos: { site: 'none' as const, api: 'read' as const } }, limits: { runs_per_day: 3, minutes_per_run: 10, cost_per_day_usd: 2 } }
-    expect(withFullAccess(limited)).toMatchObject({ access: { repos: { site: 'none', api: 'write' } }, limits: {} })
+    const limited = { ...defaultEmployee(input), access: { ...defaultEmployee(input).access, repos: { site: 'none' as const, api: 'read' as const }, profile: 'no-shell' as const } }
+    expect(withFullAccess(limited)).toMatchObject({ access: { repos: { site: 'none', api: 'write' }, profile: 'shell' } })
   })
 
   it('makes an employee on an agent that can’t run unattended attended (Codex is offered attended only)', () => {
@@ -103,7 +104,7 @@ describe('employees: the definition', () => {
   })
 
   it('writes the file as §5.1 lays it out and reads it back the same', () => {
-    const toml = serializeEmployee(max({ access: { ...max().access, memory_write: ['org/docs'], repos: { 'foreman-website': 'write', foreman: 'read' } }, limits: { runs_per_day: 6, minutes_per_run: 30, cost_per_day_usd: 5 } }))
+    const toml = serializeEmployee(max({ access: { ...max().access, memory_write: ['org/docs'], repos: { 'foreman-website': 'write', foreman: 'read' } } }))
     expect(toml).toContain('id = "e-7k2m"\nname = "Max"\nrole = "Marketing"')
     expect(toml).toContain('look = { family = "hardhat", colour = "orange" }')
     expect(toml).toContain('responsibilities = [\n  "Write launch posts",\n  "Draft the changelog email",\n]')
@@ -112,12 +113,16 @@ describe('employees: the definition', () => {
     expect(employeePromptFile(max())).toMatch(/^## Role\n[\s\S]*\n$/)
     expect(serializeEmployee(max(), { instructions: true })).toContain('instructions = """\n## Role\n')
     expect(toml).toContain('model = { agent = "claude", model = "claude-opus-5-5[1m]", fallbacks = [] }')
-    expect(toml).toContain('\n[access]\nrepos = { "foreman" = "read", "foreman-website" = "write" }\nmemory_write = ["org/docs"]\nprofile = "no-shell"')
-    expect(toml).toContain('\n[limits]\nruns_per_day = 6\nminutes_per_run = 30\ncost_per_day_usd = 5\n')
+    expect(toml).toContain('\n[access]\nrepos = { "foreman" = "read", "foreman-website" = "write" }\nmemory_write = ["org/docs"]\nprofile = "shell"\ndelegate_to = []')
+    expect(toml).not.toContain('[limits]')
     const back = parseEmployee(toml, undefined, employeePromptFile(max()))
     expect(back.problems).toEqual([])
     expect(back.definition!.instructions).toBe(INSTRUCTIONS)
     expect(serializeEmployee(back.definition!)).toBe(toml)
+    // A file from before every run had every MCP server and no employee had limits still reads; both mean nothing now.
+    const older = parseEmployee(toml.replace('profile = "shell"\n', 'profile = "shell"\nmcp = ["linear"]\n') + '\n[limits]\nruns_per_day = 6\nminutes_per_run = 30\n', undefined, employeePromptFile(max()))
+    expect(older.problems).toEqual([])
+    expect(serializeEmployee(older.definition!)).toBe(toml)
     // A file from before prompts had their own still reads, with its prompt in it.
     expect(parseEmployee(serializeEmployee(max(), { instructions: true })).definition).toEqual(normalizeEmployee(max()))
   })
@@ -154,23 +159,20 @@ describe('employees: the definition', () => {
 
   it('says what is wrong with a file, and gives no definition while anything is', () => {
     expect(parseEmployee('name = ').problems[0]).toMatch(/^This isn’t valid TOML: /)
-    const base = serializeEmployee(max({ limits: { runs_per_day: 6, minutes_per_run: 30 } }))
+    const base = serializeEmployee(max())
     const problems = (toml: string) => parseEmployee(toml).problems
-    // Every limit is optional: one left out has none.
-    expect(problems(base.replace(/runs_per_day = 6\nminutes_per_run = 30\n/, ''))).toEqual([])
     // Triggers are a known field, checked like the rest: a cron trigger needs its expression and time zone.
     expect(problems(`${base}\n[[triggers]]\nkind = "cron"\n`)).toEqual(['triggers[1].cron is missing.', 'triggers[1].timezone is missing.'])
     expect(problems(`${base}\n[[triggers]]\nkind = "cron"\ncron = "0 9 * * 1"\ntimezone = "UTC"\nwhen = "now"\n`)).toEqual(['Unknown field triggers[1].when.'])
     expect(problems(base.replace('role = "Marketing"', 'role = 3'))).toEqual(['role must be text.'])
     expect(problems(base.replace('name = "Max"\n', ''))).toEqual(['name is missing.'])
     expect(problems(base.replace('id = "e-7k2m"', 'id = "Max!"'))).toEqual(['id must be lower-case letters, digits and dashes, like e-7k2m.'])
-    expect(problems(base.replace('profile = "no-shell"', 'profile = "root"'))).toEqual(['access.profile must be one of: no-shell, shell.'])
+    expect(problems(base.replace('profile = "shell"', 'profile = "root"'))).toEqual(['access.profile must be one of: no-shell, shell.'])
     expect(problems(base.replace('"foreman" = "read"', '"foreman" = "admin"'))).toEqual(['access.repos."foreman" must be one of: none, read, write.'])
     expect(problems(base.replace('memory_write = []', 'memory_write = ["org/PROJECT.md"]'))).toEqual(['access.memory_write must be one of: org/docs, org/data.'])
     expect(problems(base.replace('delegate_to = []', 'delegate_to = ["e-7k2m"]'))).toEqual(['access.delegate_to can’t name the employee itself.'])
     expect(problems(base.replace('"slack-post" = "held"', '"slack-post" = "maybe"'))).toEqual(['access.actions."slack-post" must be one of: held, allowed, never.'])
-    expect(problems(base.replace('runs_per_day = 6', 'runs_per_day = 0'))).toEqual(['limits.runs_per_day must be a whole number from 1 to 100.'])
-    expect(problems(base.replace('minutes_per_run = 30', 'minutes_per_run = 2.5'))).toEqual(['limits.minutes_per_run must be a whole number from 1 to 240.'])
+    expect(problems(`limits = 3\n${base}`)).toEqual(['limits must be a table.'])
     expect(problems(base.replace('agent = "claude"', 'agent = "aider"'))).toEqual(['aider isn’t an agent an employee can run on.'])
     expect(problems(base.replace('look = { family = "hardhat", colour = "orange" }', 'look = { family = "robot", colour = "orange" }'))).toEqual(['look.family must be one of: hardhat.'])
     // A colour a newer Foreman knows is read; it is drawn as the quietest hat.
@@ -179,8 +181,8 @@ describe('employees: the definition', () => {
 
   it('takes the fingerprint’s text over the normalized file without the hat', () => {
     const a = max()
-    const shuffled: EmployeeDefinition = { ...a, access: { ...a.access, repos: { 'foreman-website': 'read', foreman: 'read' }, mcp: ['b', 'a', 'a'] }, instructions: a.instructions.replace(/\n/g, '\r\n') }
-    expect(employeeFingerprintText({ ...a, access: { ...a.access, mcp: ['a', 'b'] } })).toBe(employeeFingerprintText(shuffled))
+    const shuffled: EmployeeDefinition = { ...a, access: { ...a.access, repos: { 'foreman-website': 'read', foreman: 'read' }, delegate_to: ['e-b', 'e-a', 'e-a'] }, instructions: a.instructions.replace(/\n/g, '\r\n') }
+    expect(employeeFingerprintText({ ...a, access: { ...a.access, delegate_to: ['e-a', 'e-b'] } })).toBe(employeeFingerprintText(shuffled))
     expect(employeeFingerprintText(a)).not.toContain('look')
     expect(employeeFingerprint({ ...a, look: { family: 'hardhat', colour: 'pink' } })).toBe(employeeFingerprint(a))
     expect(employeeFingerprint({ ...a, access: { ...a.access, repos: { ...a.access.repos, foreman: 'write' } } })).not.toBe(employeeFingerprint(a))
@@ -379,7 +381,6 @@ describe('employees: the service', () => {
     expect(created.path).toBe(`bots/${created.id}.toml`)
     await expect(employees.create('o1', definitionFor({ id: 'e-other', name: ' max ' }))).rejects.toThrow('There is already an employee named max in this organization.')
     await expect(employees.create('o1', definitionFor({ id: 'e-other', name: 'Ada', access: { ...definitionFor().access, delegate_to: ['e-zzzz'] } }))).rejects.toThrow(/can only hand tasks to employees of Acme/)
-    await expect(employees.create('o1', { ...definitionFor(), limits: { runs_per_day: 0, minutes_per_run: 30 } })).rejects.toThrow('The employee can’t be saved: limits.runs_per_day must be a whole number from 1 to 100.')
   })
 
   it('lists a file it can’t read with its problems instead of dropping it', async () => {
@@ -430,31 +431,62 @@ describe('employees: the service', () => {
     expect(approved.approvedText).toBeUndefined()
   })
 
-  it('gives the employees an organization already had full access once, in one commit, and moves their approvals with it', async () => {
-    const { root, employees, state } = await rig()
-    const limited = definitionFor({ limits: { runs_per_day: 6, minutes_per_run: 30 } })
-    const created = await employees.create('o1', limited, { approve: true })
+  it('gives the employees an organization already had a shell once, in one commit, writes their files without an MCP list or limits, and moves their approvals with it', async () => {
+    const { root, memory, employees, state } = await rig()
+    const old = definitionFor({ access: { ...definitionFor().access, profile: 'no-shell' } })
+    // As an earlier Foreman wrote it: an MCP list and limits in the file, and an approval whose fingerprint was taken
+    // over them, which this build can't take again. The approval's blob says which file it was.
+    const text = serializeEmployee(old).replace('profile = "no-shell"\n', 'profile = "no-shell"\nmcp = []\n') + '\n[limits]\nruns_per_day = 6\n'
+    const written = await memory.commitAsPerson(
+      'o1',
+      [
+        { kind: 'write', path: employeePath(old.id), text, expectedBlob: null },
+        { kind: 'write', path: employeePromptPath(old.id), text: employeePromptFile(old), expectedBlob: null }
+      ],
+      { subject: 'An earlier Foreman' }
+    )
+    expect(written.ok).toBe(true)
+    await employees.approve('o1', old.id)
+    const record = state.employees!.find((r) => r.id === old.id)!
+    record.approvedFingerprint = 'f'.repeat(64)
+    // Upgraded from a Foreman that had already linked jobs and given Write and pushes.
+    state.migrations = [`${JOB_PROMPTS_MIGRATION}:o1`, 'employees-full-access:o1']
     const before = await gitOut(root, ['rev-parse', 'HEAD'])
     await employees.refresh('o1')
     expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
-    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe('Let every AI employee push, open pull requests and run without limits')
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe('Give every AI employee a shell, every MCP server and no limits')
     const [view] = (await employees.list('o1')).employees
-    expect(view.definition).toEqual(withFullAccess(limited))
-    expect(view.definition!.access.repos).toEqual({ 'foreman-website': 'write' })
+    expect(view.definition).toEqual(withFullAccess(old))
+    expect(view.definition!.access).toMatchObject({ repos: { 'foreman-website': 'write' }, profile: 'shell' })
+    expect(view.text).not.toContain('mcp =')
+    expect(view.text).not.toContain('[limits]')
     // The person asked for exactly this change, so the approval moved with it: still approved, not changed.
     expect(view).toMatchObject({ state: 'active', changed: false })
-    expect(state.employees![0].approvedFingerprint).not.toBe(created.fingerprint)
-    expect(state.migrations).toEqual([`${JOB_PROMPTS_MIGRATION}:o1`, `${FULL_ACCESS_MIGRATION}:o1`])
-    // Once: a limit set afterwards stays.
-    const again = await employees.update('o1', created.id, { ...view.definition!, limits: { runs_per_day: 3 } }, view.blob)
+    expect(record.approvedFingerprint).toBe(view.fingerprint)
+    expect(state.migrations).toContain(`${FULL_ACCESS_MIGRATION}:o1`)
+    // Once: a shell turned off afterwards stays off.
+    const again = await employees.update('o1', old.id, { ...view.definition!, access: { ...view.definition!.access, profile: 'no-shell' } }, view.blob)
     expect(again.ok).toBe(true)
     await employees.refresh('o1')
-    expect((await employees.list('o1')).employees[0].definition!.limits).toEqual({ runs_per_day: 3 })
+    expect((await employees.list('o1')).employees[0].definition!.access.profile).toBe('no-shell')
+  })
+
+  it('moves no approval of a file other than the one approved', async () => {
+    const { memory, employees, state } = await rig()
+    const old = definitionFor({ access: { ...definitionFor().access, profile: 'no-shell' } })
+    const created = await employees.create('o1', old, { approve: true })
+    // Changed after it was approved (a wider repository), then the migration: nothing moves, it waits for a person.
+    const changed = { ...old, access: { ...old.access, repos: { 'foreman-website': 'write' as const } }, responsibilities: ['Something new'] }
+    const result = await memory.commitAsPerson('o1', [{ kind: 'write', path: created.path, text: serializeEmployee(changed), expectedBlob: created.blob }], { subject: 'An edit' })
+    expect(result.ok).toBe(true)
+    state.migrations = (state.migrations ?? []).filter((m) => !m.startsWith(FULL_ACCESS_MIGRATION))
+    await employees.refresh('o1')
+    expect((await employees.list('o1')).employees[0]).toMatchObject({ changed: true })
   })
 
   it('moves an approval when another computer made the change, and only when nothing else changed', async () => {
     const { memory, employees, state } = await rig()
-    const limited = definitionFor({ limits: { runs_per_day: 6, minutes_per_run: 30 } })
+    const limited = definitionFor({ access: { ...definitionFor().access, profile: 'no-shell' } })
     const kept = await employees.create('o1', limited, { approve: true })
     const edited = await employees.create('o1', { ...limited, id: 'e-ab12', name: 'Ada' }, { approve: true })
     // Another computer's commit: Max only widened, Ada widened and told something new.
@@ -465,7 +497,7 @@ describe('employees: the service', () => {
         { kind: 'write', path: edited.path, text: serializeEmployee(withFullAccess({ ...limited, id: 'e-ab12', name: 'Ada' })), expectedBlob: edited.blob },
         { kind: 'write', path: 'bots/e-ab12.md', text: 'Something else.\n', expectedBlob: edited.promptBlob }
       ],
-      { subject: 'Let every AI employee push, open pull requests and run without limits' }
+      { subject: 'Give every AI employee a shell, every MCP server and no limits' }
     )
     expect(result.ok).toBe(true)
     await employees.refresh('o1')
@@ -511,32 +543,6 @@ describe('employees: the service', () => {
     await there.refresh('o1')
     expect((await there.list('o1')).employees.map((e) => [e.name, e.changed])).toEqual([['Max', false], ['Quill', false], ['Quinn', false]])
     expect(await gitOut(root, ['rev-parse', 'HEAD'])).toBe(after)
-  })
-
-  it('pauses an employee after two runs in a row that didn’t finish, saying how the last ended; a finished run resets the count, and Resume starts it over', async () => {
-    const { employees, state } = await rig()
-    const created = await employees.create('o1', definitionFor(), { approve: true })
-    const record = () => state.employees!.find((r) => r.id === created.id)!
-    employees.runEnded('o1', created.id, { failed: true, detail: 'The model is overloaded.' })
-    expect(record()).toMatchObject({ state: 'active', failures: 1 })
-    // One that finished in between: the count starts over.
-    employees.runEnded('o1', created.id, { failed: false })
-    expect(record().failures).toBeUndefined()
-    employees.runEnded('o1', created.id, { failed: true, detail: 'The model is overloaded.' })
-    employees.runEnded('o1', created.id, { failed: true, detail: 'Stopped after the maximum of 30 minutes.' })
-    expect(record()).toMatchObject({ state: 'paused', pausedKind: 'failures', pausedDetail: 'Stopped after the maximum of 30 minutes.', failures: 2 })
-    expect(employees.rosters().o1.employees[0]).toMatchObject({ state: 'paused', pausedKind: 'failures', pausedDetail: 'Stopped after the maximum of 30 minutes.' })
-    // It reads back from state.json as it was written.
-    expect(parseEmployeeRecords(JSON.parse(JSON.stringify(state.employees)))[0]).toMatchObject({ state: 'paused', pausedKind: 'failures', failures: 2 })
-    await employees.resume('o1', created.id)
-    expect(record()).toEqual(expect.objectContaining({ state: 'active' }))
-    expect(record().failures).toBeUndefined()
-    expect(record().pausedDetail).toBeUndefined()
-    // One a person paused stays paused by the person, whatever fails meanwhile.
-    employees.runEnded('o1', created.id, { failed: true })
-    await employees.pause('o1', created.id)
-    employees.runEnded('o1', created.id, { failed: true })
-    expect(record()).toMatchObject({ state: 'paused', pausedKind: 'person' })
   })
 
   it('pauses and resumes an approved employee; retires any, which then stays as it is', async () => {
@@ -687,7 +693,7 @@ describe('employees: adding a job template (docs/ai-employees.md §5.3, §16)', 
     const qa = (await employees.addTemplate('o1', 'qa-engineer')).employee.definition!
     expect(qa.access.repos).toEqual({ 'foreman-website': 'write' })
     expect(qa.access.actions).toMatchObject({ push: 'allowed', 'pull-request': 'allowed' })
-    expect(qa.limits).toEqual({})
+    expect(qa.access.profile).toBe('shell')
   })
 
   it('names a job the roster has "<name> (<job>)", then numbers it, counting retired employees’ names', async () => {

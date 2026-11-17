@@ -308,15 +308,14 @@ describe('a part’s mocks', () => {
 describe('the program manager and proposed employees', () => {
   const loadouts = [{ agent: 'claude' as const, model: 'claude-sonnet-5-5', effort: 'medium' as const }]
 
-  it('makes Priya a valid definition that writes every repository, pushes and opens pull requests, and has no limits', () => {
+  it('makes Priya a valid definition with a shell that writes every repository, pushes and opens pull requests, and has no limits', () => {
     const d = programManagerDefinition({ repos: ['site', 'api'], loadouts, taken: [] })
     expect(parseEmployee(serializeEmployee(d), createT('en')).problems).toEqual([])
     expect(employeeFromObject(JSON.parse(JSON.stringify(d))).definition).toBeDefined()
     expect(d).toMatchObject({ name: 'Priya', role: 'Program manager', look: { colour: 'teal' }, attendance: 'unattended' })
     expect(d.access.repos).toEqual({ site: 'write', api: 'write' })
-    expect(d.access.profile).toBe('no-shell')
+    expect(d.access.profile).toBe('shell')
     expect(d.access.actions).toEqual({ 'slack-post': 'held', linear: 'held', push: 'allowed', 'pull-request': 'allowed' })
-    expect(d.limits).toEqual({})
     // Her prompt is the program manager's own file, linked rather than copied.
     expect(d.template).toBe('program-manager')
     expect(jobPrompt('program-manager')).toContain('project_plan')
@@ -330,7 +329,7 @@ describe('the program manager and proposed employees', () => {
     expect(parseEmployee(serializeEmployee(d), createT('en')).problems).toEqual([])
     expect(d.access.repos).toEqual({ site: 'write', api: 'write' })
     expect(d.access.actions).toMatchObject({ push: 'allowed', 'pull-request': 'allowed' })
-    expect(d.limits).toEqual({})
+    expect(d.access.profile).toBe('shell')
     const codex = proposedDefinition({ ...base, loadouts: [{ agent: 'codex', model: 'gpt-6', effort: 'medium' }] })
     expect(codex).toMatchObject({ attendance: 'attended', access: { repos: { site: 'read', api: 'read' } } })
   })

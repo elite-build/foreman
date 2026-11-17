@@ -6,7 +6,7 @@
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ForemanDb, SCHEMA_VERSION } from '../src/main/db'
-import { EmployeeWorkService, ORG_RUN_LIMIT, type EmployeeLaunchPlan, type EmployeeWorkHost } from '../src/main/employeeWork'
+import { EmployeeWorkService, type EmployeeLaunchPlan, type EmployeeWorkHost } from '../src/main/employeeWork'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import type { AgentCapabilities } from '../src/shared/agentCapabilities'
 import { staticCapabilities } from '../src/shared/agentCatalog'
@@ -45,8 +45,7 @@ afterEach(() => {
 
 function definition(id: string, name: string, overrides: Partial<EmployeeDefinition> = {}): EmployeeDefinition {
   const d = defaultEmployee({ id, colour: 'orange', repos: ['site', 'api'], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' }], text: { name, role: 'Marketing', instructions: `You are ${name}.`, responsibilities: ['Write posts', 'Draft the changelog'] } })
-  // Limits that the tests of limits count against (a new employee has none).
-  return { ...d, ...overrides, access: { ...d.access, ...overrides.access }, limits: { runs_per_day: 6, minutes_per_run: 30, ...overrides.limits } }
+  return { ...d, ...overrides, access: { ...d.access, ...overrides.access } }
 }
 
 describe('employee work: the words a run is given and what it may do', () => {
@@ -56,18 +55,19 @@ describe('employee work: the words a run is given and what it may do', () => {
     expect(taskTitle(undefined, 'x'.repeat(300))).toHaveLength(120)
   })
 
-  it('holds Read access read-only, Write without a shell to the workspace, and keeps only the definition’s MCP servers', () => {
-    const d = definition('e-max1', 'Max', { access: { ...definition('e-max1', 'Max').access, mcp: ['linear', 'notion'] } })
-    expect(employeeTurnLimits(d, 'read')).toEqual({ readOnly: true, mcp: ['linear', 'notion'] })
-    expect(employeeTurnLimits(d, 'write')).toEqual({ mcp: ['linear', 'notion'], writes: ['**'] })
-    const shell = { ...d, access: { ...d.access, profile: 'shell' as const } }
-    expect(employeeTurnLimits(shell, 'write')).toEqual({ mcp: ['linear', 'notion'] })
+  it('holds Read access read-only and Write with a shell (the default) to nothing, Write without one to the workspace, and keeps every MCP server', () => {
+    const d = definition('e-max1', 'Max')
+    expect(d.access.profile).toBe('shell')
+    expect(employeeTurnLimits(d, 'read')).toEqual({ readOnly: true })
+    expect(employeeTurnLimits(d, 'write')).toEqual({})
+    const noShell = { ...d, access: { ...d.access, profile: 'no-shell' as const } }
+    expect(employeeTurnLimits(noShell, 'write')).toEqual({ writes: ['**'] })
   })
 
-  it('lets a persona narrow and never widen: read-only stays, MCP and write globs are cut, its instructions come along', () => {
-    const d = definition('e-max1', 'Max', { access: { ...definition('e-max1', 'Max').access, mcp: ['linear'] } })
+  it('lets a persona narrow and never widen: read-only stays, MCP and write globs are kept to its own, its instructions come along', () => {
+    const d = definition('e-max1', 'Max')
     const persona: Persona = { name: 'docs-writer', source: 'personal', instructions: 'Write docs.', mcp: ['linear', 'github'], writes: ['docs/**'] }
-    expect(employeeTurnLimits(d, 'write', persona)).toEqual({ name: 'docs-writer', instructions: 'Write docs.', mcp: ['linear'], writes: ['docs/**'] })
+    expect(employeeTurnLimits(d, 'write', persona)).toEqual({ name: 'docs-writer', instructions: 'Write docs.', mcp: ['linear', 'github'], writes: ['docs/**'] })
     // A read-only persona makes a writer read-only; it can't make a reader write.
     expect(employeeTurnLimits(d, 'write', { ...persona, read_only: true })).toMatchObject({ readOnly: true })
     expect(employeeTurnLimits(d, 'write', { ...persona, read_only: true }).writes).toBeUndefined()
@@ -87,9 +87,9 @@ describe('employee work: the words a run is given and what it may do', () => {
     expect(at('Be kind.')).toBeGreaterThan(at('memory/org/instructions.md'))
     expect(at('## Your instructions')).toBeGreaterThan(at('Be kind.'))
     expect(at('Your personality: Casual.')).toBeGreaterThan(at('You are Max.'))
-    expect(text).toContain('Nobody is there to approve other tools')
-    // Unattended, asking the person is still allowed: only other tools' permission requests are denied.
-    expect(text).toContain('Asking a question with ask_person is different from requesting tool permission')
+    // Unattended, nothing waits for an approval, and asking the person is still how it asks.
+    expect(text).toContain('Nobody is there to approve tools, and none of yours waits for approval.')
+    expect(text).toContain('Asking a question with ask_person is different')
     const read = employeeSystemText({ definition: d, organization: 'Acme', access: { repo: 'site', access: 'read', profile: 'no-shell', attended: true }, orgInstructions: null }).text
     expect(read).toContain('Foreman holds this run read-only')
     // Read-only (plan mode) limits the repository, never Foreman's own tools; a change asked for is handed back.
@@ -170,7 +170,6 @@ interface Fake {
   chats: Map<string, ChatItem[]>
   memoryStatus: { value: { state: 'ok'; head: string } | { state: 'foreign'; head: string; baseline: string; commits: []; moreCommits: 0; dirty: [] } }
   records: Map<string, AgentCapabilities | undefined>
-  slots: Map<string, 'waiting' | string | undefined>
   writeRecap: ReturnType<typeof vi.fn>
   commitRun: ReturnType<typeof vi.fn>
   clock: { now: number }
@@ -182,7 +181,6 @@ interface Fake {
   closedReports: [string, string, string][]
   archived: string[]
   // What runEnded was told, in order: [employeeId, failed, detail].
-  ended: [string, boolean, string | undefined][]
   // The memory files reads find (path → text).
   files: Record<string, string>
 }
@@ -211,7 +209,6 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
   const chats = new Map<string, ChatItem[]>()
   const memoryStatus: Fake['memoryStatus'] = { value: { state: 'ok', head: 'head-1' } }
   const records = new Map<string, AgentCapabilities | undefined>()
-  const slots = new Map<string, 'waiting' | string | undefined>()
   const clock = { now: Date.parse('2026-11-13T10:00:00.000Z') }
   const writeRecap = vi.fn(async () => undefined)
   const commitRun = vi.fn(async () => ({ commit: 'memory-commit-1' }))
@@ -222,7 +219,6 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
   const reports: Fake['reports'] = []
   const closedReports: Fake['closedReports'] = []
   const archived: string[] = []
-  const ended: Fake['ended'] = []
   let n = 0
   const files: Record<string, string> = {
     'memory/org/instructions.md': '# Instructions\n\nBe kind.\n',
@@ -238,8 +234,7 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
         const s = summaries.get(id) ?? {}
         const summary: EmployeeSummary = { id, path: `bots/${id}.toml`, name: d?.name ?? '', role: d?.role ?? '', colour: 'orange', responsibilities: d?.responsibilities ?? [], problems: [], state: 'active', changed: false, ...s }
         return { summary, ...(d && !summary.problems.length ? { definition: d } : {}), head: 'head-1' }
-      },
-      runEnded: (_org, id, outcome) => void ended.push([id, outcome.failed, outcome.detail])
+      }
     },
     memory: {
       status: async () => memoryStatus.value,
@@ -261,7 +256,6 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
       if (autoCreate.value) handle.created(`ws-${n}`, `s-${n}`)
     },
     stop: async (sessionId) => void stopped.push(sessionId),
-    turnStart: (sessionId) => slots.get(sessionId),
     readChat: async (sessionId) => chats.get(sessionId) ?? [],
     session: (id) => sessions.get(id),
     report: (input) => {
@@ -273,7 +267,7 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
     changed: () => undefined,
     now: () => clock.now
   }
-  return { service: new EmployeeWorkService(host), db, state, definitions, summaries, launches, stopped, chats, memoryStatus, records, slots, writeRecap, commitRun, clock, launchError, autoCreate, sessions, stagedPaths, reports, closedReports, archived, ended, files }
+  return { service: new EmployeeWorkService(host), db, state, definitions, summaries, launches, stopped, chats, memoryStatus, records, writeRecap, commitRun, clock, launchError, autoCreate, sessions, stagedPaths, reports, closedReports, archived, files }
 }
 
 /** The run's chat, marked as its run and in its turn, as Core makes it (the employee tools find the run from it). */
@@ -300,11 +294,12 @@ describe('employee work: admission', () => {
     expect(f.launches).toHaveLength(1)
     const { plan } = f.launches[0]
     expect(plan).toMatchObject({ repoId: 'site', baseBranch: 'main', loadout: { agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium', fast: false }, message: 'Draft the launch post for 1.0.23' })
-    expect(plan.mark).toEqual({ employeeRunId: plan.run.id, employeeId: 'e-max1', orgId: 'o1', persona: { readOnly: true, mcp: [] } })
+    expect(plan.mark).toEqual({ employeeRunId: plan.run.id, employeeId: 'e-max1', orgId: 'o1', persona: { readOnly: true } })
     expect(plan.startedBy).toEqual({ via: 'employee', orgId: 'o1', employeeId: 'e-max1', runId: plan.run.id, taskId: task.id, title: task.title })
     expect(plan.origin).toEqual({ kind: 'employee', orgId: 'o1', employeeId: 'e-max1', runId: plan.run.id, taskId: task.id })
     const run = f.db.employeeRun(plan.run.id)!
-    expect(run).toMatchObject({ state: 'provisioning', started: false, attempt: 1, workspaceId: 'ws-1', sessionId: 's-1', repoId: 'site', access: 'read', profile: 'no-shell', memoryBase: 'head-1', minutes: 30 })
+    expect(run).toMatchObject({ state: 'provisioning', started: false, attempt: 1, workspaceId: 'ws-1', sessionId: 's-1', repoId: 'site', access: 'read', profile: 'shell', memoryBase: 'head-1' })
+    expect(run.minutes).toBeUndefined()
     // The brief: Foreman's rules and both layers of instructions; pinned memory at its commit, framed as data.
     const brief = f.service.brief(run.id)!
     expect(brief.system).toContain(EMPLOYEE_RULES)
@@ -315,13 +310,11 @@ describe('employee work: admission', () => {
     expect(f.db.employeeTaskTransitions(task.id).map((t) => t.event)).toEqual(['saved', 'admitted'])
   })
 
-  it('admits any number of runs a day and stops none for time when the definition sets no limits', async () => {
+  it('admits any number of runs a day and stops none for time: no employee has limits', async () => {
     const f = await rig()
-    f.definitions.set('e-max1', { ...definition('e-max1', 'Max'), limits: {} })
     await f.service.ask('o1', 'e-max1', { body: 'Draft the launch post', repoId: 'site' })
     await settle()
     const { plan } = f.launches[0]
-    expect(plan.setupMs).toBeUndefined()
     expect(f.db.employeeRun(plan.run.id)!.minutes).toBeUndefined()
   })
 
@@ -353,7 +346,7 @@ describe('employee work: admission', () => {
       [
         'scoped writes it can’t hold',
         (f) => {
-          f.definitions.set('e-max1', definition('e-max1', 'Max', { access: { ...definition('e-max1', 'Max').access, repos: { site: 'write' } } }))
+          f.definitions.set('e-max1', definition('e-max1', 'Max', { access: { ...definition('e-max1', 'Max').access, repos: { site: 'write' }, profile: 'no-shell' } }))
           f.records.set('claude', { ...staticCapabilities('claude')!, enforcement: { ...staticCapabilities('claude')!.enforcement, scopedWrites: { level: 'none', why: 'agentCaps.why.sandboxNotReady' } } })
         },
         /can’t be held to writing without a shell/
@@ -375,45 +368,20 @@ describe('employee work: admission', () => {
     }
   })
 
-  it('refuses past the runs a day, counted since local midnight', async () => {
-    const f = await rig()
-    f.definitions.set('e-max1', definition('e-max1', 'Max', { limits: { runs_per_day: 1, minutes_per_run: 30 } }))
-    const first = await f.service.ask('o1', 'e-max1', { body: 'One' })
-    await settle()
-    const run = f.db.employeeRuns({ taskId: first.id })[0]
-    f.service.turnStarted(run.sessionId!, 't1')
-    f.chats.set(run.sessionId!, reply('t1', 'Done.'))
-    await f.service.turnEnded(run.sessionId!, undefined, 'completed')
-    const second = await f.service.ask('o1', 'e-max1', { body: 'Two' })
-    expect(second).toMatchObject({ state: 'waiting', reason: expect.stringMatching(/has had 1 runs today, its limit/) })
-    // The next day it runs.
-    f.clock.now += 24 * 3600_000
-    expect((await f.service.retry(second.id)).state).toBe('running')
-  })
-
-  it('keeps one going run per employee (its lane) and two per organization; the rest queue and run when one ends', async () => {
+  it('runs every task it is given at once, with no lane per employee and no limit per organization', async () => {
     const f = await rig({ employees: ['e-max1', 'e-ada2', 'e-lin3'] })
     const a1 = await f.service.ask('o1', 'e-max1', { body: 'First' })
     const a2 = await f.service.ask('o1', 'e-max1', { body: 'Second' })
     const b1 = await f.service.ask('o1', 'e-ada2', { body: 'Ada’s' })
     const c1 = await f.service.ask('o1', 'e-lin3', { body: 'Lin’s' })
     await settle()
-    expect(a1.state).toBe('running')
-    expect(a2).toMatchObject({ state: 'open', hold: 'queued', reason: 'Waiting for Max’s current run to finish.' })
-    expect(b1.state).toBe('running')
-    expect(c1).toMatchObject({ state: 'open', hold: 'queued', reason: `${ORG_RUN_LIMIT} employee runs are going in Acme; this runs when one finishes.` })
-    expect(f.db.employeeRuns({ taskId: a2.id })).toMatchObject([{ state: 'queued', attempt: 1 }])
-    expect(f.launches).toHaveLength(2)
-    // Max's first run ends: the organization has room again, and the oldest queued work goes first (Max's second).
-    const run = f.db.employeeRuns({ taskId: a1.id })[0]
-    f.service.turnStarted(run.sessionId!, 't1')
-    f.chats.set(run.sessionId!, reply('t1', 'Done.'))
-    await f.service.turnEnded(run.sessionId!, undefined, 'completed')
-    await settle()
-    expect(f.db.employeeTask(a2.id)!.state).toBe('running')
-    expect(f.db.employeeTask(c1.id)).toMatchObject({ state: 'open', hold: 'queued' })
-    expect(f.launches.map((l) => l.plan.task.id)).toEqual([a1.id, b1.id, a2.id])
-    expect(f.db.employeeTaskTransitions(a2.id).map((t) => t.event)).toEqual(['saved', 'held', 'admitted'])
+    for (const t of [a1, a2, b1, c1]) expect(f.db.employeeTask(t.id)!.state).toBe('running')
+    expect(f.launches.map((l) => l.plan.task.id)).toEqual([a1.id, a2.id, b1.id, c1.id])
+    // Each run has a workspace of its own.
+    expect(new Set(f.launches.map((l) => l.plan.run.id)).size).toBe(4)
+    // A new day changes nothing: there is no count of runs a day.
+    f.clock.now += 24 * 3600_000
+    expect((await f.service.ask('o1', 'e-max1', { body: 'Third' })).state).toBe('running')
   })
 
   it('holds a paused employee’s work (never drops it) and runs it on resume', async () => {
@@ -580,19 +548,14 @@ describe('employee work: a run', () => {
     expect(f.db.employeeRun(run.id)!.state).toBe('running')
   })
 
-  it('a run ended twice at once (Stop while the clock ends another) ends once', async () => {
-    const f = await rig({ employees: ['e-max1', 'e-ada2'] })
-    for (const id of ['e-max1', 'e-ada2']) f.definitions.set(id, definition(id, id, { limits: { runs_per_day: 6, minutes_per_run: 10 } }))
-    const first = await f.service.ask('o1', 'e-max1', { body: 'One' })
-    const second = await f.service.ask('o1', 'e-ada2', { body: 'Two' })
-    await settle()
-    const runs = [first, second].map((t) => f.db.employeeRuns({ taskId: t.id })[0])
-    for (const r of runs) f.service.turnStarted(r.sessionId!, 'turn-1')
-    f.clock.now += 11 * 60_000
-    // The clock ends the newer first and, while it waits for that turn to stop, a person stops the older.
-    await Promise.all([f.service.tick(), f.service.stop(runs[0].id)])
-    expect(f.db.employeeRun(runs[0].id)!.state).toBe('cancelled')
-    expect(f.db.employeeTaskTransitions(first.id).filter((t) => t.event === 'timed-out' || t.event === 'cancelled')).toHaveLength(1)
+  it('never stops a run for time: no employee has a minutes limit', async () => {
+    const f = await rig()
+    const { run } = await going(f)
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    f.clock.now += 24 * 3600_000
+    await f.service.tick()
+    expect(f.db.employeeRun(run.id)!.state).toBe('running')
+    expect(f.stopped).toEqual([])
   })
 
   it('Foreman quitting leaves its going runs as they were, for the next start to call uncertain, not stopped by a person', async () => {
@@ -607,49 +570,6 @@ describe('employee work: a run', () => {
     again.recover()
     expect(f.db.employeeRun(run.id)).toMatchObject({ state: 'uncertain' })
     expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'waiting' })
-  })
-
-  it('stops a turn after the minutes per run, not counting the wait for an agent slot', async () => {
-    const f = await rig()
-    f.definitions.set('e-max1', definition('e-max1', 'Max', { limits: { runs_per_day: 6, minutes_per_run: 10 } }))
-    const { task, run } = await going(f)
-    f.slots.set(run.sessionId!, 'waiting')
-    f.clock.now += 60 * 60_000
-    await f.service.tick()
-    expect(f.db.employeeRun(run.id)!.state).toBe('provisioning')
-    const start = f.clock.now
-    f.slots.set(run.sessionId!, new Date(start).toISOString())
-    f.service.turnStarted(run.sessionId!, 'turn-1')
-    f.clock.now = start + 9 * 60_000
-    await f.service.tick()
-    expect(f.db.employeeRun(run.id)!.state).toBe('running')
-    f.clock.now = start + 10 * 60_000
-    await f.service.tick()
-    expect(f.db.employeeRun(run.id)).toMatchObject({ state: 'timed-out', reason: 'Stopped after the maximum of 10 minutes.' })
-    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'blocked', closureDetail: 'Stopped after the maximum of 10 minutes.' })
-    expect(f.stopped).toEqual([run.sessionId])
-  })
-
-  it('doesn’t count the time an attended employee’s approval waits for a person', async () => {
-    const f = await rig()
-    f.definitions.set('e-max1', definition('e-max1', 'Max', { attendance: 'attended', limits: { runs_per_day: 6, minutes_per_run: 10 } }))
-    const { run } = await going(f)
-    expect(f.launches[0].plan.mark.attended).toBe(true)
-    const start = f.clock.now
-    f.slots.set(run.sessionId!, new Date(start).toISOString())
-    f.service.turnStarted(run.sessionId!, 'turn-1')
-    f.clock.now = start + 5 * 60_000
-    f.service.attendedApproval(run.sessionId!, true)
-    f.clock.now = start + 65 * 60_000
-    await f.service.tick()
-    expect(f.db.employeeRun(run.id)!.state).toBe('running')
-    f.service.attendedApproval(run.sessionId!, false)
-    f.clock.now = start + 69 * 60_000
-    await f.service.tick()
-    expect(f.db.employeeRun(run.id)!.state).toBe('running')
-    f.clock.now = start + 70 * 60_000
-    await f.service.tick()
-    expect(f.db.employeeRun(run.id)!.state).toBe('timed-out')
   })
 
   it('after a crash: a run whose turn never reached the agent is queued again; one whose turn did is uncertain and waits for a person', async () => {
@@ -777,11 +697,11 @@ describe('employee work: how a run ends its task (finish_task, ask_person, repor
     await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'x' })).rejects.toThrow(/run has ended/)
   })
 
-  it('ask_person parks the task on its question with a needs-input report, and the run’s end frees the lane', async () => {
+  it('ask_person parks the task on its question with a needs-input report, and the employee’s other work runs meanwhile', async () => {
     const f = await rig()
     const { task, run } = await started(f)
     const other = await f.service.ask('o1', 'e-max1', { body: 'Another thing' })
-    expect(f.db.employeeTask(other.id)).toMatchObject({ state: 'open', hold: 'queued' })
+    expect(f.db.employeeTask(other.id)!.state).toBe('running')
     const q = await f.service.askPerson(run.sessionId!, { question: 'Which launch: 1.0.23 or 1.1?', options: ['1.0.23', '1.1', '1.1'] })
     expect(q).toMatchObject({ state: 'open', options: ['1.0.23', '1.1'], runId: run.id, reportId: 'report-1' })
     expect(f.reports).toEqual([{ workspaceId: run.workspaceId, sessionId: run.sessionId, turnId: 'turn-1', text: 'Which launch: 1.0.23 or 1.1?' }])
@@ -860,7 +780,7 @@ describe('employee work: how a run ends its task (finish_task, ask_person, repor
   })
 })
 
-describe('employee work: limits and fatigue (§9)', () => {
+describe('employee work: usage limits and cost (§9)', () => {
   async function started(f: Fake, body = 'Draft the post') {
     const task = await f.service.ask('o1', 'e-max1', { body })
     await settle()
@@ -872,62 +792,24 @@ describe('employee work: limits and fatigue (§9)', () => {
     return { task, run }
   }
 
-  it('tells the employee service of every run that didn’t finish (failed, timed out, denied, ended without a result), and of each that did', async () => {
+  it('records what a turn cost where the agent says, and never holds work over cost', async () => {
     const f = await rig()
-    // Failed: the agent ended with an error.
-    let { run } = await started(f, 'One')
-    f.chats.set(run.sessionId!, [{ kind: 'turn-end', id: 'e', turnId: `turn-${run.id}`, outcome: 'error', error: 'The model is overloaded.' }])
-    await f.service.turnEnded(run.sessionId!, undefined, 'error')
-    // Ended without a result: Foreman's synthetic partial, closed blocked by the system.
-    ;({ run } = await started(f, 'Two'))
-    f.chats.set(run.sessionId!, reply(`turn-${run.id}`, 'I looked.'))
-    await f.service.turnEnded(run.sessionId!, `turn-${run.id}`, 'completed')
-    // Denied an approval nobody could give.
-    ;({ run } = await started(f, 'Three'))
-    f.service.needsHuman(run.sessionId!, 'it asked for permission to use Bash')
-    await settle()
-    // Stopped by a person: neither a failure nor a success.
-    ;({ run } = await started(f, 'Four'))
-    await f.service.stop(run.id)
-    // Finished with its own result, declined included: the count starts over.
-    ;({ run } = await started(f, 'Five'))
-    await f.service.finishTask(run.sessionId!, { status: 'declined', summary: 'Not mine to do.' })
-    f.chats.set(run.sessionId!, reply(`turn-${run.id}`, 'Declined.'))
-    await f.service.turnEnded(run.sessionId!, `turn-${run.id}`, 'completed')
-    expect(f.ended).toEqual([
-      ['e-max1', true, 'The model is overloaded.'],
-      ['e-max1', true, 'it ended without a result'],
-      ['e-max1', true, expect.stringMatching(/^Stopped: it asked for permission to use Bash/)],
-      ['e-max1', false, undefined]
-    ])
-  })
-
-  it('records what a turn cost where the agent says, and holds new work as over budget once the day’s cost crosses the threshold, until the next local day', async () => {
-    const f = await rig()
-    f.definitions.set('e-max1', definition('e-max1', 'Max', { limits: { runs_per_day: 6, minutes_per_run: 30, cost_per_day_usd: 1 } }))
-    f.clock.now = new Date(2026, 10, 13, 10, 0).getTime()
     const { run } = await started(f, 'Spend')
     await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
-    f.chats.set(run.sessionId!, [...reply(`turn-${run.id}`, 'Done.'), { kind: 'result', id: 'res', turnId: `turn-${run.id}`, ok: true, costUsd: 1.25 }])
+    f.chats.set(run.sessionId!, [...reply(`turn-${run.id}`, 'Done.'), { kind: 'result', id: 'res', turnId: `turn-${run.id}`, ok: true, costUsd: 1000 }])
     await f.service.turnEnded(run.sessionId!, `turn-${run.id}`, 'completed')
-    expect(f.db.employeeRun(run.id)!.usage).toMatchObject({ costUsd: 1.25 })
-    expect(f.service.spentToday('o1', 'e-max1')).toBe(1.25)
-    // New work is held, with the reason in words: what it cost, its threshold and when it runs.
-    const held = await f.service.ask('o1', 'e-max1', { body: 'More' })
-    expect(held).toMatchObject({ state: 'open', hold: 'budget' })
-    expect(held.reason).toBe('Max’s runs cost $1.25 today, past its threshold of $1.00 a day. This runs tomorrow, or once you raise the threshold in Edit.')
-    expect(f.launches).toHaveLength(1)
-    // Still today: still held, nothing rewritten.
-    f.clock.now = new Date(2026, 10, 13, 23, 59).getTime()
-    await f.service.tick()
-    expect(f.db.employeeTask(held.id)!.hold).toBe('budget')
-    // The next local day: released and run.
-    f.clock.now = new Date(2026, 10, 14, 0, 1).getTime()
-    await f.service.tick()
-    await settle()
-    expect(f.db.employeeTask(held.id)!.state).toBe('running')
-    expect(f.launches).toHaveLength(2)
-    expect(f.service.spentToday('o1', 'e-max1')).toBe(0)
+    expect(f.db.employeeRun(run.id)!.usage).toMatchObject({ costUsd: 1000 })
+    expect((await f.service.ask('o1', 'e-max1', { body: 'More' })).state).toBe('running')
+  })
+
+  it('never pauses an employee for failing runs: a person decides whether to retry', async () => {
+    const f = await rig()
+    for (const body of ['One', 'Two', 'Three']) {
+      const { run } = await started(f, body)
+      f.chats.set(run.sessionId!, [{ kind: 'turn-end', id: 'e', turnId: `turn-${run.id}`, outcome: 'error', error: 'The model is overloaded.' }])
+      await f.service.turnEnded(run.sessionId!, undefined, 'error')
+    }
+    expect((await f.service.ask('o1', 'e-max1', { body: 'Four' })).state).toBe('running')
   })
 
   /** The run's turn stops at the account's usage limit, as Claude Code's result says it (the turn's `limit`). */
@@ -937,13 +819,12 @@ describe('employee work: limits and fatigue (§9)', () => {
     await f.service.turnEnded(run.sessionId!, undefined, 'error')
   }
 
-  it('holds a task whose run stopped at the usage limit (not failed), leaves the fatigue count alone, and runs it again as a fresh attempt with the whole brief after the reset', async () => {
+  it('holds a task whose run stopped at the usage limit (not failed), and runs it again as a fresh attempt with the whole brief after the reset', async () => {
     const f = await rig()
-    // A failure first: one towards the two-failures pause.
+    // A failure first, which holds nothing.
     let { run } = await started(f, 'One')
     f.chats.set(run.sessionId!, [{ kind: 'turn-end', id: 'e', turnId: `turn-${run.id}`, outcome: 'error', error: 'The model is overloaded.' }])
     await f.service.turnEnded(run.sessionId!, undefined, 'error')
-    expect(f.ended).toEqual([['e-max1', true, 'The model is overloaded.']])
     // Then the account's usage limit, which says when it resets.
     const second = await started(f, 'Write the weekly report')
     run = second.run
@@ -958,8 +839,6 @@ describe('employee work: limits and fatigue (§9)', () => {
       reason: 'Waiting for the usage limit to reset at 2026-11-13T23:30:00.000Z. It runs again then, as a fresh run.'
     })
     expect(held.closureReason).toBeUndefined()
-    // Neither a failure nor a finish: the count is where the failure left it.
-    expect(f.ended).toHaveLength(1)
     // It needs nobody: not in Needs you; it counts as queued work.
     expect(needsPerson(held)).toBe(false)
     expect(employeeActivity(f.service.views().o1, 'e-max1')).toMatchObject({ needsYou: 0, queued: 1 })
@@ -989,16 +868,6 @@ describe('employee work: limits and fatigue (§9)', () => {
     expect(again.message).toBe('Write the weekly report')
     expect(f.service.brief(again.run.id)!.system).toContain(EMPLOYEE_RULES)
     expect(f.service.brief(again.run.id)!.context).toContain('memory/org/PROJECT.md')
-    // That attempt fails for its own reasons: the second failure in a row, the limit between them counting neither way.
-    const second2 = f.db.employeeRun(again.run.id)!
-    mark(f, second2, `turn-${second2.id}`)
-    f.service.turnStarted(second2.sessionId!, `turn-${second2.id}`)
-    f.chats.set(second2.sessionId!, [{ kind: 'turn-end', id: 'e2', turnId: `turn-${second2.id}`, outcome: 'error', error: 'The model is overloaded.' }])
-    await f.service.turnEnded(second2.sessionId!, undefined, 'error')
-    expect(f.ended).toEqual([
-      ['e-max1', true, 'The model is overloaded.'],
-      ['e-max1', true, 'The model is overloaded.']
-    ])
   })
 
   it('reads the reset time from the account’s windows when the turn didn’t say, and otherwise tries again after 15 minutes', async () => {
@@ -1025,13 +894,12 @@ describe('employee work: limits and fatigue (§9)', () => {
     await settle()
     expect(g.db.employeeTask(task.id)!.state).toBe('running')
     expect(g.launches.at(-1)!.plan.run.attempt).toBe(2)
-    // It stops at the limit again: held again, another 15 minutes on, and still no failure counted.
+    // It stops at the limit again: held again, another 15 minutes on.
     const next = g.db.employeeRun(g.launches.at(-1)!.plan.run.id)!
     mark(g, next, `turn-${next.id}`)
     g.service.turnStarted(next.sessionId!, `turn-${next.id}`)
     await hitLimit(g, next)
     expect(g.db.employeeTask(task.id)).toMatchObject({ hold: 'usage-limit', limitHold: { retryAt: '2026-11-13T10:30:01.000Z' } })
-    expect(g.ended).toEqual([])
   })
 
   it('reads a tab paused at the limit as one even when its turn’s end carries no limit, and never a plain error', async () => {
@@ -1079,16 +947,6 @@ describe('employee work: limits and fatigue (§9)', () => {
     expect((await h.service.ask('o1', 'e-max1', { body: 'x' })).state).toBe('running')
   })
 
-  it('doesn’t hold anything on cost when the agent reports none, or there is no threshold', async () => {
-    const f = await rig()
-    f.definitions.set('e-max1', definition('e-max1', 'Max', { limits: { runs_per_day: 6, minutes_per_run: 30, cost_per_day_usd: 0 } }))
-    const { run } = await started(f, 'Free')
-    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
-    f.chats.set(run.sessionId!, reply(`turn-${run.id}`, 'Done.'))
-    await f.service.turnEnded(run.sessionId!, `turn-${run.id}`, 'completed')
-    const next = await f.service.ask('o1', 'e-max1', { body: 'Again' })
-    expect(next.state).toBe('running')
-  })
 })
 
 describe('employee work: foreman.db', () => {
@@ -1210,19 +1068,18 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'blocked' })
   })
 
-  it('runs the program manager outside the lanes: any number of her runs at once, none taking a place from others', async () => {
+  it('runs the program manager’s runs and everyone else’s at once, any number of each', async () => {
     const f = await rig({ employees: ['e-max1', 'e-ada2', 'e-lin3'] })
     f.state.organizations = [{ ...ORG, programManagerId: 'e-max1' }]
     const plans = await Promise.all([1, 2, 3].map((n) => stage(f, { employeeId: 'e-max1', requestId: `project:p${n}:plan:1`, contract: {}, project: { id: `p${n}`, kind: 'plan', round: 1 } })))
     await settle()
     expect(plans.map((t) => f.db.employeeTask(t.id)!.state)).toEqual(['running', 'running', 'running'])
-    // Two others still run beside her three; a third waits for one of them.
+    // Others run beside her three, an employee's second task too.
     const a = await f.service.ask('o1', 'e-ada2', { body: 'Ada’s' })
     const b = await f.service.ask('o1', 'e-lin3', { body: 'Lin’s' })
     const c = await f.service.ask('o1', 'e-ada2', { body: 'Ada’s second' })
     await settle()
-    expect([a, b].map((t) => f.db.employeeTask(t.id)!.state)).toEqual(['running', 'running'])
-    expect(f.db.employeeTask(c.id)).toMatchObject({ state: 'open', hold: 'queued' })
+    expect([a, b, c].map((t) => f.db.employeeTask(t.id)!.state)).toEqual(['running', 'running', 'running'])
   })
 
   it('opens a project’s runs in its workspace, keeps it after a run, and tells the project when its task closes', async () => {

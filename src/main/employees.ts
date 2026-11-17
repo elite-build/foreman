@@ -108,8 +108,12 @@ export function seedMemoryFiles(definition: Pick<EmployeeDefinition, 'id' | 'nam
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-/** state.migrations: `<this>:<organization id>` once its employees were given what every employee now has (withFullAccess). */
-export const FULL_ACCESS_MIGRATION = 'employees-full-access'
+/**
+ * state.migrations: `<this>:<organization id>` once its employees were given what every employee now has (withFullAccess):
+ * a shell, and their files written without the MCP list and limits nothing reads any more. Its earlier version,
+ * `employees-full-access`, gave Write and pushes; this one does that too, for an organization that never had it.
+ */
+export const FULL_ACCESS_MIGRATION = 'employees-shell'
 
 /** state.migrations: `<this>:<organization id>` once its employees whose prompt was a job's, word for word, were linked to that job. */
 export const JOB_PROMPTS_MIGRATION = 'employees-job-prompts'
@@ -350,30 +354,6 @@ export class EmployeeService {
     return out
   }
 
-  /**
-   * A run of the employee ended (main/employeeWork.ts): one that finished resets the count of failing runs; one that
-   * didn't adds to it, and the second in a row pauses an active employee for a person (§9), saying how the last ended.
-   */
-  runEnded(orgId: string, id: string, outcome: { failed: boolean; detail?: string }): void {
-    const record = this.record(orgId, id)
-    if (!record) return
-    if (!outcome.failed) {
-      if (!record.failures) return
-      this.setRecord(orgId, id, { failures: undefined })
-      this.host.changed()
-      return
-    }
-    const failures = (record.failures ?? 0) + 1
-    if (failures >= 2 && record.state === 'active') {
-      this.setRecord(orgId, id, { failures, state: 'paused', pausedKind: 'failures', pausedDetail: outcome.detail?.slice(0, 500) })
-      this.host.changed()
-      this.host.lifecycle?.(orgId, id)
-      return
-    }
-    this.setRecord(orgId, id, { failures })
-    this.host.changed()
-  }
-
   /** Read an organization's definitions again if its memory repository's head moved; a failure is kept to show. */
   refresh(orgId: string): Promise<void> {
     const running = this.refreshing.get(orgId)
@@ -441,8 +421,10 @@ export class EmployeeService {
           continue
         }
         if (!linking) continue
-        const before = record.approvedFingerprint === e.fingerprint ? e.definition : await this.approvedDefinition(orgId, record)
-        if (!before || employeeFingerprint(before) !== record.approvedFingerprint || employeeFingerprint(linkedToJob(before)) !== after) continue
+        // The file the approval recorded: an approval from before a build that writes no MCP list or limits has a
+        // fingerprint this build can't take again (widenOnce).
+        const before = await this.approvedDefinition(orgId, record)
+        if (!before || employeeFingerprint(linkedToJob(before)) !== after) continue
         this.setRecord(orgId, e.id, { approvedFingerprint: after, ...(write ? files : { approvedBlob: e.blob, approvedPromptBlob: e.promptBlob ?? undefined }) })
       }
       if (linking) done.push(key)
@@ -455,11 +437,14 @@ export class EmployeeService {
   }
 
   /**
-   * Once per organization on this computer: every employee it had before all of them could write their repositories,
-   * push, open pull requests and run without limits gets that (withFullAccess), in one commit by the person, who asked
-   * for exactly this change. So an approval of the file as it was moves to the file as it is, here and on another
-   * computer that reads the commit: nothing else changed, so nothing else is approved. Retired employees are left as
-   * they are. A conflict or a refused commit is tried again at the next refresh, and never stops the roster loading.
+   * Once per organization on this computer: every employee it had before all of them had a shell, could write their
+   * repositories, push and open pull requests gets that (withFullAccess), in one commit by the person, who asked for
+   * exactly this change, and each file is written without the MCP list and limits nothing reads any more. So an approval
+   * of the file as it was moves to the file as it is, here and on another computer that reads the commit: nothing else
+   * changed, so nothing else is approved. The file as it was is the one the approval recorded (its blob): its
+   * fingerprint was taken over the MCP list and limits, which this build no longer reads, so it can't be taken again.
+   * Retired employees are left as they are. A conflict or a refused commit is tried again at the next refresh, and never
+   * stops the roster loading.
    */
   private async widenOnce(orgId: string, entries: FileEntry[]): Promise<void> {
     const key = `${FULL_ACCESS_MIGRATION}:${orgId}`
@@ -469,14 +454,14 @@ export class EmployeeService {
       const live = entries.filter((e) => e.definition && e.fingerprint && this.record(orgId, e.id)?.state !== 'retired')
       const writes = live.flatMap((e) => {
         const wider = withFullAccess(e.definition!)
-        return employeeFingerprint(wider) === e.fingerprint ? [] : [{ entry: e, wider }]
+        return employeeFingerprint(wider) === e.fingerprint && serializeEmployee(wider) === e.text ? [] : [{ entry: e, wider }]
       })
       let blobs: Record<string, string | null> = {}
       if (writes.length) {
         const result = await this.host.memory.commitAsPerson(
           orgId,
           writes.flatMap(({ entry, wider }) => definitionWrites(wider, entry)),
-          { subject: 'Let every AI employee push, open pull requests and run without limits' }
+          { subject: 'Give every AI employee a shell, every MCP server and no limits' }
         )
         if (!result.ok) return
         blobs = result.blobs
@@ -488,8 +473,8 @@ export class EmployeeService {
         const write = writes.find((w) => w.entry === e)
         const after = write ? employeeFingerprint(write.wider) : e.fingerprint!
         if (record.approvedFingerprint === after) continue
-        const before = record.approvedFingerprint === e.fingerprint ? e.definition : await this.approvedDefinition(orgId, record)
-        if (!before || employeeFingerprint(before) !== record.approvedFingerprint || employeeFingerprint(withFullAccess(before)) !== after) continue
+        const before = await this.approvedDefinition(orgId, record)
+        if (!before || employeeFingerprint(withFullAccess(before)) !== after) continue
         this.setRecord(orgId, e.id, {
           approvedFingerprint: after,
           approvedBlob: (write ? blobs[e.path] : e.blob) ?? undefined,

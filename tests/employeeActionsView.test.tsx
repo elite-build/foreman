@@ -324,7 +324,9 @@ describe('each class’s rule in words', () => {
     // Not listed itself, but a pull request pushes its branch, so it takes the pushes' Never.
     expect(items[3]).toMatch(/^Pull requests\s*Never\s*Refused: nothing is sent, and the employee is told why\.\s*A pull request pushes its branch, so it follows the stricter rule for pushes\.$/)
     expect(items[4]).toMatch(/^newsletter\s*Held\s*Foreman has no route of its own for this, so it can’t hold it/)
-    expect(screen.getByText('No shell: Foreman’s own routes above are its only way out.')).toBeTruthy()
+    // A shell by default: its git push and gh aren't held, nor are the MCP servers every run has.
+    expect(screen.getByText('Its shell is not held: a command it runs (git push, gh, curl) acts at once, outside these rules.')).toBeTruthy()
+    expect(screen.getByText('Its MCP servers, every one an agent in a workspace has, act with no hold; Foreman’s Slack and Linear tools follow the rules above.')).toBeTruthy()
   })
 
   it('leaves pushes and pull requests out for an employee with no Write access, and says it can’t do either', () => {
@@ -341,9 +343,9 @@ describe('each class’s rule in words', () => {
     expect(screen.queryByText(/no Write access/)).toBeNull()
   })
 
-  it('says plainly in a draft’s plan that a shell-profile employee’s shell, and the MCP servers it keeps, aren’t held', () => {
+  it('says plainly in a draft’s plan that its shell and every MCP server aren’t held, and Slack and Linear are', () => {
     setSnapshot({})
-    const d = { ...base, access: { ...base.access, profile: 'shell' as const, mcp: ['github', 'foreman-slack'] } }
+    const d = base
     const view: EmployeeView = { ...summary, state: 'draft', blob: 'b1', text: null, promptBlob: null, prompt: null, definition: d }
     render(<EmployeeReview employee={view} definition={d} memory="acme-memory" organization="Acme" names={(id) => id} />)
     const group = (name: string) =>
@@ -352,10 +354,10 @@ describe('each class’s rule in words', () => {
         .map((li) => li.textContent)
     const can = group('Can')
     expect(can).toContain('Use a shell and its tools Nothing it runs there waits for you.')
-    expect(can).toContain('Use github Nothing it does with them waits for you.')
-    // It keeps Foreman's Slack tools, so a Slack post is held for you; it keeps no Linear tools, so it can't change Linear.
+    expect(can).toContain('Use every MCP server an agent in a workspace has Nothing it does with them waits for you.')
+    // Foreman's Slack and Linear tools are there in every run, and held for you.
     expect(group('Asks you first')).toContain('Before each Slack post')
-    expect(group('Can’t')).toContain('Change Linear It keeps no Linear tools.')
+    expect(group('Asks you first')).toContain('Before each Linear change')
     expect(group('Can’t')).not.toContain('Use a shell')
   })
 })

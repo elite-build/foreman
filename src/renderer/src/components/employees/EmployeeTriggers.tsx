@@ -21,7 +21,6 @@ import {
   triggerKey,
   triggerTimingProblem,
   triggerZone,
-  TRIGGER_FLOOR_MINUTES,
   TRIGGER_KINDS,
   WATCHES_REPO,
   type EmployeeTrigger,
@@ -467,7 +466,7 @@ function TimedFields({ value, onChange, problem }: { value: TimedTrigger; onChan
         ) : (
           <p className="employee-faint">{t('employees.trigger.previewNever')}</p>
         )}
-        <p className="employee-faint">{t('employees.trigger.floor', { minutes: TRIGGER_FLOOR_MINUTES })}</p>
+        <p className="employee-faint">{t('employees.trigger.daylight')}</p>
       </div>
     </>
   )

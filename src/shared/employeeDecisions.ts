@@ -73,13 +73,11 @@ export type PlanLine =
   | { kind: 'notes' }
   | { kind: 'memory-write'; scopes: string[] }
   | { kind: 'shell' }
-  | { kind: 'mcp'; servers: string[] }
+  | { kind: 'mcp' }
   | { kind: 'delegate'; ids: string[] }
   | { kind: 'action'; action: string }
   | { kind: 'no-repo-change'; reads: string[] }
   | { kind: 'no-publish' }
-  | { kind: 'no-slack' }
-  | { kind: 'no-linear' }
   | { kind: 'no-shell' }
   | { kind: 'no-delegate' }
   | { kind: 'shared-memory' }
@@ -90,14 +88,11 @@ export interface PlanGroups {
   asks: PlanLine[]
 }
 
-/** The MCP server a bridged service's tools come from (`foreman-slack`): kept only when the definition lists it. */
-const keeps = (d: Pick<EmployeeDefinition, 'access'>, service: 'slack' | 'linear') => d.access.mcp.includes(`foreman-${service}`)
-
 /**
  * What a definition lets its employee do, in three groups and only what is true for it: Can (reads, writes, its own notes,
- * a shell, MCP servers it keeps, actions allowed without asking, delegation), Can't (a read-only employee can't change a
- * repository, push or open pull requests; one that keeps no Slack or Linear server can't post or change them; no shell; no
- * hand-offs; actions it never may) and Asks you first (shared memory always, and each outward route it can reach that is held).
+ * a shell, every MCP server a workspace's agent has, actions allowed without asking, delegation), Can't (a read-only
+ * employee can't change a repository, push or open pull requests; no shell; no hand-offs; actions it never may) and Asks
+ * you first (shared memory always, and each outward route that is held).
  */
 export function planGroups(d: Pick<EmployeeDefinition, 'access' | 'attendance'>): PlanGroups {
   const can: PlanLine[] = []
@@ -111,22 +106,17 @@ export function planGroups(d: Pick<EmployeeDefinition, 'access' | 'attendance'>)
   can.push({ kind: 'notes' })
   if (d.access.memory_write.length) can.push({ kind: 'memory-write', scopes: [...d.access.memory_write] })
   if (d.access.profile === 'shell') can.push({ kind: 'shell' })
-  const servers = d.access.mcp.filter((s) => !s.startsWith('foreman-'))
-  if (servers.length) can.push({ kind: 'mcp', servers })
+  can.push({ kind: 'mcp' })
   if (d.access.delegate_to.length) can.push({ kind: 'delegate', ids: [...d.access.delegate_to] })
 
   const publishes = canPublish(d)
   if (!writes.length) cant.push({ kind: 'no-repo-change', reads })
   if (!publishes) cant.push({ kind: 'no-publish' })
-  const slack = keeps(d, 'slack')
-  const linear = keeps(d, 'linear')
-  if (!slack) cant.push({ kind: 'no-slack' })
-  if (!linear) cant.push({ kind: 'no-linear' })
   if (d.access.profile !== 'shell') cant.push({ kind: 'no-shell' })
   if (!d.access.delegate_to.length) cant.push({ kind: 'no-delegate' })
 
   asks.push({ kind: 'shared-memory' })
-  const reachable = (['push', 'pull-request', 'slack-post', 'linear'] as const).filter((kind) => (kind === 'push' || kind === 'pull-request' ? publishes : kind === 'slack-post' ? slack : linear))
+  const reachable = (['push', 'pull-request', 'slack-post', 'linear'] as const).filter((kind) => publishes || (kind !== 'push' && kind !== 'pull-request'))
   for (const kind of reachable) {
     const policy = actionPolicy(d, kind)
     if (policy === 'allowed') can.push({ kind: 'action', action: kind })
@@ -138,7 +128,7 @@ export function planGroups(d: Pick<EmployeeDefinition, 'access' | 'attendance'>)
 
 // ---- what changed since approval (§5.3: "changed since approval", each difference old → new) ----
 
-export type DefinitionField = 'model' | 'effort' | 'attendance' | 'repo' | 'memory' | 'profile' | 'mcp' | 'delegate' | 'action' | 'triggers' | 'runs' | 'minutes' | 'cost' | 'instructions' | 'persona' | 'words'
+export type DefinitionField = 'model' | 'effort' | 'attendance' | 'repo' | 'memory' | 'profile' | 'delegate' | 'action' | 'triggers' | 'instructions' | 'persona' | 'words'
 
 export interface DefinitionChange {
   field: DefinitionField
@@ -157,8 +147,8 @@ const triggerSig = (t: EmployeeTrigger) => JSON.stringify({ ...t, id: undefined 
 
 /**
  * Each difference between the approved definition and this one, old → new, in the order the plan lists them, with
- * whether it widens what the employee may do (more access, a shell, more servers, more hand-offs, an action held or
- * refused before and allowed now, a new trigger, higher limits or none). Values are raw (ids, names, numbers); the words are the
+ * whether it widens what the employee may do (more access, a shell, more hand-offs, an action held or refused before
+ * and allowed now, a new trigger). Values are raw (ids, names, numbers); the words are the
  * renderer's. The hat changes nothing (it isn't approved), so it isn't listed.
  */
 export function definitionChanges(before: EmployeeDefinition, after: EmployeeDefinition): DefinitionChange[] {
@@ -177,7 +167,6 @@ export function definitionChanges(before: EmployeeDefinition, after: EmployeeDef
   }
   add('memory', list(before.access.memory_write), list(after.access.memory_write), after.access.memory_write.some((s) => !before.access.memory_write.includes(s)))
   add('profile', before.access.profile, after.access.profile, after.access.profile === 'shell')
-  add('mcp', list(before.access.mcp), list(after.access.mcp), after.access.mcp.some((s) => !before.access.mcp.includes(s)))
   add('delegate', list(before.access.delegate_to), list(after.access.delegate_to), after.access.delegate_to.some((s) => !before.access.delegate_to.includes(s)))
   const actions = [...new Set([...Object.keys(before.access.actions), ...Object.keys(after.access.actions)])].sort()
   for (const action of actions) {
@@ -190,15 +179,6 @@ export function definitionChanges(before: EmployeeDefinition, after: EmployeeDef
   const bs = bt.map(triggerSig).sort().join('\n')
   const as = at.map(triggerSig).sort().join('\n')
   if (bs !== as) out.push({ field: 'triggers', before: String(bt.length), after: String(at.length), wider: at.some((t) => !bt.map(triggerSig).includes(triggerSig(t))) })
-  // A limit is '' when there is none; dropping one, or raising it, is wider.
-  const limit = (field: 'runs' | 'minutes' | 'cost', key: keyof EmployeeDefinition['limits']) => {
-    const b = before.limits[key]
-    const a = after.limits[key]
-    add(field, b === undefined ? '' : String(b), a === undefined ? '' : String(a), b !== undefined && (a === undefined || a > b))
-  }
-  limit('runs', 'runs_per_day')
-  limit('minutes', 'minutes_per_run')
-  limit('cost', 'cost_per_day_usd')
   add('persona', before.persona ?? '', after.persona ?? '', false)
   // What it is told: its own prompt, and the job's prompt it is given first (a template employee, the program manager).
   add('instructions', `${before.template ?? ''}\n${before.instructions}`, `${after.template ?? ''}\n${after.instructions}`, false)

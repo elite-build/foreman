@@ -80,12 +80,9 @@ export interface TurnRequest {
   writeScope?: string[]
   // What the write scope's refusals call the turn ("AI employee’s run"); absent: a flow step, as they always have.
   writeScopeSubject?: string
-  // docs/ai-employees.md §9: an AI employee's run. Writing agent or git configuration (CEILING_PROTECTED_PATHS and `gitDir`,
-  // the git common directory) with a file tool is refused with a reason the agent reads and carries on from, never asked.
-  protect?: { gitDir?: string }
-  // docs/ai-employees.md §9: only `mcpServers` (and Foreman's own in-process servers) are there; the user's and the
-  // repository's own MCP configuration (.mcp.json, ~/.claude.json) is ignored for the turn. Claude only; others ignore it.
-  onlyMcp?: boolean
+  // docs/ai-employees.md §9: an AI employee's run. It has what a workspace's agent has; its own Foreman tools and its
+  // brokered Slack, Linear and Langfuse tools never ask (Foreman checks and holds them itself). Claude only; others ignore it.
+  employee?: true
   // The account the turn runs on (undefined: the agent's default one): what an agent's pooled server is keyed by (docs/agents.md 3).
   instance?: string
   // The agent's conversation to continue, if any.

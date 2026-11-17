@@ -42,7 +42,7 @@ function max(overrides: Partial<EmployeeDefinition> = {}): EmployeeDefinition {
 }
 
 describe('triggers in the definition', () => {
-  it('reads and writes each kind as [[triggers]] tables between [access] and [limits], the same both ways', () => {
+  it('reads and writes each kind as [[triggers]] tables after [access], the same both ways', () => {
     const triggers: EmployeeTrigger[] = [
       MONDAYS,
       { kind: 'interval', every: '90m', anchor: '2026-11-16T08:00', timezone: 'UTC', missed: 'run-once', overlap: 'queue', enabled: true },
@@ -51,7 +51,7 @@ describe('triggers in the definition', () => {
     const toml = serializeEmployee(max({ triggers }))
     expect(toml).toContain('[access]')
     expect(toml.indexOf('[[triggers]]')).toBeGreaterThan(toml.indexOf('[access]'))
-    expect(toml.indexOf('[limits]')).toBeGreaterThan(toml.lastIndexOf('[[triggers]]'))
+    expect(toml).not.toContain('[limits]')
     expect(toml).toContain('[[triggers]]\nid = "t-mon1"\nkind = "cron"\ncron = "0 9 * * 1"\ntimezone = "Europe/London"\nprompt = "Draft the week’s update"\nrepo = "site"\nmissed = "skip"\noverlap = "skip"\nenabled = true')
     expect(toml).toContain('weekdays = [1, 5]')
     const back = parseEmployee(toml)
@@ -69,12 +69,12 @@ describe('triggers in the definition', () => {
     expect(max().triggers).toBeUndefined()
   })
 
-  it('checks every trigger strictly: kind, fields, timing, the floor, its repository and repeated ids', () => {
+  it('checks every trigger strictly: kind, fields, timing, its repository and repeated ids, with no minimum gap', () => {
     const problems = (triggers: string) => parseEmployee(`${serializeEmployee(max())}\n${triggers}`).problems
     expect(problems('[[triggers]]\nkind = "webhook"\n')).toEqual(['triggers[1].kind must be one of: cron, interval, schedule, event.'])
-    expect(problems('[[triggers]]\nkind = "cron"\ncron = "*/5 * * * *"\ntimezone = "UTC"\n')).toEqual(['Trigger 1 would run 5 minutes apart; triggers run at most every 15 minutes.'])
+    expect(problems('[[triggers]]\nkind = "cron"\ncron = "*/5 * * * *"\ntimezone = "UTC"\n')).toEqual([])
     expect(problems('[[triggers]]\nkind = "cron"\ncron = "0 25 * * *"\ntimezone = "UTC"\n')).toEqual(['Trigger 1: The hour field goes from 0 to 23; “25” is outside that.'])
-    expect(problems('[[triggers]]\nkind = "interval"\nevery = "5m"\n')).toEqual(['Trigger 1 would run 5 minutes apart; triggers run at most every 15 minutes.'])
+    expect(problems('[[triggers]]\nkind = "interval"\nevery = "5m"\n')).toEqual([])
     expect(problems('[[triggers]]\nkind = "interval"\nevery = "1h"\ncron = "0 9 * * 1"\n')).toEqual(['Unknown field triggers[1].cron.'])
     expect(problems('[[triggers]]\nkind = "cron"\ncron = "0 9 * * 1"\ntimezone = "UTC"\nmissed = "replay"\nenabled = "yes"\n')).toEqual([
       '“triggers[1].enabled” should be true or false.',
@@ -176,7 +176,6 @@ async function rig(trigger: EmployeeTrigger, options: { clock?: () => number } =
       handle.created(`ws-${n}`, `s-${n}`)
     },
     stop: async () => undefined,
-    turnStart: () => undefined,
     readChat: async () => [],
     session: () => undefined,
     changed: () => undefined,
@@ -295,8 +294,8 @@ describe('triggers firing on the schedule clock', () => {
     await tickAt(r, '2026-11-16T10:00:10.000Z')
     const [second, first] = tasks(r)
     expect(first.state).toBe('running')
-    // Its lane is taken: the second waits, queued.
-    expect(second).toMatchObject({ state: 'open', hold: 'queued', trigger: { plannedAt: '2026-11-16T10:00:00.000Z' } })
+    // The trigger's last task still runs: the second waits behind it, queued (there is no lane any more; only the overlap rule).
+    expect(second).toMatchObject({ state: 'open', hold: 'queued', reason: 'Waiting for the last task its trigger started to finish.', trigger: { plannedAt: '2026-11-16T10:00:00.000Z' } })
     await tickAt(r, '2026-11-16T11:00:10.000Z')
     expect(tasks(r)).toHaveLength(2)
     expect(stateOf(r).firings.map((f) => f.outcome)).toEqual(['fired', 'fired', 'skipped'])
