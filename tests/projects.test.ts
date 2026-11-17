@@ -247,6 +247,12 @@ describe('projects: replans, readiness and plan.md', () => {
     expect(part).toContain('“Quote commas”')
     expect(part).toContain('requirements.md (at abcdef123456)')
     expect(part).toContain('memory/org/projects/csv-export/build.md')
+    expect(part).not.toContain('The person approved')
+    // What the person wrote approving the part it waits for goes with it, a blank note doesn't.
+    const picked = partBody({ project: project(), organization: 'Acme', plan, part: plan.parts[1], round: 1, inputs: [], approvals: [{ part: 'Requirements', note: ' Take option 2 ' }, { part: 'Docs', note: ' ' }] })
+    expect(picked).toContain('- On “Requirements”: “Take option 2”')
+    expect(picked).not.toContain('On “Docs”')
+    expect(picked).toContain('finish_task blocked and say in unblock what they asked for')
     expect(followUpBody({ project: project(), question: 'Why?', artifact: { path: 'memory/org/projects/csv-export/build.md' }, part: plan.parts[1] })).toContain('your part “Build”')
   })
 })
