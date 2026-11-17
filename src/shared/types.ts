@@ -2761,7 +2761,7 @@ export interface Api {
   // name, hat and id. Refuses an unknown template. If approving fails it stays a draft and `approveError` says why.
   addTemplateEmployee(organizationId: string, templateId: string): Promise<{ employee: import('./employees').EmployeeView; approveError?: string }>
   // Against the file's blob as read; a file changed since is a conflict. A moved fingerprint needs approving again.
-  updateEmployee(organizationId: string, id: string, definition: import('./employees').EmployeeDefinition, expectedBlob: string): Promise<import('./employees').EmployeeUpdateResult>
+  updateEmployee(organizationId: string, id: string, definition: import('./employees').EmployeeDefinition, expectedBlob: string, expectedPromptBlob?: string | null): Promise<import('./employees').EmployeeUpdateResult>
   // Records the definition's fingerprint on this computer; with `expectedFingerprint`, refused if it changed meanwhile.
   approveEmployee(organizationId: string, id: string, expectedFingerprint?: string): Promise<import('./employees').EmployeeView>
   pauseEmployee(organizationId: string, id: string): Promise<void>
