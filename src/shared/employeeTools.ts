@@ -59,7 +59,7 @@ export const EMPLOYEE_TOOLS = {
     schema: z.object({ text: z.string().trim().min(1).max(MAX_REMEMBER), scope: z.enum(['me', 'organization']), why: z.string().trim().min(1).max(MAX_WHY).optional() }).strict()
   },
   memory_append: {
-    description: 'Add text to the end of a memory file (a journal, a log, a list). Your own folder memory/bots/<your id>/ is written; memory/org/docs/ and memory/org/data/ only if your definition grants them; the organization’s PROJECT.md, decisions.md and instructions.md, bots/ and repos/ become a proposal a person adds or discards (give why, in your own words, for them to read); anything else is refused. Written when this run ends, parks or checkpoints.',
+    description: 'Add text to the end of a memory file (a journal, a log, a list). Your own folder memory/bots/<your id>/ is written, and the files and folders your task names; memory/org/docs/ and memory/org/data/ only if your definition grants them; the organization’s PROJECT.md, decisions.md and instructions.md, bots/ and repos/ become a proposal a person adds or discards (give why, in your own words, for them to read); anything else is refused. Written when this run ends, parks or checkpoints.',
     readOnly: false,
     schema: z.object({ path, text: z.string().min(1).max(MAX_MEMORY_TOOL_TEXT), why: z.string().trim().min(1).max(MAX_WHY).optional() }).strict()
   },
@@ -273,6 +273,8 @@ export interface MemoryWriteGrants {
   readOnly: boolean
   // Files its task grants for the task's duration (a project part's file, docs/ai-employees.md §15).
   files?: readonly string[]
+  // Folders (each ending in /) its task grants for the task's duration (a project part's mocks folder).
+  folders?: readonly string[]
 }
 
 export type MemoryWriteDecision = { kind: 'write' } | { kind: 'propose'; why: string } | { kind: 'refuse'; why: string }
@@ -286,8 +288,8 @@ export function memoryWriteDecision(employeeId: string, file: string, grants: Me
   const problem = memoryPathProblem(file)
   if (problem) return { kind: 'refuse', why: `${file}: ${MEMORY_PATH_REASON[problem]}` }
   const own = `memory/bots/${employeeId}/`
-  // A file its task grants (a project part's file): written, as its own folder is.
-  if (grants.files?.includes(file)) return grants.readOnly ? { kind: 'propose', why: 'This run is read-only, so even the file your task names is a proposal.' } : { kind: 'write' }
+  // A file or folder its task grants (a project part's file, its mocks folder): written, as its own folder is.
+  if (grants.files?.includes(file) || grants.folders?.some((f) => f.endsWith('/') && file.startsWith(f))) return grants.readOnly ? { kind: 'propose', why: 'This run is read-only, so even the file your task names is a proposal.' } : { kind: 'write' }
   if (file.startsWith(own)) return grants.readOnly ? { kind: 'propose', why: 'This run is read-only, so even your own memory is a proposal.' } : { kind: 'write' }
   if (file.startsWith('memory/bots/')) return { kind: 'refuse', why: `${file} is in another employee’s memory folder. Read it, but write only your own (${own}).` }
   if ((PROPOSAL_ONLY_FILES as readonly string[]).includes(file) || PROPOSAL_ONLY_FOLDERS.some((f) => file.startsWith(f)))

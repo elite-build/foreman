@@ -20,7 +20,10 @@ import {
   followUpBody,
   listedProjects,
   mentionOf,
+  MAX_MOCKS,
+  mocksFolder,
   partBody,
+  partMocks,
   partsAfter,
   planDiff,
   planMarkdown,
@@ -256,6 +259,43 @@ describe('projects: replans, readiness and plan.md', () => {
     expect(picked).not.toContain('On “Docs”')
     expect(picked).toContain('finish_task blocked and say in unblock what they asked for')
     expect(followUpBody({ project: project(), question: 'Why?', artifact: { path: 'memory/org/projects/csv-export/build.md' }, part: plan.parts[1] })).toContain('your part “Build”')
+    // Its standard mocks folder, for a part that designs or changes screens.
+    expect(part).toContain('draw them as HTML mocks in memory/org/projects/csv-export/mocks/build/')
+    const follow = followUpBody({ project: project(), question: 'Why?', artifact: { path: 'memory/org/projects/csv-export/build.md' }, part: plan.parts[1], mocks: mocksFolder('csv-export', 'build') })
+    expect(follow).toContain('your part “Build”')
+    expect(follow).toContain('Your HTML mocks are in memory/org/projects/csv-export/mocks/build/')
+    expect(followUpBody({ project: project(), question: 'Why?', mocks: mocksFolder('csv-export', 'build') })).not.toContain('HTML mocks')
+  })
+
+  it('tells the program manager to give screens to a designer, gated, with mocks', () => {
+    const body = planningBody({ project: project(), organization: 'Acme', repos: [], roster: [], replan: { reason: 'r', current: '-', version: 2, left: 2 } })
+    expect(body).toContain('A part that designs or changes screens also draws them as HTML mocks')
+  })
+})
+
+describe('a part’s mocks', () => {
+  const folder = mocksFolder('csv-export', 'design')
+
+  it('is the part’s own folder in the project’s', () => {
+    expect(folder).toBe('memory/org/projects/csv-export/mocks/design/')
+  })
+
+  it('keeps the HTML files its result names in its folder, each once, index.html first', () => {
+    const named = [
+      `${folder}2-export-b.html`,
+      'memory/org/projects/csv-export/design.md',
+      `${folder}index.html`,
+      `${folder}1-export-a.html`,
+      ` ${folder}1-export-a.html `,
+      `${folder}notes.md`,
+      `${folder}sub/1-a.html`,
+      `${folder}Big.html`,
+      'memory/org/projects/csv-export/mocks/build/1-a.html',
+      'memory/org/projects/csv-export/mocks/design-2/1-a.html'
+    ]
+    expect(partMocks('csv-export', 'design', named)).toEqual([`${folder}index.html`, `${folder}1-export-a.html`, `${folder}2-export-b.html`])
+    expect(partMocks('csv-export', 'design', [])).toEqual([])
+    expect(partMocks('csv-export', 'design', Array.from({ length: MAX_MOCKS + 5 }, (_, i) => `${folder}${String(i).padStart(2, '0')}-a.html`))).toHaveLength(MAX_MOCKS)
   })
 
   it('tells an acceptance what a replan decision does: another replan, or the person’s final check once none are left', () => {
@@ -303,6 +343,16 @@ describe('the memory file a task grants', () => {
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: true, files: [file] }).kind).toBe('propose')
     expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/design.md', { scopes: [], readOnly: false, files: [file] }).kind).toBe('refuse')
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: false }).kind).toBe('refuse')
+  })
+
+  it('lets a part write in its mocks folder, not beside it or in another part’s, and makes it a proposal when read-only', () => {
+    const grants = { scopes: [], readOnly: false, files: ['memory/org/projects/csv-export/design.md'], folders: [mocksFolder('csv-export', 'design')] }
+    expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/mocks/design/1-export-a.html', grants)).toEqual({ kind: 'write' })
+    expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/mocks/design/index.html', { ...grants, readOnly: true }).kind).toBe('propose')
+    for (const file of ['memory/org/projects/csv-export/mocks/build/1-a.html', 'memory/org/projects/csv-export/mocks/design-2/1-a.html', 'memory/org/projects/csv-export/plan.md', 'memory/org/projects/csv-export/mocks/design/../../plan.md'])
+      expect(memoryWriteDecision('e-max1', file, grants).kind).toBe('refuse')
+    // A folder grant that doesn't end in / grants nothing beside it.
+    expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/mocks/design-2/1-a.html', { scopes: [], readOnly: false, folders: ['memory/org/projects/csv-export/mocks/design'] }).kind).toBe('refuse')
   })
 })
 

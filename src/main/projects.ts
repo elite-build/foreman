@@ -46,9 +46,11 @@ import {
   MAX_REPLANS,
   MAX_REQUIREMENT,
   MAX_TRANSCRIPT,
+  mocksFolder,
   ownerId,
   ownerName,
   partBody,
+  partMocks,
   partsAfter,
   PLAN_FILE,
   planMarkdown,
@@ -566,6 +568,7 @@ export class ProjectService implements EmployeeProjectHooks {
 
   private recordArtifact(project: Project, task: EmployeeTask, file: string, partId?: string): void {
     const before = project.artifacts[file]
+    const mocks = partId ? partMocks(project.slug, partId, task.result?.artifacts ?? []) : []
     project.artifacts[file] = {
       file,
       path: artifactPath(project.slug, file),
@@ -574,7 +577,8 @@ export class ProjectService implements EmployeeProjectHooks {
       ...(partId ? { partId } : {}),
       ...(task.result?.commit ? { commit: task.result.commit } : {}),
       version: (before?.version ?? 0) + 1,
-      at: this.iso()
+      at: this.iso(),
+      ...(mocks.length ? { mocks } : {})
     }
   }
 
@@ -625,9 +629,10 @@ export class ProjectService implements EmployeeProjectHooks {
     }
     const round = status.round + 1
     const files = [...new Set([...part.reads, ...part.dependsOn].map((id) => plan.parts.find((p) => p.id === id)?.writes).filter((f): f is string => Boolean(f)))]
+    // Each file it reads, and the mocks drawn with it, at the commit they were written in.
     const inputs = files.flatMap((f) => {
       const a = project.artifacts[f]
-      return a ? [{ path: a.path, ...(a.commit ? { commit: a.commit } : {}) }] : []
+      return a ? [a.path, ...(a.mocks ?? [])].map((p) => ({ path: p, ...(a.commit ? { commit: a.commit } : {}) })) : []
     })
     // What the person wrote approving a part this one waits for or reads (their pick at a gate) goes with it.
     const approvals = [...new Set([...part.dependsOn, ...part.reads])].flatMap((id) => {
@@ -648,7 +653,7 @@ export class ProjectService implements EmployeeProjectHooks {
         body: partBody({ project, organization: org.name, plan, part, round, inputs, ...(note ? { note } : {}), ...(approvals.length ? { approvals } : {}) }),
         requestId: `project:${project.id}:part:${part.id}:${round}`,
         round,
-        contract: { ...(inputs.length ? { inputs } : {}), produces: path, writes: [path] }
+        contract: { ...(inputs.length ? { inputs } : {}), produces: path, writes: [path], writesUnder: [mocksFolder(project.slug, part.id)] }
       },
       { kind: 'stuck', partId: part.id }
     )
@@ -947,11 +952,11 @@ export class ProjectService implements EmployeeProjectHooks {
         orgId: fresh.orgId,
         employeeId,
         title: `Follow-up: ${fresh.title}`,
-        body: followUpBody({ project: fresh, question: asked, ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}), ...(part ? { part } : {}) }),
+        body: followUpBody({ project: fresh, question: asked, ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}), ...(part ? { part, mocks: mocksFolder(fresh.slug, part.id) } : {}) }),
         repoId: fresh.repoId,
         requestId: `project:${fresh.id}:follow-up:${randomUUID()}`,
         ...(rootId ? { rootId } : { runsAllowed: PROJECT_RUNS }),
-        contract: artifact ? { inputs: [{ path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) }], writes: [artifact.path] } : {},
+        contract: artifact ? { inputs: [{ path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) }], writes: [artifact.path], ...(partId ? { writesUnder: [mocksFolder(fresh.slug, partId)] } : {}) } : {},
         project: { id: fresh.id, kind: 'follow-up', round, ...(partId ? { partId } : {}) }
       })
       const now = this.project(fresh.id)

@@ -147,6 +147,8 @@ export interface ProjectArtifact {
   commit?: string
   version: number
   at: string
+  // The HTML mocks its part drew with this version (memory paths in the part's mocks folder, index.html first).
+  mocks?: string[]
 }
 
 /** Something the project waits for the person on. */
@@ -330,6 +332,22 @@ export function answersProblem(round: Pick<QuestionRound, 'questions'>, answers:
 
 export const projectFolder = (slug: string) => `memory/org/projects/${slug}`
 export const artifactPath = (slug: string, file: string) => `${projectFolder(slug)}/${file}`
+
+/**
+ * The standard folder for a part's HTML mocks, ending in `/`: a part that designs or changes screens draws them there
+ * (its task grants the folder), and the person opens each from the project's channel in their browser.
+ */
+export const mocksFolder = (slug: string, partId: string) => `${projectFolder(slug)}/mocks/${partId}/`
+export const MAX_MOCKS = 24
+const MOCK_FILE = /^[a-z0-9][a-z0-9-]{0,63}\.html$/
+
+/** The mocks a part's result names: HTML files directly in its mocks folder, each once, index.html first, at most MAX_MOCKS. */
+export function partMocks(slug: string, partId: string, artifacts: readonly string[]): string[] {
+  const folder = mocksFolder(slug, partId)
+  const mocks = [...new Set(artifacts.map((a) => a.trim()))].filter((a) => a.startsWith(folder) && MOCK_FILE.test(a.slice(folder.length)))
+  const index = `${folder}index.html`
+  return [...mocks.filter((m) => m === index), ...mocks.filter((m) => m !== index).sort()].slice(0, MAX_MOCKS)
+}
 
 const PART_ID = /^[a-z0-9][a-z0-9-]{0,31}$/
 const FILE = /^[a-z0-9][a-z0-9-]{0,47}\.md$/
@@ -783,6 +801,7 @@ const PLAN_RULES = [
   '- Give each part one owner from the roster (by id or name). Give yourself only parts that need no repository changes (requirements, research, docs). When nobody fits, propose a new employee in new_employees and own the part as new:<key>; the person approves each one.',
   '- Each part writes one markdown file in the project’s folder (requirements.md, build.md, qa.md…); name in reads the parts whose files it needs, and in depends_on the parts that must finish first.',
   '- Put gate_after on parts whose result the person should check before what depends on it starts (requirements, the build). Don’t gate everything.',
+  '- A part that designs or changes screens also draws them as HTML mocks, which the person opens from the channel: give it to a designer when the roster has one, put gate_after on it so the person picks before anything is built, and name it in the reads of the part that builds them.',
   '- In a replan, a kept part that couldn’t finish runs again (its next round) unless you set accept_as_is on it: then what it did counts as done, and only the parts you add do what is left.',
   '- When code changes, name the last code part as the publisher through request_pull_request. Order publication after the repository changes it must include, with no other part still writing to that workspace. Its owner reports Foreman’s actual answer, including a hold, refusal, failure or uncertain delivery; no other part publishes.',
   '- Parts that don’t depend on each other run at the same time, in the project’s one workspace.',
@@ -878,9 +897,11 @@ export function partBody(input: {
     for (const i of input.inputs) lines.push(`- ${i.path}${i.commit ? ` (at ${i.commit.slice(0, 12)})` : ''}`)
   }
   const file = artifactPath(input.project.slug, part.writes)
+  const mocks = mocksFolder(input.project.slug, part.id)
   lines.push(
     '',
     `Write your result to ${file} with memory_write (expected: null if it doesn’t exist yet, else the version memory_read gave you): it is what the next parts and the person read. Then finish_task done with artifacts ["${file}"].`,
+    `If your part designs or changes screens, also draw them as HTML mocks in ${mocks} with memory_write: for each screen or problem, two options (a and b, such as 1-checkout-a.html and 1-checkout-b.html), each one self-contained file under 60,000 characters that opens offline in a browser (inline CSS from the product’s own tokens, its real components and words, no scripts, nothing loaded from elsewhere), and an index.html that links each and says what it solves and which option you suggest. Name every mock in finish_task’s artifacts beside ${file}, and list them in it: the person opens them from the project’s channel. At most ${MAX_MOCKS}.`,
     'If you can’t finish, finish_task partial or blocked and say in unblock what is left: the program manager replans. Ask the person with ask_person if you need them.'
   )
   return lines.join('\n')
@@ -904,9 +925,10 @@ export function acceptanceBody(input: { project: Pick<Project, 'title' | 'requir
 }
 
 /** A follow-up to an employee of the project. */
-export function followUpBody(input: { project: Pick<Project, 'title'>; question: string; artifact?: { path: string; commit?: string }; part?: Pick<PlanPart, 'title'> }): string {
+export function followUpBody(input: { project: Pick<Project, 'title'>; question: string; artifact?: { path: string; commit?: string }; part?: Pick<PlanPart, 'title'>; mocks?: string }): string {
   const lines = [`The person asks you a follow-up about ${input.part ? `your part “${input.part.title}” of ` : ''}the project “${input.project.title}”, in their words: “${input.question.trim()}”`]
   if (input.artifact) lines.push('', `Read ${input.artifact.path}${input.artifact.commit ? ` (at ${input.artifact.commit.slice(0, 12)})` : ''} with memory_read first: it is what you wrote. If your answer changes it, update it with memory_write and name it in finish_task’s artifacts.`)
+  if (input.artifact && input.mocks) lines.push(`Your HTML mocks are in ${input.mocks}: change or add them there the same way when the question is about how a screen looks.`)
   lines.push('', 'Answer in finish_task’s summary (status done), or ask_person if you need more from them.')
   return lines.join('\n')
 }

@@ -59,6 +59,12 @@ describe('employee templates', () => {
       expect(back.definition).toEqual(d)
     }
     expect(made.find((d) => d.name === 'Uma')!.role).toBe('Staff UX designer')
+    // Uma draws what she proposes as HTML mocks, two options each, in the folder her task names, and lists them.
+    const uma = jobPrompt('ux-designer')
+    expect(uma).toContain('Draw what you propose as HTML mocks the person opens in a browser')
+    expect(uma).toContain('two options (a and b')
+    expect(uma).toContain('in the mocks folder your task names, else in your own memory folder under mocks/<yyyy-mm-dd>-<topic>/')
+    expect(uma).toContain('Mocks (each file, what it shows, the option you suggest)')
     expect(made.find((d) => d.name === 'Ravi')!.role).toBe('Staff software engineer')
     for (const t of EMPLOYEE_TEMPLATES) {
       expect(t.description).toBe(en[`spaces.template.${t.id}.line`])

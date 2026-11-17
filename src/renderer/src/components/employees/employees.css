@@ -943,6 +943,15 @@ div.team-row {
 .channel-artifact {
   padding: 4px 10px;
 }
+/* A part's HTML mocks under its file: a label, then a chip per mock. */
+.project-mocks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 6px;
+  min-width: 0;
+}
 .channel-artifact-head,
 .channel-owner,
 .channel-plan-head {

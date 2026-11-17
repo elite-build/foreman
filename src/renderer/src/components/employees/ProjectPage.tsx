@@ -2,8 +2,9 @@
 // questions and your answers; her planning, then each plan as a card (drawn as its workflow, what she understood, done
 // when, out of scope and what she assumed, its parts, who owns each, what each writes and waits for, Foreman's checks, what
 // changed since the plan before, the employees it proposes, each to approve); each part starting and what it said when
-// it finished, with the file it wrote; the decisions you made and the notes you left; follow-ups and their answers; and
-// last, who is at work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you
+// it finished, with the file it wrote and the HTML mocks it drew (each opens in the browser); the decisions you made and
+// the notes you left; follow-ups and their answers; and last, who is at work on it now, for how long, with a link to
+// watch (ProjectLive.tsx). Under it, what it waits for you
 // on: her questions (Send answers, Plan with what you have, Stop), the plan (Approve once every owner is approved, Send
 // back with a note, Stop), a part's result (Approve, or Approve with note, which goes to what starts next; Send back;
 // Stop), a task that couldn't finish (Try again, Stop), the final check; a note holds Approve on the plan and the final
@@ -17,12 +18,14 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import type { PlainKey } from '../../../../shared/i18n'
 import { formatDateTime, formatNumber, timeAgo } from '../../../../shared/i18n/time'
+import { joinWorkspace } from '../../../../shared/openIn'
 import { isArchived, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planStages, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectLive, type ProjectPlan, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openMemory, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
 import { reduceMotion } from '../../theme'
 import { DecisionCard, type DecisionAct } from '../DecisionCard'
+import { OpenFileChip } from '../OpenFileChip'
 import { ChannelMenu, DeleteChannelsDialog } from './ChannelActions'
 import { Markdown } from '../Markdown'
 import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
@@ -361,7 +364,31 @@ function ArtifactCard({ orgId, artifact, who }: { orgId: string; artifact: Proje
       >
         {open && <ArtifactText orgId={orgId} artifact={artifact} />}
       </Disclosure>
+      {artifact.mocks?.length ? <ArtifactMocks orgId={orgId} mocks={artifact.mocks} /> : null}
     </Card>
+  )
+}
+
+/**
+ * The HTML mocks a part drew with this version (shared/projects.ts mocksFolder): each a chip that opens it in the
+ * browser from the memory repository's folder, so the person sees the screens without opening the file. Names only
+ * when the memory repository isn't on this computer.
+ */
+function ArtifactMocks({ orgId, mocks }: { orgId: string; mocks: readonly string[] }) {
+  const t = useT()
+  const root = useStore((s) => {
+    const org = s.snapshot!.organizations?.find((o) => o.id === orgId)
+    return s.snapshot!.repos.find((r) => r.id === org?.memoryRepoId)?.rootPath
+  })
+  return (
+    <div className="project-mocks">
+      <span className="employee-faint">{t('projects.artifact.mocks', { count: mocks.length })}</span>
+      {mocks.map((m) => {
+        const name = m.slice(m.lastIndexOf('/') + 1)
+        // No workspace: the memory repository's files have no preview in Foreman, only the browser and the folder.
+        return root ? <OpenFileChip key={m} path={joinWorkspace(root, m)} label={name} access={{ workspaceId: '', root, preview: false }} /> : <span key={m} className="mono">{name}</span>
+      })}
+    </div>
   )
 }
 

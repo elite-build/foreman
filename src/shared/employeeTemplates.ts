@@ -116,8 +116,8 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     name: 'Uma',
     colour: 'pink',
     access: 'write',
-    description: 'Reviews screens and flows, and specifies what to build.',
-    responsibilities: ['Walk each flow as the person using it and find where they get stuck', 'Review states, words, keyboard and narrow widths', 'Specify what to build: layout, states, words, keyboard, components', 'Report findings ordered by harm, or a spec someone can build']
+    description: 'Reviews screens and flows, specifies what to build and draws it as mocks.',
+    responsibilities: ['Walk each flow as the person using it and find where they get stuck', 'Review states, words, keyboard and narrow widths', 'Specify what to build and draw it as HTML mocks, two options each', 'Report findings ordered by harm, or a spec someone can build']
   },
   {
     id: 'web-designer',

@@ -291,7 +291,7 @@ export class EmployeeTools {
     const { summary, definition } = current
     if (!definition || summary.problems.length || summary.changed || summary.state === 'retired' || summary.state === 'draft')
       throw new Error('Your definition changed since this run was approved (or you were retired), so Foreman takes no memory writes from this run. Finish the task and say so.')
-    return { scopes: brief.memoryWrites.scopes.filter((s) => definition.access.memory_write.includes(s)), readOnly: brief.memoryWrites.readOnly, files: brief.memoryWrites.files ?? [] }
+    return { scopes: brief.memoryWrites.scopes.filter((s) => definition.access.memory_write.includes(s)), readOnly: brief.memoryWrites.readOnly, files: brief.memoryWrites.files ?? [], folders: brief.memoryWrites.folders ?? [] }
   }
 
   /**

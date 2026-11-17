@@ -141,7 +141,7 @@ export interface EmployeeBrief {
   // What its memory tools may write (§4), as admitted: the definition's memory_write scopes, and whether the run writes
   // nothing directly (the persona it wears is read-only), so every write is a proposal; and the files its task grants
   // (a project part's file, §15).
-  memoryWrites: { scopes: string[]; readOnly: boolean; files?: string[] }
+  memoryWrites: { scopes: string[]; readOnly: boolean; files?: string[]; folders?: string[] }
 }
 
 /** A going run's tool call, resolved from its chat (main/employeeTools.ts). */
@@ -1062,6 +1062,7 @@ export class EmployeeWorkService {
       memoryReadOnly: ctx.memoryReadOnly
     })
     this.saveRun(run, { memoryBase: head })
+    const contract = this.db.employeeTask(run.taskId)?.contract
     return {
       system: system.text,
       context: pinnedMemoryText(pinnedFiles),
@@ -1070,7 +1071,7 @@ export class EmployeeWorkService {
       ...(d.template ? { jobPrompt: { id: d.template, version: jobPromptVersion(d.template) } } : {}),
       ...(org.text?.trim() ? { orgInstructions: { path: ORG_INSTRUCTIONS_PATH, commit: head, cut: system.orgCut } } : {}),
       memory: pinnedFiles.filter((f) => f.text !== null && f.text.trim()).map((f) => ({ path: f.path, commit: f.commit, chars: f.chars, cut: f.cut })),
-      memoryWrites: { scopes: [...d.access.memory_write], readOnly: ctx.memoryReadOnly, files: [...(this.db.employeeTask(run.taskId)?.contract?.writes ?? [])] }
+      memoryWrites: { scopes: [...d.access.memory_write], readOnly: ctx.memoryReadOnly, files: [...(contract?.writes ?? [])], folders: [...(contract?.writesUnder ?? [])] }
     }
   }
 
