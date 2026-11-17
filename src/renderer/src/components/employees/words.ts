@@ -29,6 +29,7 @@ import {
   type TriggerSkip
 } from '../../../../shared/employeeTriggers'
 import { formatDateTime } from '../../../../shared/i18n/time'
+import type { JobPromptId } from '../../../../shared/employeePrompts'
 import type { PlainKey, TFunction } from '../../../../shared/i18n'
 import { formatRun } from '../../../../shared/schedule'
 import { clockTime, dayOf } from '../../../../shared/usageLimit'
@@ -603,6 +604,11 @@ export function planWhen(d: Pick<EmployeeDefinition, 'triggers' | 'limits' | 'at
   const limits = cost ? t('employees.plan.limitsCost', { limits: set, cost }) : set
   const attended = d.attendance === 'unattended' ? t('employees.plan.unattended') : t('employees.plan.attended')
   return { when, limits, attended }
+}
+
+/** A job with a prompt of its own, by its title: a template's ("QA engineer"), or the program manager's. */
+export function jobName(id: JobPromptId, t: TFunction): string {
+  return id === 'program-manager' ? t('employees.job.programManager') : t(`spaces.template.${id}.title`)
 }
 
 /** "Claude Code · Opus 5.5 · High effort". */

@@ -89,15 +89,43 @@ describe('employee work: the words a run is given and what it may do', () => {
     expect(at('Your personality: Casual.')).toBeGreaterThan(at('You are Max.'))
     expect(text).toContain('Nobody is there to approve other tools')
     // Unattended, asking the person is still allowed: only other tools' permission requests are denied.
-    expect(text).toContain('That is not ask_person: asking the person a question with ask_person always works')
+    expect(text).toContain('Asking a question with ask_person is different from requesting tool permission')
     const read = employeeSystemText({ definition: d, organization: 'Acme', access: { repo: 'site', access: 'read', profile: 'no-shell', attended: true }, orgInstructions: null }).text
     expect(read).toContain('Foreman holds this run read-only')
-    // Read-only (plan mode) limits the repository, never Foreman's own tools.
-    expect(read).toContain('That limits the repository only, never Foreman’s own tools')
+    // Read-only (plan mode) limits the repository, never Foreman's own tools; a change asked for is handed back.
+    expect(read).toContain('Keep repository access read-only; use Foreman’s own tools below for memory and task completion')
+    expect(read).toContain('hand back the exact edits file by file')
     for (const tool of ['remember', 'ask_person', 'finish_task']) expect(read).toContain(tool)
-    expect(read).toContain('always work in this run, whatever its mode, and never need approval')
+    expect(read).toContain('can be called in this run, whatever its mode, and need nobody’s approval to call')
+    expect(read).not.toContain('request_pull_request with a title')
     expect(read).toContain('A person answers what you ask for approval')
     expect(read).not.toContain('instructions for every employee')
+  })
+
+  it('says for each run what it may do and what counts as a check, so no employee’s prompt has to', () => {
+    const d = defaultEmployee({ id: 'e-max1', colour: 'orange', repos: ['site'], loadouts: [], text: { name: 'Max' } })
+    const say = (access: Parameters<typeof employeeSystemText>[0]['access'], memoryReadOnly = false) => employeeSystemText({ definition: d, organization: 'Acme', access, orgInstructions: null, memoryReadOnly }).text
+    const noShell = say({ repo: 'site', access: 'write', profile: 'no-shell', attended: false })
+    expect(noShell).toContain('This run works in a fresh workspace of the repository “site”, on its own branch.')
+    expect(noShell).toContain('Never run tests, builds, scripts, servers or installs, or git commands that change anything')
+    expect(noShell).toContain('A previous run may count when it covers the code, check and environment behind the claim.')
+    expect(noShell).toContain('For an execution check with no applicable record, say “not run”')
+    // Codex reads with read-only commands, so nothing says Foreman refuses every one.
+    expect(noShell).not.toContain('refuses every command')
+    const shell = say({ repo: 'site', access: 'write', profile: 'shell', attended: false })
+    expect(shell).toContain('Run the checks that cover the assigned work, including checks the repository requires for that change.')
+    expect(shell).not.toContain('Never run tests')
+    // A project's runs share its workspace; a persona's write scope is said; Write runs never merge.
+    const part = say({ repo: 'site', access: 'write', profile: 'no-shell', attended: false, project: true, writes: ['docs/**'] })
+    expect(part).toContain('This run works in the project’s workspace of the repository “site”, on the branch its parts share')
+    expect(part).toContain('This run’s persona limits your writes to docs/**; a write elsewhere is refused.')
+    expect(part).toContain('Never merge, and never get a change out any other way.')
+    // Every run: the summary, the report folder, urgent items first; a read-only persona's memory writes are proposals.
+    expect(noShell).toContain('else in memory/bots/e-max1/reports/<yyyy-mm-dd>-<topic>.md')
+    expect(noShell).toContain('Anything urgent (a live secret, data being lost now, an attack under way, many people hit at once) goes first')
+    expect(noShell).not.toContain('This run wears a read-only persona')
+    expect(say({ repo: 'site', access: 'read', profile: 'no-shell', attended: false }, true)).toContain('This run wears a read-only persona: memory writes that would otherwise be allowed')
+    expect(runNowBody({ responsibilities: [] })).toContain('If nothing is ready, say so in one line, then call report_no_update.')
   })
 
   it('frames pinned memory as data with its path and commit, leaves missing files out and can’t be closed early', () => {

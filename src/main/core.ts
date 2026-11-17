@@ -3463,7 +3463,7 @@ export class Core {
     refineEmployeeDraft: (organizationId, draft, request) => this.employees.refine(organizationId, draft, request),
     createEmployee: (organizationId, definition, options) => this.employees.create(organizationId, definition, options),
     addTemplateEmployee: (organizationId, templateId) => this.employees.addTemplate(organizationId, templateId),
-    updateEmployee: (organizationId, id, definition, expectedBlob) => this.employees.update(organizationId, id, definition, expectedBlob),
+    updateEmployee: (organizationId, id, definition, expectedBlob, expectedPromptBlob) => this.employees.update(organizationId, id, definition, expectedBlob, expectedPromptBlob),
     approveEmployee: (organizationId, id, expectedFingerprint) => this.employees.approve(organizationId, id, expectedFingerprint),
     pauseEmployee: (organizationId, id) => this.employees.pause(organizationId, id),
     resumeEmployee: (organizationId, id) => this.employees.resume(organizationId, id),

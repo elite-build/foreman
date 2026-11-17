@@ -12,6 +12,7 @@ import {
   employeeFromObject,
   employeeNameProblem,
   employeePath,
+  employeePromptPath,
   freeHatColour,
   MAX_RESPONSIBILITIES,
   newEmployeeId,
@@ -230,7 +231,8 @@ export class EmployeeTools {
           text: { name, role: text('role'), description: text('description'), personality: text('personality'), responsibilities, ask_me_about: text('ask_me_about'), instructions: text('instructions') }
         })
       )
-      const id = await file(employeePath(d.id), serializeEmployee(d), null, reason)
+      // One file to keep, so its prompt goes in it, as before prompts had their own; Foreman gives it its own once kept.
+      const id = await file(employeePath(d.id), serializeEmployee(d, { instructions: true }), null, reason)
       return { text: `Proposed (not made): a new employee, ${d.name} (${employeePath(d.id)}), with no repository yet (proposal ${id}). A person keeps or retires it in Needs you; kept, it is a draft until a person approves it.` }
     }
     // A trigger or a delegate: a new version of its own definition, against the version it is now.
@@ -258,7 +260,9 @@ export class EmployeeTools {
       next = checked({ ...parse.definition, triggers: [...existing, trigger] })
       what = 'a new trigger'
     }
-    const id = await file(path, serializeEmployee(next), now.blob, reason)
+    // Its prompt stays where it is: in its own file when it has one, else in this one.
+    const prompt = await this.host.memory.read(run.orgId, employeePromptPath(run.employeeId))
+    const id = await file(path, serializeEmployee(next, { instructions: prompt.blob === null }), now.blob, reason)
     return { text: `Proposed (not made): ${what}, as a new version of ${path} (proposal ${id}). A person keeps or retires it in Needs you; if kept, your definition has changed, and you run again only once a person approves it.` }
   }
 

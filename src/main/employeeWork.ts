@@ -75,6 +75,8 @@ import {
   type EmployeeTaskWait,
   type EmployeeWaitingOn,
   employeeSystemText,
+  EMPLOYEE_WRITE_SCOPE,
+  type EmployeeRunAccessText,
   employeeTurnLimits,
   isRunActive,
   isRunGoing,
@@ -101,7 +103,8 @@ import {
   type PinnedFile
 } from '../shared/employeeWork'
 import { ACTION_KEEPS_WORKSPACE, ACTION_NEEDS_PERSON, actionSummary, type EmployeeAction, type EmployeeActionNews } from '../shared/employeeActions'
-import { employeeStatus, type EmployeeDefinition, type EmployeeSummary } from '../shared/employees'
+import { employeePath, employeePromptPath, employeeStatus, type EmployeeDefinition, type EmployeeSummary } from '../shared/employees'
+import { jobPromptVersion } from '../shared/employeePrompts'
 import { isEmployeeId, MEMORY_PATH_REASON, memoryPathProblem } from '../shared/memory'
 import { reposInSpace, spaceOf, type Organization } from '../shared/organizations'
 import { readOnlyEnforcement } from '../shared/permissions'
@@ -129,8 +132,10 @@ export interface EmployeeBrief {
   // Pinned memory, framed as data, put before the task.
   context: string
   name: string
-  // For the receipt: the definition's file, the organization's instructions at their commit, and each pinned file.
+  // For the receipt: the definition's files, the job prompt it was given first (which, and which version of its text),
+  // the organization's instructions at their commit, and each pinned file.
   definitionPath: string
+  jobPrompt?: { id: string; version: string }
   orgInstructions?: { path: string; commit: string; cut: boolean }
   memory: { path: string; commit: string; chars: number; cut: boolean }[]
   // What its memory tools may write (§4), as admitted: the definition's memory_write scopes, and whether the run writes
@@ -257,6 +262,24 @@ interface RunContext {
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+/**
+ * What the run's words say it may do: what it is held to (its turn limits, a read-only persona or a write scope
+ * included), not the definition alone, so a run is never told it may do what it can't.
+ */
+function runAccess(ctx: RunContext, d: EmployeeDefinition, project: boolean): EmployeeRunAccessText {
+  const limits = ctx.mark.persona
+  const writes = limits.writes && limits.writes.join('\n') !== EMPLOYEE_WRITE_SCOPE.join('\n') ? [...limits.writes] : undefined
+  return {
+    repo: ctx.repo.name,
+    access: limits.readOnly ? 'read' : 'write',
+    // A write scope takes the shell away, whatever the profile.
+    profile: limits.writes ? 'no-shell' : d.access.profile,
+    attended: d.attendance === 'attended',
+    ...(project ? { project: true } : {}),
+    ...(writes ? { writes } : {})
+  }
+}
 
 /** How a run's end leaves its task. */
 type TaskAfter =
@@ -1034,15 +1057,17 @@ export class EmployeeWorkService {
     const system = employeeSystemText({
       definition: d,
       organization: ctx.org.name,
-      access: { repo: ctx.repo.name, access: ctx.access, profile: d.access.profile, attended: d.attendance === 'attended' },
-      orgInstructions: org.text !== undefined ? { text: org.text, commit: head } : null
+      access: runAccess(ctx, d, Boolean(this.db.employeeTask(run.taskId)?.project)),
+      orgInstructions: org.text !== undefined ? { text: org.text, commit: head } : null,
+      memoryReadOnly: ctx.memoryReadOnly
     })
     this.saveRun(run, { memoryBase: head })
     return {
       system: system.text,
       context: pinnedMemoryText(pinnedFiles),
       name: d.name,
-      definitionPath: `bots/${d.id}.toml`,
+      definitionPath: `${employeePath(d.id)}, ${employeePromptPath(d.id)}`,
+      ...(d.template ? { jobPrompt: { id: d.template, version: jobPromptVersion(d.template) } } : {}),
       ...(org.text?.trim() ? { orgInstructions: { path: ORG_INSTRUCTIONS_PATH, commit: head, cut: system.orgCut } } : {}),
       memory: pinnedFiles.filter((f) => f.text !== null && f.text.trim()).map((f) => ({ path: f.path, commit: f.commit, chars: f.chars, cut: f.cut })),
       memoryWrites: { scopes: [...d.access.memory_write], readOnly: ctx.memoryReadOnly, files: [...(this.db.employeeTask(run.taskId)?.contract?.writes ?? [])] }

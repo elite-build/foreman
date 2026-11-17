@@ -1,5 +1,5 @@
 // AI employees (docs/ai-employees.md §5): an organization's employees are its memory repository's `bots/<id>.toml`
-// files, read and written only through the memory service; whether each is approved, paused or retired on this
+// files, each with its own prompt beside it in `bots/<id>.md`, read and written only through the memory service; whether each is approved, paused or retired on this
 // computer is in state.json (§12), never in the memory repository, so a cloned organization starts inert (§3).
 //
 // Creating one writes its definition and seeds `memory/bots/<id>/` in one commit, by the person who clicked Create.
@@ -16,9 +16,12 @@ import {
   employeeFingerprintText,
   employeeFromObject,
   employeeIdOfPath,
+  employeeIdOfPromptPath,
   employeeMemoryFolder,
   employeeNameProblem,
   employeePath,
+  employeePromptFile,
+  employeePromptPath,
   employeeRefinePrompt,
   freeHatColour,
   HAT_COLOURS,
@@ -43,11 +46,13 @@ import {
   type EmployeeView,
   type PersonalityTrait
 } from '../shared/employees'
+import { ownPromptNote } from '../shared/employeePrompts'
 import { programManagerDefinition } from '../shared/employeeTeams'
-import { isEmployeeTemplateId, templateDefinitions, type EmployeeTemplateId } from '../shared/employeeTemplates'
+import { isEmployeeTemplateId, jobTitle, templateDefinitions, type EmployeeTemplateId } from '../shared/employeeTemplates'
 import { createT, type Locale } from '../shared/i18n'
 import { isEmployeeId } from '../shared/memory'
 import { reposInSpace, type Organization } from '../shared/organizations'
+import { jobOfEarlierPrompt } from './earlierJobPrompts'
 import type { MemoryService } from './memory'
 import type { PersistedState } from './store'
 
@@ -73,12 +78,15 @@ export interface EmployeeHost {
   now?(): Date
 }
 
-/** What the service knows of one definition file at a head. */
+/** What the service knows of one definition file, with its own prompt file, at a head. */
 interface FileEntry {
   id: string
   path: string
   blob: string
   text: string | null
+  // `bots/<id>.md`'s blob and text; null while there is none (a definition written before prompts had their own).
+  promptBlob: string | null
+  prompt: string | null
   definition?: EmployeeDefinition
   problems: string[]
   fingerprint?: string
@@ -102,6 +110,27 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** state.migrations: `<this>:<organization id>` once its employees were given what every employee now has (withFullAccess). */
 export const FULL_ACCESS_MIGRATION = 'employees-full-access'
+
+/** state.migrations: `<this>:<organization id>` once its employees whose prompt was a job's, word for word, were linked to that job. */
+export const JOB_PROMPTS_MIGRATION = 'employees-job-prompts'
+
+/** The changes that write a definition and its own prompt file, each against the version read (null: a new file). */
+function definitionWrites(d: EmployeeDefinition, read?: { blob: string; promptBlob: string | null }) {
+  return [
+    { kind: 'write' as const, path: employeePath(d.id), text: serializeEmployee(d), expectedBlob: read ? read.blob : null },
+    { kind: 'write' as const, path: employeePromptPath(d.id), text: employeePromptFile(d), expectedBlob: read ? read.promptBlob : null }
+  ]
+}
+
+/**
+ * The definition with the job prompt it was given word for word linked instead (shared/employeePrompts): its job
+ * recorded and its own file starting with the note for whoever edits it. Unchanged when its prompt is no earlier job's.
+ */
+function linkedToJob(d: EmployeeDefinition): EmployeeDefinition {
+  if (d.template) return d
+  const job = jobOfEarlierPrompt(d.instructions)
+  return job ? { ...d, template: job, instructions: ownPromptNote(jobTitle(job), d.id) } : d
+}
 
 export class EmployeeService {
   // Each organization's definition files at the head last read, for the snapshot.
@@ -156,19 +185,26 @@ export class EmployeeService {
     const t = createT(locale)
     const entries: FileEntry[] = []
     const folders = new Set<string>()
+    const prompts = new Map<string, string>()
+    for (const entry of tree.entries) {
+      const id = employeeIdOfPromptPath(entry.path)
+      if (id !== null) prompts.set(id, entry.blob)
+    }
     for (const entry of tree.entries) {
       const folder = /^memory\/bots\/([^/]+)\//.exec(entry.path)
       if (folder) folders.add(folder[1])
       const id = employeeIdOfPath(entry.path)
       if (id === null) continue
-      const key = `${locale}:${entry.path}:${entry.blob}`
+      const promptBlob = prompts.get(id) ?? null
+      const key = `${locale}:${entry.path}:${entry.blob}:${promptBlob ?? ''}`
       let file = this.parsed.get(key)
       if (!file) {
         const text = await this.host.memory.readBlob(orgId, entry.blob)
-        file = { id, path: entry.path, blob: entry.blob, text, problems: [] }
-        if (text === null) file.problems = [t('employees.problem.unreadable')]
+        const prompt = promptBlob === null ? null : await this.host.memory.readBlob(orgId, promptBlob)
+        file = { id, path: entry.path, blob: entry.blob, text, promptBlob, prompt, problems: [] }
+        if (text === null || (promptBlob !== null && prompt === null)) file.problems = [t('employees.problem.unreadable')]
         else {
-          const parse = parseEmployee(text, t)
+          const parse = parseEmployee(text, t, prompt)
           if (parse.definition && parse.definition.id !== id) file.problems = [t('employees.problem.fileName', { file: entry.path, id: parse.definition.id })]
           else if (!isEmployeeId(id)) file.problems = [t('employees.problem.id')]
           else if (parse.definition) {
@@ -211,14 +247,40 @@ export class EmployeeService {
   private async view(orgId: string, file: FileEntry): Promise<EmployeeView> {
     const summary = this.summary(orgId, file)
     const record = this.record(orgId, file.id)
-    const approvedText = summary.changed && record?.approvedBlob ? await this.host.memory.readBlob(orgId, record.approvedBlob) : null
+    const approved = summary.changed && record ? await this.approvedFiles(orgId, record) : null
     return {
       ...summary,
       blob: file.blob,
       text: file.text,
+      promptBlob: file.promptBlob,
+      prompt: file.prompt,
       ...(file.definition ? { definition: file.definition, fingerprint: file.fingerprint } : {}),
-      ...(approvedText !== null ? { approvedText } : {})
+      ...(approved ? { approvedText: approved.text, approvedPrompt: approved.prompt } : {})
     }
+  }
+
+  /**
+   * The files as they were approved, for a diff: the definition and its own prompt. One approved before prompts had
+   * their own is shown split as it would be now, so the diff shows what changed, not where the prompt moved.
+   */
+  private async approvedFiles(orgId: string, record: EmployeeRecord): Promise<{ text: string; prompt: string } | null> {
+    const text = record.approvedBlob ? await this.host.memory.readBlob(orgId, record.approvedBlob) : null
+    if (text === null) return null
+    if (record.approvedPromptBlob) {
+      const prompt = await this.host.memory.readBlob(orgId, record.approvedPromptBlob)
+      return prompt === null ? null : { text, prompt }
+    }
+    const before = parseEmployee(text).definition
+    return before ? { text: serializeEmployee(before), prompt: employeePromptFile(before) } : { text, prompt: '' }
+  }
+
+  /** The definition approved here, read back from its files; undefined when they are gone or don't read as one. */
+  private async approvedDefinition(orgId: string, record: EmployeeRecord): Promise<EmployeeDefinition | undefined> {
+    const text = record.approvedBlob ? await this.host.memory.readBlob(orgId, record.approvedBlob) : null
+    if (text === null) return undefined
+    const prompt = record.approvedPromptBlob ? await this.host.memory.readBlob(orgId, record.approvedPromptBlob) : null
+    if (record.approvedPromptBlob && prompt === null) return undefined
+    return parseEmployee(text, undefined, prompt).definition
   }
 
   /** Read again and keep it for the snapshot; the windows hear of it when anything they show changed. */
@@ -319,7 +381,8 @@ export class EmployeeService {
     const run = (async () => {
       try {
         this.organization(orgId)
-        const read = await this.load(orgId)
+        let read = await this.load(orgId)
+        if (await this.ownPromptFiles(orgId, read.entries)) read = await this.load(orgId)
         await this.widenOnce(orgId, read.entries)
       } catch (err) {
         const before = this.cache.get(orgId)
@@ -334,6 +397,61 @@ export class EmployeeService {
     })()
     this.refreshing.set(orgId, run)
     return run
+  }
+
+  /**
+   * Every employee's prompt in its own file (`bots/<id>.md`): a definition that still keeps its prompt in the TOML is
+   * written as the two files, which changes nothing it runs with, so its fingerprint and approval stay. Once per
+   * organization on this computer, an employee whose prompt is a job's prompt word for word, as an earlier build wrote it
+   * (a template employee, or the program manager), is linked to that job instead (linkedToJob), so it is given the job's
+   * prompt as Foreman has it now and improves when that does; an approval of it as it was moves with it, here and on a
+   * computer that reads the commit, since the person asked for exactly this. One commit by the person; a conflict or a
+   * refused commit is tried again at the next refresh, and never stops the roster loading. True when it committed.
+   */
+  private async ownPromptFiles(orgId: string, entries: FileEntry[]): Promise<boolean> {
+    const key = `${JOB_PROMPTS_MIGRATION}:${orgId}`
+    const done = (this.state.migrations ??= [])
+    const linking = !done.includes(key)
+    try {
+      const readable = entries.filter((e) => e.definition && e.fingerprint)
+      const writes = readable.flatMap((e) => {
+        const next = linking ? linkedToJob(e.definition!) : e.definition!
+        return next !== e.definition || e.promptBlob === null ? [{ entry: e, next }] : []
+      })
+      let blobs: Record<string, string | null> = {}
+      if (writes.length) {
+        const linked = writes.filter((w) => w.next.template && !w.entry.definition!.template).length
+        const result = await this.host.memory.commitAsPerson(
+          orgId,
+          writes.flatMap(({ entry, next }) => definitionWrites(next, entry)),
+          { subject: linked ? 'Give every AI employee its own prompt file, and its job’s prompt as Foreman has it' : 'Give every AI employee its own prompt file' }
+        )
+        if (!result.ok) return false
+        blobs = result.blobs
+      }
+      // The approval of each as it was before the change (here, or on the computer that made the commit).
+      for (const e of readable) {
+        const record = this.record(orgId, e.id)
+        if (!record?.approvedFingerprint) continue
+        const write = writes.find((w) => w.entry === e)
+        const after = write ? employeeFingerprint(write.next) : e.fingerprint!
+        const files = write ? { approvedBlob: blobs[e.path] ?? undefined, approvedPromptBlob: blobs[employeePromptPath(e.id)] ?? undefined } : {}
+        if (record.approvedFingerprint === after) {
+          if (write) this.setRecord(orgId, e.id, files)
+          continue
+        }
+        if (!linking) continue
+        const before = record.approvedFingerprint === e.fingerprint ? e.definition : await this.approvedDefinition(orgId, record)
+        if (!before || employeeFingerprint(before) !== record.approvedFingerprint || employeeFingerprint(linkedToJob(before)) !== after) continue
+        this.setRecord(orgId, e.id, { approvedFingerprint: after, ...(write ? files : { approvedBlob: e.blob, approvedPromptBlob: e.promptBlob ?? undefined }) })
+      }
+      if (linking) done.push(key)
+      if (linking || writes.length) this.host.changed()
+      return writes.length > 0
+    } catch (err) {
+      console.warn(`[employees] couldn't give ${orgId}'s employees their own prompt files yet: ${message(err)}`)
+      return false
+    }
   }
 
   /**
@@ -357,7 +475,7 @@ export class EmployeeService {
       if (writes.length) {
         const result = await this.host.memory.commitAsPerson(
           orgId,
-          writes.map(({ entry, wider }) => ({ kind: 'write' as const, path: entry.path, text: serializeEmployee(wider), expectedBlob: entry.blob })),
+          writes.flatMap(({ entry, wider }) => definitionWrites(wider, entry)),
           { subject: 'Let every AI employee push, open pull requests and run without limits' }
         )
         if (!result.ok) return
@@ -370,13 +488,13 @@ export class EmployeeService {
         const write = writes.find((w) => w.entry === e)
         const after = write ? employeeFingerprint(write.wider) : e.fingerprint!
         if (record.approvedFingerprint === after) continue
-        let before: EmployeeDefinition | undefined = record.approvedFingerprint === e.fingerprint ? e.definition : undefined
-        if (!before && record.approvedBlob) {
-          const text = await this.host.memory.readBlob(orgId, record.approvedBlob)
-          before = text === null ? undefined : parseEmployee(text).definition
-        }
+        const before = record.approvedFingerprint === e.fingerprint ? e.definition : await this.approvedDefinition(orgId, record)
         if (!before || employeeFingerprint(before) !== record.approvedFingerprint || employeeFingerprint(withFullAccess(before)) !== after) continue
-        this.setRecord(orgId, e.id, { approvedFingerprint: after, approvedBlob: (write ? blobs[e.path] : e.blob) ?? undefined })
+        this.setRecord(orgId, e.id, {
+          approvedFingerprint: after,
+          approvedBlob: (write ? blobs[e.path] : e.blob) ?? undefined,
+          approvedPromptBlob: (write ? blobs[employeePromptPath(e.id)] : e.promptBlob) ?? undefined
+        })
       }
       done.push(key)
       this.host.changed()
@@ -410,7 +528,8 @@ export class EmployeeService {
   }
 
   /**
-   * Create an employee: `bots/<id>.toml` and its memory folder (`MEMORY.md`, `journal.md`) in one commit by the person.
+   * Create an employee: `bots/<id>.toml`, its own prompt `bots/<id>.md` and its memory folder (`MEMORY.md`,
+   * `journal.md`) in one commit by the person.
    * Its id is kept unless another employee, record or memory folder of the organization has it, when a new one is
    * given (an id is never reused). It is a draft; with `approve` it is approved on this computer as well.
    */
@@ -428,12 +547,18 @@ export class EmployeeService {
     const seeds = seedMemoryFiles(d)
     const result = await this.host.memory.commitAsPerson(
       orgId,
-      [{ kind: 'write', path, text: serializeEmployee(d), expectedBlob: null }, ...Object.entries(seeds).map(([file, text]) => ({ kind: 'write' as const, path: file, text, expectedBlob: null }))],
+      [...definitionWrites(d), ...Object.entries(seeds).map(([file, text]) => ({ kind: 'write' as const, path: file, text, expectedBlob: null }))],
       { subject: `Add AI employee ${d.name} (${path})` }
     )
     if (!result.ok) throw new Error(`${result.path} is already in ${org.name}’s memory repository. Look again and try once more.`)
     const now = (this.host.now?.() ?? new Date()).toISOString()
-    this.setRecord(orgId, d.id, options?.approve === true ? { state: 'active', approvedFingerprint: employeeFingerprint(d), approvedBlob: result.blobs[path] ?? undefined, approvedAt: now } : { state: 'draft' })
+    this.setRecord(
+      orgId,
+      d.id,
+      options?.approve === true
+        ? { state: 'active', approvedFingerprint: employeeFingerprint(d), approvedBlob: result.blobs[path] ?? undefined, approvedPromptBlob: result.blobs[employeePromptPath(d.id)] ?? undefined, approvedAt: now }
+        : { state: 'draft' }
+    )
     this.host.changed()
     const { file } = await this.entry(orgId, d.id)
     return this.view(orgId, file)
@@ -465,7 +590,7 @@ export class EmployeeService {
       if (unknown.length) throw new Error(`${d.name} can only hand tasks to employees of ${org.name}: ${unknown.join(', ')} isn’t one.`)
     }
     const changes = checked.flatMap((d) => [
-      { kind: 'write' as const, path: employeePath(d.id), text: serializeEmployee(d), expectedBlob: null },
+      ...definitionWrites(d),
       ...Object.entries(seedMemoryFiles(d)).map(([file, text]) => ({ kind: 'write' as const, path: file, text, expectedBlob: null }))
     ])
     const subject = checked.length === 1 ? `Add AI employee ${checked[0].name} (${employeePath(checked[0].id)})` : `Add the team: ${checked.map((d) => d.name).join(', ')}`
@@ -547,23 +672,26 @@ export class EmployeeService {
   }
 
   /**
-   * Save an edit against the file as it was read (`expectedBlob`); a file changed since is a conflict, with how it is
-   * now. The id can't change, and a retired employee isn't edited. If the fingerprint moved, an approved employee is
-   * "changed since approval" until it is approved again.
+   * Save an edit against the files as they were read (`expectedBlob` for the definition, `expectedPromptBlob` for its
+   * own prompt, null while it had none; left out, it isn't checked); a file changed since is a conflict, with how it is
+   * now. The id can't change,
+   * and a retired employee isn't edited. If the fingerprint moved, an approved employee is "changed since approval"
+   * until it is approved again.
    */
-  async update(orgId: string, id: string, definition: EmployeeDefinition, expectedBlob: string): Promise<EmployeeUpdateResult> {
+  async update(orgId: string, id: string, definition: EmployeeDefinition, expectedBlob: string, expectedPromptBlob?: string | null): Promise<EmployeeUpdateResult> {
     this.organization(orgId)
-    if (!isEmployeeId(id) || typeof expectedBlob !== 'string' || !expectedBlob) throw new Error('Invalid employee')
+    if (!isEmployeeId(id) || typeof expectedBlob !== 'string' || !expectedBlob || (expectedPromptBlob !== undefined && expectedPromptBlob !== null && (typeof expectedPromptBlob !== 'string' || !expectedPromptBlob))) throw new Error('Invalid employee')
     const d = this.checked(definition)
     if (d.id !== id) throw new Error('An employee’s id never changes.')
     if (this.record(orgId, id)?.state === 'retired') throw new Error(`${d.name} is retired.`)
     const { entries } = await this.load(orgId)
-    if (!entries.some((e) => e.id === id)) throw new Error('Employee not found')
+    const read = entries.find((e) => e.id === id)
+    if (!read) throw new Error('Employee not found')
     this.checkName(d, entries, id)
     const unknown = d.access.delegate_to.filter((other) => !entries.some((e) => e.id === other))
     if (unknown.length) throw new Error(`${d.name} can only hand tasks to employees of this organization: ${unknown.join(', ')} isn’t one.`)
     const path = employeePath(id)
-    const result = await this.host.memory.commitAsPerson(orgId, [{ kind: 'write', path, text: serializeEmployee(d), expectedBlob }], { subject: `Edit AI employee ${d.name} (${path})` })
+    const result = await this.host.memory.commitAsPerson(orgId, definitionWrites(d, { blob: expectedBlob, promptBlob: expectedPromptBlob === undefined ? read.promptBlob : expectedPromptBlob }), { subject: `Edit AI employee ${d.name} (${path})` })
     if (!result.ok) return { ok: false, conflict: result.conflict }
     const { file } = await this.entry(orgId, id)
     return { ok: true, employee: await this.view(orgId, file) }
@@ -584,7 +712,7 @@ export class EmployeeService {
     if (record?.state === 'retired') throw new Error(`${file.definition.name} is retired.`)
     if (expectedFingerprint !== undefined && expectedFingerprint !== file.fingerprint) throw new Error(`${file.definition.name}’s definition changed while you were reading the plan. Look at it again.`)
     const now = (this.host.now?.() ?? new Date()).toISOString()
-    this.setRecord(orgId, id, { state: record?.state === 'paused' ? 'paused' : 'active', approvedFingerprint: file.fingerprint, approvedBlob: file.blob, approvedAt: now })
+    this.setRecord(orgId, id, { state: record?.state === 'paused' ? 'paused' : 'active', approvedFingerprint: file.fingerprint, approvedBlob: file.blob, approvedPromptBlob: file.promptBlob ?? undefined, approvedAt: now })
     this.host.changed()
     this.host.lifecycle?.(orgId, id)
     return this.view(orgId, file)

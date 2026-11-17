@@ -54,7 +54,7 @@ export function memoryRepositoryFiles(organization: string): Record<string, stri
       '',
       '- `memory/org/`: the organization’s own memory. `PROJECT.md` says what the organization is and wants, `decisions.md` records each decision with its date, and `instructions.md` holds the instructions every AI employee reads first.',
       '- `memory/bots/<id>/`: each AI employee’s own memory.',
-      '- `bots/<id>.toml`: each AI employee’s definition.',
+      '- `bots/<id>.toml`: each AI employee’s definition, and `bots/<id>.md` its own prompt (for one hired from a Foreman job template, what this organization adds to that job’s prompt).',
       '- `repos/<name>/`: Foreman’s files for repositories that shouldn’t carry their own `.foreman/`.',
       `- \`${MEMORY_MANIFEST}\`: what this repository is, written by Foreman only.`,
       '',
