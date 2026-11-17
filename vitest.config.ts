@@ -6,6 +6,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.{ts,tsx}'],
     setupFiles: ['tests/setup.ts'],
+    globalSetup: ['tests/globalSetup.ts'],
     testTimeout: 30000,
     forceRerunTriggers: [...configDefaults.forceRerunTriggers, '**/package-lock.json', '**/tsconfig*.json']
   }

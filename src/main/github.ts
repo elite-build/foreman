@@ -2,7 +2,7 @@
 // A cloud workspace's git and gh run in its sandbox; gh there runs as the
 // repository's GitHub connection (GH_TOKEN per command), never this computer's login.
 import { execFile } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { BranchPrefixType, GithubAccount, GithubStatus, GitStatus, PrCheck, PullRequestInfo, Settings, Workspace } from '../shared/types'
@@ -267,8 +267,17 @@ let emptyConfig: string | undefined
  * used, so nothing falls through to the user's own login.
  */
 export function noGithubEnv(): Record<string, string> {
-  if (!emptyConfig) {
-    emptyConfig = mkdtempSync(path.join(os.tmpdir(), 'foreman-no-github-'))
+  // Made again if the daily temp sweep (main/tempSweep.ts) took it from a Foreman left running; removed on exit.
+  if (!emptyConfig || !existsSync(emptyConfig)) {
+    const made = mkdtempSync(path.join(os.tmpdir(), 'foreman-no-github-'))
+    emptyConfig = made
+    process.once('exit', () => {
+      try {
+        rmSync(made, { recursive: true, force: true })
+      } catch {
+        // Still held: the sweep deletes it later.
+      }
+    })
   }
   return {
     GH_CONFIG_DIR: emptyConfig,

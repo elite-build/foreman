@@ -49,6 +49,7 @@ import { configureReplay } from './agents/fixtures/replayDriver'
 import { perf } from './perf'
 import { RemoteRouter, type WindowRoute } from './remote/router'
 import { electronUpdateInstaller, type ElectronUpdateInstaller } from './updateInstaller'
+import { DAY_MS, sweepForemanTemp } from './tempSweep'
 
 // The last few errors go into Report a problem's diagnostics (O20), and every one into the event log (docs/telemetry.md).
 captureConsoleErrors(errorLog, (line) => diag.log('error', { line }))
@@ -991,6 +992,10 @@ async function main(): Promise<void> {
   if (demoRoot) void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow run: ${err instanceof Error ? err.message : String(err)}`))
   // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).
   core.autoArchive.start()
+  // Temp folders a crash or a killed process left behind (main/tempSweep.ts): a minute after launch, then daily.
+  const sweepTemp = () => void sweepForemanTemp().catch((err: unknown) => console.error('Could not clear old temporary files:', err))
+  setTimeout(sweepTemp, 60_000).unref()
+  setInterval(sweepTemp, DAY_MS).unref()
   // #11: an armed usage-limit resume whose time came while Foreman was closed, or the computer asleep, asks instead of sending.
   const limitResume = core.limitResume
   limitResume.start()

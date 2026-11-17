@@ -168,6 +168,7 @@ import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
 import { diagnosticsFileName, writeDiagnostics } from './diagnostics'
+import { STAGED_DIR } from './tempSweep'
 import type { DiagnosticsBundle } from '../shared/diagnostics'
 
 export interface Host {
@@ -1686,7 +1687,7 @@ export class Core {
   // A flow's script step running in a workspace, so Stop can cancel it.
   private flowCommands = new Map<string, { script: RunningScript; cancelled: boolean }>()
   // Pasted files waiting for a workspace that is still being made (the new-workspace dialog).
-  private stagingDir = path.join(os.tmpdir(), 'foreman-staged')
+  private stagingDir = path.join(os.tmpdir(), STAGED_DIR)
   // O21: folders named on a launch's command line that the window hasn't asked for yet.
   private launchFolders: string[] = []
 
