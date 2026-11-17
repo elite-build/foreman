@@ -1190,12 +1190,15 @@ export class SessionService {
 
   /**
    * The mode this turn runs in (docs/agents.md 3, "Permission modes"): what is stored, as the agent's record honours it. A scheduled run
-   * is always Claude's auto mode, whatever the app's setting says; what auto won't approve stops the run. Codex: "sandboxed" keeps it to
-   * the workspace and it asks before stepping outside, "always" lifts the sandbox. docs/agent-access.md §3: a capped turn runs at the
-   * lower of that and its ceiling, or not at all where its agent can't be held to it; nothing else is ever refused for its mode.
+   * is always Claude's auto mode, whatever the app's setting says; what auto won't approve stops the run. An unattended AI employee's run
+   * never asks (docs/ai-employees.md §9), as a workspace's agent by default; an attended one's is auto, and a person answers what it asks.
+   * Codex: "sandboxed" keeps it to the workspace and it asks before stepping outside, "always" lifts the sandbox. docs/agent-access.md
+   * §3: a capped turn runs at the lower of that and its ceiling, or not at all where its agent can't be held to it; nothing else is
+   * ever refused for its mode.
    */
   private resolvePolicy(session: Session): { policy: ApprovalPolicy; changed?: { stored: ApprovalPolicy; by: 'agent' | 'foreman' } } {
-    const stored = session.unattended ? 'auto' : approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
+    const employee = this.employeeMark(session)
+    const stored = employee && !employee.attended ? 'never-ask' : session.unattended ? 'auto' : approvalPolicyFor(session.agent, this.store.state.settings, session.autoAcceptEdits)
     const cap = session.turnCap
     // The account's own record: a Codex sandbox that isn't ready on this account's home holds no ceiling (docs/agents.md 8).
     const record = this.record(session.agent, session.instanceId)
@@ -1577,7 +1580,7 @@ export class SessionService {
             ...(brief.jobPrompt ? { jobPrompt: brief.jobPrompt } : {}),
             ...(brief.orgInstructions ? { orgInstructions: brief.orgInstructions } : {}),
             ...(persona?.readOnly ? { readOnly: true } : {}),
-            mcp: persona?.mcp ?? [],
+            ...(persona?.mcp ? { mcp: persona.mcp } : {}),
             memory: brief.memory
           }
         : undefined
@@ -1615,10 +1618,8 @@ export class SessionService {
         approvals: policy.policy,
         readOnly: this.readOnly(session) ? true : undefined,
         writeScope: scope,
-        ...(employee ? { writeScopeSubject: 'AI employee’s run' } : {}),
-        // docs/ai-employees.md §9: agent and git configuration are refused for every employee run (a refusal it reads, not
-        // an approval that would end it), and only the MCP servers it was given are there.
-        ...(employee ? { protect: { ...(gitDir ? { gitDir } : {}) }, onlyMcp: true } : {}),
+        // docs/ai-employees.md §9: an employee's run has what a workspace's agent has: every MCP server, and no paths refused.
+        ...(employee ? { writeScopeSubject: 'AI employee’s run', employee: true as const } : {}),
         instance: session.instanceId,
         resume: session.agentSessionId,
         resumeAt: session.resumeAt,

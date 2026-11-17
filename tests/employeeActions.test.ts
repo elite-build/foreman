@@ -43,7 +43,7 @@ afterEach(() => {
 
 function definition(actions: Record<string, EmployeeActionPolicy>, repos: Record<string, 'read' | 'write'> = { site: 'write' }): EmployeeDefinition {
   const d = defaultEmployee({ id: 'e-max1', colour: 'orange', repos: [], loadouts: [{ agent: 'claude', model: 'claude-sonnet-5-5' }], text: { name: 'Max', role: 'Marketing', instructions: 'Work.' } })
-  return { ...d, access: { ...d.access, repos, actions: { ...d.access.actions, ...actions } }, limits: { runs_per_day: 100, minutes_per_run: 240 } }
+  return { ...d, access: { ...d.access, repos, actions: { ...d.access.actions, ...actions } } }
 }
 
 const PREVIEW: BranchPreview = { branch: 'max/launch', base: 'main', head: 'abc123', ahead: 2, commits: [{ sha: 'abc123', subject: 'Write the launch post' }, { sha: 'def456', subject: 'Fix a typo' }], diffStat: { files: 1, insertions: 40, deletions: 2 } }
@@ -65,8 +65,7 @@ async function rig(options: { actions?: Record<string, EmployeeActionPolicy>; re
     state: () => state,
     db: () => db,
     employees: {
-      current: async () => ({ summary: { id: 'e-max1', path: 'bots/e-max1.toml', name: 'Max', role: 'Marketing', colour: 'orange', responsibilities: [], problems: [], state: 'active', changed: false, ...summary.patch }, definition: def.current, head: 'h1' }),
-      runEnded: () => undefined
+      current: async () => ({ summary: { id: 'e-max1', path: 'bots/e-max1.toml', name: 'Max', role: 'Marketing', colour: 'orange', responsibilities: [], problems: [], state: 'active', changed: false, ...summary.patch }, definition: def.current, head: 'h1' })
     },
     memory: {
       status: async () => ({ state: 'ok', head: 'h1' }),
@@ -87,7 +86,6 @@ async function rig(options: { actions?: Record<string, EmployeeActionPolicy>; re
       handle.created(`ws-${plan.run.id}`, `s-${plan.run.id}`)
     },
     stop: async () => undefined,
-    turnStart: () => undefined,
     readChat: async (sessionId) => chats.get(sessionId) ?? [],
     session: (id) => sessions.get(id),
     afterRun: (run) => void archived.push(run.workspaceId!),

@@ -131,7 +131,7 @@ export function modelText(agent: string | undefined, model: string | undefined, 
 
 const join = (items: string[], t: TFunction) => items.join(t('employees.list.separator'))
 
-export type CanDoSection = 'repos' | 'memory' | 'profile' | 'actions' | 'when' | 'limits' | 'model'
+export type CanDoSection = 'repos' | 'memory' | 'profile' | 'actions' | 'when' | 'model'
 
 /**
  * What a definition lets the employee do, in sentences, each with the section of the precise form that changes it
@@ -148,7 +148,7 @@ export function canDoLines(d: EmployeeDefinition, t: RendererT, names: (id: stri
   lines.push({ section: 'memory', text: t('employees.can.memory', { folder: t('employees.employee.notesLink', { name: d.name.trim() || d.id }) }) })
   if (d.access.memory_write.length) lines.push({ section: 'memory', text: t('employees.can.memoryWrite', { folders: join(d.access.memory_write.map((s) => `memory/${s}/`), t) }) })
   lines.push({ section: 'profile', text: d.access.profile === 'shell' ? t('employees.can.shell') : t('employees.can.noShell') })
-  if (d.access.mcp.length) lines.push({ section: 'profile', text: t('employees.can.mcp', { servers: join(d.access.mcp, t) }) })
+  lines.push({ section: 'profile', text: t('employees.can.mcpAll') })
   const by = (policy: EmployeeActionPolicy) => Object.entries(d.access.actions).filter(([, p]) => p === policy).map(([a]) => actionName(a, t))
   const allowed = by('allowed')
   const never = by('never')
@@ -157,19 +157,6 @@ export function canDoLines(d: EmployeeDefinition, t: RendererT, names: (id: stri
   if (d.access.delegate_to.length) lines.push({ section: 'actions', text: t('employees.can.delegates', { names: join(d.access.delegate_to.map(names), t) }) })
   const on = (d.triggers ?? []).filter((x) => x.enabled)
   lines.push({ section: 'when', text: on.length ? t('employees.can.whenTriggers', { triggers: join(on.map((x) => triggerWhen(x, t)), t) }) : t('employees.can.whenAsked') })
-  const { runs_per_day: runs, minutes_per_run: minutes } = d.limits
-  lines.push({
-    section: 'limits',
-    text:
-      runs !== undefined && minutes !== undefined
-        ? t('employees.can.limits', { runs, minutes })
-        : runs !== undefined
-          ? t('employees.can.limitRuns', { runs })
-          : minutes !== undefined
-            ? t('employees.can.limitMinutes', { minutes })
-            : t('employees.can.noLimits')
-  })
-  if (d.limits.cost_per_day_usd !== undefined) lines.push({ section: 'limits', text: t('employees.can.cost', { cost: new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(d.limits.cost_per_day_usd) }) })
   const model = modelText(d.model.agent, d.model.model, t)
   lines.push({ section: 'model', text: d.attendance === 'unattended' ? t('employees.can.model', { model }) : t('employees.can.modelAttended', { model }) })
   return lines
@@ -537,7 +524,7 @@ export interface PlanContext {
 
 /**
  * A definition's plan in words, grouped Can / Can't / Asks you first, each line with why where that helps ("It has Read
- * access to site only."). Slack and Linear that it keeps no tools for are one line.
+ * access to site only.").
  */
 export function planText(groups: PlanGroups, ctx: PlanContext, t: RendererT): Record<keyof PlanGroups, { text: string; detail?: string }[]> {
   const scopes = (list: string[]) => join(list.map((s) => (MEMORY_SCOPE_LABEL[s] ? t(MEMORY_SCOPE_LABEL[s]) : s)), t)
@@ -554,7 +541,7 @@ export function planText(groups: PlanGroups, ctx: PlanContext, t: RendererT): Re
       case 'shell':
         return { text: t('employees.plan.shell'), detail: t('employees.plan.shellWhy') }
       case 'mcp':
-        return { text: t('employees.plan.mcp', { servers: join(line.servers, t) }), detail: t('employees.plan.mcpWhy') }
+        return { text: t('employees.plan.mcpAll'), detail: t('employees.plan.mcpWhy') }
       case 'delegate':
         return { text: t('employees.plan.delegate', { names: join(line.ids.map(ctx.names), t) }) }
       case 'action':
@@ -563,10 +550,6 @@ export function planText(groups: PlanGroups, ctx: PlanContext, t: RendererT): Re
         return { text: t('employees.plan.noRepoChange'), detail: line.reads.length ? t('employees.plan.noRepoChangeWhy', { repos: join(line.reads, t) }) : t('employees.plan.noRepoAccess') }
       case 'no-publish':
         return { text: t('employees.plan.noPublish') }
-      case 'no-slack':
-        return { text: t('employees.plan.noSlack'), detail: t('employees.plan.noSlackWhy') }
-      case 'no-linear':
-        return { text: t('employees.plan.noLinear'), detail: t('employees.plan.noLinearWhy') }
       case 'no-shell':
         return { text: t('employees.plan.noShell') }
       case 'no-delegate':
@@ -575,35 +558,16 @@ export function planText(groups: PlanGroups, ctx: PlanContext, t: RendererT): Re
         return { text: t('employees.plan.sharedMemory', { organization: ctx.organization }), detail: t('employees.plan.sharedMemoryWhy') }
     }
   }
-  const words = (group: keyof PlanGroups) => {
-    const lines = groups[group]
-    const both = lines.some((l) => l.kind === 'no-slack') && lines.some((l) => l.kind === 'no-linear')
-    return lines.flatMap((line) => {
-      if (both && line.kind === 'no-linear') return []
-      if (both && line.kind === 'no-slack') return [{ text: t('employees.plan.noSlackLinear'), detail: t('employees.plan.noSlackLinearWhy') }]
-      return [one(line, group)]
-    })
-  }
+  const words = (group: keyof PlanGroups) => groups[group].map((line) => one(line, group))
   return { can: words('can'), cant: words('cant'), asks: words('asks') }
 }
 
-/** When it runs, in one line, and the limits it keeps (§5.1, §9). */
-export function planWhen(d: Pick<EmployeeDefinition, 'triggers' | 'limits' | 'attendance'>, t: RendererT): { when: string; limits: string; attended: string } {
+/** When it runs, in one line, and whether anyone watches (§5.1, §9); no employee has limits. */
+export function planWhen(d: Pick<EmployeeDefinition, 'triggers' | 'attendance'>, t: RendererT): { when: string; attended: string } {
   const on = (d.triggers ?? []).filter((x) => x.enabled)
   const when = on.length ? t('employees.plan.whenTriggers', { triggers: join(on.map((x) => triggerWhen(x, t)), t) }) : t('employees.plan.whenAsked')
-  const cost = d.limits.cost_per_day_usd !== undefined ? new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(d.limits.cost_per_day_usd) : undefined
-  const { runs_per_day: runs, minutes_per_run: minutes } = d.limits
-  const set =
-    runs !== undefined && minutes !== undefined
-      ? t('employees.plan.limits', { runs, minutes })
-      : runs !== undefined
-        ? t('employees.plan.limitRuns', { runs })
-        : minutes !== undefined
-          ? t('employees.plan.limitMinutes', { minutes })
-          : t('employees.plan.noLimits')
-  const limits = cost ? t('employees.plan.limitsCost', { limits: set, cost }) : set
   const attended = d.attendance === 'unattended' ? t('employees.plan.unattended') : t('employees.plan.attended')
-  return { when, limits, attended }
+  return { when, attended }
 }
 
 /** A job with a prompt of its own, by its title: a template's ("QA engineer"), or the program manager's. */
@@ -623,12 +587,8 @@ const CHANGE_LABEL: Record<Exclude<DefinitionField, 'repo' | 'action' | 'instruc
   attendance: 'employees.changed.field.attendance',
   memory: 'employees.changed.field.memory',
   profile: 'employees.changed.field.profile',
-  mcp: 'employees.changed.field.mcp',
   delegate: 'employees.changed.field.delegate',
   triggers: 'employees.changed.field.triggers',
-  runs: 'employees.changed.field.runs',
-  minutes: 'employees.changed.field.minutes',
-  cost: 'employees.changed.field.cost',
   persona: 'employees.changed.field.persona',
   words: 'employees.changed.field.words'
 }
@@ -656,18 +616,10 @@ export function changeText(c: DefinitionChange, before: EmployeeDefinition, afte
         return listOf(v, (s) => (MEMORY_SCOPE_LABEL[s] ? t(MEMORY_SCOPE_LABEL[s]) : s))
       case 'profile':
         return v === 'shell' ? t('employees.changed.shell') : t('employees.changed.noShell')
-      case 'mcp':
-        return listOf(v)
       case 'delegate':
         return listOf(v, ctx.names)
       case 'action':
         return t(POLICY_LABEL[v as EmployeeActionPolicy] ?? 'employees.policy.held')
-      case 'runs':
-        return v ? t('employees.changed.runs', { count: Number(v) }) : t('employees.access.noLimit')
-      case 'minutes':
-        return v ? t('employees.changed.minutes', { count: Number(v) }) : t('employees.access.noLimit')
-      case 'cost':
-        return v ? new Intl.NumberFormat(t.locale, { style: 'currency', currency: 'USD' }).format(Number(v)) : none
       case 'persona':
         return v || none
       default:

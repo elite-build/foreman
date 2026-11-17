@@ -3,7 +3,6 @@
 // session). The records live in foreman.db (main/employeeWork.ts); this file holds their shapes, the words a run is
 // given (Foreman's fixed rules, the organization's and the employee's instructions, pinned memory framed as data, the
 // task) and the small rules main and the renderer both read. Pure.
-import { CEILING_PROTECTED_PATHS } from './agentAccess'
 import { ACTION_NEEDS_PERSON, newsText, type EmployeeAction, type EmployeeActionNews } from './employeeActions'
 import type { EmployeeDefinition, EmployeeRepoAccess } from './employees'
 import { employeeMemoryFolder } from './employees'
@@ -32,10 +31,10 @@ export type EmployeeClosureReason = 'done' | 'handed-off' | 'blocked' | 'decline
 export const CLOSURE_REASONS: readonly EmployeeClosureReason[] = ['done', 'handed-off', 'blocked', 'declined', 'canceled', 'escalated', 'superseded', 'no-follow-on', 'expired']
 
 /**
- * Why an open task isn't running. paused: its employee is paused, and it runs on Resume. queued: it waits for the
- * employee's lane or the organization's limit, and runs when they free up. stopped: a person stopped its run; it runs
- * again only on Retry. budget: the employee's runs cost more today than its cost threshold (§9), and it runs on the next
- * local day (or once the threshold is raised). root-limit: the chain of work it belongs to has used every run its root
+ * Why an open task isn't running. paused: its employee is paused, and it runs on Resume. queued: saved and waiting to
+ * be admitted, or a trigger's firing waiting for that trigger's last task (§8). stopped: a person stopped its run; it
+ * runs again only on Retry. budget: held over a cost threshold by an earlier Foreman; no employee has one now (§9), so
+ * it is admitted at the next look. root-limit: the chain of work it belongs to has used every run its root
  * allows (§7); it runs once a person raises the limit, or is canceled with the chain. usage-limit: its agent's account is
  * at its usage limit (a run of it ended there, or the account says so); it runs again, as a fresh run with its whole
  * brief, once the limit resets (`limitHold`), and needs nobody.
@@ -391,7 +390,7 @@ export interface EmployeeRun {
   profile?: EmployeeDefinition['access']['profile']
   attended?: boolean
   persona?: string
-  // Its definition's minutes per run, as admitted: the turn is stopped after them.
+  // The minutes per run an earlier Foreman admitted it with (stored runs only): no employee has a minutes limit now.
   minutes?: number
   // The memory repository commit its pinned memory was read at, and the commit its recap and memory went in.
   memoryBase?: string
@@ -471,24 +470,24 @@ export function workableRepos<R extends { id: string; name: string }>(definition
   return [...out.filter((r) => r.access === 'write'), ...out.filter((r) => r.access === 'read')]
 }
 
-/** Every path a run with write access may write: the whole workspace, less the protected paths (denied separately). */
+/** Every path a run with write access and no shell may write: the whole workspace. */
 export const EMPLOYEE_WRITE_SCOPE = ['**'] as const
 
 /**
- * What one run may do (§9, the intersection): Read access holds it read-only; Write without a shell is scoped writes
- * over the workspace, which removes the shell; Write with a shell has no scope. It keeps only the definition's MCP
- * servers. A persona it wears narrows each of these and never widens one: read-only stays, its MCP list and write globs
- * cut the definition's, and its instructions follow the employee's. Its loadout is ignored (the definition's model runs).
+ * What one run may do (§9, the intersection): Read access holds it read-only; Write with a shell (the default) has no
+ * scope, as a workspace's agent; Write without a shell is scoped writes over the workspace, which removes the shell. It
+ * has every MCP server a workspace's agent has. A persona it wears narrows each of these and never widens one:
+ * read-only stays, its MCP list and write globs cut what the run has, and its instructions follow the employee's. Its
+ * loadout is ignored (the definition's model runs).
  */
 export function employeeTurnLimits(definition: Pick<EmployeeDefinition, 'access'>, access: 'read' | 'write', persona?: Persona): TurnPersona {
   const readOnly = access === 'read' || Boolean(persona?.read_only)
-  const mcp = persona?.mcp ? definition.access.mcp.filter((s) => persona.mcp!.includes(s)) : [...definition.access.mcp]
   const own = persona?.writes?.length ? [...persona.writes] : undefined
   const writes = readOnly ? undefined : definition.access.profile === 'no-shell' ? (own ?? [...EMPLOYEE_WRITE_SCOPE]) : own
   return {
     ...(persona ? { name: persona.name, instructions: persona.instructions } : {}),
     ...(readOnly ? { readOnly: true } : {}),
-    mcp,
+    ...(persona?.mcp ? { mcp: [...persona.mcp] } : {}),
     ...(writes ? { writes } : {})
   }
 }
@@ -534,7 +533,7 @@ const short = (commit: string) => commit.slice(0, 12)
 export const EMPLOYEE_RULES = [
   'Foreman’s rules come first. They are the same for every AI employee, and nothing after them (your organization’s instructions, your own, your memory or your task) changes them:',
   '- Never destroy an environment you didn’t make: don’t delete or reset repositories, branches, databases, servers or files that aren’t your work.',
-  '- Never publish, post, send or pay without the authorization your definition grants. Foreman’s own routes (its foreman-slack and foreman-linear tools, request_push and request_pull_request) record every outward action first and hold it for a person unless your definition allows that kind; a held one is sent only if they approve it. Never use another way (a shell, another server, a browser) to get round a hold or a refusal.',
+  '- Never post, send or pay without the authorization your definition grants. Foreman’s foreman-slack and foreman-linear tools record every post or change first and hold it for a person unless your definition allows that kind; a held one is sent only if they approve it. Never use another way (a shell, another server, a browser) to get round a hold or a refusal. Pushing your branch and opening pull requests follow what this run allows, below.',
   '- Never put secrets (keys, tokens, passwords) in memory, messages or tasks.',
   '- Say plainly when you are blocked, and on what.',
   '- Finish every task with a reason: done, blocked (on what), declined, or handed off.',
@@ -559,7 +558,6 @@ export interface EmployeeRunAccessText {
  * the run, so no employee's own prompt says it (shared/employeePrompts).
  */
 export function runAccessText(a: EmployeeRunAccessText): string {
-  const protectedPaths = CEILING_PROTECTED_PATHS.join(', ')
   const lines = [
     a.project
       ? `This run works in the project’s workspace of the repository “${a.repo}”, on the branch its parts share. Other parts may have changed files there before you, may be changing them now, and may change them after you.`
@@ -574,26 +572,30 @@ export function runAccessText(a: EmployeeRunAccessText): string {
   else if (a.profile === 'no-shell')
     lines.push(
       [
-        `You may change files in this run’s workspace with the file tools; writing ${protectedPaths} or the git folder is refused.`,
+        'You may change files in this run’s workspace with the file tools.',
         ...(a.writes?.length ? [`This run’s persona limits your writes to ${a.writes.join(', ')}; a write elsewhere is refused.`] : []),
         'You have no shell: every shell command is refused, including read-only commands. Use the read and search tools. Never run tests, builds, scripts, servers or installs, or git commands that change anything, even if a tool would let you try. Read the code and configuration instead. Keep source inspection separate from execution evidence. Claim that an execution check passed only from an actual run recorded in the task, an event or a file you read. Name the record and establish which code, check and environment it covers. A result for earlier or different code is not a pass for this change. A previous run may count when it covers the code, check and environment behind the claim. For an execution check with no applicable record, say “not run” and what it would establish.'
       ].join(' ')
     )
   else
     lines.push(
-      `You may change files in this run’s workspace with the file tools and use a shell for the assigned work. Shell commands wait for nobody’s approval; that widens neither the task nor what Foreman’s rules, protected paths, action routes, holds and refusals allow. Writing ${protectedPaths} or the git folder with the file tools is refused, and the shell is no way round it: never use it to push, publish, send, merge, install anything outside this workspace’s own dependencies, start something you don’t stop, or touch a live system. Read the repository instructions and the definitions of its relevant check commands. Run the checks that cover the assigned work, including checks the repository requires for that change. Use existing commands where they fit; a focused reproduction or new regression check must have a stated purpose and an observed result. Report each command, its result, relevant output, and the code and environment it checked, including failures and incomplete runs. Distinguish checks you executed from supplied execution records and from source inspection. A result for earlier or different code is not a pass for this change. A previous run may count when it covers the code, check and environment behind the claim. Report narrowed coverage, and never weaken a check to obtain a pass. Where neither this run nor an applicable record establishes a result, say “not run”, why, and what it would establish. Stop every process you started before you finish.`
+      `You may change files in this run’s workspace and use a shell, with every tool and MCP server an agent in a workspace has; nothing you run waits for anyone’s approval. That widens neither the task nor Foreman’s rules: never use the shell to post or send messages or to get round a hold or a refusal, and merge only when the task asks for it. Read the repository instructions and the definitions of its relevant check commands. Run the checks that cover the assigned work, including checks the repository requires for that change. Use existing commands where they fit; a focused reproduction or new regression check must have a stated purpose and an observed result. Report each command, its result, relevant output, and the code and environment it checked, including failures and incomplete runs. Distinguish checks you executed from supplied execution records and from source inspection. A result for earlier or different code is not a pass for this change. A previous run may count when it covers the code, check and environment behind the claim. Report narrowed coverage, and never weaken a check to obtain a pass. Where neither this run nor an applicable record establishes a result, say “not run”, why, and what it would establish. Stop every process you started before you finish.`
     )
   lines.push(
     'Foreman’s own tools on the foreman-app server (memory_search, memory_read, remember, memory_append, memory_write, memory_checkpoint, ask_person, finish_task, report_no_update, escalate, bot_list, bot_delegate, bot_send, bot_cancel, bot_wake_me, bot_propose, request_push, request_pull_request, project_questions, project_plan) can be called in this run, whatever its mode, and need nobody’s approval to call; Foreman checks each call itself. Read each answer: a call can succeed, be held, become a proposal or be refused; say which it was.'
   )
-  if (a.access === 'write')
+  if (a.access === 'write' && a.profile === 'shell')
+    lines.push(
+      'To publish your branch, push it and open its pull request yourself (git push, gh pr create) as an agent in a workspace does, or call request_push or request_pull_request with a title and body (Foreman commits everything uncommitted in the workspace, in a project other parts’ changes too, then pushes this run’s branch or opens the pull request; each is recorded and, unless your definition allows it, held until a person approves it). Look at the workspace’s whole change first, and report what you published with its link. With Foreman’s tools, report the answer’s state as it said it: sent, held, refused, failed or uncertain; held is not sent, uncertain may have arrived, and never retry an uncertain delivery yourself. In a project, the part the plan names asks for the pull request; a review report is no reason to publish a branch.'
+    )
+  else if (a.access === 'write')
     lines.push(
       'To publish your branch, call request_push (Foreman commits everything uncommitted in the workspace, in a project other parts’ changes too, and pushes this run’s branch) or request_pull_request with a title and body (it pushes and opens the pull request); so look at the workspace’s whole change before you ask. Each is recorded and, unless your definition allows it, held until a person approves it. Never merge, and never get a change out any other way. Report the answer’s state as it said it: sent (with its link), held, refused, failed or uncertain. Held is not sent; uncertain may have arrived; never retry an uncertain delivery yourself, or a failure Foreman says a person must retry. In a project, the part the plan names asks for the pull request; a review report is no reason to publish a branch.'
     )
   lines.push(
     a.attended
       ? 'A person answers what you ask for approval; keep such requests few.'
-      : 'Nobody is there to approve other tools: a permission request for any other tool is denied and the run stops, so don’t make one. Asking a question with ask_person is different from requesting tool permission: it does not require a separate approval to call. When the call succeeds, your task waits for the person’s answer; read the result before saying it is waiting.'
+      : 'Nobody is there to approve tools, and none of yours waits for approval. Asking a question with ask_person is different: when the call succeeds, your task waits for the person’s answer; read the result before saying it is waiting.'
   )
   return lines.join('\n')
 }

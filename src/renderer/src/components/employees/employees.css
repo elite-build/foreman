@@ -332,11 +332,6 @@
   min-width: 140px;
   overflow-wrap: anywhere;
 }
-.employee-limits {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
 .employee-hats {
   display: flex;
   flex-direction: column;

@@ -9,23 +9,19 @@ import type { EmployeeRootLedger, EmployeeTask, EmployeeTaskContract, EmployeeTa
 // ---- the guards (§7, "Guards") ----
 
 /**
- * An organization's guards on a chain of work (the tasks that started from one root): runs admitted in it, how many
- * hand-offs deep it may go (0: no delegation), how many tasks one run may hand off, and how many tasks it may hold
- * besides its root. Organization-wide defaults kept per computer beside the organization record (state.json); these
- * constants until there is a setting for them, and a person may raise one chain's runs.
+ * An organization's one guard on a chain of work (the tasks that started from one root): the runs admitted in it, so
+ * employees handing work to each other, messaging each other or answering each other's events end somewhere. Nothing
+ * else bounds a chain (§9: no employee has limits): no depth, no hand-offs or messages a run, no tasks a chain. Kept per
+ * computer beside the organization record (state.json); this default until there is a setting for it, and a person may
+ * raise one chain's runs.
  */
 export interface WorkLimits {
   runs: number
-  depth: number
-  delegationsPerRun: number
-  descendants: number
 }
 
-export const DEFAULT_WORK_LIMITS: WorkLimits = { runs: 20, depth: 2, delegationsPerRun: 3, descendants: 8 }
-const LIMIT_RANGES: Record<keyof WorkLimits, [number, number]> = { runs: [1, 200], depth: [0, 5], delegationsPerRun: [0, 10], descendants: [0, 50] }
+export const DEFAULT_WORK_LIMITS: WorkLimits = { runs: 20 }
+const LIMIT_RANGES: Record<keyof WorkLimits, [number, number]> = { runs: [1, 200] }
 
-/** At most this many messages (bot_send) one run sends: information wakes a run too, so it is bounded like hand-offs. */
-export const SENDS_PER_RUN = 3
 /** Sibling results wait for each other at most this long after the first arrives (§7). */
 export const SIBLING_HOLD_MS = 30 * 60_000
 /** The same title to the same employee within this long is a warning (never a refusal: only the full contract dedupes). */

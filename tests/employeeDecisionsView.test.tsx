@@ -200,16 +200,16 @@ describe('a draft’s page is its plan', () => {
     setSnapshot()
     const plan = screen.getByRole('region', { name: 'What Lin may do once you approve it' })
     const group = (name: string) => within(within(plan).getByRole('region', { name })).getAllByRole('listitem').map((li) => li.textContent)
-    expect(group('Can')).toEqual(['Read site', 'Keep its own notes in acme-memory'])
-    expect(group('Can’t')).toEqual([
-      'Change any repository It has Read access to site only.',
-      'Push or open pull requests',
-      'Post to Slack or change Linear It keeps no Slack or Linear tools.',
-      'Use a shell',
-      'Hand work to other employees'
+    expect(group('Can')).toEqual([
+      'Read site',
+      'Keep its own notes in acme-memory',
+      'Use a shell and its tools Nothing it runs there waits for you.',
+      'Use every MCP server an agent in a workspace has Nothing it does with them waits for you.'
     ])
-    expect(group('Asks you first')).toEqual(['Before changing Acme’s shared memory You add or discard each change.'])
-    expect(plan.textContent).toContain('Only when you ask · no limit on runs or minutes')
+    expect(group('Can’t')).toEqual(['Change any repository It has Read access to site only.', 'Push or open pull requests', 'Hand work to other employees'])
+    expect(group('Asks you first')).toEqual(['Before changing Acme’s shared memory You add or discard each change.', 'Before each Slack post', 'Before each Linear change'])
+    expect(plan.textContent).toContain('Only when you ask')
+    expect(plan.textContent).not.toContain('limit')
     // No Ask while it can't run, and no separate plan dialog: Approve <name> applies at once.
     expect(screen.queryByRole('textbox', { name: 'Ask Lin…' })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Approve Lin' }))
@@ -220,8 +220,8 @@ describe('a draft’s page is its plan', () => {
   })
 
   it('lists each difference since approval first, old → new, the wider ones tagged in words', () => {
-    const after: EmployeeDefinition = { ...lin, access: { ...lin.access, mcp: ['foreman-linear'] }, limits: { minutes_per_run: 30 } }
-    const before = { ...lin, limits: { runs_per_day: 6, minutes_per_run: 30 } }
+    const before: EmployeeDefinition = { ...lin, access: { ...lin.access, profile: 'no-shell' } }
+    const after: EmployeeDefinition = { ...lin, access: { ...lin.access, actions: { ...lin.access.actions, linear: 'allowed' } } }
     const approvedAt = '2026-11-12T09:00:00.000Z'
     setSnapshot([summary(ada), summary(lin, { changed: true, approvedAt }), summary(max)])
     render(<EmployeePage orgId="o1" employee={view(after, { changed: true, approvedAt, approvedText: serializeEmployee(before) })} edit={false} data={data()} />)
@@ -229,11 +229,11 @@ describe('a draft’s page is its plan', () => {
     // Each part its own piece: the field, the old value, the arrow (read as "becomes"), the new value, then "Wider" in words.
     const rows = [...changed.querySelectorAll('.employee-change')].map((r) => [r.querySelector('dt')?.textContent, ...[...r.querySelector('dd')!.children].map((c) => c.textContent)])
     expect(rows).toEqual([
-      ['MCP servers', 'None', '→', 'becomes', 'foreman-linear', 'Wider'],
-      ['Runs a day', 'At most 6 runs a day', '→', 'becomes', 'No limit', 'Wider']
+      ['Shell', 'No shell', '→', 'becomes', 'Shell', 'Wider'],
+      ['Linear changes', 'Held', '→', 'becomes', 'Allowed', 'Wider']
     ])
     expect(screen.getByRole('button', { name: 'Approve Lin' })).toBeTruthy()
-    // The plan below says what it may do now: Linear asks first.
-    expect(screen.getByRole('region', { name: 'Asks you first' }).textContent).toContain('Before each Linear change')
+    // The plan below says what it may do now: Linear changes go without asking.
+    expect(screen.getByRole('region', { name: 'Can' }).textContent).toContain('Change Linear without asking you')
   })
 })

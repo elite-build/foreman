@@ -4,7 +4,7 @@
 // memory repository's head or an employee's lifecycle moves. An archived project isn't in the snapshot: its channel is
 // read through the service.
 import { ArrowLeft, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { EmployeeView } from '../../../../shared/employees'
 import { channelSlug, type Project } from '../../../../shared/projects'
 import { useT } from '../../i18n'
@@ -104,6 +104,16 @@ export function EmployeesView({ route }: { route: EmployeesRoute }) {
   }, [route.orgId, projectId, listed, projectPulse, looks])
   const looked = fetched?.id === projectId ? fetched : undefined
   const project = listed ?? looked?.project ?? undefined
+  // A channel opens at its newest post and the message box, as a chat does: the end of its messages column (not the
+  // side panel, which folds under it when narrow) at the bottom of the page, once drawn (an archived project once read).
+  const body = useRef<HTMLDivElement>(null)
+  const opened = route.page === 'channel' ? `channel:${route.orgId}` : route.page === 'project' && project ? `project:${project.id}` : ''
+  useLayoutEffect(() => {
+    const el = body.current
+    const main = el?.querySelector('.channel-main')
+    if (!opened || !el || !main) return
+    el.scrollTop += main.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom + parseFloat(getComputedStyle(el).paddingBottom || '0')
+  }, [opened])
   const title =
     route.page === 'team'
       ? t('employees.view.team', { organization: name })
@@ -135,7 +145,7 @@ export function EmployeesView({ route }: { route: EmployeesRoute }) {
           </IconButton>
         </span>
       </header>
-      <div className="employees-body">
+      <div className="employees-body" ref={body}>
         {!memory ? (
           <Callout tone="info" title={t('employees.view.noMemory', { organization: name })}>
             <LinkButton underline onClick={() => openSettingsPage({ section: 'spaces' })}>

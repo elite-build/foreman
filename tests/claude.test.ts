@@ -640,28 +640,29 @@ describe('a turn capped below Never ask (docs/agent-access.md §3)', () => {
 
 describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
   const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
-  const employee: TurnRequest = { ...request, approvals: 'auto', writeScope: ['**'], writeScopeSubject: 'AI employee’s run', protect: { gitDir: '/repos/app/.git' }, onlyMcp: true }
+  const employee: TurnRequest = { ...request, approvals: 'never-ask', employee: true }
 
-  it('refuses agent and git configuration with a reason it reads (never asks), keeps only its MCP servers, and names itself in the scope’s refusals', async () => {
+  it('has what a workspace’s agent has: every MCP server, never asking, and no hook refusing agent or git configuration', async () => {
     const claude = fakeClaude()
-    const cb = callbacks()
-    const run = claudeDriver.createTurn(employee, cb).run()
+    const run = claudeDriver.createTurn(employee, callbacks()).run()
     const options = sdk.query.mock.calls[0][0].options
-    expect(options.strictMcpConfig).toBe(true)
-    const hooks = options.hooks.PreToolUse[0].hooks
+    // No strict MCP config: the user’s and the repository’s own servers load, as in a workspace.
+    expect(options.strictMcpConfig).toBeUndefined()
+    expect(options.permissionMode).toBe('bypassPermissions')
+    expect(options.hooks).toBeUndefined()
+    claude.push(result)
+    await run
+  })
+
+  it('names itself in a scope’s refusals when it has no shell', async () => {
+    const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...employee, writeScope: ['**'], writeScopeSubject: 'AI employee’s run' }, callbacks()).run()
+    const hooks = sdk.query.mock.calls[0][0].options.hooks.PreToolUse[0].hooks
     const signal = new AbortController().signal
-    const decide = async (tool: string, input: unknown) => (await Promise.all(hooks.map((h: (...a: unknown[]) => Promise<unknown>) => h(pre(tool, input), 'u1', { signal })))) as { hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string } }[]
-    for (const file_path of ['/repo/.claude/settings.json', '/repo/.mcp.json', '/repo/.foreman/settings.toml', '/repos/app/.git/hooks/pre-commit']) {
-      const decided = await decide('Write', { file_path })
-      expect(decided.some((d) => d.hookSpecificOutput?.permissionDecision === 'deny' && d.hookSpecificOutput.permissionDecisionReason.startsWith('Foreman refused this: an AI employee’s run never changes agent or git configuration'))).toBe(true)
-      expect(decided.some((d) => d.hookSpecificOutput?.permissionDecision === 'ask')).toBe(false)
-    }
-    // Elsewhere in the workspace a file tool may write; the shell is refused, in the run's own words.
-    expect((await decide('Edit', { file_path: '/repo/src/index.ts' })).map((d) => d.hookSpecificOutput?.permissionDecision ?? null)).toEqual(['allow', null])
-    expect((await decide('Bash', { command: 'ls' }))[0].hookSpecificOutput?.permissionDecisionReason).toMatch(/^This AI employee’s run may only write inside \*\*, so it has no shell/)
-    // A call that reaches the permission prompt past the hook is refused there too, never asked.
-    expect(await options.canUseTool('Write', { file_path: '/repo/.claude/settings.json' }, { signal })).toMatchObject({ behavior: 'deny', message: expect.stringContaining('never changes agent or git configuration') })
-    expect(cb.approveTool).not.toHaveBeenCalled()
+    const decided = (await hooks[0](pre('Bash', { command: 'ls' }), 'u1', { signal })) as { hookSpecificOutput?: { permissionDecisionReason: string } }
+    expect(decided.hookSpecificOutput?.permissionDecisionReason).toMatch(/^This AI employee’s run may only write inside \*\*, so it has no shell/)
+    expect(((await hooks[0](pre('Write', { file_path: '/repo/.claude/settings.json' }), 'u1', { signal })) as { hookSpecificOutput?: { permissionDecision: string } }).hookSpecificOutput?.permissionDecision).toBe('allow')
     claude.push(result)
     await run
   })

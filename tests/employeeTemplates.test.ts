@@ -35,7 +35,7 @@ describe('employee templates', () => {
     expect(isEmployeeTemplateId(3)).toBe(false)
   })
 
-  it('make Staff employees that read back without problems: Write on every repository, pushes and pull requests without a hold, no limits', () => {
+  it('make Staff employees that read back without problems: a shell, Write on every repository, pushes and pull requests without a hold, no limits', () => {
     const made = templateDefinitions({ templates: [...EMPLOYEE_TEMPLATE_IDS], repos: ['atlas', 'site'], loadouts: claude, taken: [] })
     expect(made).toHaveLength(15)
     expect(new Set(made.map((d) => d.id)).size).toBe(15)
@@ -46,10 +46,9 @@ describe('employee templates', () => {
       expect(d.look.colour).toBe(template.colour)
       expect(template.access).toBe('write')
       expect(d.access.repos).toEqual({ atlas: 'write', site: 'write' })
-      expect(d.access.profile).toBe('no-shell')
+      expect(d.access.profile).toBe('shell')
       expect(d.access.actions).toEqual({ 'slack-post': 'held', linear: 'held', push: 'allowed', 'pull-request': 'allowed' })
       expect(d.access.delegate_to).toEqual([])
-      expect(d.limits).toEqual({})
       // Linked to its job's prompt, not given a copy: its own file holds only the note for whoever edits it.
       expect(d.template).toBe(template.id)
       expect(d.instructions).toBe(ownPromptNote(template.job, d.id))

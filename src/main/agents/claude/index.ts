@@ -41,7 +41,7 @@ import { transportOverride } from '../transport'
 import { claudeContextUsage } from '../../../shared/contextUsage'
 import { translate } from '../../../shared/i18n'
 import { writeScopeDecision } from '../../../shared/permissions'
-import { protectedPathDecision, protectedPathRefusal } from '../../../shared/agentAccess'
+import { protectedPathDecision } from '../../../shared/agentAccess'
 import { isEmployeeTool } from '../../../shared/employeeTools'
 import { AGENT_TOOL_SERVICES, bridgeServerName } from '../../../shared/integrations'
 import { claudeLimit, type RateLimitEventInfo } from '../../../shared/usageLimit'
@@ -273,25 +273,12 @@ export function protectedPathsHook(root: string, gitDir?: string): HookCallback 
   }
 }
 
-/**
- * docs/ai-employees.md §9: the PreToolUse hook an AI employee's run gets. A file tool writing agent or git configuration
- * is refused with a reason the agent reads (never asked: an approval would end the run); nothing else is its business.
- */
-export function protectedPathsDenyHook(root: string, gitDir?: string): HookCallback {
-  return async (input) => {
-    if (input.hook_event_name !== 'PreToolUse') return {}
-    const refused = protectedPathRefusal(input.tool_name, input.tool_input, root, gitDir)
-    if (!refused) return {}
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: refused.reason } }
-  }
-}
 
-/** The turn's PreToolUse hooks: a flow persona's scoped writes, a capped turn's protected paths, an employee run's refused ones. Where several decide, the stricter wins. */
+/** The turn's PreToolUse hooks: a flow persona's scoped writes, a capped turn's protected paths. Where both decide, the stricter wins. */
 function preToolUseHooks(req: TurnRequest): { PreToolUse: { hooks: HookCallback[] }[] } | undefined {
   const hooks: HookCallback[] = []
   if (req.writeScope?.length) hooks.push(writeScopeHook(req.writeScope, req.cwd, req.writeScopeSubject))
   if (req.capped) hooks.push(protectedPathsHook(req.cwd, req.capped.gitDir))
-  if (req.protect) hooks.push(protectedPathsDenyHook(req.cwd, req.protect.gitDir))
   return hooks.length ? { PreToolUse: [{ hooks }] } : undefined
 }
 
@@ -551,8 +538,6 @@ class ClaudeTurn implements AgentTurn {
               forkSession: forking || req.forkOnResume || undefined,
               sessionStore: req.sessionStore,
               settingSources: ['user', 'project', 'local'],
-              // docs/ai-employees.md §9: an employee's run keeps only the MCP servers it was given.
-              ...(req.onlyMcp ? { strictMcpConfig: true } : {}),
               systemPrompt: { type: 'preset', preset: 'claude_code', append: req.systemPromptAppend },
               // Questions go through our own tool so the app can render them. Read-only also drops leaving plan mode and writing.
               disallowedTools: [...(req.readOnly ? ['AskUserQuestion', ...READ_ONLY_DENIED] : ['AskUserQuestion']), ...disabledMcpTools(req.disabledMcp)],
@@ -637,22 +622,19 @@ class ClaudeTurn implements AgentTurn {
     }
     // An employee's run: its own Foreman tools are granted per turn and checked by Foreman, so they never ask. Without
     // this, a read-only employee (plan mode) is asked about each one, and an unattended run denies the question.
-    if (this.req.protect && toolName.startsWith(APP_TOOL_PREFIX) && isEmployeeTool(toolName.slice(APP_TOOL_PREFIX.length))) {
+    if (this.req.employee && toolName.startsWith(APP_TOOL_PREFIX) && isEmployeeTool(toolName.slice(APP_TOOL_PREFIX.length))) {
       return { behavior: 'allow', updatedInput: input }
     }
     // Its bridged Slack, Linear and Langfuse tools (the ones its definition keeps) are Foreman's brokered routes: a post
     // or a change is recorded and sent, held for a person or refused there as its definition says (docs/ai-employees.md
     // §9), and reads only read. Asking here instead would deny the unattended run before Foreman could hold anything.
-    if (this.req.protect && BROKERED_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
+    if (this.req.employee && BROKERED_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
       return { behavior: 'allow', updatedInput: input }
     }
 
     // #16: enforced, not advisory. Plain plan mode can be left after the plan is approved; read-only never asks, it refuses.
     if (this.req.readOnly && READ_ONLY_DENIED.includes(toolName)) return { behavior: 'deny', message: READ_ONLY_REFUSAL }
 
-    // An employee's run: a protected path is refused here too, should a call reach the permission prompt past the hook.
-    const refused = this.req.protect ? protectedPathRefusal(toolName, input, this.req.cwd, this.req.protect.gitDir) : null
-    if (refused) return { behavior: 'deny', message: refused.reason }
     // A capped turn's protected path reaches here because its hook asked: the user answers it, whatever else would allow it.
     const guarded = this.req.capped ? protectedPathDecision(toolName, input, this.req.cwd, this.req.capped.gitDir) : null
     // A flow persona's scoped writes: decided here too, should a call reach the permission prompt past the hook.

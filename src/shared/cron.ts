@@ -1,7 +1,7 @@
 // Cron expressions for AI employees' triggers (docs/ai-employees.md §5.1, §8): the five fields (minute, hour, day of
 // month, month, day of week), each `*`, a number or a name, a range, a list or a step; the next time an expression fires
-// after an instant, on the wall clock of an IANA time zone; and the shortest gap between two firings, for the 15-minute
-// floor. Pure and without a dependency: the zone arithmetic is schedule.ts's.
+// after an instant, on the wall clock of an IANA time zone. No trigger has a minimum gap (§9: no employee has limits).
+// Pure and without a dependency: the zone arithmetic is schedule.ts's.
 //
 // Daylight saving, on the zone's wall clock:
 //  - a local time that doesn't exist (the clocks go forward over it) fires once, at the first minute after the gap.
@@ -190,13 +190,3 @@ export function nextCrons(spec: CronSpec, after: number, tz: string, count: numb
   return out
 }
 
-/**
- * The shortest time between two firings on the wall clock, in minutes: within a day, and from a day's last firing to the
- * next day's first (as if every day fired, which only ever makes it shorter). For the 15-minute floor.
- */
-export function cronMinGapMinutes(spec: CronSpec): number {
-  const times = spec.hours.flatMap((h) => spec.minutes.map((m) => h * 60 + m)).sort((a, b) => a - b)
-  let gap = times[0] + 24 * 60 - times[times.length - 1]
-  for (let i = 1; i < times.length; i++) gap = Math.min(gap, times[i] - times[i - 1])
-  return gap
-}
