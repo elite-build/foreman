@@ -3334,6 +3334,9 @@ export interface Signals {
   saveTerminals(workspaceId: string, tabs: TerminalTabSave[]): void
   // The battery level (0–100) from Chromium's battery API, or null without one (O17).
   setBattery(percent: number | null): void
+  // A click on one of the window's notifications: bring the window forward. The page can't: on Windows its own focus()
+  // neither restores a minimized window nor raises it over other apps.
+  showWindow(): void
 }
 
 export interface Bridge {
@@ -3383,7 +3386,7 @@ export const API_METHODS = [
   'deleteSlackRule', 'linkPerson', 'unlinkPerson', 'slackDeliveries', 'answerSlackAsk', 'resendSlackDelivery', 'linearMyIssues', 'resolveLinearLink'
 ] as const satisfies readonly (keyof Api)[]
 
-export const SIGNAL_METHODS = ['ptyWrite', 'composerTyping', 'ptyResize', 'ptyKill', 'setUnread', 'saveTerminals', 'setBattery'] as const satisfies readonly (keyof Signals)[]
+export const SIGNAL_METHODS = ['ptyWrite', 'composerTyping', 'ptyResize', 'ptyKill', 'setUnread', 'saveTerminals', 'setBattery', 'showWindow'] as const satisfies readonly (keyof Signals)[]
 
 type AssertNever<T extends never> = T
 export type _AllApiMethodsListed = AssertNever<Exclude<keyof Api, (typeof API_METHODS)[number]>>
