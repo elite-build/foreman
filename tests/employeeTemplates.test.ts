@@ -61,6 +61,11 @@ describe('employee templates', () => {
       expect(back.problems).toEqual([])
     }
     expect(made.find((d) => d.name === 'Uma')!.role).toBe('Staff UX designer')
+    // Uma draws what she proposes as HTML mocks, two options each, in the folder her task names.
+    const uma = made.find((d) => d.name === 'Uma')!.instructions
+    expect(uma).toContain('Draw it as HTML mocks: two options per screen')
+    expect(uma).toContain('an index.html saying which you suggest, in the mocks folder your task names, else your folder’s mocks/<topic>/')
+    expect(uma).toContain('each screen you propose has its mocks')
     expect(made.find((d) => d.name === 'Ravi')!.role).toBe('Staff software engineer')
     for (const t of EMPLOYEE_TEMPLATES) {
       expect(t.description).toBe(en[`spaces.template.${t.id}.line`])

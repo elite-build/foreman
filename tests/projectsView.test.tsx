@@ -239,7 +239,20 @@ describe('a project’s channel', () => {
       plans: [{ ...PLAN, status: 'approved' }],
       parts: { build: { state: 'gate', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } },
       steps: [...project().steps, { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'done', summary: 'Built toCsv().', startedAt: '2026-11-15T10:06:00.000Z', endedAt: '2026-11-15T10:20:00.000Z' }],
-      artifacts: { ...project().artifacts, 'build.md': { file: 'build.md', path: 'memory/org/projects/csv-export/build.md', employeeId: 'e-rav1', taskId: 't2', partId: 'build', commit: 'def456def456def', version: 1, at: NOW } },
+      artifacts: {
+        ...project().artifacts,
+        'build.md': {
+          file: 'build.md',
+          path: 'memory/org/projects/csv-export/build.md',
+          employeeId: 'e-rav1',
+          taskId: 't2',
+          partId: 'build',
+          commit: 'def456def456def',
+          version: 1,
+          at: NOW,
+          mocks: ['memory/org/projects/csv-export/mocks/build/index.html', 'memory/org/projects/csv-export/mocks/build/1-export-a.html']
+        }
+      },
       waits: [{ id: 'w2', kind: 'gate', partId: 'build', since: NOW }],
       decisions: [{ waitKind: 'plan', decision: 'approve', at: '2026-11-15T10:05:30.000Z' }]
     })
@@ -256,6 +269,10 @@ describe('a project’s channel', () => {
     await user.click(screen.getAllByRole('button', { name: /build\.md/ })[0])
     await waitFor(() => expect(screen.getAllByText('Added toCsv().').length).toBeGreaterThan(0))
     expect(fakeApi.memoryReadFile).toHaveBeenCalledWith('o1', 'memory/org/projects/csv-export/build.md')
+    // Its mocks, beside the file, each open in the browser from the memory repository's folder.
+    expect(screen.getAllByText('2 mocks to open in your browser').length).toBeGreaterThan(0)
+    await user.click(screen.getAllByRole('button', { name: /1-export-a\.html/ })[0])
+    await waitFor(() => expect(fakeApi.openFile).toHaveBeenCalledWith('C:\\code\\frlk-memory\\memory\\org\\projects\\csv-export\\mocks\\build\\1-export-a.html', 'open'))
     await user.click(screen.getByRole('button', { name: /^Approve/ }))
     await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', undefined))
   })

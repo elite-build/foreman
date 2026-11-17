@@ -124,6 +124,8 @@ export interface EmployeeTaskContract {
   produces?: string
   options?: string[]
   writes?: string[]
+  // The memory folders (each ending in /) it may write in for the task's duration: a part's mocks folder.
+  writesUnder?: string[]
 }
 
 /** Who handed a task over (from 'employee'): the employee, its name then, and the task and run it was handed from. */
