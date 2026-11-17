@@ -69,7 +69,7 @@ import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater
 import { BUCKET_LABEL, foldedBuckets, liveRepo, listsWorkspace, projectWorkspaceIds, sidebarGroups, sidebarOrder, STATUS_LABEL, type Bucket, type SidebarFilter, type Triage } from '../triage'
 import { promptTitle } from '../../../shared/compare'
 import type { CompareSection } from '../../../shared/triage'
-import { employeeKey, itemsInSpace, type NeedsYouCounts, type NeedsYouItem } from '../../../shared/needsYou'
+import { employeeKey, inChannel, itemsInSpace, projectTaskIds, type NeedsYouCounts, type NeedsYouItem } from '../../../shared/needsYou'
 import { needsYouOf, useTriageInput } from '../needsYou'
 import { employeeOf, openEmployeeItem, rowWords } from './needsYouWords'
 import { actionNoun } from './employees/words'
@@ -744,12 +744,14 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
   const need = needsYouOf(everything)
   const shownSpace = currentSpace(everything.snapshot.organizations, space)
   const inSpace = new Set(snapshot.workspaces.map((w) => w.id))
-  // A project's workspace is its channel's, not a row here (unless it needs you), so it isn't counted either.
+  // A project's workspace is its channel's, not a row here (unless it waits on an approval), so it isn't counted either.
   const projectIds = projectWorkspaceIds(snapshot)
-  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds))
+  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds, everything.approvals))
   const scoped = repoId ? spaceTriage.filter((x) => x.ws.repoId === repoId) : spaceTriage
   const spaceNeeds = itemsInSpace(need.items, shownSpace)
-  const scopedNeeds = repoId ? spaceNeeds.filter((i) => i.repoId === repoId) : spaceNeeds
+  // What a project waits on, and what its tasks ask, are in its channel (the Channels row counts them), not rows here.
+  const projectTasks = projectTaskIds(everything.snapshot)
+  const scopedNeeds = (repoId ? spaceNeeds.filter((i) => i.repoId === repoId) : spaceNeeds).filter((i) => !inChannel(i, projectTasks))
   const running = scoped.filter((t) => t.bucket === 'working').length
   const counts = new Map<string | null, RepoCount>()
   const tally = (key: string | null, t: Triage) => {
