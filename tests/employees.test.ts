@@ -4,12 +4,15 @@
 // the definition and the memory folder, listing invalid files with their problems, Edit with compare-and-set, approval
 // and "changed since approval", pause, resume and retire, Generate and Refine with a fake model, and the refusals.
 import path from 'node:path'
+import earlierQaPrompt from './fixtures/earlier-qa-engineer-prompt.md?raw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultEmployee,
   EMPLOYEE_ACTIONS,
   employeeFingerprintText,
   employeeDraftPrompt,
+  employeePath,
+  employeePromptFile,
   employeeProblems,
   employeeRefinePrompt,
   employeeStatus,
@@ -32,12 +35,13 @@ import type { Repo } from '../src/shared/types'
 import { hardHatColours } from '../src/renderer/src/ui/HardHat'
 import { ForemanDb } from '../src/main/db'
 import { gitOut } from '../src/main/git'
-import { employeeFingerprint, EmployeeService, FULL_ACCESS_MIGRATION, PRIVACY_MODE_ON } from '../src/main/employees'
+import { employeeFingerprint, EmployeeService, FULL_ACCESS_MIGRATION, JOB_PROMPTS_MIGRATION, PRIVACY_MODE_ON } from '../src/main/employees'
 import { MemoryService } from '../src/main/memory'
 import { createMemoryRepository } from '../src/main/organizations'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import { tempDir } from './helpers'
 import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
+import { ownPromptNote } from '../src/shared/employeePrompts'
 
 const INSTRUCTIONS = ['## Role', 'You write launch posts.', '', '## What you do', 'Read what merged.', '', '## How you write', 'Short.', '', '## What you never do', 'Publish.', '', '## How you finish', 'A summary and a reason.'].join('\n')
 
@@ -103,23 +107,48 @@ describe('employees: the definition', () => {
     expect(toml).toContain('id = "e-7k2m"\nname = "Max"\nrole = "Marketing"')
     expect(toml).toContain('look = { family = "hardhat", colour = "orange" }')
     expect(toml).toContain('responsibilities = [\n  "Write launch posts",\n  "Draft the changelog email",\n]')
-    expect(toml).toContain('instructions = """\n## Role\n')
+    // The prompt is its own file, bots/<id>.md; the fingerprint's text still has it, as one file had it before.
+    expect(toml).not.toContain('instructions')
+    expect(employeePromptFile(max())).toMatch(/^## Role\n[\s\S]*\n$/)
+    expect(serializeEmployee(max(), { instructions: true })).toContain('instructions = """\n## Role\n')
     expect(toml).toContain('model = { agent = "claude", model = "claude-opus-5-5[1m]", fallbacks = [] }')
     expect(toml).toContain('\n[access]\nrepos = { "foreman" = "read", "foreman-website" = "write" }\nmemory_write = ["org/docs"]\nprofile = "no-shell"')
     expect(toml).toContain('\n[limits]\nruns_per_day = 6\nminutes_per_run = 30\ncost_per_day_usd = 5\n')
-    const back = parseEmployee(toml)
+    const back = parseEmployee(toml, undefined, employeePromptFile(max()))
     expect(back.problems).toEqual([])
-    expect(back.definition).toEqual(normalizeEmployee(parseEmployee(toml).definition!))
+    expect(back.definition!.instructions).toBe(INSTRUCTIONS)
     expect(serializeEmployee(back.definition!)).toBe(toml)
+    // A file from before prompts had their own still reads, with its prompt in it.
+    expect(parseEmployee(serializeEmployee(max(), { instructions: true })).definition).toEqual(normalizeEmployee(max()))
+  })
+
+  it('reads the prompt from its own file, refuses two different prompts, and records the job a template employee is given', () => {
+    const d = max()
+    const legacy = serializeEmployee(d, { instructions: true })
+    // The same prompt in both is fine; two different ones can't say which runs.
+    expect(parseEmployee(legacy, undefined, employeePromptFile(d)).problems).toEqual([])
+    expect(parseEmployee(legacy, undefined, 'Something else.').problems).toEqual(['The prompt is in both this file and bots/<id>.md, and they differ. Keep it in one: take `instructions` out of this file, or make the two the same.'])
+    const quinn = { ...d, template: 'qa-engineer' as const, instructions: 'Test the checkout first.' }
+    const toml = serializeEmployee(quinn)
+    expect(toml).toContain('ask_me_about = "Release notes"\ntemplate = "qa-engineer"\n')
+    expect(parseEmployee(toml, undefined, employeePromptFile(quinn)).definition).toEqual(normalizeEmployee(quinn))
+    expect(parseEmployee(toml.replace('qa-engineer', 'wizard')).problems[0]).toMatch(/^template must be one of: software-engineer, /)
+    // Moving a prompt to its own file moves no fingerprint; linking a job does.
+    expect(employeeFingerprintText(d)).toBe(serializeEmployee(d, { look: false, instructions: true }))
+    expect(employeeFingerprintText(quinn)).not.toBe(employeeFingerprintText({ ...quinn, template: undefined }))
   })
 
   it('keeps any prompt exactly through the file: quotes, backslashes, control characters and line ends', () => {
     for (const instructions of ['He said """hi""" then ""', 'ends with a quote"', 'ends with two ""', 'five """"" quotes', 'C:\\path\\ and a trailing \\', 'tab\there\u0001bell\u007f', 'line\nline\n\nline', '中文 and 😀 emoji']) {
-      const back = parseEmployee(serializeEmployee(max({ instructions })))
+      // In its own file, and in the definition as a file before prompts had their own kept it.
+      const d = max({ instructions })
+      const back = parseEmployee(serializeEmployee(d), undefined, employeePromptFile(d))
       expect(back.problems, instructions).toEqual([])
       expect(back.definition!.instructions).toBe(instructions)
+      expect(parseEmployee(serializeEmployee(d, { instructions: true })).definition!.instructions).toBe(instructions)
     }
-    expect(parseEmployee(serializeEmployee(max({ instructions: 'a\r\nb\rc' }))).definition!.instructions).toBe('a\nb\nc')
+    expect(parseEmployee(serializeEmployee(max()), undefined, 'a\r\nb\rc').definition!.instructions).toBe('a\nb\nc')
+    expect(parseEmployee(serializeEmployee(max({ instructions: 'a\r\nb\rc' }), { instructions: true })).definition!.instructions).toBe('a\nb\nc')
     expect(parseEmployee(serializeEmployee(max({ name: 'Max "the" \\ Writer', description: 'one\nline' })))).toMatchObject({ definition: { name: 'Max "the" \\ Writer', description: 'one line' } })
   })
 
@@ -320,11 +349,12 @@ describe('employees: the service', () => {
     const created = await employees.create('o1', definitionFor())
     expect(created).toMatchObject({ id: 'e-7k2m', path: 'bots/e-7k2m.toml', name: 'Max', state: 'draft', changed: false, problems: [] })
     expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
-    expect((await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n').sort()).toEqual(['bots/e-7k2m.toml', 'memory/bots/e-7k2m/MEMORY.md', 'memory/bots/e-7k2m/journal.md'])
+    expect((await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n').sort()).toEqual(['bots/e-7k2m.md', 'bots/e-7k2m.toml', 'memory/bots/e-7k2m/MEMORY.md', 'memory/bots/e-7k2m/journal.md'])
     const message = await gitOut(root, ['log', '-1', '--format=%B'])
     expect(message).toContain('Add AI employee Max (bots/e-7k2m.toml)')
     expect(message).toContain('Foreman-Edited-By: person')
     expect(await gitOut(root, ['show', 'HEAD:bots/e-7k2m.toml'])).toBe(serializeEmployee(definitionFor()).trimEnd())
+    expect(await gitOut(root, ['show', 'HEAD:bots/e-7k2m.md'])).toBe(definitionFor().instructions.trim())
     expect(await gitOut(root, ['show', 'HEAD:memory/bots/e-7k2m/journal.md'])).toMatch(/^# Journal/)
     expect(state.employees).toEqual([{ orgId: 'o1', id: 'e-7k2m', state: 'draft' }])
     const list = await employees.list('o1')
@@ -414,7 +444,7 @@ describe('employees: the service', () => {
     // The person asked for exactly this change, so the approval moved with it: still approved, not changed.
     expect(view).toMatchObject({ state: 'active', changed: false })
     expect(state.employees![0].approvedFingerprint).not.toBe(created.fingerprint)
-    expect(state.migrations).toEqual([`${FULL_ACCESS_MIGRATION}:o1`])
+    expect(state.migrations).toEqual([`${JOB_PROMPTS_MIGRATION}:o1`, `${FULL_ACCESS_MIGRATION}:o1`])
     // Once: a limit set afterwards stays.
     const again = await employees.update('o1', created.id, { ...view.definition!, limits: { runs_per_day: 3 } }, view.blob)
     expect(again.ok).toBe(true)
@@ -432,7 +462,8 @@ describe('employees: the service', () => {
       'o1',
       [
         { kind: 'write', path: kept.path, text: serializeEmployee(withFullAccess(limited)), expectedBlob: kept.blob },
-        { kind: 'write', path: edited.path, text: serializeEmployee({ ...withFullAccess({ ...limited, id: 'e-ab12', name: 'Ada' }), instructions: 'Something else.' }), expectedBlob: edited.blob }
+        { kind: 'write', path: edited.path, text: serializeEmployee(withFullAccess({ ...limited, id: 'e-ab12', name: 'Ada' })), expectedBlob: edited.blob },
+        { kind: 'write', path: 'bots/e-ab12.md', text: 'Something else.\n', expectedBlob: edited.promptBlob }
       ],
       { subject: 'Let every AI employee push, open pull requests and run without limits' }
     )
@@ -442,6 +473,44 @@ describe('employees: the service', () => {
     expect(byName.Max).toMatchObject({ state: 'active', changed: false })
     expect(byName.Ada).toMatchObject({ state: 'active', changed: true })
     expect(state.migrations).toContain(`${FULL_ACCESS_MIGRATION}:o1`)
+  })
+
+  it('gives every employee its own prompt file, and links one given a job’s prompt word for word to that job, moving its approval, here and on another computer', async () => {
+    const { root, memory, employees, state } = await rig()
+    state.migrations = [`${FULL_ACCESS_MIGRATION}:o1`]
+    // As an earlier Foreman wrote them, each prompt in its definition: Quinn's is the QA engineer's word for word,
+    // Quill's was edited after, and Max's is its own.
+    const quinn = definitionFor({ id: 'e-qnab', name: 'Quinn', role: 'Staff QA engineer', instructions: earlierQaPrompt })
+    const quill = definitionFor({ id: 'e-qnac', name: 'Quill', role: 'Staff QA engineer', instructions: `${earlierQaPrompt.trim()}\nTest the checkout first.` })
+    const max = definitionFor()
+    const written = await memory.commitAsPerson('o1', [quinn, quill, max].map((d) => ({ kind: 'write' as const, path: employeePath(d.id), text: serializeEmployee(d, { instructions: true }), expectedBlob: null })), { subject: 'An earlier Foreman' })
+    expect(written.ok).toBe(true)
+    for (const d of [quinn, quill, max]) await employees.approve('o1', d.id)
+    const elsewhere = structuredClone(state.employees!)
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    await employees.refresh('o1')
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe('Give every AI employee its own prompt file, and its job’s prompt as Foreman has it')
+    const byName = Object.fromEntries((await employees.list('o1')).employees.map((e) => [e.name, e]))
+    // Quinn now gets the QA engineer's prompt as this Foreman has it; still approved, since the person asked for this.
+    expect(byName.Quinn.definition).toMatchObject({ template: 'qa-engineer', instructions: ownPromptNote('QA engineer', 'e-qnab') })
+    expect(byName.Quinn).toMatchObject({ state: 'active', changed: false, prompt: `${ownPromptNote('QA engineer', 'e-qnab')}\n` })
+    // An edited prompt and an employee's own words stay its own, only moved to their own files: nothing to approve again.
+    expect(byName.Quill.definition!.template).toBeUndefined()
+    expect(byName.Quill).toMatchObject({ state: 'active', changed: false, prompt: `${earlierQaPrompt.trim()}\nTest the checkout first.\n` })
+    expect(byName.Max).toMatchObject({ state: 'active', changed: false, prompt: `${INSTRUCTIONS}\n` })
+    for (const e of Object.values(byName)) expect(e.text).not.toContain('instructions')
+    expect(state.migrations).toContain(`${JOB_PROMPTS_MIGRATION}:o1`)
+    // Once: nothing more to write.
+    const after = await gitOut(root, ['rev-parse', 'HEAD'])
+    await employees.refresh('o1')
+    expect(await gitOut(root, ['rev-parse', 'HEAD'])).toBe(after)
+    // Another computer that approved them as they were reads the commit: its approvals move the same way.
+    const other = { ...state, employees: elsewhere, migrations: [`${FULL_ACCESS_MIGRATION}:o1`] } as PersistedState
+    const there = new EmployeeService({ state: () => other, memory, changed: () => undefined })
+    await there.refresh('o1')
+    expect((await there.list('o1')).employees.map((e) => [e.name, e.changed])).toEqual([['Max', false], ['Quill', false], ['Quinn', false]])
+    expect(await gitOut(root, ['rev-parse', 'HEAD'])).toBe(after)
   })
 
   it('pauses an employee after two runs in a row that didn’t finish, saying how the last ended; a finished run resets the count, and Resume starts it over', async () => {
@@ -605,7 +674,10 @@ describe('employees: adding a job template (docs/ai-employees.md §5.3, §16)', 
     expect(approveError).toBeUndefined()
     expect(employee).toMatchObject({ name: 'Ravi', role: 'Staff software engineer', colour: 'blue', state: 'active', changed: false, approvedAt: '2026-11-13T10:42:00.000Z' })
     expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
-    expect((await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n').sort()).toEqual([`bots/${employee.id}.toml`, `memory/bots/${employee.id}/MEMORY.md`, `memory/bots/${employee.id}/journal.md`])
+    expect((await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n').sort()).toEqual([`bots/${employee.id}.md`, `bots/${employee.id}.toml`, `memory/bots/${employee.id}/MEMORY.md`, `memory/bots/${employee.id}/journal.md`])
+    // Linked to its job's prompt; its own file is the note for whoever edits it.
+    expect(employee.definition!.template).toBe('software-engineer')
+    expect(employee.prompt).toBe(`${ownPromptNote('Software engineer', employee.id)}\n`)
     expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe(`Add AI employee Ravi (bots/${employee.id}.toml)`)
     // Write on its own organization's repositories: not the memory repository, not Personal's; on the person's agent.
     expect(employee.definition!.access.repos).toEqual({ 'foreman-website': 'write' })

@@ -6,9 +6,11 @@
 import { describe, expect, it } from 'vitest'
 import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
 import { memoryWriteDecision } from '../src/shared/employeeTools'
+import { jobPrompt } from '../src/shared/employeePrompts'
 import { employeeFromObject, parseEmployee, serializeEmployee } from '../src/shared/employees'
 import { createT } from '../src/shared/i18n'
 import {
+  acceptanceBody,
   allPartsDone,
   answersProblem,
   artifactPath,
@@ -18,7 +20,10 @@ import {
   followUpBody,
   listedProjects,
   mentionOf,
+  MAX_MOCKS,
+  mocksFolder,
   partBody,
+  partMocks,
   partsAfter,
   planDiff,
   planMarkdown,
@@ -247,7 +252,56 @@ describe('projects: replans, readiness and plan.md', () => {
     expect(part).toContain('“Quote commas”')
     expect(part).toContain('requirements.md (at abcdef123456)')
     expect(part).toContain('memory/org/projects/csv-export/build.md')
+    expect(part).not.toContain('The person approved')
+    // What the person wrote approving the part it waits for goes with it, a blank note doesn't.
+    const picked = partBody({ project: project(), organization: 'Acme', plan, part: plan.parts[1], round: 1, inputs: [], approvals: [{ part: 'Requirements', note: ' Take option 2 ' }, { part: 'Docs', note: ' ' }] })
+    expect(picked).toContain('- On “Requirements”: “Take option 2”')
+    expect(picked).not.toContain('On “Docs”')
+    expect(picked).toContain('finish_task blocked and say in unblock what they asked for')
     expect(followUpBody({ project: project(), question: 'Why?', artifact: { path: 'memory/org/projects/csv-export/build.md' }, part: plan.parts[1] })).toContain('your part “Build”')
+    // Its standard mocks folder, for a part that designs or changes screens.
+    expect(part).toContain('draw them as HTML mocks in memory/org/projects/csv-export/mocks/build/')
+    const follow = followUpBody({ project: project(), question: 'Why?', artifact: { path: 'memory/org/projects/csv-export/build.md' }, part: plan.parts[1], mocks: mocksFolder('csv-export', 'build') })
+    expect(follow).toContain('your part “Build”')
+    expect(follow).toContain('Your HTML mocks are in memory/org/projects/csv-export/mocks/build/')
+    expect(followUpBody({ project: project(), question: 'Why?', mocks: mocksFolder('csv-export', 'build') })).not.toContain('HTML mocks')
+  })
+
+  it('tells the program manager to give screens to a designer, gated, with mocks', () => {
+    const body = planningBody({ project: project(), organization: 'Acme', repos: [], roster: [], replan: { reason: 'r', current: '-', version: 2, left: 2 } })
+    expect(body).toContain('A part that designs or changes screens also draws them as HTML mocks')
+  })
+})
+
+describe('a part’s mocks', () => {
+  const folder = mocksFolder('csv-export', 'design')
+
+  it('is the part’s own folder in the project’s', () => {
+    expect(folder).toBe('memory/org/projects/csv-export/mocks/design/')
+  })
+
+  it('keeps the HTML files its result names in its folder, each once, index.html first', () => {
+    const named = [
+      `${folder}2-export-b.html`,
+      'memory/org/projects/csv-export/design.md',
+      `${folder}index.html`,
+      `${folder}1-export-a.html`,
+      ` ${folder}1-export-a.html `,
+      `${folder}notes.md`,
+      `${folder}sub/1-a.html`,
+      `${folder}Big.html`,
+      'memory/org/projects/csv-export/mocks/build/1-a.html',
+      'memory/org/projects/csv-export/mocks/design-2/1-a.html'
+    ]
+    expect(partMocks('csv-export', 'design', named)).toEqual([`${folder}index.html`, `${folder}1-export-a.html`, `${folder}2-export-b.html`])
+    expect(partMocks('csv-export', 'design', [])).toEqual([])
+    expect(partMocks('csv-export', 'design', Array.from({ length: MAX_MOCKS + 5 }, (_, i) => `${folder}${String(i).padStart(2, '0')}-a.html`))).toHaveLength(MAX_MOCKS)
+  })
+
+  it('tells an acceptance what a replan decision does: another replan, or the person’s final check once none are left', () => {
+    const accept = (replansLeft: number) => acceptanceBody({ project: project(), organization: 'Acme', plan: { version: 2, summary: 's' }, inputs: [], replansLeft })
+    expect(accept(1)).toContain('replan (something must change: Foreman starts another planning round)')
+    expect(accept(0)).toContain('no replans are left, so the unresolved result goes to the person’s final gate')
   })
 })
 
@@ -263,7 +317,9 @@ describe('the program manager and proposed employees', () => {
     expect(d.access.profile).toBe('no-shell')
     expect(d.access.actions).toEqual({ 'slack-post': 'held', linear: 'held', push: 'allowed', 'pull-request': 'allowed' })
     expect(d.limits).toEqual({})
-    expect(d.instructions).toContain('project_plan')
+    // Her prompt is the program manager's own file, linked rather than copied.
+    expect(d.template).toBe('program-manager')
+    expect(jobPrompt('program-manager')).toContain('project_plan')
     // Another employee called Priya: she is told apart.
     expect(programManagerDefinition({ repos: [], loadouts, taken: [], takenNames: ['priya'] }).name).toBe('Priya (PM)')
   })
@@ -287,6 +343,16 @@ describe('the memory file a task grants', () => {
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: true, files: [file] }).kind).toBe('propose')
     expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/design.md', { scopes: [], readOnly: false, files: [file] }).kind).toBe('refuse')
     expect(memoryWriteDecision('e-max1', file, { scopes: [], readOnly: false }).kind).toBe('refuse')
+  })
+
+  it('lets a part write in its mocks folder, not beside it or in another part’s, and makes it a proposal when read-only', () => {
+    const grants = { scopes: [], readOnly: false, files: ['memory/org/projects/csv-export/design.md'], folders: [mocksFolder('csv-export', 'design')] }
+    expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/mocks/design/1-export-a.html', grants)).toEqual({ kind: 'write' })
+    expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/mocks/design/index.html', { ...grants, readOnly: true }).kind).toBe('propose')
+    for (const file of ['memory/org/projects/csv-export/mocks/build/1-a.html', 'memory/org/projects/csv-export/mocks/design-2/1-a.html', 'memory/org/projects/csv-export/plan.md', 'memory/org/projects/csv-export/mocks/design/../../plan.md'])
+      expect(memoryWriteDecision('e-max1', file, grants).kind).toBe('refuse')
+    // A folder grant that doesn't end in / grants nothing beside it.
+    expect(memoryWriteDecision('e-max1', 'memory/org/projects/csv-export/mocks/design-2/1-a.html', { scopes: [], readOnly: false, folders: ['memory/org/projects/csv-export/mocks/design'] }).kind).toBe('refuse')
   })
 })
 
@@ -369,6 +435,8 @@ describe('projects: asking before planning', () => {
     // A replan: nothing to ask first, though a large one still says what was understood and when it is done.
     const current = checked()
     expect(checkPlan({ ...PLAN, understood: ['u'], done_when: ['d'] }, { ...CTX, asked: unasked, current, parts: {} }).ok).toBe(true)
+    // It can't ask (project_questions is refused once a plan is in effect), so it may list what it assumed.
+    expect(checkPlan({ ...PLAN, understood: ['u'], done_when: ['d'], assumptions: ['UTF-8 is fine'] }, { ...CTX, asked: answered, current, parts: {} }).ok).toBe(true)
   })
 
   it('makes a large plan say what was understood and when it is done, and assume nothing while she can still ask', () => {

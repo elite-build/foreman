@@ -32,7 +32,7 @@ const lin = definition('e-lin', 'Lin', 'teal')
 const summary = (d: EmployeeDefinition, patch: Partial<EmployeeSummary> = {}): EmployeeSummary => ({
   id: d.id, path: `bots/${d.id}.toml`, name: d.name, role: d.role, colour: d.look.colour, agent: 'claude', model: 'claude-opus-5-5', responsibilities: d.responsibilities, problems: [], state: 'active', changed: false, ...patch
 })
-const view = (d: EmployeeDefinition, patch: Partial<EmployeeView> = {}): EmployeeView => ({ ...summary(d), blob: 'b', text: serializeEmployee(d), definition: d, fingerprint: 'f1', ...patch })
+const view = (d: EmployeeDefinition, patch: Partial<EmployeeView> = {}): EmployeeView => ({ ...summary(d), blob: 'b', text: serializeEmployee(d), promptBlob: 'p', prompt: d.instructions, definition: d, fingerprint: 'f1', ...patch })
 
 const task = (id: string, employeeId: string, patch: Partial<EmployeeTask> = {}): EmployeeTask => ({
   id, orgId: 'o1', employeeId, requestId: id, rootId: id, parentId: null, title: `Task ${id}`, body: '', from: 'person', targetRepoId: 'site', state: 'closed', closureReason: 'done', createdAt: ago(60), updatedAt: ago(41), ...patch

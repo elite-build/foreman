@@ -220,10 +220,15 @@ describe('a project’s channel', () => {
     expect(within(post).getByText('So I don’t guess Okta only.')).toBeTruthy()
     expect(within(post).getByText('Enterprise customers log in with company accounts.')).toBeTruthy()
     const send = screen.getByRole('button', { name: /^Send answers/ }) as HTMLButtonElement
-    expect(send.disabled).toBe(true)
     expect(screen.getByText('0 of 2 answered')).toBeTruthy()
+    // Every option chosen but the text-only question left empty: Send says which, and goes to it, instead of sitting greyed.
     await user.click(screen.getByRole('radio', { name: 'Any SAML 2.0' }))
-    await user.type(screen.getByRole('textbox', { name: 'Your answer' }), 'Yes, for small teams')
+    expect(send.disabled).toBe(false)
+    await user.click(send)
+    expect(fakeApi.answerProject).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('Question 2 isn’t answered yet')
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Your answer' }))
+    await user.keyboard('Yes, for small teams')
     expect(screen.getByText('2 of 2 answered')).toBeTruthy()
     await user.click(send)
     await waitFor(() => expect(fakeApi.answerProject).toHaveBeenCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes, for small teams']))
@@ -239,7 +244,20 @@ describe('a project’s channel', () => {
       plans: [{ ...PLAN, status: 'approved' }],
       parts: { build: { state: 'gate', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } },
       steps: [...project().steps, { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'done', summary: 'Built toCsv().', startedAt: '2026-11-15T10:06:00.000Z', endedAt: '2026-11-15T10:20:00.000Z' }],
-      artifacts: { ...project().artifacts, 'build.md': { file: 'build.md', path: 'memory/org/projects/csv-export/build.md', employeeId: 'e-rav1', taskId: 't2', partId: 'build', commit: 'def456def456def', version: 1, at: NOW } },
+      artifacts: {
+        ...project().artifacts,
+        'build.md': {
+          file: 'build.md',
+          path: 'memory/org/projects/csv-export/build.md',
+          employeeId: 'e-rav1',
+          taskId: 't2',
+          partId: 'build',
+          commit: 'def456def456def',
+          version: 1,
+          at: NOW,
+          mocks: ['memory/org/projects/csv-export/mocks/build/index.html', 'memory/org/projects/csv-export/mocks/build/1-export-a.html']
+        }
+      },
       waits: [{ id: 'w2', kind: 'gate', partId: 'build', since: NOW }],
       decisions: [{ waitKind: 'plan', decision: 'approve', at: '2026-11-15T10:05:30.000Z' }]
     })
@@ -256,6 +274,10 @@ describe('a project’s channel', () => {
     await user.click(screen.getAllByRole('button', { name: /build\.md/ })[0])
     await waitFor(() => expect(screen.getAllByText('Added toCsv().').length).toBeGreaterThan(0))
     expect(fakeApi.memoryReadFile).toHaveBeenCalledWith('o1', 'memory/org/projects/csv-export/build.md')
+    // Its mocks, beside the file, each open in the browser from the memory repository's folder.
+    expect(screen.getAllByText('2 mocks to open in your browser').length).toBeGreaterThan(0)
+    await user.click(screen.getAllByRole('button', { name: /1-export-a\.html/ })[0])
+    await waitFor(() => expect(fakeApi.openFile).toHaveBeenCalledWith('C:\\code\\frlk-memory\\memory\\org\\projects\\csv-export\\mocks\\build\\1-export-a.html', 'open'))
     await user.click(screen.getByRole('button', { name: /^Approve/ }))
     await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', undefined))
   })
@@ -292,6 +314,34 @@ describe('a project’s channel', () => {
     expect(screen.getAllByRole('button', { name: /in your browser$/ }).map((b) => b.textContent)).toEqual(['Open csv-button/index.html in your browser'])
     await user.click(screen.getByRole('button', { name: 'Open csv-button/index.html in your browser' }))
     await waitFor(() => expect(fakeApi.memoryOpenFile).toHaveBeenCalledWith('o1', `${mocks}/index.html`))
+  })
+
+  it('says a note written at a gate goes with Approve to what starts next, and holds Approve plan while one is written', async () => {
+    const user = userEvent.setup()
+    const atGate = project({
+      phase: 'working',
+      plan: { ...PLAN, status: 'approved' },
+      plans: [{ ...PLAN, status: 'approved' }],
+      parts: { build: { state: 'gate', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } },
+      waits: [{ id: 'w2', kind: 'gate', partId: 'build', since: NOW }]
+    })
+    setSnapshot([atGate], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    fakeApi.decideProject = vi.fn(async () => atGate)
+    const view = render(<ProjectPage orgId="o1" project={atGate} />)
+    expect(screen.getByText('Approve lets what waits for it start.')).toBeTruthy()
+    await user.type(screen.getByRole('textbox', { name: /^Your note/ }), 'Use option 2')
+    expect(screen.getByText(/^Approve with note: what waits for it starts, and is given your note/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: /^Approve with note/ }))
+    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', 'Use option 2'))
+    view.unmount()
+    // At the plan a note goes only with Send back.
+    setSnapshot(undefined, [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={project()} />)
+    const approve = screen.getByRole('button', { name: /^Approve plan/ }) as HTMLButtonElement
+    expect(approve.disabled).toBe(false)
+    await user.type(screen.getByRole('textbox', { name: 'What should change (for Send back)' }), 'More mocks first.')
+    expect(approve.disabled).toBe(true)
+    expect(approve.title).toBe('Your note goes with Send back. Clear it to approve.')
   })
 
   it('asks a follow-up of a named employee, keeps anything else as a note, and stops only after you confirm', async () => {

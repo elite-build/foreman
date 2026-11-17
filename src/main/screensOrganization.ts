@@ -12,7 +12,7 @@ import { createMemoryRepository } from './organizations'
 import type { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
 import type { EmployeeAction } from '../shared/employeeActions'
-import { defaultEmployee, employeePath, parseEmployee, serializeEmployee, type EmployeeDefinition, type EmployeeRecord } from '../shared/employees'
+import { defaultEmployee, employeePath, employeePromptFile, employeePromptPath, parseEmployee, serializeEmployee, type EmployeeDefinition, type EmployeeRecord } from '../shared/employees'
 import type { EmployeeQuestion, EmployeeRun, EmployeeTask, EmployeeTaskTransition } from '../shared/employeeWork'
 import type { Organization } from '../shared/organizations'
 import type { Project } from '../shared/projects'
@@ -64,13 +64,15 @@ The public API now has rate limits, and signing in takes you back to the page yo
 - **Sign-in:** the page you were on is kept through sign-in, and only pages on acme.dev are followed.
 `
 
-/** One employee's definition as its file says it, read back so its approval fingerprints exactly what the file holds. */
-function definition(id: string, colour: string, text: Partial<EmployeeDefinition>, patch: (d: EmployeeDefinition) => EmployeeDefinition): { toml: string; definition: EmployeeDefinition } {
+/** One employee's definition and own prompt as their files say them, read back so its approval fingerprints exactly what they hold. */
+function definition(id: string, colour: string, text: Partial<EmployeeDefinition>, patch: (d: EmployeeDefinition) => EmployeeDefinition): { toml: string; prompt: string; definition: EmployeeDefinition } {
   const base = defaultEmployee({ id, colour, repos: ['site'], loadouts: [{ agent: 'claude', model: DEFAULT_MODEL.claude, effort: 'high' }] })
-  const toml = serializeEmployee(patch({ ...base, ...text }))
-  const parsed = parseEmployee(toml)
+  const made = patch({ ...base, ...text })
+  const toml = serializeEmployee(made)
+  const prompt = employeePromptFile(made)
+  const parsed = parseEmployee(toml, undefined, prompt)
   if (!parsed.definition) throw new Error(`The fixture's ${id} doesn't parse: ${parsed.problems.join(' ')}`)
-  return { toml, definition: parsed.definition }
+  return { toml, prompt, definition: parsed.definition }
 }
 
 export async function seedOrganization(seed: OrganizationSeed): Promise<OrganizationFixture> {
@@ -118,6 +120,9 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
     [employeePath(MAX)]: max.toml,
     [employeePath(ADA)]: ada.toml,
     [employeePath(LIN)]: lin.toml,
+    [employeePromptPath(MAX)]: max.prompt,
+    [employeePromptPath(ADA)]: ada.prompt,
+    [employeePromptPath(LIN)]: lin.prompt,
     ...seedMemoryFiles(max.definition),
     ...seedMemoryFiles(ada.definition),
     ...seedMemoryFiles(lin.definition),
@@ -126,7 +131,7 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
   })
   await commitAll(memory, 'Add Max, Ada and Lin', 3 * 24 * 60 - 30)
   const blobOf = async (file: string) => (await gitOut(memory, ['rev-parse', `HEAD:${file}`])).trim()
-  const approved = { max: await blobOf(employeePath(MAX)), ada: await blobOf(employeePath(ADA)) }
+  const approved = { max: await blobOf(employeePath(MAX)), ada: await blobOf(employeePath(ADA)), maxPrompt: await blobOf(employeePromptPath(MAX)), adaPrompt: await blobOf(employeePromptPath(ADA)) }
   // Each run's memory is committed as its employee, with who made it, in which run, for which task.
   const commitAs = async (employee: string, name: string, runId: string, taskId: string, subject: string, minutes: number) => {
     await git(memory, ['add', '-A'])
@@ -159,8 +164,8 @@ export async function seedOrganization(seed: OrganizationSeed): Promise<Organiza
   const organization: Organization = { id: ORG_ID, name: 'Acme', memoryRepoId: MEMORY_REPO, leadEmployeeId: ADA, createdAt: at(3 * 24 * 60) }
   store.state.organizations = [organization]
   const records: EmployeeRecord[] = [
-    { orgId: ORG_ID, id: MAX, state: 'active', approvedFingerprint: employeeFingerprint(max.definition), approvedBlob: approved.max, approvedAt: at(3 * 24 * 60 - 25) },
-    { orgId: ORG_ID, id: ADA, state: 'active', approvedFingerprint: employeeFingerprint(ada.definition), approvedBlob: approved.ada, approvedAt: at(3 * 24 * 60 - 25) },
+    { orgId: ORG_ID, id: MAX, state: 'active', approvedFingerprint: employeeFingerprint(max.definition), approvedBlob: approved.max, approvedPromptBlob: approved.maxPrompt, approvedAt: at(3 * 24 * 60 - 25) },
+    { orgId: ORG_ID, id: ADA, state: 'active', approvedFingerprint: employeeFingerprint(ada.definition), approvedBlob: approved.ada, approvedPromptBlob: approved.adaPrompt, approvedAt: at(3 * 24 * 60 - 25) },
     { orgId: ORG_ID, id: LIN, state: 'draft' }
   ]
   store.state.employees = records

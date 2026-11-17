@@ -2,27 +2,31 @@
 // questions and your answers; her planning, then each plan as a card (drawn as its workflow, what she understood, done
 // when, out of scope and what she assumed, its parts, who owns each, what each writes and waits for, Foreman's checks, what
 // changed since the plan before, the employees it proposes, each to approve); each part starting and what it said when
-// it finished, with the file it wrote and a button for each page it made (a mock, opening in the browser); the
-// decisions you made and the notes you left; follow-ups and their answers; and last, who is at work on it now, for how
-// long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you on: her questions (Send answers, Plan
-// with what you have, Stop), the plan (Approve once every owner is approved, Send back with a note, Stop), a part's
-// result (Approve, Send back, Stop), a task that couldn't finish (Try again, Stop), the final check; and what its
-// employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee a follow-up,
-// anything else is a note that wakes nobody. Beside it: the parts with their states, the files, the workspace and the
-// replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay).
+// it finished, with the file it wrote and the HTML mocks it drew (each opens in the browser), and a button for any
+// other page its task named (a mock elsewhere in memory); the decisions you made and the notes you left; follow-ups and
+// their answers; and last, who is at work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it,
+// what it waits for you on: her questions (Send answers, Plan with what you have, Stop), the plan (Approve once every
+// owner is approved, Send back with a note, Stop), a part's result (Approve, or Approve with note, which goes to what
+// starts next; Send back; Stop), a task that couldn't finish (Try again, Stop), the final check; a note holds Approve on
+// the plan and the final check, where it would reach nobody; and what its employees ask or hold (a question, a pull
+// request). The message box: "@Name …" asks that employee a follow-up, anything else is a note that wakes nobody.
+// Beside it: the parts with their states, the files, the workspace and the replans left. Pause holds it (what runs
+// finishes); Stop cancels what is going (its files stay).
 // Once closed, Archive takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames
 // or deletes it.
 import { Archive, FileText, Pause, Play, Square } from 'lucide-react'
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import type { PlainKey } from '../../../../shared/i18n'
-import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
+import { formatDateTime, formatNumber, timeAgo } from '../../../../shared/i18n/time'
+import { joinWorkspace } from '../../../../shared/openIn'
 import { isArchived, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planStages, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectLive, type ProjectPlan, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openMemory, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
 import { reduceMotion } from '../../theme'
 import { DecisionCard, type DecisionAct } from '../DecisionCard'
+import { OpenFileChip } from '../OpenFileChip'
 import { ChannelMenu, DeleteChannelsDialog } from './ChannelActions'
 import { Markdown } from '../Markdown'
 import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
@@ -267,7 +271,8 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
             {asks && <QuestionsList round={asks} />}
             {plan && <PlanCard orgId={orgId} project={project} plan={plan} names={names} roster={roster} pmName={pmName} />}
             {artifact && !plan && <ArtifactCard orgId={orgId} artifact={artifact} who={who(artifact.employeeId)} />}
-            <PageLinks orgId={orgId} files={step.files} />
+            {/* Pages elsewhere in memory; the mocks in the part's own folder are under its file. */}
+            <PageLinks orgId={orgId} files={step.files} except={artifact && !plan ? artifact.mocks : undefined} />
           </Post>
         )
       })
@@ -363,7 +368,31 @@ function ArtifactCard({ orgId, artifact, who }: { orgId: string; artifact: Proje
       >
         {open && <ArtifactText orgId={orgId} artifact={artifact} />}
       </Disclosure>
+      {artifact.mocks?.length ? <ArtifactMocks orgId={orgId} mocks={artifact.mocks} /> : null}
     </Card>
+  )
+}
+
+/**
+ * The HTML mocks a part drew with this version (shared/projects.ts mocksFolder): each a chip that opens it in the
+ * browser from the memory repository's folder, so the person sees the screens without opening the file. Names only
+ * when the memory repository isn't on this computer.
+ */
+function ArtifactMocks({ orgId, mocks }: { orgId: string; mocks: readonly string[] }) {
+  const t = useT()
+  const root = useStore((s) => {
+    const org = s.snapshot!.organizations?.find((o) => o.id === orgId)
+    return s.snapshot!.repos.find((r) => r.id === org?.memoryRepoId)?.rootPath
+  })
+  return (
+    <div className="project-mocks">
+      <span className="employee-faint">{t('projects.artifact.mocks', { count: mocks.length })}</span>
+      {mocks.map((m) => {
+        const name = m.slice(m.lastIndexOf('/') + 1)
+        // No workspace: the memory repository's files have no preview in Foreman, only the browser and the folder.
+        return root ? <OpenFileChip key={m} path={joinWorkspace(root, m)} label={name} access={{ workspaceId: '', root, preview: false }} /> : <span key={m} className="mono">{name}</span>
+      })}
+    </div>
   )
 }
 
@@ -547,7 +576,8 @@ function QuestionsList({ round }: { round: QuestionRound }) {
 
 /**
  * Her questions, waiting for you: every one on one card, each with its options (and an answer in your own words), then
- * Send answers once each is answered, Plan with what you have (she lists what she assumed), or Stop.
+ * Send answers once each is answered (before that it goes to the first unanswered one and names them all), Plan with
+ * what you have (she lists what she assumed), or Stop.
  */
 function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Project; wait: ProjectWait; pmName: string; stop: DecisionAct; age: string; who: ReactNode }) {
   const t = useT()
@@ -555,6 +585,9 @@ function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Pro
   const [choices, setChoices] = useState<Record<number, string>>({})
   const [own, setOwn] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
+  // Send was pressed with a question unanswered: the foot names which ones until each is.
+  const [tried, setTried] = useState(false)
+  const list = useRef<HTMLOListElement>(null)
   if (!round) return null
   const answerOf = (i: number): string => {
     const q = round.questions[i]
@@ -564,8 +597,15 @@ function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Pro
   }
   const answers = round.questions.map((_, i) => answerOf(i))
   const done = answers.filter(Boolean).length
+  const missing = answers.flatMap((a, i) => (a ? [] : [i]))
   const send = (skip: boolean) => {
     if (busy) return
+    if (!skip && missing.length) {
+      // Send stays pressable, so it can say why it didn't send: to the first unanswered question, and name the rest.
+      setTried(true)
+      list.current?.children[missing[0]]?.querySelector<HTMLElement>('input, textarea')?.focus()
+      return
+    }
     setBusy(true)
     void attempt(async () => {
       await api.answerProject(project.id, wait.id, skip ? null : answers)
@@ -579,12 +619,20 @@ function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Pro
       age={age}
       subject={t('projects.questions.subject', { name: pmName, count: round.questions.length })}
       consequence={t('projects.questions.consequence', { name: pmName })}
-      footStart={<span className="employee-faint">{t('projects.questions.progress', { done, count: round.questions.length })}</span>}
+      footStart={
+        <span role="status">
+          {tried && missing.length ? (
+            <Status tone="warn" label={t('projects.questions.missing', { count: missing.length, list: new Intl.ListFormat(t.locale, { type: 'conjunction' }).format(missing.map((i) => formatNumber(i + 1, t.locale))) })} />
+          ) : (
+            <span className="employee-faint">{t('projects.questions.progress', { done, count: round.questions.length })}</span>
+          )}
+        </span>
+      }
       decline={stop}
       alternate={{ label: t('projects.questions.skip'), disabled: busy, title: t('projects.questions.skipHint', { name: pmName }), onAct: () => send(true) }}
-      main={{ label: t('projects.questions.send'), disabled: busy || done < round.questions.length, title: done < round.questions.length ? t('projects.questions.answerAll') : undefined, onAct: () => send(false) }}
+      main={{ label: t('projects.questions.send'), disabled: busy, onAct: () => send(false) }}
     >
-      <ol className="channel-questions">
+      <ol className="channel-questions" ref={list}>
         {round.questions.map((q, i) => {
           const ownField = (
             <Field label={t(q.options.length ? 'employees.question.own' : 'employees.question.answer')} description={q.options.length ? undefined : q.why}>
@@ -696,6 +744,9 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
     </span>
   )
   const age = timeAgo(wait.since, t.locale)
+  // A note goes with Send back; at a part's gate also with Approve, to what starts next. The plan and the final gate pass
+  // an approval's note to nobody, so a written note holds Approve there.
+  const noted = Boolean(note.trim())
   const stop = { label: t('projects.action.stop'), disabled: busy, onAct: () => decide('stop') }
   const noteField = (label: string, hint?: string) => (
     <Field label={label} description={hint}>
@@ -739,7 +790,7 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
         consequence={unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : t('projects.planGate.consequence')}
         decline={stop}
         alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim(), title: !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-        main={{ label: t('projects.planGate.approve'), disabled: busy || !plan || unapproved.length > 0, title: unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : undefined, onAct: () => decide('approve') }}
+        main={{ label: t('projects.planGate.approve'), disabled: busy || !plan || unapproved.length > 0 || noted, title: unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve') }}
       >
         {noteField(t('projects.planGate.noteLabel'))}
       </DecisionCard>
@@ -754,10 +805,10 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
         kind={t('projects.wait.gate')}
         age={age}
         subject={t('projects.gate.subject', { part })}
-        consequence={t('projects.gate.consequence')}
+        consequence={noted ? t('projects.gate.consequenceNote') : t('projects.gate.consequence')}
         decline={stop}
         alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim(), title: !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-        main={{ label: t('projects.gate.approve'), disabled: busy, onAct: () => decide('approve') }}
+        main={{ label: noted ? t('projects.gate.approveWithNote') : t('projects.gate.approve'), disabled: busy, onAct: () => decide('approve') }}
       >
         {artifact && <ArtifactCard orgId={orgId} artifact={artifact} who={names[artifact.employeeId] ?? artifact.employeeId} />}
         {noteField(t('projects.gate.noteLabel'))}
@@ -775,7 +826,7 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
       consequence={t('projects.final.consequence')}
       decline={stop}
       alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim() || left === 0, title: left === 0 ? t('projects.final.noReplans') : !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-      main={{ label: t('projects.final.approve'), disabled: busy, onAct: () => decide('approve') }}
+      main={{ label: t('projects.final.approve'), disabled: busy || noted, title: noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve') }}
     >
       {wait.reason && <p className="channel-quote">{wait.reason}</p>}
       {acceptance && <ArtifactCard orgId={orgId} artifact={acceptance} who={names[acceptance.employeeId] ?? acceptance.employeeId} />}

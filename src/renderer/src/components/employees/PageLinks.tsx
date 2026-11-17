@@ -9,9 +9,10 @@ import { Button } from '../../ui'
 /** Its folder and its name: sidebar-simplify/index.html. */
 const pageName = (path: string) => path.split('/').slice(-2).join('/')
 
-export function PageLinks({ orgId, files }: { orgId: string; files: readonly string[] | undefined }) {
+/** `except`: pages already shown another way (a part's mocks, under its file). */
+export function PageLinks({ orgId, files, except }: { orgId: string; files: readonly string[] | undefined; except?: readonly string[] }) {
   const t = useT()
-  const pages = memoryPages(files ?? [])
+  const pages = memoryPages((files ?? []).filter((f) => !except?.includes(f)))
   if (!pages.length) return null
   return (
     <div className="channel-pages">

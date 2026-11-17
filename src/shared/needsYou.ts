@@ -10,7 +10,7 @@ import { needsPerson, type EmployeeTask } from './employeeWork'
 import type { MemoryProposal } from './memory'
 import type { Project, ProjectWait } from './projects'
 import { spaceOf } from './organizations'
-import { oldestFirst, triageAll, type Triage, type TriageInput } from './triage'
+import { listsWorkspace, oldestFirst, projectWorkspaceIds, triageAll, type Triage, type TriageInput } from './triage'
 import type { AppSnapshot } from './types'
 
 /**
@@ -75,8 +75,10 @@ export function needsYouItems(input: TriageInput, triaged: Triage[] = triageAll(
   const organizations = snapshot.organizations ?? []
   const items: NeedsYouItem[] = []
   const byWorkspace = new Map<string, NeedsYouItem>()
+  // A project's workspace is its channel's (listsWorkspace): what the project waits on is its own item below.
+  const projectIds = projectWorkspaceIds(snapshot)
   for (const t of triaged) {
-    if (t.bucket !== 'attention') continue
+    if (t.bucket !== 'attention' || !listsWorkspace(t, projectIds, input.approvals)) continue
     const by = t.ws.startedBy?.via === 'employee' ? t.ws.startedBy : undefined
     const item: NeedsYouItem = { id: `ws:${t.ws.id}`, kind: 'workspace', space: repoSpace(snapshot, t.ws.repoId), since: t.since, repoId: t.ws.repoId, triage: t, ...(by ? { orgId: by.orgId, employeeId: by.employeeId } : {}) }
     items.push(item)
@@ -113,6 +115,23 @@ export function needsYouItems(input: TriageInput, triaged: Triage[] = triageAll(
     }
   }
   return items.sort((a, b) => a.since.localeCompare(b.since))
+}
+
+/** Every task a project's steps made, in every organization: what its channel lists as its employees' asks. */
+export function projectTaskIds(snapshot: Pick<AppSnapshot, 'projects'>): Set<string> {
+  return new Set(Object.values(snapshot.projects ?? {}).flatMap((projects) => projects.flatMap((p) => p.steps.map((s) => s.taskId))))
+}
+
+/**
+ * Whether an item is a project's (docs/ai-employees.md §15), shown in its channel's Waiting rather than as a row in the
+ * sidebar's workspace list: what the project waits on, and a question, stuck task or held action of one of its tasks.
+ * It still counts toward the space's number and its employee's Team row.
+ */
+export function inChannel(item: NeedsYouItem, projectTasks: ReadonlySet<string>): boolean {
+  if (item.kind === 'project') return true
+  if (item.kind === 'question' || item.kind === 'task') return projectTasks.has(item.task?.id ?? '')
+  if (item.kind === 'action') return projectTasks.has(item.action?.taskId ?? '')
+  return false
 }
 
 /** Whether an item is the employee's own business with the person (what a Team row counts), not just a workspace it made. */

@@ -139,7 +139,9 @@ async function scanWorkingTree(dir: string): Promise<string> {
     await git(dir, ['add', '-A', '--', '.'], { env })
     return await gitOut(dir, ['write-tree'], { env })
   } finally {
-    await rm(tmp, { recursive: true, force: true })
+    // Windows can hold the index a moment after git exits. A failed removal doesn't fail the scan; the temp sweep
+    // (main/tempSweep.ts) deletes what stays.
+    await rm(tmp, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
   }
 }
 

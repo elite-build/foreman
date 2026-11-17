@@ -116,9 +116,7 @@ async function rig(options: { pm?: boolean } = {}) {
       state: 'closed',
       closureReason: reason,
       ...(how.detail ? { closureDetail: how.detail } : {}),
-      ...(reason === 'done'
-        ? { result: { status: 'done', summary: `${task.title} finished.`, commit: `c-${id}`, ...(how.decision ? { decision: how.decision } : {}), ...(how.artifacts ? { artifacts: how.artifacts } : {}), runId: 'r', at: task.createdAt } }
-        : {})
+      ...(reason === 'done' ? { result: { status: 'done', summary: `${task.title} finished.`, commit: `c-${id}`, ...(how.decision ? { decision: how.decision } : {}), ...(how.artifacts ? { artifacts: how.artifacts } : {}), runId: 'r', at: task.createdAt } } : {})
     }
     db.putEmployeeTask(closed)
     service.taskClosed(closed)
@@ -227,7 +225,11 @@ describe('projects: the plan', () => {
       ['e-rav1', 'build'],
       [PM, 'docs']
     ])
-    expect(r.asked[1].contract).toEqual({ produces: 'memory/org/projects/export-reports-to-csv/build.md', writes: ['memory/org/projects/export-reports-to-csv/build.md'] })
+    expect(r.asked[1].contract).toEqual({
+      produces: 'memory/org/projects/export-reports-to-csv/build.md',
+      writes: ['memory/org/projects/export-reports-to-csv/build.md'],
+      writesUnder: ['memory/org/projects/export-reports-to-csv/mocks/build/']
+    })
     expect(going.decisions).toEqual([expect.objectContaining({ waitKind: 'plan', decision: 'approve' })])
   })
 
@@ -275,6 +277,8 @@ describe('projects: parts, gates and the end', () => {
     await r.service.decide(r.id, p.waits[0].id, 'approve')
     expect(r.last()).toMatchObject({ employeeId: 'e-rav1', project: { partId: 'build', round: 1 } })
     expect(r.last().contract.inputs).toEqual([{ path: 'memory/org/projects/export-reports-to-csv/requirements.md', commit: `c-${r.task(r.asked[2]).id}` }])
+    // An approval without a note passes nothing on (the note sent back with round 1 isn't the approval's).
+    expect(r.last().body).not.toContain('The person approved what your part waits for')
     // A small project ends with its last part: no acceptance, no final gate.
     await r.close(r.task(r.last()).id)
     p = r.get(r.id)
@@ -296,6 +300,53 @@ describe('projects: parts, gates and the end', () => {
     r.db.putProject(stored)
     expect(step().files).toEqual(['memory/org/projects/export-reports-to-csv/build.md', ...pages])
     expect(r.db.project(r.id)!.steps.find((s) => s.taskId === build.id)!.files).toBeUndefined()
+  })
+
+  it('records the mocks a part drew in its folder, and hands them with its file to the part that reads it', async () => {
+    const r = await approved({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'design', title: 'Design', owner: 'Priya', brief: 'Draw it.', writes: 'design.md', gate_after: true },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build it.', writes: 'build.md', depends_on: ['design'] }
+      ]
+    })
+    const folder = 'memory/org/projects/export-reports-to-csv/mocks/design/'
+    const design = r.task(r.last())
+    expect(design.contract?.writesUnder).toEqual([folder])
+    // What isn't an HTML file in its own folder isn't a mock.
+    await r.close(design.id, { artifacts: ['memory/org/projects/export-reports-to-csv/design.md', `${folder}1-export-b.html`, `${folder}index.html`, `${folder}1-export-a.html`, `${folder}notes.md`, 'memory/bots/e-pri1/x.html'] })
+    let p = r.get(r.id)
+    expect(p.artifacts['design.md'].mocks).toEqual([`${folder}index.html`, `${folder}1-export-a.html`, `${folder}1-export-b.html`])
+    await r.service.decide(r.id, p.waits[0].id, 'approve')
+    const commit = `c-${design.id}`
+    expect(r.last().contract.inputs).toEqual(['design.md', 'mocks/design/index.html', 'mocks/design/1-export-a.html', 'mocks/design/1-export-b.html'].map((f) => ({ path: `memory/org/projects/export-reports-to-csv/${f}`, commit })))
+    // A part that drew none records none.
+    await r.close(r.task(r.last()).id)
+    p = r.get(r.id)
+    expect(p.artifacts['build.md'].mocks).toBeUndefined()
+  })
+
+  it('gives what an approval at a gate said to the parts that wait for it, and holds an approval’s note at the plan', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'design', title: 'Mocks', owner: 'Priya', brief: 'Draw mocks.', writes: 'design.md', gate_after: true },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build the picked one.', writes: 'build.md', depends_on: ['design'] }
+      ]
+    })
+    // A note on the plan would reach nobody: it goes with Send back.
+    await expect(r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve', 'Use mock 2')).rejects.toThrow('A note goes with Send back')
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    await r.close(r.task(r.last()).id)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve', 'Suggest more mocks: five or six of them')
+    expect(r.get(project.id).decisions.at(-1)).toMatchObject({ waitKind: 'gate', partId: 'design', decision: 'approve', note: 'Suggest more mocks: five or six of them' })
+    expect(r.last()).toMatchObject({ employeeId: 'e-rav1', project: { partId: 'build', round: 1 } })
+    expect(r.last().body).toContain('On “Mocks”: “Suggest more mocks: five or six of them”')
+    expect(r.last().body).toContain('don’t start yours: finish_task blocked')
   })
 
   it('wakes a replan when a part can’t finish; one that only gives the owners more work goes ahead', async () => {
@@ -391,6 +442,7 @@ describe('projects: parts, gates and the end', () => {
     await r.close(r.task(r.last()).id, { decision: 'accept' })
     p = r.get(r.id)
     expect(p).toMatchObject({ phase: 'final-gate', waits: [expect.objectContaining({ kind: 'final' })] })
+    await expect(r.service.decide(r.id, p.waits[0].id, 'approve', 'Looks good')).rejects.toThrow('A note goes with Send back')
     await r.service.decide(r.id, p.waits[0].id, 'approve')
     p = r.get(r.id)
     expect(p).toMatchObject({ phase: 'closed', outcome: 'done' })
@@ -428,7 +480,12 @@ describe('projects: the person in the channel', () => {
     expect(r.get(project.id).phase).toBe('closed')
     const follow = await r.service.askFollowUp(project.id, 'e-rav1', 'Why semicolons?')
     expect(follow.employeeId).toBe('e-rav1')
-    expect(r.last()).toMatchObject({ project: { kind: 'follow-up', partId: 'build' }, contract: { inputs: [{ path: 'memory/org/projects/export-reports-to-csv/build.md', commit: `c-${build.id}` }] }, runsAllowed: 80 })
+    expect(r.last()).toMatchObject({
+      project: { kind: 'follow-up', partId: 'build' },
+      contract: { inputs: [{ path: 'memory/org/projects/export-reports-to-csv/build.md', commit: `c-${build.id}` }], writesUnder: ['memory/org/projects/export-reports-to-csv/mocks/build/'] },
+      runsAllowed: 80
+    })
+    expect(r.last().body).toContain('Your HTML mocks are in memory/org/projects/export-reports-to-csv/mocks/build/')
     expect(r.last().body).toContain('“Why semicolons?”')
     expect(r.get(project.id).steps.at(-1)).toMatchObject({ kind: 'follow-up', question: 'Why semicolons?' })
   })

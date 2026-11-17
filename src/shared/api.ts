@@ -170,7 +170,7 @@ export const METHOD_SCOPES = {
   revealEnvVar: 'window', revealAgentKey: 'window', revealProviderKey: 'window'
 } as const satisfies Record<keyof Api, Scope>
 
-/** Terminal input is work in a workspace; the unread badge and the battery are about this computer's window. */
+/** Terminal input is work in a workspace; the unread badge, the battery and raising the window are about this computer's window. */
 export const SIGNAL_SCOPES = {
   ptyWrite: 'operate',
   composerTyping: 'operate',
@@ -178,7 +178,8 @@ export const SIGNAL_SCOPES = {
   ptyKill: 'operate',
   saveTerminals: 'operate',
   setUnread: 'window',
-  setBattery: 'window'
+  setBattery: 'window',
+  showWindow: 'window'
 } as const satisfies Record<keyof Signals, Scope>
 
 /** Whether a session holding `scopes` may do what needs `needed`. */

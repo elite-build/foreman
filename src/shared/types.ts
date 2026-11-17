@@ -2763,7 +2763,7 @@ export interface Api {
   // name, hat and id. Refuses an unknown template. If approving fails it stays a draft and `approveError` says why.
   addTemplateEmployee(organizationId: string, templateId: string): Promise<{ employee: import('./employees').EmployeeView; approveError?: string }>
   // Against the file's blob as read; a file changed since is a conflict. A moved fingerprint needs approving again.
-  updateEmployee(organizationId: string, id: string, definition: import('./employees').EmployeeDefinition, expectedBlob: string): Promise<import('./employees').EmployeeUpdateResult>
+  updateEmployee(organizationId: string, id: string, definition: import('./employees').EmployeeDefinition, expectedBlob: string, expectedPromptBlob?: string | null): Promise<import('./employees').EmployeeUpdateResult>
   // Records the definition's fingerprint on this computer; with `expectedFingerprint`, refused if it changed meanwhile.
   approveEmployee(organizationId: string, id: string, expectedFingerprint?: string): Promise<import('./employees').EmployeeView>
   pauseEmployee(organizationId: string, id: string): Promise<void>
@@ -3336,6 +3336,9 @@ export interface Signals {
   saveTerminals(workspaceId: string, tabs: TerminalTabSave[]): void
   // The battery level (0–100) from Chromium's battery API, or null without one (O17).
   setBattery(percent: number | null): void
+  // A click on one of the window's notifications: bring the window forward. The page can't: on Windows its own focus()
+  // neither restores a minimized window nor raises it over other apps.
+  showWindow(): void
 }
 
 export interface Bridge {
@@ -3385,7 +3388,7 @@ export const API_METHODS = [
   'deleteSlackRule', 'linkPerson', 'unlinkPerson', 'slackDeliveries', 'answerSlackAsk', 'resendSlackDelivery', 'linearMyIssues', 'resolveLinearLink'
 ] as const satisfies readonly (keyof Api)[]
 
-export const SIGNAL_METHODS = ['ptyWrite', 'composerTyping', 'ptyResize', 'ptyKill', 'setUnread', 'saveTerminals', 'setBattery'] as const satisfies readonly (keyof Signals)[]
+export const SIGNAL_METHODS = ['ptyWrite', 'composerTyping', 'ptyResize', 'ptyKill', 'setUnread', 'saveTerminals', 'setBattery', 'showWindow'] as const satisfies readonly (keyof Signals)[]
 
 type AssertNever<T extends never> = T
 export type _AllApiMethodsListed = AssertNever<Exclude<keyof Api, (typeof API_METHODS)[number]>>

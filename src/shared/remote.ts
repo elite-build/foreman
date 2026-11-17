@@ -149,8 +149,8 @@ export function hostAccepts(method: string): boolean {
   return (METHOD_SCOPES as Partial<Record<string, string>>)[method] !== 'window'
 }
 
-/** Signals that are about this computer's window (the unread badge, the battery), never forwarded. */
-export const LOCAL_SIGNALS: ReadonlySet<keyof Signals> = new Set<keyof Signals>(['setUnread', 'setBattery'])
+/** Signals that are about this computer's window (the unread badge, the battery, raising it), never forwarded. */
+export const LOCAL_SIGNALS: ReadonlySet<keyof Signals> = new Set<keyof Signals>(['setUnread', 'setBattery', 'showWindow'])
 
 // ---- which events cross ----
 
