@@ -122,7 +122,7 @@ describe('what changed since approval', () => {
       ['mcp', undefined, '', 'foreman-linear', true],
       ['triggers', undefined, '0', '1', true],
       ['runs', undefined, '6', '10', true],
-      ['instructions', undefined, base.instructions, after.instructions, false]
+      ['instructions', undefined, `\n${base.instructions}`, `\n${after.instructions}`, false]
     ])
   })
 

@@ -344,7 +344,7 @@ describe('each class’s rule in words', () => {
   it('says plainly in a draft’s plan that a shell-profile employee’s shell, and the MCP servers it keeps, aren’t held', () => {
     setSnapshot({})
     const d = { ...base, access: { ...base.access, profile: 'shell' as const, mcp: ['github', 'foreman-slack'] } }
-    const view: EmployeeView = { ...summary, state: 'draft', blob: 'b1', text: null, definition: d }
+    const view: EmployeeView = { ...summary, state: 'draft', blob: 'b1', text: null, promptBlob: null, prompt: null, definition: d }
     render(<EmployeeReview employee={view} definition={d} memory="acme-memory" organization="Acme" names={(id) => id} />)
     const group = (name: string) =>
       within(screen.getByRole('heading', { name }).closest('section')!)

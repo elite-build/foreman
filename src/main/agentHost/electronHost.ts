@@ -48,6 +48,9 @@ export async function runAgentHost(): Promise<void> {
   let tray: Tray | null = null
   let last: { view: HostView; t: TFunction } | null = null
   let refresh: NodeJS.Timeout | null = null
+  // Notifications on screen: held until they close, or a click on one (from Windows' notification centre too) is lost
+  // with the object.
+  const shown = new Set<Notification>()
 
   const server: HostServer = new HostServer({
     dir,
@@ -60,7 +63,16 @@ export async function runAgentHost(): Promise<void> {
         draw()
       },
       notify: (title, body) => {
-        if (Notification.isSupported()) new Notification({ title, body, silent: false }).show()
+        if (!Notification.isSupported()) return
+        // A click opens Foreman, as the tray's rows do.
+        const notification = new Notification({ title, body, silent: false })
+        shown.add(notification)
+        notification.on('click', () => {
+          shown.delete(notification)
+          openForeman()
+        })
+        notification.on('close', () => shown.delete(notification))
+        notification.show()
       }
     }
   })

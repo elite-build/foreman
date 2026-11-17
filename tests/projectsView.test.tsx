@@ -220,10 +220,15 @@ describe('a project’s channel', () => {
     expect(within(post).getByText('So I don’t guess Okta only.')).toBeTruthy()
     expect(within(post).getByText('Enterprise customers log in with company accounts.')).toBeTruthy()
     const send = screen.getByRole('button', { name: /^Send answers/ }) as HTMLButtonElement
-    expect(send.disabled).toBe(true)
     expect(screen.getByText('0 of 2 answered')).toBeTruthy()
+    // Every option chosen but the text-only question left empty: Send says which, and goes to it, instead of sitting greyed.
     await user.click(screen.getByRole('radio', { name: 'Any SAML 2.0' }))
-    await user.type(screen.getByRole('textbox', { name: 'Your answer' }), 'Yes, for small teams')
+    expect(send.disabled).toBe(false)
+    await user.click(send)
+    expect(fakeApi.answerProject).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('Question 2 isn’t answered yet')
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Your answer' }))
+    await user.keyboard('Yes, for small teams')
     expect(screen.getByText('2 of 2 answered')).toBeTruthy()
     await user.click(send)
     await waitFor(() => expect(fakeApi.answerProject).toHaveBeenCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes, for small teams']))

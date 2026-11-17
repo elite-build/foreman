@@ -684,7 +684,8 @@ async function main(): Promise<void> {
     showAttention: (view) => {
       trayView = view
       drawTray()
-    }
+    },
+    showWindow: () => void showWindow()
   })
   core.ensureChats()
   // #19: the previews' files, answered only from the workspace's own worktree (main/previewProtocol.ts).

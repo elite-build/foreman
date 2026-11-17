@@ -636,6 +636,12 @@ function trackUnread(previous: AppSnapshot | null, next: AppSnapshot, browserTab
   return { unread, unreadSessions }
 }
 
+/** A notification was clicked: bring Foreman forward. Main raises the window (restoring it when minimized); in a browser, the tab's own focus() is all there is. */
+function raiseWindow(): void {
+  window.focus()
+  bridge.send.showWindow()
+}
+
 function notify(event: Extract<MainEvent, { type: 'notify' }>): void {
   const settings = state.snapshot?.settings
   if (!settings) return
@@ -650,7 +656,7 @@ function notify(event: Extract<MainEvent, { type: 'notify' }>): void {
     const text = narratedNotice(tNow(), event, state.snapshot?.sessions ?? [], state.snapshot?.workspaces ?? [], state.approvals)
     const notification = new Notification(text.title, { body: text.body, silent: true })
     notification.onclick = () => {
-      window.focus()
+      raiseWindow()
       // G4 O17: a keep-awake cutoff opens its setting.
       if (event.action === 'keep-awake') return openSettingsPage({ section: 'general', scrollTo: 'keep-awake' })
       // A sign-in from an agent on this computer is waiting: Settings → Data & devices → Agents on this computer.
@@ -911,7 +917,7 @@ function computerNotify(event: Extract<MainEvent, { type: 'computer-notify' }>):
   try {
     const notification = new Notification(`${event.computerName} · ${event.title}`, { body: event.body, silent: true })
     notification.onclick = () => {
-      window.focus()
+      raiseWindow()
       void attempt(() => api.viewComputer(event.computerId, event.workspaceId ? go : undefined))
     }
   } catch {
