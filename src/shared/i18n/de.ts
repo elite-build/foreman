@@ -8114,7 +8114,7 @@ export const de: Catalogue = {
   'projects.questions.skip': 'Mit dem Vorhandenen planen',
   'projects.questions.skipHint': '{name} plant ohne weitere Antworten und listet jede Annahme auf, damit du sie beim Plan prüfst.',
   'projects.questions.send': 'Antworten senden',
-  'projects.questions.answerAll': 'Beantworte zuerst jede Frage.',
+  'projects.questions.missing': { one: 'Frage {list} ist noch nicht beantwortet', other: 'Fragen {list} sind noch nicht beantwortet' },
   'projects.questions.sent': 'Antworten an {name} gesendet.',
   'projects.questions.skipped': '{name} plant mit dem Vorhandenen.',
   'projects.questions.skippedLog': 'Plane mit dem Vorhandenen, {name}: liste auf, was du annimmst.',

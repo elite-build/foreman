@@ -8114,7 +8114,7 @@ export const ptBR: Catalogue = {
   'projects.questions.skip': 'Planejar com o que há',
   'projects.questions.skipHint': '{name} planeja sem mais respostas e lista cada suposição, para você conferir no plano.',
   'projects.questions.send': 'Enviar respostas',
-  'projects.questions.answerAll': 'Responda a todas as perguntas primeiro.',
+  'projects.questions.missing': { one: 'A pergunta {list} ainda não tem resposta', other: 'As perguntas {list} ainda não têm resposta' },
   'projects.questions.sent': 'Respostas enviadas para {name}.',
   'projects.questions.skipped': '{name} planeja com o que tem.',
   'projects.questions.skippedLog': 'Planeje com o que você tem, {name}: liste o que supõe.',
