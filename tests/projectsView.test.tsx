@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmployeeSummary } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
 import type { Project, ProjectPlan } from '../src/shared/projects'
+import { EmployeesView } from '../src/renderer/src/components/employees/EmployeesView'
 import { ProjectsSection } from '../src/renderer/src/components/employees/ProjectsSection'
 import { OrgChannel } from '../src/renderer/src/components/employees/OrgChannel'
 import { ProjectPage } from '../src/renderer/src/components/employees/ProjectPage'
@@ -362,6 +363,40 @@ describe('a project’s channel', () => {
     const confirm = screen.getByRole('alert')
     await user.click(within(confirm).getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(fakeApi.stopProject).toHaveBeenCalledWith('p1'))
+  })
+})
+
+describe('opening a channel', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('opens the organization’s channel and a project’s channel at their newest post and the message box, not the top', () => {
+    // The page shows 600px; the messages column ends 1500px down, and the side panel folds under it (as when narrow), so
+    // the page's very end is further still.
+    const tops = new Map<Element, number>()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const scrolled = tops.get(this.closest('.employees-body')!) ?? 0
+      const bottom = this.classList.contains('employees-body') ? 600 : this.classList.contains('channel-main') ? 1500 - scrolled : 0
+      return { top: 0, left: 0, right: 0, width: 0, height: bottom, bottom, x: 0, y: 0, toJSON: () => ({}) }
+    })
+    vi.spyOn(HTMLElement.prototype, 'scrollTop', 'set').mockImplementation(function (this: HTMLElement, v: number) {
+      tops.set(this, v)
+    })
+    vi.spyOn(HTMLElement.prototype, 'scrollTop', 'get').mockImplementation(function (this: HTMLElement) {
+      return tops.get(this) ?? 0
+    })
+    fakeApi.listEmployees = vi.fn(async () => ({ employees: [] }))
+    setSnapshot()
+    const view = render(<EmployeesView route={{ orgId: 'o1', page: 'channel' }} />)
+    const body = document.querySelector('.employees-body')!
+    expect(tops.get(body)).toBe(900)
+    // Back at the top, then to a project's channel: it opens at its end too.
+    tops.set(body, 0)
+    view.rerender(<EmployeesView route={{ orgId: 'o1', page: 'project', id: 'p1' }} />)
+    expect(tops.get(body)).toBe(900)
+    // The Team page stays where it is.
+    tops.set(body, 0)
+    view.rerender(<EmployeesView route={{ orgId: 'o1', page: 'team' }} />)
+    expect(tops.get(body)).toBe(0)
   })
 })
 
