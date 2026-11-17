@@ -2,6 +2,31 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.4 (2026-11-17)
+
+### Added
+
+- A project part that designs screens draws them as HTML mocks, two options each, in the project's mocks folder, and the channel shows a button for each that opens it in your browser; the **UX designer** (Uma) now draws mocks for what she proposes. ([#219](https://github.com/elite-build/foreman/pull/219))
+- A mock an AI employee saves in memory shows in its channel or task as a button, such as **Open sidebar-simplify/index.html in your browser**, that opens it in your browser, and the **Memory** view has **Open in browser** for an HTML file. ([#220](https://github.com/elite-build/foreman/pull/220))
+
+### Changed
+
+- Every AI employee, including **Priya** and the job templates, can change its organization's repositories, push and open pull requests without waiting for you. Existing employees are updated once, and keep their approval. ([#211](https://github.com/elite-build/foreman/pull/211))
+- **Runs a day** and **Minutes a run** are optional and empty by default: an employee runs as often and as long as it needs unless you set a limit. ([#211](https://github.com/elite-build/foreman/pull/211))
+- Every job template employee, including **Priya**, follows a prompt written for its job and gets better whenever a newer Foreman improves that prompt, without you approving it again. An employee's prompt is now its own file (`bots/<id>.md`); for a template employee, **Edit** shows the job's prompt and lets you add only what your organization wants on top. ([#215](https://github.com/elite-build/foreman/pull/215))
+
+### Fixed
+
+- On a project's questions card, **Send answers** no longer stays greyed out when an answer is missing: it goes to the question you missed and names any others. ([#213](https://github.com/elite-build/foreman/pull/213))
+- Clicking a Foreman notification on Windows brings Foreman to the front again, restoring it when minimized. While Foreman is closed and agents keep running, clicking one opens Foreman. ([#214](https://github.com/elite-build/foreman/pull/214))
+- A project's workspace no longer reappears in the sidebar's **Needs your attention** after each run, and what a project waits on is shown only in its channel. ([#216](https://github.com/elite-build/foreman/pull/216))
+- A note written at a project's check and sent with **Approve with note** now reaches the parts that start next, and a note on the plan or final check can only be sent with **Send back**, so it's never silently dropped. ([#218](https://github.com/elite-build/foreman/pull/218))
+- Foreman deletes temporary files it left behind after a crash, once they are a day old. ([#217](https://github.com/elite-build/foreman/pull/217))
+
+### Development
+
+- Test runs no longer leave folders in the system temp folder. ([#217](https://github.com/elite-build/foreman/pull/217))
+
 ## 1.2.3 (2026-11-17)
 
 ### Added
