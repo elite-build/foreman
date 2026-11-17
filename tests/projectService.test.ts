@@ -273,10 +273,34 @@ describe('projects: parts, gates and the end', () => {
     await r.service.decide(r.id, p.waits[0].id, 'approve')
     expect(r.last()).toMatchObject({ employeeId: 'e-rav1', project: { partId: 'build', round: 1 } })
     expect(r.last().contract.inputs).toEqual([{ path: 'memory/org/projects/export-reports-to-csv/requirements.md', commit: `c-${r.task(r.asked[2]).id}` }])
+    // An approval without a note passes nothing on (the note sent back with round 1 isn't the approval's).
+    expect(r.last().body).not.toContain('The person approved what your part waits for')
     // A small project ends with its last part: no acceptance, no final gate.
     await r.close(r.task(r.last()).id)
     p = r.get(r.id)
     expect(p).toMatchObject({ phase: 'closed', outcome: 'done', waits: [] })
+  })
+
+  it('gives what an approval at a gate said to the parts that wait for it, and holds an approval’s note at the plan', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'design', title: 'Mocks', owner: 'Priya', brief: 'Draw mocks.', writes: 'design.md', gate_after: true },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build the picked one.', writes: 'build.md', depends_on: ['design'] }
+      ]
+    })
+    // A note on the plan would reach nobody: it goes with Send back.
+    await expect(r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve', 'Use mock 2')).rejects.toThrow('A note goes with Send back')
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    await r.close(r.task(r.last()).id)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve', 'Suggest more mocks: five or six of them')
+    expect(r.get(project.id).decisions.at(-1)).toMatchObject({ waitKind: 'gate', partId: 'design', decision: 'approve', note: 'Suggest more mocks: five or six of them' })
+    expect(r.last()).toMatchObject({ employeeId: 'e-rav1', project: { partId: 'build', round: 1 } })
+    expect(r.last().body).toContain('On “Mocks”: “Suggest more mocks: five or six of them”')
+    expect(r.last().body).toContain('don’t start yours: finish_task blocked')
   })
 
   it('wakes a replan when a part can’t finish; one that only gives the owners more work goes ahead', async () => {
@@ -372,6 +396,7 @@ describe('projects: parts, gates and the end', () => {
     await r.close(r.task(r.last()).id, { decision: 'accept' })
     p = r.get(r.id)
     expect(p).toMatchObject({ phase: 'final-gate', waits: [expect.objectContaining({ kind: 'final' })] })
+    await expect(r.service.decide(r.id, p.waits[0].id, 'approve', 'Looks good')).rejects.toThrow('A note goes with Send back')
     await r.service.decide(r.id, p.waits[0].id, 'approve')
     p = r.get(r.id)
     expect(p).toMatchObject({ phase: 'closed', outcome: 'done' })

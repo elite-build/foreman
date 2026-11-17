@@ -265,6 +265,34 @@ describe('a project’s channel', () => {
     await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', undefined))
   })
 
+  it('says a note written at a gate goes with Approve to what starts next, and holds Approve plan while one is written', async () => {
+    const user = userEvent.setup()
+    const atGate = project({
+      phase: 'working',
+      plan: { ...PLAN, status: 'approved' },
+      plans: [{ ...PLAN, status: 'approved' }],
+      parts: { build: { state: 'gate', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } },
+      waits: [{ id: 'w2', kind: 'gate', partId: 'build', since: NOW }]
+    })
+    setSnapshot([atGate], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    fakeApi.decideProject = vi.fn(async () => atGate)
+    const view = render(<ProjectPage orgId="o1" project={atGate} />)
+    expect(screen.getByText('Approve lets what waits for it start.')).toBeTruthy()
+    await user.type(screen.getByRole('textbox', { name: /^Your note/ }), 'Use option 2')
+    expect(screen.getByText(/^Approve with note: what waits for it starts, and is given your note/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: /^Approve with note/ }))
+    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', 'Use option 2'))
+    view.unmount()
+    // At the plan a note goes only with Send back.
+    setSnapshot(undefined, [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={project()} />)
+    const approve = screen.getByRole('button', { name: /^Approve plan/ }) as HTMLButtonElement
+    expect(approve.disabled).toBe(false)
+    await user.type(screen.getByRole('textbox', { name: 'What should change (for Send back)' }), 'More mocks first.')
+    expect(approve.disabled).toBe(true)
+    expect(approve.title).toBe('Your note goes with Send back. Clear it to approve.')
+  })
+
   it('asks a follow-up of a named employee, keeps anything else as a note, and stops only after you confirm', async () => {
     const user = userEvent.setup()
     setSnapshot()

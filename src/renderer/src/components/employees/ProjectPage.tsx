@@ -5,9 +5,10 @@
 // it finished, with the file it wrote; the decisions you made and the notes you left; follow-ups and their answers; and
 // last, who is at work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you
 // on: her questions (Send answers, Plan with what you have, Stop), the plan (Approve once every owner is approved, Send
-// back with a note, Stop), a part's result (Approve, Send back, Stop), a task that couldn't finish (Try again, Stop), the
-// final check; and what its employees ask or hold (a question, a pull request). The message box: "@Name …" asks that
-// employee a follow-up, anything else is a note that wakes nobody. Beside it: the parts with their states, the files,
+// back with a note, Stop), a part's result (Approve, or Approve with note, which goes to what starts next; Send back;
+// Stop), a task that couldn't finish (Try again, Stop), the final check; a note holds Approve on the plan and the final
+// check, where it would reach nobody; and what its employees ask or hold (a question, a pull request). The message box:
+// "@Name …" asks that employee a follow-up, anything else is a note that wakes nobody. Beside it: the parts with their states, the files,
 // the workspace and the replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay).
 // Once closed, Archive takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames
 // or deletes it.
@@ -712,6 +713,9 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
     </span>
   )
   const age = timeAgo(wait.since, t.locale)
+  // A note goes with Send back; at a part's gate also with Approve, to what starts next. The plan and the final gate pass
+  // an approval's note to nobody, so a written note holds Approve there.
+  const noted = Boolean(note.trim())
   const stop = { label: t('projects.action.stop'), disabled: busy, onAct: () => decide('stop') }
   const noteField = (label: string, hint?: string) => (
     <Field label={label} description={hint}>
@@ -755,7 +759,7 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
         consequence={unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : t('projects.planGate.consequence')}
         decline={stop}
         alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim(), title: !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-        main={{ label: t('projects.planGate.approve'), disabled: busy || !plan || unapproved.length > 0, title: unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : undefined, onAct: () => decide('approve') }}
+        main={{ label: t('projects.planGate.approve'), disabled: busy || !plan || unapproved.length > 0 || noted, title: unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve') }}
       >
         {noteField(t('projects.planGate.noteLabel'))}
       </DecisionCard>
@@ -770,10 +774,10 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
         kind={t('projects.wait.gate')}
         age={age}
         subject={t('projects.gate.subject', { part })}
-        consequence={t('projects.gate.consequence')}
+        consequence={noted ? t('projects.gate.consequenceNote') : t('projects.gate.consequence')}
         decline={stop}
         alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim(), title: !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-        main={{ label: t('projects.gate.approve'), disabled: busy, onAct: () => decide('approve') }}
+        main={{ label: noted ? t('projects.gate.approveWithNote') : t('projects.gate.approve'), disabled: busy, onAct: () => decide('approve') }}
       >
         {artifact && <ArtifactCard orgId={orgId} artifact={artifact} who={names[artifact.employeeId] ?? artifact.employeeId} />}
         {noteField(t('projects.gate.noteLabel'))}
@@ -791,7 +795,7 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
       consequence={t('projects.final.consequence')}
       decline={stop}
       alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim() || left === 0, title: left === 0 ? t('projects.final.noReplans') : !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-      main={{ label: t('projects.final.approve'), disabled: busy, onAct: () => decide('approve') }}
+      main={{ label: t('projects.final.approve'), disabled: busy || noted, title: noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve') }}
     >
       {wait.reason && <p className="channel-quote">{wait.reason}</p>}
       {acceptance && <ArtifactCard orgId={orgId} artifact={acceptance} who={names[acceptance.employeeId] ?? acceptance.employeeId} />}
