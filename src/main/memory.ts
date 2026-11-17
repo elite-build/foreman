@@ -346,6 +346,14 @@ export class MemoryService {
     return { path: file, head, blob: text === null ? null : await this.blobId(t.root, text), size: text === null ? 0 : Buffer.byteLength(text), binary: false, tooLarge: false, ...(text !== null ? { text } : {}) }
   }
 
+  /** Where a file is in the memory repository's folder, to open it there (a mock's page, with the pages it links). */
+  filePath(orgId: string, file: string): string {
+    const t = this.target(orgId)
+    const problem = memoryPathProblem(file)
+    if (problem) throw new MemoryRefused(`${file}: ${MEMORY_PATH_REASON[problem]}`, 'path')
+    return path.join(t.root, ...file.split('/'))
+  }
+
   /** The commits that touched a file, newest first, with their trailers. */
   async history(orgId: string, file: string, limit = 100): Promise<MemoryCommit[]> {
     const t = this.target(orgId)

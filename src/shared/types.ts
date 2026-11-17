@@ -2738,6 +2738,8 @@ export interface Api {
   // The files under memory/, bots/ and repos/ at the head.
   memoryTree(organizationId: string): Promise<import('./memory').MemoryTree>
   memoryReadFile(organizationId: string, path: string): Promise<import('./memory').MemoryFile>
+  // Opens the file from the memory repository's folder on this computer as openFile does: a page (a mock) in the browser.
+  memoryOpenFile(organizationId: string, path: string): Promise<void>
   // The commits that touched the file, newest first, with their trailers.
   memoryFileHistory(organizationId: string, path: string): Promise<import('./memory').MemoryCommit[]>
   // At most 10 files, best first, from the search index (a cache in foreman.db).
@@ -3350,7 +3352,7 @@ export interface Bridge {
 export const API_METHODS = [
   'getSnapshot', 'pickDirectory', 'pickFiles', 'pickPath', 'addRepo', 'cloneRepo', 'githubRepos', 'quickStartRepo', 'makeRepo', 'forgetRecentRepo', 'classifyFolders', 'takeLaunchFolders', 'updateRepo', 'removeRepo',
   'createOrganization', 'renameOrganization', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory',
-  'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
+  'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryOpenFile', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'addTemplateEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
   'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',

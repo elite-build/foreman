@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { memoryPathProblem, parseTrailers } from '../src/shared/memory'
+import { memoryArtifacts, memoryPages, memoryPathProblem, parseTrailers } from '../src/shared/memory'
 import type { Organization } from '../src/shared/organizations'
 import { secretLines } from '../src/shared/reportProblem'
 import type { Repo } from '../src/shared/types'
@@ -103,6 +103,18 @@ describe('memory: the shared rules', () => {
     expect(secretLines('Plain notes about the launch.')).toEqual([])
   })
 
+  it('keeps a task’s memory artifacts once each, and links a folder of pages by its index.html', () => {
+    expect(memoryArtifacts(['memory/bots/e-1/mocks/a/index.html', 'src/app.ts', 'C:/x/mock.html', 7, 'memory/bots/e-1/mocks/a/index.html', 'memory/org/notes.md'])).toEqual([
+      'memory/bots/e-1/mocks/a/index.html',
+      'memory/org/notes.md'
+    ])
+    expect(memoryArtifacts(undefined)).toEqual([])
+    // The index stands for the pages beside it; a folder without one shows each page; Markdown isn't a page.
+    expect(
+      memoryPages(['memory/org/notes.md', 'memory/bots/e-1/mocks/a/1-tidy.html', 'memory/bots/e-1/mocks/a/index.html', 'memory/bots/e-1/mocks/a/2-live.html', 'memory/bots/e-1/mocks/b/only.htm', 'memory/bots/e-1/mocks/c/x.html', 'memory/bots/e-1/mocks/c/y.html'])
+    ).toEqual(['memory/bots/e-1/mocks/a/index.html', 'memory/bots/e-1/mocks/b/only.htm', 'memory/bots/e-1/mocks/c/x.html', 'memory/bots/e-1/mocks/c/y.html'])
+  })
+
   it('reads trailers', () => {
     expect(parseTrailers('Foreman-Run: r1\nForeman-Task: t 1\n')).toEqual([
       { key: 'Foreman-Run', value: 'r1' },
@@ -126,6 +138,10 @@ describe('memory: reading', () => {
     expect(file).toMatchObject({ path: 'memory/org/PROJECT.md', head: tree.head, blob: await blobAt(root, 'memory/org/PROJECT.md'), binary: false, tooLarge: false })
     expect(file.text).toContain('# Acme')
     expect(await memory.read('o1', 'memory/org/missing.md')).toMatchObject({ blob: null, binary: false })
+    // Where a file is in the folder, to open it there; never outside the memory folders.
+    expect(memory.filePath('o1', 'memory/bots/e-1/mocks/a/index.html')).toBe(path.join(root, 'memory', 'bots', 'e-1', 'mocks', 'a', 'index.html'))
+    expect(() => memory.filePath('o1', 'memory/../README.md')).toThrow('memory/../README.md')
+    expect(() => memory.filePath('o1', 'C:/Windows/notepad.exe')).toThrow()
 
     const history = await memory.history('o1', 'memory/org/PROJECT.md')
     expect(history).toHaveLength(1)

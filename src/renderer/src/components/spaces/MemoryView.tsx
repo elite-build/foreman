@@ -1,8 +1,9 @@
 // An organization's Memory view (docs/ai-employees.md §4 and §10): its memory repository's folders as a tree, the file
-// chosen (Markdown rendered, anything else as lines), Edit with compare-and-set through the memory service, the file's
-// history with its trailers, a search over the index, and what to do when the repository holds changes Foreman didn't
-// make. Everything goes through the memory service; nothing here touches the folder.
-import { Brain, ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Pencil, RotateCw, Save, Search, X } from 'lucide-react'
+// chosen (Markdown rendered, anything else as lines; a page also opens in the browser), Edit with compare-and-set
+// through the memory service, the file's history with its trailers, a search over the index, and what to do when the
+// repository holds changes Foreman didn't make. Everything goes through the memory service; nothing here touches the
+// folder.
+import { Brain, ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Globe, Pencil, RotateCw, Save, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { snippetParts } from '../../../../shared/chatIndex'
 import { sortEntries } from '../../../../shared/fileTree'
@@ -18,6 +19,8 @@ import './memory.css'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const isMarkdown = (file: string) => /\.(md|markdown)$/i.test(file)
+// A page (an employee's mock) is read as source here and opened in the browser to be seen.
+const isPage = (file: string) => /\.html?$/i.test(file)
 const baseName = (file: string) => file.slice(file.lastIndexOf('/') + 1)
 
 interface Row {
@@ -339,6 +342,7 @@ function MemoryFilePane({ organizationId, path, head, writable }: { organization
   const [tab, setTab] = useState('file')
   const [history, setHistory] = useState<MemoryCommit[] | null>(null)
   const markdown = isMarkdown(path)
+  const page = isPage(path)
   const dirty = editing && file?.text !== undefined && draft !== file.text
 
   // Read again when the head moves, unless an edit is open (its draft stays; Save compares against what was opened).
@@ -421,6 +425,11 @@ function MemoryFilePane({ organizationId, path, head, writable }: { organization
               { value: 'source', label: t('files.preview.source') }
             ]}
           />
+        )}
+        {page && file?.blob && !editing && (
+          <Button size="sm" variant="ghost" icon={<Globe size={12} />} onClick={() => void attempt(() => api.memoryOpenFile(organizationId, path))}>
+            {t('memory.openPage')}
+          </Button>
         )}
         {file?.text !== undefined && !editing && (
           <Button size="sm" variant="ghost" icon={<Pencil size={12} />} disabled={!writable} title={writable ? undefined : t('memory.edit.blocked')} onClick={startEdit}>

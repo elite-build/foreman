@@ -107,7 +107,7 @@ async function rig(options: { pm?: boolean } = {}) {
   }
   const service = new ProjectService(host)
   /** Close a task as its run would, and let the project go on. */
-  const close = async (id: string, how: { reason?: EmployeeTask['closureReason']; decision?: string; detail?: string } = {}) => {
+  const close = async (id: string, how: { reason?: EmployeeTask['closureReason']; decision?: string; detail?: string; artifacts?: string[] } = {}) => {
     const task = db.employeeTask(id)!
     const reason = how.reason ?? 'done'
     clock.now += 1000
@@ -116,7 +116,9 @@ async function rig(options: { pm?: boolean } = {}) {
       state: 'closed',
       closureReason: reason,
       ...(how.detail ? { closureDetail: how.detail } : {}),
-      ...(reason === 'done' ? { result: { status: 'done', summary: `${task.title} finished.`, commit: `c-${id}`, ...(how.decision ? { decision: how.decision } : {}), runId: 'r', at: task.createdAt } } : {})
+      ...(reason === 'done'
+        ? { result: { status: 'done', summary: `${task.title} finished.`, commit: `c-${id}`, ...(how.decision ? { decision: how.decision } : {}), ...(how.artifacts ? { artifacts: how.artifacts } : {}), runId: 'r', at: task.createdAt } }
+        : {})
     }
     db.putEmployeeTask(closed)
     service.taskClosed(closed)
@@ -277,6 +279,23 @@ describe('projects: parts, gates and the end', () => {
     await r.close(r.task(r.last()).id)
     p = r.get(r.id)
     expect(p).toMatchObject({ phase: 'closed', outcome: 'done', waits: [] })
+  })
+
+  it('keeps the memory files a part’s task named, for the channel to link its pages, and finds them for a step closed before', async () => {
+    const r = await approved(TWO_PARTS)
+    const build = r.task(r.last())
+    const pages = ['memory/bots/e-rav1/mocks/csv/index.html', 'memory/bots/e-rav1/mocks/csv/1-button.html']
+    await r.close(build.id, { artifacts: ['memory/org/projects/export-reports-to-csv/build.md', ...pages, pages[0], 'src/export.ts', 'C:/elsewhere/mock.html'] })
+    const step = () => r.service.all('o1')[0].steps.find((s) => s.taskId === build.id)!
+    // Workspace and absolute paths go with their workspace or aren't memory: only memory files, each once.
+    expect(step().files).toEqual(['memory/org/projects/export-reports-to-csv/build.md', ...pages])
+    expect(r.service.views().o1[0].steps.find((s) => s.taskId === build.id)!.files).toEqual(step().files)
+    // A step closed before steps kept their files reads them from its task's result.
+    const stored = r.db.project(r.id)!
+    for (const s of stored.steps) delete s.files
+    r.db.putProject(stored)
+    expect(step().files).toEqual(['memory/org/projects/export-reports-to-csv/build.md', ...pages])
+    expect(r.db.project(r.id)!.steps.find((s) => s.taskId === build.id)!.files).toBeUndefined()
   })
 
   it('wakes a replan when a part can’t finish; one that only gives the owners more work goes ahead', async () => {

@@ -133,6 +133,8 @@ export interface ProjectStep {
   question?: string
   // What the task said it did (its result's summary, cut to fit), once closed.
   summary?: string
+  // The memory files its result listed (memoryArtifacts), once closed: the channel links the pages among them.
+  files?: string[]
   startedAt: string
   endedAt?: string
 }

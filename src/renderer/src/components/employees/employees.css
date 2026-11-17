@@ -943,6 +943,12 @@ div.team-row {
 .channel-artifact {
   padding: 4px 10px;
 }
+/* The pages a step or task made (PageLinks), each a button. */
+.channel-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .channel-artifact-head,
 .channel-owner,
 .channel-plan-head {

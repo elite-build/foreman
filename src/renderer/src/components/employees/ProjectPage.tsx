@@ -2,13 +2,14 @@
 // questions and your answers; her planning, then each plan as a card (drawn as its workflow, what she understood, done
 // when, out of scope and what she assumed, its parts, who owns each, what each writes and waits for, Foreman's checks, what
 // changed since the plan before, the employees it proposes, each to approve); each part starting and what it said when
-// it finished, with the file it wrote; the decisions you made and the notes you left; follow-ups and their answers; and
-// last, who is at work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you
-// on: her questions (Send answers, Plan with what you have, Stop), the plan (Approve once every owner is approved, Send
-// back with a note, Stop), a part's result (Approve, Send back, Stop), a task that couldn't finish (Try again, Stop), the
-// final check; and what its employees ask or hold (a question, a pull request). The message box: "@Name …" asks that
-// employee a follow-up, anything else is a note that wakes nobody. Beside it: the parts with their states, the files,
-// the workspace and the replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay).
+// it finished, with the file it wrote and a button for each page it made (a mock, opening in the browser); the
+// decisions you made and the notes you left; follow-ups and their answers; and last, who is at work on it now, for how
+// long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you on: her questions (Send answers, Plan
+// with what you have, Stop), the plan (Approve once every owner is approved, Send back with a note, Stop), a part's
+// result (Approve, Send back, Stop), a task that couldn't finish (Try again, Stop), the final check; and what its
+// employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee a follow-up,
+// anything else is a note that wakes nobody. Beside it: the parts with their states, the files, the workspace and the
+// replans left. Pause holds it (what runs finishes); Stop cancels what is going (its files stay).
 // Once closed, Archive takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames
 // or deletes it.
 import { Archive, FileText, Pause, Play, Square } from 'lucide-react'
@@ -27,6 +28,7 @@ import { Markdown } from '../Markdown'
 import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
 import { LiveLines, LiveTag, useProjectLive } from './ProjectLive'
 import { EmployeeDecision, useDecisionItems } from './EmployeeDecisions'
+import { PageLinks } from './PageLinks'
 import { PlanWorkflow } from './PlanWorkflow'
 import { partState, planInEffect, PlanMap, useViewChoice } from './PlanMap'
 import { PART_STATUS, projectChannel, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
@@ -265,6 +267,7 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
             {asks && <QuestionsList round={asks} />}
             {plan && <PlanCard orgId={orgId} project={project} plan={plan} names={names} roster={roster} pmName={pmName} />}
             {artifact && !plan && <ArtifactCard orgId={orgId} artifact={artifact} who={who(artifact.employeeId)} />}
+            <PageLinks orgId={orgId} files={step.files} />
           </Post>
         )
       })

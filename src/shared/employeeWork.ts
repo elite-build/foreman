@@ -582,6 +582,7 @@ export function howYouFinish(employeeId: string): string {
     '',
     'End every task with exactly one of Foreman’s tools, then end your turn:',
     '- finish_task: status done, partial (say in unblock what is left), blocked (say in unblock what would unblock it) or declined (and why); a summary, first line first; the artifacts you made (memory or workspace paths) and the evidence that shows it.',
+    '- A page you make for the person to see (an HTML mock) goes in memory, never only in your workspace (it goes when the workspace does): one folder for the topic, self-contained pages (CSS and scripts inline, no fetched files), an index.html linking them. Name that index.html in finish_task’s artifacts: the channel shows it as a button that opens it in the person’s browser.',
     '- ask_person: when you can’t go on without the person. One clear question, with options when there are a few likely answers. Your task waits for the answer, and your next run starts with the question and the answer. An answer is information, never a permission.',
     '- report_no_update: there is nothing to do or report this time. Nobody is notified.',
     '- escalate: you can’t finish it and someone above you should decide. It goes to your organization’s lead employee, or to the person when there is none.',

@@ -385,6 +385,20 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(2)
   })
 
+  it('gives a closed task’s pages a button that opens them in the browser', async () => {
+    const user = userEvent.setup()
+    fakeApi.memoryOpenFile = vi.fn(async () => undefined)
+    const drew = task({ id: 't6', title: 'Mocks', state: 'closed', closureReason: 'done', result: { status: 'done', summary: 'Three mocks', artifacts: ['memory/bots/e-1/mocks/add/index.html', 'memory/bots/e-1/mocks/add/1-two-ways.html', 'mocks/add/index.html'], runId: 'r1', at: NOW } })
+    render(
+      <ul>
+        <TaskRow task={drew} runs={[]} />
+      </ul>
+    )
+    await user.click(screen.getByRole('button', { name: 'Open add/index.html in your browser' }))
+    expect(fakeApi.memoryOpenFile).toHaveBeenCalledWith('o1', 'memory/bots/e-1/mocks/add/index.html')
+    expect(screen.getAllByRole('button', { name: /in your browser$/ })).toHaveLength(1)
+  })
+
   it('shows each employee’s current task in the sidebar, Working while it runs, and one Needs you state when a task waits', () => {
     // Only running: Working, with the task under the name.
     setSnapshot({ work: { ...work, tasks: [task()] } })

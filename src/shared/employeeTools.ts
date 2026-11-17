@@ -74,7 +74,7 @@ export const EMPLOYEE_TOOLS = {
     schema: z.object({}).strict()
   },
   finish_task: {
-    description: 'End your task with its result, once, then end your turn. status: done; partial (some of it, and say in unblock what is left); blocked (say in unblock what would unblock it); declined (you won’t do it, and why). summary: what you did or why not, first line first. artifacts: memory paths or workspace paths of what you made; memory you wrote that is named here is committed first. evidence: what shows it (checks, links, files). decision: when your task asks for one (a project’s acceptance: accept or replan), exactly one of the options it names.',
+    description: 'End your task with its result, once, then end your turn. status: done; partial (some of it, and say in unblock what is left); blocked (say in unblock what would unblock it); declined (you won’t do it, and why). summary: what you did or why not, first line first. artifacts: memory paths or workspace paths of what you made; memory you wrote that is named here is committed first. A page you made for the person (an HTML mock) is shown in the channel as a button that opens it in their browser: keep it in memory, self-contained, and name its index.html here. evidence: what shows it (checks, links, files). decision: when your task asks for one (a project’s acceptance: accept or replan), exactly one of the options it names.',
     readOnly: false,
     schema: z
       .object({
