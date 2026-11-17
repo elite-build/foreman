@@ -399,57 +399,41 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     expect(screen.getAllByRole('button', { name: /in your browser$/ })).toHaveLength(1)
   })
 
-  it('shows each employee’s current task in the sidebar, Working while it runs, and one Needs you state when a task waits', () => {
-    // Only running: Working, with the task under the name.
+  it('names each employee’s hat in the sidebar with its current task, Working while it runs, and one Needs you state when a task waits', () => {
+    // Only running: Working, with the task, and a turning ring on the hat's corner.
     setSnapshot({ work: { ...work, tasks: [task()] } })
     const { unmount } = render(<TeamSection />)
-    const running = screen.getByRole('button', { name: /Max/ })
-    expect(within(running).getByText('On: Draft the launch post')).toBeTruthy()
-    expect(within(running).getByText('Working')).toBeTruthy()
+    const running = screen.getByRole('button', { name: /^Max/ })
+    expect(running.getAttribute('aria-label')).toBe('Max · Marketing · Working · On: Draft the launch post')
+    expect(running.querySelector('.sb-hat-mark .ui-spinner')).not.toBeNull()
     unmount()
-    // A task waits for the person as well: one state (Needs you, its count), and the line says what waits.
+    // A task waits for the person as well: one state (Needs you, its count), then what waits, and ▲ in place of the ring.
     setSnapshot({ work })
     render(<TeamSection />)
-    const row = screen.getByRole('button', { name: /Max/ })
-    expect(within(row).getByText('Needs you · 1')).toBeTruthy()
-    expect(within(row).getByText(/^Needs you: Fix the README/)).toBeTruthy()
-    expect(within(row).queryByText('Working')).toBeNull()
-    expect(row.querySelectorAll('.ui-status')).toHaveLength(1)
+    const hat = screen.getByRole('button', { name: /^Max/ })
+    const name = hat.getAttribute('aria-label')!
+    expect(name).toMatch(/^Max · Marketing · Needs you · 1 · Needs you: Fix the README/)
+    expect(name).not.toContain('Working')
+    expect(hat.querySelector('.sb-hat-mark [data-glyph="warn"]')).not.toBeNull()
+    expect(hat.querySelector('.ui-spinner')).toBeNull()
   })
 
-  it('lays the sidebar row out as a hat beside the name and role, the task line under them, and one state (the real-app fixes)', () => {
+  it('keeps a long task whole in the hat’s name and tooltip, with one state, never “Idle” beside what waits', () => {
     const long = 'Draft the launch post for 1.0.23 with every change since 1.0.22 and the changelog email'
-    // A waiting employee: one glyph and one word, never “Idle” beside “Waiting for you”.
     setSnapshot({ work: { tasks: [task({ title: long, state: 'waiting', waitingOn: 'person', reason: 'which version?' })], runs: [], last: {}, proposals: [], revision: 1 } })
     render(<TeamSection />)
-    const row = screen.getByRole('button', { name: /Max/ })
-    // (a) The button is the grid the hat and both lines sit in: the hat, the name-and-role line and the state-and-task line
-    // are its own children.
-    expect(row.classList.contains('team-row-main')).toBe(true)
-    const [hat, who, line] = Array.from(row.children)
-    expect(hat.tagName.toLowerCase()).toBe('svg')
-    expect(who.classList.contains('team-row-who')).toBe(true)
-    expect(line.classList.contains('team-row-line')).toBe(true)
-    // (b) Name and role share the first line; the state and then the task are the line under them, the task the part that truncates.
-    expect(who.querySelector('.team-row-name')?.textContent).toBe('Max')
-    expect(who.querySelector('.team-row-role')?.textContent).toBe('Marketing')
-    const [state, doing] = Array.from(line.children)
-    expect(doing.classList.contains('team-row-doing')).toBe(true)
-    expect(doing.textContent).toContain(long)
-    expect(doing.getAttribute('title')).toContain(long)
-    // (c) One state: Needs you with its glyph.
-    expect(state.classList.contains('ui-status')).toBe(true)
-    expect(row.querySelectorAll('.ui-status')).toHaveLength(1)
-    expect(row.querySelectorAll('svg.ui-glyph, .ui-glyph')).toHaveLength(1)
-    expect(within(row).getByText('Needs you · 1')).toBeTruthy()
-    expect(within(row).queryByText('Idle')).toBeNull()
+    const hat = screen.getByRole('button', { name: /^Max/ })
+    expect(hat.getAttribute('aria-label')).toContain(long)
+    expect(hat.getAttribute('title')).toBe(hat.getAttribute('aria-label'))
+    expect(hat.getAttribute('aria-label')!.match(/Needs you · 1/g)).toHaveLength(1)
+    expect(hat.getAttribute('aria-label')).not.toContain('Idle')
+    expect(hat.querySelectorAll('.ui-glyph')).toHaveLength(1)
   })
 
-  it('keeps the sidebar row a grid with the app’s stylesheets in the app’s order, so the hat sits beside the name', () => {
-    // The earlier check passed while the app showed the hat on a line of its own: jsdom loads no stylesheet, and in the
-    // app ui/ui.css comes after every feature sheet (main.tsx), so `.ui-pressable { display: block }` beat a lone
-    // `.team-row-main { display: flex }` of the same weight. Load them as the app does and ask for the computed layout.
-    const sheets = [readFileSync('src/renderer/src/components/employees/employees.css', 'utf8'), uiStylesheet()]
+  it('puts a hat’s mark on its corner with the app’s stylesheets in the app’s order', () => {
+    // jsdom loads no stylesheet, and in the app ui/ui.css comes after every feature sheet (main.tsx): load them as the app
+    // does and ask for the computed layout, so the mark sits on the hat, not beside it.
+    const sheets = [readFileSync('src/renderer/src/styles/sidebar.css', 'utf8'), uiStylesheet()]
     const styles = sheets.map((css) => {
       const style = document.createElement('style')
       style.textContent = css
@@ -459,23 +443,10 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     try {
       setSnapshot({ work: { ...work, tasks: [task()] } })
       render(<TeamSection />)
-      const row = screen.getByRole('button', { name: /Max/ })
-      const [hat, who, line] = Array.from(row.children)
-      expect(getComputedStyle(row).display).toBe('grid')
-      // The hat in the first column, beside the name; the name and the state-and-task line in the second, one under the other.
-      expect(getComputedStyle(hat).gridColumn).toBe('1')
-      expect(getComputedStyle(hat).gridRow).toBe('1')
-      expect(getComputedStyle(who).gridColumn).toBe('2')
-      expect(getComputedStyle(who).gridRow).toBe('1')
-      expect(getComputedStyle(line).gridColumn).toBe('2')
-      // Each line stays one line: the task gives way (ellipsis), never the name or the state.
-      for (const el of [who, line]) {
-        expect(getComputedStyle(el).display).toBe('flex')
-        expect(getComputedStyle(el).whiteSpace).toBe('nowrap')
-      }
-      const doing = line.querySelector('.team-row-doing')!
-      expect(getComputedStyle(doing).textOverflow).toBe('ellipsis')
-      expect(getComputedStyle(line.querySelector('.ui-status')!).flexShrink).toBe('0')
+      const hat = screen.getByRole('button', { name: /^Max/ })
+      expect(getComputedStyle(hat).position).toBe('relative')
+      expect(getComputedStyle(hat.querySelector('.sb-hat-mark')!).position).toBe('absolute')
+      expect(getComputedStyle(screen.getByRole('list', { name: 'Employees of Acme' })).flexWrap).toBe('wrap')
     } finally {
       for (const style of styles) style.remove()
     }
@@ -501,12 +472,11 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
       expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
       expect(screen.getByRole('button', { name: 'Cancel task' })).toBeTruthy()
       unmount()
-      // The sidebar row: the line says it, and the state isn't Needs you (it clears itself).
+      // The sidebar's hat: its name says it, and the state isn't Needs you (it clears itself).
       const side = render(<TeamSection />)
-      const row = screen.getByRole('button', { name: /Max/ })
-      expect(within(row).getByText('Held: Weekly report · Waiting for the usage limit to reset at 23:30')).toBeTruthy()
-      expect(within(row).getByText('Idle')).toBeTruthy()
-      expect(within(row).queryByText(/Needs you/)).toBeNull()
+      const hat = screen.getByRole('button', { name: /^Max/ })
+      expect(hat.getAttribute('aria-label')).toBe('Max · Marketing · Idle · Held: Weekly report · Waiting for the usage limit to reset at 23:30')
+      expect(hat.querySelector('.sb-hat-mark')).toBeNull()
       side.unmount()
       // The Team card has its one state, with the work queued and nothing needing the person.
       const card = render(<TeamPage orgId="o1" data={{ employees: [], error: '', reload: vi.fn() }} />)
@@ -540,7 +510,7 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     fakeApi.resumeEmployee = vi.fn(async () => undefined)
     setSnapshot({ employees: [summary({ state: 'paused', pausedKind: 'failures', pausedDetail: 'Stopped after the maximum of 30 minutes.' })], work: { tasks: [], runs: [], last: {}, proposals: [], revision: 1 } })
     const { unmount } = render(<TeamSection />)
-    expect(within(screen.getByRole('button', { name: /Max/ })).getByText('Needs you · 1')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')).toContain('Needs you · 1')
     unmount()
     render(<EmployeesNeedYou orgId="o1" />)
     expect(screen.getByRole('heading', { name: 'Needs you · 1' })).toBeTruthy()
@@ -626,9 +596,9 @@ describe('the Team rows say what waits for you, once', () => {
     const asking = task({ title: 'Which day does 2.4 launch?', state: 'waiting', waitingOn: 'person', reason: 'Which day does Atlas 2.4 launch?', question: { id: 'q1', question: 'Which day does Atlas 2.4 launch?', options: [], runId: 'r1', askedAt: NOW } })
     setSnapshot({ work: { tasks: [asking], runs: [], last: {}, proposals: [], revision: 1 } })
     const { unmount } = render(<TeamSection />)
-    const line = screen.getByRole('button', { name: /Max/ }).querySelector('.team-row-doing')!
-    expect(line.textContent).toBe('Needs you: Which day does Atlas 2.4 launch?')
-    expect(line.textContent).not.toContain('?.')
+    const said = screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')!
+    expect(said).toBe('Max · Marketing · Needs you · 1 · Needs you: Which day does Atlas 2.4 launch?')
+    expect(said).not.toContain('?.')
     unmount()
     // The Team card: Needs you, and the question once, as a row that opens into its card.
     render(<TeamPage orgId="o1" data={{ employees: [], error: '', reload: vi.fn() }} />)
@@ -643,9 +613,7 @@ describe('the Team rows say what waits for you, once', () => {
   it('gives the reason for a held outward action and for a memory proposal, on the row and the card', async () => {
     setSnapshot({ work: { tasks: [], runs: [], last: {}, proposals: [], actions: [push()], revision: 1 } })
     const first = render(<TeamSection />)
-    const row = screen.getByRole('button', { name: /Max/ })
-    expect(within(row).getByText('Needs you · 1')).toBeTruthy()
-    expect(within(row).getByText('Needs you: Push of max/launch-2.4')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')).toBe('Max · Marketing · Needs you · 1 · Needs you: Push of max/launch-2.4')
     first.unmount()
     // The Team card: a row for the push, whose button only opens it (it leaves this computer), and the card it opens.
     const card = render(<TeamPage orgId="o1" data={{ employees: [], error: '', reload: vi.fn() }} />)
@@ -662,7 +630,7 @@ describe('the Team rows say what waits for you, once', () => {
     const proposal = { id: 'p1', orgId: 'o1', path: 'memory/org/PROJECT.md', kind: 'append' as const, text: '- Thursdays.', employeeId: 'e-max1', runId: 'r1', createdAt: NOW }
     setSnapshot({ work: { tasks: [], runs: [], last: {}, proposals: [proposal], revision: 1 } })
     const side = render(<TeamSection />)
-    expect(within(screen.getByRole('button', { name: /Max/ })).getByText('Proposes a memory change: memory/org/PROJECT.md')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')).toContain('Proposes a memory change: memory/org/PROJECT.md')
     side.unmount()
     // On the Team page, a change for the whole organization is in its own strip, not on Max's card, and its row's button
     // adds it at once (it stays on this computer).
@@ -705,13 +673,16 @@ describe('the Team rows say what waits for you, once', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it('draws a draft with its own shape, never Working’s', () => {
+  it('says Draft for a draft, never Working, and turns the ring only on whoever is at work', () => {
     setSnapshot({ employees: [summary({ state: 'draft' }), summary({ id: 'e-ada1', name: 'Ada', colour: 'teal' })], work: { tasks: [task({ employeeId: 'e-ada1' })], runs: [], last: {}, proposals: [], revision: 1 } })
     render(<TeamSection />)
-    const draft = screen.getByRole('button', { name: /Max/ }).querySelector('.ui-status')!
-    const working = screen.getByRole('button', { name: /Ada/ }).querySelector('.ui-status')!
-    expect(draft.textContent).toBe('Draft')
-    expect(working.textContent).toBe('Working')
-    expect(draft.querySelector('.ui-glyph')!.getAttribute('data-glyph')).not.toBe(working.querySelector('.ui-glyph')!.getAttribute('data-glyph'))
+    const hats = within(screen.getByRole('list', { name: 'Employees of Acme' })).getAllByRole('button')
+    // At work comes before the rest.
+    expect(hats.map((h) => h.getAttribute('aria-label')!.split(' · ')[0])).toEqual(['Ada', 'Max'])
+    const [working, draft] = hats
+    expect(draft.getAttribute('aria-label')).toBe('Max · Marketing · Draft')
+    expect(draft.querySelector('.ui-spinner')).toBeNull()
+    expect(working.getAttribute('aria-label')).toContain('Working')
+    expect(working.querySelector('.sb-hat-mark .ui-spinner')).not.toBeNull()
   })
 })

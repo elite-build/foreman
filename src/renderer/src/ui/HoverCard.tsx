@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefCallback } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefCallback } from 'react'
 import { createPortal } from 'react-dom'
 
 // A card with extra detail about its trigger (a PR glyph's CI state with Refresh, a board card's "why"). It replaces
 // `role="tooltip"` cards that held buttons: those can't be reached by keyboard. This one opens on hover and on
 // focus, can hold focusable content, is reachable with Tab (from the trigger into the card, and on past it), stays
-// open while the pointer or focus is on the trigger or the card, and Escape dismisses it wherever focus is.
+// open while the pointer or focus is on the trigger or the card, and Escape dismisses it wherever focus is. With
+// openOnFocus="keyboard", the focus a click gives the trigger neither opens the card nor holds it open.
 
 const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
 const MARGIN = 8
@@ -36,6 +37,8 @@ export type HoverCardTriggerProps = {
   onFocus: (e: FocusEvent<HTMLElement>) => void
   onBlur: (e: FocusEvent<HTMLElement>) => void
   onKeyDown: (e: KeyboardEvent<HTMLElement>) => void
+  // Tells focus that follows a click from keyboard focus (openOnFocus="keyboard").
+  onPointerDown: (e: PointerEvent<HTMLElement>) => void
   // Points at the card while it is open.
   'aria-details': string | undefined
 }
@@ -53,12 +56,15 @@ export type HoverCardProps = {
   width?: number
   openDelay?: number
   closeDelay?: number
+  // Which focus of the trigger opens the card at once: any (default), or keyboard only, for a trigger people click to
+  // act (a sidebar row): a click focuses it, and the card then opens only by hovering and closes when the pointer leaves.
+  openOnFocus?: 'any' | 'keyboard'
   // Layout for the card.
   className?: string
   children: ReactNode
 }
 
-export function HoverCard({ trigger, label, open: controlled, onOpenChange, side = 'bottom', width, openDelay = 300, closeDelay = 200, className, children }: HoverCardProps) {
+export function HoverCard({ trigger, label, open: controlled, onOpenChange, side = 'bottom', width, openDelay = 300, closeDelay = 200, openOnFocus = 'any', className, children }: HoverCardProps) {
   const id = useId()
   const [own, setOwn] = useState(false)
   const open = controlled ?? own
@@ -79,6 +85,10 @@ export function HoverCard({ trigger, label, open: controlled, onOpenChange, side
   const focus = useRef(false)
   // Focus returned to the trigger on purpose (Escape, Tab out of the card): that mustn't open the card again.
   const quiet = useRef(false)
+  // A pointer was pressed on the trigger or the card, so the focus that follows is a click's.
+  const pressed = useRef(false)
+  // With openOnFocus="keyboard": focus is on the trigger or card because of a click, so it holds nothing open.
+  const clicked = useRef(false)
   const [at, setAt] = useState<{ left: number; top: number } | null>(null)
 
   useEffect(() => () => clearTimeout(timer.current), [])
@@ -94,15 +104,25 @@ export function HoverCard({ trigger, label, open: controlled, onOpenChange, side
   }
   const leave = () => {
     hover.current = false
-    if (!focus.current) later(false, closeDelay)
+    if (!focus.current || clicked.current) later(false, closeDelay)
+  }
+  const press = () => {
+    pressed.current = true
   }
   const focused = () => {
+    const byPointer = pressed.current
+    pressed.current = false
     if (quiet.current) {
       quiet.current = false
       focus.current = true
       return
     }
     focus.current = true
+    if (openOnFocus === 'keyboard' && byPointer) {
+      clicked.current = true
+      return
+    }
+    clicked.current = false
     clearTimeout(timer.current)
     setOpen(true)
   }
@@ -110,6 +130,8 @@ export function HoverCard({ trigger, label, open: controlled, onOpenChange, side
     const next = e.relatedTarget
     if (next instanceof Node && (anchor.current?.contains(next) || card.current?.contains(next))) return
     focus.current = false
+    clicked.current = false
+    pressed.current = false
     if (!hover.current) later(false, closeDelay)
   }
   const focusTrigger = () => {
@@ -181,7 +203,7 @@ export function HoverCard({ trigger, label, open: controlled, onOpenChange, side
 
   return (
     <>
-      {trigger({ ref: setAnchor, onMouseEnter: enter, onMouseLeave: leave, onFocus: focused, onBlur: blurred, onKeyDown: triggerKey, 'aria-details': open ? id : undefined })}
+      {trigger({ ref: setAnchor, onMouseEnter: enter, onMouseLeave: leave, onFocus: focused, onBlur: blurred, onKeyDown: triggerKey, onPointerDown: press, 'aria-details': open ? id : undefined })}
       {open &&
         createPortal(
           <div
@@ -195,6 +217,7 @@ export function HoverCard({ trigger, label, open: controlled, onOpenChange, side
             style={{ left: at?.left ?? 0, top: at?.top ?? 0, width, visibility: at ? undefined : 'hidden' }}
             onMouseEnter={enter}
             onMouseLeave={leave}
+            onPointerDown={press}
             onFocus={focused}
             onBlur={blurred}
             onKeyDown={cardKey}

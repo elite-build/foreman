@@ -1,13 +1,14 @@
-// Beside Automations in the sidebar: opens the assistant. Its shortcut is in the tooltip; a mark says a reply finished
-// meanwhile, or that the default agent needs signing in.
+// An icon in the sidebar's top row, beside Automations: opens the assistant. Its name and tooltip carry its shortcut; a
+// mark on its corner says a reply finished meanwhile, or that the default agent needs signing in.
 import { Sparkles } from 'lucide-react'
 import { useT } from '../../i18n'
 import { shortcutHint } from '../../shortcuts'
 import { toggleAssistant, useStore } from '../../store'
-import { ActionRow, Status } from '../../ui'
+import { IconButton, Status } from '../../ui'
 import './assistant.css'
 
-export function AssistantEntry() {
+/** `className`: its place where it is drawn (the top row, or a tile on the folded rail). */
+export function AssistantEntry({ className }: { className?: string }) {
   const t = useT()
   const enabled = useStore((s) => s.snapshot!.settings.assistantEnabled)
   const open = useStore((s) => s.assistantOpen)
@@ -16,19 +17,24 @@ export function AssistantEntry() {
   const platform = useStore((s) => s.snapshot!.platform)
   if (!enabled) return null
   const key = shortcutHint('assistant.toggle', platform)
+  const state = unread ? t('assistant.entry.unread') : signedOut ? t('assistant.entry.signedOut') : undefined
   return (
-    // Same row as the Automations entry beside it, so the two share the `.automations-entry` frame.
-    <ActionRow
-      card
-      className="automations-entry assistant-entry"
-      selected={open}
+    // Same frame as the Automations icon beside it (`.automations-entry`).
+    <IconButton
+      className={['automations-entry', 'assistant-entry', className].filter(Boolean).join(' ')}
+      label={[t('assistant.title'), state, key].filter(Boolean).join(' · ')}
+      pressed={open}
+      aria-current={open ? 'true' : undefined}
+      aria-keyshortcuts={platform === 'darwin' ? 'Meta+Shift+A' : 'Control+Shift+A'}
       data-tour="assistant"
-      onPress={toggleAssistant}
-      primaryProps={{ title: key ? `${t('assistant.entry.title')} · ${key}` : t('assistant.entry.title'), 'aria-pressed': open, 'aria-keyshortcuts': platform === 'darwin' ? 'Meta+Shift+A' : 'Control+Shift+A' }}
+      onClick={toggleAssistant}
     >
-      <Sparkles size={14} />
-      <span className="automations-entry-label">{t('assistant.title')}</span>
-      {(unread || signedOut) && <Status className="assistant-entry-dot" compact tone={signedOut && !unread ? 'warn' : 'info'} label={unread ? t('assistant.entry.unread') : t('assistant.entry.signedOut')} />}
-    </ActionRow>
+      <Sparkles size={15} />
+      {state && (
+        <span className="assistant-entry-dot">
+          <Status compact tone={signedOut && !unread ? 'warn' : 'info'} label={state} />
+        </span>
+      )}
+    </IconButton>
   )
 }

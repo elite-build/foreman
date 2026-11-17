@@ -72,7 +72,8 @@ afterEach(() => {
 })
 
 const rail = () => screen.getByRole('navigation', { name: 'Repositories' })
-const list = () => screen.queryByRole('searchbox', { name: /find a workspace/i })
+// The list's top row: ⌕ opens Find in place.
+const list = () => screen.queryByRole('button', { name: 'Find' })
 
 describe('the sidebar in a narrow window', () => {
   it('is its rail alone, with the space switcher on top, and Ctrl+B asks for the list', () => {

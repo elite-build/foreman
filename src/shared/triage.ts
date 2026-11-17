@@ -102,8 +102,9 @@ export interface SidebarView {
   filter: SidebarFilter
   query: string
   showFinished: boolean
-  // Groups folded under their heading card (remembered); see foldedBuckets for when they apply.
-  folded?: Bucket[]
+  // Groups folded under their heading (remembered): buckets, and compareFoldKey for a comparison's; see foldedBuckets for
+  // when they apply.
+  folded?: string[]
 }
 
 function approvalLabel(approval: ApprovalRequest, t: TFunction): string {
@@ -609,10 +610,28 @@ export function sidebarGroups(
   return { groups, compares, hiddenFinished }
 }
 
+/** The key a comparison's (or a flow run's) group folds under in `SidebarView.folded`, beside the buckets. */
+export const compareFoldKey = (id: string): string => `compare:${id}`
+
 /**
- * The groups folded in the list. Only All with no search folds: a filter or a search lists exactly what was asked for.
+ * `folded` without the keys of comparisons and flow runs that have no live workspace left, so the remembered folds don't
+ * grow with every comparison folded and then archived. Bucket keys are kept.
  */
-export function foldedBuckets(view: SidebarView, settings?: Partial<AppSnapshot['settings']>): Set<Bucket> {
+export function liveFoldKeys(folded: readonly string[], workspaces: readonly Workspace[]): string[] {
+  const live = new Set<string>()
+  for (const w of workspaces) {
+    if (w.state === 'archived' || w.state === 'history') continue
+    if (w.compareId) live.add(compareFoldKey(w.compareId))
+    if (w.flowRun?.runId) live.add(compareFoldKey(`flow:${w.flowRun.runId}`))
+  }
+  return folded.filter((key) => !key.startsWith('compare:') || live.has(key))
+}
+
+/**
+ * The groups folded in the list (buckets, and compareFoldKey for a comparison's group). Only All with no search folds: a
+ * filter or a search lists exactly what was asked for.
+ */
+export function foldedBuckets(view: SidebarView, settings?: Partial<AppSnapshot['settings']>): Set<string> {
   if (!view.folded?.length || view.query.trim() || resolveFilter(view.filter, settings?.views) !== 'all') return new Set()
   return new Set(view.folded)
 }
@@ -622,9 +641,10 @@ export function foldedBuckets(view: SidebarView, settings?: Partial<AppSnapshot[
  * group's rows aren't shown, so they aren't numbered either.
  */
 export function sidebarOrder(input: TriageInput, view: SidebarView): Workspace[] {
-  const { groups: all, compares } = sidebarGroups(input, view)
+  const { groups: all, compares: allCompares } = sidebarGroups(input, view)
   const folded = foldedBuckets(view, input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined)
   const groups = all.filter((g) => !folded.has(g.bucket))
+  const compares = allCompares.filter((c) => !folded.has(compareFoldKey(c.id)))
   const first = groups.filter((g) => g.bucket === 'attention')
   const rest = groups.filter((g) => g.bucket !== 'attention')
   return [...first.flatMap((g) => g.items), ...compares.flatMap((c) => c.items), ...rest.flatMap((g) => g.items)].map((t) => t.ws)

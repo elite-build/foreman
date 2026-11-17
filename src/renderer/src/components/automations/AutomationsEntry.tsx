@@ -1,12 +1,13 @@
-// Top of the sidebar, beside the Assistant: opens Automations. What runs next is in its tooltip; a running automation, or
-// paused schedules, show as a mark at its end.
+// An icon in the sidebar's top row, beside the Assistant's: opens Automations. Its name and tooltip say what runs next; a
+// running automation, or paused schedules, show as a mark on its corner.
 import { Zap } from 'lucide-react'
 import { useT } from '../../i18n'
 import { closeAutomations, openAutomations, useStore } from '../../store'
-import { ActionRow, Status } from '../../ui'
+import { IconButton, Status } from '../../ui'
 import { nextPill } from '../ScheduleDialogs'
 
-export function AutomationsEntry() {
+/** `className`: its place where it is drawn (the top row, or a tile on the folded rail). */
+export function AutomationsEntry({ className }: { className?: string }) {
   const t = useT()
   const open = useStore((s) => Boolean(s.automations))
   const schedules = useStore((s) => s.snapshot!.schedules)
@@ -18,19 +19,22 @@ export function AutomationsEntry() {
     .sort((a, b) => a.nextRunAt!.localeCompare(b.nextRunAt!))[0]
   const hint = running ? t('automations.entry.running') : paused ? t('automations.entry.paused', { count: paused }) : next ? t('automations.entry.next', { time: nextPill(Date.parse(next.nextRunAt!), next.timezone, t.locale) }) : t('automations.entry.idle')
   return (
-    // The sidebar's entry rows (this, the assistant's and the Team row) share the `.automations-entry` frame.
-    <ActionRow
-      card
-      className="automations-entry"
-      selected={open}
+    // The icon and the Assistant's share the `.automations-entry` frame (automations.css).
+    <IconButton
+      className={['automations-entry', className].filter(Boolean).join(' ')}
+      label={`${t('automations.title')} · ${hint}`}
+      pressed={open}
+      aria-current={open ? 'true' : undefined}
       data-tour="automations"
-      onPress={() => (open ? closeAutomations() : openAutomations())}
-      primaryProps={{ title: `${t('automations.entry.title')} · ${hint}`, 'aria-pressed': open }}
+      onClick={() => (open ? closeAutomations() : openAutomations())}
     >
-      <Zap size={14} />
-      <span className="automations-entry-label">{t('automations.title')}</span>
-      {/* Half a row wide: the hint is in the tooltip, and only what needs a look stays, as a mark with its word. */}
-      {(running || paused > 0) && <Status className="automations-entry-mark" compact tone={running ? 'info' : 'warn'} label={hint} />}
-    </ActionRow>
+      <Zap size={15} />
+      {/* What needs a look, as a mark on the corner; the hint itself is in the name. */}
+      {(running || paused > 0) && (
+        <span className="automations-entry-mark">
+          <Status compact tone={running ? 'info' : 'warn'} label={hint} />
+        </span>
+      )}
+    </IconButton>
   )
 }

@@ -2,15 +2,11 @@ import {
   Archive,
   Brain,
   Bug,
-  ChevronDown,
-  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  CircleCheck,
   CircleHelp,
   Cloud,
-  FileDown,
-  FolderGit2,
+  Command,
   FolderInput,
   FolderRoot,
   GitBranch,
@@ -18,7 +14,6 @@ import {
   PanelLeftClose,
   PanelRightClose,
   Pin,
-  Plus,
   Search,
   Settings,
   Users,
@@ -26,7 +21,7 @@ import {
   icons,
   type LucideIcon
 } from 'lucide-react'
-import { Fragment, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { PlainKey } from '../../../shared/i18n'
 import type { ArchiveProgressStep, PaneSide, Repo, RepoIcon, Workspace, WorkspaceStatus } from '../../../shared/types'
 import { useT } from '../i18n'
@@ -41,7 +36,6 @@ import {
   openArchiveDialog,
   openExportDialog,
   openHandOffTo,
-  openImportDialog,
   clientKind,
   openEmployees,
   openMemory,
@@ -66,14 +60,15 @@ import {
 import { resolveFilter, VIEW_LABEL, viewsOn } from '../../../shared/views'
 import { LATER_CHOICES, putAway, waitingLater } from '../../../shared/later'
 import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater, useLaterWake } from '../later'
-import { BUCKET_LABEL, foldedBuckets, liveRepo, listsWorkspace, projectWorkspaceIds, sidebarGroups, sidebarOrder, STATUS_LABEL, type Bucket, type SidebarFilter, type Triage } from '../triage'
+import { BUCKET_LABEL, compareFoldKey, foldedBuckets, liveRepo, listsWorkspace, projectWorkspaceIds, sidebarGroups, sidebarOrder, STATUS_LABEL, type SidebarFilter, type Triage } from '../triage'
 import { promptTitle } from '../../../shared/compare'
 import type { CompareSection } from '../../../shared/triage'
 import { employeeKey, inChannel, itemsInSpace, projectTaskIds, type NeedsYouCounts, type NeedsYouItem } from '../../../shared/needsYou'
 import { needsYouOf, useTriageInput } from '../needsYou'
 import { employeeOf, openEmployeeItem, rowWords } from './needsYouWords'
 import { actionNoun } from './employees/words'
-import { AddRepoItems } from './AddRepository'
+import { NewMenu } from './NewMenu'
+import { SidebarSection } from './SidebarSection'
 import { SpaceRailTile, SpaceSwitcher } from './spaces/SpaceSwitcher'
 import { TeamSection } from './employees/TeamSection'
 import { ProjectsSection } from './employees/ProjectsSection'
@@ -94,7 +89,7 @@ import { PrGlyphView } from './Attention'
 import { GitlabMark } from './GitlabMark'
 import { cloudAction, CloudSub } from './cloud/CloudBits'
 import { isGitlabWorkspace } from '../../../shared/scm'
-import { ActionRow, Button, CardButton, ContextMenu, Glyph, HardHat, IconButton, LinkButton, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Spinner, Status, Tab, TabList, Tabs, TextInput, type HardHatColour, type StatusTone } from '../ui'
+import { ActionRow, Button, CardButton, ContextMenu, Glyph, HardHat, HoverCard, IconButton, LinkButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Spinner, Status, Tab, TabList, Tabs, TextInput, type HardHatColour, type HoverCardTriggerProps, type StatusTone } from '../ui'
 
 /** A Lucide icon by name: PascalCase ("GitBranch") or kebab-case ("git-branch"). */
 export function lucideIcon(name: string | undefined): LucideIcon | undefined {
@@ -275,8 +270,12 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
     setRenaming(false)
     if (name.trim() && name.trim() !== ws.name) void attempt(() => api.updateWorkspace(ws.id, { name }))
   }
-  // Repo (when listing them all), branch and age; the label says what's going on.
+  // Repo (when listing them all), branch and age, under the selected row; the hover card always names the repository.
   const meta = [repo?.name, ws.branch, timeAgo(t.since)].filter(Boolean).join(' · ')
+  const fullMeta = [snapshot.repos.find((r) => r.id === ws.repoId)?.name, ws.branch, timeAgo(t.since)].filter(Boolean).join(' · ')
+  // What is going on, in words. docs/ai-employees.md §10: a run says whose it is ("Ada asks · Which day does 2.4 launch?").
+  const said = employee && ws.startedBy?.via === 'employee' ? (t.namesEmployee ? t.label : t.label ? tr('sidebar.row.byEmployee', { name: employee.name, label: t.label }) : tr('sidebar.row.employeeRun', { name: employee.name, title: ws.startedBy.title })) : t.label
+  const title = ws.compare ? `${ws.name} · ${ws.compare.label}` : ws.name
   const icon = (
     <span className="ws-icon" title={archive ? undefined : ws.direct ? tr('sidebar.row.direct') : ws.adopted ? tr('sidebar.row.adopted') : ws.pinned ? tr('sidebar.row.pinned') : ws.cloud ? tr('cloud.glyph') : undefined}>
       {archive?.stopped ? (
@@ -291,14 +290,16 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
     </span>
   )
 
-  return (
-    <>
+  // One line: glyph, title, label (it gives way first), the employee's hat, and Ctrl+n on hover. The rest (repository,
+  // branch, age, the whole label, the shortcut) is in the hover card, which opens on hover and on keyboard focus, never
+  // because a click focused the row.
+  const row = (card?: HoverCardTriggerProps) => (
       <ActionRow
         className={`ws-row ${selected ? 'selected' : ''} ${t.bucket} ${archiving ? 'archiving' : ''}`}
         selected={selected}
         // A stopped archive opens its dialog, where Retry is.
         onPress={() => (archive?.stopped ? openArchiveDialog(ws.id) : openTriaged(t))}
-        primaryProps={{ className: 'ws-flow' }}
+        primaryProps={{ ...card, className: 'ws-flow' }}
         onContextMenu={(e) => {
           e.preventDefault()
           setMenu({ x: e.clientX, y: e.clientY })
@@ -342,7 +343,7 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
         }
       >
         {icon}
-        <span className="ws-title">{ws.compare ? `${ws.name} · ${ws.compare.label}` : ws.name}</span>
+        <span className="ws-title">{title}</span>
         {/* #22: a Terminal agent's process and output activity replace the label while it runs; it never claims "needs you". */}
         {archive ? (
           <span className={`ws-label ${archive.stopped ? 'amber' : 'blue'}`}>
@@ -355,34 +356,65 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
           </span>
         ) : terminalAgent ? (
           <TerminalAgentLabel workspaceId={ws.id} />
-        ) : employee && ws.startedBy?.via === 'employee' ? (
-          // docs/ai-employees.md §10: a run says whose it is, by hat and name ("Ada asks · Which day does 2.4 launch?").
-          // The leading glyph still says the state; the hat is identity only.
-          <span className={`ws-label ${t.tone ?? ''}`}>
-            <span className="ws-hat">
-              <HardHat colour={employee.colour as HardHatColour} size={14} />
-            </span>
-            {t.namesEmployee ? t.label : t.label ? tr('sidebar.row.byEmployee', { name: employee.name, label: t.label }) : tr('sidebar.row.employeeRun', { name: employee.name, title: ws.startedBy.title })}
-            {t.label && t.detail && <span className="ws-detail"> · {t.detail}</span>}
-          </span>
         ) : (
-          t.label && (
+          said && (
             <span className={`ws-label ${t.tone ?? ''}`}>
-              {t.label}
-              {t.detail && <span className="ws-detail"> · {t.detail}</span>}
+              {said}
+              {t.label && t.detail && <span className="ws-detail"> · {t.detail}</span>}
             </span>
           )
         )}
-        <span className="ws-sub">
-          <CloudSub ws={ws} />
-          {gitlab && (
-            <span className="ws-gitlab" title={tr('gitlab.sidebar.mark')}>
-              <GitlabMark size={10} />
+        {/* Whose run it is: identity only; the leading glyph says the state. */}
+        {employee && (
+          <span className="ws-hat">
+            <HardHat colour={employee.colour as HardHatColour} size={14} />
+          </span>
+        )}
+        {/* The selected row alone keeps its second line. */}
+        {selected && (
+          <span className="ws-sub">
+            <CloudSub ws={ws} />
+            {gitlab && (
+              <span className="ws-gitlab" title={tr('gitlab.sidebar.mark')}>
+                <GitlabMark size={10} />
+              </span>
+            )}
+            {meta}
+          </span>
+        )}
+      </ActionRow>
+  )
+
+  return (
+    <>
+      {/* Renaming, the row is a field: no card. */}
+      {renaming ? (
+        row()
+      ) : (
+        <HoverCard label={title} side="right" width={260} className="ws-card" openOnFocus="keyboard" trigger={row}>
+          <span className="ws-card-title">{title}</span>
+          <span className="ws-card-line">
+            <CloudSub ws={ws} />
+            {gitlab && (
+              <span className="ws-gitlab" title={tr('gitlab.sidebar.mark')}>
+                <GitlabMark size={10} />
+              </span>
+            )}
+            {fullMeta}
+          </span>
+          {said && !archive && (
+            <span className="ws-card-line">
+              {employee && (
+                <span className="ws-hat">
+                  <HardHat colour={employee.colour as HardHatColour} size={14} />
+                </span>
+              )}
+              {t.label && t.detail ? `${said} · ${t.detail}` : said}
             </span>
           )}
-          {meta}
-        </span>
-      </ActionRow>
+          {index >= 0 && index < 9 && <span className="ws-card-key">{tr('sidebar.row.opensWith', { key: `${modKey(platform)}${index + 1}` })}</span>}
+        </HoverCard>
+      )}
       {menu && (
         <WorkspaceMenu
           ws={ws}
@@ -402,8 +434,9 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
 /**
  * An employee's decision with no workspace of its own in the list (docs/ai-employees.md §10): a held push or other
  * outward action (it leaves the computer), a memory proposal, a question whose run's workspace is gone, a pause. A row
- * like a workspace's in Needs your attention: ▲ (◆ when sending failed), what it is, the kind in words, and the
- * employee's hat and name with the repository and how long it has waited. It opens the Team page, where it is decided.
+ * like a workspace's in Needs your attention, on one line: ▲ (◆ when sending failed), what it is, the kind in words and
+ * the employee's hat; its hover card adds the employee's name, the repository and how long it has waited. It opens the
+ * Team page, where it is decided.
  */
 function NeedsYouRow({ item }: { item: NeedsYouItem }) {
   const t = useT()
@@ -413,95 +446,63 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
   const failed = item.action?.state === 'failed'
   const repo = item.repoId ? snapshot.repos.find((r) => r.id === item.repoId)?.name : undefined
   const meta = [employee?.name, repo, item.since ? timeAgo(item.since) : ''].filter(Boolean).join(' · ')
+  const hat = employee && (
+    <span className="ws-hat">
+      <HardHat colour={employee.colour as HardHatColour} size={14} />
+    </span>
+  )
   return (
-    <ActionRow className="ws-row attention needs-row" onPress={() => openEmployeeItem(item)} primaryProps={{ className: 'ws-flow' }}>
-      <span className="ws-icon">
-        <Status compact aria-hidden tone={failed ? 'error' : 'warn'} label={label} />
-      </span>
-      <span className="ws-title">{title}</span>
-      <span className={`ws-label ${failed ? 'red' : 'amber'}`}>{label}</span>
-      <span className="ws-sub">
-        {employee && (
-          <span className="ws-hat">
-            <HardHat colour={employee.colour as HardHatColour} size={14} />
+    <HoverCard
+      label={title}
+      side="right"
+      width={260}
+      className="ws-card"
+      openOnFocus="keyboard"
+      trigger={(card) => (
+        <ActionRow className="ws-row attention needs-row" onPress={() => openEmployeeItem(item)} primaryProps={{ ...card, className: 'ws-flow' }}>
+          <span className="ws-icon">
+            <Status compact aria-hidden tone={failed ? 'error' : 'warn'} label={label} />
           </span>
-        )}
+          <span className="ws-title">{title}</span>
+          <span className={`ws-label ${failed ? 'red' : 'amber'}`}>{label}</span>
+          {hat}
+        </ActionRow>
+      )}
+    >
+      <span className="ws-card-title">{title}</span>
+      <span className="ws-card-line">{label}</span>
+      <span className="ws-card-line">
+        {hat}
         {meta}
       </span>
-    </ActionRow>
+    </HoverCard>
   )
 }
 
 /**
  * One comparison: its workspaces together under the prompt they were all given. Rows say which model each one is. A
- * flow run's workspaces are grouped the same way, under the flow's name.
+ * flow run's workspaces are grouped the same way, under the flow's name. Its heading folds like every group's.
  */
-function CompareGroupView({ section, order, repoId, repoById }: { section: CompareSection; order: string[]; repoId: string | null; repoById: Map<string, Repo> }) {
+function CompareGroupView({ section, order, repoId, repoById, folded, foldable }: { section: CompareSection; order: string[]; repoId: string | null; repoById: Map<string, Repo>; folded: boolean; foldable: boolean }) {
   const t = useT()
   return (
-    <section className="ws-group compare" title={section.flow === undefined ? section.prompt : undefined}>
-      <div className="ws-group-head">
-        <span>{section.flow !== undefined ? t('sidebar.flowRun', { name: section.flow }) : t('sidebar.compare', { prompt: promptTitle(section.prompt) })}</span>
-        <span className="ws-group-count">{section.items.length}</span>
+    <SidebarSection
+      className="ws-group compare"
+      title={section.flow === undefined ? section.prompt : undefined}
+      name={section.flow !== undefined ? t('sidebar.flowRun', { name: section.flow }) : t('sidebar.compare', { prompt: promptTitle(section.prompt) })}
+      count={section.items.length}
+      // Its members are in no other group, so folded it says ▲ for those that wait on the person.
+      needs={section.items.filter((x) => x.bucket === 'attention').length}
+      open={!folded}
+      onToggle={() => toggleSidebarGroup(compareFoldKey(section.id))}
+      foldable={foldable}
+    >
+      <div className="ws-group-rows">
+        {section.items.map((t) => (
+          <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />
+        ))}
       </div>
-      {section.items.map((t) => (
-        <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />
-      ))}
-    </section>
-  )
-}
-
-// A group's icon on its heading card: what needs you by its shape, what runs spinning, the rest as workspaces.
-function GroupIcon({ bucket }: { bucket: Bucket }) {
-  if (bucket === 'attention') return <Glyph name="warn" />
-  if (bucket === 'working')
-    return (
-      <span className="ws-spin blue">
-        <Spinner size={13} />
-      </span>
-    )
-  if (bucket === 'finished') return <CircleCheck size={14} aria-hidden />
-  return <FolderGit2 size={14} aria-hidden />
-}
-
-/**
- * A group's heading: a card like the Team and Channels rows, with its icon, name, count and a chevron that folds the
- * group's rows away, remembered. Folded, Needs your attention says its count with ▲, so a folded group that waits on you
- * still says so. `foldable` is off while a filter or a search narrows the list: it shows every row it found then.
- */
-function GroupHead({ bucket, count, folded, foldable, labelId, listId }: { bucket: Bucket; count: number; folded: boolean; foldable: boolean; labelId: string; listId: string }) {
-  const t = useT()
-  const name = t(BUCKET_LABEL[bucket])
-  const toggle = () => toggleSidebarGroup(bucket)
-  return (
-    // Named by the group alone: the card's buttons are inside it, and the chevron's label would repeat the name.
-    <div role="heading" aria-level={3} aria-labelledby={labelId}>
-      <ActionRow
-        card
-        className="ws-group-entry"
-        onPress={foldable ? toggle : undefined}
-        primaryProps={foldable ? { 'aria-expanded': !folded, 'aria-controls': listId } : undefined}
-        actions={
-          foldable && (
-            <IconButton label={t('triage.bucket.fold', { group: name })} aria-expanded={!folded} aria-controls={listId} onClick={toggle}>
-              {folded ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-            </IconButton>
-          )
-        }
-      >
-        <GroupIcon bucket={bucket} />
-        <span id={labelId} className="ws-group-label">
-          {name}
-        </span>
-        {bucket === 'attention' && folded ? (
-          <Status className="ws-group-need" compact tone="warn" label={t('home.banner.needYou', { count })}>
-            <span aria-hidden>{count}</span>
-          </Status>
-        ) : (
-          <span className="ws-group-count">{count}</span>
-        )}
-      </ActionRow>
-    </div>
+    </SidebarSection>
   )
 }
 
@@ -555,11 +556,13 @@ function TeamRailTile({ needs }: { needs: NeedsYouCounts }) {
 }
 
 /**
- * The column of repositories down the left edge: All, each repo, and Add; search, shortcuts and settings at the bottom.
+ * The column of repositories down the left edge: All and each repo; the palette, shortcuts and settings at the bottom.
  * Its toggle widens it in place to put each repository's name and what is going on in it beside the tile (the store's
- * `railNames`), and narrows it back.
+ * `railNames`), and narrows it back. `add`: the list beside it is hidden, so the rail carries the sidebar's + menu (with
+ * the repository a new workspace goes in); `folded`: a narrow window folded the list to the rail, which then leads with
+ * the space, + and Team, and ends with the Automations and Assistant icons.
  */
-function RepoRail({ counts, repos, folded }: { counts: Map<string | null, RepoCount>; repos: Repo[]; folded?: NeedsYouCounts }) {
+function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, RepoCount>; repos: Repo[]; folded?: NeedsYouCounts; add?: { repoId: string | undefined } }) {
   const t = useT()
   // The space's organizations, for the memory repository's mark in its tooltip.
   const organizations = useStore((s) => s.snapshot!.organizations)
@@ -653,12 +656,17 @@ function RepoRail({ counts, repos, folded }: { counts: Map<string | null, RepoCo
   const codeRepos = workspaceRepos(repos, organizations)
   return (
     <nav className={`repo-rail ${names ? 'names' : ''}`} aria-label={t('sidebar.rail.label')}>
-      {/* The list folded to the rail (a narrow window): its heading, the space switcher, and its Team row come with it. */}
+      {/* The list folded to the rail (a narrow window): the space switcher, the one +, and its Team come with it. */}
       {folded && (
         <>
           <span className="rail-item">
             <SpaceRailTile />
           </span>
+          {add && (
+            <span className="rail-item">
+              <NewMenu repoId={add.repoId} rail />
+            </span>
+          )}
           <TeamRailTile needs={folded} />
           <span className="rail-divider" aria-hidden />
         </>
@@ -672,24 +680,37 @@ function RepoRail({ counts, repos, folded }: { counts: Map<string | null, RepoCo
         }
         return tile(repo.id, tileLabel(repo), repo.name, t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }), repoMark(repo))
       })}
-      <span className="rail-item">
-        {/* Drawn in the document beside the button: the rail scrolls, which would clip a menu that opens to its right. */}
-        <MenuButton label={t('sidebar.rail.add')} look="dashed" portal placement="right-start" triggerClassName="rail-add" data-tour="add-repo" trigger={<Plus size={15} />}>
-          <AddRepoItems />
-        </MenuButton>
-        {names && (
-          <span className="rail-name" aria-hidden>
-            <span className="rail-name-title">{t('sidebar.rail.add')}</span>
+      {/* The list is hidden (the Editor layout's other views): the one + stays reachable here. */}
+      {add && !folded && (
+        <span className="rail-item">
+          <NewMenu repoId={add.repoId} rail />
+          {names && (
+            <span className="rail-name" aria-hidden>
+              <span className="rail-name-title">{t('sidebar.new')}</span>
+            </span>
+          )}
+        </span>
+      )}
+      {/* Folded to the rail, the top row's Automations and Assistant icons come with it. */}
+      {folded && (
+        <>
+          <span className="rail-divider" aria-hidden />
+          <span className="rail-item">
+            <AutomationsEntry className="rail-entry" />
           </span>
-        )}
-      </span>
+          <span className="rail-item">
+            <AssistantEntry className="rail-entry" />
+          </span>
+        </>
+      )}
       <div className="rail-tools">
         {/* One toggle, in place: pressed, the rail is wide with names; pressed again, it is back to its tiles. */}
         <IconButton label={t('sidebar.rail.names', { key: shortcutHint('panel.railNames', platform) ?? `${mod}⇧N` })} pressed={names} onClick={toggleRailNames}>
           {names ? <ChevronsLeft size={15} /> : <ChevronsRight size={15} />}
         </IconButton>
+        {/* ⌘, not a magnifier: Find (the list's ⌕) is the magnifier on screen. */}
         <IconButton label={t('sidebar.rail.palette', { key: `${mod}K` })} onClick={() => openOverlay('palette')}>
-          <Search size={15} />
+          <Command size={15} />
         </IconButton>
         <IconButton label={t('sidebar.rail.shortcuts', { key: shortcutHint('shortcuts.help', platform) ?? `${mod}⌥/` })} onClick={() => openOverlay('shortcuts')}>
           <Keyboard size={15} />
@@ -807,7 +828,37 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
   const headingLine = repo ? `${repo.name} · ${t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })}` : t('sidebar.subtitle.repos', { count: workspaceRepos(snapshot.repos, snapshot.organizations).length })
   // A tab's count, after its name: what needs you (▲) and what runs.
   const tabCount = (id: SidebarFilter): number => (id === 'needs-you' ? scopedNeeds.length : id === 'working' ? running : 0)
-  const newKey = shortcutHint('workspace.new', snapshot.platform) ?? `${mod}N`
+
+  // Find: ⌕ in the top row opens the box in place, over the switcher and the entry icons (+ stays). It stays open while it
+  // has text; Escape clears and closes it and puts focus back on ⌕; leaving it empty closes it.
+  const [finding, setFinding] = useState(false)
+  const findButton = useRef<HTMLButtonElement>(null)
+  const findBox = useRef<HTMLInputElement>(null)
+  const backToFind = useRef(false)
+  const findOpen = finding || view.query !== ''
+  useEffect(() => {
+    if (findOpen || !backToFind.current) return
+    backToFind.current = false
+    findButton.current?.focus()
+  }, [findOpen])
+  const closeFind = () => {
+    backToFind.current = true
+    setSidebarQuery('')
+    setFinding(false)
+  }
+  // A row's hover card, open under a resting pointer, takes Escape at window capture and stops it, so the box's own
+  // handler never hears it. This listener is added once, before any card opens, so it hears Escape first: it closes Find
+  // and lets the card close too.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || !findBox.current || document.activeElement !== findBox.current) return
+      backToFind.current = true
+      setSidebarQuery('')
+      setFinding(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
 
   return (
     <aside className="sidebar" aria-label={t('sidebar.label')}>
@@ -827,116 +878,130 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
         {views ? (
           <div className="rail-column">
             {views}
-            <RepoRail counts={counts} repos={snapshot.repos} />
+            <RepoRail counts={counts} repos={snapshot.repos} add={list ? undefined : { repoId: newRepoId }} />
           </div>
         ) : (
-          <RepoRail counts={counts} repos={snapshot.repos} folded={folded && !list ? need.counts : undefined} />
+          <RepoRail counts={counts} repos={snapshot.repos} folded={folded && !list ? need.counts : undefined} add={list ? undefined : { repoId: newRepoId }} />
         )}
         {list && (
           <div className="sidebar-panel">
-            {/* The space switcher is the heading (docs/ai-employees.md §10): the space, then its repositories (or the one
-                picked) and how much in it needs you. */}
-            <SpaceSwitcher
-              line={headingLine}
-              end={
-                repo && (
-                  <IconButton label={t('sidebar.repoSettings')} onClick={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>
-                    <Settings size={14} />
+            {/* The top row: the space switcher (docs/ai-employees.md §10), the picked repository's settings, Automations,
+                the Assistant and ⌕; the one + at its end. While Find is open, its box takes the row's place up to the +. */}
+            <div className="sidebar-top">
+              {findOpen ? (
+                <div className="sidebar-search">
+                  <Search size={13} aria-hidden />
+                  <TextInput
+                    ref={findBox}
+                    type="search"
+                    compact
+                    className="sidebar-search-input"
+                    aria-label={t('sidebar.search.placeholder')}
+                    placeholder={t('sidebar.search.short')}
+                    value={view.query}
+                    spellCheck={false}
+                    autoFocus={finding}
+                    onChange={(e) => setSidebarQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Escape') return
+                      e.preventDefault()
+                      closeFind()
+                    }}
+                    // Left empty, it closes; with text in it, it stays open so the list stays found.
+                    onBlur={(e) => !e.currentTarget.value && setFinding(false)}
+                  />
+                  {view.query && (
+                    <IconButton
+                      label={t('sidebar.search.clear')}
+                      onClick={() => {
+                        setSidebarQuery('')
+                        setFinding(true)
+                        findBox.current?.focus()
+                      }}
+                    >
+                      <X size={12} />
+                    </IconButton>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <SpaceSwitcher line={headingLine} />
+                  {repo && (
+                    <IconButton label={t('sidebar.repoSettings')} onClick={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>
+                      <Settings size={14} />
+                    </IconButton>
+                  )}
+                  <AutomationsEntry />
+                  <AssistantEntry />
+                  <IconButton ref={findButton} label={t('sidebar.find')} onClick={() => setFinding(true)}>
+                    <Search size={15} />
                   </IconButton>
-                )
-              }
-            />
-            {/* Two places you open now and then share a row. */}
-            <div className="sidebar-pair">
-              <AutomationsEntry />
-              <AssistantEntry />
+                </>
+              )}
+              <NewMenu repoId={newRepoId} />
             </div>
-            {/* An organization's employees (docs/ai-employees.md §10), only while it is the space shown: one row. */}
-            <TeamSection />
-            {/* Its projects (docs/ai-employees.md §15): the line that starts one, and those going. */}
-            <ProjectsSection />
-            {/* Find and the one primary action share a row; Ctrl+N is in New's tooltip and shortcut. */}
-            <div className="sidebar-find">
-              <div className="sidebar-search">
-                <Search size={14} aria-hidden />
-                <TextInput
-                  type="search"
-                  className="sidebar-search-input"
-                  aria-label={t('sidebar.search.placeholder')}
-                  placeholder={t('sidebar.search.short')}
-                  value={view.query}
-                  spellCheck={false}
-                  onChange={(e) => setSidebarQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Escape' && setSidebarQuery('')}
-                />
-                {view.query && (
-                  <IconButton label={t('sidebar.search.clear')} onClick={() => setSidebarQuery('')}>
-                    <X size={12} />
-                  </IconButton>
-                )}
-              </div>
-              <Button
-                variant="primary"
-                className="sidebar-new"
-                data-tour="new-workspace"
-                aria-label={t('palette.newWorkspace')}
-                title={t('sidebar.newTitle', { key: newKey })}
-                aria-keyshortcuts={`${snapshot.platform === 'darwin' ? 'Meta' : 'Control'}+N`}
-                disabled={!newRepoId}
-                icon={<Plus size={14} />}
-                onClick={() => newRepoId && openNewWorkspace(newRepoId)}
-              >
-                {t('sidebar.new')}
-              </Button>
-            </div>
-            {/* The filters, each with its count (▲ what needs you, what runs): the one place the sidebar says how many. */}
-            <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
-              <TabList label={t('sidebar.filter.label')}>
-                {tabs.map((id) => {
-                  const n = tabCount(id)
-                  return (
-                    <Tab key={id} value={id} aria-label={n ? t('sidebar.tabCount', { label: t(VIEW_LABEL[id]), count: n }) : undefined}>
-                      {t(VIEW_LABEL[id])}
-                      {n > 0 && (
-                        <span className={`sidebar-tab-count ${id === 'needs-you' ? 'warn' : ''}`} aria-hidden>
-                          {id === 'needs-you' && <Glyph name="warn" />}
-                          {n}
-                        </span>
-                      )}
-                    </Tab>
-                  )
-                })}
-              </TabList>
-            </Tabs>
-            {anyUnread && (
-              <div className="sidebar-actions">
-                <LinkButton size="sm" onClick={markAllRead}>
-                  {t('sidebar.markAllRead')}
-                </LinkButton>
-              </div>
-            )}
             <div className="sidebar-scroll">
-              {listed.map((group) => (
-                <Fragment key={group.bucket}>
-                  <section className={`ws-group ${group.bucket}`} aria-labelledby={`ws-group-${group.bucket}`}>
-                    <GroupHead
-                      bucket={group.bucket}
-                      count={group.items.length + (group.bucket === 'attention' ? extraRows.length : 0)}
-                      folded={foldedGroups.has(group.bucket)}
+              {/* An organization's employees and channels (docs/ai-employees.md §10, §15), only while it is the space shown.
+                  While Find has text they step aside, so the matches are at the top. */}
+              {!query && (
+                <>
+                  <TeamSection />
+                  <ProjectsSection />
+                </>
+              )}
+              {/* The filters, each with its count (▲ what needs you, what runs). */}
+              <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
+                <TabList label={t('sidebar.filter.label')}>
+                  {tabs.map((id) => {
+                    const n = tabCount(id)
+                    return (
+                      <Tab key={id} value={id} aria-label={n ? t('sidebar.tabCount', { label: t(VIEW_LABEL[id]), count: n }) : undefined}>
+                        {t(VIEW_LABEL[id])}
+                        {n > 0 && (
+                          <span className={`sidebar-tab-count ${id === 'needs-you' ? 'warn' : ''}`} aria-hidden>
+                            {id === 'needs-you' && <Glyph name="warn" />}
+                            {n}
+                          </span>
+                        )}
+                      </Tab>
+                    )
+                  })}
+                </TabList>
+              </Tabs>
+              {anyUnread && (
+                <div className="sidebar-actions">
+                  <LinkButton size="sm" onClick={markAllRead}>
+                    {t('sidebar.markAllRead')}
+                  </LinkButton>
+                </div>
+              )}
+              {listed.map((group) => {
+                const count = group.items.length + (group.bucket === 'attention' ? extraRows.length : 0)
+                return (
+                  <Fragment key={group.bucket}>
+                    {/* Folded, Needs your attention says ▲ and its count on its heading, so what waits is never out of sight. */}
+                    <SidebarSection
+                      className={`ws-group ${group.bucket}`}
+                      name={t(BUCKET_LABEL[group.bucket])}
+                      count={count}
+                      needs={group.bucket === 'attention' ? count : 0}
+                      open={!foldedGroups.has(group.bucket)}
+                      onToggle={() => toggleSidebarGroup(group.bucket)}
                       foldable={foldable}
-                      labelId={`ws-group-${group.bucket}`}
-                      listId={`ws-group-rows-${group.bucket}`}
-                    />
-                    <div id={`ws-group-rows-${group.bucket}`} className="ws-group-rows" hidden={foldedGroups.has(group.bucket)}>
-                      {group.bucket === 'attention'
-                        ? attentionRows(group.items)
-                        : group.items.map((t) => <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />)}
-                    </div>
-                  </section>
-                  {group.bucket === 'attention' && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
-                </Fragment>
-              ))}
-              {!listed.some((g) => g.bucket === 'attention') && compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} />)}
+                    >
+                      <div className="ws-group-rows">
+                        {group.bucket === 'attention'
+                          ? attentionRows(group.items)
+                          : group.items.map((t) => <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />)}
+                      </div>
+                    </SidebarSection>
+                    {group.bucket === 'attention' &&
+                      compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} folded={foldedGroups.has(compareFoldKey(c.id))} foldable={foldable} />)}
+                  </Fragment>
+                )
+              })}
+              {!listed.some((g) => g.bucket === 'attention') &&
+                compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} folded={foldedGroups.has(compareFoldKey(c.id))} foldable={foldable} />)}
               {listed.length === 0 && compares.length === 0 && (
                 <div className="sidebar-empty">
                   {view.query
@@ -967,16 +1032,18 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
             <UpdateNotice />
             <SttChip />
             <KeepAwakeChip />
+            {/* One line: resource usage, Archived as its icon and count (its name says the word), the version. Import… is in
+                the + menu. */}
             <footer className="sidebar-footer">
               <ResourceUsage />
-              <Button variant="ghost" size="sm" icon={<Archive size={13} />} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
-                {archived ? t('sidebar.archivedCount', { count: archived }) : t('sidebar.archived')}
-              </Button>
-              {/* A .foreman file is picked on the computer: the window's alone. */}
-              {clientKind === 'window' && (
-                <Button variant="ghost" size="sm" icon={<FileDown size={13} />} disabled={everything.snapshot.repos.length === 0} onClick={openImportDialog} title={t('sidebar.import.title')}>
-                  {t('sidebar.import')}
+              {archived > 0 ? (
+                <Button variant="ghost" size="sm" icon={<Archive size={13} />} aria-label={t('sidebar.archivedCount', { count: archived })} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
+                  {archived}
                 </Button>
+              ) : (
+                <IconButton label={t('sidebar.archived')} onClick={() => openOverlay('archived')}>
+                  <Archive size={13} />
+                </IconButton>
               )}
               {/* The running version, always in sight; Settings → General has it in full with Check now. */}
               {snapshot.appVersion && (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { elapsed, finishedFacts, REASONS, runningFact, triageAll, type TriageInput } from '../src/renderer/src/triage'
-import { foldedBuckets, sidebarGroups, sidebarOrder, type SidebarView } from '../src/shared/triage'
+import { compareFoldKey, foldedBuckets, liveFoldKeys, sidebarGroups, sidebarOrder, type SidebarView } from '../src/shared/triage'
 import { defaultSettings } from '../src/main/store'
 import type { FlowRun } from '../src/shared/flows'
 import type { AppSnapshot, ApprovalRequest, Session, Workspace } from '../src/shared/types'
@@ -253,5 +253,19 @@ describe('folded sidebar groups', () => {
     expect(foldedBuckets(view({ folded: ['attention'], filter: 'needs-you' })).size).toBe(0)
     expect(foldedBuckets(view({ folded: ['attention'], query: 'ask' })).size).toBe(0)
     expect(sidebarOrder(input, view({ folded: ['attention'], query: 'as' })).map((w) => w.id)).toEqual(['asks'])
+  })
+
+  it('leaves a folded comparison’s workspaces out of the ⌘1–9 order, and shows them again while a search is on', () => {
+    const member = (id: string, label: string) => ws({ id, name: `oauth-${id}`, compareId: 'cmp', compare: { prompt: 'Add OAuth', label } })
+    const compared = { ...input, snapshot: { ...input.snapshot, workspaces: [asks, quiet, member('a', 'Claude'), member('b', 'Codex')] } as unknown as AppSnapshot }
+    expect(sidebarOrder(compared, view()).map((w) => w.id)).toEqual(['asks', 'a', 'b', 'quiet'])
+    expect(sidebarOrder(compared, view({ folded: [compareFoldKey('cmp')] })).map((w) => w.id)).toEqual(['asks', 'quiet'])
+    expect(sidebarOrder(compared, view({ folded: [compareFoldKey('cmp')], query: 'oauth' })).map((w) => w.id)).toEqual(['a', 'b'])
+  })
+
+  it('forgets the fold of a comparison or flow run with no live workspace left, and keeps every bucket’s', () => {
+    const workspaces = [ws({ id: 'a', compareId: 'cmp' }), ws({ id: 'f', flowRun: { runId: 'run' } }), ws({ id: 'gone', compareId: 'old', state: 'archived' })]
+    const folded = ['attention', compareFoldKey('cmp'), compareFoldKey('flow:run'), compareFoldKey('old'), compareFoldKey('never'), 'idle']
+    expect(liveFoldKeys(folded, workspaces)).toEqual(['attention', 'compare:cmp', 'compare:flow:run', 'idle'])
   })
 })

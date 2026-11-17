@@ -107,17 +107,24 @@ describe('the sidebar’s Channels row', () => {
   it('lists the organization’s channel, then each project with its state, and opens each', async () => {
     const user = userEvent.setup()
     setSnapshot()
-    render(<ProjectsSection />)
-    expect(screen.getByRole('button', { name: 'Channels · 1 needs you' })).toBeTruthy()
+    const { rerender } = render(<ProjectsSection />)
+    // Open, the heading says how many channels (#frlk and #csv-export); the rows say what waits.
+    expect(screen.getByRole('button', { name: 'Channels · 2' }).getAttribute('aria-expanded')).toBe('true')
     const list = screen.getByRole('list', { name: 'Channels in FRLK' })
     expect(within(list).getByText('#frlk')).toBeTruthy()
     expect(within(list).getByText('@Priya starts a project')).toBeTruthy()
     expect(within(list).getByText('#csv-export')).toBeTruthy()
+    // What waits on its line; its state by shape, with the word for screen readers.
     expect(within(list).getByText('Plan')).toBeTruthy()
+    expect(within(list).getByText('Needs you').closest('.ui-status')).not.toBeNull()
     await user.click(within(list).getByText('#frlk'))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channel' })
     await user.click(within(list).getByText('#csv-export'))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'project', id: 'p1' })
+    // Folded, the heading says the plan waits on you, by ▲ and in words.
+    fakeState.projectsOpen = false
+    rerender(<ProjectsSection />)
+    expect(screen.getByRole('button', { name: 'Channels · 2 · 1 needs you' }).querySelector('[data-glyph="warn"]')).not.toBeNull()
   })
 
   it('says how to start one when there are none, and is absent in Personal', () => {
@@ -400,15 +407,15 @@ describe('opening a channel', () => {
   })
 })
 
-describe('the person on the team', () => {
-  it('lists you first in the Team list, with what waits for you here', () => {
+describe('the Team section', () => {
+  // What waits for the person here (the plan) is on the sidebar's Needs you tab and the Channels heading, not a "You" row.
+  it('lists the employees alone, one hat each', () => {
     setSnapshot()
     fakeState.teamOpen = true
     render(<TeamSection />)
     const list = screen.getByRole('list', { name: 'Employees of FRLK' })
-    const rows = within(list).getAllByRole('listitem')
-    expect(within(rows[0]).getByText('You')).toBeTruthy()
-    expect(within(rows[0]).getByText('Needs you · 1')).toBeTruthy()
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(list).queryByText('You')).toBeNull()
   })
 })
 

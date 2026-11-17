@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-17: A sidebar row is one line, and its details are in a hover card that a click never opens
+
+**Decision.** Each workspace row shows its glyph, title, label and hat. Repository, branch, age, cloud state and the shortcut are in a HoverCard that opens after the hover delay or on keyboard focus (`openOnFocus="keyboard"`); the selected row keeps them on a second line.
+
+**Why.** The person picked the dense 7a sidebar to cut clutter. A card that opened on the focus a click gives covered the workspace just opened, on the sidebar's most frequent action.
+
+**Turned down.** Keeping the details on every row (the clutter the redesign removes). Opening the card on any focus (every click pops it). No focus opening (keyboard users would lose the details). This narrows the 2026-11-06 refusal of a repository hover preview ("accidental triggers"): rows get a delayed card, and the rail still has none.
+
+**Revisit when.** People miss branch and age at a glance, or touch use matters.
+
 ## 2026-11-17: An AI employee has what a workspace's agent has, and no limits
 
 **Decision.** Every employee gets a shell by default (Edit turns it off), every MCP server a workspace's agent has, Never ask when unattended, no refused paths, and no limits: no runs a day, minutes, cost threshold, lanes, organization cap, failure pause, hand-off depth or counts, or trigger floor. Kept: the memory repository's rules, held Slack and Linear posts, a chain's 20 runs, the event guards and a trigger's own overlap.

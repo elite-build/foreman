@@ -1,17 +1,17 @@
-// The space switcher, the sidebar's heading (docs/ai-employees.md §3 and §10): the space shown, at the title's size, with
-// a line under it (its code repositories, or the repository picked, and how many things in it need the person), and,
-// when another space has something waiting, where ("▲ 3 in Acme"). Its menu lists Personal and each organization with
-// how much waits in it, how many code repositories it holds and its memory repository, the current one checked, then
-// Open memory (for an organization with a memory repository), New organization… and Manage spaces…. Always drawn:
-// before any organization exists it reads Personal, and New organization… is how one is made. Every count is the shared
-// needs-you count (src/shared/needsYou.ts). In a narrow window the sidebar folds to its rail, and the switcher is the rail's
-// top tile (SpaceRailTile): the space's initial, "▲ 3" when another space waits, and the same menu.
-import { Brain, ChevronDown, Plus, Settings2 } from 'lucide-react'
+// The space switcher, the start of the sidebar's top row (docs/ai-employees.md §3 and §10): the space shown and, when
+// another space has something waiting, where ("▲ 3 in Acme", only "▲ 3" in a narrow sidebar). Its line (the space's
+// code repositories, or the repository picked) is its tooltip and the first line of its menu. The menu lists Personal and
+// each organization with how much waits in it, how many code repositories it holds and its memory repository, the current
+// one checked, then Open memory (for an organization with a memory repository) and Manage spaces…. Always drawn: before
+// any organization exists it reads Personal; New organization… is in the sidebar's + menu (NewMenu). Every count is the
+// shared needs-you count (src/shared/needsYou.ts). In a narrow window the sidebar folds to its rail, and the switcher is
+// the rail's top tile (SpaceRailTile): the space's initial, "▲ 3" when another space waits, and the same menu.
+import { Brain, ChevronDown, Settings2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { currentSpace, reposInSpace, spacesOn, workspaceRepos, type Organization } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { useNeedsYou } from '../../needsYou'
-import { openCreateOrganization, openMemory, openSettingsPage, setSpace, useStore } from '../../store'
+import { openMemory, openSettingsPage, setSpace, useStore } from '../../store'
 import { Glyph, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator } from '../../ui'
 import './spaces.css'
 
@@ -52,8 +52,9 @@ function useSpaces() {
   const others = spacesOn(organizations) ? [...counts.bySpace].filter(([id, n]) => id !== space && n > 0 && spaceName(id)) : []
   const elsewhere = others.length === 1 ? t('needsYou.inSpace', { count: others[0][1], space: spaceName(others[0][0])! }) : others.length ? t('needsYou.inOtherSpaces', { count: others.reduce((sum, [, n]) => sum + n, 0) }) : ''
   const elsewhereCount = others.reduce((sum, [, n]) => sum + n, 0)
-  const items = (
+  const items = (line?: string) => (
     <>
+      {line && <MenuLabel>{line}</MenuLabel>}
       <MenuLabel>{t('spaces.switcher.heading')}</MenuLabel>
       <MenuGroup label={t('spaces.switcher.heading')}>
         <MenuRadioItem checked={space === null} description={description(null, t('spaces.switcher.noMemory', { count: count(null) }))} onSelect={() => setSpace(null)}>
@@ -72,67 +73,52 @@ function useSpaces() {
           {t('memory.openFor', { organization: current.name })}
         </MenuItem>
       )}
-      <MenuItem icon={<Plus size={14} />} description={t('spaces.create.menuDetail')} onSelect={() => openCreateOrganization(true)}>
-        {t('spaces.create.menu')}
-      </MenuItem>
       <MenuItem icon={<Settings2 size={14} />} onSelect={() => openSettingsPage({ section: 'spaces' })}>
         {t('spaces.manage')}
       </MenuItem>
     </>
   )
-  return { name, elsewhere, elsewhereCount, here: waiting(space), items }
+  return { name, elsewhere, elsewhereCount, items }
 }
 
 /**
- * `line`: what the line under the name starts with (the space's repositories, or the repository picked); the space's
- * needs-you count follows it. `end`: a control at the heading's end (the picked repository's settings).
+ * `line`: the space's code repositories, or the repository picked: the switcher's tooltip and its menu's first line.
+ * What needs the person in this space is on the Needs you tab and the rail, so the heading doesn't say it again.
  */
-export function SpaceSwitcher({ line, end }: { line?: ReactNode; end?: ReactNode }) {
+export function SpaceSwitcher({ line }: { line?: string }) {
   const t = useT()
-  const { name, elsewhere, here, items } = useSpaces()
+  const { name, elsewhere, elsewhereCount, items } = useSpaces()
   return (
     <header className="space-switcher">
-      <div className="space-switcher-text">
-        <div className="space-switcher-title" role="heading" aria-level={2}>
-          <MenuButton
-            look="ghost"
-            portal
-            placement="bottom-start"
-            label={t('spaces.switcher.label')}
-            aria-label={elsewhere ? t('spaces.switcher.triggerWaiting', { space: name, waiting: elsewhere }) : t('spaces.switcher.trigger', { space: name })}
-            triggerClassName="space-switcher-trigger"
-            trigger={
-              <>
-                <span className="space-switcher-name">{name}</span>
-                <ChevronDown size={14} aria-hidden />
-                {elsewhere && (
-                  <span className="space-switcher-elsewhere">
-                    <span className="space-switcher-mark">
-                      <Glyph name="warn" />
-                    </span>
-                    <span className="space-switcher-elsewhere-text">{elsewhere}</span>
+      <div className="space-switcher-title" role="heading" aria-level={2}>
+        <MenuButton
+          look="ghost"
+          portal
+          placement="bottom-start"
+          label={t('spaces.switcher.label')}
+          aria-label={elsewhere ? t('spaces.switcher.triggerWaiting', { space: name, waiting: elsewhere }) : t('spaces.switcher.trigger', { space: name })}
+          title={line}
+          triggerClassName="space-switcher-trigger"
+          trigger={
+            <>
+              <span className="space-switcher-name">{name}</span>
+              <ChevronDown size={14} aria-hidden />
+              {elsewhere && (
+                <span className="space-switcher-elsewhere">
+                  <span className="space-switcher-mark">
+                    <Glyph name="warn" />
                   </span>
-                )}
-              </>
-            }
-          >
-            {items}
-          </MenuButton>
-        </div>
-        {(line || here > 0) && (
-          <div className="space-switcher-line">
-            {line}
-            {line && here > 0 && ' · '}
-            {here > 0 && (
-              <span className="space-switcher-need">
-                <span className="space-switcher-mark"><Glyph name="warn" /></span>
-                {t('home.banner.needYou', { count: here })}
-              </span>
-            )}
-          </div>
-        )}
+                  {/* A narrow sidebar keeps the ▲ and the count; the words give way (the button's name keeps them). */}
+                  <span className="space-switcher-elsewhere-count">{elsewhereCount}</span>
+                  <span className="space-switcher-elsewhere-text">{elsewhere}</span>
+                </span>
+              )}
+            </>
+          }
+        >
+          {items(line)}
+        </MenuButton>
       </div>
-      {end}
     </header>
   )
 }
@@ -167,7 +153,7 @@ export function SpaceRailTile() {
         </>
       }
     >
-      {items}
+      {items()}
     </MenuButton>
   )
 }

@@ -80,6 +80,22 @@ describe('Disclosure', () => {
     expect((screen.getByRole('textbox', { name: 'Draft' }) as HTMLInputElement).value).toBe('hello')
   })
 
+  it('with headingLevel, its button is a heading at that level; without, there is no heading', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<Disclosure label="Setup prompt">Runs once.</Disclosure>)
+    expect(screen.queryByRole('heading')).toBeNull()
+    rerender(
+      <Disclosure label="Setup prompt" headingLevel={3}>
+        Runs once.
+      </Disclosure>
+    )
+    const heading = screen.getByRole('heading', { level: 3, name: 'Setup prompt' })
+    expect(heading.contains(button())).toBe(true)
+    // Still the one button that folds it.
+    await user.click(button())
+    expect(button().getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('has a quiet look and takes layout classes on the wrapper', () => {
     const { container } = render(
       <Disclosure label="Setup prompt" quiet className="mine">

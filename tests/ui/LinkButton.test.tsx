@@ -75,6 +75,12 @@ describe('LinkButton', () => {
     expect(ruleBody(readCss('link-button'), '.ui-link-btn--mono')).toMatch(/font-family:\s*var\(--mono\)/)
   })
 
+  it('marks the page shown with aria-current, in weight as well as colour', () => {
+    render(<LinkButton aria-current="page">Team page</LinkButton>)
+    expect(screen.getByRole('button', { name: 'Team page' }).getAttribute('aria-current')).toBe('page')
+    expect(ruleBody(readCss('link-button'), ".ui-link-btn[aria-current='page']")).toMatch(/font-weight:\s*600/)
+  })
+
   it('sits in running text', () => {
     render(<p>Please <LinkButton>retry</LinkButton> now.</p>)
     expect(screen.getByRole('button', { name: 'retry' }).parentElement?.tagName).toBe('P')

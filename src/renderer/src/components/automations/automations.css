@@ -2,37 +2,22 @@
 
 /* ---- sidebar entry ---- */
 
-/* An ActionRow card (ui/); the assistant's entry shares this frame. The row owns the card look (outline, hover, selected)
-   and focus; this is its placement and padding. The element in the selector outranks .ui-action-row's padding, which
-   loads after this file. The sidebar places it (the row it shares with the Assistant, or the Team section), so it keeps
-   no margin of its own. */
-div.automations-entry {
+/* An IconButton (ui/) in the sidebar's top row; the assistant's shares this frame. The button owns its look, hover,
+   pressed state and focus; this is its place and the corner its mark sits in. The sidebar places it. */
+.automations-entry {
+  position: relative;
   flex: none;
-  height: var(--sb-row-h);
-  margin: 0;
-  padding: 0 calc(var(--sb-row-inset) - 1px);
 }
-.automations-entry .ui-action-row__main {
-  display: flex;
-  align-items: center;
-  gap: var(--sb-row-gap);
-}
-/* The brand icon only (the bolt, the sparkle), never the state mark at the end. */
-.automations-entry .ui-action-row__main > svg {
-  flex: none;
+/* The brand icon only (the bolt, the sparkle), never the state mark on its corner. */
+.automations-entry .ui-icon-btn__icon > svg {
   color: var(--accent);
 }
-.automations-entry-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-/* A running automation or paused schedules: a mark at the entry's end (the hint itself is in the tooltip). */
+/* A running automation or paused schedules: a mark on the icon's corner (the hint itself is in its name). */
 .automations-entry-mark {
-  margin-left: auto;
-  flex: none;
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  display: inline-flex;
 }
 
 /* ---- frame ---- */
