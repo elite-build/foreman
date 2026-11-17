@@ -43,7 +43,7 @@ const summary = (patch: Partial<EmployeeSummary> = {}): EmployeeSummary => ({
   ...patch
 })
 
-const view = (patch: Partial<EmployeeView> = {}): EmployeeView => ({ ...summary(), blob: 'b1', text: '', definition: max([MERGED, MEMORY]), fingerprint: 'f'.repeat(64), ...patch })
+const view = (patch: Partial<EmployeeView> = {}): EmployeeView => ({ ...summary(), blob: 'b1', text: '', promptBlob: null, prompt: null, definition: max([MERGED, MEMORY]), fingerprint: 'f'.repeat(64), ...patch })
 
 const FIRED_AT = '2026-11-13T10:31:00.000Z'
 const STATES: EmployeeTriggerState[] = [

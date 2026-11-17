@@ -168,6 +168,7 @@ import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
 import { diagnosticsFileName, writeDiagnostics } from './diagnostics'
+import { STAGED_DIR } from './tempSweep'
 import type { DiagnosticsBundle } from '../shared/diagnostics'
 
 export interface Host {
@@ -189,6 +190,8 @@ export interface Host {
   setBadge(count: number): void
   // #3: the tray or menu-bar extra's count and jump list, after every look at the state.
   showAttention?(view: TrayView): void
+  // Restore, show and raise the window (a click on one of its notifications). Absent (tests): nothing to raise.
+  showWindow?(): void
   // Other computers (shared/remote.ts): load the window again (it now shows another computer, or this one again); once
   // it has, send it this event; and send it an event from the computer it shows. Absent (tests): nothing to show.
   reloadWindow?(): void
@@ -1684,7 +1687,7 @@ export class Core {
   // A flow's script step running in a workspace, so Stop can cancel it.
   private flowCommands = new Map<string, { script: RunningScript; cancelled: boolean }>()
   // Pasted files waiting for a workspace that is still being made (the new-workspace dialog).
-  private stagingDir = path.join(os.tmpdir(), 'foreman-staged')
+  private stagingDir = path.join(os.tmpdir(), STAGED_DIR)
   // O21: folders named on a launch's command line that the window hasn't asked for yet.
   private launchFolders: string[] = []
 
@@ -3463,7 +3466,7 @@ export class Core {
     refineEmployeeDraft: (organizationId, draft, request) => this.employees.refine(organizationId, draft, request),
     createEmployee: (organizationId, definition, options) => this.employees.create(organizationId, definition, options),
     addTemplateEmployee: (organizationId, templateId) => this.employees.addTemplate(organizationId, templateId),
-    updateEmployee: (organizationId, id, definition, expectedBlob) => this.employees.update(organizationId, id, definition, expectedBlob),
+    updateEmployee: (organizationId, id, definition, expectedBlob, expectedPromptBlob) => this.employees.update(organizationId, id, definition, expectedBlob, expectedPromptBlob),
     approveEmployee: (organizationId, id, expectedFingerprint) => this.employees.approve(organizationId, id, expectedFingerprint),
     pauseEmployee: (organizationId, id) => this.employees.pause(organizationId, id),
     resumeEmployee: (organizationId, id) => this.employees.resume(organizationId, id),
@@ -4550,6 +4553,7 @@ export class Core {
       this.keepAwake.setBattery(percent)
       this.powerChanged()
     },
+    showWindow: () => this.host.showWindow?.(),
     saveTerminals: (workspaceId, tabs) => {
       const ws = this.terminalWorkspace(workspaceId)
       if (ws?.cloud && Array.isArray(tabs)) {

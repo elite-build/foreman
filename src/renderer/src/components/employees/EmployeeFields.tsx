@@ -127,11 +127,11 @@ export function WordFields({ value, onChange, nameError }: { value: EmployeeDefi
   )
 }
 
-/** The full prompt, in its sections. */
-export function InstructionsField({ value, onChange, rows = 14 }: { value: string; onChange: (text: string) => void; rows?: number }) {
+/** The full prompt, in its sections; or, for an employee given a job's prompt first, what its organization adds (`label`, `description`). */
+export function InstructionsField({ value, onChange, rows = 14, label, description }: { value: string; onChange: (text: string) => void; rows?: number; label?: string; description?: string }) {
   const t = useT()
   return (
-    <Field label={t('employees.field.instructions')} description={t('employees.field.instructionsHint')}>
+    <Field label={label ?? t('employees.field.instructions')} description={description ?? t('employees.field.instructionsHint')}>
       {(c) => <TextArea {...c} mono rows={rows} value={value} maxLength={EMPLOYEE_TEXT_LIMITS.instructions} spellCheck={false} onChange={(e) => onChange(e.target.value)} />}
     </Field>
   )

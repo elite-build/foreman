@@ -2,7 +2,7 @@
 // each organization's employee questions, held actions, proposals and pauses; each thing once; counted by space,
 // repository and employee, so every surface says the same number. The fixture is the screenshots': Personal 1, Acme 3.
 import { describe, expect, it } from 'vitest'
-import { employeeKey, itemsInSpace, needsYouCounts, needsYouItems } from '../src/shared/needsYou'
+import { employeeKey, inChannel, itemsInSpace, needsYouCounts, needsYouItems, projectTaskIds } from '../src/shared/needsYou'
 import { triageAll, type TriageInput } from '../src/shared/triage'
 import type { EmployeeAction } from '../src/shared/employeeActions'
 import type { EmployeeTask, EmployeeWorkView } from '../src/shared/employeeWork'
@@ -142,6 +142,23 @@ describe('one list of what needs you', () => {
     expect(counts.bySpace.get('acme')).toBe(5)
     // Nobody's employee count moves: it is the person's own.
     expect(counts.byEmployee.get(employeeKey('acme', 'ada'))).toBe(2)
+  })
+
+  it('leaves a project’s workspace to its channel unless it waits on an approval, and says which items its channel shows', () => {
+    // Lima is the project's shared workspace: its run just finished (Ready for review) and Ada's question is a project task's.
+    const project = { id: 'pr', orgId: 'acme', slug: 'pr', title: 'pr', requirement: 'pr', repoId: 'site', pmId: 'pri', phase: 'working', plans: [], parts: {}, replans: 0, steps: [{ kind: 'part', round: 1, taskId: 'date', employeeId: 'ada', state: 'running' }], artifacts: {}, waits: [{ id: 'w1', kind: 'questions', since: ago(5) }], decisions: [], notes: [], createdAt: ago(100), updatedAt: ago(10), workspaceId: 'lima' }
+    const snapshot = fixture({}, { projects: { acme: [project] }, sessions: [...fixture().sessions, session('s-lima', 'lima')] } as unknown as Partial<AppSnapshot>)
+    const read = { ...input(snapshot), unread: { lima: true as const }, unreadSessions: { 's-lima': true as const } }
+    const items = needsYouItems(read)
+    expect(items.some((i) => i.id === 'ws:lima')).toBe(false)
+    const tasks = projectTaskIds(snapshot)
+    // Ada's question, with its workspace the channel's, is its own item; it and the project's wait are the channel's.
+    expect(items.filter((i) => inChannel(i, tasks)).map((i) => i.id).sort()).toEqual(['project:pr:w1', 'task:date'])
+    expect(items.filter((i) => !inChannel(i, tasks)).map((i) => i.id)).toEqual(['ws:osaka', 'action:act-push', 'proposal:p1'])
+    // They still count for the space and for Ada's Team row.
+    expect(needsYouCounts(items).byEmployee.get(employeeKey('acme', 'ada'))).toBe(2)
+    // A chat there waiting on an approval only it can give: a workspace row again.
+    expect(needsYouItems({ ...read, approvals: [{ id: 'a', sessionId: 's-lima', kind: 'tool', toolName: 'Bash' } as never] }).some((i) => i.id === 'ws:lima')).toBe(true)
   })
 })
 

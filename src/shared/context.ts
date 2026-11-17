@@ -47,6 +47,8 @@ export interface AssembledAdditions {
     name: string
     text: string
     definitionPath: string
+    // The job prompt it was given first (a template employee's, the program manager's), and the version of its text.
+    jobPrompt?: { id: string; version: string }
     orgInstructions?: { path: string; commit: string; cut: boolean }
     readOnly?: boolean
     mcp: string[]
@@ -85,6 +87,7 @@ export function contextParts(a: AssembledAdditions, t: TFunction = enT): Context
   if (a.employee) {
     const e = a.employee
     const detail = [
+      e.jobPrompt ? t('context.employee.jobPrompt', { job: e.jobPrompt.id, version: e.jobPrompt.version }) : '',
       e.orgInstructions ? t('context.employee.orgInstructions', { path: e.orgInstructions.path, commit: e.orgInstructions.commit.slice(0, 7) }) : '',
       e.readOnly ? t('context.persona.readOnly') : '',
       t('context.persona.mcp', { names: e.mcp.join(', ') || '—' })

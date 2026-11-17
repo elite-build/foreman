@@ -389,9 +389,9 @@ export function Home() {
   const scoped = { ...input, snapshot: shown }
   const all = triageAll(scoped, repoId)
   // Put away for later: out of Home and the board until its day (a Later section can still show them). A project's
-  // workspace is its channel's: only listed while it needs you.
+  // workspace is its channel's: only listed while it waits on an approval.
   const projectIds = projectWorkspaceIds(snapshot)
-  const items = all.filter((x) => !putAway(x, now) && listsWorkspace(x, projectIds))
+  const items = all.filter((x) => !putAway(x, now) && listsWorkspace(x, projectIds, input.approvals))
   // What needs you: the shared list over every space, narrowed like the rest of Home.
   const need = needsYouOf(input)
   const needs = itemsInSpace(need.items, allSpaces ? undefined : space).filter((i) => !repoId || i.repoId === repoId)

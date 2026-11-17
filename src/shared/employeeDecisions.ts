@@ -200,7 +200,8 @@ export function definitionChanges(before: EmployeeDefinition, after: EmployeeDef
   limit('minutes', 'minutes_per_run')
   limit('cost', 'cost_per_day_usd')
   add('persona', before.persona ?? '', after.persona ?? '', false)
-  add('instructions', before.instructions, after.instructions, false)
+  // What it is told: its own prompt, and the job's prompt it is given first (a template employee, the program manager).
+  add('instructions', `${before.template ?? ''}\n${before.instructions}`, `${after.template ?? ''}\n${after.instructions}`, false)
   const words = (d: EmployeeDefinition) => JSON.stringify([d.name, d.role, d.description, d.personality, d.responsibilities, d.ask_me_about])
   if (words(before) !== words(after)) out.push({ field: 'words', before: '', after: '', wider: false })
   return out

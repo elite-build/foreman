@@ -634,6 +634,12 @@ export class ProjectService implements EmployeeProjectHooks {
       const a = project.artifacts[f]
       return a ? [a.path, ...(a.mocks ?? [])].map((p) => ({ path: p, ...(a.commit ? { commit: a.commit } : {}) })) : []
     })
+    // What the person wrote approving a part this one waits for or reads (their pick at a gate) goes with it.
+    const approvals = [...new Set([...part.dependsOn, ...part.reads])].flatMap((id) => {
+      const last = [...project.decisions].reverse().find((d) => d.waitKind === 'gate' && d.partId === id && d.decision === 'approve')
+      const title = plan.parts.find((p) => p.id === id)?.title
+      return last?.note && title ? [{ part: title, note: last.note }] : []
+    })
     const path = artifactPath(project.slug, part.writes)
     project.parts[part.id] = { state: 'running', round }
     this.save(project)
@@ -644,7 +650,7 @@ export class ProjectService implements EmployeeProjectHooks {
         partId: part.id,
         employeeId: owner,
         title: `${part.title}: ${project.title}${round > 1 ? ` (round ${round})` : ''}`,
-        body: partBody({ project, organization: org.name, plan, part, round, inputs, ...(note ? { note } : {}) }),
+        body: partBody({ project, organization: org.name, plan, part, round, inputs, ...(note ? { note } : {}), ...(approvals.length ? { approvals } : {}) }),
         requestId: `project:${project.id}:part:${part.id}:${round}`,
         round,
         contract: { ...(inputs.length ? { inputs } : {}), produces: path, writes: [path], writesUnder: [mocksFolder(project.slug, part.id)] }
@@ -672,7 +678,7 @@ export class ProjectService implements EmployeeProjectHooks {
         kind: 'accept',
         employeeId: project.pmId,
         title: `Accept: ${project.title}`,
-        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}) }),
+        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}), replansLeft: MAX_REPLANS - project.replans }),
         requestId: `project:${project.id}:accept:${round}`,
         round,
         contract: { inputs, produces: path, writes: [path], options: ['accept', 'replan'] }
@@ -698,6 +704,8 @@ export class ProjectService implements EmployeeProjectHooks {
       const allowed: Record<ProjectWait['kind'], ProjectDecision[]> = { questions: ['stop'], plan: ['approve', 'send-back', 'stop'], gate: ['approve', 'send-back', 'stop'], final: ['approve', 'send-back', 'stop'], stuck: ['retry', 'stop'] }
       if (!allowed[wait.kind].includes(decision)) throw new Error('That isn’t one of this decision’s choices.')
       if (decision === 'send-back' && !text) throw new Error('Say what to change: your note goes with it.')
+      // Only a part's gate passes an approval's note on (to what waits for the part); elsewhere it would reach nobody.
+      if (decision === 'approve' && text && (wait.kind === 'plan' || wait.kind === 'final')) throw new Error('A note goes with Send back: send it back, or clear the note to approve.')
       const record = () => project.decisions.push({ waitKind: wait.kind, ...(wait.partId ? { partId: wait.partId } : {}), decision, ...(text ? { note: text } : {}), at: this.iso() })
       if (decision === 'stop') {
         record()
