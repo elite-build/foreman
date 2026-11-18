@@ -2,13 +2,14 @@
 // choices, what the sidebar shows), the service behind the API (each memory choice, the seeded memory repository and its
 // one commit, moving, deleting, exclusivity, the switch), and state.json with and without organizations.
 import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   currentSpace,
   defaultMemoryName,
   defaultOrganizationFolder,
+  freeMemoryName,
   holdsWorkspaces,
   memoryChoices,
   moveRefusal,
@@ -73,7 +74,7 @@ describe('organizations: the shared rules', () => {
     expect(currentSpace(orgs, null)).toBeNull()
   })
 
-  it('shows one space in the sidebar, its memory repository first, and everything before any organization exists', () => {
+  it('shows one space in the sidebar, never its memory repository, and everything before any organization exists', () => {
     const repos = [repo('blog'), repo('site', { spaceId: 'o1' }), repo('foreman-memory', { spaceId: 'o1' }), repo('xyz', { spaceId: 'o2' })]
     const workspaces = [{ id: 'w1', repoId: 'blog' }, { id: 'w2', repoId: 'site' }, { id: 'w3', repoId: 'xyz' }] as Workspace[]
     const organizations = [org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')]
@@ -82,7 +83,8 @@ describe('organizations: the shared rules', () => {
     expect(personal.repos.map((r) => r.id)).toEqual(['blog'])
     expect(personal.workspaces.map((w) => w.id)).toEqual(['w1'])
     const foreman = snapshotInSpace(snapshot, 'o1')
-    expect(foreman.repos.map((r) => r.id)).toEqual(['foreman-memory', 'site'])
+    // What Foreman keeps for the organization isn't shown on the left.
+    expect(foreman.repos.map((r) => r.id)).toEqual(['site'])
     expect(foreman.workspaces.map((w) => w.id)).toEqual(['w2'])
     // An organization that is gone shows Personal.
     expect(snapshotInSpace(snapshot, 'gone').repos.map((r) => r.id)).toEqual(['blog'])
@@ -99,7 +101,7 @@ describe('organizations: the shared rules', () => {
     expect(holdsWorkspaces('foreman-memory', organizations)).toBe(false)
     expect(holdsWorkspaces('site', organizations)).toBe(true)
     expect(workspaceRepos(repos, organizations).map((r) => r.id)).toEqual(['blog', 'site', 'docs'])
-    // The organization lists its memory repository first, but New workspace opens on its first other repository…
+    // New workspace opens on the organization's first code repository…
     expect(newWorkspaceTarget(snapshot, { space: 'o1', picked: null, selectedWorkspaceId: null })).toBe('site')
     // …even with the memory repository picked on the rail.
     expect(newWorkspaceTarget(snapshot, { space: 'o1', picked: 'foreman-memory', selectedWorkspaceId: null })).toBe('site')
@@ -143,6 +145,21 @@ describe('organizations: the shared rules', () => {
     expect(defaultOrganizationFolder('中文', '/home/me/code', [])).toBe('/home/me/code/organization')
     expect(samePath('C:\\Code\\App\\', 'c:/code/app')).toBe(true)
     expect(samePath('/code/app', '/code/apps')).toBe(false)
+  })
+
+  it('names a memory repository made without asking after the organization, or the next free name', () => {
+    expect(freeMemoryName('Foreman', () => false)).toBe('foreman-memory')
+    const taken = new Set(['foreman-memory', 'foreman-memory-2'])
+    expect(freeMemoryName('Foreman', (name) => taken.has(name))).toBe('foreman-memory-3')
+  })
+
+  it('reads a memory link back, and drops one without a remote', () => {
+    const parsed = parseOrganizations([
+      { ...org('o1', 'A'), memoryLink: { remoteUrl: 'https://github.com/me/a-memory', account: 'me', pushedAt: '2026-11-18T10:00:00.000Z', error: '' } },
+      { ...org('o2', 'B'), memoryLink: { remoteUrl: ' ' } },
+      { ...org('o3', 'C'), memoryLink: 'x' }
+    ])
+    expect(parsed.map((o) => o.memoryLink)).toEqual([{ remoteUrl: 'https://github.com/me/a-memory', account: 'me', pushedAt: '2026-11-18T10:00:00.000Z' }, undefined, undefined])
   })
 
   it('reads an organization’s folder back, and drops one that isn’t text', () => {
@@ -206,6 +223,23 @@ describe('organizations: the service', () => {
     expect(await gitOut(dir, ['log', '--format=%s'])).toBe('Create the foreman-memory memory repository')
     expect((await gitOut(dir, ['status', '--porcelain'])).trim()).toBe('')
     expect((await gitOut(dir, ['ls-files'])).split('\n').sort()).toEqual(Object.keys(memoryRepositoryFiles('Foreman')).sort())
+  })
+
+  it('makes the memory repository unasked as <organization>-memory, the next free name when that folder is taken', async () => {
+    const parent = await tempDir('foreman-org-')
+    await mkdir(path.join(parent, 'acme-memory'))
+    await writeFile(path.join(parent, 'acme-memory', 'notes.txt'), 'mine')
+    const { state, service } = rig({ repos: [repo('app')] })
+    const before = state.settings.cloneDirectory
+    const created = await service.create({ name: 'Acme', memory: { kind: 'auto', parentDir: parent }, repoIds: ['app'] })
+    const memory = state.repos.find((r) => r.id === created.memoryRepoId)!
+    expect(memory.rootPath).toBe(path.join(parent, 'acme-memory-2'))
+    expect(memory.spaceId).toBe(created.id)
+    expect(await gitOut(memory.rootPath, ['log', '--format=%s'])).toBe('Create the acme-memory-2 memory repository')
+    // The folder that was there is left alone, and New organization chose no clone location.
+    expect(await readFile(path.join(parent, 'acme-memory', 'notes.txt'), 'utf8')).toBe('mine')
+    expect(state.settings.cloneDirectory).toBe(before)
+    await expect(service.create({ name: 'B', memory: { kind: 'auto', parentDir: 'relative' }, repoIds: [] })).rejects.toThrow(/folder/)
   })
 
   it('creates one with an existing repository from Personal as its memory, moving it in', async () => {

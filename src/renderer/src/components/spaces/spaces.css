@@ -79,9 +79,8 @@
   width: 9px;
   height: 9px;
 }
-/* Create an organization and its memory repository fields. */
+/* Create an organization, and link its memory. */
 .space-dialog-body,
-.space-memory,
 .space-bring {
   display: flex;
   flex-direction: column;

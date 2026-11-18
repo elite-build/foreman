@@ -128,6 +128,7 @@ import { SessionService } from './sessions'
 import { defaultSettings, type Store } from './store'
 import { WorkspaceService } from './workspaces'
 import { OrganizationService } from './organizations'
+import { MemoryLinkService } from './memoryLink'
 import { MemoryService } from './memory'
 import { EmployeeService } from './employees'
 import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
@@ -339,6 +340,7 @@ export class Core {
   readonly workspaces: WorkspaceService
   // Organizations and which space each repository is in (docs/ai-employees.md §3).
   readonly organizations: OrganizationService
+  readonly memoryLink: MemoryLinkService
   // Each organization's memory repository: its only automatic writer, and the search index (docs/ai-employees.md §4).
   readonly memory: MemoryService
   // AI employees: their definitions in each memory repository, their approvals and lifecycle here (docs/ai-employees.md §5).
@@ -528,8 +530,11 @@ export class Core {
         this.changed()
         void this.employees?.refreshAll()
       },
-      // A commit Foreman made: AI employees' memory event triggers hear it at once.
-      committed: (commit) => void this.employeeEvents?.memoryCommitted(commit).catch((err: unknown) => console.error('Employee events (memory):', err))
+      // A commit Foreman made: AI employees' memory event triggers hear it at once, and a linked memory is pushed.
+      committed: (commit) => {
+        void this.employeeEvents?.memoryCommitted(commit).catch((err: unknown) => console.error('Employee events (memory):', err))
+        this.memoryLink?.committed(commit.orgId)
+      }
     })
     this.employees = new EmployeeService({
       state: () => store.state,
@@ -564,6 +569,7 @@ export class Core {
       // Made and approved the way Add employee makes a template employee (EmployeeService.createApproved).
       createProgramManager: (org, templates = []) => this.employees.addProgramManager(org.id, templates)
     })
+    this.memoryLink = new MemoryLinkService({ state: () => store.state, changed: () => this.changed() })
     this.repoMcp = new RepoMcp(store, this.workspaces, this.environment)
     // Integrations, before anything runs GitHub work: the old token and linked accounts move into connections once.
     // gh answers in the background; agents' and terminals' environments then find its answers cached.
@@ -3446,6 +3452,9 @@ export class Core {
     deleteOrganization: async (id) => this.organizations.delete(id),
     moveRepoToSpace: async (repoId, organizationId) => this.organizations.moveRepo(repoId, organizationId),
     setOrganizationMemory: (organizationId, memory) => this.organizations.setMemory(organizationId, memory),
+    linkOrganizationMemory: (organizationId, link) => this.memoryLink.link(organizationId, link),
+    unlinkOrganizationMemory: (organizationId) => this.memoryLink.unlink(organizationId),
+    pushOrganizationMemory: (organizationId) => this.memoryLink.pushNow(organizationId),
     memoryStatus: (organizationId) => this.memory.status(organizationId),
     memoryTree: (organizationId) => this.memory.tree(organizationId),
     memoryReadFile: (organizationId, path) => this.memory.read(organizationId, path),

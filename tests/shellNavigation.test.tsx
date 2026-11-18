@@ -616,11 +616,12 @@ describe('the sidebar in an organization', () => {
     expect(spy('openNewWorkspace')).not.toHaveBeenCalledWith('mem')
   })
 
-  it('offers no New workspace in the memory repository’s menu', async () => {
+  it('offers New workspace in a code repository’s menu; the memory repository has no tile to open one on', async () => {
     render(<Sidebar />)
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Acme’s memory' }), { clientX: 5, clientY: 5 })
-    const menu = await screen.findByRole('menu', { name: 'acme-memory' })
-    expect(within(menu).queryByRole('menuitem', { name: /new workspace/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /memory/i })).toBeNull()
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^site/ }), { clientX: 5, clientY: 5 })
+    const menu = await screen.findByRole('menu', { name: 'site' })
+    expect(within(menu).getByRole('menuitem', { name: /new workspace/i })).toBeTruthy()
     expect(within(menu).getByRole('menuitem', { name: /repository settings/i })).toBeTruthy()
   })
 
@@ -852,18 +853,13 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(kyotoRow.querySelector('.ws-label')?.textContent).toBe('Max’s run · Write the launch post')
   })
 
-  it('makes the memory repository a Brain tile that opens Memory, and counts the rail from the same list', async () => {
+  it('never shows the memory repository on the rail, and counts what waits on it (a proposal) on All', () => {
     render(<Sidebar />)
     expect(screen.getByRole('button', { name: 'All repositories · 3 need you' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'site · 2 need you' })).toBeTruthy()
-    const brain = screen.getByRole('button', { name: 'Acme’s memory · 1 needs you' })
-    await userEvent.setup().click(brain)
-    expect(spy('openMemory')).toHaveBeenCalledWith('o1')
-    expect(spy('showRepoHome')).not.toHaveBeenCalledWith('mem')
-    cleanup()
-    fakeState.memoryView = 'o1'
-    render(<Sidebar />)
-    expect(screen.getByRole('button', { name: 'Acme’s memory · 1 needs you' }).getAttribute('aria-pressed')).toBe('true')
+    const rail = screen.getByRole('navigation', { name: /repositor/i })
+    expect(within(rail).queryByRole('button', { name: /memory/i })).toBeNull()
+    expect(rail.textContent).not.toContain('acme-memory')
   })
 
   it('in Personal: no Team row, its own count, and the heading points to Acme’s 3', () => {

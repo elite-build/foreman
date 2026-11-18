@@ -2,10 +2,11 @@
 // one its memory repository (§4), made here as a new git repository with the layout below and one commit. Nothing
 // here deletes anything on disk.
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import {
+  freeMemoryName,
   isRepoFolderName,
   MAX_ORGANIZATION_NAME,
   MEMORY_MANIFEST,
@@ -94,6 +95,7 @@ const isMemory = (value: unknown): value is OrganizationMemory => {
   if (!m || typeof m !== 'object') return false
   if (m.kind === 'later') return true
   if (m.kind === 'existing') return typeof m.repoId === 'string'
+  if (m.kind === 'auto') return typeof m.parentDir === 'string'
   return m.kind === 'create' && typeof m.name === 'string' && typeof m.parentDir === 'string'
 }
 
@@ -128,8 +130,8 @@ export class OrganizationService {
   /** Checks a memory choice before anything is made or moved; returns the existing repository it names, if any. */
   private checkMemory(memory: OrganizationMemory, organizationId?: string): Repo | undefined {
     if (memory.kind === 'later') return undefined
-    if (memory.kind === 'create') {
-      if (!isRepoFolderName(memory.name)) throw new Error('Use letters, numbers, dots, dashes or underscores for the memory repository’s name')
+    if (memory.kind === 'create' || memory.kind === 'auto') {
+      if (memory.kind === 'create' && !isRepoFolderName(memory.name)) throw new Error('Use letters, numbers, dots, dashes or underscores for the memory repository’s name')
       if (!memory.parentDir.trim() || !path.isAbsolute(memory.parentDir.trim())) throw new Error('Choose the folder the memory repository goes in')
       return undefined
     }
@@ -159,10 +161,24 @@ export class OrganizationService {
   /** Make or pick the memory repository; the repository it names is moved into the organization's space by the caller. */
   private async memoryRepo(memory: OrganizationMemory, organization: string, existing: Repo | undefined, folder?: string): Promise<Repo | undefined> {
     if (memory.kind === 'existing') return existing
-    if (memory.kind !== 'create') return undefined
-    const dir = await this.makeMemory(memory.parentDir.trim(), memory.name.trim(), organization)
-    // The organization's own folder isn't where Personal's next clone should start.
-    if (!folder || !samePath(memory.parentDir, folder)) this.state.settings.cloneDirectory = memory.parentDir.trim()
+    if (memory.kind === 'later') return undefined
+    const parent = memory.parentDir.trim()
+    // Asked for without a name (New organization doesn't show it): `<organization>-memory`, or the next free one.
+    const taken = (name: string) => {
+      const dir = path.join(parent, name)
+      if (this.state.repos.some((r) => samePath(r.rootPath, dir))) return true
+      if (!existsSync(dir)) return false
+      try {
+        return readdirSync(dir).length > 0
+      } catch {
+        // A file of that name.
+        return true
+      }
+    }
+    const name = memory.kind === 'auto' ? freeMemoryName(organization, taken) : memory.name.trim()
+    const dir = await this.makeMemory(parent, name, organization)
+    // The organization's own folder isn't where Personal's next clone should start; New organization chose no folder.
+    if (memory.kind === 'create' && (!folder || !samePath(memory.parentDir, folder))) this.state.settings.cloneDirectory = parent
     return this.host.addRepo(dir)
   }
 

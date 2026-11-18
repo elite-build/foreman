@@ -21,13 +21,36 @@ export interface Organization {
   // The folder its new repositories go in: Clone and Quick start while it is showing start there, and what they make
   // joins it. Its memory repository is made there too when made with it. Absent: they go where Personal's do.
   folder?: string
+  // The remote its memory repository is pushed to after each commit (Settings → Spaces → Link to GitHub). Absent: the
+  // memory stays on this computer.
+  memoryLink?: MemoryLink
   // Only in createOrganization's answer: why its program manager couldn't be made (the organization was). Never saved.
   teamProblem?: string
   createdAt: string
 }
 
-/** How an organization gets its memory repository: a new one made in `parentDir/name`, a registered one, or none yet. */
-export type OrganizationMemory = { kind: 'create'; name: string; parentDir: string } | { kind: 'existing'; repoId: string } | { kind: 'later' }
+/** Where an organization's memory repository is pushed: a remote URL (no credentials in it), the gh account, the last push. */
+export interface MemoryLink {
+  remoteUrl: string
+  account?: string
+  // The last push that landed, and why the last one that didn't failed (cleared by the next that lands).
+  pushedAt?: string
+  error?: string
+}
+
+/** How an organization links its memory: a private GitHub repository made for it, or a remote URL the person pastes. */
+export type MemoryLinkInput = { kind: 'create'; name: string; account?: string } | { kind: 'existing'; remoteUrl: string; account?: string }
+
+/**
+ * How an organization gets its memory repository: a new one made in `parentDir/name`; a new one in `parentDir` named
+ * `<organization>-memory` (the first free name), which New organization asks for without showing it; a registered one;
+ * or none yet.
+ */
+export type OrganizationMemory =
+  | { kind: 'create'; name: string; parentDir: string }
+  | { kind: 'auto'; parentDir: string }
+  | { kind: 'existing'; repoId: string }
+  | { kind: 'later' }
 
 export interface CreateOrganizationInput {
   name: string
@@ -60,6 +83,15 @@ export function organizationSlug(name: string): string {
 export function defaultMemoryName(name: string): string {
   const slug = organizationSlug(name)
   return `${slug || 'organization'}-memory`
+}
+
+/** The first of `<organization>-memory`, `<organization>-memory-2`, … that `taken` doesn't refuse. */
+export function freeMemoryName(organization: string, taken: (name: string) => boolean): string {
+  const base = defaultMemoryName(organization)
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? base : `${base}-${n}`
+    if (!taken(name)) return name
+  }
 }
 
 /** Whether two paths name the same folder, ignoring separators, a trailing one and case. */
@@ -149,15 +181,15 @@ export function currentSpace(organizations: readonly Organization[] | undefined,
 }
 
 /**
- * The snapshot as one space sees it: its repositories (the memory repository first) and their workspaces. While spaces
- * don't apply it is the snapshot itself, so everything is listed as it always was.
+ * The snapshot as one space sees it: its code repositories and their workspaces. An organization's memory repository is
+ * never listed (what Foreman keeps for it isn't shown on the left). While spaces don't apply it is the snapshot itself,
+ * so everything is listed as it always was.
  */
 export function snapshotInSpace(snapshot: AppSnapshot, wanted: string | null | undefined): AppSnapshot {
   const organizations = snapshot.organizations ?? []
   if (!spacesOn(organizations)) return snapshot
   const space = currentSpace(organizations, wanted)
-  const memory = space ? organizations.find((o) => o.id === space)?.memoryRepoId : undefined
-  const repos = reposInSpace(snapshot.repos, organizations, space).sort((a, b) => Number(b.id === memory) - Number(a.id === memory))
+  const repos = workspaceRepos(reposInSpace(snapshot.repos, organizations, space), organizations)
   const ids = new Set(repos.map((r) => r.id))
   return { ...snapshot, repos, workspaces: snapshot.workspaces.filter((w) => ids.has(w.repoId)) }
 }
@@ -199,7 +231,7 @@ export function parseOrganizations(value: unknown): Organization[] {
   const out: Organization[] = []
   for (const entry of value as Record<string, unknown>[]) {
     if (!entry || typeof entry !== 'object') continue
-    const { id, name, memoryRepoId, leadEmployeeId, workLimits, programManagerId, folder, createdAt } = entry
+    const { id, name, memoryRepoId, leadEmployeeId, workLimits, programManagerId, folder, memoryLink, createdAt } = entry
     if (typeof id !== 'string' || !id || typeof name !== 'string' || !name.trim() || typeof createdAt !== 'string') continue
     if (out.some((o) => o.id === id)) continue
     const limits = parseWorkLimits(workLimits)
@@ -211,10 +243,23 @@ export function parseOrganizations(value: unknown): Organization[] {
       ...(limits ? { workLimits: limits } : {}),
       ...(typeof programManagerId === 'string' && isEmployeeId(programManagerId) ? { programManagerId } : {}),
       ...(typeof folder === 'string' && folder.trim() ? { folder } : {}),
+      ...(parseMemoryLink(memoryLink) ? { memoryLink: parseMemoryLink(memoryLink) } : {}),
       createdAt
     })
   }
   return out
+}
+
+function parseMemoryLink(value: unknown): MemoryLink | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const { remoteUrl, account, pushedAt, error } = value as Record<string, unknown>
+  if (typeof remoteUrl !== 'string' || !remoteUrl.trim()) return undefined
+  return {
+    remoteUrl,
+    ...(typeof account === 'string' && account ? { account } : {}),
+    ...(typeof pushedAt === 'string' && pushedAt ? { pushedAt } : {}),
+    ...(typeof error === 'string' && error ? { error } : {})
+  }
 }
 
 /**
