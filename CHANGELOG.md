@@ -2,6 +2,20 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.5 (2026-11-18)
+
+### Changed
+
+- Opening a channel takes you to its newest post and the message box instead of its first post. ([#222](https://github.com/elite-build/foreman/pull/222))
+- Every **AI employee** gets a shell by default (turn it off in **Edit**) and every MCP server a workspace's agent has, and can push and open pull requests itself, with nothing waiting for an approval when unattended. ([#223](https://github.com/elite-build/foreman/pull/223))
+- **AI employees** have no limits: no runs a day, minutes, cost threshold, one-run-at-a-time rule, pause after failed runs, hand-off limits or minimum time between scheduled runs. A chain of hand-offs still stops after 20 runs until you raise it. ([#223](https://github.com/elite-build/foreman/pull/223))
+- The sidebar is decluttered: **Find** is a ⌕ in the top row that opens the search box in place, and everything you can add (workspace, repository, employee, channel, automation, organization) is in one **+** menu. Every section header folds the same way, and **Team page** and **All channels** are links under their lists. ([#224](https://github.com/elite-build/foreman/pull/224))
+- In the sidebar, the team shows as a row of hats, and channels and workspaces take one line each; hover or Tab to a workspace to see its repository, branch and age. ([#224](https://github.com/elite-build/foreman/pull/224))
+
+### Fixed
+
+- A folded comparison or flow-run group in the sidebar shows ▲ when something inside needs you. ([#224](https://github.com/elite-build/foreman/pull/224))
+
 ## 1.2.4 (2026-11-17)
 
 ### Added
