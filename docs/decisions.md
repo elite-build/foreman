@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-18: An organization's memory repository is never shown, only linked
+
+**Decision.** New organization makes the memory repository unasked, without naming it or its folder. Nothing on the left shows it: not the rail, the sidebar list, the space switcher or Settings' repository list. Settings → Spaces says only where the memory is kept, and links it to GitHub (a new private repository or a URL), pushing each commit fast-forward.
+
+**Why.** The person didn't want people seeing what Foreman stores for an organization, and a memory tile beside code repositories invited browsing it.
+
+**Turned down.** Hiding it in Foreman's data folder (the person kept it beside the other repositories, only unseen). Removing the Memory view altogether (it stays on the Team, employee and project pages and in Spaces). Moving existing memory repositories (they stay where they are).
+
+**Revisit when.** Several computers share an organization's memory and need to see where it lives.
+
 ## 2026-11-17: A sidebar row is one line, and its details are in a hover card that a click never opens
 
 **Decision.** Each workspace row shows its glyph, title, label and hat. Repository, branch, age, cloud state and the shortcut are in a HoverCard that opens after the hover delay or on keyboard focus (`openOnFocus="keyboard"`); the selected row keeps them on a second line.
