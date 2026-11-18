@@ -245,19 +245,13 @@ describe('the Memory view', () => {
 })
 
 describe('ways into the Memory view', () => {
-  it('the space switcher offers it for the organization shown, when it has a memory repository', async () => {
+  it('the space switcher never offers it: nothing on the left opens what Foreman keeps', async () => {
     const user = userEvent.setup()
     setSnapshot({ state: 'ok', head: 'h1' }, [org('o1', 'Acme', 'mem'), org('o2', 'XYZ')])
     fakeState.space = 'o1'
-    const { unmount } = render(<SpaceSwitcher />)
-    await user.click(screen.getByRole('button', { name: 'Space: Acme' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Open Acme’s memory' }))
-    expect(spy('openMemory')).toHaveBeenCalledWith('o1')
-    unmount()
-    fakeState.space = 'o2'
     render(<SpaceSwitcher />)
-    await user.click(screen.getByRole('button', { name: 'Space: XYZ' }))
-    expect(screen.queryByRole('menuitem', { name: /^Open .*memory/ })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Space: Acme' }))
+    expect(screen.queryByRole('menuitem', { name: /memory/i })).toBeNull()
   })
 
   it('the Spaces page has Open memory on an organization’s card', async () => {

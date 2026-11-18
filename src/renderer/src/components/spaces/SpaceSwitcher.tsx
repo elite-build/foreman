@@ -1,17 +1,18 @@
 // The space switcher, the start of the sidebar's top row (docs/ai-employees.md §3 and §10): the space shown and, when
 // another space has something waiting, where ("▲ 3 in Acme", only "▲ 3" in a narrow sidebar). Its line (the space's
 // code repositories, or the repository picked) is its tooltip and the first line of its menu. The menu lists Personal and
-// each organization with how much waits in it, how many code repositories it holds and its memory repository, the current
-// one checked, then Open memory (for an organization with a memory repository) and Manage spaces…. Always drawn: before
-// any organization exists it reads Personal; New organization… is in the sidebar's + menu (NewMenu). Every count is the
-// shared needs-you count (src/shared/needsYou.ts). In a narrow window the sidebar folds to its rail, and the switcher is
-// the rail's top tile (SpaceRailTile): the space's initial, "▲ 3" when another space waits, and the same menu.
-import { Brain, ChevronDown, Settings2 } from 'lucide-react'
+// each organization with how much waits in it and how many code repositories it holds, the current one checked, then
+// Manage spaces…; an organization's memory repository is never named or opened here (nothing on the left shows what
+// Foreman keeps for it). Always drawn: before any organization exists it reads Personal; New organization… is in the
+// sidebar's + menu (NewMenu). Every count is the shared needs-you count (src/shared/needsYou.ts). In a narrow window the
+// sidebar folds to its rail, and the switcher is the rail's top tile (SpaceRailTile): the space's initial, "▲ 3" when
+// another space waits, and the same menu.
+import { ChevronDown, Settings2 } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { currentSpace, reposInSpace, spacesOn, workspaceRepos, type Organization } from '../../../../shared/organizations'
+import { currentSpace, reposInSpace, spacesOn, workspaceRepos } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { useNeedsYou } from '../../needsYou'
-import { openMemory, openSettingsPage, setSpace, useStore } from '../../store'
+import { openSettingsPage, setSpace, useStore } from '../../store'
 import { Glyph, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator } from '../../ui'
 import './spaces.css'
 
@@ -28,12 +29,8 @@ function useSpaces() {
   const spaceName = (id: string | null) => (id ? organizations.find((o) => o.id === id)?.name : t('spaces.personal'))
   // Code repositories only: an organization's memory repository holds no workspaces and isn't counted as one.
   const count = (id: string | null) => workspaceRepos(reposInSpace(snapshot.repos, organizations, id), organizations).length
-  const memory = (org: Organization) => snapshot.repos.find((r) => r.id === org.memoryRepoId)?.name
   const waiting = (id: string | null) => counts.bySpace.get(id) ?? 0
-  const detail = (org: Organization) => {
-    const repo = memory(org)
-    return repo ? t('spaces.switcher.withMemory', { count: count(org.id), memory: repo }) : t('spaces.switcher.noMemory', { count: count(org.id) })
-  }
+  const detail = (id: string | null) => t('sidebar.subtitle.repos', { count: count(id) })
   // "▲1 needs you · 2 repositories": how much waits in a space comes first in its description.
   const description = (id: string | null, rest: string): ReactNode => {
     const n = waiting(id)
@@ -57,22 +54,16 @@ function useSpaces() {
       {line && <MenuLabel>{line}</MenuLabel>}
       <MenuLabel>{t('spaces.switcher.heading')}</MenuLabel>
       <MenuGroup label={t('spaces.switcher.heading')}>
-        <MenuRadioItem checked={space === null} description={description(null, t('spaces.switcher.noMemory', { count: count(null) }))} onSelect={() => setSpace(null)}>
+        <MenuRadioItem checked={space === null} description={description(null, detail(null))} onSelect={() => setSpace(null)}>
           {t('spaces.personal')}
         </MenuRadioItem>
         {organizations.map((org) => (
-          <MenuRadioItem key={org.id} checked={space === org.id} description={description(org.id, detail(org))} onSelect={() => setSpace(org.id)}>
+          <MenuRadioItem key={org.id} checked={space === org.id} description={description(org.id, detail(org.id))} onSelect={() => setSpace(org.id)}>
             {org.name}
           </MenuRadioItem>
         ))}
       </MenuGroup>
       <MenuSeparator />
-      {/* The space shown has a memory repository: its Memory view (docs/ai-employees.md §10). */}
-      {current?.memoryRepoId && (
-        <MenuItem icon={<Brain size={14} />} onSelect={() => openMemory(current.id)}>
-          {t('memory.openFor', { organization: current.name })}
-        </MenuItem>
-      )}
       <MenuItem icon={<Settings2 size={14} />} onSelect={() => openSettingsPage({ section: 'spaces' })}>
         {t('spaces.manage')}
       </MenuItem>

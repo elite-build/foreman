@@ -2732,6 +2732,12 @@ export interface Api {
   moveRepoToSpace(repoId: string, organizationId: string | null): Promise<void>
   // For an organization that decided later: give it a memory repository now.
   setOrganizationMemory(organizationId: string, memory: import('./organizations').OrganizationMemory): Promise<import('./organizations').Organization>
+  // Link an organization's memory repository to a remote (a private GitHub repository made for it, or a URL pasted) and
+  // push it there; from then on each memory commit is pushed, fast-forward only. Unlink stops the pushes; nothing on the
+  // remote is deleted. Push now pushes at once (a failed push says why, and is kept on the link).
+  linkOrganizationMemory(organizationId: string, link: import('./organizations').MemoryLinkInput): Promise<import('./organizations').Organization>
+  unlinkOrganizationMemory(organizationId: string): Promise<import('./organizations').Organization>
+  pushOrganizationMemory(organizationId: string): Promise<import('./organizations').Organization>
   // An organization's memory repository (docs/ai-employees.md §4), through Foreman's memory service; each refuses while AI
   // employees are off or the organization has no memory repository. Status looks again (and settles unfinished commits).
   memoryStatus(organizationId: string): Promise<import('./memory').MemoryStatus>
@@ -3354,7 +3360,7 @@ export interface Bridge {
 // build if a method is added to Api or Signals but not listed here.
 export const API_METHODS = [
   'getSnapshot', 'pickDirectory', 'pickFiles', 'pickPath', 'addRepo', 'cloneRepo', 'githubRepos', 'quickStartRepo', 'makeRepo', 'forgetRecentRepo', 'classifyFolders', 'takeLaunchFolders', 'updateRepo', 'removeRepo',
-  'createOrganization', 'renameOrganization', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory',
+  'createOrganization', 'renameOrganization', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory', 'linkOrganizationMemory', 'unlinkOrganizationMemory', 'pushOrganizationMemory',
   'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryOpenFile', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'addTemplateEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',

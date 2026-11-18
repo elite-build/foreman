@@ -88,6 +88,8 @@ export const METHOD_SCOPES = {
   removeRepo: 'admin', updateRepoSettings: 'admin', detectRepoAccount: 'admin', setAutoReview: 'admin',
   // Organizations (docs/ai-employees.md §3): which space a repository is in, and making a memory repository on disk.
   createOrganization: 'admin', renameOrganization: 'admin', deleteOrganization: 'admin', moveRepoToSpace: 'admin', setOrganizationMemory: 'admin',
+  // Linking and pushing a memory repository moves what Foreman keeps for an organization off this computer.
+  linkOrganizationMemory: 'admin', unlinkOrganizationMemory: 'admin', pushOrganizationMemory: 'admin',
   // Memory repositories (docs/ai-employees.md §4): reading them is a read; a person's edit and accepting foreign changes
   // change what every employee of the organization is told, so they are admin.
   memoryStatus: 'read', memoryTree: 'read', memoryReadFile: 'read', memoryFileHistory: 'read', memorySearch: 'read',

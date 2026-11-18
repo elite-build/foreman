@@ -1,6 +1,5 @@
 import {
   Archive,
-  Brain,
   Bug,
   ChevronsLeft,
   ChevronsRight,
@@ -38,7 +37,6 @@ import {
   openHandOffTo,
   clientKind,
   openEmployees,
-  openMemory,
   openNewWorkspace,
   openOverlay,
   openReportProblem,
@@ -72,7 +70,7 @@ import { SidebarSection } from './SidebarSection'
 import { SpaceRailTile, SpaceSwitcher } from './spaces/SpaceSwitcher'
 import { TeamSection } from './employees/TeamSection'
 import { ProjectsSection } from './employees/ProjectsSection'
-import { currentSpace, holdsWorkspaces, memoryOwner, newWorkspaceTarget, snapshotInSpace, spacesOn, workspaceRepos } from '../../../shared/organizations'
+import { currentSpace, newWorkspaceTarget, snapshotInSpace, spacesOn } from '../../../shared/organizations'
 import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
 import { AutomationsEntry } from './automations/AutomationsEntry'
@@ -190,11 +188,10 @@ function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: numb
 
 function RepoMenu({ repo, x, y, dismiss, onRemove }: { repo: Repo; x: number; y: number; dismiss: () => void; onRemove: () => void }) {
   const t = useT()
-  // An organization's memory repository never has workspaces (docs/ai-employees.md §4).
-  const workspaces = useStore((s) => holdsWorkspaces(repo.id, s.snapshot!.organizations))
+  // Only code repositories are on the rail: an organization's memory repository never is, and never has workspaces.
   return (
     <ContextMenu x={x} y={y} label={repo.name} onClose={dismiss}>
-      {workspaces && <MenuItem onSelect={() => openNewWorkspace(repo.id)}>{t('sidebar.menu.newWorkspace')}</MenuItem>}
+      <MenuItem onSelect={() => openNewWorkspace(repo.id)}>{t('sidebar.menu.newWorkspace')}</MenuItem>
       <MenuItem onSelect={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>{t('sidebar.menu.repoSettings')}</MenuItem>
       <MenuItem onSelect={() => void navigator.clipboard.writeText(repo.rootPath)}>{t('openIn.copyPath')}</MenuItem>
       <MenuSeparator />
@@ -564,8 +561,6 @@ function TeamRailTile({ needs }: { needs: NeedsYouCounts }) {
  */
 function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, RepoCount>; repos: Repo[]; folded?: NeedsYouCounts; add?: { repoId: string | undefined } }) {
   const t = useT()
-  // The space's organizations, for the memory repository's mark in its tooltip.
-  const organizations = useStore((s) => s.snapshot!.organizations)
   const connections = useStore((s) => s.snapshot!.integrations.connections)
   const mod = useStore((s) => modKey(s.snapshot!.platform))
   const platform = useStore((s) => s.snapshot!.platform)
@@ -585,8 +580,6 @@ function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, R
       !(s.employeesView && s.snapshot!.organizations?.some((o) => o.id === s.employeesView!.orgId))
   )
   const names = useStore((s) => s.railNames)
-  // The Memory view of the organization shown, open: its memory tile is the one pressed.
-  const memoryView = useStore((s) => s.memoryView)
   const [menu, setMenu] = useState<{ repo: Repo; x: number; y: number } | null>(null)
   const [removing, setRemoving] = useState<Repo | null>(null)
   // Beside a name: what needs you and what runs, or (when nothing does) how many workspaces it has.
@@ -595,16 +588,15 @@ function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, R
     const busy = [c?.attention ? t('home.banner.needYou', { count: c.attention }) : '', c?.working ? t('sidebar.runningCount', { count: c.working }) : ''].filter(Boolean)
     return busy.length ? busy.join(' · ') : quiet
   }
-  // `memory`: an organization's memory repository, whose tile is the way into its Memory view, not a repository to pick.
-  const tile = (repoId: string | null, label: string, title: string, quiet: string, content: ReactNode, memory?: string) => {
+  const tile = (repoId: string | null, label: string, title: string, quiet: string, content: ReactNode) => {
     const count = counts.get(repoId)?.attention ?? 0
     const name = count ? t('sidebar.rail.needYou', { label, count }) : label
     const lineId = `rail-line-${repoId ?? 'all'}`
-    const on = memory ? memoryView === memory : current === repoId
+    const on = current === repoId
     return (
       <span key={repoId ?? 'all'} className={`rail-item ${on ? 'on' : ''}`}>
         {/* The wrapper draws the ring that says the tile's repository is also what Home is showing. */}
-        <span className={`rail-tile-wrap ${!memory && current === repoId && home ? 'on-home' : ''}`}>
+        <span className={`rail-tile-wrap ${current === repoId && home ? 'on-home' : ''}`}>
           <CardButton
             className="rail-tile"
             selected={on}
@@ -612,7 +604,7 @@ function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, R
             aria-label={name}
             aria-describedby={names ? lineId : undefined}
             aria-pressed={on}
-            onClick={() => (memory ? openMemory(memory) : showRepoHome(repoId))}
+            onClick={() => showRepoHome(repoId)}
             onContextMenu={(e) => {
               const repo = repos.find((r) => r.id === repoId)
               if (!repo) return
@@ -652,8 +644,6 @@ function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, R
     })
   )
   const tileLabel = (repo: Repo) => [repo.name, githubNames.get(repo.id)].filter(Boolean).join(' · ')
-  // Code repositories only: an organization's memory repository is its Memory tile (docs/ai-employees.md §10).
-  const codeRepos = workspaceRepos(repos, organizations)
   return (
     <nav className={`repo-rail ${names ? 'names' : ''}`} aria-label={t('sidebar.rail.label')}>
       {/* The list folded to the rail (a narrow window): the space switcher, the one +, and its Team come with it. */}
@@ -671,15 +661,9 @@ function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, R
           <span className="rail-divider" aria-hidden />
         </>
       )}
-      {tile(null, t('home.board.allRepos'), t('home.board.allRepos'), t('sidebar.subtitle.repos', { count: codeRepos.length }), <span className="rail-text">{t('sidebar.rail.all')}</span>)}
-      {repos.map((repo) => {
-        const owner = memoryOwner(repo.id, organizations ?? [])
-        if (owner) {
-          const label = t('sidebar.rail.memory', { organization: owner.name })
-          return tile(repo.id, label, label, repo.name, <Brain size={16} aria-hidden />, owner.id)
-        }
-        return tile(repo.id, tileLabel(repo), repo.name, t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }), repoMark(repo))
-      })}
+      {tile(null, t('home.board.allRepos'), t('home.board.allRepos'), t('sidebar.subtitle.repos', { count: repos.length }), <span className="rail-text">{t('sidebar.rail.all')}</span>)}
+      {/* Code repositories only: an organization's memory repository is never on the left (snapshotInSpace). */}
+      {repos.map((repo) => tile(repo.id, tileLabel(repo), repo.name, t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }), repoMark(repo)))}
       {/* The list is hidden (the Editor layout's other views): the one + stays reachable here. */}
       {add && !folded && (
         <span className="rail-item">
@@ -785,7 +769,7 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
     tally(null, t)
     tally(t.ws.repoId, t)
   }
-  // ▲ on the rail: the space's count on All, each repository's on its tile (a proposal on the memory repository's).
+  // ▲ on the rail: the space's count on All, each repository's on its tile (a memory proposal counts on All only).
   counts.set(null, { ...(counts.get(null) ?? { working: 0, total: 0 }), attention: spaceNeeds.length })
   for (const r of snapshot.repos) counts.set(r.id, { ...(counts.get(r.id) ?? { working: 0, total: 0 }), attention: need.counts.byRepo.get(r.id) ?? 0 })
   const grouped = sidebarGroups(input, view)
@@ -825,7 +809,7 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
       .sort((a, b) => a.since.localeCompare(b.since))
       .map((r) => r.node)
   // The heading's line: the repository picked and its workspaces, else the space's code repositories (never its memory).
-  const headingLine = repo ? `${repo.name} · ${t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })}` : t('sidebar.subtitle.repos', { count: workspaceRepos(snapshot.repos, snapshot.organizations).length })
+  const headingLine = repo ? `${repo.name} · ${t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })}` : t('sidebar.subtitle.repos', { count: snapshot.repos.length })
   // A tab's count, after its name: what needs you (▲) and what runs.
   const tabCount = (id: SidebarFilter): number => (id === 'needs-you' ? scopedNeeds.length : id === 'working' ? running : 0)
 

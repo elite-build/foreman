@@ -53,19 +53,20 @@ const samePath = (a: string, b: string): boolean => {
 }
 const json = (value: unknown): string => JSON.stringify(value, null, 2) + '\n'
 
-function checkedRemote(url: string): string {
+export function checkedRemote(url: string): string {
   const clean = url.trim()
   if (!clean || /[\r\n\x00]/.test(clean) || /^https?:\/\/[^/]*@/i.test(clean) || clean.startsWith('-'))
     throw new Error('Enter a Git remote URL without an embedded username or password.')
   return clean
 }
 
-export async function createPrivateGithubRepo(name: string, account?: string, run: typeof gh = gh, list: typeof githubAccounts = githubAccounts): Promise<string> {
+/** `readme` false: the repository starts empty, for a local repository's first push (an organization's memory). */
+export async function createPrivateGithubRepo(name: string, account?: string, run: typeof gh = gh, list: typeof githubAccounts = githubAccounts, readme = true): Promise<string> {
   const clean = name.trim()
   if (!/^[\w.-]+$/.test(clean) || clean === '.' || clean === '..') throw new Error('Use a repository name with letters, numbers, dots, dashes or underscores.')
   const owner = account || (await list()).find((a) => a.active)?.login
   const slug = owner ? `${owner}/${clean}` : clean
-  await run(process.cwd(), ['repo', 'create', slug, '--private', '--add-readme'], 60_000, account)
+  await run(process.cwd(), ['repo', 'create', slug, '--private', ...(readme ? ['--add-readme'] : [])], 60_000, account)
   return (await run(process.cwd(), ['repo', 'view', slug, '--json', 'url', '--jq', '.url'], 20_000, account)).trim()
 }
 

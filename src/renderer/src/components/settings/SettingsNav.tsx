@@ -4,6 +4,7 @@
 // (SearchResults.tsx) and each category here says how many it has.
 import { ArrowLeft, ChevronRight, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
+import { workspaceRepos } from '../../../../shared/organizations'
 import type { Repo } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { openSettingsPage, useStore, type RepoSection, type SettingsPage } from '../../store'
@@ -39,7 +40,10 @@ interface Props {
 
 export function SettingsNav({ page, repoTab, onClose, query, onQuery, results, inputRef, onResults }: Props) {
   const t = useT()
-  const repos = useStore((s) => s.snapshot!.repos)
+  // Code repositories only: an organization's memory repository is never listed (Settings → Spaces links it).
+  const allRepos = useStore((s) => s.snapshot!.repos)
+  const organizations = useStore((s) => s.snapshot!.organizations)
+  const repos = useMemo(() => workspaceRepos(allRepos, organizations), [allRepos, organizations])
   const mac = useStore((s) => s.snapshot!.platform === 'darwin')
   const windows = useStore((s) => s.snapshot!.platform === 'win32')
   // A repository's Cloud tab shows once cloud workspaces are on (Settings → Remote workspaces).
