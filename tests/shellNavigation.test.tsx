@@ -817,8 +817,9 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('AcmeTeam')
     const team = screen.getByRole('list', { name: 'Employees of Acme' })
     expect(within(team).getAllByRole('button').map((b) => b.getAttribute('aria-label')?.split(' · ')[0])).toEqual(['Ada', 'Max'])
-    // Team and Channels have no Find and no Group by: the top row is the title and +.
-    expect(within(document.querySelector('.sidebar-top') as HTMLElement).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['New'])
+    // Team and Channels have no Find and no Group by: the top row is the title alone, New under it.
+    expect(within(document.querySelector('.sidebar-top') as HTMLElement).queryAllByRole('button')).toEqual([])
+    expect(screen.getByRole('button', { name: 'New employee' }).closest('.sidebar-new')).not.toBeNull()
     await user.click(screen.getByRole('button', { name: 'Team page' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
     cleanup()

@@ -86,7 +86,7 @@ export function useNewRows(): { primary: NewRow; rows: NewRow[]; mode: SidebarMo
     (mode === 'team' && employee) || (mode === 'channels' && project) || workspaces[0] || { ...openFolder, id: 'add-repository', label: t('sidebar.addRepository') }
 
   const inSpace = [...workspaces, project, employee, automation].filter((r): r is Omit<NewRow, 'group'> => Boolean(r) && r!.id !== main.id)
-  const recents = snapshot.recentRepos.map((p) => ({ id: `recent-${p}`, label: tildify(p, snapshot.homeDir), detail: t('newList.recent'), recent: true, run: () => void openRecentRepo(p) }))
+  const recents = (snapshot.recentRepos ?? []).map((p) => ({ id: `recent-${p}`, label: tildify(p, snapshot.homeDir), detail: t('newList.recent'), recent: true, run: () => void openRecentRepo(p) }))
   const rows: NewRow[] = [
     { ...main, group: here },
     ...inSpace.map((r) => ({ ...r, group: also })),
@@ -105,7 +105,7 @@ export function useNewRows(): { primary: NewRow; rows: NewRow[]; mode: SidebarMo
 export function NewMenu({ rail }: { rail?: boolean }) {
   const t = useT()
   const platform = useStore((s) => s.snapshot!.platform)
-  const { primary, mode } = useNewRows()
+  const { primary } = useNewRows()
   const more = t('newList.more')
   const listKey = shortcutHint('new.list', platform)
   if (rail)
@@ -132,7 +132,6 @@ export function NewMenu({ rail }: { rail?: boolean }) {
         aria-label={primary.label}
         aria-keyshortcuts={primary.hint ? (platform === 'darwin' ? 'Meta+N' : 'Control+N') : undefined}
         data-tour="new-workspace"
-        data-mode={mode}
         menuLabel={listKey ? `${more} (${listKey})` : more}
         onClick={primary.run}
         onArrowClick={() => openOverlay('new')}

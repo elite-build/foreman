@@ -2385,11 +2385,6 @@ export const en = {
   'palette.openPreview': 'Open preview URL',
   // Creates a new workspace (verb).
   'palette.newWorkspace': 'New workspace',
-  'palette.importWorkspace': 'Import workspace…',
-  'palette.importWorkspaceDetail': 'From a .foreman file',
-  'palette.openProject': 'Open project…',
-  'palette.openGithubProject': 'Open GitHub project…',
-  'palette.quickStart': 'Quick start…',
   'palette.viewArchived': 'View archived workspaces',
   'palette.toggleTheme': 'Toggle light / dark theme',
   'palette.toggleSidebar': 'Toggle sidebar',
@@ -2917,7 +2912,6 @@ export const en = {
   'sidebar.rail.needYou': { one: '{label} · {count} needs you', other: '{label} · {count} need you' },
   // The rail's tile for all repositories (a short word).
   'sidebar.rail.all': 'All',
-  'sidebar.rail.add': 'Add repository',
   // Widens the rail to show each repository's name beside its tile (a toggle); {key} is a keyboard shortcut.
   'sidebar.rail.names': 'Show repository names ({key})',
   // {key} is a keyboard shortcut.
@@ -3097,9 +3091,7 @@ export const en = {
   'addRepo.openGithub': 'Open GitHub project',
   // Start a new project from nothing (menu item and dialog title).
   'addRepo.quickStart': 'Quick start',
-  'addRepo.recents': 'Recents',
   // {path} is a folder.
-  'addRepo.forgetRecent': 'Remove {path} from recents',
   'addRepo.location.label': 'Location',
   'addRepo.location.placeholder': 'Enter path or click Browse',
   // Button that opens a folder picker (keep it matching addRepo.location.placeholder).
@@ -6262,7 +6254,6 @@ export const en = {
   'cloud.usage.memoryUnknown': 'Not reported by these stops',
   'cloud.usage.memoryFoot': 'Memory is each session’s size (2 GB per vCPU) times its length; snapshot storage isn’t counted here.',
   // ---- design-system migration: accessible names for controls that only had a title ----
-  'addRepo.openRecent': 'Open {path}',
   'approval.question.tabs': 'Questions',
   'bottomPanel.probe.notResponding': 'Not responding',
   'bottomPanel.probe.responding': 'Responding',
@@ -8083,7 +8074,6 @@ export const en = {
   'home.subtitle.space': { one: '{space} · {count} workspace', other: '{space} · {count} workspaces' },
   'getStarted.next': 'Next: {item}',
   'getStarted.meter': 'Get started progress',
-  'sidebar.new': 'New',
   'sidebar.newTitle': 'New workspace ({key})',
   'sidebar.tabCount': '{label} · {count}',
   'sidebar.team.employees': 'Employees',
@@ -8091,7 +8081,6 @@ export const en = {
   'sidebar.team.page': 'Team page',
   'sidebar.find': 'Find',
   'sidebar.add.workspaceIn': 'in {repo}',
-  'sidebar.add.noRepo': 'Add a repository first',
   'sidebar.add.employeeIn': 'joins {organization}',
   'sidebar.add.channelWith': '@{name} plans it with you',
   'sidebar.add.automation': 'New automation…',
