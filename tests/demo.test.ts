@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { claimDemoFolder, demoDataDir, seedDemo } from '../src/main/demo'
+import { claimDemoFolder, demoDataDir, DEMO_VERSION, seedDemo } from '../src/main/demo'
 import { seedScreens } from '../src/main/screenshots'
 import { Store } from '../src/main/store'
 import { tempDir } from './helpers'
@@ -17,7 +17,7 @@ describe('demo folder', () => {
     expect(claimDemoFolder(root, false)).toBe('seed')
     expect(marker(root)).toBe('seeding')
     await seedDemo(root, async (_root, dataDir) => mkdirSync(dataDir, { recursive: true }))
-    expect(marker(root)).toBe('ready')
+    expect(marker(root)).toBe(`ready ${DEMO_VERSION}`)
     writeFileSync(path.join(demoDataDir(root), 'clicked.txt'), 'what the user did')
     expect(claimDemoFolder(root, false)).toBe('kept')
     expect(existsSync(path.join(demoDataDir(root), 'clicked.txt'))).toBe(true)
@@ -34,6 +34,17 @@ describe('demo folder', () => {
     writeFileSync(path.join(root, 'half.txt'), 'x')
     expect(claimDemoFolder(root, false)).toBe('seed')
     expect(existsSync(path.join(root, 'half.txt'))).toBe(false)
+  })
+
+  it('keeps a demo seeded from an earlier version of the demo data, and seeds the current one on a reset', async () => {
+    const root = await tempDir('foreman-demo-')
+    writeFileSync(path.join(root, '.foreman-demo'), 'ready\n')
+    writeFileSync(path.join(root, 'mine.txt'), 'a workspace the person added')
+    expect(claimDemoFolder(root, false)).toBe('outdated')
+    expect(existsSync(path.join(root, 'mine.txt'))).toBe(true)
+    expect(claimDemoFolder(root, true)).toBe('seed')
+    expect(existsSync(path.join(root, 'mine.txt'))).toBe(false)
+    expect(marker(root)).toBe('seeding')
   })
 
   it('refuses a folder with files that is not a demo, and deletes nothing', async () => {

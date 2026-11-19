@@ -42,9 +42,10 @@ import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
 import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
-import { addDemoOrganization, blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
+import { blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
 import { claimDemoFolder, DEMO, demoDataDir, DEMO_RESET, demoFolder, seedDemo } from './demo'
 import { registerDemoAgents, startDemoRun } from './demoRun'
+import { bindDemoEmployees, startDemoDirector } from './demoEmployees'
 import { configureReplay } from './agents/fixtures/replayDriver'
 import { perf } from './perf'
 import { RemoteRouter, type WindowRoute } from './remote/router'
@@ -92,13 +93,16 @@ const demoRoot = DEMO && !screensRoot && !app.isPackaged ? demoFolder(app.getPat
 let demoSeed = false
 if (demoRoot) {
   try {
-    demoSeed = claimDemoFolder(demoRoot, DEMO_RESET) === 'seed'
+    const claimed = claimDemoFolder(demoRoot, DEMO_RESET)
+    demoSeed = claimed === 'seed'
+    if (claimed === 'outdated') console.log('[demo] This demo was seeded from an earlier version of the demo data. `npm run dev demo reset` seeds the current one (and deletes everything in its folder).')
   } catch (err) {
     console.error(`[demo] ${err instanceof Error ? err.message : String(err)}`)
     process.exit(1)
   }
   blockNetwork((name, value) => app.commandLine.appendSwitch(name, value))
-  // Agents answer from a script (main/demoRun.ts), so the demo's flow run moves with no model behind it.
+  // Agents answer from a script (main/demoRun.ts, main/demoEmployees.ts), so the demo's flow runs and its employees'
+  // work move with no model behind them.
   registerDemoAgents({ replayRoot: app.getAppPath() })
   console.log(`[demo] ${demoSeed ? 'Seeding' : 'Using'} the demo data in ${demoRoot}`)
 }
@@ -474,14 +478,6 @@ async function main(): Promise<void> {
     } catch (err) {
       console.error(`[demo] Could not seed the demo data: ${err instanceof Error ? err.message : String(err)}`)
       return app.exit(1)
-    }
-  } else if (demoRoot) {
-    // A demo kept from before Acme was in the fixture gains it, and keeps what the person did in it.
-    try {
-      if (await addDemoOrganization(demoRoot, demoDataDir(demoRoot))) console.log('[demo] Added the Acme organization to the kept demo.')
-    } catch (err) {
-      // The demo opens as it was; `npm run dev demo reset` seeds it whole.
-      console.error(`[demo] Could not add the Acme organization: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
   const store = new Store(app.getPath('userData'))
@@ -993,11 +989,16 @@ async function main(): Promise<void> {
   // whose turn did is uncertain and waits for a person (docs/ai-employees.md §6.6). Never replayed silently.
   // Outward actions Foreman was sending when it closed may have gone: each waits, uncertain, for a person to check (§9).
   core.employeeActions.recover()
+  // The demo's employees answer from a script that calls their tools through this core (main/demoEmployees.ts).
+  if (demoRoot) bindDemoEmployees(core, store)
   core.employeeWork.start()
   // Projects whose task closed while Foreman was closed go on from it (docs/ai-employees.md §15).
   void core.projects.recover()
-  // The demo: a flow run going from the start (main/demoRun.ts).
-  if (demoRoot) void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow run: ${err instanceof Error ? err.message : String(err)}`))
+  // The demo: flow runs going from the start (main/demoRun.ts), and channels its director keeps moving (main/demoEmployees.ts).
+  if (demoRoot) {
+    void startDemoRun(core, store).catch((err: unknown) => console.error(`[demo] Could not start the demo's flow runs: ${err instanceof Error ? err.message : String(err)}`))
+    startDemoDirector(core, store)
+  }
   // Deletes auto-archived workspaces past Settings → Git's cleanup window (off unless chosen).
   core.autoArchive.start()
   // Temp folders a crash or a killed process left behind (main/tempSweep.ts): a minute after launch, then daily.
