@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmployeeAction } from '../src/shared/employeeActions'
 import { defaultEmployee, serializeEmployee, type EmployeeDefinition, type EmployeeSummary, type EmployeeView } from '../src/shared/employees'
 import type { EmployeeTask, EmployeeWorkView } from '../src/shared/employeeWork'
+import type { Project } from '../src/shared/projects'
 import type { Workspace } from '../src/shared/types'
 import { EmployeePage } from '../src/renderer/src/components/employees/EmployeePage'
 import { EmployeeRunBanner } from '../src/renderer/src/components/employees/EmployeeRunBanner'
@@ -235,5 +236,24 @@ describe('a draft’s page is its plan', () => {
     expect(screen.getByRole('button', { name: 'Approve Lin' })).toBeTruthy()
     // The plan below says what it may do now: Linear changes go without asking.
     expect(screen.getByRole('region', { name: 'Can' }).textContent).toContain('Change Linear without asking you')
+  })
+})
+
+describe('Retry on a project’s task (docs/ai-employees.md §15)', () => {
+  it('is offered only while the project still waits on that task, never once it went on from it', () => {
+    const blocked = task('t-build', 'e-max', { title: 'Build the export', closureReason: 'blocked', project: { id: 'p1', kind: 'part', partId: 'build', round: 1 } })
+    const ws = { ...maxWorkspace, id: 'ws-build', startedBy: { via: 'employee', orgId: 'o1', employeeId: 'e-max', taskId: 't-build', runId: 'r-build', title: 'Build the export' } } as unknown as Workspace
+    const project = (state: 'running' | 'stuck') =>
+      ({ id: 'p1', orgId: 'o1', phase: 'working', steps: [{ kind: 'part', partId: 'build', round: 1, taskId: 't-build', employeeId: 'e-max', state, startedAt: ago(30) }], waits: [], plans: [], parts: {}, decisions: [], notes: [], artifacts: {} }) as unknown as Project
+    const show = (state: 'running' | 'stuck') => {
+      cleanup()
+      fakeState.snapshot = { ...fakeState.snapshot!, employeeWork: { o1: { ...work, tasks: [], actions: [], last: { 'e-max': blocked } } }, projects: { o1: [project(state)] } }
+      render(<EmployeeRunBanner ws={ws} />)
+    }
+    // A replan went on from it (its step isn't running): Try again is the channel's.
+    show('stuck')
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    show('running')
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   })
 })

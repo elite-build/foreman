@@ -7,6 +7,7 @@ import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { needsYouItems, runItems, type NeedsYouItem } from '../../../../shared/employeeDecisions'
 import { canCancelTask, canRetryTask, type EmployeeTask } from '../../../../shared/employeeWork'
+import { projectTaskRetryable } from '../../../../shared/projects'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import { timeAgo } from '../../../../shared/i18n/time'
 import type { Workspace } from '../../../../shared/types'
@@ -34,6 +35,16 @@ export function useDecisionItems(orgId: string, employeeId?: string): DecisionIt
     .filter((e) => e.state === 'paused' && e.pausedKind === 'failures' && (employeeId === undefined || e.id === employeeId))
     .map((e) => ({ kind: 'paused', id: `paused:${e.id}`, employeeId: e.id, at: '', employee: e }))
   return [...paused, ...needsYouItems(view, employeeId)]
+}
+
+/**
+ * Whether a person's Retry may reopen the task (canRetryTask): a project's task only while its project still waits on
+ * it (projectTaskRetryable); once the project went on, Try again is in its channel.
+ */
+export function useTaskRetryable(task: EmployeeTask | undefined): boolean {
+  const projects = useStore((s) => (task?.project ? s.snapshot!.projects?.[task.orgId] : undefined))
+  if (!task || !canRetryTask(task)) return false
+  return projectTaskRetryable(task, task.project ? projects?.find((p) => p.id === task.project!.id) : undefined)
 }
 
 /** The workspace of the task's latest run, while Foreman still has it. */
@@ -175,7 +186,7 @@ export function TaskDecision({ task, place, who }: { task: EmployeeTask; place: 
   const name = useStore((s) => s.snapshot!.employees?.[task.orgId]?.employees.find((e) => e.id === task.employeeId)?.name) || task.employeeId
   const spent = task.state === 'open' && task.hold === 'root-limit'
   const why = holdText(task, t)
-  const retry = canRetryTask(task)
+  const retry = useTaskRetryable(task)
   const main = spent
     ? {
         label: t('employees.chain.raise'),

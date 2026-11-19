@@ -511,7 +511,7 @@ type RawAction = {
 }
 
 /** The fields an action keeps in its `json` column. */
-const ACTION_EXTRA = ['decidedBy', 'edited', 'reason'] as const
+const ACTION_EXTRA = ['decidedBy', 'edited', 'reason', 'via'] as const
 
 const actionRow = (r: RawAction): EmployeeAction => {
   const extra = JSON.parse(r.json || '{}') as Partial<EmployeeAction>

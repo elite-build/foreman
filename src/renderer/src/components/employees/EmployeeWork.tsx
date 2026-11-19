@@ -4,7 +4,7 @@
 // organization's work moves.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RECEIPT_STAGES, receipts, type ReceiptStage } from '../../../../shared/employeeBroker'
-import { canCancelTask, canRetryTask, isRunActive, isRunGoing, workableRepos, type EmployeeRun, type EmployeeTask, type EmployeeTaskChain } from '../../../../shared/employeeWork'
+import { canCancelTask, isRunActive, isRunGoing, workableRepos, type EmployeeRun, type EmployeeTask, type EmployeeTaskChain } from '../../../../shared/employeeWork'
 import { employeeStatus, type EmployeeDefinition, type EmployeeSummary } from '../../../../shared/employees'
 import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
 import { memoryArtifacts } from '../../../../shared/memory'
@@ -14,6 +14,7 @@ import { formatChord } from '../../shortcuts'
 import { api, attempt, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, Kbd, LinkButton, Select, Spinner, Status, Stepper, TextArea, TextInput, type StepperStep } from '../../ui'
 import { formatDuration } from '../turnResult'
+import { useTaskRetryable } from './EmployeeDecisions'
 import { ActionLog } from './HeldActions'
 import { PageLinks } from './PageLinks'
 import { ACCESS_LABEL, activityText, holdText, modelText, RUN_LABEL, RUN_TONE, taskWord } from './words'
@@ -182,6 +183,7 @@ function TaskActions({ task, runs }: { task: EmployeeTask; runs: EmployeeRun[] }
   const t = useT()
   const going = runs.find((r) => r.taskId === task.id && isRunActive(r.state))
   const workspace = useTaskWorkspace(task)
+  const retry = useTaskRetryable(task)
   const spent = task.state === 'open' && task.hold === 'root-limit'
   return (
     <div className="employee-card-actions">
@@ -204,7 +206,7 @@ function TaskActions({ task, runs }: { task: EmployeeTask; runs: EmployeeRun[] }
           {t('employees.chain.raise')}
         </Button>
       )}
-      {canRetryTask(task) && (
+      {retry && (
         <Button size="sm" variant="primary" onClick={() => void attempt(() => api.retryEmployeeTask(task.id))}>
           {t('employees.task.retry')}
         </Button>

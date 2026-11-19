@@ -178,7 +178,7 @@ export const EMPLOYEE_TOOLS = {
   },
   project_plan: {
     description:
-      'Only in a project’s planning task (you are its program manager), once the person has answered your project_questions, or when you read the person’s channel messages (a message task) and the plan in effect must change (a replan): give the plan. summary: what will exist when it is done. size: small (at most 3 parts, ends with its last part) or large (at most 8, ends with your acceptance and the person’s final approval). understood: what you understood (the goal, who it is for, what the person told you). done_when: what must be true for it to be done, each a thing the person can check. out_of_scope: what it leaves out. assumptions: what you assumed (a large plan assumes nothing while you can still ask; ask instead). parts: each with id (lowercase, dashes), title, owner (an employee’s id or name from the roster, or new:<key> for one you propose), brief (what to do, in your words), writes (its one markdown file, such as build.md), reads and depends_on (part ids), gate_after (the person checks its result first), accept_as_is (in a replan, for a part that couldn’t finish: count what it did as done instead of running it again). new_employees: who you propose when nobody fits, each with key, name, role, description, responsibilities, instructions and repos ({"<repository>": "read" | "write"}). Foreman checks it and answers what to fix, or records it and writes plan.md; call it again to change it, then finish_task done.',
+      'Only in a project’s planning task (you are its program manager), once the person has answered your project_questions, or when you read the person’s channel messages (a message task) and the plan in effect must change (a replan): give the plan. summary: what will exist when it is done. size: small (at most 3 parts, ends with its last part) or large (at most 8, ends with your acceptance and the person’s final approval). understood: what you understood (the goal, who it is for, what the person told you). done_when: what must be true for it to be done, each a thing the person can check. out_of_scope: what it leaves out. assumptions: what you assumed (a large plan assumes nothing while you can still ask; ask instead). parts: each with id (lowercase, dashes), title, owner (an employee’s id or name from the roster, or new:<key> for one you propose), brief (what to do, in your words), writes (its one markdown file, such as build.md), reads and depends_on (part ids), gate_after (the person checks its result first), accept_as_is (in a replan, for a part that couldn’t finish: count what it did as done instead of running it again), changes_repo (whether it changes the repository: true for building or fixing code, false for research, requirements, designs or docs in memory and reviews; it defaults to true for an owner with Write; parts that change it run one at a time), publishes (on exactly one part when any part changes the repository: the last such part, which pushes the branch and opens the pull request; no other part may). new_employees: who you propose when nobody fits, each with key, name, role, description, responsibilities, instructions and repos ({"<repository>": "read" | "write"}). Foreman checks it and answers what to fix, or records it and writes plan.md; call it again to change it, then finish_task done.',
     readOnly: false,
     schema: z
       .object({
@@ -200,7 +200,9 @@ export const EMPLOYEE_TOOLS = {
                 reads: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
                 depends_on: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
                 gate_after: z.boolean().optional(),
-                accept_as_is: z.boolean().optional()
+                accept_as_is: z.boolean().optional(),
+                changes_repo: z.boolean().optional(),
+                publishes: z.boolean().optional()
               })
               .strict()
           )

@@ -553,6 +553,9 @@ export interface EmployeeRunAccessText {
   attended: boolean
   // A project's task (§15): its runs share one workspace and branch.
   project?: boolean
+  // In a project: whether this run is its publishing part's (true) or not (false: Foreman refuses its pushes and pull
+  // requests, from the shell and through its tools). Absent: no rule (not a project, or a plan made before the rule).
+  publishes?: boolean
   // The paths a persona narrows its writes to, when it does.
   writes?: string[]
 }
@@ -588,13 +591,17 @@ export function runAccessText(a: EmployeeRunAccessText): string {
   lines.push(
     'Foreman’s own tools on the foreman-app server (memory_search, memory_read, remember, memory_append, memory_write, memory_checkpoint, ask_person, finish_task, report_no_update, escalate, bot_list, bot_delegate, bot_send, bot_cancel, bot_wake_me, bot_propose, request_push, request_pull_request, project_questions, project_plan) can be called in this run, whatever its mode, and need nobody’s approval to call; Foreman checks each call itself. Read each answer: a call can succeed, be held, become a proposal or be refused; say which it was.'
   )
-  if (a.access === 'write' && a.profile === 'shell')
+  if (a.access === 'write' && a.publishes === false)
     lines.push(
-      'To publish your branch, push it and open its pull request yourself (git push, gh pr create) as an agent in a workspace does, or call request_push or request_pull_request with a title and body (Foreman commits everything uncommitted in the workspace, in a project other parts’ changes too, then pushes this run’s branch or opens the pull request; each is recorded and, unless your definition allows it, held until a person approves it). Look at the workspace’s whole change first, and report what you published with its link. With Foreman’s tools, report the answer’s state as it said it: sent, held, refused, failed or uncertain; held is not sent, uncertain may have arrived, and never retry an uncertain delivery yourself. In a project, the part the plan names asks for the pull request; a review report is no reason to publish a branch.'
+      'In this project only the part its plan names as publisher pushes the branch or opens its pull request, and this run isn’t it: don’t push, or open, update or merge a pull request, with your shell or with request_push and request_pull_request. Foreman refuses each. Say in your result what you changed and what should be published.'
+    )
+  else if (a.access === 'write' && a.profile === 'shell')
+    lines.push(
+      'To publish your branch, push it and open its pull request yourself (git push, gh pr create) as an agent in a workspace does, or call request_push or request_pull_request with a title and body (Foreman commits everything uncommitted in the workspace, in a project other parts’ changes too, then pushes this run’s branch or opens the pull request; each is recorded and, unless your definition allows it, held until a person approves it). Look at the workspace’s whole change first, and report what you published with its link. With Foreman’s tools, report the answer’s state as it said it: sent, held, refused, failed or uncertain; held is not sent, uncertain may have arrived, and never retry an uncertain delivery yourself. In a project, only the part the plan names as its publisher publishes, and Foreman records what it pushes or opens from its shell too; a review report is no reason to publish a branch.'
     )
   else if (a.access === 'write')
     lines.push(
-      'To publish your branch, call request_push (Foreman commits everything uncommitted in the workspace, in a project other parts’ changes too, and pushes this run’s branch) or request_pull_request with a title and body (it pushes and opens the pull request); so look at the workspace’s whole change before you ask. Each is recorded and, unless your definition allows it, held until a person approves it. Never merge, and never get a change out any other way. Report the answer’s state as it said it: sent (with its link), held, refused, failed or uncertain. Held is not sent; uncertain may have arrived; never retry an uncertain delivery yourself, or a failure Foreman says a person must retry. In a project, the part the plan names asks for the pull request; a review report is no reason to publish a branch.'
+      'To publish your branch, call request_push (Foreman commits everything uncommitted in the workspace, in a project other parts’ changes too, and pushes this run’s branch) or request_pull_request with a title and body (it pushes and opens the pull request); so look at the workspace’s whole change before you ask. Each is recorded and, unless your definition allows it, held until a person approves it. Never merge, and never get a change out any other way. Report the answer’s state as it said it: sent (with its link), held, refused, failed or uncertain. Held is not sent; uncertain may have arrived; never retry an uncertain delivery yourself, or a failure Foreman says a person must retry. In a project, only the part the plan names as its publisher publishes; a review report is no reason to publish a branch.'
     )
   lines.push(
     a.attended

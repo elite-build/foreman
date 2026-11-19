@@ -27,7 +27,7 @@ afterEach(() => {
 
 const PM = 'e-pri1'
 
-async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unanswered?: ProjectHost['unanswered'] } = {}) {
+async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unanswered?: ProjectHost['unanswered']; host?: Partial<ProjectHost> } = {}) {
   const db = new ForemanDb(path.join(await tempDir('foreman-projects-'), 'foreman.db'))
   opened.push(db)
   const repo = (id: string, name: string, spaceId?: string) => ({ id, name, rootPath: `/code/${name}`, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', ...(spaceId ? { spaceId } : {}) }) as unknown as Repo
@@ -38,15 +38,27 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
     [PM, { name: 'Priya', state: 'active' }],
     ['e-rav1', { name: 'Ravi', state: 'active' }]
   ])
+  // Who has Write on the site repository (their parts change it unless they say not).
+  const writers = new Set<string>()
+  const definition = (id: string): EmployeeDefinition => {
+    const d = defaultEmployee({ id, colour: 'orange', repos: ['site'], loadouts: [{ agent: 'claude', model: 'm' }], text: { name: team.get(id)!.name } })
+    return writers.has(id) ? { ...d, access: { ...d.access, repos: { site: 'write' } } } : d
+  }
   const summary = (id: string): EmployeeSummary => ({ id, path: `bots/${id}.toml`, name: team.get(id)!.name, role: '', colour: 'orange', responsibilities: [], problems: [], state: team.get(id)!.state, changed: false })
   const asked: EmployeeProjectTaskInput[] = []
   const canceled: string[] = []
+  // The tasks whose runs still going were ended with them (a project's Stop), and why.
+  const ended: { ids: readonly string[]; why: string }[] = []
   const archived: [string, string][] = []
   const staged: { runId: string; path: string; text: string }[] = []
   // The memory repository's files at its head, and the commits the person made (deleting a channel's files).
   const files: { path: string; blob: string }[] = []
   const personCommits: { changes: MemoryChange[]; subject: string }[] = []
   const alive = new Set<string>()
+  // Workspaces archived (openWorkspace restores them), and the forks "Hand to Priya…" made: [from, include].
+  const shelved = new Set<string>()
+  const forks: [string, boolean][] = []
+  const restored: string[] = []
   let n = 0
   const clock = { now: Date.parse('2026-11-15T10:00:00.000Z') }
   const work: ProjectHost['work'] = {
@@ -66,7 +78,8 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
       const task = db.employeeTask(id)!
       db.putEmployeeTask({ ...task, state: 'closed', closureReason: 'canceled' })
       return task
-    }
+    },
+    endRuns: async (ids, why) => void ended.push({ ids, why })
   }
   const host: ProjectHost = {
     state: () => state,
@@ -75,10 +88,9 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
     employees: {
       current: async (_org, id) => {
         if (!team.has(id)) throw new Error('Employee not found')
-        const d = defaultEmployee({ id, colour: 'orange', repos: ['site'], loadouts: [{ agent: 'claude', model: 'm' }], text: { name: team.get(id)!.name } })
-        return { summary: summary(id), definition: d, head: 'h' }
+        return { summary: summary(id), definition: definition(id), head: 'h' }
       },
-      members: async () => [...team.keys()].map((id) => ({ summary: summary(id), definition: defaultEmployee({ id, colour: 'orange', repos: ['site'], loadouts: [{ agent: 'claude', model: 'm' }], text: { name: team.get(id)!.name } }) })) as never,
+      members: async () => [...team.keys()].map((id) => ({ summary: summary(id), definition: definition(id) })) as never,
       createTeam: async (_org, definitions) => {
         for (const d of definitions) team.set(d.id, { name: d.name, state: 'draft', definition: d })
         return [] as never
@@ -98,14 +110,27 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
       }
     },
     workspaceAlive: (id) => alive.has(id),
-    workspaceRepo: (id) => (id === 'ws-own' ? 'site' : undefined),
+    openWorkspace: async (id) => {
+      if (alive.has(id)) return
+      if (!shelved.has(id)) throw new Error('it is gone (deleted, or only its history is left).')
+      shelved.delete(id)
+      alive.add(id)
+      restored.push(id)
+    },
+    forkWorkspace: async (from, include) => {
+      forks.push([from, include])
+      return `ws-fork-${forks.length}`
+    },
+    workspaceName: (id) => `name-of-${id}`,
+    workspaceRepo: (id) => (id.startsWith('ws-') ? 'site' : undefined),
     transcript: async () => 'You: add a Download CSV button',
     archive: (ws, runId) => void archived.push([ws, runId]),
     loadouts: () => [{ agent: 'claude', model: 'm' }],
     ...(options.steer ? { steer: options.steer } : {}),
     ...(options.unanswered ? { unanswered: options.unanswered } : {}),
     changed: () => undefined,
-    now: () => clock.now
+    now: () => clock.now,
+    ...options.host
   }
   const service = new ProjectService(host)
   /** Close a task as its run would, and let the project go on. */
@@ -143,7 +168,7 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
     db.putProject(fresh)
     return service.get(project.id)
   }
-  return { db, state, org, team, service, asked, canceled, archived, staged, files, personCommits, alive, close, task, last, plan, get, start, clock }
+  return { db, state, org, team, writers, ended, service, asked, canceled, archived, staged, files, personCommits, alive, shelved, forks, restored, close, task, last, plan, get, start, clock }
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 15))
@@ -176,13 +201,51 @@ describe('projects: starting with the program manager', () => {
     expect(r.get(project.id).steps[0]).toMatchObject({ kind: 'plan', employeeId: PM, state: 'running' })
   })
 
-  it('takes a workspace handed to her as the project’s, with its chat as her first input', async () => {
+  it('branches the project’s own workspace from one handed to her, with its chat as her first input, and never archives the person’s', async () => {
     const r = await rig()
     r.alive.add('ws-own')
-    const project = await r.service.start('o1', { requirement: 'Finish it for finance', fromWorkspaceId: 'ws-own' })
-    expect(project).toMatchObject({ workspaceId: 'ws-own', fromWorkspaceId: 'ws-own', repoId: 'site' })
+    const project = await r.service.start('o1', { requirement: 'Finish it for finance', fromWorkspaceId: 'ws-own', includeChanges: true })
+    expect(r.forks).toEqual([['ws-own', true]])
+    expect(project).toMatchObject({ workspaceId: 'ws-fork-1', fromWorkspaceId: 'ws-own', repoId: 'site' })
     expect(r.last().body).toContain('You: add a Download CSV button')
-    expect(r.service.workspaceFor(r.task(r.last()))).toBe('ws-own')
+    r.alive.add('ws-fork-1')
+    await expect(r.service.workspaceFor(r.task(r.last()))).resolves.toBe('ws-fork-1')
+    await r.service.stop(project.id)
+    expect(r.archived.map(([ws]) => ws)).toEqual(['ws-fork-1'])
+  })
+
+  it('leaves the uncommitted changes out unless asked, and refuses a workspace that isn’t ready', async () => {
+    const r = await rig()
+    await expect(r.service.start('o1', { requirement: 'Finish it', fromWorkspaceId: 'ws-own' })).rejects.toThrow('isn’t ready')
+    r.alive.add('ws-own')
+    await r.service.start('o1', { requirement: 'Finish it', fromWorkspaceId: 'ws-own' })
+    expect(r.forks).toEqual([['ws-own', false]])
+  })
+
+  it('refuses a second hand-off of a workspace while the first project is open (two at once too), and allows it once that one closed', async () => {
+    const r = await rig()
+    r.alive.add('ws-own')
+    const [first, second] = await Promise.allSettled([
+      r.service.start('o1', { requirement: 'Finish it for finance', fromWorkspaceId: 'ws-own' }),
+      r.service.start('o1', { requirement: 'Finish it for finance', fromWorkspaceId: 'ws-own' })
+    ])
+    expect(first.status).toBe('fulfilled')
+    expect(second).toMatchObject({ status: 'rejected', reason: expect.objectContaining({ message: expect.stringContaining('went to #finish-it-for-finance already') }) })
+    expect(r.forks).toHaveLength(1)
+    // The project's own workspace can't be handed to another project either.
+    r.alive.add('ws-fork-1')
+    await expect(r.service.start('o1', { requirement: 'Another', fromWorkspaceId: 'ws-fork-1' })).rejects.toThrow('#finish-it-for-finance')
+    await r.service.stop((first as PromiseFulfilledResult<{ id: string }>).value.id)
+    await expect(r.service.start('o1', { requirement: 'Finish it again', fromWorkspaceId: 'ws-own' })).resolves.toMatchObject({ workspaceId: 'ws-fork-2', fromWorkspaceId: 'ws-own' })
+  })
+
+  it('never archives the person’s workspace on a project handed over before it got its own (the same id)', async () => {
+    const r = await rig()
+    r.alive.add('ws-own')
+    const project = await r.service.start('o1', { requirement: 'Finish it for finance' })
+    r.db.putProject({ ...r.db.project(project.id)!, workspaceId: 'ws-own', fromWorkspaceId: 'ws-own' })
+    await r.service.stop(project.id)
+    expect(r.archived).toEqual([])
   })
 })
 
@@ -210,7 +273,7 @@ describe('projects: the plan', () => {
   it('makes the employees a plan proposes as drafts, and approves the plan only once each is approved', async () => {
     const r = await rig()
     const project = await r.start({ requirement: 'Export reports to CSV' })
-    await r.plan({ ...TWO_PARTS, parts: [...TWO_PARTS.parts, { id: 'qa', title: 'QA', owner: 'new:qa', brief: 'Test it.', writes: 'qa.md', depends_on: ['build'] }], new_employees: [{ key: 'qa', name: 'Quinn', role: 'QA engineer', description: 'Tests.', instructions: 'Test.', repos: { site: 'write' } }] })
+    await r.plan({ ...TWO_PARTS, parts: [...TWO_PARTS.parts, { id: 'qa', title: 'QA', owner: 'new:qa', brief: 'Test it.', writes: 'qa.md', depends_on: ['build'], changes_repo: false }], new_employees: [{ key: 'qa', name: 'Quinn', role: 'QA engineer', description: 'Tests.', instructions: 'Test.', repos: { site: 'write' } }] })
     const p = r.get(project.id)
     const quinn = p.plans[0].proposedIds.qa
     expect(r.team.get(quinn)).toMatchObject({ name: 'Quinn', state: 'draft' })
@@ -377,7 +440,7 @@ describe('projects: parts, gates and the end', () => {
   it('keeps a proposed owner’s part with them in a replan that names them as an employee', async () => {
     const r = await rig()
     const project = await r.start({ requirement: 'Export reports to CSV' })
-    await r.plan({ summary: 's', size: 'small', parts: [{ id: 'build', title: 'Build', owner: 'new:dev', brief: 'Build it.', writes: 'build.md' }], new_employees: [{ key: 'dev', name: 'Dev', role: 'Developer', description: '', instructions: 'Build.', repos: { site: 'write' } }] })
+    await r.plan({ summary: 's', size: 'small', parts: [{ id: 'build', title: 'Build', owner: 'new:dev', brief: 'Build it.', writes: 'build.md', publishes: true }], new_employees: [{ key: 'dev', name: 'Dev', role: 'Developer', description: '', instructions: 'Build.', repos: { site: 'write' } }] })
     const dev = r.get(project.id).plans[0].proposedIds.dev
     r.team.get(dev)!.state = 'active'
     await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
@@ -433,7 +496,7 @@ describe('projects: parts, gates and the end', () => {
     const r = await approved({ ...TWO_PARTS, size: 'large', understood: ['Finance wants reports as CSV.'], done_when: ['Reports download as CSV.'] })
     r.service.runCreated(r.task(r.asked[1]), 'ws-1')
     r.alive.add('ws-1')
-    expect(r.service.workspaceFor(r.task(r.asked[2]))).toBe('ws-1')
+    await expect(r.service.workspaceFor(r.task(r.asked[2]))).resolves.toBe('ws-1')
     expect(r.service.keeps(r.task(r.asked[1]))).toBe(true)
     await r.close(r.task(r.asked[1]).id)
     await r.close(r.task(r.asked[2]).id)
@@ -1081,5 +1144,340 @@ describe('projects: what main tells the window, and what closing touches', () =>
     expect(p).toMatchObject({ phase: 'closed', outcome: 'done' })
     expect(r.canceled).toEqual([follow.id])
     expect(p.steps.find((s) => s.taskId === follow.id)).toMatchObject({ end: 'stopped', reason: 'Canceled when the project closed.' })
+  })
+})
+
+describe('projects: the workspace and publishing (one writer at a time, one publisher)', () => {
+  // Ravi has Write: his parts change the repository unless they say not. Priya's only read it.
+  const SERIAL: PlanInput = {
+    summary: 'A simpler sidebar.',
+    size: 'small',
+    parts: [
+      { id: 'build', title: 'Build the sidebar', owner: 'Ravi', brief: 'Build it.', writes: 'build.md' },
+      { id: 'i18n', title: 'Update translations', owner: 'Ravi', brief: 'Translate it.', writes: 'i18n.md' },
+      { id: 'notes', title: 'Release notes', owner: 'Priya', brief: 'Write them.', writes: 'notes.md' }
+    ]
+  }
+  const SERIAL_LARGE: PlanInput = {
+    ...SERIAL,
+    size: 'large',
+    understood: ['A simpler sidebar.'],
+    done_when: ['The sidebar is simpler.'],
+    parts: [...SERIAL.parts, { id: 'pr', title: 'Open the PR', owner: 'Ravi', brief: 'Publish.', writes: 'pr.md', depends_on: ['build', 'i18n'], publishes: true }]
+  }
+  async function serial(input: PlanInput, options: Parameters<typeof rig>[0] = {}) {
+    const r = await rig(options)
+    r.writers.add('e-rav1')
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan(input)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const of = (partId: string) => r.task(r.asked.filter((a) => a.project.partId === partId).at(-1)!)
+    return { ...r, id: project.id, of }
+  }
+
+  it('runs the parts that change the repository one at a time, and those that only read it beside them', async () => {
+    const r = await serial(SERIAL_LARGE)
+    const p = r.get(r.id)
+    expect(p.plan?.parts.map((x) => [x.id, x.changesRepo, Boolean(x.publishes)])).toEqual([
+      ['build', true, false],
+      ['i18n', true, false],
+      ['notes', false, false],
+      ['pr', true, true]
+    ])
+    // Build and the notes start; the translations wait for the build.
+    expect(r.asked.filter((a) => a.project.kind === 'part').map((a) => a.project.partId)).toEqual(['build', 'notes'])
+    expect(p.parts.i18n).toMatchObject({ state: 'pending' })
+    await r.close(r.of('build').id)
+    expect(r.asked.filter((a) => a.project.kind === 'part').map((a) => a.project.partId)).toEqual(['build', 'notes', 'i18n'])
+    await r.close(r.of('i18n').id)
+    expect(r.asked.at(-1)!.project.partId).toBe('pr')
+  })
+
+  it('tells each part whether it changes the repository and who publishes, and refuses publishing to every run but the publisher’s', async () => {
+    const r = await serial(SERIAL_LARGE)
+    expect(r.asked.find((a) => a.project.partId === 'build')!.body).toContain('Don’t push the branch or open a pull request: “Open the PR” (pr) publishes the project')
+    expect(r.asked.find((a) => a.project.partId === 'notes')!.body).toContain('Your part doesn’t change the repository')
+    await r.close(r.of('build').id)
+    await r.close(r.of('i18n').id)
+    expect(r.asked.at(-1)!.body).toContain('You publish the project')
+    expect(r.service.publishRule(r.of('pr'))).toEqual({ may: true })
+    expect(r.service.publishRule(r.of('build'))).toEqual({ may: false, refusal: expect.stringContaining('only the part “Open the PR” (pr) pushes the branch') })
+    const follow = await r.service.askFollowUp(r.id, 'e-rav1', 'Is it narrower?')
+    expect(r.service.publishRule(r.db.employeeTask(follow.id)!)).toMatchObject({ may: false })
+    const planning = r.task(r.asked[0])
+    expect(r.service.publishRule(planning)).toMatchObject({ may: false })
+    // A plan made before parts said whether they change the repository keeps its old rule: none.
+    const f = r.db.project(r.id)!
+    r.db.putProject({ ...f, plan: { ...f.plan!, parts: f.plan!.parts.map(({ changesRepo: _c, publishes: _p, ...rest }) => rest) } })
+    expect(r.service.publishRule(r.of('build'))).toBeUndefined()
+  })
+
+  it('records what the publisher pushed or opened from its shell when it ends, and gives it to the acceptance and the window', async () => {
+    const recorded: string[] = []
+    const r = await serial(SERIAL_LARGE, { host: { recordPublished: async (task) => void recorded.push(task.project?.partId ?? '') } })
+    await r.close(r.of('build').id)
+    await r.close(r.of('notes').id)
+    await r.close(r.of('i18n').id)
+    expect(recorded).toEqual([])
+    const pr = r.of('pr')
+    const at = '2026-11-15T11:00:00.000Z'
+    r.db.addEmployeeAction({
+      id: 'a-shell',
+      orgId: 'o1',
+      employeeId: 'e-rav1',
+      taskId: pr.id,
+      runId: 'r',
+      repoId: 'site',
+      kind: 'pull-request',
+      payload: { kind: 'pull-request', connection: '', workspaceId: 'ws-1', branch: 'ravi/sidebar', base: 'main', head: 'abc', ahead: 0, commits: [], title: 'Simplify the sidebar', body: '' },
+      policy: 'allowed',
+      state: 'sent',
+      key: 'shell:k',
+      decidedBy: 'definition',
+      via: 'shell',
+      result: { link: 'https://github.com/acme/site/pull/7' },
+      createdAt: at,
+      updatedAt: at,
+      sentAt: at
+    })
+    await r.close(pr.id)
+    expect(recorded).toEqual(['pr'])
+    const accept = r.last()
+    expect(accept.project.kind).toBe('accept')
+    expect(accept.body).toContain('Published so far for the project')
+    expect(accept.body).toContain('Ravi opened a pull request “Simplify the sidebar” from ravi/sidebar from their shell: sent, https://github.com/acme/site/pull/7')
+    expect(accept.body).toContain('Check each pull request’s state now')
+    expect(r.service.views().o1[0].published).toEqual([expect.objectContaining({ kind: 'pull-request', via: 'shell', link: 'https://github.com/acme/site/pull/7', taskId: pr.id })])
+    // A follow-up's brief has it too, and says a follow-up doesn't publish.
+    const follow = await r.service.askFollowUp(r.id, 'e-rav1', 'Is the PR green?')
+    expect(r.db.employeeTask(follow.id)!.body).toContain('https://github.com/acme/site/pull/7')
+    expect(r.db.employeeTask(follow.id)!.body).toContain('A follow-up doesn’t publish')
+  })
+
+  it('tells an acceptance nothing was published when nothing was', async () => {
+    const r = await serial(SERIAL_LARGE)
+    for (const id of ['build', 'notes', 'i18n', 'pr']) await r.close(r.of(id).id)
+    expect(r.last().body).toContain('Nothing of the project was published')
+  })
+
+  it('marks a part that shouldn’t change the repository when it did, unless a part that changes it ran meanwhile', async () => {
+    let state = 'head-1:clean'
+    const r = await rig({ host: { repoState: async () => state } })
+    r.writers.add('e-rav1')
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    r.service.runCreated(r.task(r.last()), 'ws-1')
+    r.alive.add('ws-1')
+    await r.plan({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'notes', title: 'Notes', owner: 'Priya', brief: 'n', writes: 'notes.md' },
+        { id: 'review', title: 'Review', owner: 'Ravi', brief: 'r', writes: 'review.md', changes_repo: false },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'b', writes: 'build.md', depends_on: ['notes'], publishes: true }
+      ]
+    })
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const notes = r.task(r.asked.find((a) => a.project.partId === 'notes')!)
+    const review = r.task(r.asked.find((a) => a.project.partId === 'review')!)
+    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.repoAt).toBe('head-1:clean')
+    state = 'head-1:dirty'
+    await r.close(notes.id)
+    // The review, which shouldn't change it either, ran meanwhile: it was one of them.
+    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.changedRepo).toBe('shared')
+    // The build (which changes it) started when the notes ended, before the review ended: the review isn't blamed.
+    state = 'head-2:dirty'
+    await r.close(review.id)
+    expect(r.get(project.id).steps.find((s) => s.taskId === review.id)?.changedRepo).toBeUndefined()
+  })
+
+  it('stops a turn still running after its task closed when the project stops, and refuses its tools after', async () => {
+    const r = await serial(SERIAL_LARGE)
+    const notes = r.of('notes')
+    await r.close(notes.id)
+    const build = r.of('build')
+    expect(r.service.acting(notes)).toBeUndefined()
+    await r.service.stop(r.id)
+    // Build was canceled (its task still ran); the notes' task had closed: its run is ended too.
+    expect(r.canceled).toEqual([build.id])
+    expect(r.ended).toEqual([{ ids: expect.arrayContaining([notes.id, r.task(r.asked[0]).id]), why: 'Stopped with its project.' }])
+    expect(r.ended[0].ids).not.toContain(build.id)
+    expect(r.service.acting(notes)).toContain('is closed (stopped by the person)')
+    // A follow-up asked after it closed still works; a deleted project's tasks don't.
+    const follow = await r.service.askFollowUp(r.id, 'e-rav1', 'What was left?')
+    expect(r.service.acting(r.db.employeeTask(follow.id)!)).toBeUndefined()
+    await r.service.remove(r.id)
+    expect(r.service.acting(notes)).toContain('was deleted')
+  })
+
+  it('refuses the generic Retry on a task the project went on from, and allows it while the project waits on it', async () => {
+    const r = await serial(SERIAL_LARGE)
+    const build = r.of('build')
+    expect(r.service.retryRefusal(build)).toBeUndefined()
+    await r.close(build.id, { reason: 'blocked', detail: 'Tests fail' })
+    // A replan went on from it: Retry is the channel's Try again now.
+    expect(r.service.retryRefusal(r.db.employeeTask(build.id)!)).toContain('Use Try again in the channel instead')
+    const follow = await r.service.askFollowUp(r.id, 'e-rav1', 'Why?')
+    expect(r.service.retryRefusal(r.db.employeeTask(follow.id)!)).toBeUndefined()
+    await r.service.stop(r.id)
+    expect(r.service.retryRefusal(r.of('notes'))).toContain('and is closed')
+  })
+
+  it('restores an archived workspace for the next run, and refuses one that is gone instead of making a fresh one', async () => {
+    const r = await serial(SERIAL_LARGE)
+    const build = r.of('build')
+    r.service.runCreated(build, 'ws-1')
+    // A workspace it has is never replaced by another run's.
+    r.service.runCreated(r.of('notes'), 'ws-2')
+    expect(r.get(r.id).workspaceId).toBe('ws-1')
+    r.shelved.add('ws-1')
+    await expect(r.service.workspaceFor(build)).resolves.toBe('ws-1')
+    expect(r.restored).toEqual(['ws-1'])
+    r.alive.delete('ws-1')
+    await expect(r.service.workspaceFor(build)).rejects.toThrow(
+      'The project’s workspace name-of-ws-1 can’t be used: it is gone (deleted, or only its history is left). Foreman doesn’t start this work on a fresh copy of the code without the project’s; restore the workspace, or stop the project.'
+    )
+  })
+
+  it('makes the project’s workspace once when parts start together without one: the others wait for it, then use it', async () => {
+    const r = await serial(SERIAL_LARGE)
+    const build = r.of('build')
+    const notes = r.of('notes')
+    const first = r.service.workspaceFor(build)
+    const second = r.service.workspaceFor(notes)
+    await expect(first).resolves.toBeUndefined()
+    let got: string | undefined | null = null
+    void second.then((ws) => (got = ws))
+    await settle()
+    expect(got).toBeNull()
+    r.service.runCreated(build, 'ws-9')
+    r.alive.add('ws-9')
+    r.service.launchSettled(build)
+    await expect(second).resolves.toBe('ws-9')
+    // A first launch that failed before making one lets the next make it.
+    const s = await serial(SERIAL_LARGE)
+    const a = s.service.workspaceFor(s.of('build'))
+    const b = s.service.workspaceFor(s.of('notes'))
+    await expect(a).resolves.toBeUndefined()
+    s.service.launchSettled(s.of('build'))
+    await expect(b).resolves.toBeUndefined()
+    s.service.launchSettled(s.of('notes'))
+  })
+})
+
+describe('projects: one writer at a time on every path, and what ends with the project', () => {
+  const GATED: PlanInput = {
+    summary: 'A simpler sidebar.',
+    size: 'small',
+    parts: [
+      { id: 'build', title: 'Build the sidebar', owner: 'Ravi', brief: 'Build it.', writes: 'build.md', gate_after: true },
+      { id: 'i18n', title: 'Update translations', owner: 'Ravi', brief: 'Translate it.', writes: 'i18n.md' },
+      { id: 'pr', title: 'Open the PR', owner: 'Ravi', brief: 'Publish.', writes: 'pr.md', depends_on: ['build', 'i18n'], publishes: true }
+    ]
+  }
+  async function gated(input: PlanInput = GATED, options: Parameters<typeof rig>[0] = {}) {
+    const r = await rig(options)
+    r.writers.add('e-rav1')
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan(input)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const of = (partId: string) => r.task(r.asked.filter((a) => a.project.partId === partId).at(-1)!)
+    return { ...r, id: project.id, of }
+  }
+  const parts = (r: Awaited<ReturnType<typeof gated>>) => r.asked.filter((a) => a.project.kind === 'part').map((a) => `${a.project.partId}:${a.project.round}`)
+
+  it('starts the waiting part once the running one reaches its gate, and holds a send-back with its note until that one ends', async () => {
+    const r = await gated()
+    expect(parts(r)).toEqual(['build:1'])
+    await r.close(r.of('build').id)
+    // Build waits for the person at its gate: it no longer runs, so the translations start.
+    expect(parts(r)).toEqual(['build:1', 'i18n:1'])
+    await r.service.decide(r.id, r.get(r.id).waits[0].id, 'send-back', 'Narrower, please')
+    // The translations run: the build's next round waits for them, with the note kept.
+    expect(parts(r)).toEqual(['build:1', 'i18n:1'])
+    expect(r.get(r.id).parts.build).toMatchObject({ state: 'pending', note: 'Narrower, please' })
+    await r.close(r.of('i18n').id)
+    expect(parts(r)).toEqual(['build:1', 'i18n:1', 'build:2'])
+    expect(r.asked.at(-1)!.body).toContain('The person sent this back to you, in their words: “Narrower, please”')
+    expect(r.get(r.id).parts.build).toEqual(expect.not.objectContaining({ note: expect.anything() }))
+  })
+
+  it('holds Try again on a stuck part that changes the repository while another that does runs, and starts the next when one gets stuck', async () => {
+    const r = await gated({ ...GATED, parts: GATED.parts.map(({ gate_after: _g, ...p }) => p) })
+    const f = r.db.project(r.id)!
+    r.db.putProject({ ...f, replans: 3 })
+    await r.close(r.of('build').id, { reason: 'blocked', detail: 'Tests fail' })
+    // Out of replans: build waits for the person, and the translations start meanwhile.
+    expect(parts(r)).toEqual(['build:1', 'i18n:1'])
+    const stuck = r.get(r.id).waits.find((w) => w.kind === 'stuck')!
+    await r.service.decide(r.id, stuck.id, 'retry', 'Use the fixtures')
+    expect(r.get(r.id).parts.build).toMatchObject({ state: 'pending', note: 'Use the fixtures' })
+    await r.close(r.of('i18n').id)
+    expect(parts(r)).toEqual(['build:1', 'i18n:1', 'build:2'])
+    expect(r.asked.at(-1)!.body).toContain('“Use the fixtures”')
+  })
+
+  it('lets a finished turn end on its own when a small project closes done, and ends it on Stop', async () => {
+    const r = await gated({ ...GATED, parts: [{ ...GATED.parts[0], gate_after: false, publishes: true }] })
+    await r.close(r.of('build').id)
+    expect(r.get(r.id)).toMatchObject({ phase: 'closed', outcome: 'done' })
+    expect(r.ended).toEqual([])
+  })
+
+  it('records the publisher’s shell publications when its run ends too, and only the publisher’s', async () => {
+    const recorded: string[] = []
+    const r = await gated(GATED, { host: { recordPublished: async (task) => void recorded.push(task.project?.partId ?? '') } })
+    r.service.runEnded(r.of('build'))
+    expect(recorded).toEqual([])
+    await r.close(r.of('build').id)
+    await r.service.decide(r.id, r.get(r.id).waits[0].id, 'approve')
+    await r.close(r.of('i18n').id)
+    r.service.runEnded(r.of('pr'))
+    await settle()
+    expect(recorded).toEqual(['pr'])
+  })
+
+  it('blames neither of two parts that shouldn’t change the repository when it changed while both ran', async () => {
+    let state = 'head-1:clean'
+    const r = await rig({ host: { repoState: async () => state } })
+    const project = await r.start({ requirement: 'Research the sidebar' })
+    r.service.runCreated(r.task(r.last()), 'ws-1')
+    r.alive.add('ws-1')
+    await r.plan({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'notes', title: 'Notes', owner: 'Priya', brief: 'n', writes: 'notes.md' },
+        { id: 'review', title: 'Review', owner: 'Ravi', brief: 'r', writes: 'review.md' }
+      ]
+    })
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const notes = r.task(r.asked.find((a) => a.project.partId === 'notes')!)
+    state = 'head-1:dirty'
+    await r.close(notes.id)
+    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.changedRepo).toBe('shared')
+  })
+})
+
+describe('projects: a part that shouldn’t change the repository, alone', () => {
+  it('is marked when the repository changed while it ran by itself', async () => {
+    let state = 'head-1:clean'
+    const r = await rig({ host: { repoState: async () => state } })
+    r.writers.add('e-rav1')
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    r.service.runCreated(r.task(r.last()), 'ws-1')
+    r.alive.add('ws-1')
+    await r.plan({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'notes', title: 'Notes', owner: 'Priya', brief: 'n', writes: 'notes.md' },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'b', writes: 'build.md', depends_on: ['notes'], publishes: true }
+      ]
+    })
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const notes = r.task(r.asked.find((a) => a.project.partId === 'notes')!)
+    state = 'head-1:dirty'
+    await r.close(notes.id)
+    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.changedRepo).toBe(true)
   })
 })

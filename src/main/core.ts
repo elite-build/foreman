@@ -132,7 +132,7 @@ import { MemoryLinkService } from './memoryLink'
 import { MemoryService } from './memory'
 import { EmployeeService } from './employees'
 import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
-import { isRunGoing } from '../shared/employeeWork'
+import { isRunGoing, type EmployeeTask } from '../shared/employeeWork'
 import { ProjectService } from './projects'
 import { EmployeeTriggerService } from './employeeTriggers'
 import { EmployeeEventService } from './employeeEvents'
@@ -979,6 +979,11 @@ export class Core {
       memory: this.memory,
       // Another chat can open in it only while it is ready (a new one's setup, or an archived one, can't take it).
       workspaceAlive: (id) => store.state.workspaces.find((w) => w.id === id)?.state === 'ready',
+      openWorkspace: (id) => this.openProjectWorkspace(id),
+      forkWorkspace: (fromId, include) => this.forkProjectWorkspace(fromId, include),
+      repoState: (id) => this.workspaceRepoState(id),
+      recordPublished: (task) => this.recordShellPublished(task),
+      workspaceName: (id) => store.state.workspaces.find((w) => w.id === id)?.name,
       archive: (workspaceId, runId) => this.autoArchive.request(workspaceId, { reason: { kind: 'employee', runId }, deleteBranch: false }),
       workspaceRepo: (id) => store.state.workspaces.find((w) => w.id === id)?.repoId,
       // "Hand to Priya…": the last turns of the workspace's chats, oldest chat first.
@@ -2509,9 +2514,103 @@ export class Core {
   }
 
   /**
+   * A project's workspace made ready for another of its runs (docs/ai-employees.md §15): waited for while it is being
+   * made or set up, restored when it was archived (its branch and the changes saved with it), a pending archive called
+   * off. Throws why it can't be used, in words that end a sentence: gone, or failed.
+   */
+  private async openProjectWorkspace(id: string): Promise<void> {
+    const find = () => this.store.state.workspaces.find((w) => w.id === id)
+    const ws = find()
+    if (!ws || ws.state === 'history') throw new Error('it is gone (deleted, or only its history is left).')
+    this.autoArchive.cancel(id)
+    if (ws.state === 'archived') await this.workspaces.unarchiveWorkspace(id).catch((err: unknown) => {
+      throw new Error(`it is archived and couldn’t be restored (${err instanceof Error ? err.message : String(err)}).`)
+    })
+    if (['creating', 'setting-up'].includes(find()?.state ?? '')) await this.setupOutcome(id)
+    const now = find()
+    if (now?.state === 'ready') return
+    throw new Error(now?.state === 'setup-failed' ? 'its setup failed.' : now?.state === 'error' ? `it couldn’t be made (${now.error ?? 'an error'}).` : now?.state === 'history' ? 'only its history is left.' : 'it isn’t ready.')
+  }
+
+  /**
+   * "Hand to Priya…" (docs/ai-employees.md §15): the project's own workspace, a new one branched from the handed
+   * workspace's HEAD, with its uncommitted changes (a snapshot of its tree, as Compare takes) when `include`, else clean.
+   * The handed workspace is only read. Its setup runs once the copy is in; the project's first run waits for it.
+   */
+  private async forkProjectWorkspace(fromId: string, include: boolean): Promise<string> {
+    const source = this.workspaces.workspace(fromId)
+    if (source.cloud) throw new Error('A cloud workspace can’t be handed to a project yet.')
+    const head = await revParse(wsPath(source), 'HEAD')
+    if (!head) throw new Error(`${source.name} has no commit to branch from.`)
+    const checkpointId = include ? `project-${randomUUID().slice(0, 8)}` : ''
+    if (include) {
+      const saved = await saveCheckpoint(wsPath(source), checkpointId)
+      if (!saved.ok) throw new Error(`Couldn’t copy ${source.name}’s changes: ${saved.reason}.`)
+    }
+    const ws = await this.workspaces.createWorkspace(source.repoId, { baseBranch: source.baseBranch, deferSetup: true }).catch(async (err: unknown) => {
+      if (include) await deleteCheckpoints(wsPath(source), checkpointId).catch(() => undefined)
+      throw err
+    })
+    void (async () => {
+      try {
+        await this.workspaces.worktreePrepared(ws.id)
+        if (include) await restoreCheckpoint(wsPath(ws), checkpointId)
+        else await git(wsPath(ws), ['reset', '-q', '--hard', head])
+        this.workspaces.continueSetup(ws.id)
+      } catch (err) {
+        this.workspaces.continueSetup(ws.id, `Couldn’t copy ${source.name} into this workspace: ${err instanceof Error ? err.message : String(err)}`)
+      } finally {
+        if (include) await deleteCheckpoints(wsPath(source), checkpointId).catch(() => undefined)
+      }
+    })()
+    return ws.id
+  }
+
+  /** A workspace's HEAD and what is uncommitted, as one string (a project's soft check on a part that shouldn't change it). */
+  private async workspaceRepoState(id: string): Promise<string | undefined> {
+    const ws = this.store.state.workspaces.find((w) => w.id === id)
+    if (!ws || ws.cloud || ws.state !== 'ready') return undefined
+    const at = wsPath(ws)
+    const [head, status, diff] = await Promise.all([revParse(at, 'HEAD'), gitOut(at, ['status', '--porcelain', '-uall']), gitOut(at, ['diff', 'HEAD']).catch(() => '')])
+    return `${head ?? ''}:${createHash('sha256').update(status).update('\0').update(diff).digest('hex')}`
+  }
+
+  /**
+   * What a project's publishing part published from its shell (docs/ai-employees.md §15), found once it ended: the pull
+   * request open for its branch, else the branch on its remote, each recorded once as sent (EmployeeActionService.recordShell).
+   */
+  private async recordShellPublished(task: EmployeeTask): Promise<void> {
+    // Its newest run with a workspace (the list is newest first).
+    const run = this.store.db.employeeRuns({ taskId: task.id }).filter((r) => r.workspaceId)[0]
+    const ws = run?.workspaceId ? this.store.state.workspaces.find((w) => w.id === run.workspaceId) : undefined
+    if (!run || !ws || ws.cloud || ws.state !== 'ready') return
+    const at = wsPath(ws)
+    const repo = this.workspaces.repo(ws.repoId)
+    const remote = repo.remote || 'origin'
+    const head = await revParse(at, `refs/remotes/${remote}/${ws.branch}`)
+    if (!head) return
+    const remoteUrl = remoteWhere(await gitOut(at, ['remote', 'get-url', remote]).catch(() => ''))
+    const common = { connection: '', workspaceId: ws.id, branch: ws.branch, base: ws.baseBranch, head, ahead: 0, commits: [], repo: repo.name, remote, ...(remoteUrl ? { remoteUrl } : {}) }
+    // Its pull request, looked up again once when the lookup fails; still failing, the push is recorded saying so.
+    const lookup = () => this.prs.get(ws, { fresh: true }).catch((err: unknown) => ({ kind: 'unavailable' as const, message: err instanceof Error ? err.message : String(err) }))
+    let pr = await lookup()
+    if (pr.kind === 'auth-error' || pr.kind === 'unavailable') {
+      await new Promise((r) => setTimeout(r, 2_000))
+      pr = await lookup()
+    }
+    if (pr.kind === 'ok') this.employeeActions.recordShell({ run, repoId: ws.repoId, payload: { kind: 'pull-request', ...common, base: pr.pr.baseRefName || ws.baseBranch, title: pr.pr.title, body: '' }, link: pr.pr.url, detail: `#${pr.pr.number}, ${pr.pr.state.toLowerCase()}.` })
+    else {
+      const unknown = pr.kind === 'auth-error' || pr.kind === 'unavailable' ? ` Foreman couldn’t look up its pull request (${pr.message}), so one opened from the shell isn’t recorded.` : ''
+      this.employeeActions.recordShell({ run, repoId: ws.repoId, payload: { kind: 'push', ...common }, detail: `Pushed ${ws.branch}.${unknown}` })
+    }
+  }
+
+  /**
    * An AI employee's branch for a push or pull request (docs/ai-employees.md §9): what it changed is committed first as
    * the employee (without the repository's hooks, which would run code its definition never approved), then read
-   * against the base: the commits ahead, their subjects and the diff stat.
+   * against the base: the commits ahead, their subjects and the diff stat. In a project only its publishing part gets
+   * here (EmployeeActionService refuses every other run), and no other part that changes the repository runs beside it
+   * (readyParts), so everything uncommitted is the project's finished work.
    */
   private async employeeBranch(workspaceId: string, input: { base?: string; commit: { message: string; author: { name: string; email: string } } }): Promise<BranchPreview> {
     const ws = this.workspaces.workspace(workspaceId)

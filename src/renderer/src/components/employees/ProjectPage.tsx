@@ -4,7 +4,8 @@
 // changed since the plan before, the employees it proposes, each to approve); each part starting and what it said when
 // it finished, with the file it wrote and the HTML mocks it drew (each opens in the browser), and a button for any
 // other page its task named (a mock elsewhere in memory); the decisions you made (an approval at a gate with Undo
-// approval while what it started still runs) and the notes you left; follow-ups and their answers; and last, who is at
+// approval while what it started still runs) and the notes you left; follow-ups and their answers; each push and pull
+// request its runs made (the publisher's own, from its shell, too), with a link to open; and last, who is at
 // work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you on: her questions
 // (Send answers, Plan with what you have with the answers given, Stop), the plan (Approve once every owner is approved,
 // Send back with a note, Stop), a part's result (Approve, with an optional pick among its mocks; with a note written,
@@ -13,7 +14,8 @@
 // kept while you look elsewhere (projectDrafts.ts); Stop on a card asks first, and Esc never stops. Then what its
 // employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee (anyone who worked on
 // it or owns a part): into their running work when it takes words mid-turn, else a follow-up (after that work, while it
-// runs); anything else is for the program manager, who reads it and answers in the channel, or replans. Beside it: the parts with their states, the
+// runs); anything else is for the program manager, who reads it and answers in the channel, or replans. Beside it: the parts with their states (and
+// what a part that changes the repository waits for while another does), the
 // files, the workspace (where its work is once archived, with Restore) and the replans left. Pause holds it (what runs
 // finishes); Stop cancels what is going (its files stay).
 // Once closed, Archive takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames
@@ -26,7 +28,7 @@ import { formatDateTime, formatNumber, timeAgo } from '../../../../shared/i18n/t
 import { joinWorkspace } from '../../../../shared/openIn'
 import type { ArchivedWork, Workspace } from '../../../../shared/types'
 import { projectNeeds } from '../../../../shared/needsYou'
-import { gateNoteTo, isArchived, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
+import { gateNoteTo, isArchived, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, waitingOnRepo, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openArchivedChats, openEmployees, openMemory, restoreArchived, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
@@ -38,6 +40,8 @@ import { Markdown } from '../Markdown'
 import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
 import { LiveLines, LiveTag, useProjectLive } from './ProjectLive'
 import { EmployeeDecision, useDecisionItems } from './EmployeeDecisions'
+import { ACTION_STATE_TONE } from './HeldActions'
+import { ACTION_STATE_LABEL } from './words'
 import { PageLinks } from './PageLinks'
 import { PlanWorkflow } from './PlanWorkflow'
 import { partState, planInEffect, PlanMap, useViewChoice } from './PlanMap'
@@ -297,6 +301,7 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
         node: (
           <Post id={stepDomId(project.id, step.taskId, 'end')} who={who(step.employeeId)} colour={e?.colour} role={e?.role} at={step.endedAt}>
             {step.state === 'stuck' && <StepEnd step={step} />}
+            {step.changedRepo && <Callout tone="warn">{t(step.changedRepo === 'shared' ? 'projects.step.changedRepoShared' : 'projects.step.changedRepo')}</Callout>}
             {step.summary && <StepSummary step={step} />}
             {!step.summary && step.reason && <p className="channel-text">{step.reason}</p>}
             {step.decision && <Tag>{t(step.decision === 'accept' ? 'projects.decision.accept' : 'projects.decision.replan')}</Tag>}
@@ -361,6 +366,28 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
         <Post who={n.to ? t('projects.note.to', { name: who(n.to) }) : t('projects.you')} at={n.at}>
           <p className="channel-text">{n.text}</p>
           {n.to && <span className="employee-faint">{t('projects.note.steered', { name: who(n.to) })}</span>}
+        </Post>
+      )
+    })
+  }
+  // What its runs pushed or opened: through Foreman, or from the publishing part's shell (found when it ended).
+  for (const [i, p] of (project.published ?? []).entries()) {
+    const e = member(p.employeeId)
+    entries.push({
+      at: p.at,
+      key: `published:${i}`,
+      node: (
+        <Post who={who(p.employeeId)} colour={e?.colour} role={e?.role} at={p.at}>
+          <p className="channel-text">{p.kind === 'push' ? t('projects.published.push', { branch: p.branch ?? '' }) : p.title ? t('projects.published.prTitled', { title: p.title }) : t('projects.published.pr')}</p>
+          <span className="employee-card-actions">
+            <Status tone={ACTION_STATE_TONE[p.state]} label={t(ACTION_STATE_LABEL[p.state])} />
+            {p.via === 'shell' && <span className="employee-faint">{t('projects.published.shell')}</span>}
+            {p.link && (
+              <LinkButton size="sm" underline onClick={() => void api.openExternal(p.link!)}>
+                {t('projects.published.open')}
+              </LinkButton>
+            )}
+          </span>
         </Post>
       )
     })
@@ -1105,12 +1132,15 @@ function SidePanel({ orgId, project, names, roster, live }: { orgId: string; pro
               const st = PART_STATUS[partLook(s)]
               const id = ownerId(plan, p.owner)
               const e = id ? roster?.find((x) => x.id === id) : undefined
+              // Ready, but another part changes the repository now: one at a time.
+              const behind = project.plan && project.phase === 'working' ? waitingOnRepo(project.plan, project.parts, p.id) : undefined
               return (
                 <li key={p.id} className="channel-side-part">
                   <HardHat colour={(e?.colour ?? 'slate') as HardHatColour} size={16} />
                   <span className="project-head-who">
                     <span>{p.title}</span>
                     <span className="employee-faint">{ownerName(plan, p.owner, names)}</span>
+                    {behind && <span className="employee-faint">{t('projects.part.waitsFor', { part: behind.title })}</span>}
                   </span>
                   <Status
                     tone={st.tone}

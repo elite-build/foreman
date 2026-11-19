@@ -17,6 +17,7 @@ import { EmployeesView } from '../src/renderer/src/components/employees/Employee
 import { ChannelList } from '../src/renderer/src/components/employees/ProjectsSection'
 import { OrgChannel } from '../src/renderer/src/components/employees/OrgChannel'
 import { ProjectPage } from '../src/renderer/src/components/employees/ProjectPage'
+import { HandToPmDialog } from '../src/renderer/src/components/employees/HandToPm'
 import { ProjectRunEnded } from '../src/renderer/src/components/employees/EmployeeRunBanner'
 import type { Session } from '../src/shared/types'
 import { TeamList } from '../src/renderer/src/components/employees/TeamSection'
@@ -784,5 +785,84 @@ describe('a project’s channel: what you type and decide is kept, bound and und
     await user.type(box, '@Uma Rao tidy it')
     await user.click(within(chips).getByRole('button', { name: /@Ravi/ }))
     expect((box as HTMLTextAreaElement).value).toBe('@Ravi tidy it')
+  })
+})
+
+describe('a project’s workspace and what it published', () => {
+  const working = (patch: Partial<Project> = {}) =>
+    project({
+      phase: 'working',
+      plan: { ...PLAN, status: 'approved' },
+      plans: [{ ...PLAN, status: 'approved' }],
+      parts: { build: { state: 'running', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } },
+      steps: [...project().steps, { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'running', startedAt: '2026-11-15T10:06:00.000Z' }],
+      waits: [],
+      ...patch
+    })
+
+  it('says what a part that changes the repository waits for while another that does runs', () => {
+    // Both parts change the repository (a plan made before they said so); QA could start but the build runs.
+    const both = working({ plan: { ...PLAN, status: 'approved', parts: PLAN.parts.map((p) => ({ ...p, dependsOn: [] })) } })
+    setSnapshot([both], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={both} />)
+    const side = screen.getByRole('complementary', { name: 'About #csv-export' })
+    expect(within(side).getByText('Waits for “Build the export” to finish')).toBeTruthy()
+  })
+
+  it('posts each push and pull request its runs made, one from the publisher’s own shell too, with a link to open', async () => {
+    const user = userEvent.setup()
+    const done = working({
+      published: [{ kind: 'pull-request', employeeId: 'e-rav1', taskId: 't2', state: 'sent', link: 'https://github.com/acme/site/pull/7', branch: 'ravi/csv', title: 'Export to CSV', via: 'shell', at: '2026-11-15T10:30:00.000Z' }]
+    })
+    setSnapshot([done], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={done} />)
+    expect(screen.getByText('Opened a pull request: Export to CSV')).toBeTruthy()
+    expect(screen.getByText('from their own shell')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    expect(fakeApi.openExternal).toHaveBeenCalledWith('https://github.com/acme/site/pull/7')
+  })
+
+  it('says when a part that shouldn’t change the repository did', () => {
+    const changed = working({
+      steps: [...project().steps, { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'done', summary: 'Reviewed.', changedRepo: true, startedAt: '2026-11-15T10:06:00.000Z', endedAt: '2026-11-15T10:20:00.000Z' }]
+    })
+    setSnapshot([changed], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={changed} />)
+    expect(screen.getByText(/The repository changed while this part ran, though the plan says it doesn’t change it/)).toBeTruthy()
+  })
+})
+
+describe('Hand to Priya', () => {
+  const handed = (uncommitted: number) => {
+    setSnapshot([])
+    fakeState.snapshot = { ...fakeState.snapshot!, workspaces: [{ id: 'ws-own', name: 'osaka', repoId: 'site', branch: 'yatin/sidebar', baseBranch: 'main', state: 'ready', createdAt: NOW } as never] }
+    fakeApi.gitStatus = vi.fn(async () => ({ uncommitted }))
+    fakeApi.startProject = vi.fn(async () => project({ id: 'p9', title: 'Simplify the sidebar' }))
+  }
+
+  it('starts the project in a new workspace from this one, which stays yours, and asks about uncommitted changes first', async () => {
+    const user = userEvent.setup()
+    handed(3)
+    render(<HandToPmDialog workspaceId="ws-own" />)
+    expect(screen.getByText('a new workspace branched from yatin/sidebar, where the project works')).toBeTruthy()
+    expect(screen.getByText('osaka stays yours: the project doesn’t work in it or archive it')).toBeTruthy()
+    const changes = await screen.findByRole('group', { name: '3 files here have uncommitted changes' })
+    await user.type(screen.getByRole('textbox', { name: 'What should Priya know?' }), 'Simplify the sidebar')
+    // Nothing goes until you say whether your changes go too.
+    expect(screen.getByRole('button', { name: 'Hand to Priya' }).hasAttribute('disabled')).toBe(true)
+    await user.click(within(changes).getByRole('radio', { name: /Include my uncommitted changes/ }))
+    await user.click(screen.getByRole('button', { name: 'Hand to Priya' }))
+    await waitFor(() => expect(fakeApi.startProject).toHaveBeenCalledWith('o1', { requirement: 'Simplify the sidebar', fromWorkspaceId: 'ws-own', includeChanges: true }))
+  })
+
+  it('asks nothing about changes when there are none', async () => {
+    const user = userEvent.setup()
+    handed(0)
+    render(<HandToPmDialog workspaceId="ws-own" />)
+    await user.type(screen.getByRole('textbox', { name: 'What should Priya know?' }), 'Simplify the sidebar')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Hand to Priya' }).hasAttribute('disabled')).toBe(false))
+    expect(screen.queryByRole('group', { name: /uncommitted/ })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Hand to Priya' }))
+    await waitFor(() => expect(fakeApi.startProject).toHaveBeenCalledWith('o1', { requirement: 'Simplify the sidebar', fromWorkspaceId: 'ws-own' }))
   })
 })

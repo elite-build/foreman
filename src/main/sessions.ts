@@ -1640,6 +1640,8 @@ export class SessionService {
         writeScope: scope,
         // docs/ai-employees.md §9: an employee's run has what a workspace's agent has: every MCP server, and no paths refused.
         ...(employee ? { writeScopeSubject: 'AI employee’s run', employee: true as const } : {}),
+        // docs/ai-employees.md §15: in a project only its publishing part pushes or opens a pull request.
+        ...(brief?.noPublish ? { noPublish: brief.noPublish } : {}),
         instance: session.instanceId,
         resume: session.agentSessionId,
         resumeAt: session.resumeAt,

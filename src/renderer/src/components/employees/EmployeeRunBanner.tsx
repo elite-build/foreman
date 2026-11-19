@@ -8,6 +8,7 @@ import { MoreHorizontal } from 'lucide-react'
 import { useState } from 'react'
 import { runItems } from '../../../../shared/employeeDecisions'
 import { canCancelTask, canRetryTask, isRunActive } from '../../../../shared/employeeWork'
+import { projectTaskRetryable } from '../../../../shared/projects'
 import type { Session, Workspace } from '../../../../shared/types'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, useStore } from '../../store'
@@ -25,6 +26,7 @@ export function EmployeeRunBanner({ ws }: { ws: Workspace }) {
   const by = ws.startedBy?.via === 'employee' ? ws.startedBy : undefined
   const employee = useStore((s) => (by ? s.snapshot!.employees?.[by.orgId]?.employees.find((e) => e.id === by.employeeId) : undefined))
   const work = useStore((s) => (by ? s.snapshot!.employeeWork?.[by.orgId] : undefined))
+  const projects = useStore((s) => (by ? s.snapshot!.projects?.[by.orgId] : undefined))
   const [open, setOpen] = useState(false)
   if (!by) return null
   const task = work?.tasks.find((x) => x.id === by.taskId) ?? (work?.last[by.employeeId]?.id === by.taskId ? work.last[by.employeeId] : undefined)
@@ -51,7 +53,7 @@ export function EmployeeRunBanner({ ws }: { ws: Workspace }) {
                 {t('employees.task.stop')}
               </Button>
             )}
-            {task && !item && canRetryTask(task) && (
+            {task && !item && canRetryTask(task) && projectTaskRetryable(task, task.project ? projects?.find((p) => p.id === task.project!.id) : undefined) && (
               <Button size="sm" variant="primary" onClick={() => void attempt(() => api.retryEmployeeTask(task.id))}>
                 {t('employees.task.retry')}
               </Button>
