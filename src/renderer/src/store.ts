@@ -1835,6 +1835,13 @@ export async function makeRepository(dir: string, identity?: GitIdentity): Promi
   return 'added'
 }
 
+/** Add a folder outside git as it is (Repo.plain): no branches, diff or checkpoints. Throws on failure. */
+export async function addPlainFolder(dir: string): Promise<void> {
+  const repo = await api.addRepo(dir, { plain: true })
+  openMakeRepo(null)
+  repoAdded(repo.id)
+}
+
 /** addRepo, except that a folder outside Git opens the offer to make it a repository instead of an error. */
 async function addRepoOrOffer(dir: string): Promise<{ id: string } | undefined> {
   try {

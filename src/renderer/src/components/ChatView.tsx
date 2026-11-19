@@ -576,7 +576,11 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
             )}
             {items.length === 0 && (
               <div className="chat-greeting">
-                <p>{t.rich('chat.greeting.copy', { name: <strong key="name">{workspace.name}</strong>, branch: <code key="branch">{workspace.branch}</code>, base: <code key="base">{workspace.baseBranch}</code> })}</p>
+                <p>
+                  {workspace.branch
+                    ? t.rich('chat.greeting.copy', { name: <strong key="name">{workspace.name}</strong>, branch: <code key="branch">{workspace.branch}</code>, base: <code key="base">{workspace.baseBranch}</code> })
+                    : t.rich('chat.greeting.plain', { name: <strong key="name">{workspace.name}</strong> })}
+                </p>
                 <p className="muted">{t('chat.greeting.ask', { agent: AGENTS[session.agent].label })}</p>
               </div>
             )}
