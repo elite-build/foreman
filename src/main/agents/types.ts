@@ -83,6 +83,10 @@ export interface TurnRequest {
   // docs/ai-employees.md §9: an AI employee's run. It has what a workspace's agent has; its own Foreman tools and its
   // brokered Slack, Linear and Langfuse tools never ask (Foreman checks and holds them itself). Claude only; others ignore it.
   employee?: true
+  // docs/ai-employees.md §15: a project's run that isn't its publishing part's. A shell command that pushes or opens,
+  // changes or merges a pull request (publishesFromShell) is refused with this message, which the agent reads and carries
+  // on from. Claude only (a PreToolUse hook); other agents can't be held to it and are told in their brief.
+  noPublish?: string
   // The account the turn runs on (undefined: the agent's default one): what an agent's pooled server is keyed by (docs/agents.md 3).
   instance?: string
   // The agent's conversation to continue, if any.

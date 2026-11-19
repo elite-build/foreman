@@ -137,6 +137,9 @@ export interface EmployeeBrief {
   // nothing directly (the persona it wears is read-only), so every write is a proposal; and the files its task grants
   // (a project part's file, §15).
   memoryWrites: { scopes: string[]; readOnly: boolean; files?: string[]; folders?: string[] }
+  // A project's run that isn't its publishing part's (§15): what Foreman answers when it pushes or opens a pull request,
+  // from its shell (the turn's PreToolUse hook) or with request_push and request_pull_request.
+  noPublish?: string
 }
 
 /** A going run's tool call, resolved from its chat (main/employeeTools.ts). */
@@ -163,10 +166,21 @@ export interface EmployeeFinishInput {
  * closes, and what to do when one of its tasks closes. Set once both services exist (each needs the other).
  */
 export interface EmployeeProjectHooks {
-  workspaceFor(task: EmployeeTask): string | undefined
+  // The project's workspace for the task's run, made ready (waited for while it is being made or set up, restored when
+  // archived); undefined when the project has none yet, and this run makes it (the others wait for it: launchSettled).
+  // Throws why it can't be used (gone), and the task waits for the person with that reason.
+  workspaceFor(task: EmployeeTask): Promise<string | undefined>
+  // The run that was to make the project's workspace has made it, or failed to: the runs waiting for it go on.
+  launchSettled?(task: EmployeeTask): void
   runCreated(task: EmployeeTask, workspaceId: string): void
   keeps(task: EmployeeTask): boolean
   taskClosed(task: EmployeeTask): void
+  // Why the generic Retry can't reopen a project's task (the project went on from it), or undefined.
+  retryRefusal?(task: EmployeeTask): string | undefined
+  // Whether the task's run may publish the project's branch; when it may not, what Foreman answers. Undefined: no rule.
+  publishRule?(task: EmployeeTask): { may: true } | { may: false; refusal: string } | undefined
+  // Why a run's tool that changes or sends anything is refused now its project is closed or gone, or undefined.
+  acting?(task: EmployeeTask): string | undefined
   // Why a project task can't finish yet (a planning task gave no plan), or undefined.
   finishCheck?(task: EmployeeTask, input: Pick<EmployeeFinishInput, 'status'>): string | undefined
   // A follow-up asked of a project task's employee (Ask a follow-up on the task): the project's own follow-up.
@@ -257,7 +271,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * What the run's words say it may do: what it is held to (its turn limits, a read-only persona or a write scope
  * included), not the definition alone, so a run is never told it may do what it can't.
  */
-function runAccess(ctx: RunContext, d: EmployeeDefinition, project: boolean): EmployeeRunAccessText {
+function runAccess(ctx: RunContext, d: EmployeeDefinition, project: boolean, publishes?: boolean): EmployeeRunAccessText {
   const limits = ctx.mark.persona
   const writes = limits.writes && limits.writes.join('\n') !== EMPLOYEE_WRITE_SCOPE.join('\n') ? [...limits.writes] : undefined
   return {
@@ -267,6 +281,7 @@ function runAccess(ctx: RunContext, d: EmployeeDefinition, project: boolean): Em
     profile: limits.writes ? 'no-shell' : d.access.profile,
     attended: d.attendance === 'attended',
     ...(project ? { project: true } : {}),
+    ...(publishes !== undefined ? { publishes } : {}),
     ...(writes ? { writes } : {})
   }
 }
@@ -953,8 +968,20 @@ export class EmployeeWorkService {
       const d = ctx.definition
       // What became of the outward actions it asked for while it waited (§9) goes first, once; its log keeps them.
       const fresh = this.db.employeeTask(task.id) ?? task
-      // A project's task works in the project's workspace (its code, its branch) once it has one.
-      const shared = fresh.project ? this.projects?.workspaceFor(fresh) : undefined
+      // A project's task works in the project's workspace (its code, its branch) once it has one; the first makes it, and
+      // one that is gone is never replaced silently: the task waits for the person, saying so.
+      let shared: string | undefined
+      try {
+        shared = fresh.project ? await this.projects?.workspaceFor(fresh) : undefined
+      } catch (err) {
+        const now = this.db.employeeRun(run.id)
+        if (now && isRunGoing(now.state)) await this.finish(now, 'failed', `It couldn’t start: ${message(err)}`, { state: 'waiting', reason: message(err) })
+        return
+      }
+      if (!isRunGoing(this.db.employeeRun(run.id)?.state ?? 'cancelled')) {
+        if (fresh.project) this.projects?.launchSettled?.(fresh)
+        return
+      }
       const news = fresh.actionNews ?? []
       const opening = continuationMessage(fresh, this.db.employeeQuestions(task.id).filter((q) => q.state === 'answered'), fresh.deliveries ?? [], news)
       if (news.length) {
@@ -988,7 +1015,9 @@ export class EmployeeWorkService {
           }
         }
       )
+      if (task.project) this.projects?.launchSettled?.(task)
     } catch (err) {
+      if (task.project) this.projects?.launchSettled?.(task)
       const now = this.db.employeeRun(run.id)
       if (now && isRunGoing(now.state)) await this.finish(now, 'failed', `It couldn’t start: ${message(err)}`)
     }
@@ -1009,10 +1038,13 @@ export class EmployeeWorkService {
       const cut = text === null ? { text: null, cut: false } : cutToBudget(text, budget)
       return { kind: p.kind, path: p.path, commit: head, text: cut.text, chars: text?.length ?? 0, cut: cut.cut }
     })
+    const own = this.db.employeeTask(run.taskId)
+    // In a project, only its publishing part pushes or opens a pull request (§15).
+    const rule = own?.project ? this.projects?.publishRule?.(own) : undefined
     const system = employeeSystemText({
       definition: d,
       organization: ctx.org.name,
-      access: runAccess(ctx, d, Boolean(this.db.employeeTask(run.taskId)?.project)),
+      access: runAccess(ctx, d, Boolean(own?.project), rule ? rule.may : undefined),
       orgInstructions: org.text !== undefined ? { text: org.text, commit: head } : null,
       memoryReadOnly: ctx.memoryReadOnly
     })
@@ -1026,7 +1058,8 @@ export class EmployeeWorkService {
       ...(d.template ? { jobPrompt: { id: d.template, version: jobPromptVersion(d.template) } } : {}),
       ...(org.text?.trim() ? { orgInstructions: { path: ORG_INSTRUCTIONS_PATH, commit: head, cut: system.orgCut } } : {}),
       memory: pinnedFiles.filter((f) => f.text !== null && f.text.trim()).map((f) => ({ path: f.path, commit: f.commit, chars: f.chars, cut: f.cut })),
-      memoryWrites: { scopes: [...d.access.memory_write], readOnly: ctx.memoryReadOnly, files: [...(contract?.writes ?? [])], folders: [...(contract?.writesUnder ?? [])] }
+      memoryWrites: { scopes: [...d.access.memory_write], readOnly: ctx.memoryReadOnly, files: [...(contract?.writes ?? [])], folders: [...(contract?.writesUnder ?? [])] },
+      ...(rule && !rule.may ? { noPublish: rule.refusal } : {})
     }
   }
 
@@ -1245,8 +1278,12 @@ export class EmployeeWorkService {
 
   // ---- the employee's own tools (main/employeeTools.ts calls these with the turn's chat, from its grant) ----
 
-  /** The going run a tool call's chat belongs to, or a refusal the model reads. */
-  toolRun(sessionId: string): EmployeeToolRun {
+  /**
+   * The going run a tool call's chat belongs to, or a refusal the model reads. `acting`: the tool changes or sends
+   * something (a memory write, a hand-off, a message, a push), which a run whose task already closed (a turn running on
+   * after finish_task) or whose project closed may no longer do; reading and the closing tools are left to their own rules.
+   */
+  toolRun(sessionId: string, acting = false): EmployeeToolRun {
     const ended = 'This AI employee’s run has ended, so Foreman did nothing. End your turn.'
     const session = this.host.session(sessionId)
     const mark = session?.unattended
@@ -1255,6 +1292,11 @@ export class EmployeeWorkService {
     const brief = run ? this.briefs.get(run.id) : undefined
     const task = run ? this.db.employeeTask(run.taskId) : undefined
     if (!run || !brief || !task || !isRunGoing(run.state) || run.sessionId !== sessionId) throw new Error(ended)
+    if (acting) {
+      if (task.state === 'closed') throw new Error(`Your task is already closed (${task.closureReason ?? 'finished'}), so Foreman takes nothing more from this run: no writes, hand-offs, messages or pushes. End your turn now.`)
+      const closed = task.project ? this.projects?.acting?.(task) : undefined
+      if (closed) throw new Error(closed)
+    }
     return { run, task, brief, session }
   }
 
@@ -2146,6 +2188,9 @@ export class EmployeeWorkService {
   /** Another attempt at a task that waits, was stopped, or closed blocked: admitted, held or refused like the first. */
   async retry(taskId: string): Promise<EmployeeTask> {
     const task = this.task(taskId)
+    // A project's task the project went on from (§15) is tried again from its channel, never here.
+    const refused = task.project ? this.projects?.retryRefusal?.(task) : undefined
+    if (refused) throw new Error(refused)
     if (!canRetryTask(task))
       throw new Error(
         task.state === 'running' ? 'This task is running.' : task.question ? 'This task waits for the answer to its question: answer it, or cancel the task.' : task.state === 'closed' ? 'This task is closed.' : 'This task is already waiting to run.'
@@ -2160,6 +2205,18 @@ export class EmployeeWorkService {
       this.saveTask(now, { state: 'open', hold: undefined, waitingOn: undefined, reason: undefined, closureReason: undefined, closureDetail: undefined, resultSummary: undefined, result: undefined }, 'retried')
       return this.admit(now)
     })
+  }
+
+  /**
+   * Stop the runs still going of tasks that are already closed (a turn that ran on after finish_task), as Stop does, each
+   * task left as it closed: a project's Stop or delete (§15), so nothing of it keeps a shell or a tool afterwards.
+   */
+  async endRuns(taskIds: readonly string[], why: string): Promise<void> {
+    const runs = taskIds.flatMap((id) => (this.db.employeeTask(id)?.state === 'closed' ? this.db.employeeRuns({ taskId: id, states: RUN_ACTIVE }) : []))
+    if (!runs.length) return
+    const ended = runs.map((run) => this.finish(run, 'cancelled', why, null))
+    for (const run of runs) if (run.sessionId) await this.host.stop(run.sessionId).catch(() => undefined)
+    await Promise.all(ended)
   }
 
   /** Cancel (§6.6: discarding work is explicit): the task closes as canceled, and a run of it that is going stops. */

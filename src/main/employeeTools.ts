@@ -53,6 +53,9 @@ export interface EmployeeToolResult {
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
+// The tools that change or send something: refused to a run whose task already closed (a turn going on after
+// finish_task) or whose project closed (EmployeeWorkService.toolRun's `acting`). Reading and the closing tools aren't.
+const ACTING: ReadonlySet<EmployeeToolName> = new Set<EmployeeToolName>(['remember', 'memory_append', 'memory_write', 'bot_delegate', 'bot_send', 'bot_propose', 'bot_wake_me', 'project_questions', 'project_plan', 'request_push', 'request_pull_request'])
 const short = (blob: string | null | undefined) => (blob ? blob.slice(0, 12) : 'none')
 
 export class EmployeeTools {
@@ -65,6 +68,7 @@ export class EmployeeTools {
   /** Run one tool for the chat `sessionId` (from the turn's grant). Refusals come back as an error result the model reads. */
   async call(sessionId: string, name: EmployeeToolName, args: Record<string, unknown>): Promise<EmployeeToolResult> {
     try {
+      if (ACTING.has(name)) this.host.work.toolRun(sessionId, true)
       switch (name) {
         case 'memory_search':
           return await this.search(sessionId, args as { query: string; limit?: number })

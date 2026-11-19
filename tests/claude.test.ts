@@ -828,3 +828,33 @@ describe('Claude’s always-allow names its rule', () => {
     expect(edit).not.toHaveProperty('alwaysScope')
   })
 })
+
+describe('a project’s run that doesn’t publish (docs/ai-employees.md §15)', () => {
+  const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
+  const refusal = 'Foreman refused this: only the part “Open the PR” (pr) pushes.'
+
+  it('refuses a shell command that pushes or opens a pull request with the project’s words, and leaves other commands to the mode', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...request, employee: true, noPublish: refusal }, callbacks()).run()
+    const options = sdk.query.mock.calls[0][0].options
+    const hook = options.hooks.PreToolUse[0].hooks[0]
+    const signal = new AbortController().signal
+    for (const command of ['git push -u origin HEAD', 'gh pr create --fill', 'npm test && gh pr merge 3']) {
+      expect(await hook(pre('Bash', { command }), 'u1', { signal })).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: refusal } })
+    }
+    expect(await hook(pre('Bash', { command: 'git status' }), 'u1', { signal })).toEqual({})
+    expect(await hook(pre('Edit', { file_path: '/repo/a.ts' }), 'u1', { signal })).toEqual({})
+    // Should one reach the permission prompt past the hook, it is refused there too.
+    expect(await options.canUseTool('Bash', { command: 'git push' }, { signal })).toEqual({ behavior: 'deny', message: refusal })
+    claude.push(result)
+    await run
+  })
+
+  it('adds no hook to a run that may publish', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...request, employee: true }, callbacks()).run()
+    expect(sdk.query.mock.calls[0][0].options.hooks).toBeUndefined()
+    claude.push(result)
+    await run
+  })
+})

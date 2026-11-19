@@ -47,10 +47,17 @@ import {
   planStages,
   planWorkflow,
   projectSlug,
+  projectPublications,
+  projectTaskRetryable,
   projectTitle,
+  publishedLines,
+  publisherOf,
+  publishRefusal,
+  publishRule,
   questionState,
   readyParts,
   replanGoesAhead,
+  waitingOnRepo,
   type PlanContext,
   type PlanInput,
   type Project,
@@ -716,5 +723,116 @@ describe('projects: what the person writes in the channel', () => {
     const steer = steerText({ project: { title: 'CSV' }, text: 'use option b', part: 'Build' })
     expect(steer.startsWith('The person wrote to you in the channel of the project “CSV” while you work on “Build”, in their words: “use option b”')).toBe(true)
     expect(steer).toContain('finish_task blocked')
+  })
+})
+
+describe('projects: who changes the repository, one at a time, and who publishes', () => {
+  // Ravi has Write on site; the QA engineer proposed with Write too.
+  const W: PlanContext = { ...CTX, writers: ['e-rav1'], repo: 'site' }
+  const parts = (out: ReturnType<typeof checkPlan>) => (out.ok ? out.parts.map((p) => [p.id, p.changesRepo, Boolean(p.publishes)]) : out.problems)
+
+  it('takes a Write owner’s part as changing the repository unless it says not, and anyone else’s as only reading it', () => {
+    const out = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true }, { ...PLAN.parts[2], changes_repo: false }] }, W)
+    expect(parts(out)).toEqual([
+      ['reqs', false, false],
+      ['build', true, true],
+      ['qa', false, false]
+    ])
+    // Without a word on who can write, a part changes the repository only when it says so (or publishes).
+    expect(parts(checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true }, PLAN.parts[2]] }, CTX))).toEqual([
+      ['reqs', false, false],
+      ['build', true, true],
+      ['qa', false, false]
+    ])
+  })
+
+  it('asks for exactly one publisher when a part changes the repository, after every other part that does', () => {
+    const none = checkPlan(PLAN, W)
+    expect(none.ok ? [] : none.problems).toContainEqual(expect.stringContaining('“build”, “qa” change the repository, so one part publishes the branch'))
+    const two = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true }, { ...PLAN.parts[2], publishes: true }] }, W)
+    expect(two.ok ? [] : two.problems).toContainEqual(expect.stringContaining('Only one part publishes, and “build”, “qa” all say publishes'))
+    // QA changes it too, and doesn't finish before the build publishes.
+    const early = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true }, PLAN.parts[2]] }, W)
+    expect(early.ok ? [] : early.problems).toContainEqual(expect.stringContaining('“build” publishes, so every other part that changes the repository finishes before it: add “qa” to its depends_on'))
+    const read = checkPlan({ ...PLAN, parts: [PLAN.parts[0], PLAN.parts[1], { ...PLAN.parts[2], changes_repo: false, publishes: true }] }, W)
+    expect(read.ok ? [] : read.problems).toContainEqual(expect.stringContaining('Part “qa” publishes, so it changes the repository'))
+    // Her own parts only read it; one with no Write can't change it.
+    const mine = checkPlan({ ...PLAN, parts: [{ ...PLAN.parts[0], changes_repo: true }, { ...PLAN.parts[1], publishes: true }, { ...PLAN.parts[2], changes_repo: false }] }, W)
+    expect(mine.ok ? [] : mine.problems).toContainEqual('Part “reqs” changes the repository: give it to someone else (your own parts only read it).')
+    const reader = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true }, PLAN.parts[2]] }, { ...W, writers: [] })
+    expect(reader.ok ? [] : reader.problems).toContainEqual(expect.stringContaining('Part “build” changes the repository, but its owner has no Write access to it'))
+    // A plan that only reads the repository needs no publisher.
+    expect(checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], changes_repo: false }, { ...PLAN.parts[2], changes_repo: false }] }, W).ok).toBe(true)
+  })
+
+  it('starts one part that changes the repository at a time, the rest beside it, and says what a held one waits for', () => {
+    const plan = checked(
+      {
+        summary: 's',
+        size: 'small',
+        parts: [
+          { id: 'build', title: 'Build', owner: 'e-rav1', brief: 'b', writes: 'build.md' },
+          { id: 'i18n', title: 'Translations', owner: 'e-rav1', brief: 't', writes: 'i18n.md', publishes: true, depends_on: ['build'] },
+          { id: 'docs', title: 'Docs', owner: 'Priya', brief: 'd', writes: 'docs.md' }
+        ]
+      },
+      W
+    )
+    expect(readyParts(plan, {}).map((p) => p.id)).toEqual(['build', 'docs'])
+    // Two that change it, ready together: the first goes, the second waits for it.
+    const loose = { ...plan, parts: plan.parts.map((p) => ({ ...p, dependsOn: [] })) }
+    expect(readyParts(loose, {}).map((p) => p.id)).toEqual(['build', 'docs'])
+    expect(readyParts(loose, { build: { state: 'running', round: 1 } }).map((p) => p.id)).toEqual(['docs'])
+    expect(waitingOnRepo(loose, { build: { state: 'running', round: 1 } }, 'i18n')?.id).toBe('build')
+    expect(waitingOnRepo(loose, { build: { state: 'running', round: 1 } }, 'docs')).toBeUndefined()
+    expect(readyParts(loose, { build: { state: 'gate', round: 1 }, docs: { state: 'running', round: 1 } }).map((p) => p.id)).toEqual(['i18n'])
+    // A plan made before parts said so: each is taken as changing it.
+    const old = { parts: plan.parts.map(({ changesRepo: _c, publishes: _p, ...p }) => ({ ...p, dependsOn: [] })) }
+    expect(readyParts(old, {}).map((p) => p.id)).toEqual(['build'])
+    expect(publisherOf(old)).toBeUndefined()
+  })
+
+  it('lets only the publishing part publish, while the project is open, and says who does to the rest', () => {
+    const plan = checked({ ...PLAN, parts: [PLAN.parts[0], PLAN.parts[1], { ...PLAN.parts[2], publishes: true }] }, W)
+    const open = { phase: 'working' as const, plan }
+    expect(publishRule(open, { kind: 'part', partId: 'qa' })).toMatchObject({ may: true })
+    expect(publishRule(open, { kind: 'part', partId: 'build' })).toMatchObject({ may: false, publisher: { id: 'qa' } })
+    for (const kind of ['follow-up', 'message', 'accept', 'plan'] as const) expect(publishRule(open, { kind, partId: 'qa' })?.may).toBe(false)
+    expect(publishRule({ ...open, phase: 'closed' }, { kind: 'part', partId: 'qa' })?.may).toBe(false)
+    expect(publishRule({ phase: 'planning' }, { kind: 'plan' })).toEqual({ may: false })
+    expect(publishRefusal({ title: 'CSV' }, plan.parts[2])).toContain('only the part “QA” (qa) pushes the branch or opens its pull request')
+    expect(publishRefusal({ title: 'CSV' }, undefined)).toContain('has no part that publishes')
+  })
+
+  it('tells a part that only reads the repository to leave it alone, and the publisher how to publish', () => {
+    const plan = checked({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], depends_on: ['reqs'] }, { ...PLAN.parts[2], changes_repo: false }].map((p) => (p.id === 'build' ? { ...p, publishes: true } : p)) }, W)
+    const base = { project: project(), organization: 'Acme', plan, round: 1, inputs: [] }
+    expect(partBody({ ...base, part: plan.parts[2], publisher: plan.parts[1] })).toContain('Your part doesn’t change the repository')
+    expect(partBody({ ...base, part: plan.parts[2], publisher: plan.parts[1] })).toContain('Don’t push the branch or open a pull request: “Build” (build) publishes the project')
+    expect(partBody({ ...base, part: plan.parts[1] })).toContain('You publish the project')
+    expect(planMarkdown(project(), plan, {})).toContain('| 2 | Build (`build`) | e-rav1 | — | build.md | reqs | no | changes, publishes |')
+  })
+
+  it('lists what was published for the briefs, and refuses the generic Retry once the project went on from a task', () => {
+    const at = '2026-11-15T11:00:00.000Z'
+    const steps = [{ kind: 'part' as const, partId: 'build', round: 1, taskId: 't-build', employeeId: 'e-rav1', state: 'done' as const, startedAt: NOW }]
+    const list = projectPublications(
+      [
+        { id: 'a', orgId: 'o1', employeeId: 'e-rav1', taskId: 't-build', runId: 'r', repoId: 'site', kind: 'push', payload: { kind: 'push', connection: '', workspaceId: 'w', branch: 'csv', base: 'main', head: 'h', ahead: 1, commits: [] }, policy: 'held', state: 'held', key: 'k1', createdAt: at, updatedAt: at },
+        { id: 'b', orgId: 'o1', employeeId: 'e-rav1', taskId: 't-build', runId: 'r', repoId: 'site', kind: 'push', payload: { kind: 'push', connection: '', workspaceId: 'w', branch: 'csv', base: 'main', head: 'h', ahead: 1, commits: [] }, policy: 'held', state: 'skipped', key: 'k2', createdAt: at, updatedAt: at },
+        { id: 'c', orgId: 'o1', employeeId: 'e-rav1', taskId: 't-other', runId: 'r', repoId: 'site', kind: 'push', payload: { kind: 'push', connection: '', workspaceId: 'w', branch: 'x', base: 'main', head: 'h', ahead: 1, commits: [] }, policy: 'held', state: 'sent', key: 'k3', createdAt: at, updatedAt: at }
+      ],
+      { steps }
+    )
+    expect(list).toEqual([{ kind: 'push', employeeId: 'e-rav1', taskId: 't-build', state: 'held', branch: 'csv', at }])
+    expect(publishedLines({ list, names: { 'e-rav1': 'Ravi' } }).join('\n')).toContain('- 2026-11-15 11:00 UTC: Ravi pushed csv: held for the person’s approval (not sent)')
+    expect(publishedLines(undefined)).toEqual([])
+    const running = { phase: 'working' as const, steps: [{ ...steps[0], state: 'running' as const }] }
+    expect(projectTaskRetryable({ id: 't-build', project: { kind: 'part' } }, running)).toBe(true)
+    expect(projectTaskRetryable({ id: 't-build', project: { kind: 'part' } }, { phase: 'working', steps })).toBe(false)
+    expect(projectTaskRetryable({ id: 't-build', project: { kind: 'part' } }, { ...running, phase: 'closed' })).toBe(false)
+    expect(projectTaskRetryable({ id: 't-build', project: { kind: 'part' } }, undefined)).toBe(false)
+    expect(projectTaskRetryable({ id: 't-f', project: { kind: 'follow-up' } }, undefined)).toBe(true)
+    expect(projectTaskRetryable({ id: 't-plain' }, undefined)).toBe(true)
   })
 })

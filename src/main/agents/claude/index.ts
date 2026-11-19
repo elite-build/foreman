@@ -42,6 +42,7 @@ import { claudeContextUsage } from '../../../shared/contextUsage'
 import { translate } from '../../../shared/i18n'
 import { writeScopeDecision } from '../../../shared/permissions'
 import { protectedPathDecision } from '../../../shared/agentAccess'
+import { publishesFromShell } from '../../../shared/employeeActions'
 import { isEmployeeTool } from '../../../shared/employeeTools'
 import { AGENT_TOOL_SERVICES, bridgeServerName } from '../../../shared/integrations'
 import { claudeLimit, type RateLimitEventInfo } from '../../../shared/usageLimit'
@@ -274,11 +275,26 @@ export function protectedPathsHook(root: string, gitDir?: string): HookCallback 
 }
 
 
-/** The turn's PreToolUse hooks: a flow persona's scoped writes, a capped turn's protected paths. Where both decide, the stricter wins. */
+/**
+ * docs/ai-employees.md §15: the PreToolUse hook a project's run that isn't its publishing part's gets. A shell command
+ * that pushes or opens, changes or merges a pull request is refused with `message`; nothing else is its business.
+ */
+export function noPublishHook(message: string): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== 'PreToolUse' || !publishesFromShell(input.tool_name, input.tool_input)) return {}
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: message } }
+  }
+}
+
+/**
+ * The turn's PreToolUse hooks: a flow persona's scoped writes, a capped turn's protected paths, a project run's refused
+ * publishing. Where several decide, the stricter wins.
+ */
 function preToolUseHooks(req: TurnRequest): { PreToolUse: { hooks: HookCallback[] }[] } | undefined {
   const hooks: HookCallback[] = []
   if (req.writeScope?.length) hooks.push(writeScopeHook(req.writeScope, req.cwd, req.writeScopeSubject))
   if (req.capped) hooks.push(protectedPathsHook(req.cwd, req.capped.gitDir))
+  if (req.noPublish) hooks.push(noPublishHook(req.noPublish))
   return hooks.length ? { PreToolUse: [{ hooks }] } : undefined
 }
 
@@ -634,6 +650,8 @@ class ClaudeTurn implements AgentTurn {
 
     // #16: enforced, not advisory. Plain plan mode can be left after the plan is approved; read-only never asks, it refuses.
     if (this.req.readOnly && READ_ONLY_DENIED.includes(toolName)) return { behavior: 'deny', message: READ_ONLY_REFUSAL }
+    // A project's run that doesn't publish (§15): decided here too, should a call reach the permission prompt past the hook.
+    if (this.req.noPublish && publishesFromShell(toolName, input)) return { behavior: 'deny', message: this.req.noPublish }
 
     // A capped turn's protected path reaches here because its hook asked: the user answers it, whatever else would allow it.
     const guarded = this.req.capped ? protectedPathDecision(toolName, input, this.req.cwd, this.req.capped.gitDir) : null

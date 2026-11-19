@@ -1069,7 +1069,7 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
   it('asks the project before a planning task finishes done, and refuses with its reason', async () => {
     const f = await rig()
     f.service.projects = {
-      workspaceFor: () => undefined,
+      workspaceFor: async () => undefined,
       runCreated: () => undefined,
       keeps: () => false,
       taskClosed: () => undefined,
@@ -1105,7 +1105,7 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     const closed: string[] = []
     const created: string[] = []
     f.service.projects = {
-      workspaceFor: () => 'ws-project',
+      workspaceFor: async () => 'ws-project',
       runCreated: (_task, ws) => void created.push(ws),
       keeps: () => true,
       taskClosed: (task) => void closed.push(task.id),
@@ -1145,9 +1145,89 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     expect(follow.body).toContain('you said: “Drafted it.”')
     // A project's task asks through its project.
     const asked: string[] = []
-    f.service.projects = { workspaceFor: () => undefined, runCreated: () => undefined, keeps: () => false, taskClosed: () => undefined, followUp: async (t, q) => (asked.push(q), t) }
+    f.service.projects = { workspaceFor: async () => undefined, runCreated: () => undefined, keeps: () => false, taskClosed: () => undefined, followUp: async (t, q) => (asked.push(q), t) }
     f.db.putEmployeeTask({ ...f.db.employeeTask(task.id)!, project: { id: 'p1', kind: 'part', partId: 'reqs', round: 1 } })
     await f.service.askFollowUp(task.id, 'And hidden columns?')
     expect(asked).toEqual(['And hidden columns?'])
+  })
+})
+
+describe('employee work: a project’s workspace, its closed tasks and Retry (docs/ai-employees.md §15)', () => {
+  const ARTIFACT = 'memory/org/projects/export/build.md'
+  const part = (f: Fake, requestId = 'project:p1:part:build:1') =>
+    f.service.projectTask({ orgId: 'o1', employeeId: 'e-max1', title: 'Build: Export', body: 'Build it.', repoId: 'site', requestId, runsAllowed: 60, contract: { produces: ARTIFACT, writes: [ARTIFACT] }, project: { id: 'p1', kind: 'part', partId: 'build', round: 1 } })
+  const hooks = (patch: Partial<NonNullable<Fake['service']['projects']>> = {}): NonNullable<Fake['service']['projects']> => ({
+    workspaceFor: async () => undefined,
+    runCreated: () => undefined,
+    keeps: () => true,
+    taskClosed: () => undefined,
+    followUp: async (t) => t,
+    ...patch
+  })
+
+  it('leaves the task waiting, saying why, when the project’s workspace is gone, instead of making a fresh one', async () => {
+    const f = await rig()
+    f.service.projects = hooks({ workspaceFor: async () => Promise.reject(new Error('The project’s workspace osaka can’t be used: it is gone.')) })
+    const task = await part(f)
+    await settle()
+    expect(f.launches).toEqual([])
+    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'waiting', reason: 'The project’s workspace osaka can’t be used: it is gone.' })
+    expect(f.db.employeeRuns({ taskId: task.id })[0]).toMatchObject({ state: 'failed' })
+  })
+
+  it('tells the project once the run that made its workspace has made it (or failed to)', async () => {
+    const f = await rig()
+    const settled: string[] = []
+    f.service.projects = hooks({ launchSettled: (t) => void settled.push(t.id) })
+    const task = await part(f)
+    await settle()
+    expect(settled).toEqual([task.id])
+    f.launchError.value = new Error('Setup failed')
+    const second = await part(f, 'project:p1:part:build:2')
+    await settle()
+    expect(settled).toEqual([task.id, second.id])
+  })
+
+  it('takes nothing that changes or sends from a run whose task closed, and ends such a run when asked, leaving its task as it closed', async () => {
+    const f = await rig()
+    f.service.projects = hooks()
+    const task = await part(f)
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    expect(() => f.service.toolRun(run.sessionId!, true)).not.toThrow()
+    f.files[ARTIFACT] = 'x'
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Built.' })
+    expect(() => f.service.toolRun(run.sessionId!, true)).toThrow('Your task is already closed (done)')
+    expect(() => f.service.toolRun(run.sessionId!)).not.toThrow()
+    await f.service.endRuns([task.id], 'Stopped with its project.')
+    expect(f.stopped).toContain(run.sessionId)
+    expect(f.db.employeeRun(run.id)).toMatchObject({ state: 'cancelled', reason: 'Stopped with its project.' })
+    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'done' })
+  })
+
+  it('refuses a running task’s acting tools once its project closed, as the project says', async () => {
+    const f = await rig()
+    f.service.projects = hooks({ acting: () => 'The project “Export” is closed.' })
+    const task = await part(f)
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    expect(() => f.service.toolRun(run.sessionId!, true)).toThrow('The project “Export” is closed.')
+  })
+
+  it('refuses Retry on a project’s task the project went on from', async () => {
+    const f = await rig()
+    f.service.projects = hooks({ retryRefusal: () => 'Use Try again in the channel instead.' })
+    const task = await part(f)
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await f.service.finishTask(run.sessionId!, { status: 'blocked', summary: 'Stuck.', unblock: 'x' })
+    f.chats.set(run.sessionId!, reply('turn-1', 'Stuck.'))
+    await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
+    await expect(f.service.retry(task.id)).rejects.toThrow('Use Try again in the channel instead.')
   })
 })

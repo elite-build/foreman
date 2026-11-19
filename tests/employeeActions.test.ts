@@ -20,7 +20,7 @@ import { EmployeeTools } from '../src/main/employeeTools'
 import { EmployeeWorkService, type EmployeeWorkHost } from '../src/main/employeeWork'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import { staticCapabilities } from '../src/shared/agentCatalog'
-import { actionPolicy, applyEdits, newsText, type EmployeeAction, type SlackPostPayload } from '../src/shared/employeeActions'
+import { actionPolicy, applyEdits, newsText, publishesFromShell, type EmployeeAction, type SlackPostPayload } from '../src/shared/employeeActions'
 import { continuationMessage, employeeActivity, type EmployeeRun } from '../src/shared/employeeWork'
 import { defaultEmployee, type EmployeeActionPolicy, type EmployeeDefinition, type EmployeeSummary } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
@@ -578,5 +578,100 @@ describe('a held push says where it goes and as whom (decision cards, docs/ai-em
     expect(payload).toMatchObject({ kind: 'push', repo: 'site', connection: 'Acme GitHub' })
     expect(payload).not.toHaveProperty('login')
     expect(payload).not.toHaveProperty('remoteUrl')
+  })
+})
+
+describe('outward actions in a project (docs/ai-employees.md §15): only the publisher publishes, and nothing after the task closed', () => {
+  /** A project's part task for Max, its run's turn started; the project's rule says whether it publishes. */
+  async function beginPart(r: Rig, rule: { may: true } | { may: false; refusal: string }): Promise<EmployeeRun> {
+    r.work.projects = { workspaceFor: async () => undefined, runCreated: () => undefined, keeps: () => true, taskClosed: () => undefined, followUp: async (t) => t, publishRule: () => rule }
+    const task = await r.work.projectTask({ orgId: 'o1', employeeId: 'e-max1', title: 'Build', body: 'Build it.', repoId: 'site', requestId: 'project:p1:part:build:1', runsAllowed: 80, contract: {}, project: { id: 'p1', kind: 'part', partId: 'build', round: 1 } })
+    await settle()
+    const run = r.db.employeeRuns({ taskId: task.id })[0]
+    const turnId = `turn-${run.id}`
+    r.sessions.set(run.sessionId!, { id: run.sessionId!, workspaceId: run.workspaceId!, agent: 'claude', status: 'running', turnId, unattended: { employeeRunId: run.id, employeeId: run.employeeId, orgId: run.orgId, persona: { mcp: [] } } } as unknown as Session)
+    r.work.turnStarted(run.sessionId!, turnId)
+    return r.db.employeeRun(run.id)!
+  }
+
+  it('refuses request_push and request_pull_request to a run that isn’t the publisher’s, committing, recording and sending nothing', async () => {
+    const r = await rig({ actions: { push: 'allowed', 'pull-request': 'allowed' } })
+    const run = await beginPart(r, { may: false, refusal: 'Foreman refused this: only the part “Open the PR” (pr) pushes.' })
+    expect(r.work.brief(run.id)?.noPublish).toBe('Foreman refused this: only the part “Open the PR” (pr) pushes.')
+    expect(r.work.brief(run.id)?.system).toContain('In this project only the part its plan names as publisher pushes the branch')
+    const out = await r.actions.requestPush(run.sessionId!, {})
+    expect(out).toEqual({ text: 'Foreman refused this: only the part “Open the PR” (pr) pushes.', isError: true })
+    const pr = await r.tools.call(run.sessionId!, 'request_pull_request', { title: 'Build', body: 'b' })
+    expect(pr.isError).toBe(true)
+    expect(r.scm.prepare).not.toHaveBeenCalled()
+    expect(r.db.employeeActions({})).toEqual([])
+  })
+
+  it('lets the publisher’s run publish as any run does', async () => {
+    const r = await rig({ actions: { push: 'allowed' } })
+    const run = await beginPart(r, { may: true })
+    expect(r.work.brief(run.id)?.noPublish).toBeUndefined()
+    const out = await r.actions.requestPush(run.sessionId!, {})
+    expect(out.isError).toBeUndefined()
+    expect(r.send.push).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes no writes, hand-offs or posts from a turn that runs on after its task closed; reading still works', async () => {
+    const r = await rig({ actions: { 'slack-post': 'allowed' } })
+    const run = await begin(r)
+    await r.work.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
+    const post = await r.actions.bridgeCall(slackCall(run))
+    expect(post).toMatchObject({ isError: true, text: expect.stringContaining('Your task is already closed (done)') })
+    expect(r.send.slack).not.toHaveBeenCalled()
+    const write = await r.tools.call(run.sessionId!, 'memory_write', { path: 'memory/bots/e-max1/notes.md', text: 'x', expected: null })
+    expect(write).toMatchObject({ isError: true, text: expect.stringContaining('takes nothing more from this run') })
+    const read = await r.tools.call(run.sessionId!, 'memory_read', { path: 'memory/bots/e-max1/notes.md' })
+    expect(read.isError).toBeUndefined()
+  })
+
+  it('records a push or pull request made from the publisher’s shell once, and not one Foreman already sent', async () => {
+    const r = await rig({ actions: { push: 'allowed', 'pull-request': 'allowed' } })
+    const run = await begin(r)
+    await r.actions.requestPullRequest(run.sessionId!, { title: 'Launch post', body: 'b' })
+    expect(r.send.pullRequest).toHaveBeenCalledTimes(1)
+    const who = { id: run.id, orgId: 'o1', employeeId: 'e-max1', taskId: run.taskId }
+    const base = { connection: '', workspaceId: run.workspaceId!, branch: 'max/launch', base: 'main', head: 'abc123', ahead: 0, commits: [] }
+    // Foreman opened #7 itself: found again from the shell, it isn't recorded twice, nor is the push of the same head.
+    expect(r.actions.recordShell({ run: who, repoId: 'site', payload: { kind: 'pull-request', ...base, title: 'Launch post', body: '' }, link: 'https://github.com/acme/site/pull/7' })).toBeUndefined()
+    expect(r.actions.recordShell({ run: who, repoId: 'site', payload: { kind: 'push', ...base } })).toBeUndefined()
+    // A newer head the shell pushed, and a pull request it opened, are recorded once each, as sent from the shell.
+    const pushed = r.actions.recordShell({ run: who, repoId: 'site', payload: { kind: 'push', ...base, head: 'fff999' }, detail: 'Pushed max/launch.' })
+    expect(pushed).toMatchObject({ kind: 'push', state: 'sent', via: 'shell', decidedBy: 'definition' })
+    expect(r.actions.recordShell({ run: who, repoId: 'site', payload: { kind: 'push', ...base, head: 'fff999' } })).toBeUndefined()
+    const opened = r.actions.recordShell({ run: who, repoId: 'site', payload: { kind: 'pull-request', ...base, head: 'fff999', title: 'Other', body: '' }, link: 'https://github.com/acme/site/pull/8' })
+    expect(opened).toMatchObject({ kind: 'pull-request', via: 'shell', result: { link: 'https://github.com/acme/site/pull/8' } })
+    expect(r.db.employeeAction(opened!.id)).toMatchObject({ via: 'shell' })
+  })
+})
+
+describe('publishing from a shell (docs/ai-employees.md §15)', () => {
+  it('knows the commands that push or open, change or merge a pull request', () => {
+    const yes = [
+      'git push',
+      'git push -u origin HEAD',
+      'npm test && git push origin main',
+      'git -C "C:/work/site" push',
+      'git -c core.sshCommand=ssh push --force',
+      'gh pr create --title x --body y',
+      'cd site; gh pr merge 7 --squash',
+      'gh pr ready 7',
+      'gh pr edit 7 --title x',
+      'gh api repos/acme/site/pulls -f title=x -f head=b',
+      'gh api -X PATCH repos/acme/site/pulls/7 -f state=closed',
+      'glab mr create --fill',
+      'hub pull-request -m x',
+      '(git push)'
+    ]
+    const no = ['git status', 'git commit -m "push it later"', 'git log --oneline', 'gh pr view 7 --json state', 'gh pr list', 'gh api repos/acme/site/pulls/7', 'gh pr checks 7', 'echo pushing', 'git pushx', 'npm run push-docs']
+    for (const command of yes) expect([command, publishesFromShell('Bash', { command })]).toEqual([command, true])
+    for (const command of no) expect([command, publishesFromShell('Bash', { command })]).toEqual([command, false])
+    expect(publishesFromShell('PowerShell', { command: 'git push' })).toBe(true)
+    expect(publishesFromShell('Edit', { command: 'git push' })).toBe(false)
+    expect(publishesFromShell('Bash', {})).toBe(false)
   })
 })

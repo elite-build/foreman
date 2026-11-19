@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-19: In a project, parts that change the repository take turns, and only its publisher publishes
+
+**Decision.** A project's parts that change the repository run one at a time in its workspace; parts that only read it run beside them. Only the part the plan names as publisher pushes or opens the pull request: Foreman refuses it to every other run of the project (its tools, and a Claude Code shell's `git push` or `gh pr create`), and records what the publisher publishes from its shell. "Hand to Priya…" branches the project's own workspace from the person's, which it never works in or archives.
+
+**Why.** All ready parts ran at once in one worktree with shells: one part's tests ran mid-edit of another's, and any part could publish half-done files, unrecorded, so the channel and the acceptance didn't know.
+
+**Turned down.** A workspace per part, merged at the end (merges the agents can't resolve); holding every shell push for the person (the publisher's push is the work); prompts alone (what the parts had).
+
+**Revisit when.** Parts can work on branches of their own that Foreman merges safely.
+
 ## 2026-11-19: A plain message in a project channel goes to the program manager
 
 **Decision.** In a project's channel, a message without `@Name` is for Priya: it goes into her running turn, or her message task reads it (one at a time), where she answers in the channel, asks, or replans. Later briefs carry the person's channel messages. `@Name` while that person's part runs goes into its running turn, or waits until it ends.
@@ -131,6 +141,8 @@ A row says what its workspace is for, not what it is called: its first chat's ti
 **Revisit when.** People miss branch and age at a glance, or touch use matters.
 
 ## 2026-11-17: An AI employee has what a workspace's agent has, and no limits
+
+**Narrowed** by 2026-11-19: In a project, parts that change the repository take turns, and only its publisher publishes (a project's runs share one workspace, and only its publishing part pushes or opens a pull request).
 
 **Decision.** Every employee gets a shell by default (Edit turns it off), every MCP server a workspace's agent has, Never ask when unattended, no refused paths, and no limits: no runs a day, minutes, cost threshold, lanes, organization cap, failure pause, hand-off depth or counts, or trigger floor. Kept: the memory repository's rules, held Slack and Linear posts, a chain's 20 runs, the event guards and a trigger's own overlap.
 

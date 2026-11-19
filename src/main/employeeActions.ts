@@ -26,7 +26,9 @@ import {
   type EmployeeActionKind,
   type EmployeeActionPayload,
   type EmployeeActionResult,
-  type EmployeeActionState
+  type EmployeeActionState,
+  type PullRequestPayload,
+  type PushPayload
 } from '../shared/employeeActions'
 import { repoAccess } from '../shared/employeeWork'
 import type { EmployeeDefinition } from '../shared/employees'
@@ -127,14 +129,17 @@ export class EmployeeActionService {
     return Boolean(mark && 'employeeRunId' in mark)
   }
 
-  /** The going run, and its definition as approved here, or a refusal the model reads. */
-  private async caller(sessionId: string): Promise<{ run: ReturnType<EmployeeWorkService['toolRun']>['run']; task: ReturnType<EmployeeWorkService['toolRun']>['task']; definition: EmployeeDefinition; name: string }> {
-    const { run, task } = this.host.work.toolRun(sessionId)
+  /**
+   * The going run, and its definition as approved here, or a refusal the model reads. Nothing is sent for a run whose
+   * task already closed or whose project did (toolRun's `acting`).
+   */
+  private async caller(sessionId: string): Promise<{ run: ReturnType<EmployeeWorkService['toolRun']>['run']; task: ReturnType<EmployeeWorkService['toolRun']>['task']; brief: ReturnType<EmployeeWorkService['toolRun']>['brief']; definition: EmployeeDefinition; name: string }> {
+    const { run, task, brief } = this.host.work.toolRun(sessionId, true)
     const current = await this.host.employees.current(run.orgId, run.employeeId).catch(() => undefined)
     const s = current?.summary
     if (!current?.definition || !s || s.problems.length || s.changed || s.state === 'retired' || s.state === 'draft')
       throw new Refusal('Your definition changed since this run was approved (or you were retired), so Foreman sends nothing from this run. Finish your task and say so.')
-    return { run, task, definition: current.definition, name: s.name || run.employeeId }
+    return { run, task, brief, definition: current.definition, name: s.name || run.employeeId }
   }
 
   /** A bridged Slack post or Linear change from an employee's run (§9): recorded, then sent, held or refused. */
@@ -164,7 +169,9 @@ export class EmployeeActionService {
 
   private async branchAction(sessionId: string, kind: 'push' | 'pull-request', input: { title?: string; body?: string; base?: string; commit_message?: string }): Promise<ActionToolResult> {
     try {
-      const { run, task, definition, name } = await this.caller(sessionId)
+      const { run, task, brief, definition, name } = await this.caller(sessionId)
+      // In a project only its publishing part publishes (§15): nothing is committed, recorded or sent for another.
+      if (brief.noPublish) throw new Refusal(brief.noPublish)
       const repo = this.host.state().repos.find((r) => r.id === run.repoId)
       // Only a run admitted with Write access, whose definition still gives it: Read runs push nothing.
       if (!repo || run.access !== 'write' || repoAccess(definition, repo.name) !== 'write')
@@ -245,6 +252,52 @@ export class EmployeeActionService {
     if (!this.db.addEmployeeAction(action)) return { action: this.db.employeeActionByKey(key)!, existing: true }
     this.host.work.actionRecorded(action)
     return { action, existing: false }
+  }
+
+  /**
+   * A push or pull request a project's publishing part made from its shell (docs/ai-employees.md §15), found on its
+   * branch once its run ended: recorded as sent, `via: 'shell'`, once (the same branch head, or the same pull request,
+   * whether Foreman sent it or the shell did, is one publication), so the channel, the acceptance and Undo approval know
+   * of it. Nothing is sent. The action recorded, or undefined when it was known already.
+   */
+  recordShell(input: { run: { id: string; orgId: string; employeeId: string; taskId: string }; repoId: string; payload: PushPayload | PullRequestPayload; link?: string; detail?: string }): EmployeeAction | undefined {
+    const { run, payload: p, link } = input
+    const known = this.db
+      .employeeActions({ orgId: run.orgId })
+      .some(
+        (a) =>
+          a.state !== 'refused' &&
+          a.state !== 'skipped' &&
+          (p.kind === 'pull-request'
+            ? a.kind === 'pull-request' && Boolean(link) && a.result?.link === link
+            : (a.payload.kind === 'push' || a.payload.kind === 'pull-request') && a.payload.branch === p.branch && a.payload.head === p.head)
+      )
+    if (known) return undefined
+    const key = `shell:${p.kind}:${run.orgId}:${p.kind === 'pull-request' && link ? link : `${p.branch}@${p.head}`}`
+    const at = this.iso()
+    const action: EmployeeAction = {
+      id: randomUUID(),
+      orgId: run.orgId,
+      employeeId: run.employeeId,
+      taskId: run.taskId,
+      runId: run.id,
+      repoId: input.repoId,
+      kind: p.kind,
+      payload: p,
+      policy: 'allowed',
+      state: 'sent',
+      key,
+      decidedBy: 'definition',
+      via: 'shell',
+      result: { ...(link ? { link } : {}), ...(input.detail ? { detail: input.detail } : {}) },
+      createdAt: at,
+      updatedAt: at,
+      sentAt: at,
+      settledAt: at
+    }
+    if (!this.db.addEmployeeAction(action)) return undefined
+    this.host.work.actionRecorded(action)
+    return action
   }
 
   /** What the model is told, and an allowed action sent first. */

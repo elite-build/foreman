@@ -164,6 +164,9 @@ export interface EmployeeAction {
   // When it was sent, and when it reached an end (sent, skipped, failed, refused).
   sentAt?: string
   settledAt?: string
+  // Not asked of Foreman: a project's publishing part pushed or opened it from its shell, and Foreman found it on the
+  // branch afterwards and recorded it as sent (docs/ai-employees.md §15), so the channel and the acceptance know of it.
+  via?: 'shell'
 }
 
 /** The outcome of an action an employee's task is told on its next continuation (§6.4, "the employee is told"). */
@@ -319,4 +322,36 @@ export function newsLine(n: EmployeeActionNews): string {
 export function newsText(news: readonly EmployeeActionNews[]): string {
   if (!news.length) return ''
   return `Outward actions you asked for, decided while your task waited:\n${news.map(newsLine).join('\n')}`
+}
+
+// ---- a project's publishing, from a shell (docs/ai-employees.md §15) ----
+
+/** Where a command starts: the line's start, or after a separator, a pipe, a subshell or a substitution. */
+const AT = String.raw`(?:^|[\s;&|(\x60{])`
+const ARG = String.raw`(?:"[^"]*"|'[^']*'|\S+)`
+/** Where a command's word ends: the line's end, a space, a separator or a closing bracket. */
+const END = String.raw`(?=$|[\s;&|)\x60}])`
+const PUBLISH_COMMANDS: readonly RegExp[] = [
+  // git push, with git's own options first (git -C dir push, git -c key=value push).
+  new RegExp(String.raw`${AT}git(?:\s+(?:-[Cc]\s+${ARG}|--?[\w-]+(?:=${ARG})?))*\s+push${END}`),
+  new RegExp(String.raw`${AT}gh\s+pr\s+(?:create|merge|ready|reopen|edit)${END}`),
+  new RegExp(String.raw`${AT}glab\s+mr\s+(?:create|merge|update)${END}`),
+  new RegExp(String.raw`${AT}hub\s+(?:pull-request|push)${END}`)
+]
+// gh api writing to a pull request: a method that writes, or fields (which make it a POST).
+const GH_API_PULLS = new RegExp(String.raw`${AT}gh\s+api\s[^\n;&|]*\bpulls\b[^\n;&|]*`)
+const WRITES = /(?:-X|--method)[\s=]*['"]?(?:POST|PATCH|PUT)\b|\s(?:-f|-F|--field|--raw-field|--input)(?:\s|=)/i
+
+/**
+ * Whether a shell call (Claude Code's Bash or PowerShell) pushes a branch or opens, changes or merges a pull request: git
+ * push, gh pr create/merge/ready/reopen/edit, gh api writing to pulls, glab mr create/merge/update, hub. In a project only
+ * its publishing part may (shared/projects.ts publishRule); a command that merely mentions one in its words counts too.
+ */
+export function publishesFromShell(toolName: string, input: unknown): boolean {
+  if (toolName !== 'Bash' && toolName !== 'PowerShell') return false
+  const command = typeof input === 'object' && input !== null ? (input as Record<string, unknown>).command : undefined
+  if (typeof command !== 'string') return false
+  if (PUBLISH_COMMANDS.some((re) => re.test(command))) return true
+  const api = GH_API_PULLS.exec(command)
+  return Boolean(api && WRITES.test(api[0]))
 }

@@ -11,16 +11,21 @@
 //    as drafts at once, so the person can read and approve each at the plan gate; the plan is approved only once every
 //    owner is approved;
 //  - Foreman starts each part whose dependencies are done, as a task of its owner with its contract (the file it writes,
-//    the files it reads at their commits); parts that don't depend on each other run at the same time;
+//    the files it reads at their commits); parts that don't depend on each other run at the same time, but of those
+//    that change the repository only one at a time (readyParts); only the part the plan names as publisher pushes or
+//    opens the pull request (publishRule: every other run is refused, shell included), and what it publishes from its
+//    shell is recorded when it ends;
 //  - a part closed done records its file and, when the plan says so, waits at a gate for the person; a part that can't
 //    finish (partial, blocked) wakes the program manager to replan, at most MAX_REPLANS times; a replan that only gives
 //    the plan's owners more work goes ahead, anything else waits at the plan gate; nothing new starts while a replan is
 //    being made;
 //  - a small plan ends when its last part does; a large one ends with the program manager's acceptance and the person's
 //    final gate;
-//  - every run of the project shares one workspace, kept until the project closes; what starts next is decided from the
-//    record on every change and a task's request id is stable for its part and round, so a crash in between starts it
-//    once, on the next launch (recover);
+//  - every run of the project shares one workspace, kept until the project closes: the first run that needs it makes it
+//    (the others wait for it), one archived is restored, and one gone is never replaced silently (its task waits, saying
+//    so). "Hand to Priya…" branches it from the handed workspace, which stays the person's. What starts next is decided
+//    from the record on every change and a task's request id is stable for its part and round, so a crash in between
+//    starts it once, on the next launch (recover);
 //  - anyone who worked on it stays available: a follow-up is a new task for them in the project's chain; `@Name` while
 //    their part runs goes into its running turn when their agent takes one, else waits for that run to end;
 //  - a message without a name is the program manager's: it goes into her running turn, or her message task reads it (one
@@ -28,7 +33,7 @@
 import { randomUUID } from 'node:crypto'
 import { ACTION_KEEPS_WORKSPACE } from '../shared/employeeActions'
 import { proposedDefinition } from '../shared/employeeTeams'
-import { MAX_TASK_BODY, RUN_ACTIVE, type EmployeeTask } from '../shared/employeeWork'
+import { MAX_TASK_BODY, repoAccess, RUN_ACTIVE, type EmployeeTask } from '../shared/employeeWork'
 import { memoryArtifacts } from '../shared/memory'
 import { employeeStatus, HAT_COLOURS, newEmployeeId, type EmployeeDefinition } from '../shared/employees'
 import { reposInSpace, type Organization } from '../shared/organizations'
@@ -36,6 +41,7 @@ import {
   ACCEPTANCE_FILE,
   acceptanceBody,
   allPartsDone,
+  changesRepo,
   answersProblem,
   approvalsFor,
   approvalUndo,
@@ -69,7 +75,12 @@ import {
   planSeen,
   planStateText,
   projectFolder,
+  projectPublications,
+  projectTaskRetryable,
   publishedTasks,
+  publisherOf,
+  publishRefusal,
+  publishRule,
   projectSlug,
   projectTitle,
   PROJECT_RUNS,
@@ -89,6 +100,7 @@ import {
   type ProjectOutcome,
   type ProjectNote,
   type ProjectPlan,
+  type ProjectPublication,
   type ProjectStep,
   type ProjectWait,
   type QuestionsInput,
@@ -106,11 +118,23 @@ import type { PersistedState } from './store'
 export interface ProjectHost {
   state(): PersistedState
   db(): ForemanDb
-  work: Pick<EmployeeWorkService, 'projectTask' | 'cancel'>
+  work: Pick<EmployeeWorkService, 'projectTask' | 'cancel'> & Partial<Pick<EmployeeWorkService, 'endRuns'>>
   employees: Pick<EmployeeService, 'current' | 'members' | 'createTeam'>
   memory: Pick<MemoryService, 'read' | 'stage' | 'tree' | 'commitAsPerson'>
   // The project's workspace is still there and can take another chat (not archived, not being removed).
   workspaceAlive(workspaceId: string): boolean
+  // Make the project's workspace ready for another run: wait while it is being made or set up, restore it when it was
+  // archived. Rejects with why it can't be used (gone, or failed). Absent: only a ready one is used.
+  openWorkspace?(workspaceId: string): Promise<void>
+  // "Hand to Priya…": a new workspace branched from that one's HEAD (with its uncommitted changes, when `include`),
+  // never touching it. Its id; it may still be being made.
+  forkWorkspace?(fromWorkspaceId: string, include: boolean): Promise<string>
+  // The workspace's state as one string (HEAD and what is uncommitted), for the soft check on a part that shouldn't change it.
+  repoState?(workspaceId: string): Promise<string | undefined>
+  // Record what the task's runs pushed or opened from their shell (the branch's upstream, its pull request), as sent actions.
+  recordPublished?(task: EmployeeTask): Promise<void>
+  // A workspace's name, for words.
+  workspaceName?(workspaceId: string): string | undefined
   // A workspace's repository, for "Hand to Priya…", and its chat so far, as text (newest last, cut to fit).
   workspaceRepo?(workspaceId: string): string | undefined
   transcript?(workspaceId: string): Promise<string>
@@ -128,6 +152,10 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 export class ProjectService implements EmployeeProjectHooks {
   private queue: Promise<unknown> = Promise.resolve()
+  // Per project, the launch now getting its workspace: the next waits for it (one restore, one making, never two).
+  private lanes = new Map<string, Promise<void>>()
+  // The tasks whose launch makes their project's workspace (it had none): the others wait until it is made or failed.
+  private makers = new Map<string, () => void>()
 
   constructor(private host: ProjectHost) {}
 
@@ -210,7 +238,21 @@ export class ProjectService implements EmployeeProjectHooks {
     const undoable = this.undoable(project)
     if (undoable.length) project.undoable = undoable
     else delete project.undoable
+    const published = this.published(project)
+    if (published.length) project.published = published
+    else delete project.published
     return project
+  }
+
+  /** What the project's runs pushed or opened, through Foreman or from the publisher's shell. */
+  private published(project: Project): ProjectPublication[] {
+    return projectPublications(this.db.employeeActions({ orgId: project.orgId }), project)
+  }
+
+  /** The project's publications with the employees' names, for a brief. */
+  private async publishedFor(project: Project): Promise<{ list: ProjectPublication[]; names: Record<string, string> } | undefined> {
+    const list = this.published(project)
+    return list.length ? { list, names: await this.names(project.orgId) } : undefined
   }
 
   /** The times of the gate approvals that can be taken back now (approvalUndo, with the tasks' published actions and states). */
@@ -244,7 +286,9 @@ export class ProjectService implements EmployeeProjectHooks {
 
   /**
    * The person tags the program manager (§15): a project, and her planning task. From a workspace ("Hand to Priya…"),
-   * that workspace becomes the project's and its chat is her first input.
+   * the project's workspace is branched from its HEAD (with its uncommitted changes when the person chose so), its chat
+   * is her first input, and it stays the person's: never worked in or archived by the project. A workspace handed to an
+   * open project already (or one that is a project's) is refused, naming the channel.
    */
   start(orgId: string, input: StartProjectInput): Promise<Project> {
     return this.serial(async () => {
@@ -267,8 +311,16 @@ export class ProjectService implements EmployeeProjectHooks {
       if (repoId && !repo) throw new Error(`That repository isn’t one of ${org.name}’s, so it can’t be a project there.`)
       if (!repo) throw new Error(`${org.name} has no repository to work in besides its memory repository. Move one into it from Settings → Spaces.`)
       const title = projectTitle(requirement)
+      const from = input.fromWorkspaceId
+      let workspaceId: string | undefined
+      if (from) {
+        const owner = this.db.projects(org.id).find((p) => Array.isArray(p.waits) && p.phase !== 'closed' && (p.workspaceId === from || p.fromWorkspaceId === from))
+        if (owner) throw new Error(`That workspace went to #${channelSlug(owner)} already, which is still open: carry on there, or stop that project first.`)
+        if (!this.host.workspaceAlive(from)) throw new Error('That workspace isn’t ready (it is being set up, or archived): open it first, then hand it over.')
+        if (!this.host.forkWorkspace) throw new Error('A workspace can’t be handed over here.')
+        workspaceId = await this.host.forkWorkspace(from, Boolean(input.includeChanges))
+      }
       const now = this.iso()
-      const from = input.fromWorkspaceId && this.host.workspaceAlive(input.fromWorkspaceId) ? input.fromWorkspaceId : undefined
       const project: Project = {
         id: randomUUID(),
         orgId: org.id,
@@ -281,7 +333,7 @@ export class ProjectService implements EmployeeProjectHooks {
         plans: [],
         parts: {},
         replans: 0,
-        ...(from ? { workspaceId: from, fromWorkspaceId: from } : {}),
+        ...(from && workspaceId ? { workspaceId, fromWorkspaceId: from } : {}),
         steps: [],
         artifacts: {},
         waits: [],
@@ -304,7 +356,7 @@ export class ProjectService implements EmployeeProjectHooks {
   /** Make a task of the project and record it as a step; a task that can't be made leaves the project waiting for the person. */
   private async task(
     project: Project,
-    input: { kind: 'plan' | 'part' | 'accept' | 'message'; employeeId: string; title: string; body: string; requestId: string; round: number; partId?: string; after?: string; contract: EmployeeTask['contract'] },
+    input: { kind: 'plan' | 'part' | 'accept' | 'message'; employeeId: string; title: string; body: string; requestId: string; round: number; partId?: string; after?: string; repoAt?: string; contract: EmployeeTask['contract'] },
     onFail: { kind: ProjectWait['kind']; partId?: string } | 'throw'
   ): Promise<EmployeeTask | undefined> {
     // What the caller changed is kept first: the record is read back once the task exists.
@@ -324,7 +376,7 @@ export class ProjectService implements EmployeeProjectHooks {
       })
       const fresh = this.db.project(project.id) ?? project
       if (!fresh.steps.some((s) => s.taskId === task.id))
-        fresh.steps.push({ kind: input.kind, ...(input.partId ? { partId: input.partId } : {}), round: input.round, taskId: task.id, employeeId: input.employeeId, state: 'running', startedAt: this.iso() })
+        fresh.steps.push({ kind: input.kind, ...(input.partId ? { partId: input.partId } : {}), round: input.round, taskId: task.id, employeeId: input.employeeId, state: 'running', ...(input.repoAt ? { repoAt: input.repoAt } : {}), startedAt: this.iso() })
       if (!rootId) fresh.rootTaskId = task.rootId
       Object.assign(project, fresh)
       this.save(project)
@@ -478,10 +530,13 @@ export class ProjectService implements EmployeeProjectHooks {
       const org = this.organization(project.orgId)
       const members = (await this.host.employees.members(org.id)) ?? []
       // A second call in the same task replaces its plan; drafts the first proposed are on the team now, by name.
+      const repo = this.state.repos.find((r) => r.id === project.repoId)?.name
       const result = checkPlan(input, {
         employees: members.map((m) => ({ id: m.summary.id, name: m.summary.name || m.summary.id, state: m.summary.state })),
         pmId: project.pmId,
         repos: this.workRepos(org).map((r) => r.name),
+        // Who can change the project's repository: their parts change it unless they say not.
+        ...(repo ? { repo, writers: members.filter((m) => m.definition && repoAccess(m.definition, repo) === 'write').map((m) => m.summary.id) } : {}),
         asked: questionState(project.asks),
         ...(project.plan ? { current: project.plan, parts: project.parts } : {})
       })
@@ -589,6 +644,13 @@ export class ProjectService implements EmployeeProjectHooks {
     }
     const files = memoryArtifacts(task.result?.artifacts)
     if (files.length) step.files = files
+    // What the publishing part pushed or opened from its shell is recorded now, so the channel and the acceptance see it.
+    if (step.kind === 'part' && this.host.recordPublished) {
+      const publisher = publisherOf(project.plan)
+      if (publisher === undefined || publisher?.id === step.partId) await this.host.recordPublished(task).catch((err: unknown) => console.error('Project publications:', err))
+    }
+    // A part that shouldn't change the repository, and did (Foreman's soft check: the channel says so).
+    await this.checkUnchanged(project, step)
     const why = task.closureDetail ?? task.result?.unblock ?? task.resultSummary ?? `It closed ${task.closureReason ?? 'without a result'}.`
     if (!done) step.reason = why
     if (project.phase === 'closed') {
@@ -607,6 +669,21 @@ export class ProjectService implements EmployeeProjectHooks {
     // What the person wrote while she worked, and nothing she started next has read: her message task reads it now.
     const fresh = this.db.project(project.id)
     if (fresh && step.employeeId === fresh.pmId) await this.wake(fresh).catch((err: unknown) => console.error('Project message:', err))
+  }
+
+  /**
+   * A part the plan says doesn't change the repository: whether the workspace changed while it ran, when no part that
+   * changes it (or a follow-up) ran meanwhile. Marked on its step; nothing is undone.
+   */
+  private async checkUnchanged(project: Project, step: ProjectStep): Promise<void> {
+    const part = step.kind === 'part' ? project.plan?.parts.find((p) => p.id === step.partId) : undefined
+    const ws = project.workspaceId
+    if (!part || part.changesRepo !== false || !step.repoAt || !ws || !this.host.repoState) return
+    const end = step.endedAt ?? this.iso()
+    const writer = (s: ProjectStep) => s.kind === 'follow-up' || (s.kind === 'part' && changesRepo(project.plan?.parts.find((p) => p.id === s.partId) ?? {}))
+    if (project.steps.some((s) => s !== step && writer(s) && s.startedAt < end && (s.endedAt ?? end) > step.startedAt)) return
+    const now = await this.host.repoState(ws).catch(() => undefined)
+    if (now && now !== step.repoAt) step.changedRepo = true
   }
 
   /**
@@ -779,6 +856,11 @@ export class ProjectService implements EmployeeProjectHooks {
     const again = project.steps.filter((s) => s.kind === 'part' && s.partId === part.id && s.round === round && s.end === 'undone').length
     // What the person wrote in the channel since this part last ran.
     const messages = await this.channelMessages(project, project.steps.filter((s) => s.kind === 'part' && s.partId === part.id).at(-1)?.startedAt)
+    // Who publishes (when it isn't this part), and what was published so far.
+    const publisher = publisherOf(plan)
+    const published = await this.publishedFor(project)
+    // A part that shouldn't change the repository: the workspace as it starts, for the soft check when it ends.
+    const repoAt = part.changesRepo === false && project.workspaceId && this.host.repoState && this.host.workspaceAlive(project.workspaceId) ? await this.host.repoState(project.workspaceId).catch(() => undefined) : undefined
     project.parts[part.id] = { state: 'running', round }
     this.save(project)
     const task = await this.task(
@@ -788,9 +870,22 @@ export class ProjectService implements EmployeeProjectHooks {
         partId: part.id,
         employeeId: owner,
         title: `${part.title}: ${project.title}${round > 1 ? ` (round ${round})` : ''}`,
-        body: partBody({ project, organization: org.name, plan, part, round, inputs, ...(note ? { note } : {}), ...(approvals.length ? { approvals } : {}), ...(messages ? { messages } : {}) }),
+        body: partBody({
+          project,
+          organization: org.name,
+          plan,
+          part,
+          round,
+          inputs,
+          ...(note ? { note } : {}),
+          ...(approvals.length ? { approvals } : {}),
+          ...(messages ? { messages } : {}),
+          ...(publisher && publisher.id !== part.id ? { publisher } : {}),
+          ...(published ? { published } : {})
+        }),
         requestId: `project:${project.id}:part:${part.id}:${round}${again ? `:again-${again}` : ''}`,
         round,
+        ...(repoAt ? { repoAt } : {}),
         contract: { ...(inputs.length ? { inputs } : {}), produces: path, writes: [path], writesUnder: [mocksFolder(project.slug, part.id)] }
       },
       { kind: 'stuck', partId: part.id }
@@ -810,6 +905,7 @@ export class ProjectService implements EmployeeProjectHooks {
     const inputs = Object.values(project.artifacts).map((a) => ({ path: a.path, ...(a.commit ? { commit: a.commit } : {}) }))
     const path = artifactPath(project.slug, ACCEPTANCE_FILE)
     const messages = await this.channelMessages(project, project.steps.filter((s) => s.kind === 'accept').at(-1)?.startedAt)
+    const published = await this.publishedFor(project)
     this.save(project)
     const task = await this.task(
       project,
@@ -817,7 +913,7 @@ export class ProjectService implements EmployeeProjectHooks {
         kind: 'accept',
         employeeId: project.pmId,
         title: `Accept: ${project.title}`,
-        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}), replansLeft: MAX_REPLANS - project.replans, ...(messages ? { messages } : {}), max: MAX_TASK_BODY }),
+        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}), replansLeft: MAX_REPLANS - project.replans, ...(messages ? { messages } : {}), ...(published ? { published } : {}), max: MAX_TASK_BODY }),
         requestId: `project:${project.id}:accept:${round}`,
         round,
         contract: { inputs, produces: path, writes: [path], options: ['accept', 'replan'] }
@@ -974,6 +1070,10 @@ export class ProjectService implements EmployeeProjectHooks {
     }
     this.save(project)
     for (const id of canceled) await this.host.work.cancel(id).catch((err: unknown) => console.error('Project stop:', err))
+    // A turn still running after its task closed (it called finish_task and went on) stops too: nothing of the project
+    // keeps a shell or a tool once it closes.
+    const finished = project.steps.filter((s) => !canceled.includes(s.taskId)).map((s) => s.taskId)
+    await this.host.work.endRuns?.(finished, outcome === 'stopped' ? 'Stopped with its project.' : 'Ended with its project.').catch((err: unknown) => console.error('Project stop:', err))
     this.release(project)
   }
 
@@ -1086,10 +1186,13 @@ export class ProjectService implements EmployeeProjectHooks {
     })
   }
 
-  /** A closed project's workspace is archived, unless a push or pull request of its runs still waits for the person there. */
+  /**
+   * A closed project's workspace is archived, unless a push or pull request of its runs still waits for the person there.
+   * Never the person's own: a project handed over before its workspace was branched from theirs works in theirs.
+   */
   private release(project: Project): void {
     const ws = project.workspaceId
-    if (!ws || !this.host.workspaceAlive(ws)) return
+    if (!ws || ws === project.fromWorkspaceId || !this.host.workspaceAlive(ws)) return
     const held = this.db.employeeActions({ orgId: project.orgId, states: ACTION_KEEPS_WORKSPACE }).some((a) => (a.kind === 'push' || a.kind === 'pull-request') && this.db.employeeRun(a.runId)?.workspaceId === ws)
     if (held) return
     const run = project.steps.flatMap((s) => this.db.employeeRuns({ taskId: s.taskId })).find((r) => r.workspaceId === ws)
@@ -1238,13 +1341,21 @@ export class ProjectService implements EmployeeProjectHooks {
       const artifact = file ? fresh.artifacts[file] : undefined
       const round = fresh.steps.filter((s) => s.kind === 'follow-up').length + 1
       const rootId = fresh.phase === 'closed' ? undefined : this.chainRoot(fresh)
-      // What the person wrote in the channel since this employee last worked on it.
+      // What the person wrote in the channel since this employee last worked on it, and what the project published.
       const messages = await this.channelMessages(fresh, [...fresh.steps].reverse().find((s) => s.employeeId === employeeId)?.startedAt)
+      const published = await this.publishedFor(fresh)
       const follow = await this.host.work.projectTask({
         orgId: fresh.orgId,
         employeeId,
         title: `Follow-up: ${fresh.title}`,
-        body: followUpBody({ project: fresh, question: asked, ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}), ...(part ? { part, mocks: mocksFolder(fresh.slug, part.id) } : {}), ...(messages ? { messages } : {}) }),
+        body: followUpBody({
+          project: fresh,
+          question: asked,
+          ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}),
+          ...(part ? { part, mocks: mocksFolder(fresh.slug, part.id) } : {}),
+          ...(messages ? { messages } : {}),
+          ...(published ? { published } : {})
+        }),
         repoId: fresh.repoId,
         requestId: `project:${fresh.id}:follow-up:${randomUUID()}`,
         ...(rootId ? { rootId } : { runsAllowed: PROJECT_RUNS }),
@@ -1260,16 +1371,59 @@ export class ProjectService implements EmployeeProjectHooks {
 
   // ---- the shared workspace (EmployeeProjectHooks) ----
 
-  workspaceFor(task: EmployeeTask): string | undefined {
-    const project = task.project ? this.db.project(task.project.id) : undefined
-    const ws = project?.workspaceId
-    return ws && this.host.workspaceAlive(ws) ? ws : undefined
+  /**
+   * The project's workspace for a run of its task, one launch at a time per project: ready, or waited for while it is
+   * being made or set up, or restored when it was archived (openWorkspace); gone, it throws, saying so (the task waits for
+   * the person), and is never replaced by a fresh one. With none yet, this launch makes it (undefined), and the others
+   * wait until it has (launchSettled), then use it.
+   */
+  async workspaceFor(task: EmployeeTask): Promise<string | undefined> {
+    const id = task.project?.id
+    if (!id) return undefined
+    const before = this.lanes.get(id) ?? Promise.resolve()
+    let release!: () => void
+    const mine = new Promise<void>((r) => (release = r))
+    const lane = before.then(() => mine)
+    this.lanes.set(id, lane)
+    void lane.then(() => {
+      if (this.lanes.get(id) === lane) this.lanes.delete(id)
+    })
+    await before
+    let making = false
+    try {
+      const project = this.db.project(id)
+      const ws = project?.workspaceId
+      if (!project) return undefined
+      if (!ws) {
+        making = true
+        this.makers.set(task.id, release)
+        return undefined
+      }
+      const name = this.host.workspaceName?.(ws)
+      const called = `The project’s workspace${name ? ` ${name}` : ''}`
+      if (this.host.openWorkspace)
+        await this.host.openWorkspace(ws).catch((err: unknown) => {
+          throw new Error(`${called} can’t be used: ${message(err)} Foreman doesn’t start this work on a fresh copy of the code without the project’s; restore the workspace, or stop the project.`)
+        })
+      else if (!this.host.workspaceAlive(ws)) throw new Error(`${called} is gone. Foreman doesn’t start this work on a fresh copy of the code without the project’s; restore the workspace, or stop the project.`)
+      return ws
+    } finally {
+      if (!making) release()
+    }
   }
 
+  /** The launch that was making its project's workspace has made it, or failed: the next launch goes on. */
+  launchSettled(task: EmployeeTask): void {
+    const release = this.makers.get(task.id)
+    if (!release) return
+    this.makers.delete(task.id)
+    release()
+  }
+
+  /** The first run of a project without a workspace made it: it is the project's. One it has already is never replaced. */
   runCreated(task: EmployeeTask, workspaceId: string): void {
     const project = task.project ? this.db.project(task.project.id) : undefined
-    if (!project || project.workspaceId === workspaceId) return
-    if (project.workspaceId && this.host.workspaceAlive(project.workspaceId)) return
+    if (!project || project.workspaceId) return
     project.workspaceId = workspaceId
     this.save(project)
   }
@@ -1277,6 +1431,34 @@ export class ProjectService implements EmployeeProjectHooks {
   keeps(task: EmployeeTask): boolean {
     const project = task.project ? this.db.project(task.project.id) : undefined
     return Boolean(project && project.phase !== 'closed')
+  }
+
+  // ---- what its runs may do (EmployeeProjectHooks) ----
+
+  /** The generic Retry on a task the project went on from is refused (projectTaskRetryable): Try again is in the channel. */
+  retryRefusal(task: EmployeeTask): string | undefined {
+    const project = task.project ? this.db.project(task.project.id) : undefined
+    if (projectTaskRetryable(task, project && Array.isArray(project.waits) ? project : undefined)) return undefined
+    return project
+      ? `This task is #${channelSlug(project)}’s, which has gone on without it${project.phase === 'closed' ? ' and is closed' : ''}: a retry here would run beside the work that replaced it and count for nothing. Use Try again in the channel instead.`
+      : 'This task’s project is gone, so it can’t be tried again.'
+  }
+
+  /** Whether the task's run may push or open a pull request (publishRule), and what Foreman answers one that may not. */
+  publishRule(task: EmployeeTask): { may: true } | { may: false; refusal: string } | undefined {
+    const project = task.project ? this.db.project(task.project.id) : undefined
+    if (!project || !task.project || !Array.isArray(project.waits)) return undefined
+    const rule = publishRule(project, task.project)
+    if (!rule) return undefined
+    return rule.may ? { may: true } : { may: false, refusal: publishRefusal(project, rule.publisher) }
+  }
+
+  /** Why a run's acting tool is refused: its project is gone, or closed (a follow-up asked after it closed still works). */
+  acting(task: EmployeeTask): string | undefined {
+    const project = task.project ? this.db.project(task.project.id) : undefined
+    if (!project) return 'This task’s project was deleted, so Foreman takes nothing more from this run. End your turn now.'
+    if (project.phase !== 'closed' || (task.project?.kind === 'follow-up' && project.closedAt && task.createdAt >= project.closedAt)) return undefined
+    return `The project “${project.title}” is closed (${project.outcome === 'stopped' ? 'stopped by the person' : 'done'}), so Foreman takes nothing more from this run: no writes, hand-offs, messages or pushes. End your turn now.`
   }
 
   // ---- recovery ----
