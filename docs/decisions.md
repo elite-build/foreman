@@ -34,6 +34,30 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-18: Needs you is a ring around a dot, failed a dot with a cross, and a count is a filled pill
+
+**Decision.** `ui/Glyph` draws `warn` (needs you) as a ring around a dot and `error` (failed) as a dot with a cross cut out; ● ok, ■ info and ○ off stay. A count of what needs you on a tile is a soft filled pill in the needs-you colour, with no mark inside.
+
+**Why.** The person found the pointed triangle (brown in light mode) and the diamond ugly and asked for something round and soothing. Of four drawn options they picked the ring: round like the dots around it, still a shape nothing else has, so no state rests on colour.
+
+**Turned down.** Rounded triangle and diamond (still pointed). A dot with "!" cut out (calm, but the mark is small at 10 px). A half-filled dot (less obvious at a glance). A plain circle (it would be ● ok told apart by colour alone).
+
+**Revisit when.** People with colour-vision differences confuse the ring with ○ off at small sizes.
+
+## 2026-11-18: The sidebar is a rail of spaces and modes beside the list of the mode picked
+
+**Decision.** The rail shows every space as a tile with its name under it, the one shown selected and the others with ▲ and how much waits there; under them the modes are labelled tabs (`Tabs` variant `rail`): Inbox and Work, and in an organization Team and Channels. Beside the rail is the list of the mode picked, titled with the space and the mode. Inbox holds everything in the space that waits on the person and links to what waits in the other spaces; Work groups by repository (each with ⋯ for its menu) or, chosen in Group by, by state, under a line saying how much waits in Inbox. Automations, the Assistant, Settings and ⋯ (palette, shortcuts, report a problem, tour, Mark all as read, Archived, version) sit at the rail's foot. The repository rail, the space dropdown, the filter tabs and the footer line are gone.
+
+**Why.** The person found which space they were in (Personal or an organization) too hard to see in a dropdown, and the sidebar cluttered by four ways of filtering one list in 312px. Of 36 mocks they leaned to a rail of modes (28) but found its icon-only rail hard to tell apart, and picked spaces as named tiles above labelled modes (36, rail B).
+
+**Turned down.** Space tabs and a coloured band per space (the band needed a new component), one list across every space, an icon-only rail (28 as drawn), no left sidebar at all (title-bar crumbs, top tabs, command first). A Memory mode and Open memory on a space's tile: the entry below keeps an organization's memory off the left. A + on each repository's heading: the top row's + stays the one way to add, and the heading's ⋯ has New workspace….
+
+Every line of the list keeps one grid, as Slack's does: an icon column (18px) and a text column 10px after it, the same for headings, rows, the line to Inbox and the links under a list; two type sizes (15px names and headings, 13px the rest); every line 32px, the selected row one line like the others (its branch and age are in its hover card).
+
+A row says what its workspace is for, not what it is called: its first chat's title (or an employee run's task), the workspace's name (its branch's) only until a chat has one. A generated name like osaka or a branch slug tells nobody which piece of work it is; the name and branch stay in the hover card, Find matches all three, and Rename changes what the row shows.
+
+**Revisit when.** People with many organizations find the space tiles crowd the modes, or people miss what waits because they stay in Work.
+
 ## 2026-11-18: An organization's memory repository is never shown, only linked
 
 **Decision.** New organization makes the memory repository unasked, without naming it or its folder. Nothing on the left shows it: not the rail, the sidebar list, the space switcher or Settings' repository list. Settings → Spaces says only where the memory is kept, and links it to GitHub (a new private repository or a URL), pushing each commit fast-forward.
@@ -45,6 +69,8 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 **Revisit when.** Several computers share an organization's memory and need to see where it lives.
 
 ## 2026-11-17: A sidebar row is one line, and its details are in a hover card that a click never opens
+
+**Superseded** by the selected row's line: since 2026-11-18 the selected row is one line too (the sidebar's one grid, in "The sidebar is a rail of spaces and modes…").
 
 **Decision.** Each workspace row shows its glyph, title, label and hat. Repository, branch, age, cloud state and the shortcut are in a HoverCard that opens after the hover delay or on keyboard focus (`openOnFocus="keyboard"`); the selected row keeps them on a second line.
 

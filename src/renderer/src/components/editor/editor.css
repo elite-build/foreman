@@ -9,16 +9,9 @@
   grid-row: 1;
 }
 
-/* The rail's column: the activity bar's views above the repositories; the repositories scroll, the views stay. */
-.rail-column {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.rail-column > .repo-rail {
-  flex: 1 1 auto;
-  min-height: 0;
+/* The activity bar's views lead the sidebar's rail, above its spaces and modes, across its width. */
+.sidebar-rail > .editor-views {
+  align-self: stretch;
 }
 .editor-views {
   display: flex;

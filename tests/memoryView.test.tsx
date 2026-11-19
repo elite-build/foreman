@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemoryStatus } from '../src/shared/memory'
 import type { Organization } from '../src/shared/organizations'
 import { MemoryView, memoryRows } from '../src/renderer/src/components/spaces/MemoryView'
-import { SpaceSwitcher } from '../src/renderer/src/components/spaces/SpaceSwitcher'
+import { sidebarModes } from '../src/renderer/src/sidebarModes'
 import { SpacesPage } from '../src/renderer/src/components/settings/SpacesPage'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -245,13 +245,11 @@ describe('the Memory view', () => {
 })
 
 describe('ways into the Memory view', () => {
-  it('the space switcher never offers it: nothing on the left opens what Foreman keeps', async () => {
-    const user = userEvent.setup()
+  it('the sidebar’s rail never offers it: nothing on the left opens what Foreman keeps', () => {
     setSnapshot({ state: 'ok', head: 'h1' }, [org('o1', 'Acme', 'mem'), org('o2', 'XYZ')])
-    fakeState.space = 'o1'
-    render(<SpaceSwitcher />)
-    await user.click(screen.getByRole('button', { name: 'Space: Acme' }))
-    expect(screen.queryByRole('menuitem', { name: /memory/i })).toBeNull()
+    // An organization with a memory has Team and Channels beside Inbox and Work, never a Memory mode.
+    expect(sidebarModes(fakeState.snapshot, 'o1')).toEqual(['inbox', 'work', 'team', 'channels'])
+    expect(sidebarModes(fakeState.snapshot, null)).toEqual(['inbox', 'work'])
   })
 
   it('the Spaces page has Open memory on an organization’s card', async () => {

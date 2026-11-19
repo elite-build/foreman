@@ -11,7 +11,7 @@ import { HomeSection } from './HomeSection'
 const DEFAULTS = {
   theme: 'system',
   zoom: 1,
-  coloredSidebarDiffs: false,
+  coloredSidebarDiffs: true,
   colorVision: 'default',
   monoFont: 'Geist Mono',
   codeLigatures: true,

@@ -102,10 +102,14 @@ export interface SidebarView {
   filter: SidebarFilter
   query: string
   showFinished: boolean
-  // Groups folded under their heading (remembered): buckets, and compareFoldKey for a comparison's; see foldedBuckets for
-  // when they apply.
+  // Groups folded under their heading (remembered): buckets, compareFoldKey for a comparison's and repoFoldKey for a
+  // repository's; see foldedBuckets for when they apply.
   folded?: string[]
+  // How the sidebar's Work list groups its workspaces: by repository (the default) or by state (needs you, working…).
+  groupBy?: SidebarGroupBy
 }
+
+export type SidebarGroupBy = 'repository' | 'state'
 
 function approvalLabel(approval: ApprovalRequest, t: TFunction): string {
   if (approval.kind === 'plan') return t('triage.approval.plan')
@@ -583,6 +587,22 @@ function compareSections(items: Triage[], flowRuns: readonly FlowRun[] | undefin
   return [...byId.values()].filter((c) => c.items.length > 1)
 }
 
+/**
+ * What a workspace is for, as its row says it: an employee's run, its task's title; otherwise the title of its first chat
+ * that has one (written from the first message, or as the person renamed it). Absent until a chat has a title; the row
+ * then shows the workspace's name, which is its branch's.
+ */
+export function workspacePurpose(ws: Workspace, sessions: readonly Pick<Session, 'id' | 'workspaceId' | 'title'>[]): { text: string; sessionId?: string } | undefined {
+  if (ws.startedBy?.via === 'employee' && ws.startedBy.title.trim()) return { text: ws.startedBy.title.trim() }
+  const chat = sessions.find((s) => s.workspaceId === ws.id && s.title?.trim())
+  return chat ? { text: chat.title!.trim(), sessionId: chat.id } : undefined
+}
+
+/** Find's match: the workspace's purpose, name or branch. `query` is lower case. */
+export function matchesWorkspace(ws: Workspace, sessions: readonly Pick<Session, 'id' | 'workspaceId' | 'title'>[], query: string): boolean {
+  return [workspacePurpose(ws, sessions)?.text, ws.name, ws.branch].some((v) => v?.toLowerCase().includes(query))
+}
+
 /** The sidebar's groups, in display order. Finished workspaces are only counted unless shown. Compare members sit in their own group. */
 export function sidebarGroups(
   input: TriageInput,
@@ -591,7 +611,7 @@ export function sidebarGroups(
   const query = view.query.trim().toLowerCase()
   const projectIds = projectWorkspaceIds(input.snapshot)
   let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals))
-  if (query) items = items.filter((t) => t.ws.name.toLowerCase().includes(query) || t.ws.branch.toLowerCase().includes(query))
+  if (query) items = items.filter((t) => matchesWorkspace(t.ws, input.snapshot.sessions, query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)
   const opts = { now: input.now ?? Date.now(), doneDays: settings?.homeDoneDays || DEFAULT_DONE_DAYS }
@@ -609,6 +629,34 @@ export function sidebarGroups(
   const hiddenFinished = showFinished ? 0 : plain.filter((t) => t.bucket === 'finished').length
   return { groups, compares, hiddenFinished }
 }
+
+/**
+ * The sidebar's Work list grouped by repository: each repository of the space that has a workspace listed, in the order
+ * the repositories are kept, with its workspaces by state (what needs you first, waiting longest first; then what runs;
+ * then the rest, pinned first). The same narrowing as sidebarGroups (a search, Later, a project's workspaces); comparisons
+ * and flow runs are plain rows in their repository here.
+ */
+export function repoGroups(input: TriageInput, view: SidebarView): { groups: { repo: AppSnapshot['repos'][number]; items: Triage[] }[]; hiddenFinished: number } {
+  const query = view.query.trim().toLowerCase()
+  const projectIds = projectWorkspaceIds(input.snapshot)
+  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals))
+  if (query) items = items.filter((t) => matchesWorkspace(t.ws, input.snapshot.sessions, query))
+  const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
+  const filter = resolveFilter(view.filter, settings?.views)
+  const opts = { now: input.now ?? Date.now(), doneDays: settings?.homeDoneDays || DEFAULT_DONE_DAYS }
+  if (filter !== 'later' && !query) items = items.filter((t) => !putAway(t, opts.now))
+  if (filter !== 'all') items = items.filter((t) => matchesView(filter, t, opts))
+  const showFinished = view.showFinished || filter !== 'all' || Boolean(query)
+  const hiddenFinished = showFinished ? 0 : items.filter((t) => t.bucket === 'finished').length
+  if (!showFinished) items = items.filter((t) => t.bucket !== 'finished')
+  // By state first (BUCKETS' order), so filtering by repository keeps that order inside each group.
+  const sorted = BUCKETS.flatMap((bucket) => sortBucket(items.filter((t) => t.bucket === bucket), bucket))
+  const groups = input.snapshot.repos.map((repo) => ({ repo, items: sorted.filter((t) => t.ws.repoId === repo.id) })).filter((g) => g.items.length > 0)
+  return { groups, hiddenFinished }
+}
+
+/** The key a repository's group folds under in `SidebarView.folded`. */
+export const repoFoldKey = (id: string): string => `repo:${id}`
 
 /** The key a comparison's (or a flow run's) group folds under in `SidebarView.folded`, beside the buckets. */
 export const compareFoldKey = (id: string): string => `compare:${id}`
@@ -628,7 +676,7 @@ export function liveFoldKeys(folded: readonly string[], workspaces: readonly Wor
 }
 
 /**
- * The groups folded in the list (buckets, and compareFoldKey for a comparison's group). Only All with no search folds: a
+ * The groups folded in the list (buckets, compareFoldKey for a comparison's group, repoFoldKey for a repository's). Only All with no search folds: a
  * filter or a search lists exactly what was asked for.
  */
 export function foldedBuckets(view: SidebarView, settings?: Partial<AppSnapshot['settings']>): Set<string> {
@@ -641,8 +689,9 @@ export function foldedBuckets(view: SidebarView, settings?: Partial<AppSnapshot[
  * group's rows aren't shown, so they aren't numbered either.
  */
 export function sidebarOrder(input: TriageInput, view: SidebarView): Workspace[] {
-  const { groups: all, compares: allCompares } = sidebarGroups(input, view)
   const folded = foldedBuckets(view, input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined)
+  if (view.groupBy === 'repository') return repoGroups(input, view).groups.filter((g) => !folded.has(repoFoldKey(g.repo.id))).flatMap((g) => g.items.map((t) => t.ws))
+  const { groups: all, compares: allCompares } = sidebarGroups(input, view)
   const groups = all.filter((g) => !folded.has(g.bucket))
   const compares = allCompares.filter((c) => !folded.has(compareFoldKey(c.id)))
   const first = groups.filter((g) => g.bucket === 'attention')

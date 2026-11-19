@@ -73,13 +73,14 @@ const same = (a: readonly ViewSetting[], b: readonly ViewSetting[]) => JSON.stri
 
 /**
  * One row per view, with a switch for each place it can go and buttons to move it. The board's column shows only
- * while Board view is on. The sidebar keeps a tab and the board a lane: the last one's switch is disabled.
+ * while Board view is on. The board keeps a lane: the last one's switch is disabled. (The sidebar has no filter tabs: its
+ * modes are Inbox and Work, docs/decisions.md 2026-11-18.)
  */
 function ViewsRow() {
   const t = useT()
   const settings = useSettings()
   const views = normalizeViews(settings.views)
-  const surfaces: ViewSurface[] = settings.homeBoard ? ['tab', 'lane', 'home'] : ['tab', 'home']
+  const surfaces: Exclude<ViewSurface, 'tab'>[] = settings.homeBoard ? ['lane', 'home'] : ['home']
   const count = (surface: ViewSurface) => views.filter((v) => v[surface]).length
   const list = useRef<HTMLDivElement>(null)
   // After a move, the button pressed (or its pair, at the end of the list) keeps focus.
@@ -102,7 +103,7 @@ function ViewsRow() {
     refocus.current = { id: views[i].id, dir: dir < 0 ? 'up' : 'down' }
     save(next)
   }
-  const columns: Record<ViewSurface, string> = { tab: t('settings.views.col.tab'), lane: t('settings.views.col.lane'), home: t('settings.views.col.home') }
+  const columns: Record<Exclude<ViewSurface, 'tab'>, string> = { lane: t('settings.views.col.lane'), home: t('settings.views.col.home') }
 
   return (
     <Row
@@ -110,10 +111,10 @@ function ViewsRow() {
       stacked
       label={t('settings.views.label')}
       help={t('settings.views.help')}
-      detail={t(settings.homeBoard ? 'settings.views.keepOne' : 'settings.views.keepOneTab')}
+      detail={settings.homeBoard ? t('settings.views.keepOne') : undefined}
       onReset={same(views, DEFAULT_VIEWS) ? undefined : () => void resetSettings(['views'])}
     >
-      <div ref={list} className={`set-views ${surfaces.length === 3 ? 'three' : 'two'}`}>
+      <div ref={list} className={`set-views ${surfaces.length === 2 ? 'two' : 'one'}`}>
         {/* The columns' names, for sight; each switch says its view and place itself. */}
         <div className="set-views-row set-views-head" aria-hidden>
           <span />

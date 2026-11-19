@@ -44,7 +44,7 @@ function writeSize(key: string, value: number | null, persist: boolean): void {
 
 /** Forgets every remembered pane size, so each pane goes back to its default. */
 export function resetPanelSizes(): void {
-  for (const key of ['sidebar', 'side-panel', 'terminal-height', 'bottom-height']) writeSize(key, null, true)
+  for (const key of ['sidebarWithModes', 'side-panel', 'terminal-height', 'bottom-height']) writeSize(key, null, true)
 }
 
 function subscribe(listener: () => void): () => void {

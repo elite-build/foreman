@@ -18,6 +18,8 @@ export function SidebarSection({
   foldable = true,
   className,
   title,
+  actions,
+  icon,
   children
 }: {
   name: string
@@ -30,6 +32,10 @@ export function SidebarSection({
   className?: string
   // A tooltip for the whole section (a comparison's full prompt).
   title?: string
+  // Buttons for the heading's subject (a repository's ⋯), at the heading's end, beside its fold button, not in it.
+  actions?: ReactNode
+  // The subject's mark before its name (a repository's icon, or its initials): for the eye; the name says it.
+  icon?: ReactNode
   children: ReactNode
 }) {
   const t = useT()
@@ -39,6 +45,10 @@ export function SidebarSection({
     const waits = folded && needs > 0
     return (
       <>
+        {/* The icon column, empty when the section has no mark, so every name starts on the text column. */}
+        <span className="sb-head-icon" aria-hidden>
+          {icon}
+        </span>
         <span className="sb-head-name" aria-hidden>
           {name}
         </span>
@@ -56,7 +66,8 @@ export function SidebarSection({
     )
   }
   return (
-    <section className={['sb-section', className].filter(Boolean).join(' ')} aria-label={name} title={title}>
+    <section className={['sb-section', className, actions ? 'has-actions' : ''].filter(Boolean).join(' ')} aria-label={name} title={title}>
+      {actions && <span className="sb-head-actions">{actions}</span>}
       {foldable ? (
         <Disclosure quiet headingLevel={3} className="sb-fold" label={heading(!open)} open={open} onOpenChange={onToggle}>
           {children}

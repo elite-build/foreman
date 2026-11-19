@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // A narrow window, or 200% zoom (narrowLayout.ts): the steps it takes and where they start, and what ⌘B and ⌘⌥B do there.
-// Under 1012 px the workspace list folds to its rail and ⌘B brings it back beside the rail (and folds it again) without
+// Under 1060 px the workspace list folds to its rail and ⌘B brings it back beside the rail (and folds it again) without
 // hiding the rail; with the side panel a sheet, ⌘⌥B opens and closes the sheet and the terminal moves under the chat.
 // Above it, nothing changes.
 import './domShims'
@@ -48,10 +48,11 @@ afterEach(() => {
 
 describe('where each step starts', () => {
   it('folds the list under the sidebar, the chat and the side panel at their narrowest, and never in the Editor layout', () => {
-    expect(LIST_FOLDS_BELOW).toBe(312 + 420 + 280)
+    // The sidebar's default width (its 64 px rail and a list of about 295 px), the chat and the side panel.
+    expect(LIST_FOLDS_BELOW).toBe(360 + 420 + 280)
     expect(PANEL_SHEET_BELOW).toBe(420 + 280)
-    expect(listFolds(1011, 'panes')).toBe(true)
-    expect(listFolds(1012, 'panes')).toBe(false)
+    expect(listFolds(1059, 'panes')).toBe(true)
+    expect(listFolds(1060, 'panes')).toBe(false)
     expect(listFolds(1320, 'tiles')).toBe(false)
     expect(listFolds(660, 'editor')).toBe(false)
   })
@@ -59,8 +60,8 @@ describe('where each step starts', () => {
   it('shows the rail alone in a narrow window until the list is asked for; hidden is hidden at any width', () => {
     const at = (windowWidth: number, leftPanelOpen = true, narrowList = false) => sidebarShows({ windowWidth, windowLayout: 'panes', leftPanelOpen, narrowList })
     expect(at(1320)).toBe('list')
-    expect(at(1012)).toBe('list')
-    expect(at(1000)).toBe('rail')
+    expect(at(1060)).toBe('list')
+    expect(at(1050)).toBe('rail')
     expect(at(660)).toBe('rail')
     expect(at(660, true, true)).toBe('list')
     expect(at(660, false)).toBe('none')

@@ -115,31 +115,29 @@ describe('Appearance → Sidebar & Home: the views', () => {
     const user = userEvent.setup()
     fakeState.snapshot.settings.homeBoard = true
     render(<HomeSection />)
-    // All is a tab only; Pinned is no lane.
+    // All and Pinned are no lane; the sidebar has no tabs to switch (its modes are Inbox and Work).
     expect(screen.queryByRole('switch', { name: 'All: Board lane' })).toBeNull()
     expect(screen.queryByRole('switch', { name: 'Pinned: Board lane' })).toBeNull()
-    const inReview = screen.getByRole('switch', { name: 'In review: Sidebar tab' })
+    expect(screen.queryByRole('switch', { name: /Sidebar tab/ })).toBeNull()
+    const inReview = screen.getByRole('switch', { name: 'In review: Home section' })
     expect(inReview.getAttribute('aria-checked')).toBe('false')
     await user.click(inReview)
     const saved = (fakeApi.updateSettings as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]
-    expect(saved.views.find((v: { id: string }) => v.id === 'in-review')).toEqual({ id: 'in-review', tab: true, lane: true, home: false })
+    expect(saved.views.find((v: { id: string }) => v.id === 'in-review')).toMatchObject({ id: 'in-review', lane: true, home: true })
   })
 
   it('the board column shows only while Board view is on', () => {
     render(<HomeSection />)
-    expect(screen.getByRole('switch', { name: 'Working: Sidebar tab' })).toBeTruthy()
+    expect(screen.getByRole('switch', { name: 'Working: Home section' })).toBeTruthy()
     expect(screen.queryByRole('switch', { name: 'Working: Board lane' })).toBeNull()
   })
 
-  it('the last tab on can’t be turned off', () => {
-    fakeState.snapshot.settings.views = [
-      { id: 'all', tab: false, lane: false, home: false },
-      { id: 'needs-you', tab: false, lane: true, home: true },
-      { id: 'working', tab: true, lane: true, home: true },
-      { id: 'pinned', tab: false, lane: false, home: false }
-    ]
+  it('the last lane on can’t be turned off', () => {
+    fakeState.snapshot.settings.homeBoard = true
+    // Every view is listed, so none comes back from the defaults: Working alone is a lane.
+    fakeState.snapshot.settings.views = ['all', 'needs-you', 'working', 'pinned', 'later', 'in-review', 'ready', 'done'].map((id) => ({ id, tab: id === 'all', lane: id === 'working', home: id === 'working' }))
     render(<HomeSection />)
-    expect((screen.getByRole('switch', { name: 'Working: Sidebar tab' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('switch', { name: 'Working: Board lane' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('switch', { name: 'Working: Home section' }) as HTMLButtonElement).disabled).toBe(false)
   })
 

@@ -17,7 +17,7 @@ import { narratedNotice } from './agentStatus'
 import { playCompletionSound } from './sound'
 import { PtyEventRouter } from './ptyEvents'
 import { archivedTabs, hitRoute } from './archivedView'
-import { liveFoldKeys, type Bucket, type SidebarFilter, type SidebarView } from './triage'
+import { liveFoldKeys, type Bucket, type SidebarFilter, type SidebarGroupBy, type SidebarView } from './triage'
 import { DEFAULT_TILE_COUNT, tileCountOf, type TileCount } from './tiles'
 import { editorViewOf, pickEditorView, type EditorView } from './editorLayout'
 import { listFolds } from './narrowLayout'
@@ -58,6 +58,10 @@ const workspaceFocusOf = (raw: unknown): Record<string, WorkspaceFocus> =>
   raw && typeof raw === 'object' ? Object.fromEntries(Object.entries(raw).filter((e): e is [string, WorkspaceFocus] => e[1] === 'terminal' || e[1] === 'flow')) : {}
 
 /** An archive running in the background, for the sidebar row and the header: the step main last started, or stopped on a failure. */
+
+/** The sidebar's modes, one per tab on its rail (Sidebar.tsx). Team and Channels are an organization's. */
+export type SidebarMode = 'inbox' | 'work' | 'team' | 'channels'
+
 export interface ArchiveRun {
   stopped: boolean
   step: ArchiveProgressStep | null
@@ -124,12 +128,9 @@ interface State {
   // workspace from its width); and whether the sheet is open. ⌘⌥B opens and closes the sheet then.
   panelSheet: boolean
   panelSheetOpen: boolean
-  // The repository rail shows each repository's name and state beside its tile (wide), not just the tiles.
-  railNames: boolean
-  // The sidebar's Team row shows the organization's employees under it (docs/ai-employees.md §10), remembered like railNames.
-  teamOpen: boolean
-  // The sidebar's Projects row shows its projects and the line to start one (docs/ai-employees.md §15).
-  projectsOpen: boolean
+  // The mode the sidebar's rail has picked (its panel shows that one): what needs you, every workspace, and in an
+  // organization its team and channels. Remembered; a mode the space shown hasn't falls back to Work (Sidebar.tsx).
+  sidebarMode: SidebarMode
   // Home shows every space ('all', the default) or the one the sidebar shows ('space'); held until quit.
   homeScope: 'all' | 'space'
   // Home's Get started row is opened to its full list.
@@ -277,17 +278,14 @@ let state: State = {
   chatJump: null,
   unread: {},
   unreadSessions: {},
-  sidebarView: { repo: loadPref('sidebarRepo', null), filter: loadPref('sidebarFilter', 'all'), query: '', showFinished: loadPref('showFinished', false), folded: loadPref('sidebarFolded', []) },
+  sidebarView: { repo: loadPref('sidebarRepo', null), filter: loadPref('sidebarFilter', 'all'), query: '', showFinished: loadPref('showFinished', false), folded: loadPref('sidebarFolded', []), groupBy: loadPref<SidebarGroupBy>('sidebarGroupBy', 'repository') },
   space: loadPref<string | null>('space', null),
   createOrganizationOpen: false,
   leftPanelOpen: loadPref('leftPanelOpen', true),
   narrowList: false,
   panelSheet: false,
   panelSheetOpen: false,
-  railNames: loadPref('railNames', false),
-  // The Team section's hats are one line, so it starts open (the 7a sidebar); a fold the person chose is kept.
-  teamOpen: loadPref('teamOpen', true),
-  projectsOpen: loadPref('projectsOpen', true),
+  sidebarMode: loadPref<SidebarMode>('sidebarMode', 'work'),
   homeScope: 'all',
   checklistOpen: loadPref('checklistOpen', false),
   tiles: loadPref<string[]>('tiles', []),
@@ -1264,16 +1262,21 @@ export function openPanelSheet(open: boolean): void {
   if (state.panelSheetOpen !== open) setState({ panelSheetOpen: open })
 }
 
-/** Shows or hides the employees under the sidebar's Team row; kept for next time. */
-export function toggleTeamOpen(): void {
-  savePref('teamOpen', !state.teamOpen)
-  setState({ teamOpen: !state.teamOpen })
+/**
+ * Picks the sidebar's mode (a tab on its rail); kept for next time. A narrow window has folded the list to its rail, so
+ * picking a mode there shows the list beside the rail too (as ⌘B does).
+ */
+export function setSidebarMode(mode: SidebarMode): void {
+  savePref('sidebarMode', mode)
+  setState({ sidebarMode: mode })
+  if (mode === 'inbox') recordMilestone('needsYou')
+  if (state.leftPanelOpen && !state.narrowList && listFolds(window.innerWidth, state.snapshot?.settings.windowLayout)) setState({ narrowList: true })
 }
 
-/** Shows or hides the projects (and the line that starts one) under the sidebar's Projects row; kept for next time. */
-export function toggleProjectsOpen(): void {
-  savePref('projectsOpen', !state.projectsOpen)
-  setState({ projectsOpen: !state.projectsOpen })
+/** The sidebar's Work list by repository or by state; kept for next time. */
+export function setSidebarGroupBy(groupBy: SidebarGroupBy): void {
+  savePref('sidebarGroupBy', groupBy)
+  updateSidebarView({ groupBy })
 }
 
 /**
@@ -1292,11 +1295,6 @@ export function setChecklistOpen(open: boolean): void {
   setState({ checklistOpen: open })
 }
 
-/** Widens the repository rail to show each repository's name beside its tile, or narrows it back to the tiles. */
-export function toggleRailNames(): void {
-  savePref('railNames', !state.railNames)
-  setState({ railNames: !state.railNames })
-}
 
 /** Shows or hides the terminal panel. Inside a closed side panel, showing it opens the side panel too. */
 export function toggleBottomPanel(): void {

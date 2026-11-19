@@ -3449,6 +3449,7 @@ export class Core {
     },
     createOrganization: (input) => this.organizations.create(input),
     renameOrganization: async (id, name) => this.organizations.rename(id, name),
+    setOrganizationIcon: async (id, icon) => this.organizations.setIcon(id, icon),
     deleteOrganization: async (id) => this.organizations.delete(id),
     moveRepoToSpace: async (repoId, organizationId) => this.organizations.moveRepo(repoId, organizationId),
     setOrganizationMemory: (organizationId, memory) => this.organizations.setMemory(organizationId, memory),

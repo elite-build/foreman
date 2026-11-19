@@ -21,6 +21,7 @@ import {
   openSettingsPage,
   selectSession,
   selectWorkspace,
+  setSidebarMode,
   setSpace,
   setWorkspaceFocus,
   showBottomPanel,
@@ -28,7 +29,6 @@ import {
   showEditorSidebar,
   showRepoHome,
   toggleLeftPanel,
-  toggleRailNames,
   toggleRightPanel
 } from './store'
 import { rowDomId } from './components/settings/controls'
@@ -100,7 +100,7 @@ async function settle(quietMs = 400, maxMs = 5000): Promise<void> {
 function baseLayout(): void {
   const s = getState()
   if (!s.leftPanelOpen) toggleLeftPanel()
-  if (s.railNames) toggleRailNames()
+  if (s.sidebarMode !== 'work') setSidebarMode('work')
   if (!s.rightPanelOpen) toggleRightPanel()
   showBottomPanel(false)
   // The space shown is kept across restarts: each screen starts in Personal, and the organization's screens move to Acme.
@@ -151,11 +151,11 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     chooseHomeLayout('board')
     return '.home .board'
   },
-  // The rail widened in place: each repository's name and what is going on in it beside its tile (baseLayout narrows it).
-  'repo-names': () => {
+  // The sidebar on Inbox: what needs you in Personal, with what waits in the other spaces under it (baseLayout puts it back on Work).
+  'sidebar-inbox': () => {
     showRepoHome(null)
-    if (!getState().railNames) toggleRailNames()
-    return '.repo-rail.names .rail-name'
+    setSidebarMode('inbox')
+    return '.sidebar-inbox .ws-row'
   },
   'workspace-chat': (f) => (openWorkspace(f), '.chat .user-msg'),
   // The composer's context trigger ("15K left"), pressed: what fills the chat's context window.

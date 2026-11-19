@@ -2726,6 +2726,8 @@ export interface Api {
   // repository (a new git repository with one commit, added to Foreman) and moves the repositories named from Personal.
   createOrganization(input: import('./organizations').CreateOrganizationInput): Promise<import('./organizations').Organization>
   renameOrganization(id: string, name: string): Promise<import('./organizations').Organization>
+  // Its icon on the sidebar's rail and in Settings → Spaces; null clears it.
+  setOrganizationIcon(id: string, icon: RepoIcon | null): Promise<import('./organizations').Organization>
   // Its repositories, the memory repository too, go back to Personal; nothing is deleted from disk.
   deleteOrganization(id: string): Promise<void>
   // organizationId null: Personal. An organization's memory repository stays in its organization.
@@ -3360,7 +3362,7 @@ export interface Bridge {
 // build if a method is added to Api or Signals but not listed here.
 export const API_METHODS = [
   'getSnapshot', 'pickDirectory', 'pickFiles', 'pickPath', 'addRepo', 'cloneRepo', 'githubRepos', 'quickStartRepo', 'makeRepo', 'forgetRecentRepo', 'classifyFolders', 'takeLaunchFolders', 'updateRepo', 'removeRepo',
-  'createOrganization', 'renameOrganization', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory', 'linkOrganizationMemory', 'unlinkOrganizationMemory', 'pushOrganizationMemory',
+  'createOrganization', 'renameOrganization', 'setOrganizationIcon', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory', 'linkOrganizationMemory', 'unlinkOrganizationMemory', 'pushOrganizationMemory',
   'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryOpenFile', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'addTemplateEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',

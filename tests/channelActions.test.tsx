@@ -14,7 +14,7 @@ import type { Project } from '../src/shared/projects'
 import { ChannelsPage } from '../src/renderer/src/components/employees/ChannelsPage'
 import { OrgChannel } from '../src/renderer/src/components/employees/OrgChannel'
 import { ProjectPage } from '../src/renderer/src/components/employees/ProjectPage'
-import { ProjectsSection } from '../src/renderer/src/components/employees/ProjectsSection'
+import { ChannelList } from '../src/renderer/src/components/employees/ProjectsSection'
 import { NewMenu } from '../src/renderer/src/components/NewMenu'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -71,24 +71,22 @@ function setSnapshot(projects: Project[]) {
 
 beforeEach(() => {
   resetFake()
-  for (const name of ['openEmployees', 'toggleProjectsOpen']) spy(name).mockReset()
+  for (const name of ['openEmployees']) spy(name).mockReset()
   ;(storeModule.showToast as ReturnType<typeof vi.fn>).mockReset()
   fakeState.space = 'o1'
-  fakeState.projectsOpen = true
 })
 afterEach(() => {
   cleanup()
   fakeState.snapshot = original
   delete fakeState.space
-  delete fakeState.projectsOpen
 })
 
 describe('making a channel', () => {
   it('opens the organization’s channel from the sidebar’s + menu, with Priya’s name in the box', async () => {
     const user = userEvent.setup()
     setSnapshot([going])
-    // The Channels section has no + of its own: the sidebar's one + menu has New channel.
-    const section = render(<ProjectsSection />)
+    // The Channels mode has no + of its own: the sidebar's one + menu has New channel.
+    const section = render(<ChannelList />)
     expect(screen.queryByRole('button', { name: 'New channel' })).toBeNull()
     section.unmount()
     fakeState.snapshot = { ...fakeState.snapshot!, recentRepos: [] }
@@ -108,7 +106,7 @@ describe('making a channel', () => {
   it('links All channels under the list and shows a renamed channel by its new name', async () => {
     const user = userEvent.setup()
     setSnapshot([project({ name: 'csv' })])
-    render(<ProjectsSection />)
+    render(<ChannelList />)
     const list = screen.getByRole('list', { name: 'Channels in FRLK' })
     expect(within(list).getByText('#csv')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'All channels' }))
@@ -121,7 +119,7 @@ describe('a channel’s menu', () => {
     const user = userEvent.setup()
     setSnapshot([going, done])
     fakeApi.renameProject = vi.fn(async () => project({ name: 'csv' }))
-    render(<ProjectsSection />)
+    render(<ChannelList />)
     await user.click(screen.getByRole('button', { name: 'More for #csv-export' }))
     await user.click(screen.getByRole('menuitem', { name: 'Rename…' }))
     const dialog = screen.getByRole('dialog', { name: 'Rename #csv-export' })
@@ -139,7 +137,7 @@ describe('a channel’s menu', () => {
     const user = userEvent.setup()
     setSnapshot([going])
     fakeApi.deleteProject = vi.fn(async () => undefined)
-    render(<ProjectsSection />)
+    render(<ChannelList />)
     await user.click(screen.getByRole('button', { name: 'More for #csv-export' }))
     await user.click(screen.getByRole('menuitem', { name: 'Delete…' }))
     const dialog = screen.getByRole('dialog', { name: 'Delete #csv-export?' })
