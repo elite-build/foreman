@@ -805,8 +805,7 @@ export class WorkspaceService {
       createdAt: new Date().toISOString()
     }
     this.state.workspaces.push(ws)
-    await writeFile(this.setupLogPath(ws), `Working in ${repo.rootPath}. It isn’t a git repository, so there are no branches, diff or checkpoints.
-`)
+    await writeFile(this.setupLogPath(ws), `Working in ${repo.rootPath}. It isn’t a git repository, so there are no branches, diff or checkpoints.\n`)
     this.changed()
     if (ws.state === 'setting-up') void this.runSetup(ws, repo)
     return ws
