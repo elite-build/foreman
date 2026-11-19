@@ -31,7 +31,7 @@ export function AutomationsView() {
   // With flows on, the page opens on them and has no All tab: flows drawn whole make All too long to read.
   const [shelf, setShelf] = useState<Shelf>(flowsOn ? 'flows' : 'all')
   const [query, setQuery] = useState('')
-  // A template opens as its own page over the library; a schedule still opens in the side panel.
+  // A template opens as its own page over the library; a schedule opens on the Schedules tab.
   const template = useSelectedTemplate(selected)
   const flowId = selected?.startsWith('f:') ? selected.slice(2) : null
   const flowDraft = useStore((s) => s.automations?.flowDraft)
