@@ -213,7 +213,11 @@ describe('the + menu', () => {
     await user.click(marked[0])
     expect(onTerminal).toHaveBeenLastCalledWith(undefined)
     await user.click(trigger())
-    const other = (await screen.findAllByRole('menuitem')).find((i) => i.title.startsWith('C:/') && !i.textContent?.includes('default'))!
+    const other = await waitFor(() => {
+      const row = screen.getAllByRole('menuitem').find((i) => i.title.startsWith('C:/') && !i.textContent?.includes('default'))
+      expect(row).toBeTruthy()
+      return row!
+    })
     await user.click(other)
     expect(onTerminal).toHaveBeenLastCalledWith(expect.any(String))
   })
