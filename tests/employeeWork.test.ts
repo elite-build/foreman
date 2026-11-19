@@ -19,6 +19,7 @@ import {
   employeeTurnLimits,
   needsPerson,
   pinnedMemoryText,
+  refusalText,
   resultSummary,
   runNowBody,
   taskTitle,
@@ -882,6 +883,32 @@ describe('employee work: usage limits and cost (§9)', () => {
     await f.service.turnEnded(run.sessionId!, `turn-${run.id}`, 'completed')
     expect(f.db.employeeRun(run.id)!.usage).toMatchObject({ costUsd: 1000 })
     expect((await f.service.ask('o1', 'e-max1', { body: 'More' })).state).toBe('running')
+  })
+
+  it('keeps the calls refused in a turn on the run, from every answer of the turn, at most twenty', async () => {
+    const f = await rig()
+    const { run } = await started(f, 'Publish')
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
+    const push = { tool: 'Bash', what: 'git push origin main', reason: 'Not the publisher: only the part the plan names publishes.' }
+    const many = Array.from({ length: 25 }, (_, i) => ({ tool: 'Bash', what: `cmd ${i}`, reason: 'Refused.' }))
+    f.chats.set(run.sessionId!, [
+      ...reply(`turn-${run.id}`, 'Done.'),
+      { kind: 'result', id: 'res-1', turnId: `turn-${run.id}`, ok: true, refused: [push] },
+      { kind: 'result', id: 'res-2', turnId: `turn-${run.id}`, ok: true, refused: many }
+    ])
+    await f.service.turnEnded(run.sessionId!, `turn-${run.id}`, 'completed')
+    const refused = f.db.employeeRun(run.id)!.refused!
+    expect(refused).toHaveLength(20)
+    // All of them counted, the first twenty by name.
+    expect(f.db.employeeRun(run.id)!.refusedCount).toBe(26)
+    expect(refused[0]).toEqual(push)
+    expect(refused[1]).toEqual(many[0])
+  })
+
+  it('says a refusal in a few words: what was refused and the first sentence of why', () => {
+    expect(refusalText({ tool: 'Bash', what: 'git push origin main', reason: 'Not the publisher. Only “Build” publishes.' })).toBe('git push origin main (Not the publisher)')
+    expect(refusalText({ tool: 'mcp__x__y', reason: '' })).toBe('mcp__x__y')
+    expect(refusalText({ tool: 'Write', what: 'Write .env', reason: 'x'.repeat(200) }, 10)).toBe('Write .env (xxxxxxxxx…)')
   })
 
   it('never pauses an employee for failing runs: a person decides whether to retry', async () => {

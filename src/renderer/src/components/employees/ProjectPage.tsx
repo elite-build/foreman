@@ -28,6 +28,7 @@ import { formatDateTime, formatNumber, timeAgo } from '../../../../shared/i18n/t
 import { joinWorkspace } from '../../../../shared/openIn'
 import type { ArchivedWork, Workspace } from '../../../../shared/types'
 import { projectNeeds } from '../../../../shared/needsYou'
+import { findScmLink } from '../../../../shared/scm'
 import { gateNoteTo, isArchived, lastApproval, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, waitingOnRepo, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openArchivedChats, openEmployees, openMemory, restoreArchived, selectWorkspace, showToast, useStore } from '../../store'
@@ -1054,9 +1055,47 @@ function WaitCard({ orgId, project, wait, names, roster, pmName, onStop }: { org
       main={{ label: t('projects.final.approve'), disabled: busy || noted, title: noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve') }}
     >
       {wait.reason && <p className="channel-quote">{wait.reason}</p>}
+      <FinalPublished project={project} />
       {acceptance && <ArtifactCard orgId={orgId} artifact={acceptance} who={names[acceptance.employeeId] ?? acceptance.employeeId} />}
       {noteField(t('projects.final.noteLabel'), t('projects.replansLeft', { count: left }))}
     </DecisionCard>
+  )
+}
+
+/**
+ * At the final check, what the project actually published (docs/ai-employees.md §15): each push or pull request of its
+ * runs, through Foreman or from the publisher's shell, with the state Foreman recorded and its link; or that nothing was.
+ */
+function FinalPublished({ project }: { project: Project }) {
+  const t = useT()
+  const list = project.published ?? []
+  if (!list.length) return <p className="employee-faint">{t('projects.final.nothingPublished')}</p>
+  return (
+    <>
+      {list.map((p, i) => {
+        const link = p.link ? findScmLink(p.link) : null
+        const what =
+          p.kind === 'push'
+            ? t('projects.final.publishedPush', { branch: p.branch ?? '' })
+            : link?.kind === 'pr'
+              ? link.gitlabHost
+                ? t('projects.final.publishedMr', { number: link.number })
+                : t('projects.final.publishedPr', { number: link.number })
+              : t('projects.final.publishedPrUntitled')
+        return (
+          <span key={i} className="employee-card-actions">
+            <span>{what}</span>
+            <Status tone={ACTION_STATE_TONE[p.state]} label={t(ACTION_STATE_LABEL[p.state])} />
+            {p.via === 'shell' && <span className="employee-faint">{t('projects.published.shell')}</span>}
+            {p.link && (
+              <LinkButton size="sm" underline onClick={() => void api.openExternal(p.link!)}>
+                {t('projects.published.open')}
+              </LinkButton>
+            )}
+          </span>
+        )
+      })}
+    </>
   )
 }
 

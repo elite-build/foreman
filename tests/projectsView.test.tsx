@@ -824,6 +824,25 @@ describe('a project’s workspace and what it published', () => {
     expect(fakeApi.openExternal).toHaveBeenCalledWith('https://github.com/acme/site/pull/7')
   })
 
+  it('says at the final check what was actually published, or that nothing was', () => {
+    const final = (published?: Project['published']) =>
+      working({ phase: 'final-gate', parts: { build: { state: 'done', round: 1, taskId: 't2' }, qa: { state: 'done', round: 1 } }, waits: [{ id: 'wf', kind: 'final', since: NOW }], ...(published ? { published } : {}) })
+    const shipped = final([
+      { kind: 'push', employeeId: 'e-rav1', taskId: 't2', state: 'sent', branch: 'ravi/csv', via: 'shell', at: '2026-11-15T10:29:00.000Z' },
+      { kind: 'pull-request', employeeId: 'e-rav1', taskId: 't2', state: 'sent', link: 'https://github.com/acme/site/pull/7', branch: 'ravi/csv', via: 'shell', at: '2026-11-15T10:30:00.000Z' }
+    ])
+    setSnapshot([shipped], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    const { unmount } = render(<ProjectPage orgId="o1" project={shipped} />)
+    const card = screen.getByRole('button', { name: /^Approve and close/ }).closest('.decision-card') as HTMLElement
+    expect(within(card).getByText('Published: pull request #7')).toBeTruthy()
+    expect(within(card).getByText('Published: pushed ravi/csv')).toBeTruthy()
+    unmount()
+    const none = final()
+    setSnapshot([none], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={none} />)
+    expect(screen.getByText(/^Nothing published yet/)).toBeTruthy()
+  })
+
   it('says when a part that shouldn’t change the repository did', () => {
     const changed = working({
       steps: [...project().steps, { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'done', summary: 'Reviewed.', changedRepo: true, startedAt: '2026-11-15T10:06:00.000Z', endedAt: '2026-11-15T10:20:00.000Z' }]

@@ -448,6 +448,12 @@ describe('routing the window while it shows another computer', () => {
       send: { type: 'computer-notify', computerId: null, computerName: 'Desk', workspaceId: 'w2', sessionId: 's2', title: 'lisbon', body: 'done' }
     })
     expect(router(false).r.toWindow({ type: 'state', snapshot: {} as never })).toEqual({ send: { type: 'state', snapshot: {} } })
+    // What a project waits on (docs/ai-employees.md §15): its channel goes along, so a click opens it here.
+    const project = { orgId: 'acme', id: 'p1' }
+    expect(r.toWindow({ type: 'navigate', project })).toEqual({ leave: { workspaceId: undefined, sessionId: undefined, project } })
+    expect(r.toWindow({ type: 'notify', workspaceId: '', sessionId: '', title: '#new-sidebar', body: 'Priya has questions for you', kind: 'attention', project })).toEqual({
+      send: { type: 'computer-notify', computerId: null, computerName: 'Desk', workspaceId: '', sessionId: '', title: '#new-sidebar', body: 'Priya has questions for you', project }
+    })
   })
 })
 

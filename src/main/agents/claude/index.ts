@@ -11,12 +11,14 @@ import {
   type CanUseTool,
   type HookCallback,
   type McpSdkServerConfigWithInstance,
+  type McpServerConfig,
   type PermissionMode as SdkPermissionMode,
   type McpServerStatus,
   type ModelInfo as SdkModelInfo,
   type Query,
   type SDKMessage,
-  type SDKUserMessage
+  type SDKUserMessage,
+  type Settings as SdkSettings
 } from '@anthropic-ai/claude-agent-sdk'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -29,7 +31,7 @@ import { MAX_REPORT_TEXT, REPORT_KINDS } from '../../../shared/agentReports'
 import { modelInfo, type EffortLevel, type ModelInfo } from '../../../shared/agents'
 import { flagArgs } from '../../../shared/agentInstances'
 import type { OperatorTools } from '../../../shared/assistant'
-import type { AgentStatus, ChatItem, McpServerInfo, SlashCommandInfo, SubagentRef, TaskProgress, UsageLimit } from '../../../shared/types'
+import type { AgentStatus, ChatItem, McpServerInfo, SlashCommandInfo, SubagentRef, TaskProgress, ToolRefusal, UsageLimit } from '../../../shared/types'
 import { SUBAGENT_TOOLS, subagentName } from '../../../shared/subagents'
 import { CLAUDE_SETUP_TOKEN_KEY } from '../../../shared/cloud'
 import { launchProblem, type LaunchProblem } from '../../../shared/launchProblem'
@@ -37,6 +39,7 @@ import { updateArgs } from '../../../shared/agentVersions'
 import { bundledClaudeExecutable, shellQuote } from '../../platform'
 import { trackedClaudeSpawn } from './spawn'
 import { alwaysAllowScope } from './alwaysScope'
+import { employeeRepoMcp, employeeUserSetup } from './employeeSetup'
 import { transportOverride } from '../transport'
 import { claudeContextUsage } from '../../../shared/contextUsage'
 import { translate } from '../../../shared/i18n'
@@ -301,15 +304,42 @@ export function noShellHook(): HookCallback {
 
 /**
  * The turn's PreToolUse hooks: a flow persona's scoped writes, an employee's refused shell, a capped turn's protected
- * paths, a project run's refused publishing. Where several decide, the stricter wins.
+ * paths, a project run's refused publishing. Where several decide, the stricter wins. `refused` hears each deny they
+ * give (an AI employee's run keeps them on its record, the publisher guard's among them).
  */
-function preToolUseHooks(req: TurnRequest): { PreToolUse: { hooks: HookCallback[] }[] } | undefined {
+function preToolUseHooks(req: TurnRequest, refused?: (toolUseId: string | undefined, toolName: string, input: unknown, reason: string) => void): { PreToolUse: { hooks: HookCallback[] }[] } | undefined {
   const hooks: HookCallback[] = []
   if (req.writeScope?.length) hooks.push(writeScopeHook(req.writeScope, req.cwd, req.writeScopeSubject))
   if (req.noShell) hooks.push(noShellHook())
   if (req.capped) hooks.push(protectedPathsHook(req.cwd, req.capped.gitDir))
   if (req.noPublish) hooks.push(noPublishHook(req.noPublish))
-  return hooks.length ? { PreToolUse: [{ hooks }] } : undefined
+  if (!hooks.length) return undefined
+  return { PreToolUse: [{ hooks: refused ? hooks.map((hook) => heardDenies(hook, refused)) : hooks }] }
+}
+
+/** A hook whose denies are also told to `heard`; what it decides is unchanged. */
+function heardDenies(hook: HookCallback, heard: (toolUseId: string | undefined, toolName: string, input: unknown, reason: string) => void): HookCallback {
+  return async (input, toolUseId, options) => {
+    const out = await hook(input, toolUseId, options)
+    const specific = 'hookSpecificOutput' in out ? out.hookSpecificOutput : undefined
+    if (input.hook_event_name === 'PreToolUse' && specific?.hookEventName === 'PreToolUse' && specific.permissionDecision === 'deny') {
+      heard(toolUseId, input.tool_name, input.tool_input, specific.permissionDecisionReason ?? '')
+    }
+    return out
+  }
+}
+
+/** What a refused call named, in a few words: a shell's command (its first line) or a file tool's path. */
+export function refusedWhat(toolName: string, input: unknown, cwd: string): string | undefined {
+  const args = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+  const cut = (text: string) => (text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text)
+  if (typeof args.command === 'string' && args.command.trim()) return cut(args.command.trim().split(/\r?\n/)[0])
+  const file = typeof args.file_path === 'string' ? args.file_path : typeof args.notebook_path === 'string' ? args.notebook_path : undefined
+  if (file) {
+    const rel = path.relative(cwd, file)
+    return cut(`${toolName} ${rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : file}`)
+  }
+  return undefined
 }
 
 // docs/agent-access.md §4: at an Auto ceiling the classifier could wave a `foreman` command through, and a command
@@ -334,11 +364,12 @@ type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 const CLAUDE_EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** Per-session settings: fast mode and the chat's output style; for a turn capped at Auto, the rules that still ask. */
-export function turnSettings(req: TurnRequest, supportsFast: boolean): { fastMode?: boolean; outputStyle?: string; permissions?: { ask: string[] } } | undefined {
-  const settings: { fastMode?: boolean; outputStyle?: string; permissions?: { ask: string[] } } = {}
+export function turnSettings(req: TurnRequest, supportsFast: boolean, user?: SdkSettings): SdkSettings | undefined {
+  // An AI employee's run: what it keeps of the person's user settings (employeeUserSetup), under Foreman's own.
+  const settings: SdkSettings = { ...user }
   if (req.fastMode && supportsFast) settings.fastMode = true
   if (req.outputStyle && req.outputStyle !== 'default') settings.outputStyle = req.outputStyle
-  if (req.capped?.ceiling === 'auto') settings.permissions = { ask: [...CAPPED_ASK_RULES] }
+  if (req.capped?.ceiling === 'auto') settings.permissions = { ...settings.permissions, ask: [...(settings.permissions?.ask ?? []), ...CAPPED_ASK_RULES] }
   return Object.keys(settings).length ? settings : undefined
 }
 
@@ -449,6 +480,16 @@ class ClaudeTurn implements AgentTurn {
   // Armed when the turn is over: a process still running when it fires is closed (exitForced says the end was ours).
   private exitTimer: NodeJS.Timeout | null = null
   private exitForced = false
+  // An AI employee's run (docs/ai-employees.md §9): the calls refused since the last result said so, by call id, and
+  // every call id already said, so a refusal goes on the run's record once.
+  private refused = new Map<string, ToolRefusal>()
+  private refusedSaid = new Set<string>()
+  private hearRefusal = (toolUseId: string | undefined, toolName: string, input: unknown, reason: string): void => {
+    const id = toolUseId ?? `hook:${this.refused.size}:${this.refusedSaid.size}`
+    if (this.refusedSaid.has(id) || this.refused.has(id)) return
+    const what = refusedWhat(toolName, input, this.req.cwd)
+    this.refused.set(id, { tool: toolName, ...(what ? { what } : {}), reason })
+  }
 
   constructor(
     private req: TurnRequest,
@@ -539,12 +580,16 @@ class ClaudeTurn implements AgentTurn {
     this.input.push(userMessage(req.prompt))
     try {
       const permissionMode = req.assistant ? 'default' : permissionModeFor(req.approvals, this.planMode)
+      // docs/ai-employees.md §9: an employee's run doesn't load the person's user settings, so what signs Claude Code in
+      // and reaches its model (their `env`, auth helpers) and the limits they set themselves are handed over here.
+      const user = req.employee && !req.assistant ? employeeUserSetup(req.env) : undefined
+      const env = user ? { ...user.env, ...req.env } : req.env
       const common = {
         cwd: req.cwd,
         // Session state events say when Claude is idle after its background work.
-        env: { ...req.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+        env: { ...env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         abortController: this.abort,
-        model: wireModel(req.model, req.env),
+        model: wireModel(req.model, env),
         effort: model.efforts.length && req.effort && CLAUDE_EFFORTS.includes(req.effort) ? (req.effort as ClaudeEffort) : undefined,
         permissionMode,
         resume: req.resume,
@@ -562,20 +607,28 @@ class ClaudeTurn implements AgentTurn {
           ? { ...common, ...assistantOptions(req.assistant) }
           : {
               ...common,
-              settings: turnSettings(req, model.supportsFast),
+              settings: turnSettings(req, model.supportsFast, user?.settings),
               allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
               resumeSessionAt: forking ? req.resumeAt : undefined,
               forkSession: forking || req.forkOnResume || undefined,
               sessionStore: req.sessionStore,
-              settingSources: ['user', 'project', 'local'],
+              // docs/ai-employees.md §9: an employee's run leaves out the person's own setup (user settings, their hooks
+              // and plugins) and every MCP server it isn't handed here: the repository's .mcp.json servers and Foreman's.
+              settingSources: req.employee ? ['project', 'local'] : ['user', 'project', 'local'],
+              ...(req.employee ? { strictMcpConfig: true } : {}),
               systemPrompt: { type: 'preset', preset: 'claude_code', append: req.systemPromptAppend },
               // Questions go through our own tool so the app can render them. Read-only also drops leaving plan mode and writing.
               disallowedTools: [...(req.readOnly ? ['AskUserQuestion', ...READ_ONLY_DENIED] : ['AskUserQuestion']), ...disabledMcpTools(req.disabledMcp)],
-              mcpServers: { ...repoMcpConfig(req.mcpServers), ...inProcessMcpConfig(req.inProcessMcp), foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] }) },
+              mcpServers: {
+                ...(user ? this.employeeRepoServers(env) : {}),
+                ...repoMcpConfig(req.mcpServers),
+                ...inProcessMcpConfig(req.inProcessMcp),
+                foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] })
+              },
               // A flow persona's scoped writes, decided before any permission mode: inside the area allowed, elsewhere
               // and every shell refused with words the agent reads (subagents' calls too). The turn goes on either way.
-              // A capped turn's protected paths ask (docs/agent-access.md §3).
-              hooks: preToolUseHooks(req),
+              // A capped turn's protected paths ask (docs/agent-access.md §3). An employee's run keeps what they refuse.
+              hooks: preToolUseHooks(req, req.employee ? this.hearRefusal : undefined),
               // A one-line "what it's doing now" for running subagents.
               agentProgressSummaries: true,
               extraArgs: claudeExtraArgs(req),
@@ -801,6 +854,7 @@ class ClaudeTurn implements AgentTurn {
           return
         }
         const ok = message.subtype === 'success' && !message.is_error
+        const refused = this.req.employee ? this.takeRefusals(message.permission_denials ?? []) : []
         this.cb.item({
           kind: 'result',
           id: `result:${this.req.turnId}:${this.noticeCount++}`,
@@ -808,7 +862,8 @@ class ClaudeTurn implements AgentTurn {
           ok,
           costUsd: message.total_cost_usd,
           durationMs: message.duration_ms,
-          turns: message.num_turns
+          turns: message.num_turns,
+          ...(refused.length ? { refused } : {})
         })
         const errors = message.subtype !== 'success' && 'errors' in message ? message.errors ?? [] : []
         const errorText = errors.join('\n') || (!ok && 'result' in message ? String(message.result ?? '') : '')
@@ -1033,6 +1088,33 @@ class ClaudeTurn implements AgentTurn {
     tool.status = block.is_error ? 'error' : 'done'
     tool.output = output
     this.cb.item({ ...tool })
+  }
+
+  /**
+   * docs/ai-employees.md §9: an employee's run's servers from the repository's .mcp.json, expanded from the turn's own
+   * environment (never the app's, which holds what the turn's environment leaves out). A variable that isn't set is said.
+   */
+  private employeeRepoServers(env: Record<string, string>): Record<string, McpServerConfig> {
+    const repo = employeeRepoMcp({ cwd: this.req.cwd, repoRoot: this.req.repoRoot, env, off: this.req.disabledMcp })
+    if (repo.missing.length) this.notice('info', translate(this.req.locale ?? 'en', 'chat.employeeMcp.unset', { names: repo.missing.join(', ') }))
+    return repo.servers
+  }
+
+  /**
+   * docs/ai-employees.md §9: the calls refused since the last result, each once: what Foreman's own hooks denied, and the
+   * result's permission denials (a repository hook's deny among them), whose reason is what the call's result said.
+   */
+  private takeRefusals(denials: readonly { tool_name: string; tool_use_id: string; tool_input: Record<string, unknown> }[]): ToolRefusal[] {
+    for (const d of denials) {
+      if (this.refusedSaid.has(d.tool_use_id) || this.refused.has(d.tool_use_id)) continue
+      const call = this.tools.get(d.tool_use_id)
+      const input = d.tool_input && Object.keys(d.tool_input).length ? d.tool_input : call?.input
+      this.hearRefusal(d.tool_use_id, d.tool_name, input, call?.status === 'error' ? (call.output ?? '') : '')
+    }
+    const out = [...this.refused.values()]
+    for (const id of this.refused.keys()) this.refusedSaid.add(id)
+    this.refused.clear()
+    return out
   }
 
   /** Why a failure reads as it does (docs/agents.md, 4.1): the program missing, a version the table knows, signed out, else Claude's own words. */

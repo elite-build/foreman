@@ -1458,6 +1458,16 @@ export interface ContextPart {
   revision?: number
 }
 
+/**
+ * A tool call the turn refused (docs/ai-employees.md §9): a PreToolUse hook's deny (Foreman's own or the repository's) or
+ * the permission check's. `what` is the command or file it named, `reason` the words the agent was given.
+ */
+export interface ToolRefusal {
+  tool: string
+  what?: string
+  reason: string
+}
+
 export type ChatItem =
   | {
       kind: 'user'
@@ -1522,7 +1532,8 @@ export type ChatItem =
   // O10: `gap` marks where Foreman was closed while the turn kept running in the background host.
   // #2: `report` marks a line the agent reported ("agent says: checkpoint — …"); needs-input shows as a card while open.
   | { kind: 'notice'; id: string; turnId?: string; level: 'info' | 'error'; text: string; action?: 'sign-in' | 'open-settings' | 'update'; gap?: import('./agentHost').ClosedGap; report?: import('./agentReports').ReportMarker; switched?: import('./switchAgent').AgentSwitch; divider?: import('./switchAgent').ChatDivider; handOff?: import('./chatHandOff').ChatHandOff }
-  | { kind: 'result'; id: string; turnId: string; ok: boolean; costUsd?: number; durationMs?: number; turns?: number }
+  // `refused`: an AI employee's run only (Claude), the calls refused in the turn, which its run record keeps.
+  | { kind: 'result'; id: string; turnId: string; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; refused?: ToolRefusal[] }
   // Internal: how a turn ended, appended once when it does. The only item that says "completed".
   | {
       kind: 'turn-end'
@@ -2378,7 +2389,8 @@ export type MainEvent =
   // Settings at Agents on this computer).
   // `kind` (O13b) says what it is, since title and body are in the user's language: a turn that finished or was
   // stopped, something that needs the user (phone pushes go out for these), or anything else.
-  | { type: 'notify'; workspaceId: string; sessionId: string; title: string; body: string; action?: 'fix-ci' | 'keep-awake' | 'agent-access'; kind?: NotifyKind }
+  // `project`: something a project waits on the person for (docs/ai-employees.md §15); clicking it opens the project's channel.
+  | { type: 'notify'; workspaceId: string; sessionId: string; title: string; body: string; action?: 'fix-ci' | 'keep-awake' | 'agent-access'; kind?: NotifyKind; project?: { orgId: string; id: string } }
   // Setup finished and the repo has "Auto-run after setup" on.
   | { type: 'auto-run'; workspaceId: string }
   // A line of `git clone` output for the clone dialog.
@@ -2398,7 +2410,7 @@ export type MainEvent =
   // #3: a foreman:// link arrived (navigation only; the window decides where it goes).
   | { type: 'open-link'; url: string }
   // #3: a tray entry: show this workspace (and tab), or Home when none.
-  | { type: 'navigate'; workspaceId?: string; sessionId?: string }
+  | { type: 'navigate'; workspaceId?: string; sessionId?: string; project?: { orgId: string; id: string } }
   // #3: Home → Recent's history changed.
   | { type: 'attention-history'; events: import('./attention').AttentionEvent[]; seenAt?: string }
   // G3 · #1: an archive step started, finished or failed.
@@ -2419,7 +2431,7 @@ export type MainEvent =
   // revoked, or the listener started or stopped. What the Api's agentAccessInfo answers; it never holds a code.
   | { type: 'agent-access'; info: import('./agentAccess').AgentAccessInfo }
   // A computer this window isn't showing needs you (computerId null: this one, while another is shown).
-  | { type: 'computer-notify'; computerId: string | null; computerName: string; workspaceId: string; sessionId: string; title: string; body: string }
+  | { type: 'computer-notify'; computerId: string | null; computerName: string; workspaceId: string; sessionId: string; title: string; body: string; project?: { orgId: string; id: string } }
   // The window came back to this computer by itself: the other one ended control, turned it off, was unpaired, or the
   // link was down when the window loaded.
   | { type: 'computer-left'; name: string; reason: 'denied' | 'off' | 'timeout' | 'unreachable' | 'mismatch' | 'unpaired' }
@@ -3139,7 +3151,8 @@ export interface Api {
   // Other computers (shared/remote.ts). These always run on this computer, whichever one the window shows.
   computers(): Promise<import('./remote').ComputersView>
   // Show another computer's Foreman in this window (null: this computer's again), then open a workspace there.
-  viewComputer(deviceId: string | null, open?: { workspaceId: string; sessionId?: string }): Promise<void>
+  // `open`: where to go once it shows: a workspace (and tab), or a project's channel (docs/ai-employees.md §15).
+  viewComputer(deviceId: string | null, open?: { workspaceId?: string; sessionId?: string; project?: { orgId: string; id: string } }): Promise<void>
   answerControlRequest(requestId: string, allow: boolean): Promise<void>
   disconnectController(deviceId: string): Promise<void>
   startHandOffTo(workspaceId: string, deviceId: string): Promise<string>

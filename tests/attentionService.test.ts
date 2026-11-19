@@ -8,7 +8,7 @@ import type { PrResult } from '../src/main/github'
 import { PrCache } from '../src/main/prCache'
 import { PrWatcher } from '../src/main/prWatch'
 import type { Store } from '../src/main/store'
-import type { TrayView } from '../src/shared/attention'
+import type { ProjectAlert, TrayView } from '../src/shared/attention'
 import type { ApprovalRequest, PullRequestInfo, Session, Workspace } from '../src/shared/types'
 import { tempDir } from './helpers'
 
@@ -135,6 +135,36 @@ describe('AttentionService', () => {
     context = { language: 'fr' }
     service.observe()
     expect(show).toHaveBeenCalledTimes(3)
+  })
+
+  it('counts what projects wait on and tells each new one once, never those there at the first look', async () => {
+    const file = path.join(await tempDir('foreman-attention-'), 'foreman.db')
+    const alert = (id: string, key = id): ProjectAlert => ({ id, key, orgId: 'acme', projectId: 'p1', channel: '#new-sidebar', text: id, since: '2026-10-22T13:00:00Z', repoId: 'r' })
+    let alerts = [alert('project:p1:w1')]
+    const show = vi.fn()
+    const told = vi.fn()
+    const state: AttentionState = { repos: [], workspaces: [], sessions: [] }
+    const service = new AttentionService({ db: new ForemanDb(file), state: () => state, approvals: () => [], now: () => Date.parse('2026-10-22T14:00:00Z'), newId: () => 'e', show, logChanged() {}, projects: () => alerts, projectAlert: told })
+    // The first look is the baseline: what already waited at launch isn't told again.
+    service.observe()
+    expect(told).not.toHaveBeenCalled()
+    expect(show.mock.calls[0][0]).toMatchObject({ count: 1 })
+    alerts = [alert('project:p1:w1'), alert('task:t1')]
+    service.observe()
+    service.observe()
+    expect(told.mock.calls.map(([a]) => a.id)).toEqual(['task:t1'])
+    expect(show.mock.calls.at(-1)![0]).toMatchObject({ count: 2 })
+    // Answered, then asked again: a new thing to tell.
+    alerts = [alert('project:p1:w1')]
+    service.observe()
+    alerts = [alert('project:p1:w1'), alert('task:t1')]
+    service.observe()
+    expect(told).toHaveBeenCalledTimes(2)
+    // The same task asks again between two looks: a new question is a new thing to tell.
+    alerts = [alert('project:p1:w1'), alert('task:t1', 'task:t1:q2')]
+    service.observe()
+    expect(told).toHaveBeenCalledTimes(3)
+    expect(service.view().attention.map((r) => r.channel)).toEqual([{ orgId: 'acme', projectId: 'p1' }, { orgId: 'acme', projectId: 'p1' }])
   })
 
   it('an answered approval is history with what was asked and whether it was allowed', () => {

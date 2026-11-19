@@ -186,11 +186,11 @@ describe('the New employee page', () => {
     expect(screen.getByText('Give the employee a name.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create' })).toHaveProperty('disabled', true)
     expect((screen.getByRole('textbox', { name: 'Personality' }) as HTMLInputElement).value).toBe('Concise')
-    // What it can do starts at a new employee's settings: a shell and every MCP server; it writes, pushes and opens pull requests, with no limits.
+    // What it can do starts at a new employee's settings: a shell and the repository’s and Foreman’s MCP servers; it writes, pushes and opens pull requests, with no limits.
     expect(screen.getByText('Reads only the repositories it writes to.')).toBeTruthy()
     expect(screen.getByText('Writes to foreman-website, foreman, in its own branch.')).toBeTruthy()
     expect(screen.getByText('Has a shell: its shell and tools act with no hold.')).toBeTruthy()
-    expect(screen.getByText('Has every MCP server an agent in a workspace has.')).toBeTruthy()
+    expect(screen.getByText('On Claude Code, has the repository’s MCP servers and Foreman’s, not your own.')).toBeTruthy()
     expect(screen.getByText(/^Sends without waiting for you: .*push/i)).toBeTruthy()
     expect(screen.getByText('Runs only when asked.')).toBeTruthy()
     expect(screen.queryByText(/runs a day|minutes a run/)).toBeNull()
@@ -547,7 +547,7 @@ describe('the approval plan: a draft’s page', () => {
       'Read foreman',
       'Change foreman-website, in its own branch',
       'Keep its own notes in foreman-memory',
-      'Use every MCP server an agent in a workspace has Nothing it does with them waits for you.',
+      'Use the repository’s MCP servers and Foreman’s (on Codex, your own Codex servers too) Nothing it does with them waits for you.',
       'Hand work to Ada',
       'Push its branches without asking you'
     ])

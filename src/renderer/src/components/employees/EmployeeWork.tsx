@@ -4,7 +4,7 @@
 // organization's work moves.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RECEIPT_STAGES, receipts, type ReceiptStage } from '../../../../shared/employeeBroker'
-import { canCancelTask, isRunActive, isRunGoing, workableRepos, type EmployeeRun, type EmployeeTask, type EmployeeTaskChain } from '../../../../shared/employeeWork'
+import { canCancelTask, isRunActive, isRunGoing, refusalText, workableRepos, type EmployeeRun, type EmployeeTask, type EmployeeTaskChain } from '../../../../shared/employeeWork'
 import { employeeStatus, type EmployeeDefinition, type EmployeeSummary } from '../../../../shared/employees'
 import { formatDateTime, timeAgo } from '../../../../shared/i18n/time'
 import { memoryArtifacts } from '../../../../shared/memory'
@@ -431,6 +431,10 @@ function RunRow({ run, task }: { run: EmployeeRun; task?: EmployeeTask }) {
     run.usage?.durationMs ? t('employees.run.duration', { duration: formatDuration(run.usage.durationMs) }) : ''
   ].filter(Boolean)
   const memory = [run.memoryBase ? t('employees.run.memoryBase', { commit: run.memoryBase.slice(0, 7) }) : '', run.memoryCommit ? t('employees.run.memoryCommit', { commit: run.memoryCommit.slice(0, 7) }) : ''].filter(Boolean)
+  // docs/ai-employees.md §9: the calls refused during the run (by a hook or the permission check), all counted, three named.
+  const refused = run.refused ?? []
+  const refusedCount = Math.max(run.refusedCount ?? 0, refused.length)
+  const refusedList = refused.slice(0, 3).map((r) => refusalText(r)).join('; ') + (refusedCount > 3 ? '; …' : '')
   return (
     <Card as="li" className="employee-task">
       <div className="employee-task-head">
@@ -438,6 +442,7 @@ function RunRow({ run, task }: { run: EmployeeRun; task?: EmployeeTask }) {
         <span className="employee-task-title">{t('employees.run.attempt', { n: run.attempt, task: task?.title ?? run.taskId })}</span>
       </div>
       {run.reason && <p className="employee-task-why">{run.reason}</p>}
+      {refused.length > 0 && <p className="employee-task-why">{t('employees.run.refused', { count: refusedCount, list: refusedList })}</p>}
       {facts.length > 0 && <span className="employee-faint">{facts.join(' · ')}</span>}
       {memory.length > 0 && <span className="employee-faint mono">{memory.join(' · ')}</span>}
       <div className="employee-card-actions">

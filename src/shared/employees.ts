@@ -539,7 +539,7 @@ export interface EmployeeDefaultsInput {
 /**
  * The base settings, whatever its words say: reads every repository of its organization, writes only its own memory
  * folder, a shell, no delegation, every outward action held, runs only when asked, on the person's default agent and
- * model. Every run has every MCP server a workspace's agent has, and no employee has limits (§9). Unattended when that agent can run with nobody there (§1), attended
+ * model. Every run has the repository's MCP servers and Foreman's (never the person's own), and no employee has limits (§9). Unattended when that agent can run with nobody there (§1), attended
  * otherwise (§9: Codex is offered attended and read-only). A new employee is this with full access (newEmployee).
  */
 export function defaultEmployee({ id, colour, repos, loadouts, text = {} }: EmployeeDefaultsInput): EmployeeDefinition {

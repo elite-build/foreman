@@ -11,8 +11,9 @@ import { newEmployee, newEmployeeId, type EmployeeDefinition } from './employees
 import { PROGRAM_MANAGER_NAME } from './projects'
 
 /**
- * Priya's definition: Write on every repository the organization has, pushes and pull requests allowed, no shell, no
- * limits. Her prompt is the program manager's (shared/employeePrompts/program-manager.md), linked rather than copied.
+ * Priya's definition: Write on every repository the organization has, pushes and pull requests allowed, a shell, no
+ * limits, as every new employee has (newEmployee). Her prompt is the program manager's
+ * (shared/employeePrompts/program-manager.md), linked rather than copied.
  */
 export function programManagerDefinition(input: { repos: readonly string[]; loadouts: readonly Pick<Loadout, 'agent' | 'model' | 'effort'>[]; taken: Iterable<string>; takenNames?: readonly string[] }): EmployeeDefinition {
   const unattended = input.loadouts.find((l) => canRunUnattended(l.agent))

@@ -20,14 +20,15 @@ import {
   trayView,
   type AttentionEvent,
   type EventDraft,
+  type ProjectAlert,
   type TrayView,
   type WorkspaceLook
 } from '../shared/attention'
 import type { PrResult } from './github'
 import { nextLaterDue } from '../shared/later'
 
-/** The parts of the state triage reads. */
-export type AttentionState = Pick<AppSnapshot, 'repos' | 'workspaces' | 'sessions' | 'stopRecord'>
+/** The parts of the state triage reads; projects and the employees' work say which workspaces are a project's. */
+export type AttentionState = Pick<AppSnapshot, 'repos' | 'workspaces' | 'sessions' | 'stopRecord'> & Partial<Pick<AppSnapshot, 'projects' | 'employeeWork'>>
 
 export interface AttentionStore {
   readAttention<T>(): T[]
@@ -48,6 +49,10 @@ export interface AttentionDeps {
   showContext?(): unknown
   // The history (or when it was last seen) changed.
   logChanged(): void
+  // What projects wait on the person for, in words (docs/ai-employees.md §15): counted with the tray's rows.
+  projects?(): ProjectAlert[]
+  // A project item that wasn't there at the last look (never at the first, which is the baseline): notify the person.
+  projectAlert?(alert: ProjectAlert): void
   debounceMs?: number
 }
 
@@ -64,6 +69,8 @@ export class AttentionService {
   private seen: string | undefined
   // The view last shown and what it was shown with, so a look that changes nothing doesn't redraw the tray.
   private shown: { key: string; context: unknown } | null = null
+  // The project items at the last look, by key (null before the first).
+  private alerts: Set<string> | null = null
 
   constructor(private deps: AttentionDeps) {
     this.log = boundLog(deps.db.readAttention<AttentionEvent>(), deps.now()).log
@@ -121,7 +128,10 @@ export class AttentionService {
       }
     }
     this.looks = next
-    const view = trayView(input)
+    const projects = this.deps.projects?.() ?? []
+    if (this.alerts) for (const alert of projects) if (!this.alerts.has(alert.key)) this.deps.projectAlert?.(alert)
+    this.alerts = new Set(projects.map((a) => a.key))
+    const view = trayView(input, projects)
     const key = JSON.stringify(view)
     const context = this.deps.showContext?.()
     if (this.shown?.key === key && this.shown.context === context) return
@@ -163,7 +173,7 @@ export class AttentionService {
 
   /** The tray's view as of now (the "Next needing you" entry and tests). */
   view(): TrayView {
-    return trayView(this.input())
+    return trayView(this.input(), this.deps.projects?.() ?? [])
   }
 }
 

@@ -1638,8 +1638,9 @@ export class SessionService {
         approvals: policy.policy,
         readOnly: this.readOnly(session) ? true : undefined,
         writeScope: scope,
-        // docs/ai-employees.md §9: an employee's run has what a workspace's agent has: every MCP server, and no paths refused.
-        ...(employee ? { writeScopeSubject: 'AI employee’s run', employee: true as const } : {}),
+        // docs/ai-employees.md §9: an employee's run has what a workspace's agent has (no paths refused), but not the
+        // person's own setup: Claude leaves out their user settings, hooks, plugins and own MCP servers.
+        ...(employee ? { writeScopeSubject: 'AI employee’s run', employee: true as const, repoRoot: this.store.state.repos.find((r) => r.id === ws.repoId)?.rootPath } : {}),
         // docs/ai-employees.md §15: in a project only its publishing part pushes or opens a pull request.
         ...(brief?.noPublish ? { noPublish: brief.noPublish } : {}),
         // §9: an employee without a shell, held read-only, is refused read-only commands too.

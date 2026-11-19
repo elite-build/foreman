@@ -151,7 +151,9 @@ import { defaultOnboarding, isOnboardingMilestone, migrateOnboarding, withMilest
 import { DiffSelectionService } from './diffSelections'
 import { LimitResumeService } from './limitResume'
 import { AttentionService, approvalDraft, PrPoller } from './attention'
-import type { TrayView } from '../shared/attention'
+import type { ProjectAlert, TrayView } from '../shared/attention'
+import { projectAttention, projectAttentionWords } from '../shared/needsYou'
+import { PROGRAM_MANAGER_NAME } from '../shared/projects'
 import { PreviewServer } from './previewProtocol'
 import { Integrations } from './integrations'
 import { AGENT_TOOL_SERVICES, cleanWorkspaceIntegrations, toolsOn, type WorkspaceIntegrations } from '../shared/integrations'
@@ -1481,7 +1483,15 @@ export class Core {
     })
     this.attention = new AttentionService({
       db: store.db,
-      state: () => ({ repos: store.state.repos, workspaces: store.state.workspaces, sessions: store.state.sessions, stopRecord: this.stopSafely?.record() }),
+      state: () => ({
+        repos: store.state.repos,
+        workspaces: store.state.workspaces,
+        sessions: store.state.sessions,
+        stopRecord: this.stopSafely?.record(),
+        // Which workspaces are a project's: their rows are the channel's (listsWorkspace), as in the sidebar.
+        projects: this.projects.listed(),
+        employeeWork: this.employeeWork.views()
+      }),
       approvals: () => this.sessions.pendingApprovals(),
       now: () => Date.now(),
       newId: () => randomUUID(),
@@ -1495,7 +1505,11 @@ export class Core {
       },
       // The badge and tray also follow settings (dock badge, tray icon, language), replaced as a whole on each change.
       showContext: () => store.state.settings,
-      logChanged: () => host.broadcast({ type: 'attention-history', ...this.attention.history() })
+      logChanged: () => host.broadcast({ type: 'attention-history', ...this.attention.history() }),
+      // docs/ai-employees.md §15: what projects wait on the person for counts with the tray and dock, and each new one
+      // is told as a workspace that needs you is.
+      projects: () => this.projectAlerts(),
+      projectAlert: (alert) => this.projectAlert(alert)
     })
     this.prPoll = new PrPoller({
       // Slack rules' repositories, then AI employees' pull-request event triggers' (each repository at most every 2 minutes).
@@ -3278,6 +3292,42 @@ export class Core {
       appVersion: this.host.appInfo?.().version,
       update: this.updates.view()
     }
+  }
+
+  /**
+   * What projects wait on the person for (docs/ai-employees.md §15), in words in `t`'s language: the tray and dock count
+   * them, and each new one is a notification, the phone's push and Slack's "needs me".
+   */
+  projectAlerts(t = mainT(this.store.state.settings)): ProjectAlert[] {
+    const items = projectAttention({ projects: this.projects.listed(), employeeWork: this.employeeWork.views() })
+    if (!items.length) return []
+    const rosters = this.employees.rosters()
+    return items.map((item) => {
+      const name = (id: string) => rosters[item.orgId]?.employees.find((e) => e.id === id)?.name || (id === item.project.pmId ? PROGRAM_MANAGER_NAME : id)
+      const words = projectAttentionWords(item, t, name)
+      return {
+        id: item.id,
+        key: item.key,
+        orgId: item.orgId,
+        projectId: item.project.id,
+        channel: words.channel,
+        text: words.text,
+        since: item.since,
+        repoId: item.project.repoId,
+        ...(item.project.workspaceId ? { workspaceId: item.project.workspaceId } : {}),
+        ...(item.employeeId ? { who: name(item.employeeId) } : {})
+      }
+    })
+  }
+
+  /** Something new a project waits on the person for: notified as a workspace that needs you is, opening its channel. */
+  private projectAlert(alert: ProjectAlert): void {
+    // The window's notification and the phone's push (index.ts hands every notify to the phone).
+    this.host.broadcast({ type: 'notify', workspaceId: '', sessionId: '', title: alert.channel, body: alert.text, kind: 'attention', project: { orgId: alert.orgId, id: alert.projectId } })
+    if (!this.slack.hasRules()) return
+    void this.slack
+      .projectEvent({ repoId: alert.repoId, ...(alert.workspaceId ? { workspaceId: alert.workspaceId } : {}), channel: alert.channel, who: alert.who ?? alert.channel, reason: alert.text, key: alert.key })
+      .catch(() => undefined)
   }
 
   /** Slack rules for an agent's "needs you" and "finished" notifications. */
