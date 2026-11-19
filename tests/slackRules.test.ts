@@ -325,6 +325,14 @@ describe('Slack rules: agents', () => {
     await r.rules.projectEvent(gate)
     await r.rules.projectEvent(gate)
     await r.rules.projectEvent({ ...gate, who: 'Priya', reason: 'Priya has questions for you', key: 'project:p1:w2' })
-    expect(r.posts.filter((p) => p.method === 'chat.postMessage').map((p) => p.body.text)).toEqual(['Uma in #new-sidebar needs you: “Mocks” is ready for you', 'Priya in #new-sidebar needs you: Priya has questions for you'])
+    // A task's second question has its own key, so it is messaged too.
+    await r.rules.projectEvent({ ...gate, who: 'Uma', reason: 'Uma asks: which one?', key: 'task:t1:q1' })
+    await r.rules.projectEvent({ ...gate, who: 'Uma', reason: 'Uma asks: and on mobile?', key: 'task:t1:q2' })
+    expect(r.posts.filter((p) => p.method === 'chat.postMessage').map((p) => p.body.text)).toEqual([
+      'Uma in #new-sidebar needs you: “Mocks” is ready for you',
+      'Priya in #new-sidebar needs you: Priya has questions for you',
+      'Uma in #new-sidebar needs you: Uma asks: which one?',
+      'Uma in #new-sidebar needs you: Uma asks: and on mobile?'
+    ])
   })
 })

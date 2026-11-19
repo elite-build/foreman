@@ -924,9 +924,11 @@ export function onCloudBuildLog(listener: (repoId: string, buildId: string, chun
 /** Something on a computer this window isn't showing needs you: say so, with a way to go there. */
 function computerNotify(event: Extract<MainEvent, { type: 'computer-notify' }>): void {
   const t = tNow()
-  const go = { workspaceId: event.workspaceId, sessionId: event.sessionId || undefined }
+  // A project's (docs/ai-employees.md §15) opens its channel there.
+  const go = event.project ? { project: event.project } : { workspaceId: event.workspaceId, sessionId: event.sessionId || undefined }
+  const open = event.project || event.workspaceId ? go : undefined
   showToast(t('computers.notify', { computer: event.computerName, title: event.title, body: event.body }), 'info', {
-    action: { label: t('computers.openOn', { name: event.computerName }), run: () => api.viewComputer(event.computerId, event.workspaceId ? go : undefined) }
+    action: { label: t('computers.openOn', { name: event.computerName }), run: () => api.viewComputer(event.computerId, open) }
   })
   const settings = state.snapshot?.settings
   if (!settings?.notifications) return
@@ -934,7 +936,7 @@ function computerNotify(event: Extract<MainEvent, { type: 'computer-notify' }>):
     const notification = new Notification(`${event.computerName} · ${event.title}`, { body: event.body, silent: true })
     notification.onclick = () => {
       raiseWindow()
-      void attempt(() => api.viewComputer(event.computerId, event.workspaceId ? go : undefined))
+      void attempt(() => api.viewComputer(event.computerId, open))
     }
   } catch {
     // Notifications unavailable; the toast and the computer chip still say it.

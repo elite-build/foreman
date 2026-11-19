@@ -326,7 +326,7 @@ describe('each class’s rule in words', () => {
     expect(items[4]).toMatch(/^newsletter\s*Held\s*Foreman has no route of its own for this, so it can’t hold it/)
     // A shell by default: its git push and gh aren't held, nor are the repository’s MCP servers and Foreman’s.
     expect(screen.getByText('Its shell is not held: a command it runs (git push, gh, curl) acts at once, outside these rules.')).toBeTruthy()
-    expect(screen.getByText('Its MCP servers, the repository’s and Foreman’s, act with no hold; Foreman’s Slack and Linear tools follow the rules above, and it has no other Slack or Linear server.')).toBeTruthy()
+    expect(screen.getByText('Its MCP servers act with no hold; Foreman’s Slack and Linear tools follow the rules above. On Claude Code it has no other Slack or Linear server; on Codex your own Codex servers are there too.')).toBeTruthy()
   })
 
   it('leaves pushes and pull requests out for an employee with no Write access, and says it can’t do either', () => {
@@ -354,7 +354,7 @@ describe('each class’s rule in words', () => {
         .map((li) => li.textContent)
     const can = group('Can')
     expect(can).toContain('Use a shell and its tools Nothing it runs there waits for you.')
-    expect(can).toContain('Use the repository’s MCP servers and Foreman’s, not yours Nothing it does with them waits for you.')
+    expect(can).toContain('Use the repository’s MCP servers and Foreman’s (on Codex, your own Codex servers too) Nothing it does with them waits for you.')
     // Foreman's Slack and Linear tools are there in every run, and held for you.
     expect(group('Asks you first')).toContain('Before each Slack post')
     expect(group('Asks you first')).toContain('Before each Linear change')

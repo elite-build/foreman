@@ -13,7 +13,7 @@ import { WebSocketServer } from 'ws'
 import { capabilitiesFor, interruptsToSteer, type AgentCapabilities } from '../shared/agentCapabilities'
 import { staticCapabilitiesView } from '../shared/agentCatalog'
 import { ApiRefused } from '../shared/api'
-import { triageAll } from '../shared/triage'
+import { listsWorkspace, projectWorkspaceIds, triageAll } from '../shared/triage'
 import { phoneRecent, prGlyph } from '../shared/attention'
 import { createT } from '../shared/i18n'
 import { projectAttention, projectAttentionWords } from '../shared/needsYou'
@@ -461,7 +461,10 @@ export class MobileService {
     const snapshot = this.deps.snapshot()
     const approvals = this.deps.approvals()
     const waiting = new Set(approvals.map((a) => a.sessionId))
-    const rows = triageAll({ snapshot, approvals, unread: {}, unreadSessions: {} }, null)
+    // A project's workspace is its channel's (docs/ai-employees.md §15), as in the sidebar and the tray: what it waits
+    // on comes in `projects`, so it isn't counted twice.
+    const projectIds = projectWorkspaceIds(snapshot)
+    const rows = triageAll({ snapshot, approvals, unread: {}, unreadSessions: {} }, null).filter((t) => listsWorkspace(t, projectIds, approvals))
     // docs/agents.md 2.3: what each agent in use can do, from the same record the window reads (canSteer follows from it).
     const capabilities = snapshot.agentCapabilities ?? staticCapabilitiesView()
     const open = snapshot.sessions.filter((s) => !s.closedAt)

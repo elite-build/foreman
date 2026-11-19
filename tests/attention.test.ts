@@ -184,7 +184,7 @@ describe('the tray', () => {
 
   it('counts what projects wait on with the rest, oldest first, each opening its channel (docs/ai-employees.md §15)', () => {
     const i = input([ws('w1')], [session('s1', 'w1')], { approvals: [approval('s1')] })
-    const gate: ProjectAlert = { id: 'project:p1:w1', orgId: 'acme', projectId: 'p1', channel: '#new-sidebar', text: '“Build” is ready for you', since: ago(600), repoId: 'r', workspaceId: 'w9', who: 'Ravi' }
+    const gate: ProjectAlert = { id: 'project:p1:w1', key: 'project:p1:w1', orgId: 'acme', projectId: 'p1', channel: '#new-sidebar', text: '“Build” is ready for you', since: ago(600), repoId: 'r', workspaceId: 'w9', who: 'Ravi' }
     const view = trayView(i, [gate])
     expect(view.count).toBe(2)
     expect(view.oldestSince).toBe(ago(600))

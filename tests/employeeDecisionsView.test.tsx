@@ -204,7 +204,7 @@ describe('a draft’s page is its plan', () => {
       'Read site',
       'Keep its own notes in acme-memory',
       'Use a shell and its tools Nothing it runs there waits for you.',
-      'Use the repository’s MCP servers and Foreman’s, not yours Nothing it does with them waits for you.'
+      'Use the repository’s MCP servers and Foreman’s (on Codex, your own Codex servers too) Nothing it does with them waits for you.'
     ])
     expect(group('Can’t')).toEqual(['Change any repository It has Read access to site only.', 'Push or open pull requests', 'Hand work to other employees'])
     expect(group('Asks you first')).toEqual(['Before changing Acme’s shared memory You add or discard each change.', 'Before each Slack post', 'Before each Linear change'])

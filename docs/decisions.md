@@ -36,7 +36,7 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 
 ## 2026-11-19: An AI employee's run leaves the person's own Claude Code setup out
 
-**Decision.** An employee's Claude run loads the repository's settings, not the person's user settings, hooks or plugins. Its MCP servers are the repository's `.mcp.json` (less any Slack or Linear server) and Foreman's; every other MCP configuration is ignored. Hook refusals go on the run's record. This narrows the 2026-11-17 entry's "every MCP server a workspace's agent has" for employees only.
+**Decision.** An employee's Claude run loads the repository's settings, not the person's hooks, plugins or model; of their user settings it keeps only sign-in (`env`, auth helpers) and their own deny, ask and sandbox limits. Its MCP servers are the repository's approved `.mcp.json` servers (less any Slack or Linear one) and Foreman's; every other MCP configuration is ignored. Hook refusals go on the run's record. This narrows the 2026-11-17 entry's "every MCP server a workspace's agent has" for employees only.
 
 **Why.** A personal hook stalled unattended runs, costing replans nobody saw, and a personal Slack or Linear server posted with no hold or record.
 

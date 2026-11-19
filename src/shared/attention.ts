@@ -231,6 +231,8 @@ export interface TrayRow {
  */
 export interface ProjectAlert {
   id: string
+  // What makes it new (ProjectAttention.key): a second question on the same task is told, and messaged on Slack, again.
+  key: string
   orgId: string
   projectId: string
   // `#csv-export`

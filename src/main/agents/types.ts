@@ -82,9 +82,12 @@ export interface TurnRequest {
   writeScopeSubject?: string
   // docs/ai-employees.md §9: an AI employee's run. It has what a workspace's agent has; its own Foreman tools and its
   // brokered Slack, Linear and Langfuse tools never ask (Foreman checks and holds them itself). It leaves out the person's
-  // own setup: their user settings (hooks, plugins) and every MCP server but the repository's .mcp.json (less any Slack
-  // or Linear one) and those handed here; its result says what was refused. Claude only; others ignore it.
+  // own setup: their user settings but sign-in and their own limits (claude/employeeSetup.ts), and every MCP server but
+  // the repository's approved .mcp.json ones (less any Slack or Linear one) and those handed here; its result says what
+  // was refused. Claude only; others ignore it (a Codex employee keeps the person's Codex servers).
   employee?: true
+  // An employee's run: the repository's own folder, whose .claude settings keep the person's approvals of its .mcp.json servers.
+  repoRoot?: string
   // The account the turn runs on (undefined: the agent's default one): what an agent's pooled server is keyed by (docs/agents.md 3).
   instance?: string
   // The agent's conversation to continue, if any.

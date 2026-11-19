@@ -257,10 +257,10 @@ describe('the Tasks and Runs tabs', () => {
       { tool: 'Write', what: 'Write .env', reason: 'Secrets stay out.' },
       { tool: 'Bash', what: 'npm publish', reason: 'No.' }
     ]
-    fakeApi.listEmployeeRuns = vi.fn(async () => [run({ id: 'r1', refused }), run({ id: 'r2', attempt: 2, refused: refused.slice(0, 1) })])
+    fakeApi.listEmployeeRuns = vi.fn(async () => [run({ id: 'r1', refused, refusedCount: 50 }), run({ id: 'r2', attempt: 2, refused: refused.slice(0, 1) })])
     render(<EmployeeRuns orgId="o1" employee={summary()} />)
     const rows = within(await screen.findByRole('list', { name: 'Runs of Max' })).getAllByRole('listitem')
-    expect(within(rows[0]).getByText('4 calls refused: git push origin main (Not the publisher); gh pr create (Not the publisher); Write .env (Secrets stay out); …')).toBeTruthy()
+    expect(within(rows[0]).getByText('50 calls refused: git push origin main (Not the publisher); gh pr create (Not the publisher); Write .env (Secrets stay out); …')).toBeTruthy()
     expect(within(rows[1]).getByText('1 call refused: git push origin main (Not the publisher)')).toBeTruthy()
   })
 })

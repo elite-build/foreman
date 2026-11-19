@@ -817,6 +817,8 @@ describe('employee work: usage limits and cost (§9)', () => {
     await f.service.turnEnded(run.sessionId!, `turn-${run.id}`, 'completed')
     const refused = f.db.employeeRun(run.id)!.refused!
     expect(refused).toHaveLength(20)
+    // All of them counted, the first twenty by name.
+    expect(f.db.employeeRun(run.id)!.refusedCount).toBe(26)
     expect(refused[0]).toEqual(push)
     expect(refused[1]).toEqual(many[0])
   })

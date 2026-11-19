@@ -11,12 +11,14 @@ import {
   type CanUseTool,
   type HookCallback,
   type McpSdkServerConfigWithInstance,
+  type McpServerConfig,
   type PermissionMode as SdkPermissionMode,
   type McpServerStatus,
   type ModelInfo as SdkModelInfo,
   type Query,
   type SDKMessage,
-  type SDKUserMessage
+  type SDKUserMessage,
+  type Settings as SdkSettings
 } from '@anthropic-ai/claude-agent-sdk'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -37,7 +39,7 @@ import { updateArgs } from '../../../shared/agentVersions'
 import { bundledClaudeExecutable, shellQuote } from '../../platform'
 import { trackedClaudeSpawn } from './spawn'
 import { alwaysAllowScope } from './alwaysScope'
-import { employeeRepoMcp } from './employeeMcp'
+import { employeeRepoMcp, employeeUserSetup } from './employeeSetup'
 import { transportOverride } from '../transport'
 import { claudeContextUsage } from '../../../shared/contextUsage'
 import { translate } from '../../../shared/i18n'
@@ -334,11 +336,12 @@ type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 const CLAUDE_EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** Per-session settings: fast mode and the chat's output style; for a turn capped at Auto, the rules that still ask. */
-export function turnSettings(req: TurnRequest, supportsFast: boolean): { fastMode?: boolean; outputStyle?: string; permissions?: { ask: string[] } } | undefined {
-  const settings: { fastMode?: boolean; outputStyle?: string; permissions?: { ask: string[] } } = {}
+export function turnSettings(req: TurnRequest, supportsFast: boolean, user?: SdkSettings): SdkSettings | undefined {
+  // An AI employee's run: what it keeps of the person's user settings (employeeUserSetup), under Foreman's own.
+  const settings: SdkSettings = { ...user }
   if (req.fastMode && supportsFast) settings.fastMode = true
   if (req.outputStyle && req.outputStyle !== 'default') settings.outputStyle = req.outputStyle
-  if (req.capped?.ceiling === 'auto') settings.permissions = { ask: [...CAPPED_ASK_RULES] }
+  if (req.capped?.ceiling === 'auto') settings.permissions = { ...settings.permissions, ask: [...(settings.permissions?.ask ?? []), ...CAPPED_ASK_RULES] }
   return Object.keys(settings).length ? settings : undefined
 }
 
@@ -549,12 +552,16 @@ class ClaudeTurn implements AgentTurn {
     this.input.push(userMessage(req.prompt))
     try {
       const permissionMode = req.assistant ? 'default' : permissionModeFor(req.approvals, this.planMode)
+      // docs/ai-employees.md §9: an employee's run doesn't load the person's user settings, so what signs Claude Code in
+      // and reaches its model (their `env`, auth helpers) and the limits they set themselves are handed over here.
+      const user = req.employee && !req.assistant ? employeeUserSetup(req.env) : undefined
+      const env = user ? { ...user.env, ...req.env } : req.env
       const common = {
         cwd: req.cwd,
         // Session state events say when Claude is idle after its background work.
-        env: { ...req.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+        env: { ...env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         abortController: this.abort,
-        model: wireModel(req.model, req.env),
+        model: wireModel(req.model, env),
         effort: model.efforts.length && req.effort && CLAUDE_EFFORTS.includes(req.effort) ? (req.effort as ClaudeEffort) : undefined,
         permissionMode,
         resume: req.resume,
@@ -572,7 +579,7 @@ class ClaudeTurn implements AgentTurn {
           ? { ...common, ...assistantOptions(req.assistant) }
           : {
               ...common,
-              settings: turnSettings(req, model.supportsFast),
+              settings: turnSettings(req, model.supportsFast, user?.settings),
               allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
               resumeSessionAt: forking ? req.resumeAt : undefined,
               forkSession: forking || req.forkOnResume || undefined,
@@ -585,7 +592,7 @@ class ClaudeTurn implements AgentTurn {
               // Questions go through our own tool so the app can render them. Read-only also drops leaving plan mode and writing.
               disallowedTools: [...(req.readOnly ? ['AskUserQuestion', ...READ_ONLY_DENIED] : ['AskUserQuestion']), ...disabledMcpTools(req.disabledMcp)],
               mcpServers: {
-                ...(req.employee ? employeeRepoMcp(req.cwd, { ...process.env, ...req.env }, req.disabledMcp) : {}),
+                ...(user ? this.employeeRepoServers(env) : {}),
                 ...repoMcpConfig(req.mcpServers),
                 ...inProcessMcpConfig(req.inProcessMcp),
                 foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] })
@@ -1045,6 +1052,16 @@ class ClaudeTurn implements AgentTurn {
     tool.status = block.is_error ? 'error' : 'done'
     tool.output = output
     this.cb.item({ ...tool })
+  }
+
+  /**
+   * docs/ai-employees.md §9: an employee's run's servers from the repository's .mcp.json, expanded from the turn's own
+   * environment (never the app's, which holds what the turn's environment leaves out). A variable that isn't set is said.
+   */
+  private employeeRepoServers(env: Record<string, string>): Record<string, McpServerConfig> {
+    const repo = employeeRepoMcp({ cwd: this.req.cwd, repoRoot: this.req.repoRoot, env, off: this.req.disabledMcp })
+    if (repo.missing.length) this.notice('info', translate(this.req.locale ?? 'en', 'chat.employeeMcp.unset', { names: repo.missing.join(', ') }))
+    return repo.servers
   }
 
   /**

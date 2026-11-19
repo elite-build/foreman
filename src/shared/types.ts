@@ -2427,7 +2427,7 @@ export type MainEvent =
   // revoked, or the listener started or stopped. What the Api's agentAccessInfo answers; it never holds a code.
   | { type: 'agent-access'; info: import('./agentAccess').AgentAccessInfo }
   // A computer this window isn't showing needs you (computerId null: this one, while another is shown).
-  | { type: 'computer-notify'; computerId: string | null; computerName: string; workspaceId: string; sessionId: string; title: string; body: string }
+  | { type: 'computer-notify'; computerId: string | null; computerName: string; workspaceId: string; sessionId: string; title: string; body: string; project?: { orgId: string; id: string } }
   // The window came back to this computer by itself: the other one ended control, turned it off, was unpaired, or the
   // link was down when the window loaded.
   | { type: 'computer-left'; name: string; reason: 'denied' | 'off' | 'timeout' | 'unreachable' | 'mismatch' | 'unpaired' }
@@ -3142,7 +3142,8 @@ export interface Api {
   // Other computers (shared/remote.ts). These always run on this computer, whichever one the window shows.
   computers(): Promise<import('./remote').ComputersView>
   // Show another computer's Foreman in this window (null: this computer's again), then open a workspace there.
-  viewComputer(deviceId: string | null, open?: { workspaceId: string; sessionId?: string }): Promise<void>
+  // `open`: where to go once it shows: a workspace (and tab), or a project's channel (docs/ai-employees.md §15).
+  viewComputer(deviceId: string | null, open?: { workspaceId?: string; sessionId?: string; project?: { orgId: string; id: string } }): Promise<void>
   answerControlRequest(requestId: string, allow: boolean): Promise<void>
   disconnectController(deviceId: string): Promise<void>
   startHandOffTo(workspaceId: string, deviceId: string): Promise<string>

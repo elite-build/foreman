@@ -396,9 +396,10 @@ export interface EmployeeRun {
   memoryBase?: string
   memoryCommit?: string
   usage?: EmployeeRunUsage
-  // §9: the calls refused during its turns (a PreToolUse hook's deny, Foreman's own or the repository's), oldest first,
-  // at most MAX_RUN_REFUSALS: what the run's record says Foreman or the repository stopped.
+  // §9: the calls refused during its turns (a hook's deny, Foreman's own or the repository's, or the permission check's),
+  // the first MAX_RUN_REFUSALS of them, and how many there were in all.
   refused?: ToolRefusal[]
+  refusedCount?: number
   // In plain words: why it is queued, or how it ended.
   reason?: string
   createdAt: string

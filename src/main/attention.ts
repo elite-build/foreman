@@ -69,7 +69,7 @@ export class AttentionService {
   private seen: string | undefined
   // The view last shown and what it was shown with, so a look that changes nothing doesn't redraw the tray.
   private shown: { key: string; context: unknown } | null = null
-  // The project items at the last look, by id (null before the first).
+  // The project items at the last look, by key (null before the first).
   private alerts: Set<string> | null = null
 
   constructor(private deps: AttentionDeps) {
@@ -129,8 +129,8 @@ export class AttentionService {
     }
     this.looks = next
     const projects = this.deps.projects?.() ?? []
-    if (this.alerts) for (const alert of projects) if (!this.alerts.has(alert.id)) this.deps.projectAlert?.(alert)
-    this.alerts = new Set(projects.map((a) => a.id))
+    if (this.alerts) for (const alert of projects) if (!this.alerts.has(alert.key)) this.deps.projectAlert?.(alert)
+    this.alerts = new Set(projects.map((a) => a.key))
     const view = trayView(input, projects)
     const key = JSON.stringify(view)
     const context = this.deps.showContext?.()

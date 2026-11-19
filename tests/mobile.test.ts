@@ -185,9 +185,12 @@ describe('paired mobile access', () => {
     Object.assign(snapshot, {
       organizations: [{ id: 'acme', name: 'Acme', createdAt: old }],
       employees: { acme: { head: 'h', employees: [{ id: 'pri', name: 'Priya' }] } },
-      projects: { acme: [{ id: 'p1', orgId: 'acme', slug: 'new-sidebar', title: 'New sidebar', requirement: '', repoId: 'repo-1', pmId: 'pri', phase: 'planning', plans: [], parts: {}, replans: 0, steps: [], artifacts: {}, waits: [{ id: 'w1', kind: 'questions', since: old }], decisions: [], notes: [], createdAt: old, updatedAt: old }] }
+      projects: { acme: [{ id: 'p1', orgId: 'acme', slug: 'new-sidebar', title: 'New sidebar', requirement: '', repoId: 'repo-1', pmId: 'pri', phase: 'planning', plans: [], parts: {}, replans: 0, steps: [], artifacts: {}, waits: [{ id: 'w1', kind: 'questions', since: old }], decisions: [], notes: [], createdAt: old, updatedAt: old, workspaceId: 'ws-p' }] }
     })
-    const withProjects = await (await fetch(base + '/api/state', { headers: { Cookie: auth } })).json() as { projects: unknown[] }
+    // The project's own workspace is its channel's: not a row beside it, so nothing is counted twice.
+    snapshot.workspaces.push({ id: 'ws-p', repoId: 'repo-1', name: 'Project work', branch: 'priya/new-sidebar', state: 'ready', status: 'in-progress', createdAt: old } as Workspace)
+    const withProjects = await (await fetch(base + '/api/state', { headers: { Cookie: auth } })).json() as { projects: unknown[]; workspaces: { id: string }[] }
+    expect(withProjects.workspaces.map((w) => w.id)).toEqual(['ws-1'])
     expect(withProjects.projects).toEqual([{ id: 'project:p1:w1', orgId: 'acme', projectId: 'p1', organization: 'Acme', channel: '#new-sidebar', text: 'Priya has questions for you', since: old, link: '/app?org=acme&channel=p1' }])
     const recent = await (await fetch(base + '/api/recent', { headers: { Cookie: auth } })).json() as { events: { name: string; text: string }[]; seenAt: string }
     expect(recent).toEqual({ seenAt: '2026-10-22T10:00:00Z', events: [expect.objectContaining({ name: 'Stalled work', text: 'CI failed · MR !9', count: 2 })] })

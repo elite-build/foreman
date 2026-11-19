@@ -141,7 +141,7 @@ function broadcast(event: MainEvent): void {
     for (const browser of workspaceBrowsers.values()) browser.retain(live)
   }
   const route: WindowRoute = router ? router.toWindow(event) : { send: event }
-  if ('leave' in route) void core?.remote.view(null, route.leave.workspaceId ? { workspaceId: route.leave.workspaceId, sessionId: route.leave.sessionId } : undefined)
+  if ('leave' in route) void core?.remote.view(null, route.leave.workspaceId || route.leave.project ? route.leave : undefined)
   else if ('send' in route) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('foreman:event', route.send)
   for (const listener of eventListeners) {
     try {
@@ -157,7 +157,7 @@ function broadcast(event: MainEvent): void {
 function sendToWindow(event: MainEvent): void {
   const win = showWindow()
   const route: WindowRoute = router ? router.toWindow(event) : { send: event }
-  if ('leave' in route) return void core?.remote.view(null, route.leave.workspaceId ? { workspaceId: route.leave.workspaceId, sessionId: route.leave.sessionId } : undefined)
+  if ('leave' in route) return void core?.remote.view(null, route.leave.workspaceId || route.leave.project ? route.leave : undefined)
   if (!('send' in route)) return
   const send = () => win.webContents.send('foreman:event', route.send)
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)

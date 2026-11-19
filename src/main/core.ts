@@ -3153,6 +3153,7 @@ export class Core {
       const words = projectAttentionWords(item, t, name)
       return {
         id: item.id,
+        key: item.key,
         orgId: item.orgId,
         projectId: item.project.id,
         channel: words.channel,
@@ -3171,7 +3172,7 @@ export class Core {
     this.host.broadcast({ type: 'notify', workspaceId: '', sessionId: '', title: alert.channel, body: alert.text, kind: 'attention', project: { orgId: alert.orgId, id: alert.projectId } })
     if (!this.slack.hasRules()) return
     void this.slack
-      .projectEvent({ repoId: alert.repoId, ...(alert.workspaceId ? { workspaceId: alert.workspaceId } : {}), channel: alert.channel, who: alert.who ?? alert.channel, reason: alert.text, key: alert.id })
+      .projectEvent({ repoId: alert.repoId, ...(alert.workspaceId ? { workspaceId: alert.workspaceId } : {}), channel: alert.channel, who: alert.who ?? alert.channel, reason: alert.text, key: alert.key })
       .catch(() => undefined)
   }
 

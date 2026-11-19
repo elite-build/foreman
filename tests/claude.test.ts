@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claudeDriver, EXIT_GRACE_MS } from '../src/main/agents/claude'
 import type { TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 import { mkdir, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { tempDir } from './helpers'
 
@@ -643,7 +644,9 @@ describe('a turn capped below Never ask (docs/agent-access.md §3)', () => {
 
 describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
   const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
-  const employee: TurnRequest = { ...request, approvals: 'never-ask', employee: true }
+  // No user settings unless a test writes some: the person's real ~/.claude never reaches these tests.
+  const noUserSettings = path.join(os.tmpdir(), 'foreman-test-no-claude-config')
+  const employee: TurnRequest = { ...request, env: { CLAUDE_CONFIG_DIR: noUserSettings }, approvals: 'never-ask', employee: true }
 
   it('never asks and has no hook refusing agent or git configuration, but leaves out the person’s own setup', async () => {
     const claude = fakeClaude()
@@ -658,9 +661,11 @@ describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
     await run
   })
 
-  it('hands over the repository’s .mcp.json servers, less Slack, Linear and what its settings or the integrations switch off', async () => {
+  it('hands over the repository’s approved .mcp.json servers, less Slack, Linear and what is rejected or switched off', async () => {
     const dir = await tempDir()
+    const root = await tempDir()
     await mkdir(path.join(dir, '.claude'))
+    await mkdir(path.join(root, '.claude'))
     await writeFile(
       path.join(dir, '.mcp.json'),
       JSON.stringify({
@@ -670,14 +675,19 @@ describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
           slack: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-slack'] },
           tracker: { type: 'http', url: 'https://mcp.linear.app/sse' },
           quiet: { command: 'quiet-mcp' },
+          rejected: { command: 'rejected-mcp' },
+          pending: { command: 'pending-mcp' },
           gh: { command: 'github-mcp-server' },
           broken: { args: ['no command'] }
         }
       })
     )
+    // The committed settings approve some; the person's own approvals and rejections are in the repository's folder.
+    await writeFile(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ enabledMcpjsonServers: ['docs', 'slack', 'tracker', 'gh', 'broken'] }))
     await writeFile(path.join(dir, '.claude', 'settings.local.json'), JSON.stringify({ disabledMcpjsonServers: ['quiet'] }))
+    await writeFile(path.join(root, '.claude', 'settings.local.json'), JSON.stringify({ enabledMcpjsonServers: ['api', 'quiet', 'rejected'], disabledMcpjsonServers: ['rejected'] }))
     const claude = fakeClaude()
-    const turn: TurnRequest = { ...employee, cwd: dir, env: { DOCS_TOKEN: 't1', REGION: 'eu' }, disabledMcp: ['gh'], mcpServers: { 'foreman-slack': { command: 'foreman', args: ['mcp-bridge', 'slack'], env: {} } } }
+    const turn: TurnRequest = { ...employee, cwd: dir, repoRoot: root, env: { ...employee.env, DOCS_TOKEN: 't1', REGION: 'eu' }, disabledMcp: ['gh'], mcpServers: { 'foreman-slack': { command: 'foreman', args: ['mcp-bridge', 'slack'], env: {} } } }
     const run = claudeDriver.createTurn(turn, callbacks()).run()
     const servers = sdk.query.mock.calls[0][0].options.mcpServers
     expect(servers.docs).toEqual({ type: 'stdio', command: 'node', args: ['tools/docs.js'], env: { TOKEN: 't1' } })
@@ -686,12 +696,73 @@ describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
     expect(servers.slack).toBeUndefined()
     expect(servers.tracker).toBeUndefined()
     expect(servers['foreman-slack']).toMatchObject({ command: 'foreman' })
-    expect(servers.quiet).toBeUndefined()
-    expect(servers.gh).toBeUndefined()
-    expect(servers.broken).toBeUndefined()
+    // Rejected here or in the repository's folder, never approved, switched off by the integrations, or not startable.
+    for (const name of ['quiet', 'rejected', 'pending', 'gh', 'broken']) expect(servers[name]).toBeUndefined()
     expect(servers.foreman).toBeDefined()
     claude.push(result)
     await run
+  })
+
+  it('expands .mcp.json variables from the turn’s own environment only, and says which aren’t set', async () => {
+    const dir = await tempDir()
+    await writeFile(path.join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { docs: { command: 'docs-mcp', env: { TOKEN: '${FOREMAN_TEST_SECRET}', HOME_DIR: '${MISSING_TOO}' } } } }))
+    await mkdir(path.join(dir, '.claude'))
+    await writeFile(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ enableAllProjectMcpServers: true }))
+    process.env.FOREMAN_TEST_SECRET = 'from-the-app'
+    try {
+      const claude = fakeClaude()
+      const cb = callbacks()
+      const run = claudeDriver.createTurn({ ...employee, cwd: dir }, cb).run()
+      expect(sdk.query.mock.calls[0][0].options.mcpServers.docs).toEqual({ type: 'stdio', command: 'docs-mcp', args: [], env: { TOKEN: '', HOME_DIR: '' } })
+      claude.push(result)
+      await run
+      const notice = cb.item.mock.calls.map(([item]) => item).find((item) => item.kind === 'notice')
+      expect(notice.text).toBe('The repository’s MCP servers use FOREMAN_TEST_SECRET, MISSING_TOO, which this run’s environment doesn’t set, so they start with it empty.')
+    } finally {
+      delete process.env.FOREMAN_TEST_SECRET
+    }
+  })
+
+  it('keeps what signs Claude Code in and the person’s own limits from their user settings, and leaves the rest out', async () => {
+    const config = await tempDir()
+    await writeFile(
+      path.join(config, 'settings.json'),
+      JSON.stringify({
+        env: { CLAUDE_CODE_USE_BEDROCK: '1', AWS_PROFILE: 'work', ANTHROPIC_BASE_URL: 'https://gateway.example.com', SHARED: 'user' },
+        apiKeyHelper: '~/bin/key.sh',
+        awsAuthRefresh: 'aws sso login',
+        forceLoginMethod: 'console',
+        permissions: { deny: ['Bash(rm -rf:*)'], ask: ['Bash(git push:*)'], allow: ['Bash(*)'] },
+        sandbox: { enabled: true },
+        hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'gate' }] }] },
+        enabledPlugins: { 'gate@market': true },
+        mcpServers: { mine: { command: 'mine' } },
+        model: 'claude-haiku-5-5'
+      })
+    )
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...employee, env: { CLAUDE_CONFIG_DIR: config, SHARED: 'turn' }, capped: { ceiling: 'auto' } }, callbacks()).run()
+    const options = sdk.query.mock.calls[0][0].options
+    // Its env goes under the turn's own, which wins; the model is worded for Bedrock, as the person's chats are.
+    expect(options.env).toMatchObject({ CLAUDE_CODE_USE_BEDROCK: '1', AWS_PROFILE: 'work', ANTHROPIC_BASE_URL: 'https://gateway.example.com', SHARED: 'turn' })
+    expect(options.model).toBe('opus')
+    expect(options.settings).toEqual({
+      apiKeyHelper: '~/bin/key.sh',
+      awsAuthRefresh: 'aws sso login',
+      forceLoginMethod: 'console',
+      sandbox: { enabled: true },
+      permissions: { deny: ['Bash(rm -rf:*)'], ask: ['Bash(git push:*)', 'Bash(foreman:*)'] }
+    })
+    expect(options.settingSources).toEqual(['project', 'local'])
+    claude.push(result)
+    await run
+    // Another turn reads none of it.
+    const other = fakeClaude()
+    const plain = claudeDriver.createTurn({ ...request, env: { CLAUDE_CONFIG_DIR: config } }, callbacks()).run()
+    expect(sdk.query.mock.calls[1][0].options.env.AWS_PROFILE).toBeUndefined()
+    expect(sdk.query.mock.calls[1][0].options.settings).toBeUndefined()
+    other.push(result)
+    await plain
   })
 
   it('keeps the calls refused in the turn on its result: its own hooks’ denies and the result’s denials, each once', async () => {

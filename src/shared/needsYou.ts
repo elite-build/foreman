@@ -143,6 +143,9 @@ export function inChannel(item: NeedsYouItem, projectTasks: ReadonlySet<string>)
  */
 export interface ProjectAttention {
   id: string
+  // What makes it a new thing to tell the person: its id, and for a task the question it asks (a second question on the
+  // same task is new) or, with none, when it last changed.
+  key: string
   kind: 'wait' | 'question' | 'task' | 'action'
   orgId: string
   project: Project
@@ -167,7 +170,8 @@ export function projectAttention(snapshot: Pick<AppSnapshot, 'projects' | 'emplo
       if (project.phase === 'closed') continue
       for (const wait of project.waits) {
         const pm = wait.kind === 'questions' || wait.kind === 'plan' || (wait.kind === 'stuck' && !wait.partId)
-        out.push({ id: `project:${project.id}:${wait.id}`, kind: 'wait', orgId, project, since: wait.since, wait, ...(pm ? { employeeId: project.pmId } : {}) })
+        const id = `project:${project.id}:${wait.id}`
+        out.push({ id, key: id, kind: 'wait', orgId, project, since: wait.since, wait, ...(pm ? { employeeId: project.pmId } : {}) })
       }
     }
   }
@@ -175,12 +179,12 @@ export function projectAttention(snapshot: Pick<AppSnapshot, 'projects' | 'emplo
     for (const task of work.tasks) {
       const project = ofTask.get(task.id)
       if (!project || !needsPerson(task)) continue
-      out.push({ id: `task:${task.id}`, kind: task.question ? 'question' : 'task', orgId, project, since: task.question?.askedAt ?? task.updatedAt, task, employeeId: task.employeeId })
+      out.push({ id: `task:${task.id}`, key: `task:${task.id}:${task.question?.id ?? task.updatedAt}`, kind: task.question ? 'question' : 'task', orgId, project, since: task.question?.askedAt ?? task.updatedAt, task, employeeId: task.employeeId })
     }
     for (const action of work.actions ?? []) {
       const project = ofTask.get(action.taskId)
       if (!project || !ACTION_NEEDS_PERSON.includes(action.state)) continue
-      out.push({ id: `action:${action.id}`, kind: 'action', orgId, project, since: action.createdAt, action, employeeId: action.employeeId })
+      out.push({ id: `action:${action.id}`, key: `action:${action.id}`, kind: 'action', orgId, project, since: action.createdAt, action, employeeId: action.employeeId })
     }
   }
   return out.sort((a, b) => a.since.localeCompare(b.since))

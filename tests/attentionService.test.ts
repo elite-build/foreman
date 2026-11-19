@@ -139,7 +139,7 @@ describe('AttentionService', () => {
 
   it('counts what projects wait on and tells each new one once, never those there at the first look', async () => {
     const file = path.join(await tempDir('foreman-attention-'), 'foreman.db')
-    const alert = (id: string): ProjectAlert => ({ id, orgId: 'acme', projectId: 'p1', channel: '#new-sidebar', text: id, since: '2026-10-22T13:00:00Z', repoId: 'r' })
+    const alert = (id: string, key = id): ProjectAlert => ({ id, key, orgId: 'acme', projectId: 'p1', channel: '#new-sidebar', text: id, since: '2026-10-22T13:00:00Z', repoId: 'r' })
     let alerts = [alert('project:p1:w1')]
     const show = vi.fn()
     const told = vi.fn()
@@ -160,6 +160,10 @@ describe('AttentionService', () => {
     alerts = [alert('project:p1:w1'), alert('task:t1')]
     service.observe()
     expect(told).toHaveBeenCalledTimes(2)
+    // The same task asks again between two looks: a new question is a new thing to tell.
+    alerts = [alert('project:p1:w1'), alert('task:t1', 'task:t1:q2')]
+    service.observe()
+    expect(told).toHaveBeenCalledTimes(3)
     expect(service.view().attention.map((r) => r.channel)).toEqual([{ orgId: 'acme', projectId: 'p1' }, { orgId: 'acme', projectId: 'p1' }])
   })
 

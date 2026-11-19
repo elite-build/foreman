@@ -188,6 +188,9 @@ describe('what projects wait on the person for, everywhere but the window (docs/
       ['task:date', 'question', 'sidebar', 'ada'],
       ['project:sidebar:w2', 'wait', 'sidebar', undefined]
     ])
+    // A task's question is part of what makes it new: a second question on the same task is told again.
+    expect(items.find((i) => i.kind === 'question')?.key).toBe('task:date:q')
+    expect(items.find((i) => i.kind === 'wait')?.key).toBe('project:sidebar:w1')
     // A task or action that isn't a project's is the Inbox's, not here.
     expect(projectAttention({ ...snapshot(), projects: {} })).toEqual([])
   })

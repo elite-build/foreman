@@ -190,7 +190,7 @@ describe('the New employee page', () => {
     expect(screen.getByText('Reads only the repositories it writes to.')).toBeTruthy()
     expect(screen.getByText('Writes to foreman-website, foreman, in its own branch.')).toBeTruthy()
     expect(screen.getByText('Has a shell: its shell and tools act with no hold.')).toBeTruthy()
-    expect(screen.getByText('Has the repository’s MCP servers and Foreman’s, not your own.')).toBeTruthy()
+    expect(screen.getByText('On Claude Code, has the repository’s MCP servers and Foreman’s, not your own.')).toBeTruthy()
     expect(screen.getByText(/^Sends without waiting for you: .*push/i)).toBeTruthy()
     expect(screen.getByText('Runs only when asked.')).toBeTruthy()
     expect(screen.queryByText(/runs a day|minutes a run/)).toBeNull()
@@ -547,7 +547,7 @@ describe('the approval plan: a draft’s page', () => {
       'Read foreman',
       'Change foreman-website, in its own branch',
       'Keep its own notes in foreman-memory',
-      'Use the repository’s MCP servers and Foreman’s, not yours Nothing it does with them waits for you.',
+      'Use the repository’s MCP servers and Foreman’s (on Codex, your own Codex servers too) Nothing it does with them waits for you.',
       'Hand work to Ada',
       'Push its branches without asking you'
     ])
