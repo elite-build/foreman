@@ -842,8 +842,9 @@ export const en = {
   'commands.menu.allRepos': 'All repos',
   'commands.menu.empty': 'No saved commands for this repo yet.',
   'commands.menu.edit': 'Edit commands…',
-  // {key} is the command palette shortcut, e.g. ⌘K.
-  'commands.menu.footer': 'Also in {key} · each opens a new tab',
+  'commands.menu.heading': 'Run a command',
+  // After a saved command in the + menu: {count} is how many variables it sets before it runs (set "PORT=1" && …).
+  'commands.menu.env': '+{count} env',
   // A command palette entry; {name} is the saved command's name.
   'commands.palette.run': 'Run command: {name}',
   'commands.palette.group': 'Commands',
@@ -871,7 +872,8 @@ export const en = {
   'terminal.shell.name.custom': 'Custom shell',
   // The first line of a tab whose shell is missing. {wanted} and {used} are shell names.
   'terminal.shell.fellBack': '{wanted} wasn’t found, so this tab uses {used} (Automatic). Change it in Settings → General → Terminal.',
-  'terminal.shell.newMenu': 'New terminal in another shell',
+  'terminal.shell.openIn': 'Open a terminal in',
+  'terminal.shell.defaultTag': 'default',
   'terminal.shell.default': '(default)',
   'terminal.shell.looking': 'Looking for shells…',
   'settings.general.section.terminal': 'Terminal',
@@ -5376,7 +5378,7 @@ export const en = {
   'bottomPanel.suggestRunScriptTitle': 'Puts the “set up this repository” prompt in the chat. Nothing is sent until you send it.',
   'bottomPanel.openTerminal': 'Open a terminal',
   'bottomPanel.tabs': 'Scripts and terminals',
-  'bottomPanel.newMenu': 'New terminal or saved command',
+  'bottomPanel.newMore': 'More ways to open a tab',
   'bottomPanel.launch.heading': 'Start something in this workspace',
   'bottomPanel.launch.runBody': 'Starts a dev server on this workspace’s own ports.',
   'bottomPanel.launch.terminalBody': 'A shell in this workspace’s folder.',

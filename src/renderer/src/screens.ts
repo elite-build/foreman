@@ -175,17 +175,26 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   terminal: async (f) => {
     openWorkspace(f)
     showBottomPanel(true)
-    // No terminal is open until one is asked for: + → New terminal (the menu's first item).
-    const plus = await waitFor(element('.bottom-head .new-menu button'))
+    // No terminal is open until one is asked for: + opens one in the default shell.
+    const plus = await waitFor(element('.bottom-head .new-menu > .ui-btn'))
     if (!plus) return null
     plus.click()
-    const item = await waitFor(element('.bottom-menu [role="menuitem"]'))
-    if (!item) return null
-    item.click()
     const screen = await waitFor(element('.terminal .xterm-screen'))
     // The shell's prompt.
     if (screen) await sleep(1500)
     return '.terminal .xterm-screen'
+  },
+  // The arrow beside +, open: the shells found (Windows), the default marked, then the saved commands.
+  'terminal-new-menu': async (f) => {
+    const shown = await SCREENS.terminal(f)
+    if (!shown) return null
+    const arrow = await waitFor(element('.bottom-head .new-menu .ui-split__menu > .ui-btn'))
+    if (!arrow) return null
+    arrow.click()
+    const item = await waitFor(element('.ui-menu [role="menuitem"]'))
+    // The shells are looked up as it opens.
+    if (item) await sleep(800)
+    return '.ui-menu'
   },
   // The terminal in the workspace's middle (⌘⇧J), the chat in the side panel's Chat tab (O3).
   'terminal-full': async (f) => {

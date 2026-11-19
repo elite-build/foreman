@@ -75,8 +75,7 @@ const twoScripts = () =>
     { name: 'docs', command: 'npm run docs' }
   ])
 async function newTerminal(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', { name: 'New terminal or saved command' }))
-  await user.click(screen.getByRole('menuitem', { name: 'New terminal' }))
+  await user.click(screen.getByRole('button', { name: 'New terminal' }))
 }
 
 describe('the tabs', () => {
@@ -256,7 +255,7 @@ describe('saved commands', () => {
     fakeState.snapshot.settings.savedCommands = [{ id: 'c1', name: 'Lint', command: 'npm run lint', scope: 'all' }]
     fakeApi.savedCommandConsent = vi.fn(async () => null)
     render(<BottomPanel workspace={workspace} visible />)
-    await user.click(screen.getByRole('button', { name: 'New terminal or saved command' }))
+    await user.click(screen.getByRole('button', { name: 'More ways to open a tab' }))
     await user.click(screen.getByRole('menuitem', { name: /Lint/ }))
     expect(names(terms())).toEqual(['Lint'])
     expect(terms()[0].getAttribute('aria-selected')).toBe('true')
