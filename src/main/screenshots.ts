@@ -409,10 +409,6 @@ function flowChecks(): Workspace['checks'] {
  * repositories, three AI employees and two of their runs' workspaces, written into `dataDir` before the app loads it.
  * `overrides` changes the fixture's settings (the demo, main/demo.ts); the screenshot run takes them as they are.
  */
-/**
- * A demo kept from before the organization came into the fixture (main/demo.ts): adds Acme, as the demo has it, when it
- * isn't there, beside whatever the person made in the demo (their own organizations and employees stay). True when it did.
- */
 /** `demo`: the dev demo's fuller organizations too (demoOrganization.ts, demoLumen.ts); the screenshot run leaves them out. */
 export async function seedScreens(root: string, dataDir: string, overrides: Partial<Settings> = {}, { demo = false }: { demo?: boolean } = {}): Promise<ScreensFixture> {
   seededAt = Date.now()

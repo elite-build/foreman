@@ -453,21 +453,28 @@ export function startDemoDirector(core: Core, store: Store): () => void {
   const opened = Date.now()
   const seen = new Map<string, number>()
   const busy = new Set<string>()
+  // What it tried and couldn't do: said once, never tried again.
+  const failed = new Set<string>()
   const projectFor = (story: Story) => db.projects(story.orgId).find((p) => p.requirement === story.requirement)
+  // A demo kept from an earlier version of the demo data may not have the story's organization or repository.
+  const playable = (story: Story) => store.state.organizations?.some((o) => o.id === story.orgId) && store.state.repos.some((r) => r.id === story.repoId)
 
   const act = (key: string, fn: () => Promise<unknown>) => {
-    if (busy.has(key)) return
+    if (busy.has(key) || failed.has(key)) return
     const first = seen.get(key) ?? Date.now()
     seen.set(key, first)
     if (Date.now() - first < DIRECTOR_PAUSE_MS) return
     busy.add(key)
     fn()
-      .catch((err: unknown) => console.error(`[demo] The director couldn’t ${key}: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err: unknown) => {
+        failed.add(key)
+        console.error(`[demo] The director couldn’t ${key}: ${err instanceof Error ? err.message : String(err)}`)
+      })
       .finally(() => busy.delete(key))
   }
 
   const tick = () => {
-    for (const story of STORIES) {
+    for (const story of STORIES.filter(playable)) {
       const project = projectFor(story)
       if (!project) {
         if (Date.now() - opened >= story.at * 1000) act(`start ${story.requirement}`, () => core.projects.start(story.orgId, { requirement: story.requirement, repoId: story.repoId }))
