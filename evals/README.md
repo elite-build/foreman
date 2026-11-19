@@ -68,6 +68,10 @@ To add one: write it from a real failure and cite the source; run it on the **ol
 output or two for its `check` to `tests/evals.test.ts` (that file runs without a model); then record the baseline.
 `npm test` also checks the list itself (a source, a commit or a reason for each case, unique ids).
 
+A case can be written before the text it tests is built, to try a design's wording on a model first
+(`plan-round-open-steps`, for `docs/project-planning.md`). Its `after` is then the draft, written in the case file with a
+comment naming the module it will come from; the change that builds the text replaces it with that import.
+
 ## What this does not do
 
 A pass rate over a few runs is a signal, not a proof. Models change, so a baseline is tied to the model and date in the file.
