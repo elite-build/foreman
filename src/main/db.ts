@@ -370,6 +370,8 @@ export interface MemoryMutationDetail {
   // Why it was refused or conflicted ('discarded', 'foreign', 'interrupted', the conflicting path…).
   reason?: string
   conflictPath?: string
+  // Every file whose expected version no longer matched (a run's other files were staged again).
+  conflictPaths?: string[]
   // For the commit: the author (absent: git's configured user), the subject and the trailers.
   author?: { name: string; email: string }
   subject?: string

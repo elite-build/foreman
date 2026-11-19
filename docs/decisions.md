@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-19: A plan that changes code ends with the person's check; QA passes or fails
+
+**Decision.** A project plan with any part that changes the repository ends with the person's final check, even when small (a small one goes to it straight from its last part, without Priya's acceptance). A part marked `checks` (QA, a review) finishes with decision pass or fail; a fail is a replan with its findings, and with none left the project goes to the final check with the fail shown.
+
+**Why.** "Small" was Priya's word: a small plan closed done the moment its last part did, so a build with a failing QA report, its pull request already open, closed as done without anyone reading it.
+
+**Turned down.** Deciding the size for her (the size is a judgement); always running her acceptance (one more run for a small change, and the person checks last anyway); reading pass or fail from QA's prose (Foreman doesn't branch on an agent's words).
+
+**Revisit when.** Foreman runs a project's own checks between parts.
+
 ## 2026-11-19: In a project, parts that change the repository take turns, and only its publisher publishes
 
 **Decision.** A project's parts that change the repository run one at a time in its workspace; parts that only read it run beside them. Only the part the plan names as publisher pushes or opens the pull request: Foreman refuses it to every other run of the project (its tools, and a Claude Code shell's `git push` or `gh pr create`), and records what the publisher publishes from its shell. "Hand to Priya…" branches the project's own workspace from the person's, which it never works in or archives.

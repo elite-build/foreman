@@ -253,6 +253,20 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     await write.core.shutdown()
   })
 
+  it('reads without a shell, once it is turned off, refusing read-only commands too', async () => {
+    const read = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'read' }, profile: 'no-shell' } }))
+    const a = agent(read.store)
+    await read.core.api.askEmployee(read.org.id, 'e-max1', { body: 'Review the README' })
+    await vi.waitFor(() => expect(a.requests).toHaveLength(1), WAIT)
+    expect(a.requests[0]).toMatchObject({ readOnly: true, planMode: true, noShell: true })
+    expect(a.requests[0].writeScope).toBeUndefined()
+    expect(a.requests[0].systemPromptAppend).toContain('You have no shell: every shell command is refused, including read-only commands.')
+    expect(a.requests[0].systemPromptAppend).not.toContain('read-only commands your agent offers')
+    a.release()
+    await quiet(read.core, read.store, read.org.id)
+    await read.core.shutdown()
+  })
+
   it('with a shell, its default, has no write scope and may push itself; Run now asks for the standing responsibilities', async () => {
     const shell = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'write' } } }))
     const b = agent(shell.store)
@@ -446,6 +460,20 @@ describe('an AI employee’s own tools, through its turn’s grant', { timeout: 
     await vi.waitFor(async () => expect((await core.api.listEmployeeTasks(org.id))[0].state).toBe('closed'), WAIT)
     expect((await core.api.listEmployeeTasks(org.id))[0]).toMatchObject({ closureReason: 'blocked', resultSummary: 'Drafted the launch post.\nIt reads well.', result: { status: 'partial', synthetic: true } })
     await quiet(core, store, org.id)
+    await core.shutdown()
+  })
+})
+
+describe('a repository joining an organization, through the app (docs/ai-employees.md §15)', { timeout: TURNS_BUDGET }, () => {
+  it('gives its program manager the repository moved into it, and she stays approved', async () => {
+    const { core, store, org } = await setup()
+    const pmId = store.state.organizations!.find((o) => o.id === org.id)!.programManagerId!
+    expect(pmId).toBeTruthy()
+    const moved = await core.api.addRepo(await makeRepo({ 'README.md': '# Reports\n' }))
+    await core.api.moveRepoToSpace(moved.id, org.id)
+    const priya = (await core.api.listEmployees(org.id)).employees.find((e) => e.id === pmId)!
+    expect(priya.definition!.access.repos[moved.name]).toBe(priya.definition!.attendance === 'unattended' ? 'write' : 'read')
+    expect(priya).toMatchObject({ state: 'active', changed: false })
     await core.shutdown()
   })
 })

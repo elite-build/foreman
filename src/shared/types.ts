@@ -2754,9 +2754,13 @@ export interface Api {
   memoryStatus(organizationId: string): Promise<import('./memory').MemoryStatus>
   // The files under memory/, bots/ and repos/ at the head.
   memoryTree(organizationId: string): Promise<import('./memory').MemoryTree>
-  memoryReadFile(organizationId: string, path: string): Promise<import('./memory').MemoryFile>
+  // The file at the head; at `commit` (a full or abbreviated sha), as it was there (a version an artifact names).
+  memoryReadFile(organizationId: string, path: string, commit?: string): Promise<import('./memory').MemoryFile>
   // Opens the file from the memory repository's folder on this computer as openFile does: a page (a mock) in the browser.
   memoryOpenFile(organizationId: string, path: string): Promise<void>
+  // Opens the file as it was at `commit` the same way: written to a temporary folder per organization and commit, with
+  // the other pages of its folder at that commit beside it, so a gate's mocks open at the version it shows.
+  openMemoryAt(organizationId: string, path: string, commit: string): Promise<void>
   // The commits that touched the file, newest first, with their trailers.
   memoryFileHistory(organizationId: string, path: string): Promise<import('./memory').MemoryCommit[]>
   // At most 10 files, best first, from the search index (a cache in foreman.db).
@@ -3377,7 +3381,7 @@ export interface Bridge {
 export const API_METHODS = [
   'getSnapshot', 'pickDirectory', 'pickFiles', 'pickPath', 'addRepo', 'cloneRepo', 'githubRepos', 'quickStartRepo', 'makeRepo', 'forgetRecentRepo', 'classifyFolders', 'takeLaunchFolders', 'updateRepo', 'removeRepo',
   'createOrganization', 'renameOrganization', 'setOrganizationIcon', 'deleteOrganization', 'moveRepoToSpace', 'setOrganizationMemory', 'linkOrganizationMemory', 'unlinkOrganizationMemory', 'pushOrganizationMemory',
-  'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryOpenFile', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
+  'memoryStatus', 'memoryTree', 'memoryReadFile', 'memoryOpenFile', 'openMemoryAt', 'memoryFileHistory', 'memorySearch', 'memoryWriteFile', 'memoryAcceptForeign',
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'addTemplateEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
   'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',

@@ -1,7 +1,8 @@
 // An AI employee's own tools (docs/ai-employees.md §4, §6): the per-employee write rules (its own folder; granted shared
 // folders; proposal-only organization files; another employee's folder and anything else refused; a read-only run's
 // writes all proposals), the words a result is framed in, and the tool service against stand-ins for the work and memory
-// services: a definition changed since approval takes no writes, and closing tools go to the work service.
+// services: a definition changed since approval keeps the writes the run was admitted with, a retired one takes none, and
+// closing tools go to the work service.
 import { describe, expect, it, vi } from 'vitest'
 import { EmployeeTools, type EmployeeToolsHost } from '../src/main/employeeTools'
 import type { EmployeeBrief, EmployeeToolRun } from '../src/main/employeeWork'
@@ -138,14 +139,21 @@ describe('employee tools: the service', () => {
     expect(r.stage).not.toHaveBeenCalled()
   })
 
-  it('takes no writes once its definition changed since approval, or it was retired (a new revision reaches running work)', async () => {
-    for (const summary of [{ changed: true }, { state: 'retired' as const }]) {
-      const r = rig(summary)
-      expect(await r.tools.call('s', 'memory_append', { path: 'memory/bots/e-max1/notes.md', text: 'x' })).toMatchObject({ isError: true, text: expect.stringContaining('definition changed') })
-      expect(r.stage).not.toHaveBeenCalled()
-      // Reads still work.
-      expect((await r.tools.call('s', 'memory_read', { path: 'memory/bots/e-max1/notes.md' })).isError).toBeUndefined()
-    }
+  it('keeps writing what it was admitted to write when its definition changed meanwhile; takes no writes once it was retired', async () => {
+    // An edit not approved yet reaches no running work: the run writes its own folder, its task's file and the scopes it
+    // was admitted with, neither widened nor narrowed by the edit, so its part isn't lost to it.
+    const changed = rig({ changed: true }, { scopes: ['org/docs', 'org/data'], readOnly: false, files: ['memory/org/projects/csv/build.md'] })
+    expect(await changed.tools.call('s', 'memory_append', { path: 'memory/bots/e-max1/notes.md', text: 'x' })).toMatchObject({ text: expect.stringMatching(/^Added to/) })
+    expect(await changed.tools.call('s', 'memory_write', { path: 'memory/org/projects/csv/build.md', text: '# Build', expected: null })).toMatchObject({ text: expect.stringMatching(/^Wrote/) })
+    expect(await changed.tools.call('s', 'memory_write', { path: 'memory/org/data/x.json', text: '{}', expected: null })).toMatchObject({ text: expect.stringMatching(/^Wrote/) })
+    expect(changed.stage).toHaveBeenCalledTimes(3)
+    // A new version of its own definition waits for that one to be approved.
+    expect(await changed.tools.call('s', 'bot_propose', { kind: 'delegate', spec: { add: ['e-ada2'] }, reason: 'Ada reviews.' })).toMatchObject({ isError: true, text: expect.stringContaining('definition changed') })
+    const retired = rig({ state: 'retired' })
+    expect(await retired.tools.call('s', 'memory_append', { path: 'memory/bots/e-max1/notes.md', text: 'x' })).toMatchObject({ isError: true, text: expect.stringContaining('retired') })
+    expect(retired.stage).not.toHaveBeenCalled()
+    // Reads still work.
+    expect((await retired.tools.call('s', 'memory_read', { path: 'memory/bots/e-max1/notes.md' })).isError).toBeUndefined()
   })
 
   it('narrows the scopes it was admitted with to what its definition grants now', async () => {
@@ -162,5 +170,31 @@ describe('employee tools: the service', () => {
       throw new Error('This AI employee’s run has ended, so Foreman did nothing. End your turn.')
     }
     expect(await r.tools.call('s', 'memory_checkpoint', {})).toEqual({ text: 'This AI employee’s run has ended, so Foreman did nothing. End your turn.', isError: true })
+  })
+
+  it('reads a file at the commit a brief hands it over at, and says a write is checked against the current version', async () => {
+    const r = rig()
+    const read = r.host.memory.read as unknown as ReturnType<typeof vi.fn>
+    read.mockImplementationOnce(async (_o: string, p: string) => ({ path: p, head: 'c0ffee1234567890', blob: 'b0', size: 1, binary: false, tooLarge: false, text: 'as handed over' }))
+    const out = await r.tools.call('s', 'memory_read', { path: 'memory/org/docs/a.md', commit: 'c0ffee12' })
+    expect(read).toHaveBeenLastCalledWith('o1', 'memory/org/docs/a.md', { runId: 'run-1', commit: 'c0ffee12' })
+    expect(out.text).toContain('as handed over')
+    expect(out.text).toContain('version at c0ffee123456: b0. This is the file as it was at that commit, not necessarily now: to write it, memory_read it without commit')
+    // Without commit: the current version, to pass as expected.
+    expect((await r.tools.call('s', 'memory_read', { path: 'memory/org/docs/a.md' })).text).toContain('version: b1 (pass it as expected to memory_write)')
+    expect(read).toHaveBeenLastCalledWith('o1', 'memory/org/docs/a.md', { runId: 'run-1' })
+    // A commit is a sha; the memory service refuses one it doesn't have, and the model reads why.
+    expect(EMPLOYEE_TOOLS.memory_read.schema.safeParse({ path: 'memory/org/docs/a.md', commit: 'HEAD~1' }).success).toBe(false)
+    read.mockRejectedValueOnce(new Error('The memory repository has no commit deadbeef.'))
+    expect(await r.tools.call('s', 'memory_read', { path: 'memory/org/docs/a.md', commit: 'deadbeef' })).toEqual({ text: 'The memory repository has no commit deadbeef.', isError: true })
+  })
+
+  it('names every file that changed when a checkpoint can’t commit', async () => {
+    const r = rig()
+    ;(r.host.work.commitMemory as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ commit: null, conflict: { paths: ['memory/org/docs/a.md', 'memory/org/docs/b.md'] } })
+    expect(await r.tools.call('s', 'memory_checkpoint', {})).toEqual({
+      text: 'Not committed: memory/org/docs/a.md, memory/org/docs/b.md changed since you read them, so your changes to them were set aside; your other memory writes are still staged and go in with the next commit. Read each again (memory_read, no commit), write each again with that version as expected, then checkpoint again.',
+      isError: true
+    })
   })
 })

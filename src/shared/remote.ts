@@ -129,7 +129,7 @@ export const LOCAL_METHODS: ReadonlySet<Method> = new Set<Method>([
  */
 export const UNAVAILABLE_REMOTELY: ReadonlySet<Method> = new Set<Method>([
   'pickDirectory', 'pickFiles', 'pickPath', 'classifyFolders',
-  'openPath', 'openFile', 'memoryOpenFile', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openRepoSettingsFile',
+  'openPath', 'openFile', 'memoryOpenFile', 'openMemoryAt', 'openInEditor', 'openInApps', 'openInIcons', 'openIn', 'openRepoSettingsFile',
   'previewUrl', 'openPreview',
   'codexSignIn', 'codexSignInCancel',
   'exportWorkspace', 'stageImport', 'importStaged', 'discardImport'

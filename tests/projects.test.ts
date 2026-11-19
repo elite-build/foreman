@@ -18,7 +18,13 @@ import {
   approvalUndo,
   cutText,
   decisionsText,
+  endsWithFinalCheck,
   gateNoteTo,
+  handoverTranscript,
+  planStateText,
+  proposedAccess,
+  rosterCan,
+  unpassedChecks,
   MAX_ANSWER,
   MAX_STEP_SUMMARY,
   publishedTasks,
@@ -842,5 +848,160 @@ describe('projects: who changes the repository, one at a time, and who publishes
     expect(projectTaskRetryable({ id: 't-build', project: { kind: 'part' } }, undefined)).toBe(false)
     expect(projectTaskRetryable({ id: 't-f', project: { kind: 'follow-up' } }, undefined)).toBe(true)
     expect(projectTaskRetryable({ id: 't-plain' }, undefined)).toBe(true)
+  })
+})
+describe('projects: plans, replans and what they keep (slice 4)', () => {
+  const W: PlanContext = { ...CTX, employees: [...CTX.employees, { id: 'e-nia1', name: 'Nia', state: 'active' }, { id: 'e-qui1', name: 'Quinn', state: 'active' }], writers: ['e-rav1'], repo: 'site' }
+  // Design (gated), Build after it (publishes), QA reading the build (a check).
+  const DESIGNED: PlanInput = {
+    summary: 'A sidebar, designed and built.',
+    size: 'small',
+    parts: [
+      { id: 'design', title: 'Design', owner: 'Ravi', brief: 'Draw it.', writes: 'design.md', gate_after: true, changes_repo: false },
+      { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build it.', writes: 'build.md', depends_on: ['design'], publishes: true },
+      { id: 'qa', title: 'QA', owner: 'Quinn', brief: 'Test it.', writes: 'qa.md', reads: ['build'], changes_repo: false, checks: true }
+    ]
+  }
+  const plan = (input: PlanInput, ctx: PlanContext = W): ProjectPlan => {
+    const out = checkPlan(input, ctx)
+    if (!out.ok) throw new Error(out.problems.join('\n'))
+    return { version: 1, summary: out.summary, size: out.size, parts: out.parts, proposed: out.proposed, proposedIds: {}, taskId: 't', at: NOW, status: 'approved' }
+  }
+
+  it('makes a part wait for every part it reads, so a builder that only reads the design starts after its gate (#27)', () => {
+    const p = plan({ ...DESIGNED, parts: [DESIGNED.parts[0], { ...DESIGNED.parts[1], depends_on: undefined, reads: ['design'] }, DESIGNED.parts[2]] })
+    expect(p.parts.find((x) => x.id === 'build')?.dependsOn).toEqual(['design'])
+    expect(readyParts(p, {}).map((x) => x.id)).toEqual(['design'])
+    expect(readyParts(p, { design: { state: 'gate', round: 1 } }).map((x) => x.id)).toEqual([])
+    // A plan kept from before reads meant waiting: reads hold the part too.
+    const old = { parts: p.parts.map((x) => (x.id === 'build' ? { ...x, dependsOn: [] } : x)) }
+    expect(readyParts(old, {}).map((x) => x.id)).toEqual(['design'])
+  })
+
+  it('holds a replan that hands a part to someone new, stops waiting for a gate, or changes what started (#15)', () => {
+    const current = plan(DESIGNED)
+    const states = { design: { state: 'running' as const, round: 1 }, build: { state: 'stuck' as const, round: 1 }, qa: { state: 'pending' as const, round: 0 } }
+    const next = (parts: PlanInput['parts']) => plan({ ...DESIGNED, parts }, { ...W, current, parts: states })
+    // A19: pending QA to Nia, never an owner here: waits. To Ravi, already one: goes ahead.
+    expect(replanGoesAhead(current, next(DESIGNED.parts.map((x) => (x.id === 'qa' ? { ...x, owner: 'Nia' } : x))), states)).toBe(false)
+    expect(replanGoesAhead(current, next(DESIGNED.parts.map((x) => (x.id === 'qa' ? { ...x, owner: 'Ravi' } : x))), states)).toBe(true)
+    // A20: Build no longer waits for the gated design: waits.
+    expect(replanGoesAhead(current, next(DESIGNED.parts.map((x) => (x.id === 'build' ? { ...x, depends_on: [] } : x))), states)).toBe(false)
+    // A21: a started part's brief changed waits; its file changed is refused.
+    expect(replanGoesAhead(current, next(DESIGNED.parts.map((x) => (x.id === 'design' ? { ...x, brief: 'Draw something else.' } : x))), states)).toBe(false)
+    const moved = checkPlan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'design' ? { ...x, writes: 'design-2.md' } : x)) }, { ...W, current, parts: states })
+    expect(moved.ok ? [] : moved.problems).toContainEqual(expect.stringContaining('Part “design” has started: it keeps writing design.md'))
+    // A pending part's brief may change, every check kept: goes ahead.
+    expect(replanGoesAhead(current, next(DESIGNED.parts.map((x) => (x.id === 'qa' ? { ...x, brief: 'Test it on a narrow window too.' } : x))), states)).toBe(true)
+  })
+
+  it('holds a replan that drops a check or takes one as it is, and says at the end which checks didn’t pass (#2 of the review)', () => {
+    const current = plan(DESIGNED)
+    const states = { design: { state: 'done' as const, round: 1 }, build: { state: 'done' as const, round: 1 }, qa: { state: 'stuck' as const, round: 1 } }
+    const next = (qa: Partial<PlanInput['parts'][number]>) => plan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'qa' ? { ...x, ...qa } : x)) }, { ...W, current, parts: states })
+    expect(replanGoesAhead(current, next({ checks: false }), states)).toBe(false)
+    expect(replanGoesAhead(current, next({ accept_as_is: true }), states)).toBe(false)
+    expect(replanGoesAhead(current, next({}), states)).toBe(true)
+    const steps = [{ kind: 'part' as const, partId: 'qa', round: 1, taskId: 't3', employeeId: 'e-qui1', state: 'done' as const, decision: 'fail', summary: 'Two tests fail.\nMore.', startedAt: NOW }]
+    expect(unpassedChecks({ plan: current, parts: { ...states, qa: { state: 'done', round: 1 } }, steps })).toEqual(['The check “QA” didn’t pass (it failed): Two tests fail.'])
+    expect(unpassedChecks({ plan: current, parts: { ...states, qa: { state: 'done', round: 1 } }, steps: [{ ...steps[0], decision: 'pass' }] })).toEqual([])
+  })
+
+  it('doesn’t stall a plan saved before reads meant waiting when a part reads one that waits for it (#8 of the review)', () => {
+    const old = {
+      parts: [
+        { id: 'a', title: 'A', owner: 'e-rav1', brief: 'a', reads: ['b'], writes: 'a.md', dependsOn: [], gate: true },
+        { id: 'b', title: 'B', owner: 'e-rav1', brief: 'b', reads: [], writes: 'b.md', dependsOn: ['a'], gate: false, changesRepo: false }
+      ]
+    }
+    expect(readyParts(old, {}).map((x) => x.id)).toEqual(['a'])
+    expect(readyParts(old, { a: { state: 'done', round: 1 } }).map((x) => x.id)).toEqual(['b'])
+    // The gated part B waited for through its read still counts for the replan rule.
+    const reader = { size: 'small' as const, parts: [{ ...old.parts[0], gate: false, changesRepo: false }, { id: 'c', title: 'C', owner: 'e-rav1', brief: 'c', reads: ['a'], writes: 'c.md', dependsOn: [], gate: false, changesRepo: false }] }
+    const gatedA = { ...reader, parts: [{ ...reader.parts[0], gate: true }, reader.parts[1]] }
+    expect(replanGoesAhead(gatedA, { ...gatedA, proposed: [], parts: [gatedA.parts[0], { ...gatedA.parts[1], reads: [] }] })).toBe(false)
+  })
+
+  it('lets a part that won’t run again keep a retired owner, and one that must run again change hands (#20)', () => {
+    const current = plan(DESIGNED)
+    const retired: PlanContext = { ...W, employees: W.employees.map((x) => (x.id === 'e-rav1' ? { ...x, state: 'retired' } : x)), writers: ['e-rav1', 'e-nia1'] }
+    const done = { design: { state: 'done' as const, round: 1 }, build: { state: 'done' as const, round: 1 }, qa: { state: 'stuck' as const, round: 1 } }
+    // a: the done parts keep Ravi.
+    const keep = checkPlan(DESIGNED, { ...retired, current, parts: done })
+    expect(keep.ok ? [] : keep.problems).toEqual([])
+    // b: a stuck build with a retired owner must change hands, and may.
+    const stuck = { ...done, build: { state: 'stuck' as const, round: 1 } }
+    const kept = checkPlan(DESIGNED, { ...retired, current, parts: stuck })
+    expect(kept.ok ? [] : kept.problems).toContainEqual(expect.stringContaining('Part “build”: Ravi has retired, so the part can’t run again with them'))
+    const handed = checkPlan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'build' ? { ...x, owner: 'Nia' } : x)) }, { ...retired, current, parts: stuck })
+    expect(handed.ok ? [] : handed.problems).toEqual([])
+    // c: or be taken as it is, with him (a part that doesn't publish: a publisher taken as it is would publish nothing).
+    const asIs = checkPlan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'design' ? { ...x, accept_as_is: true } : x)) }, { ...retired, current, parts: { ...done, design: { state: 'stuck' as const, round: 1 } } })
+    expect(asIs.ok ? [] : asIs.problems).toEqual([])
+    // d: a pending part of his handed to Nia, the done design kept with him.
+    const pending = { design: { state: 'done' as const, round: 1 }, build: { state: 'pending' as const, round: 0 }, qa: { state: 'pending' as const, round: 0 } }
+    const dropped = checkPlan({ ...DESIGNED, parts: [DESIGNED.parts[0], { ...DESIGNED.parts[1], owner: 'Nia' }, DESIGNED.parts[2]] }, { ...retired, current, parts: pending })
+    expect(dropped.ok ? [] : dropped.problems).toEqual([])
+    // The replan's brief says who has retired.
+    expect(planStateText(current, stuck, { 'e-rav1': 'Ravi' }, new Set(['e-rav1']))).toContain('(owner e-rav1, retired: give the part to someone on the roster if it must run again)')
+  })
+
+  it('ends a plan that changes code with the person’s final check, even small, and marks a check pass or fail (#26)', () => {
+    const p = plan(DESIGNED)
+    expect(p.parts.find((x) => x.id === 'qa')?.checks).toBe(true)
+    expect(endsWithFinalCheck(p)).toBe(true)
+    const research = plan({ summary: 's', size: 'small', parts: [{ id: 'notes', title: 'Notes', owner: 'Priya', brief: 'Read up.', writes: 'notes.md' }] })
+    expect(endsWithFinalCheck(research)).toBe(false)
+    const flow = planWorkflow(p, { questions: false })
+    expect(flow.steps.map((s) => s.kind)).toContain('final')
+    expect(flow.links).toContainEqual({ from: 'final', to: 'end' })
+    expect(planWorkflow(research, { questions: false }).steps.map((s) => s.kind)).not.toContain('final')
+    const md = planMarkdown(project(), p, { 'e-rav1': 'Ravi', 'e-qui1': 'Quinn' })
+    expect(md).toContain('It changes the code, so it ends with the person’s final check once its last part is done.')
+    expect(md).toContain('The person’s final check of the result')
+    expect(md).toContain('QA (`qa`), passes or fails')
+    const body = partBody({ project: project(), organization: 'Acme', plan: p, part: p.parts[2], round: 1, inputs: [] })
+    expect(body).toContain('finish_task done with decision pass')
+    expect(planningBody({ project: project(), organization: 'Acme', repos: [], roster: [], replan: { reason: 'r', current: '-', version: 2, left: 2 } })).toContain('Mark a part that checks the work (QA, a review) with checks')
+  })
+
+  it('tells Priya who can run commands, and says a proposed employee gets Write, a shell and publishing (#25, #30)', () => {
+    const can = rosterCan({ repos: { site: 'read', docs: 'none' }, shell: false, attended: true })
+    expect(can).toBe('reads site, no access to docs, no shell (runs no commands: no tests, builds or servers), attended (a person answers its approvals)')
+    const body = planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster: [{ id: 'e-qui1', name: 'Quinn', role: 'QA', askMeAbout: '', state: 'approved', can }] })
+    expect(body).toContain(`- Quinn (id e-qui1): QA; approved; ${can}`)
+    expect(body).toContain('Give work that runs commands (tests, builds, a dev server, a check that runs anything) only to an owner the roster says has a shell.')
+    // Read asked for is Write given (every new employee writes where it works), unless no agent here runs unattended.
+    const out = checkPlan({ ...PLAN, new_employees: [{ ...PLAN.new_employees![0], repos: { site: 'read' } }] }, CTX)
+    expect(out.ok && out.proposed[0].repos).toEqual({ site: 'write' })
+    const attended = checkPlan({ ...PLAN, new_employees: [{ ...PLAN.new_employees![0], repos: { site: 'write' } }] }, { ...CTX, proposedWrite: false })
+    expect(attended.ok && attended.proposed[0].repos).toEqual({ site: 'read' })
+    expect(proposedAccess({ repos: { site: 'write' } })).toBe('Write on site, a shell, pushes and opens pull requests without asking')
+    expect(planMarkdown(project(), checked(), {})).toContain('- **Quinn**, QA engineer: Tests what is built. (Write on site, a shell, pushes and opens pull requests without asking)')
+  })
+
+  it('keeps the chat handed over: each older chat’s first message and the newest whole, or its start and end (#17)', () => {
+    expect(handoverTranscript([{ title: 'A', text: 'You: first idea' }, { title: 'B', text: 'You: the plan\nClaude: ok' }])).toBe('Chat “A” (its first message):\nYou: first idea\n\nChat “B” (the newest, whole):\nYou: the plan\nClaude: ok')
+    const long = `START ${'x'.repeat(20_000)} END`
+    const kept = handoverTranscript([{ title: 'A', text: 'You: first idea' }, { title: 'B', text: long }], 5_000)
+    expect(kept.length).toBeLessThanOrEqual(5_000)
+    expect(kept).toContain('You: first idea')
+    expect(kept).toContain('START')
+    expect(kept.endsWith('END')).toBe(true)
+    expect(kept).toContain('characters) …')
+    // Every planning round reads it: a replan as what was discussed before the hand-over.
+    const replan = planningBody({ project: project(), organization: 'Acme', repos: [], roster: [], transcript: 'You: keep the rail', replan: { reason: 'r', current: '-', version: 2, left: 2 } })
+    expect(replan).toContain('What the person discussed in the workspace they handed the project from, before handing it over')
+    expect(replan).toContain('You: keep the rail')
+  })
+
+  it('tells a part how many replans are left, and a rework round to change its own file (#29, #31)', () => {
+    const p = plan(DESIGNED)
+    const first = partBody({ project: project(), organization: 'Acme', plan: p, part: p.parts[0], round: 1, inputs: [], replansLeft: 2 })
+    expect(first).toContain('the program manager replans (2 replans left for the project)')
+    expect(partBody({ project: project(), organization: 'Acme', plan: p, part: p.parts[0], round: 1, inputs: [], replansLeft: 0 })).toContain('(none are left, so the project waits for the person)')
+    const again = partBody({ project: project(), organization: 'Acme', plan: p, part: p.parts[0], round: 2, inputs: [{ path: 'memory/org/projects/csv-export/design.md' }], rework: true })
+    expect(again).toContain('Your own file and mocks, as your last round left them, are among these')
+    expect(again).toContain('pass that commit to memory_read')
   })
 })

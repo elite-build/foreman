@@ -28,10 +28,10 @@ import { formatDateTime, formatNumber, timeAgo } from '../../../../shared/i18n/t
 import { joinWorkspace } from '../../../../shared/openIn'
 import type { ArchivedWork, Workspace } from '../../../../shared/types'
 import { projectNeeds } from '../../../../shared/needsYou'
-import { gateNoteTo, isArchived, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, waitingOnRepo, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
+import { gateNoteTo, isArchived, lastApproval, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, waitingOnRepo, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openArchivedChats, openEmployees, openMemory, restoreArchived, selectWorkspace, showToast, useStore } from '../../store'
-import { Button, Callout, Card, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
+import { Button, Callout, Card, ChipButton, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
 import { reduceMotion } from '../../theme'
 import { DecisionCard, type DecisionAct } from '../DecisionCard'
 import { OpenFileChip } from '../OpenFileChip'
@@ -304,10 +304,10 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
             {step.changedRepo && <Callout tone="warn">{t(step.changedRepo === 'shared' ? 'projects.step.changedRepoShared' : 'projects.step.changedRepo')}</Callout>}
             {step.summary && <StepSummary step={step} />}
             {!step.summary && step.reason && <p className="channel-text">{step.reason}</p>}
-            {step.decision && <Tag>{t(step.decision === 'accept' ? 'projects.decision.accept' : 'projects.decision.replan')}</Tag>}
+            {step.decision && <Tag>{t(STEP_DECISION[step.decision] ?? 'projects.decision.replan')}</Tag>}
             {asks && <QuestionsList round={asks} />}
             {plan && <PlanCard orgId={orgId} project={project} plan={plan} names={names} roster={roster} pmName={pmName} />}
-            {artifact && !plan && <ArtifactCard orgId={orgId} artifact={artifact} who={who(artifact.employeeId)} />}
+            {artifact && !plan && <ArtifactCard orgId={orgId} artifact={artifact} who={who(artifact.employeeId)} approved={artifact.partId ? lastApproval(project.decisions, artifact.partId) : undefined} />}
             {/* Pages elsewhere in memory; the mocks in the part's own folder are under its file. */}
             <PageLinks orgId={orgId} files={step.files} except={artifact && !plan ? artifact.mocks : undefined} />
           </Post>
@@ -479,6 +479,9 @@ function UndoApproval({ project, decision, part }: { project: Project; decision:
   )
 }
 
+/** A step's decision, as its post says it: the acceptance's, or a check's verdict. */
+const STEP_DECISION: Record<string, PlainKey> = { accept: 'projects.decision.accept', replan: 'projects.decision.replan', pass: 'projects.decision.pass', fail: 'projects.decision.fail' }
+
 const DECISION_LOG: Record<ProjectWait['kind'], Partial<Record<ProjectDecision, PlainKey>>> = {
   questions: { stop: 'projects.log.stopped' },
   plan: { approve: 'projects.log.planApproved', 'send-back': 'projects.log.planSentBack', stop: 'projects.log.stopped' },
@@ -487,12 +490,17 @@ const DECISION_LOG: Record<ProjectWait['kind'], Partial<Record<ProjectDecision, 
   final: { approve: 'projects.log.finalApproved', 'send-back': 'projects.log.finalSentBack', stop: 'projects.log.stopped' }
 }
 
-/** A file a part wrote, its newest version: its name and who wrote it, opening to its words. */
-function ArtifactCard({ orgId, artifact, who }: { orgId: string; artifact: ProjectArtifact; who: string }) {
+/**
+ * A file a part wrote, its newest version: its name and who wrote it, opening to its words. `approved`: the person's
+ * approval at the part's gate; a version written after the one approved (a follow-up changed it) says so.
+ */
+function ArtifactCard({ orgId, artifact, who, approved }: { orgId: string; artifact: ProjectArtifact; who: string; approved?: ProjectDecisionRecord }) {
   const t = useT()
   const [open, setOpen] = useState(false)
+  const changed = approved?.version !== undefined && artifact.version > approved.version
   return (
     <Card className="channel-artifact">
+      {changed && <Status tone="warn" label={t('projects.artifact.changedAfter', { version: approved!.version! })} />}
       <Disclosure
         quiet
         open={open}
@@ -506,17 +514,18 @@ function ArtifactCard({ orgId, artifact, who }: { orgId: string; artifact: Proje
       >
         {open && <ArtifactText orgId={orgId} artifact={artifact} />}
       </Disclosure>
-      {artifact.mocks?.length ? <ArtifactMocks orgId={orgId} mocks={artifact.mocks} /> : null}
+      {artifact.mocks?.length ? <ArtifactMocks orgId={orgId} mocks={artifact.mocks} commit={artifact.commit} /> : null}
     </Card>
   )
 }
 
 /**
  * The HTML mocks a part drew with this version (shared/projects.ts mocksFolder): each a chip that opens it in the
- * browser from the memory repository's folder, so the person sees the screens without opening the file. Names only
- * when the memory repository isn't on this computer.
+ * browser as it was in this version's commit (openMemoryAt: a later follow-up's change doesn't show under an earlier
+ * post or approval), so the person sees the screens without opening the file. Without a commit, from the memory
+ * repository's folder as it is now; names only when that isn't on this computer.
  */
-function ArtifactMocks({ orgId, mocks }: { orgId: string; mocks: readonly string[] }) {
+function ArtifactMocks({ orgId, mocks, commit }: { orgId: string; mocks: readonly string[]; commit?: string }) {
   const t = useT()
   const root = useStore((s) => {
     const org = s.snapshot!.organizations?.find((o) => o.id === orgId)
@@ -527,6 +536,12 @@ function ArtifactMocks({ orgId, mocks }: { orgId: string; mocks: readonly string
       <span className="employee-faint">{t('projects.artifact.mocks', { count: mocks.length })}</span>
       {mocks.map((m) => {
         const name = m.slice(m.lastIndexOf('/') + 1)
+        if (commit)
+          return (
+            <ChipButton key={m} path title={`${m} @ ${commit.slice(0, 12)}`} onClick={() => void attempt(() => api.openMemoryAt(orgId, m, commit))}>
+              {name}
+            </ChipButton>
+          )
         // No workspace: the memory repository's files have no preview in Foreman, only the browser and the folder.
         return root ? <OpenFileChip key={m} path={joinWorkspace(root, m)} label={name} access={{ workspaceId: '', root, preview: false }} /> : <span key={m} className="mono">{name}</span>
       })}
@@ -540,7 +555,8 @@ function ArtifactText({ orgId, artifact }: { orgId: string; artifact: ProjectArt
   const [error, setError] = useState('')
   useEffect(() => {
     let live = true
-    api.memoryReadFile(orgId, artifact.path).then(
+    // The version it labels (its commit), not the file as it is now.
+    api.memoryReadFile(orgId, artifact.path, artifact.commit).then(
       (file) => live && setText(file.text ?? ''),
       (err: unknown) => live && setError(err instanceof Error ? err.message : String(err))
     )
@@ -812,6 +828,13 @@ function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Pro
   )
 }
 
+/** What a proposed employee will be able to do once approved, as its draft has it: every employee has a shell, and publishes where it writes. */
+function proposedAccessText(repos: Record<string, 'read' | 'write'>, t: ReturnType<typeof useT>): string {
+  const of = (access: 'read' | 'write') => Object.keys(repos).filter((r) => repos[r] === access)
+  const lines = [of('write').length ? t('projects.plan.accessWrite', { repos: of('write').join(', ') }) : '', of('read').length ? t('projects.plan.accessRead', { repos: of('read').join(', ') }) : ''].filter(Boolean)
+  return lines.length ? lines.join(' · ') : t('projects.plan.accessNone')
+}
+
 /** The employees a plan proposes: each made as a draft, each approved on its own page. */
 function Proposed({ orgId, plan, roster }: { orgId: string; plan: ProjectPlan; roster?: EmployeeSummary[] }) {
   const t = useT()
@@ -831,6 +854,7 @@ function Proposed({ orgId, plan, roster }: { orgId: string; plan: ProjectPlan; r
                   {p.name} <span className="employee-faint">{p.role}</span>
                 </span>
                 <span className="employee-faint">{p.description || p.responsibilities.join(' · ')}</span>
+                <span className="employee-faint">{proposedAccessText(p.repos, t)}</span>
               </span>
               {approved ? (
                 <Status tone="ok" label={t('projects.plan.approvedEmployee')} />
@@ -1002,7 +1026,7 @@ function WaitCard({ orgId, project, wait, names, roster, pmName, onStop }: { org
         alternate={noted ? approve : sendBack}
         main={noted ? sendBack : approve}
       >
-        {artifact && <ArtifactCard orgId={orgId} artifact={artifact} who={names[artifact.employeeId] ?? artifact.employeeId} />}
+        {artifact && <ArtifactCard orgId={orgId} artifact={artifact} who={names[artifact.employeeId] ?? artifact.employeeId} approved={artifact.partId ? lastApproval(project.decisions, artifact.partId) : undefined} />}
         {options.length > 1 && to !== 'nobody' && (
           <RadioList
             legend={t('projects.gate.pickLegend')}

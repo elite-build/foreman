@@ -1,6 +1,6 @@
 import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { claudeDriver, EXIT_GRACE_MS } from '../src/main/agents/claude'
+import { claudeDriver, EXIT_GRACE_MS, NO_SHELL_REFUSAL } from '../src/main/agents/claude'
 import type { TurnCallbacks, TurnRequest } from '../src/main/agents/types'
 
 // No Claude Code here: `query` is replaced by a fake whose messages each test pushes in.
@@ -853,6 +853,37 @@ describe('a project’s run that doesn’t publish (docs/ai-employees.md §15)',
   it('adds no hook to a run that may publish', async () => {
     const claude = fakeClaude()
     const run = claudeDriver.createTurn({ ...request, employee: true }, callbacks()).run()
+    expect(sdk.query.mock.calls[0][0].options.hooks).toBeUndefined()
+    claude.push(result)
+    await run
+  })
+})
+
+describe('an AI employee’s read-only run without a shell (docs/ai-employees.md §9)', () => {
+  const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
+
+  it('refuses every shell command, read-only ones too, in plan mode, and leaves reading to the mode', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...request, employee: true, readOnly: true, planMode: true, noShell: true }, callbacks()).run()
+    const options = sdk.query.mock.calls[0][0].options
+    expect(options.permissionMode).toBe('plan')
+    const hook = options.hooks.PreToolUse[0].hooks[0]
+    const signal = new AbortController().signal
+    const refused = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: NO_SHELL_REFUSAL } }
+    expect(await hook(pre('Bash', { command: 'git status' }), 'u1', { signal })).toEqual(refused)
+    expect(await hook(pre('Bash', { command: 'ls -la' }), 'u1', { signal })).toEqual(refused)
+    expect(await hook(pre('PowerShell', { command: 'Get-ChildItem' }), 'u1', { signal })).toEqual(refused)
+    expect(await hook(pre('Read', { file_path: '/repo/a.ts' }), 'u1', { signal })).toEqual({})
+    expect(await hook(pre('Grep', { pattern: 'x' }), 'u1', { signal })).toEqual({})
+    // Should one reach the permission prompt past the hook, it is refused there too.
+    expect(await options.canUseTool('Bash', { command: 'cat a.ts' }, { signal })).toEqual({ behavior: 'deny', message: NO_SHELL_REFUSAL })
+    claude.push(result)
+    await run
+  })
+
+  it('adds no shell hook to a read-only run with a shell', async () => {
+    const claude = fakeClaude()
+    const run = claudeDriver.createTurn({ ...request, employee: true, readOnly: true, planMode: true }, callbacks()).run()
     expect(sdk.query.mock.calls[0][0].options.hooks).toBeUndefined()
     claude.push(result)
     await run

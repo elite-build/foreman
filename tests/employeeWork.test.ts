@@ -62,6 +62,11 @@ describe('employee work: the words a run is given and what it may do', () => {
     expect(employeeTurnLimits(d, 'write')).toEqual({})
     const noShell = { ...d, access: { ...d.access, profile: 'no-shell' as const } }
     expect(employeeTurnLimits(noShell, 'write')).toEqual({ writes: ['**'] })
+    // Read without a shell has no write scope to take the shell away, and read-only mode lets read-only commands through:
+    // the turn refuses every shell command itself. With a shell, a Read run keeps what read-only mode allows.
+    expect(employeeTurnLimits(noShell, 'read')).toEqual({ readOnly: true, noShell: true })
+    expect(employeeTurnLimits(noShell, 'write', { name: 'reviewer', source: 'personal', instructions: 'Review.', read_only: true })).toMatchObject({ readOnly: true, noShell: true })
+    expect(employeeTurnLimits(d, 'read')).not.toHaveProperty('noShell')
   })
 
   it('lets a persona narrow and never widen: read-only stays, MCP and write globs are kept to its own, its instructions come along', () => {
@@ -100,6 +105,12 @@ describe('employee work: the words a run is given and what it may do', () => {
     expect(read).not.toContain('request_pull_request with a title')
     expect(read).toContain('A person answers what you ask for approval')
     expect(read).not.toContain('instructions for every employee')
+    // Without a shell, a read-only run is never told read-only commands are allowed; with one, it is.
+    expect(read).toContain('You have no shell: every shell command is refused, including read-only commands.')
+    expect(read).not.toContain('read-only commands your agent offers')
+    const readShell = employeeSystemText({ definition: d, organization: 'Acme', access: { repo: 'site', access: 'read', profile: 'shell', attended: true }, orgInstructions: null }).text
+    expect(readShell).toContain('You may read and search the repository, including with read-only commands your agent offers, but not change it.')
+    expect(readShell).not.toContain('You have no shell')
   })
 
   it('says for each run what it may do and what counts as a check, so no employee’s prompt has to', () => {
@@ -181,8 +192,9 @@ interface Fake {
   closedReports: [string, string, string][]
   archived: string[]
   // What runEnded was told, in order: [employeeId, failed, detail].
-  // The memory files reads find (path → text).
+  // The memory files reads find (path → text), and at a commit (commit → path → text; a commit not here is gone).
   files: Record<string, string>
+  filesAt: Record<string, Record<string, string>>
 }
 
 const ORG: Organization = { id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-01T00:00:00.000Z' }
@@ -224,6 +236,7 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
     'memory/org/instructions.md': '# Instructions\n\nBe kind.\n',
     'memory/org/PROJECT.md': '# Acme\n\nWe ship weekly.\n'
   }
+  const filesAt: Fake['filesAt'] = {}
   const host: EmployeeWorkHost = {
     state: () => state,
     db: () => db,
@@ -238,7 +251,13 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
     },
     memory: {
       status: async () => memoryStatus.value,
-      read: async (_org, file) => ({ path: file, head: memoryStatus.value.head, blob: files[file] ? 'b' : null, size: files[file]?.length ?? 0, binary: false, tooLarge: false, ...(files[file] ? { text: files[file] } : {}) }),
+      read: async (_org, file, options) => {
+        const at = options?.commit === undefined ? files : filesAt[options.commit]
+        if (!at) throw new Error(`The memory repository has no commit ${options?.commit}.`)
+        const text = at[file]
+        // The current text is version 'b'; another text at a commit is another version.
+        return { path: file, head: options?.commit ?? memoryStatus.value.head, blob: text ? (text === files[file] ? 'b' : `old-${text.length}`) : null, size: text?.length ?? 0, binary: false, tooLarge: false, ...(text ? { text } : {}) }
+      },
       writeRecap,
       commitRun,
       stagedChanges: () => stagedPaths.map((p) => ({ kind: 'append' as const, path: p, text: 'x' })),
@@ -267,7 +286,7 @@ async function rig(options: { employees?: string[] } = {}): Promise<Fake> {
     changed: () => undefined,
     now: () => clock.now
   }
-  return { service: new EmployeeWorkService(host), db, state, definitions, summaries, launches, stopped, chats, memoryStatus, records, writeRecap, commitRun, clock, launchError, autoCreate, sessions, stagedPaths, reports, closedReports, archived, files }
+  return { service: new EmployeeWorkService(host), db, state, definitions, summaries, launches, stopped, chats, memoryStatus, records, writeRecap, commitRun, clock, launchError, autoCreate, sessions, stagedPaths, reports, closedReports, archived, files, filesAt }
 }
 
 /** The run's chat, marked as its run and in its turn, as Core makes it (the employee tools find the run from it). */
@@ -407,6 +426,37 @@ describe('employee work: admission', () => {
     await f.service.pump()
     expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'waiting', reason: expect.stringMatching(/changed since it was approved/) })
     expect(f.db.employeeRuns({ taskId: task.id })).toMatchObject([{ state: 'cancelled', reason: expect.stringMatching(/^Not started: /) }])
+  })
+
+  it('admits again, once its employee is approved, a task refused while it was a draft or changed; nothing else it waits on', async () => {
+    const f = await rig()
+    f.summaries.set('e-max1', { state: 'active', changed: true })
+    const changed = await f.service.ask('o1', 'e-max1', { body: 'Build it', repoId: 'site' })
+    f.summaries.set('e-max1', { state: 'draft' })
+    const draft = await f.service.ask('o1', 'e-max1', { body: 'Check it', repoId: 'site' })
+    expect([f.db.employeeTask(changed.id)!.state, f.db.employeeTask(draft.id)!.state]).toEqual(['waiting', 'waiting'])
+    // Still not approved: nothing moves, and nothing is written again.
+    await f.service.lifecycleChanged('o1', 'e-max1')
+    expect(f.db.employeeTaskTransitions(changed.id).map((t) => t.event)).toEqual(['saved', 'refused'])
+    // Approved: both run, as Retry would run them, without a person pressing Retry.
+    f.summaries.set('e-max1', { state: 'active' })
+    await f.service.lifecycleChanged('o1', 'e-max1')
+    await settle()
+    for (const id of [changed.id, draft.id]) {
+      expect(f.db.employeeTask(id)!.state).toBe('running')
+      expect(f.db.employeeTaskTransitions(id).map((t) => t.event)).toEqual(['saved', 'refused', 'readmitted', 'admitted'])
+    }
+    expect(f.launches).toHaveLength(2)
+  })
+
+  it('leaves a task still refused for the same reason as it was when its employee is approved', async () => {
+    const f = await rig()
+    f.definitions.set('e-max1', definition('e-max1', 'Max', { persona: 'docs-writer' }))
+    const refused = await f.service.ask('o1', 'e-max1', { body: 'Draft it', repoId: 'site' })
+    expect(refused).toMatchObject({ state: 'waiting', reason: expect.stringMatching(/persona “docs-writer”/) })
+    await f.service.lifecycleChanged('o1', 'e-max1')
+    expect(f.db.employeeTaskTransitions(refused.id).map((t) => t.event)).toEqual(['saved', 'refused'])
+    expect(f.launches).toHaveLength(0)
   })
 })
 
@@ -686,6 +736,38 @@ describe('employee work: how a run ends its task (finish_task, ask_person, repor
     expect(g.commitRun).toHaveBeenCalledTimes(1)
     expect(g.db.employeeTask(second.task.id)!.result).toMatchObject({ commit: 'memory-commit-1', artifacts: ['memory/bots/e-max1/launch.md'] })
     expect(f.db.employeeTask(task.id)!.result!.commit).toBeUndefined()
+  })
+
+  it('names every file that changed meanwhile when the memory it names can’t be committed, and keeps the task running', async () => {
+    const f = await rig()
+    const { task, run } = await started(f)
+    f.stagedPaths.push('memory/bots/e-max1/launch.md')
+    f.commitRun.mockImplementationOnce(async () => ({
+      commit: null,
+      conflicts: [
+        { path: 'memory/bots/e-max1/launch.md', blob: 'x', text: 'x' },
+        { path: 'memory/org/docs/plan.md', blob: null, text: null }
+      ]
+    }))
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Drafted.', artifacts: ['memory/bots/e-max1/launch.md'] })).rejects.toThrow(
+      'Your memory writes weren’t committed: memory/bots/e-max1/launch.md, memory/org/docs/plan.md changed since you read them, so your changes to them were set aside; your other memory writes are still staged'
+    )
+    expect(f.db.employeeTask(task.id)!.state).toBe('running')
+    expect(f.db.employeeRun(run.id)!.reason).toContain('Its changes to memory/bots/e-max1/launch.md, memory/org/docs/plan.md weren’t saved: they changed meanwhile.')
+    // Read again, written again: the retry commits.
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Drafted.', artifacts: ['memory/bots/e-max1/launch.md'] })
+    expect(f.db.employeeTask(task.id)!.result).toMatchObject({ commit: 'memory-commit-1' })
+  })
+
+  it('commits the rest of what a run wrote at its end when some files changed meanwhile', async () => {
+    const f = await rig()
+    const { run } = await started(f)
+    f.stagedPaths.push('memory/bots/e-max1/notes.md')
+    f.commitRun.mockImplementationOnce(async () => ({ commit: null, conflicts: [{ path: 'memory/org/docs/plan.md', blob: 'x', text: 'x' }] }))
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
+    await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
+    expect(f.commitRun).toHaveBeenCalledTimes(2)
+    expect(f.db.employeeRun(run.id)).toMatchObject({ memoryCommit: 'memory-commit-1', reason: expect.stringContaining('Its changes to memory/org/docs/plan.md weren’t saved: it changed meanwhile.') })
   })
 
   it('refuses a tool call from a chat whose run has ended or that isn’t an employee’s run', async () => {
@@ -1036,6 +1118,80 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'done', result: { decision: 'small', artifacts: [ARTIFACT] } })
   })
 
+  it('refuses done in a rework round while the file is as the round before left it; partial, a changed file or a commit gone pass', async () => {
+    const f = await rig()
+    f.files[ARTIFACT] = '## Problem\n'
+    f.filesAt['c-round1'] = { [ARTIFACT]: '## Problem\n' }
+    const task = await stage(f, { contract: { produces: ARTIFACT, writes: [ARTIFACT], reworks: 'c-round1' } })
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })).rejects.toThrow('Your file is the same as last round, and so is everything in your folders')
+    expect(f.db.employeeTask(task.id)!.state).toBe('running')
+    f.files[ARTIFACT] = '## Problem\n\nAnd on mobile.\n'
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
+    expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'done' })
+
+    // A designer who only redrew a mock (named, or written and not committed yet) has done the rework.
+    const MOCKS = 'memory/org/projects/csv/mocks/reqs/'
+    for (const how of ['named', 'staged'] as const) {
+      const m = await rig()
+      m.files[ARTIFACT] = '## Problem\n'
+      m.files[`${MOCKS}1-a.html`] = '<p>darker</p>'
+      m.filesAt['c-round1'] = { [ARTIFACT]: '## Problem\n', [`${MOCKS}1-a.html`]: '<p>light</p>' }
+      const t = await stage(m, { contract: { produces: ARTIFACT, writes: [ARTIFACT], writesUnder: [MOCKS], reworks: 'c-round1' } })
+      await settle()
+      const r = m.db.employeeRuns({ taskId: t.id })[0]
+      mark(m, r, 'turn-1')
+      m.service.turnStarted(r.sessionId!, 'turn-1')
+      if (how === 'staged') m.stagedPaths.push(`${MOCKS}2-mobile.html`)
+      await m.service.finishTask(r.sessionId!, { status: 'done', summary: 'Redrew it.', ...(how === 'named' ? { artifacts: [`${MOCKS}1-a.html`] } : {}) })
+      expect(m.db.employeeTask(t.id)).toMatchObject({ state: 'closed', closureReason: 'done' })
+    }
+    // A mock named but as it was: still refused.
+    const same = await rig()
+    same.files[ARTIFACT] = '## Problem\n'
+    same.files[`${MOCKS}1-a.html`] = '<p>light</p>'
+    same.filesAt['c-round1'] = { [ARTIFACT]: '## Problem\n', [`${MOCKS}1-a.html`]: '<p>light</p>' }
+    const st = await stage(same, { contract: { produces: ARTIFACT, writes: [ARTIFACT], writesUnder: [MOCKS], reworks: 'c-round1' } })
+    await settle()
+    const sr = same.db.employeeRuns({ taskId: st.id })[0]
+    mark(same, sr, 'turn-1')
+    same.service.turnStarted(sr.sessionId!, 'turn-1')
+    await expect(same.service.finishTask(sr.sessionId!, { status: 'done', summary: 'Done.', artifacts: [`${MOCKS}1-a.html`] })).rejects.toThrow('same as last round')
+
+    for (const [contract, status] of [
+      [{ produces: ARTIFACT, writes: [ARTIFACT], reworks: 'c-round1' }, 'partial'],
+      [{ produces: ARTIFACT, writes: [ARTIFACT], reworks: 'c-gone' }, 'done']
+    ] as const) {
+      const g = await rig()
+      g.files[ARTIFACT] = '## Problem\n'
+      g.filesAt['c-round1'] = { [ARTIFACT]: '## Problem\n' }
+      const again = await stage(g, { contract: { ...contract, writes: [...contract.writes] } })
+      await settle()
+      const r = g.db.employeeRuns({ taskId: again.id })[0]
+      mark(g, r, 'turn-1')
+      g.service.turnStarted(r.sessionId!, 'turn-1')
+      await g.service.finishTask(r.sessionId!, { status, summary: 'Left as it was.', ...(status === 'partial' ? { unblock: 'Say what to change.' } : {}) })
+      expect(g.db.employeeTask(again.id)!.state).toBe('closed')
+    }
+  })
+
+  it('lists, of the files named in the folders its task may write in, only those there once committed', async () => {
+    const f = await rig()
+    const mocks = 'memory/org/projects/export/mocks/design/'
+    f.files[ARTIFACT] = '## Design\n'
+    f.files[`${mocks}1-a.html`] = '<p>a</p>\n'
+    const task = await stage(f, { contract: { produces: ARTIFACT, writes: [ARTIFACT], writesUnder: [mocks] } })
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Two options.', artifacts: [`${mocks}1-a.html`, `${mocks}2-b.html`, 'docs/elsewhere.md'] })
+    expect(f.db.employeeTask(task.id)!.result!.artifacts).toEqual([`${mocks}1-a.html`, 'docs/elsewhere.md', ARTIFACT])
+  })
+
   it('holds a follow-up asked while the same employee’s project task runs until that run ends, then runs it', async () => {
     const f = await rig()
     const part = await stage(f)
@@ -1161,6 +1317,40 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     f.db.putEmployeeTask({ ...f.db.employeeTask(task.id)!, project: { id: 'p1', kind: 'part', partId: 'reqs', round: 1 } })
     await f.service.askFollowUp(task.id, 'And hidden columns?')
     expect(asked).toEqual(['And hidden columns?'])
+  })
+
+  it('Cancel chain on a chain whose first task closed cancels what is still open in it, and the chain; a project’s is left to its Stop', async () => {
+    const f = await rig()
+    const task = await f.service.ask('o1', 'e-max1', { body: 'Draft the post' })
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Drafted it.' })
+    f.chats.set(run.sessionId!, reply('turn-1', 'Done.'))
+    await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
+    const follow = await f.service.askFollowUp(task.id, 'Can it be shorter?')
+    await settle()
+    expect(f.db.employeeTask(follow.id)!.state).toBe('running')
+    const followRun = f.db.employeeRuns({ taskId: follow.id })[0]
+    // The card cancels the chain by its root, which already closed: what is open in the chain goes, and its run stops.
+    expect(await f.service.cancel(task.rootId)).toMatchObject({ id: task.id, state: 'closed', closureReason: 'done' })
+    expect(f.db.employeeTask(follow.id)).toMatchObject({ state: 'closed', closureReason: 'canceled', closureDetail: 'Canceled with its chain by you.' })
+    expect(f.db.employeeRun(followRun.id)!.state).toBe('cancelled')
+    expect(f.stopped).toContain(followRun.sessionId)
+    expect(f.db.employeeRoot(task.rootId)!.state).toBe('canceled')
+    // An open project's first task is closed when its chain runs on: Stop on the project ends that, never this.
+    let open = true
+    f.service.projects = { workspaceFor: async () => undefined, runCreated: () => undefined, keeps: () => open, taskClosed: () => undefined, followUp: async (t) => t }
+    const other = await f.service.ask('o1', 'e-max1', { body: 'Plan it' })
+    await settle()
+    f.db.putEmployeeTask({ ...f.db.employeeTask(other.id)!, state: 'closed', closureReason: 'done', project: { id: 'p1', kind: 'plan', round: 1 } })
+    await f.service.cancel(other.id)
+    expect(f.db.employeeRoot(other.rootId)!.state).not.toBe('canceled')
+    // Once the project closed (or was deleted), what is left of its chain is canceled as any chain's.
+    open = false
+    await f.service.cancel(other.id)
+    expect(f.db.employeeRoot(other.rootId)!.state).toBe('canceled')
   })
 })
 

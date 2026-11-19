@@ -2,7 +2,7 @@
 // Employees working together in the window (docs/ai-employees.md §7, §6.5, §10): a task row says who handed it over and
 // how much of its chain's runs are used, and opens its chain (the task it came from, those handed off from it with their
 // states) and its receipts (saved → delivered → started → completed) as a stepper; Needs you lists a chain out of runs
-// with Raise limit and Cancel chain, and not work waiting on other employees; the Edit view's delegation checklist; the
+// with Raise limit and Cancel chain (a project's: Stop the project, asked first), and not work waiting on other employees; the Edit view's delegation checklist; the
 // Team page's lead tag and its Make lead / Remove as lead.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -155,6 +155,57 @@ describe('Needs you: a chain out of runs', () => {
     await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('This chain may now have 30 runs.'))
     await user.click(within(card).getByRole('button', { name: /^Cancel chain/ }))
     expect(fakeApi.cancelEmployeeTask).toHaveBeenCalledWith('root')
+  })
+
+  it('offers a project’s chain Stop the project instead, asked first as the project’s Stop asks, and never on Esc', async () => {
+    const user = userEvent.setup()
+    const held = task({ id: 'b2', employeeId: 'e-max1', parentId: null, from: 'person', title: 'Build: CSV export', state: 'open', hold: 'root-limit', reason: 'This chain of work has used 80 of its 80 runs. Raise its limit, or cancel it, in Needs you.', project: { id: 'p1', kind: 'part', partId: 'build', round: 2 } })
+    setSnapshot({ work: { tasks: [held], roots: { root: ledger({ runsUsed: 80, runsAllowed: 80, state: 'spent' }) } } })
+    fakeState.snapshot = { ...fakeState.snapshot!, projects: { o1: [{ id: 'p1', orgId: 'o1', title: 'CSV export', phase: 'working' } as never] } }
+    fakeApi.cancelEmployeeTask = vi.fn(async () => held)
+    fakeApi.stopProject = vi.fn(async () => ({}) as never)
+    render(<EmployeesNeedYou orgId="o1" />)
+    const card = screen.getByRole('group', { name: 'Build: CSV export' })
+    const acts = within(card)
+      .getAllByRole('button')
+      .filter((b) => b.closest('.decision-foot-acts'))
+      .map((b) => b.textContent?.trim())
+    expect(acts).toEqual(['Stop the project', 'Raise limit Enter'])
+    // Esc never stops a project.
+    card.focus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('alert')).toBeNull()
+    await user.click(within(card).getByRole('button', { name: 'Stop the project' }))
+    const confirm = within(card).getByRole('alert')
+    expect(confirm.textContent).toContain('Stop this project?')
+    await user.click(within(confirm).getByRole('button', { name: 'Keep going' }))
+    expect(within(card).queryByRole('alert')).toBeNull()
+    expect(fakeApi.stopProject).not.toHaveBeenCalled()
+    await user.click(within(card).getByRole('button', { name: 'Stop the project' }))
+    await user.click(within(within(card).getByRole('alert')).getByRole('button', { name: 'Stop' }))
+    expect(fakeApi.stopProject).toHaveBeenCalledWith('p1')
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('CSV export stopped.'))
+    expect(fakeApi.cancelEmployeeTask).not.toHaveBeenCalled()
+  })
+
+  it('offers a closed or archived project’s left-over chain Cancel chain, saying what it did', async () => {
+    const user = userEvent.setup()
+    const held = task({ id: 'f1', employeeId: 'e-max1', parentId: null, from: 'person', title: 'Follow-up: CSV export', state: 'open', hold: 'root-limit', reason: 'This chain of work has used 80 of its 80 runs. Raise its limit, or cancel it, in Needs you.', project: { id: 'p1', kind: 'follow-up', round: 1 } })
+    for (const projects of [[{ id: 'p1', orgId: 'o1', title: 'CSV export', phase: 'closed' }], []]) {
+      setSnapshot({ work: { tasks: [held], roots: { root: ledger({ runsUsed: 80, runsAllowed: 80, state: 'spent' }) } } })
+      fakeState.snapshot = { ...fakeState.snapshot!, projects: { o1: projects as never } }
+      fakeApi.cancelEmployeeTask = vi.fn(async () => held)
+      fakeApi.stopProject = vi.fn(async () => ({}) as never)
+      ;(storeModule.showToast as ReturnType<typeof vi.fn>).mockReset()
+      const view = render(<EmployeesNeedYou orgId="o1" />)
+      const card = screen.getByRole('group', { name: 'Follow-up: CSV export' })
+      expect(within(card).queryByRole('button', { name: 'Stop the project' })).toBeNull()
+      await user.click(within(card).getByRole('button', { name: /^Cancel chain/ }))
+      expect(fakeApi.cancelEmployeeTask).toHaveBeenCalledWith('root')
+      await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('What was left of this chain is canceled.'))
+      expect(fakeApi.stopProject).not.toHaveBeenCalled()
+      view.unmount()
+    }
   })
 })
 

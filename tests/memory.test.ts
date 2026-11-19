@@ -154,6 +154,41 @@ describe('memory: reading', () => {
     await expect(on.memory.status('o1')).rejects.toThrow('Acme has no memory repository')
     await expect(on.memory.search('o1', 'goals')).rejects.toThrow('Acme has no memory repository')
   })
+
+  it('reads a file as it was at a commit, full or abbreviated, without the run’s staged changes; an unknown commit is refused', async () => {
+    const { root, memory } = await rig()
+    const file = 'memory/org/docs/plan.md'
+    const v1 = (await memory.writeAsPerson('o1', file, 'v1\n', null)) as { ok: true; blob: string; commit: string }
+    await memory.writeAsPerson('o1', file, 'v2\n', v1.blob)
+    await memory.stage('o1', 'r1', { kind: 'append', path: file, text: 'staged\n' })
+    expect(await memory.read('o1', file, { runId: 'r1', commit: v1.commit })).toMatchObject({ head: v1.commit, blob: v1.blob, text: 'v1\n' })
+    expect(await memory.read('o1', file, { commit: v1.commit.slice(0, 8) })).toMatchObject({ head: v1.commit, text: 'v1\n' })
+    expect((await memory.read('o1', file, { runId: 'r1' })).text).toBe('v2\nstaged\n')
+    // Not there yet at an older commit.
+    const first = await gitOut(root, ['rev-list', '--max-parents=0', 'HEAD'])
+    expect(await memory.read('o1', file, { commit: first })).toMatchObject({ blob: null })
+    await expect(memory.read('o1', file, { commit: 'f'.repeat(40) })).rejects.toThrow(`no commit ${'f'.repeat(40)}`)
+    await expect(memory.read('o1', file, { commit: 'HEAD~1' })).rejects.toMatchObject({ reason: 'invalid' })
+  })
+
+  it('writes a page out as it was at a commit, with the other pages of its folder there, to open', async () => {
+    const { root, memory } = await rig()
+    const folder = 'memory/org/projects/p/mocks/design'
+    const a1 = (await memory.writeAsPerson('o1', `${folder}/1-a.html`, '<a href="2-b.html">a1</a>\n', null)) as { ok: true; blob: string; commit: string }
+    await memory.writeAsPerson('o1', `${folder}/2-b.html`, 'b1\n', null)
+    await memory.writeAsPerson('o1', `${folder}/notes.md`, 'not a page\n', null)
+    const at = await head(root)
+    await memory.writeAsPerson('o1', `${folder}/1-a.html`, 'a2\n', a1.blob)
+    const base = await tempDir('foreman-memory-views-')
+    const written = await memory.writeAt('o1', `${folder}/1-a.html`, at.slice(0, 10), base)
+    expect(written).toBe(path.join(base, `o1-${at}`, ...folder.split('/'), '1-a.html'))
+    expect(await readFile(written, 'utf8')).toBe('<a href="2-b.html">a1</a>\n')
+    expect(await readFile(path.join(path.dirname(written), '2-b.html'), 'utf8')).toBe('b1\n')
+    expect(existsSync(path.join(path.dirname(written), 'notes.md'))).toBe(false)
+    await expect(memory.writeAt('o1', `${folder}/3-c.html`, at, base)).rejects.toThrow('isn’t in the memory repository')
+    await expect(memory.writeAt('o1', `${folder}/1-a.html`, 'nope', base)).rejects.toMatchObject({ reason: 'invalid' })
+    await expect(memory.writeAt('o1', 'memory/../README.md', at, base)).rejects.toMatchObject({ reason: 'path' })
+  })
 })
 
 describe('memory: a person’s edit', () => {
@@ -262,10 +297,63 @@ describe('memory: a run’s staged changes', () => {
     await memory.stage('o1', 'r1', { kind: 'write', path: 'memory/org/PROJECT.md', text: 'From the run\n', expectedBlob: read.blob })
     await memory.writeAsPerson('o1', 'memory/org/PROJECT.md', 'From the person\n', read.blob)
     const out = await memory.commitRun('o1', 'r1', { trailers: { employee: 'e-1' } })
-    expect(out).toMatchObject({ commit: null, conflict: { path: 'memory/org/PROJECT.md', text: 'From the person\n' } })
+    expect(out).toMatchObject({ commit: null, conflicts: [{ path: 'memory/org/PROJECT.md', text: 'From the person\n' }] })
     expect(await readFile(path.join(root, 'memory/org/PROJECT.md'), 'utf8')).toBe('From the person\n')
     const row = db().memoryMutations('o1').find((r) => r.runId === 'r1')!
     expect(row).toMatchObject({ state: 'conflict', detail: { conflictPath: 'memory/org/PROJECT.md', changes: [{ text: 'From the run\n' }] } })
+  })
+
+  it('sets aside only the files that moved on, keeps the rest staged, and commits them with the rewritten file next time', async () => {
+    const { root, memory, db } = await rig()
+    const md = 'memory/org/docs/design.md'
+    const mock = 'memory/org/docs/mocks/1-a.html'
+    const other = 'memory/org/docs/notes.md'
+    await memory.writeAsPerson('o1', md, 'v1\n', null)
+    await memory.writeAsPerson('o1', other, 'n1\n', null)
+    const seenMd = await memory.read('o1', md, { runId: 'r1' })
+    const seenOther = await memory.read('o1', other, { runId: 'r1' })
+    await memory.stage('o1', 'r1', { kind: 'write', path: md, text: 'v2 from the run\n', expectedBlob: seenMd.blob })
+    await memory.stage('o1', 'r1', { kind: 'write', path: mock, text: '<p>a</p>\n', expectedBlob: null })
+    await memory.stage('o1', 'r1', { kind: 'append', path: mock, text: '<p>more</p>\n' })
+    await memory.stage('o1', 'r1', { kind: 'write', path: other, text: 'n2 from the run\n', expectedBlob: seenOther.blob })
+    // Both files the run read change meanwhile (another run's commit, say): every one is named, not just the first.
+    await memory.writeAsPerson('o1', md, 'v1, edited\n', seenMd.blob)
+    await memory.writeAsPerson('o1', other, 'n1, edited\n', seenOther.blob)
+    const before = await head(root)
+    const out = await memory.commitRun('o1', 'r1', { trailers: { employee: 'e-1' } })
+    expect(out.commit).toBeNull()
+    expect(out.conflicts).toEqual([
+      { path: md, blob: await blobAt(root, md), text: 'v1, edited\n' },
+      { path: other, blob: await blobAt(root, other), text: 'n1, edited\n' }
+    ])
+    expect(await head(root)).toBe(before)
+    // The conflicting files' changes are set aside; the new mock is still staged, as the run sees it.
+    const rows = db().memoryMutations('o1').filter((r) => r.runId === 'r1')
+    expect(rows.map((r) => r.state)).toEqual(['conflict', 'staged'])
+    expect(rows[0]).toMatchObject({ paths: [md, other], detail: { conflictPaths: [md, other], changes: [{ path: md }, { path: other }] } })
+    expect(memory.stagedChanges('o1', 'r1').map((c) => c.path)).toEqual([mock, mock])
+    expect((await memory.read('o1', mock, { runId: 'r1' })).text).toBe('<p>a</p>\n<p>more</p>\n')
+    expect((await memory.read('o1', md, { runId: 'r1' })).text).toBe('v1, edited\n')
+    // The run reads the file again, writes it again: the next commit has it and the mock together.
+    const again = await memory.read('o1', md, { runId: 'r1' })
+    await memory.stage('o1', 'r1', { kind: 'write', path: md, text: 'v2, merged\n', expectedBlob: again.blob })
+    const done = await memory.commitRun('o1', 'r1', { trailers: { employee: 'e-1' } })
+    expect(done.commit).toBe(await head(root))
+    expect(await readFile(path.join(root, md), 'utf8')).toBe('v2, merged\n')
+    expect(await readFile(path.join(root, mock), 'utf8')).toBe('<p>a</p>\n<p>more</p>\n')
+    expect(await readFile(path.join(root, other), 'utf8')).toBe('n1, edited\n')
+    expect(memory.stagedChanges('o1', 'r1')).toEqual([])
+  })
+
+  it('still stops a person’s edit of several files whole on one conflict', async () => {
+    const { root, memory } = await rig()
+    const read = await memory.read('o1', 'memory/org/PROJECT.md')
+    await memory.writeAsPerson('o1', 'memory/org/PROJECT.md', 'Moved on\n', read.blob)
+    const before = await head(root)
+    const out = await memory.commitAsPerson('o1', [{ kind: 'write', path: 'memory/org/docs/a.md', text: 'a\n', expectedBlob: null }, { kind: 'write', path: 'memory/org/PROJECT.md', text: 'Mine\n', expectedBlob: read.blob }], { subject: 'Two files' })
+    expect(out).toMatchObject({ ok: false, path: 'memory/org/PROJECT.md', conflict: { text: 'Moved on\n' } })
+    expect(await head(root)).toBe(before)
+    expect(existsSync(path.join(root, 'memory/org/docs/a.md'))).toBe(false)
   })
 
   it('writes a recap: RECAP.md replaced and an entry added to the journal, in the run’s commit', async () => {
