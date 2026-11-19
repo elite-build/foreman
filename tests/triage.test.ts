@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { elapsed, finishedFacts, REASONS, runningFact, triageAll, type TriageInput } from '../src/renderer/src/triage'
-import { compareFoldKey, foldedBuckets, liveFoldKeys, sidebarGroups, sidebarOrder, type SidebarView } from '../src/shared/triage'
+import { compareFoldKey, foldedBuckets, liveFoldKeys, matchesWorkspace, repoFoldKey, repoGroups, sidebarGroups, sidebarOrder, workspacePurpose, type SidebarView } from '../src/shared/triage'
+import { shownMode, sidebarModes, workView } from '../src/renderer/src/sidebarModes'
 import { defaultSettings } from '../src/main/store'
 import type { FlowRun } from '../src/shared/flows'
 import type { AppSnapshot, ApprovalRequest, Session, Workspace } from '../src/shared/types'
@@ -20,6 +21,22 @@ function triage(workspace: Workspace, sessions: Session[], extra: Partial<Triage
 }
 
 const approval = (sessionId: string): ApprovalRequest => ({ id: 'a', sessionId, kind: 'tool', toolName: 'Bash' }) as unknown as ApprovalRequest
+
+describe('a workspace’s purpose', () => {
+  it('is its first titled chat’s title, an employee run’s task, else nothing (the row shows its name)', () => {
+    expect(workspacePurpose(ws(), [session('s1'), session('s2', { title: 'Fix login redirect' }), session('s3', { title: 'Later chat' })])).toEqual({ text: 'Fix login redirect', sessionId: 's2' })
+    expect(workspacePurpose(ws(), [session('s1', { title: '  ' }), session('other', { workspaceId: 'ws-2', title: 'Elsewhere' })])).toBeUndefined()
+    const by = { via: 'employee' as const, orgId: 'o1', employeeId: 'e-1', runId: 'r1', taskId: 't1', title: 'Write the launch post' }
+    expect(workspacePurpose(ws({ startedBy: by }), [session('s1', { title: 'A chat' })])).toEqual({ text: 'Write the launch post' })
+  })
+
+  it('Find matches its purpose, name or branch', () => {
+    const sessions = [session('s1', { title: 'Rate limit the API' })]
+    const workspace = ws({ name: 'osaka', branch: 'add-rate-limit' })
+    expect(['rate limit', 'osaka', 'add-rate'].map((q) => matchesWorkspace(workspace, sessions, q))).toEqual([true, true, true])
+    expect(matchesWorkspace(workspace, sessions, 'login')).toBe(false)
+  })
+})
 
 describe('triage reasons', () => {
   it('keeps the reason table in the agreed precedence', () => {
@@ -267,5 +284,66 @@ describe('folded sidebar groups', () => {
     const workspaces = [ws({ id: 'a', compareId: 'cmp' }), ws({ id: 'f', flowRun: { runId: 'run' } }), ws({ id: 'gone', compareId: 'old', state: 'archived' })]
     const folded = ['attention', compareFoldKey('cmp'), compareFoldKey('flow:run'), compareFoldKey('old'), compareFoldKey('never'), 'idle']
     expect(liveFoldKeys(folded, workspaces)).toEqual(['attention', 'compare:cmp', 'compare:flow:run', 'idle'])
+  })
+})
+
+describe('the sidebar’s Work list by repository', () => {
+  const repo = (id: string) => ({ id, name: id, rootPath: `/code/${id}`, defaultBranch: 'main' })
+  // In kite: one that asks (an approval), one that waits longer, one quiet and one finished; beacon has one; empty has none.
+  const asks = ws({ id: 'asks', name: 'asks', repoId: 'kite', createdAt: ago(10) })
+  const older = ws({ id: 'older', name: 'older', repoId: 'kite', createdAt: ago(60) })
+  const quiet = ws({ id: 'quiet', name: 'quiet', repoId: 'kite', createdAt: ago(50) })
+  const done = ws({ id: 'done', name: 'done', repoId: 'kite', status: 'done' })
+  const other = ws({ id: 'other', name: 'other', repoId: 'beacon' })
+  const input = {
+    snapshot: { repos: [repo('beacon'), repo('kite'), repo('empty')], workspaces: [quiet, asks, done, older, other], sessions: [session('s1', { workspaceId: 'asks' }), session('s2', { workspaceId: 'older' })], settings: defaultSettings() } as unknown as AppSnapshot,
+    approvals: [{ ...approval('s1'), id: 'a1' }, { ...approval('s2'), id: 'a2' }],
+    unread: {},
+    unreadSessions: {},
+    now: NOW
+  }
+  const view: SidebarView = { repo: null, filter: 'all', query: '', showFinished: false, groupBy: 'repository' }
+
+  it('heads each repository that has a workspace, in the repositories’ order, what needs you first and waiting longest first', () => {
+    const { groups, hiddenFinished } = repoGroups(input, view)
+    expect(groups.map((g) => [g.repo.id, g.items.map((t) => t.ws.id)])).toEqual([
+      ['beacon', ['other']],
+      ['kite', ['older', 'asks', 'quiet']]
+    ])
+    // Finished work is counted, not listed, until shown.
+    expect(hiddenFinished).toBe(1)
+    expect(repoGroups(input, { ...view, showFinished: true }).groups[1].items.map((t) => t.ws.id)).toEqual(['older', 'asks', 'quiet', 'done'])
+  })
+
+  it('numbers Ctrl+1–9 in that order, leaving out a folded repository', () => {
+    expect(sidebarOrder(input, view).map((w) => w.id)).toEqual(['other', 'older', 'asks', 'quiet'])
+    expect(sidebarOrder(input, { ...view, folded: [repoFoldKey('beacon')] }).map((w) => w.id)).toEqual(['older', 'asks', 'quiet'])
+    // By state, needs you comes first across repositories, as before.
+    expect(sidebarOrder(input, { ...view, groupBy: 'state' }).map((w) => w.id).slice(0, 2)).toEqual(['older', 'asks'])
+  })
+
+  it('narrows to a search like the state groups do', () => {
+    expect(repoGroups(input, { ...view, query: 'qui' }).groups.map((g) => g.items.map((t) => t.ws.id))).toEqual([['quiet']])
+  })
+})
+
+describe('the sidebar’s modes', () => {
+  const org = (memoryRepoId?: string) => ({ organizations: [{ id: 'o1', name: 'Acme', createdAt: ago(1), ...(memoryRepoId ? { memoryRepoId } : {}) }] }) as unknown as AppSnapshot
+
+  it('has Inbox and Work in Personal, and Team and Channels too in an organization with a memory, never Memory', () => {
+    expect(sidebarModes(org('mem'), null)).toEqual(['inbox', 'work'])
+    expect(sidebarModes(org('mem'), 'o1')).toEqual(['inbox', 'work', 'team', 'channels'])
+    expect(sidebarModes(org(), 'o1')).toEqual(['inbox', 'work'])
+  })
+
+  it('falls back to Work for a mode the space hasn’t', () => {
+    expect(shownMode('team', ['inbox', 'work'])).toBe('work')
+    expect(shownMode('inbox', ['inbox', 'work'])).toBe('inbox')
+  })
+
+  it('lists every repository in Work, and all of it unless Later is asked for', () => {
+    const saved: SidebarView = { repo: 'kite', filter: 'needs-you', query: '', showFinished: false }
+    expect(workView(saved)).toMatchObject({ repo: null, filter: 'all' })
+    expect(workView({ ...saved, filter: 'later' }).filter).toBe('later')
   })
 })

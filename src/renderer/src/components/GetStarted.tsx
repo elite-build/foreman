@@ -24,7 +24,7 @@ import {
   recordMilestone,
   setChecklistHidden,
   setChecklistOpen,
-  setSidebarFilter,
+  setSidebarMode,
   showToast,
   useStore,
   getState
@@ -88,7 +88,7 @@ export function showMe(id: ChecklistItemId, t: ReturnType<typeof useT>): void {
     case 'workspace':
       return withRepo((repoId) => openNewWorkspace(repoId))
     case 'needsYou':
-      setSidebarFilter('needs-you')
+      setSidebarMode('inbox')
       return showToast(t('getStarted.needsYou.shown'))
     case 'tiles': {
       if (snapshot?.settings.windowLayout === 'tiles') {

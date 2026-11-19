@@ -900,8 +900,8 @@ textarea.tpl-body {
   column-gap: 8px;
   width: 100%;
 }
-.set-views.three {
-  grid-template-columns: minmax(0, 1fr) repeat(3, 96px) auto;
+.set-views.one {
+  grid-template-columns: minmax(0, 1fr) 96px auto;
 }
 .set-views-row {
   grid-column: 1 / -1;

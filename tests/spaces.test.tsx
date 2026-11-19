@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// Spaces in the window (docs/ai-employees.md §3 and §10): the switcher always there (Personal until an organization
-// exists), New organization… in the sidebar's + menu (the one place things are added), the New organization dialog (one
+// Spaces in the window (docs/ai-employees.md §3 and §10): the rail's space tiles always there (Personal until an
+// organization exists), New organization… under them and in the sidebar's + menu, the New organization dialog (one
 // name and the repositories to bring, the one in view ticked; its memory repository is never shown), and Settings →
 // Spaces, where the memory is linked to GitHub.
 import './domShims'
@@ -8,7 +8,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../src/shared/organizations'
-import { SpaceSwitcher } from '../src/renderer/src/components/spaces/SpaceSwitcher'
+import { SpaceTiles } from '../src/renderer/src/components/spaces/SpaceTiles'
 import { CreateOrganizationDialog } from '../src/renderer/src/components/spaces/CreateOrganizationDialog'
 import { CloneRepoDialog, QuickStartDialog } from '../src/renderer/src/components/AddRepository'
 import { NewMenu } from '../src/renderer/src/components/NewMenu'
@@ -53,61 +53,59 @@ afterEach(() => {
   delete fakeState.sidebarView
 })
 
-describe('the space switcher', () => {
-  it('is there before any organization exists: Personal, with its line first in the menu', async () => {
+describe('the rail’s spaces', () => {
+  const tiles = () => within(screen.getByRole('navigation', { name: 'Spaces' })).getAllByRole('button')
+
+  it('is there before any organization exists: Personal, shown, and + for a new organization', async () => {
     const user = userEvent.setup()
     setSnapshot([], [repo('blog'), repo('dotfiles')])
-    render(<SpaceSwitcher line="2 repositories" />)
-    const trigger = screen.getByRole('button', { name: 'Space: Personal' })
-    expect(trigger.getAttribute('title')).toBe('2 repositories')
-    await user.click(trigger)
-    const menu = screen.getByRole('menu', { name: 'Spaces' })
-    expect(menu.textContent).toMatch(/^2 repositories/)
-    expect(within(menu).getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Personal2 repositories', 'true']])
-    // New organization… is in the sidebar's + menu, not here.
-    expect(screen.queryByRole('menuitem', { name: /New organization…/ })).toBeNull()
+    render(<SpaceTiles />)
+    const personal = screen.getByRole('button', { name: 'Personal' })
+    expect(personal.getAttribute('aria-pressed')).toBe('true')
+    // Its name is under the tile as well, for the eye.
+    expect(screen.getByRole('navigation', { name: 'Spaces' }).textContent).toContain('Personal')
+    await user.click(screen.getByRole('button', { name: 'New organization…' }))
+    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
   })
 
-  it('lists each space with its counts, the current one checked, then Manage', async () => {
+  it('is a tile per space, the shown one pressed, and shows a space when clicked', async () => {
     const user = userEvent.setup()
     setSnapshot([org('o1', 'Foreman', 'foreman-memory'), org('o2', 'XYZ')])
-    render(<SpaceSwitcher />)
-    await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
-    const menu = screen.getByRole('menu', { name: 'Spaces' })
-    const items = within(menu).getAllByRole('menuitemradio')
-    expect(items.map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([
-      ['Personal2 repositories', 'true'],
-      // Code repositories only: the memory repository is never named.
-      ['Foreman1 repository', 'false'],
-      ['XYZ0 repositories', 'false']
+    render(<SpaceTiles />)
+    expect(tiles().map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-pressed')])).toEqual([
+      ['Personal', 'true'],
+      ['Foreman', 'false'],
+      ['XYZ', 'false'],
+      ['New organization…', null]
     ])
-    expect(menu.textContent).not.toContain('memory')
-    await user.click(items[1])
+    // An organization's tile shows its initial; the memory repository is never named.
+    expect(screen.getByRole('button', { name: 'Foreman' }).textContent).toBe('F')
+    expect(screen.getByRole('navigation', { name: 'Spaces' }).textContent).not.toContain('memory')
+    await user.click(screen.getByRole('button', { name: 'Foreman' }))
     expect(spy('setSpace')).toHaveBeenCalledWith('o1')
+  })
 
-    await user.click(screen.getByRole('button', { name: 'Space: Personal' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Manage spaces…' }))
+  it('offers Manage spaces on an organization’s tile, never its memory', async () => {
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
+    fakeState.space = 'o1'
+    render(<SpaceTiles />)
+    const tile = screen.getByRole('button', { name: 'Foreman' })
+    tile.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }))
+    await waitFor(() => expect(screen.getByRole('menu', { name: 'Foreman' })).toBeTruthy())
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Manage spaces…'])
+    screen.getByRole('menuitem', { name: 'Manage spaces…' }).click()
     expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'spaces' })
   })
 
-  it('never offers the memory of the organization shown', async () => {
-    const user = userEvent.setup()
-    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
-    fakeState.space = 'o1'
-    render(<SpaceSwitcher />)
-    await user.click(screen.getByRole('button', { name: 'Space: Foreman' }))
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Manage spaces…'])
-  })
-
-  it('names the current organization, and falls back to Personal when it is gone', () => {
+  it('presses the shown organization, and Personal when it is gone', () => {
     setSnapshot([org('o1', 'Foreman')])
     fakeState.space = 'o1'
-    const { unmount } = render(<SpaceSwitcher />)
-    expect(screen.getByRole('button', { name: 'Space: Foreman' })).toBeTruthy()
+    const { unmount } = render(<SpaceTiles />)
+    expect(screen.getByRole('button', { name: 'Foreman' }).getAttribute('aria-pressed')).toBe('true')
     unmount()
     fakeState.space = 'gone'
-    render(<SpaceSwitcher />)
-    expect(screen.getByRole('button', { name: 'Space: Personal' })).toBeTruthy()
+    render(<SpaceTiles />)
+    expect(screen.getByRole('button', { name: 'Personal' }).getAttribute('aria-pressed')).toBe('true')
   })
 })
 

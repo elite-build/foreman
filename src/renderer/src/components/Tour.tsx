@@ -9,7 +9,7 @@ import { placeCard, TOUR_STEPS, type Rect, type TourAction } from '../../../shar
 import { announce } from '../announce'
 import { useT } from '../i18n'
 import { shortcutHint } from '../shortcuts'
-import { api, attempt, endTour, findTourTarget, goToTourStep, openAssistant, openAutomations, openSettingsPage, setSidebarFilter, useStore } from '../store'
+import { api, attempt, endTour, findTourTarget, goToTourStep, openAssistant, openAutomations, openSettingsPage, setSidebarMode, useStore } from '../store'
 import { Button, Kbd } from '../ui'
 import { useDialogFocus } from './Dialogs'
 import './tour.css'
@@ -151,7 +151,7 @@ function TourCard({ steps, index }: { steps: string[]; index: number }) {
   const act = () => {
     const action = step.action
     endTour()
-    if (action === 'filterNeedsYou') setSidebarFilter('needs-you')
+    if (action === 'filterNeedsYou') setSidebarMode('inbox')
     else if (action === 'switchLayout') void attempt(() => api.updateSettings({ windowLayout: layout === 'tiles' ? 'panes' : 'tiles' }))
     else if (action === 'openAutomations') openAutomations()
     else if (action === 'openAssistant') openAssistant()

@@ -19,7 +19,7 @@ import type { Project } from '../shared/projects'
 import type { ChatItem, Repo, Session, Workspace } from '../shared/types'
 
 export const ORG_ID = 'org-acme'
-const MEMORY_REPO = 'repo-acme-memory'
+export const MEMORY_REPO = 'repo-acme-memory'
 const SITE_REPO = 'repo-site'
 const MAX = 'e-max1'
 const ADA = 'e-ada2'

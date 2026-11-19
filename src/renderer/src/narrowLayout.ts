@@ -13,8 +13,10 @@
 export const CHAT_MIN_WIDTH = 420
 /** The side panel's narrowest width (WorkspaceView.tsx). */
 export const SIDE_PANEL_MIN_WIDTH = 280
-/** The sidebar's default width, its rail included (App.tsx). */
-export const SIDEBAR_DEFAULT_WIDTH = 312
+/** The sidebar's default width, its rail (70 px) included, so its list has about 290 px (App.tsx). */
+export const SIDEBAR_DEFAULT_WIDTH = 360
+/** The sidebar's narrowest width, its rail included: its list keeps about 255 px, so a row's label still shows. */
+export const SIDEBAR_MIN_WIDTH = 320
 /** The window width under which the list folds to its rail: the sidebar, the chat and the side panel at their narrowest. */
 export const LIST_FOLDS_BELOW = SIDEBAR_DEFAULT_WIDTH + CHAT_MIN_WIDTH + SIDE_PANEL_MIN_WIDTH
 /** The workspace's own width under which its side panel opens as a sheet: the chat and the panel at their narrowest. */

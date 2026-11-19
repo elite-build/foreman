@@ -152,6 +152,8 @@ describe('a workspace in the editor layout', () => {
 
 describe('a workspace in three panes', () => {
   it('keeps the header buttons\' names when a narrow column hides their words', () => {
+    // A window wide enough for the header's own buttons (narrowLayout.ts folds them into More under 1060 px).
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1320 })
     setUp('panes')
     render(<WorkspaceView workspaceId="w1" hidden={false} />)
     const header = screen.getByRole('heading', { name: 'acme' }).closest('header')!
@@ -159,6 +161,7 @@ describe('a workspace in three panes', () => {
       const button = within(header).getByRole('button', { name })
       expect(button.querySelector('.btn-label')?.textContent).toBe(name)
     }
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
   })
 
   it('keeps one strip over the chat and the side panel\'s tabs', () => {

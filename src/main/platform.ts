@@ -66,9 +66,13 @@ export function scriptInTerminal(script: string): ShellLaunch {
   return { file: process.env.SHELL || '/bin/zsh', args: ['-l', '-c', script] }
 }
 
-/** Markdown shell snippets use Bash, independently of the user's interactive shell. */
+/**
+ * Markdown shell snippets use Bash, independently of the user's interactive shell. On Windows that is Git Bash:
+ * the first bash.exe on PATH is often WSL's (System32, WindowsApps), which runs the snippet in Linux without the
+ * user's Windows programs.
+ */
 export function shellSnippet(script: string): { file: string; args: string[] } {
-  const bash = isWindows ? findOnPath('bash') : '/bin/bash'
+  const bash = isWindows ? detectShells(realProbe(), '').paths.gitbash : '/bin/bash'
   if (!bash) throw new Error('Install Bash to run shell snippets (for example, Git for Windows)')
   return { file: bash, args: ['--noprofile', '--norc', '-c', script] }
 }

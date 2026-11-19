@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // The shell's riskiest surfaces (design system phase 3, batch B1): the sidebar's rows (open, rename, archive, the
-// right-click menu), the repository rail and its Add menu, the filters, and the command palette.
+// right-click menu), its rail (the spaces, the modes and the tools at its foot), Work by repository or by state, Inbox,
+// the + menu, and the command palette.
 import './domShims'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -31,7 +32,7 @@ beforeEach(() => {
     unread: {},
     unreadSessions: {},
     sidebarView: { repo: null, query: '', filter: 'all', showFinished: false },
-    railNames: false
+    sidebarMode: 'work'
   })
   Object.assign(fakeState.snapshot, {
     platform: 'linux',
@@ -76,19 +77,44 @@ describe('sidebar rows', () => {
     Object.assign(fakeState, { assistantOpen: false })
   })
 
-  it('is one line; the selected row alone shows its branch under it, and the hover card (on focus too) says where it is and its shortcut', () => {
+  it('is titled with what it is for, its first titled chat, and renaming it renames that chat', async () => {
+    const user = userEvent.setup()
+    const sessions = fakeState.snapshot.sessions
+    fakeState.snapshot.sessions = [{ id: 's1', workspaceId: 'w1', title: 'Fix the login redirect', agent: 'claude', model: 'm', status: 'idle', queue: [] }]
+    try {
+      render(<Sidebar />)
+      const titled = screen.getByRole('button', { name: /^Fix the login redirect/ })
+      fireEvent.focus(titled)
+      expect(screen.getByRole('group', { name: 'Fix the login redirect' }).textContent).toContain('kite · fix-login')
+      fakeApi.updateSession = vi.fn(async () => undefined)
+      fireEvent.contextMenu(titled, { clientX: 40, clientY: 40 })
+      await user.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: /rename/i }))
+      const field = (await screen.findByRole('textbox', { name: /rename/i })) as HTMLInputElement
+      expect(field.value).toBe('Fix the login redirect')
+      await user.clear(field)
+      await user.type(field, 'Keep the return path{Enter}')
+      expect(fakeApi.updateSession).toHaveBeenCalledWith('s1', { title: 'Keep the return path' })
+      expect(fakeApi.updateWorkspace).not.toHaveBeenCalled()
+    } finally {
+      fakeState.snapshot.sessions = sessions
+    }
+  })
+
+  it('is one line, selected or not; the hover card (on focus too) says where it is and its shortcut', () => {
     render(<Sidebar />)
     expect(row().querySelector('.ws-sub')).toBeNull()
     fireEvent.focus(row())
     const card = screen.getByRole('group', { name: 'fix-login' })
-    expect(card.textContent).toContain('kite · fix-login')
+    // No chat has a title, so the row is titled with the workspace's name; the card adds its repository (the branch is the name).
+    expect(card.textContent).toContain('kite')
     expect(card.textContent).toContain('Ctrl1 opens it')
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('group', { name: 'fix-login' })).toBeNull()
     cleanup()
+    // The open workspace's row keeps one line too, so the list never changes its rhythm under the pointer.
     fakeState.selectedWorkspaceId = 'w1'
     render(<Sidebar />)
-    expect(row().querySelector('.ws-sub')?.textContent).toContain('kite · fix-login')
+    expect(row().querySelector('.ws-sub')).toBeNull()
   })
 
   it('a click opens the workspace without popping its hover card; keyboard focus still opens it at once', async () => {
@@ -220,32 +246,30 @@ describe('save for later', () => {
 })
 
 describe('sidebar filters and search', () => {
-  it('the filters are a tab list; choosing one sets the filter', async () => {
+  it('Work lists each repository under a heading of its own, its workspaces under it; Group by turns it to states', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)
-    const tabs = screen.getByRole('tablist')
-    expect(within(tabs).getAllByRole('tab')).toHaveLength(4)
-    await user.click(within(tabs).getByRole('tab', { name: /working/i }))
-    expect(spy('setSidebarFilter')).toHaveBeenCalledWith('working')
+    const kite = screen.getByRole('heading', { level: 3, name: 'kite · 1' })
+    expect(within(kite).getByRole('button').getAttribute('aria-expanded')).toBe('true')
+    await user.click(within(kite).getByRole('button'))
+    expect(spy('toggleSidebarGroup')).toHaveBeenCalledWith('repo:r1')
+    await user.click(screen.getByRole('button', { name: 'Group by' }))
+    const menu = screen.getByRole('menu', { name: 'Group by' })
+    expect(within(menu).getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([
+      ['Repository', 'true'],
+      ['State', 'false']
+    ])
+    await user.click(within(menu).getByRole('menuitemradio', { name: 'State' }))
+    expect(spy('setSidebarGroupBy')).toHaveBeenCalledWith('state')
   })
 
-  it('shows the tabs Settings turns on, in its order', () => {
-    fakeState.snapshot.settings.views = [
-      { id: 'pinned', tab: true, lane: false, home: false },
-      { id: 'all', tab: true, lane: false, home: false },
-      { id: 'needs-you', tab: false, lane: true, home: true },
-      { id: 'working', tab: false, lane: true, home: true },
-      { id: 'in-review', tab: true, lane: true, home: false }
-    ]
-    try {
-      render(<Sidebar />)
-      const tabs = within(screen.getByRole('tablist')).getAllByRole('tab')
-      expect(tabs.map((tab) => tab.textContent)).toEqual(['Pinned', 'All', 'In review'])
-      // The saved filter (All) stays selected.
-      expect(tabs[1].getAttribute('aria-selected')).toBe('true')
-    } finally {
-      delete (fakeState.snapshot.settings as { views?: unknown }).views
-    }
+  it('has no filter tabs: a filter saved by the old sidebar lists all of Work', () => {
+    fakeState.sidebarView = { ...fakeState.sidebarView, filter: 'pinned' }
+    render(<Sidebar />)
+    expect(screen.queryByRole('tab', { name: /^All|^Pinned/ })).toBeNull()
+    // fix-login isn't pinned, and is listed.
+    expect(row()).toBeTruthy()
+    fakeState.sidebarView = { ...fakeState.sidebarView, filter: 'all' }
   })
 
   it('Find is a small icon that opens the box in place; typing filters, and Escape clears and closes it, back on the icon', async () => {
@@ -320,6 +344,8 @@ describe('a comparison’s group', () => {
   beforeEach(() => {
     Object.assign(fakeState.snapshot, { workspaces: [member('a', 'Claude'), member('b', 'Codex')], sessions: [asking] })
     fakeState.approvals = [{ id: 'ap', sessionId: 's1', kind: 'tool', toolName: 'Bash' }]
+    // A comparison is a group of its own in Work by state; by repository its workspaces are rows in their repository.
+    fakeState.sidebarView = { ...fakeState.sidebarView, groupBy: 'state' }
   })
   afterEach(() => {
     fakeState.sidebarView = { repo: null, query: '', filter: 'all', showFinished: false }
@@ -427,14 +453,33 @@ describe('the + menu', () => {
   })
 })
 
-describe('sidebar footer', () => {
-  it('shows the running version, which opens Settings at the update check', async () => {
-    fakeState.snapshot.appVersion = '0.1.0'
+describe('the rail’s foot and the list’s footer', () => {
+  it('has Automations, the palette, shortcuts, report a problem, the tour and Settings on the rail, each named with its key', () => {
     render(<Sidebar />)
-    const version = screen.getByRole('button', { name: 'v0.1.0' })
-    expect(version.getAttribute('title')).toBe('Foreman 0.1.0. Open Settings to check for updates.')
-    await userEvent.setup().click(version)
-    expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'general', scrollTo: 'check-for-updates' })
+    const tools = document.querySelector('.rail-tools') as HTMLElement
+    expect(within(tools).getByRole('button', { name: /^Automations/ }).getAttribute('data-tour')).toBe('automations')
+    expect(within(tools).getByRole('button', { name: /^Command palette \(/ })).toBeTruthy()
+    expect(within(tools).getByRole('button', { name: /^Keyboard shortcuts/ })).toBeTruthy()
+    expect(within(tools).getByRole('button', { name: /^Report a problem/ })).toBeTruthy()
+    expect(within(tools).getByRole('button', { name: 'Welcome tour' }).getAttribute('data-tour')).toBe('help')
+    expect(within(tools).getByRole('button', { name: /^Settings \(/ }).getAttribute('data-tour')).toBe('settings')
+  })
+
+  it('shows Archived with its count and the running version, which opens Settings at the update check', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.appVersion = '1.2.3'
+    fakeState.snapshot.workspaces = [ws, { ...ws, id: 'w2', state: 'archived' }]
+    try {
+      render(<Sidebar />)
+      const footer = document.querySelector('.sidebar-footer') as HTMLElement
+      await user.click(within(footer).getByRole('button', { name: 'Archived · 1' }))
+      expect(spy('openOverlay')).toHaveBeenCalledWith('archived')
+      await user.click(within(footer).getByRole('button', { name: 'v1.2.3' }))
+      expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'general', scrollTo: 'check-for-updates' })
+    } finally {
+      fakeState.snapshot.appVersion = undefined
+      fakeState.snapshot.workspaces = [ws]
+    }
   })
 
   it('shows no version without one', () => {
@@ -443,83 +488,34 @@ describe('sidebar footer', () => {
   })
 })
 
-describe('repository rail', () => {
-  it('a repository tile is a toggle button named by the repository', async () => {
-    render(<Sidebar />)
-    const tile = screen.getByRole('button', { name: 'kite' })
-    expect(tile.getAttribute('aria-pressed')).toBe('false')
-    await userEvent.setup().click(tile)
-    expect(spy('showRepoHome')).toHaveBeenCalledWith('r1')
-  })
-
-  it('the narrow rail is tiles alone: the name is the tile’s name and its tooltip', () => {
-    render(<Sidebar />)
-    const tile = screen.getByRole('button', { name: 'kite' })
-    expect(tile.getAttribute('title')).toBe('kite')
-    expect(document.querySelector('.repo-rail.names')).toBeNull()
-    expect(document.querySelector('.rail-name')).toBeNull()
-  })
-
-  it('one toggle shows the names and, pressed again, hides them; nothing opens over the list', async () => {
-    const user = userEvent.setup()
-    const { rerender } = render(<Sidebar />)
-    const toggle = screen.getByRole('button', { name: /^Show repository names \(Ctrl\+Shift\+N\)$/ })
-    expect(toggle.getAttribute('aria-pressed')).toBe('false')
-    await user.click(toggle)
-    expect(spy('toggleRailNames')).toHaveBeenCalledTimes(1)
-    fakeState.railNames = true
-    rerender(<Sidebar />)
-    const pressed = screen.getByRole('button', { name: /^Show repository names/ })
-    expect(pressed.getAttribute('aria-pressed')).toBe('true')
-    await user.click(pressed)
-    expect(spy('toggleRailNames')).toHaveBeenCalledTimes(2)
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
-  it('with names shown, each tile has its name and what is going on in it beside it, as its description', async () => {
-    fakeState.railNames = true
-    render(<Sidebar />)
-    const tile = screen.getByRole('button', { name: 'kite' })
-    const item = tile.closest('.rail-item')!
-    expect(item.querySelector('.rail-name-title')?.textContent).toBe('kite')
-    expect(item.querySelector('.rail-name-line')?.textContent).toBe('1 workspace · main')
-    expect(tile.getAttribute('aria-describedby')).toBe(item.querySelector('.rail-name-line')?.id)
-    // The tooltip would repeat what the rail now says.
-    expect(tile.getAttribute('title')).toBeNull()
-    const all = screen.getByRole('button', { name: 'All repositories' }).closest('.rail-item')!
-    expect(all.querySelector('.rail-name-line')?.textContent).toBe('1 repository')
-    await userEvent.setup().click(tile)
-    expect(spy('showRepoHome')).toHaveBeenCalledWith('r1')
-  })
-
-  it('what needs you is a ▲ and a count on the narrow tile, and words beside the wide one', () => {
-    fakeState.snapshot.workspaces = [{ ...ws, archiveStopped: { step: 'script', detail: 'exit 1', at: '2026-01-01T00:00:00Z' } }]
-    const { rerender } = render(<Sidebar />)
-    const tile = screen.getByRole('button', { name: 'kite · 1 needs you' })
-    const badge = tile.querySelector('.rail-badge')!
-    expect(badge.querySelector('[data-glyph="warn"]')).not.toBeNull()
-    expect(badge.textContent).toBe('1')
-    fakeState.railNames = true
-    rerender(<Sidebar />)
-    const wide = screen.getByRole('button', { name: 'kite · 1 needs you' })
-    expect(wide.querySelector('.rail-badge')).toBeNull()
-    expect(wide.closest('.rail-item')?.querySelector('.rail-name-line')?.textContent).toBe('1 needs you')
-  })
-
-  it('right-click on a tile opens the repository menu', async () => {
+describe('the rail', () => {
+  it('shows the spaces, then the modes as tabs: Inbox and Work in Personal, Work picked', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'kite' }), { clientX: 5, clientY: 5 })
-    const menu = await screen.findByRole('menu', { name: 'kite' })
-    await user.click(within(menu).getByRole('menuitem', { name: /new workspace/i }))
+    expect(within(screen.getByRole('navigation', { name: 'Spaces' })).getByRole('button', { name: 'Personal' }).getAttribute('aria-pressed')).toBe('true')
+    const modes = screen.getByRole('tablist', { name: 'Sidebar' })
+    expect(modes.getAttribute('aria-orientation')).toBe('vertical')
+    expect(within(modes).getAllByRole('tab').map((t) => [t.textContent, t.getAttribute('aria-selected')])).toEqual([
+      ['Inbox', 'false'],
+      ['Work', 'true']
+    ])
+    // The list beside is the picked mode's panel, named by its tab; the title says the space and the mode.
+    expect(screen.getByRole('tabpanel', { name: 'Work' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('PersonalWork')
+    await user.click(within(modes).getByRole('tab', { name: 'Inbox' }))
+    expect(spy('setSidebarMode')).toHaveBeenCalledWith('inbox')
+    // The tour's Needs you step points at Inbox.
+    expect(within(modes).getByRole('tab', { name: 'Inbox' }).getAttribute('data-tour')).toBe('needs-you')
+  })
+
+  it('a repository’s ⋯ opens its menu: a workspace in it, its settings, its path, remove', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+    await user.click(screen.getByRole('button', { name: 'More for kite' }))
+    const menu = screen.getByRole('menu', { name: 'More for kite' })
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['New workspace…', 'Repository settings…', 'Copy path', 'Remove repository…'])
+    await user.click(within(menu).getByRole('menuitem', { name: 'New workspace…' }))
     expect(spy('openNewWorkspace')).toHaveBeenCalledWith('r1')
-  })
-
-  it('names the command palette by its shortcut, with ⌘ for its icon (⌕ is Find)', () => {
-    render(<Sidebar />)
-    const rail = screen.getByRole('navigation', { name: 'Repositories' })
-    expect(within(rail).getByRole('button', { name: /^Command palette \(/ })).toBeTruthy()
-    expect(within(rail).queryByRole('button', { name: 'Find' })).toBeNull()
   })
 })
 
@@ -616,27 +612,22 @@ describe('the sidebar in an organization', () => {
     expect(spy('openNewWorkspace')).not.toHaveBeenCalledWith('mem')
   })
 
-  it('offers New workspace in a code repository’s menu; the memory repository has no tile to open one on', async () => {
+  it('offers New workspace in a code repository’s menu; the memory repository is never listed', async () => {
+    fakeState.snapshot.workspaces = [{ ...ws, repoId: 'site' }]
     render(<Sidebar />)
-    expect(screen.queryByRole('button', { name: /memory/i })).toBeNull()
-    fireEvent.contextMenu(screen.getByRole('button', { name: /^site/ }), { clientX: 5, clientY: 5 })
-    const menu = await screen.findByRole('menu', { name: 'site' })
+    expect(screen.queryByText(/acme-memory/)).toBeNull()
+    expect(screen.getByRole('heading', { level: 3, name: 'site · 1' })).toBeTruthy()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'More for site' }))
+    const menu = await screen.findByRole('menu', { name: 'More for site' })
     expect(within(menu).getByRole('menuitem', { name: /new workspace/i })).toBeTruthy()
     expect(within(menu).getByRole('menuitem', { name: /repository settings/i })).toBeTruthy()
+    fakeState.snapshot.workspaces = [ws]
   })
 
-  it('rings the rail’s tile as Home only while Home is showing, not over the Team, an employee’s or the Memory page', () => {
-    const ringed = () => document.querySelectorAll('.rail-tile-wrap.on-home').length
-    const { rerender } = render(<Sidebar />)
-    expect(ringed()).toBe(1)
-    for (const page of [{ employeesView: { orgId: 'o1', page: 'team' } }, { employeesView: { orgId: 'o1', page: 'employee', id: 'e-max1' } }, { memoryView: 'o1' }, { automations: { selected: null } }]) {
-      Object.assign(fakeState, page)
-      rerender(<Sidebar />)
-      expect(ringed()).toBe(0)
-      Object.assign(fakeState, { memoryView: null, employeesView: null, automations: null })
-    }
-    rerender(<Sidebar />)
-    expect(ringed()).toBe(1)
+  it('has Team and Channels beside Inbox and Work, and never a Memory mode', () => {
+    render(<Sidebar />)
+    expect(within(screen.getByRole('tablist', { name: 'Sidebar' })).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Inbox', 'Work', 'Team', 'Channels'])
+    expect(screen.queryByRole('tab', { name: /memory/i })).toBeNull()
   })
 
   it('never scrolls the list sideways: the hidden archive button sits inside its row', () => {
@@ -657,10 +648,9 @@ describe('the sidebar in an organization', () => {
   })
 })
 
-// The sidebar's top (the 7a sidebar): one row of the space switcher, Automations, Assistant, Find and the one +; then, in
-// the list, Team and Channels (organizations only), the tabs with their counts and the groups, every heading folding the
-// same way. Every count is the shared needs-you count: kite's stopped archive in Personal; in Acme, Ada's question (lima),
-// Max's held push and Ada's memory proposal.
+// The sidebar's top: the space and the mode, Group by (Work), Find and the one +; the rail: the spaces with ▲ where else
+// something waits, the modes with Inbox's ▲. Every count is the shared needs-you count: kite's stopped archive in Personal;
+// in Acme, Ada's question (lima), Max's held push and Ada's memory proposal.
 describe('the sidebar’s heading, rows and counts', () => {
   const memory = { id: 'mem', name: 'acme-memory', rootPath: '/code/acme-memory', defaultBranch: 'main', spaceId: 'o1' }
   const site = { id: 'site', name: 'site', rootPath: '/code/site', defaultBranch: 'main', spaceId: 'o1' }
@@ -680,39 +670,38 @@ describe('the sidebar’s heading, rows and counts', () => {
       employeeWork: { o1: { tasks: [question], runs: [], last: {}, proposals: [proposal], actions: [push], revision: 1 } }
     })
     fakeState.snapshot.settings = { ...fakeState.snapshot.settings, assistantEnabled: true }
-    Object.assign(fakeState, { space: 'o1', memoryView: null, employeesView: null, automations: null, assistantOpen: false, teamOpen: false })
+    Object.assign(fakeState, { space: 'o1', memoryView: null, employeesView: null, automations: null, assistantOpen: false })
   })
   afterEach(() => {
     for (const key of ['organizations', 'employees', 'employeeWork']) delete fakeState.snapshot[key]
-    for (const key of ['space', 'memoryView', 'employeesView', 'automations', 'assistantOpen', 'teamOpen']) delete fakeState[key]
+    for (const key of ['space', 'memoryView', 'employeesView', 'automations', 'assistantOpen']) delete fakeState[key]
+    fakeState.sidebarMode = 'work'
+    fakeState.sidebarView = { repo: null, query: '', filter: 'all', showFinished: false }
   })
 
-  it('starts the top row with the space switcher: the space, where else something waits, and its line as tooltip and menu', async () => {
+  it('names the space and the mode at the top; the rail says where else something waits, and what waits here on Inbox', () => {
     render(<Sidebar />)
-    const heading = screen.getByRole('heading', { level: 2 })
-    const switcher = within(heading).getByRole('button', { name: 'Space: Acme · 1 in Personal' })
-    // "1 repository": site, not the memory repository. The space's own count is on the tab and the rail, not repeated here.
-    expect(switcher.getAttribute('title')).toBe('1 repository')
-    expect(document.querySelector('.space-switcher-line')).toBeNull()
-    await userEvent.setup().click(switcher)
-    expect(screen.getByRole('menu', { name: 'Spaces' }).textContent).toMatch(/^1 repository/)
-    // New organization… is in the + menu, the one place things are added.
-    expect(screen.queryByRole('menuitem', { name: /New organization…/ })).toBeNull()
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('AcmeWork')
+    const spaces = screen.getByRole('navigation', { name: 'Spaces' })
+    // Acme is shown, so its tile says nothing waits (its count is on Inbox); Personal's says kite's stopped archive.
+    expect(within(spaces).getByRole('button', { name: 'Acme' }).getAttribute('aria-pressed')).toBe('true')
+    const personal = within(spaces).getByRole('button', { name: 'Personal · 1 needs you' })
+    expect(personal.querySelector('.rail-badge')?.textContent).toBe('1')
+    const inbox = screen.getByRole('tab', { name: 'Inbox · 3 need you' })
+    expect(inbox.querySelector('.rail-badge')?.textContent).toBe('3')
     expect(screen.queryByText('Nothing running')).toBeNull()
   })
 
-  it('puts the switcher, Automations, the Assistant, Find and + on one row, then Team, Channels and the tabs in the list', () => {
+  it('puts Group by, Find and + in the top row; Automations and the Assistant at the rail’s foot', () => {
     render(<Sidebar />)
     const top = document.querySelector('.sidebar-top') as HTMLElement
-    const names = within(top)
-      .getAllByRole('button')
-      .map((b) => b.getAttribute('aria-label') ?? '')
-    expect(names.map((n) => n.split(' · ')[0])).toEqual(['Space: Acme', 'Automations', 'Assistant', 'Find', 'New'])
+    expect(within(top).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Group by', 'Find', 'New'])
+    const rail = document.querySelector('.sidebar-rail') as HTMLElement
     // Automations and the Assistant are icons whose names carry what the entries' rows said.
-    expect(within(top).getByRole('button', { name: 'Automations · templates & schedules' })).toBeTruthy()
-    expect(within(top).getByRole('button', { name: /^Assistant/ }).getAttribute('aria-keyshortcuts')).toBe('Control+Shift+A')
-    // Top to bottom: the row, Team, Channels, the tabs, the groups.
-    const order = ['.sidebar-top', '.team-section', '.projects-section', '.sidebar-filters', '.ws-group'].map((s) => document.querySelector(s)!)
+    expect(within(rail).getByRole('button', { name: 'Automations · templates & schedules' })).toBeTruthy()
+    expect(within(rail).getByRole('button', { name: /^Assistant/ }).getAttribute('aria-keyshortcuts')).toBe('Control+Shift+A')
+    // Top to bottom on the rail: the spaces, the modes, the tools.
+    const order = ['.rail-spaces', '.rail-modes', '.rail-tools'].map((sel) => rail.querySelector(sel)!)
     for (let i = 1; i < order.length; i++) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
@@ -735,24 +724,24 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(screen.queryByRole('button', { name: 'New channel' })).toBeNull()
   })
 
-  it('hides Team and Channels while Find has text, so the matches are at the top', () => {
+  it('finds in Work: the matches alone, under their repository', () => {
+    // Find matches a workspace's name as well as what it is for (the row's title).
     fakeState.sidebarView = { ...fakeState.sidebarView, query: 'lima' }
     render(<Sidebar />)
-    expect(document.querySelector('.team-section')).toBeNull()
-    expect(document.querySelector('.projects-section')).toBeNull()
-    expect(screen.getByRole('button', { name: /^lima/ })).toBeTruthy()
-    fakeState.sidebarView = { repo: null, query: '', filter: 'all', showFinished: false }
+    expect(screen.getByRole('button', { name: /^Which day does 2\.4 launch\?/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Write the launch post/ })).toBeNull()
+    // A search lists what it found: the heading is plain, not a fold.
+    expect(screen.getByRole('heading', { level: 3, name: 'site · 1' }).querySelector('button')).toBeNull()
   })
 
-  it('says how many need you on the Needs you tab, with ▲, and lists the push and the proposal as rows in Needs your attention', async () => {
+  it('lists in Inbox what waits, oldest first: the push, Ada’s question and the proposal, each with its hat', async () => {
+    fakeState.sidebarMode = 'inbox'
     render(<Sidebar />)
-    const tab = screen.getByRole('tab', { name: 'Needs you · 3' })
-    expect(tab.querySelector('[data-glyph="warn"]')).not.toBeNull()
-    const group = screen.getByRole('region', { name: 'Needs your attention' })
-    expect(within(group).getByRole('button', { name: 'Needs your attention · 3' })).toBeTruthy()
-    // Oldest first: the push (09:20), Ada's question in lima (09:35), the proposal (09:40).
-    const rows = within(group).getAllByRole('button').filter((b) => b.classList.contains('ws-flow'))
-    expect(rows.map((r) => r.querySelector('.ws-title')?.textContent)).toEqual(['Push of max/launch-2.4', 'lima', 'Memory proposal'])
+    const panel = screen.getByRole('tabpanel', { name: 'Inbox · 3 need you' })
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('AcmeInbox')
+    // Oldest first: the push (09:20), Ada's question in lima (09:35, titled with her task), the proposal (09:40).
+    const rows = within(panel).getAllByRole('button').filter((b) => b.classList.contains('ws-flow'))
+    expect(rows.map((r) => r.querySelector('.ws-title')?.textContent)).toEqual(['Push of max/launch-2.4', 'Which day does 2.4 launch?', 'Memory proposal'])
     expect(rows[0].querySelector('.ws-label')?.textContent).toBe('Held action · leaves this computer')
     expect(rows[2].querySelector('.ws-label')?.textContent).toBe('Memory proposal · PROJECT.md')
     // Each says whose it is by hat on its one line; its hover card (on focus too) says who, the repository and how long.
@@ -764,9 +753,27 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(card.textContent).toContain('Max · site')
     await userEvent.setup().click(rows[0])
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
+    // What waits in Personal is a link under the list, to that space's Inbox.
+    await userEvent.setup().click(within(panel).getByRole('button', { name: 'Personal · 1 needs you' }))
+    expect(spy('setSpace')).toHaveBeenCalledWith(null, { home: false })
   })
 
-  it('heads every group with one button that folds it, by click, Enter or Space, remembered, and still says ▲ 3 folded', async () => {
+  it('says so when nothing waits in Inbox', () => {
+    fakeState.sidebarMode = 'inbox'
+    Object.assign(fakeState.snapshot, { organizations: [], repos: [repo], workspaces: [ws], employees: undefined, employeeWork: undefined })
+    fakeState.space = null
+    render(<Sidebar />)
+    expect(screen.getByText('Nothing needs you in Personal.')).toBeTruthy()
+  })
+
+  it('in Work, a line above the repositories says how much waits in Inbox, and goes there', async () => {
+    render(<Sidebar />)
+    await userEvent.setup().click(screen.getByRole('button', { name: '3 need you in Inbox' }))
+    expect(spy('setSidebarMode')).toHaveBeenCalledWith('inbox')
+  })
+
+  it('by state, heads every group with one button that folds it, by click, Enter or Space, remembered, and still says ▲ 3 folded', async () => {
+    fakeState.sidebarView = { ...fakeState.sidebarView, groupBy: 'state' }
     render(<Sidebar />)
     const group = screen.getByRole('region', { name: 'Needs your attention' })
     const fold = within(group).getByRole('button', { name: 'Needs your attention · 3' })
@@ -792,94 +799,101 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(head.querySelector('.sb-head-need [data-glyph="warn"]')).not.toBeNull()
     expect(document.getElementById(head.getAttribute('aria-controls')!)!.hidden).toBe(true)
     // The other groups stay open.
-    expect(screen.getByRole('button', { name: /^kyoto/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Write the launch post/ })).toBeTruthy()
     cleanup()
 
-    // A filter lists exactly what it found: no fold, every row shown.
-    fakeState.sidebarView = { ...fakeState.sidebarView, filter: 'needs-you' }
+    // A search lists exactly what it found: no fold, every row shown.
+    fakeState.sidebarView = { ...fakeState.sidebarView, query: 'l' }
     render(<Sidebar />)
-    const filtered = screen.getByRole('region', { name: 'Needs your attention' })
-    expect(within(filtered).queryByRole('button', { name: /^Needs your attention/ })).toBeNull()
-    expect(within(filtered).getAllByRole('button').filter((b) => b.classList.contains('ws-flow'))).toHaveLength(3)
-    fakeState.sidebarView = { repo: null, query: '', filter: 'all', showFinished: false }
+    const found = screen.getByRole('region', { name: 'Needs your attention' })
+    expect(within(found).queryByRole('button', { name: /^Needs your attention/ })).toBeNull()
+    expect(within(found).getAllByRole('button').filter((b) => b.classList.contains('ws-flow'))).toHaveLength(3)
   })
 
-  it('folds Team and Channels with the same kind of heading, and opens pages only from the links under them', async () => {
+  it('lists the team in Team and the channels in Channels, each with the link that opens its page', async () => {
     const user = userEvent.setup()
-    Object.assign(fakeState, { teamOpen: true, projectsOpen: true })
+    fakeState.sidebarMode = 'team'
     render(<Sidebar />)
-    const team = screen.getByRole('region', { name: 'Team' })
-    // Two employees; Ada's question and proposal and Max's push wait (folded, the heading would say ▲ 3).
-    const teamHead = within(team).getByRole('button', { name: 'Team · 2' })
-    expect(teamHead.getAttribute('aria-expanded')).toBe('true')
-    await user.click(teamHead)
-    teamHead.focus()
-    await user.keyboard('{Enter}')
-    expect(spy('toggleTeamOpen')).toHaveBeenCalledTimes(2)
-    expect(spy('openEmployees')).not.toHaveBeenCalled()
-    await user.click(within(team).getByRole('button', { name: 'Team page' }))
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('AcmeTeam')
+    const team = screen.getByRole('list', { name: 'Employees of Acme' })
+    expect(within(team).getAllByRole('button').map((b) => b.getAttribute('aria-label')?.split(' · ')[0])).toEqual(['Ada', 'Max'])
+    // Team and Channels have no Find and no Group by: the top row is the title and +.
+    expect(within(document.querySelector('.sidebar-top') as HTMLElement).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['New'])
+    await user.click(screen.getByRole('button', { name: 'Team page' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
-    const channels = screen.getByRole('region', { name: 'Channels' })
-    const channelsHead = within(channels).getByRole('button', { name: 'Channels · 1' })
-    channelsHead.focus()
-    await user.keyboard(' ')
-    expect(spy('toggleProjectsOpen')).toHaveBeenCalledTimes(1)
-    await user.click(within(channels).getByRole('button', { name: 'All channels' }))
+    cleanup()
+    fakeState.sidebarMode = 'channels'
+    render(<Sidebar />)
+    expect(screen.getByRole('list', { name: 'Channels in Acme' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'All channels' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channels' })
-    for (const key of ['projectsOpen']) delete fakeState[key]
   })
 
   it('marks the Team page and All channels links while their page is open', () => {
-    Object.assign(fakeState, { teamOpen: true, projectsOpen: true, employeesView: { orgId: 'o1', page: 'team' } })
+    Object.assign(fakeState, { sidebarMode: 'team', employeesView: { orgId: 'o1', page: 'team' } })
     render(<Sidebar />)
     expect(screen.getByRole('button', { name: 'Team page' }).getAttribute('aria-current')).toBe('page')
-    expect(screen.getByRole('button', { name: 'All channels' }).getAttribute('aria-current')).toBeNull()
     cleanup()
-    fakeState.employeesView = { orgId: 'o1', page: 'channels' }
+    Object.assign(fakeState, { sidebarMode: 'channels', employeesView: { orgId: 'o1', page: 'channels' } })
     render(<Sidebar />)
-    expect(screen.getByRole('button', { name: 'Team page' }).getAttribute('aria-current')).toBeNull()
     expect(screen.getByRole('button', { name: 'All channels' }).getAttribute('aria-current')).toBe('page')
-    delete fakeState.projectsOpen
+    cleanup()
+    fakeState.employeesView = { orgId: 'o1', page: 'team' }
+    render(<Sidebar />)
+    expect(screen.getByRole('button', { name: 'All channels' }).getAttribute('aria-current')).toBeNull()
   })
 
-  it('shows an employee’s run on one line, with its hat at the end, and the question it asks', () => {
+  it('shows an employee’s run on one line, titled with its task, with its hat at the end, and the question it asks', () => {
     render(<Sidebar />)
-    const limaRow = screen.getByRole('button', { name: /^lima/ })
+    const limaRow = screen.getByRole('button', { name: /^Which day does 2\.4 launch\?/ })
     const label = limaRow.querySelector('.ws-label')!
     expect(limaRow.querySelector('.ws-hat svg.ui-hard-hat')).not.toBeNull()
     expect(label.textContent).toBe('Ada asks · Which day does Atlas 2.4 launch?')
     // A run that needs nothing still says whose it is.
-    const kyotoRow = screen.getByRole('button', { name: /^kyoto/ })
-    expect(kyotoRow.querySelector('.ws-label')?.textContent).toBe('Max’s run · Write the launch post')
+    const kyotoRow = screen.getByRole('button', { name: /^Write the launch post/ })
+    expect(kyotoRow.querySelector('.ws-label')?.textContent).toBe('Max’s run')
+    // Its name and branch are in its hover card.
+    fireEvent.focus(kyotoRow)
+    expect(screen.getByRole('group', { name: 'Write the launch post' }).textContent).toContain('site · kyoto · max/launch-2.4')
   })
 
-  it('never shows the memory repository on the rail, and counts what waits on it (a proposal) on All', () => {
+  it('counts what a project waits on on the Channels tab, not Inbox: it is in its channel', () => {
+    const planning = { id: 'p1', orgId: 'o1', slug: 'csv', title: 'CSV', requirement: 'CSV', repoId: 'site', pmId: 'ada', phase: 'planning', plans: [], parts: {}, replans: 0, steps: [], artifacts: {}, waits: [{ id: 'w', kind: 'plan', since: NOW }], decisions: [], notes: [], createdAt: NOW, updatedAt: NOW }
+    fakeState.snapshot.projects = { o1: [planning] }
+    try {
+      render(<Sidebar />)
+      const channels = screen.getByRole('tab', { name: 'Channels · 1 needs you' })
+      expect(channels.querySelector('.rail-badge')?.textContent).toBe('1')
+      // Inbox keeps its 3: the plan isn't a row there.
+      expect(screen.getByRole('tab', { name: 'Inbox · 3 need you' })).toBeTruthy()
+    } finally {
+      delete fakeState.snapshot.projects
+    }
+  })
+
+  it('never shows the memory repository, and counts what waits on it (a proposal) on Inbox', () => {
     render(<Sidebar />)
-    expect(screen.getByRole('button', { name: 'All repositories · 3 need you' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'site · 2 need you' })).toBeTruthy()
-    const rail = screen.getByRole('navigation', { name: /repositor/i })
-    expect(within(rail).queryByRole('button', { name: /memory/i })).toBeNull()
-    expect(rail.textContent).not.toContain('acme-memory')
+    expect(screen.getByRole('tab', { name: 'Inbox · 3 need you' })).toBeTruthy()
+    expect(document.querySelector('.sidebar')!.textContent).not.toContain('acme-memory')
+    expect(screen.queryByRole('button', { name: /memory/i })).toBeNull()
   })
 
-  it('in Personal: no Team row, its own count, and the heading points to Acme’s 3', () => {
+  it('in Personal: no Team or Channels, its own count on Inbox, and Acme’s 3 on Acme’s tile', () => {
     fakeState.space = null
     render(<Sidebar />)
-    expect(document.querySelector('.team-section')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Space: Personal · 3 in Acme' }).getAttribute('title')).toBe('1 repository')
-    expect(screen.getByRole('tab', { name: 'Needs you · 1' })).toBeTruthy()
-    // No Team or Channels, so no employee or channel in the + menu either.
-    expect(document.querySelector('.projects-section')).toBeNull()
+    expect(within(screen.getByRole('tablist', { name: 'Sidebar' })).getAllByRole('tab').map((t) => t.getAttribute('aria-label') ?? t.textContent)).toEqual(['Inbox · 1 needs you', 'Work'])
+    expect(screen.getByRole('button', { name: 'Acme · 3 need you' })).toBeTruthy()
     expect(screen.queryByText('Memory proposal')).toBeNull()
   })
 
-  it('with no organization, shows nothing of employees: Personal, its repositories, no Team row and no ▲ elsewhere', () => {
+  it('with no organization, shows nothing of employees: Personal alone, and no ▲ elsewhere', () => {
     Object.assign(fakeState.snapshot, { organizations: [], repos: [repo], workspaces: [ws], employees: undefined, employeeWork: undefined })
     fakeState.space = null
     render(<Sidebar />)
-    expect(screen.getByRole('button', { name: 'Space: Personal' }).getAttribute('title')).toBe('1 repository')
-    expect(document.querySelector('.team-section')).toBeNull()
-    expect(document.querySelector('.space-switcher-elsewhere')).toBeNull()
+    const spaces = screen.getByRole('navigation', { name: 'Spaces' })
+    expect(within(spaces).getByRole('button', { name: 'Personal' }).getAttribute('aria-pressed')).toBe('true')
+    expect(spaces.querySelector('.rail-badge')).toBeNull()
+    expect(screen.queryByRole('tab', { name: /Team|Channels/ })).toBeNull()
   })
 
   it('keeps the + menu to what Personal has: no employee or channel', async () => {
