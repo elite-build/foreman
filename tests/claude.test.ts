@@ -6,6 +6,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { tempDir } from './helpers'
+import { employeeRepoMcp, employeeUserSetup, envValue, expandVars } from '../src/main/agents/claude/employeeSetup'
 
 // No Claude Code here: `query` is replaced by a fake whose messages each test pushes in.
 const sdk = vi.hoisted(() => ({ query: vi.fn(), tool: vi.fn(() => ({})), createSdkMcpServer: vi.fn(() => ({})) }))
@@ -901,6 +902,31 @@ describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
     expect(sdk.query.mock.calls[0][0].options.settingSources).toEqual(['user', 'project', 'local'])
     claude.push(result)
     await run
+  })
+})
+
+describe('what an employee’s Claude run takes from outside Foreman (docs/ai-employees.md §9)', () => {
+  it('finds variables whatever their case on Windows, as Claude Code does, and by exact name elsewhere', () => {
+    const env = { Path: 'C:\\bin', ClAuDe_CoNfIg_DiR: 'C:\\cfg' }
+    expect(envValue(env, 'PATH', 'win32')).toBe('C:\\bin')
+    expect(envValue(env, 'PATH', 'linux')).toBeUndefined()
+    const missing = new Set<string>()
+    expect(expandVars('${PATH};${NOPE:-x};${GONE}', env, missing, 'win32')).toBe('C:\\bin;x;')
+    expect([...missing]).toEqual(['GONE'])
+    expect(expandVars('${PATH}', env, undefined, 'darwin')).toBe('')
+  })
+
+  it('reads the user settings where CLAUDE_CONFIG_DIR says, whatever its case on Windows, and keeps the person’s own approvals of project servers', async () => {
+    const config = await tempDir()
+    await writeFile(path.join(config, 'settings.json'), JSON.stringify({ apiKeyHelper: 'key.sh', enabledMcpjsonServers: ['docs'], disabledMcpjsonServers: ['noisy'], hooks: { Stop: [] } }))
+    const setup = employeeUserSetup({ claude_config_dir: config }, '/nowhere', 'win32')
+    expect(setup.settings).toEqual({ apiKeyHelper: 'key.sh' })
+    expect(setup.mcpApproval).toEqual({ enabledMcpjsonServers: ['docs'], disabledMcpjsonServers: ['noisy'] })
+    const dir = await tempDir()
+    await writeFile(path.join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { docs: { command: 'docs-mcp' }, noisy: { command: 'noisy-mcp' }, other: { command: 'other-mcp' } } }))
+    // Approved by the person's own settings only: docs starts; noisy they rejected; other nobody approved.
+    expect(Object.keys(employeeRepoMcp({ cwd: dir, env: {}, user: setup.mcpApproval }).servers)).toEqual(['docs'])
+    expect(employeeRepoMcp({ cwd: dir, env: {} }).servers).toEqual({})
   })
 })
 

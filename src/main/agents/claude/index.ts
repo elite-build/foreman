@@ -620,7 +620,7 @@ class ClaudeTurn implements AgentTurn {
               // Questions go through our own tool so the app can render them. Read-only also drops leaving plan mode and writing.
               disallowedTools: [...(req.readOnly ? ['AskUserQuestion', ...READ_ONLY_DENIED] : ['AskUserQuestion']), ...disabledMcpTools(req.disabledMcp)],
               mcpServers: {
-                ...(user ? this.employeeRepoServers(env) : {}),
+                ...(user ? this.employeeRepoServers(env, user.mcpApproval) : {}),
                 ...repoMcpConfig(req.mcpServers),
                 ...inProcessMcpConfig(req.inProcessMcp),
                 foreman: createSdkMcpServer({ name: 'foreman', version: '1.0.0', tools: [questions, ...reviewTools, ...followupTools, ...reportTools] })
@@ -1094,8 +1094,8 @@ class ClaudeTurn implements AgentTurn {
    * docs/ai-employees.md §9: an employee's run's servers from the repository's .mcp.json, expanded from the turn's own
    * environment (never the app's, which holds what the turn's environment leaves out). A variable that isn't set is said.
    */
-  private employeeRepoServers(env: Record<string, string>): Record<string, McpServerConfig> {
-    const repo = employeeRepoMcp({ cwd: this.req.cwd, repoRoot: this.req.repoRoot, env, off: this.req.disabledMcp })
+  private employeeRepoServers(env: Record<string, string>, user: Record<string, unknown>): Record<string, McpServerConfig> {
+    const repo = employeeRepoMcp({ cwd: this.req.cwd, repoRoot: this.req.repoRoot, env, off: this.req.disabledMcp, user })
     if (repo.missing.length) this.notice('info', translate(this.req.locale ?? 'en', 'chat.employeeMcp.unset', { names: repo.missing.join(', ') }))
     return repo.servers
   }

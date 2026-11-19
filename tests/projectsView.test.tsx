@@ -835,12 +835,33 @@ describe('a project’s workspace and what it published', () => {
     const { unmount } = render(<ProjectPage orgId="o1" project={shipped} />)
     const card = screen.getByRole('button', { name: /^Approve and close/ }).closest('.decision-card') as HTMLElement
     expect(within(card).getByText('Published: pull request #7')).toBeTruthy()
-    expect(within(card).getByText('Published: pushed ravi/csv')).toBeTruthy()
+    expect(within(card).getByText('Published: a push of ravi/csv')).toBeTruthy()
+    expect(within(card).queryByText(/^Nothing published yet/)).toBeNull()
     unmount()
     const none = final()
     setSnapshot([none], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
-    render(<ProjectPage orgId="o1" project={none} />)
+    const second = render(<ProjectPage orgId="o1" project={none} />)
     expect(screen.getByText(/^Nothing published yet/)).toBeTruthy()
+    second.unmount()
+    // Only what was sent is published: a held pull request and a failed push say so, and nothing is published yet.
+    const waiting = final([
+      { kind: 'pull-request', employeeId: 'e-rav1', taskId: 't2', state: 'held', branch: 'ravi/csv', at: '2026-11-15T10:30:00.000Z' },
+      { kind: 'push', employeeId: 'e-rav1', taskId: 't2', state: 'failed', at: '2026-11-15T10:29:00.000Z' }
+    ])
+    setSnapshot([waiting], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    const third = render(<ProjectPage orgId="o1" project={waiting} />)
+    const held = screen.getByRole('button', { name: /^Approve and close/ }).closest('.decision-card') as HTMLElement
+    expect(within(held).getByText(/^Nothing published yet/)).toBeTruthy()
+    expect(within(held).getByText('Held for you, not published: a pull request')).toBeTruthy()
+    expect(within(held).getByText('Not published, it failed: a push of the branch')).toBeTruthy()
+    expect(within(held).queryByText(/^Published:/)).toBeNull()
+    third.unmount()
+    // One whose sending can't be told may have been published.
+    const unsure = final([{ kind: 'pull-request', employeeId: 'e-rav1', taskId: 't2', state: 'uncertain', link: 'https://github.com/acme/site/pull/8', at: '2026-11-15T10:30:00.000Z' }])
+    setSnapshot([unsure], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={unsure} />)
+    expect(screen.getByText(/^May have been published: pull request #8/)).toBeTruthy()
+    expect(screen.queryByText(/^Nothing published yet/)).toBeNull()
   })
 
   it('says when a part that shouldn’t change the repository did', () => {

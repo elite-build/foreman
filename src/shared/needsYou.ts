@@ -170,7 +170,7 @@ export function inChannel(item: NeedsYouItem, projectTasks: ReadonlySet<string>)
 export interface ProjectAttention {
   id: string
   // What makes it a new thing to tell the person: its id, and for a task the question it asks (a second question on the
-  // same task is new) or, with none, when it last changed.
+  // same task is new) or, with none, why it waits (taskKey), never when it was last saved.
   key: string
   kind: 'wait' | 'question' | 'task' | 'action'
   orgId: string
@@ -181,6 +181,14 @@ export interface ProjectAttention {
   action?: EmployeeAction
   // Whose it is: the employee whose task asks or holds; for a wait, the program manager when it is hers (questions, plan).
   employeeId?: string
+}
+
+/**
+ * What makes a task's wait a new thing to tell: the question it asks, or else why it waits (its state, what it waits on,
+ * its hold and reason). Bookkeeping saves move `updatedAt` while it waits, so that would tell the same wait again.
+ */
+export function taskKey(task: Pick<EmployeeTask, 'id' | 'question' | 'state' | 'waitingOn' | 'hold' | 'reason'>): string {
+  return task.question ? `task:${task.id}:q:${task.question.id}` : `task:${task.id}:${task.state}:${task.waitingOn ?? ''}:${task.hold ?? ''}:${task.reason ?? ''}`
 }
 
 /**
@@ -199,7 +207,7 @@ export function projectItems(orgId: string, project: Project, work: Pick<Employe
   }
   const asked = projectAsks(project, work)
   for (const task of asked.tasks) {
-    out.push({ id: `task:${task.id}`, key: `task:${task.id}:${task.question?.id ?? task.updatedAt}`, kind: task.question ? 'question' : 'task', orgId, project, since: task.question?.askedAt ?? task.updatedAt, task, employeeId: task.employeeId })
+    out.push({ id: `task:${task.id}`, key: taskKey(task), kind: task.question ? 'question' : 'task', orgId, project, since: task.question?.askedAt ?? task.updatedAt, task, employeeId: task.employeeId })
   }
   for (const action of asked.actions) {
     out.push({ id: `action:${action.id}`, key: `action:${action.id}`, kind: 'action', orgId, project, since: action.createdAt, action, employeeId: action.employeeId })

@@ -29,7 +29,7 @@ import { joinWorkspace } from '../../../../shared/openIn'
 import type { ArchivedWork, Workspace } from '../../../../shared/types'
 import { projectNeeds } from '../../../../shared/needsYou'
 import { findScmLink } from '../../../../shared/scm'
-import { gateNoteTo, isArchived, lastApproval, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, waitingOnRepo, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
+import { gateNoteTo, isArchived, lastApproval, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, waitingOnRepo, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPublication, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openArchivedChats, openEmployees, openMemory, restoreArchived, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, ChipButton, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
@@ -379,7 +379,7 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
       key: `published:${i}`,
       node: (
         <Post who={who(p.employeeId)} colour={e?.colour} role={e?.role} at={p.at}>
-          <p className="channel-text">{p.kind === 'push' ? t('projects.published.push', { branch: p.branch ?? '' }) : p.title ? t('projects.published.prTitled', { title: p.title }) : t('projects.published.pr')}</p>
+          <p className="channel-text">{p.kind === 'push' ? (p.branch ? t('projects.published.push', { branch: p.branch }) : t('projects.published.pushAny')) : p.title ? t('projects.published.prTitled', { title: p.title }) : t('projects.published.pr')}</p>
           <span className="employee-card-actions">
             <Status tone={ACTION_STATE_TONE[p.state]} label={t(ACTION_STATE_LABEL[p.state])} />
             {p.via === 'shell' && <span className="employee-faint">{t('projects.published.shell')}</span>}
@@ -1062,30 +1062,46 @@ function WaitCard({ orgId, project, wait, names, roster, pmName, onStop }: { org
   )
 }
 
+// What the final check says of each push or pull request, by the state Foreman recorded: only one that was sent was
+// published; one whose sending can't be told may have been.
+type FinalStateKey = 'projects.final.state.sent' | 'projects.final.state.uncertain' | 'projects.final.state.held' | 'projects.final.state.approved' | 'projects.final.state.failed' | 'projects.final.state.notSent'
+const FINAL_STATE: Record<ProjectPublication['state'], FinalStateKey> = {
+  sent: 'projects.final.state.sent',
+  uncertain: 'projects.final.state.uncertain',
+  held: 'projects.final.state.held',
+  approved: 'projects.final.state.approved',
+  failed: 'projects.final.state.failed',
+  skipped: 'projects.final.state.notSent',
+  refused: 'projects.final.state.notSent'
+}
+
 /**
  * At the final check, what the project actually published (docs/ai-employees.md §15): each push or pull request of its
- * runs, through Foreman or from the publisher's shell, with the state Foreman recorded and its link; or that nothing was.
+ * runs, through Foreman or from the publisher's shell, said by its state ("Published:" only for one that was sent) with
+ * its link; and "Nothing published yet" while none was sent or may have been.
  */
 function FinalPublished({ project }: { project: Project }) {
   const t = useT()
   const list = project.published ?? []
-  if (!list.length) return <p className="employee-faint">{t('projects.final.nothingPublished')}</p>
+  const published = list.some((p) => p.state === 'sent' || p.state === 'uncertain')
   return (
     <>
+      {!published && <p className="employee-faint">{t('projects.final.nothingPublished')}</p>}
       {list.map((p, i) => {
         const link = p.link ? findScmLink(p.link) : null
         const what =
           p.kind === 'push'
-            ? t('projects.final.publishedPush', { branch: p.branch ?? '' })
+            ? p.branch
+              ? t('projects.final.pushBranch', { branch: p.branch })
+              : t('projects.final.pushAny')
             : link?.kind === 'pr'
               ? link.gitlabHost
-                ? t('projects.final.publishedMr', { number: link.number })
-                : t('projects.final.publishedPr', { number: link.number })
-              : t('projects.final.publishedPrUntitled')
+                ? t('projects.final.mrNumber', { number: link.number })
+                : t('projects.final.prNumber', { number: link.number })
+              : t('projects.final.prAny')
         return (
           <span key={i} className="employee-card-actions">
-            <span>{what}</span>
-            <Status tone={ACTION_STATE_TONE[p.state]} label={t(ACTION_STATE_LABEL[p.state])} />
+            <span>{t(FINAL_STATE[p.state], { what })}</span>
             {p.via === 'shell' && <span className="employee-faint">{t('projects.published.shell')}</span>}
             {p.link && (
               <LinkButton size="sm" underline onClick={() => void api.openExternal(p.link!)}>

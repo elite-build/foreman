@@ -73,6 +73,7 @@ import { IntegrationBridge } from './integrationBridge'
 import type { ForemanMcp } from './foremanMcp'
 import type { IdentityChange } from '../shared/integrations'
 import { ORIGIN_APPROVED, ORIGIN_UNAPPROVED, type RepoMcp } from './repoMcp'
+import { brokeredOnlyServer } from '../shared/integrations'
 import { git } from './git'
 import { localOnly, workspaceTarget } from './runtime'
 import { branchPrefix } from './github'
@@ -1571,7 +1572,7 @@ export class SessionService {
     if (handOff && session.handOffPending) this.recordHandOff(session, before, session.handOffPending, handOff, turnId)
     const sizes = await Promise.all(attachments.map(async (a) => ({ name: a.name, bytes: await stat(a.path).then((i) => i.size, () => undefined) })))
     // #20: the approved repo servers this agent gets; the receipt names them when the set changed since this tab's last turn.
-    const repoMcp = this.repoMcpFor(session, ws, persona?.mcp)
+    const repoMcp = this.repoMcpFor(session, ws, persona?.mcp, Boolean(employee))
     const t = this.t()
     const added = contextParts({
       instructions: baseInstructions,
@@ -1687,9 +1688,12 @@ export class SessionService {
    * #20: the repo MCP servers a turn of this tab gets (approved as they are now, with only their declared variables),
    * for agents that take them. `changed` lists their names when the set differs from the tab's last turn ([] = none now).
    */
-  private repoMcpFor(session: Session, ws: Workspace, keep?: string[]): { servers?: Record<string, McpLaunch>; changed?: string[] } {
+  private repoMcpFor(session: Session, ws: Workspace, keep?: string[], employee = false): { servers?: Record<string, McpLaunch>; changed?: string[] } {
     const proposed = this.takesMcp(session.agent) ? this.repoMcp?.launchable(ws) ?? {} : {}
-    const allowed = this.integrations?.filterRepoServers(ws.repoId, proposed) ?? proposed
+    const filtered = this.integrations?.filterRepoServers(ws.repoId, proposed) ?? proposed
+    // docs/ai-employees.md §9: an AI employee's run posts to Slack and Linear only through Foreman's connections, so a
+    // repository server for either is left out, whether or not Foreman has a connection or the repository allows its own.
+    const allowed = employee ? Object.fromEntries(Object.entries(filtered).filter(([name, config]) => !brokeredOnlyServer(name, config))) : filtered
     // A flow step's persona keeps only the servers it names, never more than the approvals give.
     const servers = keep ? Object.fromEntries(Object.entries(allowed).filter(([name]) => keep.includes(name))) : allowed
     const names = Object.keys(servers).sort()

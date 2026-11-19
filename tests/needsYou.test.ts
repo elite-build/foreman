@@ -2,7 +2,7 @@
 // each organization's employee questions, held actions, proposals and pauses; each thing once; counted by space,
 // repository and employee, so every surface says the same number. The fixture is the screenshots': Personal 1, Acme 3.
 import { describe, expect, it } from 'vitest'
-import { employeeKey, inChannel, itemsInSpace, needsYouCounts, needsYouItems, projectAsks, projectAttention, projectAttentionWords, projectNeeds, projectTaskIds } from '../src/shared/needsYou'
+import { employeeKey, inChannel, itemsInSpace, needsYouCounts, needsYouItems, projectAsks, projectAttention, projectAttentionWords, projectNeeds, projectTaskIds, taskKey } from '../src/shared/needsYou'
 import { createT } from '../src/shared/i18n'
 import { triageAll, type TriageInput } from '../src/shared/triage'
 import type { EmployeeAction } from '../src/shared/employeeActions'
@@ -202,7 +202,11 @@ describe('what projects wait on the person for, everywhere but the window (docs/
       ['project:sidebar:w2', 'wait', 'sidebar', undefined]
     ])
     // A task's question is part of what makes it new: a second question on the same task is told again.
-    expect(items.find((i) => i.kind === 'question')?.key).toBe('task:date:q')
+    expect(items.find((i) => i.kind === 'question')?.key).toBe('task:date:q:q')
+    // A task waiting with no question keys on why it waits, not on when it was last saved.
+    const stuck = task({ id: 'stuck', employeeId: 'ada', state: 'waiting', waitingOn: 'person', reason: 'It asked for an approval nobody can give.' })
+    expect(taskKey({ ...stuck, updatedAt: ago(1) } as EmployeeTask)).toBe(taskKey(stuck))
+    expect(taskKey({ ...stuck, reason: 'Refused: no repository access.' })).not.toBe(taskKey(stuck))
     expect(items.find((i) => i.kind === 'wait')?.key).toBe('project:sidebar:w1')
     // The same set the sidebar counts for each channel (projectNeeds): the tray and the sidebar say the same number.
     for (const p of snapshot().projects!.acme) expect(items.filter((i) => i.project.id === p.id)).toHaveLength(projectNeeds(p, snapshot().employeeWork!.acme).total)
