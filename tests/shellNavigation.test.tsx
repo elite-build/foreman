@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as store from '../src/renderer/src/store'
-import { CommandPalette } from '../src/renderer/src/components/Overlays'
+import { CommandPalette, NewList } from '../src/renderer/src/components/Overlays'
 import { Sidebar } from '../src/renderer/src/components/Sidebar'
 import { shortcutActions } from '../src/renderer/src/App'
 import { readFileSync } from 'node:fs'
@@ -285,7 +285,7 @@ describe('sidebar filters and search', () => {
     expect(search.closest('.sidebar-top')).not.toBeNull()
     expect(document.activeElement).toBe(search)
     expect(screen.queryByRole('button', { name: /^Space:/ })).toBeNull()
-    expect(screen.getByRole('button', { name: 'New' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New workspace' })).toBeTruthy()
     await user.type(search, 'x')
     expect(spy('setSidebarQuery')).toHaveBeenLastCalledWith('x')
     await user.keyboard('{Escape}')
@@ -376,79 +376,75 @@ describe('a comparison’s group', () => {
   })
 })
 
-// The one way to add anything (the 7a sidebar): a + at the end of the top row opens a menu of every kind of thing there
-// is to add; no other + is left in the sidebar.
-describe('the + menu', () => {
-  const openMenu = async (user: ReturnType<typeof userEvent.setup>) => {
-    const add = screen.getByRole('button', { name: 'New' })
-    expect(add.getAttribute('aria-haspopup')).toBe('menu')
-    await user.click(add)
-    return screen.findByRole('menu', { name: 'New' })
-  }
+// The one way to add anything: New, a split button under the top row. Its main half makes what the mode is about; its ▾
+// (and Ctrl+Shift+N) opens the list of everything to make in the middle of the window, the mode's own item first.
+describe('New', () => {
+  const options = () => screen.getAllByRole('option')
 
-  it('is the only add control: no rail +, no New button, no Import… in the footer', () => {
-    render(<Sidebar />)
-    expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: /add repository/i })).toBeNull()
-    expect(screen.queryByRole('button', { name: /new workspace/i })).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Import/ })).toBeNull()
-    // Both tour steps about adding point at it.
-    const add = screen.getByRole('button', { name: 'New' })
-    expect(add.getAttribute('data-tour')).toBe('new-workspace')
-    expect(add.closest('[data-tour="add-repo"]')).not.toBeNull()
-  })
-
-  it('opens with focus on New workspace, which opens on the repository Ctrl+N uses; Escape closes it back on +', async () => {
+  it('is the only add control: a split button under the top row, with both tour steps about adding on it', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)
-    const menu = await openMenu(user)
-    const first = within(menu).getAllByRole('menuitem')[0]
+    const main = screen.getByRole('button', { name: 'New workspace' })
+    expect(main.closest('.sidebar-top')).toBeNull()
+    expect(main.textContent).toContain('Ctrl+N')
+    expect(main.getAttribute('data-tour')).toBe('new-workspace')
+    expect(main.closest('[data-tour="add-repo"]')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: /add repository/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Import/ })).toBeNull()
+    await user.click(main)
+    expect(spy('openNewWorkspace')).toHaveBeenCalledWith('r1')
+    const more = screen.getByRole('button', { name: /^More to make/ })
+    expect(more.getAttribute('aria-haspopup')).toBe('dialog')
+    await user.click(more)
+    expect(spy('openOverlay')).toHaveBeenCalledWith('new')
+  })
+
+  it('lists the mode’s own item first, then the rest of the space, then the ways to bring something in', async () => {
+    const user = userEvent.setup()
+    render(<NewList />)
+    const first = options()[0]
     expect(first.textContent).toContain('New workspace')
     expect(first.textContent).toContain('in kite')
-    expect(document.activeElement).toBe(first)
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'New' }))
-    await openMenu(user)
-    await user.click(screen.getByRole('menuitem', { name: /New workspace/ }))
+    expect(screen.getByRole('group', { name: 'In Work' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Bring into Foreman' })).toBeTruthy()
+    await user.click(first)
+    expect(spy('openOverlay')).toHaveBeenCalledWith(null)
     expect(spy('openNewWorkspace')).toHaveBeenCalledWith('r1')
   })
 
   it('reaches an automation, a repository (open, clone, quick start), and an organization', async () => {
     const user = userEvent.setup()
-    render(<Sidebar />)
-    await user.click(within(await openMenu(user)).getByRole('menuitem', { name: /New automation…/ }))
+    const pick = async (name: RegExp) => {
+      cleanup()
+      render(<NewList />)
+      await user.click(screen.getByRole('option', { name }))
+    }
+    await pick(/New automation…/)
     expect(spy('openAutomations')).toHaveBeenCalled()
-    await user.click(within(await openMenu(user)).getByRole('menuitem', { name: /github/i }))
+    await pick(/github/i)
     expect(spy('openAddRepoDialog')).toHaveBeenCalledWith('clone')
-    await user.click(within(await openMenu(user)).getByRole('menuitem', { name: /Quick start/ }))
+    await pick(/Quick start/)
     expect(spy('openAddRepoDialog')).toHaveBeenCalledWith('quick-start')
-    await user.click(within(await openMenu(user)).getByRole('menuitem', { name: /New organization…/ }))
+    await pick(/New organization…/)
     expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
-    expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('says why New workspace is off with no repository to work in', async () => {
+  it('adds a repository from its main half when there is none to work in', async () => {
     const user = userEvent.setup()
     fakeState.snapshot.repos = []
     fakeState.snapshot.workspaces = []
     render(<Sidebar />)
-    const item = within(await openMenu(user)).getByRole('menuitem', { name: /New workspace/ })
-    expect(item.getAttribute('aria-disabled')).toBe('true')
-    expect(item.textContent).toContain('Add a repository first')
-    await user.click(item)
+    await user.click(screen.getByRole('button', { name: 'Add a repository' }))
+    expect(spy('addRepository')).toHaveBeenCalled()
     expect(spy('openNewWorkspace')).not.toHaveBeenCalled()
   })
 
-  it('lists recent folders, each opening from its Open button; its × forgets it and leaves the menu open', async () => {
+  it('lists recent folders only once something is typed, each opening the folder', async () => {
     const user = userEvent.setup()
-    render(<Sidebar />)
-    const menu = await openMenu(user)
-    await user.click(within(menu).getByRole('menuitem', { name: 'Remove /home/me/older from recents' }))
-    expect(fakeApi.forgetRecentRepo).toHaveBeenCalledWith('/home/me/older')
-    expect(screen.getByRole('menu')).toBeTruthy()
-    // The Open button of that row (found by its title, the path).
-    await user.click(menu.querySelector('[role="menuitem"][title="/home/me/older"]') as HTMLElement)
+    render(<NewList />)
+    expect(screen.queryByRole('option', { name: /older/ })).toBeNull()
+    await user.keyboard('older')
+    await user.click(screen.getByRole('option', { name: /~\/older/ }))
     expect(spy('openRecentRepo')).toHaveBeenCalledWith('/home/me/older')
   })
 })
@@ -590,11 +586,10 @@ describe('the sidebar in an organization', () => {
     for (const key of ['space', 'memoryView', 'employeesView', 'automations', 'assistantOpen']) delete fakeState[key]
   })
 
-  it('opens New workspace, from the + menu and from Ctrl+N alike, on the organization’s repository, never its memory repository', async () => {
+  it('opens New workspace, from New and from Ctrl+N alike, on the organization’s repository, never its memory repository', async () => {
     const newWorkspace = async () => {
       const user = userEvent.setup()
-      await user.click(screen.getByRole('button', { name: 'New' }))
-      await user.click(screen.getByRole('menuitem', { name: /New workspace/ }))
+      await user.click(screen.getByRole('button', { name: 'New workspace' }))
     }
     render(<Sidebar />)
     await newWorkspace()
@@ -692,10 +687,11 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(screen.queryByText('Nothing running')).toBeNull()
   })
 
-  it('puts Group by, Find and + in the top row; Automations and the Assistant at the rail’s foot', () => {
+  it('puts Group by and Find in the top row, New under it; Automations and the Assistant at the rail’s foot', () => {
     render(<Sidebar />)
     const top = document.querySelector('.sidebar-top') as HTMLElement
-    expect(within(top).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Group by', 'Find', 'New'])
+    expect(within(top).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Group by', 'Find'])
+    expect(top.nextElementSibling?.matches('.sidebar-new')).toBe(true)
     const rail = document.querySelector('.sidebar-rail') as HTMLElement
     // Automations and the Assistant are icons whose names carry what the entries' rows said.
     expect(within(rail).getByRole('button', { name: 'Automations · templates & schedules' })).toBeTruthy()
@@ -705,23 +701,27 @@ describe('the sidebar’s heading, rows and counts', () => {
     for (let i = 1; i < order.length; i++) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('offers an employee and a channel in the + menu, in an organization', async () => {
+  it('makes an employee from Team and a project from Channels; the list leads with each', async () => {
     const user = userEvent.setup()
     fakeState.snapshot.organizations = [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', programManagerId: 'ada', createdAt: '2026-11-05T00:00:00Z' }]
-    render(<Sidebar />)
-    await user.click(screen.getByRole('button', { name: 'New' }))
-    const employee = screen.getByRole('menuitem', { name: /New employee/ })
-    expect(employee.textContent).toContain('joins Acme')
-    await user.click(employee)
+    fakeState.sidebarMode = 'team'
+    const team = render(<Sidebar />)
+    await user.click(screen.getByRole('button', { name: 'New employee' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'new' })
-    await user.click(screen.getByRole('button', { name: 'New' }))
-    const channel = screen.getByRole('menuitem', { name: /New channel/ })
-    expect(channel.textContent).toContain('@Ada plans it with you')
-    await user.click(channel)
-    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channel', mention: expect.any(Number) })
+    team.unmount()
+    fakeState.sidebarMode = 'channels'
+    const channels = render(<Sidebar />)
+    await user.click(screen.getByRole('button', { name: 'New project' }))
+    expect(spy('openEmployees')).toHaveBeenLastCalledWith({ orgId: 'o1', page: 'channel', mention: expect.any(Number) })
     // Neither section has a + of its own.
-    expect(screen.queryByRole('button', { name: /^New employee/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'New channel' })).toBeNull()
+    channels.unmount()
+    render(<NewList />)
+    const [first] = screen.getAllByRole('option')
+    expect(first.textContent).toContain('New project')
+    expect(first.textContent).toContain('@Ada plans it with you')
+    expect(screen.getByRole('option', { name: /New employee/ }).textContent).toContain('joins Acme')
+    fakeState.sidebarMode = 'work'
   })
 
   it('finds in Work: the matches alone, under their repository', () => {
@@ -817,8 +817,9 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('AcmeTeam')
     const team = screen.getByRole('list', { name: 'Employees of Acme' })
     expect(within(team).getAllByRole('button').map((b) => b.getAttribute('aria-label')?.split(' · ')[0])).toEqual(['Ada', 'Max'])
-    // Team and Channels have no Find and no Group by: the top row is the title and +.
-    expect(within(document.querySelector('.sidebar-top') as HTMLElement).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['New'])
+    // Team and Channels have no Find and no Group by: the top row is the title alone, New under it.
+    expect(within(document.querySelector('.sidebar-top') as HTMLElement).queryAllByRole('button')).toEqual([])
+    expect(screen.getByRole('button', { name: 'New employee' }).closest('.sidebar-new')).not.toBeNull()
     await user.click(screen.getByRole('button', { name: 'Team page' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
     cleanup()
@@ -896,14 +897,11 @@ describe('the sidebar’s heading, rows and counts', () => {
     expect(screen.queryByRole('tab', { name: /Team|Channels/ })).toBeNull()
   })
 
-  it('keeps the + menu to what Personal has: no employee or channel', async () => {
-    const user = userEvent.setup()
+  it('keeps New to what Personal has: no employee or project', () => {
     fakeState.space = null
-    render(<Sidebar />)
-    await user.click(screen.getByRole('button', { name: 'New' }))
-    const menu = screen.getByRole('menu', { name: 'New' })
-    expect(within(menu).queryByRole('menuitem', { name: /New employee/ })).toBeNull()
-    expect(within(menu).queryByRole('menuitem', { name: /New channel/ })).toBeNull()
-    expect(within(menu).getByRole('menuitem', { name: /New automation…/ })).toBeTruthy()
+    render(<NewList />)
+    expect(screen.queryByRole('option', { name: /New employee/ })).toBeNull()
+    expect(screen.queryByRole('option', { name: /New project/ })).toBeNull()
+    expect(screen.getByRole('option', { name: /New automation…/ })).toBeTruthy()
   })
 })

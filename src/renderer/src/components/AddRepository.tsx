@@ -1,6 +1,6 @@
 // Add repository: open a folder, clone from GitHub or a URL, start a new
 // project, or reopen a recent folder.
-import { Folder, FolderOpen, FolderPlus, Globe, Lock, Search, X } from 'lucide-react'
+import { FolderOpen, FolderPlus, Globe, Lock, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { currentSpace, type Organization } from '../../../shared/organizations'
 import { GITHUB_REPOS_LISTED, type GithubRepo, type GitIdentity } from '../../../shared/types'
@@ -13,64 +13,22 @@ import {
   onCloneProgress,
   openAddRepoDialog,
   openMakeRepo,
-  openRecentRepo,
   quickStartRepository,
   useStore
 } from '../store'
 import { useT } from '../i18n'
 import { formatChord } from '../shortcuts'
 import { timeAgo } from '../../../shared/i18n/time'
-import { Button, Callout, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, MenuControlRow, MenuGroup, MenuItem, MenuLabel, CardButton, Spinner, TextInput } from '../ui'
+import { Button, Callout, Checkbox, Combobox, Dialog, Field, Kbd, Listbox, CardButton, Spinner, TextInput } from '../ui'
 import { AccountPicker, useGithubAccounts } from './settings/GithubAccount'
 
 /** ~ for the home folder in displayed paths. */
-function tildify(p: string, home: string): string {
+export function tildify(p: string, home: string): string {
   return home && (p === home || p.startsWith(home + '/') || p.startsWith(home + '\\')) ? `~${p.slice(home.length)}` : p
 }
 
 function repoNameFromUrl(url: string): string {
   return (url.trim().replace(/[/\\]+$/, '').split(/[/:\\]/).pop() ?? '').replace(/\.git$/i, '')
-}
-
-/**
- * The ways to add a repository, inside the sidebar's + menu (NewMenu): Open project, Open GitHub project, Quick start,
- * then the recent folders under their label, each with Open and × (forget).
- */
-export function AddRepoItems() {
-  const t = useT()
-  const recents = useStore((s) => s.snapshot!.recentRepos)
-  const home = useStore((s) => s.snapshot!.homeDir)
-  return (
-    <>
-      <MenuItem icon={<FolderOpen size={15} />} onSelect={() => void addRepository()}>
-        {t('addRepo.openProject')}
-      </MenuItem>
-      <MenuItem icon={<Globe size={15} />} onSelect={() => openAddRepoDialog('clone')}>
-        {t('addRepo.openGithub')}
-      </MenuItem>
-      <MenuItem icon={<FolderPlus size={15} />} onSelect={() => openAddRepoDialog('quick-start')}>
-        {t('addRepo.quickStart')}
-      </MenuItem>
-      {recents.length > 0 && (
-        <>
-          <MenuLabel>{t('addRepo.recents')}</MenuLabel>
-          <MenuGroup label={t('addRepo.recents')}>
-            {recents.map((p) => (
-              // DS-TODO(B1): a MenuItem can't carry a second action, so each recent folder is a row of two buttons (Open, and forget with ×) instead of one item with a × beside it.
-              <MenuControlRow key={p} label={tildify(p, home)} icon={<Folder size={14} />}>
-                <MenuItem title={p} aria-label={t('addRepo.openRecent', { path: p })} closeOnSelect onSelect={() => void openRecentRepo(p)}>
-                  {t('common.open')}
-                </MenuItem>
-                <MenuItem aria-label={t('addRepo.forgetRecent', { path: p })} closeOnSelect={false} onSelect={() => void api.forgetRecentRepo(p)}>
-                  <X size={12} />
-                </MenuItem>
-              </MenuControlRow>
-            ))}
-          </MenuGroup>
-        </>
-      )}
-    </>
-  )
 }
 
 /** A folder field with Browse. */

@@ -298,6 +298,7 @@ function SplitDemo() {
         <SplitButton label="Open" menuLabel="Open in">
           <MenuItem>Editor</MenuItem>
         </SplitButton>
+        <SplitButton label="New project" menuLabel="More to make" variant="primary" onArrowClick={() => {}} />
         <SplitButton label="Create pull request" menuLabel="More ways to create" variant="primary">
           <MenuItem>Create draft</MenuItem>
         </SplitButton>

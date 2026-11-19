@@ -82,7 +82,7 @@ describe('the sidebar in a narrow window', () => {
     expect(rail()).toBeTruthy()
     expect(list()).toBeNull()
     expect(within(rail()).getByRole('button', { name: 'Personal' })).toBeTruthy()
-    expect(within(rail()).getByRole('button', { name: 'New' })).toBeTruthy()
+    expect(within(rail()).getByRole('button', { name: 'More to make' })).toBeTruthy()
     act(() => void fireEvent.keyDown(window, { key: 'b', code: 'KeyB', ctrlKey: true }))
     expect(spy('toggleLeftPanel')).toHaveBeenCalled()
   })
@@ -92,8 +92,8 @@ describe('the sidebar in a narrow window', () => {
     fakeState.narrowList = true
     render(<App />)
     expect(list()).toBeTruthy()
-    // The + is the top row's again.
-    expect(within(rail()).queryByRole('button', { name: 'New' })).toBeNull()
+    // New is under the top row again.
+    expect(within(rail()).queryByRole('button', { name: 'More to make' })).toBeNull()
   })
 
   it('from 1060 px is as it was: the rail and the list', () => {

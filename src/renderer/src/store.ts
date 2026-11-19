@@ -38,7 +38,8 @@ import { currentSpace, holdsWorkspaces, newWorkspaceTarget, spaceOf, spacesOn } 
 import { bridge, clientKind, followLanguage, socketBridge } from './bridge'
 import type { SocketStatus } from './socketBridge'
 
-export type Overlay = 'palette' | 'quick-open' | 'search' | 'shortcuts' | 'archived' | 'open-in' | 'ask'
+// 'new': the list of everything to make (the sidebar's New ▾, Ctrl+Shift+N; NewList in Overlays.tsx).
+export type Overlay = 'palette' | 'quick-open' | 'search' | 'shortcuts' | 'archived' | 'open-in' | 'ask' | 'new'
 
 export type { PersonalSection, RepoSection }
 

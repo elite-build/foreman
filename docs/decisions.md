@@ -54,6 +54,16 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 
 **Revisit when.** git can share a branch between worktrees safely.
 
+## 2026-11-19: New is a split button under the sidebar's top row, and its ▾ opens a list in the middle of the window
+
+**Decision.** The + menu at the end of the sidebar's top row is gone. Under the top row, a full-width split button makes what the mode is about (Inbox and Work a workspace, Team an employee, Channels a project); its ▾, and Ctrl+Shift+N, open the list of everything to make in the middle of the window, the mode's own item first. Home's own New workspace and Import… buttons went with it.
+
+**Why.** The menu opened from a 26 px square into the window's corner, 12 rows mixing making work with setting Foreman up, and typing a letter cycled through five "New…" items. Of 12 mocks the person picked a labelled split button and a centred list that leads with the mode.
+
+**Turned down.** A shorter menu opening rightward, a two-column panel, New in the page header (a workspace page has no room on the right), a per-mode button with no list, a New page in place of the dialog, and a ▾ opening a searchable dropdown under the button.
+
+**Revisit when.** People reach for the list more often than the main half.
+
 ## 2026-11-18: Needs you is a ring around a dot, failed a dot with a cross, and a count is a filled pill
 
 **Decision.** `ui/Glyph` draws `warn` (needs you) as a ring around a dot and `error` (failed) as a dot with a cross cut out; ● ok, ■ info and ○ off stay. A count of what needs you on a tile is a soft filled pill in the needs-you colour, with no mark inside.
