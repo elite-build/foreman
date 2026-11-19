@@ -20,6 +20,7 @@ export interface FlowStarter {
 
 const FIX_UNTIL_GREEN = `name = "Fix until green"
 description = "Implement, run checks, fix what fails, review, stop when the review is clean, then ask before shipping."
+jobs = ["fix", "build"]
 
 [inputs]
 task = "What to build or fix"
@@ -81,6 +82,7 @@ workspace = "keep"            # keep | archive | delete-unchanged
 
 const RESEARCH_THEN_IMPLEMENT = `name = "Research then implement"
 description = "An architect plans, you check the plan, a developer implements and fixes until the checks pass, then QA reviews."
+jobs = ["build"]
 
 [inputs]
 task = "What to research and build"
@@ -149,6 +151,7 @@ workspace = "keep"
 
 const TEST_FIRST = `name = "Test first, then make it pass"
 description = "A developer writes failing tests for the change and the checks show they fail; then the developer makes them pass and fixes what fails, QA reviews, and you look before it ships."
+jobs = ["fix", "build"]
 
 [inputs]
 task = "The change to test and then build"
@@ -223,6 +226,7 @@ workspace = "keep"
 
 const ISSUE_TO_DRAFT_PR = `name = "Issue to draft pull request"
 description = "A developer resolves the issue until the checks pass and QA's review is clean; after you look, the developer commits, Foreman opens a draft pull request, and CI failures go back to the developer until it is green."
+jobs = ["ship"]
 
 [inputs]
 issue = "The issue to resolve: its link or its words"
@@ -312,6 +316,7 @@ workspace = "keep"
 
 const SECOND_OPINION = `name = "Second opinion, then pick"
 description = "An architect plans and you check the plan; two developers on different loadouts each build it in a workspace of their own, made from the plan; you pick the result to go on with, QA reviews it there, and you look before it ships."
+jobs = ["build", "review"]
 
 [inputs]
 task = "What to plan and build"
@@ -405,6 +410,7 @@ workspace = "keep"
 
 const TWO_REVIEWERS = `name = "Two reviewers must agree"
 description = "A developer builds it until the checks pass; a QA engineer, then a security reviewer, read the same tree; any finding goes back to the developer and round again, until both are clean; then you look."
+jobs = ["review"]
 
 [inputs]
 task = "What to build or fix"
@@ -479,6 +485,7 @@ workspace = "keep"
 
 const KEEP_FRESH = `name = "Keep a long-lived branch fresh"
 description = "Meant for a schedule, started from the long-lived branch as its base: a developer merges origin/main into it and resolves the conflicts, the checks run and what fails is fixed, and you decide whether the merge is pushed to that branch."
+jobs = ["maintain"]
 
 [start]
 step = "merge-main"
@@ -527,6 +534,7 @@ workspace = "archive"
 
 const FLAKY_TRIAGE = `name = "Flaky test triage"
 description = "Runs your saved command flaky-tests (save one that runs the suspect tests three times); a developer decides from its output whether a test is flaky, failing for real or clean. A flaky test is quarantined with an issue note under docs/, a real failure is fixed until the checks pass, and you look at either."
+jobs = ["fix", "maintain"]
 
 [start]
 step = "workspace"
@@ -587,6 +595,7 @@ workspace = "delete-unchanged"
 
 const DOCUMENT_CHANGES = `name = "Document what changed"
 description = "A developer makes the change until the checks pass, a docs writer updates the documentation for what the diff changed, QA checks the docs match the diff, and you look."
+jobs = ["build"]
 
 [inputs]
 task = "What to build or change"
@@ -650,6 +659,7 @@ workspace = "keep"
 
 const WORTH_BUILDING = `name = "Is this feature worth building?"
 description = "A researcher writes a report on the idea; then three rounds: two reviewers on different models read it alone, the researcher writes their consensus and revises the report; then you read the report and the consensus."
+jobs = ["decide"]
 
 [inputs]
 idea = "The idea to research"
@@ -713,6 +723,7 @@ workspace = "keep"
 
 const IDEA_TO_FEATURE = `name = "From an idea to a feature"
 description = "A product manager writes the requirements and a UX designer the design, each until you are happy with it; a developer builds it until the checks pass; you look; QA reviews it against both until you are happy with that too."
+jobs = ["build", "decide"]
 
 [inputs]
 idea = "The idea to turn into a feature"

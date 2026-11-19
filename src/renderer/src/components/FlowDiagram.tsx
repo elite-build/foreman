@@ -101,11 +101,17 @@ export interface FlowGraphViewProps {
   className?: string
 }
 
-/** The Graph's props for a flow graph: nodes and edges placed by the layout, worded for this locale. */
-export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirection, start: string | undefined, t: RendererT, details?: Record<string, string>) {
+/**
+ * The Graph's props for a flow graph: nodes and edges placed by the layout, worded for this locale. `compact` draws it
+ * whole in a card: smaller steps, each its name and who runs it, and words only on the edges that branch or go back
+ * (the main path reads left to right without them).
+ */
+export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirection, start: string | undefined, t: RendererT, details?: Record<string, string>, compact = false) {
   return useMemo(() => {
     // Without its loops the layout places no notes in the drawing: they are Tags in the bar above it.
-    const layout = layoutFlowGraph({ ...graph, loops: [] }, { direction, ...(start ? { start } : {}) })
+    const layout = layoutFlowGraph({ ...graph, loops: [] }, { direction, ...(start ? { start } : {}), compact })
+    // Compact: who runs a step without its model, as in a side panel.
+    const detailDirection: FlowLayoutDirection = compact ? 'tall' : direction
     const byId = new Map(graph.nodes.map((n) => [n.id, n]))
     const nodes: GraphNode[] = layout.nodes.map((box) => {
       const n = byId.get(box.of)!
@@ -120,7 +126,7 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
         height: box.height,
         shape: shapeOf(n),
         title: n.label,
-        ...(Icon && word
+        ...(Icon && word && !compact
           ? {
               kicker: (
                 <>
@@ -129,7 +135,7 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
               )
             }
           : {}),
-        ...((details?.[n.id] ?? detailOf(n, graph.lens, direction)) ? { detail: details?.[n.id] ?? detailOf(n, graph.lens, direction) } : {}),
+        ...((details?.[n.id] ?? detailOf(n, graph.lens, detailDirection)) ? { detail: details?.[n.id] ?? detailOf(n, graph.lens, detailDirection) } : {}),
         ...(tone && n.state ? { tone, toneLabel: t(STATE_WORD[n.state]) } : {}),
         ...(n.state === 'not-yet' ? { dim: true } : {}),
         ...(n.runs && n.runs > 1 ? { badge: `×${n.runs}` } : {}),
@@ -138,11 +144,12 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
     })
     const edges: GraphEdge[] = layout.edges.map((le) => {
       const e = graph.edges[le.edge]
+      const straight = !le.back && le.from.side === 'right' && le.to.side === 'left'
       return {
         id: `edge:${le.edge}`,
         from: { node: le.from.node, side: le.from.side, offset: le.from.offset },
         to: { node: le.to.node, side: le.to.side, offset: le.to.offset },
-        ...(e.label ? { label: e.label } : {}),
+        ...(e.label && !(compact && straight) ? { label: e.label } : {}),
         line: e.reconstructed ? 'dotted' : le.back ? 'dashed' : 'solid',
         ...(e.taken === true ? { weight: 'strong' as const } : e.taken === false ? { weight: 'faint' as const } : {}),
         ...(e.mark ? { mark: e.mark, markLabel: t(MARK_WORD[e.mark]) } : {})
@@ -154,7 +161,7 @@ export function useFlowGraphProps(graph: FlowGraph, direction: FlowLayoutDirecti
       .filter((loop) => loop.over.some((s) => drawn.has(`step:${s}`)))
       .map((loop) => ({ name: loop.name, text: loop.title, ...(loop.mark ? { mark: loop.mark, markLabel: t(MARK_WORD[loop.mark]) } : {}) }))
     return { width: layout.width, height: layout.height, nodes, edges, loops }
-  }, [graph, direction, start, t, details])
+  }, [graph, direction, start, t, details, compact])
 }
 
 /** The toolbar's words. */
@@ -241,6 +248,18 @@ export function FlowLensDiagram({
   const graph = useMemo(() => flowGraph(flow, run, lens, { t, locale: t.locale, workspaceNames }), [flow, run, lens, t, workspaceNames])
   const start = flow?.start ? `step:${flow.start}` : run?.steps[0] ? `step:${run.steps[0].name}` : undefined
   return <FlowGraphView graph={graph} direction={direction === 'TB' ? 'tall' : 'wide'} start={start} selected={selected} onSelect={onSelect} thumbnail={thumbnail} details={details} fullScreen={fullScreen} grow={grow} className={className} />
+}
+
+/**
+ * A flow drawn whole as a picture in a card (Automations' flows list): the compact layout fitted to the card's width,
+ * as tall as it needs, with no toolbar. With a run going, its step is drawn in its state. The card around it says the
+ * rest in words, and opens the flow.
+ */
+export function FlowPicture({ flow, run, label, className }: { flow: Flow; run?: FlowRun; label: string; className?: string }) {
+  const t = useT()
+  const graph = useMemo(() => flowGraph(flow, run, 'run', { t, locale: t.locale }), [flow, run, t])
+  const { width, height, nodes, edges } = useFlowGraphProps(graph, 'wide', `step:${flow.start}`, t, undefined, true)
+  return <Graph width={width} height={height} nodes={nodes} edges={edges} label={label} zoom="fit" bar={{ grow: true }} className={['flow-picture', className].filter(Boolean).join(' ')} />
 }
 
 /** `value`, once it has stayed the same for `ms` (a flow being typed is drawn when the typing pauses). */

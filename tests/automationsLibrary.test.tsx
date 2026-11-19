@@ -72,14 +72,16 @@ afterEach(() => {
 const card = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}`) }).closest('.auto-card') as HTMLElement
 
 describe('the Automations library', () => {
-  it('shows no calendar: a library with tabs and a search, and the schedules beside it', () => {
+  it('shows no calendar: a library with tabs and a search, and the schedules in a tab of their own', async () => {
+    const u = userEvent.setup()
     render(<AutomationsView />)
     expect(screen.getByRole('tablist', { name: 'Show' })).toBeTruthy()
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands'])
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands', 'Schedules'])
     expect(screen.getByRole('searchbox', { name: 'Search templates and commands' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Previous week' })).toBeNull()
-    const side = screen.getByRole('complementary', { name: 'Schedules and details' })
-    expect(within(side).getByText(/Nothing scheduled yet/)).toBeTruthy()
+    expect(screen.queryByRole('complementary')).toBeNull()
+    await u.click(screen.getByRole('tab', { name: 'Schedules' }))
+    expect(screen.getByText(/Nothing scheduled yet/)).toBeTruthy()
   })
 
   it('says on each card when the template runs and how its last run went', () => {
@@ -153,7 +155,7 @@ describe('the Automations library', () => {
     expect(screen.queryByText('npm run lint')).toBeNull()
   })
 
-  it('lists every schedule beside the library, active first, and opens one', async () => {
+  it('lists every schedule on its tab, active first, and opens one', async () => {
     const u = userEvent.setup()
     setSnapshot({
       schedules: [
@@ -162,6 +164,7 @@ describe('the Automations library', () => {
       ]
     })
     render(<AutomationsView />)
+    await u.click(screen.getByRole('tab', { name: 'Schedules' }))
     const list = screen.getByRole('list', { name: 'Schedules' })
     const rows = within(list).getAllByRole('listitem')
     expect(rows.map((r) => r.querySelector('.auto-row-title')?.textContent)).toEqual(['Deleted template', 'Weekly changelog'])
@@ -176,6 +179,7 @@ describe('the Automations library', () => {
     const proposal = schedule('s3', 't1', { templateName: 'Nightly audit', state: 'paused', pausedKind: 'proposed', pausedReason: 'Proposed by Claude Code (outside agent).', proposedBy: { grantId: 'g1', name: 'Claude Code' }, nextRunAt: undefined, approved: undefined, approvedAt: undefined })
     setSnapshot({ schedules: [proposal] })
     render(<AutomationsView />)
+    await u.click(screen.getByRole('tab', { name: 'Schedules' }))
     const row = within(screen.getByRole('list', { name: 'Schedules' })).getByRole('listitem')
     expect(within(row).getByText('Weekdays at 09:00 · Proposed by Claude Code (outside agent)')).toBeTruthy()
     await u.click(within(row).getByRole('button', { name: 'Review and approve…' }))
@@ -194,7 +198,7 @@ describe('the Automations library', () => {
 describe('a template’s own page', () => {
   const open = (id: string) => (fakeState.automations = { selected: `t:${id}` })
 
-  it('takes the place of the library and the side panel, with breadcrumbs back', async () => {
+  it('takes the place of the library and its schedules, with breadcrumbs back', async () => {
     const u = userEvent.setup()
     setSnapshot({ templates: [template('t1', 'Nightly', 'Run the e2e suite')] })
     open('t1')
@@ -202,7 +206,7 @@ describe('a template’s own page', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Nightly' })).toBeTruthy()
     // The library stays mounted but hidden, so it isn't in the accessibility tree.
     expect(screen.queryByRole('tablist', { name: 'Show' })).toBeNull()
-    expect(screen.queryByRole('complementary', { name: 'Schedules and details' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Schedules' })).toBeNull()
     const crumbs = screen.getByRole('navigation', { name: 'Where you are' })
     expect(within(crumbs).getByText('Nightly').getAttribute('aria-current')).toBe('page')
     await u.click(within(crumbs).getByRole('button', { name: 'Templates' }))

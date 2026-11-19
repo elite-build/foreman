@@ -57,18 +57,22 @@ export interface FlowLayoutOptions {
   direction?: FlowLayoutDirection
   // The node the path starts from; else the first node nothing leads to.
   start?: string
+  // Smaller steps closer together, wide only: a flow drawn whole in a card (the flows list), its steps a name and a
+  // person each.
+  compact?: boolean
 }
 
 /**
  * Node sizes in graph units: a step (or a tree), an end, what a lens adds above the steps, and a loop's note. Tall
  * layouts (a side panel) use narrower steps so two columns fit its width.
  */
-export const FLOW_LAYOUT_SIZE = { step: { width: 140, height: 62 }, tallStep: { width: 132, height: 62 }, end: { width: 76, height: 30 }, side: { width: 140, height: 46 }, note: { width: 200, height: 52 } } as const
+export const FLOW_LAYOUT_SIZE = { step: { width: 140, height: 62 }, tallStep: { width: 132, height: 62 }, compactStep: { width: 124, height: 46 }, end: { width: 76, height: 30 }, side: { width: 140, height: 46 }, note: { width: 200, height: 52 } } as const
 
 // One grid cell along the path and across it, per direction, and the margin left for arcs over the first row.
 const GRID = {
   wide: { along: 210, across: 134, marginAlong: 24, marginAcross: 44 },
-  tall: { along: 106, across: 186, marginAlong: 24, marginAcross: 50 }
+  tall: { along: 106, across: 186, marginAlong: 24, marginAcross: 50 },
+  compact: { along: 164, across: 82, marginAlong: 16, marginAcross: 40 }
 } as const
 
 // The sides of a cell named by the path: next and previous along it, outer and inner across it (away from and toward
@@ -85,19 +89,21 @@ const PORT_SPACING = 24
 /** A source or memory node only read and written by steps: drawn above the steps, not on the path. */
 const isSatellite = (n: FlowGraphNode, edges: readonly FlowGraphEdge[]) => (n.kind === 'source' || n.kind === 'memory') && edges.every((e) => (e.from !== n.id && e.to !== n.id) || e.kind !== 'fact')
 
-const stepSize = (direction: FlowLayoutDirection) => (direction === 'tall' ? FLOW_LAYOUT_SIZE.tallStep : FLOW_LAYOUT_SIZE.step)
+type StepBox = { width: number; height: number }
 // An end is as wide as its word needs (about 7.5 units a letter, 13 a CJK character, and its padding), from the least
 // width up to a step's, so "failed" or "a besoin de vous" isn't cut short.
-const endWidth = (label: string, direction: FlowLayoutDirection) => {
+const endWidth = (label: string, step: StepBox) => {
   const text = [...label].reduce((w, c) => w + ((c.codePointAt(0) ?? 0) >= 0x2e80 ? 13 : 7.5), 0)
-  return Math.min(stepSize(direction).width, Math.max(FLOW_LAYOUT_SIZE.end.width, Math.ceil(text + 30)))
+  return Math.min(step.width, Math.max(FLOW_LAYOUT_SIZE.end.width, Math.ceil(text + 30)))
 }
-const sizeOf = (n: FlowGraphNode, satellite: boolean, direction: FlowLayoutDirection) =>
-  n.kind === 'end' ? { ...FLOW_LAYOUT_SIZE.end, width: endWidth(n.label, direction) } : satellite ? { ...FLOW_LAYOUT_SIZE.side, width: stepSize(direction).width } : stepSize(direction)
+const sizeOf = (n: FlowGraphNode, satellite: boolean, step: StepBox) =>
+  n.kind === 'end' ? { ...FLOW_LAYOUT_SIZE.end, width: endWidth(n.label, step) } : satellite ? { ...FLOW_LAYOUT_SIZE.side, width: step.width } : step
 
 export function layoutFlowGraph(graph: FlowGraph, options: FlowLayoutOptions = {}): FlowLayout {
   const direction = options.direction ?? 'wide'
-  const grid = GRID[direction]
+  const compact = Boolean(options.compact) && direction === 'wide'
+  const grid = compact ? GRID.compact : GRID[direction]
+  const step: StepBox = compact ? FLOW_LAYOUT_SIZE.compactStep : direction === 'tall' ? FLOW_LAYOUT_SIZE.tallStep : FLOW_LAYOUT_SIZE.step
   const byId = new Map(graph.nodes.map((n) => [n.id, n]))
   const edges = graph.edges.map((e, index) => ({ e, index })).filter(({ e }) => byId.has(e.from) && byId.has(e.to))
   const satellites = new Set(graph.nodes.filter((n) => isSatellite(n, graph.edges)).map((n) => n.id))
@@ -222,10 +228,9 @@ export function layoutFlowGraph(graph: FlowGraph, options: FlowLayoutOptions = {
   const nodes: FlowLayoutNode[] = []
   for (const [id, p] of placed) {
     const n = byId.get(p.of)!
-    const size = sizeOf(n, satellites.has(p.of), direction)
+    const size = sizeOf(n, satellites.has(p.of), step)
     const c = cell(p.rank, lane.get(id)!)
-    const box = stepSize(direction)
-    nodes.push({ id, of: p.of, x: c.x + (box.width - size.width) / 2, y: c.y + (box.height - size.height) / 2, width: size.width, height: size.height })
+    nodes.push({ id, of: p.of, x: c.x + (step.width - size.width) / 2, y: c.y + (step.height - size.height) / 2, width: size.width, height: size.height })
   }
   nodes.sort((a, b) => (direction === 'wide' ? a.x - b.x || a.y - b.y : a.y - b.y || a.x - b.x))
   const box = new Map(nodes.map((n) => [n.id, n]))
@@ -290,7 +295,7 @@ export function layoutFlowGraph(graph: FlowGraph, options: FlowLayoutOptions = {
   const noteSize = FLOW_LAYOUT_SIZE.note
   const lastRank = Math.max(0, ...[...placed.values()].map((p) => p.rank))
   const left = cell(0, minLane).x
-  const columns = cell(0, maxLane).x + stepSize(direction).width - left
+  const columns = cell(0, maxLane).x + step.width - left
   for (const loop of graph.loops) {
     const members = loop.over.map((s) => `step:${s}`).filter((id) => placed.has(id))
     if (!members.length) continue

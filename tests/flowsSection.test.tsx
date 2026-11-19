@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
-// Flows on Automations: absent (and never asked for) while Settings → Experimental → Flows is off; on, each flow is a
-// card with its source and shape that opens the flow studio (tests/flowStudio.test.tsx) and a menu that renames it (or a
-// copy), and New flow asks for a name and a start (blank, described, or a copy) before it opens a draft.
+// Flows on Automations: absent (and never asked for) while Settings → Experimental → Flows is off; on, the page opens on
+// them and asks "I want to…": a job lists the flows that do it (their `jobs`), each a card saying when to choose it, how
+// often it stops for you and its last run, drawn beside, that opens the flow studio (tests/flowStudio.test.tsx) and has a
+// menu that renames it (or a copy); All flows lists every one. New flow asks for a name and a start (blank, described,
+// or a copy) before it opens a draft.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BLANK_FLOW } from '../src/shared/flowStarters'
+import { BLANK_FLOW, FLOW_STARTERS } from '../src/shared/flowStarters'
 import type { FlowListing } from '../src/shared/flows'
 import { AutomationsView } from '../src/renderer/src/components/automations/AutomationsView'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
@@ -32,9 +34,13 @@ vi.mock('../src/renderer/src/components/mermaidRender', () => ({
 
 const original = fakeState.snapshot
 
+const FIX_UNTIL_GREEN = FLOW_STARTERS.find((s) => s.id === 'fix-until-green')!.toml
+// A repository flow that ships: one step, no gate.
+const TEAM_FLOW = BLANK_FLOW.replace('name = "Untitled flow"', 'name = "Team flow"\njobs = ["ship"]')
+
 const LISTINGS: FlowListing[] = [
-  { id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: 'name = "Fix until green"', summary: { steps: 6, loops: 2, gates: 1, personas: [] }, problems: [], warnings: [] },
-  { id: 'repo:r1:.foreman/flows/team.toml', source: 'repo', repoId: 'r1', file: '.foreman/flows/team.toml', rev: 'abcdef1234567890', name: 'Team flow', toml: 'name = "Team flow"', summary: { steps: 1, loops: 0, gates: 0, personas: [] }, problems: [], warnings: [] },
+  { id: 'built-in:fix-until-green', source: 'built-in', starter: 'fix-until-green', name: 'Fix until green', toml: FIX_UNTIL_GREEN, summary: { steps: 6, loops: 2, gates: 1, personas: [] }, problems: [], warnings: [] },
+  { id: 'repo:r1:.foreman/flows/team.toml', source: 'repo', repoId: 'r1', file: '.foreman/flows/team.toml', rev: 'abcdef1234567890', name: 'Team flow', toml: TEAM_FLOW, summary: { steps: 1, loops: 0, gates: 0, personas: [] }, problems: [], warnings: [] },
   { id: 'flow-1', source: 'personal', name: 'broken', toml: 'name = "x"', problems: ['The flow has no steps.', 'Another'], warnings: [] }
 ]
 
@@ -54,8 +60,12 @@ function setSnapshot(flows: boolean) {
 
 beforeEach(() => {
   resetFake()
+  localStorage.removeItem('foreman.automations.flowJob')
   fakeApi.listFlows = vi.fn(async () => LISTINGS)
 })
+
+/** The job card named `name` in "I want to…". */
+const job = (name: string) => within(screen.getByRole('group', { name: 'I want to…' })).getByRole('radio', { name })
 afterEach(() => {
   cleanup()
   fakeState.snapshot = original
@@ -69,46 +79,81 @@ describe('Flows on Automations', () => {
     expect(screen.queryByRole('region', { name: 'Flows' })).toBeNull()
     expect(screen.queryByText('New flow')).toBeNull()
     expect(fakeApi.listFlows).not.toHaveBeenCalled()
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands'])
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands', 'Schedules'])
   })
 
-  it('has its own tab, beside Personas, showing only the flows and saying when a search matches none', async () => {
+  it('opens on its own tab in place of All, beside Personas, and says when a search matches none', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['All', 'Templates', 'Commands', 'Flows', 'Personas'])
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Flows', 'Templates', 'Commands', 'Personas', 'Schedules'])
+    expect(screen.getByRole('tab', { name: 'Flows' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByRole('searchbox', { name: 'Search automations' })).toBeTruthy()
-    await u.click(screen.getByRole('tab', { name: 'Flows' }))
     const section = await screen.findByRole('region', { name: 'Flows' })
     await waitFor(() => expect(within(section).getByText('Fix until green')).toBeTruthy())
     expect(screen.queryByRole('region', { name: 'Personas' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Templates' })).toBeNull()
     await u.type(screen.getByRole('searchbox'), 'zzz')
     expect(within(screen.getByRole('region', { name: 'Flows' })).getByText('Nothing matches “zzz”.')).toBeTruthy()
+    // A search looks through every flow, whatever the job: the picker steps aside.
+    expect(screen.queryByRole('group', { name: 'I want to…' })).toBeNull()
   })
 
-  it('lists each flow with its source, its shape and its problems when the switch is on', async () => {
+  it('asks what you want to do and lists only the flows that do it, each saying when to choose it', async () => {
+    const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
     const section = await screen.findByRole('region', { name: 'Flows' })
     await waitFor(() => expect(within(section).getByText('Fix until green')).toBeTruthy())
-    expect(within(section).getByText('Built-in')).toBeTruthy()
-    expect(within(section).getByText('6 steps · 2 loops · 1 gate')).toBeTruthy()
-    expect(within(section).getByText('From foreman')).toBeTruthy()
-    expect(within(section).getByText('.foreman/flows/team.toml @ abcdef1')).toBeTruthy()
-    expect(within(section).getByText('1 step · 0 loops · 0 gates')).toBeTruthy()
-    expect(within(section).getByText('Personal')).toBeTruthy()
-    expect(within(section).getByText('2 problems')).toBeTruthy()
-    // Above the templates.
-    const regions = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))
-    expect(regions.indexOf('Flows')).toBeLessThan(regions.indexOf('Templates'))
+    // Six jobs, each with how many flows do it; nothing run yet, so it opens on the first.
+    expect(within(screen.getByRole('group', { name: 'I want to…' })).getAllByRole('radio')).toHaveLength(6)
+    expect((job('build something') as HTMLInputElement).checked).toBe(true)
+    expect(within(section).getByText(/^1 flow · From a task or an idea/)).toBeTruthy()
+    const list = within(section).getByRole('list', { name: 'build something' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(list).getByText('Choose it when:')).toBeTruthy()
+    expect(within(list).getByText('You know what’s wrong and want it fixed, checked and reviewed.')).toBeTruthy()
+    expect(within(list).getByText('Stops for you once')).toBeTruthy()
+    expect(within(list).getByText('Not run yet')).toBeTruthy()
+    // The flow is drawn, named for what it is.
+    expect(within(list).getByRole('img', { name: 'Fix until green, its steps drawn as a graph' })).toBeTruthy()
+
+    // Another job: its flows, and the choice is kept for next time.
+    await u.click(job('ship it'))
+    const ship = within(section).getByRole('list', { name: 'ship it' })
+    expect(within(ship).getByText('Team flow')).toBeTruthy()
+    expect(within(ship).getByText('From foreman')).toBeTruthy()
+    expect(within(ship).getByText('Never stops for you')).toBeTruthy()
+    expect(within(section).queryByText('Fix until green')).toBeNull()
+    expect(localStorage.getItem('foreman.automations.flowJob')).toBe('ship')
+
+    // All flows: every one, those that name no job (or don't read) too.
+    await u.click(within(section).getByRole('button', { name: 'All flows (3)' }))
+    const all = within(section).getByRole('list', { name: 'All flows' })
+    expect(within(all).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(all).getByText('Personal')).toBeTruthy()
+    expect(within(all).getByText('2 problems')).toBeTruthy()
+    expect(within(all).getByRole('button', { name: 'Run broken…' }).hasAttribute('disabled')).toBe(true)
+    expect(within(screen.getByRole('group', { name: 'I want to…' })).getAllByRole('radio').some((r) => (r as HTMLInputElement).checked)).toBe(false)
+  })
+
+  it('names the template that does a job in one turn, and opens it', async () => {
+    const u = userEvent.setup()
+    setSnapshot(true)
+    fakeState.snapshot = { ...fakeState.snapshot, settings: { ...fakeState.snapshot.settings, promptTemplates: [{ id: 'default-fix-bug', name: 'Fix a bug', body: 'Fix {{bug}}' }] } }
+    render(<AutomationsView />)
+    await screen.findByRole('button', { name: 'Run Fix until green…' })
+    expect(screen.queryByText(/Or one prompt/)).toBeNull()
+    await u.click(job('fix a bug'))
+    await u.click(screen.getByRole('button', { name: 'Fix a bug' }))
+    expect(storeModule.selectAutomation).toHaveBeenCalledWith('t:default-fix-bug')
   })
 
   it('opens a flow as its own page from its card, and New flow as a blank draft under the name it asks for', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
-    await u.click(await screen.findByRole('button', { name: /^Fix until green/ }))
+    await u.click(await screen.findByRole('button', { name: 'Open Fix until green' }))
     expect(storeModule.selectAutomation).toHaveBeenCalledWith('f:built-in:fix-until-green')
 
     await u.click(screen.getByRole('button', { name: /New flow/ }))
@@ -148,7 +193,7 @@ describe('Flows on Automations', () => {
     expect(within(dialog).getByRole('combobox', { name: 'Flow to copy' }).textContent).toContain('Fix until green · Built-in')
     // Enter in the name creates it, as Create does.
     await u.type(within(dialog).getByRole('textbox', { name: 'Name' }), '{Enter}')
-    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: 'name = "Mine"', notes: ['A copy of Fix until green: nothing is saved until you press Save.'] })
+    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: FIX_UNTIL_GREEN.replace('name = "Fix until green"', 'name = "Mine"'), notes: ['A copy of Fix until green: nothing is saved until you press Save.'] })
   })
 
   it('a card’s menu renames a personal flow on its page, and a built-in or repository one as a copy', async () => {
@@ -156,7 +201,8 @@ describe('Flows on Automations', () => {
     setSnapshot(true)
     fakeApi.listFlows = vi.fn(async () => [...LISTINGS, { id: 'flow-2', source: 'personal' as const, name: 'Mine', toml: 'name = "Mine"', summary: { steps: 1, loops: 0, gates: 0, personas: [] }, problems: [], warnings: [] }])
     render(<AutomationsView />)
-    await u.click(await screen.findByRole('button', { name: 'More for Mine' }))
+    await u.click(await screen.findByRole('button', { name: 'All flows (4)' }))
+    await u.click(screen.getByRole('button', { name: 'More for Mine' }))
     await u.click(screen.getByRole('menuitem', { name: 'Rename' }))
     expect(storeModule.openFlowRename).toHaveBeenCalledWith('flow-2')
     await u.click(screen.getByRole('button', { name: 'More for Mine' }))
@@ -165,30 +211,35 @@ describe('Flows on Automations', () => {
     await u.click(screen.getByRole('button', { name: 'More for Fix until green' }))
     expect(screen.queryByRole('menuitem', { name: 'Rename' })).toBeNull()
     await u.click(screen.getByRole('menuitem', { name: 'Rename a copy…' }))
-    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: 'name = "Fix until green"', notes: ['A copy of Fix until green: nothing is saved until you press Save.'], rename: true })
+    expect(storeModule.openFlowDraft).toHaveBeenLastCalledWith({ toml: FIX_UNTIL_GREEN, notes: ['A copy of Fix until green: nothing is saved until you press Save.'], rename: true })
   })
 
   it('Run… opens the Run a flow page on the flow, in its repository', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
-    await u.click(await screen.findByRole('button', { name: 'Run Team flow…' }))
-    expect(storeModule.openFlowRun).toHaveBeenCalledWith('repo:r1:.foreman/flows/team.toml', { repoId: 'r1' })
-    await u.click(screen.getByRole('button', { name: 'Run Fix until green…' }))
+    await u.click(await screen.findByRole('button', { name: 'Run Fix until green…' }))
     expect(storeModule.openFlowRun).toHaveBeenLastCalledWith('built-in:fix-until-green', { repoId: undefined })
+    await u.click(job('ship it'))
+    await u.click(screen.getByRole('button', { name: 'Run Team flow…' }))
+    expect(storeModule.openFlowRun).toHaveBeenLastCalledWith('repo:r1:.foreman/flows/team.toml', { repoId: 'r1' })
   })
 
-  it('each flow lists its runs: how it ended, why, and its workspace', async () => {
+  it('a card says how its last run went, and the latest runs of the job’s flows follow the cards', async () => {
     setSnapshot(true)
     fakeState.snapshot = { ...fakeState.snapshot, workspaces: [{ id: 'ws-1', name: 'lisbon', state: 'ready' }], flowRuns: [
       { id: 'run', flow: { id: 'built-in:fix-until-green', name: 'Fix until green', source: 'built-in' }, repoId: 'r1', baseBranch: 'main', inputs: {}, fingerprint: {}, state: 'stopped', reason: 'Stopped by you.', startedAt: '2026-11-05T10:00:00.000Z', workspaceId: 'ws-1', steps: [], loops: {} }
     ] }
     render(<AutomationsView />)
-    const runs = await screen.findByRole('list', { name: 'Runs of Fix until green' })
-    expect(within(runs).getByText('Stopped')).toBeTruthy()
-    expect(within(runs).getByText('Stopped by you.')).toBeTruthy()
+    const list = await screen.findByRole('list', { name: 'fix a bug' })
+    // The flow run last decides the job the page opens on: Fix until green fixes first.
+    expect((job('fix a bug') as HTMLInputElement).checked).toBe(true)
+    const card = within(list).getAllByRole('listitem')[0]
+    expect(within(card).getByText('Stopped')).toBeTruthy()
     // A link to the workspace looks like one: blue and underlined (LinkButton underline), not plain text.
-    expect(within(runs).getByRole('button', { name: 'lisbon' }).classList.contains('ui-link-btn--underline')).toBe(true)
+    expect(within(card).getByRole('button', { name: 'lisbon' }).classList.contains('ui-link-btn--underline')).toBe(true)
+    const latest = screen.getByRole('region', { name: 'Latest runs of these flows' })
+    expect(within(latest).getByText('Stopped by you.')).toBeTruthy()
   })
 })
 
@@ -205,7 +256,9 @@ describe('every flow’s runs', () => {
       ]
     }
     render(<AutomationsView />)
-    await screen.findByRole('button', { name: 'Run Fix until green…' })
+    // The page opens on the job of the flow run last: Team flow ships.
+    await screen.findByRole('button', { name: 'Run Team flow…' })
+    expect((job('ship it') as HTMLInputElement).checked).toBe(true)
     await u.click(screen.getByRole('radio', { name: 'Runs' }))
     const table = screen.getByRole('table', { name: 'Every flow’s runs, newest first' })
     const rows = within(table).getAllByRole('row').slice(1)
