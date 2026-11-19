@@ -4,7 +4,7 @@
 // (a cloud workspace) a worktree in a cloud sandbox, through SandboxManager.
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
-import { appendFile, cp, mkdir, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
+import { appendFile, cp, mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AccountDetection,
@@ -197,9 +197,15 @@ export class WorkspaceService {
     this.changed()
   }
 
-  /** With `account`, the new repo is linked to that gh account; otherwise Foreman tries to detect one. */
-  async addRepo(dir: string, account?: string): Promise<Repo> {
-    if (!(await isInsideWorkTree(dir))) throw new Error(`${dir} is not inside a git repository`)
+  /**
+   * With `account`, the new repo is linked to that gh account; otherwise Foreman tries to detect one.
+   * With `plain`, a folder outside git is added as it is (Repo.plain) instead of refused.
+   */
+  async addRepo(dir: string, account?: string, options: { plain?: boolean } = {}): Promise<Repo> {
+    if (!(await isInsideWorkTree(dir))) {
+      if (options.plain) return this.addPlainFolder(dir)
+      throw new Error(`${dir} is not inside a git repository`)
+    }
     // git prints forward slashes on Windows; normalize for display and comparison.
     const root = path.normalize(await toplevel(dir))
     this.state.recentRepoPaths = [root, ...this.state.recentRepoPaths.filter((p) => !samePath(p, root))].slice(0, 20)
@@ -225,6 +231,23 @@ export class WorkspaceService {
     this.repoAdded(repo.id)
     this.changed()
     if (!account) void this.detectRepoAccount(repo.id, true).catch(() => undefined)
+    return repo
+  }
+
+  /** A folder outside git, as it is: its one workspace works in the folder itself (createPlainWorkspace). */
+  private async addPlainFolder(dir: string): Promise<Repo> {
+    const root = path.resolve(dir)
+    if (!(await stat(root).catch(() => null))?.isDirectory()) throw new Error(`${dir} isn’t a folder`)
+    this.state.recentRepoPaths = [root, ...this.state.recentRepoPaths.filter((p) => !samePath(p, root))].slice(0, 20)
+    const existing = this.state.repos.find((r) => samePath(r.rootPath, root))
+    if (existing) {
+      this.changed()
+      return existing
+    }
+    const repo: Repo = { id: randomUUID(), name: path.basename(root) || root, rootPath: root, defaultBranch: '', remote: 'origin', hasOrigin: false, plain: true, local: {}, createdAt: new Date().toISOString() }
+    this.state.repos.push(repo)
+    this.repoAdded(repo.id)
+    this.changed()
     return repo
   }
 
@@ -273,6 +296,7 @@ export class WorkspaceService {
    */
   async refreshRemote(id: string): Promise<boolean> {
     const repo = this.repo(id)
+    if (repo.plain) return false
     const has = await hasRemote(repo.rootPath, repo.remote || 'origin')
     repo.hasOrigin = has
     this.changed()
@@ -395,7 +419,13 @@ export class WorkspaceService {
 
   /** Appended to the agent's system prompt. */
   agentContext(ws: Workspace): string {
-    const where = ws.cloud
+    const plain = this.state.repos.find((r) => r.id === ws.repoId)?.plain
+    const where = plain
+      ? [
+          'You are running inside Foreman, an app that runs coding agents in git worktrees or, like here, directly in a folder.',
+          `Your workspace is the folder ${ws.path}. It is not a git repository: there are no branches or commits, and Foreman keeps no checkpoints of your changes, so they can't be rewound. Keep your work inside it.`
+        ]
+      : ws.cloud
       ? [
           'You are running inside Foreman, an app that runs several coding agents in parallel, each in its own git worktree. This one is in a cloud sandbox.',
           `Your workspace is ${ws.cloud.cwd}, on branch ${ws.branch}, created from ${ws.baseBranch}. Keep your work inside it.`
@@ -418,8 +448,9 @@ export class WorkspaceService {
             // A server an agent starts in its own command can end with the turn, so the link it hands over is dead; a detached one is an orphan nothing shows or stops.
             'A process your commands start, such as a dev server, can be stopped when your turn ends, so a localhost link to it may be dead by the time the user opens it. Do not detach it to keep it alive. To leave the user a server, put its command in a ```bash block in your reply: Foreman gives the block a Run button that starts it in a terminal the user can see and stop.'
           ]),
-      'Do not commit, push, or open pull requests unless the user asks you to.',
-      ws.direct ? 'Do not switch or rename the branch unless the user asks.' : 'Do not rename the branch unless the user asks; Foreman names it from the task.',
+      ...(plain
+        ? ['Do not run git init in it unless the user asks you to.']
+        : ['Do not commit, push, or open pull requests unless the user asks you to.', ws.direct ? 'Do not switch or rename the branch unless the user asks.' : 'Do not rename the branch unless the user asks; Foreman names it from the task.']),
       ...(this.state.settings.stackedPrs ? ['You can stack pull requests with `gh stack` when a change is better split into several PRs.'] : []),
       // Every turn, follow-ups after the step included: a step agent can say where its run is instead of guessing.
       ...(ws.flowRun ? [`This workspace belongs to the Foreman flow run ${ws.flowRun.runId}. To see which step it is at and why it stopped or waits, call Foreman's get_flow_status without a runId, or run \`foreman flow status ${ws.flowRun.runId}\` from a shell.`] : []),
@@ -453,6 +484,11 @@ export class WorkspaceService {
       })
     )
     return trees
+  }
+
+  /** The checkout (the repository folder or another worktree) that has `branch` checked out, if any. */
+  async checkoutOf(repoId: string, branch: string): Promise<WorktreeInfo | undefined> {
+    return (await this.listWorktrees(repoId)).find((t) => t.branch === branch)
   }
 
   /** Local and remote branches, the base branch first, with where each is checked out. */
@@ -494,6 +530,7 @@ export class WorkspaceService {
 
   async createWorkspace(repoId: string, options: CreateWorkspaceOptions = {}): Promise<Workspace> {
     const repo = this.workspaceRepo(repoId)
+    if (repo.plain) return this.createPlainWorkspace(repo, options)
     const { settings } = this.state
     const choice = options.branch ?? { kind: 'new' }
     const pr = options.pullRequest
@@ -514,8 +551,15 @@ export class WorkspaceService {
     } else if (choice.kind === 'existing') {
       branch = choice.name.trim()
       if (!branch) throw new Error('Choose a branch to check out')
-      const elsewhere = (await this.listWorktrees(repoId)).find((t) => t.branch === branch)
-      if (elsewhere) throw new Error(`${branch} is already checked out in ${elsewhere.path}`)
+      // git checks a branch out in one place only, so a branch already checked out is worked on where it is.
+      const elsewhere = await this.checkoutOf(repoId, branch)
+      if (elsewhere) {
+        const open = this.state.workspaces.find((w) => w.state !== 'archived' && !w.cloud && w.path && samePath(w.path, elsewhere.path))
+        if (open) throw new Error(`${branch} is already open in ${open.name}`)
+        if (options.deferSetup) throw new Error(`${branch} is already checked out in ${elsewhere.path}`)
+        if (elsewhere.isMain) return this.createDirectWorkspace(repo, branch, Boolean(options.runSetup))
+        return this.adoptWorktree(repoId, elsewhere.path, { runSetup: Boolean(options.runSetup) })
+      }
     } else if (choice.name?.trim()) {
       branch = choice.name.trim()
       const valid = await git(repo.rootPath, ['check-ref-format', '--branch', branch], { allowFail: true })
@@ -733,6 +777,36 @@ export class WorkspaceService {
     this.state.workspaces.push(ws)
     await writeFile(this.setupLogPath(ws), log)
     await excludeContextDir(wsPath(ws)).catch(() => undefined)
+    this.changed()
+    if (ws.state === 'setting-up') void this.runSetup(ws, repo)
+    return ws
+  }
+
+  /**
+   * A plain folder's workspace (Repo.plain): the folder itself, whatever kind of branch was asked for, since there are
+   * none. Like a direct workspace, there is one at a time and archiving leaves the folder alone.
+   */
+  private async createPlainWorkspace(repo: Repo, options: CreateWorkspaceOptions): Promise<Workspace> {
+    if (options.location === 'cloud' || options.pullRequest || options.deferSetup) throw new Error(`${repo.name} isn’t a git repository, so its workspace can only work in the folder itself`)
+    const taken = this.directWorkspace(repo.id)
+    if (taken) throw new Error(`${taken.name} already works in ${repo.name}. Archive it first.`)
+    if (!(await stat(repo.rootPath).catch(() => null))?.isDirectory()) throw new Error(`${repo.rootPath} isn’t there any more`)
+    const ws: Workspace = {
+      id: randomUUID(),
+      repoId: repo.id,
+      name: repo.name,
+      branch: '',
+      baseBranch: '',
+      path: repo.rootPath,
+      portBase: await this.newPorts(),
+      state: options.runSetup && this.settingsFor(repo.id).setupScript.trim() ? 'setting-up' : 'ready',
+      adopted: true,
+      direct: true,
+      createdAt: new Date().toISOString()
+    }
+    this.state.workspaces.push(ws)
+    await writeFile(this.setupLogPath(ws), `Working in ${repo.rootPath}. It isn’t a git repository, so there are no branches, diff or checkpoints.
+`)
     this.changed()
     if (ws.state === 'setting-up') void this.runSetup(ws, repo)
     return ws

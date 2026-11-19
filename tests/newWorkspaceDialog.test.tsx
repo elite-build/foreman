@@ -99,18 +99,36 @@ describe('the branch combobox', () => {
     expect(closed()).toHaveBeenCalledWith(null)
   })
 
-  it('names why an existing branch cannot be chosen, and keeps it disabled', async () => {
+  it('keeps a branch that is already checked out choosable, saying where the workspace will work', async () => {
     const user = userEvent.setup()
+    storeModule.createWorkspace = vi.fn(async () => true)
     render(<NewWorkspaceDialog repoId="r1" />)
     await user.click(await screen.findByRole('radio', { name: 'Check out an existing branch' }))
-    const box = await screen.findByRole('searchbox', { name: 'Search branches…' })
+    const list = await screen.findByRole('listbox', { name: 'Existing branch' })
+    expect(within(list).getByRole('option', { name: /^main/ }).textContent).toContain('The workspace works there.')
+    const taken = within(list).getByRole('option', { name: /feature\/other/ })
+    expect(taken.getAttribute('aria-disabled')).not.toBe('true')
+    expect(taken.textContent).toContain('That worktree becomes the workspace.')
+    await user.click(taken)
+    expect(taken.getAttribute('aria-selected')).toBe('true')
+    await typeAndSubmit()
+    expect((storeModule.createWorkspace as ReturnType<typeof vi.fn>).mock.calls[0][1].branch).toEqual({ kind: 'existing', name: 'feature/other' })
+  })
+
+  it('opens the workspace already working on a checked-out branch instead of making another', async () => {
+    const user = userEvent.setup()
+    storeModule.createWorkspace = vi.fn(async () => true)
+    fakeState.snapshot.workspaces = [{ id: 'w2', repoId: 'r1', name: 'other', branch: 'feature/other', path: '/code/other', state: 'ready' }] as never
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.click(await screen.findByRole('radio', { name: 'Check out an existing branch' }))
     const list = await screen.findByRole('listbox', { name: 'Existing branch' })
     const taken = within(list).getByRole('option', { name: /feature\/other/ })
-    expect(taken.getAttribute('aria-disabled')).toBe('true')
-    expect(taken.textContent).toContain('Checked out in')
+    expect(taken.textContent).toContain('Opens other')
     await user.click(taken)
-    expect((box as HTMLInputElement).value).toBe('')
-    expect(taken.getAttribute('aria-selected')).toBe('false')
+    await user.click(screen.getByRole('button', { name: /^Open other/ }))
+    expect(storeModule.createWorkspace).not.toHaveBeenCalled()
+    expect(storeModule.selectWorkspace).toHaveBeenCalledWith('w2')
+    expect(closed()).toHaveBeenCalledWith(null)
   })
 
   it('keeps the inline list visible after searching, keyboard selection and moving to another field', async () => {

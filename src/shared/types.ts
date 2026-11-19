@@ -291,6 +291,9 @@ export interface Repo {
   // The remote to push to, pull from and open pull requests against.
   remote: string
   hasOrigin: boolean
+  // A folder that isn't a git repository, added as it is (addRepo's `plain`). Its one workspace works in the folder
+  // itself: no branches, worktrees, diff, commits, checkpoints or pull requests. defaultBranch is ''.
+  plain?: boolean
   // Before Integrations: the gh account (login) GitHub work in this repo ran as. Moved into
   // `integrations` once (Integrations.migrate) and never written again; still read from old backups.
   githubAccount?: string
@@ -847,9 +850,10 @@ export interface CreateWorkspaceOptions {
   // Branch to start from; defaults to the repo's base branch.
   baseBranch?: string
   // A new branch (auto-named unless `name` is given), an existing one to check out in a new
-  // worktree, or one to work on directly in the repository folder.
+  // worktree, or one to work on directly in the repository folder. An existing branch that is
+  // already checked out is worked on where it is: the repository folder, or its worktree added as it is.
   branch?: { kind: 'new'; name?: string } | { kind: 'existing'; name: string } | { kind: 'direct'; name: string }
-  // Direct workspaces only: run the setup script in the repository folder.
+  // Direct workspaces, and an existing branch worked on where it is checked out: run the setup script there.
   runSetup?: boolean
   // Sent to the first chat once the workspace is ready.
   prompt?: string
@@ -2697,7 +2701,8 @@ export interface Api {
   pickFiles(): Promise<string[]>
   // A native open dialog for one file or folder. Returns null when cancelled.
   pickPath(options: { title: string; kind: 'file' | 'directory' | 'save'; defaultPath?: string }): Promise<string | null>
-  addRepo(path: string): Promise<Repo>
+  // `plain`: a folder outside git is added as it is (Repo.plain) rather than refused.
+  addRepo(path: string, options?: { plain?: boolean }): Promise<Repo>
   // Clone into parentDir/<name> and add it. Progress arrives as clone-progress events with this cloneId.
   // With an account, clones as that gh account and links the new repo to it. With an organization, the new repo joins
   // it, and Personal's clone location is left as it was.

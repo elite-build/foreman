@@ -1137,6 +1137,7 @@ export const en = {
   'drop.notGitHint': 'Foreman works with git repositories. Quick start makes a new one.',
   'drop.openQuickStart': 'Open Quick start',
   'drop.makeRepo': 'Make it a Git repository',
+  'drop.addPlain': 'Add without git',
   'drop.added': 'Already in Foreman',
   'drop.openIt': 'Open it',
   'drop.stays': 'The folder stays where it is. Foreman doesn’t copy, move or change it.',
@@ -3037,6 +3038,7 @@ export const en = {
   'newWorkspace.submit.add': 'Add workspace',
   'newWorkspace.submit.creating': 'Creating…',
   'newWorkspace.submit.create': 'Create workspace',
+  'newWorkspace.submit.open': 'Open {name}',
   // {path} is a folder.
   'newWorkspace.branch.checkedOutIn': 'Checked out in {path}',
   'newWorkspace.runSetup': 'Run the setup script',
@@ -3056,11 +3058,15 @@ export const en = {
   'newWorkspace.branch.checkoutExisting': 'Check out an existing branch',
   'newWorkspace.branch.existingLabel': 'Existing branch',
   'newWorkspace.branch.choose': 'Choose a branch',
-  'newWorkspace.branch.inRepoFolder': 'Checked out in the repository folder. Use “Repository folder” to work on it there.',
+  'newWorkspace.branch.opensWorkspace': 'Opens {name}, where it’s checked out.',
+  'newWorkspace.branch.worksInFolder': 'Checked out in the repository folder. The workspace works there.',
+  'newWorkspace.branch.addsWorktree': 'Checked out in {path}. That worktree becomes the workspace.',
   // {from} and {to} are branch names.
   'newWorkspace.folder.switches': 'switches from {from} to {to}',
   // {name} is a workspace's name.
   'newWorkspace.folder.taken': '{name} already works in the repository folder. Archive it to start another one here.',
+  'newWorkspace.plain.note': 'This folder isn’t a git repository, so the workspace works in the folder itself, with no branch, diff or checkpoints.',
+  'newWorkspace.plain.noFlow': 'A flow run needs git worktrees, and this folder isn’t a git repository.',
   // {branch} is a branch name in code style, or newWorkspace.folder.theBranch.
   'newWorkspace.folder.note': 'The agent edits the repository folder directly and its changes go straight onto {branch}. No worktree or new branch is created, and archiving leaves the folder and branch as they are.',
   'newWorkspace.folder.theBranch': 'the branch',
@@ -3115,6 +3121,9 @@ export const en = {
   'addRepo.makeRepo.callout.title': 'Foreman works in Git repositories',
   'addRepo.makeRepo.callout.body': 'Making {folder} a Git repository runs git init and saves the files that are in it now as a first commit. Files your .gitignore lists are left out, and nothing is moved or deleted.',
   'addRepo.makeRepo.action': 'Make it a Git repository',
+  'addRepo.plain.title': 'Or work without git',
+  'addRepo.plain.body': 'Agents work on the folder as it is. Without git there are no branches, diff, checkpoints or pull requests, and one workspace works there at a time.',
+  'addRepo.plain.action': 'Add without git',
   'addRepo.makeRepo.identity.title': 'Git needs to know who you are',
   'addRepo.makeRepo.identity.body': 'Git records a name and an email with every commit. Nothing has been committed yet. They are saved for this project only, unless you choose otherwise below.',
   'addRepo.makeRepo.identity.name': 'Your name',
@@ -4064,6 +4073,7 @@ export const en = {
   // An empty chat's greeting. {name} is the workspace, {branch} its branch, {base} the branch it came from.
   'chat.greeting.copy': '{name} is your own copy of the repository, on branch {branch} from {base}.',
   'chat.greeting.ask': 'What should {agent} work on?',
+  'chat.greeting.plain': '{name} works in the folder itself. It isn’t a git repository, so there are no branches, diff or checkpoints.',
   // After chat.greeting.copy when the workspace is named after a person. {name} is their full name, a link to Wikipedia; {contribution} is a sentence about them, in English.
   'chat.greeting.namesake': "It's named after {name}. {contribution}",
   'chat.greeting.namesakeSource': 'Read about {name} on Wikipedia',
@@ -4391,6 +4401,8 @@ export const en = {
   'workspaceView.toggleSidePanel': 'Toggle side panel ({key})',
   'workspaceView.toggleTerminal': 'Toggle terminal panel ({key})',
   'workspaceView.createdFrom': 'Created from {base}',
+  'workspaceView.noGit.title': 'Not a git repository',
+  'workspaceView.noGit.body': 'Changes and commits need git. Agents still work on the files here, but Foreman can’t show what they changed or rewind a turn.',
   'workspaceView.export.title': 'Export this workspace as a .foreman file',
   'workspaceView.export.label': 'Export…',
   'workspaceView.handOff.title': 'Move this workspace to another paired Mac on this network',

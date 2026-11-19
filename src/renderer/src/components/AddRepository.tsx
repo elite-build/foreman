@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { currentSpace, type Organization } from '../../../shared/organizations'
 import { GITHUB_REPOS_LISTED, type GithubRepo, type GitIdentity } from '../../../shared/types'
 import {
+  addPlainFolder,
   addRepository,
   api,
   cloneRepository,
@@ -391,13 +392,14 @@ export function MakeRepoDialog({ dir }: { dir: string }) {
   const folder = dir.split(/[/\\]/).filter(Boolean).pop() ?? dir
   const identityReady = name.trim() !== '' && /^\S+@\S+$/.test(email.trim())
 
-  const run = async (identity?: GitIdentity) => {
+  const run = async (identity?: GitIdentity, plain = false) => {
     if (working) return
     setWorking(true)
     setError('')
     try {
-      // On success the repository is added and the store closes this dialog.
-      if ((await makeRepository(dir, identity)) === 'needs-identity') setStage('identity')
+      // On success the repository (or the plain folder) is added and the store closes this dialog.
+      if (plain) await addPlainFolder(dir)
+      else if ((await makeRepository(dir, identity)) === 'needs-identity') setStage('identity')
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
     } finally {
@@ -438,6 +440,19 @@ export function MakeRepoDialog({ dir }: { dir: string }) {
             }
           >
             {t('addRepo.makeRepo.callout.body', { folder })}
+          </Callout>
+        ) : null}
+        {stage === 'confirm' ? (
+          <Callout
+            tone="neutral"
+            title={t('addRepo.plain.title')}
+            actions={
+              <Button onClick={() => void run(undefined, true)} disabled={working}>
+                {t('addRepo.plain.action')}
+              </Button>
+            }
+          >
+            {t('addRepo.plain.body')}
           </Callout>
         ) : (
           <>

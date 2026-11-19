@@ -2735,7 +2735,9 @@ export class Core {
       const ref = findLinearLink(options.prompt, { bareIds: this.integrations.resolve(repoId, 'linear').state === 'ready' })
       if (ref) options = { ...options, linearIssue: ref.url ?? ref.identifier }
     }
-    if (options?.branch?.kind === 'direct' && this.spotlight.workspaceFor(repoId)) throw new Error('Turn off spotlight testing before working in the repository folder')
+    // An existing branch checked out in the repository folder is worked on there too.
+    const inFolder = options?.branch?.kind === 'direct' || (options?.branch?.kind === 'existing' && options.location !== 'cloud' && Boolean((await this.workspaces.checkoutOf(repoId, options.branch.name.trim()))?.isMain))
+    if (inFolder && this.spotlight.workspaceFor(repoId)) throw new Error('Turn off spotlight testing before working in the repository folder')
     let create = options
     let intake: IntakeFile | undefined
     if (options?.githubUrl) {
@@ -3023,10 +3025,20 @@ export class Core {
     )
   }
 
+  /** A workspace in a folder outside git (Repo.plain): nothing git-based (diff, commits, checkpoints) is asked of it. */
+  private plainWorkspace(ws: Workspace): boolean {
+    return Boolean(this.store.state.repos.find((r) => r.id === ws.repoId)?.plain)
+  }
+
+  /** Refuses git-based work on a plain folder's workspace with a reason the user can act on. */
+  private needsGit(ws: Workspace, what: string): void {
+    if (this.plainWorkspace(ws)) throw new Error(`${what} needs git, and ${this.workspaces.repo(ws.repoId).name} isn’t a git repository`)
+  }
+
   /** `since`: a snapshot of the working tree started then or later still holds (see sharedWorkingTree). */
   async refreshDiffStat(workspaceId: string, since?: number): Promise<void> {
     const ws = this.store.state.workspaces.find((w) => w.id === workspaceId)
-    if (!ws || !['ready', 'setting-up', 'setup-failed'].includes(ws.state)) return
+    if (!ws || !['ready', 'setting-up', 'setup-failed'].includes(ws.state) || this.plainWorkspace(ws)) return
     try {
       // One snapshot of the working tree serves all three (after a turn, the one its end checkpoint just took).
       const tree = await sharedWorkingTree(workspaceTarget(ws), since)
@@ -3402,7 +3414,7 @@ export class Core {
     pickDirectory: () => this.host.pickDirectory(),
     pickFiles: () => this.host.pickFiles(),
     pickPath: (options) => this.host.pickPath(options),
-    addRepo: (path) => this.workspaces.addRepo(path),
+    addRepo: (path, options) => this.workspaces.addRepo(path, undefined, { plain: Boolean(options?.plain) }),
     cloneRepo: async (url, parentDir, cloneId, account, organizationId) => {
       this.joinable(organizationId)
       const dir = await cloneRepo(url, parentDir, (line) => this.host.broadcast({ type: 'clone-progress', cloneId, line }), account)
@@ -3993,7 +4005,10 @@ export class Core {
     attachData: (workspaceId, name, base64) => attachFromData(workspaceTarget(this.workspaces.workspace(workspaceId), { wake: true }), name, base64),
     stageAttachment: (name, base64) => stageAttachment(this.stagingDir, name, base64),
     // Cloud workspaces: @-mentions, search and a diff's surrounding lines read the sandbox; the file browser and editor are local only.
-    listFiles: (workspaceId) => listWorkspaceFiles(workspaceTarget(this.workspaces.workspace(workspaceId))),
+    listFiles: (workspaceId) => {
+      const ws = this.workspaces.workspace(workspaceId)
+      return listWorkspaceFiles(workspaceTarget(ws), { plain: this.plainWorkspace(ws) })
+    },
     readFile: (workspaceId, path) => readWorkspaceFile(workspaceTarget(this.workspaces.workspace(workspaceId)), path),
     listDir: (workspaceId, dir) => listWorkspaceDir(localOnly(this.workspaces.workspace(workspaceId), 'Browsing files'), dir),
     readImage: (workspaceId, path) => readWorkspaceImage(localOnly(this.workspaces.workspace(workspaceId), 'Image previews'), path),
@@ -4008,9 +4023,13 @@ export class Core {
       this.revalidateRepoFiles()
       void this.refreshDiffStat(workspaceId)
     },
-    searchFiles: (workspaceId, query, options) => searchWorkspace(workspaceTarget(this.workspaces.workspace(workspaceId)), query, options),
+    searchFiles: (workspaceId, query, options) => {
+      const ws = this.workspaces.workspace(workspaceId)
+      return searchWorkspace(workspaceTarget(ws), query, { ...options, plain: this.plainWorkspace(ws) })
+    },
     getDiff: async (workspaceId, scope, commits) => {
       const ws = this.workspaces.workspace(workspaceId)
+      this.needsGit(ws, 'Changes')
       // O5: staged, commits and the PR come from their own ranges, without viewed marks.
       if (scope !== 'all' && scope !== 'uncommitted') return sourceDiff(ws, scope, commits, scope === 'pr' ? await this.prTarget(ws) : null)
       const diff = await workspaceDiff(ws, scope)
@@ -4044,6 +4063,7 @@ export class Core {
     },
     branchCommits: async (workspaceId) => {
       const ws = this.workspaces.workspace(workspaceId)
+      this.needsGit(ws, 'Commits')
       const status = await this.git.status(workspaceId).catch(() => null)
       const list = await branchCommits(ws, status?.upstream ?? `${this.workspaces.repo(ws.repoId).remote}/${ws.branch}`)
       // A tab's name only when Foreman saw that tab's tool call print the commit; otherwise the git author.
