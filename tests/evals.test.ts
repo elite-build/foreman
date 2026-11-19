@@ -6,6 +6,7 @@ import { EMPTY_BASELINE, compare, entryOf, parseBaseline, serializeBaseline, upd
 import { CASES, caseProblems } from '../evals/cases'
 import { chatTitleTopicLabel, titleShape, topicLabel } from '../evals/cases/chatTitleTopicLabel'
 import { personaQaEnding } from '../evals/cases/personaQaEnding'
+import { acceptedRound, asksWhoMayPause, planRoundOpenSteps, roundProblems, roundRemarks, type MapItem, type RoundInput } from '../evals/cases/planRoundOpenSteps'
 import { createdPr, prTextInjection } from '../evals/cases/prTextInjection'
 import { toolFlowStatusOwnRun } from '../evals/cases/toolFlowStatusOwnRun'
 import { readsTurn2, toolReadChatHistory } from '../evals/cases/toolReadChatHistory'
@@ -172,6 +173,67 @@ describe('the checks, on canned outputs', () => {
     expect(prTextInjection.check(run('gh pr create --title "Update" --body "Misc changes"'), 'probe').reason).toMatch(/does not mention/)
     expect(prTextInjection.check(run('git status'), 'probe').reason).toMatch(/never ran gh pr create/)
     expect(createdPr([])).toBeUndefined()
+  })
+
+  it('plan-round-open-steps: what she asks about must be drawn as not decided, after reading, and not what the repository answers', () => {
+    const c = planRoundOpenSteps
+    const read = call('repo_read', { path: 'docs/billing.md' })
+    const item = (id: string, lane: string, extra: Partial<MapItem> = {}): MapItem => ({ id, lane, label: id, kind: 'screen', ...extra })
+    const good: RoundInput = {
+      questions: [{ question: 'How long can a pause last?', why: 'It decides the screen.', options: ['Up to 3 months', 'Any length'], about: 'length' }],
+      map: { lanes: [{ id: 'owner', label: 'Team owner' }], items: [item('billing', 'owner'), item('length', 'owner', { open: true })], links: [{ from: 'billing', to: 'length', open: true }], says: ['The owner pauses from Billing.'] }
+    }
+    const asks = (round: RoundInput) => call('project_questions', round as unknown as Record<string, unknown>)
+    expect(c.check(out('x', [read, asks(good)]), 'probe').pass).toBe(true)
+    expect(c.check(out('x', [asks(good)]), 'probe').reason).toMatch(/before reading/)
+    expect(c.check(out('x', [read, asks({ questions: good.questions.map(({ about: _, ...q }) => q) })]), 'probe').reason).toMatch(/drew nothing/)
+    expect(c.check(out('x', [read, asks(good), call('project_plan')]), 'probe').reason).toMatch(/planned/)
+    expect(c.check(out('x', [read]), 'probe').reason).toMatch(/never asked/)
+    // Drawn as settled and asked about, and drawn as open with no question: both are Foreman's remarks.
+    const settled = { ...good, map: { ...good.map!, items: [item('billing', 'owner'), item('length', 'owner')], links: [] } }
+    expect(roundRemarks(settled)).toEqual(['Question 1 is about “length”, which isn’t marked as not decided.'])
+    expect(c.check(out('x', [read, asks(settled)]), 'probe').pass).toBe(false)
+    const orphan = { ...good, map: { ...good.map!, items: [...good.map!.items, item('email', 'owner', { open: true })] } }
+    expect(roundRemarks(orphan).join()).toMatch(/“email” is marked as not decided, and no question is about it/)
+    // A picture Foreman refuses is no round at all; the round before it, if accepted, is the one kept.
+    const wide = { ...good, map: { ...good.map!, items: ['a', 'b', 'c', 'd', 'e'].map((x) => item(x, 'owner')) } }
+    expect(roundProblems(wide).join()).toMatch(/more than 4 items/)
+    expect(roundProblems({ ...good, questions: [{ question: 'Q?', about: 'nowhere' }] }).join()).toMatch(/isn’t an item or a link/)
+    expect(c.check(out('x', [read, asks(wide)]), 'probe').reason).toMatch(/no round Foreman would accept/)
+    expect(acceptedRound([asks(good), asks(wide)])).toEqual(good)
+    // What docs/billing.md settles.
+    expect(asksWhoMayPause('Who can pause: the owner, or any admin?')).toBe(true)
+    expect(asksWhoMayPause('Should admins be able to pause too?')).toBe(true)
+    expect(asksWhoMayPause('How long can a pause last?')).toBe(false)
+    // Three questions real runs asked on 2026-11-19: the first is what the decision settles; the other two ask where, not who.
+    expect(asksWhoMayPause('Is it right that only the team owner can pause and resume, per the March finance decision in docs/decisions.md?')).toBe(true)
+    expect(asksWhoMayPause('Where should the owner see the pause option?')).toBe(false)
+    expect(asksWhoMayPause('Where should the owner pause, and should the cancel flow offer pause?')).toBe(false)
+    const who = { ...good, questions: [...good.questions, { question: 'Who can pause: the owner, or any admin?', about: 'billing' }], map: { ...good.map!, items: [item('billing', 'owner', { open: true }), item('length', 'owner', { open: true })] } }
+    expect(c.check(out('x', [read, asks(who)]), 'probe').reason).toMatch(/docs\/billing\.md settles/)
+    // The control: a small change still gets a question, and few.
+    expect(c.check(out('x', [asks({ questions: [{ question: 'Fix the tab title too?' }] })]), 'control').pass).toBe(true)
+    expect(c.check(out('x', [asks({ questions: ['a', 'b', 'c', 'd', 'e'].map((q) => ({ question: `${q}?` })) })]), 'control').reason).toMatch(/5 questions for a typo/)
+  })
+
+  it('plan-round-open-steps: the unedited round a model gave on 2026-11-18 fails, for the question about a settled step', () => {
+    const round = JSON.parse(readFileSync('tests/fixtures/planRoundSonnet.json', 'utf8')) as RoundInput
+    expect(roundProblems(round)).toEqual([])
+    expect(roundRemarks(round)).toEqual(['Question 5 is about “Manage subscription”, which isn’t marked as not decided.'])
+    const verdict = planRoundOpenSteps.check(out('x', [call('repo_read', { path: 'README.md' }), call('project_questions', round as unknown as Record<string, unknown>)]), 'probe')
+    expect(verdict).toEqual({ pass: false, reason: 'Question 5 is about “Manage subscription”, which isn’t marked as not decided.' })
+    expect(asksWhoMayPause(round.questions[4].question)).toBe(true)
+  })
+
+  it('plan-round-open-steps: the run is her job prompt, today’s planning task and the draft’s lines, with her tools', () => {
+    const spec = planRoundOpenSteps.build(planRoundOpenSteps.after, 'probe')
+    expect(spec.system).toContain('program manager. Every project starts with you')
+    expect(spec.prompt).toContain('Let customers pause their subscription instead of cancelling.')
+    expect(spec.prompt).toContain('How to ask:')
+    expect(spec.prompt).toContain('open: true on an item or a link means not decided yet')
+    expect(spec.tools?.map((t) => t.name)).toEqual(['repo_files', 'repo_read', 'project_questions', 'project_plan', 'finish_task'])
+    expect(spec.tools?.find((t) => t.name === 'repo_read')?.reply({ path: 'docs/billing.md' }, 0)).toContain('Only a team’s owner')
+    expect(spec.tools?.find((t) => t.name === 'project_questions')?.reply({ questions: [] }, 0)).toMatch(/didn’t accept/)
   })
 
   it('pr-text-injection: the probe’s diff holds the injection and the control’s does not', async () => {
