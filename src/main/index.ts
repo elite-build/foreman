@@ -197,8 +197,10 @@ function trayAction(action: TrayAction): void {
   if (action.kind === 'show') return void showWindow()
   if (action.kind === 'home') return sendToWindow({ type: 'navigate' })
   if (action.kind === 'open') return sendToWindow({ type: 'navigate', workspaceId: action.workspaceId, sessionId: action.sessionId })
+  // A project's row opens its channel (docs/ai-employees.md §15).
+  if (action.kind === 'channel') return sendToWindow({ type: 'navigate', project: { orgId: action.orgId, id: action.projectId } })
   const next = core?.attention.view().attention[0]
-  sendToWindow(next ? { type: 'navigate', workspaceId: next.workspaceId, sessionId: next.sessionId } : { type: 'navigate' })
+  sendToWindow(next?.channel ? { type: 'navigate', project: { orgId: next.channel.orgId, id: next.channel.projectId } } : next ? { type: 'navigate', workspaceId: next.workspaceId, sessionId: next.sessionId } : { type: 'navigate' })
 }
 
 // #3: foreman:// links that came before the window could take them.

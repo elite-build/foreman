@@ -81,7 +81,9 @@ export interface TurnRequest {
   // What the write scope's refusals call the turn ("AI employee’s run"); absent: a flow step, as they always have.
   writeScopeSubject?: string
   // docs/ai-employees.md §9: an AI employee's run. It has what a workspace's agent has; its own Foreman tools and its
-  // brokered Slack, Linear and Langfuse tools never ask (Foreman checks and holds them itself). Claude only; others ignore it.
+  // brokered Slack, Linear and Langfuse tools never ask (Foreman checks and holds them itself). It leaves out the person's
+  // own setup: their user settings (hooks, plugins) and every MCP server but the repository's .mcp.json (less any Slack
+  // or Linear one) and those handed here; its result says what was refused. Claude only; others ignore it.
   employee?: true
   // The account the turn runs on (undefined: the agent's default one): what an agent's pooled server is keyed by (docs/agents.md 3).
   instance?: string

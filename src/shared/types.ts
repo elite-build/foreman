@@ -1454,6 +1454,16 @@ export interface ContextPart {
   revision?: number
 }
 
+/**
+ * A tool call the turn refused (docs/ai-employees.md §9): a PreToolUse hook's deny (Foreman's own or the repository's) or
+ * the permission check's. `what` is the command or file it named, `reason` the words the agent was given.
+ */
+export interface ToolRefusal {
+  tool: string
+  what?: string
+  reason: string
+}
+
 export type ChatItem =
   | {
       kind: 'user'
@@ -1518,7 +1528,8 @@ export type ChatItem =
   // O10: `gap` marks where Foreman was closed while the turn kept running in the background host.
   // #2: `report` marks a line the agent reported ("agent says: checkpoint — …"); needs-input shows as a card while open.
   | { kind: 'notice'; id: string; turnId?: string; level: 'info' | 'error'; text: string; action?: 'sign-in' | 'open-settings' | 'update'; gap?: import('./agentHost').ClosedGap; report?: import('./agentReports').ReportMarker; switched?: import('./switchAgent').AgentSwitch; divider?: import('./switchAgent').ChatDivider; handOff?: import('./chatHandOff').ChatHandOff }
-  | { kind: 'result'; id: string; turnId: string; ok: boolean; costUsd?: number; durationMs?: number; turns?: number }
+  // `refused`: an AI employee's run only (Claude), the calls refused in the turn, which its run record keeps.
+  | { kind: 'result'; id: string; turnId: string; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; refused?: ToolRefusal[] }
   // Internal: how a turn ended, appended once when it does. The only item that says "completed".
   | {
       kind: 'turn-end'
@@ -2374,7 +2385,8 @@ export type MainEvent =
   // Settings at Agents on this computer).
   // `kind` (O13b) says what it is, since title and body are in the user's language: a turn that finished or was
   // stopped, something that needs the user (phone pushes go out for these), or anything else.
-  | { type: 'notify'; workspaceId: string; sessionId: string; title: string; body: string; action?: 'fix-ci' | 'keep-awake' | 'agent-access'; kind?: NotifyKind }
+  // `project`: something a project waits on the person for (docs/ai-employees.md §15); clicking it opens the project's channel.
+  | { type: 'notify'; workspaceId: string; sessionId: string; title: string; body: string; action?: 'fix-ci' | 'keep-awake' | 'agent-access'; kind?: NotifyKind; project?: { orgId: string; id: string } }
   // Setup finished and the repo has "Auto-run after setup" on.
   | { type: 'auto-run'; workspaceId: string }
   // A line of `git clone` output for the clone dialog.
@@ -2394,7 +2406,7 @@ export type MainEvent =
   // #3: a foreman:// link arrived (navigation only; the window decides where it goes).
   | { type: 'open-link'; url: string }
   // #3: a tray entry: show this workspace (and tab), or Home when none.
-  | { type: 'navigate'; workspaceId?: string; sessionId?: string }
+  | { type: 'navigate'; workspaceId?: string; sessionId?: string; project?: { orgId: string; id: string } }
   // #3: Home → Recent's history changed.
   | { type: 'attention-history'; events: import('./attention').AttentionEvent[]; seenAt?: string }
   // G3 · #1: an archive step started, finished or failed.

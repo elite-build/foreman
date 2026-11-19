@@ -1620,7 +1620,8 @@ export class SessionService {
         approvals: policy.policy,
         readOnly: this.readOnly(session) ? true : undefined,
         writeScope: scope,
-        // docs/ai-employees.md §9: an employee's run has what a workspace's agent has: every MCP server, and no paths refused.
+        // docs/ai-employees.md §9: an employee's run has what a workspace's agent has (no paths refused), but not the
+        // person's own setup: Claude leaves out their user settings, hooks, plugins and own MCP servers.
         ...(employee ? { writeScopeSubject: 'AI employee’s run', employee: true as const } : {}),
         instance: session.instanceId,
         resume: session.agentSessionId,

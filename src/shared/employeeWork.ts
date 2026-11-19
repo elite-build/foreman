@@ -11,7 +11,7 @@ import type { MemoryProposal } from './memory'
 import { accountState, blockedUntil, limitsOf, type AccountLimits } from './limits'
 import type { Persona, TurnPersona } from './personas'
 import type { ProjectTaskMark } from './projects'
-import type { AgentKind, UsageLimit } from './types'
+import type { AgentKind, ToolRefusal, UsageLimit } from './types'
 import { RESUME_BUFFER_MS } from './usageLimit'
 
 // ---- tasks ----
@@ -396,6 +396,9 @@ export interface EmployeeRun {
   memoryBase?: string
   memoryCommit?: string
   usage?: EmployeeRunUsage
+  // §9: the calls refused during its turns (a PreToolUse hook's deny, Foreman's own or the repository's), oldest first,
+  // at most MAX_RUN_REFUSALS: what the run's record says Foreman or the repository stopped.
+  refused?: ToolRefusal[]
   // In plain words: why it is queued, or how it ended.
   reason?: string
   createdAt: string
@@ -772,6 +775,22 @@ export function resultSummary(text: string, lines = 3, max = 400): string {
     .slice(0, lines)
     .join('\n')
   return kept.length > max ? `${kept.slice(0, max - 1).trimEnd()}…` : kept
+}
+
+/** §9: the most refusals a run's record keeps. */
+export const MAX_RUN_REFUSALS = 20
+
+/** A run's refusals with a turn's added after them, at most MAX_RUN_REFUSALS (the first ones kept). */
+export function withRefusals(kept: readonly ToolRefusal[] | undefined, added: readonly ToolRefusal[] | undefined): ToolRefusal[] {
+  return [...(kept ?? []), ...(added ?? [])].slice(0, MAX_RUN_REFUSALS)
+}
+
+/** One refusal in a few words, for the run's line: what was refused and the first sentence of why ("git push (not the publisher)"). */
+export function refusalText(r: ToolRefusal, max = 80): string {
+  const said = r.reason.trim().split(/(?<=[.!?])\s|\n/)[0]?.replace(/[.!?]+$/, '').trim() ?? ''
+  const why = said.length > max ? `${said.slice(0, max - 1).trimEnd()}…` : said
+  const what = (r.what ?? r.tool).trim()
+  return why ? `${what} (${why})` : what
 }
 
 /** The recap Foreman writes from the run record when the employee wrote none (§4, "Recaps"). English, like the journal. */

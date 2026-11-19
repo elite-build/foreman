@@ -652,8 +652,12 @@ function notify(event: Extract<MainEvent, { type: 'notify' }>): void {
   // O13b: main's text is in the user's language; `kind` says what it is.
   const finished = event.kind === 'finished'
   // With sound cues on, the status-event site plays the cue for a finished turn or a request, so this sound is not added to it.
-  if (finished || !isViewing(event.sessionId, event.workspaceId)) playCompletionSound(settings, event)
-  if (!settings.notifications || isViewing(event.sessionId, event.workspaceId)) return
+  // A project's (docs/ai-employees.md §15): seen when its channel is on screen.
+  const viewing = event.project
+    ? document.hasFocus() && state.employeesView?.page === 'project' && state.employeesView.id === event.project.id && !state.settingsPage
+    : isViewing(event.sessionId, event.workspaceId)
+  if (finished || !viewing) playCompletionSound(settings, event)
+  if (!settings.notifications || viewing) return
   if (event.kind === 'stopped') return
   try {
     // E2: the narrator's sentence for a finished turn or a request that needs the user (the workspace's name as the title).
@@ -661,6 +665,7 @@ function notify(event: Extract<MainEvent, { type: 'notify' }>): void {
     const notification = new Notification(text.title, { body: text.body, silent: true })
     notification.onclick = () => {
       raiseWindow()
+      if (event.project) return openChannel(event.project)
       // G4 O17: a keep-awake cutoff opens its setting.
       if (event.action === 'keep-awake') return openSettingsPage({ section: 'general', scrollTo: 'keep-awake' })
       // A sign-in from an agent on this computer is waiting: Settings → Data & devices → Agents on this computer.
@@ -711,6 +716,12 @@ export function openLink(url: string): void {
 }
 
 /** #3: a tray entry: this workspace (and tab), or Home. */
+/** A project's channel, from a notification, the tray or the phone's link (docs/ai-employees.md §15); Home when it is gone. */
+function openChannel(project: { orgId: string; id: string }): void {
+  if (!state.snapshot?.projects?.[project.orgId]?.some((p) => p.id === project.id)) return applyLinkRoute({ kind: 'home' })
+  openEmployees({ orgId: project.orgId, page: 'project', id: project.id })
+}
+
 function navigateTo(workspaceId?: string, sessionId?: string): void {
   const ws = workspaceId ? state.snapshot?.workspaces.find((w) => w.id === workspaceId) : undefined
   if (!ws) return applyLinkRoute({ kind: 'home' })
@@ -851,6 +862,7 @@ function handleEvent(event: MainEvent): void {
     case 'navigate':
       if (!state.snapshot) navigateOnLoad = event
       else if (event.type === 'open-link') openLink(event.url)
+      else if (event.project) openChannel(event.project)
       else navigateTo(event.workspaceId, event.sessionId)
       return
     case 'attention-history':
@@ -973,7 +985,13 @@ export async function initStore(): Promise<void> {
   const pending = navigateOnLoad
   navigateOnLoad = null
   if (pending?.type === 'open-link') openLink(pending.url)
+  else if (pending?.project) openChannel(pending.project)
   else if (pending) navigateTo(pending.workspaceId, pending.sessionId)
+  // docs/ai-employees.md §15: the phone's link to what a project waits on opens the full app at its channel.
+  const params = clientKind === 'browser' && !pending ? new URLSearchParams(location.search) : null
+  const org = params?.get('org')
+  const channel = params?.get('channel')
+  if (org && channel) openChannel({ orgId: org, id: channel })
   void refreshOpencode()
 }
 

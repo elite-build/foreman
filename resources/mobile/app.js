@@ -224,16 +224,31 @@ function recentBody() {
 async function loadRecent() {
   try { state.recent = await request('GET', '/api/recent') } catch (err) { state.error = err.message }
 }
+// docs/ai-employees.md §15: what projects wait on you for, first under All and Needs you. Each opens its channel in the
+// full app (/app), where it is answered; nothing here answers it.
+function projectRows() {
+  if (state.filter !== 'all' && state.filter !== 'need') return []
+  const q = state.query.trim().toLowerCase()
+  return (state.model.projects || []).filter((p) => !q || [p.channel, p.organization, p.text].some((v) => String(v || '').toLowerCase().includes(q)))
+}
+function projectRow(p) {
+  return '<a class="th ch" href="' + safe(p.link) + '">' +
+    '<span class="av need" style="background:' + colorFor(p.channel) + '">#</span>' +
+    '<span class="body"><span class="l1"><span class="nm">' + safe(p.channel) + '</span><span class="rp">' + safe(p.organization) + '</span>' +
+    '<span class="tm hot">' + ago(p.since) + '</span></span>' +
+    '<span class="pv"><p><b>Needs you</b> · ' + safe(p.text) + '</p></span></span></a>'
+}
 function listBody() {
   if (state.filter === 'recent') return recentBody()
   const rows = filtered()
-  if (rows.length) return rows.map(threadRow).join('') + '<div class="list-end"></div>'
+  const projects = projectRows()
+  if (rows.length || projects.length) return projects.map(projectRow).join('') + rows.map(threadRow).join('') + '<div class="list-end"></div>'
   if (!state.model.workspaces.length) return '<div class="empty"><b>No workspaces yet</b>Tap New to start an agent in a fresh worktree.</div>'
   return '<div class="empty"><b>Nothing here</b>' + (state.query ? 'No workspace matches “' + safe(state.query) + '”.' : state.filter === 'need' ? 'No agent needs you right now.' : 'No agents in this filter.') + '</div>'
 }
 function listView() {
   const m = state.model
-  const need = m.workspaces.filter((w) => rank(w) <= 1).length
+  const need = m.workspaces.filter((w) => rank(w) <= 1).length + (m.projects || []).length
   const working = m.workspaces.filter((w) => w.bucket === 'working').length
   const chip = (id, label) => '<button class="' + (state.filter === id ? 'on' : '') + '" data-action="filter:' + safe(id) + '">' + label + '</button>'
   const top = '<div class="lt"><h1>Agents</h1><button class="conn" data-action="sheet:device"><i></i>' + (location.protocol === 'https:' ? 'Connected' : 'Same Wi-Fi') + '</button></div>' +

@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-19: An AI employee's run leaves the person's own Claude Code setup out
+
+**Decision.** An employee's Claude run loads the repository's settings, not the person's user settings, hooks or plugins. Its MCP servers are the repository's `.mcp.json` (less any Slack or Linear server) and Foreman's; every other MCP configuration is ignored. Hook refusals go on the run's record. This narrows the 2026-11-17 entry's "every MCP server a workspace's agent has" for employees only.
+
+**Why.** A personal hook stalled unattended runs, costing replans nobody saw, and a personal Slack or Linear server posted with no hold or record.
+
+**Turned down.** Dropping only Slack and Linear servers (a hook or plugin still steers the team); dropping `.mcp.json` too (projects need the repository's servers); a per-employee opt-in (a second consent to keep).
+
+**Revisit when.** People want an employee to use a personal server, approved with the employee like any widening.
+
 ## 2026-11-19: Settings opens on Quick, and the rail's gear shows its first six tiles
 
 **Decision.** Settings › Quick is the first menu entry and where Settings (and Ctrl+,) opens: one ordered list of tiles (`shared/quickTiles.ts`), each a setting drawn with its own page's control. The rail's gear opens a popover of the first six with All settings; the order and which tiles show are chosen on the page and kept in the window's local storage.
@@ -121,6 +131,8 @@ A row says what its workspace is for, not what it is called: its first chat's ti
 **Revisit when.** People miss branch and age at a glance, or touch use matters.
 
 ## 2026-11-17: An AI employee has what a workspace's agent has, and no limits
+
+**Narrowed** by 2026-11-19: An AI employee's run leaves the person's own Claude Code setup out.
 
 **Decision.** Every employee gets a shell by default (Edit turns it off), every MCP server a workspace's agent has, Never ask when unattended, no refused paths, and no limits: no runs a day, minutes, cost threshold, lanes, organization cap, failure pause, hand-off depth or counts, or trigger floor. Kept: the memory repository's rules, held Slack and Linear posts, a chain's 20 runs, the event guards and a trigger's own overlap.
 

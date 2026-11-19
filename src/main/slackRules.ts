@@ -180,6 +180,20 @@ export class SlackRules {
     })
   }
 
+  /**
+   * docs/ai-employees.md §15: something a project waits on the person for (`key`, its Needs you id), as "needs me" from
+   * whose it is, in its channel: one message per thing, as an agent's request is.
+   */
+  async projectEvent(input: { repoId: string; workspaceId?: string; channel: string; who: string; reason: string; key: string }): Promise<void> {
+    await this.emit('agent-needs-me', {
+      repoId: input.repoId,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      title: input.channel,
+      values: { workspace: input.channel, agent: input.who, reason: input.reason },
+      facts: { turnId: input.key }
+    })
+  }
+
   // ---- rules → deliveries ----
 
   private connectionFor(repoId: string): Connection | undefined {

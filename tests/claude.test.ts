@@ -2,6 +2,9 @@ import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { claudeDriver, EXIT_GRACE_MS } from '../src/main/agents/claude'
 import type { TurnCallbacks, TurnRequest } from '../src/main/agents/types'
+import { mkdir, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { tempDir } from './helpers'
 
 // No Claude Code here: `query` is replaced by a fake whose messages each test pushes in.
 const sdk = vi.hoisted(() => ({ query: vi.fn(), tool: vi.fn(() => ({})), createSdkMcpServer: vi.fn(() => ({})) }))
@@ -642,16 +645,84 @@ describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
   const pre = (tool_name: string, tool_input: unknown) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, tool_use_id: 'u1', session_id: 's1', transcript_path: '', cwd: '/repo' })
   const employee: TurnRequest = { ...request, approvals: 'never-ask', employee: true }
 
-  it('has what a workspace’s agent has: every MCP server, never asking, and no hook refusing agent or git configuration', async () => {
+  it('never asks and has no hook refusing agent or git configuration, but leaves out the person’s own setup', async () => {
     const claude = fakeClaude()
     const run = claudeDriver.createTurn(employee, callbacks()).run()
     const options = sdk.query.mock.calls[0][0].options
-    // No strict MCP config: the user’s and the repository’s own servers load, as in a workspace.
-    expect(options.strictMcpConfig).toBeUndefined()
+    // The repository's settings and Foreman's servers only: no user settings (their hooks, plugins), no other MCP config.
+    expect(options.settingSources).toEqual(['project', 'local'])
+    expect(options.strictMcpConfig).toBe(true)
     expect(options.permissionMode).toBe('bypassPermissions')
     expect(options.hooks).toBeUndefined()
     claude.push(result)
     await run
+  })
+
+  it('hands over the repository’s .mcp.json servers, less Slack, Linear and what its settings or the integrations switch off', async () => {
+    const dir = await tempDir()
+    await mkdir(path.join(dir, '.claude'))
+    await writeFile(
+      path.join(dir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          docs: { command: 'node', args: ['${DOCS_HOME:-tools}/docs.js'], env: { TOKEN: '${DOCS_TOKEN}' } },
+          api: { type: 'http', url: 'https://mcp.example.com/${REGION}', headers: { Authorization: 'Bearer ${API_KEY:-none}' } },
+          slack: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-slack'] },
+          tracker: { type: 'http', url: 'https://mcp.linear.app/sse' },
+          quiet: { command: 'quiet-mcp' },
+          gh: { command: 'github-mcp-server' },
+          broken: { args: ['no command'] }
+        }
+      })
+    )
+    await writeFile(path.join(dir, '.claude', 'settings.local.json'), JSON.stringify({ disabledMcpjsonServers: ['quiet'] }))
+    const claude = fakeClaude()
+    const turn: TurnRequest = { ...employee, cwd: dir, env: { DOCS_TOKEN: 't1', REGION: 'eu' }, disabledMcp: ['gh'], mcpServers: { 'foreman-slack': { command: 'foreman', args: ['mcp-bridge', 'slack'], env: {} } } }
+    const run = claudeDriver.createTurn(turn, callbacks()).run()
+    const servers = sdk.query.mock.calls[0][0].options.mcpServers
+    expect(servers.docs).toEqual({ type: 'stdio', command: 'node', args: ['tools/docs.js'], env: { TOKEN: 't1' } })
+    expect(servers.api).toEqual({ type: 'http', url: 'https://mcp.example.com/eu', headers: { Authorization: 'Bearer none' } })
+    // Slack and Linear only through Foreman's connections; its bridge is still there.
+    expect(servers.slack).toBeUndefined()
+    expect(servers.tracker).toBeUndefined()
+    expect(servers['foreman-slack']).toMatchObject({ command: 'foreman' })
+    expect(servers.quiet).toBeUndefined()
+    expect(servers.gh).toBeUndefined()
+    expect(servers.broken).toBeUndefined()
+    expect(servers.foreman).toBeDefined()
+    claude.push(result)
+    await run
+  })
+
+  it('keeps the calls refused in the turn on its result: its own hooks’ denies and the result’s denials, each once', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn({ ...employee, writeScope: ['notes/**'], writeScopeSubject: 'AI employee’s run' }, cb).run()
+    const hook = sdk.query.mock.calls[0][0].options.hooks.PreToolUse[0].hooks[0]
+    await hook(pre('Bash', { command: 'npm publish\nnpm test' }), 'call-1', { signal: new AbortController().signal })
+    // The repository's own hook refused another call: the result's denials say so, and the call's result says why.
+    claude.push(
+      { type: 'assistant', parent_tool_use_id: null, message: { id: 'm-2', content: [{ type: 'tool_use', id: 'call-2', name: 'Write', input: { file_path: '/repo/.env', content: 'x' } }] }, ...base } as Partial<SDKMessage>,
+      { type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-2', content: 'Secrets stay out. Ask first.', is_error: true }] }, ...base } as Partial<SDKMessage>,
+      { ...result, permission_denials: [{ tool_name: 'Bash', tool_use_id: 'call-1', tool_input: {} }, { tool_name: 'Write', tool_use_id: 'call-2', tool_input: { file_path: '/repo/.env' } }] } as Partial<SDKMessage>
+    )
+    await run
+    const said = cb.item.mock.calls.map(([item]) => item).find((item) => item.kind === 'result')
+    expect(said.refused).toEqual([
+      { tool: 'Bash', what: 'npm publish', reason: expect.stringMatching(/^This AI employee’s run may only write inside notes\/\*\*/) },
+      { tool: 'Write', what: 'Write .env', reason: 'Secrets stay out. Ask first.' }
+    ])
+  })
+
+  it('says nothing refused on a turn that isn’t an employee’s', async () => {
+    const claude = fakeClaude()
+    const cb = callbacks()
+    const run = claudeDriver.createTurn({ ...request, writeScope: ['notes/**'] }, cb).run()
+    const hook = sdk.query.mock.calls[0][0].options.hooks.PreToolUse[0].hooks[0]
+    await hook(pre('Bash', { command: 'ls' }), 'call-1', { signal: new AbortController().signal })
+    claude.push({ ...result, permission_denials: [{ tool_name: 'Bash', tool_use_id: 'call-1', tool_input: {} }] } as Partial<SDKMessage>)
+    await run
+    expect(cb.item.mock.calls.map(([item]) => item).find((item) => item.kind === 'result').refused).toBeUndefined()
   })
 
   it('names itself in a scope’s refusals when it has no shell', async () => {
@@ -729,10 +800,11 @@ describe('an AI employee’s run (docs/ai-employees.md §9)', () => {
     await run
   })
 
-  it('leaves the user’s MCP configuration alone for any other turn', async () => {
+  it('leaves the user’s settings and MCP configuration alone for any other turn', async () => {
     const claude = fakeClaude()
     const run = claudeDriver.createTurn(request, callbacks()).run()
     expect(sdk.query.mock.calls[0][0].options.strictMcpConfig).toBeUndefined()
+    expect(sdk.query.mock.calls[0][0].options.settingSources).toEqual(['user', 'project', 'local'])
     claude.push(result)
     await run
   })

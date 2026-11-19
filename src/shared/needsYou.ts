@@ -8,7 +8,8 @@ import { ACTION_NEEDS_PERSON, type EmployeeAction } from './employeeActions'
 import { employeeStatus, type EmployeeSummary } from './employees'
 import { needsPerson, type EmployeeTask } from './employeeWork'
 import type { MemoryProposal } from './memory'
-import type { Project, ProjectWait } from './projects'
+import { channelSlug, type Project, type ProjectWait } from './projects'
+import type { TFunction } from './i18n'
 import { spaceOf } from './organizations'
 import { listsWorkspace, oldestFirst, projectWorkspaceIds, triageAll, type Triage, type TriageInput } from './triage'
 import type { AppSnapshot } from './types'
@@ -132,6 +133,89 @@ export function inChannel(item: NeedsYouItem, projectTasks: ReadonlySet<string>)
   if (item.kind === 'question' || item.kind === 'task') return projectTasks.has(item.task?.id ?? '')
   if (item.kind === 'action') return projectTasks.has(item.action?.taskId ?? '')
   return false
+}
+
+/**
+ * One thing a project waits on the person for, as the notifications, the tray and dock, the phone and Slack's "needs me"
+ * see it (docs/ai-employees.md §15): what the project itself waits on (her questions, a plan, a part's gate, a stuck task,
+ * the final check), or a question, stuck or refused task or held outward action of one of its employees' tasks. Its
+ * `id` is the same as its Needs you item's.
+ */
+export interface ProjectAttention {
+  id: string
+  kind: 'wait' | 'question' | 'task' | 'action'
+  orgId: string
+  project: Project
+  since: string
+  wait?: ProjectWait
+  task?: EmployeeTask
+  action?: EmployeeAction
+  // Whose it is: the employee whose task asks or holds; for a wait, the program manager when it is hers (questions, plan).
+  employeeId?: string
+}
+
+/**
+ * What every project waits on the person for, oldest first: the waits of each project that isn't closed, and what its
+ * employees' tasks (of any listed project) ask or hold. Pure; reads only the projects and the employees' work.
+ */
+export function projectAttention(snapshot: Pick<AppSnapshot, 'projects' | 'employeeWork'>): ProjectAttention[] {
+  const out: ProjectAttention[] = []
+  const ofTask = new Map<string, Project>()
+  for (const [orgId, projects] of Object.entries(snapshot.projects ?? {})) {
+    for (const project of projects) {
+      for (const step of project.steps) ofTask.set(step.taskId, project)
+      if (project.phase === 'closed') continue
+      for (const wait of project.waits) {
+        const pm = wait.kind === 'questions' || wait.kind === 'plan' || (wait.kind === 'stuck' && !wait.partId)
+        out.push({ id: `project:${project.id}:${wait.id}`, kind: 'wait', orgId, project, since: wait.since, wait, ...(pm ? { employeeId: project.pmId } : {}) })
+      }
+    }
+  }
+  for (const [orgId, work] of Object.entries(snapshot.employeeWork ?? {})) {
+    for (const task of work.tasks) {
+      const project = ofTask.get(task.id)
+      if (!project || !needsPerson(task)) continue
+      out.push({ id: `task:${task.id}`, kind: task.question ? 'question' : 'task', orgId, project, since: task.question?.askedAt ?? task.updatedAt, task, employeeId: task.employeeId })
+    }
+    for (const action of work.actions ?? []) {
+      const project = ofTask.get(action.taskId)
+      if (!project || !ACTION_NEEDS_PERSON.includes(action.state)) continue
+      out.push({ id: `action:${action.id}`, kind: 'action', orgId, project, since: action.createdAt, action, employeeId: action.employeeId })
+    }
+  }
+  return out.sort((a, b) => a.since.localeCompare(b.since))
+}
+
+const HELD_KEY = { 'slack-post': 'employees.heldAction.slack', linear: 'employees.heldAction.linear', push: 'employees.heldAction.push', 'pull-request': 'employees.heldAction.pullRequest' } as const
+
+/**
+ * A project item in words: its channel (`#csv-export`) and one line saying what waits, in `t`'s language. `name` gives an
+ * employee's name by id (the program manager's when the wait is hers).
+ */
+export function projectAttentionWords(item: ProjectAttention, t: TFunction, name: (employeeId: string) => string): { channel: string; text: string } {
+  const { project } = item
+  const who = item.employeeId ? name(item.employeeId) : ''
+  const part = (partId: string | undefined) => (partId ? ((project.plan ?? project.plans.at(-1))?.parts.find((p) => p.id === partId)?.title ?? partId) : '')
+  const channel = `#${channelSlug(project)}`
+  if (item.wait) {
+    const wait = item.wait
+    const text =
+      wait.kind === 'questions'
+        ? t('projects.line.questions', { name: who })
+        : wait.kind === 'plan'
+          ? t('projects.notify.plan', { name: who })
+          : wait.kind === 'gate'
+            ? t('projects.line.gate', { part: part(wait.partId) })
+            : wait.kind === 'final'
+              ? t('projects.final.subject', { title: project.title })
+              : wait.partId
+                ? t('projects.stuck.subjectPart', { part: part(wait.partId) })
+                : t('projects.stuck.subject')
+    return { channel, text }
+  }
+  if (item.action) return { channel, text: t(HELD_KEY[item.action.kind], { name: who }) }
+  const question = item.task?.question?.question.trim()
+  return { channel, text: question ? t('projects.notify.asks', { name: who, question }) : t('projects.notify.task', { name: who }) }
 }
 
 /** Whether an item is the employee's own business with the person (what a Team row counts), not just a workspace it made. */

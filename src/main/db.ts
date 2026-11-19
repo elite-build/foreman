@@ -474,7 +474,7 @@ type RawRun = {
 }
 
 /** The fields a run keeps in its `json` column. */
-const RUN_EXTRA = ['repoId', 'access', 'profile', 'attended', 'persona', 'effort', 'minutes', 'rootId', 'causeId', 'parked'] as const
+const RUN_EXTRA = ['repoId', 'access', 'profile', 'attended', 'persona', 'effort', 'minutes', 'rootId', 'causeId', 'parked', 'refused'] as const
 
 const runRow = (r: RawRun): EmployeeRun => {
   const extra = JSON.parse(r.json || '{}') as Partial<EmployeeRun>

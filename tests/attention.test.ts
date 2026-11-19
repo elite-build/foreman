@@ -17,6 +17,7 @@ import {
   unseenCount,
   type AttentionEvent,
   type EventDraft,
+  type ProjectAlert,
   type TrayWords
 } from '../src/shared/attention'
 import { finishedFacts, triageAll, type TriageInput } from '../src/shared/triage'
@@ -179,6 +180,26 @@ describe('the tray', () => {
     expect(items).toContainEqual({ kind: 'label', text: 'Phone access is on' })
     // Nothing needing you: no "Next".
     expect(trayMenu(trayView(input([ws('w1')], [])), words, () => '').some((x) => x.kind === 'item' && x.action.kind === 'next')).toBe(false)
+  })
+
+  it('counts what projects wait on with the rest, oldest first, each opening its channel (docs/ai-employees.md §15)', () => {
+    const i = input([ws('w1')], [session('s1', 'w1')], { approvals: [approval('s1')] })
+    const gate: ProjectAlert = { id: 'project:p1:w1', orgId: 'acme', projectId: 'p1', channel: '#new-sidebar', text: '“Build” is ready for you', since: ago(600), repoId: 'r', workspaceId: 'w9', who: 'Ravi' }
+    const view = trayView(i, [gate])
+    expect(view.count).toBe(2)
+    expect(view.oldestSince).toBe(ago(600))
+    expect(view.attention[0]).toMatchObject({ name: '#new-sidebar', label: '“Build” is ready for you', repo: 'ledger-api', channel: { orgId: 'acme', projectId: 'p1' } })
+    const items = trayMenu(view, words, () => '10h')
+    expect(items).toContainEqual({ kind: 'item', text: '#new-sidebar · “Build” is ready for you · ledger-api   10h', action: { kind: 'channel', orgId: 'acme', projectId: 'p1' } })
+  })
+
+  it('leaves a project’s workspace to its channel, as the sidebar does, unless a chat there waits on an approval', () => {
+    // w2 is the project's shared workspace: its run just finished, which the channel says, not the tray.
+    const project = { id: 'p1', orgId: 'acme', workspaceId: 'w2', steps: [], waits: [] }
+    const snapshot = { repos: [{ id: 'r', name: 'ledger-api' }], workspaces: [ws('w1'), ws('w2')], sessions: [session('s1', 'w1'), session('s2', 'w2')], projects: { acme: [project] } } as unknown as AppSnapshot
+    const i: TriageInput = { snapshot, approvals: [], unread: { w1: true, w2: true }, unreadSessions: {}, now: NOW }
+    expect(trayView(i).attention.map((r) => r.name)).toEqual(['w1'])
+    expect(trayView({ ...i, approvals: [approval('s2')] }).attention.map((r) => r.name).sort()).toEqual(['w1', 'w2'])
   })
 })
 
