@@ -7736,6 +7736,7 @@ export const ja: Catalogue = {
   'employees.chain.raise': '上限を上げる',
   'employees.chain.raised': 'このチェーンは {runs} 回まで実行できます。',
   'employees.chain.cancel': 'チェーンをキャンセル',
+  'employees.chain.canceled': 'このチェーンの残りをキャンセルしました。',
   'employees.chain.stopProject': 'プロジェクトを停止',
   'employees.chain.from': '{name} の「{title}」から引き継ぎ',
   'employees.chain.children': 'このタスクから引き継いだタスク',

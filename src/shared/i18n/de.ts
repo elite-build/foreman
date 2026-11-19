@@ -7736,6 +7736,7 @@ export const de: Catalogue = {
   'employees.chain.raise': 'Limit erhöhen',
   'employees.chain.raised': 'Diese Kette darf jetzt {runs} Läufe haben.',
   'employees.chain.cancel': 'Kette abbrechen',
+  'employees.chain.canceled': 'Was von dieser Kette übrig war, ist abgebrochen.',
   'employees.chain.stopProject': 'Projekt stoppen',
   'employees.chain.from': 'Übergeben aus „{title}“ von {name}',
   'employees.chain.children': 'Von dieser Aufgabe übergebene Aufgaben',

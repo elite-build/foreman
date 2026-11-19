@@ -7736,6 +7736,7 @@ export const fr: Catalogue = {
   'employees.chain.raise': 'Relever la limite',
   'employees.chain.raised': 'Cette chaîne peut maintenant avoir {runs} exécutions.',
   'employees.chain.cancel': 'Annuler la chaîne',
+  'employees.chain.canceled': 'Ce qui restait de cette chaîne est annulé.',
   'employees.chain.stopProject': 'Arrêter le projet',
   'employees.chain.from': 'Confiée depuis « {title} » de {name}',
   'employees.chain.children': 'Tâches confiées depuis celle-ci',

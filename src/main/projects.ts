@@ -97,6 +97,7 @@ import {
   rosterCan,
   roundSeen,
   steerText,
+  unpassedChecks,
   type ChannelMessages,
   type DeleteProjectOptions,
   type PlanInput,
@@ -333,7 +334,14 @@ export class ProjectService implements EmployeeProjectHooks {
    * the project goes on with her: it is re-pointed. Why nobody can plan it otherwise, for a stuck wait; undefined when she can.
    */
   private async livePm(project: Project): Promise<string | undefined> {
-    const now = await this.host.employees.current(project.orgId, project.pmId).catch(() => undefined)
+    let now: Awaited<ReturnType<ProjectHost['employees']['current']>> | undefined
+    try {
+      now = await this.host.employees.current(project.orgId, project.pmId)
+    } catch (err) {
+      // She couldn't be read (the memory repository, a moment's error): that isn't her leaving, unless the team has no her.
+      const members = await this.host.employees.members(project.orgId).catch(() => undefined)
+      if (!members || members.some((m) => m.summary.id === project.pmId)) return `Foreman couldn’t read the program manager just now (${message(err)}). Try again in a moment.`
+    }
     if (now && now.summary.state !== 'retired') return undefined
     const next = this.organization(project.orgId).programManagerId
     if (next && next !== project.pmId) {
@@ -354,7 +362,15 @@ export class ProjectService implements EmployeeProjectHooks {
   private async retireDrafts(project: Project, plans: readonly ProjectPlan[], keep: ReadonlySet<string> = new Set()): Promise<void> {
     const retire = this.host.employees.retire
     if (!retire) return
-    const ids = new Set(plans.flatMap((p) => Object.values(p.proposedIds ?? {})).filter((id) => !keep.has(id)))
+    // A draft that owns a part of another open project's plan (in effect or waiting) stays: that plan needs them.
+    const elsewhere = new Set(
+      this.db
+        .projects(project.orgId)
+        .filter((p) => Array.isArray(p.waits) && p.id !== project.id && p.phase !== 'closed')
+        .flatMap((p) => [...(p.plan ? [p.plan] : []), ...p.plans.filter((x) => x.status === 'waiting')])
+        .flatMap((plan) => plan.parts.map((x) => ownerId(plan, x.owner)).filter((id): id is string => Boolean(id)))
+    )
+    const ids = new Set(plans.flatMap((p) => Object.values(p.proposedIds ?? {})).filter((id) => !keep.has(id) && !elsewhere.has(id)))
     for (const id of ids) {
       const now = await this.host.employees.current(project.orgId, id).catch(() => undefined)
       if (now?.summary.state !== 'draft') continue
@@ -497,7 +513,8 @@ export class ProjectService implements EmployeeProjectHooks {
     const nobody = await this.livePm(project)
     if (nobody) {
       if (project.plan) project.replanning = false
-      this.addWait(project, { kind: 'stuck', reason: nobody })
+      // Try again gives the replan the reason it was asked for, not this one.
+      this.addWait(project, { kind: 'stuck', reason: nobody, ...(opts.reason ? { replan: opts.reason } : {}) })
       return
     }
     const round = project.steps.filter((s) => s.kind === 'plan').length + 1
@@ -534,6 +551,8 @@ export class ProjectService implements EmployeeProjectHooks {
       { kind: 'stuck' }
     )
     if (task) this.markRead(project.id, task.id)
+    // Found already made and closed (recovery, under its request id): the project goes on from it now.
+    if (task?.state === 'closed') await this.closed(task)
   }
 
   /**
@@ -651,6 +670,13 @@ export class ProjectService implements EmployeeProjectHooks {
       }
       const fresh = this.project(project.id)
       const existing = fresh.plans.find((p) => p.taskId === task.id)
+      // A draft the plan it replaces proposed, named here by id or name, is still this plan's proposal: it is retired with
+      // it if the person never approves it.
+      const owners = new Set(result.parts.map((p) => p.owner))
+      for (const [key, id] of Object.entries(existing?.proposedIds ?? {})) {
+        if (!owners.has(id) || Object.values(proposedIds).includes(id)) continue
+        proposedIds[key in proposedIds ? `${key}-${id}` : key] = id
+      }
       const version = existing?.version ?? fresh.plans.length + 1
       const plan: ProjectPlan = {
         version,
@@ -944,10 +970,10 @@ export class ProjectService implements EmployeeProjectHooks {
       this.addWait(project, { kind: 'stuck', partId: part.id, reason })
       return
     }
+    // No replans left: it counts as done, failed (its post says so), and the plan finishes what is left; the person's
+    // final check, once nothing runs, says the check didn't pass (unpassedChecks).
     project.parts[part.id] = { ...status, state: 'done' }
-    project.phase = 'final-gate'
-    project.waits = project.waits.filter((w) => w.kind !== 'final')
-    this.addWait(project, { kind: 'final', reason: `${reason} No replans are left: approve it as it is, or stop.` })
+    await this.advance(project)
   }
 
   /**
@@ -977,7 +1003,8 @@ export class ProjectService implements EmployeeProjectHooks {
       return
     }
     project.phase = 'final-gate'
-    this.addWait(project, { kind: 'final', ...(task.result?.decision === 'replan' ? { reason: 'The program manager didn’t accept it, and has no replans left.' } : {}) })
+    const reason = [task.result?.decision === 'replan' ? 'The program manager didn’t accept it, and has no replans left.' : '', ...unpassedChecks(project)].filter(Boolean).join(' ')
+    this.addWait(project, { kind: 'final', ...(reason ? { reason } : {}) })
   }
 
   /**
@@ -1018,7 +1045,23 @@ export class ProjectService implements EmployeeProjectHooks {
     if (!part || !partId) return
     const named = memoryArtifacts(task.result?.artifacts)
     const path = artifactPath(project.slug, part.writes)
-    if (!named.includes(path) && !partMocks(project.slug, partId, named).length) return
+    const paths = [...(named.includes(path) ? [path] : []), ...partMocks(project.slug, partId, named)]
+    // Without a commit there is no version to pin (and reworks would have nothing to compare): nothing is recorded.
+    const commit = task.result?.commit
+    if (!paths.length || !commit) return
+    const before = project.artifacts[part.writes]
+    if (before?.commit) {
+      const blob = async (p: string, at: string) => (await this.host.memory.read(project.orgId, p, { commit: at }).catch(() => undefined))?.blob
+      let changed = false
+      for (const p of paths) {
+        const now = await blob(p, commit)
+        if (now !== undefined && now !== ((await blob(p, before.commit)) ?? null)) {
+          changed = true
+          break
+        }
+      }
+      if (!changed) return
+    }
     await this.recordArtifact(project, task, part.writes, partId)
   }
 
@@ -1071,11 +1114,12 @@ export class ProjectService implements EmployeeProjectHooks {
     }
     if (allPartsDone(project.plan, project.parts)) {
       if (project.plan.size === 'large') return this.startAcceptance(project)
-      if (!endsWithFinalCheck(project.plan)) return this.close(project, 'done')
-      // A small plan that changes the code ends with the person's final check.
+      // A small plan that changes the code, or whose check didn't pass, ends with the person's final check.
+      const unpassed = unpassedChecks(project)
+      if (!endsWithFinalCheck(project.plan) && !unpassed.length) return this.close(project, 'done')
       project.phase = 'final-gate'
       project.waits = project.waits.filter((w) => w.kind !== 'final')
-      this.addWait(project, { kind: 'final' })
+      this.addWait(project, { kind: 'final', ...(unpassed.length ? { reason: `${unpassed.join(' ')} Approve it as it is, or stop.` } : {}) })
       return
     }
     const ready = readyParts(project.plan, project.parts)
@@ -1205,6 +1249,8 @@ export class ProjectService implements EmployeeProjectHooks {
       { kind: 'stuck' }
     )
     if (task) this.markRead(project.id, task.id)
+    // Found already made and closed (recovery, under its request id): the project goes on from it now.
+    if (task?.state === 'closed') await this.closed(task)
   }
 
   // ---- the person ----
@@ -1311,7 +1357,7 @@ export class ProjectService implements EmployeeProjectHooks {
         if (!part && project.phase !== 'accepting' && project.replanning) throw new Error(`${(await this.names(project.orgId))[project.pmId] ?? 'The program manager'} is changing the plan already: wait for it, or stop.`)
         if (part) await this.startPart(project, part, text || undefined)
         else if (project.phase === 'accepting') await this.startAcceptance(project, text || undefined)
-        else await this.startPlanning(project, { ...(text ? { note: text } : {}), ...(project.plan ? { reason: wait.reason ?? 'The last planning didn’t finish.' } : {}) })
+        else await this.startPlanning(project, { ...(text ? { note: text } : {}), ...(project.plan ? { reason: wait.replan ?? wait.reason ?? 'The last planning didn’t finish.' } : {}) })
         return this.project(project.id)
       }
       // The final gate.

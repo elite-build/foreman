@@ -1154,11 +1154,39 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     const run = f.db.employeeRuns({ taskId: task.id })[0]
     mark(f, run, 'turn-1')
     f.service.turnStarted(run.sessionId!, 'turn-1')
-    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })).rejects.toThrow('Your file is the same as last round: change it as asked, or finish partial and say why.')
+    await expect(f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })).rejects.toThrow('Your file is the same as last round, and so is everything in your folders')
     expect(f.db.employeeTask(task.id)!.state).toBe('running')
     f.files[ARTIFACT] = '## Problem\n\nAnd on mobile.\n'
     await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Done.' })
     expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'done' })
+
+    // A designer who only redrew a mock (named, or written and not committed yet) has done the rework.
+    const MOCKS = 'memory/org/projects/csv/mocks/reqs/'
+    for (const how of ['named', 'staged'] as const) {
+      const m = await rig()
+      m.files[ARTIFACT] = '## Problem\n'
+      m.files[`${MOCKS}1-a.html`] = '<p>darker</p>'
+      m.filesAt['c-round1'] = { [ARTIFACT]: '## Problem\n', [`${MOCKS}1-a.html`]: '<p>light</p>' }
+      const t = await stage(m, { contract: { produces: ARTIFACT, writes: [ARTIFACT], writesUnder: [MOCKS], reworks: 'c-round1' } })
+      await settle()
+      const r = m.db.employeeRuns({ taskId: t.id })[0]
+      mark(m, r, 'turn-1')
+      m.service.turnStarted(r.sessionId!, 'turn-1')
+      if (how === 'staged') m.stagedPaths.push(`${MOCKS}2-mobile.html`)
+      await m.service.finishTask(r.sessionId!, { status: 'done', summary: 'Redrew it.', ...(how === 'named' ? { artifacts: [`${MOCKS}1-a.html`] } : {}) })
+      expect(m.db.employeeTask(t.id)).toMatchObject({ state: 'closed', closureReason: 'done' })
+    }
+    // A mock named but as it was: still refused.
+    const same = await rig()
+    same.files[ARTIFACT] = '## Problem\n'
+    same.files[`${MOCKS}1-a.html`] = '<p>light</p>'
+    same.filesAt['c-round1'] = { [ARTIFACT]: '## Problem\n', [`${MOCKS}1-a.html`]: '<p>light</p>' }
+    const st = await stage(same, { contract: { produces: ARTIFACT, writes: [ARTIFACT], writesUnder: [MOCKS], reworks: 'c-round1' } })
+    await settle()
+    const sr = same.db.employeeRuns({ taskId: st.id })[0]
+    mark(same, sr, 'turn-1')
+    same.service.turnStarted(sr.sessionId!, 'turn-1')
+    await expect(same.service.finishTask(sr.sessionId!, { status: 'done', summary: 'Done.', artifacts: [`${MOCKS}1-a.html`] })).rejects.toThrow('same as last round')
 
     for (const [contract, status] of [
       [{ produces: ARTIFACT, writes: [ARTIFACT], reworks: 'c-round1' }, 'partial'],
@@ -1338,12 +1366,18 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     expect(f.db.employeeRun(followRun.id)!.state).toBe('cancelled')
     expect(f.stopped).toContain(followRun.sessionId)
     expect(f.db.employeeRoot(task.rootId)!.state).toBe('canceled')
-    // A project's first task is closed when its chain runs on: Stop on the project ends that, never this.
+    // An open project's first task is closed when its chain runs on: Stop on the project ends that, never this.
+    let open = true
+    f.service.projects = { workspaceFor: async () => undefined, runCreated: () => undefined, keeps: () => open, taskClosed: () => undefined, followUp: async (t) => t }
     const other = await f.service.ask('o1', 'e-max1', { body: 'Plan it' })
     await settle()
     f.db.putEmployeeTask({ ...f.db.employeeTask(other.id)!, state: 'closed', closureReason: 'done', project: { id: 'p1', kind: 'plan', round: 1 } })
     await f.service.cancel(other.id)
     expect(f.db.employeeRoot(other.rootId)!.state).not.toBe('canceled')
+    // Once the project closed (or was deleted), what is left of its chain is canceled as any chain's.
+    open = false
+    await f.service.cancel(other.id)
+    expect(f.db.employeeRoot(other.rootId)!.state).toBe('canceled')
   })
 })
 

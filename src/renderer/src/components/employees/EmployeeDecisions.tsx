@@ -224,8 +224,9 @@ export function TaskDecision({ task, place, who }: { task: EmployeeTask; place: 
   const project = useStore((s) => (task.project ? s.snapshot!.projects?.[task.orgId]?.find((p) => p.id === task.project!.id) : undefined))
   const [stopping, setStopping] = useState(false)
   const spent = task.state === 'open' && task.hold === 'root-limit'
-  // A project's chain is ended by stopping the project: its first task is closed, so canceling the chain would do nothing.
-  const stopsProject = spent && Boolean(task.project) && project?.phase !== 'closed'
+  // An open project's chain is ended by stopping the project: its first task is closed, so canceling the chain would do
+  // nothing. A closed or archived one (not in the snapshot) has only left-over work, which Cancel chain cancels.
+  const stopsProject = spent && Boolean(task.project) && Boolean(project) && project?.phase !== 'closed'
   const why = holdText(task, t)
   const retry = useTaskRetryable(task)
   const main = spent
@@ -243,7 +244,14 @@ export function TaskDecision({ task, place, who }: { task: EmployeeTask; place: 
   const decline = stopsProject
     ? { label: t('employees.chain.stopProject'), onAct: () => setStopping(true) }
     : spent
-      ? { label: t('employees.chain.cancel'), onAct: () => void attempt(() => api.cancelEmployeeTask(task.rootId)) }
+      ? {
+          label: t('employees.chain.cancel'),
+          onAct: () =>
+            void attempt(async () => {
+              await api.cancelEmployeeTask(task.rootId)
+              showToast(t('employees.chain.canceled'))
+            })
+        }
       : canCancelTask(task)
         ? { label: t('employees.decision.cancelTask'), onAct: () => void attempt(() => api.cancelEmployeeTask(task.id)) }
         : undefined

@@ -61,6 +61,8 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
   const restored: string[] = []
   // The employees a project retired (drafts its plans proposed and the person never approved).
   const retired: string[] = []
+  // The memory files' blobs at a commit (a read with commit), by commit then path.
+  const filesAt: Record<string, Record<string, string>> = {}
   let n = 0
   const clock = { now: Date.parse('2026-11-15T10:00:00.000Z') }
   const work: ProjectHost['work'] = {
@@ -103,7 +105,7 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
       }
     },
     memory: {
-      read: async (_org, file) => ({ path: file, head: 'h', blob: files.find((f) => f.path === file)?.blob ?? null, size: 0, binary: false, tooLarge: false }),
+      read: async (_org, file, options) => ({ path: file, head: options?.commit ?? 'h', blob: (options?.commit ? filesAt[options.commit]?.[file] : files.find((f) => f.path === file)?.blob) ?? null, size: 0, binary: false, tooLarge: false }),
       stage: async (_org, runId, change) => {
         staged.push({ runId, path: change.path, text: 'text' in change ? change.text : '' })
         return {} as never
@@ -181,7 +183,7 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unansw
     db.putProject(fresh)
     return service.get(project.id)
   }
-  return { db, state, org, team, writers, ended, service, asked, canceled, archived, staged, files, personCommits, alive, shelved, forks, restored, retired, close, task, last, plan, get, start, clock }
+  return { db, state, org, team, writers, ended, service, asked, canceled, archived, staged, files, personCommits, alive, shelved, forks, restored, retired, filesAt, close, task, last, plan, get, start, clock }
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 15))
@@ -1491,7 +1493,122 @@ describe('projects: plans, replans and lifecycle (slice 4)', () => {
     await f.close(f.task(f.last()).id)
     await f.close(f.task(f.last()).id, { decision: 'fail', summary: 'Two tests fail' })
     p = f.get(f.id)
-    expect(p).toMatchObject({ phase: 'final-gate', waits: [expect.objectContaining({ kind: 'final', reason: expect.stringContaining('check “QA” (qa) failed: Two tests fail') })] })
+    // Nothing else runs then: the final check opens once every part is done, saying the check didn't pass.
+    expect(p).toMatchObject({ phase: 'final-gate', parts: { qa: { state: 'done' } }, waits: [expect.objectContaining({ kind: 'final', reason: expect.stringContaining('The check “QA” didn’t pass (it failed): Two tests fail') })] })
+  })
+
+  it('shows at the final check a failed check the person let be taken as it is (#2 of the review)', async () => {
+    const CHECKED: PlanInput = {
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build it.', writes: 'build.md', publishes: true },
+        { id: 'qa', title: 'QA', owner: 'Priya', brief: 'Check it.', writes: 'qa.md', depends_on: ['build'], checks: true }
+      ]
+    }
+    const r = await approved(CHECKED, (x) => x.writers.add('e-rav1'))
+    await r.close(r.task(r.last()).id)
+    await r.close(r.task(r.last()).id, { decision: 'fail', summary: 'Two tests fail' })
+    // Taking the failed check as it is waits for the person.
+    await r.plan({ ...CHECKED, parts: CHECKED.parts.map((p) => (p.id === 'qa' ? { ...p, accept_as_is: true } : p)) })
+    let p = r.get(r.id)
+    expect(p.waits).toEqual([expect.objectContaining({ kind: 'plan' })])
+    await r.service.decide(r.id, p.waits[0].id, 'approve')
+    p = r.get(r.id)
+    expect(p).toMatchObject({ phase: 'final-gate', waits: [expect.objectContaining({ kind: 'final', reason: expect.stringContaining('The check “QA” didn’t pass (it failed): Two tests fail') })] })
+  })
+
+  it('opens the final check after a failed check with no replans left only once nothing else runs (#5 of the review)', async () => {
+    const r = await approved(
+      {
+        summary: 's',
+        size: 'large',
+        understood: ['u'],
+        done_when: ['d'],
+        parts: [
+          { id: 'qa', title: 'QA', owner: 'Priya', brief: 'Check it.', writes: 'qa.md', checks: true },
+          { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Write docs.', writes: 'docs.md', changes_repo: false }
+        ]
+      },
+      undefined
+    )
+    r.db.putProject({ ...r.db.project(r.id)!, replans: 3 })
+    const qa = r.task(r.asked.find((a) => a.project.partId === 'qa')!)
+    const docs = r.task(r.asked.find((a) => a.project.partId === 'docs')!)
+    await r.close(qa.id, { decision: 'fail', summary: 'It fails' })
+    let p = r.get(r.id)
+    expect(p).toMatchObject({ phase: 'working', parts: { qa: { state: 'done' }, docs: { state: 'running' } } })
+    expect(p.waits).toEqual([])
+    // Once the docs finish, the acceptance runs (a large plan), and the final check says the check didn't pass.
+    await r.close(docs.id)
+    await r.close(r.task(r.last()).id, { decision: 'accept' })
+    p = r.get(r.id)
+    expect(p).toMatchObject({ phase: 'final-gate', waits: [expect.objectContaining({ kind: 'final', reason: expect.stringContaining('The check “QA” didn’t pass (it failed): It fails') })] })
+  })
+
+  it('keeps a re-proposed draft with the plan that names it, and never retires one another open project needs (#4 of the review)', async () => {
+    const proposing: PlanInput = {
+      summary: 's',
+      size: 'small',
+      parts: [{ id: 'design', title: 'Design', owner: 'new:ux', brief: 'Design it.', writes: 'design.md', changes_repo: false }],
+      new_employees: [{ key: 'ux', name: 'Uma', role: 'Designer', description: '', instructions: 'Design.', repos: { site: 'read' } }]
+    }
+    const r = await rig()
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    const planning = r.task(r.last())
+    await r.service.submitPlan(planning, 'run-1', proposing)
+    const uma = r.get(project.id).plans[0].proposedIds.ux
+    // The same task's second plan names her by name: she stays its proposal.
+    await r.service.submitPlan(planning, 'run-1', { ...proposing, parts: [{ ...proposing.parts[0], owner: 'Uma' }], new_employees: [] })
+    expect(r.get(project.id).plans[0].proposedIds).toEqual({ ux: uma })
+    expect(r.retired).toEqual([])
+    await r.close(planning.id)
+    // Another open project's waiting plan gives her a part: stopping this one doesn't retire her.
+    const other = await r.start({ requirement: 'Export charts too' })
+    await r.plan({ ...proposing, parts: [{ ...proposing.parts[0], owner: uma }], new_employees: [] })
+    await r.service.stop(project.id)
+    expect(r.retired).toEqual([])
+    // The other plan named her, it didn't propose her: she isn't its to retire either (the person may, on the Team page).
+    await r.service.stop(other.id)
+    expect(r.retired).toEqual([])
+  })
+
+  it('keeps a replan’s reason when nobody could plan it, and tells a failed read from a retirement (#6 of the review)', async () => {
+    const r = await approved(TWO_PARTS)
+    r.team.get(PM)!.state = 'retired'
+    await r.close(r.task(r.asked[1]).id, { reason: 'blocked', detail: 'Excel mangles accents' })
+    const wait = r.get(r.id).waits[0]
+    expect(wait).toMatchObject({ kind: 'stuck', reason: expect.stringContaining('has retired'), replan: expect.stringContaining('Excel mangles accents') })
+    r.team.set('e-pri2', { name: 'Pia', state: 'active' })
+    r.org.programManagerId = 'e-pri2'
+    await r.service.decide(r.id, wait.id, 'retry')
+    expect(r.last()).toMatchObject({ employeeId: 'e-pri2', project: { kind: 'plan' } })
+    expect(r.last().body).toContain('Why: Ravi couldn’t finish “Build” (build): Excel mangles accents')
+    expect(r.last().body).not.toContain('has retired')
+    // Her file can't be read for a moment, though she is on the team: not a retirement.
+    const s = await rig({ host: {} })
+    const project = await s.service.start('o1', { requirement: 'Export reports to CSV' })
+    await s.close(s.task(s.last()).id, { reason: 'blocked', outage: 'error', detail: 'overloaded' })
+    const members = s.team
+    const real = (s.service as unknown as { host: ProjectHost }).host.employees.current
+    ;(s.service as unknown as { host: ProjectHost }).host.employees.current = async (org, id) => (id === PM ? Promise.reject(new Error('memory busy')) : real(org, id))
+    await s.service.decide(project.id, s.get(project.id).waits[0].id, 'retry')
+    expect(s.get(project.id).waits[0]).toMatchObject({ kind: 'stuck', reason: expect.stringContaining('couldn’t read the program manager just now (memory busy)') })
+    expect(members.get(PM)!.state).toBe('active')
+  })
+
+  it('goes on from a planning or acceptance task that recovery finds already closed (#9 of the review)', async () => {
+    const r = await rig()
+    const started = await r.service.start('o1', { requirement: 'Export reports to CSV' })
+    const first = r.task(r.last())
+    // It finished (asking questions) while the project never recorded the step.
+    await r.service.submitQuestions(first, { questions: [{ question: 'Which formats?' }] })
+    r.db.putEmployeeTask({ ...r.db.employeeTask(first.id)!, state: 'closed', closureReason: 'done', result: { status: 'done', summary: 'Asked.', runId: 'r', at: first.createdAt } })
+    r.db.putProject({ ...r.db.project(started.id)!, steps: [] })
+    await r.service.recover()
+    const p = r.get(started.id)
+    expect(p.steps).toEqual([expect.objectContaining({ kind: 'plan', taskId: first.id, state: 'done' })])
+    expect(p.waits).toEqual([expect.objectContaining({ kind: 'questions' })])
   })
 
   it('makes again what a crash left with no task, under the same request ids (#44)', async () => {
@@ -1613,8 +1730,15 @@ describe('projects: plans, replans and lifecycle (slice 4)', () => {
     let p = r.get(r.id)
     expect(p.decisions.at(-1)).toMatchObject({ waitKind: 'gate', decision: 'approve', version: 1, commit: `c-${design.id}` })
     const build = r.task(r.last())
-    // A follow-up changes the design: a new version, the approval stays on v1.
+    // A follow-up that names the mock but leaves it as it was makes no new version.
+    r.filesAt[`c-${design.id}`] = { [`${FOLDER}/design.md`]: 'd1', [`${FOLDER}/mocks/design/index.html`]: 'm1' }
+    const idle = await r.service.askFollowUp(r.id, 'e-rav1', 'Is the header dark enough?')
+    r.filesAt[`c-${idle.id}`] = { ...r.filesAt[`c-${design.id}`] }
+    await r.close(idle.id, { artifacts: [`${FOLDER}/mocks/design/index.html`] })
+    expect(r.get(r.id).artifacts['design.md']).toMatchObject({ version: 1, taskId: design.id })
+    // One that changes it: a new version, the approval stays on v1.
     const follow = await r.service.askFollowUp(r.id, 'e-rav1', 'Make the header darker')
+    r.filesAt[`c-${follow.id}`] = { [`${FOLDER}/design.md`]: 'd1', [`${FOLDER}/mocks/design/index.html`]: 'm2' }
     await r.close(follow.id, { artifacts: [`${FOLDER}/mocks/design/index.html`] })
     p = r.get(r.id)
     expect(p.artifacts['design.md']).toMatchObject({ version: 2, taskId: follow.id, commit: `c-${follow.id}`, mocks: [`${FOLDER}/mocks/design/index.html`] })
