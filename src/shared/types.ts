@@ -2821,10 +2821,14 @@ export interface Api {
   // its parts. A decision answers one thing the project waits on (`waitId`: its plan, a part's gate, a stuck task, the
   // final gate); anything else is refused.
   startProject(organizationId: string, input: import('./projects').StartProjectInput): Promise<import('./projects').Project>
-  decideProject(projectId: string, waitId: string, decision: import('./projects').ProjectDecision, note?: string): Promise<import('./projects').Project>
+  // `options.seen`: the plan the person decided on (one changed since is refused); `options.pick`: the mock picked at a gate.
+  decideProject(projectId: string, waitId: string, decision: import('./projects').ProjectDecision, note?: string, options?: import('./projects').ProjectDecideOptions): Promise<import('./projects').Project>
+  // Undo approval: take back an approval at a part's gate (by its time) while what it started still runs, unpublished.
+  undoProjectDecision(projectId: string, at: string): Promise<import('./projects').Project>
   // Answer the program manager's questions before she plans (`waitId`: the questions it waits on), one answer per
-  // question, or null: she plans with what she has and lists what she assumed.
-  answerProject(projectId: string, waitId: string, answers: string[] | null): Promise<import('./projects').Project>
+  // question; or let her plan with what she has (`options.skip`, or null), with the answers given so far, blank for the
+  // rest. `options.seen`: the round answered (questions changed since are refused).
+  answerProject(projectId: string, waitId: string, answers: string[] | null, options?: import('./projects').ProjectAnswerOptions): Promise<import('./projects').Project>
   // Hold it (what is running finishes, nothing new starts), or let it go on.
   pauseProject(projectId: string, paused: boolean): Promise<import('./projects').Project>
   // Its going tasks are canceled and it closes stopped; its artifacts and its employees' memory stay.
@@ -3372,7 +3376,7 @@ export const API_METHODS = [
   'listEmployees', 'generateEmployeeDraft', 'refineEmployeeDraft', 'createEmployee', 'addTemplateEmployee', 'updateEmployee', 'approveEmployee', 'pauseEmployee', 'resumeEmployee', 'retireEmployee', 'setEmployeeTriggerOff',
   'askEmployee', 'runEmployeeNow', 'listEmployeeTasks', 'listEmployeeRuns', 'stopEmployeeRun', 'retryEmployeeTask', 'cancelEmployeeTask',
   'answerEmployeeQuestion', 'keepMemoryProposal', 'retireMemoryProposal', 'employeeTaskChain', 'raiseEmployeeRootLimit', 'setOrganizationLead',
-  'askEmployeeFollowUp', 'startProject', 'decideProject', 'answerProject', 'pauseProject', 'stopProject', 'listChannels', 'renameProject', 'archiveProject', 'deleteProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',
+  'askEmployeeFollowUp', 'startProject', 'decideProject', 'undoProjectDecision', 'answerProject', 'pauseProject', 'stopProject', 'listChannels', 'renameProject', 'archiveProject', 'deleteProject', 'noteProject', 'askProjectFollowUp', 'addProgramManager',
   'sendEmployeeAction', 'skipEmployeeAction', 'confirmEmployeeAction',
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',

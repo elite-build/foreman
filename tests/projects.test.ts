@@ -5,7 +5,8 @@
 // memory file a task grants, and what a project's employees are doing right now.
 import { describe, expect, it } from 'vitest'
 import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
-import { memoryWriteDecision } from '../src/shared/employeeTools'
+import { MAX_FINISH_SUMMARY, memoryWriteDecision } from '../src/shared/employeeTools'
+import { MAX_TASK_BODY } from '../src/shared/employeeWork'
 import { jobPrompt } from '../src/shared/employeePrompts'
 import { employeeFromObject, parseEmployee, serializeEmployee } from '../src/shared/employees'
 import { createT } from '../src/shared/i18n'
@@ -13,6 +14,15 @@ import {
   acceptanceBody,
   allPartsDone,
   answersProblem,
+  approvalsFor,
+  approvalUndo,
+  cutText,
+  decisionsText,
+  gateNoteTo,
+  MAX_ANSWER,
+  MAX_STEP_SUMMARY,
+  publishedTasks,
+  questionsText,
   artifactPath,
   checkPlan,
   checkQuestions,
@@ -532,5 +542,137 @@ describe('projects: the plan as a workflow', () => {
     expect(md).toContain('1. Requirements (Priya). Then the person checks Requirements.')
     expect(md).toContain('4. The program manager checks the result against the request')
     expect(md).toContain('## Questions asked\n\nRound 1:\n1. Which formats?\n   Answer: CSV only')
+  })
+})
+
+describe('projects: what the person says reaches the right place, once', () => {
+  const round = (patch: Partial<QuestionRound> = {}): QuestionRound => ({ round: 1, taskId: 't1', understood: [], questions: [{ question: 'Which formats?', options: [] }, { question: 'Who uses it?', options: [] }], at: NOW, ...patch })
+  const roster = [{ id: 'e-rav1', name: 'Ravi', role: 'Developer', askMeAbout: '', state: 'approved' }]
+
+  it('reads a name with spaces, the longest that fits, and keeps a step’s summary to an employee’s own limit', () => {
+    expect(mentionOf('@Uma Rao make the rail narrower', ['Uma', 'Uma Rao', 'Ravi'])).toEqual({ name: 'Uma Rao', rest: 'make the rail narrower' })
+    expect(mentionOf('@uma rao: why?', ['Uma Rao'])).toEqual({ name: 'Uma Rao', rest: 'why?' })
+    expect(mentionOf('@Uma Raof hi', ['Uma Rao'])).toBeNull()
+    expect(mentionOf('@Uma', ['Uma'])).toEqual({ name: 'Uma', rest: '' })
+    expect(MAX_STEP_SUMMARY).toBe(MAX_FINISH_SUMMARY)
+    expect(cutText('abcdef', 3)).toBe('abc … (cut: 3 characters)')
+  })
+
+  it('takes partly given answers when she is told to plan with what she has, and tells her which are hers to decide', () => {
+    expect(answersProblem(round(), ['CSV only', ''], true)).toBeNull()
+    expect(answersProblem(round(), ['CSV only', ''])).toBe('missing')
+    const text = questionsText([round({ skipped: true, answers: ['CSV only', ''], answeredAt: NOW })])
+    expect(text).toContain('Round 1 (the person asked you to plan with what you have, after answering 1 of 2):')
+    expect(text).toContain('1. Which formats?\n   Answer: CSV only')
+    expect(text).toContain('2. Who uses it?\n   Not answered (left to you).')
+    const body = planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster, asks: [round({ skipped: true, answers: ['CSV only', ''], answeredAt: NOW })] })
+    expect(body).toContain('Answer: CSV only')
+    expect(body).toContain('The person asked you to plan with what you have: don’t ask again. Use the answers they gave')
+  })
+
+  it('cuts ten long answers fairly, so the roster and the planning rules always arrive', () => {
+    const questions = Array.from({ length: 10 }, (_, i) => ({ question: `Question ${i + 1}?`, options: [] }))
+    const answers = Array.from({ length: 10 }, (_, i) => `${i}`.repeat(MAX_ANSWER))
+    const body = planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster, asks: [round({ questions, answers, answeredAt: NOW })], max: MAX_TASK_BODY })
+    expect(body.length).toBeLessThanOrEqual(MAX_TASK_BODY)
+    expect(body).toContain('- Ravi (id e-rav1)')
+    expect(body).toContain('How to plan:')
+    expect(body).toContain('finish_task done. The person sees it drawn as a workflow')
+    // Each answer keeps the same share and says what it lost; the last one isn't the one dropped.
+    const cuts = [...body.matchAll(/\(cut: (\d+) characters\)/g)].map((m) => Number(m[1]))
+    expect(cuts).toHaveLength(10)
+    expect(new Set(cuts).size).toBe(1)
+    expect(body).toContain('10. Question 10?\n   Answer: 999')
+    // Short enough, nothing is cut.
+    expect(planningBody({ project: project(), organization: 'Acme', repos: ['site'], roster, asks: [round({ answers: ['a', 'b'], answeredAt: NOW })], max: MAX_TASK_BODY })).not.toContain('(cut:')
+  })
+
+  it('passes an approval’s note and pick once: to the first round after it, not to later rounds', () => {
+    const plan = checked({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'design', title: 'Mocks', owner: 'Priya', brief: 'Draw.', writes: 'design.md', gate_after: true },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build.', writes: 'build.md', depends_on: ['design'] },
+        { id: 'qa', title: 'QA', owner: 'Ravi', brief: 'Test.', writes: 'qa.md', reads: ['design'] }
+      ]
+    })
+    const [, build, qa] = plan.parts
+    const approved = { waitKind: 'gate' as const, partId: 'design', decision: 'approve' as const, note: 'More mocks first', pick: 'memory/org/projects/csv-export/mocks/design/1-a.html', at: '2026-11-15T10:10:00.000Z' }
+    const step = (partId: string, startedAt: string) => ({ kind: 'part' as const, partId, round: 1, taskId: `t-${partId}-${startedAt}`, employeeId: 'e-rav1', state: 'stuck' as const, startedAt })
+    expect(approvalsFor({ decisions: [approved], steps: [] }, plan, build)).toEqual([{ part: 'Mocks', note: 'More mocks first', pick: approved.pick }])
+    // Its round 2 (after the replan the note caused) isn't told again.
+    expect(approvalsFor({ decisions: [approved], steps: [step('build', '2026-11-15T10:11:00.000Z')] }, plan, build)).toEqual([])
+    // QA, which reads the design and ran before the approval, gets it on its first round after, and only then.
+    expect(approvalsFor({ decisions: [approved], steps: [step('qa', '2026-11-15T10:01:00.000Z')] }, plan, qa)).toHaveLength(1)
+    expect(approvalsFor({ decisions: [approved], steps: [step('qa', '2026-11-15T10:12:00.000Z')] }, plan, qa)).toEqual([])
+    // A newer approval goes once again; a taken-back one never.
+    const again = { ...approved, note: 'Option 3b', pick: undefined, at: '2026-11-15T10:20:00.000Z' }
+    expect(approvalsFor({ decisions: [approved, again], steps: [step('build', '2026-11-15T10:11:00.000Z')] }, plan, build)).toEqual([{ part: 'Mocks', note: 'Option 3b' }])
+    expect(approvalsFor({ decisions: [{ ...approved, undoneAt: '2026-11-15T10:11:00.000Z' }], steps: [] }, plan, build)).toEqual([])
+    // The pick alone tells the builder which option, without the instruction to block.
+    const body = partBody({ project: project(), organization: 'Acme', plan, part: build, round: 1, inputs: [], approvals: [{ part: 'Mocks', pick: approved.pick }] })
+    expect(body).toContain(`- On “Mocks”: picked ${approved.pick}`)
+    expect(body).toContain('Their pick comes before the brief')
+    expect(body).not.toContain('finish_task blocked and say in unblock')
+  })
+
+  it('knows where a gate’s note goes: what reads the part, else the acceptance of a large plan, else nowhere', () => {
+    const parts = [
+      { id: 'design', title: 'Mocks', owner: 'e-pri1', brief: 'b', reads: [], writes: 'design.md', dependsOn: [], gate: true },
+      { id: 'build', title: 'Build', owner: 'e-rav1', brief: 'b', reads: [], writes: 'build.md', dependsOn: ['design'], gate: true }
+    ]
+    expect(gateNoteTo({ size: 'small', parts }, 'design')).toBe('parts')
+    expect(gateNoteTo({ size: 'small', parts }, 'build')).toBe('nobody')
+    expect(gateNoteTo({ size: 'large', parts }, 'build')).toBe('acceptance')
+    expect(gateNoteTo({ size: 'small', parts: [parts[1], { ...parts[0], id: 'docs', dependsOn: [], reads: ['build'] }] }, 'build')).toBe('parts')
+  })
+
+  it('gives the replan and the acceptance the person’s decisions and notes, as data', () => {
+    const decisions = [
+      { waitKind: 'plan' as const, decision: 'approve' as const, at: '2026-11-15T10:01:00.000Z' },
+      { waitKind: 'gate' as const, partId: 'reqs', decision: 'approve' as const, note: 'Keep it short', pick: 'memory/org/projects/csv-export/mocks/reqs/1-b.html', at: '2026-11-15T10:05:00.000Z' },
+      { waitKind: 'gate' as const, partId: 'build', decision: 'send-back' as const, note: 'Quote commas', at: '2026-11-15T10:09:00.000Z' }
+    ]
+    const plan = checked()
+    expect(decisionsText({ decisions }, plan)).toBe('- Approved “Requirements”: picked 1-b.html; “Keep it short”\n- Sent back “Build”: “Quote commas”')
+    expect(decisionsText({ decisions }, plan, { since: '2026-11-15T10:06:00.000Z' })).toBe('- Sent back “Build”: “Quote commas”')
+    const replan = planningBody({ project: project(), organization: 'Acme', repos: [], roster, replan: { reason: 'r', current: '-', version: 2, left: 2 }, decisions: { decisions, plan } })
+    expect(replan).toContain('<foreman-data kind="decisions">\n- Approved “Requirements”: picked 1-b.html; “Keep it short”')
+    const accept = acceptanceBody({ project: project({ decisions }), organization: 'Acme', plan, inputs: [] })
+    expect(accept).toContain('- Sent back “Build”: “Quote commas”')
+  })
+
+  it('lets an approval be taken back only while what it started runs, unpublished, and nothing moved on', () => {
+    const plan = checked({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'design', title: 'Mocks', owner: 'Priya', brief: 'Draw.', writes: 'design.md', gate_after: true },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build.', writes: 'build.md', depends_on: ['design'] },
+        { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Docs.', writes: 'docs.md', depends_on: ['design', 'build'] }
+      ]
+    })
+    const at = '2026-11-15T10:10:00.000Z'
+    const going = project({
+      phase: 'working',
+      plan,
+      parts: { design: { state: 'done', round: 1, taskId: 't1' }, build: { state: 'running', round: 1, taskId: 't2' }, docs: { state: 'pending', round: 0 } },
+      steps: [
+        { kind: 'part', partId: 'design', round: 1, taskId: 't1', employeeId: 'e-pri1', state: 'done', startedAt: '2026-11-15T10:00:00.000Z', endedAt: '2026-11-15T10:05:00.000Z' },
+        { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'running', startedAt: '2026-11-15T10:10:01.000Z' }
+      ],
+      decisions: [{ waitKind: 'gate', partId: 'design', decision: 'approve', at }]
+    })
+    // Docs waits for build too, so it hasn't started: nothing to undo there.
+    expect(approvalUndo(going, at)).toEqual({ partId: 'design', parts: ['build'], tasks: ['t2'] })
+    expect(approvalUndo(going, '2026-11-15T09:00:00.000Z')).toBeNull()
+    // Published (or asked to: a held pull request), finished, replanning, closed, or taken back already: no.
+    expect(approvalUndo(going, at, publishedTasks([{ kind: 'pull-request', state: 'held', taskId: 't2' }]))).toBeNull()
+    expect(approvalUndo(going, at, publishedTasks([{ kind: 'push', state: 'refused', taskId: 't2' }]))).not.toBeNull()
+    expect(approvalUndo({ ...going, parts: { ...going.parts, build: { state: 'gate', round: 1, taskId: 't2' } } }, at)).toBeNull()
+    expect(approvalUndo({ ...going, replanning: true }, at)).toBeNull()
+    expect(approvalUndo({ ...going, phase: 'closed' }, at)).toBeNull()
+    expect(approvalUndo({ ...going, decisions: [{ ...going.decisions[0], undoneAt: '2026-11-15T10:11:00.000Z' }] }, at)).toBeNull()
   })
 })

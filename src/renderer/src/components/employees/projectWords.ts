@@ -1,20 +1,26 @@
 // The words for projects (docs/ai-employees.md §15) in the person's language: a project's state and the line under its
 // name, a part's state, a plan's status, what a project waits on. Text only; the views lay it out.
 import type { PlainKey } from '../../../../shared/i18n'
-import { channelSlug, projectSlug, type PartState, type Project, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
+import { channelSlug, projectSlug, type PartState, type PartStatus, type Project, type ProjectPlan, type ProjectWait } from '../../../../shared/projects'
 import type { useT } from '../../i18n'
 import type { StatusTone } from '../../ui'
 
 type T = ReturnType<typeof useT>
 
 /** A part's state as a Status: a glyph's tone and a word. */
-export const PART_STATUS: Record<PartState, { tone: StatusTone; label: PlainKey }> = {
+export const PART_STATUS: Record<PartLook, { tone: StatusTone; label: PlainKey }> = {
   pending: { tone: 'off', label: 'projects.part.pending' },
   running: { tone: 'info', label: 'projects.part.running' },
   gate: { tone: 'warn', label: 'projects.part.gate' },
   done: { tone: 'ok', label: 'projects.part.done' },
-  stuck: { tone: 'error', label: 'projects.part.stuck' }
+  stuck: { tone: 'error', label: 'projects.part.stuck' },
+  stopped: { tone: 'off', label: 'projects.part.stopped' },
+  replan: { tone: 'warn', label: 'projects.step.replan' }
 }
+
+/** How a part's state looks: a part stuck because it asked for a replan says so, not Stuck. */
+export type PartLook = PartState | 'replan'
+export const partLook = (s: Pick<PartStatus, 'state' | 'askedReplan'>): PartLook => (s.state === 'stuck' && s.askedReplan ? 'replan' : s.state)
 
 export const PLAN_STATUS_KEY: Record<ProjectPlan['status'], PlainKey> = {
   waiting: 'projects.plan.status.waiting',

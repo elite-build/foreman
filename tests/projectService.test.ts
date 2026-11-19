@@ -16,7 +16,7 @@ import type { EmployeeTask } from '../src/shared/employeeWork'
 import { defaultEmployee, type EmployeeDefinition, type EmployeeSummary } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
 import type { MemoryChange } from '../src/shared/memory'
-import { listedProjects, type PlanInput } from '../src/shared/projects'
+import { listedProjects, planSeen, roundSeen, type PlanInput } from '../src/shared/projects'
 import type { Repo } from '../src/shared/types'
 import { tempDir } from './helpers'
 
@@ -107,7 +107,7 @@ async function rig(options: { pm?: boolean } = {}) {
   }
   const service = new ProjectService(host)
   /** Close a task as its run would, and let the project go on. */
-  const close = async (id: string, how: { reason?: EmployeeTask['closureReason']; decision?: string; detail?: string; artifacts?: string[] } = {}) => {
+  const close = async (id: string, how: { reason?: EmployeeTask['closureReason']; decision?: string; detail?: string; artifacts?: string[]; summary?: string } = {}) => {
     const task = db.employeeTask(id)!
     const reason = how.reason ?? 'done'
     clock.now += 1000
@@ -116,7 +116,7 @@ async function rig(options: { pm?: boolean } = {}) {
       state: 'closed',
       closureReason: reason,
       ...(how.detail ? { closureDetail: how.detail } : {}),
-      ...(reason === 'done' ? { result: { status: 'done', summary: `${task.title} finished.`, commit: `c-${id}`, ...(how.decision ? { decision: how.decision } : {}), ...(how.artifacts ? { artifacts: how.artifacts } : {}), runId: 'r', at: task.createdAt } } : {})
+      ...(reason === 'done' ? { result: { status: 'done', summary: how.summary ?? `${task.title} finished.`, commit: `c-${id}`, ...(how.decision ? { decision: how.decision } : {}), ...(how.artifacts ? { artifacts: how.artifacts } : {}), runId: 'r', at: task.createdAt } } : {})
     }
     db.putEmployeeTask(closed)
     service.taskClosed(closed)
@@ -662,5 +662,202 @@ describe('projects: asking before planning', () => {
     const replanning = r.task(r.last())
     expect(replanning.project?.kind).toBe('plan')
     await expect(r.service.submitQuestions(replanning, { questions: [{ question: 'Where is the test data?' }] })).rejects.toThrow('A plan is in effect')
+  })
+})
+
+describe('projects: decisions bound to what the person saw, and taken back', () => {
+  const MOCKS: PlanInput = {
+    summary: 's',
+    size: 'small',
+    parts: [
+      { id: 'design', title: 'Mocks', owner: 'Priya', brief: 'Draw mocks.', writes: 'design.md', gate_after: true },
+      { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build the picked one.', writes: 'build.md', depends_on: ['design'] }
+    ]
+  }
+  const folder = 'memory/org/projects/simplify-the-sidebar/mocks/design/'
+  /** A project whose design part waits at its gate, with two mocks drawn. */
+  async function atDesignGate(input: PlanInput = MOCKS) {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan(input)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const design = r.task(r.last())
+    await r.close(design.id, { artifacts: ['memory/org/projects/simplify-the-sidebar/design.md', `${folder}index.html`, `${folder}1-sidebar-a.html`, `${folder}1-sidebar-b.html`] })
+    return { ...r, id: project.id, design }
+  }
+
+  it('sends the answers given with Plan with what you have, and refuses questions changed under the card', async () => {
+    const r = await rig()
+    const project = await r.service.start('o1', { requirement: 'Add single sign-on with Okta' })
+    const planning = r.task(r.last())
+    await r.service.submitQuestions(planning, { questions: [{ question: 'Which identity providers?' }, { question: 'Does password login stay?' }] })
+    await r.close(planning.id)
+    const wait = r.get(project.id).waits[0]
+    const round = r.get(project.id).asks![0]
+    await expect(r.service.answer(project.id, wait.id, ['Okta only', 'Yes'], { seen: '1@2026-01-01T00:00:00.000Z' })).rejects.toThrow('Priya changed the questions: look again.')
+    await expect(r.service.answer(project.id, wait.id, ['Okta only'], { skip: true })).rejects.toThrow('one answer per question')
+    await r.service.answer(project.id, wait.id, ['Okta only', ' '], { skip: true, seen: roundSeen(round) })
+    expect(r.get(project.id).asks?.[0]).toMatchObject({ skipped: true, answers: ['Okta only', ''] })
+    expect(r.last().body).toContain('1. Which identity providers?\n   Answer: Okta only')
+    expect(r.last().body).toContain('2. Does password login stay?\n   Not answered (left to you).')
+    expect(r.last().body).toContain('The person asked you to plan with what you have')
+  })
+
+  it('takes no questions or plan from a planning task once it finished, and refuses a plan changed under the card', async () => {
+    const r = await rig()
+    const asking = await r.service.start('o1', { requirement: 'Add single sign-on with Okta' })
+    const planning = r.task(r.last())
+    await r.service.submitQuestions(planning, { questions: [{ question: 'Which identity providers?' }] })
+    await r.close(planning.id)
+    // Its turn runs on after finish_task: what it gave stands.
+    await expect(r.service.submitQuestions(planning, { questions: [{ question: 'Something else?' }] })).rejects.toThrow('This task has finished')
+    expect(r.get(asking.id).asks?.[0].questions[0].question).toBe('Which identity providers?')
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    const second = r.task(r.last())
+    await r.plan(TWO_PARTS)
+    await expect(r.service.submitPlan(second, 'run-1', { ...TWO_PARTS, parts: [TWO_PARTS.parts[0]] })).rejects.toThrow('This task has finished')
+    const p = r.get(project.id)
+    await expect(r.service.decide(project.id, p.waits[0].id, 'approve', undefined, { seen: '1@2026-01-01T00:00:00.000Z' })).rejects.toThrow('Priya changed the plan: look again.')
+    await r.service.decide(project.id, p.waits[0].id, 'approve', undefined, { seen: planSeen(p.plans[0]) })
+    expect(r.get(project.id).phase).toBe('working')
+  })
+
+  it('passes a pick and a note to the first round after the approval only, and calls a block for a replan what it is', async () => {
+    const r = await atDesignGate()
+    const wait = r.get(r.id).waits[0]
+    await expect(r.service.decide(r.id, wait.id, 'approve', undefined, { pick: `${folder}9-other.html` })).rejects.toThrow('That mock isn’t one this part drew.')
+    await r.service.decide(r.id, wait.id, 'approve', 'More mocks first', { pick: `${folder}1-sidebar-b.html` })
+    expect(r.get(r.id).decisions.at(-1)).toMatchObject({ partId: 'design', decision: 'approve', note: 'More mocks first', pick: `${folder}1-sidebar-b.html` })
+    const build = r.task(r.last())
+    expect(build.body).toContain(`- On “Mocks”: picked ${folder}1-sidebar-b.html; “More mocks first”`)
+    // He blocks as told; it is a replan he asked for, not a failure.
+    await r.close(build.id, { reason: 'blocked', detail: 'The person asked for more mocks first' })
+    expect(r.get(r.id).steps.find((s) => s.taskId === build.id)).toMatchObject({ state: 'stuck', end: 'replan' })
+    await r.plan(MOCKS)
+    // Round 2 isn't told the old note again.
+    expect(r.last()).toMatchObject({ project: { partId: 'build', round: 2 } })
+    expect(r.last().body).not.toContain('More mocks first')
+    expect(r.last().body).not.toContain('The person approved what your part waits for')
+  })
+
+  it('refuses a note with Approve where nothing would read it, and gives a large plan’s to the acceptance', async () => {
+    const small = await atDesignGate({ ...MOCKS, parts: [MOCKS.parts[0]] })
+    await expect(small.service.decide(small.id, small.get(small.id).waits[0].id, 'approve', 'Fix the 2px gap')).rejects.toThrow('Nothing starts after this part')
+    const r = await atDesignGate({ ...MOCKS, size: 'large', understood: ['u'], done_when: ['d'], parts: [MOCKS.parts[0]] })
+    await r.service.decide(r.id, r.get(r.id).waits[0].id, 'approve', 'Fix the 2px gap before release')
+    expect(r.last()).toMatchObject({ project: { kind: 'accept' } })
+    expect(r.last().body).toContain('- Approved “Mocks”: “Fix the 2px gap before release”')
+  })
+
+  it('takes an approval back while what it started runs: canceled, the gate waits again, and approving again starts it afresh', async () => {
+    const r = await atDesignGate()
+    await r.service.decide(r.id, r.get(r.id).waits[0].id, 'approve')
+    const build = r.task(r.last())
+    const at = r.get(r.id).decisions.at(-1)!.at
+    await r.service.undoDecision(r.id, at)
+    let p = r.get(r.id)
+    expect(r.canceled).toEqual([build.id])
+    expect(p.parts).toMatchObject({ design: { state: 'gate' }, build: { state: 'pending', round: 0 } })
+    expect(p.waits).toEqual([expect.objectContaining({ kind: 'gate', partId: 'design' })])
+    expect(p.steps.find((s) => s.taskId === build.id)).toMatchObject({ state: 'stuck', end: 'undone' })
+    expect(p.decisions.at(-2)).toMatchObject({ decision: 'approve', undoneAt: expect.any(String) })
+    expect(p.decisions.at(-1)).toMatchObject({ partId: 'design', decision: 'undo' })
+    // Its cancel closing later changes nothing.
+    r.service.taskClosed(r.db.employeeTask(build.id)!)
+    await settle()
+    expect(r.get(r.id).parts.build).toMatchObject({ state: 'pending', round: 0 })
+    await expect(r.service.undoDecision(r.id, at)).rejects.toThrow('can’t be taken back now')
+    // Approved again: round 1 again, as a new task.
+    await r.service.decide(r.id, r.get(r.id).waits[0].id, 'approve')
+    expect(r.last()).toMatchObject({ requestId: expect.stringMatching(/:part:build:1:again-1$/), project: { partId: 'build', round: 1 } })
+    p = r.get(r.id)
+    expect(p.parts.build).toMatchObject({ state: 'running', round: 1, taskId: r.task(r.last()).id })
+    // Once what it started finished, it can't be.
+    const again = p.decisions.at(-1)!.at
+    await r.close(r.task(r.last()).id)
+    await expect(r.service.undoDecision(r.id, again)).rejects.toThrow('can’t be taken back now')
+  })
+
+  it('stops with every running part and its post saying stopped, and keeps a long result whole with a mark', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    await r.plan(TWO_PARTS)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const [build, docs] = [r.task(r.asked[1]), r.task(r.asked[2])]
+    // Docs closed done just before Stop, but the project hadn't heard yet.
+    r.db.putEmployeeTask({ ...docs, state: 'closed', closureReason: 'done', result: { status: 'done', summary: 'x'.repeat(4_500), runId: 'r', at: docs.createdAt } })
+    await r.service.stop(project.id)
+    let p = r.get(project.id)
+    expect(p.parts.build).toMatchObject({ state: 'stopped' })
+    expect(p.steps.find((s) => s.taskId === build.id)).toMatchObject({ state: 'stuck', end: 'stopped' })
+    expect(r.canceled).toEqual([build.id])
+    r.service.taskClosed(r.db.employeeTask(docs.id)!)
+    await settle()
+    p = r.get(project.id)
+    expect(p.parts.docs).toMatchObject({ state: 'done' })
+    expect(p.steps.find((s) => s.taskId === docs.id)).toMatchObject({ state: 'done', summaryCut: 500 })
+    expect(p.steps.find((s) => s.taskId === docs.id)!.summary).toHaveLength(4_000)
+  })
+})
+
+describe('projects: what main tells the window, and what closing touches', () => {
+  const MOCKS: PlanInput = {
+    summary: 's',
+    size: 'small',
+    parts: [
+      { id: 'design', title: 'Mocks', owner: 'Priya', brief: 'Draw mocks.', writes: 'design.md', gate_after: true },
+      { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build it.', writes: 'build.md', depends_on: ['design'] },
+      { id: 'docs', title: 'Docs', owner: 'Priya', brief: 'Write it up.', writes: 'docs.md' }
+    ]
+  }
+
+  it('lists the approvals that can be taken back on the view, and none once main sees a pull request any way it was sent', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan(MOCKS)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    await r.close(r.task(r.asked.find((a) => a.project.partId === 'design')!).id)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const at = r.get(project.id).decisions.at(-1)!.at
+    const build = r.task(r.last())
+    expect(r.service.views().o1[0].undoable).toEqual([at])
+    // Sent by a person a while ago: not in the window's lists, but main sees it.
+    r.db.addEmployeeAction({ id: 'a1', orgId: 'o1', employeeId: 'e-rav1', taskId: build.id, runId: 'r', repoId: 'site', kind: 'pull-request', payload: {} as never, policy: 'ask' as never, state: 'sent', key: 'k1', decidedBy: 'person', createdAt: '2026-11-15T10:00:00.000Z', updatedAt: '2026-11-15T10:00:00.000Z' })
+    expect(r.service.views().o1[0].undoable).toBeUndefined()
+    await expect(r.service.undoDecision(project.id, at)).rejects.toThrow('can’t be taken back now')
+    // The view is read, not stored.
+    expect(r.db.project(project.id)!.undoable).toBeUndefined()
+  })
+
+  it('marks a part that asked for a replan until the replan runs it again, and leaves a part at its gate as it is on Stop', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan(MOCKS)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const docs = r.task(r.asked.find((a) => a.project.partId === 'docs')!)
+    await r.close(docs.id, { reason: 'blocked', detail: 'Which audience?' })
+    expect(r.get(project.id).parts.docs).toMatchObject({ state: 'stuck', askedReplan: true })
+    await r.plan(MOCKS)
+    expect(r.get(project.id).parts.docs).toMatchObject({ state: 'running', round: 2 })
+    expect(r.get(project.id).parts.docs.askedReplan).toBeUndefined()
+    // Design waits at its gate when the project stops: it finished its work, and says so still.
+    await r.close(r.task(r.asked.find((a) => a.project.partId === 'design')!).id)
+    expect(r.get(project.id).parts.design.state).toBe('gate')
+    await r.service.stop(project.id)
+    expect(r.get(project.id).parts).toMatchObject({ design: { state: 'gate' }, docs: { state: 'stopped' } })
+  })
+
+  it('says a follow-up left running when a project closes done was canceled, not stopped by the person', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    await r.plan({ ...TWO_PARTS, parts: [TWO_PARTS.parts[0]] })
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const build = r.task(r.last())
+    const follow = await r.service.askFollowUp(project.id, 'e-rav1', 'Why semicolons?')
+    await r.close(build.id)
+    const p = r.get(project.id)
+    expect(p).toMatchObject({ phase: 'closed', outcome: 'done' })
+    expect(r.canceled).toEqual([follow.id])
+    expect(p.steps.find((s) => s.taskId === follow.id)).toMatchObject({ end: 'stopped', reason: 'Canceled when the project closed.' })
   })
 })

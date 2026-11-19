@@ -38,7 +38,7 @@ export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number
     )
     const to = m ? members.find((x) => x.name === m.name) : undefined
     if (!m || !to || !m.rest) {
-      showToast(t('projects.orgChannel.tagFirst', { name: pmName }))
+      showToast(to ? t('projects.composer.askWhat', { name: to.name }) : t('projects.orgChannel.tagFirst', { name: pmName }))
       return false
     }
     let ok = false

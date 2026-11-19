@@ -6,13 +6,16 @@
 // The card: a header (▲ Needs you · who · what kind · how long ago), the thing being decided, its details, then a line
 // saying what the main button will do, just above the buttons. The buttons are named for what they do and always come in
 // one order, the main one last (as in every Foreman dialog): decline · alternate · main. Keys inside the card: Esc
-// declines, Ctrl+Enter takes the alternate (the main act when there is none), Enter the main act. Anything that leaves
-// this computer has no key at all: Tab to it, then Enter or Space on the button itself.
+// declines, Ctrl+Enter takes the alternate (the main act when there is none), Enter the main act. A card can keep Esc
+// from a decline that ends more than the decision (stopping a project), and give Ctrl+Enter to the main act (where the
+// alternate would drop what was typed). Enter on the card itself acts only when the card was reached from the keyboard
+// (F6): a click on its text focuses it too, and Enter after that does nothing. Anything that leaves this computer has no
+// key at all: Tab to it, then Enter or Space on the button itself.
 //
 // The row: ▲ kind · who · what · age · one button · open. The button does the main act only when that act stays on this
 // computer; otherwise it opens the card ("Answer…", "Review…"), so what leaves and where is read before it can go.
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import { useT } from '../i18n'
 import { formatChord } from '../shortcuts'
 import { useStore } from '../store'
@@ -60,17 +63,27 @@ export interface DecisionCardProps {
   guardMs?: number
   // Runs first; a key it handles (preventDefault) is left alone.
   onKeyDown?: (e: KeyboardEvent<HTMLElement>) => void
+  // Esc declines (the default). False: Esc stays in the card and does nothing, and the decline has no key (a decline
+  // that ends more than this decision, such as stopping a whole project, is pressed on its button).
+  escDeclines?: boolean
+  // What Ctrl+Enter does: the alternate (the default), or the main act (when the alternate would drop what was typed).
+  modEnter?: 'alternate' | 'main'
   className?: string
   ref?: Ref<HTMLElement>
 }
 
 /** The card. A named group (by its subject) that a key can reach (`tabIndex` -1, `data-decision`). */
-export function DecisionCard({ who, kind, age, headEnd, headNav, subject, children, consequence, leaves, decline, alternate, main, footStart, inRow, labelledBy, docked, guardMs = 0, onKeyDown, className, ref }: DecisionCardProps) {
+export function DecisionCard({ who, kind, age, headEnd, headNav, subject, children, consequence, leaves, decline, alternate, main, footStart, inRow, labelledBy, docked, guardMs = 0, onKeyDown, escDeclines = true, modEnter = 'alternate', className, ref }: DecisionCardProps) {
   const t = useT()
   const platform = useStore((s) => s.snapshot?.platform)
   const subjectId = useId()
   const shown = useRef(Date.now())
   const mod = platform === 'darwin' ? 'metaKey' : 'ctrlKey'
+  // The card has focus because its text was clicked (not reached with F6): Enter on it then is an accident.
+  const clicked = useRef(false)
+  // A press focuses what it lands on in the same turn: the card itself, when it lands on its text.
+  const pressing = useRef(false)
+  const modAct = modEnter === 'main' ? main : (alternate ?? main)
 
   const run = (act: DecisionAct | undefined, e: KeyboardEvent<HTMLElement>) => {
     if (!act || act.disabled || act.outward) return false
@@ -88,18 +101,29 @@ export function DecisionCard({ who, kind, age, headEnd, headNav, subject, childr
       // Esc belongs to the card: it never closes the view around it (and a typed answer with it).
       e.preventDefault()
       e.stopPropagation()
-      if (Date.now() - shown.current >= guardMs && decline && !decline.disabled) decline.onAct()
+      if (escDeclines && Date.now() - shown.current >= guardMs && decline && !decline.disabled) decline.onAct()
       return
     }
     if (e.key !== 'Enter' || e.shiftKey || e.altKey || Date.now() - shown.current < guardMs) return
     if (e[mod]) {
-      if (!run(alternate ?? main, e) && (alternate ?? main)) e.preventDefault()
+      if (!run(modAct, e) && modAct) e.preventDefault()
       return
     }
     if (e.ctrlKey || e.metaKey) return
     // A focused button or link does what it says; Enter in a text box is a new line.
     if (target.closest('button, a, [role="button"], [role="tab"], summary') || target instanceof HTMLTextAreaElement) return
+    if (target === e.currentTarget && clicked.current) return
     run(main, e)
+  }
+
+  const onPress = () => {
+    clicked.current = true
+    pressing.current = true
+    setTimeout(() => (pressing.current = false), 0)
+  }
+  // The card itself takes focus: from a click (being pressed) or from the keyboard (F6, which presses nothing).
+  const onFocus = (e: FocusEvent<HTMLElement>) => {
+    if (e.target === e.currentTarget) clicked.current = pressing.current
   }
 
   // The key, after a space; none for an act that leaves this computer.
@@ -126,17 +150,20 @@ export function DecisionCard({ who, kind, age, headEnd, headNav, subject, childr
           <span className="decision-foot-acts">
             {decline && (
               <Button size="sm" disabled={decline.disabled} title={decline.title} onClick={decline.onAct}>
-                {decline.label}{key(decline, 'Escape')}
+                {decline.label}
+                {escDeclines && key(decline, 'Escape')}
               </Button>
             )}
             {alternate && (
               <Button size="sm" disabled={alternate.disabled} title={alternate.title} onClick={alternate.onAct}>
-                {alternate.label}{key(alternate, 'mod+Enter')}
+                {alternate.label}
+                {modEnter !== 'main' && key(alternate, 'mod+Enter')}
               </Button>
             )}
             {main && (
               <Button size="sm" variant="primary" disabled={main.disabled} title={main.title} onClick={main.onAct}>
-                {main.label}{key(main, 'Enter')}
+                {main.label}
+                {key(main, modEnter === 'main' ? 'mod+Enter' : 'Enter')}
               </Button>
             )}
           </span>
@@ -146,7 +173,7 @@ export function DecisionCard({ who, kind, age, headEnd, headNav, subject, childr
   )
   if (inRow)
     return (
-      <div ref={ref as Ref<HTMLDivElement>} className={['decision-card', 'decision-card--in-row', className].filter(Boolean).join(' ')} role="group" aria-labelledby={labelledBy} aria-label={labelledBy ? undefined : typeof subject === 'string' ? subject : kind} tabIndex={-1} data-decision="" onKeyDown={onKey}>
+      <div ref={ref as Ref<HTMLDivElement>} className={['decision-card', 'decision-card--in-row', className].filter(Boolean).join(' ')} role="group" aria-labelledby={labelledBy} aria-label={labelledBy ? undefined : typeof subject === 'string' ? subject : kind} tabIndex={-1} data-decision="" onKeyDown={onKey} onMouseDown={onPress} onFocus={onFocus}>
         {body}
       </div>
     )
@@ -161,6 +188,8 @@ export function DecisionCard({ who, kind, age, headEnd, headNav, subject, childr
       tabIndex={-1}
       data-decision=""
       onKeyDown={onKey}
+      onMouseDown={onPress}
+      onFocus={onFocus}
     >
       <div className="decision-head">
         <Status tone="warn" label={t('decision.needsYou')} />
