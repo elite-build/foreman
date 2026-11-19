@@ -213,6 +213,8 @@ export interface ProjectNote {
   // The task that got it: the running task it was put into, or the program manager's message task that read it. Absent
   // on a message for her not read yet: her next message task reads it.
   into?: string
+  // Put into a running turn (not read in a brief): it counts as arrived only if the agent took it up before the task closed.
+  steered?: true
 }
 
 export type ProjectPhase = 'planning' | 'plan-gate' | 'working' | 'accepting' | 'final-gate' | 'closed'
@@ -1129,10 +1131,18 @@ function messageLines(messages: ChannelMessages | undefined, after: string, cap 
  * What the person wrote in the channel, put into an employee's running turn (`@Name …` while their part runs, or a message
  * for the program manager while she works on the project): their words first, then what to do with them.
  */
-export function steerText(input: { project: Pick<Project, 'title'>; text: string; part?: string }): string {
+export function steerText(input: { project: Pick<Project, 'title'>; text: string; part?: string; kind?: ProjectStep['kind'] }): string {
+  // What to do with it depends on what the run is doing: the program manager plans, accepts or answers; an owner works.
+  const then: Record<ProjectStep['kind'], string> = {
+    part: 'It comes before your brief: take it into account in what you are doing now. If it changes what your part is for, finish_task blocked and say why in unblock, so the program manager replans.',
+    plan: 'Take it into the plan you are making (project_plan, or your questions if you are still asking); if it can’t be settled without the person, ask_person.',
+    accept: 'Take it into your acceptance: if it means something must change, decide replan and say what in acceptance.md.',
+    message: 'Answer it with the rest in your summary; if it asks for a change to the plan and you may make one, change it with project_plan.',
+    'follow-up': 'Take it into your answer.'
+  }
   return [
     `The person wrote to you in the channel of the project “${input.project.title}” while you work${input.part ? ` on “${input.part}”` : ''}, in their words: “${input.text.trim()}”`,
-    'It comes before your brief: take it into account in what you are doing now. If it changes what your task is for, finish_task blocked and say why in unblock, so the program manager replans.'
+    then[input.kind ?? 'part']
   ].join('\n')
 }
 

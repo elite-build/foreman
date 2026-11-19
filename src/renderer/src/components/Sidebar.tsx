@@ -617,7 +617,7 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
   const spaceName = everything.snapshot.organizations?.find((o) => o.id === shownSpace)?.name ?? t('spaces.personal')
   const inSpace = new Set(snapshot.workspaces.map((w) => w.id))
   const projectIds = projectWorkspaceIds(snapshot)
-  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds, everything.approvals, everything.snapshot.sessions))
+  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds, everything))
   const projectTasks = projectTaskIds(everything.snapshot)
   const spaceNeeds = itemsInSpace(need.items, shownSpace).filter((i) => !inChannel(i, projectTasks))
   // What the organization's projects wait on, and what their tasks ask (projectNeeds): their channels', counted on the

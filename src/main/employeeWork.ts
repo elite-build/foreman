@@ -246,6 +246,8 @@ export interface EmployeeWorkHost {
   workspaceName?(workspaceId: string): string | undefined
   // A run completed: its workspace is archived once quiet, as a scheduled run's is.
   afterRun?(run: EmployeeRun): void
+  // A run ended, however (its turn may never have started): its chat, when it has one, has ended with it.
+  runEnded?(sessionId: string, runId: string): void
   changed(): void
   now?(): number
 }
@@ -1180,6 +1182,7 @@ export class EmployeeWorkService {
       : undefined
     this.saveRun(run, { state, endedAt: this.iso(), reason, ...(usage && Object.keys(usage).length ? { usage } : {}) })
     this.briefs.delete(run.id)
+    if (run.sessionId) this.host.runEnded?.(run.sessionId, run.id)
     const task = this.db.employeeTask(run.taskId)
     const outcome =
       after !== undefined
@@ -2271,9 +2274,10 @@ export class EmployeeWorkService {
 
   // ---- reading ----
 
-  tasks(orgId: string, employeeId?: string): EmployeeTask[] {
+  /** An organization's tasks (an employee's), newest first; `channel`: only those asked in its channel (§15). */
+  tasks(orgId: string, employeeId?: string, options: { channel?: 'org' } = {}): EmployeeTask[] {
     this.organization(orgId)
-    return this.db.employeeTasks(orgId, { ...(typeof employeeId === 'string' && employeeId ? { employeeId } : {}), limit: LISTED })
+    return this.db.employeeTasks(orgId, { ...(typeof employeeId === 'string' && employeeId ? { employeeId } : {}), ...(options?.channel === 'org' ? { channel: 'org' as const } : {}), limit: LISTED })
   }
 
   runs(orgId: string, employeeId?: string, taskId?: string): EmployeeRun[] {

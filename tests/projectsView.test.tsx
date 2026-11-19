@@ -176,6 +176,8 @@ describe('the organization’s channel', () => {
     expect(texts).toEqual(['@Ravi how big is the reports table?', '@Ravi why is the test flaky?', 'Ravi is working on it. Open Ravi’s page'])
     expect(within(timeline).getByText('40k').tagName).toBe('STRONG')
     expect(within(timeline).queryByText(/elsewhere/)).toBeNull()
+    // Only the channel's questions are read.
+    expect(fakeApi.listEmployeeTasks).toHaveBeenCalledWith('o1', undefined, { channel: 'org' })
     await user.click(within(timeline).getAllByRole('button', { name: 'Open Ravi’s page' })[0])
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: 'e-rav1' })
   })

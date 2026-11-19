@@ -953,6 +953,14 @@ export class Core {
       workspaceName: (workspaceId) => this.store.state.workspaces.find((w) => w.id === workspaceId)?.name,
       // As a scheduled run's: archived once quiet, its branch kept.
       afterRun: (run) => this.autoArchive.request(run.workspaceId!, { reason: { kind: 'employee', runId: run.id }, deleteBranch: false }),
+      // The run's chat has ended with it, a turn or not (a project run's then takes no more messages, §15).
+      runEnded: (sessionId, runId) => {
+        const session = store.state.sessions.find((s) => s.id === sessionId)
+        if (session?.employeeRun?.runId !== runId || session.employeeRun.endedAt) return
+        session.employeeRun = { ...session.employeeRun, endedAt: new Date().toISOString() }
+        store.save()
+        this.broadcastState()
+      },
       // ask_person's question, as any agent's needs-input report on its chat and turn (docs/ai-employees.md §6.4, §11).
       report: ({ workspaceId, sessionId, turnId, text }) => {
         const { report, added } = this.agentReports.record({ workspaceId, sessionId, ...(turnId ? { turnId } : {}), kind: 'needs-input', text, via: 'mcp' })
@@ -997,6 +1005,10 @@ export class Core {
         const mark = session?.unattended
         if (!run?.sessionId || !mark || !('employeeRunId' in mark) || mark.employeeRunId !== run.id) return false
         return this.sessions.steerTurn(run.sessionId, text)
+      },
+      unanswered: (taskId) => {
+        const sessionId = store.db.employeeRuns({ taskId }).find((r) => r.sessionId)?.sessionId
+        return sessionId ? this.sessions.unansweredSteers(sessionId) : 0
       },
       changed
     })
@@ -3618,7 +3630,7 @@ export class Core {
     },
     askEmployee: (organizationId, employeeId, input) => this.employeeWork.ask(organizationId, employeeId, input),
     runEmployeeNow: (organizationId, employeeId, input) => this.employeeWork.runNow(organizationId, employeeId, input ?? {}),
-    listEmployeeTasks: async (organizationId, employeeId) => this.employeeWork.tasks(organizationId, employeeId),
+    listEmployeeTasks: async (organizationId, employeeId, options) => this.employeeWork.tasks(organizationId, employeeId, options),
     listEmployeeRuns: async (organizationId, employeeId, taskId) => this.employeeWork.runs(organizationId, employeeId, taskId),
     stopEmployeeRun: (runId) => this.employeeWork.stop(runId),
     retryEmployeeTask: (taskId) => this.employeeWork.retry(taskId),

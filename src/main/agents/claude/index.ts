@@ -431,7 +431,7 @@ class ClaudeTurn implements AgentTurn {
   // The subagent whose AskUserQuestion call was just allowed (see canUseTool); the next question is on its behalf.
   private askedBy: SubagentRef | undefined
   // Follow-ups steered in since Claude last answered. Claude Code cuts off the request one arrives during and goes on with it.
-  private unansweredSteers = 0
+  private unanswered = 0
   // Armed when the turn is over: a process still running when it fires is closed (exitForced says the end was ours).
   private exitTimer: NodeJS.Timeout | null = null
   private exitForced = false
@@ -604,8 +604,12 @@ class ClaudeTurn implements AgentTurn {
   steer(text: string): boolean {
     if (this.done || this.input.closed) return false
     this.input.push(userMessage(text, 'now'))
-    this.unansweredSteers++
+    this.unanswered++
     return true
+  }
+
+  unansweredSteers(): number {
+    return this.unanswered
   }
 
   async setPlanMode(on: boolean): Promise<void> {
@@ -755,7 +759,7 @@ class ClaudeTurn implements AgentTurn {
         // A subagent's messages are kept under its call (final text only: no previews, no thinking). They are not the
         // conversation Restore rewinds to, and they don't answer a steer.
         if (!parent) {
-          this.unansweredSteers = 0
+          this.unanswered = 0
           this.cb.assistantMessage(message.uuid)
           this.noteCache(message.message.usage as unknown as CacheUsage | undefined)
         }
@@ -776,8 +780,8 @@ class ClaudeTurn implements AgentTurn {
       }
       case 'result': {
         // The request a follow-up cut off: Claude Code goes on to answer it, so the turn isn't over and nothing failed.
-        if (this.unansweredSteers && cutBySteer(message)) {
-          this.unansweredSteers = 0
+        if (this.unanswered && cutBySteer(message)) {
+          this.unanswered = 0
           return
         }
         const ok = message.subtype === 'success' && !message.is_error

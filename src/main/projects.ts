@@ -144,6 +144,8 @@ export interface ProjectHost {
   // Put the person's words into the task's running turn, when its agent takes a message mid-turn (native steer): whether
   // it did. Absent, or false, and the words wait for a task of their own.
   steer?(taskId: string, text: string): Promise<boolean>
+  // How many of the messages steered into the task's run its agent never took up (SessionService.unansweredSteers).
+  unanswered?(taskId: string): number
   changed(): void
   now?(): number
 }
@@ -601,6 +603,7 @@ export class ProjectService implements EmployeeProjectHooks {
     if (project.phase !== 'working') return project.phase === 'accepting' || project.phase === 'final-gate' ? 'every part is done and the result is being checked' : `the project is ${project.phase}`
     if (project.replans >= MAX_REPLANS) return `you have replanned ${MAX_REPLANS} times, the most a project allows`
     if (project.replanning && !project.plans.some((p) => p.taskId === taskId && p.status === 'waiting')) return 'a replan is being made already'
+    if (project.waits.some((w) => w.kind === 'stuck' && !w.partId)) return 'the last planning didn’t finish, and waits for the person to try it again'
     return undefined
   }
 
@@ -666,6 +669,8 @@ export class ProjectService implements EmployeeProjectHooks {
     else if (step.kind === 'plan') await this.planClosed(project, task, done, why)
     else if (step.kind === 'accept') await this.acceptClosed(project, task, done, why)
     else await this.partClosed(project, task, step.partId ?? '', done, why)
+    // Words put into its turn that its agent never took up didn't arrive: they go on as if it hadn't been running.
+    await this.missedSteers(project.id, task).catch((err: unknown) => console.error('Project message:', err))
     // What the person wrote while she worked, and nothing she started next has read: her message task reads it now.
     const fresh = this.db.project(project.id)
     if (fresh && step.employeeId === fresh.pmId) await this.wake(fresh).catch((err: unknown) => console.error('Project message:', err))
@@ -684,6 +689,28 @@ export class ProjectService implements EmployeeProjectHooks {
     if (project.steps.some((s) => s !== step && writer(s) && s.startedAt < end && (s.endedAt ?? end) > step.startedAt)) return
     const now = await this.host.repoState(ws).catch(() => undefined)
     if (now && now !== step.repoAt) step.changedRepo = true
+  }
+
+  /**
+   * A task closed with words steered into its turn that its agent never took up (ProjectHost.unanswered): the newest that
+   * many didn't arrive. One for the program manager is unread again (her message task reads it); `@Name …` becomes the
+   * follow-up it would have been, held until the task's run ends. Nothing for a closed project: everything stopped.
+   */
+  private async missedSteers(projectId: string, task: EmployeeTask): Promise<void> {
+    const missed = this.host.unanswered?.(task.id) ?? 0
+    const project = this.db.project(projectId)
+    if (!missed || !project || project.phase === 'closed') return
+    const notes = project.notes.filter((n) => n.steered && n.into === task.id).slice(-missed)
+    if (!notes.length) return
+    for (const n of notes) {
+      delete n.into
+      delete n.steered
+    }
+    const asks = notes.filter((n) => n.to)
+    project.notes = project.notes.filter((n) => !asks.includes(n))
+    this.save(project)
+    const after = this.db.employeeRuns({ taskId: task.id, states: RUN_ACTIVE }).length ? task.id : undefined
+    for (const n of asks) await this.makeFollowUp(project, n.to!, n.text, task, after)
   }
 
   /**
@@ -854,8 +881,9 @@ export class ProjectService implements EmployeeProjectHooks {
     const path = artifactPath(project.slug, part.writes)
     // A round whose approval was taken back (Undo approval) runs again under the same number, as a new task.
     const again = project.steps.filter((s) => s.kind === 'part' && s.partId === part.id && s.round === round && s.end === 'undone').length
-    // What the person wrote in the channel since this part last ran.
-    const messages = await this.channelMessages(project, project.steps.filter((s) => s.kind === 'part' && s.partId === part.id).at(-1)?.startedAt)
+    // What the person wrote in the channel since this part last ran, or, for its first round, since the plan in effect was
+    // given (what came before it, the plan took in).
+    const messages = await this.channelMessages(project, project.steps.filter((s) => s.kind === 'part' && s.partId === part.id).at(-1)?.startedAt ?? plan.at)
     // Who publishes (when it isn't this part), and what was published so far.
     const publisher = publisherOf(plan)
     const published = await this.publishedFor(project)
@@ -1005,6 +1033,8 @@ export class ProjectService implements EmployeeProjectHooks {
         record()
         drop()
         const part = wait.partId ? project.plan?.parts.find((p) => p.id === wait.partId) : undefined
+        // Planning again while a revision from the channel waits to be applied would make two plans at once.
+        if (!part && project.phase !== 'accepting' && project.replanning) throw new Error(`${(await this.names(project.orgId))[project.pmId] ?? 'The program manager'} is changing the plan already: wait for it, or stop.`)
         if (part) await this.startPart(project, part, text || undefined)
         else if (project.phase === 'accepting') await this.startAcceptance(project, text || undefined)
         else await this.startPlanning(project, { ...(text ? { note: text } : {}), ...(project.plan ? { reason: wait.reason ?? 'The last planning didn’t finish.' } : {}) })
@@ -1221,7 +1251,7 @@ export class ProjectService implements EmployeeProjectHooks {
       if (busy && (await this.steerInto(project, busy, clean))) {
         const fresh = this.project(project.id)
         const kept = fresh.notes.find((n) => n.at === note.at && n.text === note.text && !n.into)
-        if (kept) kept.into = busy.taskId
+        if (kept) Object.assign(kept, { into: busy.taskId, steered: true })
         return this.save(fresh)
       }
       try {
@@ -1242,7 +1272,7 @@ export class ProjectService implements EmployeeProjectHooks {
   private async steerInto(project: Project, step: ProjectStep, text: string): Promise<boolean> {
     if (!this.host.steer || this.db.employeeTask(step.taskId)?.state !== 'running') return false
     const part = step.partId ? project.plan?.parts.find((p) => p.id === step.partId)?.title : undefined
-    return this.host.steer(step.taskId, steerText({ project, text, ...(part ? { part } : {}) })).catch(() => false)
+    return this.host.steer(step.taskId, steerText({ project, text, kind: step.kind, ...(part ? { part } : {}) })).catch(() => false)
   }
 
   /**
@@ -1310,7 +1340,7 @@ export class ProjectService implements EmployeeProjectHooks {
       const steered = await this.serial(async () => {
         const fresh = this.project(projectId)
         if (!(await this.steerInto(fresh, busy, asked))) return undefined
-        fresh.notes.push({ text: asked, at: this.iso(), to: employeeId, into: busy.taskId })
+        fresh.notes.push({ text: asked, at: this.iso(), to: employeeId, into: busy.taskId, steered: true })
         this.save(fresh)
         return this.db.employeeTask(busy.taskId)
       })
@@ -1330,43 +1360,46 @@ export class ProjectService implements EmployeeProjectHooks {
   }
 
   private followUpTask(project: Project, employeeId: string, question: string, about?: EmployeeTask, after?: string): Promise<EmployeeTask> {
-    return this.serial(async () => {
-      const asked = typeof question === 'string' ? question.trim() : ''
-      if (!asked) throw new Error('Say what you’re asking.')
-      if (asked.length > MAX_FOLLOW_UP) throw new Error(`Keep the question under ${MAX_FOLLOW_UP} characters.`)
-      const fresh = this.project(project.id)
-      const partId = about?.project?.partId
-      const part = partId ? fresh.plan?.parts.find((p) => p.id === partId) : undefined
-      const file = part?.writes ?? (about?.project?.kind === 'plan' ? PLAN_FILE : about?.project?.kind === 'accept' ? ACCEPTANCE_FILE : undefined)
-      const artifact = file ? fresh.artifacts[file] : undefined
-      const round = fresh.steps.filter((s) => s.kind === 'follow-up').length + 1
-      const rootId = fresh.phase === 'closed' ? undefined : this.chainRoot(fresh)
-      // What the person wrote in the channel since this employee last worked on it, and what the project published.
-      const messages = await this.channelMessages(fresh, [...fresh.steps].reverse().find((s) => s.employeeId === employeeId)?.startedAt)
-      const published = await this.publishedFor(fresh)
-      const follow = await this.host.work.projectTask({
-        orgId: fresh.orgId,
-        employeeId,
-        title: `Follow-up: ${fresh.title}`,
-        body: followUpBody({
-          project: fresh,
-          question: asked,
-          ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}),
-          ...(part ? { part, mocks: mocksFolder(fresh.slug, part.id) } : {}),
-          ...(messages ? { messages } : {}),
-          ...(published ? { published } : {})
-        }),
-        repoId: fresh.repoId,
-        requestId: `project:${fresh.id}:follow-up:${randomUUID()}`,
-        ...(rootId ? { rootId } : { runsAllowed: PROJECT_RUNS }),
-        contract: artifact ? { inputs: [{ path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) }], writes: [artifact.path], ...(partId ? { writesUnder: [mocksFolder(fresh.slug, partId)] } : {}) } : {},
-        project: { id: fresh.id, kind: 'follow-up', round, ...(partId ? { partId } : {}), ...(after ? { after } : {}) }
-      })
-      const now = this.project(fresh.id)
-      now.steps.push({ kind: 'follow-up', ...(partId ? { partId } : {}), round, taskId: follow.id, employeeId, state: follow.state === 'closed' ? 'done' : 'running', question: asked, startedAt: this.iso() })
-      this.save(now)
-      return follow
+    return this.serial(() => this.makeFollowUp(project, employeeId, question, about, after))
+  }
+
+  /** Inside the queue: a follow-up task for `employeeId`, about `about` (its part's file), held after `after`'s run. */
+  private async makeFollowUp(project: Project, employeeId: string, question: string, about?: EmployeeTask, after?: string): Promise<EmployeeTask> {
+    const asked = typeof question === 'string' ? question.trim() : ''
+    if (!asked) throw new Error('Say what you’re asking.')
+    if (asked.length > MAX_FOLLOW_UP) throw new Error(`Keep the question under ${MAX_FOLLOW_UP} characters.`)
+    const fresh = this.project(project.id)
+    const partId = about?.project?.partId
+    const part = partId ? fresh.plan?.parts.find((p) => p.id === partId) : undefined
+    const file = part?.writes ?? (about?.project?.kind === 'plan' ? PLAN_FILE : about?.project?.kind === 'accept' ? ACCEPTANCE_FILE : undefined)
+    const artifact = file ? fresh.artifacts[file] : undefined
+    const round = fresh.steps.filter((s) => s.kind === 'follow-up').length + 1
+    const rootId = fresh.phase === 'closed' ? undefined : this.chainRoot(fresh)
+    // What the person wrote in the channel since this employee last worked on it, and what the project published.
+    const messages = await this.channelMessages(fresh, [...fresh.steps].reverse().find((s) => s.employeeId === employeeId)?.startedAt)
+    const published = await this.publishedFor(fresh)
+    const follow = await this.host.work.projectTask({
+      orgId: fresh.orgId,
+      employeeId,
+      title: `Follow-up: ${fresh.title}`,
+      body: followUpBody({
+        project: fresh,
+        question: asked,
+        ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}),
+        ...(part ? { part, mocks: mocksFolder(fresh.slug, part.id) } : {}),
+        ...(messages ? { messages } : {}),
+        ...(published ? { published } : {})
+      }),
+      repoId: fresh.repoId,
+      requestId: `project:${fresh.id}:follow-up:${randomUUID()}`,
+      ...(rootId ? { rootId } : { runsAllowed: PROJECT_RUNS }),
+      contract: artifact ? { inputs: [{ path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) }], writes: [artifact.path], ...(partId ? { writesUnder: [mocksFolder(fresh.slug, partId)] } : {}) } : {},
+      project: { id: fresh.id, kind: 'follow-up', round, ...(partId ? { partId } : {}), ...(after ? { after } : {}) }
     })
+    const now = this.project(fresh.id)
+    now.steps.push({ kind: 'follow-up', ...(partId ? { partId } : {}), round, taskId: follow.id, employeeId, state: follow.state === 'closed' ? 'done' : 'running', question: asked, startedAt: this.iso() })
+    this.save(now)
+    return follow
   }
 
   // ---- the shared workspace (EmployeeProjectHooks) ----

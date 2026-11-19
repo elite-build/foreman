@@ -25,7 +25,7 @@ function useChannelAsks(orgId: string): EmployeeTask[] {
   const [tasks, setTasks] = useState<EmployeeTask[]>([])
   useEffect(() => {
     let live = true
-    api.listEmployeeTasks(orgId).then(
+    api.listEmployeeTasks(orgId, undefined, { channel: 'org' }).then(
       (list) => live && setTasks((list ?? []).filter((x) => x.channel === 'org')),
       () => undefined
     )

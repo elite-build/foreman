@@ -2797,7 +2797,8 @@ export interface Api {
   // A task whose body asks it to work through its standing responsibilities and report.
   runEmployeeNow(organizationId: string, employeeId: string, input?: { repoId?: string }): Promise<import('./employeeWork').EmployeeTask>
   // Newest first; one employee's, or the organization's.
-  listEmployeeTasks(organizationId: string, employeeId?: string): Promise<import('./employeeWork').EmployeeTask[]>
+  // `channel: 'org'`: only the tasks asked in the organization's channel (docs/ai-employees.md §15).
+  listEmployeeTasks(organizationId: string, employeeId?: string, options?: { channel?: 'org' }): Promise<import('./employeeWork').EmployeeTask[]>
   listEmployeeRuns(organizationId: string, employeeId?: string, taskId?: string): Promise<import('./employeeWork').EmployeeRun[]>
   // Stop now (§6.6): the run is cancelled and its task goes back to open, held as stopped until Retry.
   stopEmployeeRun(runId: string): Promise<void>
