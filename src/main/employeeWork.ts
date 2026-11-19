@@ -514,7 +514,7 @@ export class EmployeeWorkService {
     if (!body) throw new Error('Say what you’re asking for.')
     if (body.length > MAX_TASK_BODY) throw new Error(`Keep the request under ${MAX_TASK_BODY} characters.`)
     const title = taskTitle(typeof input.title === 'string' ? input.title : undefined, body)
-    return this.createTask(orgId, employeeId, { title, body, repoId: typeof input.repoId === 'string' && input.repoId ? input.repoId : undefined })
+    return this.createTask(orgId, employeeId, { title, body, repoId: typeof input.repoId === 'string' && input.repoId ? input.repoId : undefined, ...(input.channel === 'org' ? { channel: 'org' as const } : {}) })
   }
 
   /** Run now (§6.1): a task asking the employee to work through its standing responsibilities and report. */
@@ -524,7 +524,7 @@ export class EmployeeWorkService {
     return this.createTask(orgId, employeeId, { title: mainT(this.state.settings)('employees.runNow.title'), body, repoId: typeof input?.repoId === 'string' && input.repoId ? input.repoId : undefined })
   }
 
-  private async createTask(orgId: string, employeeId: string, input: { title: string; body: string; repoId?: string }): Promise<EmployeeTask> {
+  private async createTask(orgId: string, employeeId: string, input: { title: string; body: string; repoId?: string; channel?: 'org' }): Promise<EmployeeTask> {
     const org = this.organization(orgId)
     if (!isEmployeeId(employeeId)) throw new Error('Employee not found')
     const current = await this.host.employees.current(orgId, employeeId)
@@ -543,7 +543,7 @@ export class EmployeeWorkService {
     }
     const now = this.iso()
     const id = randomUUID()
-    const task: EmployeeTask = { id, orgId, employeeId, requestId: randomUUID(), rootId: id, parentId: null, title: input.title, body: input.body, from: 'person', targetRepoId: repoId, state: 'open', depth: 0, cause: 'person', createdAt: now, updatedAt: now }
+    const task: EmployeeTask = { id, orgId, employeeId, requestId: randomUUID(), rootId: id, parentId: null, title: input.title, body: input.body, from: 'person', targetRepoId: repoId, state: 'open', depth: 0, cause: 'person', ...(input.channel ? { channel: input.channel } : {}), createdAt: now, updatedAt: now }
     this.db.transaction(() => {
       this.db.putEmployeeTask(task)
       this.db.addEmployeeTaskTransition({ taskId: id, runId: null, at: now, from: null, to: 'open', event: 'saved' })
@@ -746,6 +746,10 @@ export class EmployeeWorkService {
     const trigger = task.trigger?.id
     if (trigger && this.db.employeeTasks(org.id, { employeeId: task.employeeId, states: ['running', 'waiting'] }).some((t) => t.id !== task.id && t.trigger?.id === trigger))
       return { kind: 'hold', hold: 'queued', reason: 'Waiting for the last task its trigger started to finish.' }
+    // A project's follow-up asked while the same employee's part ran (§15) starts once that run ends, never beside it.
+    const after = task.project?.after
+    if (after && this.db.employeeRuns({ taskId: after, states: RUN_ACTIVE }).length)
+      return { kind: 'hold', hold: 'queued', reason: `Waiting for ${name}’s running work on the project to finish.` }
     const mark: EmployeeTurnMark = { employeeRunId: '', employeeId: task.employeeId, orgId: org.id, persona: limits, ...(attended ? { attended: true as const } : {}) }
     return { kind: 'admit', ctx: { org, definition, repo, access, mark, memoryReadOnly: Boolean(persona?.read_only) } }
   }

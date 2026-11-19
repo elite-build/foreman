@@ -183,6 +183,9 @@ interface ActiveTurn {
 }
 
 const CAN_CHAT = new Set(['ready', 'setting-up', 'setup-failed'])
+/** Why a project run's chat takes no message (docs/ai-employees.md §15): ended, or running on an agent that can't take one mid-turn. */
+export const ENDED_PROJECT_RUN = 'This chat was an AI employee’s run for a project, and it has finished: its context is out of date and the project wouldn’t see what happens here. Ask them in the project’s channel instead.'
+export const RUNNING_PROJECT_RUN = 'This chat is an AI employee’s run for a project, and its agent can’t take a message in the middle of its turn. Write to them in the project’s channel (@Name): it reaches them when this run ends.'
 export { MAX_OPEN_TABS }
 
 const ATTACHMENT_KINDS = new Set(['image', 'pdf', 'text', 'file'])
@@ -945,6 +948,10 @@ export class SessionService {
     const frozen = frozenReason(ws)
     if (frozen) throw new Error(frozen)
     if (session.importedMode === 'history') throw new Error('This chat was imported as history only. Open a new chat to continue the work.')
+    // docs/ai-employees.md §15: a project run's chat is the run's. Once its turn ended it takes nothing more (its context is
+    // stale and nothing of the project would see it); the person asks the employee in the project's channel.
+    const projectRun = Boolean(session.employeeRun?.projectId) && options.origin?.kind !== 'employee'
+    if (projectRun && session.employeeRun?.endedAt) throw new Error(ENDED_PROJECT_RUN)
     if (!CAN_CHAT.has(ws.state)) throw new Error('The workspace is not ready yet')
     // #1: while Foreman quits once the running turns finish, nothing new starts. Steering or queueing behind a running turn still works.
     const live = this.turns.get(sessionId)
@@ -979,6 +986,8 @@ export class SessionService {
       canSteer: this.record(session.agent)?.turns.steer.level === 'native',
       canInterrupt: interruptsToSteer(this.record(session.agent))
     })
+    // While a project's run works here, only words that go into its turn: a message queued after it would run outside it.
+    if (projectRun && !(plan === 'steer' && active && !capIsLower(cap, session.turnCap))) throw new Error(RUNNING_PROJECT_RUN)
     // docs/agent-access.md §4: a capped message never steers into a turn held less than it would be (or not held at all);
     // it waits in the queue for a turn of its own. Steered, it runs under the running turn's cap, the lower of the two.
     if (plan === 'steer' && active && !capIsLower(cap, session.turnCap)) {
@@ -994,6 +1003,7 @@ export class SessionService {
         })
         return { disposition: 'steered', turnId: active.turnId }
       }
+      if (projectRun) throw new Error(RUNNING_PROJECT_RUN)
     }
     // docs/agents.md 2.5, `interrupt-restart`: an agent that can't take a message mid-turn is stopped, and the message starts the
     // next turn of the same conversation. Held to the same cap rule as a steer; a turn already being cut leaves this one queued.
@@ -1973,6 +1983,8 @@ export class SessionService {
     // Nor is an AI employee's run: it ends at the limit and its task is held until the reset, when a fresh run starts with
     // its whole brief (a resume would run without it; main/employeeWork.ts).
     const employeeTurn = Boolean(session.unattended && 'employeeRunId' in session.unattended)
+    // The run's chat stays its: ended now (a project run's then takes nothing more, deliver).
+    if (employeeTurn && session.employeeRun && !session.employeeRun.endedAt) session.employeeRun = { ...session.employeeRun, endedAt: new Date(end).toISOString() }
     const held = session.unattended && !('autoReviewId' in session.unattended) && !employeeTurn ? session.unattended : undefined
     if (paused && held) session.limitHeld = { turnId, unattended: held }
     else delete session.limitHeld
@@ -2306,6 +2318,21 @@ export class SessionService {
     this.dropQueued(sessionId, messageId)
     // "Send now" on an agent that can only be interrupted is the explicit interrupt-and-send (docs/agents.md 2.5); on any other, a steer.
     await this.send(sessionId, message.text, { attachments: message.attachments, mode: interruptsToSteer(this.record(session.agent)) ? 'interrupt' : 'steer', templateId: message.templateId, turnId: message.turnId, noteRevision: message.noteRevision, skipComments: message.skipComments, via: message.via, origin: message.origin, ...(lowered ? { cap: lowered } : {}) })
+  }
+
+  /**
+   * Put `text` into the chat's running turn, only when its agent takes a message mid-turn (native steer) and the turn
+   * isn't being cut: whether it went. Never queues, interrupts or starts a turn (a project's `@Name` to a running part,
+   * docs/ai-employees.md §15: what can't go in now waits for a task of its own).
+   */
+  steerTurn(sessionId: string, text: string): boolean {
+    const session = this.store.state.sessions.find((s) => s.id === sessionId)
+    const active = this.turns.get(sessionId)
+    if (!session || session.closedAt || !active || active.finished || active.cancelled || this.record(session.agent)?.turns.steer.level !== 'native') return false
+    if (!active.turn.steer(text)) return false
+    this.activity(sessionId)
+    this.emit(sessionId, { kind: 'user', id: `user:${randomUUID()}`, turnId: active.turnId, text, at: new Date().toISOString(), attachments: [], steered: true })
+    return true
   }
 
   async cancel(sessionId: string): Promise<void> {

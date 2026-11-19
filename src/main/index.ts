@@ -992,6 +992,8 @@ async function main(): Promise<void> {
   // The demo's employees answer from a script that calls their tools through this core (main/demoEmployees.ts).
   if (demoRoot) bindDemoEmployees(core, store)
   core.employeeWork.start()
+  // The chats of runs that ended while Foreman was closed have ended: a project run's takes no more messages (§15).
+  core.markEmployeeChats()
   // Projects whose task closed while Foreman was closed go on from it (docs/ai-employees.md §15).
   void core.projects.recover()
   // The demo: flow runs going from the start (main/demoRun.ts), and channels its director keeps moving (main/demoEmployees.ts).

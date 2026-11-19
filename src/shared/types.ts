@@ -1049,6 +1049,10 @@ export interface Session {
     | { autoReviewId: string }
     | { flowRunId: string; step: string; persona?: TurnPersona; decide?: string[]; attended?: true }
     | EmployeeTurnMark
+  // docs/ai-employees.md §6.3, §15: the chat an AI employee's run opened, kept after its turn (whose `unattended` mark ends
+  // with it): whose run and task it was, the project it was for, and when the run's turn ended. A project run's chat is
+  // read-only once ended (the person asks the employee in the project's channel instead), in main and in the window.
+  employeeRun?: { orgId: string; employeeId: string; runId: string; taskId: string; projectId?: string; endedAt?: string }
   // #17: this tab is an auto review's read-only reviewer; its turns never start another review.
   autoReview?: { reviewId: string }
   // Closed tabs stay restorable until the workspace is archived.

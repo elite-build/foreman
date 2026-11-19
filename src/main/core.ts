@@ -132,6 +132,7 @@ import { MemoryLinkService } from './memoryLink'
 import { MemoryService } from './memory'
 import { EmployeeService } from './employees'
 import { EmployeeWorkService, type EmployeeLaunchPlan } from './employeeWork'
+import { isRunGoing } from '../shared/employeeWork'
 import { ProjectService } from './projects'
 import { EmployeeTriggerService } from './employeeTriggers'
 import { EmployeeEventService } from './employeeEvents'
@@ -287,7 +288,8 @@ interface InternalStart {
   // The chat (or assistant thread) that started it: delegation, or `foreman new`/`run` from inside a turn.
   startedBy?: WorkspaceStartedBy
   // An AI employee's run (docs/ai-employees.md §6.3): its first chat is unattended as the run, and its message says whose task it is.
-  employeeRun?: { mark: EmployeeTurnMark; origin: Extract<MessageOrigin, { kind: 'employee' }> }
+  // `projectId`: the project the run is for (§15), whose chat goes read-only once its turn ends.
+  employeeRun?: { mark: EmployeeTurnMark; origin: Extract<MessageOrigin, { kind: 'employee' }>; projectId?: string }
   // docs/agent-access.md §4: started from a capped turn, so its first message (held or not) carries this cap.
   cap?: TurnCap
   onChat?: (workspaceId: string, sessionId: string) => void
@@ -983,6 +985,14 @@ export class Core {
         return parts.join('\n\n')
       },
       loadouts: () => store.state.settings.loadouts,
+      // `@Name` to a running part (§15): into its run's turn, only while that turn is the run's own.
+      steer: async (taskId, text) => {
+        const run = store.db.employeeRuns({ taskId, states: ['running'] })[0]
+        const session = run?.sessionId ? store.state.sessions.find((s) => s.id === run.sessionId) : undefined
+        const mark = session?.unattended
+        if (!run?.sessionId || !mark || !('employeeRunId' in mark) || mark.employeeRunId !== run.id) return false
+        return this.sessions.steerTurn(run.sessionId, text)
+      },
       changed
     })
     this.employeeWork.projects = this.projects
@@ -2593,17 +2603,40 @@ export class Core {
   private async launchEmployeeRun(plan: EmployeeLaunchPlan, handle: { created(workspaceId: string, sessionId: string): void }): Promise<void> {
     // A project's run (docs/ai-employees.md §15): a new chat in the project's workspace, which carries its code and branch.
     const shared = plan.workspaceId ? this.store.state.workspaces.find((w) => w.id === plan.workspaceId) : undefined
+    const projectId = plan.task.project?.id
     if (shared?.state === 'ready') {
-      this.startChat(shared.id, plan.message, plan.loadout, undefined, undefined, { employeeRun: { mark: plan.mark, origin: plan.origin }, startedBy: plan.startedBy, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) })
+      this.startChat(shared.id, plan.message, plan.loadout, undefined, undefined, { employeeRun: { mark: plan.mark, origin: plan.origin, ...(projectId ? { projectId } : {}) }, startedBy: plan.startedBy, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) })
       return
     }
     const ws = await this.createFromOptions(
       plan.repoId,
       { prompt: plan.message, baseBranch: plan.baseBranch, branch: { kind: 'new' }, loadout: plan.loadout, location: 'local' },
-      { employeeRun: { mark: plan.mark, origin: plan.origin }, startedBy: plan.startedBy, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
+      { employeeRun: { mark: plan.mark, origin: plan.origin, ...(projectId ? { projectId } : {}) }, startedBy: plan.startedBy, onChat: (workspaceId, sessionId) => handle.created(workspaceId, sessionId) }
     )
     const setup = await this.setupOutcome(ws.id)
     if (setup.failed || setup.held) throw new Error(`Setup failed, so the task was held back and nothing ran.${setup.logTail ? `\n${setup.logTail}` : ''}`)
+  }
+
+  /**
+   * At launch: every chat an AI employee's run opened says whose it was (Session.employeeRun), those opened before the mark
+   * existed too (found by their runs), and one whose run is over has ended: a project run's stays read-only
+   * (docs/ai-employees.md §15). After the work service's recovery, which ends the runs a quit cut off.
+   */
+  markEmployeeChats(): void {
+    const db = this.store.db
+    let changed = false
+    for (const session of this.store.state.sessions) {
+      if (session.employeeRun?.endedAt) continue
+      const run = session.employeeRun ? db.employeeRun(session.employeeRun.runId) : db.employeeRuns({ sessionId: session.id })[0]
+      if (!run && !session.employeeRun) continue
+      if (!session.employeeRun && run) {
+        const project = db.employeeTask(run.taskId)?.project
+        session.employeeRun = { orgId: run.orgId, employeeId: run.employeeId, runId: run.id, taskId: run.taskId, ...(project ? { projectId: project.id } : {}) }
+      }
+      if (!run || !isRunGoing(run.state)) session.employeeRun = { ...session.employeeRun!, endedAt: run?.endedAt ?? new Date().toISOString() }
+      changed = true
+    }
+    if (changed) this.store.save()
   }
 
   /** Wait for a new workspace's setup to settle. `held` is set when setup failed with a message held back. */
@@ -2706,7 +2739,12 @@ export class Core {
     // Marked before the first message can go, so the run is unattended from its first tool call.
     if (internal?.scheduled) session.unattended = { occurrenceId: internal.scheduled.occurrenceId }
     if (internal?.flowRun) session.unattended = { flowRunId: internal.flowRun.runId, step: internal.flowRun.step, ...(internal.flowRun.persona ? { persona: internal.flowRun.persona } : {}) }
-    if (internal?.employeeRun) session.unattended = internal.employeeRun.mark
+    if (internal?.employeeRun) {
+      session.unattended = internal.employeeRun.mark
+      // Kept after the run's turn, so the chat says whose it was (and, for a project's run, goes read-only once it ended).
+      const { orgId, employeeId, runId, taskId } = internal.employeeRun.origin
+      session.employeeRun = { orgId, employeeId, runId, taskId, ...(internal.employeeRun.projectId ? { projectId: internal.employeeRun.projectId } : {}) }
+    }
     internal?.onChat?.(workspaceId, session.id)
     if (prompt?.trim() || files?.length) {
       // A schedule's run, a flow run's first step and an outside agent's start_task say so on the message (MessageOrigin).

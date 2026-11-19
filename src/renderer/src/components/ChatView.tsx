@@ -39,6 +39,7 @@ import { sessionReadOnly } from '../../../shared/workspacePath'
 import { workspacePerson } from '../../../shared/workspacePeople'
 import { settleItems } from '../../../shared/liveItems'
 import { ArchivedBanner } from './ArchivedView'
+import { ProjectRunEnded } from './employees/EmployeeRunBanner'
 import { ClosedGapLine } from './KeepRunning'
 import { ReportRow } from './AgentReport'
 import { isReportCall } from '../../../shared/agentReports'
@@ -624,6 +625,11 @@ function ChatViewBody({ session, workspace, active, headingLevel = 2, hidden = f
         // Read-only (#13): the composer becomes a banner, and Restore is its own step.
         <div className="composer">
           <ArchivedBanner workspace={workspace} session={session} />
+        </div>
+      ) : session.employeeRun?.projectId && session.employeeRun.endedAt ? (
+        // A project run's chat once its turn ended: read-only, and the way to the channel (docs/ai-employees.md §15).
+        <div className="composer">
+          <ProjectRunEnded session={session} />
         </div>
       ) : (
         <>

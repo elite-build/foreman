@@ -21,11 +21,14 @@
 //  - every run of the project shares one workspace, kept until the project closes; what starts next is decided from the
 //    record on every change and a task's request id is stable for its part and round, so a crash in between starts it
 //    once, on the next launch (recover);
-//  - anyone who worked on it stays available: a follow-up is a new task for them in the project's chain.
+//  - anyone who worked on it stays available: a follow-up is a new task for them in the project's chain; `@Name` while
+//    their part runs goes into its running turn when their agent takes one, else waits for that run to end;
+//  - a message without a name is the program manager's: it goes into her running turn, or her message task reads it (one
+//    at a time), where she answers, asks, or changes the plan as a replan.
 import { randomUUID } from 'node:crypto'
 import { ACTION_KEEPS_WORKSPACE } from '../shared/employeeActions'
 import { proposedDefinition } from '../shared/employeeTeams'
-import { MAX_TASK_BODY, type EmployeeTask } from '../shared/employeeWork'
+import { MAX_TASK_BODY, RUN_ACTIVE, type EmployeeTask } from '../shared/employeeWork'
 import { memoryArtifacts } from '../shared/memory'
 import { employeeStatus, HAT_COLOURS, newEmployeeId, type EmployeeDefinition } from '../shared/employees'
 import { reposInSpace, type Organization } from '../shared/organizations'
@@ -41,6 +44,7 @@ import {
   channelSlug,
   checkPlan,
   checkQuestions,
+  decisionsText,
   followUpBody,
   gateNoteTo,
   listedProjects,
@@ -51,6 +55,8 @@ import {
   MAX_REQUIREMENT,
   MAX_STEP_SUMMARY,
   MAX_TRANSCRIPT,
+  messageBody,
+  messagesSince,
   mocksFolder,
   ownerId,
   ownerName,
@@ -71,6 +77,8 @@ import {
   readyParts,
   replanGoesAhead,
   roundSeen,
+  steerText,
+  type ChannelMessages,
   type DeleteProjectOptions,
   type PlanInput,
   type PlanPart,
@@ -79,7 +87,9 @@ import {
   type ProjectDecideOptions,
   type ProjectDecision,
   type ProjectOutcome,
+  type ProjectNote,
   type ProjectPlan,
+  type ProjectStep,
   type ProjectWait,
   type QuestionsInput,
   type RosterLine,
@@ -107,6 +117,9 @@ export interface ProjectHost {
   // Archive it once quiet, keeping its branch, as a finished employee run's is (`runId`: one of the project's runs there).
   archive(workspaceId: string, runId: string): void
   loadouts?(): readonly Pick<Loadout, 'agent' | 'model' | 'effort'>[]
+  // Put the person's words into the task's running turn, when its agent takes a message mid-turn (native steer): whether
+  // it did. Absent, or false, and the words wait for a task of their own.
+  steer?(taskId: string, text: string): Promise<boolean>
   changed(): void
   now?(): number
 }
@@ -291,8 +304,8 @@ export class ProjectService implements EmployeeProjectHooks {
   /** Make a task of the project and record it as a step; a task that can't be made leaves the project waiting for the person. */
   private async task(
     project: Project,
-    input: { kind: 'plan' | 'part' | 'accept'; employeeId: string; title: string; body: string; requestId: string; round: number; partId?: string; contract: EmployeeTask['contract'] },
-    onFail: { kind: ProjectWait['kind']; partId?: string }
+    input: { kind: 'plan' | 'part' | 'accept' | 'message'; employeeId: string; title: string; body: string; requestId: string; round: number; partId?: string; after?: string; contract: EmployeeTask['contract'] },
+    onFail: { kind: ProjectWait['kind']; partId?: string } | 'throw'
   ): Promise<EmployeeTask | undefined> {
     // What the caller changed is kept first: the record is read back once the task exists.
     this.save(project)
@@ -307,7 +320,7 @@ export class ProjectService implements EmployeeProjectHooks {
         requestId: input.requestId,
         ...(rootId ? { rootId } : { runsAllowed: PROJECT_RUNS }),
         contract: input.contract ?? {},
-        project: { id: project.id, kind: input.kind, round: input.round, ...(input.partId ? { partId: input.partId } : {}) }
+        project: { id: project.id, kind: input.kind, round: input.round, ...(input.partId ? { partId: input.partId } : {}), ...(input.after ? { after: input.after } : {}) }
       })
       const fresh = this.db.project(project.id) ?? project
       if (!fresh.steps.some((s) => s.taskId === task.id))
@@ -317,9 +330,24 @@ export class ProjectService implements EmployeeProjectHooks {
       this.save(project)
       return task
     } catch (err) {
+      if (onFail === 'throw') throw err
       this.addWait(project, { kind: onFail.kind === 'plan' ? 'stuck' : onFail.kind, ...(onFail.partId ? { partId: onFail.partId } : {}), reason: message(err) })
       return undefined
     }
+  }
+
+  /** What the person wrote in the channel since `since`, with the names of those it was sent to, for a brief. */
+  private async channelMessages(project: Project, since?: string): Promise<ChannelMessages | undefined> {
+    const notes = messagesSince(project.notes, since)
+    return notes.length ? { notes, names: await this.names(project.orgId) } : undefined
+  }
+
+  /** The messages for the program manager nobody has read yet are read by `taskId` (a planning or acceptance brief carries them). */
+  private markRead(projectId: string, taskId: string): void {
+    const fresh = this.db.project(projectId)
+    if (!fresh || !fresh.notes.some((n) => !n.to && !n.into)) return
+    for (const n of fresh.notes) if (!n.to && !n.into) n.into = taskId
+    this.save(fresh)
   }
 
   private addWait(project: Project, wait: Omit<ProjectWait, 'id' | 'since'>): void {
@@ -337,7 +365,8 @@ export class ProjectService implements EmployeeProjectHooks {
     if (project.plan) project.replanning = true
     const planPath = artifactPath(project.slug, PLAN_FILE)
     const inputs = Object.values(project.artifacts).map((a) => ({ path: a.path, ...(a.commit ? { commit: a.commit } : {}) }))
-    await this.task(
+    const messages = await this.channelMessages(project, project.steps.filter((s) => s.kind === 'plan').at(-1)?.startedAt)
+    const task = await this.task(
       project,
       {
         kind: 'plan',
@@ -352,6 +381,7 @@ export class ProjectService implements EmployeeProjectHooks {
           ...(transcript ? { transcript } : {}),
           ...(replan ? { replan, decisions: { decisions: project.decisions, plan: project.plan, ...(project.plan?.at ? { since: project.plan.at } : {}) } } : {}),
           ...(opts.note ? { note: opts.note } : {}),
+          ...(messages ? { messages } : {}),
           max: MAX_TASK_BODY
         }),
         requestId: `project:${project.id}:plan:${round}`,
@@ -360,6 +390,7 @@ export class ProjectService implements EmployeeProjectHooks {
       },
       { kind: 'stuck' }
     )
+    if (task) this.markRead(project.id, task.id)
   }
 
   /**
@@ -436,11 +467,14 @@ export class ProjectService implements EmployeeProjectHooks {
   submitPlan(task: EmployeeTask, runId: string, input: PlanInput): Promise<string> {
     return this.serial(async () => {
       const mark = task.project
-      if (!mark || mark.kind !== 'plan') throw new Error('Only a project’s planning task gives a plan.')
+      if (!mark || (mark.kind !== 'plan' && mark.kind !== 'message')) throw new Error('Only a project’s planning task, or its program manager reading the channel, gives a plan.')
       this.stillOpen(task)
       const project = this.project(mark.id)
       if (project.phase === 'closed') throw new Error('This project is closed.')
       if (project.asks?.some((r) => r.taskId === task.id)) throw new Error('You asked questions in this task: finish_task done and wait for the person’s answers, then plan.')
+      // Read from the channel, a plan is a replan: only while the plan in effect is being worked, with replans left.
+      const blocked = mark.kind === 'message' ? this.replanBlocked(project, task.id) : undefined
+      if (blocked) throw new Error(`The plan can’t be changed from here now: ${blocked}. Say in your answer (finish_task’s summary) what should change.`)
       const org = this.organization(project.orgId)
       const members = (await this.host.employees.members(org.id)) ?? []
       // A second call in the same task replaces its plan; drafts the first proposed are on the team now, by name.
@@ -486,6 +520,8 @@ export class ProjectService implements EmployeeProjectHooks {
         status: 'waiting'
       }
       fresh.plans = [...fresh.plans.filter((p) => p.taskId !== task.id), plan].sort((a, b) => a.version - b.version)
+      // A revision read from the channel holds what would start next until it is applied, as a replan does.
+      if (mark.kind === 'message') fresh.replanning = true
       this.save(fresh)
       const names = { ...(await this.names(org.id)) }
       await this.host.memory.stage(org.id, runId, { kind: 'write', path: artifactPath(fresh.slug, PLAN_FILE), text: planMarkdown(fresh, plan, names) })
@@ -499,6 +535,18 @@ export class ProjectService implements EmployeeProjectHooks {
         .filter(Boolean)
         .join(' ')
     })
+  }
+
+  /**
+   * Why the program manager can't change the plan from the channel now (her message task's project_plan), or undefined:
+   * there must be a plan in effect, its parts being worked, no other replan being made, and replans left.
+   */
+  private replanBlocked(project: Project, taskId?: string): string | undefined {
+    if (!project.plan) return 'no plan is in effect yet (the person approves the first one at the plan gate, or sends it back with what to change)'
+    if (project.phase !== 'working') return project.phase === 'accepting' || project.phase === 'final-gate' ? 'every part is done and the result is being checked' : `the project is ${project.phase}`
+    if (project.replans >= MAX_REPLANS) return `you have replanned ${MAX_REPLANS} times, the most a project allows`
+    if (project.replanning && !project.plans.some((p) => p.taskId === taskId && p.status === 'waiting')) return 'a replan is being made already'
+    return undefined
   }
 
   /** EmployeeProjectHooks: a planning task finishes done only once it has given a plan, or questions for the person. */
@@ -551,13 +599,33 @@ export class ProjectService implements EmployeeProjectHooks {
       this.save(project)
       return
     }
-    if (step.kind === 'follow-up') {
-      this.save(project)
-      return
+    if (step.kind === 'follow-up') this.save(project)
+    else if (step.kind === 'message') await this.messageClosed(project, task, done)
+    else if (step.kind === 'plan') await this.planClosed(project, task, done, why)
+    else if (step.kind === 'accept') await this.acceptClosed(project, task, done, why)
+    else await this.partClosed(project, task, step.partId ?? '', done, why)
+    // What the person wrote while she worked, and nothing she started next has read: her message task reads it now.
+    const fresh = this.db.project(project.id)
+    if (fresh && step.employeeId === fresh.pmId) await this.wake(fresh).catch((err: unknown) => console.error('Project message:', err))
+  }
+
+  /**
+   * The program manager read the channel (her message task closed): her summary is her reply, posted by the channel. A plan
+   * she gave there is a replan: it goes ahead or waits at the plan gate as one does, and counts as one; unfinished, it is
+   * dropped. Then what can start, starts.
+   */
+  private async messageClosed(project: Project, task: EmployeeTask, done: boolean): Promise<void> {
+    const plan = project.plans.find((p) => p.taskId === task.id)
+    if (plan && !done) {
+      project.plans = project.plans.filter((p) => p !== plan)
+      project.replanning = false
     }
-    if (step.kind === 'plan') return this.planClosed(project, task, done, why)
-    if (step.kind === 'accept') return this.acceptClosed(project, task, done, why)
-    return this.partClosed(project, task, step.partId ?? '', done, why)
+    if (!plan || !done) return this.advance(project)
+    project.replans++
+    this.recordArtifact(project, task, PLAN_FILE)
+    if (project.plan && replanGoesAhead(project.plan, plan)) return this.apply(project, plan, 'went-ahead')
+    project.waits = project.waits.filter((w) => w.kind !== 'plan')
+    this.addWait(project, { kind: 'plan' })
   }
 
   private async planClosed(project: Project, task: EmployeeTask, done: boolean, why: string): Promise<void> {
@@ -709,6 +777,8 @@ export class ProjectService implements EmployeeProjectHooks {
     const path = artifactPath(project.slug, part.writes)
     // A round whose approval was taken back (Undo approval) runs again under the same number, as a new task.
     const again = project.steps.filter((s) => s.kind === 'part' && s.partId === part.id && s.round === round && s.end === 'undone').length
+    // What the person wrote in the channel since this part last ran.
+    const messages = await this.channelMessages(project, project.steps.filter((s) => s.kind === 'part' && s.partId === part.id).at(-1)?.startedAt)
     project.parts[part.id] = { state: 'running', round }
     this.save(project)
     const task = await this.task(
@@ -718,7 +788,7 @@ export class ProjectService implements EmployeeProjectHooks {
         partId: part.id,
         employeeId: owner,
         title: `${part.title}: ${project.title}${round > 1 ? ` (round ${round})` : ''}`,
-        body: partBody({ project, organization: org.name, plan, part, round, inputs, ...(note ? { note } : {}), ...(approvals.length ? { approvals } : {}) }),
+        body: partBody({ project, organization: org.name, plan, part, round, inputs, ...(note ? { note } : {}), ...(approvals.length ? { approvals } : {}), ...(messages ? { messages } : {}) }),
         requestId: `project:${project.id}:part:${part.id}:${round}${again ? `:again-${again}` : ''}`,
         round,
         contract: { ...(inputs.length ? { inputs } : {}), produces: path, writes: [path], writesUnder: [mocksFolder(project.slug, part.id)] }
@@ -739,20 +809,22 @@ export class ProjectService implements EmployeeProjectHooks {
     const round = project.steps.filter((s) => s.kind === 'accept').length + 1
     const inputs = Object.values(project.artifacts).map((a) => ({ path: a.path, ...(a.commit ? { commit: a.commit } : {}) }))
     const path = artifactPath(project.slug, ACCEPTANCE_FILE)
+    const messages = await this.channelMessages(project, project.steps.filter((s) => s.kind === 'accept').at(-1)?.startedAt)
     this.save(project)
-    await this.task(
+    const task = await this.task(
       project,
       {
         kind: 'accept',
         employeeId: project.pmId,
         title: `Accept: ${project.title}`,
-        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}), replansLeft: MAX_REPLANS - project.replans, max: MAX_TASK_BODY }),
+        body: acceptanceBody({ project, organization: org.name, plan: project.plan!, inputs, ...(note ? { note } : {}), replansLeft: MAX_REPLANS - project.replans, ...(messages ? { messages } : {}), max: MAX_TASK_BODY }),
         requestId: `project:${project.id}:accept:${round}`,
         round,
         contract: { inputs, produces: path, writes: [path], options: ['accept', 'replan'] }
       },
       { kind: 'stuck' }
     )
+    if (task) this.markRead(project.id, task.id)
   }
 
   // ---- the person ----
@@ -1026,28 +1098,125 @@ export class ProjectService implements EmployeeProjectHooks {
 
   // ---- the channel ----
 
-  /** A note in the project's channel (no @): kept on the project, wakes nobody. */
+  /**
+   * A message in the project's channel without a name (§15): kept, and the program manager reads it. While she is at work
+   * on the project it goes into her running turn when her agent takes one; else her message task reads it with every
+   * other message she hasn't read, one task at a time (what comes while one runs waits for the next), after whatever of
+   * hers is running. A closed project keeps it and wakes nobody.
+   */
   addNote(projectId: string, text: string): Promise<Project> {
     return this.serial(async () => {
       const project = this.project(projectId)
       const clean = typeof text === 'string' ? text.trim() : ''
       if (!clean) throw new Error('Write something first.')
-      if (clean.length > MAX_NOTE) throw new Error(`Keep the note under ${MAX_NOTE} characters.`)
-      project.notes.push({ text: clean, at: this.iso() })
+      if (clean.length > MAX_NOTE) throw new Error(`Keep the message under ${MAX_NOTE} characters.`)
+      const note: ProjectNote = { text: clean, at: this.iso() }
+      project.notes.push(note)
       this.save(project)
-      return project
+      if (project.phase === 'closed') return project
+      const busy = this.runningStep(project, project.pmId)
+      if (busy && (await this.steerInto(project, busy, clean))) {
+        const fresh = this.project(project.id)
+        const kept = fresh.notes.find((n) => n.at === note.at && n.text === note.text && !n.into)
+        if (kept) kept.into = busy.taskId
+        return this.save(fresh)
+      }
+      try {
+        await this.wake(this.project(project.id))
+      } catch (err) {
+        throw new Error(`Your message is in the channel, but ${(await this.names(project.orgId))[project.pmId] ?? 'the program manager'} can’t read it now: ${message(err)}`)
+      }
+      return this.project(project.id)
     })
   }
 
-  /** `@Name …` in the project's channel: a follow-up to that employee, about the last thing they did in it. */
+  /** The employee's step of the project that is going now (its task not closed), the newest. */
+  private runningStep(project: Project, employeeId: string): ProjectStep | undefined {
+    return [...project.steps].reverse().find((s) => s.employeeId === employeeId && s.state === 'running' && this.db.employeeTask(s.taskId)?.state !== 'closed')
+  }
+
+  /** The person's words into a running step's turn (ProjectHost.steer): whether they went. */
+  private async steerInto(project: Project, step: ProjectStep, text: string): Promise<boolean> {
+    if (!this.host.steer || this.db.employeeTask(step.taskId)?.state !== 'running') return false
+    const part = step.partId ? project.plan?.parts.find((p) => p.id === step.partId)?.title : undefined
+    return this.host.steer(step.taskId, steerText({ project, text, ...(part ? { part } : {}) })).catch(() => false)
+  }
+
+  /**
+   * The program manager's message task (§15) for what the person wrote that she hasn't read: one at a time, so nothing
+   * when one is going; held until her running planning or acceptance run ends, so she reads it after.
+   */
+  private async wake(project: Project): Promise<void> {
+    if (project.phase === 'closed') return
+    const unread = project.notes.filter((n) => !n.to && !n.into)
+    if (!unread.length) return
+    if (project.steps.some((s) => s.kind === 'message' && s.state === 'running' && this.db.employeeTask(s.taskId)?.state !== 'closed')) return
+    const org = this.organization(project.orgId)
+    const names = await this.names(org.id)
+    const busy = this.runningStep(project, project.pmId)
+    const after = busy && this.db.employeeRuns({ taskId: busy.taskId, states: RUN_ACTIVE }).length ? busy.taskId : undefined
+    const blocked = this.replanBlocked(project)
+    const running = project.steps
+      .filter((s) => s.state === 'running' && s.kind !== 'message')
+      .map((s) => `${names[s.employeeId] ?? s.employeeId}: ${s.kind === 'part' ? `part “${project.plan?.parts.find((p) => p.id === s.partId)?.title ?? s.partId}”` : s.kind === 'plan' ? 'planning' : s.kind === 'accept' ? 'acceptance' : `a follow-up (“${s.question ?? ''}”)`}${s.round > 1 ? `, round ${s.round}` : ''}`)
+    const decided = decisionsText(project, project.plan)
+    const round = project.steps.filter((s) => s.kind === 'message').length + 1
+    const inputs = Object.values(project.artifacts).map((a) => ({ path: a.path, ...(a.commit ? { commit: a.commit } : {}) }))
+    const task = await this.task(
+      project,
+      {
+        kind: 'message',
+        employeeId: project.pmId,
+        title: `Message: ${project.title}`,
+        body: messageBody({
+          project,
+          organization: org.name,
+          messages: { notes: unread, names },
+          ...(project.plan ? { plan: { version: project.plan.version, summary: project.plan.summary, state: planStateText(project.plan, project.parts, names) } } : {}),
+          running,
+          ...(decided ? { decisions: decided } : {}),
+          replan: { can: !blocked, left: Math.max(0, MAX_REPLANS - project.replans), ...(blocked ? { why: blocked } : {}) },
+          max: MAX_TASK_BODY
+        }),
+        requestId: `project:${project.id}:message:${round}`,
+        round,
+        ...(after ? { after } : {}),
+        contract: { writes: [artifactPath(project.slug, PLAN_FILE)], ...(inputs.length ? { inputs } : {}) }
+      },
+      'throw'
+    )
+    if (!task) return
+    const fresh = this.project(project.id)
+    for (const n of fresh.notes) if (!n.to && !n.into && unread.some((u) => u.at === n.at && u.text === n.text)) n.into = task.id
+    this.save(fresh)
+    if (task.state === 'closed') await this.closed(task)
+  }
+
+  /**
+   * `@Name …` in the project's channel. While their part (or any task of theirs here) runs, the words go into its running
+   * turn when their agent takes one; else they wait as a follow-up that starts once that run ends, so the two never work
+   * in the project's files at once. Otherwise a follow-up, about the last thing they did in it. The task that got it.
+   */
   async askFollowUp(projectId: string, employeeId: string, question: string): Promise<EmployeeTask> {
+    const asked = typeof question === 'string' ? question.trim() : ''
+    if (!asked) throw new Error('Say what you’re asking.')
+    if (asked.length > MAX_FOLLOW_UP) throw new Error(`Keep the question under ${MAX_FOLLOW_UP} characters.`)
     const project = this.project(projectId)
-    const step = [...project.steps].reverse().find((s) => s.employeeId === employeeId && s.kind !== 'follow-up')
-    if (step) {
-      const task = this.db.employeeTask(step.taskId)
-      if (task) return this.followUp(task, question)
+    const busy = project.phase === 'closed' ? undefined : this.runningStep(project, employeeId)
+    if (busy) {
+      const steered = await this.serial(async () => {
+        const fresh = this.project(projectId)
+        if (!(await this.steerInto(fresh, busy, asked))) return undefined
+        fresh.notes.push({ text: asked, at: this.iso(), to: employeeId, into: busy.taskId })
+        this.save(fresh)
+        return this.db.employeeTask(busy.taskId)
+      })
+      if (steered) return steered
     }
-    return this.followUpTask(project, employeeId, question)
+    const after = busy && this.db.employeeRuns({ taskId: busy.taskId, states: RUN_ACTIVE }).length ? busy.taskId : undefined
+    const step = [...project.steps].reverse().find((s) => s.employeeId === employeeId && s.kind !== 'follow-up' && s.kind !== 'message')
+    const about = step ? this.db.employeeTask(step.taskId) : undefined
+    return this.followUpTask(project, employeeId, asked, about, after)
   }
 
   /** EmployeeProjectHooks: a follow-up to a project task's employee, whichever way it was asked. */
@@ -1057,7 +1226,7 @@ export class ProjectService implements EmployeeProjectHooks {
     return this.followUpTask(this.project(mark.id), task.employeeId, question, task)
   }
 
-  private followUpTask(project: Project, employeeId: string, question: string, about?: EmployeeTask): Promise<EmployeeTask> {
+  private followUpTask(project: Project, employeeId: string, question: string, about?: EmployeeTask, after?: string): Promise<EmployeeTask> {
     return this.serial(async () => {
       const asked = typeof question === 'string' ? question.trim() : ''
       if (!asked) throw new Error('Say what you’re asking.')
@@ -1069,16 +1238,18 @@ export class ProjectService implements EmployeeProjectHooks {
       const artifact = file ? fresh.artifacts[file] : undefined
       const round = fresh.steps.filter((s) => s.kind === 'follow-up').length + 1
       const rootId = fresh.phase === 'closed' ? undefined : this.chainRoot(fresh)
+      // What the person wrote in the channel since this employee last worked on it.
+      const messages = await this.channelMessages(fresh, [...fresh.steps].reverse().find((s) => s.employeeId === employeeId)?.startedAt)
       const follow = await this.host.work.projectTask({
         orgId: fresh.orgId,
         employeeId,
         title: `Follow-up: ${fresh.title}`,
-        body: followUpBody({ project: fresh, question: asked, ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}), ...(part ? { part, mocks: mocksFolder(fresh.slug, part.id) } : {}) }),
+        body: followUpBody({ project: fresh, question: asked, ...(artifact ? { artifact: { path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) } } : {}), ...(part ? { part, mocks: mocksFolder(fresh.slug, part.id) } : {}), ...(messages ? { messages } : {}) }),
         repoId: fresh.repoId,
         requestId: `project:${fresh.id}:follow-up:${randomUUID()}`,
         ...(rootId ? { rootId } : { runsAllowed: PROJECT_RUNS }),
         contract: artifact ? { inputs: [{ path: artifact.path, ...(artifact.commit ? { commit: artifact.commit } : {}) }], writes: [artifact.path], ...(partId ? { writesUnder: [mocksFolder(fresh.slug, partId)] } : {}) } : {},
-        project: { id: fresh.id, kind: 'follow-up', round, ...(partId ? { partId } : {}) }
+        project: { id: fresh.id, kind: 'follow-up', round, ...(partId ? { partId } : {}), ...(after ? { after } : {}) }
       })
       const now = this.project(fresh.id)
       now.steps.push({ kind: 'follow-up', ...(partId ? { partId } : {}), round, taskId: follow.id, employeeId, state: follow.state === 'closed' ? 'done' : 'running', question: asked, startedAt: this.iso() })

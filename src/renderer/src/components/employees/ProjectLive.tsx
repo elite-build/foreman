@@ -32,6 +32,7 @@ export function liveWhat(project: Pick<Project, 'plan' | 'plans'>, live: Project
   if (step.kind === 'plan') return t('projects.live.plan', { name: who })
   if (step.kind === 'accept') return t('projects.live.accept', { name: who })
   if (step.kind === 'follow-up') return t('projects.live.followUp', { name: who })
+  if (step.kind === 'message') return t('projects.live.message', { name: who })
   return t('projects.live.part', { name: who, part: partTitle(project, step.partId) })
 }
 

@@ -64,7 +64,7 @@ import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater
 import { BUCKET_LABEL, compareFoldKey, foldedBuckets, listsWorkspace, projectWorkspaceIds, repoFoldKey, repoGroups, sidebarGroups, sidebarOrder, STATUS_LABEL, type Triage } from '../triage'
 import { promptTitle } from '../../../shared/compare'
 import { matchesWorkspace, workspacePurpose, type CompareSection } from '../../../shared/triage'
-import { inChannel, itemsInSpace, projectTaskIds, type NeedsYouItem } from '../../../shared/needsYou'
+import { inChannel, itemsInSpace, projectNeeds, projectTaskIds, type NeedsYouItem } from '../../../shared/needsYou'
 import { needsYouOf, useNeedsYou, useTriageInput } from '../needsYou'
 import { employeeOf, openEmployeeItem, rowWords } from './needsYouWords'
 import { actionNoun } from './employees/words'
@@ -617,11 +617,13 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
   const spaceName = everything.snapshot.organizations?.find((o) => o.id === shownSpace)?.name ?? t('spaces.personal')
   const inSpace = new Set(snapshot.workspaces.map((w) => w.id))
   const projectIds = projectWorkspaceIds(snapshot)
-  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds, everything.approvals))
+  const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds, everything.approvals, everything.snapshot.sessions))
   const projectTasks = projectTaskIds(everything.snapshot)
   const spaceNeeds = itemsInSpace(need.items, shownSpace).filter((i) => !inChannel(i, projectTasks))
-  // What the organization's projects wait on: their channels', counted on the Channels tab.
-  const channelWaits = (shownSpace ? (everything.snapshot.projects?.[shownSpace] ?? []) : []).reduce((n, p) => n + (p.phase === 'closed' ? 0 : p.waits.length), 0)
+  // What the organization's projects wait on, and what their tasks ask (projectNeeds): their channels', counted on the
+  // Channels tab. Inbox links to them, so it holds everything in the space that waits on the person.
+  const channelWork = shownSpace ? everything.snapshot.employeeWork?.[shownSpace] : undefined
+  const channelWaits = (shownSpace ? (everything.snapshot.projects?.[shownSpace] ?? []) : []).reduce((n, p) => n + projectNeeds(p, channelWork).total, 0)
   const query = view.query.trim().toLowerCase()
   // Archived work stays about everything, whichever space is shown.
   const archived = everything.snapshot.workspaces.filter((w) => w.state === 'archived').length
@@ -692,7 +694,16 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
     )
     return (
       <>
-        {rows.length ? <div className="ws-group-rows">{rows}</div> : <p className="sidebar-empty">{query ? t('sidebar.empty.noMatch') : t('sidebar.inbox.empty', { space: spaceName })}</p>}
+        {/* What the space's channels wait on is in them: a line here says how much, and opens Channels. */}
+        {channelWaits > 0 && !query && modes.includes('channels') && (
+          <ActionRow className="sb-row sidebar-strip" primaryProps={{ className: 'sb-row-main' }} onPress={() => pick('channels')}>
+            <span className="sb-row-icon sidebar-strip-mark">
+              <Glyph name="warn" />
+            </span>
+            <span className="sb-row-line">{t('sidebar.inbox.channels', { count: channelWaits })}</span>
+          </ActionRow>
+        )}
+        {rows.length ? <div className="ws-group-rows">{rows}</div> : channelWaits > 0 && !query ? null : <p className="sidebar-empty">{query ? t('sidebar.empty.noMatch') : t('sidebar.inbox.empty', { space: spaceName })}</p>}
         <Elsewhere shown={shownSpace} />
       </>
     )

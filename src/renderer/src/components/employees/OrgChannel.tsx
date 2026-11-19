@@ -1,18 +1,40 @@
 // An organization's channel (docs/ai-employees.md §15): where a project starts. Its program manager's welcome, then each
-// project as the line that started it with a link to its own channel, then the message box: "@Priya …" starts a project
-// (she plans it in its channel), "@Ravi …" asks Ravi as Ask does. A small change is still a workspace: the line under the
+// project as the line that started it with a link to its own channel, and each question asked here with its answer
+// (who is working on it, then their result, with a way to the task), newest last; then the message box: "@Priya …" starts
+// a project (she plans it in its channel), "@Ravi …" asks Ravi as Ask does. A small change is still a workspace: the line under the
 // box opens New workspace. Beside it: who is here, the projects and the repositories. An organization made before
 // program managers gets an Add button instead. The sidebar's + (a new channel) opens it with "@Priya " in the box.
+import { projectNeeds } from '../../../../shared/needsYou'
+import type { EmployeeTask } from '../../../../shared/employeeWork'
 import { mentionOf, type Project } from '../../../../shared/projects'
 import { reposInSpace } from '../../../../shared/organizations'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, openNewWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, CardButton, HardHat, LinkButton, Select, Status, type HardHatColour } from '../../ui'
-import { useState } from 'react'
-import { ChannelComposer, Post, type ChannelMember } from './Channel'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Markdown } from '../Markdown'
+import { ChannelComposer, Post, SystemLine, type ChannelMember } from './Channel'
 import { isWorking, useProjectLive } from './ProjectLive'
 import { channelName, orgChannelSlug, projectChannel, projectStatus } from './projectWords'
+import { taskWord } from './words'
 import './employees.css'
+
+/** The questions asked in the organization's channel (EmployeeTask.channel), read from main again whenever its work moves. */
+function useChannelAsks(orgId: string): EmployeeTask[] {
+  const revision = useStore((s) => s.snapshot!.employeeWork?.[orgId]?.revision ?? 0)
+  const [tasks, setTasks] = useState<EmployeeTask[]>([])
+  useEffect(() => {
+    let live = true
+    api.listEmployeeTasks(orgId).then(
+      (list) => live && setTasks((list ?? []).filter((x) => x.channel === 'org')),
+      () => undefined
+    )
+    return () => {
+      live = false
+    }
+  }, [orgId, revision])
+  return tasks
+}
 
 export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number }) {
   const t = useT()
@@ -30,7 +52,12 @@ export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number
   const pm = employees.find((e) => e.id === organization.programManagerId)
   const pmName = pm?.name || t('projects.pmDefault')
   const members: ChannelMember[] = [...(pm ? [pm] : []), ...employees.filter((e) => e !== pm)].map((e) => ({ id: e.id, name: e.name || e.id, colour: e.colour, role: e.role }))
-  const listed = [...(projects ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const asks = useChannelAsks(orgId)
+  // Projects started here and questions asked here, oldest first.
+  const posts: { at: string; key: string; node: ReactNode }[] = [
+    ...(projects ?? []).map((p) => ({ at: p.createdAt, key: `p:${p.id}`, node: <StartedPost orgId={orgId} project={p} pmName={pmName} /> })),
+    ...asks.map((task) => ({ at: task.createdAt, key: `t:${task.id}`, node: <AskedPosts orgId={orgId} task={task} /> }))
+  ].sort((a, b) => a.at.localeCompare(b.at))
   const send = async (text: string): Promise<boolean> => {
     const m = mentionOf(
       text,
@@ -48,7 +75,7 @@ export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number
         showToast(t('projects.started', { title: project.title, name: pmName }))
         openEmployees({ orgId, page: 'project', id: project.id })
       } else {
-        await api.askEmployee(orgId, to.id, { body: m.rest, ...(repo ? { repoId: repo.id } : {}) })
+        await api.askEmployee(orgId, to.id, { body: m.rest, ...(repo ? { repoId: repo.id } : {}), channel: 'org' })
         showToast(t('projects.orgChannel.asked', { name: to.name }))
       }
       ok = true
@@ -87,8 +114,8 @@ export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number
               <p className="channel-text">{t('projects.orgChannel.hello')}</p>
             </Post>
           )}
-          {listed.map((p) => (
-            <StartedPost key={p.id} orgId={orgId} project={p} pmName={pmName} />
+          {posts.map((p) => (
+            <Fragment key={p.key}>{p.node}</Fragment>
           ))}
         </ol>
         <ChannelComposer
@@ -143,10 +170,49 @@ export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number
   )
 }
 
+/**
+ * A question asked in the channel: your words, then who is working on it (or what it waits for), then their answer (the
+ * result's summary) once it closed, each with a way to the employee's page, where the task is.
+ */
+function AskedPosts({ orgId, task }: { orgId: string; task: EmployeeTask }) {
+  const t = useT()
+  const e = useStore((s) => s.snapshot!.employees?.[orgId]?.employees.find((x) => x.id === task.employeeId))
+  const name = e?.name || task.employeeId
+  const open = () => openEmployees({ orgId, page: 'employee', id: task.employeeId })
+  const answer = task.state === 'closed' ? (task.result?.summary ?? task.resultSummary ?? task.closureDetail) : undefined
+  const word = taskWord(task)
+  return (
+    <>
+      <Post who={t('projects.you')} at={task.createdAt}>
+        <p className="channel-text">
+          @{name} {task.body}
+        </p>
+      </Post>
+      {task.state === 'closed' ? (
+        <Post who={name} colour={e?.colour} role={e?.role} at={task.updatedAt}>
+          {task.closureReason !== 'done' && <Status tone={word.tone} label={t(word.label)} />}
+          {answer ? <Markdown text={answer} /> : null}
+          <LinkButton size="sm" underline onClick={open}>
+            {t('projects.orgChannel.openTask', { name })}
+          </LinkButton>
+        </Post>
+      ) : (
+        <SystemLine>
+          {task.state === 'running' ? t('projects.orgChannel.working', { name }) : t('projects.orgChannel.waiting', { name, state: t(word.label) })}{' '}
+          <LinkButton size="sm" underline onClick={open}>
+            {t('projects.orgChannel.openTask', { name })}
+          </LinkButton>
+        </SystemLine>
+      )}
+    </>
+  )
+}
+
 /** A project as the line that started it, with its channel under it. */
 function StartedPost({ orgId, project, pmName }: { orgId: string; project: Project; pmName: string }) {
   const t = useT()
-  const status = projectStatus(project, t, pmName)
+  const work = useStore((s) => s.snapshot!.employeeWork?.[orgId])
+  const status = projectStatus(project, t, pmName, projectNeeds(project, work).asks)
   const live = useProjectLive(project)
   return (
     <Post who={t('projects.you')} at={project.createdAt}>

@@ -4,6 +4,7 @@
 // on hover and focus. "All channels" under them opens the Channels page, where archived ones are too; a new project is the
 // sidebar's New in Channels (NewMenu). Shown only while an organization with a memory repository is the space shown.
 import { Hash } from 'lucide-react'
+import { projectNeeds } from '../../../../shared/needsYou'
 import { projectLive } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { shownOrganization } from '../../sidebarModes'
@@ -40,7 +41,7 @@ export function ChannelList() {
           </ActionRow>
         </li>
         {projects.map((p) => {
-          const status = projectStatus(p, t, pmName)
+          const status = projectStatus(p, t, pmName, projectNeeds(p, snapshot.employeeWork?.[org.id]).asks)
           const live = projectLive(p, runs)
           // While someone works on it, the line says who and on what; else what its stage is.
           const line = isWorking(live) ? liveWhat(p, live[0], nameOf(live[0].step.employeeId), t) : status.line

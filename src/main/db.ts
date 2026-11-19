@@ -400,7 +400,7 @@ type RawTask = {
 }
 
 /** The fields a task keeps in its `json` column. */
-const TASK_EXTRA = ['result', 'question', 'trigger', 'depth', 'cause', 'kind', 'requestedBy', 'contract', 'waitingFor', 'deliveries', 'awaiting', 'successorId', 'actionNews', 'event', 'causedBy', 'limitHold', 'project'] as const
+const TASK_EXTRA = ['result', 'question', 'trigger', 'depth', 'cause', 'kind', 'requestedBy', 'contract', 'waitingFor', 'deliveries', 'awaiting', 'successorId', 'actionNews', 'event', 'causedBy', 'limitHold', 'project', 'channel'] as const
 
 type RawRoot = { root_id: string; org_id: string; runs_used: number; runs_allowed: number; descendants: number; active: number; state: string; created_at: string; updated_at: string }
 

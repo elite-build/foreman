@@ -4,6 +4,7 @@
 // several at once. The organization's own channel is listed first and can't be ticked: every organization keeps it.
 import { useEffect, useState } from 'react'
 import { timeAgo } from '../../../../shared/i18n/time'
+import { projectNeeds } from '../../../../shared/needsYou'
 import { isArchived, projectLive, type Project } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openEmployees, showToast, useStore } from '../../store'
@@ -21,6 +22,7 @@ export function ChannelsPage({ orgId }: { orgId: string }) {
   const t = useT()
   const organization = useStore((s) => s.snapshot!.organizations?.find((o) => o.id === orgId))
   const roster = useStore((s) => s.snapshot!.employees?.[orgId]?.employees)
+  const work = useStore((s) => s.snapshot!.employeeWork?.[orgId])
   // Read them all again when a listed one moves, or after something done here (an archived one isn't in the snapshot).
   const pulse = useStore((s) => projectsPulse(s.snapshot!.projects?.[orgId]))
   const runs = useOrgRuns(orgId)
@@ -141,7 +143,7 @@ export function ChannelsPage({ orgId }: { orgId: string }) {
           )}
           {shown.map((p) => {
             const name = projectChannel(p)
-            const status = projectStatus(p, t, pmName)
+            const status = projectStatus(p, t, pmName, projectNeeds(p, work).asks)
             const archived = kind(p) === 'archived'
             const files = Object.keys(p.artifacts).length
             return (

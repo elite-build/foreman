@@ -216,8 +216,15 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     await vi.waitFor(async () => expect((await core.api.listEmployeeRuns(org.id))[0].memoryCommit).toBeTruthy(), WAIT)
     const ended = (await core.api.listEmployeeRuns(org.id))[0]
     expect(ended).toMatchObject({ state: 'completed' })
-    // After its turn the chat is an ordinary one.
-    expect(store.state.sessions.find((s) => s.id === run.sessionId)!.unattended).toBeUndefined()
+    // After its turn the chat is no longer held as the run, but still says whose run it was, and that it ended. Not a
+    // project's run, so it isn't read-only.
+    const chat0 = store.state.sessions.find((s) => s.id === run.sessionId)!
+    expect(chat0.unattended).toBeUndefined()
+    expect(chat0.employeeRun).toEqual({ orgId: org.id, employeeId: 'e-max1', runId: run.id, taskId: task.id, endedAt: expect.any(String) })
+    // A chat from before the mark is found by its run at launch, and marked ended.
+    delete chat0.employeeRun
+    core.markEmployeeChats()
+    expect(chat0.employeeRun).toMatchObject({ runId: run.id, taskId: task.id, endedAt: expect.any(String) })
     const log = await gitOut(memoryRoot, ['log', '-1', '--format=%an%n%s%n%(trailers:only,unfold)'])
     expect(log).toContain('Max (AI employee)')
     expect(log).toContain('Max: Draft the launch post for 1.0.23')

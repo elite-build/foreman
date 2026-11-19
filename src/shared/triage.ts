@@ -536,11 +536,23 @@ export function projectWorkspaceIds(snapshot: Pick<AppSnapshot, 'workspaces' | '
 
 /**
  * Whether a workspace list shows a row: a project's workspace only while one of its chats waits on an approval, which only
- * that chat can give. The rest is its channel's: "Ready for review" after each run, and what the project waits on (her
- * questions, a part to accept, a task that couldn't finish), which the channel lists as its waits.
+ * that chat can give, or while the row is about a chat the person started there (no employee run's: Session.employeeRun)
+ * that is running, ready for review or failed: that is their own work. The rest is its channel's: "Ready for review"
+ * after each run, and what the project waits on (her questions, a part to accept, a task that couldn't finish), which the
+ * channel lists as its waits.
  */
-export const listsWorkspace = (t: Triage, projectIds: ReadonlySet<string>, approvals: readonly Pick<ApprovalRequest, 'sessionId'>[]): boolean =>
-  !projectIds.has(t.ws.id) || (t.bucket === 'attention' && Boolean(t.sessionId) && approvals.some((a) => a.sessionId === t.sessionId))
+export const listsWorkspace = (
+  t: Triage,
+  projectIds: ReadonlySet<string>,
+  approvals: readonly Pick<ApprovalRequest, 'sessionId'>[],
+  sessions: readonly Pick<Session, 'id' | 'employeeRun'>[]
+): boolean => {
+  if (!projectIds.has(t.ws.id)) return true
+  if (!t.sessionId) return false
+  if (t.bucket === 'attention' && approvals.some((a) => a.sessionId === t.sessionId)) return true
+  const session = sessions.find((s) => s.id === t.sessionId)
+  return Boolean(session && !session.employeeRun && (t.bucket === 'working' || t.bucket === 'attention'))
+}
 
 /** Waiting longest first, so nothing sits forgotten at the bottom. */
 export function oldestFirst(items: Triage[]): Triage[] {
@@ -610,7 +622,7 @@ export function sidebarGroups(
 ): { groups: { bucket: Bucket; items: Triage[] }[]; compares: CompareSection[]; hiddenFinished: number } {
   const query = view.query.trim().toLowerCase()
   const projectIds = projectWorkspaceIds(input.snapshot)
-  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals))
+  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals, input.snapshot.sessions))
   if (query) items = items.filter((t) => matchesWorkspace(t.ws, input.snapshot.sessions, query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)
@@ -639,7 +651,7 @@ export function sidebarGroups(
 export function repoGroups(input: TriageInput, view: SidebarView): { groups: { repo: AppSnapshot['repos'][number]; items: Triage[] }[]; hiddenFinished: number } {
   const query = view.query.trim().toLowerCase()
   const projectIds = projectWorkspaceIds(input.snapshot)
-  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals))
+  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals, input.snapshot.sessions))
   if (query) items = items.filter((t) => matchesWorkspace(t.ws, input.snapshot.sessions, query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)
