@@ -2,12 +2,24 @@ import type { ReactElement, SVGProps } from 'react'
 
 export type GlyphName = 'ok' | 'warn' | 'error' | 'info' | 'off'
 
-// One shape per state, so a state never rests on colour alone: ● ok, ▲ warn, ◆ error, ■ info, ○ off.
-// Paths are on a 12×12 grid, filled or stroked with currentColor.
+// One shape per state, so a state never rests on colour alone: ● ok, ◉ warn (a ring around a dot: "look here", round and
+// calm rather than a pointed triangle), a dot with a cross cut out for error, ■ info, ○ off. Paths are on a 12×12 grid,
+// filled or stroked with currentColor; error's cross is a hole (even-odd), so it shows whatever is behind it.
 const SHAPES: Record<GlyphName, ReactElement> = {
   ok: <circle cx="6" cy="6" r="5" fill="currentColor" />,
-  warn: <path d="M6 .9 11.3 10.6H.7z" fill="currentColor" />,
-  error: <path d="M6 .6 11.4 6 6 11.4.6 6z" fill="currentColor" />,
+  warn: (
+    <>
+      <circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="6" cy="6" r="2" fill="currentColor" />
+    </>
+  ),
+  error: (
+    <path
+      fillRule="evenodd"
+      d="M6 .6a5.4 5.4 0 1 0 0 10.8A5.4 5.4 0 1 0 6 .6zM4.73 8.4 3.6 7.27 4.87 6 3.6 4.73 4.73 3.6 6 4.87 7.27 3.6 8.4 4.73 7.13 6 8.4 7.27 7.27 8.4 6 7.13z"
+      fill="currentColor"
+    />
+  ),
   info: <rect x="1.4" y="1.4" width="9.2" height="9.2" rx="1.2" fill="currentColor" />,
   off: <circle cx="6" cy="6" r="4.3" fill="none" stroke="currentColor" strokeWidth="1.5" />
 }

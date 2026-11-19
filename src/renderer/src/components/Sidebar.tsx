@@ -1,15 +1,18 @@
 import {
   Archive,
   Bug,
-  ChevronsLeft,
-  ChevronsRight,
   CircleHelp,
   Cloud,
   Command,
+  Ellipsis,
+  FolderGit2,
   FolderInput,
   FolderRoot,
   GitBranch,
+  Hash,
+  Inbox,
   Keyboard,
+  Layers,
   PanelLeftClose,
   PanelRightClose,
   Pin,
@@ -36,40 +39,42 @@ import {
   openExportDialog,
   openHandOffTo,
   clientKind,
-  openEmployees,
   openNewWorkspace,
   openOverlay,
   openReportProblem,
   openSettingsPage,
+  pickEditorSidebar,
   selectSession,
   recordMilestone,
   selectWorkspace,
   setSidebarFilter,
+  setSidebarGroupBy,
+  setSidebarMode,
   setSidebarQuery,
-  showRepoHome,
+  setSpace,
   startTour,
   timeAgo,
   toggleLeftPanel,
-  toggleRailNames,
   toggleShowFinished,
   toggleSidebarGroup,
-  useStore
+  useStore,
+  type SidebarMode
 } from '../store'
-import { resolveFilter, VIEW_LABEL, viewsOn } from '../../../shared/views'
 import { LATER_CHOICES, putAway, waitingLater } from '../../../shared/later'
 import { bringBackNow, laterChoiceLabel, laterWhen, saveForLater, takeOutOfLater, useLaterWake } from '../later'
-import { BUCKET_LABEL, compareFoldKey, foldedBuckets, liveRepo, listsWorkspace, projectWorkspaceIds, sidebarGroups, sidebarOrder, STATUS_LABEL, type SidebarFilter, type Triage } from '../triage'
+import { BUCKET_LABEL, compareFoldKey, foldedBuckets, listsWorkspace, projectWorkspaceIds, repoFoldKey, repoGroups, sidebarGroups, sidebarOrder, STATUS_LABEL, type Triage } from '../triage'
 import { promptTitle } from '../../../shared/compare'
-import type { CompareSection } from '../../../shared/triage'
-import { employeeKey, inChannel, itemsInSpace, projectTaskIds, type NeedsYouCounts, type NeedsYouItem } from '../../../shared/needsYou'
-import { needsYouOf, useTriageInput } from '../needsYou'
+import { matchesWorkspace, workspacePurpose, type CompareSection } from '../../../shared/triage'
+import { inChannel, itemsInSpace, projectTaskIds, type NeedsYouItem } from '../../../shared/needsYou'
+import { needsYouOf, useNeedsYou, useTriageInput } from '../needsYou'
 import { employeeOf, openEmployeeItem, rowWords } from './needsYouWords'
 import { actionNoun } from './employees/words'
 import { NewMenu } from './NewMenu'
 import { SidebarSection } from './SidebarSection'
-import { SpaceRailTile, SpaceSwitcher } from './spaces/SpaceSwitcher'
-import { TeamSection } from './employees/TeamSection'
-import { ProjectsSection } from './employees/ProjectsSection'
+import { SpaceTiles } from './spaces/SpaceTiles'
+import { TeamList } from './employees/TeamSection'
+import { ChannelList } from './employees/ProjectsSection'
+import { SIDEBAR_MODE_LABEL, shownMode, sidebarModes, workView } from '../sidebarModes'
 import { currentSpace, newWorkspaceTarget, snapshotInSpace, spacesOn } from '../../../shared/organizations'
 import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
@@ -87,7 +92,7 @@ import { PrGlyphView } from './Attention'
 import { GitlabMark } from './GitlabMark'
 import { cloudAction, CloudSub } from './cloud/CloudBits'
 import { isGitlabWorkspace } from '../../../shared/scm'
-import { ActionRow, Button, CardButton, ContextMenu, Glyph, HardHat, HoverCard, IconButton, LinkButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Spinner, Status, Tab, TabList, Tabs, TextInput, type HardHatColour, type HoverCardTriggerProps, type StatusTone } from '../ui'
+import { ActionRow, Button, ContextMenu, Glyph, HardHat, HoverCard, IconButton, LinkButton, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuRadioItem, MenuSeparator, Spinner, Status, Tab, TabList, TabPanel, Tabs, TextInput, type HardHatColour, type HoverCardTriggerProps, type StatusTone } from '../ui'
 
 /** A Lucide icon by name: PascalCase ("GitBranch") or kebab-case ("git-branch"). */
 export function lucideIcon(name: string | undefined): LucideIcon | undefined {
@@ -186,11 +191,11 @@ function WorkspaceMenu({ ws, x, y, onRename, dismiss }: { ws: Workspace; x: numb
   )
 }
 
-function RepoMenu({ repo, x, y, dismiss, onRemove }: { repo: Repo; x: number; y: number; dismiss: () => void; onRemove: () => void }) {
+/** A repository's menu (its heading's ⋯ in Work). Only code repositories are listed: an organization's memory never is. */
+function RepoMenuItems({ repo, onRemove }: { repo: Repo; onRemove: () => void }) {
   const t = useT()
-  // Only code repositories are on the rail: an organization's memory repository never is, and never has workspaces.
   return (
-    <ContextMenu x={x} y={y} label={repo.name} onClose={dismiss}>
+    <>
       <MenuItem onSelect={() => openNewWorkspace(repo.id)}>{t('sidebar.menu.newWorkspace')}</MenuItem>
       <MenuItem onSelect={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>{t('sidebar.menu.repoSettings')}</MenuItem>
       <MenuItem onSelect={() => void navigator.clipboard.writeText(repo.rootPath)}>{t('openIn.copyPath')}</MenuItem>
@@ -198,7 +203,7 @@ function RepoMenu({ repo, x, y, dismiss, onRemove }: { repo: Repo; x: number; y:
       <MenuItem variant="danger" onSelect={onRemove}>
         {t('sidebar.menu.removeRepo')}
       </MenuItem>
-    </ContextMenu>
+    </>
   )
 }
 
@@ -214,18 +219,18 @@ function RowIcon({ t }: { t: Triage }) {
     case 'spinner':
       return (
         <span className={`ws-spin ${t.tone ?? ''}`}>
-          <Spinner size={13} />
+          <Spinner size={15} />
         </span>
       )
     case 'pinned':
-      return <Pin size={13} />
+      return <Pin size={15} />
     case 'direct':
-      return <FolderRoot size={13} />
+      return <FolderRoot size={15} />
     case 'adopted':
-      return <FolderInput size={13} />
+      return <FolderInput size={15} />
     case 'branch':
       // Cloud workspaces: the cloud is where its branch lives.
-      return t.ws.cloud ? <Cloud size={13} /> : <GitBranch size={13} />
+      return t.ws.cloud ? <Cloud size={15} /> : <GitBranch size={15} />
   }
 }
 
@@ -240,11 +245,13 @@ const ARCHIVE_STEP: Record<ArchiveProgressStep, PlainKey> = {
   sandbox: 'cloud.archive.step.sandbox'
 }
 
-function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Repo }) {
+function WorkspaceRow({ t, index }: { t: Triage; index: number }) {
   const { ws } = t
   const tr = useT()
   // While the Assistant covers the workspace, its entry is the one thing selected; the workspace stays chosen for when it closes.
   const selected = useStore((s) => s.selectedWorkspaceId === ws.id && !(s.assistantOpen && s.snapshot!.settings.assistantEnabled))
+  // Finished while you looked elsewhere: its name in bold until opened, as an unread channel's is in Slack.
+  const unread = useStore((s) => Boolean(s.unread[ws.id]))
   const platform = useStore((s) => s.snapshot!.platform)
   const coloredDiffs = useStore((s) => s.snapshot!.settings.coloredSidebarDiffs)
   // An archive running in the background (or stopped on a step that needs you) says so in place of the row's label.
@@ -262,24 +269,32 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
   // The employee whose run this is, for its hat and name.
   const snapshot = useStore((s) => s.snapshot!)
   const employee = ws.startedBy?.via === 'employee' ? employeeOf(snapshot, ws.startedBy) : undefined
+  // What it is for (its first chat's title, an employee run's task), its name until a chat has a title.
+  const purpose = workspacePurpose(ws, snapshot.sessions)
 
   const saveName = () => {
     setRenaming(false)
-    if (name.trim() && name.trim() !== ws.name) void attempt(() => api.updateWorkspace(ws.id, { name }))
+    const next = name.trim()
+    // Renaming changes what the row shows: its chat's title while that is its purpose, else the workspace's name.
+    if (purpose?.sessionId) {
+      if (next && next !== purpose.text) void attempt(() => api.updateSession(purpose.sessionId!, { title: next }))
+    } else if (next && next !== ws.name) void attempt(() => api.updateWorkspace(ws.id, { name: next }))
   }
-  // Repo (when listing them all), branch and age, under the selected row; the hover card always names the repository.
-  const meta = [repo?.name, ws.branch, timeAgo(t.since)].filter(Boolean).join(' · ')
-  const fullMeta = [snapshot.repos.find((r) => r.id === ws.repoId)?.name, ws.branch, timeAgo(t.since)].filter(Boolean).join(' · ')
+  const shown = purpose?.text ?? ws.name
+  // The chat a label names (the one whose turn failed…), unless the row's title already is that chat's.
+  const detail = t.label && t.detail && t.detail !== purpose?.text ? t.detail : undefined
+  // Repository, the workspace's name and its branch (once each), and age, in the hover card.
+  const fullMeta = [snapshot.repos.find((r) => r.id === ws.repoId)?.name, purpose ? ws.name : undefined, ws.branch !== ws.name ? ws.branch : undefined, timeAgo(t.since)].filter(Boolean).join(' · ')
   // What is going on, in words. docs/ai-employees.md §10: a run says whose it is ("Ada asks · Which day does 2.4 launch?").
-  const said = employee && ws.startedBy?.via === 'employee' ? (t.namesEmployee ? t.label : t.label ? tr('sidebar.row.byEmployee', { name: employee.name, label: t.label }) : tr('sidebar.row.employeeRun', { name: employee.name, title: ws.startedBy.title })) : t.label
-  const title = ws.compare ? `${ws.name} · ${ws.compare.label}` : ws.name
+  const said = employee && ws.startedBy?.via === 'employee' ? (t.namesEmployee ? t.label : t.label ? tr('sidebar.row.byEmployee', { name: employee.name, label: t.label }) : tr('employees.banner.title', { name: employee.name })) : t.label
+  const title = ws.compare ? `${shown} · ${ws.compare.label}` : shown
   const icon = (
     <span className="ws-icon" title={archive ? undefined : ws.direct ? tr('sidebar.row.direct') : ws.adopted ? tr('sidebar.row.adopted') : ws.pinned ? tr('sidebar.row.pinned') : ws.cloud ? tr('cloud.glyph') : undefined}>
       {archive?.stopped ? (
         <Status compact aria-hidden tone="warn" label={tr('sidebar.row.archiveStopped')} />
       ) : archive ? (
         <span className="ws-spin blue">
-          <Spinner size={13} />
+          <Spinner size={15} />
         </span>
       ) : (
         <RowIcon t={t} />
@@ -292,7 +307,7 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
   // because a click focused the row.
   const row = (card?: HoverCardTriggerProps) => (
       <ActionRow
-        className={`ws-row ${selected ? 'selected' : ''} ${t.bucket} ${archiving ? 'archiving' : ''}`}
+        className={`ws-row ${selected ? 'selected' : ''} ${unread ? 'unread' : ''} ${t.bucket} ${archiving ? 'archiving' : ''}`}
         selected={selected}
         // A stopped archive opens its dialog, where Retry is.
         onPress={() => (archive?.stopped ? openArchiveDialog(ws.id) : openTriaged(t))}
@@ -357,26 +372,14 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
           said && (
             <span className={`ws-label ${t.tone ?? ''}`}>
               {said}
-              {t.label && t.detail && <span className="ws-detail"> · {t.detail}</span>}
+              {detail && <span className="ws-detail"> · {detail}</span>}
             </span>
           )
         )}
         {/* Whose run it is: identity only; the leading glyph says the state. */}
         {employee && (
           <span className="ws-hat">
-            <HardHat colour={employee.colour as HardHatColour} size={14} />
-          </span>
-        )}
-        {/* The selected row alone keeps its second line. */}
-        {selected && (
-          <span className="ws-sub">
-            <CloudSub ws={ws} />
-            {gitlab && (
-              <span className="ws-gitlab" title={tr('gitlab.sidebar.mark')}>
-                <GitlabMark size={10} />
-              </span>
-            )}
-            {meta}
+            <HardHat colour={employee.colour as HardHatColour} size={16} />
           </span>
         )}
       </ActionRow>
@@ -406,7 +409,7 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
                   <HardHat colour={employee.colour as HardHatColour} size={14} />
                 </span>
               )}
-              {t.label && t.detail ? `${said} · ${t.detail}` : said}
+              {detail ? `${said} · ${detail}` : said}
             </span>
           )}
           {index >= 0 && index < 9 && <span className="ws-card-key">{tr('sidebar.row.opensWith', { key: `${modKey(platform)}${index + 1}` })}</span>}
@@ -419,7 +422,7 @@ function WorkspaceRow({ t, index, repo }: { t: Triage; index: number; repo?: Rep
           y={menu.y}
           dismiss={() => setMenu(null)}
           onRename={() => {
-            setName(ws.name)
+            setName(shown)
             setRenaming(true)
           }}
         />
@@ -480,7 +483,7 @@ function NeedsYouRow({ item }: { item: NeedsYouItem }) {
  * One comparison: its workspaces together under the prompt they were all given. Rows say which model each one is. A
  * flow run's workspaces are grouped the same way, under the flow's name. Its heading folds like every group's.
  */
-function CompareGroupView({ section, order, repoId, repoById, folded, foldable }: { section: CompareSection; order: string[]; repoId: string | null; repoById: Map<string, Repo>; folded: boolean; foldable: boolean }) {
+function CompareGroupView({ section, order, folded, foldable }: { section: CompareSection; order: string[]; folded: boolean; foldable: boolean }) {
   const t = useT()
   return (
     <SidebarSection
@@ -496,330 +499,164 @@ function CompareGroupView({ section, order, repoId, repoById, folded, foldable }
     >
       <div className="ws-group-rows">
         {section.items.map((t) => (
-          <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />
+          <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} />
         ))}
       </div>
     </SidebarSection>
   )
 }
 
-/** Two letters for a repository without an icon: "kite" → "ki". */
-function repoInitials(name: string): string {
-  return (name.replace(/[^a-z0-9]/gi, '').slice(0, 2) || '?').toLowerCase()
-}
-
-/** What is going on in one repository (or, under `null`, in all of them): the rail's badges and lines. */
-type RepoCount = { attention: number; working: number; total: number }
-
-/** A repository's icon, or its initials when it has none: the rail's tiles. */
-function repoMark(repo: Repo): ReactNode {
-  return repo.icon ? <RepoIconView icon={repo.icon} size={16} /> : <span className="rail-text">{repoInitials(repo.name)}</span>
-}
+const MODE_ICON: Record<SidebarMode, LucideIcon> = { inbox: Inbox, work: GitBranch, team: Users, channels: Hash }
 
 /**
- * The sidebar's Team row as a rail tile, while a narrow window folds the list to its rail: the organization's employees,
- * with "▲ 2" for what of theirs waits for the person (the same count as the Team row, TeamSection), opening the Team page.
- * Only where the Team row would show: an organization with a memory repository is the space shown.
+ * The modes under the spaces: tabs (ui/Tabs, rail) over the list beside them, each an icon over its name. Inbox says ▲ and
+ * how much waits in the space shown; Channels, what its projects wait on (that is in their channels, not Inbox). ↑ ↓ move
+ * between them.
  */
-function TeamRailTile({ needs }: { needs: NeedsYouCounts }) {
+function ModeTabs({ modes, waiting }: { modes: SidebarMode[]; waiting: Partial<Record<SidebarMode, number>> }) {
   const t = useT()
-  const snapshot = useStore((s) => s.snapshot!)
-  const wanted = useStore((s) => s.space)
-  const route = useStore((s) => s.employeesView)
-  const organizations = snapshot.organizations ?? []
-  if (!spacesOn(organizations)) return null
-  const org = organizations.find((o) => o.id === currentSpace(organizations, wanted))
-  if (!org?.memoryRepoId) return null
-  const employees = (snapshot.employees?.[org.id]?.employees ?? []).filter((e) => e.state !== 'retired')
-  const count = employees.reduce((sum, e) => sum + (needs.byEmployee.get(employeeKey(org.id, e.id)) ?? 0), 0)
-  const label = t('employees.team.heading')
-  const name = count ? t('sidebar.rail.needYou', { label, count }) : label
-  const on = route?.orgId === org.id && route.page === 'team'
   return (
-    <span className={`rail-item ${on ? 'on' : ''}`}>
-      <span className="rail-tile-wrap">
-        <CardButton className="rail-tile" selected={on} title={name} aria-label={name} aria-pressed={on} onClick={() => openEmployees({ orgId: org.id, page: 'team' })}>
-          <Users size={16} aria-hidden />
-          {count > 0 && (
-            <span className="rail-badge" aria-hidden>
-              <Glyph name="warn" />
-              {count > 9 ? '9+' : count}
+    <TabList className="rail-modes" label={t('sidebar.mode.label')} orientation="vertical">
+      {modes.map((mode) => {
+        const Icon = MODE_ICON[mode]
+        const label = t(SIDEBAR_MODE_LABEL[mode])
+        const count = waiting[mode] ?? 0
+        return (
+          <Tab key={mode} value={mode} aria-label={count ? t('sidebar.rail.needYou', { label, count }) : undefined} data-tour={mode === 'inbox' ? 'needs-you' : undefined}>
+            <span className="rail-mode-icon">
+              <Icon size={18} aria-hidden />
+              {count > 0 && (
+                <span className="rail-badge" aria-hidden>
+                  {count > 9 ? '9+' : count}
+                </span>
+              )}
             </span>
-          )}
-        </CardButton>
-      </span>
-    </span>
+            <span className="rail-mode-name">{label}</span>
+          </Tab>
+        )
+      })}
+    </TabList>
   )
 }
 
 /**
- * The column of repositories down the left edge: All and each repo; the palette, shortcuts and settings at the bottom.
- * Its toggle widens it in place to put each repository's name and what is going on in it beside the tile (the store's
- * `railNames`), and narrows it back. `add`: the list beside it is hidden, so the rail carries the sidebar's + menu (with
- * the repository a new workspace goes in); `folded`: a narrow window folded the list to the rail, which then leads with
- * the space, + and Team, and ends with the Automations and Assistant icons.
+ * The foot of the rail, as the repository rail's was: Automations and the Assistant, then the command palette, shortcuts,
+ * reporting a problem, the tour and Settings, each an icon named with its key.
  */
-function RepoRail({ counts, repos, folded, add }: { counts: Map<string | null, RepoCount>; repos: Repo[]; folded?: NeedsYouCounts; add?: { repoId: string | undefined } }) {
+function RailTools() {
   const t = useT()
-  const connections = useStore((s) => s.snapshot!.integrations.connections)
-  const mod = useStore((s) => modKey(s.snapshot!.platform))
   const platform = useStore((s) => s.snapshot!.platform)
   const settingsOpen = useStore((s) => Boolean(s.settingsPage))
-  const picked = useStore((s) => s.sidebarView.repo)
-  // A repository picked in another space isn't on this rail: All is.
-  const current = picked && repos.some((r) => r.id === picked) ? picked : null
-  // Home is showing only while no workspace is open and no page covers it (App.tsx's `covered`): Settings, Automations,
-  // the Assistant, an organization's Memory view or its Team, employee and New employee pages.
-  const home = useStore(
-    (s) =>
-      !s.selectedWorkspaceId &&
-      !s.settingsPage &&
-      !s.automations &&
-      !(s.assistantOpen && s.snapshot!.settings.assistantEnabled) &&
-      !(s.memoryView && s.snapshot!.organizations?.some((o) => o.id === s.memoryView)) &&
-      !(s.employeesView && s.snapshot!.organizations?.some((o) => o.id === s.employeesView!.orgId))
-  )
-  const names = useStore((s) => s.railNames)
-  const [menu, setMenu] = useState<{ repo: Repo; x: number; y: number } | null>(null)
-  const [removing, setRemoving] = useState<Repo | null>(null)
-  // Beside a name: what needs you and what runs, or (when nothing does) how many workspaces it has.
-  const line = (repoId: string | null, quiet: string) => {
-    const c = counts.get(repoId)
-    const busy = [c?.attention ? t('home.banner.needYou', { count: c.attention }) : '', c?.working ? t('sidebar.runningCount', { count: c.working }) : ''].filter(Boolean)
-    return busy.length ? busy.join(' · ') : quiet
-  }
-  const tile = (repoId: string | null, label: string, title: string, quiet: string, content: ReactNode) => {
-    const count = counts.get(repoId)?.attention ?? 0
-    const name = count ? t('sidebar.rail.needYou', { label, count }) : label
-    const lineId = `rail-line-${repoId ?? 'all'}`
-    const on = current === repoId
-    return (
-      <span key={repoId ?? 'all'} className={`rail-item ${on ? 'on' : ''}`}>
-        {/* The wrapper draws the ring that says the tile's repository is also what Home is showing. */}
-        <span className={`rail-tile-wrap ${current === repoId && home ? 'on-home' : ''}`}>
-          <CardButton
-            className="rail-tile"
-            selected={on}
-            title={names ? undefined : name}
-            aria-label={name}
-            aria-describedby={names ? lineId : undefined}
-            aria-pressed={on}
-            onClick={() => showRepoHome(repoId)}
-            onContextMenu={(e) => {
-              const repo = repos.find((r) => r.id === repoId)
-              if (!repo) return
-              e.preventDefault()
-              setMenu({ repo, x: e.clientX, y: e.clientY })
-            }}
-          >
-            {content}
-            {/* With names shown, the line beside the tile says it in words. */}
-            {count > 0 && !names && (
-              <span className="rail-badge" aria-hidden>
-                <Glyph name="warn" />
-                {count > 9 ? '9+' : count}
-              </span>
-            )}
-          </CardButton>
-        </span>
-        {/* The tile's name already says the title, and describes it with the line; the button reaches over both, so
-            clicking the name picks the repository too. */}
-        {names && (
-          <span className="rail-name" aria-hidden>
-            <span className="rail-name-title">{title}</span>
-            <span className="rail-name-line" id={lineId}>
-              {line(repoId, quiet)}
-            </span>
-          </span>
-        )}
-      </span>
-    )
-  }
-  // A repository that chose its own GitHub connection says which, as the rail's tooltip.
-  const githubNames = new Map(
-    repos.flatMap((r) => {
-      const id = r.integrations?.services?.github
-      const name = id && id !== 'off' ? connections.find((c) => c.id === id)?.name : undefined
-      return name ? [[r.id, name] as const] : []
-    })
-  )
-  const tileLabel = (repo: Repo) => [repo.name, githubNames.get(repo.id)].filter(Boolean).join(' · ')
+  const mod = modKey(platform)
   return (
-    <nav className={`repo-rail ${names ? 'names' : ''}`} aria-label={t('sidebar.rail.label')}>
-      {/* The list folded to the rail (a narrow window): the space switcher, the one +, and its Team come with it. */}
-      {folded && (
-        <>
-          <span className="rail-item">
-            <SpaceRailTile />
-          </span>
-          {add && (
-            <span className="rail-item">
-              <NewMenu repoId={add.repoId} rail />
-            </span>
-          )}
-          <TeamRailTile needs={folded} />
-          <span className="rail-divider" aria-hidden />
-        </>
-      )}
-      {tile(null, t('home.board.allRepos'), t('home.board.allRepos'), t('sidebar.subtitle.repos', { count: repos.length }), <span className="rail-text">{t('sidebar.rail.all')}</span>)}
-      {/* Code repositories only: an organization's memory repository is never on the left (snapshotInSpace). */}
-      {repos.map((repo) => tile(repo.id, tileLabel(repo), repo.name, t('sidebar.subtitle.workspaces', { count: counts.get(repo.id)?.total ?? 0, branch: repo.defaultBranch }), repoMark(repo)))}
-      {/* The list is hidden (the Editor layout's other views): the one + stays reachable here. */}
-      {add && !folded && (
-        <span className="rail-item">
-          <NewMenu repoId={add.repoId} rail />
-          {names && (
-            <span className="rail-name" aria-hidden>
-              <span className="rail-name-title">{t('sidebar.new')}</span>
-            </span>
-          )}
-        </span>
-      )}
-      {/* Folded to the rail, the top row's Automations and Assistant icons come with it. */}
-      {folded && (
-        <>
-          <span className="rail-divider" aria-hidden />
-          <span className="rail-item">
-            <AutomationsEntry className="rail-entry" />
-          </span>
-          <span className="rail-item">
-            <AssistantEntry className="rail-entry" />
-          </span>
-        </>
-      )}
-      <div className="rail-tools">
-        {/* One toggle, in place: pressed, the rail is wide with names; pressed again, it is back to its tiles. */}
-        <IconButton label={t('sidebar.rail.names', { key: shortcutHint('panel.railNames', platform) ?? `${mod}⇧N` })} pressed={names} onClick={toggleRailNames}>
-          {names ? <ChevronsLeft size={15} /> : <ChevronsRight size={15} />}
-        </IconButton>
-        {/* ⌘, not a magnifier: Find (the list's ⌕) is the magnifier on screen. */}
-        <IconButton label={t('sidebar.rail.palette', { key: `${mod}K` })} onClick={() => openOverlay('palette')}>
-          <Command size={15} />
-        </IconButton>
-        <IconButton label={t('sidebar.rail.shortcuts', { key: shortcutHint('shortcuts.help', platform) ?? `${mod}⌥/` })} onClick={() => openOverlay('shortcuts')}>
-          <Keyboard size={15} />
-        </IconButton>
-        <IconButton label={t('sidebar.rail.report', { key: shortcutHint('report.problem', platform) ?? `${mod}⌥R` })} onClick={() => openReportProblem(true)}>
-          <Bug size={15} />
-        </IconButton>
-        <IconButton label={t('tour.label')} data-tour="help" onClick={startTour}>
-          <CircleHelp size={15} />
-        </IconButton>
-        <IconButton label={t('sidebar.rail.settings', { key: `${mod},` })} pressed={settingsOpen} data-tour="settings" onClick={() => openSettingsPage(settingsOpen ? null : { section: 'general' })}>
-          <Settings size={15} />
-        </IconButton>
-      </div>
-      {menu && <RepoMenu {...menu} dismiss={() => setMenu(null)} onRemove={() => setRemoving(menu.repo)} />}
-      {removing && <RemoveRepoDialog repo={removing} onClose={() => setRemoving(null)} />}
-    </nav>
+    <div className="rail-tools">
+      <AutomationsEntry className="rail-entry" />
+      <AssistantEntry className="rail-entry" />
+      <span className="rail-divider" aria-hidden />
+      {/* ⌘, not a magnifier: Find (the list's ⌕) is the magnifier on screen. */}
+      <IconButton label={t('sidebar.rail.palette', { key: `${mod}K` })} onClick={() => openOverlay('palette')}>
+        <Command size={15} />
+      </IconButton>
+      <IconButton label={t('sidebar.rail.shortcuts', { key: shortcutHint('shortcuts.help', platform) ?? `${mod}⌥/` })} onClick={() => openOverlay('shortcuts')}>
+        <Keyboard size={15} />
+      </IconButton>
+      <IconButton label={t('sidebar.rail.report', { key: shortcutHint('report.problem', platform) ?? `${mod}⌥R` })} onClick={() => openReportProblem(true)}>
+        <Bug size={15} />
+      </IconButton>
+      <IconButton label={t('tour.label')} data-tour="help" onClick={startTour}>
+        <CircleHelp size={15} />
+      </IconButton>
+      <IconButton label={t('sidebar.rail.settings', { key: `${mod},` })} pressed={settingsOpen} data-tour="settings" onClick={() => openSettingsPage(settingsOpen ? null : { section: 'general' })}>
+        <Settings size={15} />
+      </IconButton>
+    </div>
   )
 }
 
-const EMPTY: Record<Exclude<SidebarFilter, 'all'>, PlainKey> = {
-  'needs-you': 'sidebar.empty.needsYou',
-  working: 'sidebar.empty.running',
-  pinned: 'sidebar.empty.pinned',
-  'in-review': 'sidebar.empty.inReview',
-  ready: 'sidebar.empty.ready',
-  done: 'sidebar.empty.done',
-  later: 'sidebar.empty.later'
+/** A repository's heading in Work: ⋯ has its menu (a workspace in it, its settings, its path, remove). The one + stays the top row's. */
+function RepoActions({ repo }: { repo: Repo }) {
+  const t = useT()
+  const [removing, setRemoving] = useState(false)
+  return (
+    <>
+      <MenuButton look="icon" iconOnly small portal label={t('sidebar.repo.more', { repo: repo.name })} trigger={<Ellipsis size={13} aria-hidden />}>
+        <RepoMenuItems repo={repo} onRemove={() => setRemoving(true)} />
+      </MenuButton>
+      {removing && <RemoveRepoDialog repo={repo} onClose={() => setRemoving(false)} />}
+    </>
+  )
 }
 
 /**
- * The sidebar: the repository rail and the workspace list. The Editor layout puts its activity bar (`views`) at the top of
- * the rail and hides the list (`list` false) while the rail has picked another view or the sidebar is hidden. `folded`: a
- * narrow window folded the list to the rail (narrowLayout.ts), so the rail carries the space switcher and Team too.
+ * The sidebar (docs/decisions.md, 2026-11-18): a rail of spaces and modes, and beside it the list of the mode picked. The
+ * spaces are tiles with their names (where you are, and ▲ where else you're wanted); the modes are tabs (Inbox, Work, and in
+ * an organization Team and Channels); Automations, the Assistant, Settings and ⋯ are at the rail's foot. The Editor
+ * layout puts its activity bar (`views`) at the top of the rail and hides the list (`list` false) while the rail has picked
+ * another view or the sidebar is hidden. `folded`: a narrow window folded the list to the rail (narrowLayout.ts); picking
+ * a mode shows the list beside it again.
  */
-export function Sidebar({ resize, side = 'left', views, list = true, folded }: { resize?: PanelSize; side?: PaneSide; views?: ReactNode; list?: boolean; folded?: boolean }) {
+export function Sidebar({ resize, side = 'left', views, list = true }: { resize?: PanelSize; side?: PaneSide; views?: ReactNode; list?: boolean; folded?: boolean }) {
   const t = useT()
   const everything = useTriageInput()
   // The space the sidebar shows (docs/ai-employees.md §3): its repositories and their workspaces only. While spaces
   // don't apply this is the whole snapshot, as it always was.
   const space = useStore((s) => s.space)
   const input = { ...everything, snapshot: snapshotInSpace(everything.snapshot, space) }
-  const { snapshot, unread } = input
-  const view = useStore((s) => s.sidebarView)
+  const { snapshot } = input
+  const stored = useStore((s) => s.sidebarView)
+  // Work lists every repository of the space (Home's repository filter is Home's): all of it, or what is saved for later.
+  const view = workView(stored)
   const selectedId = useStore((s) => s.selectedWorkspaceId)
   const mod = modKey(snapshot.platform)
-  const repoId = liveRepo(snapshot, view.repo)
-  const repo = snapshot.repos.find((r) => r.id === repoId)
+  const modes = sidebarModes(everything.snapshot, space)
+  const mode = shownMode(useStore((s) => s.sidebarMode), modes)
 
-  // Counts ignore the filter and search: they say what's out there. What needs you is the shared count
-  // (src/shared/needsYou.ts) for every space at once, so the heading, the rail, the tab and the group agree with Home.
+  // What needs you is the shared count (src/shared/needsYou.ts) for every space at once, so Inbox, the space tiles and
+  // Home agree. A project's workspace and what its tasks ask are in its channel, not rows here.
   const need = needsYouOf(everything)
   const shownSpace = currentSpace(everything.snapshot.organizations, space)
+  const spaceName = everything.snapshot.organizations?.find((o) => o.id === shownSpace)?.name ?? t('spaces.personal')
   const inSpace = new Set(snapshot.workspaces.map((w) => w.id))
-  // A project's workspace is its channel's, not a row here (unless it waits on an approval), so it isn't counted either.
   const projectIds = projectWorkspaceIds(snapshot)
   const spaceTriage = need.triaged.filter((x) => inSpace.has(x.ws.id) && listsWorkspace(x, projectIds, everything.approvals))
-  const scoped = repoId ? spaceTriage.filter((x) => x.ws.repoId === repoId) : spaceTriage
-  const spaceNeeds = itemsInSpace(need.items, shownSpace)
-  // What a project waits on, and what its tasks ask, are in its channel (the Channels row counts them), not rows here.
   const projectTasks = projectTaskIds(everything.snapshot)
-  const scopedNeeds = (repoId ? spaceNeeds.filter((i) => i.repoId === repoId) : spaceNeeds).filter((i) => !inChannel(i, projectTasks))
-  const running = scoped.filter((t) => t.bucket === 'working').length
-  const counts = new Map<string | null, RepoCount>()
-  const tally = (key: string | null, t: Triage) => {
-    const c = counts.get(key) ?? { attention: 0, working: 0, total: 0 }
-    c.total++
-    if (t.bucket === 'working') c.working++
-    counts.set(key, c)
-  }
-  for (const t of spaceTriage) {
-    tally(null, t)
-    tally(t.ws.repoId, t)
-  }
-  // ▲ on the rail: the space's count on All, each repository's on its tile (a memory proposal counts on All only).
-  counts.set(null, { ...(counts.get(null) ?? { working: 0, total: 0 }), attention: spaceNeeds.length })
-  for (const r of snapshot.repos) counts.set(r.id, { ...(counts.get(r.id) ?? { working: 0, total: 0 }), attention: need.counts.byRepo.get(r.id) ?? 0 })
-  const grouped = sidebarGroups(input, view)
-  const { compares, hiddenFinished } = grouped
-  // The tabs Settings → Appearance → Sidebar & Home turns on, and the one shown (a tab turned off falls back).
-  const tabs = viewsOn(snapshot.settings.views, 'tab')
-  const filter = resolveFilter(view.filter, snapshot.settings.views)
-  // Saved for later: reachable from a line under the list when Later isn't a tab.
-  useLaterWake()
-  const laterCount = scoped.filter((x) => waitingLater(x.ws, Date.now())).length
-  // In Later, a row put away says when it comes back.
-  const groups =
-    filter === 'later'
-      ? grouped.groups.map((g) => ({ ...g, items: g.items.map((x) => (putAway(x, Date.now()) ? { ...x, label: laterWhen(x.ws, t), tone: undefined } : x)) }))
-      : grouped.groups
-  const order = sidebarOrder(input, view).map((w) => w.id)
-  // The groups folded under their heading cards; a filter or a search shows every group open.
-  const foldedGroups = foldedBuckets(view, snapshot.settings)
-  const foldable = filter === 'all' && !view.query.trim()
-  // Archived work and Import stay about everything, whichever space is shown.
-  const archived = everything.snapshot.workspaces.filter((w) => w.state === 'archived').length
-  const anyUnread = Object.keys(unread).length > 0
-  // The same repository ⌘N opens on (App.tsx): never an organization's memory repository.
-  const newRepoId = newWorkspaceTarget(everything.snapshot, { space, picked: view.repo, selectedWorkspaceId: selectedId })
-  const repoById = new Map(snapshot.repos.map((r) => [r.id, r]))
-  // An employee's decisions with no workspace row of their own (a held push, a memory proposal…) are rows in Needs your
-  // attention too: they leave the computer, or change what every employee reads.
+  const spaceNeeds = itemsInSpace(need.items, shownSpace).filter((i) => !inChannel(i, projectTasks))
+  // What the organization's projects wait on: their channels', counted on the Channels tab.
+  const channelWaits = (shownSpace ? (everything.snapshot.projects?.[shownSpace] ?? []) : []).reduce((n, p) => n + (p.phase === 'closed' ? 0 : p.waits.length), 0)
   const query = view.query.trim().toLowerCase()
-  const extraRows = filter === 'all' || filter === 'needs-you' ? scopedNeeds.filter((i) => i.kind !== 'workspace' && (!query || rowWords(i, everything.snapshot, t, (p) => actionNoun(p, t)).title.toLowerCase().includes(query))) : []
-  const listed = extraRows.length && !groups.some((g) => g.bucket === 'attention') ? [{ bucket: 'attention' as const, items: [] as Triage[] }, ...groups] : groups
+  // Archived work stays about everything, whichever space is shown.
+  const archived = everything.snapshot.workspaces.filter((w) => w.state === 'archived').length
+  const anyUnread = Object.keys(everything.unread).length > 0
+  // The same repository ⌘N opens on (App.tsx): never an organization's memory repository.
+  const newRepoId = newWorkspaceTarget(everything.snapshot, { space, picked: stored.repo, selectedWorkspaceId: selectedId })
+  const order = sidebarOrder(input, view).map((w) => w.id)
+  // Saved for later: reachable from a line under Work's list.
+  useLaterWake()
+  const now = Date.now()
+  const laterCount = spaceTriage.filter((x) => waitingLater(x.ws, now)).length
+  const later = view.filter === 'later'
+  const laterLabel = (x: Triage): Triage => (later && putAway(x, now) ? { ...x, label: laterWhen(x.ws, t), tone: undefined } : x)
+  const foldedGroups = foldedBuckets(view, snapshot.settings)
+  const foldable = !later && !query
+  const titleOf = (i: NeedsYouItem) => rowWords(i, everything.snapshot, t, (p) => actionNoun(p, t)).title.toLowerCase()
+  // An employee's decisions with no workspace row of their own (a held push, a memory proposal…) are rows beside the
+  // workspaces that wait: they leave the computer, or change what every employee reads.
+  const decisions = spaceNeeds.filter((i) => i.kind !== 'workspace' && (!query || titleOf(i).includes(query)))
+  const row = (x: Triage) => <WorkspaceRow key={x.ws.id} t={x} index={order.indexOf(x.ws.id)} />
   // Oldest first, workspaces and decisions together.
-  const attentionRows = (items: Triage[]) =>
-    [
-      ...items.map((x) => ({ since: x.since, node: <WorkspaceRow key={x.ws.id} t={x} index={order.indexOf(x.ws.id)} repo={repoId ? undefined : repoById.get(x.ws.repoId)} /> })),
-      ...extraRows.map((i) => ({ since: i.since, node: <NeedsYouRow key={i.id} item={i} /> }))
-    ]
+  const waitingRows = (items: Triage[], extra: NeedsYouItem[]) =>
+    [...items.map((x) => ({ since: x.since, node: row(x) })), ...extra.map((i) => ({ since: i.since, node: <NeedsYouRow key={i.id} item={i} /> }))]
       .sort((a, b) => a.since.localeCompare(b.since))
       .map((r) => r.node)
-  // The heading's line: the repository picked and its workspaces, else the space's code repositories (never its memory).
-  const headingLine = repo ? `${repo.name} · ${t('sidebar.subtitle.workspaces', { count: scoped.length, branch: repo.defaultBranch })}` : t('sidebar.subtitle.repos', { count: snapshot.repos.length })
-  // A tab's count, after its name: what needs you (▲) and what runs.
-  const tabCount = (id: SidebarFilter): number => (id === 'needs-you' ? scopedNeeds.length : id === 'working' ? running : 0)
 
-  // Find: ⌕ in the top row opens the box in place, over the switcher and the entry icons (+ stays). It stays open while it
-  // has text; Escape clears and closes it and puts focus back on ⌕; leaving it empty closes it.
+  // Find: ⌕ in the top row opens the box in place, over the title (+ stays). It stays open while it has text; Escape
+  // clears and closes it and puts focus back on ⌕; leaving it empty closes it. Inbox and Work have it.
   const [finding, setFinding] = useState(false)
   const findButton = useRef<HTMLButtonElement>(null)
   const findBox = useRef<HTMLInputElement>(null)
   const backToFind = useRef(false)
-  const findOpen = finding || view.query !== ''
+  const finds = mode === 'inbox' || mode === 'work'
+  const findOpen = finds && (finding || view.query !== '')
   useEffect(() => {
     if (findOpen || !backToFind.current) return
     backToFind.current = false
@@ -844,6 +681,125 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
+  const pick = (next: string) => {
+    setSidebarMode(next as SidebarMode)
+    // The Editor layout's rail had another view picked: the list comes back to show the mode.
+    if (views && !list) pickEditorSidebar('workspaces')
+  }
+
+  // Inbox: everything in the space that waits on the person, oldest first, then what waits in the other spaces.
+  const inbox = () => {
+    const rows = waitingRows(
+      spaceTriage.filter((x) => x.bucket === 'attention' && !putAway(x, now) && (!query || matchesWorkspace(x.ws, everything.snapshot.sessions, query))),
+      decisions
+    )
+    return (
+      <>
+        {rows.length ? <div className="ws-group-rows">{rows}</div> : <p className="sidebar-empty">{query ? t('sidebar.empty.noMatch') : t('sidebar.inbox.empty', { space: spaceName })}</p>}
+        <Elsewhere shown={shownSpace} />
+      </>
+    )
+  }
+
+  // Work, by repository: each repository's workspaces under its heading, what needs you first; a line above them says
+  // how much waits in Inbox, so the mode never hides it.
+  const byRepository = () => {
+    const { groups, hiddenFinished } = repoGroups(input, view)
+    return (
+      <>
+        {spaceNeeds.length > 0 && !later && (
+          <ActionRow className="sb-row sidebar-strip" primaryProps={{ className: 'sb-row-main' }} onPress={() => pick('inbox')}>
+            <span className="sb-row-icon sidebar-strip-mark">
+              <Glyph name="warn" />
+            </span>
+            <span className="sb-row-line">{t('sidebar.inbox.strip', { count: spaceNeeds.length })}</span>
+          </ActionRow>
+        )}
+        {groups.map(({ repo, items }) => (
+          <SidebarSection
+            key={repo.id}
+            className="ws-group repo"
+            name={repo.name}
+            icon={repo.icon ? <RepoIconView icon={repo.icon} size={15} /> : <FolderGit2 size={15} />}
+            count={items.length}
+            needs={items.filter((x) => x.bucket === 'attention').length}
+            open={!foldedGroups.has(repoFoldKey(repo.id))}
+            onToggle={() => toggleSidebarGroup(repoFoldKey(repo.id))}
+            foldable={foldable}
+            actions={<RepoActions repo={repo} />}
+          >
+            <div className="ws-group-rows">{items.map((x) => row(laterLabel(x)))}</div>
+          </SidebarSection>
+        ))}
+        {groups.length === 0 && <p className="sidebar-empty">{workEmpty()}</p>}
+        {workLinks(hiddenFinished)}
+      </>
+    )
+  }
+
+  // Work, by state: needs you (with the decisions), comparisons and flow runs, working, the rest.
+  const byState = () => {
+    const grouped = sidebarGroups(input, view)
+    const { compares, hiddenFinished } = grouped
+    const groups = grouped.groups.map((g) => ({ ...g, items: g.items.map(laterLabel) }))
+    const extra = later ? [] : decisions
+    const listed = extra.length && !groups.some((g) => g.bucket === 'attention') ? [{ bucket: 'attention' as const, items: [] as Triage[] }, ...groups] : groups
+    const compareViews = compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} folded={foldedGroups.has(compareFoldKey(c.id))} foldable={foldable} />)
+    return (
+      <>
+        {listed.map((group) => {
+          const count = group.items.length + (group.bucket === 'attention' ? extra.length : 0)
+          return (
+            <Fragment key={group.bucket}>
+              {/* Folded, Needs your attention says ▲ and its count on its heading, so what waits is never out of sight. */}
+              <SidebarSection
+                className={`ws-group ${group.bucket}`}
+                name={t(BUCKET_LABEL[group.bucket])}
+                count={count}
+                needs={group.bucket === 'attention' ? count : 0}
+                open={!foldedGroups.has(group.bucket)}
+                onToggle={() => toggleSidebarGroup(group.bucket)}
+                foldable={foldable}
+              >
+                <div className="ws-group-rows">{group.bucket === 'attention' ? waitingRows(group.items, extra) : group.items.map((x) => row(x))}</div>
+              </SidebarSection>
+              {group.bucket === 'attention' && compareViews}
+            </Fragment>
+          )
+        })}
+        {!listed.some((g) => g.bucket === 'attention') && compareViews}
+        {listed.length === 0 && compares.length === 0 && <p className="sidebar-empty">{workEmpty()}</p>}
+        {workLinks(hiddenFinished)}
+      </>
+    )
+  }
+  const workEmpty = () => (query ? t('sidebar.empty.noMatch') : later ? t('sidebar.empty.later') : snapshot.repos.length ? t('sidebar.empty.noWorkspaces') : t('sidebar.empty.noRepos'))
+  const workLinks = (hiddenFinished: number) => (
+    <>
+      {later ? (
+        <LinkButton size="sm" className="sidebar-more" onClick={() => setSidebarFilter('all')}>
+          {t('sidebar.later.back')}
+        </LinkButton>
+      ) : (
+        laterCount > 0 && (
+          <LinkButton size="sm" className="sidebar-more" onClick={() => setSidebarFilter('later')}>
+            {t('later.link', { count: laterCount })}
+          </LinkButton>
+        )
+      )}
+      {hiddenFinished > 0 && (
+        <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
+          {t('sidebar.showFinished', { count: hiddenFinished })}
+        </LinkButton>
+      )}
+      {view.showFinished && !later && !query && spaceTriage.some((x) => x.bucket === 'finished') && (
+        <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
+          {t('sidebar.hideFinished')}
+        </LinkButton>
+      )}
+    </>
+  )
+
   return (
     <aside className="sidebar" aria-label={t('sidebar.label')}>
       {resize && list && <ResizeHandle panel={resize} edge={side === 'right' ? 'left' : 'right'} label={t('sidebar.resize')} />}
@@ -858,19 +814,24 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
           </>
         )}
       </div>
-      <div className="sidebar-body">
-        {views ? (
-          <div className="rail-column">
-            {views}
-            <RepoRail counts={counts} repos={snapshot.repos} add={list ? undefined : { repoId: newRepoId }} />
-          </div>
-        ) : (
-          <RepoRail counts={counts} repos={snapshot.repos} folded={folded && !list ? need.counts : undefined} add={list ? undefined : { repoId: newRepoId }} />
-        )}
+      <Tabs variant="rail" value={mode} onChange={pick} className="sidebar-body">
+        <div className="sidebar-rail">
+          {views}
+          <SpaceTiles />
+          <span className="rail-divider" aria-hidden />
+          {/* The list is hidden (folded, or the Editor layout's other views): the one + stays reachable here, by the work. */}
+          {!list && (
+            <span className="rail-item">
+              <NewMenu repoId={newRepoId} rail />
+            </span>
+          )}
+          <ModeTabs modes={modes} waiting={{ inbox: spaceNeeds.length, channels: channelWaits }} />
+          <RailTools />
+        </div>
         {list && (
           <div className="sidebar-panel">
-            {/* The top row: the space switcher (docs/ai-employees.md §10), the picked repository's settings, Automations,
-                the Assistant and ⌕; the one + at its end. While Find is open, its box takes the row's place up to the +. */}
+            {/* The top row: the space and the mode, Group by (Work), ⌕ (Inbox and Work), and the one + at its end. While
+                Find is open, its box takes the row's place up to the +. */}
             <div className="sidebar-top">
               {findOpen ? (
                 <div className="sidebar-search">
@@ -909,136 +870,104 @@ export function Sidebar({ resize, side = 'left', views, list = true, folded }: {
                 </div>
               ) : (
                 <>
-                  <SpaceSwitcher line={headingLine} />
-                  {repo && (
-                    <IconButton label={t('sidebar.repoSettings')} onClick={() => openSettingsPage({ section: 'repo', repoId: repo.id })}>
-                      <Settings size={14} />
+                  <h2 className="sidebar-title">
+                    <span className="sidebar-title-space">{spaceName}</span>
+                    <span className="sidebar-title-mode">{t(SIDEBAR_MODE_LABEL[mode])}</span>
+                  </h2>
+                  {mode === 'work' && (
+                    <MenuButton look="icon" iconOnly small portal label={t('sidebar.groupBy')} trigger={<Layers size={14} aria-hidden />}>
+                      <MenuGroup label={t('sidebar.groupBy')}>
+                        <MenuRadioItem checked={view.groupBy !== 'state'} onSelect={() => setSidebarGroupBy('repository')}>
+                          {t('sidebar.groupBy.repository')}
+                        </MenuRadioItem>
+                        <MenuRadioItem checked={view.groupBy === 'state'} onSelect={() => setSidebarGroupBy('state')}>
+                          {t('sidebar.groupBy.state')}
+                        </MenuRadioItem>
+                      </MenuGroup>
+                    </MenuButton>
+                  )}
+                  {finds && (
+                    <IconButton ref={findButton} label={t('sidebar.find')} onClick={() => setFinding(true)}>
+                      <Search size={15} />
                     </IconButton>
                   )}
-                  <AutomationsEntry />
-                  <AssistantEntry />
-                  <IconButton ref={findButton} label={t('sidebar.find')} onClick={() => setFinding(true)}>
-                    <Search size={15} />
-                  </IconButton>
                 </>
               )}
               <NewMenu repoId={newRepoId} />
             </div>
-            <div className="sidebar-scroll">
-              {/* An organization's employees and channels (docs/ai-employees.md §10, §15), only while it is the space shown.
-                  While Find has text they step aside, so the matches are at the top. */}
-              {!query && (
-                <>
-                  <TeamSection />
-                  <ProjectsSection />
-                </>
-              )}
-              {/* The filters, each with its count (▲ what needs you, what runs). */}
-              <Tabs className="sidebar-filters" data-tour="needs-you" variant="pill" value={filter} onChange={(id) => setSidebarFilter(id as SidebarFilter)}>
-                <TabList label={t('sidebar.filter.label')}>
-                  {tabs.map((id) => {
-                    const n = tabCount(id)
-                    return (
-                      <Tab key={id} value={id} aria-label={n ? t('sidebar.tabCount', { label: t(VIEW_LABEL[id]), count: n }) : undefined}>
-                        {t(VIEW_LABEL[id])}
-                        {n > 0 && (
-                          <span className={`sidebar-tab-count ${id === 'needs-you' ? 'warn' : ''}`} aria-hidden>
-                            {id === 'needs-you' && <Glyph name="warn" />}
-                            {n}
-                          </span>
-                        )}
-                      </Tab>
-                    )
-                  })}
-                </TabList>
-              </Tabs>
-              {anyUnread && (
+            <TabPanel value={mode} className={`sidebar-scroll sidebar-${mode}`}>
+              {finds && anyUnread && (
                 <div className="sidebar-actions">
                   <LinkButton size="sm" onClick={markAllRead}>
                     {t('sidebar.markAllRead')}
                   </LinkButton>
                 </div>
               )}
-              {listed.map((group) => {
-                const count = group.items.length + (group.bucket === 'attention' ? extraRows.length : 0)
-                return (
-                  <Fragment key={group.bucket}>
-                    {/* Folded, Needs your attention says ▲ and its count on its heading, so what waits is never out of sight. */}
-                    <SidebarSection
-                      className={`ws-group ${group.bucket}`}
-                      name={t(BUCKET_LABEL[group.bucket])}
-                      count={count}
-                      needs={group.bucket === 'attention' ? count : 0}
-                      open={!foldedGroups.has(group.bucket)}
-                      onToggle={() => toggleSidebarGroup(group.bucket)}
-                      foldable={foldable}
-                    >
-                      <div className="ws-group-rows">
-                        {group.bucket === 'attention'
-                          ? attentionRows(group.items)
-                          : group.items.map((t) => <WorkspaceRow key={t.ws.id} t={t} index={order.indexOf(t.ws.id)} repo={repoId ? undefined : repoById.get(t.ws.repoId)} />)}
-                      </div>
-                    </SidebarSection>
-                    {group.bucket === 'attention' &&
-                      compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} folded={foldedGroups.has(compareFoldKey(c.id))} foldable={foldable} />)}
-                  </Fragment>
-                )
-              })}
-              {!listed.some((g) => g.bucket === 'attention') &&
-                compares.map((c) => <CompareGroupView key={c.id} section={c} order={order} repoId={repoId} repoById={repoById} folded={foldedGroups.has(compareFoldKey(c.id))} foldable={foldable} />)}
-              {listed.length === 0 && compares.length === 0 && (
-                <div className="sidebar-empty">
-                  {view.query
-                    ? t('sidebar.empty.noMatch')
-                    : filter !== 'all'
-                      ? t(EMPTY[filter])
-                      : snapshot.repos.length
-                        ? t('sidebar.empty.noWorkspaces')
-                        : t('sidebar.empty.noRepos')}
-                </div>
-              )}
-              {laterCount > 0 && filter !== 'later' && !tabs.includes('later') && (
-                <LinkButton size="sm" className="sidebar-more" onClick={() => setSidebarFilter('later')}>
-                  {t('later.link', { count: laterCount })}
-                </LinkButton>
-              )}
-              {hiddenFinished > 0 && (
-                <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
-                  {t('sidebar.showFinished', { count: hiddenFinished })}
-                </LinkButton>
-              )}
-              {view.showFinished && filter === 'all' && !view.query && scoped.some((t) => t.bucket === 'finished') && (
-                <LinkButton size="sm" className="sidebar-more" onClick={toggleShowFinished}>
-                  {t('sidebar.hideFinished')}
-                </LinkButton>
-              )}
-            </div>
+              {mode === 'inbox' && inbox()}
+              {mode === 'work' && (view.groupBy === 'state' ? byState() : byRepository())}
+              {mode === 'team' && <TeamList />}
+              {mode === 'channels' && <ChannelList />}
+            </TabPanel>
             <UpdateNotice />
             <SttChip />
             <KeepAwakeChip />
-            {/* One line: resource usage, Archived as its icon and count (its name says the word), the version. Import… is in
-                the + menu. */}
-            <footer className="sidebar-footer">
-              <ResourceUsage />
-              {archived > 0 ? (
-                <Button variant="ghost" size="sm" icon={<Archive size={13} />} aria-label={t('sidebar.archivedCount', { count: archived })} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
-                  {archived}
-                </Button>
-              ) : (
-                <IconButton label={t('sidebar.archived')} onClick={() => openOverlay('archived')}>
-                  <Archive size={13} />
-                </IconButton>
-              )}
-              {/* The running version, always in sight; Settings → General has it in full with Check now. */}
-              {snapshot.appVersion && (
-                <Button variant="ghost" size="sm" className="sidebar-version" onClick={() => openSettingsPage({ section: 'general', scrollTo: 'check-for-updates' })} title={t('sidebar.version.title', { version: snapshot.appVersion })}>
-                  {t('sidebar.version', { version: snapshot.appVersion })}
-                </Button>
-              )}
-            </footer>
+            <SidebarFooter archived={archived} />
           </div>
         )}
-      </div>
+      </Tabs>
     </aside>
+  )
+}
+
+/** Under Inbox: what waits in the other spaces, each a link to that space's Inbox. Nothing when nothing does. */
+function Elsewhere({ shown }: { shown: string | null }) {
+  const t = useT()
+  const organizations = useStore((s) => s.snapshot!.organizations) ?? []
+  const { counts } = useNeedsYou()
+  if (!spacesOn(organizations)) return null
+  const others = [{ id: null as string | null, name: t('spaces.personal') }, ...organizations.map((o) => ({ id: o.id as string | null, name: o.name }))].filter((s) => s.id !== shown && (counts.bySpace.get(s.id) ?? 0) > 0)
+  if (!others.length) return null
+  return (
+    <div className="sidebar-elsewhere">
+      <span className="sidebar-elsewhere-label">{t('sidebar.inbox.elsewhere')}</span>
+      {others.map((s) => {
+        const n = counts.bySpace.get(s.id) ?? 0
+        return (
+          <LinkButton key={s.id ?? 'personal'} size="sm" aria-label={t('sidebar.rail.needYou', { label: s.name, count: n })} onClick={() => setSpace(s.id, { home: false })}>
+            {s.name}
+            <span className="sidebar-elsewhere-need" aria-hidden>
+              <Glyph name="warn" />
+              {n}
+            </span>
+          </LinkButton>
+        )
+      })}
+    </div>
+  )
+}
+
+/** The list's foot, as before: resource usage (while Settings → Experimental turns it on), Archived and its count, the version. */
+function SidebarFooter({ archived }: { archived: number }) {
+  const t = useT()
+  const version = useStore((s) => s.snapshot!.appVersion)
+  return (
+    <footer className="sidebar-footer">
+      <ResourceUsage />
+      {archived > 0 ? (
+        <Button variant="ghost" size="sm" icon={<Archive size={13} />} aria-label={t('sidebar.archivedCount', { count: archived })} onClick={() => openOverlay('archived')} title={t('sidebar.archived.title')}>
+          {archived}
+        </Button>
+      ) : (
+        <IconButton label={t('sidebar.archived')} onClick={() => openOverlay('archived')}>
+          <Archive size={13} />
+        </IconButton>
+      )}
+      {/* The running version, always in sight; Settings → General has it in full with Check now. */}
+      {version && (
+        <Button variant="ghost" size="sm" className="sidebar-version" onClick={() => openSettingsPage({ section: 'general', scrollTo: 'check-for-updates' })} title={t('sidebar.version.title', { version })}>
+          {t('sidebar.version', { version })}
+        </Button>
+      )}
+    </footer>
   )
 }

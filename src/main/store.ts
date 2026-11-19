@@ -187,7 +187,7 @@ export function defaultSettings(): Settings {
     codexApprovals: 'always',
     theme: 'system',
     zoom: 1,
-    coloredSidebarDiffs: false,
+    coloredSidebarDiffs: true,
     colorVision: 'default',
     monoFont: 'Geist Mono',
     codeLigatures: true,
@@ -252,7 +252,7 @@ export function defaultSettings(): Settings {
     autoPermissionMode: false,
     autoRunAfterSetup: false,
     forkToNewTab: true,
-    showResourceUsage: false,
+    showResourceUsage: true,
     // Flows are an experiment: off until the person here turns them on (a repository can't).
     flows: false,
     replayTraffic: false,
@@ -362,6 +362,18 @@ function migrate(state: PersistedState, raw: Record<string, unknown>): Session[]
   if (!state.migrations.includes('codex-full-access')) {
     if (state.settings.codexApprovals === 'sandboxed') state.settings.codexApprovals = 'always'
     state.migrations.push('codex-full-access')
+  }
+  // The sidebar's +/− counts were grey unless picked; green and red is the default now, and off was nobody's choice
+  // (the old default), so move to it once. Turning it off later sticks.
+  if (!state.migrations.includes('colored-sidebar-diffs')) {
+    state.settings.coloredSidebarDiffs = true
+    state.migrations.push('colored-sidebar-diffs')
+  }
+  // The sidebar's footer line (CPU, memory, and what the workspaces use) shows by default now; off was the old default,
+  // so move to it once. Turning it off later (Settings → Experimental) sticks.
+  if (!state.migrations.includes('show-resource-usage')) {
+    state.settings.showResourceUsage = true
+    state.migrations.push('show-resource-usage')
   }
   // Template lists are saved whole, so a default added later reaches existing users only this way.
   if (!state.migrations.includes('issue-template')) {

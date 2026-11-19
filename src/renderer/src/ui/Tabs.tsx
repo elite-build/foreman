@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react'
 import { nextIndex } from './keys'
 
-export type TabsVariant = 'underline' | 'pill' | 'chat'
+export type TabsVariant = 'underline' | 'pill' | 'chat' | 'rail'
 
 type TabsContextValue = {
   base: string
@@ -30,7 +30,8 @@ const join = (...parts: (string | false | undefined)[]) => parts.filter(Boolean)
 export type TabsProps = Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> & {
   value: string
   onChange: (value: string) => void
-  // underline: settings pages; pill: filters in a bordered track; chat: closable, browser-style tabs.
+  // underline: settings pages; pill: filters in a bordered track; chat: closable, browser-style tabs; rail: a narrow
+  // column of modes, each an icon over its name (the sidebar's rail; use with a vertical TabList).
   variant?: TabsVariant
   ref?: Ref<HTMLDivElement>
 }

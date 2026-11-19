@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-// The workspace in a narrow window or at 200% zoom (narrowLayout.ts), as the view draws it. Above 1012 px nothing
+// The workspace in a narrow window or at 200% zoom (narrowLayout.ts), as the view draws it. Above 1060 px nothing
 // changes. Under it the header shows the list folded to the rail and offers it back (⌘B), Compare, Export, Hand off and
 // Open in move into one More menu, and the Note bar is a chip in the tab strip. Under 700 px of the workspace's own width
-// the side panel isn't beside the chat: a "Changes 3" button opens it as a sheet. The sidebar's rail carries the space
-// switcher and the Team row only while the list is folded.
+// the side panel isn't beside the chat: a "Changes 3" button opens it as a sheet. The sidebar's rail has the spaces and
+// the modes at every width, and the one + too while the list is folded away.
 import './domShims'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -115,7 +115,7 @@ const header = () => screen.getByRole('heading', { name: 'lisbon' }).closest('he
 // Found by its class: hidden, it has no accessible name to find it by.
 const sidePanel = () => document.querySelector<HTMLElement>('aside.side-panel')!
 
-describe('a workspace above 1012 px', () => {
+describe('a workspace above 1060 px', () => {
   it('is as it was: the header’s own buttons, the side panel beside the chat and its toggle, the Note bar', async () => {
     width(1200)
     setUp()
@@ -238,7 +238,7 @@ function setUpSpace() {
     unread: {},
     unreadSessions: {},
     sidebarView: { repo: null, query: '', filter: 'all', showFinished: false },
-    railNames: false,
+    sidebarMode: 'work',
     space: 'o1',
     employeesView: null
   })
@@ -262,56 +262,49 @@ function setUpSpace() {
 }
 
 describe('the rail with the list folded', () => {
-  it('carries the space switcher, as the space’s initial opening the same menu, and Team, opening the Team page', async () => {
+  it('has the spaces and the modes, so every space and mode stays one click away; picking a mode asks for the list', async () => {
     const user = userEvent.setup()
     setUpSpace()
     render(<Sidebar list={false} folded />)
-    const rail = screen.getByRole('navigation', { name: 'Repositories' })
-    const space = within(rail).getByRole('button', { name: 'Space: Acme' })
-    expect(space.textContent).toBe('A')
-    await user.click(space)
-    const menu = screen.getByRole('menu', { name: 'Spaces' })
-    expect(within(menu).getAllByRole('menuitemradio').map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'true'])
-    await user.keyboard('{Escape}')
-    await user.click(within(rail).getByRole('button', { name: 'Team' }))
-    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
-    // The list itself stays folded away.
-    expect(screen.queryByRole('searchbox')).toBeNull()
+    const spaces = screen.getByRole('navigation', { name: 'Spaces' })
+    const acme = within(spaces).getByRole('button', { name: 'Acme' })
+    expect(acme.textContent).toBe('A')
+    expect(acme.getAttribute('aria-pressed')).toBe('true')
+    const modes = screen.getByRole('tablist', { name: 'Sidebar' })
+    expect(within(modes).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Inbox', 'Work', 'Team', 'Channels'])
+    await user.click(within(modes).getByRole('tab', { name: 'Team' }))
+    // The store shows the list beside the rail when a mode is picked in a narrow window (setSidebarMode).
+    expect(spy('setSidebarMode')).toHaveBeenCalledWith('team')
+    // The list itself stays folded away: no panel, no Find.
+    expect(screen.queryByRole('tabpanel')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Find' })).toBeNull()
   })
 
-  it('carries the one + and the Automations icon, since the top row they live in is folded away', async () => {
+  it('carries the one +, by the modes, and Automations at its foot, since the top row is folded away', async () => {
     const user = userEvent.setup()
     setUpSpace()
     render(<Sidebar list={false} folded />)
-    const rail = screen.getByRole('navigation', { name: 'Repositories' })
-    // Space, +, Team lead the rail; Automations comes after the repositories.
-    const names = within(rail)
-      .getAllByRole('button')
-      .map((b) => b.getAttribute('aria-label') ?? '')
-    expect(names.slice(0, 3)).toEqual(['Space: Acme', 'New', 'Team'])
-    expect(names.some((n) => n.startsWith('Automations'))).toBe(true)
-    await user.click(within(rail).getByRole('button', { name: 'New' }))
+    const rail = document.querySelector('.sidebar-rail') as HTMLElement
+    const add = within(rail).getByRole('button', { name: 'New' })
+    expect(add.compareDocumentPosition(screen.getByRole('tablist', { name: 'Sidebar' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(rail).getByRole('button', { name: /^Automations/ })).toBeTruthy()
+    await user.click(add)
     expect(screen.getByRole('menuitem', { name: /New workspace/ }).textContent).toContain('in site')
     expect(screen.getByRole('menuitem', { name: /New organization…/ })).toBeTruthy()
   })
 
-  it('has none of them while the list shows beside it (the top row and the Team section are there instead)', () => {
+  it('has one + while the list shows beside it: the top row’s', () => {
     setUpSpace()
     render(<Sidebar />)
-    const rail = screen.getByRole('navigation', { name: 'Repositories' })
-    expect(within(rail).queryByRole('button', { name: /^Space:/ })).toBeNull()
-    expect(within(rail).queryByRole('button', { name: /^Team/ })).toBeNull()
-    expect(within(rail).queryByRole('button', { name: 'New' })).toBeNull()
-    expect(within(rail).queryByRole('button', { name: /^Automations/ })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Space: Acme' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1)
+    expect((document.querySelector('.sidebar-top') as HTMLElement).contains(screen.getByRole('button', { name: 'New' }))).toBe(true)
   })
 
-  it('has no Team tile in Personal, where there is no team', () => {
+  it('has no Team or Channels in Personal, where there is no team', () => {
     setUpSpace()
     fakeState.space = null
     render(<Sidebar list={false} folded />)
-    const rail = screen.getByRole('navigation', { name: 'Repositories' })
-    expect(within(rail).getByRole('button', { name: 'Space: Personal' })).toBeTruthy()
-    expect(within(rail).queryByRole('button', { name: /^Team/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Personal' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('tab', { name: /^Team|^Channels/ })).toBeNull()
   })
 })

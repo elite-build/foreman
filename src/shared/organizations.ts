@@ -4,7 +4,7 @@
 import { parseWorkLimits, type WorkLimits } from './employeeBroker'
 import { isEmployeeId } from './memory'
 import { joinWorkspace } from './openIn'
-import type { AppSnapshot, Repo } from './types'
+import type { AppSnapshot, Repo, RepoIcon } from './types'
 
 export interface Organization {
   id: string
@@ -24,6 +24,9 @@ export interface Organization {
   // The remote its memory repository is pushed to after each commit (Settings → Spaces → Link to GitHub). Absent: the
   // memory stays on this computer.
   memoryLink?: MemoryLink
+  // Its mark on the sidebar's rail and in Settings → Spaces: a Lucide icon, an emoji or a small image, as a repository's
+  // icon is (Settings → Spaces). Absent: its repository of the same name lends its icon (spaceIcon), else its initial.
+  icon?: RepoIcon
   // Only in createOrganization's answer: why its program manager couldn't be made (the organization was). Never saved.
   teamProblem?: string
   createdAt: string
@@ -231,7 +234,7 @@ export function parseOrganizations(value: unknown): Organization[] {
   const out: Organization[] = []
   for (const entry of value as Record<string, unknown>[]) {
     if (!entry || typeof entry !== 'object') continue
-    const { id, name, memoryRepoId, leadEmployeeId, workLimits, programManagerId, folder, memoryLink, createdAt } = entry
+    const { id, name, memoryRepoId, leadEmployeeId, workLimits, programManagerId, folder, memoryLink, icon, createdAt } = entry
     if (typeof id !== 'string' || !id || typeof name !== 'string' || !name.trim() || typeof createdAt !== 'string') continue
     if (out.some((o) => o.id === id)) continue
     const limits = parseWorkLimits(workLimits)
@@ -244,10 +247,36 @@ export function parseOrganizations(value: unknown): Organization[] {
       ...(typeof programManagerId === 'string' && isEmployeeId(programManagerId) ? { programManagerId } : {}),
       ...(typeof folder === 'string' && folder.trim() ? { folder } : {}),
       ...(parseMemoryLink(memoryLink) ? { memoryLink: parseMemoryLink(memoryLink) } : {}),
+      ...(parseSpaceIcon(icon) ? { icon: parseSpaceIcon(icon) } : {}),
       createdAt
     })
   }
   return out
+}
+
+/** The largest image an icon may be, as a data URL (64px PNGs are a few KB; this leaves room and refuses a photo). */
+const MAX_ICON_DATA_URL = 200_000
+
+/** An icon as saved, or undefined when it isn't one: a Lucide name, an emoji, or a small image data URL. */
+export function parseSpaceIcon(value: unknown): RepoIcon | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const icon = value as Record<string, unknown>
+  if (icon.kind === 'lucide' && typeof icon.name === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(icon.name)) return { kind: 'lucide', name: icon.name }
+  if (icon.kind === 'emoji' && typeof icon.value === 'string' && icon.value.trim() && icon.value.length <= 16) return { kind: 'emoji', value: icon.value }
+  if (icon.kind === 'image' && typeof icon.dataUrl === 'string' && /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,/.test(icon.dataUrl) && icon.dataUrl.length <= MAX_ICON_DATA_URL) {
+    return { kind: 'image', dataUrl: icon.dataUrl }
+  }
+  return undefined
+}
+
+/**
+ * What an organization's tile shows: its own icon, else the icon of its repository of the same name (an organization
+ * called "foreman" takes the foreman repository's), else nothing (the tile shows its initial).
+ */
+export function spaceIcon(organization: Pick<Organization, 'id' | 'name' | 'icon'>, repos: readonly Pick<Repo, 'name' | 'spaceId' | 'icon'>[]): RepoIcon | undefined {
+  if (organization.icon) return organization.icon
+  const name = organization.name.trim().toLocaleLowerCase()
+  return repos.find((r) => r.spaceId === organization.id && r.icon && r.name.trim().toLocaleLowerCase() === name)?.icon
 }
 
 function parseMemoryLink(value: unknown): MemoryLink | undefined {

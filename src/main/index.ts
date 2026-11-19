@@ -42,7 +42,7 @@ import type { TrayAction, TrayView } from '../shared/attention'
 import { mainT, setSystemLanguages } from './i18n'
 import { frameMayNavigate, PREVIEW_SCHEME } from '../shared/preview'
 import { VISIBILITY_EVENTS, WindowVisibility } from './windowVisibility'
-import { blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
+import { addDemoOrganization, blockNetwork, runScreens, screenshotRoot, SCREENSHOTS, screensSwitches, seedScreens } from './screenshots'
 import { claimDemoFolder, DEMO, demoDataDir, DEMO_RESET, demoFolder, seedDemo } from './demo'
 import { registerDemoAgents, startDemoRun } from './demoRun'
 import { configureReplay } from './agents/fixtures/replayDriver'
@@ -470,10 +470,18 @@ async function main(): Promise<void> {
   // A seeding that fails says why and quits; the next launch starts it again.
   if (demoRoot && demoSeed) {
     try {
-      await seedDemo(demoRoot, (root, dataDir) => seedScreens(root, dataDir, { flows: true, terminalShell: 'auto' }))
+      await seedDemo(demoRoot, (root, dataDir) => seedScreens(root, dataDir, { flows: true, terminalShell: 'auto' }, { demo: true }))
     } catch (err) {
       console.error(`[demo] Could not seed the demo data: ${err instanceof Error ? err.message : String(err)}`)
       return app.exit(1)
+    }
+  } else if (demoRoot) {
+    // A demo kept from before Acme was in the fixture gains it, and keeps what the person did in it.
+    try {
+      if (await addDemoOrganization(demoRoot, demoDataDir(demoRoot))) console.log('[demo] Added the Acme organization to the kept demo.')
+    } catch (err) {
+      // The demo opens as it was; `npm run dev demo reset` seeds it whole.
+      console.error(`[demo] Could not add the Acme organization: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
   const store = new Store(app.getPath('userData'))

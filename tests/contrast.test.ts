@@ -314,6 +314,21 @@ describe('design tokens (ui/tokens.css)', () => {
     expect(failures).toEqual([])
   })
 
+  // The state marks (ui/Glyph) are non-text indicators too: 3:1 on every surface, so in light mode they can be brighter
+  // than the text colours, which need 4.5:1.
+  it.each(MODES)('each state mark is 3:1 on every surface ($label)', ({ theme, vision }) => {
+    const get = tokensFor(layers, theme, vision)
+    const failures: string[] = []
+    for (const surface of [...EDGE_SURFACES, '--selected-bg']) {
+      const bg = colourOf(get, surface)
+      for (const mark of ['--mark-ok', '--mark-error', '--mark-warn', '--mark-info']) {
+        const ratio = contrast(over(colourOf(get, mark), bg), bg)
+        if (ratio < 3) failures.push(`${mark} on ${surface}: ${ratio.toFixed(2)}`)
+      }
+    }
+    expect(failures).toEqual([])
+  })
+
   it.each(MODES)('a selected edge and mark are 3:1 on every surface, a check is 3:1 on its fill ($label)', ({ theme, vision }) => {
     const get = tokensFor(layers, theme, vision)
     const failures: string[] = []

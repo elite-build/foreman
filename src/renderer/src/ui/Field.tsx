@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, type ReactNode, type Ref, type RefObject } from 'react'
+import { Glyph } from './Glyph'
 
 // What a control needs to be wired to its label, help text and error. Passed by explicit binding (spread
 // `controlProps` onto the control), not by React context, so a missed binding is visible at the call site.
@@ -73,9 +74,7 @@ export function Field({ label, hideLabel, description, error, className, childre
       {children(field.controlProps)}
       {hasError && (
         <p className="ui-field__error" role="alert" {...field.errorProps}>
-          <svg className="ui-glyph" data-glyph="error" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
-            <path d="M6 .6 11.4 6 6 11.4.6 6z" fill="currentColor" />
-          </svg>
+          <Glyph name="error" />
           <span>{error}</span>
         </p>
       )}

@@ -34,6 +34,12 @@
   --red: #ee7a72;
   --amber: #e5b55d;
   --blue: #7fa9e8;
+  /* The state marks (ui/Glyph: dots, the ring, the cross, the square). They aren't text, so 3:1 is their floor and they
+     can be brighter than the text colours above; here (dark) they are those colours. */
+  --mark-ok: var(--green);
+  --mark-error: var(--red);
+  --mark-warn: var(--amber);
+  --mark-info: var(--blue);
   --add-bg: color-mix(in srgb, var(--green) 9%, transparent);
   --del-bg: color-mix(in srgb, var(--red) 9%, transparent);
   --amber-bg: color-mix(in srgb, var(--amber) 9%, transparent);
@@ -164,6 +170,11 @@
     --red: #ac332b;
     --amber: #83550e;
     --blue: #2a5dac;
+    /* Brighter than the text colours (which need 4.5:1), each 3:1 or more on every light surface. */
+    --mark-ok: #1a8f4d;
+    --mark-error: #d93c32;
+    --mark-warn: #b07208;
+    --mark-info: #3576dc;
     --add-bg: color-mix(in srgb, var(--green) 8%, transparent);
     --del-bg: color-mix(in srgb, var(--red) 8%, transparent);
     --amber-bg: color-mix(in srgb, var(--amber) 8%, transparent);
@@ -224,12 +235,17 @@
     --green: #075bbe;
     --red: #a14100;
     --amber: #755b00;
+    --mark-ok: var(--green);
+    --mark-error: var(--red);
+    --mark-warn: var(--amber);
     --danger: #bc4c00;
     --danger-hover: #a34200;
   }
   [data-color-vision='tritanopia'] {
     --green: #075bbe;
     --red: #b61e28;
+    --mark-ok: var(--green);
+    --mark-error: var(--red);
   }
 }
 

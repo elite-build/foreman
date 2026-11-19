@@ -34,7 +34,7 @@ Check for these on every screen; each has turned up in more than one place befor
 - **Mac symbols on Windows.** ⌘, ⌥, ⇧, ↵ or ⌫ in a label or tooltip on the Windows fixture. The fix is `formatChord` / `shortcutHint` in `shortcuts.ts`.
 - **Reasons only on hover.** A disabled control whose reason is only in a `title` tooltip, which a keyboard never reaches.
 - **State by colour alone.** A failed row that only turns red, a status shown only by a dot's colour. Pair it with a glyph from `ui/Glyph` or a word.
-- **Glyph meanings.** ▲ means "needs you" and ◆ means "failed" across the app; a screen that swaps them misleads.
+- **Glyph meanings.** ◉ (a ring around a dot) means "needs you" and a dot with a cross means "failed" across the app; a screen that swaps them misleads.
 - **Blank or jumping loads.** An empty panel while loading, controls that appear late and push the layout.
 - **The important part truncated.** The folder, reason or name that matters is the part cut off with "…".
 - **Said twice.** Two primary buttons for the same action, the same filter as a chip and a tab, the same sentence in two places.

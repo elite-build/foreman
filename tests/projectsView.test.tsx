@@ -14,10 +14,10 @@ import type { EmployeeSummary } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
 import type { Project, ProjectPlan } from '../src/shared/projects'
 import { EmployeesView } from '../src/renderer/src/components/employees/EmployeesView'
-import { ProjectsSection } from '../src/renderer/src/components/employees/ProjectsSection'
+import { ChannelList } from '../src/renderer/src/components/employees/ProjectsSection'
 import { OrgChannel } from '../src/renderer/src/components/employees/OrgChannel'
 import { ProjectPage } from '../src/renderer/src/components/employees/ProjectPage'
-import { TeamSection } from '../src/renderer/src/components/employees/TeamSection'
+import { TeamList } from '../src/renderer/src/components/employees/TeamSection'
 import { AddProgramManager } from '../src/renderer/src/components/employees/TeamRoles'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -89,27 +89,23 @@ function setSnapshot(projects: Project[] = [project()], members: EmployeeSummary
 
 beforeEach(() => {
   resetFake()
-  for (const name of ['openEmployees', 'openMemory', 'selectWorkspace', 'toggleProjectsOpen', 'openNewWorkspace']) spy(name).mockReset()
+  for (const name of ['openEmployees', 'openMemory', 'selectWorkspace', 'openNewWorkspace']) spy(name).mockReset()
   ;(storeModule.showToast as ReturnType<typeof vi.fn>).mockReset()
   fakeState.space = 'o1'
-  fakeState.projectsOpen = true
   fakeApi.memoryReadFile = vi.fn(async (_org: string, path: string) => ({ path, head: 'h1', blob: 'b', size: 10, binary: false, tooLarge: false, text: '## Build\n\nAdded toCsv().' }))
 })
 afterEach(() => {
   cleanup()
   fakeState.snapshot = original
   delete fakeState.space
-  delete fakeState.projectsOpen
-  delete fakeState.teamOpen
 })
 
-describe('the sidebar’s Channels row', () => {
+describe('the sidebar’s Channels mode', () => {
   it('lists the organization’s channel, then each project with its state, and opens each', async () => {
     const user = userEvent.setup()
     setSnapshot()
-    const { rerender } = render(<ProjectsSection />)
-    // Open, the heading says how many channels (#frlk and #csv-export); the rows say what waits.
-    expect(screen.getByRole('button', { name: 'Channels · 2' }).getAttribute('aria-expanded')).toBe('true')
+    render(<ChannelList />)
+    // The rows say what waits.
     const list = screen.getByRole('list', { name: 'Channels in FRLK' })
     expect(within(list).getByText('#frlk')).toBeTruthy()
     expect(within(list).getByText('@Priya starts a project')).toBeTruthy()
@@ -121,19 +117,17 @@ describe('the sidebar’s Channels row', () => {
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channel' })
     await user.click(within(list).getByText('#csv-export'))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'project', id: 'p1' })
-    // Folded, the heading says the plan waits on you, by ▲ and in words.
-    fakeState.projectsOpen = false
-    rerender(<ProjectsSection />)
-    expect(screen.getByRole('button', { name: 'Channels · 2 · 1 needs you' }).querySelector('[data-glyph="warn"]')).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: 'All channels' }))
+    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channels' })
   })
 
   it('says how to start one when there are none, and is absent in Personal', () => {
     setSnapshot([])
-    const first = render(<ProjectsSection />)
+    const first = render(<ChannelList />)
     expect(screen.getByText('No projects yet. Tag @Priya in the organization’s channel to start one.')).toBeTruthy()
     first.unmount()
     fakeState.space = null
-    render(<ProjectsSection />)
+    render(<ChannelList />)
     expect(screen.queryByRole('list', { name: 'Channels in FRLK' })).toBeNull()
   })
 })
@@ -407,12 +401,11 @@ describe('opening a channel', () => {
   })
 })
 
-describe('the Team section', () => {
-  // What waits for the person here (the plan) is on the sidebar's Needs you tab and the Channels heading, not a "You" row.
-  it('lists the employees alone, one hat each', () => {
+describe('the sidebar’s Team mode', () => {
+  // What waits for the person here (the plan) is in the sidebar's Inbox and its channel, not a "You" row.
+  it('lists the employees alone, one row each', () => {
     setSnapshot()
-    fakeState.teamOpen = true
-    render(<TeamSection />)
+    render(<TeamList />)
     const list = screen.getByRole('list', { name: 'Employees of FRLK' })
     expect(within(list).getAllByRole('listitem')).toHaveLength(3)
     expect(within(list).queryByText('You')).toBeNull()
@@ -471,7 +464,7 @@ describe('who is at work on a project now', () => {
     const p = working()
     setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
     withRuns([run({ state: 'running', startedAt: NOW })])
-    render(<ProjectsSection />)
+    render(<ChannelList />)
     const list = screen.getByRole('list', { name: 'Channels in FRLK' })
     expect(within(list).getByText('Ravi is working on “Build the export”')).toBeTruthy()
     expect(within(list).getByText('Working').closest('.ui-status')!.className).toContain('ui-status--busy')

@@ -81,12 +81,23 @@ type PickerTab = 'icons' | 'emoji' | 'favicon' | 'upload'
 
 export function RepoIconPicker({ repo }: { repo: Repo }) {
   const t = useT()
+  return <IconPicker icon={repo.icon} name={repo.name} repoId={repo.id} label={t('repoIcon.change')} dialog={t('repoIcon.dialog')} save={(icon) => saveRepo(repo.id, { icon })} />
+}
+
+/**
+ * The icon picker (Icons, Emoji, Favicon for a repository, Upload) behind a framed button showing the icon. `save` keeps
+ * the choice and says whether it was kept (the popover closes then). An organization's has no Favicon tab: it has no
+ * website of its own to read one from.
+ */
+export function IconPicker({ icon: current, name, repoId, label, dialog, save }: { icon?: RepoIcon; name: string; repoId?: string; label: string; dialog: string; save: (icon: RepoIcon | null) => Promise<boolean> }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<PickerTab>(repo.icon?.kind === 'emoji' ? 'emoji' : repo.icon?.kind === 'image' ? 'upload' : 'icons')
+  const [tab, setTab] = useState<PickerTab>(current?.kind === 'emoji' ? 'emoji' : current?.kind === 'image' ? 'upload' : 'icons')
   const close = () => setOpen(false)
+  const repo = { icon: current, name, id: repoId ?? '' }
 
   const pick = async (icon: RepoIcon | null) => {
-    if (await saveRepo(repo.id, { icon })) close()
+    if (await save(icon)) close()
   }
 
   return (
@@ -95,10 +106,10 @@ export function RepoIconPicker({ repo }: { repo: Repo }) {
       onOpenChange={setOpen}
       side="bottom"
       align="end"
-      label={t('repoIcon.dialog')}
+      label={dialog}
       panelClassName="repo-icon-popover"
       trigger={(pop) => (
-        <IconButton {...pop} variant="framed" className="repo-icon-button" label={t('repoIcon.change')}>
+        <IconButton {...pop} variant="framed" className="repo-icon-button" label={label}>
           <RepoIconView icon={repo.icon} name={repo.name} size={18} />
         </IconButton>
       )}
@@ -111,7 +122,7 @@ export function RepoIconPicker({ repo }: { repo: Repo }) {
           options={[
             { value: 'icons', label: t('repoIcon.tab.icons') },
             { value: 'emoji', label: t('repoIcon.tab.emoji') },
-            { value: 'favicon', label: t('repoIcon.tab.favicon') },
+            ...(repoId ? [{ value: 'favicon' as const, label: t('repoIcon.tab.favicon') }] : []),
             { value: 'upload', label: t('repoIcon.tab.upload') }
           ]}
         />
@@ -119,7 +130,7 @@ export function RepoIconPicker({ repo }: { repo: Repo }) {
       <div className="repo-icon-pane">
         {tab === 'icons' && <IconsTab current={repo.icon} onPick={(name) => void pick({ kind: 'lucide', name })} />}
         {tab === 'emoji' && <EmojiTab current={repo.icon} onPick={(value) => void pick({ kind: 'emoji', value })} />}
-        {tab === 'favicon' && <FaviconTab repoId={repo.id} current={repo.icon} onPick={(dataUrl) => void pick({ kind: 'image', dataUrl })} />}
+        {tab === 'favicon' && repoId && <FaviconTab repoId={repo.id} current={repo.icon} onPick={(dataUrl) => void pick({ kind: 'image', dataUrl })} />}
         {tab === 'upload' && <UploadTab current={repo.icon} onPick={(dataUrl) => void pick({ kind: 'image', dataUrl })} />}
       </div>
       {repo.icon && (

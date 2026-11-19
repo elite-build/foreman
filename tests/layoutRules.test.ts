@@ -34,7 +34,8 @@ describe('Settings → Views', () => {
   it('lays every row on one set of columns, so the header’s names sit over the switches', () => {
     // Each row was its own grid with an auto last column: empty in the header, two buttons wide below it.
     expect(declarations('components/settings/settings.css', '.set-views').display).toBe('grid')
-    expect(declarations('components/settings/settings.css', '.set-views.three')['grid-template-columns']).toMatch(/repeat\(3, 96px\)/)
+    expect(declarations('components/settings/settings.css', '.set-views')['grid-template-columns']).toMatch(/repeat\(2, 96px\)/)
+    expect(declarations('components/settings/settings.css', '.set-views.one')['grid-template-columns']).toMatch(/96px auto/)
     const row = declarations('components/settings/settings.css', '.set-views-row')
     expect(row['grid-template-columns']).toBe('subgrid')
     expect(row['grid-column']).toBe('1 / -1')
