@@ -82,8 +82,12 @@
   font-size: var(--text-md);
   font-weight: 650;
 }
-/* The one + (NewMenu, a primary MenuButton from ui/) when the list is hidden, and Automations and the Assistant: the
-   tiles' size. */
+/* New's + (NewMenu, a primary Button from ui/ that opens the list) when the list is hidden, and Automations and the
+   Assistant: the tiles' size. */
+/* The tour's wrapper round the rail's New: no box of its own. */
+.rail-add-wrap {
+  display: contents;
+}
 .sidebar-rail .rail-add,
 .sidebar-rail .rail-entry {
   position: relative;
@@ -199,20 +203,38 @@
   font-weight: 400;
   color: var(--text-muted);
 }
-.sidebar-add-wrap {
+/* New (NewMenu): a primary SplitButton (ui/) the width of the list, under the top row. Its main half's label truncates
+   before anything wraps; the key hint sits at its end. Layout only. */
+.sidebar-new {
   flex: none;
-  display: inline-flex;
-  margin-left: 2px;
+  display: flex;
+  padding: 0 8px 8px 12px;
 }
-/* The + is a primary MenuButton (ui/) the size of the icons beside it. */
-.sidebar-top .sidebar-add {
-  width: 26px;
-  height: 26px;
-  min-height: 0;
-  padding: 0;
-  justify-content: center;
+.sidebar-new .sidebar-new-split {
+  flex: 1;
+  min-width: 0;
 }
-/* Find, open: the box (a ui/TextInput) takes the row up to the +, with the magnifier and Clear inside it. The doubled
+.sidebar-new-split > .ui-btn:first-child {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 32px;
+}
+.sidebar-new-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.sidebar-new-hint {
+  flex: none;
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+/* Find, open: the box (a ui/TextInput) takes the row, with the magnifier and Clear inside it. The doubled
    selectors beat .ui-control. */
 .sidebar-search {
   flex: 1;

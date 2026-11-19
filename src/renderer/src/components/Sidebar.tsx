@@ -75,7 +75,7 @@ import { SpaceTiles } from './spaces/SpaceTiles'
 import { TeamList } from './employees/TeamSection'
 import { ChannelList } from './employees/ProjectsSection'
 import { SIDEBAR_MODE_LABEL, shownMode, sidebarModes, workView } from '../sidebarModes'
-import { currentSpace, newWorkspaceTarget, snapshotInSpace, spacesOn } from '../../../shared/organizations'
+import { currentSpace, snapshotInSpace, spacesOn } from '../../../shared/organizations'
 import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
 import { AutomationsEntry } from './automations/AutomationsEntry'
@@ -573,7 +573,7 @@ function RailTools() {
   )
 }
 
-/** A repository's heading in Work: ⋯ has its menu (a workspace in it, its settings, its path, remove). The one + stays the top row's. */
+/** A repository's heading in Work: ⋯ has its menu (a workspace in it, its settings, its path, remove). Making things is New's, under the top row. */
 function RepoActions({ repo }: { repo: Repo }) {
   const t = useT()
   const [removing, setRemoving] = useState(false)
@@ -627,8 +627,6 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
   // Archived work stays about everything, whichever space is shown.
   const archived = everything.snapshot.workspaces.filter((w) => w.state === 'archived').length
   const anyUnread = Object.keys(everything.unread).length > 0
-  // The same repository ⌘N opens on (App.tsx): never an organization's memory repository.
-  const newRepoId = newWorkspaceTarget(everything.snapshot, { space, picked: stored.repo, selectedWorkspaceId: selectedId })
   const order = sidebarOrder(input, view).map((w) => w.id)
   // Saved for later: reachable from a line under Work's list.
   useLaterWake()
@@ -819,10 +817,11 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
           {views}
           <SpaceTiles />
           <span className="rail-divider" aria-hidden />
-          {/* The list is hidden (folded, or the Editor layout's other views): the one + stays reachable here, by the work. */}
+          {/* The list is hidden (folded, or the Editor layout's other views): New stays reachable here, by the work, as one
+              button that opens the list of everything to make. */}
           {!list && (
             <span className="rail-item">
-              <NewMenu repoId={newRepoId} rail />
+              <NewMenu rail />
             </span>
           )}
           <ModeTabs modes={modes} waiting={{ inbox: spaceNeeds.length, channels: channelWaits }} />
@@ -830,8 +829,8 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
         </div>
         {list && (
           <div className="sidebar-panel">
-            {/* The top row: the space and the mode, Group by (Work), ⌕ (Inbox and Work), and the one + at its end. While
-                Find is open, its box takes the row's place up to the +. */}
+            {/* The top row: the space and the mode, Group by (Work) and ⌕ (Inbox and Work). While Find is open, its box
+                takes the row's place. Under it, New: the mode's own thing, and ▾ for everything else. */}
             <div className="sidebar-top">
               {findOpen ? (
                 <div className="sidebar-search">
@@ -893,8 +892,8 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
                   )}
                 </>
               )}
-              <NewMenu repoId={newRepoId} />
             </div>
+            <NewMenu />
             <TabPanel value={mode} className={`sidebar-scroll sidebar-${mode}`}>
               {finds && anyUnread && (
                 <div className="sidebar-actions">

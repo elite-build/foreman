@@ -1,82 +1,142 @@
-// The sidebar's one way to add anything: a + that opens a menu of every kind of thing there is to add. A workspace (Ctrl+N
-// still makes one at once), in an organization an employee and a channel, an automation, a repository (open, clone, quick
-// start, a recent folder), a workspace from a .foreman file, and an organization. It sits at the end of the sidebar's top
-// row, and on the rail when the list is folded away (a narrow window) or hidden.
-import { FileDown, GitBranch, Hash, Network, Plus, UserPlus, Zap } from 'lucide-react'
-import { currentSpace, spacesOn } from '../../../shared/organizations'
+// The sidebar's one way to add anything: a full-width split button under its top row. The main half makes what the mode
+// is about (Inbox and Work a workspace, Team an employee, Channels a project); the ▾ opens the list of everything there
+// is to make (NewList in Overlays.tsx, also Ctrl+Shift+N) in the middle of the window, the mode's own item first. When
+// the list is folded away (a narrow window) or hidden, one icon button on the rail opens the same list.
+import { Plus } from 'lucide-react'
+import { newWorkspaceTarget, snapshotInSpace, workspaceRepos } from '../../../shared/organizations'
 import { useT } from '../i18n'
 import { shortcutHint } from '../shortcuts'
-import { clientKind, modKey, openAutomations, openCreateOrganization, openEmployees, openImportDialog, openNewWorkspace, useStore } from '../store'
-import { MenuButton, MenuItem, MenuLabel, MenuSeparator, type MenuPlacement } from '../ui'
-import { AddRepoItems } from './AddRepository'
+import { SIDEBAR_MODE_LABEL, shownMode, shownOrganization, sidebarModes } from '../sidebarModes'
+import {
+  addRepository,
+  clientKind,
+  modKey,
+  openAddRepoDialog,
+  openAutomations,
+  openCreateOrganization,
+  openEmployees,
+  openImportDialog,
+  openNewWorkspace,
+  openOverlay,
+  openRecentRepo,
+  useStore,
+  type SidebarMode
+} from '../store'
+import { Button, SplitButton } from '../ui'
+import { tildify } from './AddRepository'
+
+/** One thing the list can make. `run` does it; the list closes itself first. */
+export interface NewRow {
+  id: string
+  label: string
+  detail?: string
+  group: string
+  hint?: string
+  // A recent folder: listed only once something is typed, so the resting list stays short.
+  recent?: boolean
+  run: () => void
+}
 
 /**
- * `repoId`: the repository a new workspace goes in (the one Ctrl+N uses, newWorkspaceTarget), undefined when there is none
- * to work in. `rail`: drawn as the rail's tile, its menu opening beside it.
+ * What there is to make in the space shown, ordered by the sidebar's mode: its own item first (`primary`, what the
+ * button's main half does), then the rest of the space, then the ways to bring something into Foreman.
  */
-export function NewMenu({ repoId, rail }: { repoId: string | undefined; rail?: boolean }) {
+export function useNewRows(): { primary: NewRow; rows: NewRow[]; mode: SidebarMode } {
   const t = useT()
   const snapshot = useStore((s) => s.snapshot!)
-  const wanted = useStore((s) => s.space)
-  const organizations = snapshot.organizations ?? []
-  // Employees and channels belong to an organization with a memory repository, while it is the space shown.
-  const org = spacesOn(organizations) ? organizations.find((o) => o.id === currentSpace(organizations, wanted) && o.memoryRepoId) : undefined
+  const space = useStore((s) => s.space)
+  const picked = useStore((s) => s.sidebarView.repo)
+  const selectedWorkspaceId = useStore((s) => s.selectedWorkspaceId)
+  const wantedMode = useStore((s) => s.sidebarMode)
+  const mode = shownMode(wantedMode, sidebarModes(snapshot, space))
+  // Employees and projects belong to an organization with a memory repository, while it is the space shown.
+  const org = shownOrganization(snapshot, space)
   const pm = org?.programManagerId ? snapshot.employees?.[org.id]?.employees.find((e) => e.id === org.programManagerId) : undefined
-  const repo = repoId ? snapshot.repos.find((r) => r.id === repoId) : undefined
+  const repoId = newWorkspaceTarget(snapshot, { space, picked, selectedWorkspaceId })
+  const repos = workspaceRepos(snapshotInSpace(snapshot, space).repos, snapshot.organizations)
   const key = shortcutHint('workspace.new', snapshot.platform) ?? `${modKey(snapshot.platform)}N`
-  const placement: MenuPlacement = rail ? 'right-start' : 'bottom-end'
+  const here = t('newList.inMode', { mode: t(SIDEBAR_MODE_LABEL[mode]) })
+  const also = t('newList.also', { space: org?.name ?? t('spaces.personal') })
+  const bring = t('newList.bring')
+
+  // A workspace per repository of the space, the one Ctrl+N uses first.
+  const ordered = repoId ? [...repos.filter((r) => r.id === repoId), ...repos.filter((r) => r.id !== repoId)] : repos
+  const workspaces: Omit<NewRow, 'group'>[] = ordered.map((r, i) => ({
+    id: `workspace-${r.id}`,
+    label: t('palette.newWorkspace'),
+    detail: t('sidebar.add.workspaceIn', { repo: r.name }),
+    hint: i === 0 ? key : undefined,
+    run: () => openNewWorkspace(r.id)
+  }))
+  const employee: Omit<NewRow, 'group'> | undefined = org && {
+    id: 'employee',
+    label: t('sidebar.team.newEmployee'),
+    detail: t('sidebar.add.employeeIn', { organization: org.name }),
+    run: () => openEmployees({ orgId: org.id, page: 'new' })
+  }
+  // A new project is planned by the program manager: the organization's channel with @name in its box.
+  const project: Omit<NewRow, 'group'> | undefined = org?.programManagerId
+    ? { id: 'project', label: t('projects.new'), detail: t('sidebar.add.channelWith', { name: pm?.name || t('projects.pmDefault') }), run: () => openEmployees({ orgId: org.id, page: 'channel', mention: Date.now() }) }
+    : undefined
+  const automation: Omit<NewRow, 'group'> = { id: 'automation', label: t('sidebar.add.automation'), detail: t('sidebar.add.automationDetail'), run: () => openAutomations() }
+  const openFolder: Omit<NewRow, 'group'> = { id: 'open-project', label: t('addRepo.openProject'), run: () => void addRepository() }
+
+  // The main half: the mode's own thing, else a workspace, else (no repository yet) a repository.
+  const main: Omit<NewRow, 'group'> =
+    (mode === 'team' && employee) || (mode === 'channels' && project) || workspaces[0] || { ...openFolder, id: 'add-repository', label: t('sidebar.addRepository') }
+
+  const inSpace = [...workspaces, project, employee, automation].filter((r): r is Omit<NewRow, 'group'> => Boolean(r) && r!.id !== main.id)
+  const recents = snapshot.recentRepos.map((p) => ({ id: `recent-${p}`, label: tildify(p, snapshot.homeDir), detail: t('newList.recent'), recent: true, run: () => void openRecentRepo(p) }))
+  const rows: NewRow[] = [
+    { ...main, group: here },
+    ...inSpace.map((r) => ({ ...r, group: also })),
+    ...(main.id === 'add-repository' ? [] : [openFolder]).map((r) => ({ ...r, group: bring })),
+    { id: 'clone', label: t('addRepo.openGithub'), group: bring, run: () => openAddRepoDialog('clone') },
+    { id: 'quick-start', label: t('addRepo.quickStart'), group: bring, run: () => openAddRepoDialog('quick-start') },
+    ...recents.map((r) => ({ ...r, group: bring })),
+    // A .foreman file is picked on the computer: the window's alone.
+    ...(clientKind === 'window' && snapshot.repos.length ? [{ id: 'import', label: t('sidebar.import'), detail: t('sidebar.import.title'), group: bring, run: openImportDialog }] : []),
+    { id: 'organization', label: t('spaces.create.menu'), detail: t('spaces.create.menuDetail'), group: bring, run: () => openCreateOrganization(true) }
+  ]
+  return { primary: rows[0], rows, mode }
+}
+
+/** `rail`: the folded rail's icon button, which opens the list. */
+export function NewMenu({ rail }: { rail?: boolean }) {
+  const t = useT()
+  const platform = useStore((s) => s.snapshot!.platform)
+  const { primary, mode } = useNewRows()
+  const more = t('newList.more')
+  const listKey = shortcutHint('new.list', platform)
+  if (rail)
+    return (
+      <span className="rail-add-wrap" data-tour="add-repo">
+        <Button variant="primary" className="rail-add" aria-label={more} title={listKey ? `${more} (${listKey})` : more} aria-haspopup="dialog" data-tour="new-workspace" onClick={() => openOverlay('new')}>
+          <Plus size={15} aria-hidden />
+        </Button>
+      </span>
+    )
   return (
-    // Both tour steps about adding (a repository, a workspace) point at the one +.
-    <span className="sidebar-add-wrap" data-tour="add-repo">
-      <MenuButton
-        look="primary"
-        iconOnly
-        portal
-        placement={placement}
-        label={t('sidebar.new')}
-        triggerClassName={rail ? 'rail-add' : 'sidebar-add'}
+    // Both tour steps about adding (a repository, a workspace) point at the one button.
+    <div className="sidebar-new" data-tour="add-repo">
+      <SplitButton
+        variant="primary"
+        className="sidebar-new-split"
+        label={
+          <>
+            <Plus size={14} aria-hidden />
+            <span className="sidebar-new-label">{primary.label}</span>
+            {primary.hint && <span className="sidebar-new-hint">{primary.hint}</span>}
+          </>
+        }
+        aria-label={primary.label}
+        aria-keyshortcuts={primary.hint ? (platform === 'darwin' ? 'Meta+N' : 'Control+N') : undefined}
         data-tour="new-workspace"
-        trigger={<Plus size={15} aria-hidden />}
-      >
-        <MenuItem
-          icon={<GitBranch size={14} />}
-          hint={key}
-          description={repo ? t('sidebar.add.workspaceIn', { repo: repo.name }) : undefined}
-          disabled={!repoId}
-          reason={repoId ? undefined : t('sidebar.add.noRepo')}
-          aria-keyshortcuts={snapshot.platform === 'darwin' ? 'Meta+N' : 'Control+N'}
-          onSelect={() => repoId && openNewWorkspace(repoId)}
-        >
-          {t('palette.newWorkspace')}
-        </MenuItem>
-        {org && (
-          <MenuItem icon={<UserPlus size={14} />} description={t('sidebar.add.employeeIn', { organization: org.name })} onSelect={() => openEmployees({ orgId: org.id, page: 'new' })}>
-            {t('sidebar.team.newEmployee')}
-          </MenuItem>
-        )}
-        {/* A new channel is a project the program manager plans: the organization's channel with @name in its box. */}
-        {org?.programManagerId && (
-          <MenuItem icon={<Hash size={14} />} description={t('sidebar.add.channelWith', { name: pm?.name || t('projects.pmDefault') })} onSelect={() => openEmployees({ orgId: org.id, page: 'channel', mention: Date.now() })}>
-            {t('projects.new')}
-          </MenuItem>
-        )}
-        <MenuItem icon={<Zap size={14} />} description={t('sidebar.add.automationDetail')} onSelect={() => openAutomations()}>
-          {t('sidebar.add.automation')}
-        </MenuItem>
-        <MenuSeparator />
-        <MenuLabel>{t('sidebar.rail.add')}</MenuLabel>
-        <AddRepoItems />
-        <MenuSeparator />
-        {/* A .foreman file is picked on the computer: the window's alone. */}
-        {clientKind === 'window' && (
-          <MenuItem icon={<FileDown size={14} />} description={t('sidebar.import.title')} disabled={snapshot.repos.length === 0} onSelect={openImportDialog}>
-            {t('sidebar.import')}
-          </MenuItem>
-        )}
-        <MenuItem icon={<Network size={14} />} description={t('spaces.create.menuDetail')} onSelect={() => openCreateOrganization(true)}>
-          {t('spaces.create.menu')}
-        </MenuItem>
-      </MenuButton>
-    </span>
+        data-mode={mode}
+        menuLabel={listKey ? `${more} (${listKey})` : more}
+        onClick={primary.run}
+        onArrowClick={() => openOverlay('new')}
+      />
+    </div>
   )
 }
