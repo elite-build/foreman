@@ -117,7 +117,7 @@ export const METHOD_SCOPES = {
   // Projects and follow-ups (docs/ai-employees.md §15): starting one, deciding at its gates, pausing, stopping and asking a
   // follow-up do work, as asking an employee does; a note is the person's words. Adding the program manager makes and
   // approves an employee, so it is admin.
-  askEmployeeFollowUp: 'operate', startProject: 'operate', decideProject: 'operate', answerProject: 'operate', pauseProject: 'operate', stopProject: 'operate', noteProject: 'operate', askProjectFollowUp: 'operate',
+  askEmployeeFollowUp: 'operate', startProject: 'operate', decideProject: 'operate', undoProjectDecision: 'operate', answerProject: 'operate', pauseProject: 'operate', stopProject: 'operate', noteProject: 'operate', askProjectFollowUp: 'operate',
   addProgramManager: 'admin',
   // A channel's list is a read; renaming and archiving tidy what the person sees. Deleting one stops its work and can
   // delete its files from the memory repository as the person, so it is admin (never from a turn).

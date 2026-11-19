@@ -12,14 +12,14 @@ import type { EmployeeSummary } from '../../../../shared/employees'
 import { useT } from '../../i18n'
 import { Dialog, Graph, HardHat, type GraphEdge, type GraphNode, type GraphTone, type HardHatColour } from '../../ui'
 import { useGraphLabels } from '../FlowDiagram'
-import { PART_STATUS } from './projectWords'
+import { PART_STATUS, partLook, type PartLook } from './projectWords'
 
 const CARD = { width: 180, height: 60 }
 const PILL = { width: 132, height: 34 }
 const LANE = CARD.width + 24
 const STAGE = CARD.height + 36
 
-const TONE: Record<PartStatus['state'], GraphTone | undefined> = { pending: undefined, running: 'running', gate: 'waiting', done: 'ok', stuck: 'error' }
+const TONE: Record<PartLook, GraphTone | undefined> = { pending: undefined, running: 'running', gate: 'waiting', done: 'ok', stuck: 'error', stopped: 'off', replan: 'waiting' }
 
 export function PlanWorkflow({
   plan,
@@ -72,7 +72,7 @@ export function PlanWorkflow({
         case 'part': {
           const owner = part ? ownerName(plan, part.owner, names) : ''
           const colour = (part && roster?.find((e) => e.id === ownerId(plan, part.owner))?.colour) || 'slate'
-          const state = part && parts ? (parts[part.id]?.state ?? 'pending') : undefined
+          const state = part && parts ? partLook(parts[part.id] ?? { state: 'pending' }) : undefined
           const tone = state ? TONE[state] : undefined
           return {
             ...box,

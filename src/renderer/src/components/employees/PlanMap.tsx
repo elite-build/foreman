@@ -8,14 +8,14 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { EmployeeSummary } from '../../../../shared/employees'
 import { layoutPlan, type PlanLayoutForm } from '../../../../shared/planLayout'
-import { ownerId, ownerName, planDiff, type PartState, type PartStatus, type PlanPart, type Project, type ProjectPlan } from '../../../../shared/projects'
+import { ownerId, ownerName, planDiff, type PartStatus, type PlanPart, type Project, type ProjectPlan } from '../../../../shared/projects'
 import { useT, type RendererT } from '../../i18n'
 import { Dialog, Graph, HardHat, Tag, type GraphEdge, type GraphNode, type GraphTone, type HardHatColour } from '../../ui'
 import { useGraphLabels } from '../FlowDiagram'
-import { PART_STATUS } from './projectWords'
+import { PART_STATUS, partLook, type PartLook } from './projectWords'
 import './employees.css'
 
-const TONE: Record<PartState, GraphTone> = { pending: 'off', running: 'running', gate: 'waiting', done: 'ok', stuck: 'error' }
+const TONE: Record<PartLook, GraphTone> = { pending: 'off', running: 'running', gate: 'waiting', done: 'ok', stuck: 'error', stopped: 'off', replan: 'waiting' }
 
 /** Whether this plan is the one in effect, so its parts have states. */
 export const planInEffect = (project: Pick<Project, 'plan'>, plan: Pick<ProjectPlan, 'version' | 'status'>): boolean =>
@@ -68,7 +68,7 @@ function usePlanGraph(project: Project, plan: ProjectPlan, form: PlanLayoutForm,
       const owner = ownerName(of, part.owner, names)
       const proposed = !gone && !ownerApproved(of, part.owner, roster)
       const status = gone ? undefined : partState(project, plan, part.id)
-      const word = status ? (status.round > 1 ? `${t(PART_STATUS[status.state].label)} · ${t('projects.round', { round: status.round })}` : t(PART_STATUS[status.state].label)) : ''
+      const word = status ? (status.round > 1 ? `${t(PART_STATUS[partLook(status)].label)} · ${t('projects.round', { round: status.round })}` : t(PART_STATUS[partLook(status)].label)) : ''
       const mark = gone ? ('removed' as const) : diff?.added.includes(part.id) ? ('added' as const) : diff?.changed.includes(part.id) ? ('changed' as const) : undefined
       const markLabel = mark === 'removed' ? t('projects.map.removed') : mark === 'added' ? t('projects.plan.added') : mark === 'changed' ? t('projects.plan.changed') : undefined
       const who = [owner, proposed ? t('projects.map.proposed') : '', part.gate ? t('projects.map.youCheck') : ''].filter(Boolean)
@@ -87,7 +87,7 @@ function usePlanGraph(project: Project, plan: ProjectPlan, form: PlanLayoutForm,
           </>
         ),
         detail: form === 'compact' ? word || undefined : [part.writes, word].filter(Boolean).join(' · '),
-        ...(status ? { tone: TONE[status.state], toneLabel: word } : {}),
+        ...(status ? { tone: TONE[partLook(status)], toneLabel: word } : {}),
         ...(proposed && !live ? { dim: true } : {}),
         ...(mark && markLabel ? { mark, markLabel } : {}),
         // The kicker isn't read with the node, and the arrows aren't read at all, so the name says both: with the

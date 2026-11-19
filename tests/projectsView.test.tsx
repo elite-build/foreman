@@ -186,13 +186,14 @@ describe('a project’s channel', () => {
     expect(back.disabled).toBe(true)
     await user.type(screen.getByRole('textbox', { name: 'What should change (for Send back)' }), 'Add a docs part.')
     await user.click(back)
-    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w1', 'send-back', 'Add a docs part.'))
+    // Bound to the plan on the card: one changed since is refused.
+    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w1', 'send-back', 'Add a docs part.', { seen: `1@${NOW}` }))
     // Quinn approved: the plan can be.
     view.unmount()
     setSnapshot(undefined, [PRIYA, RAVI, { ...QUINN, state: 'active' }])
     render(<ProjectPage orgId="o1" project={project()} />)
     await user.click(screen.getByRole('button', { name: /^Approve plan/ }))
-    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenLastCalledWith('p1', 'w1', 'approve', undefined))
+    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenLastCalledWith('p1', 'w1', 'approve', undefined, { seen: `1@${NOW}` }))
   })
 
   it('draws the plan as a workflow, in order, with what she understood, done when, out of scope and her assumptions', () => {
@@ -233,9 +234,10 @@ describe('a project’s channel', () => {
     await user.keyboard('Yes, for small teams')
     expect(screen.getByText('2 of 2 answered')).toBeTruthy()
     await user.click(send)
-    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes, for small teams']))
+    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes, for small teams'], { seen: `1@${NOW}` }))
+    // Plan with what you have sends what was answered too.
     await user.click(screen.getByRole('button', { name: /^Plan with what you have/ }))
-    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenLastCalledWith('p1', 'wq', null))
+    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenLastCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes, for small teams'], { skip: true, seen: `1@${NOW}` }))
   })
 
   it('shows a part waiting at its gate with what it wrote, and the parts beside the channel', async () => {
@@ -318,7 +320,7 @@ describe('a project’s channel', () => {
     await waitFor(() => expect(fakeApi.memoryOpenFile).toHaveBeenCalledWith('o1', `${mocks}/index.html`))
   })
 
-  it('says a note written at a gate goes with Approve to what starts next, and holds Approve plan while one is written', async () => {
+  it('makes Send back the main act once a note is written at a gate, with Approve with note beside it, and holds Approve plan while one is written', async () => {
     const user = userEvent.setup()
     const atGate = project({
       phase: 'working',
@@ -332,9 +334,16 @@ describe('a project’s channel', () => {
     const view = render(<ProjectPage orgId="o1" project={atGate} />)
     expect(screen.getByText('Approve lets what waits for it start.')).toBeTruthy()
     await user.type(screen.getByRole('textbox', { name: /^Your note/ }), 'Use option 2')
-    expect(screen.getByText(/^Approve with note: what waits for it starts, and is given your note/)).toBeTruthy()
+    expect(screen.getByText(/^Send back: the same person does this part again, with your note. To let what waits for it start instead, Approve with note/)).toBeTruthy()
+    const sendBack = screen.getByRole('button', { name: /^Send back/ })
+    expect(sendBack.className).toContain('ui-btn--primary')
+    expect(screen.getByRole('button', { name: /^Approve with note/ }).className).not.toContain('ui-btn--primary')
+    // Ctrl+Enter in the note sends it back; Enter there is a new line.
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'send-back', 'Use option 2'))
+    await user.type(screen.getByRole('textbox', { name: /^Your note/ }), 'Use option 2')
     await user.click(screen.getByRole('button', { name: /^Approve with note/ }))
-    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', 'Use option 2'))
+    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenLastCalledWith('p1', 'w2', 'approve', 'Use option 2'))
     view.unmount()
     // At the plan a note goes only with Send back.
     setSnapshot(undefined, [PRIYA, RAVI, { ...QUINN, state: 'active' }])
@@ -468,5 +477,221 @@ describe('who is at work on a project now', () => {
     const list = screen.getByRole('list', { name: 'Channels in FRLK' })
     expect(within(list).getByText('Ravi is working on “Build the export”')).toBeTruthy()
     expect(within(list).getByText('Working').closest('.ui-status')!.className).toContain('ui-status--busy')
+  })
+})
+
+describe('a project’s channel: what you type and decide is kept, bound and undoable', () => {
+  const asks = [{ round: 1, taskId: 't1', understood: [], questions: [{ question: 'Which identity providers?', options: ['Okta only', 'Any SAML 2.0'] }, { question: 'Does password login stay?', options: [] }], at: NOW }]
+  const asking = () => project({ phase: 'planning', plans: [], asks, steps: [{ kind: 'plan', round: 1, taskId: 't1', employeeId: 'e-pri1', state: 'done', startedAt: NOW, endedAt: NOW }], artifacts: {}, waits: [{ id: 'wq', kind: 'questions', since: NOW }] })
+  const mocks = ['index.html', '1-export-a.html', '1-export-b.html'].map((f) => `memory/org/projects/csv-export/mocks/build/${f}`)
+  const atGate = (patch: Partial<Project> = {}) =>
+    project({
+      phase: 'working',
+      plan: { ...PLAN, status: 'approved' },
+      plans: [{ ...PLAN, status: 'approved' }],
+      parts: { build: { state: 'gate', round: 1, taskId: 't2' }, qa: { state: 'pending', round: 0 } },
+      artifacts: { 'build.md': { file: 'build.md', path: 'memory/org/projects/csv-export/build.md', employeeId: 'e-rav1', taskId: 't2', partId: 'build', version: 1, at: NOW, mocks } },
+      waits: [{ id: 'w2', kind: 'gate', partId: 'build', since: NOW }],
+      ...patch
+    })
+
+  it('sends on Ctrl+Enter in an answer box, never skips with it, and never stops on Esc: Stop on a card asks first', async () => {
+    const user = userEvent.setup()
+    setSnapshot([asking()])
+    fakeApi.answerProject = vi.fn(async () => asking())
+    fakeApi.stopProject = vi.fn(async () => asking())
+    render(<ProjectPage orgId="o1" project={asking()} />)
+    await user.click(screen.getByRole('radio', { name: 'Any SAML 2.0' }))
+    // One unanswered: Ctrl+Enter goes to it and says so, instead of planning without it.
+    await user.click(screen.getByRole('textbox', { name: 'Your answer' }))
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    expect(fakeApi.answerProject).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('Question 2 isn’t answered yet')
+    await user.keyboard('Yes{Control>}{Enter}{/Control}')
+    await waitFor(() => expect(fakeApi.answerProject).toHaveBeenCalledWith('p1', 'wq', ['Any SAML 2.0', 'Yes'], { seen: `1@${NOW}` }))
+    expect(screen.getByRole('button', { name: /^Plan with what you have/ }).querySelector('kbd')).toBeNull()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('alert')).toBeNull()
+    const card = screen.getByRole('group', { name: 'Priya asks 2 questions before planning' })
+    expect(within(card).getByRole('button', { name: 'Stop' }).querySelector('kbd')).toBeNull()
+    await user.click(within(card).getByRole('button', { name: 'Stop' }))
+    expect(fakeApi.stopProject).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Stop' }))
+    await waitFor(() => expect(fakeApi.stopProject).toHaveBeenCalledWith('p1'))
+  })
+
+  it('keeps typed answers and a gate’s note when you leave the channel and come back, until the wait is gone', async () => {
+    const user = userEvent.setup()
+    setSnapshot([asking()])
+    let view = render(<ProjectPage orgId="o1" project={asking()} />)
+    await user.click(screen.getByRole('radio', { name: 'Okta only' }))
+    await user.type(screen.getByRole('textbox', { name: 'Your answer' }), 'For small teams')
+    view.unmount()
+    view = render(<ProjectPage orgId="o1" project={asking()} />)
+    expect((screen.getByRole('radio', { name: 'Okta only' }) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value).toBe('For small teams')
+    expect(screen.getByText('2 of 2 answered')).toBeTruthy()
+    view.unmount()
+    setSnapshot([atGate()], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    view = render(<ProjectPage orgId="o1" project={atGate()} />)
+    await user.type(screen.getByRole('textbox', { name: /^Your note/ }), 'Tighter spacing')
+    view.unmount()
+    view = render(<ProjectPage orgId="o1" project={atGate()} />)
+    expect((screen.getByRole('textbox', { name: /^Your note/ }) as HTMLTextAreaElement).value).toBe('Tighter spacing')
+    // Decided elsewhere: the wait is gone, and its note with it.
+    view.rerender(<ProjectPage orgId="o1" project={atGate({ waits: [] })} />)
+    view.unmount()
+    render(<ProjectPage orgId="o1" project={atGate()} />)
+    expect((screen.getByRole('textbox', { name: /^Your note/ }) as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('offers a pick among a gate’s mocks, sent with Approve, and holds Approve with note where nothing would read it', async () => {
+    const user = userEvent.setup()
+    setSnapshot([atGate()], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    fakeApi.decideProject = vi.fn(async () => atGate())
+    const view = render(<ProjectPage orgId="o1" project={atGate()} />)
+    const picks = screen.getByRole('group', { name: /^The mock to build on/ })
+    expect(within(picks).getAllByRole('radio')).toHaveLength(3)
+    await user.click(within(picks).getByRole('radio', { name: '1-export-b.html' }))
+    await user.click(screen.getByRole('button', { name: /^Approve/ }))
+    await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', undefined, { pick: mocks[2] }))
+    view.unmount()
+    // A small plan whose gated part nothing reads: a note goes only with Send back.
+    const last = atGate({ plan: { ...PLAN, size: 'small', status: 'approved', parts: [PLAN.parts[0]] }, plans: [{ ...PLAN, size: 'small', status: 'approved', parts: [PLAN.parts[0]] }], waits: [{ id: 'w3', kind: 'gate', partId: 'build', since: NOW }] })
+    setSnapshot([last], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={last} />)
+    expect(screen.queryByRole('group', { name: /^The mock to build on/ })).toBeNull()
+    await user.type(screen.getByRole('textbox', { name: /^Your note/ }), 'Fix the 2px gap')
+    expect(screen.getByText(/Nothing starts after this part, so a note can’t go with Approve/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: /^Approve with note/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('offers Undo approval under a gate’s approval only while main says it can be taken back', async () => {
+    const user = userEvent.setup()
+    const at = '2026-11-15T10:21:00.000Z'
+    const going = (qa: Project['parts'][string], state: 'running' | 'done' = 'running') =>
+      project({
+        phase: 'working',
+        plan: { ...PLAN, status: 'approved' },
+        plans: [{ ...PLAN, status: 'approved' }],
+        parts: { build: { state: 'done', round: 1, taskId: 't2' }, qa },
+        steps: [...project().steps, { kind: 'part', partId: 'qa', round: 1, taskId: 't3', employeeId: 'e-qui1', state, startedAt: '2026-11-15T10:22:00.000Z', ...(state === 'done' ? { endedAt: '2026-11-15T10:30:00.000Z' } : {}) }],
+        waits: [],
+        decisions: [{ waitKind: 'gate', partId: 'build', decision: 'approve', at }],
+        ...(state === 'running' ? { undoable: [at] } : {})
+      })
+    const p = going({ state: 'running', round: 1, taskId: 't3' })
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    fakeApi.undoProjectDecision = vi.fn(async () => p)
+    const view = render(<ProjectPage orgId="o1" project={p} />)
+    await user.click(screen.getByRole('button', { name: 'Undo approval' }))
+    await waitFor(() => expect(fakeApi.undoProjectDecision).toHaveBeenCalledWith('p1', at))
+    expect(storeModule.showToast).toHaveBeenCalledWith('Took back the approval of “Build the export”: it waits for you again.')
+    view.unmount()
+    render(<ProjectPage orgId="o1" project={going({ state: 'done', round: 1, taskId: 't3' }, 'done')} />)
+    expect(screen.queryByRole('button', { name: 'Undo approval' })).toBeNull()
+    cleanup()
+    // Still running, but main found a push of it (one the window's lists don't carry): no button either.
+    render(<ProjectPage orgId="o1" project={{ ...p, undoable: undefined }} />)
+    expect(screen.queryByRole('button', { name: 'Undo approval' })).toBeNull()
+  })
+
+  it('shows a part that asked for a replan as that, not Stuck, in the parts beside the channel', () => {
+    const asked = project({
+      phase: 'working',
+      replanning: true,
+      plan: { ...PLAN, status: 'approved' },
+      plans: [{ ...PLAN, status: 'approved' }],
+      parts: { build: { state: 'stuck', round: 1, taskId: 't2', askedReplan: true }, qa: { state: 'pending', round: 0 } },
+      waits: []
+    })
+    setSnapshot([asked], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={asked} />)
+    const side = screen.getByRole('complementary', { name: 'About #csv-export' })
+    expect(within(side).getByText('Asked for a replan').closest('.ui-status')!.className).toContain('ui-status--warn')
+    expect(within(side).queryByText('Stuck')).toBeNull()
+  })
+
+  it('says in Foreman’s words that you let her plan with what she has, and tells a stop, a replan and a cut result apart', async () => {
+    const user = userEvent.setup()
+    const told = project({
+      phase: 'closed',
+      outcome: 'stopped',
+      closedAt: '2026-11-15T11:00:00.000Z',
+      asks: [{ ...asks[0], skipped: true, answers: ['Okta only', ''], answeredAt: '2026-11-15T10:01:00.000Z' }],
+      steps: [
+        ...project().steps,
+        { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'stuck', end: 'replan', reason: 'The person asked for more mocks', startedAt: '2026-11-15T10:06:00.000Z', endedAt: '2026-11-15T10:08:00.000Z' },
+        { kind: 'part', partId: 'build', round: 2, taskId: 't3', employeeId: 'e-rav1', state: 'stuck', end: 'stopped', reason: 'Stopped by the person.', startedAt: '2026-11-15T10:09:00.000Z', endedAt: '2026-11-15T11:00:00.000Z' },
+        { kind: 'part', partId: 'qa', round: 1, taskId: 't4', employeeId: 'e-qui1', state: 'done', summary: 'Start of a long result', summaryCut: 1234, startedAt: '2026-11-15T10:09:00.000Z', endedAt: '2026-11-15T10:50:00.000Z' }
+      ],
+      waits: []
+    })
+    setSnapshot([told], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    fakeApi.employeeTaskChain = vi.fn(async () => ({ task: { id: 't4', result: { summary: 'Start of a long result, and its whole end.' } }, children: [], transitions: [] }))
+    render(<ProjectPage orgId="o1" project={told} />)
+    expect(screen.getByText('You asked Priya to plan with what is known (1 of 2 answered).')).toBeTruthy()
+    expect(screen.queryByText(/Plan with what you have, Priya/)).toBeNull()
+    expect(screen.getByText('Okta only')).toBeTruthy()
+    expect(screen.getByText('Asked for a replan').closest('.ui-status')!.className).toContain('ui-status--warn')
+    expect(screen.getAllByText('Stopped').some((el) => el.closest('.ui-status--off'))).toBe(true)
+    expect(screen.queryByText('Stuck')).toBeNull()
+    expect(screen.getByText('Cut here: the full result has 1,234 more characters.')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Show full result' }))
+    await waitFor(() => expect(screen.getByText('Start of a long result, and its whole end.')).toBeTruthy())
+    expect(fakeApi.employeeTaskChain).toHaveBeenCalledWith('t4')
+  })
+
+  it('says where a stopped project’s work is: its archived workspace, what it keeps, and Restore', async () => {
+    const user = userEvent.setup()
+    const stopped = project({ phase: 'closed', outcome: 'stopped', closedAt: '2026-11-15T11:00:00.000Z', workspaceId: 'ws-1', waits: [] })
+    setSnapshot([stopped])
+    fakeState.snapshot = { ...fakeState.snapshot, workspaces: [{ id: 'ws-1', name: 'edmund-berkeley', state: 'archived', archivedAt: NOW, archiveDiff: { at: NOW, files: 15, additions: 300, deletions: 20 } }] }
+    fakeApi.archivedWork = vi.fn(async () => [{ id: 'ws-1', branch: 'priya/sidebar', deletesBranch: true, unpushed: 0, uncommitted: true }])
+    render(<ProjectPage orgId="o1" project={stopped} />)
+    expect(screen.getAllByText('Archived as “edmund-berkeley”.')).toHaveLength(2)
+    await waitFor(() => expect(screen.getAllByText('Every commit on its branch priya/sidebar is pushed or on its base.')).toHaveLength(2))
+    expect(screen.getAllByText('Its changed files are kept with the archive: Restore puts them back.').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Archived; its branch stays.')).toBeNull()
+    await user.click(screen.getAllByRole('button', { name: 'Restore workspace' })[0])
+    expect(spy('restoreArchived')).toHaveBeenCalledWith('ws-1')
+    // The branch's words follow what git says: commits only here, a branch archiving keeps, or nothing known.
+    for (const [work, words] of [
+      [{ deletesBranch: true, unpushed: 3 }, 'Its branch priya/sidebar has 3 commits that aren’t pushed.'],
+      [{ deletesBranch: false, unpushed: 0 }, 'Its branch priya/sidebar stays as it is.'],
+      [{ deletesBranch: true, unpushed: null }, 'Foreman can’t tell which commits on its branch priya/sidebar are only here.']
+    ] as const) {
+      cleanup()
+      fakeApi.archivedWork = vi.fn(async () => [{ id: 'ws-1', branch: 'priya/sidebar', uncommitted: false, ...work }])
+      render(<ProjectPage orgId="o1" project={stopped} />)
+      await waitFor(() => expect(screen.getAllByText(words)).toHaveLength(2))
+    }
+  })
+
+  it('asks a name with spaces, asks a planned owner before their part, and asks what to ask for a bare name', async () => {
+    const user = userEvent.setup()
+    const uma = member('e-uma1', 'Uma Rao', 'pink', 'Designer')
+    const planned = { ...PLAN, parts: [...PLAN.parts, { id: 'design', title: 'Design', owner: 'e-uma1', brief: 'Draw.', reads: [], writes: 'design.md', dependsOn: [], gate: true }] }
+    const p = project({ plans: [planned] })
+    setSnapshot([p], [PRIYA, RAVI, { ...QUINN, state: 'active' }, uma])
+    fakeApi.askProjectFollowUp = vi.fn(async () => ({ id: 't9' }))
+    fakeApi.noteProject = vi.fn(async () => p)
+    render(<ProjectPage orgId="o1" project={p} />)
+    const chips = screen.getByRole('group', { name: 'Put a name first' })
+    expect(within(chips).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['@Priya', '@Ravi', '@Quinn', '@Uma Rao'])
+    const box = screen.getByRole('textbox', { name: 'Message #csv-export' })
+    await user.type(box, '@Uma Rao make the rail narrower{Enter}')
+    await waitFor(() => expect(fakeApi.askProjectFollowUp).toHaveBeenCalledWith('p1', 'e-uma1', 'make the rail narrower'))
+    await user.type(box, '@Quinn will you test keyboard nav?{Enter}')
+    await waitFor(() => expect(fakeApi.askProjectFollowUp).toHaveBeenLastCalledWith('p1', 'e-qui1', 'will you test keyboard nav?'))
+    await user.type(box, '@Ravi{Enter}')
+    expect(storeModule.showToast).toHaveBeenLastCalledWith('Say what to ask Ravi, after their name.')
+    expect(fakeApi.noteProject).not.toHaveBeenCalled()
+    expect((box as HTMLTextAreaElement).value).toBe('@Ravi')
+    // A chip replaces the whole name before it, spaces and all.
+    await user.clear(box)
+    await user.type(box, '@Uma Rao tidy it')
+    await user.click(within(chips).getByRole('button', { name: /@Ravi/ }))
+    expect((box as HTMLTextAreaElement).value).toBe('@Ravi tidy it')
   })
 })

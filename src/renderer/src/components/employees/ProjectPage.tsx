@@ -3,14 +3,17 @@
 // when, out of scope and what she assumed, its parts, who owns each, what each writes and waits for, Foreman's checks, what
 // changed since the plan before, the employees it proposes, each to approve); each part starting and what it said when
 // it finished, with the file it wrote and the HTML mocks it drew (each opens in the browser), and a button for any
-// other page its task named (a mock elsewhere in memory); the decisions you made and the notes you left; follow-ups and
-// their answers; and last, who is at work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it,
-// what it waits for you on: her questions (Send answers, Plan with what you have, Stop), the plan (Approve once every
-// owner is approved, Send back with a note, Stop), a part's result (Approve, or Approve with note, which goes to what
-// starts next; Send back; Stop), a task that couldn't finish (Try again, Stop), the final check; a note holds Approve on
-// the plan and the final check, where it would reach nobody; and what its employees ask or hold (a question, a pull
-// request). The message box: "@Name …" asks that employee a follow-up, anything else is a note that wakes nobody.
-// Beside it: the parts with their states, the files, the workspace and the replans left. Pause holds it (what runs
+// other page its task named (a mock elsewhere in memory); the decisions you made (an approval at a gate with Undo
+// approval while what it started still runs) and the notes you left; follow-ups and their answers; and last, who is at
+// work on it now, for how long, with a link to watch (ProjectLive.tsx). Under it, what it waits for you on: her questions
+// (Send answers, Plan with what you have with the answers given, Stop), the plan (Approve once every owner is approved,
+// Send back with a note, Stop), a part's result (Approve, with an optional pick among its mocks; with a note written,
+// Send back is the main act and Approve with note goes beside it), a task that couldn't finish (Try again, Stop), the
+// final check; a note holds Approve on the plan and the final check, where it would reach nobody. What you type there is
+// kept while you look elsewhere (projectDrafts.ts); Stop on a card asks first, and Esc never stops. Then what its
+// employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee (anyone who worked on
+// it or owns a part) a follow-up, anything else is a note that wakes nobody. Beside it: the parts with their states, the
+// files, the workspace (where its work is once archived, with Restore) and the replans left. Pause holds it (what runs
 // finishes); Stop cancels what is going (its files stay).
 // Once closed, Archive takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames
 // or deletes it.
@@ -20,9 +23,10 @@ import type { EmployeeSummary } from '../../../../shared/employees'
 import type { PlainKey } from '../../../../shared/i18n'
 import { formatDateTime, formatNumber, timeAgo } from '../../../../shared/i18n/time'
 import { joinWorkspace } from '../../../../shared/openIn'
-import { isArchived, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planStages, type PlanPart, type Project, type ProjectArtifact, type ProjectDecision, type ProjectLive, type ProjectPlan, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
+import type { ArchivedWork, Workspace } from '../../../../shared/types'
+import { gateNoteTo, isArchived, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
-import { api, attempt, openEmployees, openMemory, selectWorkspace, showToast, useStore } from '../../store'
+import { api, attempt, openArchivedChats, openEmployees, openMemory, restoreArchived, selectWorkspace, showToast, useStore } from '../../store'
 import { Button, Callout, Card, Disclosure, Field, flash, HardHat, LinkButton, Meter, RadioList, Segmented, Spinner, Status, Tag, TextArea, type HardHatColour } from '../../ui'
 import { reduceMotion } from '../../theme'
 import { DecisionCard, type DecisionAct } from '../DecisionCard'
@@ -35,7 +39,8 @@ import { EmployeeDecision, useDecisionItems } from './EmployeeDecisions'
 import { PageLinks } from './PageLinks'
 import { PlanWorkflow } from './PlanWorkflow'
 import { partState, planInEffect, PlanMap, useViewChoice } from './PlanMap'
-import { PART_STATUS, projectChannel, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
+import { clearWaitDrafts, keepWaitDrafts, useWaitDraft } from './projectDrafts'
+import { PART_STATUS, partLook, projectChannel, partTitle, PLAN_STATUS_KEY, projectStatus } from './projectWords'
 import './employees.css'
 
 function useRoster(orgId: string): EmployeeSummary[] | undefined {
@@ -54,7 +59,8 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
   const status = projectStatus(project, t, pmName)
   const live = useProjectLive(project)
   const repo = useStore((s) => s.snapshot!.repos.find((r) => r.id === project.repoId))
-  const [stopping, setStopping] = useState(false)
+  // Stop asks first, where it was pressed: in the header, or on a card of what the project waits for.
+  const [stopping, setStopping] = useState<'head' | 'card' | null>(null)
   const [deleting, setDeleting] = useState(false)
   const open = project.phase !== 'closed'
   const archived = isArchived(project, Date.now())
@@ -65,11 +71,15 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
       showToast(t(to ? 'projects.archive.done' : 'projects.archive.restored', { channel: projectChannel(project) }))
       onChanged?.()
     })
-  // Who the box can name: everyone who worked on it, the program manager first.
-  const worked = [...new Set([project.pmId, ...project.steps.map((s) => s.employeeId)])]
-  const members: ChannelMember[] = worked.flatMap((id) => {
+  // Who the box can name: the program manager first, everyone who worked on it, and every owner of the plan (a proposed
+  // one once approved), so a planned owner can be asked before their part starts.
+  const plan = project.plan ?? project.plans.at(-1)
+  const owners = plan ? plan.parts.flatMap((p) => ownerId(plan, p.owner) ?? []) : []
+  const worked = new Set(project.steps.map((s) => s.employeeId))
+  const members: ChannelMember[] = [...new Set([project.pmId, ...worked, ...owners])].flatMap((id) => {
     const e = roster?.find((x) => x.id === id)
-    return e ? [{ id: e.id, name: e.name || e.id, colour: e.colour, role: e.role }] : []
+    const named = e && (worked.has(id) || id === project.pmId || (e.state !== 'draft' && e.state !== 'retired'))
+    return e && named ? [{ id: e.id, name: e.name || e.id, colour: e.colour, role: e.role }] : []
   })
   const send = async (text: string): Promise<boolean> => {
     const m = mentionOf(
@@ -77,6 +87,11 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
       members.map((x) => x.name)
     )
     const to = m ? members.find((x) => x.name === m.name) : undefined
+    // A name and nothing after it asks nothing: say so, and keep it in the box.
+    if (to && !m?.rest) {
+      showToast(t('projects.composer.askWhat', { name: to.name }))
+      return false
+    }
     let ok = false
     await attempt(async () => {
       if (to && m?.rest) {
@@ -110,7 +125,7 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
                 </Button>
               ))}
             {open && (
-              <Button size="sm" variant="ghost" icon={<Square size={12} />} onClick={() => setStopping(true)}>
+              <Button size="sm" variant="ghost" icon={<Square size={12} />} onClick={() => setStopping('head')}>
                 {t('projects.action.stop')}
               </Button>
             )}
@@ -122,35 +137,7 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
             <ChannelMenu project={project} look="button" onChanged={onChanged} onDeleted={gone} />
           </div>
         </div>
-        {stopping && (
-          <Callout
-            tone="warn"
-            role="alert"
-            title={t('projects.stop.title')}
-            actions={
-              <>
-                <Button size="sm" onClick={() => setStopping(false)}>
-                  {t('projects.stop.keep')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() =>
-                    void attempt(async () => {
-                      await api.stopProject(project.id)
-                      setStopping(false)
-                      showToast(t('projects.stop.done', { title: project.title }))
-                    })
-                  }
-                >
-                  {t('projects.action.stop')}
-                </Button>
-              </>
-            }
-          >
-            {t('projects.stop.body')}
-          </Callout>
-        )}
+        {stopping === 'head' && <StopConfirm project={project} onDone={() => setStopping(null)} />}
         {project.paused && open && <Callout tone="info">{t('projects.paused')}</Callout>}
         {archived && (
           <Callout
@@ -171,7 +158,7 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
         )}
         {deleting && <DeleteChannelsDialog projects={[project]} onClose={() => setDeleting(false)} onDeleted={gone} />}
         <Timeline orgId={orgId} project={project} names={names} roster={roster} pmName={pmName} live={live} />
-        <Waiting orgId={orgId} project={project} names={names} roster={roster} pmName={pmName} />
+        <Waiting orgId={orgId} project={project} names={names} roster={roster} pmName={pmName} stopping={stopping === 'card'} onStop={() => setStopping('card')} onStopDone={() => setStopping(null)} />
         {!archived && (
           <ChannelComposer
             label={t('projects.composer.label', { channel: projectChannel(project) })}
@@ -184,6 +171,40 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
       </div>
       <SidePanel orgId={orgId} project={project} names={names} roster={roster} live={live} />
     </div>
+  )
+}
+
+/** Stop, once confirmed: what is running is canceled and the project closes. */
+function StopConfirm({ project, onDone }: { project: Project; onDone: () => void }) {
+  const t = useT()
+  return (
+    <Callout
+      tone="warn"
+      role="alert"
+      title={t('projects.stop.title')}
+      actions={
+        <>
+          <Button size="sm" onClick={onDone}>
+            {t('projects.stop.keep')}
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() =>
+              void attempt(async () => {
+                await api.stopProject(project.id)
+                onDone()
+                showToast(t('projects.stop.done', { title: project.title }))
+              })
+            }
+          >
+            {t('projects.action.stop')}
+          </Button>
+        </>
+      }
+    >
+      {t('projects.stop.body')}
+    </Callout>
   )
 }
 
@@ -264,8 +285,8 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
         key: `end:${step.taskId}`,
         node: (
           <Post id={stepDomId(project.id, step.taskId, 'end')} who={who(step.employeeId)} colour={e?.colour} role={e?.role} at={step.endedAt}>
-            {step.state === 'stuck' && <Status tone="error" label={t('projects.part.stuck')} />}
-            {step.summary && <Markdown text={step.summary} />}
+            {step.state === 'stuck' && <StepEnd step={step} />}
+            {step.summary && <StepSummary step={step} />}
             {!step.summary && step.reason && <p className="channel-text">{step.reason}</p>}
             {step.decision && <Tag>{t(step.decision === 'accept' ? 'projects.decision.accept' : 'projects.decision.replan')}</Tag>}
             {asks && <QuestionsList round={asks} />}
@@ -280,7 +301,11 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
   }
   for (const [i, d] of project.decisions.entries()) {
     const part = d.partId ? partTitle(project, d.partId) : ''
-    const what = d.waitKind === 'gate' && d.decision !== 'stop' ? t(d.decision === 'approve' ? 'projects.log.partApproved' : 'projects.log.partSentBack', { part }) : t(DECISION_LOG[d.waitKind][d.decision] ?? 'projects.log.decided')
+    const file = d.pick ? d.pick.slice(d.pick.lastIndexOf('/') + 1) : ''
+    const what =
+      d.waitKind === 'gate' && d.decision !== 'stop'
+        ? t(d.decision === 'undo' ? 'projects.log.partUndone' : d.decision !== 'approve' ? 'projects.log.partSentBack' : file ? 'projects.log.partApprovedPick' : 'projects.log.partApproved', { part, file })
+        : t(DECISION_LOG[d.waitKind][d.decision] ?? 'projects.log.decided')
     entries.push({
       at: d.at,
       key: `decision:${i}`,
@@ -288,33 +313,33 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
         <Post who={t('projects.you')} at={d.at}>
           <p className="channel-text">{what}</p>
           {d.note && <p className="channel-quote">“{d.note}”</p>}
+          {d.decision === 'approve' && d.waitKind === 'gate' && <UndoApproval project={project} decision={d} part={part} />}
         </Post>
       )
     })
   }
-  // Your answers to her questions (or that she should plan with what she has).
+  // Your answers to her questions; and that she should plan with what she has, said by Foreman, not put in your mouth.
   for (const r of project.asks ?? []) {
     if (!r.answeredAt) continue
-    entries.push({
-      at: r.answeredAt,
-      key: `answers:${r.round}`,
-      node: (
-        <Post who={t('projects.you')} at={r.answeredAt}>
-          {r.skipped ? (
-            <p className="channel-text">{t('projects.questions.skippedLog', { name: pmName })}</p>
-          ) : (
+    const given = r.questions.flatMap((q, i) => (r.answers?.[i]?.trim() ? [{ q, a: r.answers[i], i }] : []))
+    if (given.length)
+      entries.push({
+        at: r.answeredAt,
+        key: `answers:${r.round}`,
+        node: (
+          <Post who={t('projects.you')} at={r.answeredAt}>
             <dl className="channel-answers">
-              {r.questions.map((q, i) => (
+              {given.map(({ q, a, i }) => (
                 <div key={i}>
                   <dt className="employee-faint">{q.question}</dt>
-                  <dd>{r.answers?.[i]}</dd>
+                  <dd>{a}</dd>
                 </div>
               ))}
             </dl>
-          )}
-        </Post>
-      )
-    })
+          </Post>
+        )
+      })
+    if (r.skipped) entries.push({ at: r.answeredAt, key: `skipped:${r.round}`, node: <SystemLine>{t('projects.questions.skippedLog', { name: pmName, done: given.length, count: r.questions.length })}</SystemLine> })
   }
   for (const [i, n] of project.notes.entries()) {
     entries.push({
@@ -328,7 +353,17 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
     })
   }
   if (project.phase === 'closed' && project.closedAt)
-    entries.push({ at: project.closedAt, key: 'closed', node: <SystemLine>{t(project.outcome === 'done' ? 'projects.log.closedDone' : 'projects.log.closedStopped', { when: formatDateTime(project.closedAt, t.locale) })}</SystemLine> })
+    entries.push({
+      at: project.closedAt,
+      key: 'closed',
+      node: (
+        <SystemLine>
+          {t(project.outcome === 'done' ? 'projects.log.closedDone' : 'projects.log.closedStopped', { when: formatDateTime(project.closedAt, t.locale) })}
+          {/* Stopped: where its work is now. */}
+          {project.outcome === 'stopped' && <ProjectWorkspace project={project} />}
+        </SystemLine>
+      )
+    })
   entries.sort((a, b) => a.at.localeCompare(b.at))
   return (
     <ol className="channel-timeline" aria-label={t('projects.timeline', { channel: projectChannel(project) })}>
@@ -338,6 +373,69 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
       {/* Now, after everything that happened: where each answer will appear. */}
       <LiveLines project={project} live={live} who={who} />
     </ol>
+  )
+}
+
+/** How a step that didn't finish ended: the person stopped it or took back its approval, it asked for a replan, or it was stuck. */
+function StepEnd({ step }: { step: ProjectStep }) {
+  const t = useT()
+  if (step.end === 'stopped') return <Status tone="off" label={t('projects.part.stopped')} />
+  if (step.end === 'undone') return <Status tone="off" label={t('projects.step.undone')} />
+  if (step.end === 'replan') return <Status tone="warn" label={t('projects.step.replan')} />
+  return <Status tone="error" label={t('projects.part.stuck')} />
+}
+
+/** What a step said it did; cut where it was too long to keep, with the whole result a button away. */
+function StepSummary({ step }: { step: ProjectStep }) {
+  const t = useT()
+  const [full, setFull] = useState<string | null>(null)
+  if (!step.summary) return null
+  if (!step.summaryCut) return <Markdown text={step.summary} />
+  const show = (open: boolean) => {
+    if (!open || full !== null) return
+    void attempt(async () => {
+      const chain = await api.employeeTaskChain(step.taskId)
+      setFull(chain.task.result?.summary ?? chain.task.resultSummary ?? step.summary ?? '')
+    })
+  }
+  return (
+    <>
+      <Markdown text={step.summary} />
+      <p className="employee-faint">{t('projects.summary.cut', { count: formatNumber(step.summaryCut, t.locale) })}</p>
+      <Disclosure quiet label={t('projects.summary.full')} onOpenChange={show}>
+        {full === null ? (
+          <div className="employees-loading" role="status">
+            <Spinner size={13} /> <span>{t('common.loading')}</span>
+          </div>
+        ) : (
+          <Markdown text={full} />
+        )}
+      </Disclosure>
+    </>
+  )
+}
+
+/**
+ * Undo approval, under an approval at a part's gate, while what it started still runs and has published nothing: main
+ * says which (Project.undoable), as only it sees every push and pull request.
+ */
+function UndoApproval({ project, decision, part }: { project: Project; decision: ProjectDecisionRecord; part: string }) {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  if (!project.undoable?.includes(decision.at)) return null
+  const undo = () => {
+    setBusy(true)
+    void attempt(async () => {
+      await api.undoProjectDecision(project.id, decision.at)
+      showToast(t('projects.undo.done', { part }))
+    }).finally(() => setBusy(false))
+  }
+  return (
+    <div className="employee-card-actions">
+      <Button size="sm" disabled={busy} onClick={undo}>
+        {t('projects.undo.action')}
+      </Button>
+    </div>
   )
 }
 
@@ -438,8 +536,8 @@ function PartState({ project, plan, partId }: { project: Project; plan: ProjectP
   const t = useT()
   const state = partState(project, plan, partId)
   if (!state) return null
-  const word = t(PART_STATUS[state.state].label)
-  return <Status tone={PART_STATUS[state.state].tone} label={state.round > 1 ? `${word} · ${t('projects.round', { round: state.round })}` : word} />
+  const word = t(PART_STATUS[partLook(state)].label)
+  return <Status tone={PART_STATUS[partLook(state)].tone} label={state.round > 1 ? `${word} · ${t('projects.round', { round: state.round })}` : word} />
 }
 
 /** A plan's list (what she understood, done when, out of scope, assumptions) under its heading, or a line saying there is none. */
@@ -576,14 +674,17 @@ function QuestionsList({ round }: { round: QuestionRound }) {
 
 /**
  * Her questions, waiting for you: every one on one card, each with its options (and an answer in your own words), then
- * Send answers once each is answered (before that it goes to the first unanswered one and names them all), Plan with
- * what you have (she lists what she assumed), or Stop.
+ * Send answers once each is answered (before that it goes to the first unanswered one and names them all; Ctrl+Enter
+ * too), Plan with what you have (she gets the answers you gave and assumes the rest), or Stop (asked first; Esc never
+ * stops). What you typed is kept while you look elsewhere (projectDrafts.ts).
  */
 function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Project; wait: ProjectWait; pmName: string; stop: DecisionAct; age: string; who: ReactNode }) {
   const t = useT()
   const round = (project.asks ?? []).find((r) => !r.answers && !r.skipped)
-  const [choices, setChoices] = useState<Record<number, string>>({})
-  const [own, setOwn] = useState<Record<number, string>>({})
+  // Kept for these questions as they were shown: answers typed for one round never land under another's.
+  const seen = round ? roundSeen(round) : ''
+  const [choices, setChoices] = useWaitDraft<Record<number, string>>(project.id, wait.id, `choices:${seen}`, {})
+  const [own, setOwn] = useWaitDraft<Record<number, string>>(project.id, wait.id, `own:${seen}`, {})
   const [busy, setBusy] = useState(false)
   // Send was pressed with a question unanswered: the foot names which ones until each is.
   const [tried, setTried] = useState(false)
@@ -608,7 +709,9 @@ function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Pro
     }
     setBusy(true)
     void attempt(async () => {
-      await api.answerProject(project.id, wait.id, skip ? null : answers)
+      // Plan with what you have sends what was answered too, blank for the rest.
+      await api.answerProject(project.id, wait.id, answers, skip ? { skip: true, seen } : { seen })
+      clearWaitDrafts(project.id, wait.id)
       showToast(t(skip ? 'projects.questions.skipped' : 'projects.questions.sent', { name: pmName }))
     }).finally(() => setBusy(false))
   }
@@ -628,6 +731,8 @@ function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Pro
           )}
         </span>
       }
+      escDeclines={false}
+      modEnter="main"
       decline={stop}
       alternate={{ label: t('projects.questions.skip'), disabled: busy, title: t('projects.questions.skipHint', { name: pmName }), onAct: () => send(true) }}
       main={{ label: t('projects.questions.send'), disabled: busy, onAct: () => send(false) }}
@@ -636,7 +741,7 @@ function QuestionsCard({ project, wait, pmName, stop, age, who }: { project: Pro
         {round.questions.map((q, i) => {
           const ownField = (
             <Field label={t(q.options.length ? 'employees.question.own' : 'employees.question.answer')} description={q.options.length ? undefined : q.why}>
-              {(c) => <TextArea {...c} rows={2} value={own[i] ?? ''} onChange={(e) => setOwn({ ...own, [i]: e.target.value })} />}
+              {(c) => <TextArea {...c} rows={2} maxLength={MAX_ANSWER} value={own[i] ?? ''} onChange={(e) => setOwn({ ...own, [i]: e.target.value })} />}
             </Field>
           )
           return (
@@ -704,19 +809,41 @@ function Proposed({ orgId, plan, roster }: { orgId: string; plan: ProjectPlan; r
   )
 }
 
-/** What the project waits for you on, then what its employees ask or hold. */
-function Waiting({ orgId, project, names, roster, pmName }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; pmName: string }) {
+/** What the project waits for you on, then what its employees ask or hold. Stop on a card asks here first. */
+function Waiting({
+  orgId,
+  project,
+  names,
+  roster,
+  pmName,
+  stopping,
+  onStop,
+  onStopDone
+}: {
+  orgId: string
+  project: Project
+  names: Record<string, string>
+  roster?: EmployeeSummary[]
+  pmName: string
+  stopping: boolean
+  onStop: () => void
+  onStopDone: () => void
+}) {
   const t = useT()
   const items = useDecisionItems(orgId)
   const tasks = new Set(project.steps.map((s) => s.taskId))
   const theirs = items.filter((i) => (i.kind === 'question' || i.kind === 'task' ? tasks.has(i.task.id) : i.kind === 'action' ? tasks.has(i.action.taskId) : false))
   const waits = project.phase === 'closed' ? [] : project.waits
+  const ids = waits.map((w) => w.id).join(',')
+  // What was typed for a wait that is gone (decided, replaced, the project closed) goes with it.
+  useEffect(() => keepWaitDrafts(project.id, ids ? ids.split(',') : []), [project.id, ids])
   if (!waits.length && !theirs.length) return null
   return (
     <section className="channel-waiting" aria-label={t('projects.waiting.label')}>
       <span className="employee-subheading">{t('projects.waiting.heading', { count: waits.length + theirs.length })}</span>
+      {stopping && <StopConfirm project={project} onDone={onStopDone} />}
       {waits.map((w) => (
-        <WaitCard key={w.id} orgId={orgId} project={project} wait={w} names={names} roster={roster} pmName={pmName} />
+        <WaitCard key={w.id} orgId={orgId} project={project} wait={w} names={names} roster={roster} pmName={pmName} onStop={onStop} />
       ))}
       {theirs.map((item) => (
         <EmployeeDecision key={item.id} orgId={orgId} item={item} place={{ form: 'card' }} />
@@ -725,17 +852,24 @@ function Waiting({ orgId, project, names, roster, pmName }: { orgId: string; pro
   )
 }
 
-/** One thing the project waits on, as a decision card with a note for a send-back or a retry. */
-function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: string; project: Project; wait: ProjectWait; names: Record<string, string>; roster?: EmployeeSummary[]; pmName: string }) {
+/**
+ * One thing the project waits on, as a decision card with a note for a send-back or a retry. Stop is on every card, but
+ * asks first and has no key: Esc in a card never ends the project. At a part's gate a written note makes Send back the
+ * main act (Enter, Ctrl+Enter), with Approve with note beside it; a mock can be picked there.
+ */
+function WaitCard({ orgId, project, wait, names, roster, pmName, onStop }: { orgId: string; project: Project; wait: ProjectWait; names: Record<string, string>; roster?: EmployeeSummary[]; pmName: string; onStop: () => void }) {
   const t = useT()
-  const [note, setNote] = useState('')
+  const [note, setNote] = useWaitDraft(project.id, wait.id, 'note', '')
+  const [pick, setPick] = useWaitDraft(project.id, wait.id, 'pick', '')
   const [busy, setBusy] = useState(false)
-  const decide = (decision: ProjectDecision) => {
+  const decide = (decision: ProjectDecision, options?: ProjectDecideOptions) => {
     if (busy) return
     setBusy(true)
     void attempt(async () => {
-      await api.decideProject(project.id, wait.id, decision, note.trim() || undefined)
+      if (options) await api.decideProject(project.id, wait.id, decision, note.trim() || undefined, options)
+      else await api.decideProject(project.id, wait.id, decision, note.trim() || undefined)
       setNote('')
+      clearWaitDrafts(project.id, wait.id)
     }).finally(() => setBusy(false))
   }
   const you = (
@@ -747,10 +881,10 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
   // A note goes with Send back; at a part's gate also with Approve, to what starts next. The plan and the final gate pass
   // an approval's note to nobody, so a written note holds Approve there.
   const noted = Boolean(note.trim())
-  const stop = { label: t('projects.action.stop'), disabled: busy, onAct: () => decide('stop') }
+  const stop = { label: t('projects.action.stop'), disabled: busy, onAct: onStop }
   const noteField = (label: string, hint?: string) => (
     <Field label={label} description={hint}>
-      {(control) => <TextArea {...control} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />}
+      {(control) => <TextArea {...control} rows={2} maxLength={MAX_NOTE} value={note} onChange={(e) => setNote(e.target.value)} />}
     </Field>
   )
   if (wait.kind === 'questions') return <QuestionsCard project={project} wait={wait} pmName={pmName} stop={stop} age={age} who={you} />
@@ -763,6 +897,7 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
         age={age}
         subject={part ? t('projects.stuck.subjectPart', { part }) : t('projects.stuck.subject')}
         consequence={t('projects.stuck.consequence')}
+        escDeclines={false}
         decline={stop}
         main={{ label: t('projects.stuck.retry'), disabled: busy, onAct: () => decide('retry') }}
       >
@@ -781,6 +916,8 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
           return e && e.state !== 'draft' && e.state !== 'retired' ? [] : [ownerName(plan, o, names)]
         })
       : []
+    // The plan on this card: one changed since is refused, not approved unseen.
+    const seen = plan ? { seen: planSeen(plan) } : undefined
     return (
       <DecisionCard
         who={you}
@@ -788,9 +925,10 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
         age={age}
         subject={plan ? t('projects.planGate.subject', { version: plan.version, count: plan.parts.length }) : t('projects.wait.plan')}
         consequence={unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : t('projects.planGate.consequence')}
+        escDeclines={false}
         decline={stop}
-        alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim(), title: !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-        main={{ label: t('projects.planGate.approve'), disabled: busy || !plan || unapproved.length > 0 || noted, title: unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve') }}
+        alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim(), title: !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back', seen) }}
+        main={{ label: t('projects.planGate.approve'), disabled: busy || !plan || unapproved.length > 0 || noted, title: unapproved.length ? t('projects.planGate.approveFirst', { names: unapproved.join(', ') }) : noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve', seen) }}
       >
         {noteField(t('projects.planGate.noteLabel'))}
       </DecisionCard>
@@ -799,19 +937,41 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
   if (wait.kind === 'gate') {
     const part = partTitle(project, wait.partId)
     const artifact = Object.values(project.artifacts).find((a) => a.partId === wait.partId)
+    // Where a note with Approve goes (gateNoteTo): what starts next, her acceptance, or nowhere (then only Send back takes one).
+    const to = project.plan && wait.partId ? gateNoteTo(project.plan, wait.partId) : 'parts'
+    const options = (artifact?.mocks ?? []).filter((m) => !m.endsWith('/index.html'))
+    const picked = pick && options.includes(pick) ? pick : ''
+    const approve: DecisionAct = {
+      label: noted ? t('projects.gate.approveWithNote') : t('projects.gate.approve'),
+      disabled: busy || (noted && to === 'nobody'),
+      title: noted && to === 'nobody' ? t('projects.noteBlocksApprove') : undefined,
+      onAct: () => decide('approve', picked ? { pick: picked } : undefined)
+    }
+    const sendBack: DecisionAct = { label: t('projects.action.sendBack'), disabled: busy || !noted, title: !noted ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }
     return (
       <DecisionCard
         who={you}
         kind={t('projects.wait.gate')}
         age={age}
         subject={t('projects.gate.subject', { part })}
-        consequence={noted ? t('projects.gate.consequenceNote') : t('projects.gate.consequence')}
+        consequence={!noted ? t('projects.gate.consequence') : to === 'parts' ? t('projects.gate.consequenceNote') : to === 'acceptance' ? t('projects.gate.consequenceNoteAccept', { name: pmName }) : t('projects.gate.consequenceNoteNowhere')}
+        escDeclines={false}
+        // A written note is most likely a change asked for: Send back is the main act then, on Enter and Ctrl+Enter.
+        modEnter={noted ? 'main' : 'alternate'}
         decline={stop}
-        alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim(), title: !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
-        main={{ label: noted ? t('projects.gate.approveWithNote') : t('projects.gate.approve'), disabled: busy, onAct: () => decide('approve') }}
+        alternate={noted ? approve : sendBack}
+        main={noted ? sendBack : approve}
       >
         {artifact && <ArtifactCard orgId={orgId} artifact={artifact} who={names[artifact.employeeId] ?? artifact.employeeId} />}
-        {noteField(t('projects.gate.noteLabel'))}
+        {options.length > 1 && to !== 'nobody' && (
+          <RadioList
+            legend={t('projects.gate.pickLegend')}
+            value={picked}
+            onChange={setPick}
+            options={[{ value: '', label: t('projects.gate.pickNone') }, ...options.map((m) => ({ value: m, label: <span className="mono">{m.slice(m.lastIndexOf('/') + 1)}</span> }))]}
+          />
+        )}
+        {noteField(to === 'parts' ? t('projects.gate.noteLabel') : to === 'acceptance' ? t('projects.gate.noteLabelAccept', { name: pmName }) : t('projects.gate.noteLabelNowhere'))}
       </DecisionCard>
     )
   }
@@ -824,6 +984,7 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
       age={age}
       subject={t('projects.final.subject', { title: project.title })}
       consequence={t('projects.final.consequence')}
+      escDeclines={false}
       decline={stop}
       alternate={{ label: t('projects.action.sendBack'), disabled: busy || !note.trim() || left === 0, title: left === 0 ? t('projects.final.noReplans') : !note.trim() ? t('projects.noteFirst') : undefined, onAct: () => decide('send-back') }}
       main={{ label: t('projects.final.approve'), disabled: busy || noted, title: noted ? t('projects.noteBlocksApprove') : undefined, onAct: () => decide('approve') }}
@@ -835,12 +996,69 @@ function WaitCard({ orgId, project, wait, names, roster, pmName }: { orgId: stri
   )
 }
 
+/**
+ * Where a project's work is (its workspace): open while it is here; once archived, its name, what its branch and the
+ * archive keep, and Restore (the existing restore: its worktree and changes back) or Read its chats.
+ */
+function ProjectWorkspace({ project, side }: { project: Project; side?: boolean }) {
+  const t = useT()
+  const ws = useStore((s) => (project.workspaceId ? s.snapshot!.workspaces.find((w) => w.id === project.workspaceId) : undefined))
+  if (!project.workspaceId) return side ? <p className="employee-faint">{t('projects.side.noWorkspace')}</p> : null
+  if (!ws) return side ? <p className="employee-faint">{t('projects.side.workspaceGone')}</p> : null
+  if (ws.state !== 'archived')
+    return side ? (
+      <Button size="sm" onClick={() => selectWorkspace(ws.id)}>
+        {t('projects.openWorkspace')}
+      </Button>
+    ) : null
+  return <ArchivedWorkspace ws={ws} />
+}
+
+function ArchivedWorkspace({ ws }: { ws: Workspace }) {
+  const t = useT()
+  const [work, setWork] = useState<Pick<ArchivedWork, 'branch' | 'deletesBranch' | 'unpushed' | 'uncommitted'> | null>(null)
+  useEffect(() => {
+    let live = true
+    api.archivedWork([ws.id]).then(
+      (found) => live && found[0] && setWork(found[0]),
+      () => undefined
+    )
+    return () => {
+      live = false
+    }
+  }, [ws.id, ws.archivedAt])
+  const files = ws.archiveDiff?.files
+  return (
+    <span className="project-head-who">
+      <span>{t('projects.side.archivedAs', { name: ws.name })}</span>
+      {work && (
+        <span className="employee-faint">
+          {/* Git couldn't say; a branch archiving keeps whatever (the default branch, another's, one added from disk); commits only here; none. */}
+          {work.unpushed === null
+            ? t('projects.side.archivedBranchUnknown', { branch: work.branch })
+            : !work.deletesBranch
+              ? t('projects.side.archivedBranchKept', { branch: work.branch })
+              : work.unpushed > 0
+                ? t('projects.side.archivedCommits', { count: work.unpushed, branch: work.branch })
+                : t('projects.side.archivedNoCommits', { branch: work.branch })}
+        </span>
+      )}
+      {(work?.uncommitted || files) && <span className="employee-faint">{t('projects.side.archivedChanges')}</span>}
+      <span className="employee-card-actions">
+        <Button size="sm" onClick={() => void restoreArchived(ws.id)}>
+          {t('projects.side.restore')}
+        </Button>
+        <LinkButton onClick={() => openArchivedChats(ws.id)}>{t('projects.side.readArchived')}</LinkButton>
+      </span>
+    </span>
+  )
+}
+
 /** Beside the channel: the parts and their states (a list, or a map that takes the channel to a part), the files, the workspace, the replans left. */
 function SidePanel({ orgId, project, names, roster, live }: { orgId: string; project: Project; names: Record<string, string>; roster?: EmployeeSummary[]; live: readonly ProjectLive[] }) {
   const t = useT()
   const plan = project.plan ?? project.plans.at(-1)
   const artifacts = Object.values(project.artifacts).sort((a, b) => a.at.localeCompare(b.at))
-  const alive = useStore((s) => (project.workspaceId ? s.snapshot!.workspaces.some((w) => w.id === project.workspaceId) : false))
   const [view, setView] = useViewChoice('foreman.projects.partsView', ['list', 'map'] as const, 'list')
   const [picked, setPicked] = useState<string | null>(null)
   const pick = (id: string | null) => {
@@ -871,7 +1089,7 @@ function SidePanel({ orgId, project, names, roster, live }: { orgId: string; pro
           <ul className="channel-side-list">
             {plan.parts.map((p) => {
               const s = project.plan ? (project.parts[p.id] ?? { state: 'pending' as const, round: 0 }) : { state: 'pending' as const, round: 0 }
-              const st = PART_STATUS[s.state]
+              const st = PART_STATUS[partLook(s)]
               const id = ownerId(plan, p.owner)
               const e = id ? roster?.find((x) => x.id === id) : undefined
               return (
@@ -913,13 +1131,7 @@ function SidePanel({ orgId, project, names, roster, live }: { orgId: string; pro
       </Card>
       <Card className="channel-side-card">
         <span className="employee-subheading">{t('projects.side.workspace')}</span>
-        {project.workspaceId && alive ? (
-          <Button size="sm" onClick={() => selectWorkspace(project.workspaceId!)}>
-            {t('projects.openWorkspace')}
-          </Button>
-        ) : (
-          <p className="employee-faint">{t(project.workspaceId ? 'projects.side.workspaceGone' : 'projects.side.noWorkspace')}</p>
-        )}
+        <ProjectWorkspace project={project} side />
         <Meter label={t('projects.side.replans')} value={project.replans} max={MAX_REPLANS} valueText={t('projects.side.replansUsed', { used: project.replans, max: MAX_REPLANS })} tone={project.replans >= MAX_REPLANS ? 'warn' : 'ok'} />
         <span className="employee-faint">{t('projects.side.replansUsed', { used: project.replans, max: MAX_REPLANS })}</span>
       </Card>

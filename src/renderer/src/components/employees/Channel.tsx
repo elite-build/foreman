@@ -4,6 +4,7 @@
 import { Send } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { timeAgo } from '../../../../shared/i18n/time'
+import { mentionOf } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { Button, ChipButton, HardHat, TextArea, type HardHatColour } from '../../ui'
 
@@ -55,7 +56,12 @@ export function ChannelComposer({ label, placeholder, members, onSend, hint, ini
       .finally(() => setBusy(false))
   }
   const mention = (name: string) => {
-    const rest = text.replace(/^\s*@\S+\s*/, '')
+    // The name already at the start goes whole (names may have spaces), so the box says one name the channel reads.
+    const named = mentionOf(
+      text,
+      members.map((m) => m.name)
+    )
+    const rest = named ? named.rest : text.replace(/^\s*@\S+\s*/, '')
     setText(`@${name} ${rest}`)
     box.current?.focus()
   }

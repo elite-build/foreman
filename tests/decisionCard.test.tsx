@@ -140,6 +140,39 @@ describe('the card', () => {
     expect(onWindow).not.toHaveBeenCalled()
   })
 
+  it('does nothing on Enter when the card has focus because its text was clicked, and acts once reached from the keyboard', async () => {
+    const user = userEvent.setup()
+    const spies = acts()
+    plan(spies)
+    const card = screen.getByRole('group', { name: 'Plan ready for review' })
+    await user.click(card.querySelector('.decision-subject')!)
+    expect(document.activeElement).toBe(card)
+    await user.keyboard('{Enter}')
+    expect(spies.main).not.toHaveBeenCalled()
+    // Away and back with the keyboard (F6 focuses the card): Enter acts.
+    screen.getByRole('textbox', { name: 'Note' }).focus()
+    card.focus()
+    await user.keyboard('{Enter}')
+    expect(spies.main).toHaveBeenCalledTimes(1)
+  })
+
+  it('can keep Esc from its decline and give Ctrl+Enter to the main act, saying so on the buttons', async () => {
+    const user = userEvent.setup()
+    const spies = acts()
+    render(
+      <DecisionCard kind="Gate" subject="Build is ready" escDeclines={false} modEnter="main" decline={{ label: 'Stop', onAct: spies.decline }} alternate={{ label: 'Approve with note', onAct: spies.alternate }} main={{ label: 'Send back', onAct: spies.main }}>
+        <textarea aria-label="Note" />
+      </DecisionCard>
+    )
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Stop', 'Approve with note', 'Send back Ctrl+Enter'])
+    await user.type(screen.getByRole('textbox', { name: 'Note' }), 'More mocks')
+    await user.keyboard('{Escape}')
+    expect(spies.decline).not.toHaveBeenCalled()
+    await user.keyboard('{Control>}{Enter}{/Control}')
+    expect(spies.main).toHaveBeenCalledTimes(1)
+    expect(spies.alternate).not.toHaveBeenCalled()
+  })
+
   it('ignores its keys for a moment after it appears, when it asks to', async () => {
     const user = userEvent.setup()
     const spies = acts()
