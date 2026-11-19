@@ -1,0 +1,211 @@
+{
+  "understood": [
+    "Subscribers can pause a subscription instead of cancelling it.",
+    "While paused, billing stops and the customer keeps their account and history.",
+    "The subscription resumes later and billing starts again.",
+    "Not yet clear: who can pause, for how long, and what a paused customer can still use."
+  ],
+  "map": {
+    "lanes": [
+      {
+        "id": "customer",
+        "label": "Customer"
+      },
+      {
+        "id": "screens",
+        "label": "What they see"
+      },
+      {
+        "id": "atlas",
+        "label": "Atlas behind the scenes"
+      },
+      {
+        "id": "outside",
+        "label": "Outside Atlas"
+      }
+    ],
+    "items": [
+      {
+        "id": "cust",
+        "lane": "customer",
+        "label": "Subscriber",
+        "detail": "Pays a business through Atlas",
+        "kind": "person"
+      },
+      {
+        "id": "manage",
+        "lane": "screens",
+        "label": "Manage subscription",
+        "detail": "Pause button next to Cancel",
+        "kind": "screen",
+        "change": "changed",
+        "example": "Pause subscription  |  Cancel subscription"
+      },
+      {
+        "id": "pausechoice",
+        "lane": "screens",
+        "label": "Choose how long to pause",
+        "detail": "Pick a length or a resume date",
+        "kind": "screen",
+        "change": "new",
+        "open": true,
+        "example": "Pause for 1 month, 2 months, 3 months, or until a date I choose."
+      },
+      {
+        "id": "status",
+        "lane": "atlas",
+        "label": "Paused status",
+        "detail": "Subscription is on hold",
+        "kind": "data",
+        "change": "new",
+        "example": "Status: Paused. Resumes 18 Jan 2027."
+      },
+      {
+        "id": "stopbilling",
+        "lane": "atlas",
+        "label": "Stop invoices and charges",
+        "detail": "None while paused",
+        "kind": "service",
+        "change": "changed",
+        "open": true
+      },
+      {
+        "id": "resume",
+        "lane": "atlas",
+        "label": "Resume billing",
+        "detail": "Automatic, or on request",
+        "kind": "action",
+        "change": "new",
+        "open": true,
+        "example": "On the resume date Atlas charges the card and sends a receipt."
+      },
+      {
+        "id": "notify",
+        "lane": "outside",
+        "label": "Reminder email",
+        "detail": "Before the pause ends",
+        "kind": "outside",
+        "change": "new",
+        "open": true,
+        "example": "Your subscription resumes in 3 days and your card will be charged."
+      },
+      {
+        "id": "payments",
+        "lane": "outside",
+        "label": "Card payment provider",
+        "detail": "Holds the subscription and card",
+        "kind": "outside"
+      }
+    ],
+    "links": [
+      {
+        "id": "l1",
+        "from": "cust",
+        "to": "manage",
+        "label": "opens"
+      },
+      {
+        "id": "l2",
+        "from": "manage",
+        "to": "pausechoice",
+        "label": "taps Pause",
+        "open": true
+      },
+      {
+        "id": "l3",
+        "from": "pausechoice",
+        "to": "status",
+        "label": "confirms"
+      },
+      {
+        "id": "l4",
+        "from": "status",
+        "to": "stopbilling",
+        "label": "holds billing",
+        "open": true
+      },
+      {
+        "id": "l5",
+        "from": "status",
+        "to": "resume",
+        "label": "on resume date",
+        "open": true
+      },
+      {
+        "id": "l6",
+        "from": "resume",
+        "to": "payments",
+        "label": "charges again"
+      },
+      {
+        "id": "l7",
+        "from": "status",
+        "to": "notify",
+        "label": "warns before end",
+        "open": true
+      }
+    ],
+    "says": [
+      "The customer opens Manage subscription and sees Pause next to Cancel.",
+      "They choose how long to pause, and confirm.",
+      "Atlas marks the subscription Paused and stops invoices and charges.",
+      "When the pause ends, billing starts again and the card is charged.",
+      "A reminder email goes out shortly before that, if you want one.",
+      "Pause length, access while paused and the reminder are not decided yet."
+    ]
+  },
+  "questions": [
+    {
+      "question": "How long can a customer pause for?",
+      "why": "Without a limit, paused subscriptions could sit forever. A fixed list is simpler to build than any date, and I would otherwise guess.",
+      "options": [
+        "Fixed choices: 1, 2 or 3 months",
+        "Any date up to 3 months away",
+        "Any length, until they resume it",
+        "The business owner sets the limit"
+      ],
+      "about": "pausechoice"
+    },
+    {
+      "question": "While paused, what can the customer still do or use?",
+      "why": "This decides whether a pause is a break from paying only, or also a break from the service. It also affects what the business owner expects.",
+      "options": [
+        "Keep full access, just stop paying",
+        "Read-only access to past invoices and data",
+        "No access until they resume",
+        "The business owner chooses"
+      ],
+      "about": "stopbilling"
+    },
+    {
+      "question": "How does billing start again?",
+      "why": "Automatic resume is easy but can surprise people with a charge. Manual resume needs follow-up and may mean lost revenue.",
+      "options": [
+        "Automatically on the end date",
+        "Only when the customer resumes it",
+        "Automatically, after a reminder email"
+      ],
+      "about": "l5"
+    },
+    {
+      "question": "Should we email the customer before the pause ends?",
+      "why": "A reminder cuts down on complaints and refunds, but it is an extra email to design, send and test.",
+      "options": [
+        "Yes, 3 days before",
+        "Yes, 7 days before",
+        "No email"
+      ],
+      "about": "notify"
+    },
+    {
+      "question": "Who can pause: the customer on their own, or only the business owner for them?",
+      "why": "Self-service means a new screen for the customer. Owner-only means a new action in the owner's dashboard, and your request says customers.",
+      "options": [
+        "Customer on their own",
+        "Customer, and the owner can also do it",
+        "Owner only"
+      ],
+      "about": "manage"
+    }
+  ]
+}
