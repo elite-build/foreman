@@ -157,6 +157,37 @@ export function commandNamed(personal: SavedCommand[], fromRepo: SavedCommand[],
 /** A repo command this computer hasn't approved (new, or its text changed). Your own commands never ask. */
 export const needsApproval = (c: SavedCommand): boolean => c.source === 'repo' && !c.approved
 
+// Variables set ahead of the command itself, one at a time: cmd's set "X=1" && (or set X=1 &&), PowerShell's
+// $env:X = '1';, POSIX export X=1 && and X=1 cmd.
+const VARIABLE_PREFIXES = [
+  /^set\s+"[^"=]+=[^"]*"\s*&&?\s*/i,
+  /^set\s+[^\s"=&]+=[^&]*?\s*&&?\s*/i,
+  /^\$env:[\w.]+\s*=\s*(?:'[^']*'|"[^"]*"|[^\s;&]+)\s*(?:;|&&)\s*/i,
+  /^export\s+[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|[^\s;&]*)\s*(?:&&|;)\s*/,
+  /^[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)\s+/
+]
+export const COMMAND_SUMMARY_MAX = 32
+
+/**
+ * A command as the + menu shows it: its first line without the variables set ahead of it, counted, and cut to fit,
+ * so `set "PORT=1" && npm run dev` reads `npm run dev` (+1). The menu item's tooltip keeps the whole text.
+ */
+export function commandSummary(command: string): { text: string; variables: number } {
+  const first = command.trim().split(/\r?\n/)[0]
+  let rest = first
+  let variables = 0
+  for (;;) {
+    const match = VARIABLE_PREFIXES.map((prefix) => prefix.exec(rest)).find((m) => m !== null)
+    if (!match) break
+    rest = rest.slice(match[0].length)
+    variables++
+  }
+  if (!rest.trim()) [rest, variables] = [first, 0]
+  const more = command.trim().includes('\n')
+  const text = rest.length > COMMAND_SUMMARY_MAX ? `${rest.slice(0, COMMAND_SUMMARY_MAX - 1).trimEnd()}…` : more ? `${rest} …` : rest
+  return { text, variables }
+}
+
 /** The text typed into the tab's shell: each line ends with Enter, so it runs as if typed. */
 export function commandInput(command: string): string {
   const lines = command.replace(/\r\n?/g, '\n').replace(/\n+$/, '')

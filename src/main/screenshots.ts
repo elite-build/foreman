@@ -495,6 +495,11 @@ export async function seedScreens(root: string, dataDir: string, overrides: Part
     // cmd.exe has no profile to run; elsewhere the default shell.
     terminalShell: process.platform === 'win32' ? 'cmd' : 'auto',
     restoreTerminals: false,
+    // Saved commands (the terminal panel's + arrow, Automations → Commands): one that sets a variable first.
+    savedCommands: [
+      { id: 'cmd-screens-dev', name: 'Dev server', command: 'set "PORT=3000" && npm run dev', scope: 'repo', repoId: 'repo-atlas' },
+      { id: 'cmd-screens-lint', name: 'Lint', command: 'npm run lint', scope: 'all' }
+    ],
     workspacesRoot: worktrees,
     cloneDirectory: repos,
     // #130: Claude Code's other accounts (Settings → Agents → Claude Code → Accounts, the picker's Account row).
@@ -537,6 +542,8 @@ export const SCREENS = [
   'composer-queue',
   'run-launcher',
   'terminal',
+  // The arrow beside the terminal panel's +: the shells found, then the saved commands.
+  'terminal-new-menu',
   'terminal-full',
   'file-diff',
   'git-panel',

@@ -176,37 +176,50 @@ describe('the + menu', () => {
   const menu = (over: Partial<Parameters<typeof NewMenu>[0]> = {}) => (
     <NewMenu repoId="r1" repoName="acme" shells={false} disabled={false} onTerminal={vi.fn()} onCommand={vi.fn()} {...over} />
   )
-  const trigger = () => screen.getByRole('button', { name: 'New terminal or saved command' })
+  const plus = () => screen.getByRole('button', { name: 'New terminal' })
+  const trigger = () => screen.getByRole('button', { name: 'More ways to open a tab' })
 
-  it('New terminal comes first and takes focus; it opens a plain tab', async () => {
+  it('+ opens a plain tab at once, with no menu', async () => {
     const user = userEvent.setup()
     const onTerminal = vi.fn()
     render(menu({ onTerminal }))
-    expect(trigger().getAttribute('aria-haspopup')).toBe('menu')
-    await user.click(trigger())
-    const items = screen.getAllByRole('menuitem')
-    expect(items[0].textContent).toBe('New terminal')
-    expect(document.activeElement).toBe(items[0])
-    await user.keyboard('{Enter}')
+    expect(plus().getAttribute('aria-haspopup')).toBeNull()
+    await user.click(plus())
     expect(onTerminal).toHaveBeenCalledWith(undefined)
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('on Windows it looks the shells up when it opens and lists the other ones found for a one-off tab', async () => {
+  it('on Windows the arrow looks the shells up when it opens and lists every one found, the default marked', async () => {
     const user = userEvent.setup()
     fakeApi.detectShells = vi.fn(async () => found)
     const onTerminal = vi.fn()
     render(menu({ shells: true, onTerminal }))
     expect(fakeApi.detectShells).not.toHaveBeenCalled()
+    expect(trigger().getAttribute('aria-haspopup')).toBe('menu')
     await user.click(trigger())
     expect(fakeApi.detectShells).toHaveBeenCalled()
-    await screen.findByText('New terminal in another shell')
-    // The default shell is New terminal itself, so it isn't listed again; shells that weren't found aren't offered.
-    const shells = screen.getAllByRole('menuitem').filter((i) => i.title.startsWith('C:/'))
-    expect(shells.length).toBeGreaterThan(0)
+    await screen.findByText('Open a terminal in')
+    // One line each: the path is the tooltip, not a description. Shells that weren't found aren't offered.
+    const shells = await waitFor(() => {
+      const rows = screen.getAllByRole('menuitem').filter((i) => i.title.startsWith('C:/'))
+      expect(rows).toHaveLength(3)
+      return rows
+    })
     expect(shells.some((i) => i.textContent?.includes('Git Bash'))).toBe(false)
-    await user.click(shells[0])
-    expect(onTerminal).toHaveBeenCalledWith(expect.any(String))
+    expect(shells.every((i) => !i.textContent?.includes('C:/'))).toBe(true)
+    const marked = shells.filter((i) => i.textContent?.includes('default'))
+    expect(marked).toHaveLength(1)
+    // The default is a plain tab, which keeps following the setting; another shell is a one-off.
+    await user.click(marked[0])
+    expect(onTerminal).toHaveBeenLastCalledWith(undefined)
+    await user.click(trigger())
+    const other = await waitFor(() => {
+      const row = screen.getAllByRole('menuitem').find((i) => i.title.startsWith('C:/') && !i.textContent?.includes('default'))
+      expect(row).toBeTruthy()
+      return row!
+    })
+    await user.click(other)
+    expect(onTerminal).toHaveBeenLastCalledWith(expect.any(String))
   })
 
   it('elsewhere it never looks for shells', async () => {
@@ -215,7 +228,7 @@ describe('the + menu', () => {
     render(menu())
     await user.click(trigger())
     expect(fakeApi.detectShells).not.toHaveBeenCalled()
-    expect(screen.queryByText('New terminal in another shell')).toBeNull()
+    expect(screen.queryByText('Open a terminal in')).toBeNull()
   })
 
   it('lists this repo’s saved commands, then all repos’, and runs one', async () => {
@@ -225,9 +238,11 @@ describe('the + menu', () => {
     const onCommand = vi.fn()
     render(menu({ onCommand }))
     await user.click(trigger())
-    const list = screen.getByRole('menu', { name: 'New terminal or saved command' })
+    const list = screen.getByRole('menu', { name: 'More ways to open a tab' })
     const repoGroup = within(list).getByRole('group', { name: 'acme' })
     expect(within(repoGroup).getAllByRole('menuitem').map((i) => i.title)).toEqual(['npm run dev', 'make seed'])
+    // One line each: the command at the end of its row.
+    expect(within(repoGroup).getByRole('menuitem', { name: /Dev server/ }).textContent).toBe('Dev servernpm run dev')
     const allGroup = within(list).getByRole('group', { name: 'All repos' })
     expect(within(allGroup).getAllByRole('menuitem')).toHaveLength(1)
     // A repo's own command that still needs approval says so.
@@ -245,7 +260,7 @@ describe('the + menu', () => {
     expect(screen.getByRole('menuitem', { name: /Edit commands/ })).toBeTruthy()
   })
 
-  it('Escape closes it and gives + its focus back', async () => {
+  it('Escape closes it and gives the arrow its focus back', async () => {
     const user = userEvent.setup()
     render(menu())
     await user.click(trigger())
@@ -256,6 +271,7 @@ describe('the + menu', () => {
 
   it('is off while the workspace is not ready', () => {
     render(menu({ disabled: true }))
+    expect((plus() as HTMLButtonElement).disabled).toBe(true)
     expect((trigger() as HTMLButtonElement).disabled).toBe(true)
   })
 })

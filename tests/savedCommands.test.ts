@@ -13,6 +13,7 @@ import { createT } from '../src/shared/i18n'
 import {
   commandBanner,
   commandInput,
+  commandSummary,
   commandsForRepo,
   commandsFromToml,
   findCommand,
@@ -50,6 +51,28 @@ name = "Seed demo data"
 command = "npm run seed:demo"
 cwd = "services/api"
 `
+
+describe('saved commands: the + menu summary', () => {
+  it('takes off the variables set ahead of the command and counts them', () => {
+    expect(commandSummary('set "FOREMAN_PORT=50160" && set "FOREMAN_DATA_DIR=G:\\dev data" && npm run dev')).toEqual({ text: 'npm run dev', variables: 2 })
+    expect(commandSummary('set PORT=3000&& npm start')).toEqual({ text: 'npm start', variables: 1 })
+    expect(commandSummary("$env:PORT = '3000'; npm start")).toEqual({ text: 'npm start', variables: 1 })
+    expect(commandSummary('export PORT=3000 && npm start')).toEqual({ text: 'npm start', variables: 1 })
+    expect(commandSummary('PORT=3000 DEBUG=1 npm start')).toEqual({ text: 'npm start', variables: 2 })
+  })
+
+  it('leaves a plain command alone, and keeps one that only sets variables whole', () => {
+    expect(commandSummary('npm run dev demo')).toEqual({ text: 'npm run dev demo', variables: 0 })
+    expect(commandSummary('set "PORT=3000"')).toEqual({ text: 'set "PORT=3000"', variables: 0 })
+  })
+
+  it('shows the first line, marks more, and cuts a long one to fit', () => {
+    expect(commandSummary('npm ci\nnpm test').text).toBe('npm ci …')
+    const long = commandSummary('docker compose -f docker-compose.dev.yml up --build api worker')
+    expect(long.text.endsWith('…')).toBe(true)
+    expect(long.text.length).toBeLessThanOrEqual(32)
+  })
+})
 
 describe('saved commands: storage', () => {
   it('starts empty and keeps your commands across a restart', async () => {
