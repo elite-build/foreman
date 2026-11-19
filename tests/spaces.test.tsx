@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Spaces in the window (docs/ai-employees.md §3 and §10): the rail's space tiles always there (Personal until an
-// organization exists), New organization… under them and in the sidebar's + menu, the New organization dialog (one
+// organization exists), New organization… under them and in the sidebar's New list, the New organization dialog (one
 // name and the repositories to bring, the one in view ticked; its memory repository is never shown), and Settings →
 // Spaces, where the memory is linked to GitHub.
 import './domShims'
@@ -11,7 +11,7 @@ import type { Organization } from '../src/shared/organizations'
 import { SpaceTiles } from '../src/renderer/src/components/spaces/SpaceTiles'
 import { CreateOrganizationDialog } from '../src/renderer/src/components/spaces/CreateOrganizationDialog'
 import { CloneRepoDialog, QuickStartDialog } from '../src/renderer/src/components/AddRepository'
-import { NewMenu } from '../src/renderer/src/components/NewMenu'
+import { NewList } from '../src/renderer/src/components/Overlays'
 import { SpacesPage } from '../src/renderer/src/components/settings/SpacesPage'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
@@ -109,13 +109,12 @@ describe('the rail’s spaces', () => {
   })
 })
 
-describe('the sidebar’s + menu', () => {
+describe('the sidebar’s New list', () => {
   it('offers New organization…, before any organization exists too', async () => {
     setSnapshot([])
     const user = userEvent.setup()
-    render(<NewMenu repoId="blog" />)
-    await user.click(screen.getByRole('button', { name: 'New' }))
-    const make = screen.getByRole('menuitem', { name: /New organization…/ })
+    render(<NewList />)
+    const make = screen.getByRole('option', { name: /New organization…/ })
     expect(make.textContent).toContain('Repositories you work on with others, with AI employees and a memory they share')
     await user.click(make)
     expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)

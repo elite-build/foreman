@@ -413,6 +413,8 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
 
   // ---- Workspaces ----
   { id: 'workspace.new', keys: k('mod+KeyN'), group: 'workspaces', scope: 'app', labelKey: 'palette.newWorkspace', run: (c) => c.actions.newWorkspace(c.ws) },
+  // The sidebar's New ▾: everything there is to make, the sidebar's mode first.
+  { id: 'new.list', keys: k('mod+shift+KeyN'), group: 'workspaces', scope: 'app', labelKey: 'newList.title', run: (c) => c.actions.openOverlay(c.state.overlay === 'new' ? null : 'new') },
   {
     id: 'workspace.switch',
     keys: k('mod+Digit1-9'),
