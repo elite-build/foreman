@@ -4,11 +4,12 @@ import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Environment } from '../src/main/environment'
 import { compileRules, filesToCopy, matches } from '../src/main/filesToCopy'
+import { listWorkspaceFiles, searchWorkspace } from '../src/main/files'
 import { git, gitOut } from '../src/main/git'
 import { fromToml, patchLocal, readSharedLayer, resolveRepoSettings, revalidateSharedLayers, SHARED_SETTINGS_FILES } from '../src/main/repoSettings'
 import { SecretStore, type Encryptor } from '../src/main/secrets'
 import { defaultSettings, Store } from '../src/main/store'
-import { WorkspaceService } from '../src/main/workspaces'
+import { samePath, WorkspaceService } from '../src/main/workspaces'
 import { parseDotenv } from '../src/shared/envfile'
 import type { Repo, Workspace } from '../src/shared/types'
 import { makeRepo, tempDir } from './helpers'
@@ -342,7 +343,7 @@ describe('new workspace options', () => {
     expect(ws.placeholderBranch).toBe(ws.branch)
   })
 
-  it('checks out an existing branch, refusing one in use', async () => {
+  it('checks out an existing branch, refusing one a workspace already has open', async () => {
     const { service } = await setup()
     const root = await makeRepo()
     await git(root, ['branch', 'hotfix'])
@@ -351,11 +352,55 @@ describe('new workspace options', () => {
     await ready(ws)
     expect(ws.name).toBe('hotfix')
     expect(await gitOut(wsPath(ws), ['branch', '--show-current'])).toBe('hotfix')
-    await expect(service.createWorkspace(repo.id, { branch: { kind: 'existing', name: 'hotfix' } })).rejects.toThrow(/already checked out/)
+    await expect(service.createWorkspace(repo.id, { branch: { kind: 'existing', name: 'hotfix' } })).rejects.toThrow(`hotfix is already open in ${ws.name}`)
     const branches = await service.listBranches(repo.id)
     expect(branches[0]).toMatchObject({ name: 'main', isDefault: true })
     // native: git reports a long name where the temporary folder may have a Windows short (8.3) one.
     expect(realpathSync.native(branches.find((b) => b.name === 'hotfix')!.checkedOutAt!)).toBe(realpathSync.native(wsPath(ws)))
+  })
+
+  it('works on an existing branch where it is already checked out: the repository folder or its worktree', async () => {
+    const { service } = await setup()
+    const root = await makeRepo()
+    const outside = path.join(await tempDir(), 'spike')
+    await git(root, ['worktree', 'add', '-b', 'spike', outside])
+    const repo = await service.addRepo(root)
+
+    const folder = await service.createWorkspace(repo.id, { branch: { kind: 'existing', name: 'main' } })
+    expect(folder).toMatchObject({ direct: true, adopted: true, branch: 'main', state: 'ready' })
+    expect(samePath(folder.path!, root)).toBe(true)
+
+    const tree = await service.createWorkspace(repo.id, { branch: { kind: 'existing', name: 'spike' } })
+    expect(tree).toMatchObject({ adopted: true, branch: 'spike', state: 'ready' })
+    expect(samePath(tree.path!, outside)).toBe(true)
+    // Nothing new on disk: each branch is still checked out once, where it was.
+    expect((await service.listWorktrees(repo.id)).map((t) => t.workspaceId)).toEqual([folder.id, tree.id])
+  })
+
+  it('adds a folder outside git only when asked, and works in the folder itself', async () => {
+    const { service } = await setup()
+    const dir = await tempDir()
+    await mkdir(path.join(dir, 'src'))
+    await writeFile(path.join(dir, 'src', 'notes.txt'), 'hello plain folder\n')
+    await expect(service.addRepo(dir)).rejects.toThrow(/is not inside a git repository/)
+
+    const repo = await service.addRepo(dir, undefined, { plain: true })
+    expect(repo).toMatchObject({ plain: true, defaultBranch: '', hasOrigin: false })
+    expect((await service.addRepo(dir, undefined, { plain: true })).id).toBe(repo.id)
+
+    // Whatever branch was asked for, there is only the folder.
+    const ws = await service.createWorkspace(repo.id, { branch: { kind: 'new' } })
+    expect(ws).toMatchObject({ direct: true, adopted: true, branch: '', state: 'ready' })
+    expect(samePath(ws.path!, dir)).toBe(true)
+    expect(service.agentContext(ws)).toContain('It is not a git repository')
+    await expect(service.createWorkspace(repo.id)).rejects.toThrow(/already works in/)
+
+    expect(await listWorkspaceFiles(dir, { plain: true })).toEqual(['src/notes.txt'])
+    expect((await searchWorkspace(dir, 'PLAIN', { plain: true })).map((m) => m.file)).toEqual(['src/notes.txt'])
+
+    // Archiving leaves the folder alone.
+    await service.archiveWorkspace(ws.id, true)
+    expect(existsSync(path.join(dir, 'src', 'notes.txt'))).toBe(true)
   })
 
   it('adopts an existing worktree and leaves it on disk when archived', async () => {

@@ -120,8 +120,8 @@ function pageOfRow(registryId: string): SettingsPage {
   const row = SETTINGS.find((e) => e.id === registryId)
   if (!row) throw new Error(`settingsSchema: no settingsRegistry row '${registryId}'`)
   const section = row.page.section
-  // Spaces holds organizations, not settings: no CLI setting sits there.
-  if (section === 'integrations' || section === 'repo' || section === 'spaces') throw new Error(`settingsSchema: row '${registryId}' is not on a personal settings page`)
+  // Spaces holds organizations and Quick holds tiles of other pages' settings: no CLI setting sits on either.
+  if (section === 'integrations' || section === 'repo' || section === 'spaces' || section === 'quick') throw new Error(`settingsSchema: row '${registryId}' is not on a personal settings page`)
   return section
 }
 

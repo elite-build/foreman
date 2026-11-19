@@ -197,3 +197,22 @@ describe('layoutFlowGraph, lenses and odd shapes', () => {
     expectNoOverlap(layout)
   })
 })
+
+describe('layoutFlowGraph, compact', () => {
+  const graph = research()
+  const wide = layoutFlowGraph(graph)
+  const compact = layoutFlowGraph(graph, { compact: true })
+
+  it('places the same steps in the same order, smaller and closer, so a whole flow fits a card', () => {
+    expectNoOverlap(compact)
+    expect(compact.nodes.map((n) => n.id)).toEqual(wide.nodes.map((n) => n.id))
+    expect(compact.width).toBeLessThan(wide.width * 0.8)
+    expect(node(compact, 'step:plan').width).toBe(124)
+    expect(node(compact, 'step:plan').height).toBe(46)
+    expect(node(compact, 'step:fix').y).toBeGreaterThan(node(compact, 'step:checks').y)
+  })
+
+  it('is wide only: a tall layout ignores it', () => {
+    expect(layoutFlowGraph(graph, { direction: 'tall', compact: true })).toEqual(layoutFlowGraph(graph, { direction: 'tall' }))
+  })
+})

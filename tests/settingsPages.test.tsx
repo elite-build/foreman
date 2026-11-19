@@ -21,6 +21,7 @@ const opens = (page: SettingsPage, platform?: string) => pageNode(tree(platform)
 
 describe('the pages (pages.ts)', () => {
   it('a category opens on its first page; an agent on its sign-in', () => {
+    expect(opens({ section: 'quick' })).toBe('quick')
     expect(opens({ section: 'general' })).toBe('general/language')
     expect(opens({ section: 'agents' })).toBe('agents/catalog')
     expect(opens({ section: 'agents', agent: 'claude' })).toBe('agents/claude/signin')
@@ -69,7 +70,9 @@ describe('the pages (pages.ts)', () => {
 
   it('Previous and Next walk the menu in order, across categories', () => {
     const ids = pageNodes(tree()).map((n) => n.id)
-    expect(ids[0]).toBe('general/language')
+    // Settings opens on Quick; General's first part follows it.
+    expect(ids[0]).toBe('quick')
+    expect(ids[1]).toBe('general/language')
     expect(ids.indexOf('agents/claude/accounts')).toBe(ids.indexOf('agents/claude/signin') + 1)
     expect(ids.indexOf('appearance/interface')).toBe(ids.indexOf('general/terminal') + 1)
     expect(ids.at(-1)).toBe('spaces')

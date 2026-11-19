@@ -1,14 +1,14 @@
 // Cues (O9) in a workspace: the saved commands in the terminal panel's + menu, the request ⌘K sends,
 // and the approval a repo's command needs before its first run (and after its text changes).
 // Each run opens a new terminal tab named after the command; nothing goes to an agent.
-import { Bookmark, Zap } from 'lucide-react'
+import { Pencil, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { commandsForRepo, needsApproval, type SavedCommand } from '../../../shared/savedCommands'
+import { commandSummary, commandsForRepo, needsApproval, type SavedCommand } from '../../../shared/savedCommands'
 import type { CheckConsentItem } from '../../../shared/types'
 import { useT } from '../i18n'
 import { api, attempt, modKey, openAutomations, useStore } from '../store'
 import { ConsentRow } from './ChecksDialogs'
-import { Button, Dialog, MenuGroup, MenuItem, MenuLabel, Tag } from '../ui'
+import { Button, Dialog, Kbd, MenuGroup, MenuItem, MenuLabel, Tag } from '../ui'
 
 const NO_COMMANDS: SavedCommand[] = []
 const EVENT = 'foreman:saved-command'
@@ -106,46 +106,52 @@ function CommandConsentDialog({ item, onCancel, onApprove }: { item: CheckConsen
 }
 
 /**
- * The saved commands in the terminal panel's + menu: this repo's commands, then all repos', and Edit commands…
- * (Automations). Items for a MenuButton the caller owns.
+ * The saved commands in the terminal panel's + menu, under "Run a command": this repo's commands, then all repos', one
+ * line each (the command, without the variables it sets, at the end; the whole text in the tooltip), and Edit
+ * commands… (Automations). Items for a menu the caller owns.
  */
 export function SavedCommandItems({ repoId, repoName, onPick }: { repoId: string; repoName: string; onPick: (command: SavedCommand) => void }) {
   const t = useT()
   const platform = useStore((s) => s.snapshot!.platform)
   const { repo, all } = useRepoCommands(repoId)
 
-  const row = (c: SavedCommand) => (
-    <MenuItem
-      key={c.id}
-      icon={<Bookmark size={14} />}
-      title={c.command}
-      description={<span className="mono">{c.command}</span>}
-      hint={c.source === 'repo' ? <Tag>{needsApproval(c) ? t('commands.palette.fromRepoAsks') : t('commands.fromRepoTag')}</Tag> : undefined}
-      onSelect={() => onPick(c)}
-    >
-      {c.name}
-    </MenuItem>
-  )
+  const row = (c: SavedCommand) => {
+    const { text, variables } = commandSummary(c.command)
+    return (
+      <MenuItem
+        key={c.id}
+        icon={<Play size={14} />}
+        title={c.command}
+        hint={
+          <>
+            <span className="mono">{text}</span>
+            {variables > 0 && <> {t('commands.menu.env', { count: variables })}</>}
+            {c.source === 'repo' && <> <Tag>{needsApproval(c) ? t('commands.palette.fromRepoAsks') : t('commands.fromRepoTag')}</Tag></>}
+          </>
+        }
+        onSelect={() => onPick(c)}
+      >
+        {c.name}
+      </MenuItem>
+    )
+  }
 
   return (
     <>
-      {repo.length > 0 && (
-        <>
-          <MenuLabel>{repoName}</MenuLabel>
-          <MenuGroup label={repoName}>{repo.map(row)}</MenuGroup>
-        </>
-      )}
+      <MenuLabel>
+        {t('commands.menu.heading')} <Kbd>{`${modKey(platform)}K`}</Kbd>
+      </MenuLabel>
+      {repo.length > 0 && <MenuGroup label={repoName}>{repo.map(row)}</MenuGroup>}
       {all.length > 0 && (
         <>
-          <MenuLabel>{t('commands.menu.allRepos')}</MenuLabel>
+          {repo.length > 0 && <MenuLabel>{t('commands.menu.allRepos')}</MenuLabel>}
           <MenuGroup label={t('commands.menu.allRepos')}>{all.map(row)}</MenuGroup>
         </>
       )}
       {!repo.length && !all.length && <MenuLabel>{t('commands.menu.empty')}</MenuLabel>}
-      <MenuItem icon={<Zap size={14} />} onSelect={() => openAutomations(null, 'commands')}>
+      <MenuItem icon={<Pencil size={14} />} hint={t('commands.palette.editDetail')} onSelect={() => openAutomations(null, 'commands')}>
         {t('commands.menu.edit')}
       </MenuItem>
-      <MenuLabel>{t('commands.menu.footer', { key: `${modKey(platform)}K` })}</MenuLabel>
     </>
   )
 }

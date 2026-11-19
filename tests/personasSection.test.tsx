@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// Personas on Automations, beside Flows: absent (and never asked for) while Settings → Experimental → Flows is off; on,
-// each persona is a row with its source and what it is, opening an editor that shows it as settings with the
+// Personas on Automations, on a tab beside Flows: absent (and never asked for) while Settings → Experimental → Flows is
+// off; on, each persona is a row with its source and what it is, opening an editor that shows it as settings with the
 // instructions beneath. Built-in and repository personas are read-only with Copy to personal; a personal one saves as
 // markdown, checked as it is edited, and says how many flows' approvals a change touches.
 import './domShims'
@@ -91,9 +91,11 @@ describe('Personas on Automations', () => {
     expect(within(screen.getByRole('region', { name: 'Personas' })).getByText('Nothing matches “zzz”.')).toBeTruthy()
   })
 
-  it('lists each persona with its source and what it is, after the flows', async () => {
+  it('lists each persona with its source and what it is', async () => {
+    const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
+    await u.click(screen.getByRole('tab', { name: 'Personas' }))
     const section = await screen.findByRole('region', { name: 'Personas' })
     await waitFor(() => expect(within(section).getByText('architect')).toBeTruthy())
     expect(within(section).getByText('read-only · ends with plan')).toBeTruthy()
@@ -105,14 +107,13 @@ describe('Personas on Automations', () => {
     expect(within(section).getAllByText('Built-in')).toHaveLength(PERSONA_STARTERS.length)
     expect(within(section).getAllByText('writes only docs/features/** · ends with done · loadout 2')).toHaveLength(2)
     expect(within(section).getByText('Personal')).toBeTruthy()
-    const regions = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))
-    expect(regions.indexOf('Flows')).toBeLessThan(regions.indexOf('Personas'))
   })
 
   it('opens a built-in persona read-only as its settings, and Copy to personal opens an editable copy', async () => {
     const u = userEvent.setup()
     setSnapshot(true)
     render(<AutomationsView />)
+    await u.click(screen.getByRole('tab', { name: 'Personas' }))
     await u.click(await screen.findByRole('button', { name: 'Open architect' }))
     const dialog = screen.getByRole('dialog', { name: 'architect' })
     expect(within(dialog).getByText(/read-only here/)).toBeTruthy()
@@ -137,6 +138,7 @@ describe('Personas on Automations', () => {
     setSnapshot(true)
     fakeApi.savePersonalPersona = vi.fn(async () => ({ persona: LIST.personas.at(-1)! }))
     render(<AutomationsView />)
+    await u.click(screen.getByRole('tab', { name: 'Personas' }))
     await u.click(await screen.findByRole('button', { name: /New persona/ }))
     const dialog = screen.getByRole('dialog', { name: 'New persona' })
     const name = within(dialog).getByRole('textbox', { name: 'Name' })
@@ -168,6 +170,7 @@ describe('Personas on Automations', () => {
     setSnapshot(true)
     fakeApi.savePersonalPersona = vi.fn(async () => ({ problems: ['You already have a personal persona named “reviewer”.'] }))
     render(<AutomationsView />)
+    await u.click(screen.getByRole('tab', { name: 'Personas' }))
     await u.click(await screen.findByRole('button', { name: 'Open reviewer' }))
     const dialog = screen.getByRole('dialog', { name: 'Edit persona' })
     expect(within(dialog).getByText('Review it, Review again')).toBeTruthy()

@@ -75,7 +75,7 @@ npm install
 npm run dev        # or: npm run dev demo
 ```
 
-`npm run dev demo` opens the app on demo data, with no network and no agent login: two repositories, three workspaces with chats and diffs, and a flow run you can watch stop at its gate. `npm run dev demo reset` starts it again from scratch. Set `FOREMAN_DATA_DIR=/some/folder` to keep development state apart from an installed Foreman, and run `npm link` after `npm run build` to put `foreman` on your PATH from the checkout. If `npm run dev` says Electron failed to install, run `node node_modules/electron/install.js`.
+`npm run dev demo` opens the app on demo data, with no network and no agent login: your own repositories and two organizations of AI employees (eight code repositories in all), two flow runs you can watch (one waits out a usage limit, then stops at its gate), and channels that move for a few minutes after the demo is first seeded until they stand at every stage: questions, a plan, a mock to check, a part that didn't finish, a paused project, a final check and a release held at the account's usage limit until it resets. `npm run dev demo reset` starts it again from scratch, and shows the current demo data in a demo kept from before it changed. Set `FOREMAN_DATA_DIR=/some/folder` to keep development state apart from an installed Foreman, and run `npm link` after `npm run build` to put `foreman` on your PATH from the checkout. If `npm run dev` says Electron failed to install, run `node node_modules/electron/install.js`.
 
 `npm test`, `npm run typecheck` and `npm run build` are the checks; `npm run dist:mac` / `npm run dist:win` build an installer into `dist/`. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for the rest.
 

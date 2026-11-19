@@ -17,6 +17,8 @@ export const CHANGE_TONE: Record<FlowChangeOp, TagTone> = { added: 'ok', changed
 const FLOW_FIELD: Record<Extract<FlowChange, { on: 'flow' }>['field'], PlainKey> = {
   name: 'flowChange.flow.name',
   description: 'flowChange.flow.description',
+  when: 'flowChange.flow.when',
+  jobs: 'flowChange.flow.jobs',
   start: 'flowChange.flow.start',
   inputs: 'flowChange.flow.inputs',
   after: 'flowChange.flow.after'

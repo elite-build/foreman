@@ -10,7 +10,7 @@ import { templateById } from '../../../shared/repoTemplates'
 import { chooseStartLoadout } from '../../../shared/startModel'
 import type { Attachment, BranchInfo, Repo, WorktreeInfo } from '../../../shared/types'
 import { rankItems } from '../fuzzy'
-import { adoptWorktree, api, attempt, availableAgents, bridge, createWorkspace, getState, openFlowRun, openNewWorkspace, openSettingsPage, showToast, timeAgo, useStore } from '../store'
+import { adoptWorktree, api, attempt, availableAgents, bridge, createWorkspace, fillComposer, getState, newChat, openFlowRun, openNewWorkspace, openSettingsPage, selectWorkspace, showToast, timeAgo, useStore } from '../store'
 import { useAgentStatuses } from '../agentReadiness'
 import { agentReadiness } from '../../../shared/agentReadiness'
 import { openTerminalAgent } from './agents/TerminalAgents'
@@ -116,6 +116,8 @@ interface BranchPickerProps {
   placeholder?: string
   // Why a branch can't be chosen here, if it can't.
   unavailable?: (branch: BranchInfo) => string | undefined
+  // What choosing a branch that is already checked out does; it stays choosable, listed with the checked-out ones.
+  inUse?: (branch: BranchInfo) => string | undefined
   // Focus and open the list when it first appears.
   openOnMount?: boolean
   // Keep search and results in the form instead of a floating dropdown.
@@ -123,26 +125,27 @@ interface BranchPickerProps {
 }
 
 /** A searchable branch list, shown inline for checkout or as a combobox for the other branch fields. */
-function BranchPicker({ branches, value, onChange, home, label, placeholder, unavailable, openOnMount, inline }: BranchPickerProps) {
+function BranchPicker({ branches, value, onChange, home, label, placeholder, unavailable, inUse, openOnMount, inline }: BranchPickerProps) {
   const t = useT()
   const [open, setOpen] = useState(Boolean(openOnMount))
   const [query, setQuery] = useState('')
   const ranked = useMemo(() => rankItems(branches ?? [], query, (b) => b.name), [branches, query])
   // Keep available branches first without disturbing fuzzy rank within each group.
-  const groupOf = (b: BranchInfo) => unavailable?.(b) ? 2 : b.remote && !b.local ? 1 : 0
+  const groupOf = (b: BranchInfo) => unavailable?.(b) || inUse?.(b) ? 2 : b.remote && !b.local ? 1 : 0
   const ordered = inline ? [...ranked].sort((a, b) => groupOf(a) - groupOf(b)) : ranked
   const items = ordered.slice(0, MAX_OPTIONS)
   const selected = branches?.find((b) => b.name === value)
 
   const options: ListboxOption[] = items.map((b) => {
     const reason = unavailable?.(b)
+    const note = reason ? undefined : inUse?.(b)
     return {
       value: b.name,
       label: b.name,
       disabled: Boolean(reason),
-      title: [b.name, reason ?? b.checkedOutAt].filter(Boolean).join(' — '),
-      group: inline ? t(reason ? 'newWorkspace.branches.inUse' : b.remote && !b.local ? 'newWorkspace.branches.remote' : 'newWorkspace.branches.available') : undefined,
-      description: reason ?? (b.checkedOutAt ? tildify(b.checkedOutAt, home) : undefined),
+      title: [b.name, reason ?? note ?? b.checkedOutAt].filter(Boolean).join(' — '),
+      group: inline ? t(reason || note ? 'newWorkspace.branches.inUse' : b.remote && !b.local ? 'newWorkspace.branches.remote' : 'newWorkspace.branches.available') : undefined,
+      description: reason ?? note ?? (b.checkedOutAt ? tildify(b.checkedOutAt, home) : undefined),
       leading: <GitBranch size={13} aria-hidden />,
       trailing: <BranchTags branch={b} inUse={!reason} />
     }
@@ -476,6 +479,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   // The branch to work on in the repository folder; '' until we know what it has checked out.
   const [direct, setDirect] = useState('')
   const directTaken = useStore((s) => s.snapshot!.workspaces.find((w) => w.repoId === repoId && w.direct && w.state !== 'archived'))
+  const workspaces = useStore((s) => s.snapshot!.workspaces)
   const [prompt, setPrompt] = useState(initialPrompt ?? '')
   // Start with (Flows on): Message and Template are today's first message; Flow picks a flow and opens the Run a flow page for it, this repository and base branch.
   const flowsOn = Boolean(settings.flows)
@@ -541,7 +545,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   // Integrations: a Linear issue in the first message (when no GitHub or GitLab link is), read with the repository's Linear connection.
   const hasLinear = useHasLinear(repo)
   const linear = useLinearIntake(repoId, prompt, hasLinear && !link)
-  const checksOutPr = resolved?.kind === 'pr' && !resolved.problem && mode === 'new' && branchKind === 'new'
+  const checksOutPr = resolved?.kind === 'pr' && !resolved.problem && mode === 'new' && branchKind === 'new' && !repo?.plain
   useEffect(() => {
     if (checksOutPr && resolved?.baseRef) setBase(resolved.baseRef)
   }, [checksOutPr, resolved?.baseRef])
@@ -580,6 +584,13 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   if (!repo) return null
 
   const hasSetup = Boolean(repoSettings[repo.id]?.values.setupScript.trim())
+  // The workspace already open where a branch is checked out, if one is.
+  const openOn = (b: BranchInfo | undefined) => {
+    const at = b?.checkedOutAt
+    return at ? workspaces.find((w) => w.repoId === repo.id && w.state !== 'archived' && !w.cloud && w.path && samePath(w.path, at, platform)) : undefined
+  }
+  // Check out existing on a branch with an open workspace opens that workspace instead of making one.
+  const reopens = mode === 'new' && branchKind === 'existing' && !inCloud ? openOn(branches.list?.find((b) => b.name === existing)) : undefined
   const autoName = settings.autoRenameBranches && !settings.privacyMode
   const others = trees?.filter((tree) => !tree.isMain) ?? null
 
@@ -588,6 +599,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     if (!next || id === repo.id) return
     setRepoId(id)
     setMode(defaultMode(id))
+    if (next.plain && startWith === 'flow') setStartWith('message')
     setBase(next.defaultBranch)
     setExisting('')
     setDirect('')
@@ -651,7 +663,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     if (!terminalAgent) void readFiles([...e.dataTransfer.files]).then(addFiles)
   }
 
-  const canSubmit =
+  const canSubmit = repo.plain ? !directTaken :
     (mode === 'new' ? Boolean(base.trim()) && (branchKind === 'new' || Boolean(existing)) : mode === 'folder' ? Boolean(direct) && !directTaken : Boolean(chosenPath)) &&
     // At the running limit a cloud workspace is refused until one is put to sleep.
     !(inCloud && readiness?.block === 'limit')
@@ -685,7 +697,18 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     // Every switchable integration as it was shown, so later changes to the defaults don't flip this workspace.
     const chosenTools: WorkspaceIntegrations | undefined = offerTools ? Object.fromEntries(tools.map((x) => [x.service, x.on])) : undefined
     let ok: boolean
-    if (mode === 'new') {
+    if (reopens) {
+      selectWorkspace(reopens.id)
+      // What was written goes into a new tab's composer there, unsent.
+      if (text) {
+        const session = await newChat(reopens.id)
+        if (session) fillComposer(reopens.id, session.id, text, fromTemplate)
+      }
+      ok = true
+    } else if (repo.plain) {
+      // A folder outside git has one place to work, the folder; 'direct' also keeps a PR link to its text.
+      ok = await createWorkspace(repo.id, { branch: { kind: 'direct', name: '' }, runSetup: hasSetup && runSetup, prompt: text, templateId: fromTemplate, attachments, loadout: sendLoadout, githubUrl, linearIssue, integrations: chosenTools })
+    } else if (mode === 'new') {
       const name = newName.trim()
       ok = await createWorkspace(repo.id, {
         baseBranch: base,
@@ -739,7 +762,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   } else if (branches.fetch === 'failed') fetchHint = t('newWorkspace.fetch.failed', { remote })
   else fetchHint = t('newWorkspace.fetch.fetched', { remote, ago: timeAgo(branches.fetchedAt) })
 
-  const submitLabel = mode === 'existing' ? (working ? t('newWorkspace.submit.adding') : t('newWorkspace.submit.add')) : working ? t('newWorkspace.submit.creating') : inCloud && readiness ? t('cloud.nw.submit', { provider: providerLabel(readiness.provider) }) : t('newWorkspace.submit.create')
+  const submitLabel = reopens ? t('newWorkspace.submit.open', { name: reopens.name }) : mode === 'existing' ? (working ? t('newWorkspace.submit.adding') : t('newWorkspace.submit.add')) : working ? t('newWorkspace.submit.creating') : inCloud && readiness ? t('cloud.nw.submit', { provider: providerLabel(readiness.provider) }) : t('newWorkspace.submit.create')
   // Why a branch can't be the folder's: it's checked out in another worktree.
   const elsewhere = (b: BranchInfo) => (b.checkedOutAt && !samePath(b.checkedOutAt, repo.rootPath, platform) ? t('newWorkspace.branch.checkedOutIn', { path: tildify(b.checkedOutAt, home) }) : undefined)
   const setupCheck = hasSetup && (
@@ -758,7 +781,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     <Dialog title={t('palette.newWorkspace')} className="nw-modal" onClose={close} headerExtra={<RepoChip repos={repos} repo={repo} onChange={changeRepo} />}>
       <div className="nw-body" onKeyDown={onKeyDown}>
         <div className="nw-settings">
-          {readiness?.offer && !startsFlow && (
+          {readiness?.offer && !startsFlow && !repo.plain && (
             <RunsOnField
               repo={repo}
               readiness={readiness}
@@ -771,6 +794,16 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
               }}
             />
           )}
+          {repo.plain ? (
+            <>
+              <small className="nw-hint">
+                <FolderRoot size={11} aria-hidden /> {tildify(repo.rootPath, home)}
+              </small>
+              {setupCheck}
+              {directTaken ? <p className="nw-note error-text">{t('newWorkspace.folder.taken', { name: directTaken.name })}</p> : <p className="nw-note">{t('newWorkspace.plain.note')}</p>}
+            </>
+          ) : (
+          <>
           {/* A flow run always makes its own worktrees, so Flow keeps New worktree and says why the others are off. */}
           <Segmented
             plain
@@ -841,13 +874,15 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                           home={home}
                           label={t('newWorkspace.branch.existingLabel')}
                           placeholder={t('newWorkspace.branch.choose')}
-                          unavailable={(b) =>
-                            b.checkedOutAt
-                              ? samePath(b.checkedOutAt, repo.rootPath, platform)
-                                ? t('newWorkspace.branch.inRepoFolder')
-                                : t('newWorkspace.branch.checkedOutIn', { path: tildify(b.checkedOutAt, home) })
-                              : undefined
-                          }
+                          // A remote workspace clones the repository, so a branch checked out here is free there.
+                          inUse={(b) => {
+                            if (!b.checkedOutAt || inCloud) return undefined
+                            const open = openOn(b)
+                            if (open) return t('newWorkspace.branch.opensWorkspace', { name: open.name })
+                            return samePath(b.checkedOutAt, repo.rootPath, platform)
+                              ? t('newWorkspace.branch.worksInFolder')
+                              : t('newWorkspace.branch.addsWorktree', { path: tildify(b.checkedOutAt, home) })
+                          }}
                           openOnMount={!existing}
                           inline
                         />
@@ -905,6 +940,8 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
               <p className="nw-note">{t('newWorkspace.tree.note')}</p>
             </>
           )}
+          </>
+          )}
 
           {!startsFlow && (
           <WorkspaceModelSelect
@@ -947,7 +984,8 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
               options={[
                 { value: 'message', label: t('newWorkspace.startWith.message') },
                 { value: 'template', label: t('newWorkspace.startWith.template') },
-                { value: 'flow', label: t('newWorkspace.startWith.flow') },
+                // A flow run makes its own worktrees, which a folder outside git can't have.
+                { value: 'flow', label: t('newWorkspace.startWith.flow'), disabled: Boolean(repo.plain), title: repo.plain ? t('newWorkspace.plain.noFlow') : undefined },
                 { value: 'link', label: t('newWorkspace.startWith.link') }
               ]}
               onChange={changeStartWith}

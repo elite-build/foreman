@@ -1,6 +1,6 @@
 // Automations: a library of prompt templates and saved commands (and flows and personas, each with its own tab, while
-// Settings → Experimental → Flows is on). Each template card says when it runs and how its last
-// run went; the side panel lists the schedules, or the selected schedule. A template opens as its own page in place of
+// Settings → Experimental → Flows is on; then the page opens on Flows). Each template card says when it runs and how its
+// last run went; the Schedules tab lists the schedules, or the selected schedule. A template opens as its own page in place of
 // the library, with breadcrumbs back. Covers the workspace area like Settings, so open workspaces stay mounted.
 import { ArrowLeft, CalendarClock, ChevronRight, Play, Plus, RotateCcw, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -21,16 +21,17 @@ import { RUN_LABEL, runStatusTone, runTemplate, ScheduleDetail, ScheduleOverview
 import '../settings/settings.css'
 import './automations.css'
 
-type Shelf = 'all' | 'templates' | 'commands' | 'flows' | 'personas'
+type Shelf = 'all' | 'templates' | 'commands' | 'flows' | 'personas' | 'schedules'
 
 export function AutomationsView() {
   const t = useT()
   const selected = useStore((s) => s.automations?.selected ?? null)
   const toCommands = useStore((s) => s.automations?.scrollTo === 'commands')
-  const [shelf, setShelf] = useState<Shelf>('all')
-  const [query, setQuery] = useState('')
   const flowsOn = useStore((s) => Boolean(s.snapshot?.settings.flows))
-  // A template opens as its own page over the library; a schedule still opens in the side panel.
+  // With flows on, the page opens on them and has no All tab: flows drawn whole make All too long to read.
+  const [shelf, setShelf] = useState<Shelf>(flowsOn ? 'flows' : 'all')
+  const [query, setQuery] = useState('')
+  // A template opens as its own page over the library; a schedule opens on the Schedules tab.
   const template = useSelectedTemplate(selected)
   const flowId = selected?.startsWith('f:') ? selected.slice(2) : null
   const flowDraft = useStore((s) => s.automations?.flowDraft)
@@ -52,10 +53,16 @@ export function AutomationsView() {
     if (toCommands && shelf !== 'all' && shelf !== 'commands') setShelf('commands')
   }, [toCommands, shelf])
 
-  // Flows turned off in Settings while their tab (or Personas) was open: back to All.
+  // Flows turned off in Settings while their tab (or Personas) was open: back to All; turned on while on All: Flows.
   useEffect(() => {
     if (!flowsOn && (shelf === 'flows' || shelf === 'personas')) setShelf('all')
+    if (flowsOn && shelf === 'all') setShelf('flows')
   }, [flowsOn, shelf])
+
+  // A schedule opened (from a template's page, a row, or elsewhere): its tab.
+  useEffect(() => {
+    if (scheduleId) setShelf('schedules')
+  }, [scheduleId])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -144,19 +151,20 @@ export function AutomationsView() {
         <Tabs value={shelf} onChange={(v) => setShelf(v as Shelf)} className="auto-lib">
           <div className="auto-lib-bar">
             <TabList label={t('automations.show')}>
-              <Tab value="all">{t('automations.all')}</Tab>
+              {flowsOn ? <Tab value="flows">{t('automations.flows')}</Tab> : <Tab value="all">{t('automations.all')}</Tab>}
               <Tab value="templates">{t('automations.templates')}</Tab>
               <Tab value="commands">{t('commands.section')}</Tab>
-              {flowsOn && <Tab value="flows">{t('automations.flows')}</Tab>}
               {flowsOn && <Tab value="personas">{t('automations.personas')}</Tab>}
+              <Tab value="schedules">{t('automations.template.schedules')}</Tab>
             </TabList>
             <TextInput type="search" className="auto-search" aria-label={search} placeholder={search} value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
-          <TabPanel value="all" className="auto-lib-scroll">
-            <FlowsSection query={query} />
-            <TemplateShelf query={query} />
-            <CommandsSection query={query} />
-          </TabPanel>
+          {!flowsOn && (
+            <TabPanel value="all" className="auto-lib-scroll">
+              <TemplateShelf query={query} />
+              <CommandsSection query={query} />
+            </TabPanel>
+          )}
           <TabPanel value="templates" className="auto-lib-scroll">
             <TemplateShelf query={query} />
           </TabPanel>
@@ -173,8 +181,10 @@ export function AutomationsView() {
               <FlowsSection query={query} show="personas" />
             </TabPanel>
           )}
+          <TabPanel value="schedules" className="auto-lib-scroll">
+            <div className="auto-schedules">{scheduleId ? <SelectedSchedule id={scheduleId} /> : <ScheduleOverview />}</div>
+          </TabPanel>
         </Tabs>
-        <aside className="auto-side" aria-label={t('automations.side.label')}>{scheduleId ? <SelectedSchedule id={scheduleId} /> : <ScheduleOverview />}</aside>
       </div>
     </div>
   )

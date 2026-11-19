@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { FLOW_STARTERS } from '../src/shared/flowStarters'
 import { countedLoopRedirect, flowFacts, flowFingerprintInputs, flowSummary, loopsContaining, nextStep, parseFlow, validateFlow, type Flow, type FlowParse } from '../src/shared/flows'
+import { flowsForJob } from '../src/shared/flowJobs'
 import { createT } from '../src/shared/i18n'
 
 function ok(parsed: FlowParse): Flow {
@@ -368,5 +369,26 @@ describe('counted loops', () => {
     const flow = ok(parseFlow(COUNTED.replace('prompt = "Draft it."', 'prompt = "Draft it."\nwrites = ["docs/**"]'), 'personal'))
     expect(flow.steps[0]).toMatchObject({ writes: ['docs/**'] })
     expect(problems(parseFlow(COUNTED.replace('prompt = "Draft it."', 'prompt = "Draft it."\nwrites = ["../x"]'), 'personal'))).toEqual(['Step “draft” writes to “../x”, which isn’t a path inside the workspace: write globs relative to its root, such as docs/features/**.'])
+  })
+})
+
+describe('the jobs a flow does', () => {
+  it('reads jobs and when from the top of the file, leaving out a job Foreman doesn’t know with a warning', () => {
+    const parsed = parseFlow(doc().replace('name = "T"', 'name = "T"\nwhen = "The checks fail."\njobs = ["fix", "nope", "fix", "ship"]'), 'personal')
+    const flow = ok(parsed)
+    expect(flow.when).toBe('The checks fail.')
+    expect(flow.jobs).toEqual(['fix', 'ship'])
+    expect(parsed.warnings).toEqual(['jobs names “nope”, which isn’t a job Foreman knows (build, fix, review, ship, maintain, decide), so it is left out.'])
+  })
+
+  it('a flow with no jobs has none, and every built-in names at least one it is listed under', () => {
+    expect(ok(parseFlow(doc(), 'personal')).jobs).toBeUndefined()
+    for (const s of FLOW_STARTERS) {
+      const parsed = parseFlow(s.toml, 'built-in')
+      expect(parsed.warnings, s.id).toEqual([])
+      expect(ok(parsed).jobs?.length, s.id).toBeGreaterThan(0)
+    }
+    expect(flowsForJob(FLOW_STARTERS.map((s) => ({ id: s.id, jobs: ok(parseFlow(s.toml, 'built-in')).jobs })), 'fix').map((f) => f.id)).toEqual(['fix-until-green', 'test-first', 'flaky-test-triage'])
+    expect(flowsForJob([{ id: 'a' }, { id: 'b', jobs: ['ship' as const] }], null)).toHaveLength(2)
   })
 })

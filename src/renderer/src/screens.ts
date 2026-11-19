@@ -175,17 +175,26 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   terminal: async (f) => {
     openWorkspace(f)
     showBottomPanel(true)
-    // No terminal is open until one is asked for: + → New terminal (the menu's first item).
-    const plus = await waitFor(element('.bottom-head .new-menu button'))
+    // No terminal is open until one is asked for: + opens one in the default shell.
+    const plus = await waitFor(element('.bottom-head .new-menu > .ui-btn'))
     if (!plus) return null
     plus.click()
-    const item = await waitFor(element('.bottom-menu [role="menuitem"]'))
-    if (!item) return null
-    item.click()
     const screen = await waitFor(element('.terminal .xterm-screen'))
     // The shell's prompt.
     if (screen) await sleep(1500)
     return '.terminal .xterm-screen'
+  },
+  // The arrow beside +, open: the shells found (Windows), the default marked, then the saved commands.
+  'terminal-new-menu': async (f) => {
+    const shown = await SCREENS.terminal(f)
+    if (!shown) return null
+    const arrow = await waitFor(element('.bottom-head .new-menu .ui-split__menu > .ui-btn'))
+    if (!arrow) return null
+    arrow.click()
+    const item = await waitFor(element('.ui-menu [role="menuitem"]'))
+    // The shells are looked up as it opens.
+    if (item) await sleep(800)
+    return '.ui-menu'
   },
   // The terminal in the workspace's middle (⌘⇧J), the chat in the side panel's Chat tab (O3).
   'terminal-full': async (f) => {
@@ -249,6 +258,25 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openAddRepoDialog('clone')
     return '.add-repo-combo .ui-option'
   },
+  // Settings › Quick: what Settings opens on.
+  'settings-quick': () => (openSettingsPage({ section: 'quick' }), '.settings-view .qt-grid'),
+  // Choosing tiles: move and remove on each, Add a tile, and the line where the gear's popover stops.
+  'settings-quick-choose': async () => {
+    openSettingsPage({ section: 'quick' })
+    const choose = await waitFor(element('.settings-view .qt-bar button'))
+    if (!choose) return null
+    choose.click()
+    return '.settings-view .qt-cut'
+  },
+  // The rail's gear: the first Quick tiles in a popover over Home.
+  'quick-popover': async () => {
+    openSettingsPage(null)
+    showRepoHome(null)
+    const gear = await waitFor(element('[data-tour="settings"]'))
+    if (!gear) return null
+    gear.click()
+    return '.qt-pop .qt-grid'
+  },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),
   // #130: Claude Code's Accounts page.
@@ -291,11 +319,11 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   automations: () => (openAutomations(), '.automations-view'),
   // A built-in template open as its own page.
   'automations-template': () => (openAutomations('t:default-fix-bug'), '.automations-view .auto-page'),
-  // Flows on: the built-in and repository flows with their runs, then the personas.
+  // Flows on: "I want to…", and the flows that do the job of the flow run last, each drawn, then their latest runs.
   'automations-flows': async () => {
     openAutomations()
-    if (!(await waitFor(() => document.querySelectorAll('.automations-view .flow-item').length >= 3))) return null
-    return '.automations-view .flow-runs'
+    if (!(await waitFor(() => document.querySelectorAll('.automations-view .flow-job-card').length >= 2))) return null
+    return '.automations-view .flow-job-picture .ui-graph__node'
   },
   // The same section switched to every flow's runs, as a table.
   'automations-flow-runs': async () => {

@@ -17,8 +17,8 @@ import { axWarnings, checkAxTree, reduceAxTree, type CdpAxNode } from './axTree'
 import { compareTranscript, formatDiffs, formatTranscript, keyEvents, runWalk, type ExpectedTranscript, type Reading, type StepDiff, type Transcript, type Walk, type WalkDriver } from './keyboardWalk'
 import { fileName, LARGE_CONTENT_SIZE, planShots, type Shot } from './screensPlan'
 import { selectWalks } from './walks'
-import { ORG_ID, seedOrganization, type OrganizationFixture } from './screensOrganization'
-import { DEMO_ORGANIZATION_ICON, seedDemoOrganization } from './demoOrganization'
+import { seedOrganization, type OrganizationFixture } from './screensOrganization'
+import { seedDemoOrganization } from './demoOrganization'
 import { git } from './git'
 import { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
@@ -409,39 +409,7 @@ function flowChecks(): Workspace['checks'] {
  * repositories, three AI employees and two of their runs' workspaces, written into `dataDir` before the app loads it.
  * `overrides` changes the fixture's settings (the demo, main/demo.ts); the screenshot run takes them as they are.
  */
-/**
- * A demo kept from before the organization came into the fixture (main/demo.ts): adds Acme, as the demo has it, when it
- * isn't there, beside whatever the person made in the demo (their own organizations and employees stay). True when it did.
- */
-export async function addDemoOrganization(root: string, dataDir: string): Promise<boolean> {
-  const store = new Store(dataDir)
-  await store.load()
-  const repos = path.join(root, 'repos')
-  const acme = store.state.organizations?.find((o) => o.id === ORG_ID)
-  if (acme || existsSync(path.join(repos, 'site'))) {
-    // Acme added before it had an icon gets the demo's, once (clearing it in Settings → Spaces then sticks).
-    const migrations = (store.state.migrations ??= [])
-    if (acme && !migrations.includes('demo-organization-icon')) {
-      acme.icon ??= DEMO_ORGANIZATION_ICON
-      migrations.push('demo-organization-icon')
-    }
-    store.close()
-    return false
-  }
-  seededAt = Date.now()
-  const organizations = store.state.organizations ?? []
-  const employees = store.state.employees ?? []
-  const seed = { repos, worktrees: path.join(root, 'workspaces'), store, minutesAgo, commitAll, makeRepo, makeWorktree, writeFiles }
-  await seedOrganization(seed)
-  await seedDemoOrganization(seed)
-  // seedOrganization writes the fixture's organization and employees as the whole list; the person's own come first.
-  store.state.organizations = [...organizations, ...(store.state.organizations ?? [])]
-  store.state.employees = [...employees, ...(store.state.employees ?? [])]
-  store.close()
-  return true
-}
-
-/** `demo`: the dev demo's fuller organization too (demoOrganization.ts); the screenshot run leaves it out. */
+/** `demo`: the dev demo's fuller organizations too (demoOrganization.ts, demoLumen.ts); the screenshot run leaves them out. */
 export async function seedScreens(root: string, dataDir: string, overrides: Partial<Settings> = {}, { demo = false }: { demo?: boolean } = {}): Promise<ScreensFixture> {
   seededAt = Date.now()
   const repos = path.join(root, 'repos')
@@ -527,6 +495,11 @@ export async function seedScreens(root: string, dataDir: string, overrides: Part
     // cmd.exe has no profile to run; elsewhere the default shell.
     terminalShell: process.platform === 'win32' ? 'cmd' : 'auto',
     restoreTerminals: false,
+    // Saved commands (the terminal panel's + arrow, Automations → Commands): one that sets a variable first.
+    savedCommands: [
+      { id: 'cmd-screens-dev', name: 'Dev server', command: 'set "PORT=3000" && npm run dev', scope: 'repo', repoId: 'repo-atlas' },
+      { id: 'cmd-screens-lint', name: 'Lint', command: 'npm run lint', scope: 'all' }
+    ],
     workspacesRoot: worktrees,
     cloneDirectory: repos,
     // #130: Claude Code's other accounts (Settings → Agents → Claude Code → Accounts, the picker's Account row).
@@ -569,6 +542,8 @@ export const SCREENS = [
   'composer-queue',
   'run-launcher',
   'terminal',
+  // The arrow beside the terminal panel's +: the shells found, then the saved commands.
+  'terminal-new-menu',
   'terminal-full',
   'file-diff',
   'git-panel',
@@ -577,6 +552,10 @@ export const SCREENS = [
   'new-workspace',
   'new-workspace-branch',
   'clone-repo',
+  // Settings › Quick (what Settings opens on) and the rail gear's popover of its first tiles.
+  'settings-quick',
+  'settings-quick-choose',
+  'quick-popover',
   'settings-general',
   'settings-agents',
   // #130: Claude Code's Accounts section, an account's dialog and the picker's Account row.
