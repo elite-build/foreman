@@ -8,7 +8,7 @@ import { FLOW_DONE, type Flow, type FlowStep } from './flows'
 export type FlowChangeOp = 'added' | 'removed' | 'changed'
 
 export type FlowChange =
-  | { on: 'flow'; op: 'changed'; field: 'name' | 'description' | 'start' | 'inputs' | 'after' }
+  | { on: 'flow'; op: 'changed'; field: 'name' | 'description' | 'when' | 'jobs' | 'start' | 'inputs' | 'after' }
   | { on: 'step'; op: FlowChangeOp; step: string; fields?: string[] }
   // An exit: from a step, on a fact (none for a plain next step), to a step or `done`. Changed: same exit, new target.
   | { on: 'edge'; op: FlowChangeOp; from: string; fact?: string; to: string; was?: string }
@@ -38,7 +38,7 @@ function exits(flow: Flow): { from: string; fact?: string; to: string }[] {
 /** What `after` changes against `before`: flow fields, then steps, exits and loops, each in the order the files list them. */
 export function diffFlows(before: Flow, after: Flow): FlowChange[] {
   const changes: FlowChange[] = []
-  for (const field of ['name', 'description', 'start', 'inputs', 'after'] as const) if (!same(before[field], after[field])) changes.push({ on: 'flow', op: 'changed', field })
+  for (const field of ['name', 'description', 'when', 'jobs', 'start', 'inputs', 'after'] as const) if (!same(before[field], after[field])) changes.push({ on: 'flow', op: 'changed', field })
 
   const was = new Map(before.steps.map((s) => [s.name, s]))
   const now = new Map(after.steps.map((s) => [s.name, s]))

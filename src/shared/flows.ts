@@ -5,6 +5,7 @@
 import { parse } from 'smol-toml'
 import { createT, type TFunction } from './i18n'
 import { applyPersona, isWriteGlob, type Persona, type PersonaSource } from './personas'
+import { isFlowJob, FLOW_JOBS, type FlowJob } from './flowJobs'
 import { templatePlaceholders } from './promptTemplates'
 import type { ScheduleFingerprint } from './types'
 
@@ -102,6 +103,10 @@ export interface FlowLoop {
 export interface Flow {
   name: string
   description?: string
+  // When to choose this flow over the others that do the same job, in a line (flowJobs.ts).
+  when?: string
+  // The jobs it does, which Automations lists it under (flowJobs.ts); none: only under All flows.
+  jobs?: FlowJob[]
   // Where a drafted flow came from (a workspace and date, or an assistant thread), kept as written.
   made_from?: string
   source: FlowSource
@@ -189,7 +194,7 @@ const STEP_FIELDS: Record<FlowStepKind, readonly string[]> = {
   pr: ['draft', 'title', 'body']
 }
 
-const TOP_FIELDS = ['name', 'description', 'made_from', 'start', 'steps', 'edges', 'loops', 'after', 'inputs']
+const TOP_FIELDS = ['name', 'description', 'when', 'jobs', 'made_from', 'start', 'steps', 'edges', 'loops', 'after', 'inputs']
 
 /** The persona a name means where the flow runs, or undefined when there is none. */
 export type PersonaLookup = (name: string) => Persona | undefined
@@ -230,7 +235,15 @@ export function flowFromObject(raw: unknown, source: FlowSource, t: TFunction = 
     return undefined
   }
   const description = text(raw.description, 'description')
+  const when = text(raw.when, 'when')
   const madeFrom = text(raw.made_from, 'made_from')
+  // The jobs it does: a job Foreman doesn't know is left out with a warning, so the rest still list it.
+  let jobs: FlowJob[] | undefined
+  if (raw.jobs !== undefined) {
+    const listed = Array.isArray(raw.jobs) ? raw.jobs : [raw.jobs]
+    jobs = [...new Set(listed.filter(isFlowJob))]
+    for (const job of listed) if (!isFlowJob(job)) warnings.push(t('flows.problem.jobs', { job: String(job), choices: FLOW_JOBS.join(', ') }))
+  }
 
   let start = ''
   if (raw.start === undefined) problems.push(t('flows.problem.noStart'))
@@ -292,6 +305,8 @@ export function flowFromObject(raw: unknown, source: FlowSource, t: TFunction = 
   if (problems.length) return { problems, warnings }
   const flow: Flow = { name, source, start, steps, edges, loops, after, inputs }
   if (description !== undefined) flow.description = description
+  if (when !== undefined) flow.when = when
+  if (jobs?.length) flow.jobs = jobs
   if (madeFrom !== undefined) flow.made_from = madeFrom
   return { flow, problems, warnings }
 }

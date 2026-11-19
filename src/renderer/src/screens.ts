@@ -291,11 +291,11 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
   automations: () => (openAutomations(), '.automations-view'),
   // A built-in template open as its own page.
   'automations-template': () => (openAutomations('t:default-fix-bug'), '.automations-view .auto-page'),
-  // Flows on: the built-in and repository flows with their runs, then the personas.
+  // Flows on: "I want to…", and the flows that do the job of the flow run last, each drawn, then their latest runs.
   'automations-flows': async () => {
     openAutomations()
-    if (!(await waitFor(() => document.querySelectorAll('.automations-view .flow-item').length >= 3))) return null
-    return '.automations-view .flow-runs'
+    if (!(await waitFor(() => document.querySelectorAll('.automations-view .flow-job-card').length >= 2))) return null
+    return '.automations-view .flow-job-picture .ui-graph__node'
   },
   // The same section switched to every flow's runs, as a table.
   'automations-flow-runs': async () => {
