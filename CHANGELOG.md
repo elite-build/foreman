@@ -2,6 +2,36 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.6 (2026-11-19)
+
+### Added
+
+- **Settings** opens on **Quick**, tiles for the settings you change most (the model and account for new chats, theme, zoom, notifications and more). **Choose tiles** picks which show and in what order. ([#235](https://github.com/elite-build/foreman/pull/235))
+- Folders that aren't git repositories can be added with **Add without git**. Their workspace works in the folder itself, without branches, diff or checkpoints. ([#231](https://github.com/elite-build/foreman/pull/231))
+- **Settings → Spaces → Link to GitHub…** pushes an organization's memory to a new private GitHub repository or one you name, after every change, with **Push now** and **Unlink**. ([#226](https://github.com/elite-build/foreman/pull/226))
+- Organizations can pick an icon in **Settings → Spaces**; without one, an organization takes the icon of its repository of the same name. ([#227](https://github.com/elite-build/foreman/pull/227))
+- A flow file can name the jobs it does (`jobs = ["fix", "build"]`) and when to choose it (`when = "…"`). ([#232](https://github.com/elite-build/foreman/pull/232))
+
+### Changed
+
+- The **sidebar** is a rail of spaces and modes. Each space is a named tile with its icon; **Inbox**, **Work**, **Team** and **Channels** are tabs under them; the list beside them shows the picked mode. ([#227](https://github.com/elite-build/foreman/pull/227))
+- Sidebar rows show what each workspace is for (its task or first chat's title), not its generated name; the name and branch are in the row's hover card. ([#227](https://github.com/elite-build/foreman/pull/227))
+- "Needs you" is a ring around a dot instead of a triangle, and a failed turn is a dot with a cross. Green and red +/− counts and the resource usage line in the sidebar are on by default. ([#227](https://github.com/elite-build/foreman/pull/227))
+- The sidebar's **+** menu is now **New**, a button under the sidebar's top row that makes what the mode is about (**New workspace**, **New employee** or **New project**). Its **▾**, or Ctrl+Shift+N, opens a list of everything to make in the middle of the window. Home's own **New workspace** and **Import…** buttons are gone, and forgetting one recent folder from the old **+** menu is no longer offered. ([#230](https://github.com/elite-build/foreman/pull/230))
+- The gear at the foot of the sidebar opens the first six **Quick** tiles over your work; **All settings** (Ctrl+,) opens Settings. ([#235](https://github.com/elite-build/foreman/pull/235))
+- **Automations** asks **I want to…** when Flows are on, and lists only the flows that do the job you pick. Each says when to choose it, how often it stops for you and how its last run went, with the flow drawn big enough to read. **Schedules** have their own tab instead of a side panel. ([#232](https://github.com/elite-build/foreman/pull/232))
+- The terminal panel's **+** opens a terminal in your shell with one click. The arrow beside it lists your shells, each with its own icon and your default marked, and your saved commands, each on one line showing the command without the variables it sets. ([#234](https://github.com/elite-build/foreman/pull/234))
+- **New organization** no longer asks about or shows the memory repository, and it no longer appears in the sidebar, the space switcher or Settings' repository list. ([#226](https://github.com/elite-build/foreman/pull/226))
+
+### Fixed
+
+- **Check out an existing branch** opens a branch that's already checked out where it is (the repository folder, its worktree, or the workspace that already has it) instead of refusing it. ([#231](https://github.com/elite-build/foreman/pull/231))
+- On Windows, **Run** on a chat's bash block uses Git Bash, so commands such as `python` and paths such as `C:/…` work instead of failing in WSL. ([#228](https://github.com/elite-build/foreman/pull/228))
+
+### Development
+
+- **npm run dev demo** shows two organizations, eight repositories, channels at every stage and two flow runs, with work that waits out a usage limit and goes on by itself. ([#233](https://github.com/elite-build/foreman/pull/233))
+
 ## 1.2.5 (2026-11-18)
 
 ### Changed
