@@ -1,13 +1,18 @@
-// Dev-only demo (main/demo.ts): a flow run that is going when the demo opens, so you can watch one move. Each launch
-// starts the built-in "Fix until green" on atlas, through the real flow engine, checks and chats; only the agent is a
-// script. Its first version has an off-by-one the tests catch, the fix makes them pass, the reviewer finds two things,
-// the second review is clean, and the run waits at its ship-check gate for you. The previous launch's demo run (which
-// the restart left uncertain) and its workspace are deleted first, so launches don't pile them up.
+// Dev-only demo (main/demo.ts): flow runs that are going when the demo opens, so you can watch them move. Each launch
+// starts two, through the real flow engine, checks and chats; only the agent is a script.
+// - "Fix until green" on atlas: its first version has an off-by-one the tests catch, the fix makes them pass, the
+//   reviewer finds two things, the second review is clean, and the run waits at its ship-check gate for you.
+// - "Document what changed" on beacon: the developer adds a health check, the checks pass, and the docs writer's turn
+//   stops at the account's usage limit. The run waits for the reset (its tab offers Resume now), then the docs are
+//   written, QA finds them right, and it waits at its gate for you.
+// The previous launch's demo runs (which the restart left uncertain) and their workspaces are deleted first, so launches
+// don't pile them up. An AI employee's turn is main/demoEmployees.ts's script.
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { AGENTS, type AgentKind } from '../shared/agents'
 import { translate } from '../shared/i18n'
 import { isActiveRun } from '../shared/flows'
+import { RESUME_TEXT } from '../shared/usageLimit'
 import type { ChatItem } from '../shared/types'
 import { claudeDriver } from './agents/claude'
 import { codexDriver } from './agents/codex'
@@ -16,6 +21,7 @@ import { registerDriver } from './agents/registry'
 import type { AgentDriver, AgentTurn, TurnCallbacks, TurnRequest } from './agents/types'
 import { commandHash } from './checks'
 import type { Core } from './core'
+import { EmployeeDemoTurn, isEmployeeTurn } from './demoEmployees'
 import { git } from './git'
 import { mainT } from './i18n'
 import type { Store } from './store'
@@ -58,6 +64,58 @@ console.log(' ✓ ${RETRY_TEST} (' + (source.includes('isIdempotent') ? 6 : 4) +
 
 const TYPECHECK_SCRIPT = `await new Promise((resolve) => setTimeout(resolve, 2000))
 console.log('No type errors.')
+`
+
+// ---- beacon's run: "Document what changed", with one check, and the docs step held at the usage limit ----
+
+const BEACON_FLOW_ID = 'built-in:document-what-changed'
+const BEACON_TASK = 'Add a /healthz endpoint to Beacon that answers 200 with the running version, for the load balancer.'
+const BEACON_CHECKS_TOML = `[[checks]]
+name = "Vet"
+command = "node scripts/vet.mjs"
+`
+const BEACON_VET = `await new Promise((resolve) => setTimeout(resolve, 2500))
+console.log('go vet ./...\\nok   beacon  0.412s')
+`
+const MAIN_GO = 'package main\n\nfunc main() {}\n'
+const MAIN_GO_V1 = `package main
+
+import (
+\t"fmt"
+\t"net/http"
+)
+
+var version = "1.4.0"
+
+func healthz(w http.ResponseWriter, r *http.Request) {
+\tfmt.Fprintf(w, "ok %s\\n", version)
+}
+
+func main() {
+\thttp.HandleFunc("/healthz", healthz)
+\thttp.ListenAndServe(":8080", nil)
+}
+`
+const HEALTH_DOCS = '\n## Health check\n\n`GET /healthz` answers `200 ok <version>` while Beacon is up. Point the load balancer’s health check at it.\n'
+// The flow steps' working folders whose turn has already stopped at the limit once: the next one goes on.
+const limited = new Set<string>()
+// The out-of-credits chat in Lumen (demoLumen.ts): what its Resume or Continue on another account plays.
+const TOML_CONFIG = `import { existsSync, readFileSync } from 'node:fs'
+import { parse } from 'smol-toml'
+
+export interface Config {
+  theme: string
+  pageSize: number
+}
+
+/** lumen.toml, or .lumenrc.json until 1.0. */
+export function loadConfig(): Config {
+  if (existsSync('lumen.toml')) {
+    const toml = parse(readFileSync('lumen.toml', 'utf8')) as { theme?: string; page_size?: number }
+    return { theme: toml.theme ?? 'auto', pageSize: toml.page_size ?? 100 }
+  }
+  return JSON.parse(readFileSync('.lumenrc.json', 'utf8')) as Config
+}
 `
 
 // ---- the code the scripted agent writes ----
@@ -136,6 +194,8 @@ const findingsBlock = (findings: unknown[]) => '```foreman-findings\n' + JSON.st
 type Beat =
   | { tool: string; input: Record<string, unknown>; output: string; ms: number; write?: { file: string; text: string } }
   | { say: string }
+  // The turn stops at the account's usage limit, which resets in this many minutes (once per working folder).
+  | { limit: number }
 
 function read(cwd: string, file: string): string {
   const full = path.join(cwd, file)
@@ -268,6 +328,11 @@ class BackgroundDemo {
 /** What the agent does for this message: the flow's steps by what their messages say, and a plain reply for anything else. */
 function script(request: TurnRequest): Beat[] {
   const { prompt, cwd } = request
+  if (read(cwd, 'package.json').includes('"lumen-cli"') && prompt.trim() === RESUME_TEXT) return tomlScript()
+  if (existsSync(path.join(cwd, 'main.go'))) {
+    const beacon = beaconScript(prompt, cwd)
+    if (beacon) return beacon
+  }
   const source = read(cwd, RETRY)
   if (prompt.includes('foreman-findings')) {
     const clean = source.includes('isIdempotent')
@@ -306,6 +371,49 @@ function script(request: TurnRequest): Beat[] {
     ]
   }
   return [{ say: GENERIC_REPLY }]
+}
+
+/** Beacon's flow run: the health check, the docs (stopped at the limit the first time), and QA's clean review. */
+function beaconScript(prompt: string, cwd: string): Beat[] | undefined {
+  const main = read(cwd, 'main.go')
+  if (prompt.includes('foreman-findings')) {
+    return [
+      { tool: 'Read', input: { file_path: 'README.md' }, output: read(cwd, 'README.md'), ms: 2000 },
+      { tool: 'Read', input: { file_path: 'main.go' }, output: main, ms: 1800 },
+      { say: `No findings: the README documents \`GET /healthz\` and its answer exactly as main.go serves it.\n\n${findingsBlock([])}` }
+    ]
+  }
+  const docs = prompt.includes('Update the documentation for what this change does')
+  if (docs || (prompt.trim() === RESUME_TEXT && limited.has(cwd))) {
+    if (!limited.has(cwd)) {
+      return [{ say: 'I’ll document the new health check in the README.' }, { tool: 'Read', input: { file_path: 'README.md' }, output: read(cwd, 'README.md'), ms: 2200 }, { limit: 2 }]
+    }
+    const readme = read(cwd, 'README.md')
+    return [
+      { say: 'Picking up where I stopped: the health check’s section in the README.' },
+      { tool: 'Edit', input: { file_path: 'README.md', old_string: readme.trimEnd(), new_string: `${readme.trimEnd()}\n${HEALTH_DOCS}` }, output: 'The file README.md has been updated.', ms: 2500, write: { file: 'README.md', text: `${readme.trimEnd()}\n${HEALTH_DOCS}` } },
+      { say: 'The README now has a **Health check** section: what `GET /healthz` answers, and where to point the load balancer.' }
+    ]
+  }
+  if (prompt.includes(BEACON_TASK)) {
+    return [
+      { say: 'I’ll add the endpoint next to `main`.' },
+      { tool: 'Read', input: { file_path: 'main.go' }, output: main || MAIN_GO, ms: 1800 },
+      { tool: 'Write', input: { file_path: 'main.go', content: MAIN_GO_V1 }, output: 'The file main.go has been written.', ms: 3500, write: { file: 'main.go', text: MAIN_GO_V1 } },
+      { say: '`GET /healthz` answers `200 ok 1.4.0`, and Beacon now listens on :8080.' }
+    ]
+  }
+  return undefined
+}
+
+/** The Lumen chat that ran out of credits, resumed: it finishes the TOML loader it was in the middle of. */
+function tomlScript(): Beat[] {
+  return [
+    { say: 'Picking up where I stopped: the loader reads lumen.toml now, and I’ll keep .lumenrc.json as the fallback.' },
+    { tool: 'Write', input: { file_path: 'src/config.ts', content: TOML_CONFIG }, output: 'The file src/config.ts has been written.', ms: 3500, write: { file: 'src/config.ts', text: TOML_CONFIG } },
+    { tool: 'Edit', input: { file_path: 'README.md', old_string: '`lumen stats`.', new_string: '`lumen stats`. Configure it in `lumen.toml`.' }, output: 'The file README.md has been updated.', ms: 1800 },
+    { say: '`loadConfig` reads `lumen.toml` first and falls back to `.lumenrc.json` until 1.0, so nobody’s setup breaks. The README says where the config lives.' }
+  ]
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -354,6 +462,14 @@ class DemoTurn implements AgentTurn {
         await this.say(id, beat.say)
         continue
       }
+      if ('limit' in beat) {
+        // As Claude Code says it: the turn ends at the limit with its reset time, the tab pauses and its resume is armed.
+        limited.add(cwd)
+        const resetAt = new Date(Date.now() + beat.limit * 60_000)
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+        const source = `resets ${resetAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} (${timeZone})`
+        return this.cb.finished({ ok: false, error: `You've hit your limit · ${source}`, limit: { resetAt: resetAt.toISOString(), source, timeZone } })
+      }
       const tool: Extract<ChatItem, { kind: 'tool' }> = { kind: 'tool', id, turnId, name: beat.tool, input: beat.input, status: 'running' }
       this.cb.item({ ...tool })
       await sleep(beat.ms, signal)
@@ -392,9 +508,11 @@ class DemoTurn implements AgentTurn {
 function demoDriver(kind: AgentKind, replayed?: AgentDriver): AgentDriver {
   return {
     kind,
-    // The flow run's steps are a script (they write the files the checks then run); a chat of the person's goes to the
-    // real adapter over ReplayTransport, so it answers as the recorded agent did (docs/agents.md, 9.5).
-    createTurn: (request, callbacks) => (replayed && !isFlowBeat(request) ? replayed.createTurn(request, callbacks) : new DemoTurn(request, callbacks)),
+    // An AI employee's run is its own script of tool calls (demoEmployees.ts); the flow runs' steps are a script (they
+    // write the files the checks then run); a chat of the person's goes to the real adapter over ReplayTransport, so it
+    // answers as the recorded agent did (docs/agents.md, 9.5).
+    createTurn: (request, callbacks) =>
+      isEmployeeTurn(request) ? new EmployeeDemoTurn(request, callbacks) : replayed && !isFlowBeat(request) ? replayed.createTurn(request, callbacks) : new DemoTurn(request, callbacks),
     status: async () => ({ agent: kind, installed: true, ready: true, detail: replayed ? 'Demo: answers from recordings' : 'Demo: answers from a script' })
   }
 }
@@ -416,33 +534,42 @@ export function registerDemoAgents(options: { replayRoot?: string } = {}): void 
 
 // ---- starting the run ----
 
-/** Atlas's checks and their scripts, committed on main once (a demo seeded before this existed gets them on its next launch). */
-async function prepareAtlas(store: Store, repoId: string): Promise<void> {
+/**
+ * A repository's checks and their scripts, committed on main once (a demo seeded before this existed gets them on its next
+ * launch), and approved on this computer, as if you had said yes once: a run never approves a check itself.
+ */
+async function prepareChecks(store: Store, repoId: string, files: Record<string, string>, commands: string[], scripts?: Record<string, string>): Promise<void> {
   const repo = store.state.repos.find((r) => r.id === repoId)
-  if (!repo) throw new Error('the atlas repository was removed')
+  if (!repo) throw new Error(`the ${repoId} repository was removed`)
   const root = repo.rootPath
-  if (!existsSync(path.join(root, 'scripts', 'test.mjs'))) {
-    const files: Record<string, string> = { '.foreman/settings.toml': CHECKS_TOML, 'scripts/test.mjs': TEST_SCRIPT, 'scripts/typecheck.mjs': TYPECHECK_SCRIPT }
-    const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
-    pkg.scripts = { ...pkg.scripts, test: 'node scripts/test.mjs', typecheck: 'node scripts/typecheck.mjs' }
-    files['package.json'] = `${JSON.stringify(pkg, null, 2)}\n`
-    for (const [file, text] of Object.entries(files)) {
+  if (!Object.keys(files).every((file) => existsSync(path.join(root, file)))) {
+    const all = { ...files }
+    if (scripts) {
+      const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
+      pkg.scripts = { ...pkg.scripts, ...scripts }
+      all['package.json'] = `${JSON.stringify(pkg, null, 2)}\n`
+    }
+    for (const [file, text] of Object.entries(all)) {
       mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
       writeFileSync(path.join(root, file), text)
     }
-    await git(root, ['add', '--', ...Object.keys(files)])
-    await git(root, [...IDENTITY, 'commit', '-q', '-m', 'Add the tests and type check as Foreman checks', '--', ...Object.keys(files)])
+    await git(root, ['add', '--', ...Object.keys(all)])
+    await git(root, [...IDENTITY, 'commit', '-q', '-m', 'Add Foreman checks', '--', ...Object.keys(all)])
   }
-  // Approved on this computer, as if you had said yes once: a run never approves a check itself.
   const approved = new Set(store.state.checkApprovals?.[repoId] ?? [])
-  for (const command of ['npm test', 'npm run typecheck']) approved.add(commandHash(command))
+  for (const command of commands) approved.add(commandHash(command))
   store.state.checkApprovals = { ...store.state.checkApprovals, [repoId]: [...approved] }
   store.save()
 }
 
+const RUNS = [
+  { flowId: FLOW_ID, repoId: 'repo-atlas', task: TASK },
+  { flowId: BEACON_FLOW_ID, repoId: 'repo-beacon', task: BEACON_TASK }
+]
+
 /** The demo runs a previous launch started, ended now, and their workspaces: deleted, so only this launch's shows. */
 async function clearEarlierRuns(core: Core, store: Store): Promise<void> {
-  const earlier = core.flows.runs.filter((r) => r.inputs.task === TASK && r.flow.id === FLOW_ID && !isActiveRun(r))
+  const earlier = core.flows.runs.filter((r) => RUNS.some((d) => r.inputs.task === d.task && r.flow.id === d.flowId) && !isActiveRun(r))
   if (!earlier.length) return
   for (const run of earlier) {
     for (const id of run.workspaces ?? (run.workspaceId ? [run.workspaceId] : [])) {
@@ -460,12 +587,25 @@ async function clearEarlierRuns(core: Core, store: Store): Promise<void> {
   store.save()
 }
 
-/** After the flow engine started (and marked the last launch's run uncertain): start this launch's run. */
-export async function startDemoRun(core: Core, store: Store, repoId = 'repo-atlas'): Promise<void> {
+/** After the flow engine started (and marked the last launch's runs uncertain): start this launch's runs. */
+export async function startDemoRun(core: Core, store: Store): Promise<void> {
   if (!store.state.settings.flows) return console.log('[demo] Flows are off (Settings → Experimental), so no flow run starts.')
-  await prepareAtlas(store, repoId)
+  await prepareChecks(store, 'repo-atlas', { '.foreman/settings.toml': CHECKS_TOML, 'scripts/test.mjs': TEST_SCRIPT, 'scripts/typecheck.mjs': TYPECHECK_SCRIPT }, ['npm test', 'npm run typecheck'], {
+    test: 'node scripts/test.mjs',
+    typecheck: 'node scripts/typecheck.mjs'
+  })
+  if (store.state.repos.some((r) => r.id === 'repo-beacon')) await prepareChecks(store, 'repo-beacon', { '.foreman/settings.toml': BEACON_CHECKS_TOML, 'scripts/vet.mjs': BEACON_VET }, ['node scripts/vet.mjs'])
   await clearEarlierRuns(core, store)
-  const preview = await core.api.flowRunPreview({ flowId: FLOW_ID, repoId, baseBranch: 'main' })
-  const run = await core.api.startFlowRun({ flowId: FLOW_ID, repoId, baseBranch: 'main', inputs: { task: TASK }, shown: preview.fingerprint })
-  console.log(`[demo] Started a run of “${run.flow.name}” on atlas`)
+  limited.clear()
+  for (const { flowId, repoId, task } of RUNS) {
+    const repo = store.state.repos.find((r) => r.id === repoId)
+    if (!repo) continue
+    try {
+      const preview = await core.api.flowRunPreview({ flowId, repoId, baseBranch: 'main' })
+      const run = await core.api.startFlowRun({ flowId, repoId, baseBranch: 'main', inputs: { task }, shown: preview.fingerprint })
+      console.log(`[demo] Started a run of “${run.flow.name}” on ${repo.name}`)
+    } catch (err) {
+      console.error(`[demo] Could not start a run on ${repo.name}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
 }

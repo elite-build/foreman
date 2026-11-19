@@ -17,8 +17,8 @@ import { axWarnings, checkAxTree, reduceAxTree, type CdpAxNode } from './axTree'
 import { compareTranscript, formatDiffs, formatTranscript, keyEvents, runWalk, type ExpectedTranscript, type Reading, type StepDiff, type Transcript, type Walk, type WalkDriver } from './keyboardWalk'
 import { fileName, LARGE_CONTENT_SIZE, planShots, type Shot } from './screensPlan'
 import { selectWalks } from './walks'
-import { ORG_ID, seedOrganization, type OrganizationFixture } from './screensOrganization'
-import { DEMO_ORGANIZATION_ICON, seedDemoOrganization } from './demoOrganization'
+import { seedOrganization, type OrganizationFixture } from './screensOrganization'
+import { seedDemoOrganization } from './demoOrganization'
 import { git } from './git'
 import { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
@@ -413,35 +413,7 @@ function flowChecks(): Workspace['checks'] {
  * A demo kept from before the organization came into the fixture (main/demo.ts): adds Acme, as the demo has it, when it
  * isn't there, beside whatever the person made in the demo (their own organizations and employees stay). True when it did.
  */
-export async function addDemoOrganization(root: string, dataDir: string): Promise<boolean> {
-  const store = new Store(dataDir)
-  await store.load()
-  const repos = path.join(root, 'repos')
-  const acme = store.state.organizations?.find((o) => o.id === ORG_ID)
-  if (acme || existsSync(path.join(repos, 'site'))) {
-    // Acme added before it had an icon gets the demo's, once (clearing it in Settings → Spaces then sticks).
-    const migrations = (store.state.migrations ??= [])
-    if (acme && !migrations.includes('demo-organization-icon')) {
-      acme.icon ??= DEMO_ORGANIZATION_ICON
-      migrations.push('demo-organization-icon')
-    }
-    store.close()
-    return false
-  }
-  seededAt = Date.now()
-  const organizations = store.state.organizations ?? []
-  const employees = store.state.employees ?? []
-  const seed = { repos, worktrees: path.join(root, 'workspaces'), store, minutesAgo, commitAll, makeRepo, makeWorktree, writeFiles }
-  await seedOrganization(seed)
-  await seedDemoOrganization(seed)
-  // seedOrganization writes the fixture's organization and employees as the whole list; the person's own come first.
-  store.state.organizations = [...organizations, ...(store.state.organizations ?? [])]
-  store.state.employees = [...employees, ...(store.state.employees ?? [])]
-  store.close()
-  return true
-}
-
-/** `demo`: the dev demo's fuller organization too (demoOrganization.ts); the screenshot run leaves it out. */
+/** `demo`: the dev demo's fuller organizations too (demoOrganization.ts, demoLumen.ts); the screenshot run leaves them out. */
 export async function seedScreens(root: string, dataDir: string, overrides: Partial<Settings> = {}, { demo = false }: { demo?: boolean } = {}): Promise<ScreensFixture> {
   seededAt = Date.now()
   const repos = path.join(root, 'repos')

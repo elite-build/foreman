@@ -4,8 +4,9 @@
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Core } from '../src/main/core'
+import type { ForemanDb } from '../src/main/db'
 import { gitOut } from '../src/main/git'
-import { addDemoOrganization, seedScreens } from '../src/main/screenshots'
+import { seedScreens } from '../src/main/screenshots'
 import { SecretStore } from '../src/main/secrets'
 import { Store } from '../src/main/store'
 import { tempDir } from './helpers'
@@ -84,64 +85,35 @@ describe('the fixture’s organization', () => {
 })
 
 describe('the demo’s organization', () => {
-  it('adds billing and docs with a workspace each, and Priya, Ravi, Uma and Quinn, approved, Priya its program manager', async () => {
+  it('adds billing, docs and mobile with a workspace each, and Priya, Ravi, Uma, Quinn, Kai and Iris, approved, Priya its program manager', async () => {
     const { fixture, store, core } = await seeded(true)
     const org = fixture.organization
-    expect(store.state.repos.filter((r) => r.spaceId === org.orgId).map((r) => r.name)).toEqual(['acme-memory', 'site', 'billing', 'docs'])
+    expect(store.state.repos.filter((r) => r.spaceId === org.orgId).map((r) => r.name)).toEqual(['acme-memory', 'site', 'billing', 'docs', 'mobile'])
     const byRepo = (name: string) => store.state.workspaces.filter((w) => w.repoId === store.state.repos.find((r) => r.name === name)!.id).map((w) => w.name)
-    expect([byRepo('billing'), byRepo('docs')]).toEqual([['sapporo'], ['porto']])
+    expect([byRepo('billing'), byRepo('docs'), byRepo('mobile')]).toEqual([['sapporo'], ['porto'], ['nairobi']])
     await core.memory.start()
     await core.employees.refreshAll()
     const employees = core.snapshot().employees?.[org.orgId]?.employees ?? []
-    expect(employees.filter((e) => e.state === 'active').map((e) => e.name).sort()).toEqual(['Ada', 'Max', 'Priya', 'Quinn', 'Ravi', 'Uma'])
+    expect(employees.filter((e) => e.state === 'active').map((e) => e.name).sort()).toEqual(['Ada', 'Iris', 'Kai', 'Max', 'Priya', 'Quinn', 'Ravi', 'Uma'])
     // Every new one is approved as its files say it: none is changed since approval, none has a problem.
     expect(employees.filter((e) => e.changed || e.problems.length)).toEqual([])
     const priya = employees.find((e) => e.name === 'Priya')!
     expect(store.state.organizations?.[0].programManagerId).toBe(priya.id)
   }, 120_000)
-})
 
-describe('a demo kept from before Acme', () => {
-  it('gains Acme on launch beside the person’s own organization, once', async () => {
-    const root = await tempDir('foreman-demo-upgrade-')
-    const dataDir = path.join(root, 'data')
-    const old = new Store(dataDir)
-    await old.load()
-    old.state.organizations = [{ id: 'org-test', name: 'test', createdAt: '2026-11-10T00:00:00.000Z' }]
-    old.close()
-    expect(await addDemoOrganization(root, dataDir)).toBe(true)
-    const store = new Store(dataDir)
-    await store.load()
-    expect(store.state.organizations?.map((o) => o.name)).toEqual(['test', 'Acme'])
-    expect(store.state.repos.filter((r) => r.spaceId === 'org-acme').map((r) => r.name)).toEqual(['acme-memory', 'site', 'billing', 'docs'])
-    expect(store.state.employees?.length).toBe(7)
-    expect(store.state.organizations?.find((o) => o.name === 'Acme')?.icon).toEqual({ kind: 'lucide', name: 'rocket' })
-    store.close()
-    // The next launch finds it there and changes nothing.
-    expect(await addDemoOrganization(root, dataDir)).toBe(false)
+  it('adds Lumen, a smaller organization, with its team approved and a chat paused where its account ran out of credits', async () => {
+    const { store, core } = await seeded(true)
+    const lumen = store.state.organizations!.find((o) => o.name === 'Lumen')!
+    expect(store.state.repos.filter((r) => r.spaceId === lumen.id).map((r) => r.name)).toEqual(['lumen-memory', 'lumen-cli', 'lumen-site'])
+    await core.memory.start()
+    await core.employees.refreshAll()
+    const employees = core.snapshot().employees?.[lumen.id]?.employees ?? []
+    expect(employees.filter((e) => e.state === 'active').map((e) => e.name).sort()).toEqual(['Noor', 'Priya', 'Sami', 'Theo'])
+    expect(employees.filter((e) => e.changed || e.problems.length)).toEqual([])
+    expect(lumen.programManagerId).toBe(employees.find((e) => e.name === 'Priya')!.id)
+    const paused = store.state.sessions.find((s) => s.lastTurn?.outcome === 'limit')!
+    expect(paused).toMatchObject({ workspaceId: 'ws-oslo', instanceId: 'ai-client01' })
+    // Single sign-on goes on in the demo: the parts the fixture left running start again when it opens.
+    expect((store.db as ForemanDb).project('proj-sso')?.parts).toMatchObject({ copy: { state: 'pending' }, guide: { state: 'pending' } })
   }, 120_000)
-
-  it('gives an Acme added before it had an icon the rocket, once, so clearing it sticks', async () => {
-    const root = await tempDir('foreman-demo-icon-')
-    const dataDir = path.join(root, 'data')
-    const old = new Store(dataDir)
-    await old.load()
-    old.state.organizations = [{ id: 'org-acme', name: 'Acme', createdAt: '2026-11-10T00:00:00.000Z' }]
-    old.close()
-    const acme = async () => {
-      const store = new Store(dataDir)
-      await store.load()
-      const org = store.state.organizations!.find((o) => o.id === 'org-acme')!
-      return { store, org }
-    }
-    expect(await addDemoOrganization(root, dataDir)).toBe(false)
-    const first = await acme()
-    expect(first.org.icon).toEqual({ kind: 'lucide', name: 'rocket' })
-    delete first.org.icon
-    first.store.close()
-    await addDemoOrganization(root, dataDir)
-    const second = await acme()
-    expect(second.org.icon).toBeUndefined()
-    second.store.close()
-  })
 })
