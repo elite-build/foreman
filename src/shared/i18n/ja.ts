@@ -8122,6 +8122,7 @@ export const ja: Catalogue = {
   'projects.part.stuck': '停滞',
   'projects.part.waitsFor': '「{part}」の完了待ち',
   'projects.step.changedRepo': '計画ではリポジトリを変更しないはずのこのパートの実行中に、リポジトリが変更されました。公開する前にワークスペースの変更を確認してください。',
+  'projects.step.changedRepoShared': 'リポジトリを変更しないはずのこのパートと別のパートの実行中に、リポジトリが変更されました。どちらかが変更しています。公開する前にワークスペースの変更を確認してください。',
   'projects.wait.plan': '計画',
   'projects.wait.gate': '結果を確認',
   'projects.wait.stuck': '未完了',

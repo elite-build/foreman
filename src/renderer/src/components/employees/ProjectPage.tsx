@@ -301,7 +301,7 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
         node: (
           <Post id={stepDomId(project.id, step.taskId, 'end')} who={who(step.employeeId)} colour={e?.colour} role={e?.role} at={step.endedAt}>
             {step.state === 'stuck' && <StepEnd step={step} />}
-            {step.changedRepo && <Callout tone="warn">{t('projects.step.changedRepo')}</Callout>}
+            {step.changedRepo && <Callout tone="warn">{t(step.changedRepo === 'shared' ? 'projects.step.changedRepoShared' : 'projects.step.changedRepo')}</Callout>}
             {step.summary && <StepSummary step={step} />}
             {!step.summary && step.reason && <p className="channel-text">{step.reason}</p>}
             {step.decision && <Tag>{t(step.decision === 'accept' ? 'projects.decision.accept' : 'projects.decision.replan')}</Tag>}

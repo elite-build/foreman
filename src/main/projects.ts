@@ -69,6 +69,7 @@ import {
   partBody,
   partMocks,
   partsAfter,
+  repoPartRunning,
   PLAN_FILE,
   planMarkdown,
   planningBody,
@@ -677,6 +678,19 @@ export class ProjectService implements EmployeeProjectHooks {
   }
 
   /**
+   * EmployeeProjectHooks: a run of a project's task ended. The publisher's (or, on an older plan, any part's) shell may
+   * have pushed after finish_task closed its task: what it published is recorded now too (once: recordShell's rule).
+   */
+  runEnded(task: EmployeeTask): void {
+    if (task.project?.kind !== 'part' || !this.host.recordPublished) return
+    const project = this.db.project(task.project.id)
+    if (!project || !Array.isArray(project.waits)) return
+    const publisher = publisherOf(project.plan)
+    if (publisher !== undefined && publisher?.id !== task.project.partId) return
+    void this.host.recordPublished(task).catch((err: unknown) => console.error('Project publications:', err))
+  }
+
+  /**
    * A part the plan says doesn't change the repository: whether the workspace changed while it ran, when no part that
    * changes it (or a follow-up) ran meanwhile. Marked on its step; nothing is undone.
    */
@@ -686,9 +700,12 @@ export class ProjectService implements EmployeeProjectHooks {
     if (!part || part.changesRepo !== false || !step.repoAt || !ws || !this.host.repoState) return
     const end = step.endedAt ?? this.iso()
     const writer = (s: ProjectStep) => s.kind === 'follow-up' || (s.kind === 'part' && changesRepo(project.plan?.parts.find((p) => p.id === s.partId) ?? {}))
-    if (project.steps.some((s) => s !== step && writer(s) && s.startedAt < end && (s.endedAt ?? end) > step.startedAt)) return
+    const overlaps = (s: ProjectStep) => s !== step && s.startedAt < end && (s.endedAt ?? end) > step.startedAt
+    if (project.steps.some((s) => overlaps(s) && writer(s))) return
     const now = await this.host.repoState(ws).catch(() => undefined)
-    if (now && now !== step.repoAt) step.changedRepo = true
+    if (!now || now === step.repoAt) return
+    // Another part that shouldn't change it ran meanwhile too: it was one of them, so the post says so, blaming neither.
+    step.changedRepo = project.steps.some((s) => overlaps(s) && s.kind === 'part' && s.repoAt) ? 'shared' : true
   }
 
   /**
@@ -769,6 +786,8 @@ export class ProjectService implements EmployeeProjectHooks {
       if (part.gate) {
         project.parts[partId] = { ...status, state: 'gate' }
         this.addWait(project, { kind: 'gate', partId })
+        // It isn't running any more: a part that changes the repository and waited for it may start.
+        await this.advance(project)
         return
       }
       project.parts[partId] = { ...status, state: 'done' }
@@ -789,6 +808,7 @@ export class ProjectService implements EmployeeProjectHooks {
       return
     }
     this.addWait(project, { kind: 'stuck', partId, reason: why })
+    await this.advance(project)
   }
 
   private async acceptClosed(project: Project, task: EmployeeTask, done: boolean, why: string): Promise<void> {
@@ -859,11 +879,21 @@ export class ProjectService implements EmployeeProjectHooks {
     for (const part of ready) await this.startPart(project, part)
   }
 
-  private async startPart(project: Project, part: PlanPart, note?: string): Promise<void> {
+  private async startPart(project: Project, part: PlanPart, given?: string): Promise<void> {
     const plan = project.plan!
     const org = this.organization(project.orgId)
     const owner = ownerId(plan, part.owner)
     const status = project.parts[part.id] ?? { state: 'pending', round: 0 }
+    // A send-back or Try again of a part that changes the repository while another that does runs waits for it (one at a
+    // time, as readyParts starts them), its note kept for the round it starts.
+    const note = given ?? status.note
+    const busy = changesRepo(part) ? repoPartRunning(plan, project.parts) : undefined
+    if (busy && busy.id !== part.id) {
+      const { reason: _r, askedReplan: _a, note: _n, ...kept } = status
+      project.parts[part.id] = { ...kept, state: 'pending', ...(note ? { note } : {}) }
+      this.save(project)
+      return
+    }
     if (!owner) {
       project.parts[part.id] = { ...status, state: 'stuck', reason: 'Its owner was proposed and never made.' }
       this.addWait(project, { kind: 'stuck', partId: part.id, reason: 'Its owner was proposed and never made.' })
@@ -1100,10 +1130,13 @@ export class ProjectService implements EmployeeProjectHooks {
     }
     this.save(project)
     for (const id of canceled) await this.host.work.cancel(id).catch((err: unknown) => console.error('Project stop:', err))
-    // A turn still running after its task closed (it called finish_task and went on) stops too: nothing of the project
-    // keeps a shell or a tool once it closes.
-    const finished = project.steps.filter((s) => !canceled.includes(s.taskId)).map((s) => s.taskId)
-    await this.host.work.endRuns?.(finished, outcome === 'stopped' ? 'Stopped with its project.' : 'Ended with its project.').catch((err: unknown) => console.error('Project stop:', err))
+    // Stopped (Stop, or delete): a turn still running after its task closed (it called finish_task and went on) stops
+    // too, so nothing of the project keeps a shell or a tool. A project that closes done lets such a turn end on its own
+    // (the publisher's may still be pushing; its push is recorded when its run ends).
+    if (outcome === 'stopped') {
+      const finished = project.steps.filter((s) => !canceled.includes(s.taskId)).map((s) => s.taskId)
+      await this.host.work.endRuns?.(finished, 'Stopped with its project.').catch((err: unknown) => console.error('Project stop:', err))
+    }
     this.release(project)
   }
 

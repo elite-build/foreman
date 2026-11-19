@@ -8122,6 +8122,7 @@ export const de: Catalogue = {
   'projects.part.stuck': 'Steckt fest',
   'projects.part.waitsFor': 'Wartet, bis „{part}“ fertig ist',
   'projects.step.changedRepo': 'Das Repository hat sich geändert, während dieser Teil lief, obwohl er es laut Plan nicht ändert. Sieh dir die Änderungen im Arbeitsbereich an, bevor etwas veröffentlicht wird.',
+  'projects.step.changedRepoShared': 'Das Repository hat sich geändert, während dieser Teil und ein weiterer liefen, die es nicht ändern sollten: Einer von beiden hat es geändert. Sieh dir die Änderungen im Arbeitsbereich an, bevor etwas veröffentlicht wird.',
   'projects.wait.plan': 'Plan',
   'projects.wait.gate': 'Ergebnis prüfen',
   'projects.wait.stuck': 'Nicht abgeschlossen',

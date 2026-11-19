@@ -766,6 +766,9 @@ describe('projects: who changes the repository, one at a time, and who publishes
     expect(mine.ok ? [] : mine.problems).toContainEqual('Part “reqs” changes the repository: give it to someone else (your own parts only read it).')
     const reader = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true }, PLAN.parts[2]] }, { ...W, writers: [] })
     expect(reader.ok ? [] : reader.problems).toContainEqual(expect.stringContaining('Part “build” changes the repository, but its owner has no Write access to it'))
+    // A publisher taken as it is wouldn't run again to publish.
+    const asIs = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true, accept_as_is: true }, { ...PLAN.parts[2], changes_repo: false }] }, { ...W, parts: { build: { state: 'stuck', round: 1 } } })
+    expect(asIs.ok ? [] : asIs.problems).toEqual(['Part “build” publishes, so it can’t be accept_as_is (it wouldn’t run again to publish): move publishes to a part that runs, such as a new last part that changes the repository.'])
     // A plan that only reads the repository needs no publisher.
     expect(checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], changes_repo: false }, { ...PLAN.parts[2], changes_repo: false }] }, W).ok).toBe(true)
   })

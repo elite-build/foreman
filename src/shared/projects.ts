@@ -130,6 +130,9 @@ export interface PartStatus {
   reason?: string
   // Stuck because it finished blocked and woke a replan (as a part told to by the person's note does): not a failure.
   askedReplan?: boolean
+  // The person's note (Send back, Try again) for its next round, kept while it waits for another part that changes the
+  // repository to finish.
+  note?: string
 }
 
 /**
@@ -158,7 +161,8 @@ export interface ProjectStep {
   // uncommitted, as ProjectHost.repoState gives it), and whether it had changed when the part ended with no part that
   // changes the repository running meanwhile (Foreman's soft check: the channel says so, nothing is undone).
   repoAt?: string
-  changedRepo?: true
+  // 'shared': another part that shouldn't change it ran meanwhile too, so it was one of them.
+  changedRepo?: true | 'shared'
   // The memory files its result listed (memoryArtifacts), once closed: the channel links the pages among them.
   files?: string[]
   startedAt: string
@@ -666,6 +670,8 @@ export function checkPlan(
   for (const p of proposed) if (!parts.some((x) => x.owner === `new:${p.key}`)) problems.push(`${p.name || p.key} is proposed but owns no part: leave them out.`)
   // Only a part that couldn't finish can be taken as it is.
   for (const p of parts) if (p.acceptAsIs && ctx.parts?.[p.id]?.state !== 'stuck') problems.push(`Part “${p.id}” can’t be accept_as_is: only a part that couldn’t finish can.`)
+  // Taken as it is, a part doesn't run again: as the publisher it would leave nothing published.
+  for (const p of parts) if (p.acceptAsIs && p.publishes) problems.push(`Part “${p.id}” publishes, so it can’t be accept_as_is (it wouldn’t run again to publish): move publishes to a part that runs, such as a new last part that changes the repository.`)
   // A replan keeps what has started.
   for (const old of ctx.current?.parts ?? []) {
     const status = ctx.parts?.[old.id]

@@ -8870,6 +8870,7 @@ export const en = {
   'projects.part.stuck': 'Stuck',
   'projects.part.waitsFor': 'Waits for “{part}” to finish',
   'projects.step.changedRepo': 'The repository changed while this part ran, though the plan says it doesn’t change it. Look at the workspace’s changes before anything is published.',
+  'projects.step.changedRepoShared': 'The repository changed while this part and another that shouldn’t change it ran: one of them changed it. Look at the workspace’s changes before anything is published.',
   'projects.wait.plan': 'Plan',
   'projects.wait.gate': 'Check a result',
   'projects.wait.stuck': 'Didn’t finish',

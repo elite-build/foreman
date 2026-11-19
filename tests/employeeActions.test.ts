@@ -665,9 +665,38 @@ describe('publishing from a shell (docs/ai-employees.md §15)', () => {
       'gh api -X PATCH repos/acme/site/pulls/7 -f state=closed',
       'glab mr create --fill',
       'hub pull-request -m x',
-      '(git push)'
+      '(git push)',
+      'sh -c "git push"',
+      "bash -c 'git push origin HEAD'",
+      'cmd /c "git push"',
+      'eval "git push"',
+      'git.exe push',
+      '"C:/Program Files/Git/cmd/git.exe" push',
+      '& "C:\\Program Files\\Git\\cmd\\git.exe" push',
+      '/usr/bin/git push',
+      'git --git-dir .git push',
+      'git --work-tree=. --git-dir .git push',
+      'git subtree push --prefix dist origin gh-pages',
+      'gh.exe pr create --fill',
+      'gh api graphql -f query=\'mutation { createPullRequest(input: {}) { pullRequest { url } } }\'',
+      'gh api graphql -F query=\'mutation { mergePullRequest(input: {}) { clientMutationId } }\''
     ]
-    const no = ['git status', 'git commit -m "push it later"', 'git log --oneline', 'gh pr view 7 --json state', 'gh pr list', 'gh api repos/acme/site/pulls/7', 'gh pr checks 7', 'echo pushing', 'git pushx', 'npm run push-docs']
+    const no = [
+      'git status',
+      'git commit -m "push it later"',
+      'git log --oneline',
+      'gh pr view 7 --json state',
+      'gh pr list',
+      'gh pr checkout 7',
+      'gh api repos/acme/site/pulls/7',
+      'gh api graphql -f query=\'{ repository(owner: "acme", name: "site") { pullRequests(first: 1) { nodes { url } } } }\'',
+      'gh pr checks 7',
+      'echo pushing',
+      'git pushx',
+      'npm run push-docs',
+      'legit push',
+      'git --git-dir .git status'
+    ]
     for (const command of yes) expect([command, publishesFromShell('Bash', { command })]).toEqual([command, true])
     for (const command of no) expect([command, publishesFromShell('Bash', { command })]).toEqual([command, false])
     expect(publishesFromShell('PowerShell', { command: 'git push' })).toBe(true)

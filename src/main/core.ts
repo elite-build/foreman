@@ -2580,7 +2580,8 @@ export class Core {
    * request open for its branch, else the branch on its remote, each recorded once as sent (EmployeeActionService.recordShell).
    */
   private async recordShellPublished(task: EmployeeTask): Promise<void> {
-    const run = this.store.db.employeeRuns({ taskId: task.id }).filter((r) => r.workspaceId).at(-1)
+    // Its newest run with a workspace (the list is newest first).
+    const run = this.store.db.employeeRuns({ taskId: task.id }).filter((r) => r.workspaceId)[0]
     const ws = run?.workspaceId ? this.store.state.workspaces.find((w) => w.id === run.workspaceId) : undefined
     if (!run || !ws || ws.cloud || ws.state !== 'ready') return
     const at = wsPath(ws)
@@ -2590,9 +2591,18 @@ export class Core {
     if (!head) return
     const remoteUrl = remoteWhere(await gitOut(at, ['remote', 'get-url', remote]).catch(() => ''))
     const common = { connection: '', workspaceId: ws.id, branch: ws.branch, base: ws.baseBranch, head, ahead: 0, commits: [], repo: repo.name, remote, ...(remoteUrl ? { remoteUrl } : {}) }
-    const pr = await this.prs.get(ws, { fresh: true }).catch(() => undefined)
-    if (pr?.kind === 'ok') this.employeeActions.recordShell({ run, repoId: ws.repoId, payload: { kind: 'pull-request', ...common, base: pr.pr.baseRefName || ws.baseBranch, title: pr.pr.title, body: '' }, link: pr.pr.url, detail: `#${pr.pr.number}, ${pr.pr.state.toLowerCase()}.` })
-    else this.employeeActions.recordShell({ run, repoId: ws.repoId, payload: { kind: 'push', ...common }, detail: `Pushed ${ws.branch}.` })
+    // Its pull request, looked up again once when the lookup fails; still failing, the push is recorded saying so.
+    const lookup = () => this.prs.get(ws, { fresh: true }).catch((err: unknown) => ({ kind: 'unavailable' as const, message: err instanceof Error ? err.message : String(err) }))
+    let pr = await lookup()
+    if (pr.kind === 'auth-error' || pr.kind === 'unavailable') {
+      await new Promise((r) => setTimeout(r, 2_000))
+      pr = await lookup()
+    }
+    if (pr.kind === 'ok') this.employeeActions.recordShell({ run, repoId: ws.repoId, payload: { kind: 'pull-request', ...common, base: pr.pr.baseRefName || ws.baseBranch, title: pr.pr.title, body: '' }, link: pr.pr.url, detail: `#${pr.pr.number}, ${pr.pr.state.toLowerCase()}.` })
+    else {
+      const unknown = pr.kind === 'auth-error' || pr.kind === 'unavailable' ? ` Foreman couldn’t look up its pull request (${pr.message}), so one opened from the shell isn’t recorded.` : ''
+      this.employeeActions.recordShell({ run, repoId: ws.repoId, payload: { kind: 'push', ...common }, detail: `Pushed ${ws.branch}.${unknown}` })
+    }
   }
 
   /**

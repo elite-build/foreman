@@ -1282,7 +1282,8 @@ describe('projects: the workspace and publishing (one writer at a time, one publ
     expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.repoAt).toBe('head-1:clean')
     state = 'head-1:dirty'
     await r.close(notes.id)
-    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.changedRepo).toBe(true)
+    // The review, which shouldn't change it either, ran meanwhile: it was one of them.
+    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.changedRepo).toBe('shared')
     // The build (which changes it) started when the notes ended, before the review ended: the review isn't blamed.
     state = 'head-2:dirty'
     await r.close(review.id)
@@ -1360,5 +1361,123 @@ describe('projects: the workspace and publishing (one writer at a time, one publ
     s.service.launchSettled(s.of('build'))
     await expect(b).resolves.toBeUndefined()
     s.service.launchSettled(s.of('notes'))
+  })
+})
+
+describe('projects: one writer at a time on every path, and what ends with the project', () => {
+  const GATED: PlanInput = {
+    summary: 'A simpler sidebar.',
+    size: 'small',
+    parts: [
+      { id: 'build', title: 'Build the sidebar', owner: 'Ravi', brief: 'Build it.', writes: 'build.md', gate_after: true },
+      { id: 'i18n', title: 'Update translations', owner: 'Ravi', brief: 'Translate it.', writes: 'i18n.md' },
+      { id: 'pr', title: 'Open the PR', owner: 'Ravi', brief: 'Publish.', writes: 'pr.md', depends_on: ['build', 'i18n'], publishes: true }
+    ]
+  }
+  async function gated(input: PlanInput = GATED, options: Parameters<typeof rig>[0] = {}) {
+    const r = await rig(options)
+    r.writers.add('e-rav1')
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    await r.plan(input)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const of = (partId: string) => r.task(r.asked.filter((a) => a.project.partId === partId).at(-1)!)
+    return { ...r, id: project.id, of }
+  }
+  const parts = (r: Awaited<ReturnType<typeof gated>>) => r.asked.filter((a) => a.project.kind === 'part').map((a) => `${a.project.partId}:${a.project.round}`)
+
+  it('starts the waiting part once the running one reaches its gate, and holds a send-back with its note until that one ends', async () => {
+    const r = await gated()
+    expect(parts(r)).toEqual(['build:1'])
+    await r.close(r.of('build').id)
+    // Build waits for the person at its gate: it no longer runs, so the translations start.
+    expect(parts(r)).toEqual(['build:1', 'i18n:1'])
+    await r.service.decide(r.id, r.get(r.id).waits[0].id, 'send-back', 'Narrower, please')
+    // The translations run: the build's next round waits for them, with the note kept.
+    expect(parts(r)).toEqual(['build:1', 'i18n:1'])
+    expect(r.get(r.id).parts.build).toMatchObject({ state: 'pending', note: 'Narrower, please' })
+    await r.close(r.of('i18n').id)
+    expect(parts(r)).toEqual(['build:1', 'i18n:1', 'build:2'])
+    expect(r.asked.at(-1)!.body).toContain('The person sent this back to you, in their words: “Narrower, please”')
+    expect(r.get(r.id).parts.build).toEqual(expect.not.objectContaining({ note: expect.anything() }))
+  })
+
+  it('holds Try again on a stuck part that changes the repository while another that does runs, and starts the next when one gets stuck', async () => {
+    const r = await gated({ ...GATED, parts: GATED.parts.map(({ gate_after: _g, ...p }) => p) })
+    const f = r.db.project(r.id)!
+    r.db.putProject({ ...f, replans: 3 })
+    await r.close(r.of('build').id, { reason: 'blocked', detail: 'Tests fail' })
+    // Out of replans: build waits for the person, and the translations start meanwhile.
+    expect(parts(r)).toEqual(['build:1', 'i18n:1'])
+    const stuck = r.get(r.id).waits.find((w) => w.kind === 'stuck')!
+    await r.service.decide(r.id, stuck.id, 'retry', 'Use the fixtures')
+    expect(r.get(r.id).parts.build).toMatchObject({ state: 'pending', note: 'Use the fixtures' })
+    await r.close(r.of('i18n').id)
+    expect(parts(r)).toEqual(['build:1', 'i18n:1', 'build:2'])
+    expect(r.asked.at(-1)!.body).toContain('“Use the fixtures”')
+  })
+
+  it('lets a finished turn end on its own when a small project closes done, and ends it on Stop', async () => {
+    const r = await gated({ ...GATED, parts: [{ ...GATED.parts[0], gate_after: false, publishes: true }] })
+    await r.close(r.of('build').id)
+    expect(r.get(r.id)).toMatchObject({ phase: 'closed', outcome: 'done' })
+    expect(r.ended).toEqual([])
+  })
+
+  it('records the publisher’s shell publications when its run ends too, and only the publisher’s', async () => {
+    const recorded: string[] = []
+    const r = await gated(GATED, { host: { recordPublished: async (task) => void recorded.push(task.project?.partId ?? '') } })
+    r.service.runEnded(r.of('build'))
+    expect(recorded).toEqual([])
+    await r.close(r.of('build').id)
+    await r.service.decide(r.id, r.get(r.id).waits[0].id, 'approve')
+    await r.close(r.of('i18n').id)
+    r.service.runEnded(r.of('pr'))
+    await settle()
+    expect(recorded).toEqual(['pr'])
+  })
+
+  it('blames neither of two parts that shouldn’t change the repository when it changed while both ran', async () => {
+    let state = 'head-1:clean'
+    const r = await rig({ host: { repoState: async () => state } })
+    const project = await r.start({ requirement: 'Research the sidebar' })
+    r.service.runCreated(r.task(r.last()), 'ws-1')
+    r.alive.add('ws-1')
+    await r.plan({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'notes', title: 'Notes', owner: 'Priya', brief: 'n', writes: 'notes.md' },
+        { id: 'review', title: 'Review', owner: 'Ravi', brief: 'r', writes: 'review.md' }
+      ]
+    })
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const notes = r.task(r.asked.find((a) => a.project.partId === 'notes')!)
+    state = 'head-1:dirty'
+    await r.close(notes.id)
+    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.changedRepo).toBe('shared')
+  })
+})
+
+describe('projects: a part that shouldn’t change the repository, alone', () => {
+  it('is marked when the repository changed while it ran by itself', async () => {
+    let state = 'head-1:clean'
+    const r = await rig({ host: { repoState: async () => state } })
+    r.writers.add('e-rav1')
+    const project = await r.start({ requirement: 'Simplify the sidebar' })
+    r.service.runCreated(r.task(r.last()), 'ws-1')
+    r.alive.add('ws-1')
+    await r.plan({
+      summary: 's',
+      size: 'small',
+      parts: [
+        { id: 'notes', title: 'Notes', owner: 'Priya', brief: 'n', writes: 'notes.md' },
+        { id: 'build', title: 'Build', owner: 'Ravi', brief: 'b', writes: 'build.md', depends_on: ['notes'], publishes: true }
+      ]
+    })
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    const notes = r.task(r.asked.find((a) => a.project.partId === 'notes')!)
+    state = 'head-1:dirty'
+    await r.close(notes.id)
+    expect(r.get(project.id).steps.find((s) => s.taskId === notes.id)?.changedRepo).toBe(true)
   })
 })

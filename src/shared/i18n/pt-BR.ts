@@ -8122,6 +8122,7 @@ export const ptBR: Catalogue = {
   'projects.part.stuck': 'Travada',
   'projects.part.waitsFor': 'Aguarda “{part}” terminar',
   'projects.step.changedRepo': 'O repositório mudou enquanto esta parte rodava, embora o plano diga que ela não o altera. Confira as alterações do espaço de trabalho antes de publicar qualquer coisa.',
+  'projects.step.changedRepoShared': 'O repositório mudou enquanto esta parte e outra que não deveriam alterá-lo rodavam: uma delas o alterou. Confira as alterações do espaço de trabalho antes de publicar qualquer coisa.',
   'projects.wait.plan': 'Plano',
   'projects.wait.gate': 'Conferir um resultado',
   'projects.wait.stuck': 'Não terminou',
