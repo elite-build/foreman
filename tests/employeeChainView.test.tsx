@@ -187,6 +187,26 @@ describe('Needs you: a chain out of runs', () => {
     await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('CSV export stopped.'))
     expect(fakeApi.cancelEmployeeTask).not.toHaveBeenCalled()
   })
+
+  it('offers a closed or archived project’s left-over chain Cancel chain, saying what it did', async () => {
+    const user = userEvent.setup()
+    const held = task({ id: 'f1', employeeId: 'e-max1', parentId: null, from: 'person', title: 'Follow-up: CSV export', state: 'open', hold: 'root-limit', reason: 'This chain of work has used 80 of its 80 runs. Raise its limit, or cancel it, in Needs you.', project: { id: 'p1', kind: 'follow-up', round: 1 } })
+    for (const projects of [[{ id: 'p1', orgId: 'o1', title: 'CSV export', phase: 'closed' }], []]) {
+      setSnapshot({ work: { tasks: [held], roots: { root: ledger({ runsUsed: 80, runsAllowed: 80, state: 'spent' }) } } })
+      fakeState.snapshot = { ...fakeState.snapshot!, projects: { o1: projects as never } }
+      fakeApi.cancelEmployeeTask = vi.fn(async () => held)
+      fakeApi.stopProject = vi.fn(async () => ({}) as never)
+      ;(storeModule.showToast as ReturnType<typeof vi.fn>).mockReset()
+      const view = render(<EmployeesNeedYou orgId="o1" />)
+      const card = screen.getByRole('group', { name: 'Follow-up: CSV export' })
+      expect(within(card).queryByRole('button', { name: 'Stop the project' })).toBeNull()
+      await user.click(within(card).getByRole('button', { name: /^Cancel chain/ }))
+      expect(fakeApi.cancelEmployeeTask).toHaveBeenCalledWith('root')
+      await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith('What was left of this chain is canceled.'))
+      expect(fakeApi.stopProject).not.toHaveBeenCalled()
+      view.unmount()
+    }
+  })
 })
 
 describe('delegation in the Edit view and the plan', () => {

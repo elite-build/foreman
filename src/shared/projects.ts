@@ -196,6 +196,8 @@ export interface ProjectWait {
   partId?: string
   since: string
   reason?: string
+  // A replan that couldn't start (nobody to plan it): why it was asked for, which Try again gives it again.
+  replan?: string
 }
 
 /** A decision the person made. */
@@ -538,9 +540,36 @@ export function mentionOf(text: string, names: readonly string[]): { name: strin
   return name ? { name, rest: after.slice(name.length).replace(/^[\s,:]+/, '').trim() } : null
 }
 
-/** The parts `id` waits for, directly or through others (dependsOn). */
-function ancestors(parts: readonly Pick<PlanPart, 'id' | 'dependsOn'>[], id: string): Set<string> {
-  const deps = new Map(parts.map((p) => [p.id, p.dependsOn]))
+type Waiting = Pick<PlanPart, 'id' | 'dependsOn'> & Partial<Pick<PlanPart, 'reads'>>
+
+/** Whether `from` waits for `to`, directly or through others, by what each depends on or reads. */
+function reaches(parts: readonly Waiting[], from: string, to: string): boolean {
+  const edges = new Map(parts.map((p) => [p.id, [...p.dependsOn, ...(p.reads ?? [])]]))
+  const seen = new Set<string>()
+  const visit = (x: string): boolean => {
+    for (const d of edges.get(x) ?? []) {
+      if (d === to) return true
+      if (seen.has(d)) continue
+      seen.add(d)
+      if (visit(d)) return true
+    }
+    return false
+  }
+  return visit(from)
+}
+
+/**
+ * What a part waits for: every part it depends on, and every part it reads. A plan saved before reads meant waiting may
+ * have a part read one that waits for it: such a read holds nothing, or the two would wait for each other forever.
+ */
+export function waitsFor(parts: readonly Waiting[], part: Waiting): string[] {
+  const reads = (part.reads ?? []).filter((r) => r !== part.id && !part.dependsOn.includes(r) && !reaches(parts, r, part.id))
+  return [...part.dependsOn, ...reads]
+}
+
+/** The parts `id` waits for, directly or through others (waitsFor). */
+function ancestors(parts: readonly Waiting[], id: string): Set<string> {
+  const deps = new Map(parts.map((p) => [p.id, waitsFor(parts, p)]))
   const seen = new Set<string>()
   const visit = (x: string) => {
     for (const d of deps.get(x) ?? []) {
@@ -761,8 +790,9 @@ export function checkPlan(
 /**
  * Whether a replan goes ahead on its own: it proposes nobody, keeps the size, every part it adds or hands to someone else
  * belongs to an owner who already has a part in the plan in effect (more rounds or follow-on work for the same people), it
- * keeps every check the person had (each gate, and every part still waiting for each gated part it waited for), and what
- * has started (`parts`: the parts' states) keeps its brief and its file. Anything else waits for the person at the plan gate.
+ * keeps every check the person had (each gate, and every part still waiting for each gated part it waited for; each part
+ * that checks the work still checks it, and none of them is taken as it is), and what has started (`parts`: the parts'
+ * states) keeps its brief and its file. Anything else waits for the person at the plan gate.
  */
 export function replanGoesAhead(
   current: Pick<ProjectPlan, 'parts' | 'size'> & Partial<Pick<ProjectPlan, 'proposedIds'>>,
@@ -780,6 +810,8 @@ export function replanGoesAhead(
     if (!c) return owners.has(owner)
     // A part changes hands only between the plan's owners.
     if (owner !== resolvedOwner(current, c.owner) && !owners.has(owner)) return false
+    // A check stays a check, and isn't taken as it is (its verdict waived): the person agrees to that.
+    if (c.checks && (!p.checks || p.acceptAsIs)) return false
     // What the person saw start (or finish) keeps its brief and its file.
     if ((parts[c.id]?.state ?? 'pending') !== 'pending' && (p.brief !== c.brief || p.writes !== c.writes)) return false
     // It still waits for each gated part it waited for, directly or through others: the person checks that first.
@@ -936,7 +968,7 @@ function workflowMermaid(plan: Pick<ProjectPlan, 'parts' | 'size' | 'proposed' |
 export const changesRepo = (part: Pick<PlanPart, 'changesRepo'>): boolean => part.changesRepo !== false
 
 /** Pending, and every part it depends on or reads done (a plan made before reads meant waiting says it only in reads). */
-const unblocked = (p: PlanPart, parts: Record<string, PartStatus>) => (parts[p.id]?.state ?? 'pending') === 'pending' && [...p.dependsOn, ...p.reads].every((d) => parts[d]?.state === 'done')
+const unblocked = (plan: Pick<ProjectPlan, 'parts'>, p: PlanPart, parts: Record<string, PartStatus>) => (parts[p.id]?.state ?? 'pending') === 'pending' && waitsFor(plan.parts, p).every((d) => parts[d]?.state === 'done')
 
 /**
  * The parts that may start now: pending, every dependency done, and of those that change the repository only one, and
@@ -945,7 +977,7 @@ const unblocked = (p: PlanPart, parts: Record<string, PartStatus>) => (parts[p.i
 export function readyParts(plan: Pick<ProjectPlan, 'parts'>, parts: Record<string, PartStatus>): PlanPart[] {
   let busy = Boolean(repoPartRunning(plan, parts))
   return plan.parts.filter((p) => {
-    if (!unblocked(p, parts)) return false
+    if (!unblocked(plan, p, parts)) return false
     if (!changesRepo(p)) return true
     if (busy) return false
     busy = true
@@ -961,7 +993,7 @@ export function repoPartRunning(plan: Pick<ProjectPlan, 'parts'>, parts: Record<
 /** For a part that could start but changes the repository while another that does runs (one at a time): that one. */
 export function waitingOnRepo(plan: Pick<ProjectPlan, 'parts'>, parts: Record<string, PartStatus>, partId: string): PlanPart | undefined {
   const part = plan.parts.find((p) => p.id === partId)
-  if (!part || !changesRepo(part) || !unblocked(part, parts)) return undefined
+  if (!part || !changesRepo(part) || !unblocked(plan, part, parts)) return undefined
   const running = repoPartRunning(plan, parts)
   return running && running.id !== partId ? running : undefined
 }
@@ -1054,6 +1086,20 @@ export function publishedLines(published: { list: readonly ProjectPublication[];
         `- ${p.at.slice(0, 16).replace('T', ' ')} UTC: ${published.names[p.employeeId] ?? p.employeeId} ${p.kind === 'push' ? `pushed ${p.branch ?? 'the branch'}` : `opened a pull request${p.title ? ` “${p.title}”` : ''}${p.branch ? ` from ${p.branch}` : ''}`}${p.via === 'shell' ? ' from their shell' : ''}: ${PUBLICATION_STATE[p.state]}${p.link ? `, ${p.link}` : ''}`
     )
   ]
+}
+
+/**
+ * The checks of the plan (parts with checks) that are done without having passed: taken as they are after a fail, or
+ * after a fail with no replans left. The person's final check says so, each with what the check last said.
+ */
+export function unpassedChecks(project: Pick<Project, 'plan' | 'parts' | 'steps'>): string[] {
+  return (project.plan?.parts ?? []).flatMap((p) => {
+    if (!p.checks || project.parts[p.id]?.state !== 'done') return []
+    const last = [...project.steps].reverse().find((s) => s.kind === 'part' && s.partId === p.id)
+    if (last?.decision === 'pass') return []
+    const said = last?.summary?.split('\n').find((l) => l.trim())?.trim()
+    return [`The check “${p.title}” didn’t pass${last?.decision === 'fail' ? ' (it failed)' : ''}${said ? `: ${cutText(said, 300)}` : '.'}`]
+  })
 }
 
 /** Every part of the plan is done. */

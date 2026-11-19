@@ -24,6 +24,7 @@ import {
   planStateText,
   proposedAccess,
   rosterCan,
+  unpassedChecks,
   MAX_ANSWER,
   MAX_STEP_SUMMARY,
   publishedTasks,
@@ -892,6 +893,33 @@ describe('projects: plans, replans and what they keep (slice 4)', () => {
     expect(moved.ok ? [] : moved.problems).toContainEqual(expect.stringContaining('Part “design” has started: it keeps writing design.md'))
     // A pending part's brief may change, every check kept: goes ahead.
     expect(replanGoesAhead(current, next(DESIGNED.parts.map((x) => (x.id === 'qa' ? { ...x, brief: 'Test it on a narrow window too.' } : x))), states)).toBe(true)
+  })
+
+  it('holds a replan that drops a check or takes one as it is, and says at the end which checks didn’t pass (#2 of the review)', () => {
+    const current = plan(DESIGNED)
+    const states = { design: { state: 'done' as const, round: 1 }, build: { state: 'done' as const, round: 1 }, qa: { state: 'stuck' as const, round: 1 } }
+    const next = (qa: Partial<PlanInput['parts'][number]>) => plan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'qa' ? { ...x, ...qa } : x)) }, { ...W, current, parts: states })
+    expect(replanGoesAhead(current, next({ checks: false }), states)).toBe(false)
+    expect(replanGoesAhead(current, next({ accept_as_is: true }), states)).toBe(false)
+    expect(replanGoesAhead(current, next({}), states)).toBe(true)
+    const steps = [{ kind: 'part' as const, partId: 'qa', round: 1, taskId: 't3', employeeId: 'e-qui1', state: 'done' as const, decision: 'fail', summary: 'Two tests fail.\nMore.', startedAt: NOW }]
+    expect(unpassedChecks({ plan: current, parts: { ...states, qa: { state: 'done', round: 1 } }, steps })).toEqual(['The check “QA” didn’t pass (it failed): Two tests fail.'])
+    expect(unpassedChecks({ plan: current, parts: { ...states, qa: { state: 'done', round: 1 } }, steps: [{ ...steps[0], decision: 'pass' }] })).toEqual([])
+  })
+
+  it('doesn’t stall a plan saved before reads meant waiting when a part reads one that waits for it (#8 of the review)', () => {
+    const old = {
+      parts: [
+        { id: 'a', title: 'A', owner: 'e-rav1', brief: 'a', reads: ['b'], writes: 'a.md', dependsOn: [], gate: true },
+        { id: 'b', title: 'B', owner: 'e-rav1', brief: 'b', reads: [], writes: 'b.md', dependsOn: ['a'], gate: false, changesRepo: false }
+      ]
+    }
+    expect(readyParts(old, {}).map((x) => x.id)).toEqual(['a'])
+    expect(readyParts(old, { a: { state: 'done', round: 1 } }).map((x) => x.id)).toEqual(['b'])
+    // The gated part B waited for through its read still counts for the replan rule.
+    const reader = { size: 'small' as const, parts: [{ ...old.parts[0], gate: false, changesRepo: false }, { id: 'c', title: 'C', owner: 'e-rav1', brief: 'c', reads: ['a'], writes: 'c.md', dependsOn: [], gate: false, changesRepo: false }] }
+    const gatedA = { ...reader, parts: [{ ...reader.parts[0], gate: true }, reader.parts[1]] }
+    expect(replanGoesAhead(gatedA, { ...gatedA, proposed: [], parts: [gatedA.parts[0], { ...gatedA.parts[1], reads: [] }] })).toBe(false)
   })
 
   it('lets a part that won’t run again keep a retired owner, and one that must run again change hands (#20)', () => {

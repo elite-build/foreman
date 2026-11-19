@@ -7735,6 +7735,7 @@ export const zhCN: Catalogue = {
   'employees.chain.raise': '提高上限',
   'employees.chain.raised': '这条链条现在最多可运行 {runs} 次。',
   'employees.chain.cancel': '取消链条',
+  'employees.chain.canceled': '这条链中剩下的任务已取消。',
   'employees.chain.stopProject': '停止项目',
   'employees.chain.from': '移交自 {name} 的“{title}”',
   'employees.chain.children': '从此任务移交出去的任务',

@@ -8482,6 +8482,7 @@ export const en = {
   'employees.chain.raise': 'Raise limit',
   'employees.chain.raised': 'This chain may now have {runs} runs.',
   'employees.chain.cancel': 'Cancel chain',
+  'employees.chain.canceled': 'What was left of this chain is canceled.',
   'employees.chain.stopProject': 'Stop the project',
   'employees.chain.from': 'Handed off from {name}’s “{title}”',
   'employees.chain.children': 'Tasks handed off from this one',

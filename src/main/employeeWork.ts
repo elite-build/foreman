@@ -1387,6 +1387,24 @@ export class EmployeeWorkService {
     return out.commit ?? undefined
   }
 
+  /**
+   * Whether the run changed anything in the folders its task may write in (`writesUnder`: a part's mocks) since `commit`:
+   * something it wrote there and hasn't committed yet, or a file there it names whose version differs from that commit's
+   * (a new one too). A designer who only redrew a mock has done the rework.
+   */
+  private async changedUnder(run: EmployeeRun, contract: EmployeeTaskContract, commit: string, artifacts: readonly string[]): Promise<boolean> {
+    const under = contract.writesUnder ?? []
+    if (!under.length) return false
+    const inside = (path: string) => under.some((folder) => path.startsWith(folder))
+    if (this.host.memory.stagedChanges(run.orgId, run.id).some((c) => inside(c.path))) return true
+    for (const a of artifacts.filter(inside)) {
+      const now = await this.host.memory.read(run.orgId, a, { runId: run.id }).catch(() => null)
+      const then = await this.host.memory.read(run.orgId, a, { commit }).catch(() => null)
+      if (now?.blob && now.blob !== (then?.blob ?? null)) return true
+    }
+    return false
+  }
+
   /** finish_task (§6.2): the task closes with the reason its status maps to, and its result is recorded. */
   async finishTask(sessionId: string, input: EmployeeFinishInput): Promise<{ task: EmployeeTask; commit?: string }> {
     const { run, task } = this.toolRun(sessionId)
@@ -1403,10 +1421,12 @@ export class EmployeeWorkService {
     if (input.status === 'done' && contract?.produces) {
       const file = await this.host.memory.read(run.orgId, contract.produces, { runId: run.id })
       if (file.blob === null) throw new Error(`Write ${contract.produces} first (memory_write, expected: null): it is the artifact your task asks for. Then finish_task again.`)
-      // A send-back or retry round: the file as the round before left it isn't the rework. A commit gone refuses nothing.
+      // A send-back or retry round: the file and its folders (a part's mocks) as the round before left them aren't the
+      // rework. A commit gone refuses nothing.
       if (contract.reworks) {
         const before = await this.host.memory.read(run.orgId, contract.produces, { commit: contract.reworks }).catch(() => null)
-        if (before?.blob && before.blob === file.blob) throw new Error('Your file is the same as last round: change it as asked, or finish partial and say why.')
+        if (before?.blob && before.blob === file.blob && !(await this.changedUnder(run, contract, contract.reworks, artifacts)))
+          throw new Error('Your file is the same as last round, and so is everything in your folders: change them as asked, or finish partial and say why.')
       }
     }
     const commit = await this.commitNamed(run, task, (p) => artifacts.includes(p))
@@ -2287,7 +2307,8 @@ export class EmployeeWorkService {
       await this.closeTree(task, 'canceled', 'Canceled by you.')
       return this.db.employeeTask(taskId) ?? task
     }
-    if (task.id !== task.rootId || task.project || this.db.employeeRoot(task.rootId)?.state === 'canceled') return task
+    // An open project's chain is ended by stopping the project; a closed (or deleted) one's left over work is canceled here.
+    if (task.id !== task.rootId || (task.project && this.projects?.keeps(task)) || this.db.employeeRoot(task.rootId)?.state === 'canceled') return task
     // Canceled first, so nothing closed below wakes anything of it again.
     this.touchRoot(task.rootId, { state: 'canceled' })
     const chain = this.db.employeeTasksOfRoot(task.rootId).filter((t) => t.state !== 'closed')

@@ -7734,6 +7734,7 @@ export const ptBR: Catalogue = {
   'employees.chain.raise': 'Aumentar limite',
   'employees.chain.raised': 'Esta cadeia pode ter agora {runs} execuções.',
   'employees.chain.cancel': 'Cancelar cadeia',
+  'employees.chain.canceled': 'O que restava desta cadeia foi cancelado.',
   'employees.chain.stopProject': 'Parar o projeto',
   'employees.chain.from': 'Repassada de “{title}” de {name}',
   'employees.chain.children': 'Tarefas repassadas a partir desta',
