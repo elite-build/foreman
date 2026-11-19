@@ -1,8 +1,8 @@
 // The sidebar's Team mode for an organization (docs/ai-employees.md §10): one row per employee, whoever needs the person
 // first, then whoever is at work, then the rest. A row is the employee's hat, name and what they're doing or what they
 // wait on you for, with ▲ and how many of their things wait (the shared needs-you count, src/shared/needsYou.ts) or a
-// turning ring while at work; it opens their page. "Team page" under the rows opens the Team page; New employee is in the
-// sidebar's + menu (NewMenu). Shown only while an organization with a memory repository is the space shown; retired
+// turning ring while at work; it opens their page. "Team page" under the rows opens the Team page; New employee is the
+// sidebar's New in Team (NewMenu). Shown only while an organization with a memory repository is the space shown; retired
 // employees aren't listed here (the Team page keeps them).
 import { employeeActivity } from '../../../../shared/employeeWork'
 import { employeeKey } from '../../../../shared/needsYou'

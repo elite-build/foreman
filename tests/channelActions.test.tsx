@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Making, renaming, archiving and deleting channels (docs/ai-employees.md §15): New channel in the sidebar's + menu opens
+// Making, renaming, archiving and deleting channels (docs/ai-employees.md §15): New project, the sidebar's New in Channels, opens
 // the organization's channel with "@Priya " in its box; a channel's ⋯ menu renames it (refusing a taken name) and deletes it (one still going
 // is stopped first, its files kept unless the box is ticked); a closed channel archives from its header, an archived one
 // is read-only with Restore; and the Channels page lists every channel, archived ones too, filters them and deletes
@@ -82,21 +82,21 @@ afterEach(() => {
 })
 
 describe('making a channel', () => {
-  it('opens the organization’s channel from the sidebar’s + menu, with Priya’s name in the box', async () => {
+  it('opens the organization’s channel from the sidebar’s New in Channels, with Priya’s name in the box', async () => {
     const user = userEvent.setup()
     setSnapshot([going])
-    // The Channels mode has no + of its own: the sidebar's one + menu has New channel.
+    // The Channels mode has no + of its own: the sidebar's New makes a project there.
     const section = render(<ChannelList />)
     expect(screen.queryByRole('button', { name: 'New channel' })).toBeNull()
     section.unmount()
     fakeState.snapshot = { ...fakeState.snapshot!, recentRepos: [] }
-    const menu = render(<NewMenu repoId="site" />)
-    await user.click(screen.getByRole('button', { name: 'New' }))
-    const item = screen.getByRole('menuitem', { name: /New channel/ })
-    expect(item.textContent).toContain('@Priya plans it with you')
-    await user.click(item)
+    Object.assign(fakeState, { sidebarMode: 'channels', sidebarView: { repo: null } })
+    const button = render(<NewMenu />)
+    await user.click(screen.getByRole('button', { name: 'New project' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channel', mention: expect.any(Number) })
-    menu.unmount()
+    button.unmount()
+    delete fakeState.sidebarMode
+    delete fakeState.sidebarView
     render(<OrgChannel orgId="o1" mention={1} />)
     const box = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Message #frlk' })
     expect(box.value).toBe('@Priya ')

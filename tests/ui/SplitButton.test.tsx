@@ -126,4 +126,32 @@ describe('SplitButton', () => {
     await user.click(screen.getByRole('button', { name: 'Open in' }))
     expect(screen.getByRole('menu')).toBeTruthy()
   })
+
+  it('with onArrowClick, the arrow opens a dialog instead of a menu: it runs the handler and draws no menu', async () => {
+    const user = userEvent.setup()
+    const onArrow = vi.fn()
+    const onNew = vi.fn()
+    render(
+      <SplitButton label="New project" menuLabel="More to make" onClick={onNew} onArrowClick={onArrow} variant="primary" />
+    )
+    const arrow = screen.getByRole('button', { name: 'More to make' })
+    expect(arrow.getAttribute('aria-haspopup')).toBe('dialog')
+    expect(arrow.getAttribute('aria-expanded')).toBeNull()
+    await user.click(arrow)
+    expect(onArrow).toHaveBeenCalledTimes(1)
+    expect(onNew).not.toHaveBeenCalled()
+    expect(screen.queryByRole('menu')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'New project' }))
+    expect(onNew).toHaveBeenCalledTimes(1)
+    expect(onArrow).toHaveBeenCalledTimes(1)
+  })
+
+  it('with onArrowClick, menuDisabled and disabled still turn the arrow off', () => {
+    const { unmount } = render(<SplitButton label="New" menuLabel="More" onArrowClick={() => {}} disabled />)
+    expect((screen.getByRole('button', { name: 'More' }) as HTMLButtonElement).disabled).toBe(true)
+    unmount()
+    render(<SplitButton label="New" menuLabel="More" onArrowClick={() => {}} menuDisabled />)
+    expect((screen.getByRole('button', { name: 'New' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'More' }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })

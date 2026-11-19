@@ -1,8 +1,8 @@
 // The sidebar's Channels mode for an organization (docs/ai-employees.md §15): one line per channel, the organization's
 // channel first, then a channel per project going or closed and not archived, with its state by shape, its name and what
 // it is doing (who is at it while an employee works on it, else its stage), and a ⋯ menu (rename, archive, delete) shown
-// on hover and focus. "All channels" under them opens the Channels page, where archived ones are too; a new channel is in
-// the sidebar's + menu (NewMenu). Shown only while an organization with a memory repository is the space shown.
+// on hover and focus. "All channels" under them opens the Channels page, where archived ones are too; a new project is the
+// sidebar's New in Channels (NewMenu). Shown only while an organization with a memory repository is the space shown.
 import { Hash } from 'lucide-react'
 import { projectLive } from '../../../../shared/projects'
 import { useT } from '../../i18n'

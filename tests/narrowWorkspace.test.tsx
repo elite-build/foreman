@@ -280,24 +280,26 @@ describe('the rail with the list folded', () => {
     expect(screen.queryByRole('button', { name: 'Find' })).toBeNull()
   })
 
-  it('carries the one +, by the modes, and Automations at its foot, since the top row is folded away', async () => {
+  it('carries New as one +, by the modes, opening the list, and Automations at its foot, since the list is folded away', async () => {
     const user = userEvent.setup()
     setUpSpace()
     render(<Sidebar list={false} folded />)
     const rail = document.querySelector('.sidebar-rail') as HTMLElement
-    const add = within(rail).getByRole('button', { name: 'New' })
+    const add = within(rail).getByRole('button', { name: 'More to make' })
+    expect(add.getAttribute('aria-haspopup')).toBe('dialog')
     expect(add.compareDocumentPosition(screen.getByRole('tablist', { name: 'Sidebar' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(rail).getByRole('button', { name: /^Automations/ })).toBeTruthy()
     await user.click(add)
-    expect(screen.getByRole('menuitem', { name: /New workspace/ }).textContent).toContain('in site')
-    expect(screen.getByRole('menuitem', { name: /New organization…/ })).toBeTruthy()
+    expect(spy('openOverlay')).toHaveBeenCalledWith('new')
   })
 
-  it('has one + while the list shows beside it: the top row’s', () => {
+  it('has one New while the list shows beside it: under the top row', () => {
     setUpSpace()
     render(<Sidebar />)
-    expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1)
-    expect((document.querySelector('.sidebar-top') as HTMLElement).contains(screen.getByRole('button', { name: 'New' }))).toBe(true)
+    expect(screen.queryByRole('button', { name: 'More to make' })).toBeNull()
+    const main = screen.getByRole('button', { name: 'New workspace' })
+    expect(main.closest('.sidebar-new')).not.toBeNull()
+    expect((document.querySelector('.sidebar-top') as HTMLElement).contains(main)).toBe(false)
   })
 
   it('has no Team or Channels in Personal, where there is no team', () => {

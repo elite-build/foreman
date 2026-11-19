@@ -4,7 +4,7 @@
 // sandbox's worktree, through its runtime, and its agent reads them there.
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { appendFile, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Attachment } from '../shared/types'
 import { git, gitOut, type GitTarget } from './git'
@@ -115,8 +115,29 @@ export function attachmentNote(workspacePath: GitTarget, attachments: Attachment
   return `\n\nThe user attached these files (read them as needed):\n${lines.join('\n')}`
 }
 
-/** Tracked and untracked (not ignored) files, for @-mention search. */
-export async function listWorkspaceFiles(workspacePath: GitTarget): Promise<string[]> {
+// A plain folder (Repo.plain) has no .gitignore to go by, so these folders are left out of its file list.
+const PLAIN_SKIPPED = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', '.context'])
+
+/** Every file under a folder outside git, as forward-slash relative paths, up to MAX_LISTED_FILES. */
+async function listPlainFiles(root: string): Promise<string[]> {
+  const files: string[] = []
+  const dirs = ['']
+  while (dirs.length && files.length < MAX_LISTED_FILES) {
+    const rel = dirs.shift()!
+    const entries = await readdir(path.join(root, rel), { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      const child = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        if (!PLAIN_SKIPPED.has(entry.name)) dirs.push(child)
+      } else if (entry.isFile()) files.push(child)
+    }
+  }
+  return files.slice(0, MAX_LISTED_FILES)
+}
+
+/** Tracked and untracked (not ignored) files, for @-mention search. A plain folder's are read from disk. */
+export async function listWorkspaceFiles(workspacePath: GitTarget, options: { plain?: boolean } = {}): Promise<string[]> {
+  if (options.plain && typeof workspacePath === 'string') return listPlainFiles(workspacePath)
   const { stdout } = await git(workspacePath, ['ls-files', '-co', '--exclude-standard', '-z'])
   return stdout.split('\0').filter(Boolean).slice(0, MAX_LISTED_FILES)
 }
@@ -160,14 +181,14 @@ export interface SearchMatch {
   text: string
 }
 
-/** Search tracked and untracked files (honoring .gitignore) with git grep. */
+/** Search tracked and untracked files (honoring .gitignore) with git grep; a plain folder's (`plain`) are searched as files on disk. */
 export async function searchWorkspace(
   workspacePath: GitTarget,
   query: string,
-  options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean } = {}
+  options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean; plain?: boolean } = {}
 ): Promise<SearchMatch[]> {
   if (!query) return []
-  const args = ['grep', '-n', '-I', '--untracked', '--no-color', '--full-name', '-m', '50']
+  const args = options.plain ? ['grep', '--no-index', '--exclude-standard', '-n', '-I', '--no-color', '-m', '50'] : ['grep', '-n', '-I', '--untracked', '--no-color', '--full-name', '-m', '50']
   if (!options.caseSensitive) args.push('-i')
   if (options.wholeWord) args.push('-w')
   args.push(options.regex ? '-E' : '-F', '-e', query)
