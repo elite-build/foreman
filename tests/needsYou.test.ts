@@ -2,7 +2,7 @@
 // each organization's employee questions, held actions, proposals and pauses; each thing once; counted by space,
 // repository and employee, so every surface says the same number. The fixture is the screenshots': Personal 1, Acme 3.
 import { describe, expect, it } from 'vitest'
-import { employeeKey, inChannel, itemsInSpace, needsYouCounts, needsYouItems, projectTaskIds } from '../src/shared/needsYou'
+import { employeeKey, inChannel, itemsInSpace, needsYouCounts, needsYouItems, projectAsks, projectNeeds, projectTaskIds } from '../src/shared/needsYou'
 import { triageAll, type TriageInput } from '../src/shared/triage'
 import type { EmployeeAction } from '../src/shared/employeeActions'
 import type { EmployeeTask, EmployeeWorkView } from '../src/shared/employeeWork'
@@ -147,7 +147,7 @@ describe('one list of what needs you', () => {
   it('leaves a project’s workspace to its channel unless it waits on an approval, and says which items its channel shows', () => {
     // Lima is the project's shared workspace: its run just finished (Ready for review) and Ada's question is a project task's.
     const project = { id: 'pr', orgId: 'acme', slug: 'pr', title: 'pr', requirement: 'pr', repoId: 'site', pmId: 'pri', phase: 'working', plans: [], parts: {}, replans: 0, steps: [{ kind: 'part', round: 1, taskId: 'date', employeeId: 'ada', state: 'running' }], artifacts: {}, waits: [{ id: 'w1', kind: 'questions', since: ago(5) }], decisions: [], notes: [], createdAt: ago(100), updatedAt: ago(10), workspaceId: 'lima' }
-    const snapshot = fixture({}, { projects: { acme: [project] }, sessions: [...fixture().sessions, session('s-lima', 'lima')] } as unknown as Partial<AppSnapshot>)
+    const snapshot = fixture({}, { projects: { acme: [project] }, sessions: [...fixture().sessions, session('s-lima', 'lima', { employeeRun: { orgId: 'acme', employeeId: 'ada', runId: 'run-date', taskId: 'date', projectId: 'pr', endedAt: ago(10) } })] } as unknown as Partial<AppSnapshot>)
     const read = { ...input(snapshot), unread: { lima: true as const }, unreadSessions: { 's-lima': true as const } }
     const items = needsYouItems(read)
     expect(items.some((i) => i.id === 'ws:lima')).toBe(false)
@@ -159,6 +159,19 @@ describe('one list of what needs you', () => {
     expect(needsYouCounts(items).byEmployee.get(employeeKey('acme', 'ada'))).toBe(2)
     // A chat there waiting on an approval only it can give: a workspace row again.
     expect(needsYouItems({ ...read, approvals: [{ id: 'a', sessionId: 's-lima', kind: 'tool', toolName: 'Bash' } as never] }).some((i) => i.id === 'ws:lima')).toBe(true)
+  })
+
+  it('counts what a project’s tasks ask with what it waits on, so its channel never says Working while someone waits', () => {
+    const steps = [{ kind: 'part', round: 1, taskId: 'date', employeeId: 'ada', state: 'running' }, { kind: 'part', round: 1, taskId: 'launch', employeeId: 'max', state: 'running' }]
+    const project = { steps, waits: [{ id: 'w1', kind: 'gate', since: ago(5) }], phase: 'working' } as never
+    const work = fixture().employeeWork!.acme
+    // Ada's question and Max's held push are the project's tasks'; the proposal is nobody's task.
+    expect(projectAsks(project, work)).toEqual({ tasks: [question], actions: [push()] })
+    expect(projectNeeds(project, work)).toEqual({ waits: 1, asks: 2, total: 3 })
+    // Closed, its waits are gone, but a held push still waits; a task that runs asks nothing.
+    expect(projectNeeds({ ...(project as object), phase: 'closed' } as never, work)).toEqual({ waits: 0, asks: 2, total: 2 })
+    expect(projectNeeds(project, { tasks: [{ ...question, state: 'running', question: undefined, waitingOn: undefined }], actions: [] })).toEqual({ waits: 1, asks: 0, total: 1 })
+    expect(projectNeeds(project, undefined).asks).toBe(0)
   })
 })
 

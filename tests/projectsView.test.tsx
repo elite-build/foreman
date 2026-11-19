@@ -17,6 +17,8 @@ import { EmployeesView } from '../src/renderer/src/components/employees/Employee
 import { ChannelList } from '../src/renderer/src/components/employees/ProjectsSection'
 import { OrgChannel } from '../src/renderer/src/components/employees/OrgChannel'
 import { ProjectPage } from '../src/renderer/src/components/employees/ProjectPage'
+import { ProjectRunEnded } from '../src/renderer/src/components/employees/EmployeeRunBanner'
+import type { Session } from '../src/shared/types'
 import { TeamList } from '../src/renderer/src/components/employees/TeamSection'
 import { AddProgramManager } from '../src/renderer/src/components/employees/TeamRoles'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
@@ -147,13 +149,36 @@ describe('the organization’s channel', () => {
     await waitFor(() => expect(fakeApi.startProject).toHaveBeenCalledWith('o1', { requirement: 'Dark mode for reports', repoId: 'site' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'project', id: 'p2' })
     await user.type(box, '@ravi how big is the reports table?{Enter}')
-    await waitFor(() => expect(fakeApi.askEmployee).toHaveBeenCalledWith('o1', 'e-rav1', { body: 'how big is the reports table?', repoId: 'site' }))
+    await waitFor(() => expect(fakeApi.askEmployee).toHaveBeenCalledWith('o1', 'e-rav1', { body: 'how big is the reports table?', repoId: 'site', channel: 'org' }))
     await user.type(box, 'just thinking aloud{Enter}')
     expect(storeModule.showToast).toHaveBeenLastCalledWith('Start with a name: @Priya starts a project, or @someone asks them.')
     expect((box as HTMLTextAreaElement).value).toBe('just thinking aloud')
     // A small change is still a workspace.
     await user.click(screen.getByRole('button', { name: 'New workspace' }))
     expect(spy('openNewWorkspace')).toHaveBeenCalledWith('site')
+  })
+
+  it('shows each question asked there and its answer, with a way to the task, newest last', async () => {
+    const user = userEvent.setup()
+    setSnapshot([])
+    const asked = (id: string, patch: Record<string, unknown>) => ({ id, orgId: 'o1', employeeId: 'e-rav1', requestId: id, rootId: id, parentId: null, title: 'Q', from: 'person', targetRepoId: 'site', channel: 'org', updatedAt: '2026-11-15T10:20:00.000Z', ...patch })
+    fakeApi.listEmployeeTasks = vi.fn(async () => [
+      asked('t2', { body: 'why is the test flaky?', state: 'running', createdAt: '2026-11-15T10:10:00.000Z' }),
+      asked('t1', { body: 'how big is the reports table?', state: 'closed', closureReason: 'done', result: { status: 'done', summary: 'About **40k** rows.', runId: 'r', at: NOW }, createdAt: '2026-11-15T10:01:00.000Z' }),
+      // Not asked here: not listed.
+      { ...asked('t3', { body: 'elsewhere', state: 'running', createdAt: NOW }), channel: undefined }
+    ])
+    render(<OrgChannel orgId="o1" />)
+    const timeline = screen.getByRole('list', { name: 'Messages in #frlk' })
+    await waitFor(() => expect(within(timeline).getByText('@Ravi how big is the reports table?')).toBeTruthy())
+    const texts = within(timeline).getAllByText(/@Ravi |is working on it/).map((e) => e.textContent)
+    expect(texts).toEqual(['@Ravi how big is the reports table?', '@Ravi why is the test flaky?', 'Ravi is working on it. Open Ravi’s page'])
+    expect(within(timeline).getByText('40k').tagName).toBe('STRONG')
+    expect(within(timeline).queryByText(/elsewhere/)).toBeNull()
+    // Only the channel's questions are read.
+    expect(fakeApi.listEmployeeTasks).toHaveBeenCalledWith('o1', undefined, { channel: 'org' })
+    await user.click(within(timeline).getAllByRole('button', { name: 'Open Ravi’s page' })[0])
+    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: 'e-rav1' })
   })
 
   it('offers to add Priya to an organization without her', async () => {
@@ -355,24 +380,90 @@ describe('a project’s channel', () => {
     expect(approve.title).toBe('Your note goes with Send back. Clear it to approve.')
   })
 
-  it('asks a follow-up of a named employee, keeps anything else as a note, and stops only after you confirm', async () => {
+  it('asks a follow-up of a named employee, sends anything else to Priya, and stops only after you confirm', async () => {
     const user = userEvent.setup()
     setSnapshot()
-    fakeApi.askProjectFollowUp = vi.fn(async () => ({ id: 't9' }))
+    fakeApi.askProjectFollowUp = vi.fn(async () => ({ id: 't9', state: 'running', project: { id: 'p1', kind: 'follow-up', round: 1 } }))
     fakeApi.noteProject = vi.fn(async () => project())
     fakeApi.stopProject = vi.fn(async () => project({ phase: 'closed', outcome: 'stopped' }))
     render(<ProjectPage orgId="o1" project={project()} />)
     const box = screen.getByRole('textbox', { name: 'Message #csv-export' })
+    // The box says who reads a message without a name.
+    expect(box.getAttribute('placeholder')).toBe('Write to Priya, or @someone to reach them')
     await user.type(box, '@Priya why two parts?{Enter}')
     await waitFor(() => expect(fakeApi.askProjectFollowUp).toHaveBeenCalledWith('p1', 'e-pri1', 'why two parts?'))
     expect(storeModule.showToast).toHaveBeenCalledWith('Asked Priya a follow-up.')
+    // Into Ravi's running work, or held until it ends.
+    fakeApi.askProjectFollowUp = vi.fn(async () => ({ id: 't2', state: 'running', project: { id: 'p1', kind: 'part', partId: 'build', round: 1 } }))
+    await user.type(box, '@Ravi use option b{Enter}')
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenLastCalledWith('Sent to Ravi’s running work.'))
+    fakeApi.askProjectFollowUp = vi.fn(async () => ({ id: 't3', state: 'open', hold: 'queued', project: { id: 'p1', kind: 'follow-up', round: 2, after: 't2' } }))
+    await user.type(box, '@Ravi and keep the icons{Enter}')
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenLastCalledWith('Asked Ravi: it starts once their running work ends.'))
     await user.type(box, 'Finance wants it by Friday{Enter}')
     await waitFor(() => expect(fakeApi.noteProject).toHaveBeenCalledWith('p1', 'Finance wants it by Friday'))
+    expect(storeModule.showToast).toHaveBeenLastCalledWith('Priya reads it and answers here.')
     await user.click(screen.getAllByRole('button', { name: 'Stop' })[0])
     expect(fakeApi.stopProject).not.toHaveBeenCalled()
     const confirm = screen.getByRole('alert')
     await user.click(within(confirm).getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(fakeApi.stopProject).toHaveBeenCalledWith('p1'))
+  })
+})
+
+describe('what you write in a project’s channel, and what waits there', () => {
+  it('shows a message put into someone’s running work, and Priya reading your message', () => {
+    const p = project({
+      phase: 'working',
+      plan: { ...PLAN, status: 'approved' },
+      waits: [],
+      steps: [
+        ...project().steps,
+        { kind: 'message', round: 1, taskId: 't5', employeeId: 'e-pri1', state: 'done', summary: 'Ravi builds what the plan says.', startedAt: '2026-11-15T10:07:00.000Z', endedAt: '2026-11-15T10:08:00.000Z' }
+      ],
+      notes: [
+        { text: 'Stop, I never approved this layout', at: '2026-11-15T10:06:00.000Z', into: 't5' },
+        { text: 'use option b', at: '2026-11-15T10:09:00.000Z', to: 'e-rav1', into: 't2' }
+      ]
+    })
+    setSnapshot([p])
+    render(<ProjectPage orgId="o1" project={p} />)
+    const timeline = screen.getByRole('list', { name: 'Messages in #csv-export' })
+    expect(within(timeline).getByText('Priya is reading your message')).toBeTruthy()
+    expect(within(timeline).getByText('Ravi builds what the plan says.')).toBeTruthy()
+    expect(within(timeline).getByText('You → Ravi')).toBeTruthy()
+    expect(within(timeline).getByText('Into Ravi’s running work')).toBeTruthy()
+  })
+
+  it('says Needs you, not Working, while someone in it waits for you, on its row and in its header', () => {
+    const p = project({ phase: 'working', plan: { ...PLAN, status: 'approved' }, waits: [], steps: [...project().steps, { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'running', startedAt: NOW }] })
+    setSnapshot([p])
+    fakeState.snapshot.employeeWork.o1.tasks = [{ id: 't2', orgId: 'o1', employeeId: 'e-rav1', requestId: 'r', rootId: 't1', parentId: null, title: 'Build', body: 'b', from: 'person', targetRepoId: 'site', state: 'waiting', question: { id: 'q1', text: 'Which browser?', options: [], askedAt: NOW, runId: 'r2' }, createdAt: NOW, updatedAt: NOW }]
+    const row = render(<ChannelList />)
+    const list = screen.getByRole('list', { name: 'Channels in FRLK' })
+    expect(within(list).getByText('Needs you')).toBeTruthy()
+    expect(within(list).getByText('Someone in it waits for you')).toBeTruthy()
+    row.unmount()
+    render(<ProjectPage orgId="o1" project={p} />)
+    expect(screen.queryByText('Working')).toBeNull()
+  })
+})
+
+describe('a project run’s chat once its turn ended', () => {
+  it('is read-only: it says whose run it was and opens the channel instead', async () => {
+    const user = userEvent.setup()
+    setSnapshot()
+    const chat = { id: 's1', workspaceId: 'ws', employeeRun: { orgId: 'o1', employeeId: 'e-rav1', runId: 'r1', taskId: 't2', projectId: 'p1', endedAt: NOW } } as Session
+    const shown = render(<ProjectRunEnded session={chat} />)
+    expect(screen.getByRole('status').textContent).toContain('This was Ravi’s run for #csv-export, and it has finished. Ask Ravi in the channel.')
+    await user.click(screen.getByRole('button', { name: 'Open #csv-export' }))
+    expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'project', id: 'p1' })
+    shown.unmount()
+    // A channel no longer listed (archived): still read-only, still the way there.
+    setSnapshot([])
+    render(<ProjectRunEnded session={chat} />)
+    expect(screen.getByRole('status').textContent).toContain('This was Ravi’s run for a project, and it has finished.')
+    expect(screen.getByRole('button', { name: 'Open the channel' })).toBeTruthy()
   })
 })
 

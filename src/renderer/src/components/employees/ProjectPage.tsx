@@ -12,7 +12,8 @@
 // final check; a note holds Approve on the plan and the final check, where it would reach nobody. What you type there is
 // kept while you look elsewhere (projectDrafts.ts); Stop on a card asks first, and Esc never stops. Then what its
 // employees ask or hold (a question, a pull request). The message box: "@Name …" asks that employee (anyone who worked on
-// it or owns a part) a follow-up, anything else is a note that wakes nobody. Beside it: the parts with their states, the
+// it or owns a part): into their running work when it takes words mid-turn, else a follow-up (after that work, while it
+// runs); anything else is for the program manager, who reads it and answers in the channel, or replans. Beside it: the parts with their states, the
 // files, the workspace (where its work is once archived, with Restore) and the replans left. Pause holds it (what runs
 // finishes); Stop cancels what is going (its files stay).
 // Once closed, Archive takes it off the sidebar; an archived channel is read-only, with Restore and Delete. More renames
@@ -24,6 +25,7 @@ import type { PlainKey } from '../../../../shared/i18n'
 import { formatDateTime, formatNumber, timeAgo } from '../../../../shared/i18n/time'
 import { joinWorkspace } from '../../../../shared/openIn'
 import type { ArchivedWork, Workspace } from '../../../../shared/types'
+import { projectNeeds } from '../../../../shared/needsYou'
 import { gateNoteTo, isArchived, MAX_ANSWER, MAX_NOTE, MAX_QUESTION_ROUNDS, MAX_REPLANS, mentionOf, ownerId, ownerName, planDiff, planSeen, planStages, roundSeen, type PlanPart, type Project, type ProjectArtifact, type ProjectDecideOptions, type ProjectDecision, type ProjectDecisionRecord, type ProjectLive, type ProjectPlan, type ProjectStep, type ProjectWait, type QuestionRound } from '../../../../shared/projects'
 import { useT } from '../../i18n'
 import { api, attempt, openArchivedChats, openEmployees, openMemory, restoreArchived, selectWorkspace, showToast, useStore } from '../../store'
@@ -56,7 +58,8 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
   const names = nameMap(roster)
   const pm = roster?.find((e) => e.id === project.pmId)
   const pmName = pm?.name || t('projects.pmDefault')
-  const status = projectStatus(project, t, pmName)
+  const work = useStore((s) => s.snapshot!.employeeWork?.[orgId])
+  const status = projectStatus(project, t, pmName, projectNeeds(project, work).asks)
   const live = useProjectLive(project)
   const repo = useStore((s) => s.snapshot!.repos.find((r) => r.id === project.repoId))
   // Stop asks first, where it was pressed: in the header, or on a card of what the project waits for.
@@ -95,9 +98,14 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
     let ok = false
     await attempt(async () => {
       if (to && m?.rest) {
-        await api.askProjectFollowUp(project.id, to.id, m.rest)
-        showToast(t('projects.followUp.sent', { name: to.name }))
-      } else await api.noteProject(project.id, text)
+        const task = await api.askProjectFollowUp(project.id, to.id, m.rest)
+        // Into their running work; a follow-up held until it ends; or a follow-up now.
+        const how = task.project?.kind !== 'follow-up' ? 'projects.followUp.steered' : task.project.after && task.state === 'open' ? 'projects.followUp.held' : 'projects.followUp.sent'
+        showToast(t(how, { name: to.name }))
+      } else {
+        await api.noteProject(project.id, text)
+        if (open) showToast(t('projects.message.sent', { name: pmName }))
+      }
       ok = true
     })
     return ok
@@ -162,10 +170,10 @@ export function ProjectPage({ orgId, project, onChanged }: { orgId: string; proj
         {!archived && (
           <ChannelComposer
             label={t('projects.composer.label', { channel: projectChannel(project) })}
-            placeholder={t('projects.composer.placeholder')}
+            placeholder={open ? t('projects.composer.placeholderPm', { name: pmName }) : t('projects.composer.placeholder')}
             members={members}
             onSend={send}
-            hint={t('projects.composer.hint')}
+            hint={open ? t('projects.composer.hintPm', { name: pmName }) : t('projects.composer.hint')}
           />
         )}
       </div>
@@ -273,12 +281,15 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
           ? t(project.plans.some((p) => p.taskId !== step.taskId && Date.parse(p.at) < Date.parse(step.startedAt)) ? 'projects.log.replanning' : 'projects.log.planning', { name: who(step.employeeId) })
           : step.kind === 'accept'
             ? t('projects.log.accepting', { name: who(step.employeeId) })
-            : t('projects.log.partStarted', { name: who(step.employeeId), part })
+            : step.kind === 'message'
+              ? t('projects.log.message', { name: who(step.employeeId) })
+              : t('projects.log.partStarted', { name: who(step.employeeId), part })
       entries.push({ at: step.startedAt, key: `start:${step.taskId}`, node: <SystemLine id={stepDomId(project.id, step.taskId, 'start')}>{`${started}${round}`}</SystemLine> })
     }
     if (step.state !== 'running' && step.endedAt) {
       const artifact = Object.values(project.artifacts).find((a) => a.taskId === step.taskId)
-      const plan = step.kind === 'plan' ? project.plans.find((p) => p.taskId === step.taskId) : undefined
+      // A plan comes from her planning, or from her reading the channel (a replan).
+      const plan = step.kind === 'plan' || step.kind === 'message' ? project.plans.find((p) => p.taskId === step.taskId) : undefined
       const asks = step.kind === 'plan' && !plan ? project.asks?.find((r) => r.taskId === step.taskId) : undefined
       entries.push({
         at: step.endedAt,
@@ -341,13 +352,15 @@ function Timeline({ orgId, project, names, roster, pmName, live }: { orgId: stri
       })
     if (r.skipped) entries.push({ at: r.answeredAt, key: `skipped:${r.round}`, node: <SystemLine>{t('projects.questions.skippedLog', { name: pmName, done: given.length, count: r.questions.length })}</SystemLine> })
   }
+  // What you wrote in the channel: for her (no name), or put into someone's running work ("You → Ravi").
   for (const [i, n] of project.notes.entries()) {
     entries.push({
       at: n.at,
       key: `note:${i}`,
       node: (
-        <Post who={t('projects.you')} at={n.at}>
+        <Post who={n.to ? t('projects.note.to', { name: who(n.to) }) : t('projects.you')} at={n.at}>
           <p className="channel-text">{n.text}</p>
+          {n.to && <span className="employee-faint">{t('projects.note.steered', { name: who(n.to) })}</span>}
         </Post>
       )
     })

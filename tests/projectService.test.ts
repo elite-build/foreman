@@ -27,7 +27,7 @@ afterEach(() => {
 
 const PM = 'e-pri1'
 
-async function rig(options: { pm?: boolean } = {}) {
+async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unanswered?: ProjectHost['unanswered'] } = {}) {
   const db = new ForemanDb(path.join(await tempDir('foreman-projects-'), 'foreman.db'))
   opened.push(db)
   const repo = (id: string, name: string, spaceId?: string) => ({ id, name, rootPath: `/code/${name}`, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', ...(spaceId ? { spaceId } : {}) }) as unknown as Repo
@@ -102,6 +102,8 @@ async function rig(options: { pm?: boolean } = {}) {
     transcript: async () => 'You: add a Download CSV button',
     archive: (ws, runId) => void archived.push([ws, runId]),
     loadouts: () => [{ agent: 'claude', model: 'm' }],
+    ...(options.steer ? { steer: options.steer } : {}),
+    ...(options.unanswered ? { unanswered: options.unanswered } : {}),
     changed: () => undefined,
     now: () => clock.now
   }
@@ -462,12 +464,21 @@ describe('projects: the person in the channel', () => {
     expect(r.asked).toHaveLength(2)
     await r.service.setPaused(project.id, false)
     expect(r.last().project.partId).toBe('docs')
+    const docs = r.task(r.last())
+    // A message while paused still reaches her: she may answer.
     await r.service.addNote(project.id, 'Finance wants it by Friday')
     await expect(r.service.addNote(project.id, '  ')).rejects.toThrow('Write something')
+    expect(r.last().project).toMatchObject({ kind: 'message' })
+    const message = r.task(r.last())
     await r.service.stop(project.id)
     const p = r.get(project.id)
-    expect(p).toMatchObject({ phase: 'closed', outcome: 'stopped', notes: [expect.objectContaining({ text: 'Finance wants it by Friday' })] })
-    expect(r.canceled).toEqual([r.task(r.last()).id])
+    expect(p).toMatchObject({ phase: 'closed', outcome: 'stopped', notes: [expect.objectContaining({ text: 'Finance wants it by Friday', into: message.id })] })
+    expect(r.canceled).toEqual([docs.id, message.id])
+    // Closed, a message is kept and wakes nobody.
+    await r.service.addNote(project.id, 'Never mind')
+    expect(r.last().project.kind).toBe('message')
+    expect(r.asked.filter((a) => a.project.kind === 'message')).toHaveLength(1)
+    expect(r.get(project.id).notes.at(-1)).toEqual({ text: 'Never mind', at: expect.any(String) })
   })
 
   it('asks a follow-up of whoever worked on it, reading what they wrote, even after it closed', async () => {
@@ -488,6 +499,217 @@ describe('projects: the person in the channel', () => {
     expect(r.last().body).toContain('Your HTML mocks are in memory/org/projects/export-reports-to-csv/mocks/build/')
     expect(r.last().body).toContain('“Why semicolons?”')
     expect(r.get(project.id).steps.at(-1)).toMatchObject({ kind: 'follow-up', question: 'Why semicolons?' })
+  })
+})
+
+describe('projects: what the person writes in the channel', () => {
+  const ONE_PART: PlanInput = { summary: 'A CSV button.', size: 'small', parts: [{ id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build the button.', writes: 'build.md' }] }
+  async function working(options: Parameters<typeof rig>[0] = {}, input: PlanInput = ONE_PART) {
+    const r = await rig(options)
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    await r.plan(input)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    return { ...r, id: project.id }
+  }
+  /** Put a run on a task, as the work service would while it works. */
+  const running = (r: Awaited<ReturnType<typeof rig>>, taskId: string) =>
+    r.db.putEmployeeRun({ id: `run-${taskId}`, taskId, employeeId: r.db.employeeTask(taskId)!.employeeId, orgId: 'o1', attempt: 1, state: 'running', started: true, turnIds: [], rootId: taskId, causeId: 'person', createdAt: '2026-11-15T10:00:00.000Z', updatedAt: '2026-11-15T10:00:00.000Z' })
+
+  it('wakes Priya with a message task: the words, the plan and who is at work; one at a time, the rest read next', async () => {
+    const r = await working()
+    const build = r.task(r.last())
+    await r.service.addNote(r.id, 'Stop, I never approved this layout')
+    const first = r.last()
+    expect(first).toMatchObject({ employeeId: PM, title: 'Message: Export reports to CSV', project: { kind: 'message', round: 1 }, contract: { writes: ['memory/org/projects/export-reports-to-csv/plan.md'] } })
+    expect(first.body).toContain('“Stop, I never approved this layout”')
+    expect(first.body).toContain('- build · Build · Ravi')
+    expect(first.body).toContain('Ravi: part “Build”')
+    expect(first.body).toContain('call project_plan with the whole revised plan')
+    expect(first.body).toContain('ask the person to press Pause')
+    let p = r.get(r.id)
+    expect(p.steps.at(-1)).toMatchObject({ kind: 'message', employeeId: PM, state: 'running' })
+    expect(p.notes[0].into).toBe(r.task(first).id)
+    // A second message while she reads: kept for her next, no second task beside it.
+    await r.service.addNote(r.id, 'And keep the old icons')
+    expect(r.asked.filter((a) => a.project.kind === 'message')).toHaveLength(1)
+    expect(r.get(r.id).notes[1].into).toBeUndefined()
+    // She answers: her summary is her reply, and the message she hadn't read starts her next.
+    await r.close(r.task(first).id, { summary: 'Ravi builds what the plan says; tell me what to change.' })
+    p = r.get(r.id)
+    expect(p.steps.find((s) => s.taskId === r.task(first).id)).toMatchObject({ state: 'done', summary: 'Ravi builds what the plan says; tell me what to change.' })
+    const second = r.last()
+    expect(second.project).toMatchObject({ kind: 'message', round: 2 })
+    expect(second.body).toContain('“And keep the old icons”')
+    expect(second.body).not.toContain('never approved')
+    // The build goes on: nothing about it changed.
+    expect(r.db.employeeTask(build.id)?.state).toBe('running')
+  })
+
+  it('puts a message into her running turn when her agent takes one, and waits for her running work otherwise', async () => {
+    const steered: [string, string][] = []
+    const r = await rig({ steer: async (taskId, text) => (steered.push([taskId, text]), true) })
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    const planning = r.task(r.last())
+    await r.service.addNote(project.id, 'Only CSV, not Excel')
+    expect(steered).toEqual([[planning.id, expect.stringContaining('in their words: “Only CSV, not Excel”')]])
+    expect(r.get(project.id).notes[0]).toMatchObject({ into: planning.id })
+    expect(r.asked).toHaveLength(1)
+    // An agent that can't take it: her message task waits until her planning run ends.
+    const later = await rig({ steer: async () => false })
+    const other = await later.start({ requirement: 'Export reports to CSV' })
+    const plan = later.task(later.last())
+    running(later, plan.id)
+    await later.service.addNote(other.id, 'Only CSV, not Excel')
+    expect(later.last().project).toMatchObject({ kind: 'message', after: plan.id })
+  })
+
+  it('lets her change the plan from a message, as a replan: more for the same owners goes ahead, anything else waits', async () => {
+    const r = await working()
+    await r.service.addNote(r.id, 'Add a BOM so Excel reads accents')
+    const message = r.task(r.last())
+    const said = await r.service.submitPlan(message, 'run-m', { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'bom', title: 'BOM', owner: 'Ravi', brief: 'Add a BOM.', writes: 'bom.md', depends_on: ['build'] }] })
+    expect(said).toContain('Plan v2 recorded')
+    // Nothing new starts until she finishes.
+    expect(r.get(r.id).replanning).toBe(true)
+    await r.close(message.id, { summary: 'Added a BOM part after the build.' })
+    const p = r.get(r.id)
+    expect(p).toMatchObject({ replans: 1, replanning: false, plan: { version: 2, status: 'went-ahead' }, waits: [] })
+    expect(r.staged.at(-1)).toMatchObject({ runId: 'run-m', path: 'memory/org/projects/export-reports-to-csv/plan.md' })
+    // One that proposes someone waits at the plan gate.
+    const q = await working()
+    await q.service.addNote(q.id, 'Get a designer on it')
+    const m = q.task(q.last())
+    await q.service.submitPlan(m, 'run-m', { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'ux', title: 'Design', owner: 'new:ux', brief: 'Design it.', writes: 'design.md' }], new_employees: [{ key: 'ux', name: 'Uma', role: 'Designer', description: '', instructions: 'Design.', repos: { site: 'read' } }] })
+    await q.close(m.id)
+    expect(q.get(q.id)).toMatchObject({ replans: 1, replanning: true, waits: [expect.objectContaining({ kind: 'plan' })], plan: { version: 1 } })
+  })
+
+  it('refuses a plan from a message before a plan is in effect or with no replans left, and drops one she didn’t finish', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    await r.plan(ONE_PART)
+    // At the plan gate: the person sends the plan back instead.
+    await r.service.addNote(project.id, 'Smaller, please')
+    const atGate = r.task(r.last())
+    expect(r.last().body).toContain('The plan can’t be changed from here now (no plan is in effect yet')
+    await expect(r.service.submitPlan(atGate, 'run-m', ONE_PART)).rejects.toThrow('no plan is in effect yet')
+    // Not finished: dropped, counting nothing, and what waited starts.
+    const w = await working()
+    await w.service.addNote(w.id, 'Add docs')
+    const m = w.task(w.last())
+    await w.service.submitPlan(m, 'run-m', { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Docs.', writes: 'docs.md' }] })
+    await w.close(m.id, { reason: 'blocked', detail: 'Gave up' })
+    expect(w.get(w.id)).toMatchObject({ replans: 0, replanning: false, plans: [expect.objectContaining({ version: 1 })] })
+    expect(w.get(w.id).plans).toHaveLength(1)
+    // Out of replans.
+    const f = w.db.project(w.id)!
+    w.db.putProject({ ...f, replans: 3 })
+    await w.service.addNote(w.id, 'One more change')
+    await expect(w.service.submitPlan(w.task(w.last()), 'run-m', ONE_PART)).rejects.toThrow('replanned 3 times')
+  })
+
+  it('carries the person’s messages since each last ran into the next part’s brief and a follow-up', async () => {
+    const r = await working({}, { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Docs.', writes: 'docs.md', depends_on: ['build'] }] })
+    await r.service.addNote(r.id, 'Name the file report.csv')
+    await r.close(r.task(r.last()).id)
+    await r.close(r.task(r.asked[1]).id)
+    const docs = r.last()
+    expect(docs.project).toMatchObject({ kind: 'part', partId: 'docs' })
+    expect(docs.body).toContain('What the person said in the project’s channel')
+    expect(docs.body).toContain('“Name the file report.csv”')
+    // Ravi last worked on it after that message: a follow-up carries only what came since.
+    await r.service.addNote(r.id, 'Semicolons, for Excel')
+    await r.close(r.task(r.last()).id)
+    const follow = await r.service.askFollowUp(r.id, 'e-rav1', 'Why that name?')
+    expect(follow.project?.kind).toBe('follow-up')
+    expect(r.last().body).toContain('“Semicolons, for Excel”')
+    expect(r.last().body).not.toContain('report.csv”')
+  })
+
+  it('puts @Name into their running part when it takes words mid-turn, else holds the follow-up until it ends', async () => {
+    const steered: string[] = []
+    const r = await working({ steer: async (taskId) => (steered.push(taskId), true) })
+    const build = r.task(r.last())
+    const got = await r.service.askFollowUp(r.id, 'e-rav1', 'use option b, not a')
+    expect(got.id).toBe(build.id)
+    expect(steered).toEqual([build.id])
+    expect(r.get(r.id).notes).toEqual([expect.objectContaining({ text: 'use option b, not a', to: 'e-rav1', into: build.id, steered: true })])
+    expect(r.asked.filter((a) => a.project.kind === 'follow-up')).toHaveLength(0)
+    // His agent can't take it now, and his run is going: a follow-up that starts after it.
+    const h = await working({ steer: async () => false })
+    const part = h.task(h.last())
+    running(h, part.id)
+    const held = await h.service.askFollowUp(h.id, 'e-rav1', 'use option b, not a')
+    expect(held.project).toMatchObject({ kind: 'follow-up', partId: 'build', after: part.id })
+    expect(h.get(h.id).notes).toEqual([])
+    // Nothing of his running: a follow-up now, as before.
+    await h.close(part.id)
+    const now = await h.service.askFollowUp(h.id, 'e-rav1', 'why semicolons?')
+    expect(now.project?.after).toBeUndefined()
+  })
+
+  it('takes a steer its agent never took up before the task closed as not arrived: a held follow-up, or unread for Priya', async () => {
+    const missed = new Set<string>()
+    // Docs waits for the build, so the project goes on once the build closes.
+    const TWO: PlanInput = { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Docs.', writes: 'docs.md', depends_on: ['build'] }] }
+    const r = await working({ steer: async () => true, unanswered: (taskId) => (missed.has(taskId) ? 1 : 0) }, TWO)
+    const build = r.task(r.last())
+    await r.service.askFollowUp(r.id, 'e-rav1', 'use option b, not a')
+    // He finished before taking it up, and his run still goes: it becomes the follow-up, after that run.
+    missed.add(build.id)
+    running(r, build.id)
+    await r.close(build.id)
+    expect(r.get(r.id).notes).toEqual([])
+    const follow = r.asked.find((a) => a.project.kind === 'follow-up')!
+    expect(follow).toMatchObject({ employeeId: 'e-rav1', project: { partId: 'build', after: build.id } })
+    expect(follow.body).toContain('“use option b, not a”')
+    // Taken up: it arrived, and nothing more is made.
+    const ok = await working({ steer: async () => true, unanswered: () => 0 }, TWO)
+    await ok.service.askFollowUp(ok.id, 'e-rav1', 'use option b, not a')
+    await ok.close(ok.task(ok.last()).id)
+    expect(ok.get(ok.id).notes).toEqual([expect.objectContaining({ steered: true })])
+    expect(ok.asked.filter((a) => a.project.kind === 'follow-up')).toHaveLength(0)
+    // Priya's planning never took up a message: it is unread again, and her message task reads it once planning ends.
+    const p = await rig({ steer: async () => true, unanswered: (taskId) => (missed.has(taskId) ? 1 : 0) })
+    const project = await p.start({ requirement: 'Export reports to CSV' })
+    const planning = p.task(p.last())
+    await p.service.addNote(project.id, 'Only CSV')
+    expect(p.get(project.id).notes[0]).toMatchObject({ into: planning.id, steered: true })
+    missed.add(planning.id)
+    await p.plan(ONE_PART)
+    expect(p.last()).toMatchObject({ project: { kind: 'message' } })
+    expect(p.last().body).toContain('“Only CSV”')
+  })
+
+  it('gives a part’s first round only what was written since its plan was given', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    const planning = r.task(r.last())
+    await r.service.addNote(project.id, 'Before the plan: Excel too')
+    await r.close(r.task(r.last()).id)
+    r.clock.now += 1000
+    await r.service.submitPlan(planning, 'run-1', ONE_PART)
+    await r.close(planning.id)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    expect(r.last().project).toMatchObject({ kind: 'part', partId: 'build', round: 1 })
+    expect(r.last().body).not.toContain('Excel too')
+  })
+
+  it('won’t plan twice: no Retry while a revision from the channel waits, nor a revision while planning waits to be retried', async () => {
+    const r = await working()
+    await r.service.addNote(r.id, 'Add docs')
+    const message = r.task(r.last())
+    await r.service.submitPlan(message, 'run-m', { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Docs.', writes: 'docs.md' }] })
+    const stuck = { id: 'w-stuck', kind: 'stuck' as const, since: new Date(r.clock.now).toISOString(), reason: 'The last planning didn’t finish.' }
+    r.db.putProject({ ...r.db.project(r.id)!, waits: [stuck] })
+    await expect(r.service.decide(r.id, 'w-stuck', 'retry')).rejects.toThrow('changing the plan already')
+    expect(r.asked.filter((a) => a.project.kind === 'plan')).toHaveLength(1)
+    // A planning that waits to be retried: her message can't revise the plan beside it.
+    const q = await working()
+    q.db.putProject({ ...q.db.project(q.id)!, waits: [stuck] })
+    await q.service.addNote(q.id, 'Add docs')
+    expect(q.last().body).toContain('the last planning didn’t finish')
+    await expect(q.service.submitPlan(q.task(q.last()), 'run-m', ONE_PART)).rejects.toThrow('the last planning didn’t finish')
   })
 })
 

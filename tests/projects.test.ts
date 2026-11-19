@@ -30,7 +30,12 @@ import {
   followUpBody,
   listedProjects,
   mentionOf,
+  MAX_MESSAGES,
   MAX_MOCKS,
+  messageBody,
+  messagesSince,
+  messagesText,
+  steerText,
   mocksFolder,
   partBody,
   partMocks,
@@ -674,5 +679,47 @@ describe('projects: what the person says reaches the right place, once', () => {
     expect(approvalUndo({ ...going, replanning: true }, at)).toBeNull()
     expect(approvalUndo({ ...going, phase: 'closed' }, at)).toBeNull()
     expect(approvalUndo({ ...going, decisions: [{ ...going.decisions[0], undoneAt: '2026-11-15T10:11:00.000Z' }] }, at)).toBeNull()
+    // A plan given since (a replan read from the channel) changed what it started.
+    expect(approvalUndo({ ...going, plan: { ...going.plan!, at: '2026-11-15T10:12:00.000Z' } }, at)).toBeNull()
+  })
+})
+
+describe('projects: what the person writes in the channel', () => {
+  const note = (text: string, at: string, patch = {}) => ({ text, at, ...patch })
+
+  it('takes the messages since a time, the newest ten, quoted with whom each was to', () => {
+    const notes = Array.from({ length: 12 }, (_, i) => note(`m${i}`, `2026-11-15T10:${String(i).padStart(2, '0')}:00.000Z`))
+    expect(messagesSince(notes).map((n) => n.text)).toEqual(notes.slice(-MAX_MESSAGES).map((n) => n.text))
+    expect(messagesSince(notes, '2026-11-15T10:10:00.000Z').map((n) => n.text)).toEqual(['m10', 'm11'])
+    expect(messagesSince(undefined)).toEqual([])
+    const text = messagesText({ notes: [note('Stop, I never approved this', NOW), note('use b', NOW, { to: 'e-rav1' })], names: { 'e-rav1': 'Ravi' } }, 10)
+    expect(text).toBe('- 2026-11-15 10:00 UTC: “Stop, I ne … (cut: 17 characters)”\n- 2026-11-15 10:00 UTC, to Ravi: “use b”')
+  })
+
+  it('briefs her message task with the words, the plan, who works and what she may do; and a running turn with the words first', () => {
+    const body = messageBody({
+      project: { title: 'CSV', requirement: 'Export to CSV', phase: 'working', paused: true },
+      organization: 'Acme',
+      messages: { notes: [note('Stop, I never approved this layout', NOW)], names: {} },
+      plan: { version: 2, summary: 'A button.', state: '- build · Build · Ravi' },
+      running: ['Ravi: part “Build”'],
+      replan: { can: false, left: 0, why: 'you have replanned 3 times' },
+      max: MAX_TASK_BODY
+    })
+    expect(body).toContain('“Stop, I never approved this layout”')
+    expect(body).toContain('(paused: what runs finishes, nothing new starts)')
+    expect(body).toContain('The plan in effect (v2): A button.')
+    expect(body).toContain('- Ravi: part “Build”')
+    expect(body).toContain('The plan can’t be changed from here now (you have replanned 3 times)')
+    expect(body).not.toContain('How to plan:')
+    expect(messageBody({ project: { title: 'CSV', requirement: 'r', phase: 'working' }, organization: 'Acme', messages: { notes: [note('x'.repeat(30_000), NOW)], names: {} }, running: [], replan: { can: true, left: 2 }, max: MAX_TASK_BODY }).length).toBeLessThanOrEqual(MAX_TASK_BODY)
+    const steer = steerText({ project: { title: 'CSV' }, text: 'use option b', part: 'Build' })
+    expect(steer.startsWith('The person wrote to you in the channel of the project “CSV” while you work on “Build”, in their words: “use option b”')).toBe(true)
+    expect(steer).toContain('finish_task blocked')
+    // The program manager isn't told to block for herself: what she is doing takes it in.
+    expect(steerText({ project: { title: 'CSV' }, text: 'x', kind: 'plan' })).toContain('Take it into the plan you are making')
+    expect(steerText({ project: { title: 'CSV' }, text: 'x', kind: 'accept' })).toContain('decide replan')
+    expect(steerText({ project: { title: 'CSV' }, text: 'x', kind: 'message' })).toContain('change it with project_plan')
+    for (const kind of ['plan', 'accept', 'message'] as const) expect(steerText({ project: { title: 'CSV' }, text: 'x', kind })).not.toContain('so the program manager replans')
   })
 })

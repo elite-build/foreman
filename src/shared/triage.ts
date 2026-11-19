@@ -536,11 +536,27 @@ export function projectWorkspaceIds(snapshot: Pick<AppSnapshot, 'workspaces' | '
 
 /**
  * Whether a workspace list shows a row: a project's workspace only while one of its chats waits on an approval, which only
- * that chat can give. The rest is its channel's: "Ready for review" after each run, and what the project waits on (her
- * questions, a part to accept, a task that couldn't finish), which the channel lists as its waits.
+ * that chat can give, or while a chat the person started there (no employee run's: Session.employeeRun) is running or
+ * waiting for a slot, finished unread, or failed: that is their own work, whichever chat the row's words are about (an
+ * employee's run there is always its first chat). The rest is its channel's: "Ready for review" after each run, and what
+ * the project waits on (her questions, a part to accept, a task that couldn't finish), which the channel lists as its waits.
  */
-export const listsWorkspace = (t: Triage, projectIds: ReadonlySet<string>, approvals: readonly Pick<ApprovalRequest, 'sessionId'>[]): boolean =>
-  !projectIds.has(t.ws.id) || (t.bucket === 'attention' && Boolean(t.sessionId) && approvals.some((a) => a.sessionId === t.sessionId))
+export function listsWorkspace(
+  t: Triage,
+  projectIds: ReadonlySet<string>,
+  input: Pick<TriageInput, 'approvals' | 'unreadSessions'> & { snapshot: Pick<AppSnapshot, 'sessions'> }
+): boolean {
+  if (!projectIds.has(t.ws.id)) return true
+  if (t.bucket === 'attention' && t.sessionId && input.approvals.some((a) => a.sessionId === t.sessionId)) return true
+  if (t.bucket !== 'working' && t.bucket !== 'attention') return false
+  return input.snapshot.sessions.some(
+    (s) =>
+      s.workspaceId === t.ws.id &&
+      !s.employeeRun &&
+      !s.closedAt &&
+      (s.status === 'running' || Boolean(s.waitingForSlot) || Boolean(input.unreadSessions[s.id]) || s.lastTurn?.outcome === 'error' || s.lastTurn?.outcome === 'interrupted')
+  )
+}
 
 /** Waiting longest first, so nothing sits forgotten at the bottom. */
 export function oldestFirst(items: Triage[]): Triage[] {
@@ -610,7 +626,7 @@ export function sidebarGroups(
 ): { groups: { bucket: Bucket; items: Triage[] }[]; compares: CompareSection[]; hiddenFinished: number } {
   const query = view.query.trim().toLowerCase()
   const projectIds = projectWorkspaceIds(input.snapshot)
-  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals))
+  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input))
   if (query) items = items.filter((t) => matchesWorkspace(t.ws, input.snapshot.sessions, query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)
@@ -639,7 +655,7 @@ export function sidebarGroups(
 export function repoGroups(input: TriageInput, view: SidebarView): { groups: { repo: AppSnapshot['repos'][number]; items: Triage[] }[]; hiddenFinished: number } {
   const query = view.query.trim().toLowerCase()
   const projectIds = projectWorkspaceIds(input.snapshot)
-  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input.approvals))
+  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input))
   if (query) items = items.filter((t) => matchesWorkspace(t.ws, input.snapshot.sessions, query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)

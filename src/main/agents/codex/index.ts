@@ -664,6 +664,8 @@ export class CodexTurn implements AgentTurn {
   // The turn was cut off from outside (not by stop()): Codex reported `interrupted`.
   private interrupted = false
   private over = false
+  // Messages steered into the turn Codex hasn't accepted yet, or refused (unansweredSteers).
+  private steersPending = 0
   private mapper: CodexEventMapper
   private server?: CodexAppServerLike
   private threadId?: string
@@ -843,11 +845,20 @@ export class CodexTurn implements AgentTurn {
     }
     const turn = this.current
     if (this.stopped || this.over || !this.server || this.server.exited || !turn || turn.settled || !turn.id || !this.threadId) return false
-    call(this.server, 'turn/steer', { threadId: this.threadId, expectedTurnId: turn.id, input: textInput(text) }).catch((err) => {
-      // The turn may have ended just as the message went out. Say so, with the text, so it isn't lost.
-      this.mapper.notice('error', `Codex did not take your message while working (${errorText(err)}). Send it again: ${text}`)
-    })
+    // Not taken until Codex accepts it; one it refuses stays untaken (unansweredSteers).
+    this.steersPending++
+    call(this.server, 'turn/steer', { threadId: this.threadId, expectedTurnId: turn.id, input: textInput(text) }).then(
+      () => void this.steersPending--,
+      (err) => {
+        // The turn may have ended just as the message went out. Say so, with the text, so it isn't lost.
+        this.mapper.notice('error', `Codex did not take your message while working (${errorText(err)}). Send it again: ${text}`)
+      }
+    )
     return true
+  }
+
+  unansweredSteers(): number {
+    return this.steersPending
   }
 
   // Codex's collaboration mode is per turn, so this applies from the next turn this process starts.

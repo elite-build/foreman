@@ -218,7 +218,8 @@ describe('triage: flow runs', () => {
       ws({ id: 'waiting', name: 'waiting', ...by('part') }),
       ws({ id: 'mine', name: 'mine' })
     ]
-    const sessions = [session('s1', { workspaceId: 'waiting' }), session('s2', { workspaceId: 'shared' })]
+    // s2 is a run's chat in the shared workspace (its mark says whose).
+    const sessions = [session('s1', { workspaceId: 'waiting' }), session('s2', { workspaceId: 'shared', employeeRun: { orgId: 'o', employeeId: 'pm', runId: 'run', taskId: 'plan', projectId: 'p1', endedAt: new Date(NOW).toISOString() } })]
     const projects = { o: [{ id: 'p1', workspaceId: 'shared' }, { id: 'p2', workspaceId: 'handed', fromWorkspaceId: 'handed' }] }
     const employeeWork = { o: { tasks: [{ id: 'part', project: { id: 'p1', kind: 'part', round: 1 } }, { id: 'ask' }] } }
     const snapshot = { workspaces, sessions, projects, employeeWork, settings: defaultSettings() } as unknown as AppSnapshot
@@ -231,6 +232,32 @@ describe('triage: flow runs', () => {
     // A search doesn't bring them back either: the channel is where they are.
     expect(sidebarGroups(input, { ...view, query: 'part' }).groups).toEqual([])
     expect(sidebarOrder(input, view).map((w) => w.id)).not.toContain('shared')
+  })
+
+  it('lists a project’s workspace while a chat the person started there runs, is ready for review or failed, but not for a run’s chat', () => {
+    const workspaces = [ws({ id: 'shared', name: 'shared', startedBy: { via: 'employee', orgId: 'o', employeeId: 'pm', runId: 'run', taskId: 'plan', title: 'Plan' } } as Partial<Workspace>)]
+    const projects = { o: [{ id: 'p1', workspaceId: 'shared' }] }
+    const ended = new Date(NOW).toISOString()
+    const run = session('s-run', { workspaceId: 'shared', employeeRun: { orgId: 'o', employeeId: 'pm', runId: 'run', taskId: 'plan', projectId: 'p1', endedAt: ended } })
+    const view: SidebarView = { repo: null, filter: 'all', query: '', showFinished: true }
+    const shown = (sessions: Session[], unreadSessions: Record<string, true> = {}) => {
+      const snapshot = { workspaces, sessions, projects, employeeWork: {}, settings: defaultSettings() } as unknown as AppSnapshot
+      const unread: Record<string, true> = Object.keys(unreadSessions).length ? { shared: true } : {}
+      const input = { snapshot, approvals: [], unread, unreadSessions, now: NOW }
+      return sidebarGroups(input, view).groups.flatMap((g) => g.items.map((t) => `${t.ws.id}:${t.label}`))
+    }
+    // The person's own chat there: running, then ready for review, then failed.
+    expect(shown([run, session('mine', { workspaceId: 'shared', status: 'running' })])).toEqual(['shared:Working'])
+    expect(shown([session('mine', { workspaceId: 'shared' }), run], { mine: true })).toEqual(['shared:Ready for review'])
+    // The run's chat comes first and is left unread too, and runs beside yours: the row is still there for yours.
+    expect(shown([run, session('mine', { workspaceId: 'shared' })], { 's-run': true, mine: true })).toEqual(['shared:Ready for review'])
+    expect(shown([{ ...run, status: 'running' }, session('mine', { workspaceId: 'shared', status: 'running' })])).toHaveLength(1)
+    // Read, your chat is done with: the channel's again.
+    expect(shown([run, session('mine', { workspaceId: 'shared' })], { 's-run': true })).toEqual([])
+    expect(shown([run, session('mine', { workspaceId: 'shared', lastTurn: { outcome: 'error', turnId: 't', endedAt: ended } })])).toHaveLength(1)
+    // Only a run's chat: the channel's.
+    expect(shown([{ ...run, status: 'running' }])).toEqual([])
+    expect(shown([run], { 's-run': true })).toEqual([])
   })
 
   it('groups nothing by flow run while Flows are off: the run’s workspaces are plain rows, with no nameless “Flow ·” header', () => {

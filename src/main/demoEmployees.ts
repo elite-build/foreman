@@ -344,6 +344,8 @@ function script(task: EmployeeTask, run: EmployeeRun, db: ForemanDb): Beat[] {
   }
   if (mark.kind === 'part') return partBeats(task, run, project, story)
   if (mark.kind === 'accept') return acceptBeats(task, project)
+  // What the person wrote in the channel (§15): she answers there.
+  if (mark.kind === 'message') return [{ say: 'Reading your message against the plan.' }, call('finish_task', { status: 'done', summary: 'Noted. The plan stands as it is; tell me what to change and I’ll replan, or send the part back at its check.' }, 1500)]
   return [{ say: 'Here is what I did, and why.' }, call('finish_task', { status: 'done', summary: 'Answered the question about this part.' }, 1500)]
 }
 

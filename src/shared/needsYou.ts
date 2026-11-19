@@ -6,7 +6,7 @@
 // switcher and Home all count from here, so they say the same number.
 import { ACTION_NEEDS_PERSON, type EmployeeAction } from './employeeActions'
 import { employeeStatus, type EmployeeSummary } from './employees'
-import { needsPerson, type EmployeeTask } from './employeeWork'
+import { needsPerson, type EmployeeTask, type EmployeeWorkView } from './employeeWork'
 import type { MemoryProposal } from './memory'
 import type { Project, ProjectWait } from './projects'
 import { spaceOf } from './organizations'
@@ -78,7 +78,7 @@ export function needsYouItems(input: TriageInput, triaged: Triage[] = triageAll(
   // A project's workspace is its channel's (listsWorkspace): what the project waits on is its own item below.
   const projectIds = projectWorkspaceIds(snapshot)
   for (const t of triaged) {
-    if (t.bucket !== 'attention' || !listsWorkspace(t, projectIds, input.approvals)) continue
+    if (t.bucket !== 'attention' || !listsWorkspace(t, projectIds, input)) continue
     const by = t.ws.startedBy?.via === 'employee' ? t.ws.startedBy : undefined
     const item: NeedsYouItem = { id: `ws:${t.ws.id}`, kind: 'workspace', space: repoSpace(snapshot, t.ws.repoId), since: t.since, repoId: t.ws.repoId, triage: t, ...(by ? { orgId: by.orgId, employeeId: by.employeeId } : {}) }
     items.push(item)
@@ -123,9 +123,34 @@ export function projectTaskIds(snapshot: Pick<AppSnapshot, 'projects'>): Set<str
 }
 
 /**
+ * What a project's own tasks wait on the person for (docs/ai-employees.md §15): an employee's question (ask_person), a task
+ * refused or waiting on them, and an outward action held for them. Its channel lists them under Waiting.
+ */
+export function projectAsks(project: Pick<Project, 'steps'>, work: Pick<EmployeeWorkView, 'tasks' | 'actions'> | undefined): { tasks: EmployeeTask[]; actions: EmployeeAction[] } {
+  const ids = new Set(project.steps.map((s) => s.taskId))
+  return {
+    tasks: (work?.tasks ?? []).filter((t) => ids.has(t.id) && needsPerson(t)),
+    actions: (work?.actions ?? []).filter((a) => ids.has(a.taskId) && ACTION_NEEDS_PERSON.includes(a.state))
+  }
+}
+
+/**
+ * How many things a project waits on the person for: what the project itself waits on (while it is open) and what its
+ * tasks ask (projectAsks, even once it closed: a held push still waits). The one count its channel's row, the Channels
+ * tab and the channel's state words read, so none says Working while someone in it waits for you.
+ */
+export function projectNeeds(project: Pick<Project, 'steps' | 'waits' | 'phase'>, work: Pick<EmployeeWorkView, 'tasks' | 'actions'> | undefined): { waits: number; asks: number; total: number } {
+  const waits = project.phase === 'closed' ? 0 : project.waits.length
+  const asked = projectAsks(project, work)
+  const asks = asked.tasks.length + asked.actions.length
+  return { waits, asks, total: waits + asks }
+}
+
+/**
  * Whether an item is a project's (docs/ai-employees.md §15), shown in its channel's Waiting rather than as a row in the
  * sidebar's workspace list: what the project waits on, and a question, stuck task or held action of one of its tasks.
- * It still counts toward the space's number and its employee's Team row.
+ * It counts on the Channels tab and on its channel's row (projectNeeds), which Inbox links to, toward the space's number
+ * on the other spaces' tiles, and on its employee's Team row.
  */
 export function inChannel(item: NeedsYouItem, projectTasks: ReadonlySet<string>): boolean {
   if (item.kind === 'project') return true

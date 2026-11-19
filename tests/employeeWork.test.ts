@@ -1036,6 +1036,36 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     expect(f.db.employeeTask(task.id)).toMatchObject({ state: 'closed', closureReason: 'done', result: { decision: 'small', artifacts: [ARTIFACT] } })
   })
 
+  it('holds a follow-up asked while the same employee’s project task runs until that run ends, then runs it', async () => {
+    const f = await rig()
+    const part = await stage(f)
+    await settle()
+    const follow = await stage(f, { requestId: 'project:p1:follow-up:1', rootId: part.id, contract: {}, project: { id: 'p1', kind: 'follow-up', round: 1, partId: 'reqs', after: part.id } })
+    expect(f.db.employeeTask(follow.id)).toMatchObject({ state: 'open', hold: 'queued', reason: 'Waiting for Max’s running work on the project to finish.' })
+    const run = f.db.employeeRuns({ taskId: part.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    await f.service.finishTask(run.sessionId!, { status: 'blocked', summary: 'Needs the person.', unblock: 'Say who the users are.' })
+    // Closed, but its run still going: still held.
+    await f.service.pump()
+    expect(f.db.employeeTask(follow.id)?.state).toBe('open')
+    // Its chat is told the run ended, once, however it ended.
+    const ended: [string, string][] = []
+    ;(f.service as unknown as { host: EmployeeWorkHost }).host.runEnded = (sessionId, runId) => void ended.push([sessionId, runId])
+    await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
+    await settle()
+    expect(f.db.employeeTask(follow.id)?.state).toBe('running')
+    expect(ended).toEqual([[run.sessionId, run.id]])
+  })
+
+  it('lists only the tasks asked in the organization’s channel when asked for those', async () => {
+    const f = await rig()
+    const asked = await f.service.ask('o1', 'e-max1', { body: 'Why is the test flaky?', channel: 'org' })
+    await f.service.ask('o1', 'e-max1', { body: 'Draft the post' })
+    expect(f.service.tasks('o1', undefined, { channel: 'org' }).map((t) => t.id)).toEqual([asked.id])
+    expect(f.service.tasks('o1')).toHaveLength(2)
+  })
+
   it('takes no decision from a task that asks for none, and lets a blocked stage finish without its artifact', async () => {
     const f = await rig()
     const task = await stage(f)

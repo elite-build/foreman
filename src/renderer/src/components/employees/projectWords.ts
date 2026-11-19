@@ -52,12 +52,16 @@ export function partTitle(project: Pick<Project, 'plan' | 'plans'>, partId: stri
   return (project.plan ?? project.plans.at(-1))?.parts.find((p) => p.id === partId)?.title ?? partId
 }
 
-/** A project's state in a glyph and a word, and the line under its name (what it is doing, or what it waits on). */
-export function projectStatus(project: Project, t: T, pmName: string): { tone: StatusTone; label: string; line: string } {
+/**
+ * A project's state in a glyph and a word, and the line under its name (what it is doing, or what it waits on).
+ * `asking`: what its tasks ask the person (shared/needsYou.ts projectNeeds): a question or a held push waits for you too.
+ */
+export function projectStatus(project: Project, t: T, pmName: string, asking = 0): { tone: StatusTone; label: string; line: string } {
   if (project.phase === 'closed') return { tone: project.outcome === 'done' ? 'ok' : 'off', label: t(project.outcome === 'done' ? 'projects.state.done' : 'projects.state.stopped'), line: project.title }
   const wait = project.waits[0]
   if (wait?.kind === 'stuck') return { tone: 'error', label: t('projects.state.stuck'), line: wait.reason ?? project.title }
   if (wait) return { tone: 'warn', label: t('projects.state.waitingYou'), line: wait.kind === 'gate' ? t('projects.line.gate', { part: partTitle(project, wait.partId) }) : wait.kind === 'questions' ? t('projects.line.questions', { name: pmName }) : t(WAIT_KIND_KEY[wait.kind]) }
+  if (asking > 0) return { tone: 'warn', label: t('projects.state.waitingYou'), line: t('projects.line.asks', { count: asking }) }
   if (project.paused) return { tone: 'off', label: t('projects.state.paused'), line: project.title }
   if (project.phase === 'planning' || project.replanning) return { tone: 'info', label: t('projects.state.planning'), line: t('projects.line.planning', { name: pmName }) }
   if (project.phase === 'accepting') return { tone: 'info', label: t('projects.state.accepting'), line: t('projects.line.accepting', { name: pmName }) }

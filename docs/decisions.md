@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-19: A plain message in a project channel goes to the program manager
+
+**Decision.** In a project's channel, a message without `@Name` is for Priya: it goes into her running turn, or her message task reads it (one at a time), where she answers in the channel, asks, or replans. Later briefs carry the person's channel messages. `@Name` while that person's part runs goes into its running turn, or waits until it ends.
+
+**Why.** The person used the channel as the place to correct the team ("Stop, I never approved this layout"), and nothing read it; a second run beside the running part edited the same files.
+
+**Turned down.** Notes that wake nobody: the correction is lost. Sending every message to every running employee: several runs acting on one sentence, in one workspace.
+
+**Revisit when.** Employees can be told to stop a running part safely, or a channel needs more than one reader.
+
 ## 2026-11-19: Settings opens on Quick, and the rail's gear shows its first six tiles
 
 **Decision.** Settings › Quick is the first menu entry and where Settings (and Ctrl+,) opens: one ordered list of tiles (`shared/quickTiles.ts`), each a setting drawn with its own page's control. The rail's gear opens a popover of the first six with All settings; the order and which tiles show are chosen on the page and kept in the window's local storage.

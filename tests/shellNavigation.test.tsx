@@ -532,6 +532,29 @@ describe('the rail', () => {
     expect(within(modes).getByRole('tab', { name: 'Inbox' }).getAttribute('data-tour')).toBe('needs-you')
   })
 
+  it('counts what a project’s people ask on Channels, and Inbox says how much waits there and opens it', async () => {
+    const user = userEvent.setup()
+    const at = '2026-01-01T00:00:00Z'
+    const extra = {
+      organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: at }],
+      employees: { o1: { head: 'h', employees: [] } },
+      projects: { o1: [{ id: 'p1', orgId: 'o1', slug: 'csv', title: 'CSV', requirement: 'CSV', repoId: 'site', pmId: 'e-pri1', phase: 'working', plans: [], parts: {}, replans: 0, steps: [{ kind: 'part', partId: 'qa', round: 1, taskId: 't2', employeeId: 'e-qui1', state: 'running', startedAt: at }], artifacts: {}, waits: [], decisions: [], notes: [], createdAt: at, updatedAt: at }] },
+      employeeWork: { o1: { tasks: [{ id: 't2', orgId: 'o1', employeeId: 'e-qui1', requestId: 'r', rootId: 't2', parentId: null, title: 'QA', body: 'b', from: 'person', targetRepoId: 'site', state: 'waiting', waitingOn: 'person', question: { id: 'q', question: 'Which browser?', options: [], runId: 'run', askedAt: at }, createdAt: at, updatedAt: at }], runs: [], last: {}, proposals: [], roots: {}, actions: [], decided: [], revision: 1 } }
+    }
+    Object.assign(fakeState.snapshot, extra, { repos: [repo, { id: 'mem', name: 'acme-memory', rootPath: '/code/mem', defaultBranch: 'main', spaceId: 'o1' }, { id: 'site', name: 'site', rootPath: '/code/site', defaultBranch: 'main', spaceId: 'o1' }] })
+    Object.assign(fakeState, { space: 'o1', sidebarMode: 'inbox' })
+    try {
+      render(<Sidebar />)
+      const modes = screen.getByRole('tablist', { name: 'Sidebar' })
+      expect(within(modes).getByRole('tab', { name: 'Channels · 1 needs you' })).toBeTruthy()
+      await user.click(screen.getByRole('button', { name: '1 waits for you in Channels' }))
+      expect(spy('setSidebarMode')).toHaveBeenCalledWith('channels')
+    } finally {
+      for (const key of Object.keys(extra)) delete fakeState.snapshot[key]
+      delete fakeState.space
+    }
+  })
+
   it('a repository’s ⋯ opens its menu: a workspace in it, its settings, its path, remove', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)

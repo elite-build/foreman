@@ -254,6 +254,8 @@ export interface EmployeeTask {
   actionNews?: EmployeeActionNews[]
   // Part of a project (docs/ai-employees.md §15): which, what it is (planning, a part, acceptance, a follow-up), its round.
   project?: ProjectTaskMark
+  // Asked in the organization's channel (§15): listed there, the question and its answer. Older tasks have no mark.
+  channel?: 'org'
   createdAt: string
   updatedAt: string
 }
@@ -441,6 +443,8 @@ export interface EmployeeAskInput {
   title?: string
   body: string
   repoId?: string
+  // Asked in the organization's channel (`@Ravi …`, docs/ai-employees.md §15): the channel shows it and its answer.
+  channel?: 'org'
 }
 
 export const MAX_TASK_TITLE = 120
