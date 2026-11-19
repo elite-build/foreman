@@ -1,6 +1,6 @@
 // Settings › Quick and the sidebar gear's popover: one ordered list of tiles (shared/quickTiles.ts), each a setting
 // people change often, drawn with the control its own page uses and saved the same way. The gear shows the first
-// GEAR_TILES; the page shows them all and is where they are chosen and ordered. Mock 08 in the settings-home mocks.
+// GEAR_TILES; the page shows them all and is where they are chosen and ordered (docs/decisions.md, 2026-11-19).
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,7 +20,7 @@ import {
   ZoomIn,
   type LucideIcon
 } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { instancesFor } from '../../../../shared/agentInstances'
 import type { PlainKey } from '../../../../shared/i18n'
 import { GEAR_TILES, hiddenQuickTiles, moveQuickTile, QUICK_TILES, type QuickTile } from '../../../../shared/quickTiles'
@@ -58,13 +58,16 @@ const TILES: Record<QuickTile, TileDef> = {
   language: { icon: Languages, title: 'settings.language.label', page: { section: 'general', scrollTo: 'language' } }
 }
 
-// "Choose tiles" in the gear's popover opens the page already choosing.
+// "Choose tiles" in the gear's popover: the open Quick page starts choosing, or the next one opens choosing.
+const chooseListeners = new Set<() => void>()
 let chooseOnOpen = false
 
 /** Settings › Quick, choosing tiles straight away when `choose`. */
 export function openQuickPage(choose = false): void {
-  chooseOnOpen = choose
   openSettingsPage({ section: 'quick' })
+  if (!choose) return
+  if (chooseListeners.size) for (const listener of chooseListeners) listener()
+  else chooseOnOpen = true
 }
 
 /** The control of one tile, saving as its page does. `inPopover`: pickers inside it draw their panels in <body>. */
@@ -206,6 +209,11 @@ export function QuickPage() {
     chooseOnOpen = false
     return now
   })
+  useEffect(() => {
+    const listener = () => setChoosing(true)
+    chooseListeners.add(listener)
+    return () => void chooseListeners.delete(listener)
+  }, [])
   const hidden = hiddenQuickTiles(tiles)
   return (
     <Page title={t('quick.title')} description={t('quick.lead', { count: GEAR_TILES })}>

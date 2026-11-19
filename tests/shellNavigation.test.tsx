@@ -450,7 +450,7 @@ describe('New', () => {
 })
 
 describe('the rail’s foot and the list’s footer', () => {
-  it('has Automations, the palette, shortcuts, report a problem, the tour and Settings on the rail, each named with its key', () => {
+  it('has Automations, the palette, shortcuts, report a problem, the tour and Quick settings on the rail, each named with its key', () => {
     render(<Sidebar />)
     const tools = document.querySelector('.rail-tools') as HTMLElement
     expect(within(tools).getByRole('button', { name: /^Automations/ }).getAttribute('data-tour')).toBe('automations')
@@ -458,7 +458,35 @@ describe('the rail’s foot and the list’s footer', () => {
     expect(within(tools).getByRole('button', { name: /^Keyboard shortcuts/ })).toBeTruthy()
     expect(within(tools).getByRole('button', { name: /^Report a problem/ })).toBeTruthy()
     expect(within(tools).getByRole('button', { name: 'Welcome tour' }).getAttribute('data-tour')).toBe('help')
-    expect(within(tools).getByRole('button', { name: /^Settings \(/ }).getAttribute('data-tour')).toBe('settings')
+    const gear = within(tools).getByRole('button', { name: 'Quick settings' })
+    expect(gear.getAttribute('data-tour')).toBe('settings')
+    expect(gear.getAttribute('aria-haspopup')).toBe('dialog')
+  })
+
+  it('the gear opens the first six Quick tiles over the work, and All settings opens Settings on Quick', async () => {
+    const user = userEvent.setup()
+    const settings = fakeState.snapshot.settings
+    fakeState.snapshot.settings = {
+      ...settings,
+      theme: 'system',
+      zoom: 1,
+      notifications: true,
+      defaultPlanMode: false,
+      agentInstances: [],
+      reviewModel: { agent: 'claude', model: 'claude-opus-5-5[1m]', effort: 'high', fast: false }
+    }
+    try {
+      render(<Sidebar />)
+      await user.click(screen.getByRole('button', { name: 'Quick settings' }))
+      const pop = screen.getByRole('dialog', { name: 'Quick settings' })
+      expect(within(pop).getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['New chats use', 'Theme', 'App zoom', 'Agent notifications', 'Plan first', 'Review model'])
+      expect(within(pop).getByText('6 of 10 tiles')).toBeTruthy()
+      await user.click(within(pop).getByRole('button', { name: /^All settings/ }))
+      expect(spy('openSettingsPage')).toHaveBeenCalledWith({ section: 'quick' })
+      expect(screen.queryByRole('dialog', { name: 'Quick settings' })).toBeNull()
+    } finally {
+      fakeState.snapshot.settings = settings
+    }
   })
 
   it('shows Archived with its count and the running version, which opens Settings at the update check', async () => {
