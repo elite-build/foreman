@@ -52,6 +52,17 @@ describe('employee tools: who may write where', () => {
 
   it('checks each tool’s arguments with a strict schema', () => {
     expect(EMPLOYEE_TOOLS.remember.schema.safeParse({ text: 'x'.repeat(501), scope: 'me' }).success).toBe(false)
+    // A plan's parts say whether they change the repository and which one publishes (docs/ai-employees.md §15).
+    const part = { id: 'build', title: 'Build', owner: 'Ravi', brief: 'Build it.', writes: 'build.md' }
+    const plan = EMPLOYEE_TOOLS.project_plan.schema.safeParse({ summary: 's', size: 'small', parts: [{ ...part, changes_repo: true, publishes: true }, { ...part, id: 'notes', writes: 'notes.md', changes_repo: false }] })
+    expect(plan.success).toBe(true)
+    expect(plan.success && plan.data.parts.map((p) => [p.changes_repo, p.publishes])).toEqual([
+      [true, true],
+      [false, undefined]
+    ])
+    expect(EMPLOYEE_TOOLS.project_plan.schema.safeParse({ summary: 's', size: 'small', parts: [{ ...part, publishes: 'yes' }] }).success).toBe(false)
+    expect(EMPLOYEE_TOOLS.project_plan.schema.safeParse({ summary: 's', size: 'small', parts: [{ ...part, owns: true }] }).success).toBe(false)
+    expect(EMPLOYEE_TOOLS.project_plan.description).toContain('publishes (on exactly one part')
     expect(EMPLOYEE_TOOLS.remember.schema.safeParse({ text: 'x', scope: 'team' }).success).toBe(false)
     expect(EMPLOYEE_TOOLS.memory_search.schema.safeParse({ query: 'x', limit: 11 }).success).toBe(false)
     expect(EMPLOYEE_TOOLS.memory_write.schema.safeParse({ path: 'memory/bots/e-1/a.md', text: 'x' }).success).toBe(false)

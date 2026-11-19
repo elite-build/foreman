@@ -8170,6 +8170,7 @@ export const es: Catalogue = {
   'projects.part.stuck': 'Atascada',
   'projects.part.waitsFor': 'Espera a que termine «{part}»',
   'projects.step.changedRepo': 'El repositorio cambió mientras se ejecutaba esta parte, aunque el plan dice que no lo cambia. Revisa los cambios del espacio de trabajo antes de publicar nada.',
+  'projects.step.changedRepoShared': 'El repositorio cambió mientras se ejecutaban esta parte y otra que no deberían cambiarlo: una de las dos lo cambió. Revisa los cambios del espacio de trabajo antes de publicar nada.',
   'projects.wait.plan': 'Plan',
   'projects.wait.gate': 'Revisar un resultado',
   'projects.wait.stuck': 'No terminó',

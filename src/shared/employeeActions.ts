@@ -326,26 +326,37 @@ export function newsText(news: readonly EmployeeActionNews[]): string {
 
 // ---- a project's publishing, from a shell (docs/ai-employees.md §15) ----
 
-/** Where a command starts: the line's start, or after a separator, a pipe, a subshell or a substitution. */
-const AT = String.raw`(?:^|[\s;&|(\x60{])`
+/**
+ * Where a command starts: the line's start, or after a separator, a pipe, a subshell, a substitution or a quote (a
+ * command given to `sh -c "…"`, `bash -c '…'`, `cmd /c "…"` or `eval "…"`). A lookbehind, so a quoted path can follow.
+ */
+const AT = String.raw`(?<![^\s;&|(\x60{'"])`
 const ARG = String.raw`(?:"[^"]*"|'[^']*'|\S+)`
-/** Where a command's word ends: the line's end, a space, a separator or a closing bracket. */
-const END = String.raw`(?=$|[\s;&|)\x60}])`
+/** Where a command's word ends: the line's end, a space, a separator, a closing bracket or a quote. */
+const END = String.raw`(?=$|[\s;&|)\x60}'"])`
+/** A program by name, as typed or by its path (quoted when it has spaces), with or without .exe: git, /usr/bin/git, "C:/Program Files/Git/cmd/git.exe". */
+const exe = (name: string) => String.raw`(?:"[^"\n]*[\\/]${name}(?:\.exe)?"|'[^'\n]*[\\/]${name}(?:\.exe)?'|(?:[^\s;&|()\x60{}'"]*[\\/])?${name}(?:\.exe)?)`
+// git's own options before its command: those that take their value apart (git -C dir, git --git-dir .git), and the rest.
+const GIT_OPTION = String.raw`(?:-[Cc]\s+${ARG}|--(?:git-dir|work-tree|namespace|exec-path|super-prefix|config-env)(?:=${ARG}|\s+${ARG})|--?[\w-]+(?:=${ARG})?)`
 const PUBLISH_COMMANDS: readonly RegExp[] = [
-  // git push, with git's own options first (git -C dir push, git -c key=value push).
-  new RegExp(String.raw`${AT}git(?:\s+(?:-[Cc]\s+${ARG}|--?[\w-]+(?:=${ARG})?))*\s+push${END}`),
-  new RegExp(String.raw`${AT}gh\s+pr\s+(?:create|merge|ready|reopen|edit)${END}`),
-  new RegExp(String.raw`${AT}glab\s+mr\s+(?:create|merge|update)${END}`),
-  new RegExp(String.raw`${AT}hub\s+(?:pull-request|push)${END}`)
+  // git push and git subtree push, with git's own options first.
+  new RegExp(String.raw`${AT}${exe('git')}(?:\s+${GIT_OPTION})*\s+(?:subtree\s+)?push${END}`),
+  new RegExp(String.raw`${AT}${exe('gh')}\s+pr\s+(?:create|merge|ready|reopen|edit)${END}`),
+  new RegExp(String.raw`${AT}${exe('glab')}\s+mr\s+(?:create|merge|update)${END}`),
+  new RegExp(String.raw`${AT}${exe('hub')}\s+(?:pull-request|push)${END}`),
+  // gh api graphql with a mutation that opens, changes or merges a pull request.
+  new RegExp(String.raw`${AT}${exe('gh')}\s+api\s+graphql\b[\s\S]*\b(?:createPullRequest|mergePullRequest|updatePullRequest|reopenPullRequest|markPullRequestReadyForReview|enablePullRequestAutoMerge)\b`)
 ]
 // gh api writing to a pull request: a method that writes, or fields (which make it a POST).
-const GH_API_PULLS = new RegExp(String.raw`${AT}gh\s+api\s[^\n;&|]*\bpulls\b[^\n;&|]*`)
+const GH_API_PULLS = new RegExp(String.raw`${AT}${exe('gh')}\s+api\s[^\n;&|]*\bpulls\b[^\n;&|]*`)
 const WRITES = /(?:-X|--method)[\s=]*['"]?(?:POST|PATCH|PUT)\b|\s(?:-f|-F|--field|--raw-field|--input)(?:\s|=)/i
 
 /**
  * Whether a shell call (Claude Code's Bash or PowerShell) pushes a branch or opens, changes or merges a pull request: git
- * push, gh pr create/merge/ready/reopen/edit, gh api writing to pulls, glab mr create/merge/update, hub. In a project only
- * its publishing part may (shared/projects.ts publishRule); a command that merely mentions one in its words counts too.
+ * push (by any path, through `sh -c`, `cmd /c` or `eval` too) and git subtree push, gh pr create/merge/ready/reopen/edit,
+ * gh api writing to pulls or a pull request mutation in graphql, glab mr create/merge/update, hub. Reading (gh pr view,
+ * list, checks, checkout) is left alone. In a project only its publishing part may publish (shared/projects.ts
+ * publishRule); a command that merely mentions one in its words counts too.
  */
 export function publishesFromShell(toolName: string, input: unknown): boolean {
   if (toolName !== 'Bash' && toolName !== 'PowerShell') return false

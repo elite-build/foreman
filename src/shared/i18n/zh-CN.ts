@@ -8125,6 +8125,7 @@ export const zhCN: Catalogue = {
   'projects.part.stuck': '卡住了',
   'projects.part.waitsFor': '等待“{part}”完成',
   'projects.step.changedRepo': '这个部分运行时仓库发生了更改，但计划说明它不会更改仓库。发布任何内容前，请查看工作区的更改。',
+  'projects.step.changedRepoShared': '这个部分和另一个不应更改仓库的部分运行时，仓库发生了更改：其中一个更改了它。发布任何内容前，请查看工作区的更改。',
   'projects.wait.plan': '计划',
   'projects.wait.gate': '检查结果',
   'projects.wait.stuck': '未完成',

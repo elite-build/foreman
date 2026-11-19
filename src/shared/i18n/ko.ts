@@ -8124,6 +8124,7 @@ export const ko: Catalogue = {
   'projects.part.stuck': '막힘',
   'projects.part.waitsFor': '“{part}”이(가) 끝나기를 기다림',
   'projects.step.changedRepo': '계획상 저장소를 바꾸지 않는 이 파트가 실행되는 동안 저장소가 바뀌었습니다. 게시하기 전에 워크스페이스의 변경을 확인하세요.',
+  'projects.step.changedRepoShared': '저장소를 바꾸지 않아야 하는 이 파트와 다른 파트가 실행되는 동안 저장소가 바뀌었습니다. 둘 중 하나가 바꿨습니다. 게시하기 전에 워크스페이스의 변경을 확인하세요.',
   'projects.wait.plan': '계획',
   'projects.wait.gate': '결과 확인',
   'projects.wait.stuck': '완료되지 않음',

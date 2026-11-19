@@ -174,6 +174,8 @@ export interface EmployeeProjectHooks {
   workspaceFor(task: EmployeeTask): Promise<string | undefined>
   // The run that was to make the project's workspace has made it, or failed to: the runs waiting for it go on.
   launchSettled?(task: EmployeeTask): void
+  // A run of the task ended, whatever its task's state (a turn may go on after finish_task closed it).
+  runEnded?(task: EmployeeTask): void
   runCreated(task: EmployeeTask, workspaceId: string): void
   keeps(task: EmployeeTask): boolean
   taskClosed(task: EmployeeTask): void
@@ -1236,6 +1238,7 @@ export class EmployeeWorkService {
       if (outcome?.state === 'open' && outcome.hold === 'usage-limit') this.saveRun(this.newRun(task, 'usage-limit'), { reason: outcome.reason })
     }
     this.touched()
+    if (task?.project) this.projects?.runEnded?.(task)
     if (run.started && task) await this.track(this.recap(run, task, reply))
     // Its workspace is archived once quiet, unless its question waits there (in Needs you, by its chat); with it, those of
     // the task's earlier runs whose questions are answered.

@@ -1343,6 +1343,23 @@ describe('employee work: a project’s workspace, its closed tasks and Retry (do
     expect(f.db.employeeRuns({ taskId: task.id })[0]).toMatchObject({ state: 'failed' })
   })
 
+  it('tells the project when each run of its task ends, its task closed before or not', async () => {
+    const f = await rig()
+    const ended: string[] = []
+    f.service.projects = hooks({ runEnded: (t) => void ended.push(t.id) })
+    const task = await part(f)
+    await settle()
+    const run = f.db.employeeRuns({ taskId: task.id })[0]
+    mark(f, run, 'turn-1')
+    f.service.turnStarted(run.sessionId!, 'turn-1')
+    f.files[ARTIFACT] = 'x'
+    await f.service.finishTask(run.sessionId!, { status: 'done', summary: 'Built.' })
+    expect(ended).toEqual([])
+    f.chats.set(run.sessionId!, reply('turn-1', 'Pushed.'))
+    await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
+    expect(ended).toEqual([task.id])
+  })
+
   it('tells the project once the run that made its workspace has made it (or failed to)', async () => {
     const f = await rig()
     const settled: string[] = []

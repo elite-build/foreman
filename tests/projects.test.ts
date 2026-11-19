@@ -771,6 +771,9 @@ describe('projects: who changes the repository, one at a time, and who publishes
     expect(mine.ok ? [] : mine.problems).toContainEqual('Part “reqs” changes the repository: give it to someone else (your own parts only read it).')
     const reader = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true }, PLAN.parts[2]] }, { ...W, writers: [] })
     expect(reader.ok ? [] : reader.problems).toContainEqual(expect.stringContaining('Part “build” changes the repository, but its owner has no Write access to it'))
+    // A publisher taken as it is wouldn't run again to publish.
+    const asIs = checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], publishes: true, accept_as_is: true }, { ...PLAN.parts[2], changes_repo: false }] }, { ...W, parts: { build: { state: 'stuck', round: 1 } } })
+    expect(asIs.ok ? [] : asIs.problems).toEqual(['Part “build” publishes, so it can’t be accept_as_is (it wouldn’t run again to publish): move publishes to a part that runs, such as a new last part that changes the repository.'])
     // A plan that only reads the repository needs no publisher.
     expect(checkPlan({ ...PLAN, parts: [PLAN.parts[0], { ...PLAN.parts[1], changes_repo: false }, { ...PLAN.parts[2], changes_repo: false }] }, W).ok).toBe(true)
   })
@@ -904,8 +907,8 @@ describe('projects: plans, replans and what they keep (slice 4)', () => {
     expect(kept.ok ? [] : kept.problems).toContainEqual(expect.stringContaining('Part “build”: Ravi has retired, so the part can’t run again with them'))
     const handed = checkPlan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'build' ? { ...x, owner: 'Nia' } : x)) }, { ...retired, current, parts: stuck })
     expect(handed.ok ? [] : handed.problems).toEqual([])
-    // c: or be taken as it is, with him.
-    const asIs = checkPlan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'build' ? { ...x, accept_as_is: true } : x)) }, { ...retired, current, parts: stuck })
+    // c: or be taken as it is, with him (a part that doesn't publish: a publisher taken as it is would publish nothing).
+    const asIs = checkPlan({ ...DESIGNED, parts: DESIGNED.parts.map((x) => (x.id === 'design' ? { ...x, accept_as_is: true } : x)) }, { ...retired, current, parts: { ...done, design: { state: 'stuck' as const, round: 1 } } })
     expect(asIs.ok ? [] : asIs.problems).toEqual([])
     // d: a pending part of his handed to Nia, the done design kept with him.
     const pending = { design: { state: 'done' as const, round: 1 }, build: { state: 'pending' as const, round: 0 }, qa: { state: 'pending' as const, round: 0 } }
