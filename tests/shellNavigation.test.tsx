@@ -100,7 +100,30 @@ describe('sidebar rows', () => {
     }
   })
 
-  it('is one line, selected or not; the hover card (on focus too) says where it is and its shortcut', () => {
+  it('is two lines, selected or not: its title, then what it is doing and since when, even when that is nothing', () => {
+    spy('timeAgo').mockReturnValue('2h ago')
+    try {
+      render(<Sidebar />)
+      expect(row().querySelector('.ws-title')?.textContent).toBe('fix-login')
+      expect(row().querySelector('.ws-label')?.textContent).toBe('Idle · 2h ago')
+      cleanup()
+      fakeState.selectedWorkspaceId = 'w1'
+      render(<Sidebar />)
+      expect(row().querySelector('.ws-label')?.textContent).toBe('Idle · 2h ago')
+    } finally {
+      spy('timeAgo').mockReset()
+    }
+  })
+
+  it('in Work, a repository is a card holding its heading and rows', () => {
+    render(<Sidebar />)
+    const repo = screen.getByRole('region', { name: 'kite' })
+    expect(repo.classList.contains('ui-card')).toBe(true)
+    expect(within(repo).getByRole('heading', { level: 3 }).textContent).toContain('kite')
+    expect(repo.contains(row())).toBe(true)
+  })
+
+  it('the hover card (on focus too) says where it is and its shortcut', () => {
     render(<Sidebar />)
     expect(row().querySelector('.ws-sub')).toBeNull()
     fireEvent.focus(row())
@@ -111,7 +134,7 @@ describe('sidebar rows', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('group', { name: 'fix-login' })).toBeNull()
     cleanup()
-    // The open workspace's row keeps one line too, so the list never changes its rhythm under the pointer.
+    // The open workspace's row adds no line of its own, so the list never changes its rhythm under the pointer.
     fakeState.selectedWorkspaceId = 'w1'
     render(<Sidebar />)
     expect(row().querySelector('.ws-sub')).toBeNull()

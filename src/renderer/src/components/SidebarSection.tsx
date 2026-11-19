@@ -7,7 +7,7 @@
 // everything under it open.
 import type { ReactNode } from 'react'
 import { useT } from '../i18n'
-import { Disclosure, Glyph } from '../ui'
+import { Card, Disclosure, Glyph } from '../ui'
 
 export function SidebarSection({
   name,
@@ -20,6 +20,7 @@ export function SidebarSection({
   title,
   actions,
   icon,
+  card = false,
   children
 }: {
   name: string
@@ -36,6 +37,9 @@ export function SidebarSection({
   actions?: ReactNode
   // The subject's mark before its name (a repository's icon, or its initials): for the eye; the name says it.
   icon?: ReactNode
+  // A card (ui/Card) around the heading and what is under it, so where one group ends and the next starts shows at a
+  // glance (Work's repositories).
+  card?: boolean
   children: ReactNode
 }) {
   const t = useT()
@@ -65,8 +69,9 @@ export function SidebarSection({
       </>
     )
   }
-  return (
-    <section className={['sb-section', className, actions ? 'has-actions' : ''].filter(Boolean).join(' ')} aria-label={name} title={title}>
+  const classes = ['sb-section', className, actions ? 'has-actions' : '', card ? 'sb-card' : ''].filter(Boolean).join(' ')
+  const body = (
+    <>
       {actions && <span className="sb-head-actions">{actions}</span>}
       {foldable ? (
         <Disclosure quiet headingLevel={3} className="sb-fold" label={heading(!open)} open={open} onOpenChange={onToggle}>
@@ -80,6 +85,15 @@ export function SidebarSection({
           {children}
         </>
       )}
+    </>
+  )
+  return card ? (
+    <Card as="section" className={classes} aria-label={name} title={title}>
+      {body}
+    </Card>
+  ) : (
+    <section className={classes} aria-label={name} title={title}>
+      {body}
     </section>
   )
 }

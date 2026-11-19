@@ -288,6 +288,20 @@
 .sb-fold > .ui-disclosure__panel {
   padding: 0;
 }
+/* A repository in Work is a card (ui/Card draws it): its heading, a line, its rows; 12px from the next. */
+.sb-section.sb-card {
+  margin-top: 12px;
+  padding: 2px 4px 4px;
+}
+.sb-card .ws-group-rows {
+  margin: 0 -4px;
+  padding: 4px 4px 0;
+  border-top: 1px solid var(--border);
+}
+.sb-card .sb-head-name {
+  font-weight: 650;
+  color: var(--text);
+}
 .sb-head {
   display: flex;
   align-items: center;
@@ -500,45 +514,51 @@
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
-/* A workspace row is an ActionRow on one line: its main button holds the glyph, title, label and the employee's hat;
-   the PR glyph, diff, shortcut and archive button sit beside it. The row is a grid of glyph | title | label | hat | end:
-   the main button spans them all and takes them as a subgrid, so its text stops before the end column. The title takes
-   what it needs first and the label gives way. The selected row adds its line under them (repository, branch, age). */
+/* A workspace row is an ActionRow on two lines, so every row has the same height and nothing crowds its title. Its
+   main button holds the glyph, the title (and the employee's hat) on the first line, and what is going on and since when
+   on the second; the PR glyph, diff, shortcut and archive button end the second line. The row is a grid of
+   glyph | text | end | hat: the main button spans it and takes it as a subgrid, so its words stop before the end. */
 .sidebar-scroll .ws-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, max-content) minmax(0, 1fr) auto auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto;
   column-gap: 10px;
-  align-items: start;
-  padding: 0 8px;
+  align-items: center;
+  padding: 5px 8px;
 }
 .ws-row .ws-flow {
   display: grid;
   grid-column: 1 / -1;
-  grid-row: 1;
+  grid-row: 1 / span 2;
   grid-template-columns: subgrid;
-  grid-template-rows: minmax(var(--sidebar-row), auto);
+  grid-template-rows: subgrid;
+  row-gap: 1px;
   align-items: center;
 }
 .ws-row .ws-icon {
   grid-column: 1;
+  grid-row: 1;
 }
 .ws-row .ws-title {
-  grid-column: 2;
+  grid-column: 2 / 4;
+  grid-row: 1;
 }
 .ws-row .ws-label {
-  grid-column: 3;
+  grid-column: 2;
+  grid-row: 2;
 }
 .ws-row .ws-hat {
   grid-column: 4;
+  grid-row: 1;
 }
 .ws-row > .ui-action-row__actions {
-  grid-column: 5;
-  grid-row: 1;
-  align-self: start;
+  grid-column: 3 / 5;
+  grid-row: 2;
+  justify-self: end;
 }
 .ws-row > .ui-action-row__editor {
-  grid-column: 1 / 5;
-  grid-row: 1;
+  grid-column: 1 / -1;
+  grid-row: 1 / span 2;
 }
 /* Weight says what matters, as Slack's does: a name is regular, and bold while it needs you, is unread or is open. */
 .ws-row.attention .ws-title,
@@ -581,7 +601,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: var(--sidebar-row);
 }
 .ws-label,
 .ws-sub {

@@ -281,6 +281,8 @@ function WorkspaceRow({ t, index }: { t: Triage; index: number }) {
     } else if (next && next !== ws.name) void attempt(() => api.updateWorkspace(ws.id, { name: next }))
   }
   const shown = purpose?.text ?? ws.name
+  // Since when, at the end of the row's second line.
+  const age = timeAgo(t.since)
   // The chat a label names (the one whose turn failed…), unless the row's title already is that chat's.
   const detail = t.label && t.detail && t.detail !== purpose?.text ? t.detail : undefined
   // Repository, the workspace's name and its branch (once each), and age, in the hover card.
@@ -369,12 +371,11 @@ function WorkspaceRow({ t, index }: { t: Triage; index: number }) {
         ) : terminalAgent ? (
           <TerminalAgentLabel workspaceId={ws.id} />
         ) : (
-          said && (
-            <span className={`ws-label ${t.tone ?? ''}`}>
-              {said}
-              {detail && <span className="ws-detail"> · {detail}</span>}
-            </span>
-          )
+          <span className={`ws-label ${t.tone ?? ''}`}>
+            {said || tr('home.row.idle')}
+            {detail && <span className="ws-detail"> · {detail}</span>}
+            {age && <span className="ws-detail"> · {age}</span>}
+          </span>
         )}
         {/* Whose run it is: identity only; the leading glyph says the state. */}
         {employee && (
@@ -726,6 +727,7 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
         {groups.map(({ repo, items }) => (
           <SidebarSection
             key={repo.id}
+            card
             className="ws-group repo"
             name={repo.name}
             icon={repo.icon ? <RepoIconView icon={repo.icon} size={15} /> : <FolderGit2 size={15} />}
