@@ -78,7 +78,7 @@ export function needsYouItems(input: TriageInput, triaged: Triage[] = triageAll(
   // A project's workspace is its channel's (listsWorkspace): what the project waits on is its own item below.
   const projectIds = projectWorkspaceIds(snapshot)
   for (const t of triaged) {
-    if (t.bucket !== 'attention' || !listsWorkspace(t, projectIds, input.approvals, snapshot.sessions)) continue
+    if (t.bucket !== 'attention' || !listsWorkspace(t, projectIds, input)) continue
     const by = t.ws.startedBy?.via === 'employee' ? t.ws.startedBy : undefined
     const item: NeedsYouItem = { id: `ws:${t.ws.id}`, kind: 'workspace', space: repoSpace(snapshot, t.ws.repoId), since: t.since, repoId: t.ws.repoId, triage: t, ...(by ? { orgId: by.orgId, employeeId: by.employeeId } : {}) }
     items.push(item)

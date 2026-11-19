@@ -195,6 +195,11 @@ export interface AgentTurn {
   stop(): Promise<void>
   /** Deliver a message into the running turn. Returns false if unsupported. */
   steer(text: string): boolean
+  /**
+   * How many messages steered into this turn the agent hasn't taken up yet: sent but not answered (Claude), or not yet
+   * accepted, or refused (Codex). Absent: the driver can't say, so nothing that must know a steer arrived relies on one.
+   */
+  unansweredSteers?(): number
   setPlanMode(on: boolean): Promise<void>
   setModel(model: string): Promise<void>
   /** MCP servers of the running agent. Optional. */

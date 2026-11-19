@@ -1049,9 +1049,21 @@ describe('employee work: projects and follow-ups (docs/ai-employees.md §15)', (
     // Closed, but its run still going: still held.
     await f.service.pump()
     expect(f.db.employeeTask(follow.id)?.state).toBe('open')
+    // Its chat is told the run ended, once, however it ended.
+    const ended: [string, string][] = []
+    ;(f.service as unknown as { host: EmployeeWorkHost }).host.runEnded = (sessionId, runId) => void ended.push([sessionId, runId])
     await f.service.turnEnded(run.sessionId!, 'turn-1', 'completed')
     await settle()
     expect(f.db.employeeTask(follow.id)?.state).toBe('running')
+    expect(ended).toEqual([[run.sessionId, run.id]])
+  })
+
+  it('lists only the tasks asked in the organization’s channel when asked for those', async () => {
+    const f = await rig()
+    const asked = await f.service.ask('o1', 'e-max1', { body: 'Why is the test flaky?', channel: 'org' })
+    await f.service.ask('o1', 'e-max1', { body: 'Draft the post' })
+    expect(f.service.tasks('o1', undefined, { channel: 'org' }).map((t) => t.id)).toEqual([asked.id])
+    expect(f.service.tasks('o1')).toHaveLength(2)
   })
 
   it('takes no decision from a task that asks for none, and lets a blocked stage finish without its artifact', async () => {

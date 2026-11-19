@@ -257,6 +257,8 @@ export class SessionService {
   private approvals = new Map<string, PendingApproval>()
   // Turns to run unattended when they start (a flow's turn step, possibly queued behind another turn), by turn id.
   private unattendedTurns = new Map<string, NonNullable<Session['unattended']>>()
+  // Per chat: how many steered messages its last turn never took up, once it ended (unansweredSteers).
+  private steersLeft = new Map<string, number>()
   private naming = new Set<string>()
   // Turns to stop the moment their agent exists (cancelled while still starting).
   private cancelOnStart = new Set<string>()
@@ -961,6 +963,15 @@ export class SessionService {
     const cap = options.cap
     const refusal = ceilingRefusal(session.agent, cap) ?? revokedCapRefusal(cap, this.grantExists)
     if (refusal) throw new Error(refusal)
+    // While a project's run works here, only words that go into its running turn (a message queued after it would run
+    // outside the run). Steered here, or refused, before anything else happens: nothing is touched for a message that
+    // goes nowhere, and no check gives way to one that joins a turn already running.
+    if (projectRun) {
+      const steerable = live && !live.finished && !live.cancelled && this.record(session.agent)?.turns.steer.level === 'native' && !capIsLower(cap, session.turnCap)
+      if (!steerable || !live.turn.steer(text + this.attachmentText(ws, attachments))) throw new Error(RUNNING_PROJECT_RUN)
+      this.emit(sessionId, { kind: 'user', id: `user:${randomUUID()}`, turnId: live.turnId, text, at: new Date().toISOString(), attachments, steered: true })
+      return { disposition: 'steered', turnId: live.turnId }
+    }
 
     // #11: whatever this turns out to be (send, queue, steer, /clear), an armed usage-limit resume in this tab is moot.
     this.activity(sessionId)
@@ -986,8 +997,6 @@ export class SessionService {
       canSteer: this.record(session.agent)?.turns.steer.level === 'native',
       canInterrupt: interruptsToSteer(this.record(session.agent))
     })
-    // While a project's run works here, only words that go into its turn: a message queued after it would run outside it.
-    if (projectRun && !(plan === 'steer' && active && !capIsLower(cap, session.turnCap))) throw new Error(RUNNING_PROJECT_RUN)
     // docs/agent-access.md §4: a capped message never steers into a turn held less than it would be (or not held at all);
     // it waits in the queue for a turn of its own. Steered, it runs under the running turn's cap, the lower of the two.
     if (plan === 'steer' && active && !capIsLower(cap, session.turnCap)) {
@@ -1003,7 +1012,6 @@ export class SessionService {
         })
         return { disposition: 'steered', turnId: active.turnId }
       }
-      if (projectRun) throw new Error(RUNNING_PROJECT_RUN)
     }
     // docs/agents.md 2.5, `interrupt-restart`: an agent that can't take a message mid-turn is stopped, and the message starts the
     // next turn of the same conversation. Held to the same cap rule as a steer; a turn already being cut leaves this one queued.
@@ -1809,6 +1817,8 @@ export class SessionService {
         this.integrations?.endSession(sessionId)
         this.foremanMcp?.endSession(sessionId)
         if (this.turns.get(sessionId) === entry) {
+          // What it never took up of the messages steered into it, for whoever put them there (unansweredSteers).
+          this.steersLeft.set(sessionId, entry.turn.unansweredSteers?.() ?? 0)
           this.turns.delete(sessionId)
           this.lending.delete(sessionId)
         }
@@ -2321,18 +2331,27 @@ export class SessionService {
   }
 
   /**
-   * Put `text` into the chat's running turn, only when its agent takes a message mid-turn (native steer) and the turn
-   * isn't being cut: whether it went. Never queues, interrupts or starts a turn (a project's `@Name` to a running part,
-   * docs/ai-employees.md §15: what can't go in now waits for a task of its own).
+   * Put `text` into the chat's running turn, only when its agent takes a message mid-turn (native steer), can say whether
+   * it took it up (unansweredSteers), and the turn isn't being cut: whether it went. Never queues, interrupts or starts a
+   * turn (a project's `@Name` to a running part, docs/ai-employees.md §15: what can't go in now waits for a task of its own).
    */
   steerTurn(sessionId: string, text: string): boolean {
     const session = this.store.state.sessions.find((s) => s.id === sessionId)
     const active = this.turns.get(sessionId)
-    if (!session || session.closedAt || !active || active.finished || active.cancelled || this.record(session.agent)?.turns.steer.level !== 'native') return false
+    if (!session || session.closedAt || !active || active.finished || active.cancelled || this.record(session.agent)?.turns.steer.level !== 'native' || !active.turn.unansweredSteers) return false
     if (!active.turn.steer(text)) return false
     this.activity(sessionId)
     this.emit(sessionId, { kind: 'user', id: `user:${randomUUID()}`, turnId: active.turnId, text, at: new Date().toISOString(), attachments: [], steered: true })
     return true
+  }
+
+  /**
+   * How many messages steered into the chat's turn its agent hasn't taken up: the running turn's now, else what its last
+   * turn left when it ended. A steer counts as arrived only once taken up (docs/ai-employees.md §15).
+   */
+  unansweredSteers(sessionId: string): number {
+    const active = this.turns.get(sessionId)
+    return active ? (active.turn.unansweredSteers?.() ?? 0) : (this.steersLeft.get(sessionId) ?? 0)
   }
 
   async cancel(sessionId: string): Promise<void> {

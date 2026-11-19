@@ -1100,10 +1100,11 @@ export class ForemanDb {
   }
 
   /** An organization's tasks (one employee's when given), newest first; only those in `states` when given. */
-  employeeTasks(orgId: string, options: { employeeId?: string; states?: readonly string[]; limit?: number } = {}): EmployeeTask[] {
-    const rows = (options.employeeId
-      ? this.stmt('SELECT * FROM employee_tasks WHERE org_id = ? AND employee_id = ? ORDER BY created_at DESC, rowid DESC').all(orgId, options.employeeId)
-      : this.stmt('SELECT * FROM employee_tasks WHERE org_id = ? ORDER BY created_at DESC, rowid DESC').all(orgId)) as unknown as RawTask[]
+  employeeTasks(orgId: string, options: { employeeId?: string; states?: readonly string[]; limit?: number; channel?: 'org' } = {}): EmployeeTask[] {
+    // `channel`: only those asked in the organization's channel (EmployeeTask.channel, kept in the row's json).
+    const where = ['org_id = ?', ...(options.employeeId ? ['employee_id = ?'] : []), ...(options.channel ? ["json_extract(json, '$.channel') = ?"] : [])]
+    const args = [orgId, ...(options.employeeId ? [options.employeeId] : []), ...(options.channel ? [options.channel] : [])]
+    const rows = this.stmt(`SELECT * FROM employee_tasks WHERE ${where.join(' AND ')} ORDER BY created_at DESC, rowid DESC`).all(...args) as unknown as RawTask[]
     const out = rows.map(taskRow).filter((t) => !options.states || options.states.includes(t.state))
     return options.limit ? out.slice(0, options.limit) : out
   }

@@ -716,5 +716,10 @@ describe('projects: what the person writes in the channel', () => {
     const steer = steerText({ project: { title: 'CSV' }, text: 'use option b', part: 'Build' })
     expect(steer.startsWith('The person wrote to you in the channel of the project “CSV” while you work on “Build”, in their words: “use option b”')).toBe(true)
     expect(steer).toContain('finish_task blocked')
+    // The program manager isn't told to block for herself: what she is doing takes it in.
+    expect(steerText({ project: { title: 'CSV' }, text: 'x', kind: 'plan' })).toContain('Take it into the plan you are making')
+    expect(steerText({ project: { title: 'CSV' }, text: 'x', kind: 'accept' })).toContain('decide replan')
+    expect(steerText({ project: { title: 'CSV' }, text: 'x', kind: 'message' })).toContain('change it with project_plan')
+    for (const kind of ['plan', 'accept', 'message'] as const) expect(steerText({ project: { title: 'CSV' }, text: 'x', kind })).not.toContain('so the program manager replans')
   })
 })

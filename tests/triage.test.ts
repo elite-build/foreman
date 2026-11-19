@@ -249,6 +249,11 @@ describe('triage: flow runs', () => {
     // The person's own chat there: running, then ready for review, then failed.
     expect(shown([run, session('mine', { workspaceId: 'shared', status: 'running' })])).toEqual(['shared:Working'])
     expect(shown([session('mine', { workspaceId: 'shared' }), run], { mine: true })).toEqual(['shared:Ready for review'])
+    // The run's chat comes first and is left unread too, and runs beside yours: the row is still there for yours.
+    expect(shown([run, session('mine', { workspaceId: 'shared' })], { 's-run': true, mine: true })).toEqual(['shared:Ready for review'])
+    expect(shown([{ ...run, status: 'running' }, session('mine', { workspaceId: 'shared', status: 'running' })])).toHaveLength(1)
+    // Read, your chat is done with: the channel's again.
+    expect(shown([run, session('mine', { workspaceId: 'shared' })], { 's-run': true })).toEqual([])
     expect(shown([run, session('mine', { workspaceId: 'shared', lastTurn: { outcome: 'error', turnId: 't', endedAt: ended } })])).toHaveLength(1)
     // Only a run's chat: the channel's.
     expect(shown([{ ...run, status: 'running' }])).toEqual([])

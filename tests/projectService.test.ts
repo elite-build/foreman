@@ -27,7 +27,7 @@ afterEach(() => {
 
 const PM = 'e-pri1'
 
-async function rig(options: { pm?: boolean; steer?: ProjectHost['steer'] } = {}) {
+async function rig(options: { pm?: boolean; steer?: ProjectHost['steer']; unanswered?: ProjectHost['unanswered'] } = {}) {
   const db = new ForemanDb(path.join(await tempDir('foreman-projects-'), 'foreman.db'))
   opened.push(db)
   const repo = (id: string, name: string, spaceId?: string) => ({ id, name, rootPath: `/code/${name}`, defaultBranch: 'main', local: {}, createdAt: '2026-11-01T00:00:00.000Z', ...(spaceId ? { spaceId } : {}) }) as unknown as Repo
@@ -103,6 +103,7 @@ async function rig(options: { pm?: boolean; steer?: ProjectHost['steer'] } = {})
     archive: (ws, runId) => void archived.push([ws, runId]),
     loadouts: () => [{ agent: 'claude', model: 'm' }],
     ...(options.steer ? { steer: options.steer } : {}),
+    ...(options.unanswered ? { unanswered: options.unanswered } : {}),
     changed: () => undefined,
     now: () => clock.now
   }
@@ -632,7 +633,7 @@ describe('projects: what the person writes in the channel', () => {
     const got = await r.service.askFollowUp(r.id, 'e-rav1', 'use option b, not a')
     expect(got.id).toBe(build.id)
     expect(steered).toEqual([build.id])
-    expect(r.get(r.id).notes).toEqual([expect.objectContaining({ text: 'use option b, not a', to: 'e-rav1', into: build.id })])
+    expect(r.get(r.id).notes).toEqual([expect.objectContaining({ text: 'use option b, not a', to: 'e-rav1', into: build.id, steered: true })])
     expect(r.asked.filter((a) => a.project.kind === 'follow-up')).toHaveLength(0)
     // His agent can't take it now, and his run is going: a follow-up that starts after it.
     const h = await working({ steer: async () => false })
@@ -645,6 +646,70 @@ describe('projects: what the person writes in the channel', () => {
     await h.close(part.id)
     const now = await h.service.askFollowUp(h.id, 'e-rav1', 'why semicolons?')
     expect(now.project?.after).toBeUndefined()
+  })
+
+  it('takes a steer its agent never took up before the task closed as not arrived: a held follow-up, or unread for Priya', async () => {
+    const missed = new Set<string>()
+    // Docs waits for the build, so the project goes on once the build closes.
+    const TWO: PlanInput = { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Docs.', writes: 'docs.md', depends_on: ['build'] }] }
+    const r = await working({ steer: async () => true, unanswered: (taskId) => (missed.has(taskId) ? 1 : 0) }, TWO)
+    const build = r.task(r.last())
+    await r.service.askFollowUp(r.id, 'e-rav1', 'use option b, not a')
+    // He finished before taking it up, and his run still goes: it becomes the follow-up, after that run.
+    missed.add(build.id)
+    running(r, build.id)
+    await r.close(build.id)
+    expect(r.get(r.id).notes).toEqual([])
+    const follow = r.asked.find((a) => a.project.kind === 'follow-up')!
+    expect(follow).toMatchObject({ employeeId: 'e-rav1', project: { partId: 'build', after: build.id } })
+    expect(follow.body).toContain('“use option b, not a”')
+    // Taken up: it arrived, and nothing more is made.
+    const ok = await working({ steer: async () => true, unanswered: () => 0 }, TWO)
+    await ok.service.askFollowUp(ok.id, 'e-rav1', 'use option b, not a')
+    await ok.close(ok.task(ok.last()).id)
+    expect(ok.get(ok.id).notes).toEqual([expect.objectContaining({ steered: true })])
+    expect(ok.asked.filter((a) => a.project.kind === 'follow-up')).toHaveLength(0)
+    // Priya's planning never took up a message: it is unread again, and her message task reads it once planning ends.
+    const p = await rig({ steer: async () => true, unanswered: (taskId) => (missed.has(taskId) ? 1 : 0) })
+    const project = await p.start({ requirement: 'Export reports to CSV' })
+    const planning = p.task(p.last())
+    await p.service.addNote(project.id, 'Only CSV')
+    expect(p.get(project.id).notes[0]).toMatchObject({ into: planning.id, steered: true })
+    missed.add(planning.id)
+    await p.plan(ONE_PART)
+    expect(p.last()).toMatchObject({ project: { kind: 'message' } })
+    expect(p.last().body).toContain('“Only CSV”')
+  })
+
+  it('gives a part’s first round only what was written since its plan was given', async () => {
+    const r = await rig()
+    const project = await r.start({ requirement: 'Export reports to CSV' })
+    const planning = r.task(r.last())
+    await r.service.addNote(project.id, 'Before the plan: Excel too')
+    await r.close(r.task(r.last()).id)
+    r.clock.now += 1000
+    await r.service.submitPlan(planning, 'run-1', ONE_PART)
+    await r.close(planning.id)
+    await r.service.decide(project.id, r.get(project.id).waits[0].id, 'approve')
+    expect(r.last().project).toMatchObject({ kind: 'part', partId: 'build', round: 1 })
+    expect(r.last().body).not.toContain('Excel too')
+  })
+
+  it('won’t plan twice: no Retry while a revision from the channel waits, nor a revision while planning waits to be retried', async () => {
+    const r = await working()
+    await r.service.addNote(r.id, 'Add docs')
+    const message = r.task(r.last())
+    await r.service.submitPlan(message, 'run-m', { ...ONE_PART, parts: [...ONE_PART.parts, { id: 'docs', title: 'Docs', owner: 'Ravi', brief: 'Docs.', writes: 'docs.md' }] })
+    const stuck = { id: 'w-stuck', kind: 'stuck' as const, since: new Date(r.clock.now).toISOString(), reason: 'The last planning didn’t finish.' }
+    r.db.putProject({ ...r.db.project(r.id)!, waits: [stuck] })
+    await expect(r.service.decide(r.id, 'w-stuck', 'retry')).rejects.toThrow('changing the plan already')
+    expect(r.asked.filter((a) => a.project.kind === 'plan')).toHaveLength(1)
+    // A planning that waits to be retried: her message can't revise the plan beside it.
+    const q = await working()
+    q.db.putProject({ ...q.db.project(q.id)!, waits: [stuck] })
+    await q.service.addNote(q.id, 'Add docs')
+    expect(q.last().body).toContain('the last planning didn’t finish')
+    await expect(q.service.submitPlan(q.task(q.last()), 'run-m', ONE_PART)).rejects.toThrow('the last planning didn’t finish')
   })
 })
 

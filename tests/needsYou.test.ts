@@ -147,7 +147,7 @@ describe('one list of what needs you', () => {
   it('leaves a project’s workspace to its channel unless it waits on an approval, and says which items its channel shows', () => {
     // Lima is the project's shared workspace: its run just finished (Ready for review) and Ada's question is a project task's.
     const project = { id: 'pr', orgId: 'acme', slug: 'pr', title: 'pr', requirement: 'pr', repoId: 'site', pmId: 'pri', phase: 'working', plans: [], parts: {}, replans: 0, steps: [{ kind: 'part', round: 1, taskId: 'date', employeeId: 'ada', state: 'running' }], artifacts: {}, waits: [{ id: 'w1', kind: 'questions', since: ago(5) }], decisions: [], notes: [], createdAt: ago(100), updatedAt: ago(10), workspaceId: 'lima' }
-    const snapshot = fixture({}, { projects: { acme: [project] }, sessions: [...fixture().sessions, session('s-lima', 'lima')] } as unknown as Partial<AppSnapshot>)
+    const snapshot = fixture({}, { projects: { acme: [project] }, sessions: [...fixture().sessions, session('s-lima', 'lima', { employeeRun: { orgId: 'acme', employeeId: 'ada', runId: 'run-date', taskId: 'date', projectId: 'pr', endedAt: ago(10) } })] } as unknown as Partial<AppSnapshot>)
     const read = { ...input(snapshot), unread: { lima: true as const }, unreadSessions: { 's-lima': true as const } }
     const items = needsYouItems(read)
     expect(items.some((i) => i.id === 'ws:lima')).toBe(false)
