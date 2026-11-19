@@ -27,7 +27,11 @@ async function classifyOne(full: string, repos: Pick<Repo, 'id' | 'rootPath'>[],
   const info = await stat(full).catch(() => null)
   if (!info) return { path: full, name, kind: 'missing' }
   if (!info.isDirectory()) return { path: full, name, kind: 'file' }
-  if (!(await isInsideWorkTree(full))) return { path: full, name, kind: 'not-git' }
+  if (!(await isInsideWorkTree(full))) {
+    // Added before as a plain folder (Repo.plain).
+    const plain = repos.find((r) => samePath(r.rootPath, full))
+    return plain ? { path: full, name, kind: 'added', root: full, repoId: plain.id } : { path: full, name, kind: 'not-git' }
+  }
   // git prints forward slashes on Windows; addRepo adds the top folder, so that's what is shown.
   const root = path.normalize(await toplevel(full))
   const existing = repos.find((r) => samePath(r.rootPath, root))

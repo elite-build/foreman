@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { CircleAlert, CircleCheck, Folder, FolderPlus, FolderTree, Info } from 'lucide-react'
 import type { DroppedFolder } from '../../../shared/types'
-import { addDroppedRepositories, api, attempt, bridge, clientKind, openAddRepoDialog, openMakeRepo, showRepoHome, showToast } from '../store'
+import { addDroppedRepositories, addPlainFolder, api, attempt, bridge, clientKind, openAddRepoDialog, openMakeRepo, showRepoHome, showToast } from '../store'
 import { t as tNow, useT } from '../i18n'
 import { Button, Dialog, LinkButton } from '../ui'
 import { dropPlan, mightBeFolder, OWN_DROP_SELECTOR, type DropPlan } from './dropPlan'
@@ -222,6 +222,15 @@ function FolderCard({ folder, onClose }: { folder: DroppedFolder; onClose: () =>
                 }}
               >
                 {t('drop.makeRepo')}
+              </LinkButton>
+              {' · '}
+              <LinkButton
+                onClick={() => {
+                  onClose()
+                  void attempt(() => addPlainFolder(folder.path))
+                }}
+              >
+                {t('drop.addPlain')}
               </LinkButton>
               {' · '}
               <LinkButton

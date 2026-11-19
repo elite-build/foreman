@@ -551,6 +551,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const t = useT()
   // History only and archived (#13) have no worktree, but their chats can still be read; archived calls nothing else.
   const surfaces = workspaceSurfaces(ws ?? { state: 'creating' })
+  const plain = useHeldStore((s) => Boolean(s.snapshot!.repos.find((r) => r.id === ws?.repoId)?.plain), hidden)
   const shownTab = useStore((s) => s.activeSession[workspaceId])
   const sessions = surfaces.archived ? archivedTabs(allSessions, workspaceId, shownTab) : openSessions(snapshot, workspaceId)
   const editorPanel = editor ? shownEditorView(editorView, editorViewsFor(surfaces)) : null
@@ -578,16 +579,18 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   if (activeTab === 'files' && !filesSeen) setFilesSeen(true)
   const running = allSessions.some((s) => s.workspaceId === workspaceId && s.status === 'running')
   const hasWorktree = surfaces.worktree
+  // A folder outside git (Repo.plain): its files are there, but no diff, git status or commits to ask for.
+  const hasGit = hasWorktree && !plain
   const hasChat = surfaces.chats
-  const { diff, loading, refresh } = useWorkspaceDiff(workspaceId, running, hasWorktree && !hidden, scope, scope === 'picked' ? source.picked : undefined)
+  const { diff, loading, refresh } = useWorkspaceDiff(workspaceId, running, hasGit && !hidden, scope, scope === 'picked' ? source.picked : undefined)
   // O5: the Files tab is the working tree, so it marks All changes whatever the Changes panel's source.
-  const treeDiff = useWorkspaceDiff(workspaceId, running, hasWorktree && !hidden && filesSeen && !workingTree, 'all')
-  const git = useGitStatus(workspaceId, hasWorktree && !hidden, running)
+  const treeDiff = useWorkspaceDiff(workspaceId, running, hasGit && !hidden && filesSeen && !workingTree, 'all')
+  const git = useGitStatus(workspaceId, hasGit && !hidden, running)
   // Cloud workspaces: the sandbox's status is asked for again while this one is on screen.
   useCloudStatusPoll(ws, !hidden)
   useWakeOnOpen(ws, !hidden)
   // G2 (O5): the Commits tab's count, read again when a turn ends, on Refresh, or when git's own counts move.
-  const commitCount = useCommitCount(workspaceId, hasWorktree && !hidden, `${running}:${commitsReload}:${git.status?.aheadBase ?? ''}:${git.status?.ahead ?? ''}`)
+  const commitCount = useCommitCount(workspaceId, hasGit && !hidden, `${running}:${commitsReload}:${git.status?.aheadBase ?? ''}:${git.status?.ahead ?? ''}`)
 
   // A repo that proposes MCP servers this Mac hasn't seen asks once, when its workspace is on screen. Nothing runs from asking.
   const wsState = ws?.state
@@ -749,7 +752,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   const liveMounted = mounted.filter((id) => sessions.some((s) => s.id === id))
 
   let panelTitle = t('workspaceView.panel.noChanges')
-  if (!diff && hasWorktree) panelTitle = t('workspaceView.panel.loading')
+  if (!diff && hasGit) panelTitle = t('workspaceView.panel.loading')
   if (diff?.files.length) panelTitle = t('workspaceView.panel.filesChanged', { count: diff.files.length })
   const statusWords = (
     <span className={`panel-status ${git.status?.primary.tone ?? ''}`}>
@@ -1013,7 +1016,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
   // The side panel's views, shown as tabs in Three panes and Tiles, or as the one the activity bar picked.
   const panelActions = (
     <>
-      {activeTab === 'changes' && hasWorktree && (
+      {activeTab === 'changes' && hasGit && (
         <DiffSourceMenu
           workspaceId={workspaceId}
           choice={source}
@@ -1039,7 +1042,14 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       </IconButton>
     </>
   )
-  const changesView = diff && (
+  const noGit = plain && hasWorktree && (
+    <div className="panel-empty">
+      <Callout tone="info" title={t('workspaceView.noGit.title')}>
+        {t('workspaceView.noGit.body')}
+      </Callout>
+    </div>
+  )
+  const changesView = noGit || (diff && (
     <ChangesList
       workspace={ws}
       diff={diff}
@@ -1053,8 +1063,8 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
       }}
       onBackToAll={() => setSource((s) => ({ ...s, scope: 'all' }))}
     />
-  )
-  const commitsView = hasWorktree && (
+  ))
+  const commitsView = noGit || (hasGit && (
     <CommitsView
       workspaceId={workspaceId}
       reloadKey={`${running}:${commitsReload}`}
@@ -1079,7 +1089,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
         showPanelTab('changes')
       }}
     />
-  )
+  ))
   const filesView = surfaces.local && filesSeen && (
     <FilesTree
       workspaceId={workspaceId}
@@ -1138,9 +1148,12 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
             <span className="header-name" id={headingId} role="heading" aria-level={1}>
               {ws.name}
             </span>
-            <code className="header-branch" title={t('workspaceView.createdFrom', { base: ws.baseBranch })}>
-              {ws.branch}
-            </code>
+            {/* A plain folder (Repo.plain) has no branch. */}
+            {ws.branch && (
+              <code className="header-branch" title={t('workspaceView.createdFrom', { base: ws.baseBranch })}>
+                {ws.branch}
+              </code>
+            )}
             {running && <span className="faint"><Spinner size={13} /></span>}
             {STATE_LABEL[ws.state] && <Tag tone={STATE_TONE[ws.state] ?? 'neutral'}>{setupPill(ws, t) ?? t(STATE_LABEL[ws.state]!)}</Tag>}
             {surfaces.cloud && <CloudPill ws={ws} />}
@@ -1261,7 +1274,7 @@ export const WorkspaceView = memo(function WorkspaceView({ workspaceId, hidden }
             <header className="titlebar drag panel-header">
               {!running && git.status?.primary.action === 'archive' && git.status.pr ? <MergedStatus pr={git.status.pr} /> : panelStatus}
               <div className="header-actions">
-                {hasWorktree && <GitHeaderActions workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} running={running} />}
+                {hasGit && <GitHeaderActions workspaceId={workspaceId} status={git.status} refresh={() => void git.refresh()} running={running} />}
               </div>
             </header>
             {!running && git.status?.primary.action === 'archive' && git.status.pr?.state === 'MERGED' && <MergedProgress pr={git.status.pr} />}

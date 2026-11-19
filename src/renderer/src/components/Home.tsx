@@ -2,12 +2,11 @@
 // AI employees' questions, held actions and proposals), then what runs and what was active lately, then Get started
 // folded to one row. It shows every space unless its Space filter (or the rail) narrows it.
 import { IntegrationsHome } from './IntegrationsHome'
-import { Plus } from 'lucide-react'
 import { Fragment, useId, useState, type ReactNode } from 'react'
-import { api, attempt, clientKind, markWorkspaceUnread, modKey, openFixCi, openHandOffDialog, openImportDialog, openResolveBase, openNewWorkspace, selectWorkspace, sendUnseenReviews, setHomeSpace, timeWaited, useStore } from '../store'
+import { api, attempt, markWorkspaceUnread, modKey, openFixCi, openHandOffDialog, openResolveBase, selectWorkspace, sendUnseenReviews, setHomeSpace, timeWaited, useStore } from '../store'
 import { useClock } from '../clock'
 import { BUCKET_LABEL, listsWorkspace, liveRepo, projectWorkspaceIds, triageAll, type Triage } from '../triage'
-import { currentSpace, newWorkspaceTarget, snapshotInSpace, spacesOn } from '../../../shared/organizations'
+import { currentSpace, snapshotInSpace, spacesOn } from '../../../shared/organizations'
 import { itemsInSpace, type NeedsYouItem } from '../../../shared/needsYou'
 import type { PlainKey } from '../../../shared/i18n'
 import { compareGroups } from '../../../shared/compare'
@@ -413,8 +412,6 @@ export function Home() {
   const spaceOf = spaceName ? (id: string) => spaceName(repoSpace.get(id) ?? null) : undefined
   // "1 in Personal, 3 in Acme": only while showing every space and more than one has something.
   const bySpace = tagSpaces ? [null, ...organizations.map((o) => o.id)].flatMap((id) => (need.counts.bySpace.get(id) ? [[spaceLabel(snapshot, id, t), need.counts.bySpace.get(id)!] as [string, number]] : [])) : undefined
-  // The repository the sidebar's New workspace opens on: in the space shown, never an organization's memory repository.
-  const newRepoId = useStore((s) => newWorkspaceTarget(s.snapshot!, { space: s.space, picked: s.sidebarView.repo, selectedWorkspaceId: null }))
   // #21: the board replaces the list below the header when it's on and picked.
   const { enabled: boardEnabled, layout } = useHomeLayout()
   const board = layout === 'board' && snapshot.repos.length > 0
@@ -473,19 +470,9 @@ export function Home() {
                 {board && ` · ${t('home.board.fromFacts')}`}
               </div>
             </div>
+            {/* New workspace and Import are the sidebar's New (its ▾ lists everything to make). */}
             <div className="header-actions">
               {boardEnabled && snapshot.repos.length > 0 && <HomeLayoutControls />}
-              {snapshot.repos.length > 0 && clientKind === 'window' && (
-                <Button onClick={openImportDialog} title={t('sidebar.import.title')}>
-                  {t('sidebar.import')}
-                </Button>
-              )}
-              {/* The sidebar's New workspace is the one primary; this is a plain button. */}
-              {newRepoId && (
-                <Button icon={<Plus size={14} />} onClick={() => openNewWorkspace(newRepoId)}>
-                  {t('palette.newWorkspace')}
-                </Button>
-              )}
             </div>
           </header>
           {spaceFilter}

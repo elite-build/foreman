@@ -44,6 +44,36 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 
 **Revisit when.** People want tiles for settings that have no compact control, or want the list to follow them across computers (then it belongs in `Settings`).
 
+## 2026-11-19: A folder without git is added as it is, and its one workspace works in the folder
+
+**Decision.** A folder outside git can be added "without git" (`Repo.plain`). Its one workspace works in the folder itself, with no branch; diff, commits, checkpoints, flows and pull requests are off and say why.
+
+**Why.** Not every folder an agent should work in is a repository, and refusing it made git a requirement for using Foreman at all.
+
+**Turned down.** Running `git init` and a first commit behind the user's back: it changes their folder and its history without being asked (making a repository stays a separate, explicit choice). Copying the folder for each workspace: no way to bring the work back without a diff.
+
+**Revisit when.** Foreman keeps its own snapshots outside git, which would give plain folders checkpoints and a diff.
+
+## 2026-11-19: A branch already checked out is worked on where it is, never checked out twice
+
+**Decision.** Checking out an existing branch that is already checked out opens it where it is: the repository folder, that worktree added as a workspace, or the workspace that already has it.
+
+**Why.** git refuses a second checkout of a branch, so these branches couldn't be opened at all.
+
+**Turned down.** `git worktree add --force`: two checkouts of one branch move each other's HEAD on every commit, so one shows the other's work as reverted changes.
+
+**Revisit when.** git can share a branch between worktrees safely.
+
+## 2026-11-19: New is a split button under the sidebar's top row, and its ▾ opens a list in the middle of the window
+
+**Decision.** The + menu at the end of the sidebar's top row is gone. Under the top row, a full-width split button makes what the mode is about (Inbox and Work a workspace, Team an employee, Channels a project); its ▾, and Ctrl+Shift+N, open the list of everything to make in the middle of the window, the mode's own item first. Home's own New workspace and Import… buttons went with it.
+
+**Why.** The menu opened from a 26 px square into the window's corner, 12 rows mixing making work with setting Foreman up, and typing a letter cycled through five "New…" items. Of 12 mocks the person picked a labelled split button and a centred list that leads with the mode.
+
+**Turned down.** A shorter menu opening rightward, a two-column panel, New in the page header (a workspace page has no room on the right), a per-mode button with no list, a New page in place of the dialog, and a ▾ opening a searchable dropdown under the button.
+
+**Revisit when.** People reach for the list more often than the main half.
+
 ## 2026-11-18: Needs you is a ring around a dot, failed a dot with a cross, and a count is a filled pill
 
 **Decision.** `ui/Glyph` draws `warn` (needs you) as a ring around a dot and `error` (failed) as a dot with a cross cut out; ● ok, ■ info and ○ off stay. A count of what needs you on a tile is a soft filled pill in the needs-you colour, with no mark inside.

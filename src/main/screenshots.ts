@@ -612,6 +612,8 @@ export const SCREENS = [
   // AI employees, in the fixture's organization (main/screensOrganization.ts).
   'team',
   'channels',
+  // The sidebar on Channels with New's ▾ open: the list of everything to make (NewList in Overlays.tsx).
+  'new-list',
   'project',
   'project-plan',
   'project-parts',
