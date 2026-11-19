@@ -101,7 +101,7 @@ export const shortcutActions: ShortcutActions = {
   toggleRightPanel,
   toggleBottomPanel,
   toggleZen,
-  toggleSettings: () => openSettingsPage(getState().settingsPage ? null : { section: 'general' }),
+  toggleSettings: () => openSettingsPage(getState().settingsPage ? null : { section: 'quick' }),
   reportProblem: () => openReportProblem(true),
   toggleAssistant,
   toggleTerminalFullscreen,

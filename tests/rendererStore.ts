@@ -5,6 +5,7 @@
 import { vi } from 'vitest'
 import { capabilitiesFor } from '../src/shared/agentCapabilities'
 import { staticCapabilitiesView } from '../src/shared/agentCatalog'
+import { DEFAULT_QUICK_TILES } from '../src/shared/quickTiles'
 
 export const fakeApi: Record<string, ReturnType<typeof vi.fn>> = {}
 
@@ -40,7 +41,9 @@ export const fakeState: Record<string, any> = {
   composerFill: null,
   rightPanelOpen: false,
   workspaceFocus: {},
-  archiveRuns: {}
+  archiveRuns: {},
+  // The sidebar gear's popover reads it (QuickTiles.tsx).
+  quickTiles: [...DEFAULT_QUICK_TILES]
 }
 
 export function resetFake(): void {

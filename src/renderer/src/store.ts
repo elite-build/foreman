@@ -35,6 +35,7 @@ import { isNotGitRepoError, type GitIdentity } from '../../shared/types'
 import { shareUnchanged } from '../../shared/reconcile'
 import { appendToItems } from '../../shared/chatAppend'
 import { currentSpace, holdsWorkspaces, newWorkspaceTarget, spaceOf, spacesOn } from '../../shared/organizations'
+import { normalizeQuickTiles, type QuickTile } from '../../shared/quickTiles'
 import { bridge, clientKind, followLanguage, socketBridge } from './bridge'
 import type { SocketStatus } from './socketBridge'
 
@@ -141,6 +142,8 @@ interface State {
   tiles: string[]
   tileCount: TileCount
   tileZoom: string | null
+  // Settings › Quick and the gear's popover: the tiles, in order (shared/quickTiles.ts).
+  quickTiles: QuickTile[]
   // The Editor layout: what the activity bar shows in the sidebar.
   editorView: EditorView
   // The Run / Setup / Terminal panel, wherever the layout puts it.
@@ -290,6 +293,7 @@ let state: State = {
   homeScope: 'all',
   checklistOpen: loadPref('checklistOpen', false),
   tiles: loadPref<string[]>('tiles', []),
+  quickTiles: normalizeQuickTiles(loadPref<unknown>('quickTiles', null)),
   tileCount: tileCountOf(loadPref('tileCount', DEFAULT_TILE_COUNT)),
   tileZoom: null,
   editorView: editorViewOf(loadPref('editorView', 'workspaces')),
@@ -1360,6 +1364,12 @@ export function setTiles(tiles: string[]): void {
   setState({ tiles })
 }
 
+/** Settings › Quick: the tiles and their order, remembered in this window. */
+export function setQuickTiles(quickTiles: QuickTile[]): void {
+  savePref('quickTiles', quickTiles)
+  setState({ quickTiles })
+}
+
 export function setTileCount(tileCount: TileCount): void {
   savePref('tileCount', tileCount)
   setState({ tileCount })
@@ -1885,7 +1895,7 @@ export function openNewWorkspace(asked: string | null, prompt?: string, template
 }
 
 export function openSettings(open: boolean): void {
-  openSettingsPage(open ? { section: 'general' } : null)
+  openSettingsPage(open ? { section: 'quick' } : null)
 }
 
 export function markWorkspaceUnread(workspaceId: string, unreadNow: boolean): void {

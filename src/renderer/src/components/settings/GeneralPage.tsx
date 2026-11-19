@@ -2,7 +2,7 @@ import { ChevronDown, Languages, Volume2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { completeness, LOCALES, localeName, resolveSystemLocale, type LanguageSetting, type PlainKey } from '../../../../shared/i18n'
 import type { Settings, SoundSetting } from '../../../../shared/types'
-import { systemLanguages, useT, type RendererT } from '../../i18n'
+import { systemLanguages, t as tNow, useT, type RendererT } from '../../i18n'
 import { playSound } from '../../sound'
 import { api, attempt, showToast, startTour, useStore } from '../../store'
 import { KeepAwakeOptions } from './KeepAwakeOptions'
@@ -48,6 +48,12 @@ async function notificationsAllowed(): Promise<boolean> {
   if (typeof Notification === 'undefined') return true
   if (Notification.permission === 'default') return (await Notification.requestPermission().catch(() => 'denied')) !== 'denied'
   return Notification.permission !== 'denied'
+}
+
+/** Turns notifications on or off, asking the system first when turning them on (Settings › Quick uses it too). */
+export async function saveNotifications(notifications: boolean): Promise<void> {
+  if (notifications && !(await notificationsAllowed())) return showToast(tNow('settings.general.notifications.denied'))
+  void saveSettings({ notifications })
 }
 
 export function GeneralPage() {
@@ -176,10 +182,7 @@ export function GeneralPage() {
           label={t('settings.general.notifications.label')}
           help={t('settings.general.notifications.help')}
           checked={settings.notifications}
-          onChange={async (notifications) => {
-            if (notifications && !(await notificationsAllowed())) return showToast(t('settings.general.notifications.denied'))
-            void saveSettings({ notifications })
-          }}
+          onChange={(notifications) => void saveNotifications(notifications)}
           onReset={reset('notifications')}
         />
         <Row id="completion-sound" label={t('settings.general.sound.label')} help={t('settings.general.sound.help')} onReset={reset('sound')}>
@@ -260,7 +263,7 @@ export function languageRowLabel(t: RendererT): string {
  * Language picker: System (and what it resolves to), English, then the other languages in their own names with how
  * much of Foreman each translates. A popover holding a listbox, so the arrow keys, Home, End and typing a name all work.
  */
-function LanguagePicker({ value, onChange }: { value: LanguageSetting; onChange: (value: LanguageSetting) => void }) {
+export function LanguagePicker({ value, onChange, portal }: { value: LanguageSetting; onChange: (value: LanguageSetting) => void; portal?: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const system = localeName(resolveSystemLocale(systemLanguages()))
@@ -289,6 +292,7 @@ function LanguagePicker({ value, onChange }: { value: LanguageSetting; onChange:
       open={open}
       onOpenChange={setOpen}
       side="bottom"
+      portal={portal}
       label={t('settings.language.menuLabel')}
       trigger={(popover) => (
         <Button

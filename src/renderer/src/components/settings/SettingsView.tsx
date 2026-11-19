@@ -23,6 +23,7 @@ import { IntegrationsPage } from './integrations/IntegrationsPage'
 import { ModelsPage } from './ModelsPage'
 import { linkTo, pageNode, pageNodes, pathTo, type PageRef, type SettingsNode } from './pages'
 import { REPO_TAB_LABELS } from './registry'
+import { QuickPage } from './QuickTiles'
 import { RepoPage } from './RepoPage'
 import { SearchResults } from './SearchResults'
 import { buildIndex, search } from './searchIndex'
@@ -86,7 +87,7 @@ export function SettingsView({ page }: { page: SettingsPage }) {
 
   // A removed repository's pages go away with it.
   useEffect(() => {
-    if (page.section === 'repo' && !repo) openSettingsPage({ section: 'general' })
+    if (page.section === 'repo' && !repo) openSettingsPage({ section: 'quick' })
   }, [page, repo])
 
   useEffect(() => {
@@ -242,6 +243,8 @@ function PartPage({ tree, node }: { tree: SettingsNode[]; node: SettingsNode }) 
 
 function SectionPage({ page }: { page: PageRef }) {
   switch (page.section) {
+    case 'quick':
+      return <QuickPage />
     case 'general':
       return <GeneralPage />
     case 'account':

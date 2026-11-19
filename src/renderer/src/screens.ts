@@ -258,6 +258,25 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     openAddRepoDialog('clone')
     return '.add-repo-combo .ui-option'
   },
+  // Settings › Quick: what Settings opens on.
+  'settings-quick': () => (openSettingsPage({ section: 'quick' }), '.settings-view .qt-grid'),
+  // Choosing tiles: move and remove on each, Add a tile, and the line where the gear's popover stops.
+  'settings-quick-choose': async () => {
+    openSettingsPage({ section: 'quick' })
+    const choose = await waitFor(element('.settings-view .qt-bar button'))
+    if (!choose) return null
+    choose.click()
+    return '.settings-view .qt-cut'
+  },
+  // The rail's gear: the first Quick tiles in a popover over Home.
+  'quick-popover': async () => {
+    openSettingsPage(null)
+    showRepoHome(null)
+    const gear = await waitFor(element('[data-tour="settings"]'))
+    if (!gear) return null
+    gear.click()
+    return '.qt-pop .qt-grid'
+  },
   'settings-general': () => (openSettingsPage({ section: 'general' }), '.settings-view'),
   'settings-agents': () => (openSettingsPage({ section: 'agents' }), '.settings-view'),
   // #130: Claude Code's Accounts page.

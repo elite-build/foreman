@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-19: Settings opens on Quick, and the rail's gear shows its first six tiles
+
+**Decision.** Settings › Quick is the first menu entry and where Settings (and Ctrl+,) opens: one ordered list of tiles (`shared/quickTiles.ts`), each a setting drawn with its own page's control. The rail's gear opens a popover of the first six with All settings; the order and which tiles show are chosen on the page and kept in the window's local storage.
+
+**Why.** Settings opened on General › Language, one row on an empty page, and what the person changes most (models, accounts, integrations) was three levels down. Of ten mocks they picked one list shown at two sizes (08).
+
+**Turned down.** Tiles that only link to their category (01); a status page of problems (04); agent and connection cards (06); a sheet beside the rail with search (09, it needs a left-side `ui/Sheet`); tiles that follow the open workspace (10).
+
+**Revisit when.** People want tiles for settings that have no compact control, or want the list to follow them across computers (then it belongs in `Settings`).
+
 ## 2026-11-19: A folder without git is added as it is, and its one workspace works in the folder
 
 **Decision.** A folder outside git can be added "without git" (`Repo.plain`). Its one workspace works in the folder itself, with no branch; diff, commits, checkpoints, flows and pull requests are off and say why.

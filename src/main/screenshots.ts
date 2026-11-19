@@ -552,6 +552,10 @@ export const SCREENS = [
   'new-workspace',
   'new-workspace-branch',
   'clone-repo',
+  // Settings › Quick (what Settings opens on) and the rail gear's popover of its first tiles.
+  'settings-quick',
+  'settings-quick-choose',
+  'quick-popover',
   'settings-general',
   'settings-agents',
   // #130: Claude Code's Accounts section, an account's dialog and the picker's Account row.

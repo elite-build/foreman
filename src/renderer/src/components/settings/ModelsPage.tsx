@@ -143,8 +143,8 @@ function SwitchHistoryRow() {
   )
 }
 
-/** A small trigger showing the model, opening the model chooser below it. */
-function CompactChooser({ label, value, onChange }: { label: string; value: Loadout; onChange: (next: Loadout) => void }) {
+/** A small trigger showing the model, opening the model chooser below it. `portal`: inside a clipping panel (Settings › Quick in the gear's popover). */
+export function CompactChooser({ label, value, onChange, portal }: { label: string; value: Loadout; onChange: (next: Loadout) => void; portal?: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   // Opens upwards when there isn't room below.
@@ -171,6 +171,7 @@ function CompactChooser({ label, value, onChange }: { label: string; value: Load
         onOpenChange={onOpenChange}
         side={above ? 'top' : 'bottom'}
         align="end"
+        portal={portal}
         label={label}
         trigger={(pop) => (
           <ChipButton {...pop} className="ml-compact-trigger" aria-label={t('modelsPage.chooser.label', { label, model: name })}>
