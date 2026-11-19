@@ -72,7 +72,10 @@ export function OrgChannel({ orgId, mention }: { orgId: string; mention?: number
     await attempt(async () => {
       if (to.id === organization.programManagerId) {
         const project = await api.startProject(orgId, { requirement: m.rest, ...(repo ? { repoId: repo.id } : {}) })
-        showToast(t('projects.started', { title: project.title, name: pmName }))
+        // Planning only once her task was made; else the project waits in its channel, saying why (no access, say).
+        const planning = project.steps.some((s) => s.kind === 'plan')
+        const stuck = project.waits.find((w) => w.kind === 'stuck')
+        showToast(planning ? t('projects.started', { title: project.title, name: pmName }) : t('projects.startStuck', { title: project.title, name: pmName, reason: stuck?.reason ?? '' }).trim())
         openEmployees({ orgId, page: 'project', id: project.id })
       } else {
         await api.askEmployee(orgId, to.id, { body: m.rest, ...(repo ? { repoId: repo.id } : {}), channel: 'org' })

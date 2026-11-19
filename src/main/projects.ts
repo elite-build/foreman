@@ -16,11 +16,13 @@
 //    opens the pull request (publishRule: every other run is refused, shell included), and what it publishes from its
 //    shell is recorded when it ends;
 //  - a part closed done records its file and, when the plan says so, waits at a gate for the person; a part that can't
-//    finish (partial, blocked) wakes the program manager to replan, at most MAX_REPLANS times; a replan that only gives
-//    the plan's owners more work goes ahead, anything else waits at the plan gate; nothing new starts while a replan is
-//    being made;
-//  - a small plan ends when its last part does; a large one ends with the program manager's acceptance and the person's
-//    final gate;
+//    finish (its employee said partial or blocked) or a check that fails wakes the program manager to replan, at most
+//    MAX_REPLANS times; a run that ended for another reason (it couldn't start, its agent failed, it never called a
+//    closing tool) uses no replan and waits for the person's Try again; a replan that only gives the plan's owners more
+//    work goes ahead, anything else waits at the plan gate; nothing new starts while a replan is being made or waits to be
+//    tried again, and nothing starts while the project is paused (a replan asked for then starts on Resume);
+//  - a small plan that changes no code ends when its last part does; one that changes code ends with the person's final
+//    gate; a large one ends with the program manager's acceptance and the person's final gate;
 //  - every run of the project shares one workspace, kept until the project closes: the first run that needs it makes it
 //    (the others wait for it), one archived is restored, and one gone is never replaced silently (its task waits, saying
 //    so). "Hand to Priya…" branches it from the handed workspace, which stays the person's. What starts next is decided
@@ -36,6 +38,7 @@ import { proposedDefinition } from '../shared/employeeTeams'
 import { MAX_TASK_BODY, repoAccess, RUN_ACTIVE, type EmployeeTask } from '../shared/employeeWork'
 import { memoryArtifacts } from '../shared/memory'
 import { employeeStatus, HAT_COLOURS, newEmployeeId, type EmployeeDefinition } from '../shared/employees'
+import { canRunUnattended } from '../shared/agentCatalog'
 import { reposInSpace, type Organization } from '../shared/organizations'
 import {
   ACCEPTANCE_FILE,
@@ -51,8 +54,11 @@ import {
   checkPlan,
   checkQuestions,
   decisionsText,
+  endsWithFinalCheck,
   followUpBody,
   gateNoteTo,
+  isArchived,
+  lastApproval,
   listedProjects,
   MAX_ANSWER,
   MAX_FOLLOW_UP,
@@ -87,6 +93,7 @@ import {
   questionState,
   readyParts,
   replanGoesAhead,
+  rosterCan,
   roundSeen,
   steerText,
   type ChannelMessages,
@@ -99,6 +106,7 @@ import {
   type ProjectDecision,
   type ProjectOutcome,
   type ProjectNote,
+  type PartStatus,
   type ProjectPlan,
   type ProjectPublication,
   type ProjectStep,
@@ -119,7 +127,7 @@ export interface ProjectHost {
   state(): PersistedState
   db(): ForemanDb
   work: Pick<EmployeeWorkService, 'projectTask' | 'cancel'> & Partial<Pick<EmployeeWorkService, 'endRuns'>>
-  employees: Pick<EmployeeService, 'current' | 'members' | 'createTeam'>
+  employees: Pick<EmployeeService, 'current' | 'members' | 'createTeam'> & Partial<Pick<EmployeeService, 'retire'>>
   memory: Pick<MemoryService, 'read' | 'stage' | 'tree' | 'commitAsPerson'>
   // The project's workspace is still there and can take another chat (not archived, not being removed).
   workspaceAlive(workspaceId: string): boolean
@@ -151,6 +159,20 @@ export interface ProjectHost {
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+/**
+ * Why a task's run ended for a reason that isn't its employee's (§15): it couldn't start, its agent failed or was
+ * interrupted, or its turn ended without a closing tool. Undefined when its employee closed it (finish_task partial or
+ * blocked is theirs, and a replan's) or anything else did (a person's cancel, a decline).
+ */
+function earlyEnd(task: EmployeeTask): string | undefined {
+  if (task.closureReason !== 'blocked') return undefined
+  if (task.result?.synthetic) return 'Its run ended without finishing the task (it never called finish_task, perhaps out of context or cut off). That isn’t counted against the plan and uses no replan: Try again runs it again.'
+  if (task.result) return undefined
+  const detail = (task.closureDetail ?? '').trim()
+  const said = /^(It couldn’t start|The agent ended with an error|The run was interrupted)/.test(detail) ? detail : `The agent ended with an error: ${detail || 'no reason was given.'}`
+  return `${said}${/[.!?]$/.test(said) ? '' : '.'} That isn’t the work’s fault and uses no replan: Try again runs it again.`
+}
 
 export class ProjectService implements EmployeeProjectHooks {
   private queue: Promise<unknown> = Promise.resolve()
@@ -232,6 +254,8 @@ export class ProjectService implements EmployeeProjectHooks {
    * the approvals Undo approval can take back now, worked out here, where every push and pull request is seen.
    */
   private withFiles(project: Project): Project {
+    // The chat it was handed from is for the program manager's briefs only.
+    delete project.transcript
     for (const step of project.steps) {
       if (step.files || !step.endedAt) continue
       const files = memoryArtifacts(this.db.employeeTask(step.taskId)?.result?.artifacts)
@@ -276,12 +300,57 @@ export class ProjectService implements EmployeeProjectHooks {
 
   private async roster(orgId: string): Promise<RosterLine[]> {
     const members = (await this.host.employees.members(orgId)) ?? []
+    const org = this.organization(orgId)
+    const repos = this.workRepos(org).map((r) => r.name)
     return members
       .filter((m) => m.summary.state !== 'retired')
       .map((m) => {
         const status = employeeStatus(m.summary)
-        return { id: m.summary.id, name: m.summary.name || m.summary.id, role: m.summary.role, askMeAbout: m.definition?.ask_me_about ?? '', state: status === 'idle' ? 'approved' : status === 'draft' ? 'draft, not approved yet' : status }
+        const d = m.definition
+        // What it can do: its access to each repository, its shell, and whether a person answers its approvals.
+        const can = d ? rosterCan({ repos: Object.fromEntries(repos.map((r) => [r, repoAccess(d, r)])), shell: d.access.profile === 'shell', attended: d.attendance === 'attended' }) : undefined
+        return { id: m.summary.id, name: m.summary.name || m.summary.id, role: m.summary.role, askMeAbout: d?.ask_me_about ?? '', state: status === 'idle' ? 'approved' : status === 'draft' ? 'draft, not approved yet' : status, ...(can ? { can } : {}) }
       })
+  }
+
+  /** The employees of the organization who have retired, by id. */
+  private async retiredIds(orgId: string): Promise<Set<string>> {
+    const members = (await this.host.employees.members(orgId)) ?? []
+    return new Set(members.filter((m) => m.summary.state === 'retired').map((m) => m.summary.id))
+  }
+
+  /**
+   * The project's program manager (§15). When the one it had has retired and the organization has a new one (Add Priya),
+   * the project goes on with her: it is re-pointed. Why nobody can plan it otherwise, for a stuck wait; undefined when she can.
+   */
+  private async livePm(project: Project): Promise<string | undefined> {
+    const now = await this.host.employees.current(project.orgId, project.pmId).catch(() => undefined)
+    if (now && now.summary.state !== 'retired') return undefined
+    const next = this.organization(project.orgId).programManagerId
+    if (next && next !== project.pmId) {
+      const fresh = await this.host.employees.current(project.orgId, next).catch(() => undefined)
+      if (fresh && fresh.summary.state !== 'retired') {
+        project.pmId = next
+        this.save(project)
+        return undefined
+      }
+    }
+    return `${now?.summary.name || 'The program manager'} ${now ? 'has retired' : 'isn’t on the team any more'}, so nobody can plan or accept this project. Add a program manager on the Team page (Add Priya), then Try again: the project goes on with her.`
+  }
+
+  /**
+   * Retire the drafts a project's plans proposed that the person never approved (`keep`: ids still owning a part of a
+   * plan in effect or waiting), so a plan sent back, a project stopped or deleted leaves no proposed employee behind.
+   */
+  private async retireDrafts(project: Project, plans: readonly ProjectPlan[], keep: ReadonlySet<string> = new Set()): Promise<void> {
+    const retire = this.host.employees.retire
+    if (!retire) return
+    const ids = new Set(plans.flatMap((p) => Object.values(p.proposedIds ?? {})).filter((id) => !keep.has(id)))
+    for (const id of ids) {
+      const now = await this.host.employees.current(project.orgId, id).catch(() => undefined)
+      if (now?.summary.state !== 'draft') continue
+      await retire.call(this.host.employees, project.orgId, id).catch((err: unknown) => console.error('Project drafts:', err))
+    }
   }
 
   // ---- starting ----
@@ -322,6 +391,8 @@ export class ProjectService implements EmployeeProjectHooks {
         if (!this.host.forkWorkspace) throw new Error('A workspace can’t be handed over here.')
         workspaceId = await this.host.forkWorkspace(from, Boolean(input.includeChanges))
       }
+      // What was said in the handed workspace: kept, so every planning round reads it.
+      const transcript = from && this.host.transcript ? (await this.host.transcript(from).catch(() => '')).trim().slice(-MAX_TRANSCRIPT) : ''
       const now = this.iso()
       const project: Project = {
         id: randomUUID(),
@@ -336,6 +407,7 @@ export class ProjectService implements EmployeeProjectHooks {
         parts: {},
         replans: 0,
         ...(from && workspaceId ? { workspaceId, fromWorkspaceId: from } : {}),
+        ...(transcript ? { transcript } : {}),
         steps: [],
         artifacts: {},
         waits: [],
@@ -412,10 +484,18 @@ export class ProjectService implements EmployeeProjectHooks {
   /** The program manager's planning task: the first plan, or a replan (`reason`), or after a send-back (`note`). */
   private async startPlanning(project: Project, opts: { reason?: string; note?: string }): Promise<void> {
     const org = this.organization(project.orgId)
+    // Nobody to plan it (its program manager retired, none added since): it waits for the person, saying so.
+    const nobody = await this.livePm(project)
+    if (nobody) {
+      if (project.plan) project.replanning = false
+      this.addWait(project, { kind: 'stuck', reason: nobody })
+      return
+    }
     const round = project.steps.filter((s) => s.kind === 'plan').length + 1
     const names = await this.names(org.id)
-    const replan = project.plan && opts.reason ? { reason: opts.reason, current: planStateText(project.plan, project.parts, names), version: project.plans.length + 1, left: Math.max(0, MAX_REPLANS - project.replans) } : undefined
-    const transcript = round === 1 && project.fromWorkspaceId && this.host.transcript ? (await this.host.transcript(project.fromWorkspaceId).catch(() => '')).slice(-MAX_TRANSCRIPT) : undefined
+    const replan = project.plan && opts.reason ? { reason: opts.reason, current: planStateText(project.plan, project.parts, names, await this.retiredIds(org.id)), version: project.plans.length + 1, left: Math.max(0, MAX_REPLANS - project.replans) } : undefined
+    // The chat handed over, in every round (a project started before it was kept reads it once, as it did).
+    const transcript = project.transcript ?? (round === 1 && project.fromWorkspaceId && this.host.transcript ? (await this.host.transcript(project.fromWorkspaceId).catch(() => '')).slice(-MAX_TRANSCRIPT) : undefined)
     if (project.plan) project.replanning = true
     const planPath = artifactPath(project.slug, PLAN_FILE)
     const inputs = Object.values(project.artifacts).map((a) => ({ path: a.path, ...(a.commit ? { commit: a.commit } : {}) }))
@@ -539,6 +619,8 @@ export class ProjectService implements EmployeeProjectHooks {
         repos: this.workRepos(org).map((r) => r.name),
         // Who can change the project's repository: their parts change it unless they say not.
         ...(repo ? { repo, writers: members.filter((m) => m.definition && repoAccess(m.definition, repo) === 'write').map((m) => m.summary.id) } : {}),
+        // A proposed employee writes where it is given, as every new employee does, unless no agent here runs unattended.
+        proposedWrite: (this.host.loadouts?.() ?? this.state.settings.loadouts).some((l) => canRunUnattended(l.agent)),
         asked: questionState(project.asks),
         ...(project.plan ? { current: project.plan, parts: project.parts } : {})
       })
@@ -580,13 +662,19 @@ export class ProjectService implements EmployeeProjectHooks {
       // A revision read from the channel holds what would start next until it is applied, as a replan does.
       if (mark.kind === 'message') fresh.replanning = true
       this.save(fresh)
+      // The drafts the plan it replaces proposed and this one gives nothing to leave the team.
+      if (existing) await this.retireDrafts(fresh, [existing], new Set(plan.parts.map((p) => ownerId(plan, p.owner)).filter((id): id is string => Boolean(id))))
       const names = { ...(await this.names(org.id)) }
       await this.host.memory.stage(org.id, runId, { kind: 'write', path: artifactPath(fresh.slug, PLAN_FILE), text: planMarkdown(fresh, plan, names) })
-      const goes = fresh.plan ? replanGoesAhead(fresh.plan, plan) : false
+      const goes = fresh.plan ? replanGoesAhead(fresh.plan, plan, fresh.parts) : false
       return [
         `Plan v${version} recorded: ${plan.parts.length} parts, ${plan.size}. Foreman’s checks passed, and plan.md is written in your run.`,
         result.proposed.length ? `Proposed as drafts the person approves: ${result.proposed.map((p) => `${p.name} (${proposedIds[p.key]})`).join(', ')}.` : '',
-        fresh.plan ? (goes ? 'It only gives the plan’s owners more work, so it goes ahead when you finish.' : 'It changes who works on the project, so it waits for the person’s approval.') : 'The person approves it, and each proposed employee, before any part starts.',
+        fresh.plan
+          ? goes
+            ? 'It only gives the plan’s owners more work, so it goes ahead when you finish.'
+            : 'It changes who works on the project, a check of the person’s, or what a started part does, so it waits for the person’s approval.'
+          : 'The person approves it, and each proposed employee, before any part starts.',
         'Now finish_task done (call project_plan again only to change it).'
       ]
         .filter(Boolean)
@@ -656,6 +744,9 @@ export class ProjectService implements EmployeeProjectHooks {
     await this.checkUnchanged(project, step)
     const why = task.closureDetail ?? task.result?.unblock ?? task.resultSummary ?? `It closed ${task.closureReason ?? 'without a result'}.`
     if (!done) step.reason = why
+    // A follow-up that changed its part's file or mocks: a new version of them (the channel says it changed after the
+    // person's approval), in a closed project too.
+    if (step.kind === 'follow-up' && done) await this.followUpClosed(project, task)
     if (project.phase === 'closed') {
       // Closed while it ran (Stop): its part says how it ended, as its post does.
       if (!done && task.closureReason === 'canceled') step.end = 'stopped'
@@ -726,8 +817,8 @@ export class ProjectService implements EmployeeProjectHooks {
     }
     if (!plan || !done) return this.advance(project)
     project.replans++
-    this.recordArtifact(project, task, PLAN_FILE)
-    if (project.plan && replanGoesAhead(project.plan, plan)) return this.apply(project, plan, 'went-ahead')
+    await this.recordArtifact(project, task, PLAN_FILE)
+    if (project.plan && replanGoesAhead(project.plan, plan, project.parts)) return this.apply(project, plan, 'went-ahead')
     project.waits = project.waits.filter((w) => w.kind !== 'plan')
     this.addWait(project, { kind: 'plan' })
   }
@@ -747,8 +838,8 @@ export class ProjectService implements EmployeeProjectHooks {
       this.addWait(project, { kind: 'stuck', reason: done ? 'The program manager finished without a plan.' : why })
       return
     }
-    this.recordArtifact(project, task, PLAN_FILE)
-    if (project.plan && replanGoesAhead(project.plan, plan)) {
+    await this.recordArtifact(project, task, PLAN_FILE)
+    if (project.plan && replanGoesAhead(project.plan, plan, project.parts)) {
       await this.apply(project, plan, 'went-ahead')
       return
     }
@@ -764,8 +855,9 @@ export class ProjectService implements EmployeeProjectHooks {
       this.save(project)
       return
     }
+    if (done && part.checks && task.result?.decision === 'fail') return this.checkFailed(project, task, part, status)
     if (done) {
-      this.recordArtifact(project, task, part.writes, partId)
+      await this.recordArtifact(project, task, part.writes, partId)
       if (part.gate) {
         project.parts[partId] = { ...status, state: 'gate' }
         this.addWait(project, { kind: 'gate', partId })
@@ -775,20 +867,72 @@ export class ProjectService implements EmployeeProjectHooks {
       await this.advance(project)
       return
     }
+    // A run that ended for a reason that isn't the work's (it couldn't start, its agent failed, it never finished its
+    // task) uses no replan: it waits for the person's Try again, saying what happened.
+    const outage = earlyEnd(task)
+    if (outage) {
+      project.parts[partId] = { ...status, state: 'stuck', reason: outage }
+      this.addWait(project, { kind: 'stuck', partId, reason: outage })
+      return
+    }
     project.parts[partId] = { ...status, state: 'stuck', reason: why }
-    // A part that couldn't finish is the program manager's to replan, while she has replans left.
+    // A part whose employee said it couldn't finish (partial, blocked) is the program manager's to replan, while she has
+    // replans left.
     const own = task.closureReason === 'blocked' && project.replans < MAX_REPLANS && !project.replanning
     if (own) {
       // It stopped to have the plan changed (as a part told by the person's note to block does): not a failure.
       const step = project.steps.find((s) => s.taskId === task.id)
       if (step) step.end = 'replan'
       project.parts[partId] = { ...project.parts[partId], askedReplan: true }
-      project.replans++
       const names = await this.names(project.orgId)
-      await this.startPlanning(project, { reason: `${ownerName(project.plan!, part.owner, names)} couldn’t finish “${part.title}” (${part.id}): ${why}` })
+      await this.replan(project, `${ownerName(project.plan!, part.owner, names)} couldn’t finish “${part.title}” (${part.id}): ${why}`)
       return
     }
     this.addWait(project, { kind: 'stuck', partId, reason: why })
+  }
+
+  /**
+   * A check (a part with checks) finished done with decision fail (§15): its file is recorded, and the program manager
+   * replans with what it found (a replan, counted), after which the check runs again unless she takes it as it is. With
+   * no replans left the person decides at the final check, the fail shown; while another replan is being made, it waits
+   * for the person's Try again.
+   */
+  private async checkFailed(project: Project, task: EmployeeTask, part: PlanPart, status: PartStatus): Promise<void> {
+    await this.recordArtifact(project, task, part.writes, part.id)
+    const names = await this.names(project.orgId)
+    const found = (task.result?.summary ?? '').trim()
+    const reason = `${ownerName(project.plan!, part.owner, names)}’s check “${part.title}” (${part.id}) failed${found ? `: ${found}` : '.'}`
+    if (project.replans < MAX_REPLANS && !project.replanning) {
+      project.parts[part.id] = { ...status, state: 'stuck', reason: 'Its check failed: the program manager replans with what it found.', askedReplan: true }
+      const step = project.steps.find((s) => s.taskId === task.id)
+      if (step) step.end = 'replan'
+      await this.replan(project, reason)
+      return
+    }
+    if (project.replanning) {
+      project.parts[part.id] = { ...status, state: 'stuck', reason }
+      this.addWait(project, { kind: 'stuck', partId: part.id, reason })
+      return
+    }
+    project.parts[part.id] = { ...status, state: 'done' }
+    project.phase = 'final-gate'
+    project.waits = project.waits.filter((w) => w.kind !== 'final')
+    this.addWait(project, { kind: 'final', reason: `${reason} No replans are left: approve it as it is, or stop.` })
+  }
+
+  /**
+   * A replan the project asks for (a part that couldn't finish, a failed check, the acceptance): counted, and started now,
+   * or held until Resume while the project is paused (nothing new starts on a paused project).
+   */
+  private async replan(project: Project, reason: string): Promise<void> {
+    project.replans++
+    if (project.paused) {
+      project.replanning = true
+      project.deferredReplan = reason
+      this.save(project)
+      return
+    }
+    await this.startPlanning(project, { reason })
   }
 
   private async acceptClosed(project: Project, task: EmployeeTask, done: boolean, why: string): Promise<void> {
@@ -796,31 +940,56 @@ export class ProjectService implements EmployeeProjectHooks {
       this.addWait(project, { kind: 'stuck', reason: why })
       return
     }
-    this.recordArtifact(project, task, ACCEPTANCE_FILE)
+    await this.recordArtifact(project, task, ACCEPTANCE_FILE)
     if (task.result?.decision === 'replan' && project.replans < MAX_REPLANS) {
-      project.replans++
       project.phase = 'working'
-      await this.startPlanning(project, { reason: `Your acceptance found what must change: ${task.result.summary}` })
+      await this.replan(project, `Your acceptance found what must change: ${task.result.summary}`)
       return
     }
     project.phase = 'final-gate'
     this.addWait(project, { kind: 'final', ...(task.result?.decision === 'replan' ? { reason: 'The program manager didn’t accept it, and has no replans left.' } : {}) })
   }
 
-  private recordArtifact(project: Project, task: EmployeeTask, file: string, partId?: string): void {
+  /**
+   * A new version of a file of the project, as `task` left it. A part's mocks are those this round named and those it
+   * drew before that are still in its folder (a round names what it changed, which doesn't take the others away), index
+   * first. `commit` when the task's result has none (a file taken as it is: the memory repository's head it was read at).
+   */
+  private async recordArtifact(project: Project, task: EmployeeTask, file: string, partId?: string, commit?: string): Promise<void> {
     const before = project.artifacts[file]
-    const mocks = partId ? partMocks(project.slug, partId, task.result?.artifacts ?? []) : []
+    let mocks = partId ? partMocks(project.slug, partId, task.result?.artifacts ?? []) : []
+    const earlier = partId && before?.partId === partId ? (before.mocks ?? []).filter((m) => !mocks.includes(m)) : []
+    if (partId && earlier.length) {
+      const tree = await this.host.memory.tree(project.orgId).catch(() => undefined)
+      const there = tree ? new Set(tree.entries.map((x) => x.path)) : undefined
+      mocks = partMocks(project.slug, partId, [...mocks, ...earlier.filter((m) => !there || there.has(m))])
+    }
+    const at = task.result?.commit ?? commit
     project.artifacts[file] = {
       file,
       path: artifactPath(project.slug, file),
       employeeId: task.employeeId,
       taskId: task.id,
       ...(partId ? { partId } : {}),
-      ...(task.result?.commit ? { commit: task.result.commit } : {}),
+      ...(at ? { commit: at } : {}),
       version: (before?.version ?? 0) + 1,
       at: this.iso(),
       ...(mocks.length ? { mocks } : {})
     }
+  }
+
+  /**
+   * A follow-up about a part closed done naming that part's file or mocks among its artifacts (#28): they are recorded as
+   * a new version, so what was approved (the gate's decision keeps its version) and what is there now are told apart.
+   */
+  private async followUpClosed(project: Project, task: EmployeeTask): Promise<void> {
+    const partId = task.project?.partId
+    const part = partId ? project.plan?.parts.find((p) => p.id === partId) : undefined
+    if (!part || !partId) return
+    const named = memoryArtifacts(task.result?.artifacts)
+    const path = artifactPath(project.slug, part.writes)
+    if (!named.includes(path) && !partMocks(project.slug, partId, named).length) return
+    await this.recordArtifact(project, task, part.writes, partId)
   }
 
   /** A plan takes effect: approved at the plan gate, or a replan that went ahead. */
@@ -832,27 +1001,52 @@ export class ProjectService implements EmployeeProjectHooks {
     project.plan = withOwnersResolved({ ...plan, status: how })
     // A part it keeps that couldn't finish runs again (its next round), unless the plan takes it as it is.
     const kept = partsAfter(plan, project.parts)
+    const accepted: PlanPart[] = []
     for (const [id, s] of Object.entries(kept)) {
       if (s.state !== 'stuck') continue
       const { askedReplan: _asked, ...rest } = s
-      kept[id] = plan.parts.find((p) => p.id === id)?.acceptAsIs ? { ...rest, state: 'done', reason: undefined } : { ...rest, state: 'pending', reason: undefined }
+      const part = plan.parts.find((p) => p.id === id)
+      if (part?.acceptAsIs) accepted.push(part)
+      kept[id] = part?.acceptAsIs ? { ...rest, state: 'done', reason: undefined } : { ...rest, state: 'pending', reason: undefined }
     }
     project.parts = kept
     project.replanning = false
     project.phase = 'working'
-    project.waits = project.waits.filter((w) => w.kind !== 'plan' && !(w.kind === 'stuck' && (!w.partId || kept[w.partId]?.state === 'pending')))
+    project.waits = project.waits.filter((w) => w.kind !== 'plan' && !(w.kind === 'stuck' && (!w.partId || kept[w.partId]?.state === 'pending' || accepted.some((p) => p.id === w.partId))))
+    // One taken as it is finishes as a done part does: its file (as its task left it) is what comes next reads, and the
+    // person still checks it when it has a gate.
+    for (const part of accepted) await this.acceptedAsIs(project, part)
     await this.advance(project)
+  }
+
+  /** A part the plan takes as it is: its file recorded from its last task, when it wrote it, and its gate waiting. */
+  private async acceptedAsIs(project: Project, part: PlanPart): Promise<void> {
+    const status = project.parts[part.id]
+    const task = status?.taskId ? this.db.employeeTask(status.taskId) : undefined
+    const path = artifactPath(project.slug, part.writes)
+    const file = task ? await this.host.memory.read(project.orgId, path).catch(() => undefined) : undefined
+    if (task && file && file.blob !== null) await this.recordArtifact(project, task, part.writes, part.id, file.head)
+    if (part.gate) {
+      project.parts[part.id] = { ...status, state: 'gate' }
+      project.waits.push({ id: randomUUID(), kind: 'gate', partId: part.id, since: this.iso() })
+    }
   }
 
   /** Start what can start now, or end the project when its parts are done. */
   private async advance(project: Project): Promise<void> {
-    if (project.phase !== 'working' || project.paused || project.replanning || !project.plan) {
+    // Nothing new starts while paused, while a replan is being made, or while one that failed waits for Try again.
+    if (project.phase !== 'working' || project.paused || project.replanning || !project.plan || project.waits.some((w) => w.kind === 'stuck' && !w.partId)) {
       this.save(project)
       return
     }
     if (allPartsDone(project.plan, project.parts)) {
-      if (project.plan.size === 'small') return this.close(project, 'done')
-      return this.startAcceptance(project)
+      if (project.plan.size === 'large') return this.startAcceptance(project)
+      if (!endsWithFinalCheck(project.plan)) return this.close(project, 'done')
+      // A small plan that changes the code ends with the person's final check.
+      project.phase = 'final-gate'
+      project.waits = project.waits.filter((w) => w.kind !== 'final')
+      this.addWait(project, { kind: 'final' })
+      return
     }
     const ready = readyParts(project.plan, project.parts)
     this.save(project)
@@ -871,11 +1065,18 @@ export class ProjectService implements EmployeeProjectHooks {
     }
     const round = status.round + 1
     const files = [...new Set([...part.reads, ...part.dependsOn].map((id) => plan.parts.find((p) => p.id === id)?.writes).filter((f): f is string => Boolean(f)))]
-    // Each file it reads, and the mocks drawn with it, at the commit they were written in.
-    const inputs = files.flatMap((f) => {
+    // Each file it reads, and the mocks drawn with it, at the commit they were written in (the version the person approved
+    // at a gate, even if a follow-up changed it since).
+    const inputs: { path: string; commit?: string }[] = files.flatMap((f) => {
       const a = project.artifacts[f]
-      return a ? [a.path, ...(a.mocks ?? [])].map((p) => ({ path: p, ...(a.commit ? { commit: a.commit } : {}) })) : []
+      const approved = a?.partId ? lastApproval(project.decisions, a.partId) : undefined
+      const commit = approved?.commit ?? a?.commit
+      return a ? [a.path, ...(a.mocks ?? [])].map((p) => ({ path: p, ...(commit ? { commit } : {}) })) : []
     })
+    // A round after one that finished (sent back, tried again): its own file and mocks as they are now, to change as asked;
+    // finishing done with the file as the last round left it is refused.
+    const own = round > 1 && project.artifacts[part.writes]?.partId === part.id ? project.artifacts[part.writes] : undefined
+    if (own) inputs.push(...[own.path, ...(own.mocks ?? [])].filter((p) => !inputs.some((i) => i.path === p)).map((p) => ({ path: p })))
     // What the person said approving a part this one waits for or reads (their note, their pick) goes with its first round after.
     const approvals = approvalsFor(project, plan, part)
     const path = artifactPath(project.slug, part.writes)
@@ -909,12 +1110,22 @@ export class ProjectService implements EmployeeProjectHooks {
           ...(approvals.length ? { approvals } : {}),
           ...(messages ? { messages } : {}),
           ...(publisher && publisher.id !== part.id ? { publisher } : {}),
-          ...(published ? { published } : {})
+          ...(published ? { published } : {}),
+          replansLeft: Math.max(0, MAX_REPLANS - project.replans),
+          ...(own ? { rework: true } : {})
         }),
         requestId: `project:${project.id}:part:${part.id}:${round}${again ? `:again-${again}` : ''}`,
         round,
         ...(repoAt ? { repoAt } : {}),
-        contract: { ...(inputs.length ? { inputs } : {}), produces: path, writes: [path], writesUnder: [mocksFolder(project.slug, part.id)] }
+        contract: {
+          ...(inputs.length ? { inputs } : {}),
+          produces: path,
+          writes: [path],
+          writesUnder: [mocksFolder(project.slug, part.id)],
+          // A check finishes with its verdict.
+          ...(part.checks ? { options: ['pass', 'fail'] } : {}),
+          ...(own?.commit ? { reworks: own.commit } : {})
+        }
       },
       { kind: 'stuck', partId: part.id }
     )
@@ -929,6 +1140,11 @@ export class ProjectService implements EmployeeProjectHooks {
   private async startAcceptance(project: Project, note?: string): Promise<void> {
     const org = this.organization(project.orgId)
     project.phase = 'accepting'
+    const nobody = await this.livePm(project)
+    if (nobody) {
+      this.addWait(project, { kind: 'stuck', reason: nobody })
+      return
+    }
     const round = project.steps.filter((s) => s.kind === 'accept').length + 1
     const inputs = Object.values(project.artifacts).map((a) => ({ path: a.path, ...(a.commit ? { commit: a.commit } : {}) }))
     const path = artifactPath(project.slug, ACCEPTANCE_FILE)
@@ -981,7 +1197,18 @@ export class ProjectService implements EmployeeProjectHooks {
       const mocks = wait.kind === 'gate' ? (Object.values(project.artifacts).find((a) => a.partId === wait.partId)?.mocks ?? []) : []
       const pick = decision === 'approve' && typeof options?.pick === 'string' && options.pick ? options.pick : undefined
       if (pick && !mocks.includes(pick)) throw new Error('That mock isn’t one this part drew.')
-      const record = () => project.decisions.push({ waitKind: wait.kind, ...(wait.partId ? { partId: wait.partId } : {}), decision, ...(text ? { note: text } : {}), ...(pick ? { pick } : {}), at: this.iso() })
+      // At a part's gate: the version of its file the person decided on.
+      const seen = wait.kind === 'gate' ? Object.values(project.artifacts).find((a) => a.partId === wait.partId) : undefined
+      const record = () =>
+        project.decisions.push({
+          waitKind: wait.kind,
+          ...(wait.partId ? { partId: wait.partId } : {}),
+          decision,
+          ...(text ? { note: text } : {}),
+          ...(pick ? { pick } : {}),
+          ...(seen ? { version: seen.version, ...(seen.commit ? { commit: seen.commit } : {}) } : {}),
+          at: this.iso()
+        })
       if (decision === 'stop') {
         record()
         await this.close(project, 'stopped')
@@ -994,7 +1221,12 @@ export class ProjectService implements EmployeeProjectHooks {
         if (decision === 'approve') {
           const unapproved: string[] = []
           const names = await this.names(project.orgId)
-          for (const owner of new Set(plan.parts.map((p) => p.owner))) {
+          // Every part that will run needs an approved owner; one that won't run again may keep one who has retired.
+          const stays = (p: PlanPart) => {
+            const s = project.parts[p.id]?.state
+            return s === 'done' || s === 'running' || s === 'gate' || (s === 'stuck' && p.acceptAsIs)
+          }
+          for (const owner of new Set(plan.parts.filter((p) => !stays(p)).map((p) => p.owner))) {
             const id = ownerId(plan, owner)
             if (!id) {
               unapproved.push(ownerName(plan, owner, names))
@@ -1012,6 +1244,8 @@ export class ProjectService implements EmployeeProjectHooks {
           record()
           drop()
           plan.status = 'sent-back'
+          // The employees it proposed leave the team unless the person approved them already.
+          await this.retireDrafts(project, [plan])
           await this.startPlanning(project, { note: text, ...(project.plan ? { reason: 'The person sent the new plan back.' } : {}) })
           if (!project.plan) project.phase = 'planning'
           this.save(project)
@@ -1061,6 +1295,13 @@ export class ProjectService implements EmployeeProjectHooks {
       if (project.phase === 'closed') throw new Error('This project is closed.')
       if (paused) project.paused = true
       else delete project.paused
+      // A replan asked for while it was paused starts now (it was counted then); nothing else starts until it is applied.
+      const held = paused ? undefined : project.deferredReplan
+      if (held) {
+        delete project.deferredReplan
+        await this.startPlanning(project, { reason: held })
+        return this.project(project.id)
+      }
       await this.advance(project)
       return this.project(project.id)
     })
@@ -1082,6 +1323,7 @@ export class ProjectService implements EmployeeProjectHooks {
     project.closedAt = this.iso()
     project.waits = []
     delete project.paused
+    delete project.deferredReplan
     project.replanning = false
     // What runs is canceled: its step and its part say stopped at once, so the channel and the parts agree. A step whose
     // task already closed is left to closed(), which records its result.
@@ -1104,6 +1346,8 @@ export class ProjectService implements EmployeeProjectHooks {
     // keeps a shell or a tool once it closes.
     const finished = project.steps.filter((s) => !canceled.includes(s.taskId)).map((s) => s.taskId)
     await this.host.work.endRuns?.(finished, outcome === 'stopped' ? 'Stopped with its project.' : 'Ended with its project.').catch((err: unknown) => console.error('Project stop:', err))
+    // Employees its plans proposed that the person never approved leave the team with it.
+    await this.retireDrafts(project, project.plans)
     this.release(project)
   }
 
@@ -1198,6 +1442,13 @@ export class ProjectService implements EmployeeProjectHooks {
     return this.serial(async () => {
       const project = this.project(projectId)
       if (project.phase !== 'closed') await this.close(project, 'stopped')
+      else await this.retireDrafts(project, project.plans)
+      // Whatever of it is still open (a follow-up or a message of a closed project too) is canceled, and its runs end:
+      // nothing works for a channel that is gone.
+      const open = this.db.employeeTasks(project.orgId).filter((t) => t.project?.id === project.id && t.state !== 'closed')
+      for (const t of open) await this.host.work.cancel(t.id).catch((err: unknown) => console.error('Project delete:', err))
+      const all = [...new Set([...project.steps.map((s) => s.taskId), ...open.map((t) => t.id)])]
+      await this.host.work.endRuns?.(all, 'Its project was deleted.').catch((err: unknown) => console.error('Project delete:', err))
       if (options.removeFiles) {
         const folder = `${projectFolder(project.slug)}/`
         const tree = await this.host.memory.tree(project.orgId)
@@ -1240,6 +1491,7 @@ export class ProjectService implements EmployeeProjectHooks {
   addNote(projectId: string, text: string): Promise<Project> {
     return this.serial(async () => {
       const project = this.project(projectId)
+      this.notArchived(project)
       const clean = typeof text === 'string' ? text.trim() : ''
       if (!clean) throw new Error('Write something first.')
       if (clean.length > MAX_NOTE) throw new Error(`Keep the message under ${MAX_NOTE} characters.`)
@@ -1263,6 +1515,11 @@ export class ProjectService implements EmployeeProjectHooks {
     })
   }
 
+  /** An archived channel is read-only: nothing is written in it, and nobody is asked anything from it. */
+  private notArchived(project: Project): void {
+    if (isArchived(project, this.host.now?.() ?? Date.now())) throw new Error(`#${channelSlug(project)} is archived, so it is read-only. Restore the channel first.`)
+  }
+
   /** The employee's step of the project that is going now (its task not closed), the newest. */
   private runningStep(project: Project, employeeId: string): ProjectStep | undefined {
     return [...project.steps].reverse().find((s) => s.employeeId === employeeId && s.state === 'running' && this.db.employeeTask(s.taskId)?.state !== 'closed')
@@ -1284,6 +1541,8 @@ export class ProjectService implements EmployeeProjectHooks {
     const unread = project.notes.filter((n) => !n.to && !n.into)
     if (!unread.length) return
     if (project.steps.some((s) => s.kind === 'message' && s.state === 'running' && this.db.employeeTask(s.taskId)?.state !== 'closed')) return
+    const nobody = await this.livePm(project)
+    if (nobody) throw new Error(nobody)
     const org = this.organization(project.orgId)
     const names = await this.names(org.id)
     const busy = this.runningStep(project, project.pmId)
@@ -1335,6 +1594,7 @@ export class ProjectService implements EmployeeProjectHooks {
     if (!asked) throw new Error('Say what you’re asking.')
     if (asked.length > MAX_FOLLOW_UP) throw new Error(`Keep the question under ${MAX_FOLLOW_UP} characters.`)
     const project = this.project(projectId)
+    this.notArchived(project)
     const busy = project.phase === 'closed' ? undefined : this.runningStep(project, employeeId)
     if (busy) {
       const steered = await this.serial(async () => {
@@ -1369,6 +1629,7 @@ export class ProjectService implements EmployeeProjectHooks {
     if (!asked) throw new Error('Say what you’re asking.')
     if (asked.length > MAX_FOLLOW_UP) throw new Error(`Keep the question under ${MAX_FOLLOW_UP} characters.`)
     const fresh = this.project(project.id)
+    this.notArchived(fresh)
     const partId = about?.project?.partId
     const part = partId ? fresh.plan?.parts.find((p) => p.id === partId) : undefined
     const file = part?.writes ?? (about?.project?.kind === 'plan' ? PLAN_FILE : about?.project?.kind === 'accept' ? ACCEPTANCE_FILE : undefined)
@@ -1496,7 +1757,12 @@ export class ProjectService implements EmployeeProjectHooks {
 
   // ---- recovery ----
 
-  /** At launch: a task that closed while Foreman wasn't looking is gone on from, and what can start, starts. */
+  /**
+   * At launch: a task that closed while Foreman wasn't looking is gone on from; a step Foreman stopped before making its
+   * task (a crash between saving the project and making the task) is made now, under the same request id, so one made
+   * already is found rather than made twice: a part marked running with no task, an acceptance or a planning (a project
+   * saved before its first task, a replan) with no task and nothing waiting; and what can start, starts.
+   */
   recover(): Promise<void> {
     return this.serial(async () => {
       for (const project of this.db.projects().filter((p) => Array.isArray(p.waits) && p.phase !== 'closed')) {
@@ -1506,11 +1772,35 @@ export class ProjectService implements EmployeeProjectHooks {
             if (task?.state === 'closed') await this.closed(task)
           }
           const now = this.db.project(project.id)
-          if (now && now.phase === 'working') await this.advance(now)
+          if (!now || now.phase === 'closed') continue
+          await this.restart(now)
+          const after = this.db.project(project.id)
+          if (after && after.phase === 'working') await this.advance(after)
         } catch (err) {
           console.error('Project recovery:', err)
         }
       }
     })
+  }
+
+  /** Recovery: what a crash left with no task and nothing waiting for the person, made again (stable request ids). */
+  private async restart(project: Project): Promise<void> {
+    const going = (kind: ProjectStep['kind']) => project.steps.some((s) => s.kind === kind && s.state === 'running' && this.db.employeeTask(s.taskId))
+    const waiting = project.waits.length > 0
+    // A part marked running whose task was never made (or never recorded): pending again under its round before, so it
+    // starts again under the same request id.
+    for (const [id, s] of Object.entries(project.parts)) {
+      if (s.state !== 'running') continue
+      const step = s.taskId ? project.steps.find((x) => x.taskId === s.taskId) : undefined
+      if (s.taskId && step && this.db.employeeTask(s.taskId)) continue
+      project.parts[id] = { state: 'pending', round: Math.max(0, s.round - 1) }
+    }
+    this.save(project)
+    if (waiting || project.paused) return
+    if (project.phase === 'planning' && !going('plan')) return this.startPlanning(project, {})
+    if (project.phase === 'accepting' && !going('accept')) return this.startAcceptance(project)
+    // A replan that was counted and never made (nothing of it running, no revision waiting).
+    if (project.phase === 'working' && project.replanning && !going('plan') && !going('message') && !project.plans.some((p) => p.status === 'waiting'))
+      return this.startPlanning(project, { reason: project.deferredReplan ?? 'Foreman stopped before your replan could start: replan from the plan’s state below.' })
   }
 }

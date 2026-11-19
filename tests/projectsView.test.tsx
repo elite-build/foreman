@@ -303,11 +303,13 @@ describe('a project’s channel', () => {
     expect(within(side).getByText('0 of 3 replans used')).toBeTruthy()
     await user.click(screen.getAllByRole('button', { name: /build\.md/ })[0])
     await waitFor(() => expect(screen.getAllByText('Added toCsv().').length).toBeGreaterThan(0))
-    expect(fakeApi.memoryReadFile).toHaveBeenCalledWith('o1', 'memory/org/projects/csv-export/build.md')
-    // Its mocks, beside the file, each open in the browser from the memory repository's folder.
+    // The version the card labels, at its commit.
+    expect(fakeApi.memoryReadFile).toHaveBeenCalledWith('o1', 'memory/org/projects/csv-export/build.md', 'def456def456def')
+    // Its mocks, beside the file, each open in the browser as they were in that version (a later change doesn't show here).
     expect(screen.getAllByText('2 mocks to open in your browser').length).toBeGreaterThan(0)
+    fakeApi.openMemoryAt = vi.fn(async () => undefined)
     await user.click(screen.getAllByRole('button', { name: /1-export-a\.html/ })[0])
-    await waitFor(() => expect(fakeApi.openFile).toHaveBeenCalledWith('C:\\code\\frlk-memory\\memory\\org\\projects\\csv-export\\mocks\\build\\1-export-a.html', 'open'))
+    await waitFor(() => expect(fakeApi.openMemoryAt).toHaveBeenCalledWith('o1', 'memory/org/projects/csv-export/mocks/build/1-export-a.html', 'def456def456def'))
     await user.click(screen.getByRole('button', { name: /^Approve/ }))
     await waitFor(() => expect(fakeApi.decideProject).toHaveBeenCalledWith('p1', 'w2', 'approve', undefined))
   })
@@ -864,5 +866,40 @@ describe('Hand to Priya', () => {
     expect(screen.queryByRole('group', { name: /uncommitted/ })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Hand to Priya' }))
     await waitFor(() => expect(fakeApi.startProject).toHaveBeenCalledWith('o1', { requirement: 'Simplify the sidebar', fromWorkspaceId: 'ws-own' }))
+  })
+})
+describe('a project’s channel: what was approved, a check’s verdict, and what a proposed employee gets (slice 4)', () => {
+  it('says what a proposed employee will be able to do: Write, a shell, and publishing', () => {
+    setSnapshot()
+    render(<ProjectPage orgId="o1" project={project()} />)
+    expect(screen.getAllByText('Write on site, a shell, and pushes and pull requests without asking').length).toBeGreaterThan(0)
+  })
+
+  it('shows a check’s verdict, and a file changed after the person approved it', () => {
+    const changed = project({
+      phase: 'working',
+      plan: { ...PLAN, status: 'approved' },
+      plans: [{ ...PLAN, status: 'approved' }],
+      parts: { build: { state: 'done', round: 1, taskId: 't2' }, qa: { state: 'stuck', round: 1, taskId: 't3', askedReplan: true } },
+      steps: [
+        ...project().steps,
+        { kind: 'part', partId: 'build', round: 1, taskId: 't2', employeeId: 'e-rav1', state: 'done', summary: 'Built it.', startedAt: '2026-11-15T10:06:00.000Z', endedAt: '2026-11-15T10:07:00.000Z' },
+        { kind: 'follow-up', partId: 'build', round: 1, taskId: 't4', employeeId: 'e-rav1', state: 'done', question: 'Make it darker', summary: 'Darker now.', startedAt: '2026-11-15T10:09:00.000Z', endedAt: '2026-11-15T10:10:00.000Z' },
+        { kind: 'part', partId: 'qa', round: 1, taskId: 't3', employeeId: 'e-qui1', state: 'done', decision: 'fail', end: 'replan', summary: 'Two tests fail.', startedAt: '2026-11-15T10:11:00.000Z', endedAt: '2026-11-15T10:12:00.000Z' }
+      ],
+      artifacts: {
+        ...project().artifacts,
+        'build.md': { file: 'build.md', path: 'memory/org/projects/csv-export/build.md', employeeId: 'e-rav1', taskId: 't4', partId: 'build', commit: 'fff000fff000fff', version: 2, at: NOW }
+      },
+      waits: [],
+      decisions: [
+        { waitKind: 'plan', decision: 'approve', at: '2026-11-15T10:05:30.000Z' },
+        { waitKind: 'gate', partId: 'build', decision: 'approve', version: 1, commit: 'def456def456def', at: '2026-11-15T10:08:00.000Z' }
+      ]
+    })
+    setSnapshot([changed], [PRIYA, RAVI, { ...QUINN, state: 'active' }])
+    render(<ProjectPage orgId="o1" project={changed} />)
+    expect(screen.getByText('Failed')).toBeTruthy()
+    expect(screen.getByText('Changed after your approval: you approved v1')).toBeTruthy()
   })
 })

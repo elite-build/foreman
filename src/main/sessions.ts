@@ -1642,6 +1642,8 @@ export class SessionService {
         ...(employee ? { writeScopeSubject: 'AI employee’s run', employee: true as const } : {}),
         // docs/ai-employees.md §15: in a project only its publishing part pushes or opens a pull request.
         ...(brief?.noPublish ? { noPublish: brief.noPublish } : {}),
+        // §9: an employee without a shell, held read-only, is refused read-only commands too.
+        ...(employee && persona?.noShell ? { noShell: true as const } : {}),
         instance: session.instanceId,
         resume: session.agentSessionId,
         resumeAt: session.resumeAt,

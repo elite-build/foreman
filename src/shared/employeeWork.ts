@@ -126,6 +126,9 @@ export interface EmployeeTaskContract {
   writes?: string[]
   // The memory folders (each ending in /) it may write in for the task's duration: a part's mocks folder.
   writesUnder?: string[]
+  // A send-back or retry round: the commit `produces` was at as the previous round left it. finish_task done is refused
+  // while the file is still the same as there.
+  reworks?: string
 }
 
 /** Who handed a task over (from 'employee'): the employee, its name then, and the task and run it was handed from. */
@@ -479,7 +482,8 @@ export const EMPLOYEE_WRITE_SCOPE = ['**'] as const
 
 /**
  * What one run may do (§9, the intersection): Read access holds it read-only; Write with a shell (the default) has no
- * scope, as a workspace's agent; Write without a shell is scoped writes over the workspace, which removes the shell. It
+ * scope, as a workspace's agent; Write without a shell is scoped writes over the workspace, which removes the shell, and
+ * Read without one refuses every shell command, read-only ones too (noShell). It
  * has every MCP server a workspace's agent has. A persona it wears narrows each of these and never widens one:
  * read-only stays, its MCP list and write globs cut what the run has, and its instructions follow the employee's. Its
  * loadout is ignored (the definition's model runs).
@@ -492,7 +496,10 @@ export function employeeTurnLimits(definition: Pick<EmployeeDefinition, 'access'
     ...(persona ? { name: persona.name, instructions: persona.instructions } : {}),
     ...(readOnly ? { readOnly: true } : {}),
     ...(persona?.mcp ? { mcp: [...persona.mcp] } : {}),
-    ...(writes ? { writes } : {})
+    ...(writes ? { writes } : {}),
+    // Read-only mode lets read-only commands through, and a read-only run has no write scope to refuse them: without a
+    // shell it is refused every one all the same.
+    ...(readOnly && definition.access.profile === 'no-shell' ? { noShell: true as const } : {})
   }
 }
 
@@ -574,7 +581,11 @@ export function runAccessText(a: EmployeeRunAccessText): string {
   // Foreman's own tools too, and an unattended run took "don't ask for approval" to forbid ask_person.
   if (a.access === 'read')
     lines.push(
-      'Foreman holds this run read-only through your agent’s own read-only mode, which you can’t leave. Keep repository access read-only; use Foreman’s own tools below for memory and task completion, subject to their grants and checks. You may read and search the repository, including with read-only commands your agent offers, but not change it. Never run tests, builds, scripts, servers or installs, or git commands that change anything. Read the code and configuration instead. When the task asks for a repository change, hand back the exact edits file by file (the file, what to replace, with what), tests included, say they aren’t applied, and mark the implementation unfinished; a review, a diagnosis or a plan can be complete without edits. Keep source inspection separate from execution evidence. Claim that an execution check passed only from an actual run recorded in the task, an event or a file you read. Name the record and establish which code, check and environment it covers. A result for earlier or different code is not a pass for this change. A previous run may count when it covers the code, check and environment behind the claim. For an execution check with no applicable record, say “not run” and what it would establish. Finding nothing is a result: say what you read.'
+      [
+        'Foreman holds this run read-only through your agent’s own read-only mode, which you can’t leave. Keep repository access read-only; use Foreman’s own tools below for memory and task completion, subject to their grants and checks.',
+        a.profile === 'no-shell' ? 'You may read and search the repository with the read and search tools, but not change it. You have no shell: every shell command is refused, including read-only commands.' : 'You may read and search the repository, including with read-only commands your agent offers, but not change it.',
+        'Never run tests, builds, scripts, servers or installs, or git commands that change anything. Read the code and configuration instead. When the task asks for a repository change, hand back the exact edits file by file (the file, what to replace, with what), tests included, say they aren’t applied, and mark the implementation unfinished; a review, a diagnosis or a plan can be complete without edits. Keep source inspection separate from execution evidence. Claim that an execution check passed only from an actual run recorded in the task, an event or a file you read. Name the record and establish which code, check and environment it covers. A result for earlier or different code is not a pass for this change. A previous run may count when it covers the code, check and environment behind the claim. For an execution check with no applicable record, say “not run” and what it would establish. Finding nothing is a result: say what you read.'
+      ].join(' ')
     )
   else if (a.profile === 'no-shell')
     lines.push(

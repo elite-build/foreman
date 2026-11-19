@@ -15,7 +15,7 @@ import { announce } from '../../announce'
 import { useT } from '../../i18n'
 import { shortcutHint } from '../../shortcuts'
 import { api, attempt, openEmployees, selectWorkspace, showToast, useStore } from '../../store'
-import { Callout, Field, Kbd, MenuButton, MenuItem, RadioList, TextArea } from '../../ui'
+import { Button, Callout, Field, Kbd, MenuButton, MenuItem, RadioList, TextArea } from '../../ui'
 import { DecisionList, PlacedDecision, type DecisionPlace } from '../DecisionCard'
 import { ActionDecision } from './HeldActions'
 import { EmployeeWho, ProposalDecision } from './MemoryProposals'
@@ -178,13 +178,54 @@ export function QuestionDecision({ task, place, who }: { task: EmployeeTask; pla
 }
 
 /**
+ * A project's chain out of runs: Stop the project, asked first as the project's own Stop asks (its words), since its
+ * chain's first task closed long ago and only the project can end what is left of it (§15).
+ */
+function StopProjectConfirm({ projectId, title, onDone }: { projectId: string; title: string; onDone: () => void }) {
+  const t = useT()
+  return (
+    <Callout
+      tone="warn"
+      role="alert"
+      title={t('projects.stop.title')}
+      actions={
+        <>
+          <Button size="sm" onClick={onDone}>
+            {t('projects.stop.keep')}
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() =>
+              void attempt(async () => {
+                await api.stopProject(projectId)
+                onDone()
+                showToast(t('projects.stop.done', { title }))
+              })
+            }
+          >
+            {t('projects.action.stop')}
+          </Button>
+        </>
+      }
+    >
+      {t('projects.stop.body')}
+    </Callout>
+  )
+}
+
+/**
  * A task that needs a person for another reason (§6.2, §7): a refusal or an ended run it can retry, a run Foreman closed
- * on (retry or cancel), a chain out of runs (raise its limit or cancel the chain).
+ * on (retry or cancel), a chain out of runs (raise its limit or cancel the chain; a project's: stop the project).
  */
 export function TaskDecision({ task, place, who }: { task: EmployeeTask; place: DecisionPlace; who: ReactNode }) {
   const t = useT()
   const name = useStore((s) => s.snapshot!.employees?.[task.orgId]?.employees.find((e) => e.id === task.employeeId)?.name) || task.employeeId
+  const project = useStore((s) => (task.project ? s.snapshot!.projects?.[task.orgId]?.find((p) => p.id === task.project!.id) : undefined))
+  const [stopping, setStopping] = useState(false)
   const spent = task.state === 'open' && task.hold === 'root-limit'
+  // A project's chain is ended by stopping the project: its first task is closed, so canceling the chain would do nothing.
+  const stopsProject = spent && Boolean(task.project) && project?.phase !== 'closed'
   const why = holdText(task, t)
   const retry = useTaskRetryable(task)
   const main = spent
@@ -199,11 +240,13 @@ export function TaskDecision({ task, place, who }: { task: EmployeeTask; place: 
     : retry
       ? { label: t('employees.task.retry'), onAct: () => void attempt(() => api.retryEmployeeTask(task.id)) }
       : undefined
-  const decline = spent
-    ? { label: t('employees.chain.cancel'), onAct: () => void attempt(() => api.cancelEmployeeTask(task.rootId)) }
-    : canCancelTask(task)
-      ? { label: t('employees.decision.cancelTask'), onAct: () => void attempt(() => api.cancelEmployeeTask(task.id)) }
-      : undefined
+  const decline = stopsProject
+    ? { label: t('employees.chain.stopProject'), onAct: () => setStopping(true) }
+    : spent
+      ? { label: t('employees.chain.cancel'), onAct: () => void attempt(() => api.cancelEmployeeTask(task.rootId)) }
+      : canCancelTask(task)
+        ? { label: t('employees.decision.cancelTask'), onAct: () => void attempt(() => api.cancelEmployeeTask(task.id)) }
+        : undefined
   return (
     <PlacedDecision
       place={place}
@@ -212,10 +255,18 @@ export function TaskDecision({ task, place, who }: { task: EmployeeTask; place: 
         kind: t('decision.kind.task'),
         age: timeAgo(task.updatedAt, t.locale),
         subject: task.title,
-        children: why ? <p className="employee-task-why">{why}</p> : null,
+        children:
+          why || (stopsProject && stopping) ? (
+            <>
+              {why && <p className="employee-task-why">{why}</p>}
+              {stopsProject && stopping && <StopProjectConfirm projectId={task.project!.id} title={project?.title ?? task.title} onDone={() => setStopping(false)} />}
+            </>
+          ) : null,
         consequence: spent ? t('employees.decision.task.raise') : retry ? t('employees.decision.task.retry', { name }) : undefined,
         footStart: <TaskMore task={task} />,
         decline,
+        // Stopping a whole project is pressed on its button, never Esc.
+        ...(stopsProject ? { escDeclines: false } : {}),
         main,
         rowAct: main ? { label: main.label, onAct: main.onAct } : { label: t('decision.review'), onAct: place.onToggle ?? (() => undefined) }
       }}

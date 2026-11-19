@@ -4,7 +4,7 @@
 // memory read is framed as data. Writes go through the memory service, staged for the run (its own folder, and shared
 // folders its definition grants) or filed as proposals for a person (the organization's files), never anywhere else.
 import type { AgentKind } from '../shared/agents'
-import { DATA_NOTE, dataBlock, memoryBlock, memoryWriteDecision, plainSnippet, rememberLine, ROSTER_NOTE, type EmployeeToolName, type MemoryWriteGrants } from '../shared/employeeTools'
+import { DATA_NOTE, dataBlock, memoryBlock, memoryConflictNote, memoryWriteDecision, plainSnippet, rememberLine, ROSTER_NOTE, type EmployeeToolName, type MemoryWriteGrants } from '../shared/employeeTools'
 import { newTriggerId, triggerKey } from '../shared/employeeTriggers'
 import { closureFor, type EmployeeRun } from '../shared/employeeWork'
 import {
@@ -198,8 +198,8 @@ export class EmployeeTools {
    */
   private async proposeChange(sessionId: string, args: EmployeeProposeInput): Promise<EmployeeToolResult> {
     const { run, task, brief } = this.host.work.toolRun(sessionId)
-    // As for any memory write: a definition changed since this run's approval, or a retired employee, files nothing.
-    await this.grants(run, brief)
+    // A definition changed since this run's approval, or a retired employee, files nothing: the person approves it first.
+    await this.grants(run, brief, 'propose')
     const reason = args.reason.trim()
     const spec = args.spec && typeof args.spec === 'object' ? args.spec : {}
     const members = (await this.host.employees.members?.(run.orgId)) ?? []
@@ -278,24 +278,36 @@ export class EmployeeTools {
     return { text: `${hits.length} ${hits.length === 1 ? 'file matches' : 'files match'} “${args.query}”, best first (matches «marked»). memory_read a path for the whole file.\n\n${blocks.join('\n\n')}\n\n${DATA_NOTE}` }
   }
 
-  private async read(sessionId: string, args: { path: string }): Promise<EmployeeToolResult> {
+  private async read(sessionId: string, args: { path: string; commit?: string }): Promise<EmployeeToolResult> {
     const { run } = this.host.work.toolRun(sessionId)
-    const file = await this.host.memory.read(run.orgId, args.path, { runId: run.id })
-    if (file.blob === null) return { text: `${file.path} doesn’t exist yet (version: null). To make it, memory_write it with expected: null.` }
+    const file = await this.host.memory.read(run.orgId, args.path, { runId: run.id, ...(args.commit ? { commit: args.commit } : {}) })
+    // At a commit: the version handed over, which a write isn't checked against.
+    const at = args.commit ? ` at ${file.head.slice(0, 12)}` : ''
+    if (file.blob === null) return { text: args.commit ? `${file.path} didn’t exist${at}.` : `${file.path} doesn’t exist yet (version: null). To make it, memory_write it with expected: null.` }
     if (file.binary || file.tooLarge || file.text === undefined) return { text: `${file.path} is ${file.binary ? 'binary' : 'too large'}; Foreman reads and writes only text files in memory.`, isError: true }
-    return { text: `${memoryBlock({ path: file.path, version: file.blob }, file.text)}\n\nversion: ${file.blob} (pass it as expected to memory_write)\n${DATA_NOTE}` }
+    const version = args.commit
+      ? `version${at}: ${file.blob}. This is the file as it was at that commit, not necessarily now: to write it, memory_read it without commit and pass that version as expected.`
+      : `version: ${file.blob} (pass it as expected to memory_write)`
+    return { text: `${memoryBlock({ path: file.path, version: file.blob }, file.text)}\n\n${version}\n${DATA_NOTE}` }
   }
 
   /**
-   * What the run may write now: its grants as admitted, narrowed by its definition as it is now. A definition changed
-   * since its approval, or an employee retired, takes no writes (§9: a new revision reaches running work at its next call).
+   * What the run may write now: its grants as admitted, narrowed by its definition as it is now once that is approved
+   * again. An edit not yet approved (or a file with problems) reaches no running work: the run keeps writing what it was
+   * admitted to write under the approval it ran with (its task's file included), so the part it does isn't lost to an
+   * edit meanwhile (§9). A retired employee takes no writes, and `propose` (a new version of its own definition) waits
+   * for its definition to be approved again.
    */
-  private async grants(run: EmployeeRun, brief: EmployeeBrief): Promise<MemoryWriteGrants> {
+  private async grants(run: EmployeeRun, brief: EmployeeBrief, as: 'write' | 'propose' = 'write'): Promise<MemoryWriteGrants> {
     const current = await this.host.employees.current(run.orgId, run.employeeId)
     const { summary, definition } = current
-    if (!definition || summary.problems.length || summary.changed || summary.state === 'retired' || summary.state === 'draft')
-      throw new Error('Your definition changed since this run was approved (or you were retired), so Foreman takes no memory writes from this run. Finish the task and say so.')
-    return { scopes: brief.memoryWrites.scopes.filter((s) => definition.access.memory_write.includes(s)), readOnly: brief.memoryWrites.readOnly, files: brief.memoryWrites.files ?? [], folders: brief.memoryWrites.folders ?? [] }
+    if (summary.state === 'retired' || summary.state === 'draft') throw new Error('You were retired, or aren’t approved on this computer any more, so Foreman takes no memory writes from this run. Finish the task and say so.')
+    const admitted = { scopes: [...brief.memoryWrites.scopes], readOnly: brief.memoryWrites.readOnly, files: brief.memoryWrites.files ?? [], folders: brief.memoryWrites.folders ?? [] }
+    if (!definition || summary.problems.length || summary.changed) {
+      if (as === 'propose') throw new Error('Your definition changed since this run was approved, so Foreman takes no proposals to change it from this run. Finish the task and say so.')
+      return admitted
+    }
+    return { ...admitted, scopes: admitted.scopes.filter((s) => definition.access.memory_write.includes(s)) }
   }
 
   /**
@@ -344,7 +356,7 @@ export class EmployeeTools {
   private async checkpoint(sessionId: string): Promise<EmployeeToolResult> {
     const { run, task } = this.host.work.toolRun(sessionId)
     const out = await this.host.work.commitMemory(run, task)
-    if (out.conflict) return { text: `Not committed: ${out.conflict.path} changed since you read it, so this run’s writes so far were set aside. Read it again and write again.`, isError: true }
+    if (out.conflict) return { text: `Not committed: ${memoryConflictNote(out.conflict.paths)} checkpoint again.`, isError: true }
     if (!out.commit) return { text: 'Nothing to commit: you haven’t written anything since the last commit.' }
     return { text: `Committed ${out.commit} with your name, this run and this task.` }
   }

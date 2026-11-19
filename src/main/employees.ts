@@ -360,7 +360,8 @@ export class EmployeeService {
     if (running) return running
     const run = (async () => {
       try {
-        this.organization(orgId)
+        // A program manager an earlier build retired kept her place, which she gives up now.
+        if (this.forgetRetiredProgramManager(this.organization(orgId))) this.host.changed()
         let read = await this.load(orgId)
         if (await this.ownPromptFiles(orgId, read.entries)) read = await this.load(orgId)
         await this.widenOnce(orgId, read.entries)
@@ -657,6 +658,33 @@ export class EmployeeService {
   }
 
   /**
+   * A repository joined the organization (moved into it, or cloned or made for it): its program manager gets it as she
+   * gets the organization's repositories when she is made (withFullAccess: Write, Read while attended), so a project
+   * there can be planned (§15). One commit by the person, who asked for this by bringing the repository in; an approval of
+   * her definition as it was moves to it, as widenOnce's does, since nothing else changed, and one of an earlier version
+   * stays where it was. Nothing changes when there is no program manager, she is retired, her file has problems, or she
+   * already has an access to it (none included: the person's own choice). True when it committed.
+   */
+  async grantProgramManagerRepo(orgId: string, repoName: string): Promise<boolean> {
+    const org = this.organization(orgId)
+    const id = org.programManagerId
+    if (!id || this.record(orgId, id)?.state === 'retired') return false
+    const { file } = await this.entry(orgId, id)
+    const d = file.definition
+    if (!d || !file.fingerprint || d.access.repos[repoName] !== undefined) return false
+    const wider: EmployeeDefinition = { ...d, access: { ...d.access, repos: { ...d.access.repos, [repoName]: d.attendance === 'unattended' ? 'write' : 'read' } } }
+    const result = await this.host.memory.commitAsPerson(orgId, definitionWrites(wider, file), { subject: `Give AI employee ${d.name} ${repoName} (${file.path})` })
+    if (!result.ok) throw new Error(`${file.path} changed meanwhile, so ${d.name} wasn’t given ${repoName}. Give it in Edit.`)
+    const { file: after } = await this.entry(orgId, id)
+    const record = this.record(orgId, id)
+    // Only the file this commit wrote: one changed again since is someone else's change, approved by a person.
+    if (record?.approvedFingerprint === file.fingerprint && after.fingerprint && after.blob === result.blobs[file.path])
+      this.setRecord(orgId, id, { approvedFingerprint: after.fingerprint, approvedBlob: after.blob, approvedPromptBlob: after.promptBlob ?? undefined })
+    this.host.changed()
+    return true
+  }
+
+  /**
    * Save an edit against the files as they were read (`expectedBlob` for the definition, `expectedPromptBlob` for its
    * own prompt, null while it had none; left out, it isn't checked); a file changed since is a conflict, with how it is
    * now. The id can't change,
@@ -725,14 +753,30 @@ export class EmployeeService {
     this.host.lifecycle?.(orgId, id)
   }
 
-  /** Retire: it never runs again on this computer. Its definition and memory stay in the memory repository. */
+  /**
+   * Retire: it never runs again on this computer. Its definition and memory stay in the memory repository. Retiring the
+   * program manager leaves the organization without one (forgetRetiredProgramManager), so Add Priya makes a new one.
+   */
   async retire(orgId: string, id: string): Promise<void> {
-    this.organization(orgId)
+    const org = this.organization(orgId)
     const record = this.lifecycle(orgId, id)
     if (record.state === 'retired') return
     this.setRecord(orgId, id, { state: 'retired', pausedKind: undefined, pausedDetail: undefined, failures: undefined })
+    this.forgetRetiredProgramManager(org)
     this.host.changed()
     this.host.lifecycle?.(orgId, id)
+  }
+
+  /**
+   * An organization whose program manager is retired here has none (§15): `programManagerId` is cleared, and her place as
+   * its lead with it, so Add Priya makes a new one, who takes on the open projects (main/projects.ts). True when it did.
+   */
+  private forgetRetiredProgramManager(org: Organization): boolean {
+    const id = org.programManagerId
+    if (!id || this.record(org.id, id)?.state !== 'retired') return false
+    delete org.programManagerId
+    if (org.leadEmployeeId === id) delete org.leadEmployeeId
+    return true
   }
 
   /** The record of an employee the cache knows (its file read), or a draft for one that has none yet. */

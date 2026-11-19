@@ -10,7 +10,7 @@
 // reverts or deletes anything it didn't write, and one organization's writes go one at a time.
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { ftsQuery } from '../shared/chatIndex'
@@ -93,7 +93,10 @@ export interface MemoryCommitted {
   trailers: { key: string; value: string }[]
 }
 
-type CommitOutcome = { kind: 'committed'; commit: string | null; blobs: Map<string, string | null> } | { kind: 'conflict'; path: string; current: Snapshot }
+/** A file whose expected version no longer matches: its path and how it is now. */
+type Conflict = { path: string; current: Snapshot }
+
+type CommitOutcome = { kind: 'committed'; commit: string | null; blobs: Map<string, string | null> } | { kind: 'conflict'; conflicts: Conflict[] }
 
 export interface RunCommitMeta {
   // The commit's author; absent: Foreman.
@@ -325,14 +328,31 @@ export class MemoryService {
     return { head, entries }
   }
 
-  /** A file at the head; inside a run (`runId`), with that run's staged changes over it. */
-  async read(orgId: string, file: string, options: { runId?: string } = {}): Promise<MemoryFile> {
+  /** A commit named by its full or abbreviated sha, resolved to its full sha; one the repository doesn't have is refused. */
+  private async commitOf(t: Target, commit: string): Promise<string> {
+    const sha = typeof commit === 'string' ? commit.trim() : ''
+    const out = /^[0-9a-f]{4,64}$/i.test(sha) ? await git(t.root, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], { allowFail: true }) : null
+    const found = out?.code === 0 ? out.stdout.trim() : ''
+    if (!found) throw new MemoryRefused(`The memory repository has no commit ${sha || '(none given)'}. Give a commit as your brief names it, or leave it out to read the current version.`, 'invalid')
+    return found
+  }
+
+  /**
+   * A file at the head; inside a run (`runId`), with that run's staged changes over it. At `commit` (a full or
+   * abbreviated sha: a version handed over): the file as it was there, nothing staged over it, and `head` is that commit.
+   */
+  async read(orgId: string, file: string, options: { runId?: string; commit?: string } = {}): Promise<MemoryFile> {
     const t = this.target(orgId)
     const problem = memoryPathProblem(file)
     if (problem) throw new MemoryRefused(`${file}: ${MEMORY_PATH_REASON[problem]}`, 'path')
     // A run never reads what it may not write: the repository's sensitive paths.
     if (options.runId && sensitiveMatches([file], this.host.sensitivePaths(t.repo)).length) {
       throw new MemoryRefused(`${file} matches the memory repository’s sensitive paths, so Foreman won’t read it to an employee.`, 'sensitive')
+    }
+    if (options.commit !== undefined) {
+      const commit = await this.commitOf(t, options.commit)
+      const at = await this.readAt(t, commit, file)
+      return { path: file, head: commit, blob: at.blob, size: at.size, binary: at.binary, tooLarge: at.tooLarge, ...(at.text !== null ? { text: at.text } : {}) }
     }
     const head = await this.head(t)
     if (!head) throw new MemoryRefused('The memory repository has no commit yet.', 'unavailable')
@@ -352,6 +372,35 @@ export class MemoryService {
     const problem = memoryPathProblem(file)
     if (problem) throw new MemoryRefused(`${file}: ${MEMORY_PATH_REASON[problem]}`, 'path')
     return path.join(t.root, ...file.split('/'))
+  }
+
+  /**
+   * A file as it was at `commit`, written out to open (a mock's page at the version a gate shows): under `base`, in a
+   * folder per organization and commit, at its path in the repository, with the other pages of its folder at that
+   * commit beside it so links between them still work. Returns where the file was written.
+   */
+  async writeAt(orgId: string, file: string, commit: string, base: string): Promise<string> {
+    const t = this.target(orgId)
+    const problem = memoryPathProblem(file)
+    if (problem) throw new MemoryRefused(`${file}: ${MEMORY_PATH_REASON[problem]}`, 'path')
+    const sha = await this.commitOf(t, commit)
+    const at = await this.readAt(t, sha, file)
+    if (at.blob === null) throw new MemoryRefused(`${file} isn’t in the memory repository at ${sha.slice(0, 8)}.`, 'invalid')
+    if (at.tooLarge) throw new MemoryRefused(`${file} is too large to open from memory.`, 'size')
+    const dir = path.join(base, `${orgId.replace(/[^A-Za-z0-9_-]/g, '_')}-${sha}`)
+    const target = path.join(dir, ...file.split('/'))
+    await mkdir(path.dirname(target), { recursive: true })
+    await writeFile(target, await gitBlob(t.root, at.blob))
+    const folder = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
+    if (/\.html?$/i.test(file) && folder) {
+      const out = await git(t.root, ['--literal-pathspecs', 'ls-tree', '-z', '-l', sha, '--', `${folder}/`], { allowFail: true })
+      for (const entry of out.stdout.split('\0')) {
+        const m = /^\d+ blob ([0-9a-f]+)\s+(-|\d+)\t(.+)$/s.exec(entry)
+        if (!m || m[3] === file || !/\.html?$/i.test(m[3]) || memoryPathProblem(m[3]) || (Number(m[2]) || 0) > MAX_MEMORY_FILE_BYTES) continue
+        await writeFile(path.join(dir, ...m[3].split('/')), await gitBlob(t.root, m[1]))
+      }
+    }
+    return target
   }
 
   /** The commits that touched a file, newest first, with their trailers. */
@@ -553,8 +602,10 @@ export class MemoryService {
   }
 
   /**
-   * The intent → commit → finalise sequence for `changes` (the lock held). Refuses unless the memory is `ok`; a
-   * compare-and-set failure marks the intent `conflict` and returns the file as it is now.
+   * The intent → commit → finalise sequence for `changes` (the lock held). Refuses unless the memory is `ok`. Every
+   * compare-and-set is checked; any failure stops the commit and returns each such file as it is now. A run's intent
+   * keeps only those files' changes (marked `conflict`, set aside); its other files are staged again, to be committed
+   * with the rewritten ones. Anything else (a person's edit, a proposal) is one whole: the intent is marked `conflict`.
    */
   private async commitChanges(t: Target, row: MemoryMutationRow, options: { author?: { name: string; email: string } } = {}): Promise<CommitOutcome> {
     const status = this.remember(t.org.id, await this.inspect(t))
@@ -569,7 +620,10 @@ export class MemoryService {
       await git(t.root, ['read-tree', head], { env })
       const files = new Map<string, Snapshot>()
       const atHead = new Map<string, Snapshot>()
+      const conflicts = new Map<string, Snapshot>()
       for (const change of row.detail.changes) {
+        // A file already in conflict: its later changes go with it.
+        if (conflicts.has(change.path)) continue
         if (!atHead.has(change.path)) {
           const at = await this.readAt(t, head, change.path)
           if (at.binary || at.tooLarge) throw new MemoryRefused(`${change.path} is ${at.binary ? 'binary' : 'too large'}; Foreman only writes text files in memory.`, at.binary ? 'binary' : 'size')
@@ -577,12 +631,16 @@ export class MemoryService {
         }
         const now = files.get(change.path) ?? atHead.get(change.path)!
         if (change.expectedBlob !== undefined && change.expectedBlob !== now.blob) {
-          this.put(row, { state: 'conflict', detail: { ...row.detail, reason: 'changed', conflictPath: change.path } })
-          return { kind: 'conflict', path: change.path, current: now }
+          conflicts.set(change.path, now)
+          continue
         }
         const text = applied(now.text, change)
         if (text !== null) this.checkSize(change.path, text)
         files.set(change.path, { blob: text === null ? null : await this.blobId(t.root, text), text })
+      }
+      if (conflicts.size) {
+        this.setAside(row, conflicts)
+        return { kind: 'conflict', conflicts: [...conflicts].map(([file, current]) => ({ path: file, current })) }
       }
       for (const [file, next] of files) {
         if (next.blob === atHead.get(file)?.blob) continue
@@ -625,6 +683,25 @@ export class MemoryService {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  }
+
+  /**
+   * A commit stopped on `conflicts`. A run's intent (not a proposal) is split: the conflicting files' changes stay on it,
+   * marked `conflict`, and the rest are staged again as the run's staged intent, so nothing else it wrote is lost.
+   */
+  private setAside(row: MemoryMutationRow, conflicts: Map<string, Snapshot>): void {
+    const conflictPaths = [...conflicts.keys()]
+    const reason = { reason: 'changed', conflictPath: conflictPaths[0], conflictPaths }
+    if (!row.runId || row.detail.proposal) {
+      this.put(row, { state: 'conflict', detail: { ...row.detail, ...reason } })
+      return
+    }
+    const aside = row.detail.changes.filter((c) => conflicts.has(c.path))
+    const kept = row.detail.changes.filter((c) => !conflicts.has(c.path))
+    this.db.transaction(() => {
+      this.put(row, { state: 'conflict', expectedHead: null, paths: conflictPaths, detail: { ...row.detail, changes: aside, ...reason } })
+      if (kept.length) this.put(this.newRow(row.orgId, row.runId, kept, {}))
+    })
   }
 
   /** After a commit: the index catches up (outside the lock is fine: it only reads git). */
@@ -670,7 +747,7 @@ export class MemoryService {
       this.put(row)
       try {
         const out = await this.commitChanges(t, row)
-        if (out.kind === 'conflict') return { ok: false as const, path: out.path, conflict: out.current }
+        if (out.kind === 'conflict') return { ok: false as const, path: out.conflicts[0].path, conflict: out.conflicts[0].current }
         return { ok: true as const, commit: out.commit, blobs: Object.fromEntries(out.blobs) }
       } catch (err) {
         this.failed(t, row.id, err, 'refused')
@@ -724,9 +801,11 @@ export class MemoryService {
 
   /**
    * The run ends, parks or checkpoints: its staged changes become one commit with `Foreman-Employee`, `Foreman-Run` and
-   * `Foreman-Task`. Refused while the memory is foreign (the changes stay staged); a conflict keeps them on the intent.
+   * `Foreman-Task`. Refused while the memory is foreign (the changes stay staged). On a conflict nothing is committed:
+   * the changes to every file that moved on are set aside on the intent (`conflicts`, each as it is now), and the run's
+   * other changes stay staged for its next commit.
    */
-  async commitRun(orgId: string, runId: string, meta: RunCommitMeta = {}): Promise<{ commit: string | null; conflict?: { path: string; blob: string | null; text: string | null } }> {
+  async commitRun(orgId: string, runId: string, meta: RunCommitMeta = {}): Promise<{ commit: string | null; conflicts?: { path: string; blob: string | null; text: string | null }[] }> {
     const t = this.target(orgId)
     const result = await this.exclusive(orgId, async () => {
       await this.reconcileOnce(t)
@@ -741,7 +820,7 @@ export class MemoryService {
       const row = this.put(staged, { detail: { ...staged.detail, author, subject: meta.subject ?? `Memory from run ${runId}`, trailers } })
       try {
         const out = await this.commitChanges(t, row, { author })
-        if (out.kind === 'conflict') return { commit: null, conflict: { path: out.path, ...out.current } }
+        if (out.kind === 'conflict') return { commit: null, conflicts: out.conflicts.map((c) => ({ path: c.path, ...c.current })) }
         return { commit: out.commit }
       } catch (err) {
         // Not committed: the changes stay staged for the next try.
@@ -837,7 +916,7 @@ export class MemoryService {
         if (out.kind === 'conflict') {
           // Kept as it was: the person retires it, or edits the file themselves.
           this.put(this.db.memoryMutation(row.id) ?? row, { state: 'proposed', detail: row.detail })
-          return { ok: false as const, path: out.path, conflict: out.current }
+          return { ok: false as const, path: out.conflicts[0].path, conflict: out.conflicts[0].current }
         }
         return { ok: true as const, commit: out.commit }
       } catch (err) {

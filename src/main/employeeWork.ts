@@ -10,7 +10,8 @@
 //    repository the organization's and open to the employee, its chain's runs. No employee has limits (§9): no lanes,
 //    no runs a day, no minutes, no cost threshold; an employee runs as many tasks at once as it is given. A paused
 //    employee's work is held, never dropped, and runs on Resume;
-//  - a refusal is recorded on the task with a plain reason, and the task waits for a person (Retry or Cancel);
+//  - a refusal is recorded on the task with a plain reason, and the task waits for a person (Retry or Cancel), or for its
+//    employee to be approved again (lifecycleChanged);
 //  - a usage limit is a hold, not a failure (§9): a run that ends at its account's limit ends as usage-limit, and its
 //    task waits open (hold usage-limit, the same request, its next attempt queued) until the limit resets; then a fresh
 //    run starts with the whole brief, never the cut-off turn. New work for an account known to be at its limit is held
@@ -103,6 +104,7 @@ import {
 import { ACTION_KEEPS_WORKSPACE, ACTION_NEEDS_PERSON, actionSummary, type EmployeeAction, type EmployeeActionNews } from '../shared/employeeActions'
 import { employeePath, employeePromptPath, employeeStatus, type EmployeeDefinition, type EmployeeSummary } from '../shared/employees'
 import { jobPromptVersion } from '../shared/employeePrompts'
+import { memoryConflictNote } from '../shared/employeeTools'
 import { isEmployeeId, MEMORY_PATH_REASON, memoryPathProblem } from '../shared/memory'
 import { reposInSpace, spaceOf, type Organization } from '../shared/organizations'
 import { readOnlyEnforcement } from '../shared/permissions'
@@ -957,6 +959,38 @@ export class EmployeeWorkService {
     }
   }
 
+  /**
+   * An employee was approved, paused, resumed or retired here (EmployeeService's lifecycle): what is held may run now,
+   * and once it is approved and active, its tasks Foreman refused and left waiting for a person (a draft, a definition
+   * changed since approval) are admitted again, as Retry would: approving is the person's say that they may run. One
+   * still refused for the same reason stays as it was; a project's task its project went on from is left to its channel.
+   */
+  async lifecycleChanged(orgId: string, employeeId: string): Promise<void> {
+    if (this.closing) return
+    await this.exclusive(async () => {
+      await this.admitQueued()
+      const current = await this.host.employees.current(orgId, employeeId).catch(() => undefined)
+      if (current?.summary.state !== 'active' || current.summary.changed) return
+      for (const task of this.db.employeeTasks(orgId, { employeeId, states: ['waiting'] }).reverse()) {
+        if (!this.refusedWaiting(task)) continue
+        if (task.project && this.projects?.retryRefusal?.(task)) continue
+        if (this.db.employeeRuns({ taskId: task.id, states: RUN_ACTIVE }).length) continue
+        const verdict = await this.verdict(task)
+        if (verdict.kind === 'refuse' && verdict.reason === task.reason) continue
+        const now = this.db.employeeTask(task.id)
+        if (!now || now.updatedAt !== task.updatedAt) continue
+        this.saveTask(now, { state: 'open', hold: undefined, waitingOn: undefined, reason: undefined }, 'readmitted', { detail: 'Admitted again: its employee may run now.' })
+        await this.admitSafely(now)
+      }
+    })
+  }
+
+  /** Waiting for a person only because Foreman refused to run it (admission's last word on it), not on a question or a wait. */
+  private refusedWaiting(task: EmployeeTask): boolean {
+    if (task.state !== 'waiting' || task.question || task.waitingFor) return false
+    return this.db.employeeTaskTransitions(task.id).filter((t) => t.to === 'waiting' && !t.event.startsWith('action-')).at(-1)?.event === 'refused'
+  }
+
   // ---- a run ----
 
   /** Read what the run is given (§5.2), make its workspace and hand the task over. A failure fails the run. */
@@ -1248,7 +1282,10 @@ export class EmployeeWorkService {
         const text = recapFromRun({ task, run, ...(repo ? { repo } : {}), ...(workspace ? { workspace } : {}), outcome, ...(said?.trim() ? { summary: resultSummary(said, 12, 2000) } : {}) })
         await this.host.memory.writeRecap(run.orgId, run.employeeId, run.id, text, new Date(this.now()), parts)
       }
-      await this.commitMemory(run, task)
+      const out = await this.commitMemory(run, task)
+      // The run is over, so nothing will write the files that changed meanwhile again: the rest of what it wrote (still
+      // staged) goes in without them.
+      if (out.conflict && this.host.memory.stagedChanges(run.orgId, run.id).length) await this.commitMemory(run, task)
     } catch (err) {
       try {
         const now = this.db.employeeRun(run.id) ?? run
@@ -1264,7 +1301,7 @@ export class EmployeeWorkService {
    * Commit what the run wrote so far as one commit with its trailers (§4): when it ends or parks, on memory_checkpoint,
    * and before a result or a question names a path it wrote (§4, "Ordering").
    */
-  async commitMemory(run: EmployeeRun, task: Pick<EmployeeTask, 'id' | 'title'>): Promise<{ commit: string | null; conflict?: { path: string } }> {
+  async commitMemory(run: EmployeeRun, task: Pick<EmployeeTask, 'id' | 'title'>): Promise<{ commit: string | null; conflict?: { paths: string[] } }> {
     const current = await this.host.employees.current(run.orgId, run.employeeId).catch(() => undefined)
     const name = current?.summary.name || run.employeeId
     const out = await this.host.memory.commitRun(run.orgId, run.id, {
@@ -1273,10 +1310,11 @@ export class EmployeeWorkService {
       subject: `${name}: ${task.title}`
     })
     const now = this.db.employeeRun(run.id) ?? run
+    const paths = out.conflicts?.map((c) => c.path) ?? []
     if (out.commit) this.saveRun(now, { memoryCommit: out.commit })
-    else if (out.conflict) this.saveRun(now, { reason: [now.reason, `Its memory wasn’t saved: ${out.conflict.path} changed meanwhile.`].filter(Boolean).join(' ') })
+    else if (paths.length) this.saveRun(now, { reason: [now.reason, `Its changes to ${paths.join(', ')} weren’t saved: ${paths.length === 1 ? 'it' : 'they'} changed meanwhile.`].filter(Boolean).join(' ') })
     this.touched()
-    return out
+    return { commit: out.commit, ...(paths.length ? { conflict: { paths } } : {}) }
   }
 
   // ---- the employee's own tools (main/employeeTools.ts calls these with the turn's chat, from its grant) ----
@@ -1342,7 +1380,7 @@ export class EmployeeWorkService {
     const staged = this.host.memory.stagedChanges(run.orgId, run.id).map((c) => c.path)
     if (!staged.some(names)) return undefined
     const out = await this.commitMemory(run, task)
-    if (out.conflict) throw new Error(`Your memory writes weren’t committed: ${out.conflict.path} changed since you read it. Read it again, write it again, then try once more.`)
+    if (out.conflict) throw new Error(`Your memory writes weren’t committed: ${memoryConflictNote(out.conflict.paths)} try once more.`)
     return out.commit ?? undefined
   }
 
@@ -1362,14 +1400,27 @@ export class EmployeeWorkService {
     if (input.status === 'done' && contract?.produces) {
       const file = await this.host.memory.read(run.orgId, contract.produces, { runId: run.id })
       if (file.blob === null) throw new Error(`Write ${contract.produces} first (memory_write, expected: null): it is the artifact your task asks for. Then finish_task again.`)
+      // A send-back or retry round: the file as the round before left it isn't the rework. A commit gone refuses nothing.
+      if (contract.reworks) {
+        const before = await this.host.memory.read(run.orgId, contract.produces, { commit: contract.reworks }).catch(() => null)
+        if (before?.blob && before.blob === file.blob) throw new Error('Your file is the same as last round: change it as asked, or finish partial and say why.')
+      }
     }
     const commit = await this.commitNamed(run, task, (p) => artifacts.includes(p))
     const now = this.stillRunning(task.id)
+    // In the folders the task may write in (a part's mocks), only the files there once committed are its artifacts: a
+    // page named but never written isn't listed as made.
+    const under = contract?.writesUnder ?? []
+    const made: string[] = []
+    for (const a of artifacts) {
+      const inFolder = under.some((folder) => a.startsWith(folder))
+      if (!inFolder || (await this.host.memory.read(run.orgId, a, { runId: run.id }).catch(() => null))?.blob) made.push(a)
+    }
     const unblock = input.unblock?.trim() || undefined
     const result: EmployeeTaskResult = {
       status: input.status,
       summary: input.summary.trim(),
-      ...(artifacts.length ? { artifacts } : {}),
+      ...(made.length ? { artifacts: made } : {}),
       ...(input.evidence?.length ? { evidence: input.evidence.map((e) => e.trim()).filter(Boolean) } : {}),
       ...(unblock ? { unblock } : {}),
       ...(commit ? { commit } : {}),
@@ -2222,11 +2273,28 @@ export class EmployeeWorkService {
     await Promise.all(ended)
   }
 
-  /** Cancel (§6.6: discarding work is explicit): the task closes as canceled, and a run of it that is going stops. */
+  /**
+   * Cancel (§6.6: discarding work is explicit): the task closes as canceled, and a run of it that is going stops. A
+   * chain's first task that already closed (Cancel chain at its runs' limit, §7) cancels what is still open in its chain,
+   * and the chain with it. A project's chain is stopped with its project instead (§15), so its root is left as it is.
+   */
   async cancel(taskId: string): Promise<EmployeeTask> {
     const task = this.task(taskId)
-    if (task.state === 'closed') return task
-    await this.closeTree(task, 'canceled', 'Canceled by you.')
+    if (task.state !== 'closed') {
+      await this.closeTree(task, 'canceled', 'Canceled by you.')
+      return this.db.employeeTask(taskId) ?? task
+    }
+    if (task.id !== task.rootId || task.project || this.db.employeeRoot(task.rootId)?.state === 'canceled') return task
+    // Canceled first, so nothing closed below wakes anything of it again.
+    this.touchRoot(task.rootId, { state: 'canceled' })
+    const chain = this.db.employeeTasksOfRoot(task.rootId).filter((t) => t.state !== 'closed')
+    const open = new Set(chain.map((t) => t.id))
+    // Each open task whose parent is no longer open, with what it handed off under it.
+    for (const top of chain.filter((t) => !t.parentId || !open.has(t.parentId))) {
+      const now = this.db.employeeTask(top.id)
+      if (now && now.state !== 'closed') await this.closeTree(now, 'canceled', 'Canceled with its chain by you.')
+    }
+    this.touched()
     return this.db.employeeTask(taskId) ?? task
   }
 

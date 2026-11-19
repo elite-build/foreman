@@ -139,6 +139,7 @@ import { EmployeeEventService } from './employeeEvents'
 import { EmployeeTools } from './employeeTools'
 import { EmployeeActionService, type BranchPreview } from './employeeActions'
 import { remoteWhere } from '../shared/employeeActions'
+import { handoverTranscript } from '../shared/projects'
 import { reviewThreadsMarkdown } from './reviews'
 import { ClaudeMirror } from './claudeMirror'
 import { wsPath } from '../shared/workspacePath'
@@ -170,7 +171,7 @@ import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
 import { diagnosticsFileName, writeDiagnostics } from './diagnostics'
-import { STAGED_DIR } from './tempSweep'
+import { MEMORY_VIEWS_DIR, STAGED_DIR } from './tempSweep'
 import type { DiagnosticsBundle } from '../shared/diagnostics'
 
 export interface Host {
@@ -542,8 +543,9 @@ export class Core {
       state: () => store.state,
       memory: this.memory,
       changed: () => this.changed(),
-      // Approved, paused, resumed or retired: work held for it may run now, or waits.
-      lifecycle: () => void this.employeeWork?.pump().catch(() => undefined),
+      // Approved, paused, resumed or retired: work held for it may run now, or waits, and once approved its work Foreman
+      // refused (a draft, a changed definition) is admitted again.
+      lifecycle: (orgId, id) => void this.employeeWork?.lifecycleChanged(orgId, id).catch(() => undefined),
       locale: () => mainLocale(store.state.settings),
       // Generate and Refine: one request on the one-shot path chat titles use (no tools, run outside any repository), on
       // the person's default agent when its driver answers one, else the agent that writes titles.
@@ -986,16 +988,19 @@ export class Core {
       workspaceName: (id) => store.state.workspaces.find((w) => w.id === id)?.name,
       archive: (workspaceId, runId) => this.autoArchive.request(workspaceId, { reason: { kind: 'employee', runId }, deleteBranch: false }),
       workspaceRepo: (id) => store.state.workspaces.find((w) => w.id === id)?.repoId,
-      // "Hand to Priya…": the last turns of the workspace's chats, oldest chat first.
+      // "Hand to Priya…": the workspace's chats as the project keeps them (handoverTranscript): the first message of each
+      // older chat, then the newest (the one whose turn ended last) whole, or its start and end.
       transcript: async (workspaceId) => {
-        const parts: string[] = []
-        for (const s of store.state.sessions.filter((x) => x.workspaceId === workspaceId)) {
+        const sessions = store.state.sessions.filter((x) => x.workspaceId === workspaceId && !x.employeeRun)
+        const newest = sessions.reduce<(typeof sessions)[number] | undefined>((a, s) => (!a || (s.lastTurn?.endedAt ?? '') >= (a.lastTurn?.endedAt ?? '') ? s : a), undefined)
+        const chats: { title: string; text: string }[] = []
+        for (const s of [...sessions.filter((x) => x !== newest), ...(newest ? [newest] : [])]) {
           const index = await this.sessions.readChatHistory(s.id, {}).catch(() => undefined)
           if (!index?.total) continue
-          const out = await this.sessions.readChatHistory(s.id, { from: Math.max(1, index.total - 5), to: index.total }).catch(() => undefined)
-          if (out?.text) parts.push(`Chat “${s.title || s.id}”:\n${out.text}`)
+          const out = await this.sessions.readChatHistory(s.id, s === newest ? { from: 1, to: index.total } : { turns: [1] }).catch(() => undefined)
+          if (out?.text) chats.push({ title: s.title || s.id, text: out.text })
         }
-        return parts.join('\n\n')
+        return handoverTranscript(chats)
       },
       loadouts: () => store.state.settings.loadouts,
       // `@Name` to a running part (§15): into its run's turn, only while that turn is the run's own.
@@ -3539,13 +3544,30 @@ export class Core {
    * A cloned or Quick-started repository, registered: in Personal, the folder it went in is where the next one starts;
    * made for an organization, it joins it and Personal's clone location stays as it was.
    */
-  private added(repo: Repo, parentDir: string, organizationId: string | undefined): Repo {
+  private async added(repo: Repo, parentDir: string, organizationId: string | undefined): Promise<Repo> {
     if (organizationId === undefined) {
       this.store.state.settings.cloneDirectory = parentDir
       return repo
     }
-    this.organizations.moveRepo(repo.id, organizationId)
+    await this.moveRepo(repo.id, organizationId)
     return repo
+  }
+
+  /**
+   * Move a repository between spaces; one that joins an organization is given to its program manager
+   * (EmployeeService.grantProgramManagerRepo), so a project there can start (docs/ai-employees.md §15). That is logged
+   * when it fails, never thrown: the repository has moved, and Edit on her page still gives it.
+   */
+  private async moveRepo(repoId: string, organizationId: string | null): Promise<void> {
+    this.organizations.moveRepo(repoId, organizationId)
+    const org = organizationId ? this.store.state.organizations?.find((o) => o.id === organizationId) : undefined
+    const repo = this.store.state.repos.find((r) => r.id === repoId)
+    if (!org?.programManagerId || !org.memoryRepoId || !repo || repo.id === org.memoryRepoId) return
+    try {
+      await this.employees.grantProgramManagerRepo(org.id, repo.name)
+    } catch (err) {
+      console.warn(`[employees] couldn’t give ${org.name}’s program manager ${repo.name}: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   readonly api: Api = {
@@ -3602,15 +3624,16 @@ export class Core {
     renameOrganization: async (id, name) => this.organizations.rename(id, name),
     setOrganizationIcon: async (id, icon) => this.organizations.setIcon(id, icon),
     deleteOrganization: async (id) => this.organizations.delete(id),
-    moveRepoToSpace: async (repoId, organizationId) => this.organizations.moveRepo(repoId, organizationId),
+    moveRepoToSpace: (repoId, organizationId) => this.moveRepo(repoId, organizationId),
     setOrganizationMemory: (organizationId, memory) => this.organizations.setMemory(organizationId, memory),
     linkOrganizationMemory: (organizationId, link) => this.memoryLink.link(organizationId, link),
     unlinkOrganizationMemory: (organizationId) => this.memoryLink.unlink(organizationId),
     pushOrganizationMemory: (organizationId) => this.memoryLink.pushNow(organizationId),
     memoryStatus: (organizationId) => this.memory.status(organizationId),
     memoryTree: (organizationId) => this.memory.tree(organizationId),
-    memoryReadFile: (organizationId, path) => this.memory.read(organizationId, path),
+    memoryReadFile: (organizationId, path, commit) => this.memory.read(organizationId, path, commit == null ? {} : { commit }),
     memoryOpenFile: async (organizationId, path) => this.openFile(this.memory.filePath(organizationId, path), 'open'),
+    openMemoryAt: async (organizationId, file, commit) => this.openFile(await this.memory.writeAt(organizationId, file, commit, path.join(os.tmpdir(), MEMORY_VIEWS_DIR)), 'open'),
     memoryFileHistory: (organizationId, path) => this.memory.history(organizationId, path),
     memorySearch: (organizationId, query) => this.memory.search(organizationId, query),
     memoryWriteFile: (organizationId, path, text, expectedBlob) => this.memory.writeAsPerson(organizationId, path, text, expectedBlob),

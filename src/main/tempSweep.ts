@@ -13,6 +13,9 @@ export const FOREMAN_TEMP = new RegExp(`^(?:${PREFIXES.join('|')})[A-Za-z0-9]{6}
 /** Pasted files waiting for a workspace still being made (the new-workspace dialog), one folder per file. */
 export const STAGED_DIR = 'foreman-staged'
 
+/** Memory files written out at a commit to open (a mock as a gate showed it), one folder per organization and commit. */
+export const MEMORY_VIEWS_DIR = 'foreman-memory-views'
+
 /** Deletes the entries of `dir` named by `match` that haven't changed for `olderThanMs`. Returns how many went. */
 export async function sweepTemp(options: { dir: string; match: RegExp; olderThanMs: number; now?: number }): Promise<number> {
   const cutoff = (options.now ?? Date.now()) - options.olderThanMs
@@ -36,7 +39,8 @@ export async function sweepTemp(options: { dir: string; match: RegExp; olderThan
 export async function sweepForemanTemp(tmp = os.tmpdir(), now = Date.now()): Promise<number> {
   const counts = await Promise.all([
     sweepTemp({ dir: tmp, match: FOREMAN_TEMP, olderThanMs: DAY_MS, now }),
-    sweepTemp({ dir: path.join(tmp, STAGED_DIR), match: /^[0-9a-f]{8}$/, olderThanMs: DAY_MS, now })
+    sweepTemp({ dir: path.join(tmp, STAGED_DIR), match: /^[0-9a-f]{8}$/, olderThanMs: DAY_MS, now }),
+    sweepTemp({ dir: path.join(tmp, MEMORY_VIEWS_DIR), match: /^[A-Za-z0-9_-]+$/, olderThanMs: DAY_MS, now })
   ])
-  return counts[0] + counts[1]
+  return counts[0] + counts[1] + counts[2]
 }

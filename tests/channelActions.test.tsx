@@ -3,7 +3,7 @@
 // the organization's channel with "@Priya " in its box; a channel's ⋯ menu renames it (refusing a taken name) and deletes it (one still going
 // is stopped first, its files kept unless the box is ticked); a closed channel archives from its header, an archived one
 // is read-only with Restore; and the Channels page lists every channel, archived ones too, filters them and deletes
-// several at once, never the organization's own.
+// several at once, never the organization's own. Starting one there says Priya plans it only when her task started.
 import './domShims'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -111,6 +111,24 @@ describe('making a channel', () => {
     expect(within(list).getByText('#csv')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'All channels' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'channels' })
+  })
+})
+
+describe('starting a project in the organization’s channel', () => {
+  it('says Priya is planning it only once her planning task started, and otherwise why it waits', async () => {
+    const user = userEvent.setup()
+    setSnapshot([])
+    const step = { kind: 'plan' as const, round: 1, taskId: 't1', employeeId: 'e-pri1', state: 'running' as const, startedAt: NOW }
+    fakeApi.startProject = vi.fn(async () => project({ steps: [step] }))
+    render(<OrgChannel orgId="o1" />)
+    const box = screen.getByRole('textbox', { name: 'Message #frlk' })
+    await user.type(box, '@Priya Export reports to CSV{Enter}')
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenLastCalledWith('Export reports to CSV: Priya is planning it'))
+    // Her task couldn't be made (no access to the repository, say): the toast says so, and the channel opens on it.
+    fakeApi.startProject = vi.fn(async () => project({ id: 'p4', waits: [{ id: 'w1', kind: 'stuck', since: NOW, reason: 'Priya has no access to site. Give it access in Edit first.' }] }))
+    await user.type(box, '@Priya Export reports to CSV{Enter}')
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenLastCalledWith('Export reports to CSV: Priya can’t plan it yet. Priya has no access to site. Give it access in Edit first.'))
+    expect(spy('openEmployees')).toHaveBeenLastCalledWith({ orgId: 'o1', page: 'project', id: 'p4' })
   })
 })
 

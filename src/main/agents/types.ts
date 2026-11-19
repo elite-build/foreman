@@ -87,6 +87,10 @@ export interface TurnRequest {
   // changes or merges a pull request (publishesFromShell) is refused with this message, which the agent reads and carries
   // on from. Claude only (a PreToolUse hook); other agents can't be held to it and are told in their brief.
   noPublish?: string
+  // docs/ai-employees.md §9: an AI employee's read-only run without a shell. Every shell command is refused, read-only
+  // ones too, which read-only mode would let through (no write scope does it for a read-only run). Claude only (a
+  // PreToolUse hook); Codex's read-only sandbox declines what asks, as for scoped writes.
+  noShell?: true
   // The account the turn runs on (undefined: the agent's default one): what an agent's pooled server is keyed by (docs/agents.md 3).
   instance?: string
   // The agent's conversation to continue, if any.

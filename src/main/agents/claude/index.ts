@@ -40,7 +40,7 @@ import { alwaysAllowScope } from './alwaysScope'
 import { transportOverride } from '../transport'
 import { claudeContextUsage } from '../../../shared/contextUsage'
 import { translate } from '../../../shared/i18n'
-import { writeScopeDecision } from '../../../shared/permissions'
+import { SCOPED_SHELL_TOOLS, writeScopeDecision } from '../../../shared/permissions'
 import { protectedPathDecision } from '../../../shared/agentAccess'
 import { publishesFromShell } from '../../../shared/employeeActions'
 import { isEmployeeTool } from '../../../shared/employeeTools'
@@ -85,6 +85,8 @@ const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 // #16: a read-only chat never gets these: leaving plan mode, and the tools that write files.
 const READ_ONLY_DENIED = ['ExitPlanMode', ...EDIT_TOOLS]
 const READ_ONLY_REFUSAL = 'This chat is read-only: Foreman keeps it in plan mode, so you cannot leave plan mode or change files. Give your findings as your answer.'
+// docs/ai-employees.md §9: what an employee's read-only run without a shell is told when it reaches for one.
+export const NO_SHELL_REFUSAL = 'This AI employee’s run has no shell: every shell command is refused, read-only ones too. Use Read, Grep and Glob to look around. Carry on without the shell.'
 const OWN_TOOL_PREFIX = 'mcp__foreman__'
 // The turn's `foreman-app` server (src/main/foremanMcp.ts), as Claude names its tools.
 const APP_TOOL_PREFIX = 'mcp__foreman-app__'
@@ -287,12 +289,24 @@ export function noPublishHook(message: string): HookCallback {
 }
 
 /**
- * The turn's PreToolUse hooks: a flow persona's scoped writes, a capped turn's protected paths, a project run's refused
- * publishing. Where several decide, the stricter wins.
+ * docs/ai-employees.md §9: the PreToolUse hook an AI employee's read-only run without a shell gets. Plan mode lets
+ * read-only commands through, so every shell command is refused here; nothing else is its business.
+ */
+export function noShellHook(): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== 'PreToolUse' || !(SCOPED_SHELL_TOOLS as readonly string[]).includes(input.tool_name)) return {}
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: NO_SHELL_REFUSAL } }
+  }
+}
+
+/**
+ * The turn's PreToolUse hooks: a flow persona's scoped writes, an employee's refused shell, a capped turn's protected
+ * paths, a project run's refused publishing. Where several decide, the stricter wins.
  */
 function preToolUseHooks(req: TurnRequest): { PreToolUse: { hooks: HookCallback[] }[] } | undefined {
   const hooks: HookCallback[] = []
   if (req.writeScope?.length) hooks.push(writeScopeHook(req.writeScope, req.cwd, req.writeScopeSubject))
+  if (req.noShell) hooks.push(noShellHook())
   if (req.capped) hooks.push(protectedPathsHook(req.cwd, req.capped.gitDir))
   if (req.noPublish) hooks.push(noPublishHook(req.noPublish))
   return hooks.length ? { PreToolUse: [{ hooks }] } : undefined
@@ -654,6 +668,8 @@ class ClaudeTurn implements AgentTurn {
 
     // #16: enforced, not advisory. Plain plan mode can be left after the plan is approved; read-only never asks, it refuses.
     if (this.req.readOnly && READ_ONLY_DENIED.includes(toolName)) return { behavior: 'deny', message: READ_ONLY_REFUSAL }
+    // An employee's run without a shell: decided here too, should a call reach the permission prompt past the hook.
+    if (this.req.noShell && (SCOPED_SHELL_TOOLS as readonly string[]).includes(toolName)) return { behavior: 'deny', message: NO_SHELL_REFUSAL }
     // A project's run that doesn't publish (§15): decided here too, should a call reach the permission prompt past the hook.
     if (this.req.noPublish && publishesFromShell(toolName, input)) return { behavior: 'deny', message: this.req.noPublish }
 

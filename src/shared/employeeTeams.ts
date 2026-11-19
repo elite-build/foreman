@@ -16,8 +16,10 @@ import { PROGRAM_MANAGER_NAME } from './projects'
  */
 export function programManagerDefinition(input: { repos: readonly string[]; loadouts: readonly Pick<Loadout, 'agent' | 'model' | 'effort'>[]; taken: Iterable<string>; takenNames?: readonly string[] }): EmployeeDefinition {
   const unattended = input.loadouts.find((l) => canRunUnattended(l.agent))
-  const names = (input.takenNames ?? []).map((n) => n.toLocaleLowerCase())
-  const name = names.includes(PROGRAM_MANAGER_NAME.toLocaleLowerCase()) ? `${PROGRAM_MANAGER_NAME} (PM)` : PROGRAM_MANAGER_NAME
+  const names = new Set((input.takenNames ?? []).map((n) => n.toLocaleLowerCase()))
+  // A retired program manager keeps her name, so the one added after her is "Priya (PM)", then "Priya (PM) 2", and so on.
+  let name = names.has(PROGRAM_MANAGER_NAME.toLocaleLowerCase()) ? `${PROGRAM_MANAGER_NAME} (PM)` : PROGRAM_MANAGER_NAME
+  for (let n = 2; names.has(name.toLocaleLowerCase()); n++) name = `${PROGRAM_MANAGER_NAME} (PM) ${n}`
   const id = newEmployeeId(input.taken)
   const made = newEmployee({
     id,

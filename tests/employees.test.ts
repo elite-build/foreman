@@ -38,7 +38,7 @@ import { ForemanDb } from '../src/main/db'
 import { gitOut } from '../src/main/git'
 import { employeeFingerprint, EmployeeService, FULL_ACCESS_MIGRATION, JOB_PROMPTS_MIGRATION, PRIVACY_MODE_ON } from '../src/main/employees'
 import { MemoryService } from '../src/main/memory'
-import { createMemoryRepository } from '../src/main/organizations'
+import { createMemoryRepository, OrganizationService } from '../src/main/organizations'
 import { defaultSettings, type PersistedState } from '../src/main/store'
 import { tempDir } from './helpers'
 import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
@@ -768,6 +768,64 @@ describe('employees: adding a job template (docs/ai-employees.md §5.3, §16)', 
     expect(made.find((e) => e.name === 'Priya')!.id).toBe(id)
     const files = (await gitOut(root, ['show', '--name-only', '--format=', 'HEAD'])).split('\n')
     for (const e of made) expect(files).toEqual(expect.arrayContaining([`bots/${e.id}.toml`, `memory/bots/${e.id}/MEMORY.md`, `memory/bots/${e.id}/journal.md`]))
+  })
+
+  it('retiring Priya leaves the organization without a program manager, so Add Priya makes a new one; an earlier build’s retired one too', async () => {
+    const { employees, state } = await ready()
+    const organizations = new OrganizationService({ state: () => state, addRepo: async () => { throw new Error('no') }, changed: () => undefined, createProgramManager: (org, templates = []) => employees.addProgramManager(org.id, templates) })
+    const org = state.organizations!.find((o) => o.id === 'o1')!
+    await organizations.ensureProgramManager('o1')
+    const first = org.programManagerId!
+    expect(org).toMatchObject({ programManagerId: first, leadEmployeeId: first })
+    await employees.retire('o1', first)
+    expect(org.programManagerId).toBeUndefined()
+    expect(org.leadEmployeeId).toBeUndefined()
+    // Add Priya: a new one, approved, under a name the retired one doesn't have.
+    await organizations.ensureProgramManager('o1')
+    const second = org.programManagerId!
+    expect(second).not.toBe(first)
+    expect(org.leadEmployeeId).toBe(second)
+    const roster = (await employees.list('o1')).employees
+    expect(roster.find((e) => e.id === second)).toMatchObject({ name: 'Priya (PM)', state: 'active', changed: false })
+    // A lead the person chose stays when the program manager retires; and a third program manager is numbered.
+    org.leadEmployeeId = 'e-lead'
+    await employees.retire('o1', second)
+    expect(org).toMatchObject({ leadEmployeeId: 'e-lead' })
+    expect(org.programManagerId).toBeUndefined()
+    await organizations.ensureProgramManager('o1')
+    expect((await employees.list('o1')).employees.find((e) => e.id === org.programManagerId)!.name).toBe('Priya (PM) 2')
+    // One an earlier build retired kept her place: the next read gives it up.
+    org.programManagerId = first
+    await employees.refresh('o1')
+    expect(org.programManagerId).toBeUndefined()
+  })
+
+  it('gives Priya a repository that joins the organization, keeping her approval; an approval of an earlier version stays where it was', async () => {
+    const { root, employees, state } = await ready()
+    const id = await employees.addProgramManager('o1')
+    state.organizations!.find((o) => o.id === 'o1')!.programManagerId = id
+    expect((await employees.list('o1')).employees[0].definition!.access.repos).toEqual({ 'foreman-website': 'write' })
+    // blog moves into Acme: she gets Write on it, in one commit by the person, and is still approved.
+    state.repos.find((r) => r.id === 'blog')!.spaceId = 'o1'
+    const before = await gitOut(root, ['rev-parse', 'HEAD'])
+    expect(await employees.grantProgramManagerRepo('o1', 'blog')).toBe(true)
+    expect(await gitOut(root, ['rev-list', '--count', `${before}..HEAD`])).toBe('1')
+    expect(await gitOut(root, ['log', '-1', '--format=%s'])).toBe(`Give AI employee Priya blog (bots/${id}.toml)`)
+    const [priya] = (await employees.list('o1')).employees
+    expect(priya.definition!.access.repos).toEqual({ 'foreman-website': 'write', blog: 'write' })
+    expect(priya).toMatchObject({ state: 'active', changed: false })
+    expect(state.employees!.find((r) => r.id === id)).toMatchObject({ approvedFingerprint: priya.fingerprint, approvedBlob: priya.blob })
+    // Once: she has it now, and an access the person set (none too) is theirs.
+    expect(await employees.grantProgramManagerRepo('o1', 'blog')).toBe(false)
+    // Changed since she was approved: the repository is still given, and she still waits for a person's approval.
+    const edited = await employees.update('o1', id, { ...priya.definition!, role: 'Planner' }, priya.blob)
+    expect(edited.ok).toBe(true)
+    const approval = state.employees!.find((r) => r.id === id)!.approvedFingerprint
+    expect(await employees.grantProgramManagerRepo('o1', 'docs')).toBe(true)
+    const after = (await employees.list('o1')).employees[0]
+    expect(after.definition!.access.repos.docs).toBe('write')
+    expect(after).toMatchObject({ changed: true })
+    expect(state.employees!.find((r) => r.id === id)!.approvedFingerprint).toBe(approval)
   })
 
   it('New organization: an approval that fails throws, and what was made stays as drafts', async () => {

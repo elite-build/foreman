@@ -94,6 +94,9 @@ export interface TurnPersona {
   mcp?: string[]
   // The only paths the turn may write (globs relative to the workspace root): file tools elsewhere and every shell are refused.
   writes?: string[]
+  // Every shell is refused, read-only commands too: an AI employee without a shell held read-only, where no write scope
+  // takes the shell away (shared/employeeWork.ts employeeTurnLimits).
+  noShell?: true
 }
 
 /**

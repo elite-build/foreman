@@ -94,8 +94,8 @@ export const METHOD_SCOPES = {
   // change what every employee of the organization is told, so they are admin.
   memoryStatus: 'read', memoryTree: 'read', memoryReadFile: 'read', memoryFileHistory: 'read', memorySearch: 'read',
   memoryWriteFile: 'admin', memoryAcceptForeign: 'admin',
-  // Opening a file is this computer's window, as openFile is.
-  memoryOpenFile: 'window',
+  // Opening a file is this computer's window, as openFile is; one at a commit too.
+  memoryOpenFile: 'window', openMemoryAt: 'window',
   // AI employees (docs/ai-employees.md §5): listing them is a read. Drafting sends the person's words to a model, and
   // creating, editing, approving, pausing, resuming and retiring change what may run, so they are admin (§9: never from a turn).
   listEmployees: 'read',
