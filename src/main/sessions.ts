@@ -1489,12 +1489,14 @@ export class SessionService {
     }
     // Asked now, answered while the checkpoint is saved (awaited before the environment is built below). Bounded; never throws.
     const githubReady = ws.cloud ? undefined : this.environment.githubReady?.(ws.repoId)
-    const saved = await saveCheckpoint(this.checkpointTarget(ws, true), checkpointId).catch((err: Error) => ({ ok: false as const, reason: err.message }))
+    // A folder outside git (Repo.plain) has nothing to checkpoint with, and its agent is told so; no notice each turn.
+    const plain = this.plainFolder(ws)
+    const saved = plain ? { ok: false as const, reason: '' } : await saveCheckpoint(this.checkpointTarget(ws, true), checkpointId).catch((err: Error) => ({ ok: false as const, reason: err.message }))
     if (saved.ok) {
       message.checkpoint = checkpointId
       this.emit(sessionId, message)
     }
-    if (!saved.ok) {
+    if (!saved.ok && !plain) {
       this.emit(sessionId, { kind: 'notice', id: `${turnId}:checkpoint`, turnId, level: 'info', text: `No checkpoint for this turn: ${saved.reason}.` })
     }
     if (firstMessage && !session.forkedFrom && !session.seedHistory) void this.nameSession(session, ws, text)
@@ -1804,7 +1806,7 @@ export class SessionService {
         // O10: a turn that ended while Foreman was closed had its end checkpoint taken by the host, at the time.
         // A cloud turn's is taken from here, only when Foreman saw it end (the sandbox's host keeps none).
         const stoppedAt = Date.now()
-        if (!turn.endCheckpointSaved && !(ws.cloud && turn.endedWhileClosed)) await saveCheckpoint(this.checkpointTarget(ws), endCheckpointId(sessionId, turnId)).catch(() => undefined)
+        if (!turn.endCheckpointSaved && !(ws.cloud && turn.endedWhileClosed) && !this.plainFolder(ws)) await saveCheckpoint(this.checkpointTarget(ws), endCheckpointId(sessionId, turnId)).catch(() => undefined)
         const { result } = state
         let outcome: TurnOutcome
         let error: string | undefined
@@ -1923,6 +1925,11 @@ export class SessionService {
     return Boolean((this.turns.get(sessionId)?.turn as HostedFacts | undefined)?.hosted)
   }
 
+  /** The workspace is in a folder outside git (Repo.plain): there is nothing to checkpoint or diff. */
+  private plainFolder(ws: Workspace): boolean {
+    return Boolean(this.store.state.repos.find((r) => r.id === ws.repoId)?.plain)
+  }
+
   /** Records how a turn ended (one internal item; earlier items are never touched) and frees the session. */
   private async endTurn(session: Session, ws: Workspace, turnId: string, outcome: TurnOutcome, error?: string, endedAt?: string, limit?: UsageLimit, interrupted?: TurnInterruption, stoppedAt?: number, cap?: TurnCap, restartedBy?: string): Promise<void> {
     const sessionId = session.id
@@ -1934,14 +1941,16 @@ export class SessionService {
     this.followups.delete(turnId)
     // A cloud turn's checkpoints are in its sandbox; one that ended unseen (or a sandbox that stopped) has no end
     // checkpoint, and that isn't worth a sensitive-path alert.
-    const delta: TurnDelta | 'unavailable' = await turnDelta(this.checkpointTarget(ws), sessionId, turnId)
-    if (!ws.cloud || delta !== 'unavailable') await this.raiseSensitiveAlert(ws, sessionId, turnId, delta)
+    const plain = this.plainFolder(ws)
+    const delta: TurnDelta | 'unavailable' = plain ? 'unavailable' : await turnDelta(this.checkpointTarget(ws), sessionId, turnId)
+    // A plain folder never has a delta, so it would raise "unavailable" every turn.
+    if (!plain && (!ws.cloud || delta !== 'unavailable')) await this.raiseSensitiveAlert(ws, sessionId, turnId, delta)
     // What the lenses read per turn (docs/loops-and-graphs.md): the window as the turn ended, the memory files its
     // changes wrote, and the trees of its checkpoints. Best-effort: a cloud turn with no checkpoints keeps no trees.
     const usage = session.contextUsage
     const memoryFiles = (usage?.breakdown?.memoryFiles ?? []).map((f) => f.path)
     const memoryWrites = delta === 'unavailable' ? [] : delta.files.map((f) => f.path).filter((p) => isMemoryPath(p, memoryFiles)).slice(0, MAX_TURN_MEMORY_WRITES)
-    const tree = ws.cloud && delta === 'unavailable' ? {} : await checkpointTrees(this.checkpointTarget(ws), sessionId, turnId)
+    const tree = (ws.cloud || plain) && delta === 'unavailable' ? {} : await checkpointTrees(this.checkpointTarget(ws), sessionId, turnId)
     this.emit(sessionId, {
       kind: 'turn-end',
       id: `turn-end:${turnId}`,

@@ -1,26 +1,21 @@
-import { CaseSensitive, Eye, File, Regex, RotateCcw, Search, Trash2, WholeWord } from 'lucide-react'
+import { CaseSensitive, Eye, File, Plus, Regex, RotateCcw, Search, Trash2, WholeWord } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AGENTS } from '../../../shared/agents'
-import { newWorkspaceTarget } from '../../../shared/organizations'
 import type { GitActionKind, SearchMatch, Settings } from '../../../shared/types'
 import { rankFiles, rankItems } from '../fuzzy'
 import {
   activeSessionId,
-  addRepository,
   api,
   attempt,
   getState,
   newChat,
-  openAddRepoDialog,
   openArchiveDialog,
   openArchivedChats,
   openExportDialog,
   openHandOffDialog,
-  openImportDialog,
   clientKind,
   runChecks,
   openMcpStatus,
-  openNewWorkspace,
   openOverlay,
   openAssistant,
   openAutomations,
@@ -52,6 +47,7 @@ import { SearchChats } from './SearchChats'
 import { ArchivedInbox } from './ArchivedList'
 import { OpenInSwitcher } from './OpenIn'
 import { AskOverlay } from './assistant/AskOverlay'
+import { useNewRows } from './NewMenu'
 import { formatChord, formatKeys, GROUP_LABELS, groupedShortcuts, gitShortcutId, shortcutHint } from '../shortcuts'
 import { requestSavedCommand } from './SavedCommands'
 import { commandsForRepo, needsApproval } from '../../../shared/savedCommands'
@@ -98,8 +94,8 @@ export function CommandPalette() {
   const platform = snapshot.platform
   const t = useT()
   const ws = snapshot.workspaces.find((w) => w.id === selectedId && w.state !== 'archived')
-  // The repository ⌘N and the sidebar's New workspace open on: never an organization's memory repository.
-  const newRepoId = useStore((s) => newWorkspaceTarget(s.snapshot!, { space: s.space, picked: s.sidebarView.repo, selectedWorkspaceId: s.selectedWorkspaceId }))
+  // Everything there is to make, as the sidebar's New list has it (its recent folders aside).
+  const newRows = useNewRows().rows
 
   const commands = useMemo(() => {
     const list: Command[] = []
@@ -175,11 +171,7 @@ export function CommandPalette() {
         }
       }
     }
-    if (newRepoId) list.push({ id: 'new-ws', label: t('palette.newWorkspace'), group: t('palette.group.general'), hint: shortcutHint('workspace.new', platform), run: close(() => openNewWorkspace(newRepoId)) })
-    if (snapshot.repos.length && clientKind === 'window') list.push({ id: 'import-ws', label: t('palette.importWorkspace'), group: t('palette.group.general'), detail: t('palette.importWorkspaceDetail'), run: close(() => openImportDialog()) })
-    list.push({ id: 'add-repo', label: t('palette.openProject'), group: t('palette.group.general'), run: close(() => void addRepository()) })
-    list.push({ id: 'clone-repo', label: t('palette.openGithubProject'), group: t('palette.group.general'), run: close(() => openAddRepoDialog('clone')) })
-    list.push({ id: 'quick-start', label: t('palette.quickStart'), group: t('palette.group.general'), run: close(() => openAddRepoDialog('quick-start')) })
+    for (const r of newRows) if (!r.recent) list.push({ id: `new-${r.id}`, label: r.label, detail: r.detail, group: t('palette.group.general'), hint: r.hint, run: close(r.run) })
     list.push({ id: 'archived', label: t('palette.viewArchived'), group: t('palette.group.general'), run: () => openOverlay('archived') })
     list.push({
       id: 'theme',
@@ -222,7 +214,7 @@ export function CommandPalette() {
     for (const c of CATEGORIES)
       list.push({ id: `settings-${c.id}`, label: t('palette.settingsPage', { page: t(c.label) }), group: t('palette.group.settings'), run: close(() => openSettingsPage({ section: c.pages[0] } as Parameters<typeof openSettingsPage>[0])) })
     return list
-  }, [snapshot, ws, newRepoId, platform, t])
+  }, [snapshot, ws, newRows, platform, t])
 
   const shown = rankItems(commands, query, (c) => (c.detail ? `${c.label} ${c.detail}` : c.label))
 
@@ -253,6 +245,41 @@ export function CommandPalette() {
           )
         }))}
         onChange={(id) => shown.find((c) => c.id === id)?.run()}
+      />
+    </Overlay>
+  )
+}
+
+/**
+ * The sidebar's New ▾ and Ctrl+Shift+N: everything there is to make, in the middle of the window. The sidebar's mode
+ * leads (its own item first and active, so Enter does what the button's main half does), then the rest of the space,
+ * then the ways to bring something into Foreman. Typing filters; recent folders join the list once something is typed.
+ */
+export function NewList() {
+  const t = useT()
+  const { rows } = useNewRows()
+  const [query, setQuery] = useState('')
+  const shown = rankItems(query ? rows : rows.filter((r) => !r.recent), query, (r) => (r.detail ? `${r.label} ${r.detail}` : r.label))
+  return (
+    <Overlay title={t('newList.title')} hideTitle>
+      <Combobox
+        className="overlay-combo"
+        label={t('newList.title')}
+        placeholder={t('newList.placeholder')}
+        autoFocus
+        inline
+        open
+        leading={<Plus size={15} aria-hidden />}
+        query={query}
+        onQueryChange={setQuery}
+        empty={t('overlays.noMatches')}
+        options={shown.map((r) => ({ value: r.id, label: r.label, group: query ? undefined : r.group, description: r.detail, trailing: r.hint && <Kbd>{r.hint}</Kbd> }))}
+        onChange={(id) => {
+          const row = shown.find((r) => r.id === id)
+          if (!row) return
+          openOverlay(null)
+          row.run()
+        }}
       />
     </Overlay>
   )
@@ -424,6 +451,7 @@ export function Overlays() {
   if (overlay === 'archived') return <ArchivedList />
   if (overlay === 'open-in') return <OpenInSwitcher />
   if (overlay === 'ask') return <AskOverlay />
+  if (overlay === 'new') return <NewList />
   return null
 }
 

@@ -17,6 +17,7 @@ import {
   openFlowDraft,
   openMemory,
   openNewWorkspace,
+  openOverlay,
   openPhoneSetup,
   openSettingsPage,
   selectSession,
@@ -101,6 +102,8 @@ function baseLayout(): void {
   const s = getState()
   if (!s.leftPanelOpen) toggleLeftPanel()
   if (s.sidebarMode !== 'work') setSidebarMode('work')
+  // The list of things to make (New's ▾) is an overlay: it stays open across screens unless closed.
+  if (s.overlay) openOverlay(null)
   if (!s.rightPanelOpen) toggleRightPanel()
   showBottomPanel(false)
   // The space shown is kept across restarts: each screen starts in Personal, and the organization's screens move to Acme.
@@ -369,6 +372,14 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     setSpace(f.organization.orgId)
     openEmployees({ orgId: f.organization.orgId, page: 'channels' })
     return (await waitFor(() => document.querySelector('.channels-list')?.textContent?.includes('#onboarding-emails'))) ? '.channels-page' : null
+  },
+  // The sidebar on Channels, its New making a project, and New's ▾ open: the list of everything to make, the project first.
+  'new-list': async (f) => {
+    setSpace(f.organization.orgId)
+    setSidebarMode('channels')
+    openEmployees({ orgId: f.organization.orgId, page: 'channels' })
+    openOverlay('new')
+    return '.overlay [role="option"]'
   },
   // A project under way: the program manager's questions and your answers, then the plan drawn as a workflow.
   project: async (f) => {

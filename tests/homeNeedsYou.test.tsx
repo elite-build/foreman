@@ -150,10 +150,10 @@ describe('the rest of Home', () => {
     expect(block().compareDocumentPosition(getStarted) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('has one primary button: the header’s New workspace is a plain one', () => {
+  it('leaves New workspace and Import to the sidebar’s New: no primary button and neither of them in the header', () => {
     render(<Home />)
-    const add = screen.getByRole('button', { name: 'New workspace' })
-    expect(add.classList.contains('ui-btn--primary')).toBe(false)
+    expect(screen.queryByRole('button', { name: 'New workspace' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Import/ })).toBeNull()
     expect(document.querySelectorAll('.home .ui-btn--primary')).toHaveLength(0)
   })
 

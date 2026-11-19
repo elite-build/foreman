@@ -38,7 +38,8 @@ import { currentSpace, holdsWorkspaces, newWorkspaceTarget, spaceOf, spacesOn } 
 import { bridge, clientKind, followLanguage, socketBridge } from './bridge'
 import type { SocketStatus } from './socketBridge'
 
-export type Overlay = 'palette' | 'quick-open' | 'search' | 'shortcuts' | 'archived' | 'open-in' | 'ask'
+// 'new': the list of everything to make (the sidebar's New ▾, Ctrl+Shift+N; NewList in Overlays.tsx).
+export type Overlay = 'palette' | 'quick-open' | 'search' | 'shortcuts' | 'archived' | 'open-in' | 'ask' | 'new'
 
 export type { PersonalSection, RepoSection }
 
@@ -1832,6 +1833,13 @@ export async function makeRepository(dir: string, identity?: GitIdentity): Promi
   if (!result.ok) return result.reason
   repoAdded(result.repo.id)
   return 'added'
+}
+
+/** Add a folder outside git as it is (Repo.plain): no branches, diff or checkpoints. Throws on failure. */
+export async function addPlainFolder(dir: string): Promise<void> {
+  const repo = await api.addRepo(dir, { plain: true })
+  openMakeRepo(null)
+  repoAdded(repo.id)
 }
 
 /** addRepo, except that a folder outside Git opens the offer to make it a repository instead of an error. */
