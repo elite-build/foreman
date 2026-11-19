@@ -20,7 +20,7 @@ export interface RouterDeps {
 }
 
 /** A local event on its way to the window: send this, drop it, or switch the window back to this computer first. */
-export type WindowRoute = { send: MainEvent } | { drop: true } | { leave: { workspaceId?: string; sessionId?: string } }
+export type WindowRoute = { send: MainEvent } | { drop: true } | { leave: { workspaceId?: string; sessionId?: string; project?: { orgId: string; id: string } } }
 
 export class RemoteRouter {
   constructor(private deps: RouterDeps) {}
@@ -54,10 +54,10 @@ export class RemoteRouter {
     if (!this.deps.remote.viewing()) return { send: event }
     // Something here needs you: say so in the window, which shows the other computer.
     if (event.type === 'notify') {
-      return { send: { type: 'computer-notify', computerId: null, computerName: this.deps.selfName(), workspaceId: event.workspaceId, sessionId: event.sessionId, title: event.title, body: event.body } }
+      return { send: { type: 'computer-notify', computerId: null, computerName: this.deps.selfName(), workspaceId: event.workspaceId, sessionId: event.sessionId, title: event.title, body: event.body, ...(event.project ? { project: event.project } : {}) } }
     }
-    // The tray, a notification or `foreman run --open` points at a workspace here: show this computer again first.
-    if (event.type === 'navigate') return { leave: { workspaceId: event.workspaceId, sessionId: event.sessionId } }
+    // The tray, a notification or `foreman run --open` points at a workspace (or a project's channel) here: show this computer again first.
+    if (event.type === 'navigate') return { leave: { workspaceId: event.workspaceId, sessionId: event.sessionId, ...(event.project ? { project: event.project } : {}) } }
     if (event.type === 'show-workspace') return { leave: { workspaceId: event.workspaceId } }
     return localWhileViewing(event) ? { send: event } : { drop: true }
   }

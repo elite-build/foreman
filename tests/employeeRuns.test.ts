@@ -253,6 +253,27 @@ describe('an AI employee’s run', { timeout: TURNS_BUDGET }, () => {
     await write.core.shutdown()
   })
 
+  it('gets the repository’s approved servers but no Slack or Linear one, even where the repository allows its own', async () => {
+    const run = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'write' } } }))
+    // The repository lets agents use their own Slack and Linear servers; Foreman has no connection for either.
+    const repo = run.store.state.repos.find((r) => r.id === run.repo.id)!
+    repo.integrations = { ...repo.integrations, allowOwnMcp: ['slack', 'linear'] }
+    vi.spyOn(run.core.repoMcp, 'launchable').mockReturnValue({
+      docs: { command: 'docs-mcp', args: [], env: {} },
+      slack: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-slack'], env: {} },
+      tracker: { command: 'npx', args: ['mcp-remote', 'https://mcp.linear.app/sse'], env: {} }
+    })
+    const a = agent(run.store)
+    await run.core.api.askEmployee(run.org.id, 'e-max1', { body: 'Fix the README' })
+    await vi.waitFor(() => expect(a.requests).toHaveLength(1), WAIT)
+    expect(Object.keys(a.requests[0].mcpServers ?? {})).toContain('docs')
+    expect(a.requests[0].mcpServers).not.toHaveProperty('slack')
+    expect(a.requests[0].mcpServers).not.toHaveProperty('tracker')
+    a.release()
+    await quiet(run.core, run.store, run.org.id)
+    await run.core.shutdown()
+  })
+
   it('reads without a shell, once it is turned off, refusing read-only commands too', async () => {
     const read = await setup((repo) => ({ access: { ...base(repo).access, repos: { [repo]: 'read' }, profile: 'no-shell' } }))
     const a = agent(read.store)

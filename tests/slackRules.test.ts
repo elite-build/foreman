@@ -317,4 +317,22 @@ describe('Slack rules: agents', () => {
     await away.rules.agentEvent('agent-needs-me', ws, { turnId: 't1', agent: 'Claude Code', reason: 'wants to run a migration' })
     expect(away.posts.filter((p) => p.method === 'chat.postMessage').map((p) => p.body.text)).toEqual(['Claude Code in fix-login: wants to run a migration'])
   })
+
+  it('messages me once for each thing a project waits on, as an agent that needs me in its channel (docs/ai-employees.md §15)', async () => {
+    const r = await rig({ me: 'UME', away: true })
+    r.addRule({ event: 'agent-needs-me', recipient: 'me', template: '{agent} in {workspace} needs you: {reason}', awayOnly: false })
+    const gate = { repoId: ws.repoId, channel: '#new-sidebar', who: 'Uma', reason: '“Mocks” is ready for you', key: 'project:p1:w1' }
+    await r.rules.projectEvent(gate)
+    await r.rules.projectEvent(gate)
+    await r.rules.projectEvent({ ...gate, who: 'Priya', reason: 'Priya has questions for you', key: 'project:p1:w2' })
+    // A task's second question has its own key, so it is messaged too.
+    await r.rules.projectEvent({ ...gate, who: 'Uma', reason: 'Uma asks: which one?', key: 'task:t1:q1' })
+    await r.rules.projectEvent({ ...gate, who: 'Uma', reason: 'Uma asks: and on mobile?', key: 'task:t1:q2' })
+    expect(r.posts.filter((p) => p.method === 'chat.postMessage').map((p) => p.body.text)).toEqual([
+      'Uma in #new-sidebar needs you: “Mocks” is ready for you',
+      'Priya in #new-sidebar needs you: Priya has questions for you',
+      'Uma in #new-sidebar needs you: Uma asks: which one?',
+      'Uma in #new-sidebar needs you: Uma asks: and on mobile?'
+    ])
+  })
 })

@@ -181,6 +181,17 @@ describe('paired mobile access', () => {
     snapshot.workspaces[0].prInfo = { number: 9, state: 'OPEN', url: 'u', facts: { readAt: old, provider: 'gitlab', checks: 'failing', checksPassed: 1, checksTotal: 3, checksFailing: 2, requiredOnly: false, review: 'unknown', mergeable: 'unknown', draft: false } }
     const withPr = await (await fetch(base + '/api/state', { headers: { Cookie: auth } })).json() as { workspaces: { pr: unknown }[] }
     expect(withPr.workspaces[0].pr).toMatchObject({ state: 'ci-failing', number: 9, provider: 'gitlab', failing: 2 })
+    // docs/ai-employees.md §15: what a project waits on, in English, with a link to its channel in the full app.
+    Object.assign(snapshot, {
+      organizations: [{ id: 'acme', name: 'Acme', createdAt: old }],
+      employees: { acme: { head: 'h', employees: [{ id: 'pri', name: 'Priya' }] } },
+      projects: { acme: [{ id: 'p1', orgId: 'acme', slug: 'new-sidebar', title: 'New sidebar', requirement: '', repoId: 'repo-1', pmId: 'pri', phase: 'planning', plans: [], parts: {}, replans: 0, steps: [], artifacts: {}, waits: [{ id: 'w1', kind: 'questions', since: old }], decisions: [], notes: [], createdAt: old, updatedAt: old, workspaceId: 'ws-p' }] }
+    })
+    // The project's own workspace is its channel's: not a row beside it, so nothing is counted twice.
+    snapshot.workspaces.push({ id: 'ws-p', repoId: 'repo-1', name: 'Project work', branch: 'priya/new-sidebar', state: 'ready', status: 'in-progress', createdAt: old } as Workspace)
+    const withProjects = await (await fetch(base + '/api/state', { headers: { Cookie: auth } })).json() as { projects: unknown[]; workspaces: { id: string }[] }
+    expect(withProjects.workspaces.map((w) => w.id)).toEqual(['ws-1'])
+    expect(withProjects.projects).toEqual([{ id: 'project:p1:w1', orgId: 'acme', projectId: 'p1', organization: 'Acme', channel: '#new-sidebar', text: 'Priya has questions for you', since: old, link: '/app?org=acme&channel=p1' }])
     const recent = await (await fetch(base + '/api/recent', { headers: { Cookie: auth } })).json() as { events: { name: string; text: string }[]; seenAt: string }
     expect(recent).toEqual({ seenAt: '2026-10-22T10:00:00Z', events: [expect.objectContaining({ name: 'Stalled work', text: 'CI failed · MR !9', count: 2 })] })
     expect((await fetch(base + '/api/recent')).status).toBe(401)

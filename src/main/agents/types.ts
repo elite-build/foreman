@@ -81,7 +81,10 @@ export interface TurnRequest {
   // What the write scope's refusals call the turn ("AI employee’s run"); absent: a flow step, as they always have.
   writeScopeSubject?: string
   // docs/ai-employees.md §9: an AI employee's run. It has what a workspace's agent has; its own Foreman tools and its
-  // brokered Slack, Linear and Langfuse tools never ask (Foreman checks and holds them itself). Claude only; others ignore it.
+  // brokered Slack, Linear and Langfuse tools never ask (Foreman checks and holds them itself). It leaves out the person's
+  // own setup: their user settings but sign-in and their own limits (claude/employeeSetup.ts), and every MCP server but
+  // the repository's approved .mcp.json ones (less any Slack or Linear one) and those handed here; its result says what
+  // was refused. Claude only; others ignore it (a Codex employee keeps the person's Codex servers).
   employee?: true
   // docs/ai-employees.md §15: a project's run that isn't its publishing part's. A shell command that pushes or opens,
   // changes or merges a pull request (publishesFromShell) is refused with this message, which the agent reads and carries
@@ -91,6 +94,8 @@ export interface TurnRequest {
   // ones too, which read-only mode would let through (no write scope does it for a read-only run). Claude only (a
   // PreToolUse hook); Codex's read-only sandbox declines what asks, as for scoped writes.
   noShell?: true
+  // An employee's run: the repository's own folder, whose .claude settings keep the person's approvals of its .mcp.json servers.
+  repoRoot?: string
   // The account the turn runs on (undefined: the agent's default one): what an agent's pooled server is keyed by (docs/agents.md 3).
   instance?: string
   // The agent's conversation to continue, if any.

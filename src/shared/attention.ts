@@ -5,7 +5,7 @@
 //    and last occurrence ("CI failed ×3 since 13:10"). Marking history seen never touches a reason.
 //  - The tray's count and jump list come from the same triage as Home's "need you".
 //  - A row's lead glyph is attention first; the PR glyph sits apart and comes from `prInfo` only.
-import { REASONS, triageAll, type ReasonContext, type Triage, type TriageInput } from './triage'
+import { listsWorkspace, projectWorkspaceIds, REASONS, triageAll, type ReasonContext, type Triage, type TriageInput } from './triage'
 import { waitingOnLimit } from './limits'
 import { turnOutcomeOf, type Session, type TurnOutcome, type Workspace } from './types'
 
@@ -221,10 +221,32 @@ export interface TrayRow {
   label: string
   repo?: string
   since: string
+  // A project's row (docs/ai-employees.md §15): it opens the project's channel, not a workspace.
+  channel?: { orgId: string; projectId: string }
+}
+
+/**
+ * A thing a project waits on the person for, in words (shared/needsYou.ts projectAttention and projectAttentionWords):
+ * what the tray lists and a notification says. Its `id` is its Needs you item's.
+ */
+export interface ProjectAlert {
+  id: string
+  // What makes it new (ProjectAttention.key): a second question on the same task is told, and messaged on Slack, again.
+  key: string
+  orgId: string
+  projectId: string
+  // `#csv-export`
+  channel: string
+  text: string
+  since: string
+  repoId: string
+  workspaceId?: string
+  // Whose it is (the employee asking or holding, the program manager for her questions and plans), by name.
+  who?: string
 }
 
 export interface TrayView {
-  // Workspaces with an outstanding reason: the same number as Home's "need you" and the rail.
+  // Workspaces with an outstanding reason a workspace list shows, and what projects wait on the person for.
   count: number
   oldestSince?: string
   attention: TrayRow[]
@@ -240,17 +262,39 @@ const row = (t: Triage, repos: Map<string, string>): TrayRow => ({
   since: t.since
 })
 
-/** What the tray shows, from the same triage as Home: oldest first, then what is working. */
-export function trayView(input: TriageInput): TrayView {
+const projectRow = (a: ProjectAlert, repos: Map<string, string>): TrayRow => ({
+  workspaceId: a.workspaceId ?? '',
+  name: a.channel,
+  label: a.text,
+  repo: repos.get(a.repoId),
+  since: a.since,
+  channel: { orgId: a.orgId, projectId: a.projectId }
+})
+
+/**
+ * What the tray shows, from the same triage as Home: what needs you oldest first, then what is working. A project's
+ * workspace is its channel's (listsWorkspace), so what it waits on comes in as `projects` and opens the channel.
+ */
+export function trayView(input: TriageInput, projects: readonly ProjectAlert[] = []): TrayView {
   const items = triageAll(input, null)
   const repos = new Map(input.snapshot.repos.map((r) => [r.id, r.name]))
-  const attention = items.filter((t) => t.bucket === 'attention').sort((a, b) => a.since.localeCompare(b.since))
-  const working = items.filter((t) => t.bucket === 'working')
-  return { count: attention.length, oldestSince: attention[0]?.since, attention: attention.map((t) => row(t, repos)), working: working.map((t) => row(t, repos)) }
+  const projectIds = projectWorkspaceIds(input.snapshot)
+  const listed = items.filter((t) => listsWorkspace(t, projectIds, input))
+  const attention = [...listed.filter((t) => t.bucket === 'attention').map((t) => row(t, repos)), ...projects.map((a) => projectRow(a, repos))].sort((a, b) => a.since.localeCompare(b.since))
+  const working = listed.filter((t) => t.bucket === 'working')
+  return { count: attention.length, oldestSince: attention[0]?.since, attention, working: working.map((t) => row(t, repos)) }
 }
 
 /** What a tray entry does: only ever navigation, showing the window, or quitting. Never an answer or a send. */
-export type TrayAction = { kind: 'open'; workspaceId: string; sessionId?: string } | { kind: 'next' } | { kind: 'home' } | { kind: 'show' } | { kind: 'quit' }
+export type TrayAction =
+  | { kind: 'open'; workspaceId: string; sessionId?: string }
+  | { kind: 'channel'; orgId: string; projectId: string }
+  | { kind: 'next' }
+  | { kind: 'home' }
+  | { kind: 'show' }
+  | { kind: 'quit' }
+
+const rowAction = (r: TrayRow): TrayAction => (r.channel ? { kind: 'channel', ...r.channel } : { kind: 'open', workspaceId: r.workspaceId, sessionId: r.sessionId })
 
 export type TrayItem = { kind: 'label'; text: string } | { kind: 'item'; text: string; action: TrayAction } | { kind: 'separator' }
 
@@ -269,10 +313,10 @@ export interface TrayWords {
 export function trayMenu(view: TrayView, words: TrayWords, age: (since: string) => string): TrayItem[] {
   const line = (r: TrayRow) => `${r.name} · ${r.label}${r.repo ? ` · ${r.repo}` : ''}   ${age(r.since)}`
   const items: TrayItem[] = [{ kind: 'label', text: words.header(view.count, view.oldestSince && age(view.oldestSince)) }]
-  for (const r of view.attention) items.push({ kind: 'item', text: line(r), action: { kind: 'open', workspaceId: r.workspaceId, sessionId: r.sessionId } })
+  for (const r of view.attention) items.push({ kind: 'item', text: line(r), action: rowAction(r) })
   if (view.working.length) {
     items.push({ kind: 'label', text: words.working })
-    for (const r of view.working) items.push({ kind: 'item', text: line(r), action: { kind: 'open', workspaceId: r.workspaceId, sessionId: r.sessionId } })
+    for (const r of view.working) items.push({ kind: 'item', text: line(r), action: rowAction(r) })
   }
   items.push({ kind: 'separator' })
   if (view.count) items.push({ kind: 'item', text: words.next, action: { kind: 'next' } })

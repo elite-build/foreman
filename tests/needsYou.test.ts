@@ -2,7 +2,8 @@
 // each organization's employee questions, held actions, proposals and pauses; each thing once; counted by space,
 // repository and employee, so every surface says the same number. The fixture is the screenshots': Personal 1, Acme 3.
 import { describe, expect, it } from 'vitest'
-import { employeeKey, inChannel, itemsInSpace, needsYouCounts, needsYouItems, projectAsks, projectNeeds, projectTaskIds } from '../src/shared/needsYou'
+import { employeeKey, inChannel, itemsInSpace, needsYouCounts, needsYouItems, projectAsks, projectAttention, projectAttentionWords, projectNeeds, projectTaskIds, taskKey } from '../src/shared/needsYou'
+import { createT } from '../src/shared/i18n'
 import { triageAll, type TriageInput } from '../src/shared/triage'
 import type { EmployeeAction } from '../src/shared/employeeActions'
 import type { EmployeeTask, EmployeeWorkView } from '../src/shared/employeeWork'
@@ -172,6 +173,57 @@ describe('one list of what needs you', () => {
     expect(projectNeeds({ ...(project as object), phase: 'closed' } as never, work)).toEqual({ waits: 0, asks: 2, total: 2 })
     expect(projectNeeds(project, { tasks: [{ ...question, state: 'running', question: undefined, waitingOn: undefined }], actions: [] })).toEqual({ waits: 1, asks: 0, total: 1 })
     expect(projectNeeds(project, undefined).asks).toBe(0)
+  })
+})
+
+describe('what projects wait on the person for, everywhere but the window (docs/ai-employees.md §15)', () => {
+  const plan = { version: 1, summary: '', size: 'small', parts: [{ id: 'build', title: 'Build the sidebar', owner: 'max' }] }
+  const project = (id: string, patch: Record<string, unknown>) => ({ id, orgId: 'acme', slug: id, title: `Title ${id}`, requirement: id, repoId: 'site', pmId: 'pri', phase: 'working', plan, plans: [plan], parts: {}, replans: 0, steps: [], artifacts: {}, waits: [], decisions: [], notes: [], createdAt: ago(100), updatedAt: ago(10), ...patch })
+  const snapshot = () =>
+    fixture({}, {
+      projects: {
+        acme: [
+          project('sidebar', {
+            name: 'new-sidebar',
+            waits: [{ id: 'w1', kind: 'questions', since: ago(50) }, { id: 'w2', kind: 'gate', partId: 'build', since: ago(3) }],
+            steps: [{ kind: 'part', round: 1, taskId: 'date', employeeId: 'ada', state: 'running' }, { kind: 'part', round: 1, taskId: 'launch', employeeId: 'max', state: 'running' }]
+          }),
+          project('done', { phase: 'closed', waits: [{ id: 'w3', kind: 'final', since: ago(1) }] })
+        ]
+      }
+    } as unknown as Partial<AppSnapshot>)
+
+  it('lists the waits of each project going and what its tasks ask or hold, oldest first, with their Needs you ids', () => {
+    const items = projectAttention(snapshot())
+    expect(items.map((i) => [i.id, i.kind, i.project.id, i.employeeId])).toEqual([
+      ['project:sidebar:w1', 'wait', 'sidebar', 'pri'],
+      ['action:act-push', 'action', 'sidebar', 'max'],
+      ['task:date', 'question', 'sidebar', 'ada'],
+      ['project:sidebar:w2', 'wait', 'sidebar', undefined]
+    ])
+    // A task's question is part of what makes it new: a second question on the same task is told again.
+    expect(items.find((i) => i.kind === 'question')?.key).toBe('task:date:q:q')
+    // A task waiting with no question keys on why it waits, not on when it was last saved.
+    const stuck = task({ id: 'stuck', employeeId: 'ada', state: 'waiting', waitingOn: 'person', reason: 'It asked for an approval nobody can give.' })
+    expect(taskKey({ ...stuck, updatedAt: ago(1) } as EmployeeTask)).toBe(taskKey(stuck))
+    expect(taskKey({ ...stuck, reason: 'Refused: no repository access.' })).not.toBe(taskKey(stuck))
+    expect(items.find((i) => i.kind === 'wait')?.key).toBe('project:sidebar:w1')
+    // The same set the sidebar counts for each channel (projectNeeds): the tray and the sidebar say the same number.
+    for (const p of snapshot().projects!.acme) expect(items.filter((i) => i.project.id === p.id)).toHaveLength(projectNeeds(p, snapshot().employeeWork!.acme).total)
+    // A task or action that isn't a project's is the Inbox's, not here.
+    expect(projectAttention({ ...snapshot(), projects: {} })).toEqual([])
+  })
+
+  it('says each in words, in the person’s language, under the channel’s name', () => {
+    const names: Record<string, string> = { pri: 'Priya', ada: 'Ada', max: 'Max' }
+    const words = projectAttention(snapshot()).map((i) => projectAttentionWords(i, createT('en'), (id) => names[id] ?? id))
+    expect(words).toEqual([
+      { channel: '#new-sidebar', text: 'Priya has questions for you' },
+      { channel: '#new-sidebar', text: 'Max wants to push a branch' },
+      { channel: '#new-sidebar', text: 'Ada asks: Which day does Atlas 2.4 launch?' },
+      { channel: '#new-sidebar', text: '“Build the sidebar” is ready for you' }
+    ])
+    expect(projectAttentionWords(projectAttention(snapshot())[0], createT('de'), (id) => names[id] ?? id).text).toBe('Priya hat Fragen an dich')
   })
 })
 

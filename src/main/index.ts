@@ -141,7 +141,7 @@ function broadcast(event: MainEvent): void {
     for (const browser of workspaceBrowsers.values()) browser.retain(live)
   }
   const route: WindowRoute = router ? router.toWindow(event) : { send: event }
-  if ('leave' in route) void core?.remote.view(null, route.leave.workspaceId ? { workspaceId: route.leave.workspaceId, sessionId: route.leave.sessionId } : undefined)
+  if ('leave' in route) void core?.remote.view(null, route.leave.workspaceId || route.leave.project ? route.leave : undefined)
   else if ('send' in route) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('foreman:event', route.send)
   for (const listener of eventListeners) {
     try {
@@ -157,7 +157,7 @@ function broadcast(event: MainEvent): void {
 function sendToWindow(event: MainEvent): void {
   const win = showWindow()
   const route: WindowRoute = router ? router.toWindow(event) : { send: event }
-  if ('leave' in route) return void core?.remote.view(null, route.leave.workspaceId ? { workspaceId: route.leave.workspaceId, sessionId: route.leave.sessionId } : undefined)
+  if ('leave' in route) return void core?.remote.view(null, route.leave.workspaceId || route.leave.project ? route.leave : undefined)
   if (!('send' in route)) return
   const send = () => win.webContents.send('foreman:event', route.send)
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
@@ -197,8 +197,10 @@ function trayAction(action: TrayAction): void {
   if (action.kind === 'show') return void showWindow()
   if (action.kind === 'home') return sendToWindow({ type: 'navigate' })
   if (action.kind === 'open') return sendToWindow({ type: 'navigate', workspaceId: action.workspaceId, sessionId: action.sessionId })
+  // A project's row opens its channel (docs/ai-employees.md §15).
+  if (action.kind === 'channel') return sendToWindow({ type: 'navigate', project: { orgId: action.orgId, id: action.projectId } })
   const next = core?.attention.view().attention[0]
-  sendToWindow(next ? { type: 'navigate', workspaceId: next.workspaceId, sessionId: next.sessionId } : { type: 'navigate' })
+  sendToWindow(next?.channel ? { type: 'navigate', project: { orgId: next.channel.orgId, id: next.channel.projectId } } : next ? { type: 'navigate', workspaceId: next.workspaceId, sessionId: next.sessionId } : { type: 'navigate' })
 }
 
 // #3: foreman:// links that came before the window could take them.

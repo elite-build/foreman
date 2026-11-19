@@ -91,6 +91,7 @@ import {
   runNowBody,
   taskTitle,
   workableRepos,
+  withRefusals,
   cutToBudget,
   repoAccess,
   type EmployeeAskInput,
@@ -1144,8 +1145,14 @@ export class EmployeeWorkService {
     const now = this.db.employeeRun(run.id)
     if (!now || !isRunGoing(now.state)) return
     // What the turn cost, where the agent said (Claude Code does): the cost threshold adds it up (§9).
-    const cost = ofTurn.find((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result')?.costUsd
+    const results = ofTurn.filter((i): i is Extract<ChatItem, { kind: 'result' }> => i.kind === 'result')
+    const cost = results[0]?.costUsd
     if (typeof cost === 'number' && Number.isFinite(cost)) this.saveRun(now, { usage: { ...now.usage, costUsd: (now.usage?.costUsd ?? 0) + cost } })
+    // §9: the calls refused in the turn (a hook's deny, Foreman's own or the repository's, or the permission check's) go
+    // on the run's record, the first twenty by name and all of them counted; a turn a message was steered into has a
+    // result per answer, each with the refusals since the one before.
+    const refused = results.flatMap((r) => r.refused ?? [])
+    if (refused.length) this.saveRun(now, { refused: withRefusals(now.refused, refused), refusedCount: (now.refusedCount ?? now.refused?.length ?? 0) + refused.length })
     const task = this.db.employeeTask(now.taskId)
     if (outcome === 'completed') {
       if (task?.state === 'closed' || this.parkedBy(task, now.id)) {

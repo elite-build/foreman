@@ -239,6 +239,14 @@ export class ProjectService implements EmployeeProjectHooks {
 
   /** Each organization's projects for the snapshot: those going, and those closed in the last two weeks. */
   views(): Record<string, Project[]> {
+    return Object.fromEntries(Object.entries(this.listed()).map(([orgId, projects]) => [orgId, projects.map((p) => this.withFiles(p))]))
+  }
+
+  /**
+   * The same projects as stored, without what the channel adds (files, Undo approval): what the tray, notifications and
+   * the phone read for what the projects wait on (docs/ai-employees.md §15).
+   */
+  listed(): Record<string, Project[]> {
     const out: Record<string, Project[]> = {}
     const now = this.host.now?.() ?? Date.now()
     for (const org of this.state.organizations ?? []) {
@@ -246,7 +254,7 @@ export class ProjectService implements EmployeeProjectHooks {
         this.db.projects(org.id).filter((p) => Array.isArray(p.waits)),
         now
       )
-      if (listed.length) out[org.id] = listed.map((p) => this.withFiles(p))
+      if (listed.length) out[org.id] = listed
     }
     return out
   }

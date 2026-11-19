@@ -475,6 +475,19 @@ export function ownServerService(name: string, config: { url?: unknown; command?
   return null
 }
 
+/**
+ * docs/ai-employees.md §9: services an AI employee reaches only through Foreman's brokered connections, where a post or a
+ * change is recorded and held as its definition says: a server of its own for one (the repository's `.mcp.json`, one
+ * proposed in `.foreman/settings.toml`) is left out of an employee's run, whatever the repository allows its agents.
+ */
+export const BROKERED_ONLY: readonly RepoIntegrationService[] = ['slack', 'linear']
+
+/** Whether a server an employee's run would get is one for a service it reaches only through Foreman (BROKERED_ONLY). */
+export function brokeredOnlyServer(name: string, config: { url?: unknown; command?: unknown; args?: unknown }): boolean {
+  const service = ownServerService(name, config)
+  return Boolean(service && BROKERED_ONLY.includes(service))
+}
+
 /** claude.ai connectors Claude Code adds when signed in with a claude.ai account; tools are `mcp__claude_ai_<Name>__…`. */
 export const CLAUDE_AI_CONNECTORS: Partial<Record<RepoIntegrationService, string>> = { github: 'claude_ai_GitHub', linear: 'claude_ai_Linear', slack: 'claude_ai_Slack' }
 

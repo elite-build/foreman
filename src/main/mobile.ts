@@ -13,8 +13,11 @@ import { WebSocketServer } from 'ws'
 import { capabilitiesFor, interruptsToSteer, type AgentCapabilities } from '../shared/agentCapabilities'
 import { staticCapabilitiesView } from '../shared/agentCatalog'
 import { ApiRefused } from '../shared/api'
-import { triageAll } from '../shared/triage'
+import { listsWorkspace, projectWorkspaceIds, triageAll } from '../shared/triage'
 import { phoneRecent, prGlyph } from '../shared/attention'
+import { createT } from '../shared/i18n'
+import { projectAttention, projectAttentionWords } from '../shared/needsYou'
+import { PROGRAM_MANAGER_NAME } from '../shared/projects'
 import { isGitlabWorkspace } from '../shared/scm'
 import { ACCESS_SCOPES, deviceSession, MOBILE_ACCESS, type MobileAccess, type MobileDevice, type MobileInfo } from '../shared/mobile'
 import type { Api, AppSnapshot, ApprovalRequest, ApprovalResponse, CheckConsentItem, DiffSelection, MainEvent } from '../shared/types'
@@ -458,7 +461,11 @@ export class MobileService {
     const snapshot = this.deps.snapshot()
     const approvals = this.deps.approvals()
     const waiting = new Set(approvals.map((a) => a.sessionId))
-    const rows = triageAll({ snapshot, approvals, unread: {}, unreadSessions: {} }, null)
+    // A project's workspace is its channel's (docs/ai-employees.md §15), as in the sidebar and the tray: what it waits
+    // on comes in `projects`, so it isn't counted twice.
+    const projectIds = projectWorkspaceIds(snapshot)
+    const triageInput = { snapshot, approvals, unread: {}, unreadSessions: {} }
+    const rows = triageAll(triageInput, null).filter((t) => listsWorkspace(t, projectIds, triageInput))
     // docs/agents.md 2.3: what each agent in use can do, from the same record the window reads (canSteer follows from it).
     const capabilities = snapshot.agentCapabilities ?? staticCapabilitiesView()
     const open = snapshot.sessions.filter((s) => !s.closedAt)
@@ -477,6 +484,8 @@ export class MobileService {
         return { id: t.ws.id, repoId: t.ws.repoId, name: t.ws.name, branch: t.ws.branch, state: t.ws.state, bucket: stalled && t.bucket === 'working' ? 'attention' : t.bucket, label: stalled && t.bucket === 'working' ? 'Possible stall' : t.label, detail: stalled && t.bucket === 'working' ? `${stalledSession!.agent} · no activity for ${Math.floor((Date.now() - new Date(stalledSince!).getTime()) / 60_000)} min` : t.detail, sessionId: stalledSession?.id ?? t.sessionId, facts: t.facts, stalled, stalledSince, since: t.since, pr: this.prGlyph(t.ws, snapshot), checks: t.ws.checks ? { running: t.ws.checks.running, stale: t.ws.checks.stale, results: t.ws.checks.results.map((r) => ({ name: r.name, status: r.status })) } : null }
       }),
       agentCapabilities,
+      // docs/ai-employees.md §15: what projects wait on you for, oldest first, each opening its channel in the full app.
+      projects: this.projectWaits(snapshot),
       // #127: whether a running turn takes a message now (steering), what waits in the queue, and how full the context is.
       sessions: open.map((s) => ({ id: s.id, workspaceId: s.workspaceId, title: s.title, agent: s.agent, model: s.model, status: s.status, waitingForSlot: s.waitingForSlot, turnStartedAt: s.turnStartedAt, lastActivityAt: s.lastActivityAt, lastTurn: s.lastTurn, queued: s.queue.length, queue: s.queue.map((q) => ({ id: q.id, text: q.text })), canSteer: capabilitiesFor(capabilities, s.agent, s.instanceId)?.turns.steer.level === 'native', canInterrupt: interruptsToSteer(capabilitiesFor(capabilities, s.agent, s.instanceId)), context: s.contextUsage ? { used: s.contextUsage.used, limit: s.contextUsage.limit } : null, limitResume: s.limitResume, ...(s.lastTurn?.outcome === 'limit' && !s.limitHeld ? { continueOn: continueOptions(s, snapshot.settings, snapshot.limits, Date.now(), 'Default') } : {}) })),
       // Docs/agents.md 7.1: what each account reported about its usage windows, as the window has it.
@@ -489,6 +498,29 @@ export class MobileService {
       comments: (snapshot.comments ?? []).filter((c) => (c.author === 'user' ? c.state === 'pending' : c.state === 'open') && shown.has(c.workspaceId))
         .map((c) => ({ id: c.id, workspaceId: c.workspaceId, file: c.file, line: c.line, side: c.selection?.side ?? 'new', body: c.body, author: c.author, authorLabel: c.authorLabel, state: c.state }))
     }
+  }
+
+  /**
+   * What projects wait on you for (their questions, plans, gates, stuck parts and final checks, and their employees'
+   * questions and held actions), in English as the phone page is, each with a link that opens its channel in the full app.
+   */
+  private projectWaits(snapshot: AppSnapshot) {
+    const t = createT('en')
+    return projectAttention(snapshot).map((item) => {
+      const roster = snapshot.employees?.[item.orgId]?.employees ?? []
+      const name = (id: string) => roster.find((e) => e.id === id)?.name || (id === item.project.pmId ? PROGRAM_MANAGER_NAME : id)
+      const words = projectAttentionWords(item, t, name)
+      return {
+        id: item.id,
+        orgId: item.orgId,
+        projectId: item.project.id,
+        organization: snapshot.organizations?.find((o) => o.id === item.orgId)?.name ?? '',
+        channel: words.channel,
+        text: words.text,
+        since: item.since,
+        link: `/app?org=${encodeURIComponent(item.orgId)}&channel=${encodeURIComponent(item.project.id)}`
+      }
+    })
   }
 
   /** G2: the row's PR glyph as the window shows it (open, draft, merged, CI failing), worded for GitLab when it is. */

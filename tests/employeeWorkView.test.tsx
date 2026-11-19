@@ -247,6 +247,22 @@ describe('the Tasks and Runs tabs', () => {
     expect(within(rows[0]).getByText('Read memory at abcdef1 · Saved memory as 9876543')).toBeTruthy()
     expect(within(rows[0]).queryByRole('button', { name: 'Stop' })).toBeNull()
   })
+
+  it('says what was refused during a run, the first three by name (docs/ai-employees.md §9)', async () => {
+    setSnapshot({ work: { tasks: [], runs: [], last: {}, proposals: [], revision: 1 } })
+    fakeApi.listEmployeeTasks = vi.fn(async () => [task()])
+    const refused = [
+      { tool: 'Bash', what: 'git push origin main', reason: 'Not the publisher. Only “Build” publishes.' },
+      { tool: 'Bash', what: 'gh pr create', reason: 'Not the publisher.' },
+      { tool: 'Write', what: 'Write .env', reason: 'Secrets stay out.' },
+      { tool: 'Bash', what: 'npm publish', reason: 'No.' }
+    ]
+    fakeApi.listEmployeeRuns = vi.fn(async () => [run({ id: 'r1', refused, refusedCount: 50 }), run({ id: 'r2', attempt: 2, refused: refused.slice(0, 1) })])
+    render(<EmployeeRuns orgId="o1" employee={summary()} />)
+    const rows = within(await screen.findByRole('list', { name: 'Runs of Max' })).getAllByRole('listitem')
+    expect(within(rows[0]).getByText('50 calls refused: git push origin main (Not the publisher); gh pr create (Not the publisher); Write .env (Secrets stay out); …')).toBeTruthy()
+    expect(within(rows[1]).getByText('1 call refused: git push origin main (Not the publisher)')).toBeTruthy()
+  })
 })
 
 describe('Needs you, the Team rows and a run’s workspace', () => {

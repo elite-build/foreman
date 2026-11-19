@@ -44,7 +44,8 @@ beforeAll(async () => {
     workspaces: [workspace('w1', 'one'), workspace('w2', 'two')],
     sessions: [{ id: 's2', workspaceId: 'w2', agent: 'claude', model: 'm', status: 'idle', queue: [], createdAt: at }],
     catalog: { agents: {} },
-    agentKeys: {}
+    agentKeys: {},
+    projects: { acme: [{ id: 'p1', orgId: 'acme', slug: 'new-sidebar', waits: [], steps: [] }] }
   }))
   bridge.invoke.pendingApprovals = vi.fn(async () => [])
   await initStore()
@@ -69,6 +70,28 @@ describe('clicking a notification', () => {
     flushStore()
     expect(bridge.send.showWindow).toHaveBeenCalledTimes(1)
     expect(getState().selectedWorkspaceId).toBe('w2')
+  })
+
+  it('opens the channel of what a project waits on (docs/ai-employees.md §15)', () => {
+    emit({ type: 'notify', workspaceId: '', sessionId: '', title: '#new-sidebar', body: 'Priya has questions for you', kind: 'attention', project: { orgId: 'acme', id: 'p1' } })
+    expect(shown).toHaveLength(1)
+    shown[0].onclick?.()
+    flushStore()
+    expect(bridge.send.showWindow).toHaveBeenCalledTimes(1)
+    expect(getState().employeesView).toEqual({ orgId: 'acme', page: 'project', id: 'p1' })
+    // Its channel on screen: nothing more is shown for it.
+    const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    emit({ type: 'notify', workspaceId: '', sessionId: '', title: '#new-sidebar', body: 'The plan waits', kind: 'attention', project: { orgId: 'acme', id: 'p1' } })
+    expect(shown).toHaveLength(1)
+    focus.mockRestore()
+  })
+
+  it('opens a project’s channel from the tray, and Home for one that is gone', () => {
+    emit({ type: 'navigate', project: { orgId: 'acme', id: 'p1' } })
+    expect(getState().employeesView).toEqual({ orgId: 'acme', page: 'project', id: 'p1' })
+    emit({ type: 'navigate', project: { orgId: 'acme', id: 'gone' } })
+    expect(getState().employeesView).toBeNull()
+    expect(getState().selectedWorkspaceId).toBeNull()
   })
 
   it('shows the window for a notice from another computer too', () => {

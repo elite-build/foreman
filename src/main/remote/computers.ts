@@ -68,7 +68,7 @@ export class RemoteComputers {
         },
         onNotify: (event) => {
           if (this.viewingId === id) return
-          this.deps.broadcast({ type: 'computer-notify', computerId: id, computerName: this.nameOf(id), workspaceId: event.workspaceId, sessionId: event.sessionId, title: event.title, body: event.body })
+          this.deps.broadcast({ type: 'computer-notify', computerId: id, computerName: this.nameOf(id), workspaceId: event.workspaceId, sessionId: event.sessionId, title: event.title, body: event.body, ...(event.project ? { project: event.project } : {}) })
         },
         onRevoked: (reason) => {
           if (this.viewingId === id) this.leave(reason)
@@ -126,9 +126,9 @@ export class RemoteComputers {
   }
 
   /** Show another computer in this window (null: this one again). */
-  async view(deviceId: string | null, open?: { workspaceId: string; sessionId?: string }): Promise<void> {
+  async view(deviceId: string | null, open?: { workspaceId?: string; sessionId?: string; project?: { orgId: string; id: string } }): Promise<void> {
     if (deviceId === this.viewingId && !this.lost) {
-      if (open) this.deps.afterReload({ type: 'navigate', workspaceId: open.workspaceId, sessionId: open.sessionId })
+      if (open) this.deps.afterReload({ type: 'navigate', ...open })
       return
     }
     if (deviceId === null) {
@@ -137,7 +137,7 @@ export class RemoteComputers {
       this.lost = false
       this.changed()
       this.deps.reloadWindow()
-      if (open) this.deps.afterReload({ type: 'navigate', workspaceId: open.workspaceId, sessionId: open.sessionId })
+      if (open) this.deps.afterReload({ type: 'navigate', ...open })
       return
     }
     const link = this.links.get(deviceId)
@@ -159,7 +159,7 @@ export class RemoteComputers {
     this.lost = false
     this.changed()
     this.deps.reloadWindow()
-    if (open) this.deps.afterReload({ type: 'navigate', workspaceId: open.workspaceId, sessionId: open.sessionId })
+    if (open) this.deps.afterReload({ type: 'navigate', ...open })
   }
 
   /** Back to this computer, and say why. `reload` false: the window is loading already (it asked for a snapshot). */

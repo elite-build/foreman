@@ -324,9 +324,9 @@ describe('each class’s rule in words', () => {
     // Not listed itself, but a pull request pushes its branch, so it takes the pushes' Never.
     expect(items[3]).toMatch(/^Pull requests\s*Never\s*Refused: nothing is sent, and the employee is told why\.\s*A pull request pushes its branch, so it follows the stricter rule for pushes\.$/)
     expect(items[4]).toMatch(/^newsletter\s*Held\s*Foreman has no route of its own for this, so it can’t hold it/)
-    // A shell by default: its git push and gh aren't held, nor are the MCP servers every run has.
+    // A shell by default: its git push and gh aren't held, nor are the repository’s MCP servers and Foreman’s.
     expect(screen.getByText('Its shell is not held: a command it runs (git push, gh, curl) acts at once, outside these rules.')).toBeTruthy()
-    expect(screen.getByText('Its MCP servers, every one an agent in a workspace has, act with no hold; Foreman’s Slack and Linear tools follow the rules above.')).toBeTruthy()
+    expect(screen.getByText('Its MCP servers act with no hold; Foreman’s Slack and Linear tools follow the rules above. On Claude Code it has no other Slack or Linear server; on Codex your own Codex servers are there too.')).toBeTruthy()
   })
 
   it('leaves pushes and pull requests out for an employee with no Write access, and says it can’t do either', () => {
@@ -343,7 +343,7 @@ describe('each class’s rule in words', () => {
     expect(screen.queryByText(/no Write access/)).toBeNull()
   })
 
-  it('says plainly in a draft’s plan that its shell and every MCP server aren’t held, and Slack and Linear are', () => {
+  it('says plainly in a draft’s plan that its shell and its MCP servers aren’t held, and Slack and Linear are', () => {
     setSnapshot({})
     const d = base
     const view: EmployeeView = { ...summary, state: 'draft', blob: 'b1', text: null, promptBlob: null, prompt: null, definition: d }
@@ -354,7 +354,7 @@ describe('each class’s rule in words', () => {
         .map((li) => li.textContent)
     const can = group('Can')
     expect(can).toContain('Use a shell and its tools Nothing it runs there waits for you.')
-    expect(can).toContain('Use every MCP server an agent in a workspace has Nothing it does with them waits for you.')
+    expect(can).toContain('Use the repository’s MCP servers and Foreman’s (on Codex, your own Codex servers too) Nothing it does with them waits for you.')
     // Foreman's Slack and Linear tools are there in every run, and held for you.
     expect(group('Asks you first')).toContain('Before each Slack post')
     expect(group('Asks you first')).toContain('Before each Linear change')
