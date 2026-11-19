@@ -337,7 +337,7 @@ export function RemoveRepoDialog({ repo, onClose }: { repo: Repo; onClose: () =>
     setBusy(false)
     if (!removed) return
     onClose()
-    if (settingsOnRepo) openSettingsPage({ section: 'general' })
+    if (settingsOnRepo) openSettingsPage({ section: 'quick' })
     showToast(t('repoSettings.remove.toast', { name: repo.name }))
   }
 

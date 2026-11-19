@@ -5,7 +5,7 @@ import { AGENT_SEARCH_WORDS } from './agentCatalog'
 import type { AgentKind } from './agents'
 import type { PlainKey } from './i18n'
 
-export type PersonalSection = 'general' | 'account' | 'integrations' | 'appearance' | 'accessibility' | 'models' | 'git' | 'environment' | 'experimental' | 'advanced' | 'usage' | 'data' | 'devices' | 'cloud' | 'spaces'
+export type PersonalSection = 'quick' | 'general' | 'account' | 'integrations' | 'appearance' | 'accessibility' | 'models' | 'git' | 'environment' | 'experimental' | 'advanced' | 'usage' | 'data' | 'devices' | 'cloud' | 'spaces'
 export type RepoSection = 'git' | 'environment' | 'integrations' | 'scripts' | 'cloud' | 'actions' | 'misc'
 
 export interface SettingEntry {
@@ -32,6 +32,8 @@ export interface SettingEntry {
 
 // Keys: t() them at render time.
 export const PAGE_LABELS: Record<PersonalSection | 'agents', PlainKey> = {
+  // The tiles people change most (shared/quickTiles.ts); the sidebar's gear shows the first few.
+  quick: 'settings.page.quick',
   general: 'settings.general.title',
   account: 'settings.page.account',
   integrations: 'settings.page.integrations',
@@ -53,14 +55,15 @@ export const PAGE_LABELS: Record<PersonalSection | 'agents', PlainKey> = {
   spaces: 'spaces.page.title'
 }
 
-export type SettingsCategory = 'general' | 'appearance' | 'accessibility' | 'agents' | 'account' | 'integrations' | 'git' | 'environment' | 'data' | 'advanced' | 'devices' | 'cloud' | 'spaces'
+export type SettingsCategory = 'quick' | 'general' | 'appearance' | 'accessibility' | 'agents' | 'account' | 'integrations' | 'git' | 'environment' | 'data' | 'advanced' | 'devices' | 'cloud' | 'spaces'
 
 /**
  * The categories of the settings menu, each with its pages. Every page is split into short parts, one per menu entry
- * (renderer settings/pages.ts); a category opens on its first. Prompt templates live in Automations and phone pairing
+ * (renderer settings/pages.ts); a category opens on its first. Settings opens on Quick. Prompt templates live in Automations and phone pairing
  * on the sidebar's phone pill, not here.
  */
 export const CATEGORIES: { id: SettingsCategory; label: PlainKey; pages: (PersonalSection | 'agents')[] }[] = [
+  { id: 'quick', label: 'settings.page.quick', pages: ['quick'] },
   { id: 'general', label: 'settings.general.title', pages: ['general'] },
   { id: 'appearance', label: 'settings.appearance.title', pages: ['appearance'] },
   { id: 'accessibility', label: 'settings.page.accessibility', pages: ['accessibility'] },
@@ -95,6 +98,7 @@ export const REPO_TAB_LABELS: Record<RepoSection, PlainKey> = {
 
 // Extra words that find a page itself.
 export const PAGE_KEYWORDS: Record<PersonalSection | 'agents' | RepoSection, string[]> = {
+  quick: ['quick', 'favourites', 'favorites', 'pinned', 'tiles', 'shortcuts'],
   general: ['preferences', 'config', 'notifications', 'sound', 'send', 'language'],
   account: ['user', 'profile', 'login', 'sign in', 'github', 'privacy'],
   integrations: ['linear', 'slack', 'github', 'langfuse', 'traces', 'token', 'api key', 'mcp', 'accounts', 'connections', 'work', 'personal', 'notifications', 'dm', 'reviewers'],

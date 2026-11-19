@@ -246,6 +246,34 @@ describe('Popover', () => {
       expect(onClose).not.toHaveBeenCalled()
       expect(screen.getByRole('dialog', { name: 'Model' })).toBeTruthy()
     })
+
+    it('a portalled popover opened from inside another counts as part of it: clicks and focus there keep both open', async () => {
+      function Outer() {
+        const [open, setOpen] = useState(false)
+        return (
+          <div>
+            <Popover portal open={open} onOpenChange={setOpen} label="Quick" trigger={(props) => <button {...props}>Quick</button>}>
+              <Portalled />
+            </Popover>
+            <button>Elsewhere</button>
+          </div>
+        )
+      }
+      const user = userEvent.setup()
+      render(<Outer />)
+      await user.click(screen.getByRole('button', { name: 'Quick' }))
+      await user.click(screen.getByRole('button', { name: 'Model' }))
+      expect(document.activeElement).toBe(screen.getByLabelText('Search'))
+      await user.click(screen.getByRole('button', { name: 'Pick one' }))
+      expect(screen.getByRole('dialog', { name: 'Quick' })).toBeTruthy()
+      expect(screen.getByRole('dialog', { name: 'Model' })).toBeTruthy()
+      // Escape closes the inner one only.
+      await user.keyboard('{Escape}')
+      expect(screen.queryByRole('dialog', { name: 'Model' })).toBeNull()
+      expect(screen.getByRole('dialog', { name: 'Quick' })).toBeTruthy()
+      await user.click(screen.getByRole('button', { name: 'Elsewhere' }))
+      expect(screen.queryByRole('dialog', { name: 'Quick' })).toBeNull()
+    })
   })
 
   describe('popoverPlacement', () => {

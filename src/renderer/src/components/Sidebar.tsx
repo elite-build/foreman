@@ -17,7 +17,6 @@ import {
   PanelRightClose,
   Pin,
   Search,
-  Settings,
   Users,
   X,
   icons,
@@ -76,6 +75,7 @@ import { TeamList } from './employees/TeamSection'
 import { ChannelList } from './employees/ProjectsSection'
 import { SIDEBAR_MODE_LABEL, shownMode, sidebarModes, workView } from '../sidebarModes'
 import { currentSpace, newWorkspaceTarget, snapshotInSpace, spacesOn } from '../../../shared/organizations'
+import { QuickSettingsButton } from './settings/QuickTiles'
 import { RemoveRepoDialog } from './settings/RepoMiscTab'
 import { ResizeHandle, type PanelSize } from './resize'
 import { AutomationsEntry } from './automations/AutomationsEntry'
@@ -541,12 +541,12 @@ function ModeTabs({ modes, waiting }: { modes: SidebarMode[]; waiting: Partial<R
 
 /**
  * The foot of the rail, as the repository rail's was: Automations and the Assistant, then the command palette, shortcuts,
- * reporting a problem, the tour and Settings, each an icon named with its key.
+ * reporting a problem, the tour and Quick settings (the gear: a popover of tiles, with the way into Settings), each an
+ * icon named with its key.
  */
 function RailTools() {
   const t = useT()
   const platform = useStore((s) => s.snapshot!.platform)
-  const settingsOpen = useStore((s) => Boolean(s.settingsPage))
   const mod = modKey(platform)
   return (
     <div className="rail-tools">
@@ -566,9 +566,8 @@ function RailTools() {
       <IconButton label={t('tour.label')} data-tour="help" onClick={startTour}>
         <CircleHelp size={15} />
       </IconButton>
-      <IconButton label={t('sidebar.rail.settings', { key: `${mod},` })} pressed={settingsOpen} data-tour="settings" onClick={() => openSettingsPage(settingsOpen ? null : { section: 'general' })}>
-        <Settings size={15} />
-      </IconButton>
+      {/* Quick settings over your work; All settings (and Ctrl+,) opens the page. */}
+      <QuickSettingsButton />
     </div>
   )
 }

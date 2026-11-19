@@ -513,6 +513,8 @@ Replaces the hand-built picker pop-ups (AgentPicker, TemplatePicker, PhonePill, 
 
 Focus goes into the panel on open (first focusable, an `autoFocus` wins). Escape closes, returns focus to the trigger and does not reach a dialog behind. Choosing an item that removes the focused row also returns focus to the trigger. A click outside, or Tab to something outside, closes without taking focus back.
 
+A portalled popover opened from inside another popover's panel (the model picker in a Settings › Quick tile, inside the sidebar gear's popover) counts as part of that panel: a click or focus in it doesn't close the outer one, and its Escape closes only itself. Give the inner one `portal` when the outer panel clips (every panel does: `overflow: hidden`).
+
 A portalled panel works inside a `Dialog`: it is added after the dialog opened, so the dialog's inert background leaves it live, and its Tab and Escape are its own (React bubbles its events through the Popover, which the dialog's trap and Escape handler skip). Tab past its last control, or Shift+Tab from its first, closes it and returns to the trigger (forward Tab then moves on from the trigger), since the panel sits at the end of the page.
 
 ```tsx

@@ -1,0 +1,130 @@
+/* Settings › Quick and the sidebar gear's popover (QuickTiles.tsx). Layout only: the tiles are Cards, the controls ui/'s. */
+.qt-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.qt-bar-end {
+  margin-left: auto;
+}
+.qt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.qt-grid--pop {
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.qt-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px 10px 12px;
+}
+/* A control as wide as its content, not the tile (the theme switch, the language picker). */
+.qt-fit {
+  align-self: flex-start;
+}
+.qt-tile--wide {
+  grid-column: span 2;
+}
+.qt-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 24px;
+}
+.qt-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.qt-tools {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+.qt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.qt-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.qt-connections {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qt-connections li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.qt-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Choosing tiles: where the gear's popover stops. A plain divider. */
+.qt-cut {
+  grid-column: 1 / -1;
+  margin: 4px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* The gear's popover. */
+.qt-pop {
+  width: 440px;
+  max-height: min(640px, 85vh);
+}
+.qt-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.qt-pop-title {
+  flex: 1;
+  font-weight: 600;
+}
+.qt-pop-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+}
+.qt-pop-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.qt-pop-links {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+}

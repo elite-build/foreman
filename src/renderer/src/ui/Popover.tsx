@@ -90,8 +90,15 @@ export function Popover({ open, onOpenChange, trigger, label, side = 'top', alig
     }
   }, [open, portal])
 
-  // The panel is outside the wrapper's DOM when portalled.
-  const owns = (node: Node) => !!wrap.current?.contains(node) || !!panel.current?.contains(node)
+  // The panel is outside the wrapper's DOM when portalled. So is the panel of a portalled popover opened from inside this
+  // one (a model picker in a panel that clips): it counts as this one's, through the trigger that controls it.
+  const owns = (node: Node): boolean => {
+    if (wrap.current?.contains(node) || panel.current?.contains(node)) return true
+    const nested = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('.ui-popover__panel[data-portal]')
+    if (!nested?.id || nested === panel.current) return false
+    const opener = [...document.querySelectorAll('[aria-controls]')].find((el) => el.getAttribute('aria-controls') === nested.id)
+    return !!opener && owns(opener)
+  }
 
   // Focus goes into the panel when it opens (an autoFocus inside it wins).
   useEffect(() => {

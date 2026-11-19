@@ -41,7 +41,7 @@ const terminalPlacements = (t: TFunction): SelectOption<TerminalPlacement>[] => 
 ]
 
 // 50% to 200% in 10% steps, stored as a factor.
-const ZOOM_OPTIONS: SelectOption<string>[] = Array.from({ length: 16 }, (_, i) => {
+export const ZOOM_OPTIONS: SelectOption<string>[] = Array.from({ length: 16 }, (_, i) => {
   const percent = 50 + i * 10
   return { value: (percent / 100).toFixed(1), label: `${percent}%` }
 })

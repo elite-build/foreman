@@ -12,6 +12,7 @@ import {
   GitBranch,
   HardDrive,
   KeyRound,
+  LayoutGrid,
   MonitorSmartphone,
   Palette,
   Plug,
@@ -33,6 +34,7 @@ import { firstPage, linkTo, pageNode, pathTo, settingsTree, type SettingsNode } 
 import { CATEGORIES, PAGE_KEYWORDS, REPO_TAB_LABELS, SETTINGS, type SettingEntry, type SettingsCategory } from './registry'
 
 export const PAGE_ICONS: Record<PersonalSection | 'agents', LucideIcon> = {
+  quick: LayoutGrid,
   general: Settings2,
   account: CircleUser,
   integrations: Plug,
