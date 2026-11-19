@@ -2,6 +2,45 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.7 (2026-11-19)
+
+### Added
+
+- A project waiting for you shows an OS notification, counts on the tray and dock, appears on your phone and reaches Slack by your rules; clicking it opens the channel. ([#241](https://github.com/elite-build/foreman/pull/241))
+- **Undo approval** takes back a check's approval while what it started is still running. ([#236](https://github.com/elite-build/foreman/pull/236))
+
+### Changed
+
+- Sidebar rows are two lines: what the workspace is for on the first, and what it is doing and since when, with its pull request and +/−, on the second. In **Work**, each repository is a card, set apart from the next, so it's clear which repository a workspace belongs to. ([#242](https://github.com/elite-build/foreman/pull/242))
+- A message in a project's channel now goes to **Priya**, who answers, asks or replans; `@Name` reaches that person's running part instead of starting a second run. ([#237](https://github.com/elite-build/foreman/pull/237))
+- In a project, parts that change the repository take turns, and only the part the plan names as publisher pushes or opens a pull request; the channel shows what was published, including pushes made from the shell. ([#238](https://github.com/elite-build/foreman/pull/238))
+- **Hand to Priya** starts the project in a new workspace from yours, with or without your uncommitted changes, and leaves your workspace alone. ([#238](https://github.com/elite-build/foreman/pull/238))
+- A project that changes code always ends with your **final check**, even a small one, and parts marked as checks pass or fail; a fail goes back to Priya. ([#240](https://github.com/elite-build/foreman/pull/240))
+- Priya sees what each employee can do (access and shell), and a replan that changes who does a part, removes a check or waives a failed one waits for you. ([#240](https://github.com/elite-build/foreman/pull/240))
+- Once you write a note at a part's check, **Send back** is the main button; your note and the mock you pick reach what starts next once, and Priya sees your decisions when she replans. ([#236](https://github.com/elite-build/foreman/pull/236))
+- AI employees on Claude Code no longer run your own Claude Code hooks, plugins or personal MCP servers; your sign-in and provider settings still apply. ([#241](https://github.com/elite-build/foreman/pull/241))
+
+### Fixed
+
+- **Plan with what you have** keeps the answers you typed, and Ctrl+Enter in Priya's questions sends them instead of skipping. A plan or questions can no longer change under the card you're answering; long answers, summaries and mentions with spaces are no longer cut or lost. ([#236](https://github.com/elite-build/foreman/pull/236))
+- Esc no longer stops a project, and **Stop** on a card asks first. **Stop** also ends work still finishing after a part reported done. ([#236](https://github.com/elite-build/foreman/pull/236), [#238](https://github.com/elite-build/foreman/pull/238))
+- A project never silently moves to a fresh branch from main, and **Retry** on an employee's page no longer restarts work the project gave up on. ([#238](https://github.com/elite-build/foreman/pull/238))
+- A finished run's chat is read-only and points you to the channel, so it can't answer from old context or change the project's branch on the side. ([#237](https://github.com/elite-build/foreman/pull/237))
+- Questions asked in an organization's channel show there with their answers. ([#237](https://github.com/elite-build/foreman/pull/237))
+- A channel says **Needs you** while anyone in it waits for you, the **Channels** tab counts it, and your own chats in a project's workspace show in the sidebar again. ([#237](https://github.com/elite-build/foreman/pull/237))
+- A part taken as it is still waits for your check, a builder waits for the design it reads, approvals stay on the version you approved, and reworked mocks no longer disappear from the check. ([#240](https://github.com/elite-build/foreman/pull/240))
+- Outages no longer use up a project's replans, **Pause** holds replans, and a crash or a retired Priya or owner no longer strands a project; **Add Priya** works after retiring her. ([#240](https://github.com/elite-build/foreman/pull/240))
+- Moving a repository into an organization gives Priya access, and deleting or archiving a channel stops or refuses its work. ([#240](https://github.com/elite-build/foreman/pull/240))
+- The final check shows what was actually published, and no screen promises that a pull request waits for your Send. ([#241](https://github.com/elite-build/foreman/pull/241))
+
+### Security
+
+- AI employees reach Slack and Linear only through Foreman's connections, where posts are held as set. ([#241](https://github.com/elite-build/foreman/pull/241))
+
+### Development
+
+- `npm run dev` installs dependencies and Electron's binary itself when a checkout has none, so a new workspace starts with one command. ([#243](https://github.com/elite-build/foreman/pull/243))
+
 ## 1.2.6 (2026-11-19)
 
 ### Added
