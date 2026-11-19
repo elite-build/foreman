@@ -253,6 +253,52 @@ describe('Tabs', () => {
   })
 })
 
+describe('rail variant', () => {
+  function Rail() {
+    const [value, setValue] = useState('work')
+    return (
+      <Tabs value={value} onChange={setValue} variant="rail">
+        <TabList label="Modes" orientation="vertical">
+          <Tab value="inbox">
+            <svg aria-hidden />
+            <span>Inbox</span>
+          </Tab>
+          <Tab value="work">
+            <svg aria-hidden />
+            <span>Work</span>
+          </Tab>
+          <Tab value="team">
+            <svg aria-hidden />
+            <span>Team</span>
+          </Tab>
+        </TabList>
+      </Tabs>
+    )
+  }
+
+  it('is a vertical tab list named by its words, moving with up and down', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<Rail />)
+    expect(container.querySelector('.ui-tabs--rail')).not.toBeNull()
+    expect(screen.getByRole('tablist', { name: 'Modes' }).getAttribute('aria-orientation')).toBe('vertical')
+    expect(tab('Work').getAttribute('aria-selected')).toBe('true')
+    await user.tab()
+    expect(document.activeElement).toBe(tab('Work'))
+    await user.keyboard('{ArrowDown}')
+    expect(document.activeElement).toBe(tab('Team'))
+    expect(tab('Team').getAttribute('aria-selected')).toBe('true')
+    await user.keyboard('{ArrowUp}{ArrowUp}')
+    expect(tab('Inbox').getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('stacks the icon over the word and fills the selected tab, with a forced-colours outline', () => {
+    const css = readCss('tabs')
+    expect(ruleBody(css, '.ui-tabs--rail .ui-tab__button')).toMatch(/flex-direction:\s*column/)
+    expect(ruleBody(css, ".ui-tabs--rail .ui-tab__button[aria-selected='true']")).toMatch(/background:\s*var\(--bg-selected\)/)
+    expect(css).toMatch(/forced-colors: active[\s\S]*ui-tabs--rail[\s\S]*outline: 2px solid Highlight/)
+  })
+})
+
 describe('Tabs overflow', () => {
   it('keeps every tab at its own size and wraps the list; the chat list scrolls in one row instead', () => {
     const css = readCss('tabs')
@@ -267,7 +313,7 @@ describe('Tabs overflow', () => {
   })
 
   it('renders every tab of a long list in every variant', () => {
-    for (const variant of ['underline', 'pill', 'chat'] as const) {
+    for (const variant of ['underline', 'pill', 'chat', 'rail'] as const) {
       render(
         <Tabs value="t0" onChange={() => {}} variant={variant}>
           <TabList label="Many">

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// The window in a narrow width (narrowLayout.ts), as App lays it out: under 1012 px the sidebar is its rail alone (the
-// space switcher on top) and ⌘B is what brings the list back; above it the sidebar is as it was.
+// The window in a narrow width (narrowLayout.ts), as App lays it out: under 1060 px the sidebar is its rail alone (the
+// spaces, the modes and the one +) and ⌘B or a mode is what brings the list back; above it the sidebar is as it was.
 import './domShims'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -40,7 +40,7 @@ beforeEach(() => {
     leftPanelOpen: true,
     narrowList: false,
     rightPanelOpen: true,
-    railNames: false,
+    sidebarMode: 'work',
     unread: {},
     unreadSessions: {},
     backgroundArchives: [],
@@ -71,17 +71,18 @@ afterEach(() => {
   fakeState.snapshot = original
 })
 
-const rail = () => screen.getByRole('navigation', { name: 'Repositories' })
+const rail = () => document.querySelector('.sidebar-rail') as HTMLElement
 // The list's top row: ⌕ opens Find in place.
 const list = () => screen.queryByRole('button', { name: 'Find' })
 
 describe('the sidebar in a narrow window', () => {
-  it('is its rail alone, with the space switcher on top, and Ctrl+B asks for the list', () => {
+  it('is its rail alone, with the spaces on top and the one + on it, and Ctrl+B asks for the list', () => {
     width(900)
     render(<App />)
     expect(rail()).toBeTruthy()
     expect(list()).toBeNull()
-    expect(within(rail()).getByRole('button', { name: 'Space: Personal' })).toBeTruthy()
+    expect(within(rail()).getByRole('button', { name: 'Personal' })).toBeTruthy()
+    expect(within(rail()).getByRole('button', { name: 'New' })).toBeTruthy()
     act(() => void fireEvent.keyDown(window, { key: 'b', code: 'KeyB', ctrlKey: true }))
     expect(spy('toggleLeftPanel')).toHaveBeenCalled()
   })
@@ -91,20 +92,21 @@ describe('the sidebar in a narrow window', () => {
     fakeState.narrowList = true
     render(<App />)
     expect(list()).toBeTruthy()
-    expect(within(rail()).queryByRole('button', { name: /^Space:/ })).toBeNull()
+    // The + is the top row's again.
+    expect(within(rail()).queryByRole('button', { name: 'New' })).toBeNull()
   })
 
-  it('above 1012 px is as it was: the rail and the list', () => {
-    width(1012)
+  it('from 1060 px is as it was: the rail and the list', () => {
+    width(1060)
     render(<App />)
     expect(list()).toBeTruthy()
-    expect(within(rail()).queryByRole('button', { name: /^Space:/ })).toBeNull()
+    expect(within(rail()).queryByRole('button', { name: 'New' })).toBeNull()
   })
 
   it('hidden with Ctrl+B is hidden at any width', () => {
     width(900)
     fakeState.leftPanelOpen = false
     render(<App />)
-    expect(screen.queryByRole('navigation', { name: 'Repositories' })).toBeNull()
+    expect(document.querySelector('.sidebar-rail')).toBeNull()
   })
 })

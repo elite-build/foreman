@@ -25,6 +25,16 @@ describe('Glyph', () => {
     expect(new Set(shapes).size).toBe(NAMES.length)
   })
 
+  it('draws needs you round (a ring around a dot) and failed as a dot with a cross cut out, never a pointed shape', () => {
+    const svg = (name: GlyphName) => render(<Glyph name={name} />).container.querySelector('svg')!
+    const warn = svg('warn')
+    expect(warn.querySelectorAll('circle')).toHaveLength(2)
+    expect(warn.querySelector('circle')!.getAttribute('fill')).toBe('none')
+    const error = svg('error').querySelector('path')!
+    expect(error.getAttribute('fill-rule')).toBe('evenodd')
+    expect(error.getAttribute('d')).toMatch(/^M6 \.6a5\.4 5\.4/)
+  })
+
   it('cannot be made accessible: aria-hidden stays true', () => {
     const { container } = render(<Glyph name="ok" aria-hidden={false} />)
     const svg = container.querySelector('svg')!

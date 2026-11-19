@@ -38,11 +38,12 @@ import {
   timeAgo,
   toggleBottomPanel,
   toggleLeftPanel,
-  toggleRailNames,
+  setSidebarMode,
   toggleRightPanel,
   toggleZen,
   useStore
 } from '../store'
+import { SIDEBAR_MODE_LABEL, sidebarModes } from '../sidebarModes'
 import { runGitAction } from './GitPanel'
 import { resetPanelSizes } from './resize'
 import { ActionRow, Button, Combobox, Dialog, IconButton, Kbd, Segmented, Tag } from '../ui'
@@ -91,6 +92,7 @@ interface Command {
 
 export function CommandPalette() {
   const snapshot = useStore((s) => s.snapshot!)
+  const space = useStore((s) => s.space)
   const selectedId = useStore((s) => s.selectedWorkspaceId)
   const [query, setQuery] = useState('')
   const platform = snapshot.platform
@@ -190,7 +192,8 @@ export function CommandPalette() {
       })
     })
     list.push({ id: 'left', label: t('palette.toggleSidebar'), group: t('palette.group.general'), hint: shortcutHint('panel.left', platform), run: close(toggleLeftPanel) })
-    list.push({ id: 'rail-names', label: t('palette.toggleRepoNames'), group: t('palette.group.general'), hint: shortcutHint('panel.railNames', platform), run: close(toggleRailNames) })
+    // The sidebar's modes (its rail): Team, Channels and Memory only while an organization with a memory is shown.
+    for (const mode of sidebarModes(snapshot, space)) list.push({ id: `sidebar-${mode}`, label: t('palette.sidebarMode', { mode: t(SIDEBAR_MODE_LABEL[mode]) }), group: t('palette.group.general'), run: close(() => setSidebarMode(mode)) })
     list.push({ id: 'right', label: t('palette.toggleSidePanel'), group: t('palette.group.general'), hint: shortcutHint('panel.right', platform), run: close(toggleRightPanel) })
     list.push({ id: 'zen', label: t('palette.zen'), group: t('palette.group.general'), hint: shortcutHint('zen.toggle', platform), run: close(toggleZen) })
     list.push({ id: 'bottom', label: t('palette.toggleTerminal'), group: t('palette.group.general'), hint: shortcutHint('panel.bottom', platform), run: close(toggleBottomPanel) })

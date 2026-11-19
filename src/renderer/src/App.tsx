@@ -26,12 +26,13 @@ import { DropFolder } from './components/DropFolder'
 import { Sidebar } from './components/Sidebar'
 import { Home } from './components/Home'
 import { sidebarOrder } from './triage'
+import { workView } from './sidebarModes'
 import { WorkspaceView } from './components/WorkspaceView'
 import { TilesView } from './components/tiles/TilesView'
 import { EditorViews } from './components/editor/EditorViews'
 import { StatusBar } from './components/editor/StatusBar'
-import { editorViewsFor, RAIL_NAMES_WIDTH, RAIL_WIDTH, shownEditorView } from './editorLayout'
-import { CHAT_MIN_WIDTH, SIDE_PANEL_MIN_WIDTH, SIDEBAR_DEFAULT_WIDTH, sidebarShows } from './narrowLayout'
+import { editorViewsFor, RAIL_WIDTH, shownEditorView } from './editorLayout'
+import { CHAT_MIN_WIDTH, SIDE_PANEL_MIN_WIDTH, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, sidebarShows } from './narrowLayout'
 import { workspaceSurfaces } from './archivedView'
 import './components/workspace.css'
 import { CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/AddRepository'
@@ -74,7 +75,6 @@ import {
   showToast,
   toggleBottomPanel,
   toggleLeftPanel,
-  toggleRailNames,
   toggleRightPanel,
   toggleTerminalFullscreen,
   toggleWorkspaceFocus,
@@ -98,7 +98,6 @@ export const shortcutActions: ShortcutActions = {
     void attempt(() => api.updateSettings({ theme: dark ? 'light' : 'dark' }))
   },
   toggleLeftPanel,
-  toggleRailNames,
   toggleRightPanel,
   toggleBottomPanel,
   toggleZen,
@@ -155,8 +154,9 @@ function useShortcuts() {
           platform: platformOf(snapshot.platform),
           ws,
           session: snapshot.sessions.find((s) => s.id === sessionId),
-          // The sidebar's own order: the space it shows (docs/ai-employees.md §3), as it lists it.
-          order: () => sidebarOrder({ ...state, snapshot: snapshotInSpace(snapshot, state.space) }, state.sidebarView),
+          // The sidebar's own order: the space it shows (docs/ai-employees.md §3), as Work lists it (its rows' Ctrl+1–9),
+          // whichever mode is picked.
+          order: () => sidebarOrder({ ...state, snapshot: snapshotInSpace(snapshot, state.space) }, workView(state.sidebarView)),
           actions: shortcutActions
         },
         capture
@@ -219,11 +219,10 @@ export function App() {
   const editorView = useStore((s) => s.editorView)
   const tileZoom = useStore((s) => s.tileZoom)
   const windowWidth = useWindowWidth()
-  // The rail with its names shown is wider; the list beside it keeps its width, so the sidebar grows by the difference.
-  const railNames = useStore((s) => s.railNames)
-  const railExtra = railNames ? RAIL_NAMES_WIDTH - RAIL_WIDTH : 0
   // Leave the chat column 420px, plus the side panel's narrowest width when it's open. The size includes the rail's tiles.
-  const sidebar = usePanelSize('sidebar', SIDEBAR_DEFAULT_WIDTH, 260, Math.min(480, windowWidth - CHAT_MIN_WIDTH - railExtra - (rightPanelOpen ? SIDE_PANEL_MIN_WIDTH : 0)))
+  // Its own key since the rail of spaces and modes (64 px) came in: a width saved for the 52 px repository rail left the
+  // list too narrow.
+  const sidebar = usePanelSize('sidebarWithModes', SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, Math.min(520, windowWidth - CHAT_MIN_WIDTH - (rightPanelOpen ? SIDE_PANEL_MIN_WIDTH : 0)))
   // Workspaces stay mounted once opened so terminals and scroll positions survive switching. A hidden one holds what it
   // read and skips these renders, so it costs nothing per store event (WorkspaceView); its terminals still run.
   const [opened, setOpened] = useState<string[]>([])
@@ -252,7 +251,7 @@ export function App() {
   // A narrow window folds the list to its rail (narrowLayout.ts) until ⌘B asks for it; not in the Editor layout.
   const folded = !editor && sidebarShows({ windowWidth, windowLayout: snapshot.settings.windowLayout, leftPanelOpen, narrowList }) === 'rail'
   const listShown = leftPanelOpen && (!editor || shownView === 'workspaces') && !folded
-  const sidebarWidth = (listShown ? sidebar.size : RAIL_WIDTH) + railExtra
+  const sidebarWidth = listShown ? sidebar.size : RAIL_WIDTH
   // The main area reaches the window's left edge (where macOS draws the traffic lights).
   const mainFirst = editor ? sidebarRight : !leftPanelOpen || sidebarRight
 

@@ -17,7 +17,7 @@ import { AskEmployee, EmployeeRuns, EmployeesNeedYou, EmployeeTasks, TaskRow } f
 import { EmployeeRunBanner } from '../src/renderer/src/components/employees/EmployeeRunBanner'
 import { EmployeesView } from '../src/renderer/src/components/employees/EmployeesView'
 import { TeamPage } from '../src/renderer/src/components/employees/TeamPage'
-import { TeamSection } from '../src/renderer/src/components/employees/TeamSection'
+import { TeamList } from '../src/renderer/src/components/employees/TeamSection'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
 
 vi.mock('../src/renderer/src/store', async () => (await import('./rendererStore')).storeModule)
@@ -117,14 +117,11 @@ beforeEach(() => {
   resetFake()
   for (const name of ['selectWorkspace', 'openEmployees', 'showToast']) spy(name).mockReset()
   fakeState.space = 'o1'
-  // The sidebar's Team row shows its employees (folded away otherwise).
-  fakeState.teamOpen = true
 })
 afterEach(() => {
   cleanup()
   fakeState.snapshot = original
   delete fakeState.space
-  delete fakeState.teamOpen
 })
 
 describe('Ask <name>… and Run now', () => {
@@ -399,29 +396,29 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     expect(screen.getAllByRole('button', { name: /in your browser$/ })).toHaveLength(1)
   })
 
-  it('names each employee’s hat in the sidebar with its current task, Working while it runs, and one Needs you state when a task waits', () => {
-    // Only running: Working, with the task, and a turning ring on the hat's corner.
+  it('names each employee’s row in the sidebar with its current task, Working while it runs, and one Needs you state when a task waits', () => {
+    // Only running: Working, with the task, and a turning ring at the row's end.
     setSnapshot({ work: { ...work, tasks: [task()] } })
-    const { unmount } = render(<TeamSection />)
+    const { unmount } = render(<TeamList />)
     const running = screen.getByRole('button', { name: /^Max/ })
     expect(running.getAttribute('aria-label')).toBe('Max · Marketing · Working · On: Draft the launch post')
-    expect(running.querySelector('.sb-hat-mark .ui-spinner')).not.toBeNull()
+    expect(running.querySelector('.sb-row-end .ui-spinner')).not.toBeNull()
     unmount()
-    // A task waits for the person as well: one state (Needs you, its count), then what waits, and ▲ in place of the ring.
+    // A task waits for the person as well: one state (Needs you, its count), then what waits, and ▲ and 1 in place of the ring.
     setSnapshot({ work })
-    render(<TeamSection />)
+    render(<TeamList />)
     const hat = screen.getByRole('button', { name: /^Max/ })
     const name = hat.getAttribute('aria-label')!
     expect(name).toMatch(/^Max · Marketing · Needs you · 1 · Needs you: Fix the README/)
     expect(name).not.toContain('Working')
-    expect(hat.querySelector('.sb-hat-mark [data-glyph="warn"]')).not.toBeNull()
+    expect(hat.querySelector('.sb-row-need [data-glyph="warn"]')).not.toBeNull()
     expect(hat.querySelector('.ui-spinner')).toBeNull()
   })
 
-  it('keeps a long task whole in the hat’s name and tooltip, with one state, never “Idle” beside what waits', () => {
+  it('keeps a long task whole in the row’s name and tooltip, with one state, never “Idle” beside what waits', () => {
     const long = 'Draft the launch post for 1.0.23 with every change since 1.0.22 and the changelog email'
     setSnapshot({ work: { tasks: [task({ title: long, state: 'waiting', waitingOn: 'person', reason: 'which version?' })], runs: [], last: {}, proposals: [], revision: 1 } })
-    render(<TeamSection />)
+    render(<TeamList />)
     const hat = screen.getByRole('button', { name: /^Max/ })
     expect(hat.getAttribute('aria-label')).toContain(long)
     expect(hat.getAttribute('title')).toBe(hat.getAttribute('aria-label'))
@@ -430,9 +427,9 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     expect(hat.querySelectorAll('.ui-glyph')).toHaveLength(1)
   })
 
-  it('puts a hat’s mark on its corner with the app’s stylesheets in the app’s order', () => {
+  it('lays a row’s mark out at its end with the app’s stylesheets in the app’s order', () => {
     // jsdom loads no stylesheet, and in the app ui/ui.css comes after every feature sheet (main.tsx): load them as the app
-    // does and ask for the computed layout, so the mark sits on the hat, not beside it.
+    // does and ask for the computed layout, so the list is a column and the mark keeps its size at the row's end.
     const sheets = [readFileSync('src/renderer/src/styles/sidebar.css', 'utf8'), uiStylesheet()]
     const styles = sheets.map((css) => {
       const style = document.createElement('style')
@@ -441,12 +438,13 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
       return style
     })
     try {
-      setSnapshot({ work: { ...work, tasks: [task()] } })
-      render(<TeamSection />)
-      const hat = screen.getByRole('button', { name: /^Max/ })
-      expect(getComputedStyle(hat).position).toBe('relative')
-      expect(getComputedStyle(hat.querySelector('.sb-hat-mark')!).position).toBe('absolute')
-      expect(getComputedStyle(screen.getByRole('list', { name: 'Employees of Acme' })).flexWrap).toBe('wrap')
+      setSnapshot({ work })
+      render(<TeamList />)
+      const row = screen.getByRole('button', { name: /^Max/ })
+      expect(getComputedStyle(screen.getByRole('list', { name: 'Employees of Acme' })).flexDirection).toBe('column')
+      const mark = row.querySelector('.sb-row-need')!
+      expect(getComputedStyle(mark).display).toBe('inline-flex')
+      expect(getComputedStyle(mark).flex).toMatch(/^0 0 auto|^none/)
     } finally {
       for (const style of styles) style.remove()
     }
@@ -472,11 +470,11 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
       expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
       expect(screen.getByRole('button', { name: 'Cancel task' })).toBeTruthy()
       unmount()
-      // The sidebar's hat: its name says it, and the state isn't Needs you (it clears itself).
-      const side = render(<TeamSection />)
+      // The sidebar's row: its name says it, and the state isn't Needs you (it clears itself).
+      const side = render(<TeamList />)
       const hat = screen.getByRole('button', { name: /^Max/ })
       expect(hat.getAttribute('aria-label')).toBe('Max · Marketing · Idle · Held: Weekly report · Waiting for the usage limit to reset at 23:30')
-      expect(hat.querySelector('.sb-hat-mark')).toBeNull()
+      expect(hat.querySelector('.sb-row-need, .sb-row-end')).toBeNull()
       side.unmount()
       // The Team card has its one state, with the work queued and nothing needing the person.
       const card = render(<TeamPage orgId="o1" data={{ employees: [], error: '', reload: vi.fn() }} />)
@@ -509,7 +507,7 @@ describe('Needs you, the Team rows and a run’s workspace', () => {
     const user = userEvent.setup()
     fakeApi.resumeEmployee = vi.fn(async () => undefined)
     setSnapshot({ employees: [summary({ state: 'paused', pausedKind: 'failures', pausedDetail: 'Stopped after the maximum of 30 minutes.' })], work: { tasks: [], runs: [], last: {}, proposals: [], revision: 1 } })
-    const { unmount } = render(<TeamSection />)
+    const { unmount } = render(<TeamList />)
     expect(screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')).toContain('Needs you · 1')
     unmount()
     render(<EmployeesNeedYou orgId="o1" />)
@@ -595,7 +593,7 @@ describe('the Team rows say what waits for you, once', () => {
   it('says an employee’s question once, in words around it, with no reason from main beside it', () => {
     const asking = task({ title: 'Which day does 2.4 launch?', state: 'waiting', waitingOn: 'person', reason: 'Which day does Atlas 2.4 launch?', question: { id: 'q1', question: 'Which day does Atlas 2.4 launch?', options: [], runId: 'r1', askedAt: NOW } })
     setSnapshot({ work: { tasks: [asking], runs: [], last: {}, proposals: [], revision: 1 } })
-    const { unmount } = render(<TeamSection />)
+    const { unmount } = render(<TeamList />)
     const said = screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')!
     expect(said).toBe('Max · Marketing · Needs you · 1 · Needs you: Which day does Atlas 2.4 launch?')
     expect(said).not.toContain('?.')
@@ -612,7 +610,7 @@ describe('the Team rows say what waits for you, once', () => {
 
   it('gives the reason for a held outward action and for a memory proposal, on the row and the card', async () => {
     setSnapshot({ work: { tasks: [], runs: [], last: {}, proposals: [], actions: [push()], revision: 1 } })
-    const first = render(<TeamSection />)
+    const first = render(<TeamList />)
     expect(screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')).toBe('Max · Marketing · Needs you · 1 · Needs you: Push of max/launch-2.4')
     first.unmount()
     // The Team card: a row for the push, whose button only opens it (it leaves this computer), and the card it opens.
@@ -629,7 +627,7 @@ describe('the Team rows say what waits for you, once', () => {
     card.unmount()
     const proposal = { id: 'p1', orgId: 'o1', path: 'memory/org/PROJECT.md', kind: 'append' as const, text: '- Thursdays.', employeeId: 'e-max1', runId: 'r1', createdAt: NOW }
     setSnapshot({ work: { tasks: [], runs: [], last: {}, proposals: [proposal], revision: 1 } })
-    const side = render(<TeamSection />)
+    const side = render(<TeamList />)
     expect(screen.getByRole('button', { name: /^Max/ }).getAttribute('aria-label')).toContain('Proposes a memory change: memory/org/PROJECT.md')
     side.unmount()
     // On the Team page, a change for the whole organization is in its own strip, not on Max's card, and its row's button
@@ -675,14 +673,14 @@ describe('the Team rows say what waits for you, once', () => {
 
   it('says Draft for a draft, never Working, and turns the ring only on whoever is at work', () => {
     setSnapshot({ employees: [summary({ state: 'draft' }), summary({ id: 'e-ada1', name: 'Ada', colour: 'teal' })], work: { tasks: [task({ employeeId: 'e-ada1' })], runs: [], last: {}, proposals: [], revision: 1 } })
-    render(<TeamSection />)
-    const hats = within(screen.getByRole('list', { name: 'Employees of Acme' })).getAllByRole('button')
+    render(<TeamList />)
+    const rows = within(screen.getByRole('list', { name: 'Employees of Acme' })).getAllByRole('button')
     // At work comes before the rest.
-    expect(hats.map((h) => h.getAttribute('aria-label')!.split(' · ')[0])).toEqual(['Ada', 'Max'])
-    const [working, draft] = hats
+    expect(rows.map((h) => h.getAttribute('aria-label')!.split(' · ')[0])).toEqual(['Ada', 'Max'])
+    const [working, draft] = rows
     expect(draft.getAttribute('aria-label')).toBe('Max · Marketing · Draft')
     expect(draft.querySelector('.ui-spinner')).toBeNull()
     expect(working.getAttribute('aria-label')).toContain('Working')
-    expect(working.querySelector('.sb-hat-mark .ui-spinner')).not.toBeNull()
+    expect(working.querySelector('.sb-row-end .ui-spinner')).not.toBeNull()
   })
 })

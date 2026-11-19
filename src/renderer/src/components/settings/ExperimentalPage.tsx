@@ -8,7 +8,7 @@ const DEFAULTS = {
   autoPermissionMode: false,
   autoRunAfterSetup: false,
   forkToNewTab: true,
-  showResourceUsage: false,
+  showResourceUsage: true,
   flows: false,
   replayTraffic: false,
   diagnostics: true

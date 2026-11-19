@@ -131,7 +131,7 @@ describe('announcing each step', () => {
     present.delete('automations')
     show('automations')
     render(<Tour />)
-    await waitFor(() => expect(announcer.current().text).toContain('The sidebar is hidden. Show it with Ctrl+B, then look for Automations, at the top of the sidebar.'), { timeout: 3000 })
+    await waitFor(() => expect(announcer.current().text).toContain('The sidebar is hidden. Show it with Ctrl+B, then look for Automations, at the foot of the sidebar’s rail.'), { timeout: 3000 })
   })
 })
 
@@ -142,7 +142,7 @@ describe('a control that is not on screen', () => {
     render(<Tour />)
     expect(dialog().className).toContain('side-center')
     const away = within(dialog()).getByText(/The sidebar is hidden/)
-    expect(away.textContent).toBe('The sidebar is hidden. Show it with Ctrl+B, then look for the All, Needs you, Running and Pinned filters.')
+    expect(away.textContent).toBe('The sidebar is hidden. Show it with Ctrl+B, then look for Inbox, on the sidebar’s rail.')
     expect(within(away).getByText('Ctrl+B')).toBeTruthy()
   })
 
@@ -150,7 +150,7 @@ describe('a control that is not on screen', () => {
     present.delete('settings')
     show('settings', 'darwin')
     render(<Tour />)
-    expect(within(dialog()).getByText(/The sidebar is hidden/).textContent).toBe('The sidebar is hidden. Show it with ⌘B, then look for the gear in the strip of repository icons.')
+    expect(within(dialog()).getByText(/The sidebar is hidden/).textContent).toBe('The sidebar is hidden. Show it with ⌘B, then look for the gear at the foot of the sidebar’s rail.')
   })
 
   it('has no such note when the control is there, and none on the cards that point at nothing', () => {
@@ -166,11 +166,11 @@ describe('a control that is not on screen', () => {
 })
 
 describe('the step buttons', () => {
-  it('Needs you: filters the sidebar to what needs you and ends the tour', async () => {
+  it('Needs you: shows the sidebar’s Inbox and ends the tour', async () => {
     show('needsYou')
     render(<Tour />)
     await userEvent.setup().click(within(dialog()).getByRole('button', { name: 'Show what needs you' }))
-    expect(spy('setSidebarFilter')).toHaveBeenCalledWith('needs-you')
+    expect(spy('setSidebarMode')).toHaveBeenCalledWith('inbox')
     expect(spy('endTour')).toHaveBeenCalledTimes(1)
   })
 

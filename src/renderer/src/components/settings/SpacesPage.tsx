@@ -5,7 +5,7 @@
 // employees are on (Settings → Experimental).
 import { Brain, MoreHorizontal, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
-import { defaultMemoryName, moveRefusal, organizationNameProblem, reposInSpace, workspaceRepos, type MemoryLinkInput, type Organization } from '../../../../shared/organizations'
+import { defaultMemoryName, moveRefusal, organizationNameProblem, reposInSpace, spaceIcon, workspaceRepos, type MemoryLinkInput, type Organization } from '../../../../shared/organizations'
 import { formatDate, formatDateTime } from '../../../../shared/i18n/time'
 import type { Repo } from '../../../../shared/types'
 import { useT } from '../../i18n'
@@ -14,6 +14,7 @@ import { ActionRow, Button, Callout, Card, Dialog, Field, MenuButton, MenuGroup,
 import { NAME_PROBLEM, NO_ORGANIZATIONS } from '../spaces/CreateOrganizationDialog'
 import { useGithubAccounts } from './GithubAccount'
 import { Page } from './controls'
+import { IconPicker } from './RepoIcon'
 import '../spaces/spaces.css'
 
 export function SpacesPage() {
@@ -58,6 +59,16 @@ function SpaceCard({ organization, onRename, onDelete, onLink }: { organization:
   return (
     <Card as="section" className="space-card" aria-labelledby={titleId}>
       <div className="space-card-head">
+        {/* An organization's icon (its tile on the sidebar's rail); with none, its repository of the same name lends one. */}
+        {organization && (
+          <IconPicker
+            icon={spaceIcon(organization, repos)}
+            name={organization.name}
+            label={t('spaces.icon.change', { organization: organization.name })}
+            dialog={t('spaces.icon.dialog')}
+            save={(icon) => attempt(() => api.setOrganizationIcon(organization.id, icon)).then((saved) => Boolean(saved))}
+          />
+        )}
         <div>
           <h2 id={titleId} className="space-heading">
             {name}

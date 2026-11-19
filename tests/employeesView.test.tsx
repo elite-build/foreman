@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// AI employees in the window (docs/ai-employees.md §5.3, §10): the sidebar's Team section only for an organization with
+// AI employees in the window (docs/ai-employees.md §5.3, §10): the sidebar's Team mode only for an organization with
 // a memory repository while AI employees are on; the New employee page's Use my words and Generate → draft → suggestions
 // off → Create, which saves a draft and opens its page, with a mocked API; Generate kept off under Privacy mode and a
 // failed draft keeping the person's words; and the plan a draft's page shows (EmployeeReview) and its Approve button.
@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultEmployee, newEmployee, type EmployeeSummary, type EmployeeView } from '../src/shared/employees'
 import type { Organization } from '../src/shared/organizations'
-import { TeamSection } from '../src/renderer/src/components/employees/TeamSection'
+import { TeamList } from '../src/renderer/src/components/employees/TeamSection'
 import { NewEmployeePage } from '../src/renderer/src/components/employees/NewEmployeePage'
 import { EmployeePage, EmployeeReview } from '../src/renderer/src/components/employees/EmployeePage'
 import { TeamPage } from '../src/renderer/src/components/employees/TeamPage'
@@ -59,7 +59,7 @@ const writeYourOwn = (user: ReturnType<typeof userEvent.setup>) => user.click(sc
 
 beforeEach(() => {
   resetFake()
-  for (const name of ['openEmployees', 'openMemory', 'toggleTeamOpen']) spy(name).mockReset()
+  for (const name of ['openEmployees', 'openMemory']) spy(name).mockReset()
   ;(storeModule.showToast as ReturnType<typeof vi.fn>).mockReset()
   fakeState.space = 'o1'
   fakeApi.createEmployee = vi.fn(async (_org: string, definition: { id: string; name: string }) => ({ ...summary(definition.id, definition.name), blob: 'b1', text: '', promptBlob: null, prompt: null }))
@@ -68,23 +68,22 @@ afterEach(() => {
   cleanup()
   fakeState.snapshot = original
   delete fakeState.space
-  delete fakeState.teamOpen
 })
 
-describe('the Team section', () => {
+describe('the sidebar’s Team mode', () => {
   it('is absent in Personal, and for an organization without a memory repository', () => {
     setSnapshot({ employees: [summary('e-1abc', 'Ada')] })
     fakeState.space = null
-    const second = render(<TeamSection />)
-    expect(screen.queryByRole('region', { name: 'Team' })).toBeNull()
+    const second = render(<TeamList />)
+    expect(screen.queryByRole('list', { name: 'Employees of Foreman' })).toBeNull()
     second.unmount()
     setSnapshot({ organizations: [org('o1', 'Foreman')] })
     fakeState.space = 'o1'
-    render(<TeamSection />)
-    expect(screen.queryByRole('region', { name: 'Team' })).toBeNull()
+    render(<TeamList />)
+    expect(screen.queryByRole('list', { name: 'Employees of Foreman' })).toBeNull()
   })
 
-  it('is a row of hats, one button per employee named by name, role and state, opening its page; Team page opens the Team page', async () => {
+  it('is a row per employee named by name, role and state, opening its page; Team page opens the Team page', async () => {
     const user = userEvent.setup()
     setSnapshot({
       employees: [
@@ -95,16 +94,16 @@ describe('the Team section', () => {
         summary('e-5abc', 'Old', { state: 'retired' })
       ]
     })
-    fakeState.teamOpen = true
-    render(<TeamSection />)
-    expect(screen.getByRole('region', { name: 'Team' })).toBeTruthy()
+    render(<TeamList />)
     const list = screen.getByRole('list', { name: 'Employees of Foreman' })
-    const hats = within(list).getAllByRole('button')
-    // The retired one is on the Team page only; each hat's name and tooltip say who and what state, in words.
-    expect(hats.map((h) => h.getAttribute('aria-label'))).toEqual(['Ada · Developer · Idle', 'Max · Marketing · Draft', 'Pat · Marketing · Paused', 'Sam · Marketing · Changed since approval'])
-    expect(hats[0].getAttribute('title')).toBe('Ada · Developer · Idle')
+    const rows = within(list).getAllByRole('button')
+    // The retired one is on the Team page only; each row's name and tooltip say who and what state, in words.
+    expect(rows.map((h) => h.getAttribute('aria-label'))).toEqual(['Ada · Developer · Idle', 'Max · Marketing · Draft', 'Pat · Marketing · Paused', 'Sam · Marketing · Changed since approval'])
+    expect(rows[0].getAttribute('title')).toBe('Ada · Developer · Idle')
+    // Seen: the hat, the name, and what they do (their role while nothing else is said).
     expect(list.querySelector('svg.ui-hard-hat')).not.toBeNull()
-    await user.click(hats[1])
+    expect(rows[0].textContent).toContain('Developer')
+    await user.click(rows[1])
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'employee', id: 'e-2abc' })
     await user.click(screen.getByRole('button', { name: 'Team page' }))
     expect(spy('openEmployees')).toHaveBeenCalledWith({ orgId: 'o1', page: 'team' })
@@ -112,42 +111,25 @@ describe('the Team section', () => {
     expect(screen.queryByRole('button', { name: /New employee/ })).toBeNull()
   })
 
-  it('folds under a heading like every section’s, remembered, saying ▲ and the count while folded; ▲ marks whoever needs you, first', async () => {
-    const user = userEvent.setup()
+  it('puts whoever needs you first, with ▲ and how many of their things wait', () => {
     setSnapshot({ employees: [summary('e-2abc', 'Max', { state: 'active', colour: 'orange' }), summary('e-1abc', 'Ada', { state: 'active' }), summary('e-3abc', 'Old', { state: 'retired' })] })
     const proposal = { id: 'p1', orgId: 'o1', path: 'memory/org/PROJECT.md', kind: 'append' as const, text: '- x', employeeId: 'e-1abc', runId: 'r1', createdAt: '2026-11-13T10:00:00.000Z' }
     fakeState.snapshot = { ...fakeState.snapshot, employeeWork: { o1: { tasks: [], runs: [], last: {}, proposals: [proposal], revision: 1 } } }
-    fakeState.teamOpen = false
-    const { rerender } = render(<TeamSection />)
-    // Folded: the heading is the one button; two employees (the retired one isn't counted) and ▲1 for Ada's proposal.
-    const head = screen.getByRole('button', { name: 'Team · 2 · 1 needs you' })
-    expect(head.getAttribute('aria-expanded')).toBe('false')
-    expect(head.querySelector('[data-glyph="warn"]')).not.toBeNull()
-    expect(document.getElementById(head.getAttribute('aria-controls')!)!.hidden).toBe(true)
-    // Click, Enter and Space all fold or unfold it (the store keeps it for next time); none opens a page.
-    await user.click(head)
-    head.focus()
-    await user.keyboard('{Enter}')
-    await user.keyboard(' ')
-    expect(spy('toggleTeamOpen')).toHaveBeenCalledTimes(3)
-    expect(spy('openEmployees')).not.toHaveBeenCalled()
-    fakeState.teamOpen = true
-    rerender(<TeamSection />)
-    // Open, the heading says the count alone; the hats carry ▲, and whoever needs you comes first.
-    expect(screen.getByRole('button', { name: 'Team · 2' }).getAttribute('aria-expanded')).toBe('true')
-    const hats = within(screen.getByRole('list', { name: 'Employees of Foreman' })).getAllByRole('button')
-    expect(hats.map((h) => h.getAttribute('aria-label')?.split(' · ')[0])).toEqual(['Ada', 'Max'])
-    expect(hats[0].getAttribute('aria-label')).toContain('Needs you · 1')
-    expect(hats[0].querySelector('.sb-hat-mark [data-glyph="warn"]')).not.toBeNull()
-    expect(hats[1].querySelector('.sb-hat-mark')).toBeNull()
+    render(<TeamList />)
+    const rows = within(screen.getByRole('list', { name: 'Employees of Foreman' })).getAllByRole('button')
+    expect(rows.map((h) => h.getAttribute('aria-label')?.split(' · ')[0])).toEqual(['Ada', 'Max'])
+    expect(rows[0].getAttribute('aria-label')).toContain('Needs you · 1')
+    const mark = rows[0].querySelector('.sb-row-need')
+    expect(mark?.querySelector('[data-glyph="warn"]')).not.toBeNull()
+    expect(mark?.textContent).toBe('1')
+    expect(rows[1].querySelector('.sb-row-need')).toBeNull()
   })
 
   it('says how to start when there are no employees yet', () => {
     setSnapshot({ employees: [] })
-    fakeState.teamOpen = true
-    render(<TeamSection />)
-    expect(screen.getByRole('button', { name: 'Team · 0' })).toBeTruthy()
+    render(<TeamList />)
     expect(screen.getByText('No employees yet.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Team page' })).toBeTruthy()
   })
 })
 

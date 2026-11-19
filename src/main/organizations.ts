@@ -5,28 +5,12 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
-import {
-  freeMemoryName,
-  isRepoFolderName,
-  MAX_ORGANIZATION_NAME,
-  MEMORY_MANIFEST,
-  memoryChoices,
-  memoryOwner,
-  moveRefusal,
-  organizationNameProblem,
-  samePath,
-  spaceOf,
-  type CreateOrganizationInput,
-  type MemoryRefusal,
-  type Organization,
-  type OrganizationMemory
-} from '../shared/organizations'
+import { freeMemoryName, isRepoFolderName, MAX_ORGANIZATION_NAME, MEMORY_MANIFEST, memoryChoices, memoryOwner, moveRefusal, organizationNameProblem, samePath, spaceOf, type CreateOrganizationInput, type MemoryRefusal, type Organization, type OrganizationMemory, parseSpaceIcon } from '../shared/organizations'
 import { isEmployeeTemplateId, type EmployeeTemplateId } from '../shared/employeeTemplates'
 import { isEmployeeId } from '../shared/memory'
-import type { Repo } from '../shared/types'
+import type { Repo, RepoIcon } from '../shared/types'
 import { quickStart } from './repoSources'
 import type { PersistedState } from './store'
-
 
 export interface OrganizationHost {
   state(): PersistedState
@@ -249,6 +233,20 @@ export class OrganizationService {
     const problem = nameError(organizationNameProblem(clean, this.organizations, id), clean)
     if (problem) throw new Error(problem)
     org.name = clean
+    this.host.changed()
+    this.host.organizationChanged?.(org.id)
+    return org
+  }
+
+  /** Sets or clears its icon (Settings → Spaces); something that isn't an icon is refused. */
+  setIcon(id: string, icon: RepoIcon | null): Organization {
+    const org = this.organization(id)
+    if (icon === null) delete org.icon
+    else {
+      const clean = parseSpaceIcon(icon)
+      if (!clean) throw new Error('That is not an icon Foreman can show.')
+      org.icon = clean
+    }
     this.host.changed()
     this.host.organizationChanged?.(org.id)
     return org

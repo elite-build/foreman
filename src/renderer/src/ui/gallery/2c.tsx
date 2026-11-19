@@ -32,6 +32,9 @@ const PlusIcon = glyph('M6 2v8M2 6h8')
 const MinusIcon = glyph('M2 6h8')
 const CloseIcon = glyph('M3 3l6 6M9 3l-6 6')
 const PencilIcon = glyph('M2 10l.6-2.6L8 2l2 2-5.4 5.4z')
+const InboxIcon = glyph('M1.5 7h3l1 1.5h1L7.5 7h3M1.5 7l1.5-4.5h6L10.5 7v3h-9z')
+const BranchIcon = glyph('M3.5 2v8M3.5 7.5c0-2 5-1.5 5-4.5M8.5 1.5v1.5')
+const PeopleIcon = glyph('M4.5 5.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM1 10.5c0-2 1.5-3.5 3.5-3.5S8 8.5 8 10.5M8 1.5a2 2 0 0 1 0 4M9.5 7.2c1 .5 1.5 1.7 1.5 3.3')
 
 const LONG = 'A deliberately long chat title that has to wrap or be cut without breaking the menu around it'
 
@@ -78,6 +81,7 @@ function TabsDemo() {
   const [editing, setEditing] = useState<string | null>('two')
   const [disabled, setDisabled] = useState('general')
   const [rail, setRail] = useState('dev')
+  const [modes, setModes] = useState('work')
   return (
     <Section title="Tabs">
       <div style={{ ...stack, maxWidth: 560 }}>
@@ -140,6 +144,29 @@ function TabsDemo() {
             <TabPanel value="dev">The dev server's output.</TabPanel>
             <TabPanel value="storybook">Storybook's output.</TabPanel>
             <TabPanel value="setup">The setup log.</TabPanel>
+          </div>
+        </Tabs>
+        <Tabs value={modes} onChange={setModes} variant="rail">
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ width: 60 }}>
+              <TabList label="Rail (the sidebar's modes)" orientation="vertical">
+                <Tab value="inbox">
+                  {InboxIcon}
+                  <span>Inbox</span>
+                </Tab>
+                <Tab value="work">
+                  {BranchIcon}
+                  <span>Work</span>
+                </Tab>
+                <Tab value="team">
+                  {PeopleIcon}
+                  <span>Team</span>
+                </Tab>
+              </TabList>
+            </div>
+            <TabPanel value="inbox">What needs you.</TabPanel>
+            <TabPanel value="work">Every workspace.</TabPanel>
+            <TabPanel value="team">The organization's people.</TabPanel>
           </div>
         </Tabs>
       </div>

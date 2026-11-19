@@ -202,7 +202,7 @@ Replaces the colour-only dots (`.dot`, `.set-dot`, `.blane-dot`, `.phone-dot`) a
 
 ### Glyph
 
-The status shapes: ● `ok`, ▲ `warn`, ◆ `error`, ■ `info`, ○ `off`.
+The status shapes: ● `ok`, ◉ `warn` (a ring around a dot: needs you), a dot with a cross cut out for `error`, ■ `info`, ○ `off`. All but `info` are round, so a list of them reads calm; each is still a shape of its own, so none rests on colour. `warn` was a pointed triangle and `error` a diamond until 2026-11-18 (docs/decisions.md).
 
 - Props: `name`, plus native svg props except `role`, `focusable`, `children`. Always `aria-hidden`; 12px; coloured by its state (green, amber, red, blue, faint) unless a `Tag` or `Callout` sets `currentColor`.
 - Other batches may inline the same paths with `class="ui-glyph"` and `data-glyph`; the shapes are in `ui/Glyph.tsx`.
@@ -402,14 +402,15 @@ Replaces `Segmented` in `settings/controls.tsx` (`.segmented`, `.segmented.small
 
 ### Tabs, TabList, Tab, TabPanel
 
-Replaces `Tabs` in `settings/controls.tsx` (`.set-tabs`), the sidebar filters (`.sidebar-filters`) and the chat tabs (`.chat-tab`).
+Replaces `Tabs` in `settings/controls.tsx` (`.set-tabs`), the sidebar's old filters and the chat tabs (`.chat-tab`); the sidebar's modes are its `rail` variant.
 
-- `Tabs`: `value`, `onChange`, `variant` (`underline` default: a `--selected-mark` underline under the selected tab, in `--text` at weight 500; `pill`, `chat`). Controlled only. It provides the ids; use the parts inside it (they throw outside `Tabs`).
+- `Tabs`: `value`, `onChange`, `variant` (`underline` default: a `--selected-mark` underline under the selected tab, in `--text` at weight 500; `pill`, `chat`, `rail`). Controlled only. It provides the ids; use the parts inside it (they throw outside `Tabs`).
 - `TabList`: `label` (required), `orientation` (`horizontal` default; `vertical` stacks the tabs in a full-width column, a side rail, sets `aria-orientation`, and moves with ↑ ↓ instead of ← →). One Tab stop (the selected tab, or the first enabled one), the arrow keys, Home and End move and select, wrapping, over disabled tabs. Other focusable children (a "new chat" button) keep their own Tab stops and keys. A vertical chat list drops the strip's padding and edge and scrolls down instead of across.
 - `Tab`: `value`, `disabled`, native button props (`title`, `onDoubleClick`, `onContextMenu`, `onMouseEnter`). `onChange` fires only when the selection changes.
   - `actions`: controls beside the tab, rendered as **siblings** of the tab button (the chat tab's close button), never inside it. Keys pressed on them are not tab navigation.
   - `editor`: a rename field. While set it takes the tab's place; the tab button stays in the DOM, hidden, so its panel keeps its name, and arrow keys skip it.
 - `TabPanel`: `value`, `keepMounted`. `role="tabpanel"` with `aria-labelledby` its tab; a tab gets `aria-controls` only when its panel exists. Panels for other tabs stay in the DOM, hidden and empty, unless `keepMounted`.
+- The rail variant is the sidebar's column of modes (Inbox, Work, Team…): use it with a vertical `TabList`; each tab stacks its icon over its name at `--text-xs`, and the selected one is filled with `--bg-selected` at weight 600 (an outline in forced colours). Its name is its word, so the icon is `aria-hidden`; a count on the tab's corner is the caller's, inside the icon's span. It was added rather than a new component because the modes are tabs over one panel, with the vertical list's keys, and only their look was missing.
 - The chat variant is closable browser-style tabs on the same behaviour; `actions` appear on hover, on the selected tab and whenever focus is inside it. Tab titles that need an ellipsis put it on their own span.
 
 ```tsx
