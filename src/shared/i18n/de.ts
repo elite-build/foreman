@@ -2658,6 +2658,7 @@ export const de: Catalogue = {
   'sidebar.markAllRead': 'Alle als gelesen markieren',
   'sidebar.empty.noMatch': 'Keine passenden Arbeitsbereiche.',
   'sidebar.empty.noWorkspaces': 'Noch keine Arbeitsbereiche.',
+  'sidebar.repo.empty': 'Keine offenen Arbeitsbereiche.',
   'sidebar.empty.noRepos': 'Füge ein Repository hinzu, um loszulegen.',
   'sidebar.showFinished': 'Abgeschlossene anzeigen · {count}',
   'sidebar.hideFinished': 'Abgeschlossene ausblenden',

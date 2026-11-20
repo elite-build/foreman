@@ -738,7 +738,7 @@ export function Sidebar({ resize, side = 'left', views, list = true }: { resize?
             foldable={foldable}
             actions={<RepoActions repo={repo} />}
           >
-            <div className="ws-group-rows">{items.map((x) => row(laterLabel(x)))}</div>
+            <div className="ws-group-rows">{items.length ? items.map((x) => row(laterLabel(x))) : <p className="sidebar-empty">{t('sidebar.repo.empty')}</p>}</div>
           </SidebarSection>
         ))}
         {groups.length === 0 && <p className="sidebar-empty">{workEmpty()}</p>}

@@ -2658,6 +2658,7 @@ export const zhCN: Catalogue = {
   'sidebar.markAllRead': '全部标为已读',
   'sidebar.empty.noMatch': '没有匹配的工作区。',
   'sidebar.empty.noWorkspaces': '还没有工作区。',
+  'sidebar.repo.empty': '没有打开的工作区。',
   'sidebar.empty.noRepos': '添加一个仓库即可开始。',
   'sidebar.showFinished': '显示已完成 · {count}',
   'sidebar.hideFinished': '隐藏已完成',
