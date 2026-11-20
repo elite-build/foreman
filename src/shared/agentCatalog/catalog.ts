@@ -94,6 +94,9 @@ export type ReadinessEvidence = 'status' | 'key' | 'installed'
  */
 export type CatalogModel = Pick<ModelInfo, 'id' | 'label' | 'efforts' | 'defaultEffort' | 'supportsFast' | 'contextWindow'>
 
+/** Whose prompting guide a prompt for the agent follows: Anthropic's for Claude Code, OpenAI's for Codex. */
+export type PromptStyle = 'claude' | 'codex'
+
 export interface CatalogAgent {
   id: string
   name: string
@@ -136,6 +139,9 @@ export interface CatalogAgent {
   }
   // Its own subagent files (.claude/agents) are read as personas for its steps.
   personaFiles?: boolean
+  // Write a full prompt (docs/prompt-writer.md) writes for it the way its maker's prompting guide says; without one, the
+  // common ground every agent takes.
+  promptStyle?: PromptStyle
   // A caveat shown with the instructions Foreman teaches this agent (Settings → Repository → Foreman for agents): a message key.
   reportToolsNote?: PlainKey
   // Why it can't run in a cloud workspace, as a clause ("its SDK runs the agent on this computer"); only where `features.cloud` is false.

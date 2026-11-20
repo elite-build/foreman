@@ -94,6 +94,8 @@ import { agentBaseEnv, bundledClaudeExecutable, findOnPath, interactiveShell, is
 import { detectShells, listWslDistros, realProbe } from './shells'
 import { isScriptShellChoice, isShellChoice, resolveShell, type ShellLaunch } from '../shared/shells'
 import { mainLocale, mainT } from './i18n'
+import { writePrompt } from './promptWriter'
+import { PROMPT_WRITER_FALLBACK_MODEL } from '../shared/promptWriter'
 import { lineageInput, type LineageSources } from './lineage'
 import { draftFlowFromLineage, lineageGraph, lineageOutline, LINEAGE_LENSES } from '../shared/lineage'
 import { flowMermaid } from '../shared/flowGraph'
@@ -336,6 +338,25 @@ export class Core {
     this.sessions.grantExists = (grantId) => Boolean(service.grant(grantId))
   }
 
+  /**
+   * Employee Generate and Refine, and Write a full prompt: one request on the one-shot path chat titles use (no tools, run
+   * outside any repository), on the person's default agent when its driver answers one, else the agent that writes titles.
+   * Null in privacy mode or when no agent here can answer one. `fallback` is the model to use when that agent is
+   * `fallback.agent` and the person hasn't chosen one for it (else the driver's own one-shot default).
+   */
+  private async oneShotDraft({ system, prompt }: { system: string; prompt: string }, fallback?: { agent: string; model: string }): Promise<{ text: string; agent: string; model: string } | null> {
+    const { state } = this.store
+    const settings = state.settings
+    if (settings.privacyMode) return null
+    const preferred = settings.loadouts[0]?.agent
+    const agent = preferred && capabilitiesOf(preferred, state.catalog?.agents, state.declared)?.features.titles ? preferred : oneShotAgent()
+    const driver = agent && driverFor(agent)
+    if (!agent || !driver?.oneShot) return null
+    const model = settings.loadouts.find((l) => l.agent === agent)?.model || (fallback?.agent === agent ? fallback.model : '')
+    const text = await driver.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent(agent), executablePath: executablePathFor(settings, agent), systemPrompt: system, ...(model ? { model } : {}) })
+    return { text, agent, model }
+  }
+
   /** A cap whose sign-in no longer exists: refused. Without the access service (unit tests), nothing is. */
   private revokedCap(cap: TurnCap | undefined): string | null {
     return revokedCapRefusal(cap, this.agentAccess ? (grantId) => Boolean(this.agentAccess?.grant(grantId)) : undefined)
@@ -549,19 +570,7 @@ export class Core {
       // refused (a draft, a changed definition) is admitted again.
       lifecycle: (orgId, id) => void this.employeeWork?.lifecycleChanged(orgId, id).catch(() => undefined),
       locale: () => mainLocale(store.state.settings),
-      // Generate and Refine: one request on the one-shot path chat titles use (no tools, run outside any repository), on
-      // the person's default agent when its driver answers one, else the agent that writes titles.
-      draft: async ({ system, prompt }) => {
-        const settings = store.state.settings
-        if (settings.privacyMode) return null
-        const preferred = settings.loadouts[0]?.agent
-        const agent = preferred && capabilitiesOf(preferred, store.state.catalog?.agents, store.state.declared)?.features.titles ? preferred : oneShotAgent()
-        const driver = agent && driverFor(agent)
-        if (!agent || !driver?.oneShot) return null
-        const model = settings.loadouts.find((l) => l.agent === agent)?.model || ''
-        const text = await driver.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent(agent), executablePath: executablePathFor(settings, agent), systemPrompt: system, ...(model ? { model } : {}) })
-        return { text, agent, model }
-      }
+      draft: (request) => this.oneShotDraft(request)
     })
     this.organizations = new OrganizationService({
       state: () => store.state,
@@ -3701,6 +3710,8 @@ export class Core {
     listEmployees: (organizationId) => this.employees.list(organizationId),
     generateEmployeeDraft: (organizationId, input) => this.employees.generate(organizationId, input),
     refineEmployeeDraft: (organizationId, draft, request) => this.employees.refine(organizationId, draft, request),
+    writePrompt: (input) =>
+      writePrompt({ privacyMode: () => Boolean(this.store.state.settings.privacyMode), locale: () => mainLocale(this.store.state.settings), draft: (request) => this.oneShotDraft(request, PROMPT_WRITER_FALLBACK_MODEL) }, input),
     createEmployee: (organizationId, definition, options) => this.employees.create(organizationId, definition, options),
     addTemplateEmployee: (organizationId, templateId) => this.employees.addTemplate(organizationId, templateId),
     updateEmployee: (organizationId, id, definition, expectedBlob, expectedPromptBlob) => this.employees.update(organizationId, id, definition, expectedBlob, expectedPromptBlob),
