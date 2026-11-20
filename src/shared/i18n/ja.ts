@@ -1726,6 +1726,7 @@ export const ja: Catalogue = {
   'repoMcp.reach.via.sdk': '{agent} タブ用に、Agent SDK 経由で起動',
   'repoMcp.reach.via.config': '{agent} タブ用に起動し、ターンごとに --config として渡します（~/.codex は変更されません）',
   'repoMcp.reach.via.acp': '{agent} の ACP セッションに渡され、エージェントが起動します',
+  'repoMcp.reach.via.server': 'Foreman がサーバーに渡す設定から、ターンごとに {agent} が起動します（あなた自身の {agent} の設定は変更されません）',
   'repoMcp.reach.gotAt': '{what} · このタブは{time}に取得',
   'repoMcp.reach.notSupportedTitle': '非対応: {reason}',
   'repoMcp.reason.cursor': 'Cursor はまだ非対応です。SDK は MCP サーバーを受け付けますが、Foreman は Cursor の起動とツール呼び出しをまだ検証していないため、何も渡しません。',
@@ -1739,6 +1740,7 @@ export const ja: Catalogue = {
   'repoMcp.agent.sdk': '受け取ります。ターンごとに Agent SDK 経由で {agent} に渡され、宣言された変数だけが含まれます。',
   'repoMcp.agent.config': '受け取ります。ターンごとに --config のオーバーライドとして {agent} に渡され、宣言された変数だけが含まれます。~/.codex/config.toml は変更されません。',
   'repoMcp.agent.acp': '受け取ります。ターンごとに ACP セッションで渡され、宣言された変数だけが含まれます。サーバーは {agent} が起動し、それ以外に何を渡すかは {agent} 次第です。',
+  'repoMcp.agent.server': '受け取ります。Foreman がサーバーに渡す設定でターンごとに渡され、宣言された変数だけが含まれます。サーバーは {agent} が起動します。あなた自身の {agent} の設定は変更されません。',
 
   // ---- Switch agent mid-conversation: the picker's choice, the chat's divider, the composer ----
   'switchAgent.row.switches': 'エージェントを切り替え',

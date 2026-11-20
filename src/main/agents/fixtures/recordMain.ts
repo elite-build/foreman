@@ -1,18 +1,19 @@
 // What `npm run record:agent -- <agent> <scenario>` does once vitest has loaded it (the script is scripts/record-agent.mjs; a
 // TypeScript entry that can import the drivers needs a bundler, and vitest is the one already here). Real agents (Claude Code,
-// Codex) are recorded; `limit` is made from `plain`; the agents that aren't installed where this was built are recorded from
+// Codex, OpenCode) are recorded; `limit` is made from `plain`; the agents that aren't installed where this was built are recorded from
 // protocol fakes (simulate.ts) and marked `simulated`.
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { claudeLimitFrom, claudeRecorder } from '../claude/record'
 import { codexLimitFrom, codexRecorder } from '../codex/record'
+import { opencodeRecorder } from '../opencode/record'
 import { fixturePath, formatFixture, parseFixture, readFixture, writeFixture, type Fixture } from './format'
 import { findLeaks, sanitizeFixture } from './sanitize'
 import { recordScenario, SCENARIOS, type AgentRecorder, type Scenario } from './recorder'
 import { simulateAll } from './simulate'
 
-const RECORDERS: Record<string, AgentRecorder> = { claude: claudeRecorder, codex: codexRecorder }
+const RECORDERS: Record<string, AgentRecorder> = { claude: claudeRecorder, codex: codexRecorder, opencode: opencodeRecorder }
 const LIMITS: Record<string, (plain: Fixture) => Fixture> = { claude: claudeLimitFrom, codex: codexLimitFrom }
 
 export const RECORDABLE = Object.keys(RECORDERS)

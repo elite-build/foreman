@@ -51,10 +51,9 @@ describe('the records', () => {
   })
 
   it('claims no ability the adapters lack today', () => {
-    // The ACP agents and Cursor can't steer a running turn (they are interrupted and restarted, on request); nobody forks natively, compacts on request, rewinds its own conversation
-    // or keeps goals but Claude Code and Codex (the latter three: Codex's thread/fork, thread/compact/start, thread/revert and
-    // thread/goal, each recorded in a fixture the proof test replays).
-    const own = ['claude', 'codex']
+    // The ACP agents and Cursor can't steer a running turn (they are interrupted and restarted, on request); nobody forks natively, compacts on request or rewinds its own
+    // conversation but Claude Code, Codex and OpenCode (each recorded in a fixture the proof test replays), and only Codex keeps goals.
+    const own = ['claude', 'codex', 'opencode']
     for (const id of chatKinds.filter((k) => !own.includes(k))) expect(record(id).turns.steer, id).toEqual(ability('fallback', 'interrupt-restart'))
     for (const id of chatKinds.filter((k) => !own.includes(k))) {
       expect(record(id).threads.fork, id).toEqual(ability('fallback', 'prompt-history'))
@@ -70,9 +69,12 @@ describe('the records', () => {
     // A goal is Codex's: Claude Code has none.
     expect(record('codex').planning.goals.level).toBe('native')
     expect(record('claude').planning.goals.level).toBe('none')
-    // Claude Code and Codex are proven against traffic recorded from them (tests/agentCapabilityProof.test.ts); nobody has
+    // OpenCode's is its own session fork, message deletion and summarize, and it takes a message mid-turn.
+    expect(record('opencode').turns.steer.level).toBe('native')
+    expect(record('opencode').planning.goals.level).toBe('none')
+    // Claude Code, Codex and OpenCode are proven against traffic recorded from them (tests/agentCapabilityProof.test.ts); nobody has
     // recorded the others.
-    for (const id of chatKinds) expect(record(id).evidence, id).toBe(id === 'claude' || id === 'codex' ? 'recorded' : 'simulated')
+    for (const id of chatKinds) expect(record(id).evidence, id).toBe(own.includes(id) ? 'recorded' : 'simulated')
   })
 })
 
@@ -82,8 +84,8 @@ describe('resolving what an agent declared', () => {
     expect(gemini.planning.planMode.level).toBe('none')
     expect(resolveCapabilities(gemini, { planMode: true }).planning.planMode).toEqual(ability('native'))
     expect(resolveCapabilities(gemini, { planMode: false }).planning.planMode.level).toBe('none')
-    // OpenCode is ACP too; Cursor and Claude Code don't declare one.
-    expect(resolveCapabilities(record('opencode'), { planMode: true }).planning.planMode.level).toBe('native')
+    // Cursor and Claude Code don't declare one (OpenCode's plan agent is in its record, declared or not).
+    expect(resolveCapabilities(record('opencode'), { planMode: false }).planning.planMode.level).toBe('native')
     expect(resolveCapabilities(record('cursor'), { planMode: true }).planning.planMode.level).toBe('none')
     expect(resolveCapabilities(record('claude'), { planMode: false }).planning.planMode.level).toBe('native')
     // The base is not changed, and nothing declared hands back the same object.
@@ -243,12 +245,12 @@ describe('the snapshot', () => {
     expect(capabilitiesFor(before.agentCapabilities, 'claude')?.features.titles).toBe(true)
     expect(capabilitiesFor(before.agentCapabilities, 'gemini')?.planning.planMode.level).toBe('none')
 
-    // OpenCode and Gemini declare a plan session mode; Codex declares nothing, so what it lists changes nothing.
+    // Gemini declares a plan session mode; Codex and OpenCode declare none (their plan mode is in their record), so what they list changes nothing.
     store.state.catalog.agents.gemini = { models: [], modes: [{ id: 'plan', name: 'Plan' }, { id: 'default', name: 'Default' }] }
     store.state.catalog.agents.opencode = { models: [], modes: [{ id: 'build', name: 'Build' }, { id: 'plan', name: 'Plan' }] }
     store.state.catalog.agents.codex = { models: [], modes: [{ id: 'plan', name: 'Plan' }] }
     const after = core.snapshot().agentCapabilities
-    expect(Object.keys(after.declared).sort()).toEqual(['gemini', 'opencode'])
+    expect(Object.keys(after.declared).sort()).toEqual(['gemini'])
     expect(capabilitiesFor(after, 'gemini')?.planning.planMode.level).toBe('native')
     expect(capabilitiesFor(after, 'opencode', 'any-account')?.planning.planMode.level).toBe('native')
     expect(capabilitiesFor(after, 'codex')?.planning.planMode.level).toBe('native')

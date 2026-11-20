@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-20: OpenCode runs through its own server, not ACP
+
+**Decision.** Foreman drives OpenCode through `opencode serve` and `@opencode-ai/sdk` (pinned exactly): one password-protected loopback server per turn, with OpenCode's own fork, message deletion, summarize, plan agent, child sessions, steer and session permission rules. The other ACP agents keep the shared ACP adapter.
+
+**Why.** ACP gave OpenCode only what every ACP agent shares, so it lost fork, rollback, compaction, subagents, plan and steering. And OpenCode allows everything by default, so its Ask mode never asked. Its server has all of these, and its free models let every scenario be recorded for real.
+
+**Turned down.** Keeping ACP and calling the SDK for the gaps (two transports for one agent); one server shared across turns (the process environment names the turn); OpenCode's revert for Restore (it restores files too, which are Foreman's).
+
+**Revisit when.** OpenCode's server API changes incompatibly, or ACP gains what OpenCode needs.
+
 ## 2026-11-19: An AI employee's run leaves the person's own Claude Code setup out
 
 **Decision.** An employee's Claude run loads the repository's settings, not the person's hooks, plugins or model; of their user settings it keeps only sign-in (`env`, auth helpers) and their own deny, ask and sandbox limits. Its MCP servers are the repository's approved `.mcp.json` servers (less any Slack or Linear one) and Foreman's; every other MCP configuration is ignored. Hook refusals go on the run's record. This narrows the 2026-11-17 entry's "every MCP server a workspace's agent has" for employees only.

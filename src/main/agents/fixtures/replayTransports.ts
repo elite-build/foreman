@@ -3,6 +3,7 @@
 //   claude   a fake CLI process on the Agent SDK's stdio (the SDK itself runs, above it)
 //   codex    a fake `codex app-server` process under CodexAppServer
 //   acp      an in-process stream pair under the ACP client connection
+//   opencode a fake `opencode serve`: its HTTP answers and its server-sent events
 //   cursor   a fake worker process with Cursor's IPC `send` / 'message'
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
@@ -10,10 +11,11 @@ import os from 'node:os'
 import { PassThrough, Writable } from 'node:stream'
 import { CodexAppServer } from '../codex/appServer'
 import type { AcpConnector } from '../acp'
+import type { OpencodeLauncher } from '../opencode/server'
 import { setTransportOverride, type CodexOpener, type CursorForker, type ProcessStarter, type TransportOverrides } from '../transport'
 import type { TurnRequest } from '../types'
 import { EOF, kill, type Fixture } from './format'
-import { ReplayEngine, claudeProtocol, ipcProtocol, jsonRpcProtocol, type Protocol, type ReplayOptions, type Sink } from './replay'
+import { ReplayEngine, claudeProtocol, httpProtocol, ipcProtocol, jsonRpcProtocol, type Protocol, type ReplayOptions, type Sink } from './replay'
 
 export type FixturePicker = Fixture | ((req: TurnRequest) => Fixture)
 
@@ -140,6 +142,111 @@ function acpConnector(handle: ReplayHandle, picker: FixturePicker, req: TurnRequ
   }
 }
 
+/**
+ * An OpenCode server that is a replay: its `fetch` sends each request to the engine and answers with the recorded response,
+ * and a `GET /event` gets a stream the recorded events are written to. When the recording's server exits (or is closed),
+ * every request still waiting fails and the event stream ends, as they do when a real server goes away.
+ */
+function opencodeLauncher(handle: ReplayHandle, picker: FixturePicker, req: TurnRequest, options: ReplayOptions): OpencodeLauncher {
+  return async () => {
+    const pending = new Map<number, (data: Record<string, unknown>) => void>()
+    const streams = new Set<ReadableStreamDefaultController<Uint8Array>>()
+    const encoder = new TextEncoder()
+    let over = false
+    let stderr = ''
+    let next = 0
+    const end = () => {
+      over = true
+      for (const answer of pending.values()) answer({ gone: true })
+      pending.clear()
+      for (const stream of streams) {
+        try {
+          stream.close()
+        } catch {
+          // Already closed.
+        }
+      }
+      streams.clear()
+    }
+    const engine = engineFor(
+      handle,
+      pick(picker, req),
+      httpProtocol,
+      {
+        recv: (data) => {
+          const d = data as Record<string, unknown>
+          if (d.event !== undefined) {
+            const chunk = encoder.encode(`data: ${JSON.stringify(d.event)}\n\n`)
+            for (const stream of streams) stream.enqueue(chunk)
+            return
+          }
+          // The event stream ended there (a server that went away breaks it).
+          if (d.end) {
+            for (const stream of streams) {
+              try {
+                if (d.broke) stream.error(new TypeError('terminated'))
+                else stream.close()
+              } catch {
+                // Already closed.
+              }
+            }
+            streams.clear()
+            return
+          }
+          const answer = pending.get(Number(d.re))
+          pending.delete(Number(d.re))
+          answer?.(d)
+        },
+        stderr: (text) => void (stderr += text),
+        exit: end
+      },
+      req,
+      options
+    )
+    const replayed: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      if (over) throw new TypeError('fetch failed')
+      const id = next++
+      const text = await request.text()
+      let body: unknown
+      try {
+        body = text ? JSON.parse(text) : undefined
+      } catch {
+        body = text
+      }
+      const answered = new Promise<Record<string, unknown>>((resolve) => pending.set(id, resolve))
+      engine.send({ http: `${request.method} ${new URL(request.url).pathname}`, id, ...(body !== undefined ? { body } : {}) })
+      const answer = await answered
+      if (answer.gone) throw new TypeError('fetch failed')
+      const status = Number(answer.status) || 200
+      if (answer.stream) {
+        let own: ReadableStreamDefaultController<Uint8Array>
+        const stream = new ReadableStream<Uint8Array>({
+          start: (controller) => {
+            own = controller
+            streams.add(controller)
+          },
+          cancel: () => void streams.delete(own)
+        })
+        request.signal?.addEventListener('abort', () => {
+          streams.delete(own)
+          try {
+            own.close()
+          } catch {
+            // Already closed.
+          }
+        })
+        return new Response(stream, { status, headers: { 'content-type': 'text/event-stream' } })
+      }
+      if (status === 204 || answer.body === undefined) return new Response(null, { status })
+      const json = typeof answer.body !== 'string'
+      return new Response(json ? JSON.stringify(answer.body) : (answer.body as string), { status, headers: { 'content-type': json ? 'application/json' : 'text/plain' } })
+    }
+    engine.start()
+    return { baseUrl: 'http://opencode.replay', fetch: replayed, failure: () => ({ stderr }), close: async () => engine.kill() }
+  }
+}
+
 /** What Cursor's `fork` gives back: an IPC channel, not stdio. */
 class FakeWorker extends EventEmitter {
   readonly pid = undefined
@@ -187,7 +294,7 @@ function cursorForker(handle: ReplayHandle, picker: FixturePicker, req: TurnRequ
 }
 
 /**
- * Puts the replay in the seam for `agent` (a Claude Code, Codex, Cursor or ACP agent's id; any other id is an ACP agent),
+ * Puts the replay in the seam for `agent` (a Claude Code, Codex, OpenCode, Cursor or ACP agent's id; any other id is an ACP agent),
  * choosing a fixture per turn. Everything the agent's adapter starts from now on is played from it, or, with a `gate`
  * that says no for a turn, started for real.
  */
@@ -204,6 +311,9 @@ export function replayTransport(agent: string, picker: FixturePicker, options: R
       break
     case 'codex':
       undo = setTransportOverride('codex', (req) => (gate && !gate() ? undefined : codexOpener(handle, picker, req, options)))
+      break
+    case 'opencode':
+      undo = setTransportOverride('opencode', (req) => (gate && !gate() ? undefined : opencodeLauncher(handle, picker, req, options)))
       break
     case 'cursor':
       undo = setTransportOverride('cursor', (req) => (gate && !gate() ? undefined : cursorForker(handle, picker, req, options)))

@@ -3,7 +3,7 @@
 // approval only holds while the server is exactly what was approved: command,
 // args, variable names, vault scopes and the content of any repo script it runs.
 // #20: every agent that takes them gets the same servers (`tools.mcp` in the agent's record: Claude, Codex,
-// OpenCode and the Chat agents); Cursor and Terminal agents never do. Approval is per server, for all of them at once.
+// OpenCode, Cursor and the Chat agents); Cursor and Terminal agents never do. Approval is per server, for all of them at once.
 import { createHash } from 'node:crypto'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'

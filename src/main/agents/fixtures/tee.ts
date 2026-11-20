@@ -6,6 +6,7 @@ import { StringDecoder } from 'node:string_decoder'
 import type { AcpConnector } from '../acp'
 import type { CodexOpener, CursorForker, ProcessStarter } from '../transport'
 import { spawnAppServer, CodexAppServer } from '../codex/appServer'
+import type { OpencodeLauncher } from '../opencode/server'
 import { EOF, kill, type Frame, type FrameDir } from './format'
 
 export class FrameRecorder {
@@ -131,6 +132,96 @@ export function teeAcpConnector(connect: AcpConnector, rec: FrameRecorder): AcpC
     void transport.stream.readable.pipeTo(fromAgent.writable).catch(() => undefined)
     return { ...transport, stream: { readable: fromAgent.readable, writable: toAgent.writable } }
   }
+}
+
+/**
+ * An OpenCode launcher that tees its server's HTTP traffic (replay.ts `httpProtocol`): each request a `send`
+ * (`{http: "POST /session/ses_…/prompt_async", id, body}`, without the query and headers, which carry the folder and the
+ * password), each answer a `recv` (`{re: id, status, body}`), and each server-sent event a `recv` of its own (`{event}`),
+ * after the `{re, status, stream: true}` that opened the stream. Its error output and exit are recorded too; closing it is a kill.
+ */
+export function teeOpencodeLauncher(launch: OpencodeLauncher, rec: FrameRecorder): OpencodeLauncher {
+  return async (options) => {
+    const server = await launch(options)
+    if (server.process) {
+      rec.child = server.process
+      const decoder = new StringDecoder('utf8')
+      server.process.stderr?.on('data', (chunk: Buffer | string) => {
+        const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
+        if (text) rec.stderr(text)
+      })
+      // Its exit, not its pipes closing: the turn's own close comes after a crash, and must not land before it.
+      server.process.once('exit', (code, signal) => rec.exit(code, signal))
+    }
+    const running = () => !server.process || (server.process.exitCode === null && server.process.signalCode === null)
+    let next = 0
+    const parse = (text: string): unknown => {
+      if (!text) return undefined
+      try {
+        return JSON.parse(text)
+      } catch {
+        return text
+      }
+    }
+    const recorded: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      const id = next++
+      const body = parse(await request.clone().text())
+      rec.send({ http: `${request.method} ${new URL(request.url).pathname}`, id, ...(body !== undefined ? { body } : {}) })
+      const response = await server.fetch(request)
+      if (!response.body || !(response.headers.get('content-type') ?? '').includes('text/event-stream')) {
+        const text = await response.text()
+        const answer = parse(text)
+        rec.recv({ re: id, status: response.status, ...(answer !== undefined ? { body: withoutKeys(answer) } : {}) })
+        return new Response(response.status === 204 ? null : text, { status: response.status, statusText: response.statusText, headers: response.headers })
+      }
+      rec.recv({ re: id, status: response.status, stream: true })
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const reader = response.body.getReader()
+      // The stream's end is a frame of its own (`{re, end: true}`): a server that dies breaks it before its process is seen to exit.
+      const events = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const { value, done } = await reader.read()
+            if (done) {
+              rec.recv({ re: id, end: true })
+              return controller.close()
+            }
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n')
+            const blocks = buffer.split('\n\n')
+            buffer = blocks.pop() ?? ''
+            for (const block of blocks) {
+              const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.replace(/^data:\s*/, '')).join('\n')
+              if (data) rec.recv({ event: parse(data) })
+            }
+            controller.enqueue(value)
+          } catch (err) {
+            rec.recv({ re: id, end: true, broke: true })
+            controller.error(err)
+          }
+        },
+        cancel: (reason) => reader.cancel(reason)
+      })
+      return new Response(events, { status: response.status, statusText: response.statusText, headers: response.headers })
+    }
+    return {
+      ...server,
+      fetch: recorded,
+      close: async () => {
+        // Closing a server that already went away (a crash) kills nothing.
+        if (running()) rec.send(kill('SIGTERM'))
+        await server.close()
+      }
+    }
+  }
+}
+
+/** A provider's `key` (OpenCode answers `/config/providers` with the keys it read): never in a recording. */
+function withoutKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutKeys)
+  if (typeof value !== 'object' || value === null) return value
+  return Object.fromEntries(Object.entries(value).filter(([k, v]) => !(k === 'key' && typeof v === 'string')).map(([k, v]) => [k, withoutKeys(v)]))
 }
 
 /** A Cursor worker starter that tees the IPC messages each way (the real forked worker, or the in-process fake). */

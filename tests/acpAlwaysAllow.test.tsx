@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // "Always allow" on an ACP agent's permission request (docs/agents.md 8), by what the record says: a Chat agent gets Foreman's own
 // session-always (remembered for the agent's session, keyed on the tool's kind and the command or path, named on the card, a cap
-// still asking about agent and git configuration), and OpenCode answers "once" (its card has no Always allow button and says it asks
-// each time, and a stale alternate answer is still only once).
+// still asking about agent and git configuration). OpenCode's is its own (a rule on its session: tests/replay/opencode.test.ts); its card
+// names the rule as Claude Code's does.
 import './domShims'
 import * as acp from '@agentclientprotocol/sdk/unstable'
 import { cleanup, render, screen } from '@testing-library/react'
@@ -48,26 +48,13 @@ function agent(asks: Ask[], sessionId = 's-1') {
   return { app: Object.assign(app, { attach: () => undefined }) as unknown as ReturnType<typeof acpFake>, answered }
 }
 
-async function run(kind: 'opencode' | 'gemini', asks: Ask[], person: Person, over: Partial<TurnRequest> = {}) {
+async function run(kind: 'gemini', asks: Ask[], person: Person, over: Partial<TurnRequest> = {}) {
   const fake = agent(asks)
   const driver = createAcpDriver({ kind, label: kind, command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(fake.app) })
   const { cb, played } = callbacks(person)
   await driver.createTurn(await request({ approvals: 'ask', ...over }), cb).run()
   return { ...fake, played }
 }
-
-describe('OpenCode: always allow is once', () => {
-  it('has the once-always fallback in its record, the others not', () => {
-    expect(staticCapabilities('opencode')!.approvals.alwaysAllow).toEqual({ level: 'fallback', fallback: 'once-always' })
-  })
-
-  it('offers no Always allow, and answers once even to a stale alternate', async () => {
-    const r = await run('opencode', ['npm test', 'npm test'], { approve: () => ({ allow: true, alternate: true }) })
-    expect(r.played.approvals.map((a) => a.alternate)).toEqual([undefined, undefined])
-    // Asked each time, and each answer is "once", never the agent's allow_always option.
-    expect(r.answered).toEqual(['once', 'once'])
-  })
-})
 
 describe('a Chat agent: Foreman remembers an always-allow for the session', () => {
   const always: Person = { approve: () => ({ allow: true, alternate: true }) }
@@ -143,12 +130,12 @@ describe('the approval card', () => {
     render(<ToolApprovalPanel request={{ kind: 'tool', id: 'a1', sessionId: 's1', toolName: 'Bash', input: { command: 'npm test' } } as never} workspacePath="/w" />)
   }
 
-  it('says OpenCode asks each time, and has only Run and Don’t run', () => {
-    card('opencode')
-    expect(screen.getByText('OpenCode can’t remember an always-allow; it asks each time.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /always/i })).toBeNull()
-    expect(screen.getByRole('button', { name: /^Run/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /^Don’t run/ })).toBeTruthy()
+  it('names the rule OpenCode adds for an Always allow, as a prefix of the command', () => {
+    fakeState.snapshot.sessions = [{ id: 's1', workspaceId: 'w1', agent: 'opencode' } as never]
+    render(<ToolApprovalPanel request={{ kind: 'tool', id: 'a1', sessionId: 's1', toolName: 'Bash', input: { command: 'git status --short' }, alternate: 'always-allow', alwaysRules: ['git status *'] } as never} workspacePath="/w" />)
+    expect(screen.getByRole('button', { name: /always/i })).toBeTruthy()
+    expect(document.querySelector('.approval-rule')?.textContent).toContain('Commands starting with git status run without asking in this chat.')
+    expect(screen.queryByText(/asks each time/)).toBeNull()
   })
 
   it('says nothing of the kind for an agent that can remember one', () => {

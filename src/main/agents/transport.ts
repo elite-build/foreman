@@ -9,6 +9,7 @@ import type { fork, spawn } from 'node:child_process'
 import type { AgentKind } from '../../shared/agents'
 import type { AcpConnector } from './acp'
 import type { AppServerFactory } from './codex/appServer'
+import type { OpencodeLauncher } from './opencode/server'
 import type { TurnRequest } from './types'
 
 /** `child_process.spawn`'s shape: what Claude Code's launch (`trackedClaudeSpawn`) starts the CLI with. */
@@ -25,8 +26,10 @@ export interface TransportOverrides {
   claude?: (req: TurnRequest) => ProcessStarter | undefined
   /** Codex: the `codex app-server` process (JSON-RPC lines on stdio). */
   codex?: (req: TurnRequest) => CodexOpener | undefined
-  /** ACP agents (OpenCode and the catalog's chat agents): the connection to the agent. */
+  /** ACP agents (the catalog's chat agents): the connection to the agent. */
   acp?: (agent: AgentKind, req: TurnRequest) => AcpConnector | undefined
+  /** OpenCode: the `opencode serve` a turn talks to (HTTP requests and its server-sent events). */
+  opencode?: (req: TurnRequest) => OpencodeLauncher | undefined
   /** Cursor: the worker process a turn runs in (its IPC events). */
   cursor?: (req: TurnRequest) => CursorForker | undefined
 }

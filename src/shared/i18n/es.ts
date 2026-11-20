@@ -1714,6 +1714,7 @@ export const es: Catalogue = {
   'repoMcp.reach.via.sdk': 'Se inicia en las pestañas de {agent}, a través de su Agent SDK',
   'repoMcp.reach.via.config': 'Se inicia en las pestañas de {agent}, pasado como --config en cada turno (tu ~/.codex nunca cambia)',
   'repoMcp.reach.via.acp': 'Se pasa a {agent} en su sesión ACP; el agente lo inicia',
+  'repoMcp.reach.via.server': '{agent} lo inicia en cada turno, desde la configuración que Foreman da a su servidor (tu propia configuración de {agent} nunca se cambia)',
   'repoMcp.reach.gotAt': '{what} · esta pestaña lo recibió a las {time}',
   'repoMcp.reach.notSupportedTitle': 'No compatible: {reason}',
   'repoMcp.reason.cursor': 'Cursor aún no es compatible: su SDK acepta servidores MCP, pero Foreman no ha probado un inicio de Cursor con una llamada a herramienta, así que no le pasa ninguno.',
@@ -1727,6 +1728,7 @@ export const es: Catalogue = {
   'repoMcp.agent.sdk': 'Los recibe. Se pasan a {agent} a través de su Agent SDK en cada turno, solo con las variables que declaran.',
   'repoMcp.agent.config': 'Los recibe. Se pasan a {agent} como --config en cada turno, solo con las variables que declaran. Tu ~/.codex/config.toml nunca cambia.',
   'repoMcp.agent.acp': 'Los recibe. Se pasan en su sesión ACP en cada turno, solo con las variables que declaran. {agent} los inicia; lo demás que les dé depende de {agent}.',
+  'repoMcp.agent.server': 'Los recibe. Se pasan en la configuración que Foreman da a su servidor en cada turno, solo con las variables que declaran. {agent} los inicia; tu propia configuración de {agent} nunca se cambia.',
   // O1
   // ---- Cambiar de agente a mitad de conversación ----
   'switchAgent.row.switches': 'Cambia de agente',

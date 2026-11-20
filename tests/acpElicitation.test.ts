@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createAcpDriver } from '../src/main/agents/acp'
 import { elicitationQuestions, elicitationResponse } from '../src/main/agents/acp/elicitation'
 import { acpFake, inProcessAcp } from '../src/main/agents/fixtures/fakes'
-import { opencodeDriver } from '../src/main/agents/opencode'
+import { driverFor } from '../src/main/agents/registry'
 import { replay } from './replay/harness'
 import type { ReplayHandle } from '../src/main/agents/fixtures/replayTransports'
 import { staticCapabilities } from '../src/shared/agentCatalog'
@@ -100,8 +100,8 @@ describe('the answers as values', () => {
 
 describe('through the adapter', () => {
   it('shows the question card for an agent whose record offers it, and answers the agent with the chosen values', async () => {
-    expect(staticCapabilities('opencode')!.planning.questions.level).toBe('native')
-    const r = await replay(opencodeDriver, 'opencode', 'question', { answer: (qs) => ({ kind: 'question', answers: Object.fromEntries(qs.map((q) => [q.question, q.options[1]?.label ?? 'x'])) }) })
+    expect(staticCapabilities('gemini')!.planning.questions.level).toBe('native')
+    const r = await replay(driverFor('gemini'), 'acp', 'question', { answer: (qs) => ({ kind: 'question', answers: Object.fromEntries(qs.map((q) => [q.question, q.options[1]?.label ?? 'x'])) }) })
     handle = r.handle
     await r.done
     expect(r.played.questions).toHaveLength(1)

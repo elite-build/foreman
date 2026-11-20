@@ -5,7 +5,6 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { createAcpDriver, listAcpModels, type AcpAgentConfig, type AcpConnector } from '../src/main/agents/acp'
-import { opencodeDriver } from '../src/main/agents/opencode'
 import type { ToolApprovalRequest, TurnCallbacks, TurnRequest, TurnResult } from '../src/main/agents/types'
 import type { ApprovalResponse, ChatItem, ContextUsage } from '../src/shared/types'
 import { tempDir } from './helpers'
@@ -189,7 +188,7 @@ function inProcess(app: acp.AgentApp): AcpConnector {
 }
 
 function driverFor(app: acp.AgentApp, extra: Partial<AcpAgentConfig> = {}) {
-  return createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app), ...extra })
+  return createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app), ...extra })
 }
 
 function request(overrides: Partial<TurnRequest> = {}): TurnRequest {
@@ -325,7 +324,7 @@ describe('ACP driver', () => {
   it('routes permission requests to the user otherwise', async () => {
     const { app, log } = fakeAgent()
     const rec = recorder(() => ({ allow: false }))
-    // Not OpenCode: its record says an always-allow is answered once, so its card has no such button (tests/acpAlwaysAllow.test.tsx).
+    // A Chat agent: Foreman remembers an always-allow for the session, and the card names it (tests/acpAlwaysAllow.test.tsx).
     const generic = { kind: 'gemini', label: 'Gemini' } as const
     await driverFor(app, generic).createTurn(request({ approvals: 'ask' }), rec.cb).run()
 
@@ -462,7 +461,7 @@ describe('ACP driver', () => {
     const { app } = fakeAgent({ failNew: acp.RequestError.authRequired(undefined, 'run opencode auth login') })
     const rec = recorder()
     await driverFor(app).createTurn(request(), rec.cb).run()
-    expect(rec.find('notice')).toMatchObject([{ level: 'error', action: 'open-settings', text: 'OpenCode isn’t signed in, or its sign-in has expired.' }])
+    expect(rec.find('notice')).toMatchObject([{ level: 'error', action: 'open-settings', text: 'Gemini isn’t signed in, or its sign-in has expired.' }])
     expect(rec.calls.finished).toBe(1)
     expect(rec.calls.results).toMatchObject([{ ok: false, error: expect.stringContaining('Authentication required') }])
     expect(rec.calls.sessionStarted).toEqual([])
@@ -492,7 +491,7 @@ describe('ACP driver', () => {
 
   it('lists models from the session config options', async () => {
     const { app } = fakeAgent()
-    const config: AcpAgentConfig = { kind: 'opencode', label: 'OpenCode', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) }
+    const config: AcpAgentConfig = { kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) }
     expect(await listAcpModels(config, { cwd: workspace, env: {} })).toEqual([
       { id: 'anthropic/claude-sonnet', label: 'anthropic/Claude Sonnet' },
       { id: 'openai/gpt-5', label: 'openai/GPT-5' }
@@ -501,7 +500,7 @@ describe('ACP driver', () => {
 })
 
 describe('ACP agent processes', () => {
-  // A tiny ACP agent run with node, talking over stdio like `opencode acp`.
+  // A tiny ACP agent run with node, talking over stdio like a real one in its ACP mode.
   async function agentScript(): Promise<string> {
     const sdk = pathToFileURL(createRequire(import.meta.url).resolve('@agentclientprotocol/sdk/unstable')).href
     const file = path.join(await tempDir('switchyard-acp-agent-'), 'agent.mjs')
@@ -542,7 +541,7 @@ acp.agent({ name: 'script' })
   it('runs a turn against a spawned agent and ends the process afterwards', async () => {
     const script = await agentScript()
     const cwd = await tempDir('switchyard-acp-cwd-')
-    const driver = createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: process.execPath, args: [script, 'ok'] }) })
+    const driver = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: process.execPath, args: [script, 'ok'] }) })
     const rec = recorder()
     await driver.createTurn(request({ cwd, env: { ...process.env, FAKE_AGENT_NAME: 'the agent' } as Record<string, string> }), rec.cb).run()
     expect(rec.find('assistant').map((i) => i.text)).toEqual(['Hello from the agent'])
@@ -553,7 +552,7 @@ acp.agent({ name: 'script' })
 
   it('reports an agent that dies, with its stderr', async () => {
     const script = await agentScript()
-    const driver = createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: process.execPath, args: [script, 'crash'] }) })
+    const driver = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: process.execPath, args: [script, 'crash'] }) })
     const rec = recorder()
     await driver.createTurn(request({ cwd: await tempDir(), env: process.env as Record<string, string> }), rec.cb).run()
     expect(rec.find('notice')).toMatchObject([{ level: 'error', text: expect.stringMatching(/exited unexpectedly[\s\S]*fake agent starting/) }])
@@ -561,21 +560,10 @@ acp.agent({ name: 'script' })
     expect(rec.calls.results).toMatchObject([{ ok: false, error: expect.stringContaining('exited unexpectedly') }])
   })
 
-  it('reports a missing binary as not installed', async () => {
-    const rec = recorder()
-    await opencodeDriver.createTurn(request({ executablePath: '/definitely/missing/opencode', env: process.env as Record<string, string> }), rec.cb).run()
-    expect(rec.find('notice')).toMatchObject([{ level: 'error', action: 'open-settings', text: expect.stringContaining('OpenCode is not installed') }])
-  })
-
   it('status runs --version', async () => {
     const env = process.env as Record<string, string>
-    const node = createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: process.execPath, args: [] }) })
-    expect(await node.status(env)).toEqual({ agent: 'opencode', installed: true, ready: true, version: process.versions.node })
-
-    const missing = await opencodeDriver.status(env, '/definitely/missing/opencode')
-    expect(missing).toMatchObject({ agent: 'opencode', installed: false, ready: false })
-    expect(missing.detail).toContain('OpenCode is not installed')
-    expect(missing.detail).toContain('npm i -g opencode-ai')
+    const node = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: process.execPath, args: [] }) })
+    expect(await node.status(env)).toEqual({ agent: 'gemini', installed: true, ready: true, version: process.versions.node })
   })
 })
 
@@ -584,9 +572,9 @@ describe('ACP launch problems (docs/agents.md, 4.1)', () => {
     const { app, log } = fakeAgent({ protocolVersion: 2 })
     const rec = recorder()
     await driverFor(app).createTurn(request(), rec.cb).run()
-    expect(rec.find('notice')).toMatchObject([{ level: 'error', text: 'OpenCode speaks only ACP v2, and Foreman speaks v1.' }])
+    expect(rec.find('notice')).toMatchObject([{ level: 'error', text: 'Gemini speaks only ACP v2, and Foreman speaks v1.' }])
     expect(rec.find('notice')[0]).not.toHaveProperty('action', expect.anything())
-    expect(rec.calls.results).toEqual([{ ok: false, error: 'OpenCode speaks only ACP v2, and Foreman speaks v1.' }])
+    expect(rec.calls.results).toEqual([{ ok: false, error: 'Gemini speaks only ACP v2, and Foreman speaks v1.' }])
     expect(log.methods).toEqual(['initialize'])
   })
 })

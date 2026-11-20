@@ -1,10 +1,9 @@
-// The `simulated` fixtures (OpenCode, the shared ACP folder, Cursor), recorded from the protocol fakes (fixtures/fakes.ts)
+// The `simulated` fixtures (the shared ACP folder, Cursor), recorded from the protocol fakes (fixtures/fakes.ts)
 // and played through the real adapters (docs/agents.md, 9.4). They prove how the adapter handles the protocol, not
 // what the real agent says; their records stay `simulated`.
 import { afterEach, describe, expect, it } from 'vitest'
 import { driverFor } from '../../src/main/agents/registry'
 import { cursorProcessDriver } from '../../src/main/agents/cursor/process'
-import { opencodeDriver } from '../../src/main/agents/opencode'
 import { hasFixture } from '../../src/main/agents/fixtures/format'
 import type { AgentDriver } from '../../src/main/agents/types'
 import { waitFor } from '../helpers'
@@ -30,11 +29,8 @@ async function playWith(driver: AgentDriver, agent: string, scenario: string, ac
   return r
 }
 
-// OpenCode has its own folder; the other ACP chat agents share `acp`, and run through their own catalog driver.
-describe.each([
-  ['opencode', opencodeDriver],
-  ['acp', driverFor('gemini')]
-] as const)('ACP fixtures: %s', (agent, driver) => {
+// The ACP chat agents share `acp`, and run through their own catalog driver (OpenCode is recorded: replay/opencode.test.ts).
+describe.each([['acp', driverFor('gemini')]] as const)('ACP fixtures: %s', (agent, driver) => {
   it('has its scenarios, marked simulated', () => {
     for (const scenario of ['plain', 'approval', 'question', 'terminal', 'interrupt', 'crash', 'resume']) expect(hasFixture(agent, scenario), scenario).toBe(true)
   })
@@ -82,27 +78,6 @@ describe.each([
     expect(r.fixture.frames.some((f) => f.dir === 'send' && (f.data as { method?: string }).method === 'session/load')).toBe(true)
     expect(r.played.sessions).toEqual(['sess-1'])
     expect(r.played.find('assistant').map((a) => a.text)).toContain('pineapple')
-    expect(r.played.results).toEqual([{ ok: true }])
-    expect(r.handle.warnings()).toEqual([])
-  })
-})
-
-describe('OpenCode versions', () => {
-  it('has a fixture for each, marked simulated', () => {
-    for (const scenario of ['version1', 'version2']) expect(hasFixture('opencode', scenario), scenario).toBe(true)
-  })
-
-  it('1.x: the version is declared', async () => {
-    const r = await play(opencodeDriver, 'opencode', 'version1')
-    expect(r.fixture.header.evidence).toBe('simulated')
-    expect(r.played.declared).toEqual([{ version: '1.14.3' }])
-    expect(r.played.results).toEqual([{ ok: true }])
-    expect(r.handle.warnings()).toEqual([])
-  })
-
-  it('2.x: the version is declared, and the turn runs the same way (a server of its own)', async () => {
-    const r = await play(opencodeDriver, 'opencode', 'version2')
-    expect(r.played.declared).toEqual([{ version: '2.1.0' }])
     expect(r.played.results).toEqual([{ ok: true }])
     expect(r.handle.warnings()).toEqual([])
   })

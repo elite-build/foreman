@@ -1,7 +1,7 @@
 // `npm run record:agent -- simulated`: records the `simulated` fixtures from the protocol fakes (fakes.ts), through the
-// same recorder and the same tee as a real agent. OpenCode and the shared ACP folder get the ACP conformance fake; Cursor
-// gets its SDK fake under the worker's message loop. Their records stay `simulated` until someone who has the agent
-// installed runs `npm run record:agent` for it (docs/agents.md, section 13).
+// same recorder and the same tee as a real agent. The shared ACP folder gets the ACP conformance fake; Cursor gets its SDK
+// fake under the worker's message loop. Their records stay `simulated` until someone who has the agent installed runs
+// `npm run record:agent` for it (docs/agents.md, section 13). OpenCode is recorded for real (opencode/record.ts).
 import { setTransportOverride } from '../transport'
 import { createAcpDriver } from '../acp'
 import { cursorProcessDriver } from '../cursor/process'
@@ -28,27 +28,18 @@ const CURSOR_PLANS: AgentRecorder['plans'] = {
   resume: { ...PLAN, prompt: 'What word did I ask you to remember?', approvals: 'never-ask', resumes: { prompt: 'Remember the word "pineapple".' }, note: 'A second turn that resumes the first one\'s agent (Agent.resume).' }
 }
 
-// OpenCode only: a plain turn from each major version, which declares it. Foreman starts a server for every turn, whatever it is (docs/agents.md 3.2).
-const OPENCODE_PLANS: AgentRecorder['plans'] = {
-  ...ACP_PLANS,
-  version1: { ...PLAN, prompt: 'Reply with the single word: ok', note: 'A plain turn from an OpenCode that says it is 1.14.3: Foreman starts a server for the turn and closes it when the turn ends.' },
-  version2: { ...PLAN, prompt: 'Reply with the single word: ok', note: 'A plain turn from an OpenCode that says it is 2.1.0: Foreman starts a server for the turn and closes it when the turn ends, as for 1.x.' }
-}
-
-function acpSpec(agent: 'opencode' | 'acp'): AgentRecorder {
-  return {
-    agent,
-    evidence: 'simulated',
-    driver: createAcpDriver({ kind: agent === 'opencode' ? 'opencode' : 'gemini', label: agent, command: () => ({ file: 'unused', args: [] }) }),
-    plans: agent === 'opencode' ? OPENCODE_PLANS : ACP_PLANS,
-    async prepare(_root, scenario: Scenario) {
-      return {
-        env: {},
-        model: '',
-        version: async () => 'conformance-fake 1.0.0',
-        install: (rec) => setTransportOverride('acp', () => teeAcpConnector(inProcessAcp(acpFake(scenario as AcpScenario)), rec())),
-        finish: async () => undefined
-      }
+const acpSpec: AgentRecorder = {
+  agent: 'acp',
+  evidence: 'simulated',
+  driver: createAcpDriver({ kind: 'gemini', label: 'acp', command: () => ({ file: 'unused', args: [] }) }),
+  plans: ACP_PLANS,
+  async prepare(_root, scenario: Scenario) {
+    return {
+      env: {},
+      model: '',
+      version: async () => 'conformance-fake 1.0.0',
+      install: (rec) => setTransportOverride('acp', () => teeAcpConnector(inProcessAcp(acpFake(scenario as AcpScenario)), rec())),
+      finish: async () => undefined
     }
   }
 }
@@ -73,8 +64,7 @@ const cursorSpec: AgentRecorder = {
 /** Every simulated fixture, rewritten. */
 export async function simulateAll(log: (text: string) => void = console.log): Promise<void> {
   for (const [spec, scenarios] of [
-    [acpSpec('opencode'), Object.keys(OPENCODE_PLANS)],
-    [acpSpec('acp'), Object.keys(ACP_PLANS)],
+    [acpSpec, Object.keys(ACP_PLANS)],
     [cursorSpec, Object.keys(CURSOR_PLANS)]
   ] as const) {
     for (const scenario of scenarios) {

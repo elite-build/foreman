@@ -14,10 +14,9 @@ const enT = createT('en')
 /**
  * Whether the agent's turns can run in the background host (`features.keptRunning` of its record). Claude Code (the Agent SDK) and Codex (the codex CLI
  * through its SDK) run one turn per call with no state kept between turns in Foreman's process, so the
- * host can run them as they are. G1: Cursor (its SDK's local agent) and OpenCode (`opencode acp`, started per
- * turn) work the same way, so the host owns their turns too: the Cursor agent and the OpenCode process live in
- * the host, not the app. What stays in the app: OpenCode's running cost per session (a kept turn's cost starts
- * from unknown) and Cursor's model list cache. Untested end to end (no Cursor key or OpenCode here).
+ * host can run them as they are. G1: Cursor (its SDK's local agent) and OpenCode (an `opencode serve` started per
+ * turn) work the same way, so the host owns their turns too: the Cursor agent and the OpenCode server live in
+ * the host, not the app. What stays in the app: Cursor's model list cache. Untested end to end (no Cursor key here).
  * The Chat agents still stop at Quit.
  */
 export function keptRunning(agent: AgentKind): boolean {

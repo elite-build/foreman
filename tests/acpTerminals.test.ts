@@ -151,8 +151,8 @@ describe('through the adapter', () => {
 
   it('advertises terminals only for a record that offers them', () => {
     expect(staticCapabilities('gemini')!.tools.terminals.level).toBe('native')
-    expect(staticCapabilities('opencode')!.tools.terminals.level).toBe('native')
-    for (const agent of ['claude', 'codex', 'cursor']) expect(staticCapabilities(agent)!.tools.terminals.level, agent).toBe('none')
+    // OpenCode runs its own commands, as the Full agents do (it isn't an ACP agent).
+    for (const agent of ['claude', 'codex', 'cursor', 'opencode']) expect(staticCapabilities(agent)!.tools.terminals.level, agent).toBe('none')
   })
 
   it('an agent whose record has none sees no terminal in initialize, so it does not ask', async () => {

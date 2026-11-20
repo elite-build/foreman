@@ -255,19 +255,21 @@ export function acpPlanMode(modes: AcpMode[] | undefined): AcpMode | undefined {
 /**
  * How an agent gets the MCP servers a repo proposes and this Mac approved, or why it doesn't.
  * `sdk`: Claude's Agent SDK `mcpServers`. `config`: Codex's per-process `--config mcp_servers.…`.
- * `acp`: the `mcpServers` of the ACP session (OpenCode and the Chat agents; ACP requires stdio servers).
+ * `acp`: the `mcpServers` of the ACP session (the Chat agents; ACP requires stdio servers). `server`: OpenCode's `mcp` config
+ * for the server each turn starts (`OPENCODE_CONFIG_CONTENT`; the person's own OpenCode config is never changed).
  * `cursor` (G1): the Cursor SDK's `mcpServers` for its local agent. On per the owner's call, but no Cursor launch and
  * tool call with them has been run here (no Cursor key), which the UI says. Terminal agents read only their own
  * config files, which Foreman doesn't write. (`reason: 'cursor'` is no longer returned; kept for saved receipts.)
  */
-export type RepoMcpSupport = { supported: true; via: 'sdk' | 'config' | 'acp' | 'cursor' } | { supported: false; reason: 'cursor' | 'terminal' | 'unknown' }
+export type RepoMcpSupport = { supported: true; via: 'sdk' | 'config' | 'acp' | 'server' | 'cursor' } | { supported: false; reason: 'cursor' | 'terminal' | 'unknown' }
 
 export function repoMcpSupport(id: string): RepoMcpSupport {
   if (id === 'claude') return { supported: true, via: 'sdk' }
   if (id === 'codex') return { supported: true, via: 'config' }
   if (id === 'cursor') return { supported: true, via: 'cursor' }
   const level = BY_ID.get(id)?.level
-  if (id === 'opencode' || level === 'chat') return { supported: true, via: 'acp' }
+  if (id === 'opencode') return { supported: true, via: 'server' }
+  if (level === 'chat') return { supported: true, via: 'acp' }
   return { supported: false, reason: level === 'terminal' ? 'terminal' : 'unknown' }
 }
 

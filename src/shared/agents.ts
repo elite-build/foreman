@@ -60,7 +60,7 @@ const COMMAND_IDS: Record<FullAgentId, CommandId[]> = {
   claude: [...SHARED_COMMANDS, 'plan', 'fastOpus', 'mcpStatus'],
   codex: [...SHARED_COMMANDS, 'plan', 'fast', 'repoMcpStatus'],
   cursor: ['clear', 'repoMcpStatus'],
-  opencode: ['clear', 'repoMcpStatus']
+  opencode: [...SHARED_COMMANDS, 'plan', 'repoMcpStatus']
 }
 
 // #22: every Chat agent has the same few.
