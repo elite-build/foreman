@@ -447,8 +447,34 @@ describe('the repository choice', () => {
     const site = { ...repo, id: 'site', name: 'site', rootPath: '/code/site', spaceId: 'o1' }
     Object.assign(fakeState.snapshot, { repos: [repo, memory, site], organizations: [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', createdAt: '2026-11-05T00:00:00Z' }] })
     render(<NewWorkspaceDialog repoId="site" />)
-    await userEvent.setup().click(screen.getByRole('button', { name: 'site' }))
-    const choices = (await screen.findAllByRole('menuitemradio')).map((item) => item.textContent)
-    expect(choices).toEqual(['foreman', 'site'])
+    await userEvent.setup().click(screen.getByRole('combobox', { name: 'Repository' }))
+    const list = await screen.findByRole('listbox', { name: 'Repository' })
+    const choices = within(list).getAllByRole('option').map((item) => item.textContent)
+    expect(choices).toEqual(['foreman/code/foreman', 'site/code/site'])
+  })
+
+  it('is the first field, with the folder it is in under it', async () => {
+    render(<NewWorkspaceDialog repoId="r1" />)
+    const dialog = await screen.findByRole('dialog', { name: 'New workspace' })
+    // One repository: named, not a choice.
+    expect(within(dialog).queryByRole('combobox', { name: 'Repository' })).toBeNull()
+    expect(within(dialog).getByText('foreman')).toBeTruthy()
+    expect(within(dialog).getByTitle('/code/foreman').textContent).toContain('/code/foreman')
+  })
+
+  it('switching repository shows its folder and creates the workspace there', async () => {
+    const site = { ...repo, id: 'site', name: 'site', rootPath: '/home/me/code/site' }
+    Object.assign(fakeState.snapshot, { repos: [repo, site] })
+    const user = userEvent.setup()
+    render(<NewWorkspaceDialog repoId="r1" />)
+    const box = screen.getByRole('combobox', { name: 'Repository' })
+    expect(box.getAttribute('placeholder')).toBe('foreman')
+    expect(document.getElementById(box.getAttribute('aria-describedby')!)!.textContent).toContain('/code/foreman')
+    await user.type(box, 'sit')
+    await user.keyboard('{ArrowDown}{Enter}')
+    expect(box.getAttribute('placeholder')).toBe('site')
+    expect(screen.getByTitle('/home/me/code/site').textContent).toContain('~/code/site')
+    await user.click(screen.getByRole('button', { name: /Create workspace/ }))
+    await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalledWith('site', expect.anything()))
   })
 })

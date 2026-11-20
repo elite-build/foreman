@@ -5558,6 +5558,7 @@ export const zhCN: Catalogue = {
   'changes.menu.label': '文件操作',
   'files.folderLine': '{folder}：{text}',
   'newWorkspace.repo.label': '仓库',
+  'newWorkspace.repo.noMatch': '没有匹配的仓库',
   'overlays.palette.title': '命令面板',
   'overlays.quickOpen.title': '打开文件',
   'overlays.search.title': '搜索',

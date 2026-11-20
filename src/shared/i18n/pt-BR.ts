@@ -5557,6 +5557,7 @@ export const ptBR: Catalogue = {
   'changes.menu.label': 'Ações do arquivo',
   'files.folderLine': '{folder}: {text}',
   'newWorkspace.repo.label': 'Repositório',
+  'newWorkspace.repo.noMatch': 'Nenhum repositório corresponde',
   'overlays.palette.title': 'Paleta de comandos',
   'overlays.quickOpen.title': 'Abrir arquivo',
   'overlays.search.title': 'Pesquisar',
