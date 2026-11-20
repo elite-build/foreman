@@ -5557,6 +5557,7 @@ export const ko: Catalogue = {
   'changes.menu.label': '파일 작업',
   'files.folderLine': '{folder}: {text}',
   'newWorkspace.repo.label': '저장소',
+  'newWorkspace.repo.noMatch': '일치하는 저장소 없음',
   'overlays.palette.title': '명령 팔레트',
   'overlays.quickOpen.title': '파일 열기',
   'overlays.search.title': '검색',
