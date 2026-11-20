@@ -1,5 +1,5 @@
 import { Play, Square } from 'lucide-react'
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { bridge } from '../store'
 import { TerminalView } from './TerminalView'
 import { useT } from '../i18n'
@@ -22,6 +22,17 @@ export function ShellSnippet({
   const pty = useRef<string | null>(null)
   const stopping = useRef(false)
   const t = useT()
+
+  // A hidden chat's transcript sits in an Activity (ChatView), which runs effect cleanups while keeping state: the
+  // terminal is disposed and its process killed. That ends the run. Shown again, it must not start the command again on
+  // its own (an `open` would open the page once more, a dev server would restart): only Run starts it.
+  useEffect(
+    () => () => {
+      setExecution(null)
+      setStatus((current) => (current === 'running' ? 'stopped' : current))
+    },
+    []
+  )
 
   return (
     <div className="shell-snippet">
@@ -61,7 +72,7 @@ export function ShellSnippet({
               setExecution((previous) => ({ id: (previous?.id ?? 0) + 1, command }))
             }}
           >
-            {execution ? t('shellSnippet.runAgain') : t('shellSnippet.run')}
+            {status === 'idle' ? t('shellSnippet.run') : t('shellSnippet.runAgain')}
           </Button>
         )}
       </div>
