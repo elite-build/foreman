@@ -300,7 +300,8 @@
 }
 /* A repository with nothing open: one quiet line on the rows' text column. */
 .sb-card .ws-group-rows > .sidebar-empty {
-  padding: 6px 8px 4px 36px;
+  margin: 0;
+  padding: 6px 8px 6px 36px;
   text-align: left;
 }
 .sb-card .sb-head-name {
