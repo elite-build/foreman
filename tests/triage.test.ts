@@ -331,11 +331,13 @@ describe('the sidebar’s Work list by repository', () => {
   }
   const view: SidebarView = { repo: null, filter: 'all', query: '', showFinished: false, groupBy: 'repository' }
 
-  it('heads each repository that has a workspace, in the repositories’ order, what needs you first and waiting longest first', () => {
+  it('heads every repository, in the repositories’ order, what needs you first and waiting longest first', () => {
     const { groups, hiddenFinished } = repoGroups(input, view)
+    // A repository with nothing open keeps its heading, so it doesn't drop out of sight.
     expect(groups.map((g) => [g.repo.id, g.items.map((t) => t.ws.id)])).toEqual([
       ['beacon', ['other']],
-      ['kite', ['older', 'asks', 'quiet']]
+      ['kite', ['older', 'asks', 'quiet']],
+      ['empty', []]
     ])
     // Finished work is counted, not listed, until shown.
     expect(hiddenFinished).toBe(1)
@@ -349,8 +351,12 @@ describe('the sidebar’s Work list by repository', () => {
     expect(sidebarOrder(input, { ...view, groupBy: 'state' }).map((w) => w.id).slice(0, 2)).toEqual(['older', 'asks'])
   })
 
-  it('narrows to a search like the state groups do', () => {
+  it('narrows to a search like the state groups do, leaving out repositories with nothing found', () => {
     expect(repoGroups(input, { ...view, query: 'qui' }).groups.map((g) => g.items.map((t) => t.ws.id))).toEqual([['quiet']])
+  })
+
+  it('keeps only the repository filtered to', () => {
+    expect(repoGroups(input, { ...view, repo: 'empty' }).groups.map((g) => [g.repo.id, g.items.length])).toEqual([['empty', 0]])
   })
 })
 

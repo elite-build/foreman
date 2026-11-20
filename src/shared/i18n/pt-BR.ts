@@ -2658,6 +2658,7 @@ export const ptBR: Catalogue = {
   'sidebar.markAllRead': 'Marcar tudo como lido',
   'sidebar.empty.noMatch': 'Nenhum espaço de trabalho corresponde.',
   'sidebar.empty.noWorkspaces': 'Nenhum espaço de trabalho ainda.',
+  'sidebar.repo.empty': 'Nenhum espaço de trabalho aberto.',
   'sidebar.empty.noRepos': 'Adicione um repositório para começar.',
   'sidebar.showFinished': 'Mostrar finalizados · {count}',
   'sidebar.hideFinished': 'Ocultar finalizados',

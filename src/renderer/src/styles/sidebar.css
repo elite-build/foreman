@@ -298,6 +298,12 @@
   padding: 4px 4px 0;
   border-top: 1px solid var(--border);
 }
+/* A repository with nothing open: one quiet line on the rows' text column. */
+.sb-card .ws-group-rows > .sidebar-empty {
+  margin: 0;
+  padding: 6px 8px 6px 36px;
+  text-align: left;
+}
 .sb-card .sb-head-name {
   font-weight: 650;
   color: var(--text);

@@ -2658,6 +2658,7 @@ export const ja: Catalogue = {
   'sidebar.markAllRead': 'すべて既読にする',
   'sidebar.empty.noMatch': '一致するワークスペースはありません。',
   'sidebar.empty.noWorkspaces': 'ワークスペースはまだありません。',
+  'sidebar.repo.empty': '開いているワークスペースはありません。',
   'sidebar.empty.noRepos': 'リポジトリを追加して始めましょう。',
   'sidebar.showFinished': '完了済みを表示 · {count}',
   'sidebar.hideFinished': '完了済みを非表示',

@@ -647,27 +647,33 @@ export function sidebarGroups(
 }
 
 /**
- * The sidebar's Work list grouped by repository: each repository of the space that has a workspace listed, in the order
- * the repositories are kept, with its workspaces by state (what needs you first, waiting longest first; then what runs;
- * then the rest, pinned first). The same narrowing as sidebarGroups (a search, Later, a project's workspaces); comparisons
- * and flow runs are plain rows in their repository here.
+ * The sidebar's Work list grouped by repository: every repository of the space, in the order the repositories are kept,
+ * with its workspaces by state (what needs you first, waiting longest first; then what runs; then the rest, pinned first).
+ * A repository with nothing open keeps its heading, so it stays in sight (and its ⋯ in reach) without starting
+ * something; a search or a view (Later…) lists only the repositories with something it found. The same narrowing as
+ * sidebarGroups (a search, Later, a project's workspaces); comparisons and flow runs are plain rows in their repository here.
  */
 export function repoGroups(input: TriageInput, view: SidebarView): { groups: { repo: AppSnapshot['repos'][number]; items: Triage[] }[]; hiddenFinished: number } {
   const query = view.query.trim().toLowerCase()
   const projectIds = projectWorkspaceIds(input.snapshot)
-  let items = triageAll(input, liveRepo(input.snapshot, view.repo)).filter((t) => listsWorkspace(t, projectIds, input))
+  const repoId = liveRepo(input.snapshot, view.repo)
+  let items = triageAll(input, repoId).filter((t) => listsWorkspace(t, projectIds, input))
   if (query) items = items.filter((t) => matchesWorkspace(t.ws, input.snapshot.sessions, query))
   const settings = input.snapshot.settings as Partial<AppSnapshot['settings']> | undefined
   const filter = resolveFilter(view.filter, settings?.views)
   const opts = { now: input.now ?? Date.now(), doneDays: settings?.homeDoneDays || DEFAULT_DONE_DAYS }
   if (filter !== 'later' && !query) items = items.filter((t) => !putAway(t, opts.now))
   if (filter !== 'all') items = items.filter((t) => matchesView(filter, t, opts))
-  const showFinished = view.showFinished || filter !== 'all' || Boolean(query)
+  const narrowed = filter !== 'all' || Boolean(query)
+  const showFinished = view.showFinished || narrowed
   const hiddenFinished = showFinished ? 0 : items.filter((t) => t.bucket === 'finished').length
   if (!showFinished) items = items.filter((t) => t.bucket !== 'finished')
   // By state first (BUCKETS' order), so filtering by repository keeps that order inside each group.
   const sorted = BUCKETS.flatMap((bucket) => sortBucket(items.filter((t) => t.bucket === bucket), bucket))
-  const groups = input.snapshot.repos.map((repo) => ({ repo, items: sorted.filter((t) => t.ws.repoId === repo.id) })).filter((g) => g.items.length > 0)
+  const groups = input.snapshot.repos
+    .filter((repo) => !repoId || repo.id === repoId)
+    .map((repo) => ({ repo, items: sorted.filter((t) => t.ws.repoId === repo.id) }))
+    .filter((g) => !narrowed || g.items.length > 0)
   return { groups, hiddenFinished }
 }
 

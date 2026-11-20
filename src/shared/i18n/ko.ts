@@ -2658,6 +2658,7 @@ export const ko: Catalogue = {
   'sidebar.markAllRead': '모두 읽음으로 표시',
   'sidebar.empty.noMatch': '일치하는 워크스페이스가 없습니다.',
   'sidebar.empty.noWorkspaces': '아직 워크스페이스가 없습니다.',
+  'sidebar.repo.empty': '열린 워크스페이스가 없습니다.',
   'sidebar.empty.noRepos': '시작하려면 저장소를 추가하세요.',
   'sidebar.showFinished': '완료된 항목 표시 · {count}',
   'sidebar.hideFinished': '완료된 항목 숨기기',

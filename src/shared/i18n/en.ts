@@ -2962,6 +2962,7 @@ export const en = {
   'sidebar.markAllRead': 'Mark all as read',
   'sidebar.empty.noMatch': 'No workspaces match.',
   'sidebar.empty.noWorkspaces': 'No workspaces yet.',
+  'sidebar.repo.empty': 'No open workspaces.',
   'sidebar.empty.noRepos': 'Add a repository to get started.',
   'sidebar.showFinished': 'Show finished · {count}',
   'sidebar.hideFinished': 'Hide finished',

@@ -2658,6 +2658,7 @@ export const fr: Catalogue = {
   'sidebar.markAllRead': 'Tout marquer comme lu',
   'sidebar.empty.noMatch': 'Aucun espace de travail ne correspond.',
   'sidebar.empty.noWorkspaces': 'Aucun espace de travail pour l’instant.',
+  'sidebar.repo.empty': 'Aucun espace de travail ouvert.',
   'sidebar.empty.noRepos': 'Ajoutez un dépôt pour commencer.',
   'sidebar.showFinished': 'Afficher les terminés · {count}',
   'sidebar.hideFinished': 'Masquer les terminés',

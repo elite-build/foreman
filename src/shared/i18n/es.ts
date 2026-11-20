@@ -2704,6 +2704,7 @@ export const es: Catalogue = {
   'sidebar.markAllRead': 'Marcar todo como leído',
   'sidebar.empty.noMatch': 'Ningún espacio de trabajo coincide.',
   'sidebar.empty.noWorkspaces': 'Aún no hay espacios de trabajo.',
+  'sidebar.repo.empty': 'No hay espacios de trabajo abiertos.',
   'sidebar.empty.noRepos': 'Añade un repositorio para empezar.',
   'sidebar.showFinished': 'Mostrar terminados · {count}',
   'sidebar.hideFinished': 'Ocultar terminados',
