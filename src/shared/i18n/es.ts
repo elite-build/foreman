@@ -5620,6 +5620,7 @@ export const es: Catalogue = {
   'changes.menu.label': 'Acciones del archivo',
   'files.folderLine': '{folder}: {text}',
   'newWorkspace.repo.label': 'Repositorio',
+  'newWorkspace.repo.noMatch': 'Ningún repositorio coincide',
   'overlays.palette.title': 'Paleta de comandos',
   'overlays.quickOpen.title': 'Abrir archivo',
   'overlays.search.title': 'Buscar',

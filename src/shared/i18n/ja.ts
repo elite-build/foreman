@@ -5574,6 +5574,7 @@ export const ja: Catalogue = {
   'changes.menu.label': 'ファイルの操作',
   'files.folderLine': '{folder}：{text}',
   'newWorkspace.repo.label': 'リポジトリ',
+  'newWorkspace.repo.noMatch': '一致するリポジトリはありません',
   'overlays.palette.title': 'コマンドパレット',
   'overlays.quickOpen.title': 'ファイルを開く',
   'overlays.search.title': '検索',

@@ -6324,6 +6324,7 @@ export const en = {
   'changes.menu.label': 'File actions',
   'files.folderLine': '{folder}: {text}',
   'newWorkspace.repo.label': 'Repository',
+  'newWorkspace.repo.noMatch': 'No repositories match',
   'overlays.palette.title': 'Command palette',
   'overlays.quickOpen.title': 'Open file',
   'overlays.search.title': 'Search',

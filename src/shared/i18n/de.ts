@@ -5574,6 +5574,7 @@ export const de: Catalogue = {
   'changes.menu.label': 'Dateiaktionen',
   'files.folderLine': '{folder}: {text}',
   'newWorkspace.repo.label': 'Repository',
+  'newWorkspace.repo.noMatch': 'Keine passenden Repositorys',
   'overlays.palette.title': 'Befehlspalette',
   'overlays.quickOpen.title': 'Datei öffnen',
   'overlays.search.title': 'Suchen',

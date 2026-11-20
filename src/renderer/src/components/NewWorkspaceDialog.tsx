@@ -28,7 +28,7 @@ import { RunsOnField, useCloudReadiness, type RunsOnLocation } from './cloud/Run
 import { providerLabel, providerRegion, repoCloud, type CloudProviderId } from '../../../shared/cloud'
 import type { CloudProviderView } from '../../../shared/types'
 import { blocksChoice, providerFacts } from '../cloudView'
-import { Button, Card, Checkbox, Combobox, Dialog, Field, Kbd, LinkButton, Listbox, MediaThumb, MenuButton, MenuRadioItem, RadioCards, RadioList, Segmented, Select, Spinner, Status, Tag, TextArea, TextInput, type ListboxOption, type RadioCardOption } from '../ui'
+import { Button, Card, Checkbox, Combobox, Dialog, Field, Kbd, LinkButton, Listbox, MediaThumb, RadioCards, RadioList, Segmented, Select, Spinner, Status, Tag, TextArea, TextInput, type ListboxOption, type RadioCardOption } from '../ui'
 
 // Long branch lists are cut off; typing narrows them down.
 const MAX_OPTIONS = 150
@@ -221,48 +221,58 @@ function BranchPicker({ branches, value, onChange, home, label, placeholder, una
   )
 }
 
-// ---- header: repository chip ----
+// ---- repository ----
 
-function RepoChip({ repos, repo, onChange }: { repos: Repo[]; repo: Repo; onChange: (id: string) => void }) {
+/** The repository's own icon, or a folder when it has none. */
+function RepoIcon({ repo }: { repo: Repo }) {
+  return repo.icon ? <RepoIconView icon={repo.icon} size={13} /> : <FolderGit2 size={13} aria-hidden />
+}
+
+/** The first field: which repository the workspace is made in, with its folder under it. */
+function RepoField({ repos, repo, home, onChange }: { repos: Repo[]; repo: Repo; home: string; onChange: (id: string) => void }) {
   const t = useT()
-  const withIcons = repos.some((r) => r.icon)
+  const [query, setQuery] = useState('')
+  const pathId = useId()
+  const label = t('newWorkspace.repo.label')
+  const options: ListboxOption[] = rankItems(repos, query, (r) => r.name).map((r) => ({
+    value: r.id,
+    label: r.name,
+    description: tildify(r.rootPath, home),
+    title: r.rootPath,
+    leading: <RepoIcon repo={r} />
+  }))
 
-  if (repos.length < 2) {
-    return (
-      <Tag className="nw-repo" title={repo.rootPath}>
-        <RepoIconView icon={repo.icon} size={13} />
-        {repo.name}
-      </Tag>
-    )
-  }
   return (
-    <MenuButton
-      label={t('newWorkspace.repo.label')}
-      look="chip"
-      portal
-      placement="bottom-start"
-      className="nw-repo"
-      menuClassName="nw-repo-menu"
-      title={repo.rootPath}
-      trigger={
-        <>
-          <RepoIconView icon={repo.icon} size={13} />
+    <div className="dlg-group">
+      <span className="dlg-label">{label}</span>
+      {repos.length < 2 ? (
+        <Tag className="nw-repo">
+          <RepoIcon repo={repo} />
           {repo.name}
-          <ChevronDown size={12} aria-hidden />
-        </>
-      }
-    >
-      {repos.map((r) => (
-        <MenuRadioItem
-          key={r.id}
-          checked={r.id === repo.id}
-          icon={withIcons ? <RepoIconView icon={r.icon} size={14} /> : undefined}
-          onSelect={() => onChange(r.id)}
-        >
-          {r.name}
-        </MenuRadioItem>
-      ))}
-    </MenuButton>
+        </Tag>
+      ) : (
+        <Combobox
+          className="nw-combo"
+          label={label}
+          aria-describedby={pathId}
+          options={options}
+          value={repo.id}
+          onChange={onChange}
+          query={query}
+          onQueryChange={setQuery}
+          onOpenChange={(open) => {
+            if (!open) setQuery('')
+          }}
+          placeholder={repo.name}
+          leading={<RepoIcon repo={repo} />}
+          trailing={<ChevronDown size={13} aria-hidden />}
+          empty={t('newWorkspace.repo.noMatch')}
+        />
+      )}
+      <small id={pathId} className="nw-hint nw-path" title={repo.rootPath}>
+        <FolderRoot size={11} aria-hidden /> {tildify(repo.rootPath, home)}
+      </small>
+    </div>
   )
 }
 
@@ -831,9 +841,10 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const treeList = !(treesError && !others) && others !== null && !(others.length === 0 && !browsed)
 
   return (
-    <Dialog title={t('palette.newWorkspace')} className="nw-modal" onClose={close} headerExtra={<RepoChip repos={repos} repo={repo} onChange={changeRepo} />}>
+    <Dialog title={t('palette.newWorkspace')} className="nw-modal" onClose={close}>
       <div className="nw-body" onKeyDown={onKeyDown}>
         <div className="nw-settings">
+          <RepoField repos={repos} repo={repo} home={home} onChange={changeRepo} />
           {readiness?.offer && !startsFlow && !repo.plain && (
             <RunsOnField
               repo={repo}
@@ -849,9 +860,6 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
           )}
           {repo.plain ? (
             <>
-              <small className="nw-hint">
-                <FolderRoot size={11} aria-hidden /> {tildify(repo.rootPath, home)}
-              </small>
               {setupCheck}
               {directTaken ? <p className="nw-note error-text">{t('newWorkspace.folder.taken', { name: directTaken.name })}</p> : <p className="nw-note">{t('newWorkspace.plain.note')}</p>}
             </>
