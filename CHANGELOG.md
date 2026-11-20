@@ -2,6 +2,12 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.8 (2026-11-20)
+
+### Fixed
+
+- In **Work**, a repository with no open workspaces stays in the list, saying **No open workspaces.**, instead of disappearing until you create something in it. ([#245](https://github.com/elite-build/foreman/pull/245))
+
 ## 1.2.7 (2026-11-19)
 
 ### Added
