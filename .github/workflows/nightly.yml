@@ -1,0 +1,69 @@
+name: Nightly
+
+# main, once a night (and by hand from the Actions tab): what CI leaves out of each pull request. The suite on macOS and
+# on the oldest supported Node, and the policy checks that scan history or ask the network. Nothing waits on it; a red
+# run is fixed in the next pull request.
+on:
+  schedule:
+    # 03:00 in India (UTC+05:30).
+    - cron: '30 21 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  platform:
+    name: Tests and build / ${{ matrix.platform }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, platform: macOS, node: '24' }
+          - { os: windows-2022, platform: Windows, node: '22' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          package-manager-cache: false
+          node-version: ${{ matrix.node }}
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      # Reviewed native setup only, on disposable hosted runners with no provider credentials.
+      - run: npm rebuild node-pty
+      # The repository's own postinstall, skipped by --ignore-scripts: node-pty's macOS prebuilds publish spawn-helper
+      # without the execute bit, so every terminal fails with "posix_spawnp failed". No-op on Windows and, in CI, for hooks.
+      - name: Restore node-pty spawn-helper execute permission
+        run: node scripts/postinstall.mjs
+      - run: git config --global user.name 'CI'; git config --global user.email 'ci@example.invalid'
+      - run: npm test -- --maxWorkers=4
+        env:
+          FOREMAN_DATA_DIR: ${{ runner.temp }}/foreman-test-data
+      - run: npm run build
+
+  policy:
+    name: Security and policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Gitleaks scans the reachable history.
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          package-manager-cache: false
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run check:security
+      - run: npm audit --audit-level=high
+      - run: npm run check:repository
+      - run: npm run check:licenses

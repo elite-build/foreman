@@ -245,7 +245,8 @@ export function fromToml(doc: Doc): Omit<SharedLayer, 'file' | 'error'> {
   return { values, env, mcp: mcpFrom(doc.mcp), commands: commandsFromToml(doc.commands) }
 }
 
-const cache = new Map<string, { mtimeMs: number; layer: SharedLayer }>()
+// Keyed by size as well as mtime: Windows moves mtime in ~15 ms steps, so two saves inside one step share it.
+const cache = new Map<string, { mtimeMs: number; size: number; layer: SharedLayer }>()
 // Each repo's last answer and when its files were looked at, for readers that accept one a few seconds old (the snapshot).
 const checked = new Map<string, { at: number; layer: SharedLayer }>()
 
@@ -271,20 +272,21 @@ function statSharedLayer(rootPath: string): SharedLayer {
   for (const rel of SHARED_SETTINGS_FILES) {
     const file = path.join(rootPath, rel)
     let mtimeMs: number
+    let size: number
     try {
-      mtimeMs = statSync(file).mtimeMs
+      ;({ mtimeMs, size } = statSync(file))
     } catch {
       continue
     }
     const hit = cache.get(file)
-    if (hit && hit.mtimeMs === mtimeMs) return hit.layer
+    if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.layer
     let layer: SharedLayer
     try {
       layer = { file, ...fromToml(parse(readFileSync(file, 'utf8')) as Doc) }
     } catch (err) {
       layer = { file, error: `Could not read ${rel}: ${err instanceof Error ? err.message : String(err)}`, values: {}, env: {} }
     }
-    cache.set(file, { mtimeMs, layer })
+    cache.set(file, { mtimeMs, size, layer })
     return layer
   }
   return { values: {}, env: {} }

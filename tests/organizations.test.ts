@@ -1,7 +1,7 @@
 // Personal and organizations (docs/ai-employees.md §3 and §4): the shared rules (names, spaces, memory repository
 // choices, what the sidebar shows), the service behind the API (each memory choice, the seeded memory repository and its
 // one commit, moving, deleting, exclusivity, the switch), and state.json with and without organizations.
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -543,7 +543,9 @@ describe('organizations: Clone and Quick start for one that keeps its repositori
     const personalFolder = store.state.settings.cloneDirectory
     const made = await c.api.quickStartRepo(folder, 'site', org.id)
     expect(made.spaceId).toBe(org.id)
-    expect(path.normalize(made.rootPath).toLowerCase()).toBe(path.join(folder, 'site').toLowerCase())
+    // Resolved: the temp folder can come as an 8.3 short name (RUNNER~1) while Git answers with the long one.
+    const real = (p: string) => realpathSync.native(p).toLowerCase()
+    expect(real(made.rootPath)).toBe(real(path.join(folder, 'site')))
     expect(store.state.settings.cloneDirectory).toBe(personalFolder)
 
     const elsewhere = await tempDir('foreman-personal-')

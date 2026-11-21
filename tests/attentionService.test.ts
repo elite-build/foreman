@@ -187,6 +187,26 @@ describe('AttentionService', () => {
       vi.useRealTimers()
     }
   })
+
+  it('looks no more once closed, though shutting down still broadcasts state after it', async () => {
+    vi.useFakeTimers()
+    try {
+      const t = await setup({ repos: [], workspaces: [ws('w1', { later: { at: '2026-10-22T10:00:00Z', until: '2026-10-22T15:00:00Z' } })], sessions: [] })
+      t.service.observe()
+      const looks = t.shown.length
+      t.service.schedule()
+      t.service.close()
+      // A state broadcast after close, then the database closes: neither the debounce nor the saved-for-later wake reads it.
+      t.service.schedule()
+      t.db.close()
+      // By then w1 is back, so a look would write that to the closed database.
+      t.tick(60 * 60_000)
+      vi.advanceTimersByTime(2 * 60 * 60_000)
+      expect(t.shown).toHaveLength(looks)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('the 60-second PR poll', () => {
