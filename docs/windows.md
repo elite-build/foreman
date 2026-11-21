@@ -1,17 +1,17 @@
 # Windows
 
-Foreman targets macOS and Windows from one codebase, but so far it has been verified on macOS only.
+Foreman targets macOS and Windows from one codebase and is tested on both.
 
-Foreman includes Windows shell selection, process cleanup, path handling, CLI launchers and NSIS packaging. The full Windows app workflow still needs validation; Linux has platform helpers and an AppImage build target but no dedicated distribution script.
+Foreman includes Windows shell selection, process cleanup, path handling, CLI launchers and NSIS packaging. Linux has platform helpers and an AppImage build target but no dedicated distribution script.
 
-What still needs checking on a Windows machine:
+What to know on a Windows machine, and the few checks still open:
 
 1. **Prerequisites.** Install a Node version listed in the [README](../README.md#build-from-source) and Git for Windows. Claude Code on Windows needs Git Bash. If it can't find it, set `CLAUDE_CODE_GIT_BASH_PATH`; Foreman passes that variable through to the agent. A chat's ```bash blocks run in Git Bash too, never WSL's `bash.exe` in System32, which comes first on many machines' PATH.
-2. **`npm install && npm test`.** This exercises worktrees, checkpoints, diffs and a setup script run through `cmd.exe`. Fix anything that fails here first.
-3. **`npm run dev`, then walk through:** add a repo, create a workspace, open a terminal (PowerShell by default), configure an agent, send a message, approve a tool request where supported, check Changes, use Restore to here, and Archive. Check additional shells under Settings → General → Terminal.
+2. **`npm install && npm test`.** This exercises worktrees, checkpoints, diffs and a setup script run through `cmd.exe`, so run it first after a change that touches Windows behaviour.
+3. **`npm run dev`, then walk through** after such a change: add a repo, create a workspace, open a terminal (PowerShell by default), configure an agent, send a message, approve a tool request where supported, check Changes, use Restore to here, and Archive. Check additional shells under Settings → General → Terminal.
 4. **Archiving with a running dev server.** Windows locks open files, so `git worktree remove` can fail while something in the worktree is still running. Foreman kills its own terminals first and shows git's error if removal still fails.
 5. **Long paths.** Worktrees are created with `core.longpaths=true`. Keep the workspaces folder short (Settings); the default is `%USERPROFILE%\foreman\workspaces`.
-6. **Editor command.** Verify that `code`, `cursor` and other editor launchers open the workspace; Windows installations may use `.cmd` shims.
+6. **Editor command.** Windows installations of `code`, `cursor` and other editor launchers may be `.cmd` shims, so check they still open the workspace after changing how editors are launched.
 7. **Installer.** Run `npm run dist:win` on Windows, or download the Windows artifact from a manual **Installers** workflow run. The installer isn't code-signed yet. The release workflow can sign `Foreman.exe` and the installer through SignPath once SignPath Foundation approves Foreman (see the [code signing policy](../CODE_SIGNING.md)). After the first signed release, check that SmartScreen and **Properties → Digital Signatures** show it signed, and that an installed copy updates itself to the next signed release.
 8. **PR screenshots.** `npm run pr:screens -- capture --only home` links the temporary base worktree's `node_modules` to the checkout's with a junction and removes the junction (`rmdirSync`, never a recursive removal) before the worktree, which it removes only once the junction is gone. `tests/prScreens.test.ts` now checks this on Windows: the junction goes, the worktree goes from `git worktree list`, and the linked `node_modules` keeps its files. What remains is a real capture on a Windows machine.
 9. **Phones, browsers and headless mode.** Checked by hand on Windows on 2026-11-10: starting Foreman with `--headless`, a browser signed in at `/app` over same Wi-Fi, and signing a client in with `foreman phone link` and `foreman phone approve` (driven with curl). Not yet verified on Windows: the private HTTPS path through `tailscale serve --bg 47632`, for a phone or a browser. The other checks are listed in [server.md](server.md#12-checked-by-hand). The background service (`foreman service install`, a Task Scheduler task) was checked by hand on 2026-11-10 with a development build, its task started with `schtasks /Run`; a real logon and an installed build updating itself are not yet verified.

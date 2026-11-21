@@ -55,7 +55,8 @@ Foreman also has checkpoints you can rewind to, terminals and run scripts, file 
 Download Foreman from the [latest release](https://github.com/elite-build/foreman/releases/latest): the `.dmg` for macOS on Apple Silicon, or `Foreman-Setup-<version>.exe` for Windows. It's an ordinary desktop app; you don't need Node.js or a checkout to run it.
 
 - The macOS app is signed and notarized, so it opens without a warning.
-- The Windows installer isn't signed yet, so SmartScreen warns on first run (**More info → Run anyway**). Foreman has applied to SignPath Foundation's open-source code signing programme; see the [code signing policy](CODE_SIGNING.md). Foreman has been verified on macOS so far; see [Windows](docs/windows.md) for what still needs checking there.
+- The Windows installer isn't signed yet, so SmartScreen warns on first run (**More info → Run anyway**). Foreman has applied to SignPath Foundation's open-source code signing programme; see the [code signing policy](CODE_SIGNING.md).
+- Foreman is tested on both macOS and Windows; see [Windows](docs/windows.md) for notes specific to Windows.
 - Each release lists the SHA-256 checksum of every file in `SHA256SUMS.txt`. The [code signing policy](CODE_SIGNING.md#verifying-a-download) explains how to check a download against it.
 
 You'll also need:
