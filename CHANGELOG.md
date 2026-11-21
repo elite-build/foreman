@@ -2,7 +2,7 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
-## 1.2.9 (2026-11-21)
+## 1.2.10 (2026-11-21)
 
 ### Added
 
@@ -20,6 +20,10 @@ Notable changes to Foreman, newest first. Versions follow [semver](https://semve
 - A Bash snippet in a chat reply no longer runs again each time you go back to its workspace; it runs only when you click **Run**. ([#248](https://github.com/elite-build/foreman/pull/248))
 - An edit to a repository's `.foreman/settings.toml` saved right after another is no longer missed on Windows. ([#251](https://github.com/elite-build/foreman/pull/251))
 - Quitting Foreman no longer reads its database after closing it. ([#251](https://github.com/elite-build/foreman/pull/251))
+
+## 1.2.9 (2026-11-21)
+
+Tagged but not released: its installers failed to package ([#254](https://github.com/elite-build/foreman/pull/254)). Its changes shipped in 1.2.10.
 
 ## 1.2.8 (2026-11-20)
 
