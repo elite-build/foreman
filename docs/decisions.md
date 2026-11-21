@@ -44,6 +44,16 @@ Don't delete or rewrite an entry that no longer holds. Add a new entry, and put 
 
 **Revisit when.** OpenCode's server API changes incompatibly, or ACP gains what OpenCode needs.
 
+## 2026-11-20: The New workspace dialog starts with the repository, as a field with its folder under it
+
+**Decision.** Repository is the first field of the New workspace dialog's settings column: a searchable list of repositories with their folders, and the chosen one's folder under it. The chip in the dialog's header is gone.
+
+**Why.** The chip sat in the header's far corner, styled like a filter, so people didn't see which repository they were creating in. Of five mocks the person picked the field: it reads in the order the form is decided (repository, worktree, base, branch) and always shows the path.
+
+**Turned down.** "New workspace in [repository]" as the title (the path only on hover), the path under the title (grey text is skimmed past), a sentence next to Create (not visible while filling in the form), and a destination strip under the header (repeats the column below it).
+
+**Revisit when.** The settings column gets too tall for common window sizes.
+
 ## 2026-11-19: An AI employee's run leaves the person's own Claude Code setup out
 
 **Decision.** An employee's Claude run loads the repository's settings, not the person's hooks, plugins or model; of their user settings it keeps only sign-in (`env`, auth helpers) and their own deny, ask and sandbox limits. Its MCP servers are the repository's approved `.mcp.json` servers (less any Slack or Linear one) and Foreman's; every other MCP configuration is ignored. Hook refusals go on the run's record. This narrows the 2026-11-17 entry's "every MCP server a workspace's agent has" for employees only.

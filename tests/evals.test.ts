@@ -8,6 +8,8 @@ import { chatTitleTopicLabel, titleShape, topicLabel } from '../evals/cases/chat
 import { personaQaEnding } from '../evals/cases/personaQaEnding'
 import { acceptedRound, asksWhoMayPause, planRoundOpenSteps, roundProblems, roundRemarks, type MapItem, type RoundInput } from '../evals/cases/planRoundOpenSteps'
 import { createdPr, prTextInjection } from '../evals/cases/prTextInjection'
+import { asksForSpecifics, claudeBrief, codexBrief, explainReadOnly, preciseUnchanged, severalConstraints } from '../evals/cases/promptWriter'
+import { promptWriterAnswer } from '../src/shared/promptWriter'
 import { toolFlowStatusOwnRun } from '../evals/cases/toolFlowStatusOwnRun'
 import { readsTurn2, toolReadChatHistory } from '../evals/cases/toolReadChatHistory'
 import { afterTurnKnown, toolWaitNotPoll } from '../evals/cases/toolWaitNotPoll'
@@ -442,5 +444,69 @@ describe('the command line', () => {
     expect(formatReport(bad, { model: 'm', baseline })).toMatch(/AFTER FAILED/)
     expect(failed(bad, baseline, 'm')).toBe(true)
     expect(failed(bad, baseline, 'other-model')).toBe(false)
+  })
+})
+
+describe('the prompt writer’s checks, on canned outputs', () => {
+  const draft = (prompt: string) => out(promptWriterAnswer({ status: 'draft', prompt }))
+  const ask = (questions: unknown[]) => out(promptWriterAnswer({ status: 'ask', questions }))
+  const unchanged = out(promptWriterAnswer({ status: 'unchanged' }))
+  const request = 'users get logged out randomly, fix it'
+  const good = [
+    request,
+    '',
+    'Goal: A signed-in user stays logged in for 7 days instead of being logged out after about 30 minutes without activity.',
+    'Context: It happens after about 30 minutes without activity, since last week’s release.',
+    'Constraints: Fix the cause; don’t lengthen the session to hide it.',
+    'Done when: A test that idles a session fails before the fix and passes after. Report the cause, the commands and their output.'
+  ].join('\n')
+
+  it('prompt-writer-brief-structure: each part must do its job', () => {
+    expect(codexBrief(draft(good)).pass).toBe(true)
+    expect(codexBrief(draft(good.replace('Goal: A signed-in user stays logged in for 7 days instead of being logged out after about 30 minutes without activity.', `Goal: ${request}.`))).reason).toMatch(/repeats the request/)
+    expect(codexBrief(draft(good.replace('Context: It happens after about 30 minutes without activity, since last week’s release.', 'Context: Maybe a cookie.'))).reason).toMatch(/Context carries none/)
+    expect(codexBrief(draft(good.replace('since last week’s release', 'recently'))).reason).toMatch(/missing: release/)
+    expect(codexBrief(draft(good.replace('Fix the cause;', 'Fix it unless the timeout is intended;'))).pass).toBe(false)
+    expect(codexBrief(draft(good.replace('fails before the fix and passes after', 'runs'))).reason).toMatch(/fails before/)
+    expect(codexBrief(draft(good.replace('the commands and their output', 'what you did'))).reason).toMatch(/commands/)
+    expect(codexBrief(draft(good.replace('A test', 'A test with 3 users'))).reason).toMatch(/numbers nobody gave: 3/)
+    expect(codexBrief(out('Goal: fix it')).reason).toMatch(/app's check/)
+    const claude = 'the theme resets after a restart\n\nDark mode should stay on across restarts; it goes back to light since the 1.2 update. Fix the cause. Done when a test restarts with dark mode on and it stays on; show the commands and output.'
+    expect(claudeBrief(draft(claude)).pass).toBe(true)
+    expect(claudeBrief(draft(claude.replace('Fix the cause.', 'Goal: fix it.\nContext: x'))).reason).toMatch(/labelled lines/)
+  })
+
+  it('prompt-writer-explain-read-only: no report of changes, no tests, the purpose carried', () => {
+    const explain = 'how does restoring a checkpoint work?\n\nGoal: Explain what a restore puts back, to see why it lost a file I had just created.\nConstraints: Read only.\nDone when: A walkthrough naming the files and functions.'
+    expect(explainReadOnly(draft(explain), 'probe').pass).toBe(true)
+    expect(explainReadOnly(draft(`${explain} Report what changed, what you ran and what it showed.`), 'probe').pass).toBe(false)
+    expect(explainReadOnly(draft(explain.replace(', to see why it lost a file I had just created', '')), 'probe').reason).toMatch(/purpose/)
+    expect(explainReadOnly(draft(explain.replace('Read only.', 'Be clear.')), 'probe').reason).toMatch(/read only/)
+    expect(explainReadOnly(ask([{ question: 'What for?', options: ['a', 'b'] }]), 'control').pass).toBe(true)
+  })
+
+  it('prompt-writer-precise-unchanged: unchanged or one short sentence; a vague request never unchanged', () => {
+    const rename = 'Rename the `oneShotDraft` method in src/main/core.ts to `draftOneShot` and update its callers.'
+    expect(preciseUnchanged(unchanged, 'probe').pass).toBe(true)
+    expect(preciseUnchanged(draft(`${rename}\n\nDone when the type check passes.`), 'probe').pass).toBe(true)
+    expect(preciseUnchanged(draft(`${rename}\n\nRename oneShotDraft to draftOneShot everywhere.`), 'probe').reason).toMatch(/repeated/)
+    expect(preciseUnchanged(draft(`${rename}\n\n${'word '.repeat(40)}`), 'probe').pass).toBe(false)
+    expect(preciseUnchanged(unchanged, 'control').pass).toBe(false)
+  })
+
+  it('prompt-writer-asks-for-specifics: concrete options, no product facts, no non-answers', () => {
+    expect(asksForSpecifics(ask([{ question: 'How long before it happens?', options: ['A few minutes', 'About 30 minutes', 'Hours'] }]), 'probe').pass).toBe(true)
+    expect(asksForSpecifics(ask([{ question: 'What do you notice?', options: ['After being idle', 'No pattern'] }]), 'probe').reason).toMatch(/concrete/)
+    expect(asksForSpecifics(ask([{ question: 'Where?', options: ['Web only', 'After 5 minutes'] }]), 'probe').reason).toMatch(/presumes/)
+    expect(asksForSpecifics(ask([{ question: 'Any error?', options: ['I’ll paste it', 'After 5 minutes'] }]), 'probe').reason).toMatch(/isn’t an answer/)
+    expect(asksForSpecifics(draft('users get logged out randomly, fix it\n\nGoal: x'), 'probe').reason).toMatch(/asked about first/)
+  })
+
+  it('prompt-writer-several-constraints: a multi question, then every pick carried', () => {
+    expect(severalConstraints(ask([{ question: 'What must stay?', options: ['a', 'b'], multi: true }]), 'probe').pass).toBe(true)
+    expect(severalConstraints(ask([{ question: 'What must stay?', options: ['a', 'b'] }]), 'probe').pass).toBe(false)
+    const carried = 'clean up the settings code\n\nGoal: The settings validation lives in one place.\nConstraints: Behaviour stays identical; no new dependencies; small enough to review in one sitting.\nDone when: tests pass.'
+    expect(severalConstraints(draft(carried), 'control').pass).toBe(true)
+    expect(severalConstraints(draft(carried.replace('; no new dependencies', '')), 'control').reason).toMatch(/no new dependencies/)
   })
 })

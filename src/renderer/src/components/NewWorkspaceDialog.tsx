@@ -1,4 +1,4 @@
-import { ChevronDown, CircleDot, FolderGit2, FolderOpen, FolderRoot, GitBranch, GitPullRequest, Paperclip } from 'lucide-react'
+import { ChevronDown, CircleDot, FolderGit2, FolderOpen, FolderRoot, GitBranch, GitPullRequest, Paperclip, Undo2, Wand } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { AGENTS, DEFAULT_MODEL, isSameModel, modelInfo, modelsFor, type AgentKind, type Loadout } from '../../../shared/agents'
 import { catalogAgent, chosenModels, enabledAgentIds } from '../../../shared/agentCatalog'
@@ -6,6 +6,7 @@ import { pickerModels, type HiddenModels } from '../../../shared/modelVisibility
 import { fillIssuePlaceholders, intakeLine, type GithubLinkInfo } from '../../../shared/githubLink'
 import { findScmLink } from '../../../shared/scm'
 import { insertTemplate, templateAfterEdit } from '../../../shared/promptTemplates'
+import { PROMPT_WRITER_LIMITS, type PromptQuestion, type PromptTarget, type PromptWriterFailure } from '../../../shared/promptWriter'
 import { templateById } from '../../../shared/repoTemplates'
 import { chooseStartLoadout } from '../../../shared/startModel'
 import type { Attachment, BranchInfo, Repo, WorktreeInfo } from '../../../shared/types'
@@ -27,7 +28,7 @@ import { RunsOnField, useCloudReadiness, type RunsOnLocation } from './cloud/Run
 import { providerLabel, providerRegion, repoCloud, type CloudProviderId } from '../../../shared/cloud'
 import type { CloudProviderView } from '../../../shared/types'
 import { blocksChoice, providerFacts } from '../cloudView'
-import { Button, Card, Checkbox, Combobox, Dialog, Field, Kbd, LinkButton, Listbox, MediaThumb, MenuButton, MenuRadioItem, RadioCards, RadioList, Segmented, Select, Spinner, Status, Tag, TextArea, TextInput, type ListboxOption, type RadioCardOption } from '../ui'
+import { Button, Card, Checkbox, Combobox, Dialog, Field, Kbd, LinkButton, Listbox, MediaThumb, RadioCards, RadioList, Segmented, Select, Spinner, Status, Tag, TextArea, TextInput, type ListboxOption, type RadioCardOption } from '../ui'
 
 // Long branch lists are cut off; typing narrows them down.
 const MAX_OPTIONS = 150
@@ -220,48 +221,58 @@ function BranchPicker({ branches, value, onChange, home, label, placeholder, una
   )
 }
 
-// ---- header: repository chip ----
+// ---- repository ----
 
-function RepoChip({ repos, repo, onChange }: { repos: Repo[]; repo: Repo; onChange: (id: string) => void }) {
+/** The repository's own icon, or a folder when it has none. */
+function RepoIcon({ repo }: { repo: Repo }) {
+  return repo.icon ? <RepoIconView icon={repo.icon} size={13} /> : <FolderGit2 size={13} aria-hidden />
+}
+
+/** The first field: which repository the workspace is made in, with its folder under it. */
+function RepoField({ repos, repo, home, onChange }: { repos: Repo[]; repo: Repo; home: string; onChange: (id: string) => void }) {
   const t = useT()
-  const withIcons = repos.some((r) => r.icon)
+  const [query, setQuery] = useState('')
+  const pathId = useId()
+  const label = t('newWorkspace.repo.label')
+  const options: ListboxOption[] = rankItems(repos, query, (r) => r.name).map((r) => ({
+    value: r.id,
+    label: r.name,
+    description: tildify(r.rootPath, home),
+    title: r.rootPath,
+    leading: <RepoIcon repo={r} />
+  }))
 
-  if (repos.length < 2) {
-    return (
-      <Tag className="nw-repo" title={repo.rootPath}>
-        <RepoIconView icon={repo.icon} size={13} />
-        {repo.name}
-      </Tag>
-    )
-  }
   return (
-    <MenuButton
-      label={t('newWorkspace.repo.label')}
-      look="chip"
-      portal
-      placement="bottom-start"
-      className="nw-repo"
-      menuClassName="nw-repo-menu"
-      title={repo.rootPath}
-      trigger={
-        <>
-          <RepoIconView icon={repo.icon} size={13} />
+    <div className="dlg-group">
+      <span className="dlg-label">{label}</span>
+      {repos.length < 2 ? (
+        <Tag className="nw-repo">
+          <RepoIcon repo={repo} />
           {repo.name}
-          <ChevronDown size={12} aria-hidden />
-        </>
-      }
-    >
-      {repos.map((r) => (
-        <MenuRadioItem
-          key={r.id}
-          checked={r.id === repo.id}
-          icon={withIcons ? <RepoIconView icon={r.icon} size={14} /> : undefined}
-          onSelect={() => onChange(r.id)}
-        >
-          {r.name}
-        </MenuRadioItem>
-      ))}
-    </MenuButton>
+        </Tag>
+      ) : (
+        <Combobox
+          className="nw-combo"
+          label={label}
+          aria-describedby={pathId}
+          options={options}
+          value={repo.id}
+          onChange={onChange}
+          query={query}
+          onQueryChange={setQuery}
+          onOpenChange={(open) => {
+            if (!open) setQuery('')
+          }}
+          placeholder={repo.name}
+          leading={<RepoIcon repo={repo} />}
+          trailing={<ChevronDown size={13} aria-hidden />}
+          empty={t('newWorkspace.repo.noMatch')}
+        />
+      )}
+      <small id={pathId} className="nw-hint nw-path" title={repo.rootPath}>
+        <FolderRoot size={11} aria-hidden /> {tildify(repo.rootPath, home)}
+      </small>
+    </div>
   )
 }
 
@@ -491,6 +502,17 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const [templateId, setTemplateId] = useState<string | undefined>(initialTemplateId)
   const promptInput = useRef<HTMLTextAreaElement>(null)
   const promptId = useId()
+  // Write a full prompt (docs/prompt-writer.md): the call in flight, the questions the agent asked about the message
+  // with the person's picks (an option's index or 'own') and own words, and the message as it was, for Undo. An answer
+  // about words that have since changed is dropped.
+  const [writing, setWriting] = useState(false)
+  const [asked, setAsked] = useState<{ request: string; target: PromptTarget; questions: PromptQuestion[] } | null>(null)
+  const [picks, setPicks] = useState<Record<number, string[]>>({})
+  const [ownWords, setOwnWords] = useState<Record<number, string>>({})
+  const [written, setWritten] = useState<{ before: string; after: string } | null>(null)
+  const writeCall = useRef(0)
+  const promptNow = useRef(prompt)
+  promptNow.current = prompt
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [loadout, setLoadout] = useState<Loadout>(() => settings.loadouts[0] ?? { agent: 'claude', model: DEFAULT_MODEL.claude, fast: false })
   // Set once the user picks a model themselves; from then on it beats a template's start model.
@@ -651,6 +673,47 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     const paths = await attempt(() => api.pickFiles())
     if (paths?.length) addFiles(paths.slice(0, MAX_ADDED).map((path) => ({ path, name: path.split(/[\\/]/).pop() || path, kind: fileKind(path) })))
   }
+  // The prompt is written the way the agent the workspace will start with is best prompted.
+  const writeTarget: PromptTarget = catalogAgent((templateModel ?? loadout).agent)?.promptStyle ?? 'generic'
+  const writeFullPrompt = async (answers?: { question: string; answer: string }[]) => {
+    const request = answers && asked ? asked.request : prompt
+    const target = answers && asked ? asked.target : writeTarget
+    const call = ++writeCall.current
+    setWriting(true)
+    const result = await attempt(() => api.writePrompt({ request, target, ...(answers ? { answers } : {}) }))
+    if (call !== writeCall.current) return
+    setWriting(false)
+    if (!result || promptNow.current !== request) return
+    if (result.status === 'ask') {
+      setAsked({ request, target, questions: result.questions })
+      setPicks({})
+      setOwnWords({})
+      return
+    }
+    setAsked(null)
+    if (result.status === 'draft') {
+      setWritten({ before: request, after: result.prompt })
+      setPrompt(result.prompt)
+      setTemplateId((id) => templateAfterEdit(id, result.prompt))
+      requestAnimationFrame(() => promptInput.current?.focus())
+    } else if (result.status === 'unchanged') showToast(t('newWorkspace.write.unchanged'))
+    else if (result.status === 'failed') showToast(t(WRITE_FAILED[result.reason], { max: PROMPT_WRITER_LIMITS.request }), 'error')
+    else showToast(result.message)
+  }
+  // Each question's picks: an option's index, or 'own' for the person's own words. Several picks are joined with "; ";
+  // a question left unpicked, or with its own words left empty, is skipped.
+  const writeAnswers = (asked?.questions ?? []).flatMap((q, i) => {
+    const picked = picks[i] ?? []
+    const parts = picked.filter((p) => p !== 'own').map((p) => q.options[Number(p)])
+    const own = picked.includes('own') ? (ownWords[i] ?? '').trim() : ''
+    const answer = [...parts, ...(own ? [own] : [])].join('; ').slice(0, PROMPT_WRITER_LIMITS.answer)
+    return answer ? [{ question: q.question, answer }] : []
+  })
+  const togglePick = (i: number, pick: string) =>
+    setPicks((current) => ({ ...current, [i]: (current[i] ?? []).includes(pick) ? current[i].filter((p) => p !== pick) : [...(current[i] ?? []), pick] }))
+  const writeBlocked = settings.privacyMode ? t('newWorkspace.write.privacy') : prompt.length > PROMPT_WRITER_LIMITS.request ? t('newWorkspace.write.tooLong', { max: PROMPT_WRITER_LIMITS.request }) : undefined
+  const canWrite = !writing && !asked && !terminalAgent && Boolean(prompt.trim()) && !writeBlocked
+
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const pasted = [...e.clipboardData.files]
     if (!pasted.length) return
@@ -778,9 +841,10 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   const treeList = !(treesError && !others) && others !== null && !(others.length === 0 && !browsed)
 
   return (
-    <Dialog title={t('palette.newWorkspace')} className="nw-modal" onClose={close} headerExtra={<RepoChip repos={repos} repo={repo} onChange={changeRepo} />}>
+    <Dialog title={t('palette.newWorkspace')} className="nw-modal" onClose={close}>
       <div className="nw-body" onKeyDown={onKeyDown}>
         <div className="nw-settings">
+          <RepoField repos={repos} repo={repo} home={home} onChange={changeRepo} />
           {readiness?.offer && !startsFlow && !repo.plain && (
             <RunsOnField
               repo={repo}
@@ -796,9 +860,6 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
           )}
           {repo.plain ? (
             <>
-              <small className="nw-hint">
-                <FolderRoot size={11} aria-hidden /> {tildify(repo.rootPath, home)}
-              </small>
               {setupCheck}
               {directTaken ? <p className="nw-note error-text">{t('newWorkspace.folder.taken', { name: directTaken.name })}</p> : <p className="nw-note">{t('newWorkspace.plain.note')}</p>}
             </>
@@ -1065,6 +1126,8 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                 onChange={(e) => {
                   setPrompt(e.target.value)
                   setTemplateId((id) => templateAfterEdit(id, e.target.value))
+                  // The question was about the words as they were.
+                  setAsked(null)
                 }}
                 onPaste={onPaste}
                 placeholder={t('newWorkspace.prompt.placeholder')}
@@ -1081,8 +1144,89 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                   {t('newWorkspace.attach.button')}
                 </Button>
                 <span className="nw-composer-hint">{t('newWorkspace.attach.hint')}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="nw-write"
+                  icon={writing ? <Spinner size={13} /> : <Wand size={13} />}
+                  disabled={!canWrite}
+                  title={writeBlocked ?? t('newWorkspace.write.title')}
+                  onClick={() => void writeFullPrompt()}
+                >
+                  {writing ? t('newWorkspace.write.writing') : t('newWorkspace.write.button')}
+                </Button>
               </div>
             </div>
+            {asked && (
+              <div className="nw-write-question">
+                <p className="nw-write-skip">{t('newWorkspace.write.skipHint')}</p>
+                {asked.questions.map((q, i) => {
+                  const ownInput = (
+                    <TextInput
+                      aria-label={t('newWorkspace.write.ownWordsFor', { question: q.question })}
+                      autoFocus
+                      value={ownWords[i] ?? ''}
+                      maxLength={PROMPT_WRITER_LIMITS.answer}
+                      onChange={(e) => setOwnWords((current) => ({ ...current, [i]: e.target.value }))}
+                    />
+                  )
+                  const picked = picks[i] ?? []
+                  return q.multi ? (
+                    <div key={q.question} className="nw-write-multi" role="group" aria-labelledby={`${promptId}-q${i}`}>
+                      <span id={`${promptId}-q${i}`} className="small">
+                        {q.question} <span className="faint">{t('newWorkspace.write.pickAny')}</span>
+                      </span>
+                      {q.options.map((label, n) => (
+                        <Checkbox key={label} checked={picked.includes(String(n))} onChange={() => togglePick(i, String(n))}>
+                          {label}
+                        </Checkbox>
+                      ))}
+                      <Checkbox checked={picked.includes('own')} onChange={() => togglePick(i, 'own')}>
+                        {t('newWorkspace.write.ownWords')}
+                      </Checkbox>
+                      {picked.includes('own') && ownInput}
+                    </div>
+                  ) : (
+                    <RadioList
+                      key={q.question}
+                      legend={q.question}
+                      value={picked[0]}
+                      onChange={(value) => setPicks((current) => ({ ...current, [i]: [value] }))}
+                      options={[
+                        ...q.options.map((label, n) => ({ value: String(n), label })),
+                        { value: 'own', label: t('newWorkspace.write.ownWords'), extra: picked[0] === 'own' ? ownInput : undefined }
+                      ]}
+                    />
+                  )
+                })}
+                <div className="nw-write-actions">
+                  <Button size="sm" disabled={writing} icon={writing ? <Spinner size={13} /> : undefined} onClick={() => void writeFullPrompt(writeAnswers)}>
+                    {t('newWorkspace.write.continue')}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setAsked(null)}>
+                    {t('common.cancel')}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {written && prompt === written.after && (
+              <p className="nw-write-done">
+                <span>{t('newWorkspace.write.done')}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Undo2 size={13} />}
+                  onClick={() => {
+                    setPrompt(written.before)
+                    setTemplateId((id) => templateAfterEdit(id, written.before))
+                    setWritten(null)
+                    promptInput.current?.focus()
+                  }}
+                >
+                  {t('newWorkspace.write.undo')}
+                </Button>
+              </p>
+            )}
             {linear && mode !== 'existing' && <LinearLine intake={linear} />}
             {link && mode !== 'existing' && (
               <>
@@ -1123,6 +1267,16 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
       </div>
     </Dialog>
   )
+}
+
+/** Why Write a full prompt wrote nothing; the message is left as it was in every case. */
+const WRITE_FAILED: Record<PromptWriterFailure, 'newWorkspace.write.privacy' | 'newWorkspace.write.failed.noAgent' | 'newWorkspace.write.tooLong' | 'newWorkspace.write.failed.timeout' | 'newWorkspace.write.failed.invalid' | 'newWorkspace.write.failed.error'> = {
+  privacy: 'newWorkspace.write.privacy',
+  'no-agent': 'newWorkspace.write.failed.noAgent',
+  'too-long': 'newWorkspace.write.tooLong',
+  timeout: 'newWorkspace.write.failed.timeout',
+  invalid: 'newWorkspace.write.failed.invalid',
+  error: 'newWorkspace.write.failed.error'
 }
 
 /** "Remote workspaces run on Vercel in iad1." (on a provider without regions, just the provider). */

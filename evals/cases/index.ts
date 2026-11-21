@@ -4,11 +4,14 @@ import { chatTitleTopicLabel } from './chatTitleTopicLabel'
 import { personaQaEnding } from './personaQaEnding'
 import { planRoundOpenSteps } from './planRoundOpenSteps'
 import { prTextInjection } from './prTextInjection'
+import { promptWriterAsksForSpecifics, promptWriterBriefStructure, promptWriterExplainReadOnly, promptWriterPreciseUnchanged, promptWriterSeveralConstraints } from './promptWriter'
 import { toolFlowStatusOwnRun } from './toolFlowStatusOwnRun'
 import { toolReadChatHistory } from './toolReadChatHistory'
 import { toolWaitNotPoll } from './toolWaitNotPoll'
 
-export const CASES: readonly AnyCase[] = [toolFlowStatusOwnRun, toolReadChatHistory, toolWaitNotPoll, personaQaEnding, chatTitleTopicLabel, prTextInjection, planRoundOpenSteps]
+export const CASES: readonly AnyCase[] = [toolFlowStatusOwnRun, toolReadChatHistory, toolWaitNotPoll, personaQaEnding, chatTitleTopicLabel, prTextInjection, planRoundOpenSteps,
+  promptWriterBriefStructure, promptWriterExplainReadOnly, promptWriterPreciseUnchanged, promptWriterAsksForSpecifics, promptWriterSeveralConstraints
+]
 
 /** Problems with the list itself: a case without a source, a duplicate id, a before with no commit. Empty when well formed. */
 export function caseProblems(cases: readonly AnyCase[] = CASES): string[] {

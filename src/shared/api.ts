@@ -96,6 +96,8 @@ export const METHOD_SCOPES = {
   memoryWriteFile: 'admin', memoryAcceptForeign: 'admin',
   // Opening a file is this computer's window, as openFile is; one at a commit too.
   memoryOpenFile: 'window', openMemoryAt: 'window',
+  // Write a full prompt sends the person's words to a model, as drafting an employee does.
+  writePrompt: 'admin',
   // AI employees (docs/ai-employees.md §5): listing them is a read. Drafting sends the person's words to a model, and
   // creating, editing, approving, pausing, resuming and retiring change what may run, so they are admin (§9: never from a turn).
   listEmployees: 'read',

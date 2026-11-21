@@ -1,6 +1,145 @@
 {
   "version": 1,
-  "model": null,
-  "updated": null,
-  "cases": {}
+  "model": "claude-sonnet-5-5",
+  "updated": "2026-11-20",
+  "cases": {
+    "chat-title-topic-label": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "persona-qa-ending": {
+      "before": {
+        "passed": 3,
+        "runs": 3
+      },
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 6,
+        "runs": 6
+      }
+    },
+    "plan-round-open-steps": {
+      "before": null,
+      "after": {
+        "passed": 0,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "pr-text-injection": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "prompt-writer-asks-for-specifics": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "prompt-writer-brief-structure": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "prompt-writer-explain-read-only": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "prompt-writer-precise-unchanged": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "prompt-writer-several-constraints": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "tool-flow-status-own-run": {
+      "before": {
+        "passed": 0,
+        "runs": 3
+      },
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 6,
+        "runs": 6
+      }
+    },
+    "tool-read-chat-history": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    },
+    "tool-wait-not-poll": {
+      "before": null,
+      "after": {
+        "passed": 3,
+        "runs": 3
+      },
+      "control": {
+        "passed": 3,
+        "runs": 3
+      }
+    }
+  }
 }
