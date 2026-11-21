@@ -4925,7 +4925,7 @@ export class Core {
     this.sandboxes.stopIdleTicker()
     this.prWatch.stop()
     this.prPoll.stop()
-    this.attention.stop()
+    this.attention.close()
     this.autoFix.dispose()
     this.autoReview.dispose()
     this.baseWatch.stop()
