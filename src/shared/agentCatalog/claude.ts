@@ -48,5 +48,6 @@ export const CLAUDE_AGENT: CatalogAgent = {
   // (also `upgrade`), from `claude --help`.
   versions: { tested: ['2.1.301'], update: { args: ['update'] } },
   capabilities: capsOf(CLAUDE_RECORD), docsUrl: 'https://code.claude.com/docs/en/installation', defaultEnabled: true,
-  readiness: 'status', settings: { auth: 'claudeAuth', executablePath: 'claudeExecutablePath' }, models: { millionMarker: '[1m]', table: MODELS }, personaFiles: true
+  readiness: 'status', settings: { auth: 'claudeAuth', executablePath: 'claudeExecutablePath' }, models: { millionMarker: '[1m]', table: MODELS }, personaFiles: true,
+  promptStyle: 'claude'
 }

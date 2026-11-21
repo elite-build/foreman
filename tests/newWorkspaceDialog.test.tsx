@@ -478,3 +478,124 @@ describe('the repository choice', () => {
     await waitFor(() => expect(storeModule.createWorkspace).toHaveBeenCalledWith('site', expect.anything()))
   })
 })
+
+describe('Write a full prompt', () => {
+  const message = () => screen.findByRole('textbox', { name: /First message/ })
+  const write = () => screen.getByRole('button', { name: 'Write a full prompt' })
+
+  it('is off until there is a message, and off in privacy mode', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.privacyMode = true
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix the flaky checkpoint test')
+    expect((write() as HTMLButtonElement).disabled).toBe(true)
+    cleanup()
+    fakeState.snapshot.settings.privacyMode = false
+    render(<NewWorkspaceDialog repoId="r1" />)
+    expect((write() as HTMLButtonElement).disabled).toBe(true)
+    await user.type(await message(), 'fix it')
+    expect((write() as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('replaces the message with the draft, and Undo puts the message back exactly', async () => {
+    const user = userEvent.setup()
+    const prompt = 'fix the flaky checkpoint test\n\nRun it repeatedly and report the runs.'
+    fakeApi.writePrompt = vi.fn(async () => ({ status: 'draft', prompt }))
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix the flaky checkpoint test')
+    await user.click(write())
+    // Written for the agent the workspace starts with (Claude here).
+    expect(fakeApi.writePrompt).toHaveBeenCalledWith({ request: 'fix the flaky checkpoint test', target: 'claude' })
+    await waitFor(async () => expect(((await message()) as HTMLTextAreaElement).value).toBe(prompt))
+    expect(screen.getByText(/Written from your message/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(((await message()) as HTMLTextAreaElement).value).toBe('fix the flaky checkpoint test')
+    expect(screen.queryByText(/Written from your message/)).toBeNull()
+  })
+
+  it('asks its questions, and sends the person’s picks and own words, leaving a skipped question out', async () => {
+    const user = userEvent.setup()
+    const questions = [
+      { question: 'Which of these is it?', options: ['A dark-mode choice in Settings', 'Settings looks wrong in dark mode'] },
+      { question: 'How much do you want?', options: ['Just the choice', 'Choice plus following the system setting'] },
+      { question: 'What must not change?', options: ['The light theme', 'Nothing in particular'] }
+    ]
+    const prompt = 'add dark mode to settings: a dark-mode choice in Settings, following the system setting too.'
+    fakeApi.writePrompt = vi.fn().mockResolvedValueOnce({ status: 'ask', questions }).mockResolvedValueOnce({ status: 'draft', prompt })
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'add dark mode to settings')
+    await user.click(write())
+    const which = await screen.findByRole('group', { name: 'Which of these is it?' })
+    // The agent's options, then the person's own words.
+    expect(within(which).getAllByRole('radio')).toHaveLength(3)
+    await user.click(within(which).getByRole('radio', { name: questions[0].options[0] }))
+    const much = screen.getByRole('group', { name: 'How much do you want?' })
+    await user.click(within(much).getByRole('radio', { name: 'In my own words' }))
+    await user.type(within(much).getByRole('textbox', { name: 'Your answer to: How much do you want?' }), 'Follow the system setting too')
+    await user.click(screen.getByRole('button', { name: 'Write prompt' }))
+    expect(fakeApi.writePrompt).toHaveBeenLastCalledWith({
+      request: 'add dark mode to settings',
+      target: 'claude',
+      answers: [
+        { question: 'Which of these is it?', answer: 'A dark-mode choice in Settings' },
+        { question: 'How much do you want?', answer: 'Follow the system setting too' }
+      ]
+    })
+    await waitFor(async () => expect(((await message()) as HTMLTextAreaElement).value).toBe(prompt))
+    expect(screen.queryByRole('group', { name: 'Which of these is it?' })).toBeNull()
+  })
+
+  it('takes several picks on a question that allows them, with the person’s own words, joined into one answer', async () => {
+    const user = userEvent.setup()
+    const questions = [{ question: 'What must stay the same?', options: ['Behaviour users see', 'No new dependencies', 'Public names'], multi: true }]
+    fakeApi.writePrompt = vi.fn().mockResolvedValueOnce({ status: 'ask', questions }).mockResolvedValueOnce({ status: 'unchanged' })
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'clean up the settings code')
+    await user.click(write())
+    const group = await screen.findByRole('group', { name: /What must stay the same\?/ })
+    await user.click(within(group).getByRole('checkbox', { name: 'Behaviour users see' }))
+    await user.click(within(group).getByRole('checkbox', { name: 'No new dependencies' }))
+    await user.click(within(group).getByRole('checkbox', { name: 'In my own words' }))
+    await user.type(within(group).getByRole('textbox', { name: 'Your answer to: What must stay the same?' }), 'small enough to review at once')
+    await user.click(screen.getByRole('button', { name: 'Write prompt' }))
+    expect(fakeApi.writePrompt).toHaveBeenLastCalledWith({
+      request: 'clean up the settings code',
+      target: 'claude',
+      answers: [{ question: 'What must stay the same?', answer: 'Behaviour users see; No new dependencies; small enough to review at once' }]
+    })
+  })
+
+  it('writes for Codex when the workspace starts with Codex', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.loadouts = [{ agent: 'codex', model: 'gpt-6-astra', fast: false }]
+    fakeApi.writePrompt = vi.fn(async () => ({ status: 'unchanged' }))
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix it')
+    await user.click(write())
+    expect(fakeApi.writePrompt).toHaveBeenCalledWith({ request: 'fix it', target: 'codex' })
+  })
+
+  it('drops an answer about words that changed while the agent wrote', async () => {
+    const user = userEvent.setup()
+    let finish: (value: unknown) => void = () => undefined
+    fakeApi.writePrompt = vi.fn(() => new Promise((resolve) => (finish = resolve)))
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix it')
+    await user.click(write())
+    await user.type(await message(), ' now')
+    finish({ status: 'draft', prompt: 'fix it\n\nGuidance.' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Write a full prompt' })).toBeTruthy())
+    expect(((await message()) as HTMLTextAreaElement).value).toBe('fix it now')
+  })
+
+  it('says why when nothing was written, and leaves the message', async () => {
+    const user = userEvent.setup()
+    fakeApi.writePrompt = vi.fn(async () => ({ status: 'failed', reason: 'no-agent' }))
+    ;(storeModule.showToast as ReturnType<typeof vi.fn>).mockClear()
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix it')
+    await user.click(write())
+    await waitFor(() => expect(storeModule.showToast).toHaveBeenCalledWith(expect.stringContaining('No agent here can write a prompt'), 'error'))
+    expect(((await message()) as HTMLTextAreaElement).value).toBe('fix it')
+  })
+})

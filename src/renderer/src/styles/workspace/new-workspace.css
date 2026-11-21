@@ -274,10 +274,45 @@
   border-top: 1px solid var(--border);
 }
 .nw-composer-hint {
+  min-width: 0;
   overflow: hidden;
   font-size: var(--text-sm);
   white-space: nowrap;
   text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+/* Write a full prompt: the button at the end of the message's tool row, the agent's questions under the message, and
+   the line that offers Undo. */
+.nw-write {
+  flex: none;
+  margin-left: auto;
+}
+.nw-write-question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+.nw-write-skip {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.nw-write-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nw-write-actions {
+  display: flex;
+  gap: 8px;
+}
+.nw-write-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 .nw-actions {

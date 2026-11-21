@@ -50,6 +50,6 @@ export const CODEX_AGENT: CatalogAgent = {
   // appeared. update: `codex update`, from `codex --help`.
   versions: { tested: ['0.163.0'], update: { args: ['update'] } },
   capabilities: capsOf(CODEX_RECORD), docsUrl: 'https://github.com/openai/codex', defaultEnabled: true,
-  readiness: 'status', models: { table: MODELS },
+  readiness: 'status', models: { table: MODELS }, promptStyle: 'codex',
   settings: { auth: 'codexAuth', executablePath: 'codexExecutablePath', approvals: { field: 'codexApprovals', notes: { always: 'permissions.codex.always', sandboxed: 'permissions.codex.sandboxed' } } }
 }
