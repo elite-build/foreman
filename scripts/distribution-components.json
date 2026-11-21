@@ -119,6 +119,13 @@
       "notices": ["docs/licenses/lazy-val.txt"],
       "source": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
       "reason": "Declared MIT with no license text in the package or its release source (an electron-updater dependency); the notice supplies the standard MIT text for the declared author and says so."
+    },
+    {
+      "packages": ["@opencode-ai/sdk@1.19.6"],
+      "license": "MIT",
+      "notices": ["docs/licenses/opencode-sdk.txt"],
+      "source": "https://github.com/anomalyco/opencode/tree/v1.19.6",
+      "reason": "The package declares MIT but ships no license file; the text is the LICENSE at the opencode v1.19.6 tag, which holds packages/sdk/js at 1.19.6."
     }
   ],
   "components": [
