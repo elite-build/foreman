@@ -180,7 +180,8 @@ const AFTER_PLACEHOLDER = /(<(?:repo|tmp|home)>)((?:[\\/]+[^\s"'<>*?|`]*)?)/g
  *   - Claude Code's `content_block_delta` frames: `text_delta`, `thinking_delta` and a tool input's `input_json_delta`, per
  *     content block (its index, until that block's `content_block_stop`: the same index is used again by the next message);
  *   - Codex's item deltas (`item/agentMessage/delta`, `item/reasoning/textDelta`, `item/commandExecution/outputDelta`,
- *     `item/fileChange/outputDelta`, `item/plan/delta` …), per method and item (and content or summary index where it has one).
+ *     `item/fileChange/outputDelta`, `item/plan/delta` …), per method and item (and content or summary index where it has one);
+ *   - OpenCode's `message.part.delta` events, per part and field.
  */
 interface StreamPart {
   /** The stream this fragment belongs to. */
@@ -206,6 +207,19 @@ function streamPartOf(data: unknown): StreamPart | undefined {
       withText: (next) => {
         const copy = structuredClone(data) as { event: { delta: Record<string, unknown> } }
         copy.event.delta[field] = next
+        return copy
+      }
+    }
+  }
+  // OpenCode's `message.part.delta` events (a part's text, a fragment at a time), per part and field.
+  const event = (data as { event?: { type?: string; properties?: Record<string, unknown> } } | undefined)?.event
+  if (event?.type === 'message.part.delta' && typeof event.properties?.partID === 'string' && typeof event.properties.delta === 'string') {
+    return {
+      key: `opencode:${event.properties.partID}:${String(event.properties.field)}`,
+      text: event.properties.delta,
+      withText: (next) => {
+        const copy = structuredClone(data) as { event: { properties: { delta: string } } }
+        copy.event.properties.delta = next
         return copy
       }
     }

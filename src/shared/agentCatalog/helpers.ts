@@ -1,5 +1,5 @@
 // What the capability records share (docs/agents.md, 2.1): the permission-mode sets, the features no driver adds, and the
-// record of the generic ACP adapter (main/agents/acp), which OpenCode and every Chat agent sit behind.
+// record of the generic ACP adapter (main/agents/acp), which every Chat agent sits behind.
 //
 // Agent-id literals belong in this folder and nowhere else (tests/agentBranches.test.ts).
 import { ability, type AgentCapabilities } from '../agentCapabilities'
@@ -42,7 +42,7 @@ export function acpRecord(over: { restoreFiles: boolean; cost: boolean; keptRunn
     planning: { planMode: ability('none', 'agentCaps.why.plan'), questions: ability('native'), goals: ability('none', 'agentCaps.why.goals') },
     // session/request_permission. An always-allow is Foreman's: remembered for the agent's session, keyed on the tool's kind and the command
     // or path, and shown on the card ("Always allow `npm test` in this session"); a fresh process each turn means the agent's own memory
-    // of an allow_always can't be counted on (docs/agents.md 8). OpenCode's record says once-always instead.
+    // of an allow_always can't be counted on (docs/agents.md 8).
     approvals: { tools: ability('native'), alwaysAllow: ability('fallback', 'session-always') },
     // The agent's `terminal/*` requests run as piped processes (acp/terminals.ts), asked about like a shell tool; the client says so in `initialize`.
     tools: { mcp: ability('native'), terminals: ability('native') },

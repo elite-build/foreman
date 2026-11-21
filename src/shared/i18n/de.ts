@@ -1726,6 +1726,7 @@ export const de: Catalogue = {
   'repoMcp.reach.via.sdk': 'Für {agent}-Tabs gestartet, über sein Agent SDK',
   'repoMcp.reach.via.config': 'Für {agent}-Tabs gestartet, bei jedem Durchlauf als --config übergeben (deine ~/.codex wird nie geändert)',
   'repoMcp.reach.via.acp': 'An {agent} in seiner ACP-Sitzung übergeben; der Agent startet ihn',
+  'repoMcp.reach.via.server': 'Von {agent} bei jedem Durchlauf gestartet, aus der Konfiguration, die Foreman seinem Server gibt (deine eigene {agent}-Konfiguration wird nie geändert)',
   'repoMcp.reach.gotAt': '{what} · dieser Tab hat ihn um {time} erhalten',
   'repoMcp.reach.notSupportedTitle': 'Nicht unterstützt: {reason}',
   'repoMcp.reason.cursor': 'Cursor wird noch nicht unterstützt: Sein SDK nimmt MCP-Server an, aber Foreman hat einen Cursor-Start mit Tool-Aufruf damit noch nicht getestet und übergibt daher keine.',
@@ -1739,6 +1740,7 @@ export const de: Catalogue = {
   'repoMcp.agent.sdk': 'Erhält sie. Werden {agent} bei jedem Durchlauf über sein Agent SDK übergeben, nur mit ihren deklarierten Variablen.',
   'repoMcp.agent.config': 'Erhält sie. Werden {agent} bei jedem Durchlauf als --config-Overrides übergeben, nur mit ihren deklarierten Variablen. Deine ~/.codex/config.toml wird nie geändert.',
   'repoMcp.agent.acp': 'Erhält sie. Werden bei jedem Durchlauf in seiner ACP-Sitzung übergeben, nur mit ihren deklarierten Variablen. {agent} startet sie; was er ihnen sonst noch mitgibt, liegt bei {agent}.',
+  'repoMcp.agent.server': 'Erhält sie. Werden bei jedem Durchlauf in der Konfiguration übergeben, die Foreman seinem Server gibt, nur mit ihren deklarierten Variablen. {agent} startet sie; deine eigene {agent}-Konfiguration wird nie geändert.',
 
   // ---- Switch agent mid-conversation: the picker's choice, the chat's divider, the composer ----
   'switchAgent.row.switches': 'Wechselt den Agenten',

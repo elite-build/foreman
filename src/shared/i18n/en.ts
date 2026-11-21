@@ -1921,6 +1921,7 @@ export const en = {
   'repoMcp.reach.via.sdk': 'Started for {agent} tabs, through its Agent SDK',
   'repoMcp.reach.via.config': 'Started for {agent} tabs, passed as --config for each turn (your ~/.codex is never changed)',
   'repoMcp.reach.via.acp': 'Passed to {agent} in its ACP session; the agent starts it',
+  'repoMcp.reach.via.server': 'Started by {agent} for each turn, from the config Foreman gives its server (your own {agent} config is never changed)',
   'repoMcp.reach.gotAt': '{what} · this tab got it at {time}',
   'repoMcp.reach.notSupportedTitle': 'Not supported: {reason}',
   'repoMcp.reason.cursor': 'Cursor isn’t supported yet: its SDK takes MCP servers, but Foreman hasn’t tested a Cursor launch and tool call with them, so it passes none.',
@@ -1934,6 +1935,7 @@ export const en = {
   'repoMcp.agent.sdk': 'Gets them. Passed to {agent} through its Agent SDK at each turn, with only their declared variables.',
   'repoMcp.agent.config': 'Gets them. Passed to {agent} as --config overrides at each turn, with only their declared variables. Your ~/.codex/config.toml is never changed.',
   'repoMcp.agent.acp': 'Gets them. Passed in its ACP session at each turn, with only their declared variables. {agent} starts them; anything else it gives them is up to {agent}.',
+  'repoMcp.agent.server': 'Gets them. Passed in the config Foreman gives its server at each turn, with only their declared variables. {agent} starts them; your own {agent} config is never changed.',
   // O1
   // ---- Switch agent mid-conversation: the picker's choice, the chat's divider, the composer ----
   'switchAgent.row.switches': 'Switches agent',

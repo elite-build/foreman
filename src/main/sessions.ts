@@ -2511,7 +2511,7 @@ export class SessionService {
     session.resumeAt = user.resumeFrom?.messageUuid
     session.rewound = ownThread || undefined
     session.lastAssistantUuid = user.resumeFrom?.messageUuid
-    // docs/agents.md 2.5, `checkpoint-fresh-session`: an agent that can't rewind its own conversation (an ACP agent, OpenCode, Cursor)
+    // docs/agents.md 2.5, `checkpoint-fresh-session`: an agent that can't rewind its own conversation (an ACP agent, Cursor)
     // leaves it behind: the files are back, and the next message starts a new session, given the chat up to here as text.
     const fresh = isFallback(this.record(session.agent)?.checkpointing.conversationRollback ?? ability('none', 'agentCaps.why.rollback'), 'checkpoint-fresh-session')
     if (fresh) this.dropConversation(session, false)

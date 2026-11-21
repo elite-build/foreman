@@ -1726,6 +1726,7 @@ export const fr: Catalogue = {
   'repoMcp.reach.via.sdk': 'Démarré pour les onglets {agent}, via son Agent SDK',
   'repoMcp.reach.via.config': 'Démarré pour les onglets {agent}, transmis via --config à chaque tour (votre ~/.codex n’est jamais modifié)',
   'repoMcp.reach.via.acp': 'Transmis à {agent} dans sa session ACP ; c’est l’agent qui le démarre',
+  'repoMcp.reach.via.server': 'Démarré par {agent} à chaque tour, à partir de la configuration que Foreman donne à son serveur (ta propre configuration de {agent} n’est jamais modifiée)',
   'repoMcp.reach.gotAt': '{what} · cet onglet l’a reçu à {time}',
   'repoMcp.reach.notSupportedTitle': 'Non pris en charge : {reason}',
   'repoMcp.reason.cursor': 'Cursor n’est pas encore pris en charge : son SDK accepte des serveurs MCP, mais Foreman n’a pas testé de lancement de Cursor ni d’appel d’outil avec eux, il n’en transmet donc aucun.',
@@ -1739,6 +1740,7 @@ export const fr: Catalogue = {
   'repoMcp.agent.sdk': 'Les reçoit. Transmis à {agent} via son Agent SDK à chaque tour, avec uniquement leurs variables déclarées.',
   'repoMcp.agent.config': 'Les reçoit. Transmis à {agent} sous forme de surcharges --config à chaque tour, avec uniquement leurs variables déclarées. Votre ~/.codex/config.toml n’est jamais modifié.',
   'repoMcp.agent.acp': 'Les reçoit. Transmis dans sa session ACP à chaque tour, avec uniquement leurs variables déclarées. {agent} les démarre ; tout ce qu’il leur fournit d’autre dépend de {agent}.',
+  'repoMcp.agent.server': 'Les reçoit. Transmis dans la configuration que Foreman donne à son serveur à chaque tour, avec uniquement leurs variables déclarées. {agent} les démarre ; ta propre configuration de {agent} n’est jamais modifiée.',
 
   // ---- Switch agent mid-conversation: the picker's choice, the chat's divider, the composer ----
   'switchAgent.row.switches': 'Change d’agent',

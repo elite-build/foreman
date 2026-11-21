@@ -104,7 +104,8 @@ describe('what the catalog files claim', () => {
   it('every Full agent has a table, and an agent with only simulated fixtures claims no tested version', () => {
     for (const id of FULL_AGENT_IDS) expect(catalogAgent(id)!.versions, id).toBeDefined()
     expect(catalogAgent('cursor')!.versions!.tested).toEqual([])
-    expect(catalogAgent('opencode')!.versions!.tested).toEqual([])
+    // OpenCode is recorded: the version its fixtures were recorded with.
+    expect(catalogAgent('opencode')!.versions!.tested).toEqual([readFixture('opencode', 'plain').header.version])
   })
 
   it('sets no minimum it cannot back: Claude and Codex have none (see agentCatalog/claude.ts, codex.ts)', () => {

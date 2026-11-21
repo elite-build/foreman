@@ -1726,6 +1726,7 @@ export const ptBR: Catalogue = {
   'repoMcp.reach.via.sdk': 'Iniciado para as abas do {agent}, pelo Agent SDK dele',
   'repoMcp.reach.via.config': 'Iniciado para as abas do {agent}, passado como --config em cada turno (seu ~/.codex nunca é alterado)',
   'repoMcp.reach.via.acp': 'Passado ao {agent} na sessão ACP dele; o agente o inicia',
+  'repoMcp.reach.via.server': 'Iniciado pelo {agent} a cada turno, a partir da configuração que o Foreman dá ao servidor dele (sua própria configuração do {agent} nunca é alterada)',
   'repoMcp.reach.gotAt': '{what} · esta aba o recebeu às {time}',
   'repoMcp.reach.notSupportedTitle': 'Sem suporte: {reason}',
   'repoMcp.reason.cursor': 'O Cursor ainda não tem suporte: o SDK dele aceita servidores MCP, mas o Foreman não testou uma inicialização do Cursor com chamada de ferramenta usando-os, então não passa nenhum.',
@@ -1739,6 +1740,7 @@ export const ptBR: Catalogue = {
   'repoMcp.agent.sdk': 'Recebe. Passados ao {agent} pelo Agent SDK dele a cada turno, só com as variáveis declaradas.',
   'repoMcp.agent.config': 'Recebe. Passados ao {agent} como substituições --config a cada turno, só com as variáveis declaradas. Seu ~/.codex/config.toml nunca é alterado.',
   'repoMcp.agent.acp': 'Recebe. Passados na sessão ACP dele a cada turno, só com as variáveis declaradas. O {agent} os inicia; qualquer outra coisa que ele passe a eles fica a cargo do {agent}.',
+  'repoMcp.agent.server': 'Recebe. Passados na configuração que o Foreman dá ao servidor dele a cada turno, só com as variáveis declaradas. O {agent} os inicia; sua própria configuração do {agent} nunca é alterada.',
 
   // ---- Switch agent mid-conversation: the picker's choice, the chat's divider, the composer ----
   'switchAgent.row.switches': 'Troca de agente',

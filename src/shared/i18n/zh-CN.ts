@@ -1726,6 +1726,7 @@ export const zhCN: Catalogue = {
   'repoMcp.reach.via.sdk': '为 {agent} 标签页启动，通过其 Agent SDK',
   'repoMcp.reach.via.config': '为 {agent} 标签页启动，每个轮次以 --config 传入（不会更改你的 ~/.codex）',
   'repoMcp.reach.via.acp': '在 ACP 会话中传给 {agent}；由该智能体启动',
+  'repoMcp.reach.via.server': '每个轮次由 {agent} 根据 Foreman 提供给其服务器的配置启动（你自己的 {agent} 配置不会被更改）',
   'repoMcp.reach.gotAt': '{what} · 此标签页于 {time} 获得',
   'repoMcp.reach.notSupportedTitle': '不支持：{reason}',
   'repoMcp.reason.cursor': '暂不支持 Cursor：它的 SDK 接受 MCP 服务器，但 Foreman 尚未测试过带 MCP 服务器的 Cursor 启动和工具调用，因此不传入任何服务器。',
@@ -1739,6 +1740,7 @@ export const zhCN: Catalogue = {
   'repoMcp.agent.sdk': '会获得。每个轮次通过其 Agent SDK 传给 {agent}，仅附带其声明的变量。',
   'repoMcp.agent.config': '会获得。每个轮次以 --config 覆盖项传给 {agent}，仅附带其声明的变量。不会更改你的 ~/.codex/config.toml。',
   'repoMcp.agent.acp': '会获得。每个轮次在其 ACP 会话中传入，仅附带其声明的变量。由 {agent} 启动它们；它另外提供给它们的内容由 {agent} 决定。',
+  'repoMcp.agent.server': '会获得。每个轮次在 Foreman 提供给其服务器的配置中传入，仅附带其声明的变量。由 {agent} 启动它们；你自己的 {agent} 配置不会被更改。',
 
   // ---- Switch agent mid-conversation: the picker's choice, the chat's divider, the composer ----
   'switchAgent.row.switches': '切换智能体',

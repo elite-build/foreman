@@ -43,6 +43,7 @@
     "@daytonaio/sdk": "^0.226.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@openai/codex": "^0.163.0",
+    "@opencode-ai/sdk": "1.19.6",
     "@vercel/sandbox": "^3.9.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-serialize": "^0.14.0",

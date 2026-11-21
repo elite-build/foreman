@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-20: OpenCode runs through its own server, not ACP
+
+**Decision.** Foreman drives OpenCode through `opencode serve` and `@opencode-ai/sdk` (pinned exactly): one password-protected loopback server per turn, with OpenCode's own fork, message deletion, summarize, plan agent, child sessions, steer and session permission rules. The other ACP agents keep the shared ACP adapter.
+
+**Why.** ACP gave OpenCode only what every ACP agent shares, so it lost fork, rollback, compaction, subagents, plan and steering. And OpenCode allows everything by default, so its Ask mode never asked. Its server has all of these, and its free models let every scenario be recorded for real.
+
+**Turned down.** Keeping ACP and calling the SDK for the gaps (two transports for one agent); one server shared across turns (the process environment names the turn); OpenCode's revert for Restore (it restores files too, which are Foreman's).
+
+**Revisit when.** OpenCode's server API changes incompatibly, or ACP gains what OpenCode needs.
+
 ## 2026-11-20: The New workspace dialog starts with the repository, as a field with its folder under it
 
 **Decision.** Repository is the first field of the New workspace dialog's settings column: a searchable list of repositories with their folders, and the chosen one's folder under it. The chip in the dialog's header is gone.

@@ -6,10 +6,11 @@ import { replayTransport, type ReplayHandle } from '../../src/main/agents/fixtur
 import type { ApprovalResponse, ChatItem, ContextUsage, Question, SessionGoal } from '../../src/shared/types'
 import { CLAUDE_PLANS } from '../../src/main/agents/claude/record'
 import { CODEX_PLANS } from '../../src/main/agents/codex/record'
+import { OPENCODE_PLANS } from '../../src/main/agents/opencode/record'
 import type { Plan } from '../../src/main/agents/fixtures/recorder'
 import { makeRepo } from '../helpers'
 
-const PLANS: Record<string, Partial<Record<string, Plan>>> = { claude: CLAUDE_PLANS, codex: CODEX_PLANS }
+const PLANS: Record<string, Partial<Record<string, Plan>>> = { claude: CLAUDE_PLANS, codex: CODEX_PLANS, opencode: OPENCODE_PLANS }
 
 export interface Person {
   /** Answers a tool approval (default: allow). */

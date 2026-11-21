@@ -17,7 +17,7 @@ import { fixturePath, writeFixture, type Evidence, type Fixture, type FixtureHea
 import { sanitizeFrames, findLeaks, type SanitizeContext } from './sanitize'
 import { FrameRecorder } from './tee'
 
-export const SCENARIOS = ['plain', 'approval', 'question', 'plan', 'steer', 'interrupt', 'limit', 'crash', 'resume', 'fork', 'revert', 'compact', 'goal', 'goalclear', 'subagents', 'terminal', 'version1', 'version2', 'sandbox', 'scoped'] as const
+export const SCENARIOS = ['plain', 'approval', 'question', 'plan', 'steer', 'interrupt', 'limit', 'crash', 'resume', 'fork', 'revert', 'compact', 'goal', 'goalclear', 'subagents', 'terminal', 'sandbox', 'scoped'] as const
 export type Scenario = (typeof SCENARIOS)[number]
 
 /** What a scenario has the scripted person do, and ask of the agent. `limit` is not recorded: it is an edit of `plain`. */
@@ -270,4 +270,4 @@ export async function recordScenario(spec: AgentRecorder, scenario: Scenario, lo
 }
 
 /** Restores the transport seam after a script (used by tests that record against fakes). */
-export const clearTransports = () => (['claude', 'codex', 'acp', 'cursor'] as const).forEach((a) => setTransportOverride(a, undefined))
+export const clearTransports = () => (['claude', 'codex', 'acp', 'opencode', 'cursor'] as const).forEach((a) => setTransportOverride(a, undefined))

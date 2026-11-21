@@ -52,7 +52,7 @@ async function converse(h: Harness, ...texts: string[]) {
   return (await h.store.readChat(h.session.id)).filter((i): i is User => i.kind === 'user')
 }
 
-describe.each(['cursor', 'opencode', 'gemini'] as const)('Restore on %s (checkpoint-fresh-session)', (kind) => {
+describe.each(['cursor', 'gemini'] as const)('Restore on %s (checkpoint-fresh-session)', (kind) => {
   it('restores the files, drops the session and seeds the next turn with the chat up to the restore point', async () => {
     const requests = agent(kind)
     const h = await setupSessions()
@@ -103,11 +103,11 @@ describe.each(['cursor', 'opencode', 'gemini'] as const)('Restore on %s (checkpo
   })
 })
 
-describe('Restore on an agent that rolls its conversation back itself', () => {
+describe.each(['codex', 'opencode'] as const)('Restore on %s, which rolls its conversation back itself', (kind) => {
   it('keeps the session and cuts it in place, with the old notice and no seeded history', async () => {
-    const requests = agent('codex')
+    const requests = agent(kind)
     const h = await setupSessions()
-    await h.sessions.updateSession(h.session.id, { agent: 'codex' })
+    await h.sessions.updateSession(h.session.id, { agent: kind })
     const users = await converse(h, 'one', 'two')
     await h.sessions.restore(h.session.id, users[1].turnId)
     expect(tab(h)).toMatchObject({ agentSessionId: 'session-1', rewound: true })

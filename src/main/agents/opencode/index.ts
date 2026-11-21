@@ -1,65 +1,98 @@
-// OpenCode through the Agent Client Protocol (`opencode acp`).
-import { existsSync } from 'node:fs'
-import path from 'node:path'
-import { isWindows } from '../../platform'
-import { createAcpDriver, listAcpModels, type AcpAgentConfig, type AcpModel } from '../acp'
+// OpenCode through its own server (`opencode serve`) and @opencode-ai/sdk: sessions it keeps itself, which Foreman
+// continues, forks and rewinds; its plan agent, questions, subagents, compaction and permission rules (docs/agents.md,
+// "OpenCode"). Each turn starts a server of its own (server.ts, turn.ts).
+import { createOpencodeClient } from '@opencode-ai/sdk/v2'
+import type { EffortLevel, ModelInfo } from '../../../shared/agents'
+import type { AgentStatus } from '../../../shared/types'
+import { launchProblem } from '../../../shared/launchProblem'
+import { runProgram } from '../catalogDetect'
 import type { AgentDriver, OneShotOptions } from '../types'
+import { opencodeBinary, serveArgs, spawnOpencodeServer, type OpencodeLauncher, type OpencodeServer } from './server'
+import { INSTALL_HINT, LABEL, OpencodeTurn } from './turn'
 
-const INSTALL_HINT = 'Install it with `npm i -g opencode-ai` or the script at https://opencode.ai/install, or set its path in Settings.'
+export { opencodeBinary } from './server'
 
-function onPath(name: string): string | undefined {
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (!dir) continue
-    const candidate = path.join(dir, name)
-    if (existsSync(candidate)) return candidate
+const LIST_TIMEOUT_MS = 20_000
+const EFFORTS: readonly EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+
+function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return Promise.race([promise, new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(`${LABEL} did not ${what} in time`)), ms).unref?.())])
+}
+
+/** Starts a server outside any turn (to list models or commands), runs `use` on it and closes it. */
+async function withServer<T>(options: OneShotOptions, launch: OpencodeLauncher, what: string, use: (client: ReturnType<typeof createOpencodeClient>) => Promise<T>): Promise<T> {
+  let server: OpencodeServer | undefined
+  try {
+    return await within(
+      (async () => {
+        server = await launch({ file: opencodeBinary(options.executablePath), args: serveArgs(), cwd: options.cwd, env: options.env })
+        return await use(createOpencodeClient({ baseUrl: server.baseUrl, fetch: server.fetch, directory: options.cwd }))
+      })(),
+      LIST_TIMEOUT_MS,
+      what
+    )
+  } finally {
+    await server?.close()
   }
-  return undefined
 }
 
-/**
- * npm installs OpenCode on Windows as an `opencode.cmd` shim, which Node can
- * only start through a shell. The real opencode.exe sits in the package's
- * per-platform dependency next to the shim, so run that instead.
- */
-function exeBehindShim(shim: string): string | undefined {
-  const modules = path.join(path.dirname(shim), 'node_modules')
-  const variants = process.arch === 'arm64' ? ['arm64'] : ['x64', 'x64-baseline']
-  return variants
-    .flatMap((v) => [
-      path.join(modules, 'opencode-ai', 'node_modules', `opencode-windows-${v}`, 'bin', 'opencode.exe'),
-      path.join(modules, `opencode-windows-${v}`, 'bin', 'opencode.exe')
-    ])
-    .find((candidate) => existsSync(candidate))
+/** The models OpenCode can use with the providers it is connected to, as `provider/model`, with their effort variants. */
+export async function listOpencodeModels(options: OneShotOptions, launch: OpencodeLauncher = spawnOpencodeServer): Promise<ModelInfo[]> {
+  return withServer(options, launch, 'list its models', async (client) => {
+    const res = await client.config.providers({})
+    if (!res.data) throw new Error(`${LABEL} didn't list its models`)
+    const { providers, default: defaults } = res.data
+    return providers.flatMap((provider) =>
+      Object.values(provider.models).map(
+        (model): ModelInfo => ({
+          id: `${provider.id}/${model.id}`,
+          agent: 'opencode',
+          label: model.name || model.id,
+          efforts: EFFORTS.filter((e) => model.variants && e in model.variants),
+          supportsFast: false,
+          contextWindow: model.limit.context || 200_000,
+          ...(model.limit.context ? { contextReported: true } : {}),
+          ...(defaults[provider.id] === model.id ? { isDefault: true } : {}),
+          ...(model.status === 'deprecated' ? { hidden: true } : {})
+        })
+      )
+    )
+  })
 }
 
-/** The OpenCode binary to run: the configured path, else the one on PATH. */
-export function opencodeBinary(executablePath?: string): string {
-  const configured = executablePath?.trim()
-  if (!isWindows) return configured || 'opencode'
-  if (configured && !/\.(cmd|bat|ps1)$/i.test(configured)) return configured
-  if (!configured) {
-    const exe = onPath('opencode.exe')
-    if (exe) return exe
+/** The driver, with the server it starts replaceable (tests). */
+export function createOpencodeDriver(launch?: OpencodeLauncher): AgentDriver {
+  return {
+    kind: 'opencode',
+
+    createTurn: (request, callbacks) => new OpencodeTurn(request, callbacks, { launch }),
+
+    async listModels(options) {
+      return { models: await listOpencodeModels(options, launch) }
+    },
+
+    /** OpenCode's own commands (`/init`, `/review`, the user's and the project's), for the composer's list. */
+    async slashCommands(cwd, env) {
+      const options = { cwd, env: { ...(process.env as Record<string, string>), ...env } }
+      return withServer(options, launch ?? spawnOpencodeServer, 'list its commands', async (client) => {
+        const res = await client.command.list({})
+        return (res.data ?? []).map((c) => ({ name: c.name, description: c.description ?? '' }))
+      })
+    },
+
+    async status(env, executablePath): Promise<AgentStatus> {
+      try {
+        const out = (await runProgram(opencodeBinary(executablePath), ['--version'], env)).trim()
+        const version = /\d+(\.\d+)+[\w.+-]*/.exec(out)?.[0] ?? (out.split(/\s+/).pop() || undefined)
+        return { agent: 'opencode', installed: true, ready: true, version }
+      } catch {
+        return { agent: 'opencode', installed: false, ready: false, detail: launchProblem('opencode', { name: LABEL, notInstalled: true, installHint: INSTALL_HINT }).text }
+      }
+    },
+
+    // In a cloud sandbox OpenCode reads whichever provider key its model needs: every provider key goes in, under what the user set.
+    cloudEnv: ({ env, secrets }) => ({ ...secrets.providerKeys(), ...env })
   }
-  const shim = configured || onPath('opencode.cmd')
-  // Unresolvable shims fail as "not installed", which points at Settings.
-  return (shim && exeBehindShim(shim)) || 'opencode.exe'
 }
 
-const config: AcpAgentConfig = {
-  kind: 'opencode',
-  label: 'OpenCode',
-  command: (exe) => ({ file: opencodeBinary(exe), args: ['acp'] }),
-  installHint: INSTALL_HINT
-}
-
-export const opencodeDriver: AgentDriver = {
-  ...createAcpDriver(config),
-  // In a cloud sandbox OpenCode reads whichever provider key its model needs: every provider key goes in, under what the user set.
-  cloudEnv: ({ env, secrets }) => ({ ...secrets.providerKeys(), ...env })
-}
-
-/** Models OpenCode can use with the user's configured providers. */
-export function listOpencodeModels(options: OneShotOptions): Promise<AcpModel[]> {
-  return listAcpModels(config, options)
-}
+export const opencodeDriver: AgentDriver = createOpencodeDriver()

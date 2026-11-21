@@ -1726,6 +1726,7 @@ export const ko: Catalogue = {
   'repoMcp.reach.via.sdk': '{agent} 탭용으로 Agent SDK를 통해 시작됨',
   'repoMcp.reach.via.config': '{agent} 탭용으로 시작되며, 턴마다 --config로 전달됨(~/.codex는 변경되지 않음)',
   'repoMcp.reach.via.acp': 'ACP 세션에서 {agent}에 전달되며, 에이전트가 시작함',
+  'repoMcp.reach.via.server': 'Foreman이 서버에 주는 설정에서 턴마다 {agent}이(가) 시작함 (내 {agent} 설정은 바뀌지 않음)',
   'repoMcp.reach.gotAt': '{what} · 이 탭은 {time}에 받음',
   'repoMcp.reach.notSupportedTitle': '지원되지 않음: {reason}',
   'repoMcp.reason.cursor': 'Cursor는 아직 지원되지 않습니다. SDK가 MCP 서버를 받긴 하지만 Foreman에서 이를 사용한 Cursor 실행과 도구 호출을 테스트하지 않았으므로 아무것도 전달하지 않습니다.',
@@ -1739,6 +1740,7 @@ export const ko: Catalogue = {
   'repoMcp.agent.sdk': '받습니다. 턴마다 Agent SDK를 통해 {agent}에 전달되며, 선언된 변수만 포함됩니다.',
   'repoMcp.agent.config': '받습니다. 턴마다 --config 재정의로 {agent}에 전달되며, 선언된 변수만 포함됩니다. ~/.codex/config.toml은 변경되지 않습니다.',
   'repoMcp.agent.acp': '받습니다. 턴마다 ACP 세션에 전달되며, 선언된 변수만 포함됩니다. 서버는 {agent}이(가) 시작하며, 그 밖에 무엇을 넘겨줄지는 {agent}에 달려 있습니다.',
+  'repoMcp.agent.server': '받습니다. Foreman이 서버에 주는 설정으로 턴마다 전달되며, 선언된 변수만 포함됩니다. 서버는 {agent}이(가) 시작하며, 내 {agent} 설정은 바뀌지 않습니다.',
 
   // ---- Switch agent mid-conversation: the picker's choice, the chat's divider, the composer ----
   'switchAgent.row.switches': '에이전트 전환',

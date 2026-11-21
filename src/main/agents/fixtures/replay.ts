@@ -213,6 +213,30 @@ export const jsonRpcProtocol: Protocol = {
       : []
 }
 
+// The records a request's path names by id (a session, a message, a part, a permission or question request): matching is by
+// what is asked, not of which one, so a test may ask about a session of any name.
+const NAMED_BY_ID = new Set(['session', 'message', 'part', 'permission', 'question'])
+
+/**
+ * OpenCode's server over HTTP (tee.ts `teeOpencodeLauncher`): a request is `{http: "METHOD /path", id}` (the id the recorder
+ * gave it), its answer `{re: id, status, body}`, and each server-sent event `{event}` on the stream a `GET /event` opened.
+ */
+export const httpProtocol: Protocol = {
+  key(data) {
+    if (!isObject(data)) return 'unknown'
+    if (typeof data.http === 'string') {
+      const [method, pathname = ''] = data.http.split(' ')
+      const segments = pathname.split('/')
+      return `${method} ${segments.map((s, i) => (i > 0 && NAMED_BY_ID.has(segments[i - 1]) ? ':id' : s)).join('/')}`
+    }
+    return data.event ? 'event' : `response:${String(data.re)}`
+  },
+  requestId: (data) => (isObject(data) && typeof data.http === 'string' ? data.id : undefined),
+  replyId: (data) => (isObject(data) && data.re !== undefined ? data.re : undefined),
+  withId: (data, id) => ({ ...(data as object), re: id }),
+  unmatched: (data) => (isObject(data) && typeof data.http === 'string' ? [{ re: data.id, status: 404, body: { name: 'NotFoundError', data: { message: `Not in the recording: ${data.http}` } } }] : [])
+}
+
 /** Cursor's worker IPC: `{type}` messages each way, no ids. */
 export const ipcProtocol: Protocol = {
   key: (data) => (isObject(data) ? String(data.type) : 'unknown'),

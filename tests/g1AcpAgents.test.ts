@@ -292,7 +292,8 @@ describe('G1 · ACP session modes and the Plan chip', () => {
     // The chips are read from the record with what the agent declared folded in.
     expect(capsOf(staticCapabilities('gemini')!)).toMatchObject({ plan: false, steer: false })
     expect(capsOf(declare('gemini'))).toMatchObject({ plan: true, steer: false })
-    expect(capsOf(declare('opencode')).plan).toBe(true)
+    // OpenCode's plan agent is in its record, declared or not.
+    expect(capsOf(staticCapabilities('opencode')!).plan).toBe(true)
     // Only an agent whose record says it declares a plan mode takes one from what it declared.
     expect(capsOf(declare('cursor')).plan).toBe(false)
     expect(capsOf(declare('claude')).plan).toBe(true)
@@ -311,7 +312,7 @@ describe('G1 · ACP session modes and the Plan chip', () => {
   it('switches into the declared plan mode before prompting (session/set_mode)', async () => {
     const log = newLog()
     const rec = recorder()
-    await createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
+    await createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
       .createTurn(request(await tempDir(), { planMode: true }), rec.cb)
       .run()
     expect(log.methods).toEqual(['initialize', 'session/new', 'set_mode:plan'])
@@ -332,13 +333,13 @@ describe('G1 · ACP session modes and the Plan chip', () => {
   it('leaves the mode alone without Plan, and the chip follows when the agent leaves plan mode itself', async () => {
     const log = newLog()
     const rec = recorder()
-    await createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
+    await createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) })
       .createTurn(request(await tempDir()), rec.cb)
       .run()
     expect(log.methods).toEqual(['initialize', 'session/new'])
     const log2 = newLog()
     const rec2 = recorder()
-    await createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log2, { leavePlanOnPrompt: true })) })
+    await createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log2, { leavePlanOnPrompt: true })) })
       .createTurn(request(await tempDir(), { planMode: true }), rec2.cb)
       .run()
     expect(rec2.plan).toEqual([false])
@@ -363,7 +364,7 @@ describe('G1 · ACP session modes and the Plan chip', () => {
 
   it('lists the declared modes with the models', async () => {
     const log = newLog()
-    const listed = await listAcpSession({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) }, { cwd: await tempDir(), env: {} })
+    const listed = await listAcpSession({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'x', args: [] }), connect: inProcess(modalAgent(log)) }, { cwd: await tempDir(), env: {} })
     expect(listed.modes).toEqual([
       { id: 'build', name: 'Build' },
       { id: 'plan', name: 'Plan' }

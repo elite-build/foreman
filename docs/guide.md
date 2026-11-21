@@ -237,9 +237,9 @@ Each agent holds a level as closely as it can, and work on an agent that can't h
 | --- | --- | --- | --- | --- |
 | Claude | every tool asks, but reads | edits in the workspace go ahead, the rest asks | auto mode's classifier decides | your settings |
 | Codex | sandboxed to the workspace with no network; asks before leaving the sandbox, before writing a file outside the workspace and before another MCP server's tool; commands inside the sandbox don't ask | the same as Ask | sandboxed with no network and never asks: what needs to leave the sandbox fails | your settings |
-| Cursor, OpenCode and other ACP agents | refused | refused | refused | your settings |
+| Cursor, OpenCode and the ACP agents | refused | refused | refused | your settings |
 
-Cursor never asks before running a tool, and an ACP agent asks only when it chooses to, so Foreman can't hold either below Never ask: `start_task` with such a loadout, or `send_task` to such a chat, is refused with a message naming the agent. `list_delegation_options` says which levels each loadout's agent can be held to.
+Cursor never asks before running a tool, an ACP agent asks only when it chooses to, and OpenCode's plugins run code of their own, so Foreman can't hold any of them below Never ask: `start_task` with such a loadout, or `send_task` to such a chat, is refused with a message naming the agent. `list_delegation_options` says which levels each loadout's agent can be held to.
 
 Below Never ask, a turn the agent caused must ask before it writes the files that configure agents or git: `.claude/`, `.codex/`, `.cursor/`, `.foreman/`, `.switchyard/`, `.mcp.json` and the git folder, so it can't raise its next turn's mode or plant a git hook. A Codex turn held this way can't write the git folder from its sandbox, so committing asks to leave the sandbox (Ask) or fails (Auto); commit from Foreman instead. At Auto, a Claude turn's `foreman` shell commands always ask.
 

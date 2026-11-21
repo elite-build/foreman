@@ -19,7 +19,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
   { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' }
 ]
 
-export type AcpScenario = 'plain' | 'approval' | 'interrupt' | 'crash' | 'resume' | 'question' | 'terminal' | 'terminal-direct' | 'terminal-swap' | 'terminal-env' | 'version1' | 'version2'
+export type AcpScenario = 'plain' | 'approval' | 'interrupt' | 'crash' | 'resume' | 'question' | 'terminal' | 'terminal-direct' | 'terminal-swap' | 'terminal-env'
 
 /** An in-process ACP agent that plays `scenario` for its one prompt. */
 export function acpFake(scenario: AcpScenario): acp.AgentApp & { attach(c: { kill(): void }): void } {
@@ -32,9 +32,7 @@ export function acpFake(scenario: AcpScenario): acp.AgentApp & { attach(c: { kil
     .agent({ name: 'conformance-fake' })
     .onRequest(acp.methods.agent.initialize, ({ params }) => {
       advertised = params.clientCapabilities ?? undefined
-      // `version1` and `version2` are a plain turn from an OpenCode that says it is 1.x or 2.x: Foreman declares it and starts a server for the turn either way.
-      const version = scenario === 'version1' ? '1.14.3' : scenario === 'version2' ? '2.1.0' : '1.0.0'
-      return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true }, agentInfo: { name: scenario.startsWith('version') ? 'opencode' : 'conformance-fake', version } }
+      return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true }, agentInfo: { name: 'conformance-fake', version: '1.0.0' } }
     })
     .onRequest(acp.methods.agent.session.new, ({ params }) => ((folder = params.cwd), { sessionId: 'sess-1' }))
     .onRequest(acp.methods.agent.session.load, async ({ params, client }) => {

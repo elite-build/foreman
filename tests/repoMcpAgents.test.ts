@@ -1,4 +1,4 @@
-// #20: repo MCP servers reach Codex and ACP agents (OpenCode, Chat agents) the way they reach Claude.
+// #20: repo MCP servers reach Codex, OpenCode and ACP agents (the Chat agents) the way they reach Claude.
 import * as acp from '@agentclientprotocol/sdk/unstable'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -188,7 +188,7 @@ describe('Codex launch config', () => {
   })
 })
 
-// ---- ACP: OpenCode and the Chat agents ----
+// ---- ACP: the Chat agents ----
 
 /** An in-process ACP agent. With `useServers`, it starts the stdio servers session/new names and calls each one's `echo`, like a real agent would. */
 function acpAgent(options: { useServers?: boolean } = {}) {
@@ -253,7 +253,7 @@ function inProcess(app: acp.AgentApp): AcpConnector {
   }
 }
 
-const acpDriver = (app: acp.AgentApp) => createAcpDriver({ kind: 'opencode', label: 'OpenCode', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) })
+const acpDriver = (app: acp.AgentApp) => createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) })
 
 describe('ACP agents get approved repo servers', () => {
   it('session/new carries them as stdio servers with only their declared variables, and a continued session too', async () => {
@@ -389,7 +389,8 @@ describe('capability gating', () => {
     expect(repoMcpSupport('cursor')).toEqual({ supported: true, via: 'cursor' })
     expect(repoMcpSupport('aider')).toEqual({ supported: false, reason: 'terminal' })
     expect(repoMcpSupport('codex')).toEqual({ supported: true, via: 'config' })
-    expect(repoMcpSupport('opencode')).toEqual({ supported: true, via: 'acp' })
+    expect(repoMcpSupport('opencode')).toEqual({ supported: true, via: 'server' })
+    expect(repoMcpSupport('gemini')).toEqual({ supported: true, via: 'acp' })
     // Every agent's record is the catalog's answer.
     for (const kind of Object.keys(AGENTS)) expect(offers(staticCapabilities(kind)!.tools.mcp)).toBe(repoMcpSupport(kind).supported)
   })

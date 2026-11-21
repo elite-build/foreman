@@ -32,7 +32,7 @@ function viaText(row: RepoMcpReachRow, t: RendererT): string {
   const via = row.support.via
   // G1: Cursor through its SDK, untested without a key.
   if (via === 'cursor') return t('g1.repoMcp.via.cursor', { agent: row.name })
-  return t(via === 'sdk' ? 'repoMcp.reach.via.sdk' : via === 'config' ? 'repoMcp.reach.via.config' : 'repoMcp.reach.via.acp', { agent: row.name })
+  return t(via === 'sdk' ? 'repoMcp.reach.via.sdk' : via === 'config' ? 'repoMcp.reach.via.config' : via === 'server' ? 'repoMcp.reach.via.server' : 'repoMcp.reach.via.acp', { agent: row.name })
 }
 
 function useReach(): RepoMcpReachRow[] {
@@ -235,7 +235,7 @@ export function RepoMcpAgentRow({ agent, name }: { agent: string; name: string }
   const text = support.supported
     ? support.via === 'cursor'
       ? t('g1.repoMcp.agent.cursor', { agent: name })
-      : t(support.via === 'sdk' ? 'repoMcp.agent.sdk' : support.via === 'config' ? 'repoMcp.agent.config' : 'repoMcp.agent.acp', { agent: name })
+      : t(support.via === 'sdk' ? 'repoMcp.agent.sdk' : support.via === 'config' ? 'repoMcp.agent.config' : support.via === 'server' ? 'repoMcp.agent.server' : 'repoMcp.agent.acp', { agent: name })
     : repoMcpReason(support, t)
   return (
     <Row label={t('repoMcp.agent.label')} help={t('repoMcp.agent.help')} stacked>

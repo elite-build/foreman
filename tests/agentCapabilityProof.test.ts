@@ -29,11 +29,25 @@ interface Claim {
   request?: (fixture: Fixture) => Partial<TurnRequest>
 }
 
-/** The thread a recorded turn resumed, and (Codex) the turn its history was cut back to: the second of the turns its listing held. */
+/**
+ * The thread a recorded turn resumed and the point its history was cut at or forked from. Codex: the second of the turns its
+ * listing held. OpenCode: the message before the one the fork was made at, or before the first message deleted.
+ */
 const resumedFrom = (fixture: Fixture) => {
+  const opencode = opencodePoint(fixture)
+  if (opencode) return opencode
   const resume = fixture.frames.map((f) => f.data as { method?: string; params?: { threadId?: string } }).find((d) => d?.method === 'thread/resume')?.params?.threadId
   const turns = fixture.frames.map((f) => f.data as { result?: { data?: { id: string }[] } }).find((d) => d?.result?.data)?.result?.data
   return { resume: resume ?? 'a-session', point: turns?.[1]?.id ?? 'a-point' }
+}
+
+function opencodePoint(fixture: Fixture): { resume: string; point: string } | undefined {
+  const sends = fixture.frames.filter((f) => f.dir === 'send').map((f) => f.data as { http?: string; body?: { messageID?: string } })
+  const session = sends.map((s) => /^GET \/session\/([^/]+)$/.exec(s.http ?? '')?.[1]).find(Boolean)
+  const listed = fixture.frames.map((f) => (f.data as { body?: unknown }).body).find((b): b is { info: { id: string } }[] => Array.isArray(b) && Boolean(b[0]?.info))
+  const after = sends.find((s) => s.http?.endsWith('/fork'))?.body?.messageID ?? sends.filter((s) => s.http?.startsWith('DELETE ')).at(-1)?.http?.split('/').pop()
+  const at = listed?.findIndex((m) => m.info.id === after) ?? -1
+  return session && listed && at > 0 ? { resume: session, point: listed[at - 1].info.id } : undefined
 }
 
 const native = (a: Ability) => a.level === 'native'
@@ -84,7 +98,7 @@ const CLAIMS: Claim[] = [
     field: 'threads.fork',
     scenario: 'fork',
     claimed: (r) => native(r.threads.fork),
-    request: () => ({ resume: 'a-session', resumeAt: 'a-point' }),
+    request: (f) => ({ resume: resumedFrom(f).resume, resumeAt: resumedFrom(f).point }),
     shows: (p) => {
       remembersFirst(p)
       expect(p.results).toEqual([{ ok: true }])
@@ -130,14 +144,15 @@ const CLAIMS: Claim[] = [
       expect(p.results).toEqual([{ ok: true }])
     }
   },
-  // Slice 4b: OpenCode starts a server of its own for each turn, whatever its version (the fixture: the version declared, the server closed
-  // with the turn; tests/acpServers.test.ts runs turns together).
+  // OpenCode starts a server of its own for each turn (the fixture: the server's version declared, the server closed with the turn;
+  // tests/opencodeServers.test.ts runs turns together).
   {
     field: 'sessions.concurrentChats (server-per-turn)',
-    scenario: 'version1',
+    scenario: 'plain',
     claimed: (r) => isFallback(r.sessions.concurrentChats, 'server-per-turn'),
     shows: (p) => {
-      expect(p.declared).toEqual([{ version: '1.14.3' }])
+      expect(p.declared).toHaveLength(1)
+      expect(p.declared[0].version).toMatch(/^\d+\.\d+/)
       expect(p.results).toEqual([{ ok: true }])
     }
   },
@@ -194,7 +209,9 @@ const CLAIMS: Claim[] = [
  * Claims no fixture proves yet, `agent:field`, and why. Not a way round the test: each is a finding, reported with the
  * slice that builds the recording (or fixes the record).
  */
-const UNPROVEN: Record<string, string> = {}
+const UNPROVEN: Record<string, string> = {
+  'opencode:usage.cost': 'OpenCode is recorded on one of its free models, whose every step costs $0; the adapter sums each step’s cost, and a recording on a paid model would show it.'
+}
 
 const chatAgents = [...FULL_AGENT_IDS, ...CHAT_AGENT_IDS] as string[]
 let handle: ReplayHandle | undefined
@@ -208,7 +225,8 @@ async function observe(agent: string, claim: Claim): Promise<Played> {
   const r = await replay(driver, fixtureFolder(agent) === 'acp' ? 'acp' : agent, claim.scenario, {}, claim.scenario === 'resume' ? { resume: 'a-session' } : claim.request && hasFixture(fixtureFolder(agent) === 'acp' ? 'acp' : agent, claim.scenario) ? claim.request(readFixture(fixtureFolder(agent) === 'acp' ? 'acp' : agent, claim.scenario)) : {})
   handle = r.handle
   if (claim.act) {
-    await waitFor(() => expect(r.played.items.some((i) => i.kind === 'assistant')).toBe(true))
+    // Once the agent has begun (its text, its thinking or a tool call), as the recorder acted.
+    await waitFor(() => expect(r.played.items.some((i) => i.kind === 'assistant' || i.kind === 'thinking' || i.kind === 'tool')).toBe(true))
     claim.act(r)
   }
   await r.done
