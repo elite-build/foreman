@@ -2,8 +2,9 @@
 
 In the New workspace dialog, **Write a full prompt** (at the end of the first message's tool row) turns a short message
 into a substantially better prompt for the agent the workspace starts with. When the person's answers would change the
-prompt, it first asks up to three quick questions under the message, each with options to pick or their own words, and
-any can be skipped. The person reads and edits the result before creating the workspace, and Undo puts their message
+prompt, it first asks up to three quick questions, each with options to pick or their own words, and any can be
+skipped. While it asks, the message folds to one line with Edit and the questions take its place in a box that
+scrolls, with Write prompt and Skip questions (the prompt from the message alone) pinned under it. The person reads and edits the result before creating the workspace, and Undo puts their message
 back. It is offered only there, never in a chat's composer: a follow-up in a chat depends on a conversation the writer
 can't see.
 
@@ -75,7 +76,8 @@ the common ground. Adding an agent whose maker publishes its own guide means a n
   safety refusal isn't the JSON, so it fails the check). There's no automatic retry, and nothing reaches the new
   workspace's agent until the person creates it.
 - **Stale answers are dropped.** The timeout doesn't cancel the request, so the dialog applies an answer only if it
-  belongs to the newest call and the message is still exactly what was sent; editing the message closes the questions.
+  belongs to the newest call and the message is still exactly what was sent; Edit, which opens the message again,
+  closes the questions.
 
 ## Why it is this way
 

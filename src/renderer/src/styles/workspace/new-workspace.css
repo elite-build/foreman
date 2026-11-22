@@ -214,7 +214,7 @@
   justify-content: space-between;
   gap: 8px;
 }
-.nw-prompt-head > label {
+.nw-prompt-label {
   color: var(--text-soft);
   font-size: var(--text-sm);
   font-weight: 500;
@@ -281,22 +281,57 @@
   text-overflow: ellipsis;
   color: var(--text-muted);
 }
-/* Write a full prompt: the button at the end of the message's tool row, the agent's questions under the message, and
-   the line that offers Undo. */
+/* Write a full prompt: the button at the end of the message's tool row, and the line that offers Undo. While the agent
+   asks, the message folds to one line and the questions take its place in a Card: the list scrolls, its head and its
+   Write prompt / Skip row stay put, so the buttons can't fall below the dialog's edge. */
 .nw-write {
   flex: none;
   margin-left: auto;
 }
+.nw-write-message {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 12px;
+}
+.nw-write-request {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-md);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-soft);
+}
 .nw-write-question {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 0 4px;
+  margin-top: 8px;
+  overflow: hidden;
 }
-.nw-write-skip {
+.nw-write-head {
+  flex: none;
   margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
   font-size: var(--text-sm);
   color: var(--text-muted);
+}
+.nw-write-head strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.nw-write-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
 }
 .nw-write-multi {
   display: flex;
@@ -304,8 +339,17 @@
   gap: 6px;
 }
 .nw-write-actions {
+  flex: none;
   display: flex;
+  align-items: center;
   gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.nw-write-count {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 .nw-write-done {
   display: flex;

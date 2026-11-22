@@ -565,6 +565,39 @@ describe('Write a full prompt', () => {
     })
   })
 
+  it('folds the message to a line while it asks, and Edit puts the message back and closes the questions', async () => {
+    const user = userEvent.setup()
+    const questions = [{ question: 'How long until it logs you out?', options: ['A few minutes', 'About 30 minutes'] }]
+    fakeApi.writePrompt = vi.fn(async () => ({ status: 'ask', questions }))
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix the logout bug')
+    await user.click(write())
+    const asked = await screen.findByRole('group', { name: /1 question/ })
+    // The questions have the message's place, and focus starts on the first choice.
+    expect(screen.queryByRole('textbox', { name: /First message/ })).toBeNull()
+    expect(screen.getByRole('group', { name: /First message/ }).textContent).toContain('fix the logout bug')
+    expect(document.activeElement).toBe(within(asked).getByRole('radio', { name: 'A few minutes' }))
+    expect(within(asked).getByText('0 of 1 answered')).toBeTruthy()
+    await user.click(within(asked).getByRole('radio', { name: 'About 30 minutes' }))
+    expect(within(asked).getByText('1 of 1 answered')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(((await message()) as HTMLTextAreaElement).value).toBe('fix the logout bug')
+    expect(screen.queryByRole('group', { name: /1 question/ })).toBeNull()
+  })
+
+  it('writes the prompt from the message alone when the questions are skipped', async () => {
+    const user = userEvent.setup()
+    const questions = [{ question: 'Which page?', options: ['Settings', 'Home'] }]
+    fakeApi.writePrompt = vi.fn().mockResolvedValueOnce({ status: 'ask', questions }).mockResolvedValueOnce({ status: 'unchanged' })
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix the layout')
+    await user.click(write())
+    await user.click(within(await screen.findByRole('group', { name: 'Which page?' })).getByRole('radio', { name: 'Settings' }))
+    await user.click(screen.getByRole('button', { name: 'Skip questions' }))
+    expect(fakeApi.writePrompt).toHaveBeenLastCalledWith({ request: 'fix the layout', target: 'claude', answers: [] })
+    await waitFor(async () => expect(((await message()) as HTMLTextAreaElement).value).toBe('fix the layout'))
+  })
+
   it('writes for Codex when the workspace starts with Codex', async () => {
     const user = userEvent.setup()
     fakeState.snapshot.settings.loadouts = [{ agent: 'codex', model: 'gpt-6-astra', fast: false }]

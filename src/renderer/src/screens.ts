@@ -243,6 +243,19 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     existing.click()
     return '.nw-branch-shelf'
   },
+  // Write a full prompt's questions (main answers writePrompt with three for the run): the message folded to a line,
+  // the questions in their own scrolling box, Write prompt and Skip questions under it.
+  'new-workspace-questions': async (f) => {
+    showRepoHome(null)
+    openNewWorkspace(f.repoId)
+    const message = await waitFor(() => document.querySelector<HTMLTextAreaElement>('.nw-composer textarea'))
+    if (!message) return null
+    typeInto(message, 'Fix the login window. It logs me out randomly.')
+    const write = await waitFor(() => document.querySelector<HTMLButtonElement>('.nw-write:not(:disabled)'))
+    if (!write) return null
+    write.click()
+    return '.nw-write-question'
+  },
   // Flows on: New workspace's Flow tab, the repository's runnable flows listed and the first one chosen.
   'new-workspace-flow': async (f) => {
     showRepoHome(null)
@@ -595,7 +608,8 @@ export function installScreens(): void {
 }
 
 /** Types into a React-controlled input as a person would: its value set natively, then the input event React listens for. */
-function typeInto(input: HTMLInputElement, value: string): void {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value)
+function typeInto(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+  const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+  Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(input, value)
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
