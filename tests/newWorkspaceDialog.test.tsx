@@ -504,8 +504,8 @@ describe('Write a full prompt', () => {
     render(<NewWorkspaceDialog repoId="r1" />)
     await user.type(await message(), 'fix the flaky checkpoint test')
     await user.click(write())
-    // Written for the agent the workspace starts with (Claude here).
-    expect(fakeApi.writePrompt).toHaveBeenCalledWith({ request: 'fix the flaky checkpoint test', target: 'claude' })
+    // Written by and for the model the workspace starts on (Claude Sonnet here).
+    expect(fakeApi.writePrompt).toHaveBeenCalledWith({ request: 'fix the flaky checkpoint test', agent: 'claude', model: 'claude-sonnet-4-5' })
     await waitFor(async () => expect(((await message()) as HTMLTextAreaElement).value).toBe(prompt))
     expect(screen.getByText(/Written from your message/)).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Undo' }))
@@ -535,7 +535,8 @@ describe('Write a full prompt', () => {
     await user.click(screen.getByRole('button', { name: 'Write prompt' }))
     expect(fakeApi.writePrompt).toHaveBeenLastCalledWith({
       request: 'add dark mode to settings',
-      target: 'claude',
+      agent: 'claude',
+      model: 'claude-sonnet-4-5',
       answers: [
         { question: 'Which of these is it?', answer: 'A dark-mode choice in Settings' },
         { question: 'How much do you want?', answer: 'Follow the system setting too' }
@@ -560,19 +561,60 @@ describe('Write a full prompt', () => {
     await user.click(screen.getByRole('button', { name: 'Write prompt' }))
     expect(fakeApi.writePrompt).toHaveBeenLastCalledWith({
       request: 'clean up the settings code',
-      target: 'claude',
+      agent: 'claude',
+      model: 'claude-sonnet-4-5',
       answers: [{ question: 'What must stay the same?', answer: 'Behaviour users see; No new dependencies; small enough to review at once' }]
     })
   })
 
-  it('writes for Codex when the workspace starts with Codex', async () => {
+  it('folds the message to a line while it asks, and Edit puts the message back and closes the questions', async () => {
     const user = userEvent.setup()
-    fakeState.snapshot.settings.loadouts = [{ agent: 'codex', model: 'gpt-6-astra', fast: false }]
+    const questions = [{ question: 'How long until it logs you out?', options: ['A few minutes', 'About 30 minutes'] }]
+    fakeApi.writePrompt = vi.fn(async () => ({ status: 'ask', questions }))
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix the logout bug')
+    await user.click(write())
+    const asked = await screen.findByRole('group', { name: /1 question/ })
+    // The questions have the message's place, and focus starts on the first choice.
+    expect(screen.queryByRole('textbox', { name: /First message/ })).toBeNull()
+    expect(screen.getByRole('group', { name: /First message/ }).textContent).toContain('fix the logout bug')
+    expect(document.activeElement).toBe(within(asked).getByRole('radio', { name: 'A few minutes' }))
+    expect(within(asked).getByText('0 of 1 answered')).toBeTruthy()
+    await user.click(within(asked).getByRole('radio', { name: 'About 30 minutes' }))
+    expect(within(asked).getByText('1 of 1 answered')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(((await message()) as HTMLTextAreaElement).value).toBe('fix the logout bug')
+    expect(screen.queryByRole('group', { name: /1 question/ })).toBeNull()
+  })
+
+  it('writes the prompt from the message alone when the questions are skipped', async () => {
+    const user = userEvent.setup()
+    const questions = [{ question: 'Which page?', options: ['Settings', 'Home'] }]
+    fakeApi.writePrompt = vi.fn().mockResolvedValueOnce({ status: 'ask', questions }).mockResolvedValueOnce({ status: 'unchanged' })
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await user.type(await message(), 'fix the layout')
+    await user.click(write())
+    await user.click(within(await screen.findByRole('group', { name: 'Which page?' })).getByRole('radio', { name: 'Settings' }))
+    await user.click(screen.getByRole('button', { name: 'Skip questions' }))
+    expect(fakeApi.writePrompt).toHaveBeenLastCalledWith({ request: 'fix the layout', agent: 'claude', model: 'claude-sonnet-4-5', answers: [] })
+    await waitFor(async () => expect(((await message()) as HTMLTextAreaElement).value).toBe('fix the layout'))
+  })
+
+  it('writes on Codex, its model and account, when the workspace starts with Codex', async () => {
+    const user = userEvent.setup()
+    fakeState.snapshot.settings.loadouts = [{ agent: 'codex', model: 'gpt-6.2-sol', fast: false, instance: 'work' }]
     fakeApi.writePrompt = vi.fn(async () => ({ status: 'unchanged' }))
     render(<NewWorkspaceDialog repoId="r1" />)
     await user.type(await message(), 'fix it')
     await user.click(write())
-    expect(fakeApi.writePrompt).toHaveBeenCalledWith({ request: 'fix it', target: 'codex' })
+    expect(fakeApi.writePrompt).toHaveBeenCalledWith({ request: 'fix it', agent: 'codex', model: 'gpt-6.2-sol', instance: 'work' })
+  })
+
+  it('isn’t offered when the workspace starts on an agent no profile is written for', async () => {
+    fakeState.snapshot.settings.loadouts = [{ agent: 'cursor', model: 'auto', fast: false }]
+    render(<NewWorkspaceDialog repoId="r1" />)
+    await message()
+    expect(screen.queryByRole('button', { name: 'Write a full prompt' })).toBeNull()
   })
 
   it('drops an answer about words that changed while the agent wrote', async () => {

@@ -8,8 +8,9 @@ import { chatTitleTopicLabel, titleShape, topicLabel } from '../evals/cases/chat
 import { personaQaEnding } from '../evals/cases/personaQaEnding'
 import { acceptedRound, asksWhoMayPause, planRoundOpenSteps, roundProblems, roundRemarks, type MapItem, type RoundInput } from '../evals/cases/planRoundOpenSteps'
 import { createdPr, prTextInjection } from '../evals/cases/prTextInjection'
-import { asksForSpecifics, claudeBrief, codexBrief, explainReadOnly, preciseUnchanged, severalConstraints } from '../evals/cases/promptWriter'
-import { promptWriterAnswer } from '../src/shared/promptWriter'
+import { asksForSpecifics, claudeBrief, codexBrief, explainReadOnly, preciseDrafted, severalConstraints } from '../evals/cases/promptWriter'
+import { promptWriterAnswer, PROMPT_CATEGORIES } from '../src/shared/promptWriter'
+import { CATEGORY_CASES, checkCategoryPrompt, roleText } from '../evals/cases/promptWriterCategories'
 import { toolFlowStatusOwnRun } from '../evals/cases/toolFlowStatusOwnRun'
 import { readsTurn2, toolReadChatHistory } from '../evals/cases/toolReadChatHistory'
 import { afterTurnKnown, toolWaitNotPoll } from '../evals/cases/toolWaitNotPoll'
@@ -473,7 +474,10 @@ describe('the prompt writer’s checks, on canned outputs', () => {
     expect(codexBrief(out('Goal: fix it')).reason).toMatch(/app's check/)
     const claude = 'the theme resets after a restart\n\nDark mode should stay on across restarts; it goes back to light since the 1.2 update. Fix the cause. Done when a test restarts with dark mode on and it stays on; show the commands and output.'
     expect(claudeBrief(draft(claude)).pass).toBe(true)
-    expect(claudeBrief(draft(claude.replace('Fix the cause.', 'Goal: fix it.\nContext: x'))).reason).toMatch(/labelled lines/)
+    expect(claudeBrief(draft(claude.replace('Fix the cause.', 'Fix the cause unless it is intended.'))).reason).toMatch(/hedge/)
+    // A code change's roles are labelled lines, and its model names carry versions nobody has to have given.
+    expect(claudeBrief(draft(`${claude}\nRoles:\n- Build: a subagent with model "sonnet" (Sonnet 5.5) fixes it.`)).pass).toBe(true)
+    expect(codexBrief(draft(`${good}\nThe climb goes gpt-6-luna → gpt-6.1-terra → gpt-6.2-sol.`)).pass).toBe(true)
   })
 
   it('prompt-writer-explain-read-only: no report of changes, no tests, the purpose carried', () => {
@@ -485,13 +489,12 @@ describe('the prompt writer’s checks, on canned outputs', () => {
     expect(explainReadOnly(ask([{ question: 'What for?', options: ['a', 'b'] }]), 'control').pass).toBe(true)
   })
 
-  it('prompt-writer-precise-unchanged: unchanged or one short sentence; a vague request never unchanged', () => {
+  it('prompt-writer-precise-drafted: a precise request is drafted with its models and a Done when; nothing comes back unchanged', () => {
     const rename = 'Rename the `oneShotDraft` method in src/main/core.ts to `draftOneShot` and update its callers.'
-    expect(preciseUnchanged(unchanged, 'probe').pass).toBe(true)
-    expect(preciseUnchanged(draft(`${rename}\n\nDone when the type check passes.`), 'probe').pass).toBe(true)
-    expect(preciseUnchanged(draft(`${rename}\n\nRename oneShotDraft to draftOneShot everywhere.`), 'probe').reason).toMatch(/repeated/)
-    expect(preciseUnchanged(draft(`${rename}\n\n${'word '.repeat(40)}`), 'probe').pass).toBe(false)
-    expect(preciseUnchanged(unchanged, 'control').pass).toBe(false)
+    expect(preciseDrafted(draft(`${rename}\n\nRoles:\n- Build: a subagent with model "haiku" (Haiku 5.5) renames it.\nDone when the type check passes.`), 'probe').pass).toBe(true)
+    expect(preciseDrafted(unchanged, 'probe').reason).toMatch(/precise request came back unchanged/)
+    expect(preciseDrafted(draft(`${rename}\n\nDone when the type check passes.`), 'probe').reason).toMatch(/names no model/)
+    expect(preciseDrafted(unchanged, 'control').pass).toBe(false)
   })
 
   it('prompt-writer-asks-for-specifics: concrete options, no product facts, no non-answers', () => {
@@ -508,5 +511,63 @@ describe('the prompt writer’s checks, on canned outputs', () => {
     const carried = 'clean up the settings code\n\nGoal: The settings validation lives in one place.\nConstraints: Behaviour stays identical; no new dependencies; small enough to review in one sitting.\nDone when: tests pass.'
     expect(severalConstraints(draft(carried), 'control').pass).toBe(true)
     expect(severalConstraints(draft(carried.replace('; no new dependencies', '')), 'control').reason).toMatch(/no new dependencies/)
+  })
+})
+
+describe('the prompt writer’s category checks: the Goal, the models and Done when, nothing else', () => {
+  const bug = CATEGORY_CASES.find((c) => c.category === 'bug')!
+  const claude = { family: 'claude', profile: 'sonnet' } as const
+  const good = [
+    bug.request,
+    '',
+    'Goal: After every window resize, the terminal keeps its content and reflows it to the new size, with no blank screen.',
+    'Roles:',
+    '- Explore: a subagent with model "haiku" (Haiku 5.5) finds the resize and rendering code, changing nothing.',
+    '- Plan: a subagent with model "opus" (Opus 5.5) writes the plan as slices.',
+    '- Build: each slice goes to a subagent with model "sonnet" (Sonnet 5.5), since it touches rendering.',
+    '- Verify: a fresh subagent with model "opus" (Opus 5.5) runs the check below.',
+    'Done when: A test that resizes the terminal fails before the fix and passes after; report the commands and their output. A slice that fails its check a second time goes one rung up (haiku → sonnet → opus).'
+  ].join('\n')
+  const checks = (prompt: string, target: { family: 'claude' | 'codex'; profile: 'sonnet' | 'sol' } = claude) => checkCategoryPrompt(prompt, bug, target)
+
+  it('has one case for every category', () => {
+    expect(CATEGORY_CASES.map((c) => c.category).sort()).toEqual([...PROMPT_CATEGORIES].sort())
+  })
+
+  it('passes a prompt whose Goal, roles and Done when each do their job', () => {
+    expect(Object.values(checks(good)).every((v) => v.pass)).toBe(true)
+  })
+
+  it('fails the Goal when it leaves out the request or only repeats it', () => {
+    expect(checks(good.replace('After every window resize, the terminal', 'The screen')).goal.reason).toMatch(/leaves out/)
+    expect(checks(good.replace(/Goal: .*/, `Goal: ${bug.request}`)).goal.reason).toMatch(/only repeats/)
+  })
+
+  it('fails the models on another family, a missing role or version, or no climb', () => {
+    expect(checks(good.replace('model "sonnet" (Sonnet 5.5)', 'model "gpt-6.2-sol"')).models.reason).toMatch(/outside the claude family/)
+    expect(checks(good.replace(/- Verify: .*\n/, '')).models.reason).toMatch(/all four roles/)
+    expect(checks(good.replace('"opus" (Opus 5.5) writes', '"haiku" (Haiku 5.5) writes')).models.reason).toMatch(/Plan isn't on opus/)
+    expect(checks(good.replace('"haiku" (Haiku 5.5) finds', '"haiku" finds')).models.reason).toMatch(/without its version/)
+    expect(checks(good.replace(' (haiku → sonnet → opus)', '')).models.reason).toMatch(/no climb/)
+  })
+
+  it('reads roles below the request, as whole blocks: a request may itself start "Plan:"', () => {
+    const wrapper = CATEGORY_CASES.find((c) => c.category === 'wrapper')!
+    const prompt = good.replace(bug.request, wrapper.request).replace('Goal: After every window resize, the terminal keeps its content', 'Goal: Pinned workspaces sort first in the sidebar')
+    expect(checkCategoryPrompt(prompt, wrapper, claude).models.pass).toBe(true)
+    expect(roleText(good.replace('since it touches rendering.', 'since it touches rendering;\n  a test slice goes to a subagent with model "haiku" (Haiku 5.5).'), bug.request, 'Build')).toContain('a test slice')
+  })
+
+  it('accepts the lead planning when it is already that strong (Codex, GPT-6.2 Sol leading)', () => {
+    const codex = good
+      .replace(/model "haiku" \(Haiku 5\.5\)/g, 'model "gpt-6-luna"').replace(/model "sonnet" \(Sonnet 5\.5\)/g, 'model "gpt-6.2-sol"')
+      .replace('a subagent with model "opus" (Opus 5.5) writes', 'write').replace(/model "opus" \(Opus 5\.5\)/g, 'model "gpt-6.2-sol"')
+      .replace('(haiku → sonnet → opus)', '(gpt-6-luna → gpt-6.1-terra → gpt-6.2-sol)')
+    expect(Object.values(checks(codex, { family: 'codex', profile: 'sol' })).every((v) => v.pass)).toBe(true)
+  })
+
+  it('fails Done when without a check that can fail, or without evidence', () => {
+    expect(checks(good.replace('fails before the fix and passes after', 'is added')).done.reason).toMatch(/passes or fails/)
+    expect(checks(good.replace('report the commands and their output', 'tell me')).done.reason).toMatch(/no evidence/)
   })
 })

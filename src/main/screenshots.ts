@@ -23,6 +23,7 @@ import { git } from './git'
 import { Store } from './store'
 import { DEFAULT_MODEL } from '../shared/agents'
 import type { FlowRun, FlowRunStep } from '../shared/flows'
+import type { PromptQuestion } from '../shared/promptWriter'
 import type { ApprovalResponse, ChatItem, CheckResult, ColorVision, ContextUsage, GithubRepo, Repo, Session, Settings, Workspace } from '../shared/types'
 
 export const SCREENSHOTS = process.env.FOREMAN_SCREENSHOTS === '1'
@@ -530,6 +531,13 @@ const GITHUB_REPOS: GithubRepo[] = [
   ...rest
 }))
 
+// Write a full prompt's questions about a logout bug: three, so they're taller than the dialog and the box scrolls.
+const PROMPT_QUESTIONS: PromptQuestion[] = [
+  { question: 'How long after logging in does it usually log you out?', options: ['Within a few minutes', 'About 15–30 minutes', 'After an hour or more', 'No pattern, can be any time'] },
+  { question: 'What are you doing when it happens?', options: ['Actively using it', 'Left it idle for a while', 'Coming back after closing or reopening', 'Refreshing or switching pages'], multi: true },
+  { question: 'How do you sign in?', options: ['Email and password', 'GitHub', 'Google'] }
+]
+
 // ---- the run ----
 
 /** Screens the renderer hook knows (renderer/src/screens.ts), in capture order. */
@@ -551,6 +559,7 @@ export const SCREENS = [
   'editor',
   'new-workspace',
   'new-workspace-branch',
+  'new-workspace-questions',
   'clone-repo',
   // Settings › Quick (what Settings opens on) and the rail gear's popover of its first tiles.
   'settings-quick',
@@ -796,6 +805,7 @@ export async function runScreens(run: ScreensRun): Promise<void> {
   mkdirSync(out, { recursive: true })
   core.api.githubRepos = async () => ({ repos: GITHUB_REPOS, protocol: 'https' })
   core.api.githubAccounts = async () => []
+  core.api.writePrompt = async () => ({ status: 'ask', questions: PROMPT_QUESTIONS })
   win.setContentSize(1320, 860)
   // The real pointer would leave hover states wherever it happens to rest over the window.
   win.setIgnoreMouseEvents(true)

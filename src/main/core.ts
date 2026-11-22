@@ -73,7 +73,7 @@ import { deleteCheckpoints, restoreCheckpoint, saveCheckpoint, sharedWorkingTree
 import { runScript, type RunningScript } from './scripts'
 import { endCheckpointId } from './turnDelta'
 import { turnAnswer } from '../shared/handOff'
-import { AGENTS, builtinCommands, DEFAULT_MODEL } from '../shared/agents'
+import { AGENTS, builtinCommands, DEFAULT_MODEL, modelInfo } from '../shared/agents'
 import { branchCommitCount, branchCommits, sourceDiff, sourceInfo, type PrTarget } from './diffSources'
 import { CommitAttribution } from './commitAttribution'
 import { AutoArchive } from './autoArchive'
@@ -94,8 +94,8 @@ import { agentBaseEnv, bundledClaudeExecutable, findOnPath, interactiveShell, is
 import { detectShells, listWslDistros, realProbe } from './shells'
 import { isScriptShellChoice, isShellChoice, resolveShell, type ShellLaunch } from '../shared/shells'
 import { mainLocale, mainT } from './i18n'
-import { writePrompt } from './promptWriter'
-import { PROMPT_WRITER_FALLBACK_MODEL } from '../shared/promptWriter'
+import { writePrompt, type PromptWriterRequest } from './promptWriter'
+import { PROMPT_WRITER_EFFORT } from '../shared/promptWriter'
 import { lineageInput, type LineageSources } from './lineage'
 import { draftFlowFromLineage, lineageGraph, lineageOutline, LINEAGE_LENSES } from '../shared/lineage'
 import { flowMermaid } from '../shared/flowGraph'
@@ -341,12 +341,11 @@ export class Core {
   }
 
   /**
-   * Employee Generate and Refine, and Write a full prompt: one request on the one-shot path chat titles use (no tools, run
-   * outside any repository), on the person's default agent when its driver answers one, else the agent that writes titles.
-   * Null in privacy mode or when no agent here can answer one. `fallback` is the model to use when that agent is
-   * `fallback.agent` and the person hasn't chosen one for it (else the driver's own one-shot default).
+   * Employee Generate and Refine: one request on the one-shot path chat titles use (no tools, run outside any repository),
+   * on the person's default agent when its driver answers one, else the agent that writes titles. Null in privacy mode or
+   * when no agent here can answer one.
    */
-  private async oneShotDraft({ system, prompt }: { system: string; prompt: string }, fallback?: { agent: string; model: string }): Promise<{ text: string; agent: string; model: string } | null> {
+  private async oneShotDraft({ system, prompt }: { system: string; prompt: string }): Promise<{ text: string; agent: string; model: string } | null> {
     const { state } = this.store
     const settings = state.settings
     if (settings.privacyMode) return null
@@ -354,9 +353,28 @@ export class Core {
     const agent = preferred && capabilitiesOf(preferred, state.catalog?.agents, state.declared)?.features.titles ? preferred : oneShotAgent()
     const driver = agent && driverFor(agent)
     if (!agent || !driver?.oneShot) return null
-    const model = settings.loadouts.find((l) => l.agent === agent)?.model || (fallback?.agent === agent ? fallback.model : '')
+    const model = settings.loadouts.find((l) => l.agent === agent)?.model || ''
     const text = await driver.oneShot(prompt, { cwd: os.tmpdir(), env: this.environment.forAgent(agent), executablePath: executablePathFor(settings, agent), systemPrompt: system, ...(model ? { model } : {}) })
     return { text, agent, model }
+  }
+
+  /**
+   * Write a full prompt (docs/prompt-writer.md): one answer from the agent, model and account the workspace will start on,
+   * at the writer's effort where the model takes one; no tools, run outside any repository. Nothing falls back to another
+   * model or account. Null in privacy mode, for a removed account, or when the agent's driver can't answer one.
+   */
+  private async promptDraft({ system, prompt, schema, agent, model, instance }: PromptWriterRequest): Promise<{ text: string } | null> {
+    const settings = this.store.state.settings
+    if (settings.privacyMode || !Object.hasOwn(AGENTS, agent)) return null
+    const kind = agent as AgentKind
+    const driver = driverFor(kind)
+    const answer = driver.answerOnce ?? driver.oneShot
+    const resolved = resolveInstance(settings.agentInstances, kind, instance)
+    if (!answer || resolved.kind === 'missing') return null
+    const account = resolved.kind === 'instance' ? resolved.instance : undefined
+    const effort = modelInfo(kind, model).efforts.includes(PROMPT_WRITER_EFFORT) ? PROMPT_WRITER_EFFORT : undefined
+    const text = await answer.call(driver, prompt, { cwd: os.tmpdir(), env: this.environment.forAgent(kind, undefined, {}, account), executablePath: executablePathFor(settings, kind, account), systemPrompt: system, model, schema, ...(effort ? { effort } : {}) })
+    return { text }
   }
 
   /** A cap whose sign-in no longer exists: refused. Without the access service (unit tests), nothing is. */
@@ -3732,7 +3750,7 @@ export class Core {
     generateEmployeeDraft: (organizationId, input) => this.employees.generate(organizationId, input),
     refineEmployeeDraft: (organizationId, draft, request) => this.employees.refine(organizationId, draft, request),
     writePrompt: (input) =>
-      writePrompt({ privacyMode: () => Boolean(this.store.state.settings.privacyMode), locale: () => mainLocale(this.store.state.settings), draft: (request) => this.oneShotDraft(request, PROMPT_WRITER_FALLBACK_MODEL) }, input),
+      writePrompt({ privacyMode: () => Boolean(this.store.state.settings.privacyMode), locale: () => mainLocale(this.store.state.settings), draft: (request) => this.promptDraft(request) }, input),
     createEmployee: (organizationId, definition, options) => this.employees.create(organizationId, definition, options),
     addTemplateEmployee: (organizationId, templateId) => this.employees.addTemplate(organizationId, templateId),
     updateEmployee: (organizationId, id, definition, expectedBlob, expectedPromptBlob) => this.employees.update(organizationId, id, definition, expectedBlob, expectedPromptBlob),
@@ -4950,7 +4968,7 @@ export class Core {
     this.sandboxes.stopIdleTicker()
     this.prWatch.stop()
     this.prPoll.stop()
-    this.attention.stop()
+    this.attention.close()
     this.autoFix.dispose()
     this.autoReview.dispose()
     this.baseWatch.stop()

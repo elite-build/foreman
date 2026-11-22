@@ -4550,7 +4550,7 @@ Common options:
 
 Examples:
   foreman loadouts set 1 claude claude-opus-5-5 --effort high
-  foreman loadouts set 2 codex gpt-5.5 --fast
+  foreman loadouts set 2 codex gpt-6.2-sol --fast
 
 Settings → Default models holds up to five loadouts. Slot 1 is the default for new chats; the others are what
 `foreman run --loadout n` and the new-chat picker offer. The agent and model are checked against the agent

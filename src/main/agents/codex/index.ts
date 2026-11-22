@@ -26,6 +26,7 @@ import {
   type TurnResult
 } from '../types'
 import { CodexAppServer, RpcError, type AppServerFactory, type AppServerLaunch, type CodexAppServerLike } from './appServer'
+import { codexAnswerOnce } from './answerOnce'
 import {
   call,
   notification as wireNotification,
@@ -1469,6 +1470,13 @@ export const codexDriver: AgentDriver = {
   kind: 'codex',
 
   createTurn: (request, callbacks) => new CodexTurn(request, callbacks),
+
+  // Write a full prompt only (types.ts answerOnce): Codex has no `oneShot`, so it doesn't write chat titles.
+  async answerOnce(prompt, options) {
+    const binary = codexBinary(options.executablePath, options.env)
+    if (!binary || !existsSync(binary.file)) throw new LaunchProblemError(launchProblem('codex', { notInstalled: true, path: binary?.file }))
+    return codexAnswerOnce(binary.file, codexEnv(options.env, binary), prompt, options)
+  },
 
   // In a cloud sandbox Codex signs in with an API key only.
   cloudEnv({ env: base, vars, secrets }) {

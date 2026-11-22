@@ -66,6 +66,7 @@ export class AttentionService {
   private timer: NodeJS.Timeout | null = null
   // Save for later: a look when the next saved workspace comes back, so the badge and history count it on time.
   private laterTimer: NodeJS.Timeout | null = null
+  private closed = false
   private seen: string | undefined
   // The view last shown and what it was shown with, so a look that changes nothing doesn't redraw the tray.
   private shown: { key: string; context: unknown } | null = null
@@ -86,7 +87,7 @@ export class AttentionService {
 
   /** Look again soon: changes come in bursts, and one look covers them all. */
   schedule(): void {
-    if (this.timer) return
+    if (this.timer || this.closed) return
     this.timer = setTimeout(() => {
       this.timer = null
       this.observe()
@@ -99,6 +100,12 @@ export class AttentionService {
     if (this.laterTimer) clearTimeout(this.laterTimer)
     this.timer = null
     this.laterTimer = null
+  }
+
+  /** Stop for good, at shutdown: the rest of it still broadcasts state, and a look then would read a closed database. */
+  close(): void {
+    this.closed = true
+    this.stop()
   }
 
   private wakeForLater(input: TriageInput): void {

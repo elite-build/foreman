@@ -1277,6 +1277,7 @@ export const claudeDriver: AgentDriver = {
         cwd: options.cwd,
         env: options.env,
         model: wireModel(options.model || 'claude-haiku-5-5', options.env),
+        ...(options.effort && CLAUDE_EFFORTS.includes(options.effort) ? { effort: options.effort as ClaudeEffort } : {}),
         maxTurns: 1,
         tools: [],
         settingSources: [],

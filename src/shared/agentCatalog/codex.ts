@@ -34,21 +34,29 @@ export const CODEX_RECORD: AgentCapabilities = {
   declares: ['windowsSandbox']
 }
 
-const EFFORTS: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh']
+const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
+// Codex 0.171.0's own list (its model picker and models_cache.json), in its order, with its default context windows; the
+// agent's live report replaces this once it has answered. Luna takes no `ultra`.
 const MODELS: CatalogModel[] = [
+  { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 500_000 },
+  { id: 'gpt-6.2-astra', label: 'GPT-6.2 Astra', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
+  { id: 'gpt-6.1-terra', label: 'GPT-6.1 Terra', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 500_000 },
   { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 500_000 },
+  { id: 'gpt-6-astra', label: 'GPT-6 Astra', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
   { id: 'gpt-6-sol', label: 'GPT-6 Sol', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
-  { id: 'gpt-5.5', label: 'GPT-5.5', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 }
+  { id: 'gpt-6-luna', label: 'GPT-6 Luna', efforts: EFFORTS.filter((e) => e !== 'ultra'), defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 },
+  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 272_000 }
 ]
 
 export const CODEX_AGENT: CatalogAgent = {
   id: 'codex', name: 'Codex', monogram: 'Cx', level: 'full', binaries: ['codex'], versionArgs: ['--version'],
   auth: { login: { args: ['login'] }, apiKey: { envVar: 'CODEX_API_KEY', alsoStrip: ['AI_GATEWAY_API_KEY', 'OPENAI_BASE_URL'], keyUrl: 'https://platform.openai.com/api-keys', importEnv: ['OPENAI_API_KEY'], provider: 'OpenAI' }, cards: { login: 'agentSettings.codex.loginDesc', apiKey: 'agentSettings.codex.keyDesc' }, confirmed: true },
-  // tested: the version in the fixtures' headers (src/main/agents/codex/fixtures), which is the bundled @openai/codex.
-  // minimum: not set. The pinned generated protocol says which methods exist in 0.163.0, not in which release each first
-  // appeared. update: `codex update`, from `codex --help`.
-  versions: { tested: ['0.163.0'], update: { args: ['update'] } },
+  // tested: the version in the fixtures' headers (src/main/agents/codex/fixtures); the bundled @openai/codex is 0.171.0 and
+  // the fixtures haven't been recorded again on it. minimum: not set. The pinned generated protocol says which methods
+  // exist in 0.171.0, not in which release each first appeared. models: GPT-6.2 needs 0.166.0, Terra 0.159.0 (OpenAI's
+  // Codex models page). update: `codex update`, from `codex --help`.
+  versions: { tested: ['0.163.0'], models: { 'gpt-6.2-sol': '0.166.0', 'gpt-6.2-astra': '0.166.0', 'gpt-6.1-terra': '0.159.0' }, update: { args: ['update'] } },
   capabilities: capsOf(CODEX_RECORD), docsUrl: 'https://github.com/openai/codex', defaultEnabled: true,
   readiness: 'status', models: { table: MODELS }, promptStyle: 'codex',
   settings: { auth: 'codexAuth', executablePath: 'codexExecutablePath', approvals: { field: 'codexApprovals', notes: { always: 'permissions.codex.always', sandboxed: 'permissions.codex.sandboxed' } } }

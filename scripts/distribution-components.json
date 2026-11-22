@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "packageNotices": [
     {
-      "packages": ["@openai/codex@0.163.0", "@openai/codex@0.163.0-*"],
+      "packages": ["@openai/codex@0.171.0", "@openai/codex@0.171.0-*"],
       "license": "Apache-2.0",
       "notices": ["LICENSE"],
-      "source": "https://github.com/openai/codex/tree/rust-v0.163.0",
+      "source": "https://github.com/openai/codex/tree/rust-v0.171.0",
       "reason": "The launcher and platform packages (installed under @openai/codex-<platform>) declare Apache-2.0 but ship no license file; Foreman's LICENSE is the Apache-2.0 text."
     },
     {
@@ -119,13 +119,20 @@
       "notices": ["docs/licenses/lazy-val.txt"],
       "source": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
       "reason": "Declared MIT with no license text in the package or its release source (an electron-updater dependency); the notice supplies the standard MIT text for the declared author and says so."
+    },
+    {
+      "packages": ["@opencode-ai/sdk@1.19.6"],
+      "license": "MIT",
+      "notices": ["docs/licenses/opencode-sdk.txt"],
+      "source": "https://github.com/anomalyco/opencode/tree/v1.19.6",
+      "reason": "The package declares MIT but ships no license file; the text is the LICENSE at the opencode v1.19.6 tag, which holds packages/sdk/js at 1.19.6."
     }
   ],
   "components": [
     {
       "id": "claude-code-binary",
       "name": "Claude Code native binary (@anthropic-ai/claude-agent-sdk platform package)",
-      "version": "0.3.301",
+      "version": "0.3.330",
       "license": "LicenseRef-Anthropic-Commercial",
       "review": "claude-agent-sdk",
       "files": ["node_modules/@anthropic-ai/claude-agent-sdk-*/claude", "node_modules/@anthropic-ai/claude-agent-sdk-*/claude.exe"],
@@ -171,12 +178,12 @@
     },
     {
       "id": "codex-binaries",
-      "name": "Codex CLI 0.163.0 executables (@openai/codex platform package)",
-      "version": "0.163.0",
+      "name": "Codex CLI 0.171.0 executables (@openai/codex platform package)",
+      "version": "0.171.0",
       "license": "Apache-2.0",
       "files": ["node_modules/@openai/codex-*/vendor/*/bin/*", "node_modules/@openai/codex-*/vendor/*/codex-resources/*"],
       "notices": ["LICENSE"],
-      "source": "https://github.com/openai/codex/tree/rust-v0.163.0"
+      "source": "https://github.com/openai/codex/tree/rust-v0.171.0"
     },
     {
       "id": "ripgrep-codex",

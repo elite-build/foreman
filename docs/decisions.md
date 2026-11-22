@@ -419,3 +419,13 @@ A row says what its workspace is for, not what it is called: its first chat's ti
 **Turned down.** Each PR editing `CHANGELOG.md` directly: branches run in parallel here and would all conflict at the top of the file. GitHub's generated notes alone: titles are written for reviewers, not users.
 
 **Revisit when.** Several people merge every day and collecting by hand at release time stops scaling.
+
+## 2026-11-21: CI checks pull requests once they're ready for review, and nothing runs after a merge
+
+**Decision.** `ci.yml` runs typecheck, the design-system checks and the new-component check on Linux, and the suite and build on Windows, for a pull request into `main` that isn't a draft. The ruleset requires both jobs. macOS, Node 22, security and licences run nightly.
+
+**Why.** CI was removed on 2026-10-26, and since then nothing has stopped a PR with type errors, a guard failure or failing tests from merging. Agents open several PRs a day, many as drafts while a check fails.
+
+**Turned down.** Running on every push, drafts included (spends runs on unfinished work). Windows and macOS after each merge (the Release workflow builds both, and a red `main` blocks nobody). The old nine-job grid on every PR event (it would hold the five macOS runners the organization gets at once).
+
+**Revisit when.** Nightly finds macOS-only failures often enough to block merges on them.

@@ -2,6 +2,47 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.11 (2026-11-22)
+
+### Added
+
+- Codex's **GPT-6.2 Astra**, **GPT-6.2 Sol**, **GPT-6.1 Terra** and **GPT-6 Luna**, and Claude's **Fable 5.2**, can be picked without installing a newer Codex or Claude Code yourself. ([#256](https://github.com/elite-build/foreman/pull/256))
+
+### Changed
+
+- **Write a full prompt** now writes on the model the workspace starts on, for that model, and names a model for each part of the work (reading on the fastest, planning and checking on a stronger one) with the reason, so the work finishes sooner on fewer tokens. ([#256](https://github.com/elite-build/foreman/pull/256))
+
+### Fixed
+
+- **Write a full prompt**'s questions in **New workspace** can always be reached. They scroll in their own box while the message folds to one line with **Edit**, and **Skip questions** writes the prompt without answers. ([#257](https://github.com/elite-build/foreman/pull/257))
+
+### Development
+
+- One eval per kind of request checks the prompt writer's Goal, models and definition of done on Claude and Codex. ([#256](https://github.com/elite-build/foreman/pull/256))
+
+## 1.2.10 (2026-11-21)
+
+### Added
+
+- In **New workspace**, **Write a full prompt** turns your first message into a fuller prompt for the agent you picked, after a few quick questions when your answers would help; **Undo** puts your message back. ([#249](https://github.com/elite-build/foreman/pull/249))
+- **Always allow** on an OpenCode command (such as `git status *`) is remembered for the chat, across turns. ([#250](https://github.com/elite-build/foreman/pull/250))
+
+### Changed
+
+- **OpenCode** now runs through its own server, so OpenCode chats can be forked, restored to an earlier message, steered while working, planned with the **Plan** chip, and compacted with **/compact**. Its subagents show as rows you can stop. ([#250](https://github.com/elite-build/foreman/pull/250))
+- The **New workspace** dialog starts with a **Repository** field showing the repository's folder, so it's clear where the workspace is created; you can type to find another repository. ([#247](https://github.com/elite-build/foreman/pull/247))
+
+### Fixed
+
+- With **Ask** or **Ask except edits**, OpenCode now asks before editing files or running commands; before, it went ahead without asking. ([#250](https://github.com/elite-build/foreman/pull/250))
+- A Bash snippet in a chat reply no longer runs again each time you go back to its workspace; it runs only when you click **Run**. ([#248](https://github.com/elite-build/foreman/pull/248))
+- An edit to a repository's `.foreman/settings.toml` saved right after another is no longer missed on Windows. ([#251](https://github.com/elite-build/foreman/pull/251))
+- Quitting Foreman no longer reads its database after closing it. ([#251](https://github.com/elite-build/foreman/pull/251))
+
+## 1.2.9 (2026-11-21)
+
+Tagged but not released: its installers failed to package ([#254](https://github.com/elite-build/foreman/pull/254)). Its changes shipped in 1.2.10.
+
 ## 1.2.8 (2026-11-20)
 
 ### Fixed

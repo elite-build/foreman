@@ -4,7 +4,7 @@
 // the definition and the memory folder, listing invalid files with their problems, Edit with compare-and-set, approval
 // and "changed since approval", pause, resume and retire, Generate and Refine with a fake model, and the refusals.
 import path from 'node:path'
-import earlierQaPrompt from './fixtures/earlier-qa-engineer-prompt.md?raw'
+import earlierQaPromptFile from './fixtures/earlier-qa-engineer-prompt.md?raw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultEmployee,
@@ -44,6 +44,8 @@ import { tempDir } from './helpers'
 import { programManagerDefinition, proposedDefinition } from '../src/shared/employeeTeams'
 import { ownPromptNote } from '../src/shared/employeePrompts'
 
+// As an earlier Foreman wrote it, with LF: a Windows checkout gives the fixture CRLF.
+const earlierQaPrompt = earlierQaPromptFile.replace(/\r\n/g, '\n')
 const INSTRUCTIONS = ['## Role', 'You write launch posts.', '', '## What you do', 'Read what merged.', '', '## How you write', 'Short.', '', '## What you never do', 'Publish.', '', '## How you finish', 'A summary and a reason.'].join('\n')
 
 function max(overrides: Partial<EmployeeDefinition> = {}): EmployeeDefinition {

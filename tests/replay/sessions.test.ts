@@ -25,7 +25,8 @@ async function chat(agent: 'claude' | 'codex', scenario: string, allow = false) 
   })
   // As recorded (Ask): Codex's default is to run without asking.
   service.store.state.settings.codexApprovals = 'sandboxed'
-  const tab = service.sessions.createSession(service.ws.id, { agent, title: 'chat' })
+  // The Codex fixtures come from 0.163.0, which runs no GPT-6.2 model (they need 0.166.0): a model it has.
+  const tab = service.sessions.createSession(service.ws.id, { agent, title: 'chat', ...(agent === 'codex' ? { model: 'gpt-6.1-sol' } : {}) })
   await service.sessions.send(tab.id, `Replay the ${scenario} recording`)
   await waitFor(() => expect(service!.ended).toHaveLength(1))
   const items: ChatItem[] = await service.store.readChat(tab.id)
