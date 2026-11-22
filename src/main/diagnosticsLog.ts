@@ -17,8 +17,15 @@ export class DiagnosticsLog {
   private events: DiagnosticEvent[] = []
   private target: { file: string; bytes: number; maxBytes: number } | null = null
   private writing: Promise<void> = Promise.resolve()
+  private listeners = new Set<(event: DiagnosticEvent) => void>()
 
   constructor(private now: () => number = Date.now) {}
+
+  /** Called with every event as it is logged, whether or not writing is on (Langfuse's export listens). */
+  onEvent(listener: (event: DiagnosticEvent) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
 
   /** The file being written, or null while writing is off. */
   get file(): string | null {
@@ -42,6 +49,13 @@ export class DiagnosticsLog {
     this.events.push(event)
     if (this.events.length > EVENTS_KEPT) this.events.splice(0, this.events.length - EVENTS_KEPT)
     if (this.target) this.write(this.target, event)
+    for (const listener of this.listeners) {
+      try {
+        listener(event)
+      } catch {
+        // A listener's mistake never stops the log.
+      }
+    }
     return event
   }
 

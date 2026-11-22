@@ -8,6 +8,7 @@ import { api, attempt, showToast } from '../../store'
 import { Button, Callout, Spinner } from '../../ui'
 import { Page, Part, resetSettings, Row, saveSettings, Section, TextRow, ToggleRow, useSettings } from './controls'
 import { GitBackupSection } from './GitBackupSection'
+import { LangfuseExportSection } from './LangfuseExportSection'
 
 const mb = (bytes: number, t: RendererT) =>
   bytes >= 1024 * 1024
@@ -144,6 +145,10 @@ export function DataPage() {
 
       <Part id="git-backup" lead>
         <GitBackupSection />
+      </Part>
+
+      <Part id="langfuse" lead>
+        <LangfuseExportSection />
       </Part>
     </Page>
   )

@@ -159,6 +159,8 @@ export const METHOD_SCOPES = {
   checkForUpdates: 'window', dismissUpdate: 'window', downloadUpdate: 'window', stopUpdateDownload: 'window', installUpdateOnQuit: 'window',
   restartToUpdate: 'window', cancelUpdateRestart: 'window', releaseNotes: 'window', dismissUpdated: 'window',
   saveDiagnostics: 'window', reportDiagnostics: 'window', fullDiskAccess: 'window', openFullDiskAccessSettings: 'window',
+  // Where this computer's traces go is chosen by the person at it: no phone, browser, paired computer or agent.
+  langfuseExportStatus: 'window', setLangfuseExport: 'window', sendEarlierToLangfuse: 'window',
   cliStatus: 'window', installCli: 'window',
   sttStart: 'window', sttAudio: 'window', sttStop: 'window', sttCancel: 'window', sttModelStatus: 'window', sttDownloadModel: 'window',
   openExternal: 'window', takeLaunchFolders: 'window',

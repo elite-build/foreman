@@ -1,6 +1,6 @@
 # Local telemetry
 
-Foreman runs many agents at once, and the app's own cost grows with them. This page is the plan for measuring that cost on the user's computer, and the guide to the parts that exist. Nothing here leaves the computer: there is no telemetry service, no account and no upload. The numbers are for the person running Foreman and for whoever is fixing a slow build.
+Foreman runs many agents at once, and the app's own cost grows with them. This page is the plan for measuring that cost on the user's computer, and the guide to the parts that exist. Nothing here leaves the computer: there is no telemetry service, no account and no upload. The numbers are for the person running Foreman and for whoever is fixing a slow build. The one way out is "Langfuse" below: off by default, it sends only to a Langfuse project the person at that computer picks.
 
 See [performance.md](performance.md) for the rules the app follows under load and the two load tests that guard them. This page is about *seeing* what the running app does; that one is about what it is built to do.
 
@@ -157,7 +157,7 @@ foreman app heap                      # a heap snapshot of main (--renderer for 
 
 The files live in `userData/logs/` (the data folder is shown by `foreman app info`): `foreman.log`, `perf.jsonl`, and the profiles and snapshots. In the app, Help → Report a problem has **Save diagnostics…**, which writes the same bundle the command does.
 
-To collect from more than one Foreman, point a log shipper at each instance's `foreman.log` and `perf.jsonl`; both are JSON lines with an ISO timestamp per line, which Loki, an OpenTelemetry collector or a spreadsheet can take. Foreman itself never sends them anywhere.
+To collect from more than one Foreman, point a log shipper at each instance's `foreman.log` and `perf.jsonl`; both are JSON lines with an ISO timestamp per line, which Loki, an OpenTelemetry collector or a spreadsheet can take. Foreman itself never sends them anywhere; Langfuse, below, is the one exception, and only when it is chosen.
 
 What to look for first:
 
@@ -165,3 +165,22 @@ What to look for first:
 - `git.*` or `gh.*` counts climbing while nothing runs: a poll that should be gated. The names say which command.
 - `state.flush` far above `state.broadcast`: many changes that produced the same snapshot, each paid for in full.
 - The GPU or renderer process high while the window shows nothing moving: an animation or a render loop; Phase 2 narrows it.
+
+## Langfuse
+
+**Settings → Data & devices → Langfuse** sends this computer's turns and Foreman's own stalls and errors to a Langfuse project you choose, so time, tokens and cost can be compared across turns, models, repositories and computers. The decision and what was turned down are in [decisions.md](decisions.md) (2026-11-22).
+
+**Who can turn it on.** It is off by default and Foreman ships no keys. Only this computer's window can choose the project: `langfuseExportStatus`, `setLangfuseExport` and `sendEarlierToLangfuse` are `window` scope, so a phone, a browser, a paired computer, the CLI and agents can't call them. The choice (`state.langfuseExport`) is kept outside Settings, so Git backup, export and import leave it out. It records the machine it was made at, so a data folder copied to another computer arrives with it off. A repository's `integrations.langfuse` (the project agents *read* traces from) has no part in it. A connection that is removed or refused stops sending; Foreman never falls back to another one.
+
+**What is sent.** OTLP/JSON to `<host>/api/public/otel/v1/traces` with the connection's key pair (Langfuse's batch ingestion API is retired). Built in `src/main/langfuseTrace.ts` and sent by `src/main/langfuseExport.ts`:
+
+| Trace | Spans |
+| --- | --- |
+| `turn`, one per turn; session = the chat, user = this computer's name | An `agent` span for the turn (outcome, error, model); a `generation` per model call with `usage_details` and `cost_details`; a `tool` span per tool call; an `agent` span per subagent holding its own calls. |
+| `app`, one per app run and computer | An `event` span per exception, unhandled rejection, renderer or helper process gone, unresponsive window, stall (with its slowest timings) or console error. Known library warnings are left out. |
+
+Every span carries the device id (`devices.selfId`), platform, Foreman version (`release`) and `environment` (`production` installed, `development` from source), so any observation can be filtered by computer or version. Prompts, answers and tool inputs and outputs go only with **Include prompts and answers** on, each cut to 8,000 characters.
+
+**Where the numbers come from.** Claude's calls are read from the transcript mirror in foreman.db (`claude_transcripts`): one generation per response id with its exact input, output, cache-read and cache-write tokens. The turn's cost is the difference between its `result` and the chat's previous one, because Claude reports `costUsd` as a running total for the conversation. It is shared across the turn's calls at Claude's relative prices, so they add up to what the agent reported. Codex's `result` carries the turn's tokens (its running thread total at the end, less the total before its first call); Langfuse prices them from the model. Other agents send tool spans and, when they report tokens, one generation for the turn.
+
+**When it sends.** A turn's trace goes 5 seconds after it ends, events within 30 seconds, and a sweep every 10 minutes (and 30 seconds after startup) catches up on anything not yet sent since the project was chosen. **Send earlier turns** sends the last 7, 30 or 90 days, with events from `foreman.log` and `foreman.log.1`. The `langfuse_sent` table records each turn and event per destination (host and public key), because Langfuse doesn't reliably merge a span sent twice. Requests stay under 2.5 MB and 20 turns. A refused key marks the connection; a rate limit or a failed request waits for the next sweep.

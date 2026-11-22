@@ -175,6 +175,8 @@ import { processRoots } from './processRoots'
 import { ProcessUsageSampler } from './processUsage'
 import { perf } from './perf'
 import { diagnosticsFileName, writeDiagnostics } from './diagnostics'
+import { diag } from './diagnosticsLog'
+import { LangfuseExport } from './langfuseExport'
 import { MEMORY_VIEWS_DIR, STAGED_DIR } from './tempSweep'
 import type { DiagnosticsBundle } from '../shared/diagnostics'
 
@@ -411,6 +413,8 @@ export class Core {
   // Flows (docs/loops-and-graphs.md), behind Settings → Experimental → Flows.
   readonly flows: FlowService
   readonly devices: Devices
+  // Foreman's own traces to the user's Langfuse (docs/telemetry.md, "Langfuse"); off until chosen in the window. index.ts starts it.
+  readonly langfuseExport: LangfuseExport
   readonly net: DeviceNet
   // Other computers: this one controlled from a paired computer, and the paired computers this window can show.
   readonly remoteHost: RemoteHost
@@ -1135,6 +1139,23 @@ export class Core {
         changed()
         this.pairedChanged()
       }
+    })
+    const appInfo = this.host.appInfo?.()
+    this.langfuseExport = new LangfuseExport({
+      store,
+      db: () => store.db,
+      connection: (id) => this.integrations.connection(id),
+      secret: (id) => this.integrations.secret(id),
+      markProblem: (id, problem) => this.integrations.markProblem(id, problem),
+      device: () => {
+        const self = this.devices.self()
+        return { id: self.deviceId, name: self.name }
+      },
+      recentEvents: () => diag.recent(),
+      logsDir: path.join(store.dir, 'logs'),
+      version: appInfo?.version ?? 'dev',
+      packaged: appInfo?.packaged ?? false,
+      changed
     })
     this.net = new DeviceNet({
       self: () => this.devices.self(this.store.state.settings.devicePort),
@@ -4165,6 +4186,9 @@ export class Core {
     usageReport: async (days) => this.data.usage(days),
     dataInfo: () => this.data.info(),
     backupNow: () => this.data.backupNow(),
+    langfuseExportStatus: async () => this.langfuseExport.status(),
+    setLangfuseExport: async (choice) => this.langfuseExport.configure(choice),
+    sendEarlierToLangfuse: async (days) => this.langfuseExport.sendEarlier(days),
     gitBackupStatus: async () => this.gitBackup.status(),
     configureGitBackup: async (config) => this.gitBackup.configure(config),
     createGitBackupGithubRepo: (name, account) => this.gitBackup.createGithub(name, account),
@@ -4919,6 +4943,7 @@ export class Core {
   }
 
   async shutdown(): Promise<void> {
+    this.langfuseExport.stop()
     this.remote.close()
     this.remoteHost.close()
     this.updates.stop()

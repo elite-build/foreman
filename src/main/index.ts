@@ -1043,6 +1043,10 @@ async function main(): Promise<void> {
     })
     // A GPU, utility or other helper process that crashed or was killed.
     app.on('child-process-gone', (_event, details) => diag.log('process.gone', { type: details.type, reason: details.reason, exitCode: details.exitCode, name: details.name, serviceName: details.serviceName }))
+    // Langfuse (docs/telemetry.md, "Langfuse"): does nothing until a Langfuse connection is chosen for it in this window.
+    const langfuse = core.langfuseExport
+    diag.onEvent((event) => langfuse.onEvent(event))
+    langfuse.start()
   }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

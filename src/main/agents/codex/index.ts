@@ -53,6 +53,8 @@ import {
   type AskForApproval,
   type CollaborationMode
 } from './wire'
+import type { TokenUsageBreakdown } from './protocol/v2/TokenUsageBreakdown'
+import type { TokenCounts } from '../../../shared/langfuseExport'
 import { PreviewThrottle } from '../previewThrottle'
 import { transportOverride } from '../transport'
 
@@ -325,6 +327,32 @@ type FileChange = FileUpdateChange
 export type CodexTurnInfo = TurnInfo
 
 /** Turns the app-server's notifications into chat items. Separate from the process so tests can feed it notifications. */
+function subtractTokens(a: TokenUsageBreakdown, b: TokenUsageBreakdown): TokenUsageBreakdown {
+  const less = (x: number, y: number) => Math.max(0, (x ?? 0) - (y ?? 0))
+  return {
+    totalTokens: less(a.totalTokens, b.totalTokens),
+    inputTokens: less(a.inputTokens, b.inputTokens),
+    cachedInputTokens: less(a.cachedInputTokens, b.cachedInputTokens),
+    cacheWriteInputTokens: less(a.cacheWriteInputTokens, b.cacheWriteInputTokens),
+    outputTokens: less(a.outputTokens, b.outputTokens),
+    reasoningOutputTokens: less(a.reasoningOutputTokens, b.reasoningOutputTokens)
+  }
+}
+
+/** Codex counts cached input inside its input and reasoning inside its output; Foreman's buckets keep input apart. */
+export function codexTokens(t: TokenUsageBreakdown): TokenCounts | undefined {
+  if (!t.inputTokens && !t.outputTokens) return undefined
+  const cacheRead = t.cachedInputTokens ?? 0
+  const cacheWrite = t.cacheWriteInputTokens ?? 0
+  return {
+    input: Math.max(0, t.inputTokens - cacheRead - cacheWrite),
+    output: t.outputTokens,
+    ...(cacheRead ? { cacheRead } : {}),
+    ...(cacheWrite ? { cacheWrite } : {}),
+    ...(t.reasoningOutputTokens ? { reasoning: t.reasoningOutputTokens } : {})
+  }
+}
+
 export class CodexEventMapper {
   // Set once the turn has reported its outcome.
   done = false
@@ -342,6 +370,9 @@ export class CodexEventMapper {
   private startedAt = Date.now()
   // The account's usage windows as this turn's rate-limit notifications reported them (a failed turn's reset time reads them).
   private windows: LimitWindow[] = []
+  // The thread's token totals before this turn's first model call and as last reported: the turn used the difference.
+  private tokensBefore?: TokenUsageBreakdown
+  private tokensNow?: TokenUsageBreakdown
 
   constructor(
     private turnId: string,
@@ -392,6 +423,11 @@ export class CodexEventMapper {
         const limit = params.tokenUsage?.modelContextWindow || this.contextWindow
         const used = (last?.inputTokens ?? 0) + (last?.outputTokens ?? 0)
         if (used > 0) this.cb.usage({ used: Math.min(used, limit), limit })
+        const total = params.tokenUsage?.total
+        if (total) {
+          this.tokensBefore ??= last ? subtractTokens(total, last) : total
+          this.tokensNow = total
+        }
         return
       }
       case 'account/rateLimits/updated': {
@@ -594,7 +630,8 @@ export class CodexEventMapper {
   }
 
   private result(ok: boolean): void {
-    this.cb.item({ kind: 'result', id: `result:${this.turnId}`, turnId: this.turnId, ok, durationMs: Date.now() - this.startedAt })
+    const tokens = this.tokensNow && this.tokensBefore ? codexTokens(subtractTokens(this.tokensNow, this.tokensBefore)) : undefined
+    this.cb.item({ kind: 'result', id: `result:${this.turnId}`, turnId: this.turnId, ok, durationMs: Date.now() - this.startedAt, ...(tokens ? { tokens } : {}) })
   }
 
   private complete(result: TurnResult): void {

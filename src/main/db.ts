@@ -329,6 +329,12 @@ const SCHEMA: string[] = [
   );
   CREATE UNIQUE INDEX employee_projects_slug ON employee_projects (org_id, slug);
   CREATE INDEX employee_projects_org ON employee_projects (org_id, state);
+  `,
+  // What was sent to Langfuse (docs/telemetry.md, "Langfuse"), by destination (a connection and its project): Langfuse
+  // doesn't reliably merge a span sent twice, so each turn and event goes once. Keys: `turn:<id>`, `event:<at>:<kind>`.
+  `
+  CREATE TABLE langfuse_sent (target TEXT NOT NULL, key TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (target, key));
+  CREATE INDEX items_turn_end ON items (at) WHERE kind = 'turn-end';
   `
 ]
 
@@ -942,6 +948,53 @@ export class ForemanDb {
     ).all(since) as { session_id: string; turn_id: string; kind: UsageRow['kind']; at: string; cost: number | null; duration: number | null; agent: string | null; model: string | null }[]
     // O1: a message records the agent and model it was sent to.
     return rows.map((r) => ({ sessionId: r.session_id, turnId: r.turn_id, kind: r.kind, at: r.at, costUsd: r.cost ?? undefined, durationMs: r.duration ?? undefined, ...(r.kind === 'user' && r.agent && r.model ? { agent: r.agent as UsageRow['agent'], model: r.model } : {}) }))
+  }
+
+  // ---- Langfuse (docs/telemetry.md, "Langfuse") ----
+
+  /** Turns that ended since `since`, oldest first: each chat's turn-end item (a forked chat repeats its parent's). */
+  endedTurns(since: string): { sessionId: string; turnId: string; at: string; seq: number }[] {
+    return (this.stmt("SELECT session_id, turn_id, at, seq FROM items WHERE kind = 'turn-end' AND turn_id IS NOT NULL AND at >= ? ORDER BY at").all(since) as { session_id: string; turn_id: string; at: string; seq: number }[])
+      .map((r) => ({ sessionId: r.session_id, turnId: r.turn_id, at: r.at, seq: r.seq }))
+  }
+
+  /** One turn's items in chat order with when each was first written, cleared ones too (the turn still happened). */
+  turnItems(sessionId: string, turnId: string): { item: ChatItem; at: string; seq: number }[] {
+    return (this.stmt('SELECT json, at, seq FROM items WHERE session_id = ? AND turn_id = ? ORDER BY seq').all(sessionId, turnId) as { json: string; at: string; seq: number }[])
+      .map((r) => ({ item: JSON.parse(r.json) as ChatItem, at: r.at, seq: r.seq }))
+  }
+
+  /** The chat's last result item before `seq`: Claude reports cost as a running total, so a turn's is the difference. */
+  resultBefore(sessionId: string, seq: number): Extract<ChatItem, { kind: 'result' }> | undefined {
+    const row = this.stmt("SELECT json FROM items WHERE session_id = ? AND kind = 'result' AND seq < ? ORDER BY seq DESC LIMIT 1").get(sessionId, seq) as { json: string } | undefined
+    return row ? (JSON.parse(row.json) as Extract<ChatItem, { kind: 'result' }>) : undefined
+  }
+
+  /** Mirrored Claude transcript entries of these conversations (main and subagents) written between two times, in order. */
+  transcriptBetween(agentSessionIds: string[], from: string, to: string): { subpath: string; json: Record<string, unknown> }[] {
+    if (!agentSessionIds.length) return []
+    const marks = agentSessionIds.map(() => '?').join(', ')
+    return (this.stmt(
+      `SELECT subpath, json FROM claude_transcripts WHERE session_id IN (${marks})
+         AND json_extract(json, '$.timestamp') >= ? AND json_extract(json, '$.timestamp') <= ? ORDER BY seq`
+    ).all(...agentSessionIds, from, to) as { subpath: string; json: string }[]).map((r) => ({ subpath: r.subpath, json: JSON.parse(r.json) as Record<string, unknown> }))
+  }
+
+  /** Which of these keys were already sent to `target`. */
+  langfuseSent(target: string, keys: string[]): Set<string> {
+    const sent = new Set<string>()
+    for (let i = 0; i < keys.length; i += 500) {
+      const chunk = keys.slice(i, i + 500)
+      const rows = this.stmt(`SELECT key FROM langfuse_sent WHERE target = ? AND key IN (${chunk.map(() => '?').join(', ')})`).all(target, ...chunk) as { key: string }[]
+      for (const r of rows) sent.add(r.key)
+    }
+    return sent
+  }
+
+  markLangfuseSent(target: string, keys: string[], at: string): void {
+    this.transaction(() => {
+      for (const key of keys) this.stmt('INSERT OR IGNORE INTO langfuse_sent (target, key, at) VALUES (?, ?, ?)').run(target, key, at)
+    })
   }
 
   // ---- #3 attention history ----

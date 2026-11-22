@@ -1533,7 +1533,9 @@ export type ChatItem =
   // #2: `report` marks a line the agent reported ("agent says: checkpoint — …"); needs-input shows as a card while open.
   | { kind: 'notice'; id: string; turnId?: string; level: 'info' | 'error'; text: string; action?: 'sign-in' | 'open-settings' | 'update'; gap?: import('./agentHost').ClosedGap; report?: import('./agentReports').ReportMarker; switched?: import('./switchAgent').AgentSwitch; divider?: import('./switchAgent').ChatDivider; handOff?: import('./chatHandOff').ChatHandOff }
   // `refused`: an AI employee's run only (Claude), the calls refused in the turn, which its run record keeps.
-  | { kind: 'result'; id: string; turnId: string; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; refused?: ToolRefusal[] }
+  // `costUsd`: Claude's is the conversation's running total as of this turn, not this turn's own (docs/telemetry.md, "Langfuse").
+  // `tokens`: what this turn used, when the agent reports it per turn (Codex). `agentSession`: the conversation it ran in (Claude).
+  | { kind: 'result'; id: string; turnId: string; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; refused?: ToolRefusal[]; tokens?: import('./langfuseExport').TokenCounts; agentSession?: string }
   // Internal: how a turn ended, appended once when it does. The only item that says "completed".
   | {
       kind: 'turn-end'
@@ -3021,6 +3023,10 @@ export interface Api {
   usageReport(days: number): Promise<UsageReport>
   dataInfo(): Promise<DataInfo>
   backupNow(): Promise<BackupResult>
+  // Foreman's own traces to the user's Langfuse (docs/telemetry.md, "Langfuse"): this computer's window only.
+  langfuseExportStatus(): Promise<import('./langfuseExport').LangfuseExportStatus>
+  setLangfuseExport(choice: import('./langfuseExport').LangfuseExportChoice): Promise<import('./langfuseExport').LangfuseExportStatus>
+  sendEarlierToLangfuse(days: number): Promise<import('./langfuseExport').LangfuseExportStatus>
   gitBackupStatus(): Promise<GitBackupStatus>
   configureGitBackup(config: GitBackupConfig): Promise<GitBackupStatus>
   createGitBackupGithubRepo(name: string, account?: string): Promise<GitBackupStatus>
@@ -3408,7 +3414,7 @@ export const API_METHODS = [
   'updateRepoSettings', 'listBranches', 'listRemotes', 'previewFilesToCopy', 'detectRepoIcon', 'openRepoSettingsFile',
   'envView', 'setEnvVars', 'revealEnvVar', 'setEnvFiles', 'importKeyFromShell', 'opencodeProviders', 'setProviderKey',
   'githubStatus', 'setGithubToken', 'gitlabHosts', 'testGitlabHost', 'saveGitlabToken', 'removeGitlabHost', 'useGlabToken', 'githubAccounts', 'detectRepoAccount', 'remoteUrl', 'whichBinary', 'fullDiskAccess', 'openFullDiskAccessSettings', 'resourceUsage', 'saveDiagnostics', 'cliStatus', 'installCli', 'forkSession', 'prepareHandOff', 'startHandOff',
-  'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'archivedWork', 'deleteArchived', 'keepArchived', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
+  'createWorkspace', 'startCompare', 'archiveCompareOthers', 'adoptWorktree', 'listWorktrees', 'updateWorkspace', 'archiveWorkspace', 'unarchiveWorkspace', 'forgetWorkspace', 'archivedWork', 'deleteArchived', 'keepArchived', 'activateWorkspace', 'exportInfo', 'searchChats', 'searchNotes', 'saveNote', 'sendNote', 'usageReport', 'dataInfo', 'backupNow', 'langfuseExportStatus', 'setLangfuseExport', 'sendEarlierToLangfuse', 'gitBackupStatus', 'configureGitBackup', 'createGitBackupGithubRepo', 'gitBackupNow', 'previewGitBackup', 'restoreGitBackup', 'deleteLegacyFiles', 'exportWorkspace', 'stageImport', 'importStaged', 'discardImport', 'getSetupLog', 'rerunSetup', 'retrySetup', 'stopSetup', 'getSetupStepLogs', 'startHeldMessage', 'resolveGithubLink',
   'readFile', 'writeFile', 'searchFiles', 'listDir', 'readImage', 'previewUrl', 'readImageAt', 'alertFile',
   'archivePreview', 'dockerContainers', 'removeDockerContainers', 'dismissDockerLeft', 'dismissArchiveStopped', 'archivedDiff', 'forkArchivedChat', 'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'dismissReconnected', 'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated', 'cancelQuit', 'stopReview', 'retryStopped', 'dismissStopped',
   'createSession', 'updateSession', 'closeSession', 'reopenSession',

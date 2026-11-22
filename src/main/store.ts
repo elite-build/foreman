@@ -116,6 +116,9 @@ export interface PersistedState {
   // Outside agents' registrations and sign-ins (docs/agent-access.md §6); their refresh tokens' hashes are in the vault.
   // Never in Settings, and left out of export, backup and device transfer.
   agentAccess?: AgentAccessRecords
+  // Sending Foreman's own traces to Langfuse (docs/telemetry.md, "Langfuse"): set only from this computer's window. Never in
+  // Settings, so Git backup, export and import leave it out; a copied data folder brings it off (its `machine` differs).
+  langfuseExport?: import('../shared/langfuseExport').LangfuseExportConfig
   // One-time setting migrations already applied.
   migrations?: string[]
   // Destination and schedule stay on this machine; never included in Git backup files.

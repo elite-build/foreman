@@ -863,6 +863,7 @@ class ClaudeTurn implements AgentTurn {
           costUsd: message.total_cost_usd,
           durationMs: message.duration_ms,
           turns: message.num_turns,
+          ...(message.session_id ? { agentSession: message.session_id } : {}),
           ...(refused.length ? { refused } : {})
         })
         const errors = message.subtype !== 'success' && 'errors' in message ? message.errors ?? [] : []
