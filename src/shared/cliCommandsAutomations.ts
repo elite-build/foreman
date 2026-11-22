@@ -49,7 +49,7 @@ export const AGENT_COMMANDS: CommandSpec[] = [
       { name: 'model', required: true, help: 'A model id (`foreman models <agent>` lists them)' }
     ],
     options: LOADOUT_OPTIONS,
-    examples: ['foreman loadouts set 1 claude claude-opus-5-5 --effort high', 'foreman loadouts set 2 codex gpt-5.5 --fast'],
+    examples: ['foreman loadouts set 1 claude claude-opus-5-5 --effort high', 'foreman loadouts set 2 codex gpt-6.2-sol --fast'],
     details: LOADOUT_DETAILS,
     tier: 'admin'
   },
