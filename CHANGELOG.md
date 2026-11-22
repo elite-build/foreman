@@ -2,6 +2,24 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.11 (2026-11-22)
+
+### Added
+
+- Codex's **GPT-6.2 Astra**, **GPT-6.2 Sol**, **GPT-6.1 Terra** and **GPT-6 Luna**, and Claude's **Fable 5.2**, can be picked without installing a newer Codex or Claude Code yourself. ([#256](https://github.com/elite-build/foreman/pull/256))
+
+### Changed
+
+- **Write a full prompt** now writes on the model the workspace starts on, for that model, and names a model for each part of the work (reading on the fastest, planning and checking on a stronger one) with the reason, so the work finishes sooner on fewer tokens. ([#256](https://github.com/elite-build/foreman/pull/256))
+
+### Fixed
+
+- **Write a full prompt**'s questions in **New workspace** can always be reached. They scroll in their own box while the message folds to one line with **Edit**, and **Skip questions** writes the prompt without answers. ([#257](https://github.com/elite-build/foreman/pull/257))
+
+### Development
+
+- One eval per kind of request checks the prompt writer's Goal, models and definition of done on Claude and Codex. ([#256](https://github.com/elite-build/foreman/pull/256))
+
 ## 1.2.10 (2026-11-21)
 
 ### Added
