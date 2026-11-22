@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-22: Foreman sends its own traces only to a Langfuse project the person at that computer picks
+
+**Decision.** Foreman can send each turn (model calls, tokens, cost, tool calls) and its stalls and errors to Langfuse over OpenTelemetry. It is off by default, ships no keys, and only the computer's own window can choose the destination (`window` scope); it lives outside Settings, so backup, export, import and a repository's `.foreman/settings.toml` never turn it on.
+
+**Why.** The person wanted to see where time and tokens go across their computers, and Langfuse covers turns and events. The local evidence in telemetry.md stays as it was.
+
+**Turned down.** Grafana or Sentry first (no native crashes seen; stalls and turns are events Langfuse holds); a built-in endpoint (Foreman has no backend and promises none); following the repository's Langfuse choice for agents (anyone who can commit could redirect a person's data).
+
+**Revisit when.** Native crashes appear that need symbolicated dumps, or metrics over time are needed.
+
 ## 2026-11-20: OpenCode runs through its own server, not ACP
 
 **Decision.** Foreman drives OpenCode through `opencode serve` and `@opencode-ai/sdk` (pinned exactly): one password-protected loopback server per turn, with OpenCode's own fork, message deletion, summarize, plan agent, child sessions, steer and session permission rules. The other ACP agents keep the shared ACP adapter.

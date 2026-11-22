@@ -21,7 +21,7 @@ export const CLAUDE_RECORD: AgentCapabilities = {
   checkpointing: { restoreFiles: true, conversationRollback: ability('native') },
   enforcement: { by: 'agent', readOnly: 'plan', permissionModes: ALL_MODES, ceilings: ALL_MODES, scopedWrites: ability('native') },
   // Reset times come from its error text and `rate_limit_event` (usageLimit.ts readsResetTime).
-  usage: { cost: true, limitWindows: true, resetTime: true },
+  usage: { cost: true, costRunningTotal: true, limitWindows: true, resetTime: true },
   // titles, diffTool, followups, reportTools and transcriptMirror are derived from the driver in main
   // (main/agents/capabilities.ts); the values here are what it derives, and a test holds them equal.
   // assistant, unattended, cloud, keptRunning and repoCommands are decisions made outside the driver, so they stay static;

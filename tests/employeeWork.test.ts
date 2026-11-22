@@ -1066,9 +1066,10 @@ describe('employee work: foreman.db', () => {
     const fresh = new ForemanDb(file)
     expect(tables(fresh)).toEqual(want)
     // From before the five employee work migrations (the tables; a task's json and the questions; the chains' ledgers;
-    // the outward actions; projects).
+    // the outward actions; projects), nor the Langfuse ledger after them.
     fresh.db.exec('DROP TABLE employee_projects; DROP TABLE employee_actions; DROP TABLE employee_roots; DROP TABLE employee_questions; DROP TABLE employee_runs; DROP TABLE employee_task_transitions; DROP TABLE employee_tasks;')
-    fresh.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 5}`)
+    fresh.db.exec('DROP TABLE langfuse_sent; DROP INDEX items_turn_end;')
+    fresh.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 6}`)
     fresh.close()
     const upgraded = new ForemanDb(file)
     opened.push(upgraded)

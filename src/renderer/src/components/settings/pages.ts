@@ -73,7 +73,8 @@ export const PAGE_PARTS: Partial<Record<PersonalSection, PartDef[]>> = {
   data: [
     { key: 'storage', label: 'settings.advanced.section.storage' },
     { key: 'backups', label: 'settings.data.backups' },
-    { key: 'git-backup', label: 'settings.gitBackup.title' }
+    { key: 'git-backup', label: 'settings.gitBackup.title' },
+    { key: 'langfuse', label: 'settings.langfuse.title' }
   ],
   usage: [
     { key: 'limits', label: 'limits.section.title' },

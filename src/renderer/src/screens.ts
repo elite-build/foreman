@@ -329,6 +329,11 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     row.scrollIntoView({ block: 'start' })
     return '.settings-view'
   },
+  'settings-langfuse': async () => {
+    openSettingsPage({ section: 'data', part: 'langfuse' })
+    // The section draws once its status has come back.
+    return (await waitFor(() => document.getElementById(rowDomId('langfuse-export')))) ? '.settings-view' : null
+  },
   automations: () => (openAutomations(), '.automations-view'),
   // A built-in template open as its own page.
   'automations-template': () => (openAutomations('t:default-fix-bug'), '.automations-view .auto-page'),

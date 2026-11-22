@@ -115,6 +115,7 @@ export const LOCAL_METHODS: ReadonlySet<Method> = new Set<Method>([
   'quitPlan', 'quitNow', 'quitWhenFinished', 'quitKeepRunning', 'cancelQuit',
   'checkForUpdates', 'dismissUpdate', 'downloadUpdate', 'stopUpdateDownload', 'installUpdateOnQuit', 'restartToUpdate', 'cancelUpdateRestart', 'releaseNotes', 'dismissUpdated',
   'saveDiagnostics', 'reportDiagnostics', 'fullDiskAccess', 'openFullDiskAccessSettings', 'cliStatus', 'installCli',
+  'langfuseExportStatus', 'setLangfuseExport', 'sendEarlierToLangfuse',
   'sttStart', 'sttAudio', 'sttStop', 'sttCancel', 'sttModelStatus', 'sttDownloadModel',
   'openExternal', 'takeLaunchFolders',
   'computers', 'viewComputer', 'answerControlRequest', 'disconnectController'

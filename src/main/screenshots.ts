@@ -578,6 +578,8 @@ export const SCREENS = [
   'settings-repo',
   'settings-integrations',
   'settings-devices',
+  // Data & devices › Langfuse: sending Foreman's own traces, off (the fixture has no Langfuse connection).
+  'settings-langfuse',
   'automations',
   'automations-template',
   // With Settings → Experimental → Flows on: the Flows and Personas sections, New workspace's Flow tab, a run's Flow tab and the Lineage tab.
