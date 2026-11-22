@@ -95,7 +95,8 @@ are not redistribution clearance.
 text was taken from the package itself (agent-base and https-proxy-agent
 README license sections), from the release `gitHead` (protobuf-es, connect-es,
 Daytona clients, Statsig, xterm.js, http_ece, standard-webhooks), from the
-Apache-2.0 text the package declares (Codex, sherpa-onnx, three AWS SDK
+release tag (the OpenCode SDK, whose monorepo tag `v1.19.6` carries the
+package's version), from the Apache-2.0 text the package declares (Codex, sherpa-onnx, three AWS SDK
 packages without a `gitHead`), or from the official MPL-2.0 text (web-push ships
 only the Exhibit A header). Three are weaker evidence: jsonlines 0.1.1 and
 lazy-val 1.0.5 (an electron-updater dependency) publish no license text
