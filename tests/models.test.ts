@@ -113,9 +113,10 @@ describe('the model overlay (docs/agents.md, 4.3)', () => {
   const reported = (patch: Partial<ModelInfo>): ModelInfo => ({ id: 'gpt-6.1-sol', agent: 'codex', label: 'GPT-6.1 Sol', efforts: ['low'], supportsFast: true, contextWindow: 200_000, ...patch })
 
   it('is written once, in the agents’ catalog files, and read as MODELS before any agent has answered', () => {
-    expect(MODELS.map((m) => m.id)).toEqual(['claude-fable-5-1', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5[1m]', 'claude-haiku-5-5', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.5', 'auto', 'grok-4.7', 'composer-2.5'])
-    expect(MODELS.find((m) => m.id === 'gpt-6.1-sol')).toMatchObject({ agent: 'codex', label: 'GPT-6.1 Sol', contextWindow: catalogAgent('codex')!.models!.table![0].contextWindow })
-    expect(modelsFor('codex').map((m) => m.id)).toEqual(['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.5'])
+    const codex = ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-terra', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol']
+    expect(MODELS.map((m) => m.id)).toEqual(['claude-fable-5-2', 'claude-fable-5-1', 'claude-opus-5-5[1m]', 'claude-sonnet-5-5[1m]', 'claude-haiku-5-5', ...codex, 'auto', 'grok-4.7', 'composer-2.5'])
+    expect(MODELS.find((m) => m.id === 'gpt-6.1-sol')).toMatchObject({ agent: 'codex', label: 'GPT-6.1 Sol', contextWindow: catalogAgent('codex')!.models!.table!.find((m) => m.id === 'gpt-6.1-sol')!.contextWindow })
+    expect(modelsFor('codex').map((m) => m.id)).toEqual(codex)
   })
 
   it('keeps what the agent states: its efforts, its fast tier, a context window it reported', () => {

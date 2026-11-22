@@ -127,8 +127,8 @@ describe('O8 context sizes', () => {
     expect(knownContextWindow({ id: 'gpt-6.1-sol', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 200_000 })).toBe(500_000)
     // Codex's own working window wins over the table, and makes a model the table lacks known.
     expect(knownContextWindow({ id: 'gpt-6.1-sol', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 520_000, contextReported: true })).toBe(520_000)
-    expect(knownContextWindow({ id: 'gpt-6-astra', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 272_000, contextReported: true })).toBe(272_000)
-    expect(knownContextWindow({ id: 'gpt-6-astra', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 200_000 })).toBeUndefined()
+    expect(knownContextWindow({ id: 'gpt-5.6-terra', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 272_000, contextReported: true })).toBe(272_000)
+    expect(knownContextWindow({ id: 'gpt-5.6-terra', agent: 'codex', label: '', efforts: [], supportsFast: false, contextWindow: 200_000 })).toBeUndefined()
     expect(knownContextWindow({ id: 'anthropic/x', agent: 'opencode', label: '', efforts: [], supportsFast: false, contextWindow: 200_000 })).toBeUndefined()
   })
 
