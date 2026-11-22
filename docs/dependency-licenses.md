@@ -176,7 +176,7 @@ not evidence of permission or independent authorship.
 - [Cursor terms](https://cursor.com/terms-of-service)
 - [Khroma release-source license](https://github.com/fabiospampinato/khroma/blob/4968165afb0d3d09be66497e7985a34f7bfe6d42/license)
 - [Anthropic Commercial Terms](https://www.anthropic.com/legal/commercial-terms)
-- [Codex 0.163.0 release source, including `third_party/voice/`](https://github.com/openai/codex/tree/rust-v0.163.0)
+- [Codex 0.171.0 release source, including `third_party/voice/`](https://github.com/openai/codex/tree/rust-v0.171.0)
 - [ONNX Runtime 1.28.2 license and third-party notices](https://github.com/microsoft/onnxruntime/tree/v1.28.2)
 - [Visual C++ redistribution information](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170)
 
