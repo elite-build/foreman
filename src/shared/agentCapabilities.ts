@@ -163,6 +163,9 @@ export interface AgentCapabilities {
   usage: {
     // A turn's cost is reported.
     cost: boolean
+    // The cost it reports is the conversation's running total so far, not the turn's own: a turn's is the difference from
+    // the one before (the Langfuse export, docs/telemetry.md).
+    costRunningTotal: boolean
     // Per-window limits (session, weekly) are reported.
     limitWindows: boolean
     // A usage limit's reset time can be read.

@@ -52,7 +52,7 @@ export function acpRecord(over: { restoreFiles: boolean; cost: boolean; keptRunn
     // seeded with the chat up to there (docs/agents.md 2.5, `checkpoint-fresh-session`).
     checkpointing: { restoreFiles: over.restoreFiles, conversationRollback: ability('fallback', 'checkpoint-fresh-session') },
     enforcement: { by: 'foreman', readOnly: null, permissionModes: ACP_MODES, ceilings: NEVER_ASK, scopedWrites: ability('none', 'agentCaps.why.scopedWrites') },
-    usage: { cost: over.cost, limitWindows: false, resetTime: false },
+    usage: { cost: over.cost, costRunningTotal: false, limitWindows: false, resetTime: false },
     // Cloud: any ACP agent runs in the sandbox.
     features: { ...NO_FEATURES, cloud: true, keptRunning: over.keptRunning },
     evidence: 'simulated',

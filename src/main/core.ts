@@ -1162,6 +1162,14 @@ export class Core {
     this.langfuseExport = new LangfuseExport({
       store,
       db: () => store.db,
+      capabilities: (agent) => {
+        try {
+          return capabilitiesOf(agent as AgentKind, store.state.catalog?.agents, store.state.declared)
+        } catch {
+          // An old chat's agent Foreman no longer has: no record.
+          return undefined
+        }
+      },
       connection: (id) => this.integrations.connection(id),
       secret: (id) => this.integrations.secret(id),
       markProblem: (id, problem) => this.integrations.markProblem(id, problem),

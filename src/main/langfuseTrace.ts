@@ -124,10 +124,13 @@ function asText(v: unknown): string {
   }
 }
 
-/** Langfuse's own names for each bucket: Anthropic's for Claude, OpenAI's for the rest, so its model prices match them. */
-export function usageDetails(agent: string, tokens: TokenCounts): Record<string, number> {
+/**
+ * Langfuse's own names for each bucket, so its model prices match them: Anthropic's for a Claude model (whichever agent
+ * ran it), OpenAI's for the rest.
+ */
+export function usageDetails(model: string, tokens: TokenCounts): Record<string, number> {
   const out: Record<string, number> = { input: tokens.input, output: tokens.output }
-  if (agent === 'claude') {
+  if (/claude/i.test(model)) {
     if (tokens.cacheRead) out.cache_read_input_tokens = tokens.cacheRead
     if (tokens.cacheWrite) out.cache_creation_input_tokens = tokens.cacheWrite
   } else {
@@ -231,7 +234,7 @@ export function turnSpans(turn: TurnFacts, sender: SenderFacts, content: boolean
         attrs({
           'langfuse.observation.type': 'generation',
           'langfuse.observation.model.name': call.model,
-          'langfuse.observation.usage_details': JSON.stringify(usageDetails(turn.agent, call.tokens)),
+          'langfuse.observation.usage_details': JSON.stringify(usageDetails(call.model, call.tokens)),
           'langfuse.observation.cost_details': costs[i] !== undefined ? JSON.stringify({ total: costs[i] }) : undefined,
           'langfuse.observation.metadata.reasoning_tokens': call.tokens.reasoning ? String(call.tokens.reasoning) : undefined,
           'langfuse.observation.output': content && call.output ? JSON.stringify(clipText(call.output)) : undefined

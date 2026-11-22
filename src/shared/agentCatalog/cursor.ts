@@ -22,7 +22,7 @@ export const CURSOR_RECORD: AgentCapabilities = {
   checkpointing: { restoreFiles: true, conversationRollback: ability('fallback', 'checkpoint-fresh-session') },
   enforcement: { by: 'foreman', readOnly: null, permissionModes: NEVER_ASK, ceilings: NEVER_ASK, scopedWrites: ability('none', 'agentCaps.why.scopedWrites') },
   // The SDK reports token usage and no price: its result row has no costUsd.
-  usage: { cost: false, limitWindows: false, resetTime: false },
+  usage: { cost: false, costRunningTotal: false, limitWindows: false, resetTime: false },
   // reportTools: the SDK's in-process custom tools (cursor.ts cursorReportTools). Cloud: its SDK runs on this computer.
   features: { ...NO_FEATURES, reportTools: true, keptRunning: true },
   evidence: 'simulated',

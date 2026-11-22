@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Connection } from '../src/shared/integrations'
 import type { ChatItem, Repo, Session, Workspace } from '../src/shared/types'
 import type { DiagnosticEvent } from '../src/shared/diagnostics'
+import { staticCapabilities } from '../src/shared/agentCatalog'
 import { ForemanDb } from '../src/main/db'
 import { codexTokens } from '../src/main/agents/codex'
 import { LangfuseExport } from '../src/main/langfuseExport'
@@ -108,9 +109,9 @@ describe('turn spans', () => {
     for (const text of ['secret prompt', 'secret answer', 'secret output', 'secret.ts']) expect(withContent).toContain(text)
   })
 
-  it('names Claude’s cache buckets as Anthropic does and others as OpenAI does', () => {
-    expect(usageDetails('claude', { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 })).toEqual({ input: 1, output: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 })
-    expect(usageDetails('codex', { input: 1, output: 2, cacheRead: 3 })).toEqual({ input: 1, output: 2, input_cached_tokens: 3 })
+  it('names a Claude model’s cache buckets as Anthropic does and others as OpenAI does', () => {
+    expect(usageDetails('claude-opus-5-5', { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 })).toEqual({ input: 1, output: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 })
+    expect(usageDetails('gpt-5.5', { input: 1, output: 2, cacheRead: 3 })).toEqual({ input: 1, output: 2, input_cached_tokens: 3 })
   })
 })
 
@@ -169,6 +170,7 @@ async function setup(options: { machine?: string } = {}) {
   const service = new LangfuseExport({
     store: { state, save: vi.fn() },
     db: () => db,
+    capabilities: (agent) => staticCapabilities(agent as never),
     connection: (id) => [langfuse, github].find((c) => c.id === id),
     secret: () => 'sk-lf-1',
     markProblem,

@@ -27,7 +27,7 @@ export const CODEX_RECORD: AgentCapabilities = {
   // Codex reports token usage (`thread/tokenUsage/updated`) and no price: its result row has no costUsd (the recorded
   // fixtures show it). Its windows come from `account/rateLimits/updated` during a turn and `account/rateLimits/read`
   // between them, and a failed turn takes the reset time of the blocked one.
-  usage: { cost: false, limitWindows: true, resetTime: true },
+  usage: { cost: false, costRunningTotal: false, limitWindows: true, resetTime: true },
   features: { ...NO_FEATURES, cloud: true, keptRunning: true },
   evidence: 'recorded',
   // `windowsSandbox/readiness`, read at the start of a turn on Windows: a sandbox that isn't ready takes read-only and scoped writes away from that account (resolveCapabilities).

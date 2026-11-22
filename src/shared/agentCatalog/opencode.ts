@@ -34,7 +34,7 @@ export const OPENCODE_RECORD: AgentCapabilities = {
   // until OpenCode's own rules are verified to hold its plugins too (docs/decisions.md, 2026-11-10).
   enforcement: { by: 'foreman', readOnly: null, permissionModes: ACP_MODES, ceilings: NEVER_ASK, scopedWrites: ability('none', 'agentCaps.why.scopedWrites') },
   // Each step's cost, summed over the turn and its subagents.
-  usage: { cost: true, limitWindows: false, resetTime: false },
+  usage: { cost: true, costRunningTotal: false, limitWindows: false, resetTime: false },
   features: { ...NO_FEATURES, cloud: true, keptRunning: true },
   evidence: 'recorded',
   // Its server's version (`/global/health`), per account.

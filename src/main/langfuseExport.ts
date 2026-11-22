@@ -7,6 +7,7 @@
 import { readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import type { AgentCapabilities } from '../shared/agentCapabilities'
 import type { DiagnosticEvent } from '../shared/diagnostics'
 import type { LangfuseExportChoice, LangfuseExportConfig, LangfuseExportStatus } from '../shared/langfuseExport'
 import type { Connection } from '../shared/integrations'
@@ -31,6 +32,8 @@ const DAY = 24 * 60 * 60 * 1000
 export interface LangfuseExportDeps {
   store: { state: { langfuseExport?: LangfuseExportConfig; sessions: Session[]; workspaces: Workspace[]; repos: Repo[] }; save(): void }
   db: () => ForemanDb
+  // What an agent reports (a running-total cost) and keeps (a mirrored transcript), from its capability record.
+  capabilities: (agent: string) => AgentCapabilities | undefined
   connection: (id: string) => Connection | undefined
   secret: (id: string) => string | undefined
   markProblem: (id: string, problem: string) => void
@@ -327,9 +330,10 @@ export class LangfuseExport {
     const agent = user?.agent ?? session?.agent ?? 'unknown'
     const model = user?.model ?? session?.model
 
+    const caps = this.deps.capabilities(agent)
     let costUsd: number | undefined
     if (result?.costUsd !== undefined && resultRow) {
-      if (agent === 'claude') {
+      if (caps?.usage.costRunningTotal) {
         // A running total for the conversation: this turn's share is what it added. One that went down (a /clear,
         // a crash's zeroed result) says nothing about this turn.
         const before = db.resultBefore(sessionId, resultRow.seq)
@@ -339,7 +343,7 @@ export class LangfuseExport {
     }
 
     let parts: Pick<TurnFacts, 'calls' | 'tools' | 'subagents'> = { calls: [], tools: [], subagents: [] }
-    if (agent === 'claude') {
+    if (caps?.features.transcriptMirror) {
       const conversations = [...new Set([result?.agentSession, ...rows.map((r) => (r.item.kind === 'user' ? r.item.resumeFrom?.sessionId : undefined)), session?.agentSessionId].filter((id): id is string => Boolean(id)))]
       const from = new Date(Date.parse(startedAt) - EDGE_MS).toISOString()
       const to = new Date(Date.parse(endedAt) + EDGE_MS).toISOString()

@@ -46,7 +46,7 @@ interface AgentCapabilities {
   checkpointing:{ restoreFiles: boolean; conversationRollback: Ability } // Restore: the files come back from Foreman's checkpoint; the conversation natively or by fallback
   enforcement:  { by: 'agent' | 'foreman'; readOnly: 'plan' | 'sandbox' | null;
                   permissionModes: ApprovalPolicy[]; ceilings: ApprovalPolicy[]; scopedWrites: Ability }
-  usage:        { cost: boolean; limitWindows: boolean; resetTime: boolean }   // usage notes, Limits, LimitResume
+  usage:        { cost: boolean; costRunningTotal: boolean; limitWindows: boolean; resetTime: boolean }   // usage notes, Limits, LimitResume, Langfuse
   features:     { assistant; unattended; cloud; keptRunning; reportTools; diffTool; followups;
                   repoCommands; transcriptMirror; titles }               // booleans; 5 of the 10 derived, see below
   evidence:     'recorded' | 'simulated'                                 // Settings' evidence line
