@@ -168,7 +168,7 @@ What to look for first:
 
 ## Langfuse
 
-**Settings → Data & devices → Langfuse** sends this computer's turns and Foreman's own stalls and errors to a Langfuse project you choose, so time, tokens and cost can be compared across turns, models, repositories and computers. The decision and what was turned down are in [decisions.md](decisions.md) (2026-11-22).
+**Settings → Data & usage → Langfuse** sends this computer's turns and Foreman's own stalls and errors to a Langfuse project you choose, so time, tokens and cost can be compared across turns, models, repositories and computers. The decision and what was turned down are in [decisions.md](decisions.md) (2026-11-22).
 
 **Who can turn it on.** It is off by default and Foreman ships no keys. Only this computer's window can choose the project: `langfuseExportStatus`, `setLangfuseExport` and `sendEarlierToLangfuse` are `window` scope, so a phone, a browser, a paired computer, the CLI and agents can't call them. The choice (`state.langfuseExport`) is kept outside Settings, so Git backup, export and import leave it out. It records the machine it was made at, so a data folder copied to another computer arrives with it off. A repository's `integrations.langfuse` (the project agents *read* traces from) has no part in it. A connection that is removed or refused stops sending; Foreman never falls back to another one.
 

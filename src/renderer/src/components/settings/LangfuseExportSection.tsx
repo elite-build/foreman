@@ -12,7 +12,8 @@ import { flashSaved, Row, Section, ToggleRow } from './controls'
  */
 export function LangfuseExportSection() {
   const t = useT()
-  const connections = useStore((s) => s.snapshot!.integrations.connections.filter((c) => c.service === 'langfuse'))
+  // The store's own array, filtered here: a selector that made a new array each time would never settle.
+  const connections = useStore((s) => s.snapshot!.integrations.connections).filter((c) => c.service === 'langfuse')
   const [status, setStatus] = useState<LangfuseExportStatus | null>(null)
   const [days, setDays] = useState<string>(String(BACKFILL_DAYS[1]))
   const sending = Boolean(status?.backfill)
