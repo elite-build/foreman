@@ -34,16 +34,20 @@ export const CLAUDE_RECORD: AgentCapabilities = {
 const EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 const MODELS: CatalogModel[] = [
+  // Fable 5.2 is the current Fable (the `fable` alias since Claude Code 2.1.321); 5.1 is legacy and still listed.
+  { id: 'claude-fable-5-2', label: 'Fable 5.2', efforts: EFFORTS, defaultEffort: 'high', supportsFast: false, contextWindow: 1_000_000 },
   { id: 'claude-fable-5-1', label: 'Fable 5.1', efforts: EFFORTS, defaultEffort: 'high', supportsFast: false, contextWindow: 1_000_000 },
   { id: 'claude-opus-5-5[1m]', label: 'Opus 5.5', efforts: EFFORTS, defaultEffort: 'high', supportsFast: true, contextWindow: 1_000_000 },
   { id: 'claude-sonnet-5-5[1m]', label: 'Sonnet 5.5', efforts: EFFORTS, defaultEffort: 'high', supportsFast: false, contextWindow: 1_000_000 },
-  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', efforts: [], supportsFast: false, contextWindow: 200_000 }
+  // Haiku 5.5 takes effort, low to max, medium by default (Anthropic's model configuration page).
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', efforts: EFFORTS, defaultEffort: 'medium', supportsFast: false, contextWindow: 200_000 }
 ]
 
 export const CLAUDE_AGENT: CatalogAgent = {
   id: 'claude', name: 'Claude Code', monogram: 'Cc', level: 'full', binaries: ['claude'], versionArgs: ['--version'],
   auth: { login: { args: ['auth', 'login'], statusArgs: ['auth', 'status'] }, apiKey: { envVar: 'ANTHROPIC_API_KEY', alsoStrip: ['ANTHROPIC_AUTH_TOKEN'], keyUrl: 'https://console.anthropic.com/settings/keys', provider: 'Anthropic' }, cards: { login: 'agentSettings.claude.loginDesc', apiKey: 'agentSettings.claude.keyDesc' }, confirmed: true },
-  // tested: the version in the fixtures' headers (src/main/agents/claude/fixtures), which is the CLI bundled with the pinned Agent SDK.
+  // tested: the version in the fixtures' headers (src/main/agents/claude/fixtures). The pinned Agent SDK (0.3.330) now bundles a
+  // newer CLI; the fixtures haven't been recorded again on it.
   // minimum: not set, because nothing here says which release first had every message the adapter reads. update: `claude update`
   // (also `upgrade`), from `claude --help`.
   versions: { tested: ['2.1.301'], update: { args: ['update'] } },

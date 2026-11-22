@@ -1,12 +1,12 @@
 {
   "codex": {
     "package": "@openai/codex",
-    "version": "0.163.0",
+    "version": "0.171.0",
     "command": "app-server generate-ts --experimental",
     "generated": {
       "dir": "src/main/agents/codex/protocol",
-      "sha256": "2ea27773b09ca248019ec568f8f3c8f3d2382d2457555974d1ae85173c56e4d8",
-      "files": 896
+      "sha256": "dd46440668330955289efdae71775b1653de6bd2ec7ce29845a654845de68739",
+      "files": 968
     }
   },
   "acp": {
@@ -21,10 +21,10 @@
   },
   "claudeAgentSdk": {
     "package": "@anthropic-ai/claude-agent-sdk",
-    "version": "0.3.301",
+    "version": "0.3.330",
     "types": {
       "file": "sdk.d.ts",
-      "sha256": "92b10aef95dafe91ae54059991417190360df1efd33716eec1e8c850dc63bda9"
+      "sha256": "91df0843b1c1b538aadef0f416a333a751ea0525171f6eb693a197d79b3096e7"
     }
   }
 }

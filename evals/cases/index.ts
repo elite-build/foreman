@@ -4,13 +4,15 @@ import { chatTitleTopicLabel } from './chatTitleTopicLabel'
 import { personaQaEnding } from './personaQaEnding'
 import { planRoundOpenSteps } from './planRoundOpenSteps'
 import { prTextInjection } from './prTextInjection'
-import { promptWriterAsksForSpecifics, promptWriterBriefStructure, promptWriterExplainReadOnly, promptWriterPreciseUnchanged, promptWriterSeveralConstraints } from './promptWriter'
+import { PROMPT_WRITER_CATEGORY_CASES } from './promptWriterCategories'
+import { promptWriterAsksForSpecifics, promptWriterBriefStructure, promptWriterExplainReadOnly, promptWriterPreciseDrafted, promptWriterSeveralConstraints } from './promptWriter'
 import { toolFlowStatusOwnRun } from './toolFlowStatusOwnRun'
 import { toolReadChatHistory } from './toolReadChatHistory'
 import { toolWaitNotPoll } from './toolWaitNotPoll'
 
 export const CASES: readonly AnyCase[] = [toolFlowStatusOwnRun, toolReadChatHistory, toolWaitNotPoll, personaQaEnding, chatTitleTopicLabel, prTextInjection, planRoundOpenSteps,
-  promptWriterBriefStructure, promptWriterExplainReadOnly, promptWriterPreciseUnchanged, promptWriterAsksForSpecifics, promptWriterSeveralConstraints
+  promptWriterBriefStructure, promptWriterExplainReadOnly, promptWriterPreciseDrafted, promptWriterAsksForSpecifics, promptWriterSeveralConstraints,
+  ...PROMPT_WRITER_CATEGORY_CASES
 ]
 
 /** Problems with the list itself: a case without a source, a duplicate id, a before with no commit. Empty when well formed. */
