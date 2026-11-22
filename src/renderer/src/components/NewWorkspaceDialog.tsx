@@ -1,4 +1,4 @@
-import { ChevronDown, CircleDot, FolderGit2, FolderOpen, FolderRoot, GitBranch, GitPullRequest, Paperclip, Undo2, Wand } from 'lucide-react'
+import { ChevronDown, CircleDot, FolderGit2, FolderOpen, FolderRoot, GitBranch, GitPullRequest, Paperclip, Pencil, Undo2, Wand } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { AGENTS, DEFAULT_MODEL, isSameModel, modelInfo, modelsFor, type AgentKind, type Loadout } from '../../../shared/agents'
 import { catalogAgent, chosenModels, enabledAgentIds } from '../../../shared/agentCatalog'
@@ -712,6 +712,16 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   })
   const togglePick = (i: number, pick: string) =>
     setPicks((current) => ({ ...current, [i]: (current[i] ?? []).includes(pick) ? current[i].filter((p) => p !== pick) : [...(current[i] ?? []), pick] }))
+  // While the agent asks, the questions take the message's place, so focus goes to the first of them; Edit puts the
+  // message back (and drops the questions, which were about the words as they were).
+  const questionList = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (asked) questionList.current?.querySelector<HTMLElement>('input')?.focus()
+  }, [asked])
+  const editMessage = () => {
+    setAsked(null)
+    requestAnimationFrame(() => promptInput.current?.focus())
+  }
   const writeBlocked = settings.privacyMode ? t('newWorkspace.write.privacy') : prompt.length > PROMPT_WRITER_LIMITS.request ? t('newWorkspace.write.tooLong', { max: PROMPT_WRITER_LIMITS.request }) : undefined
   const canWrite = writeOffered && !writing && !asked && !terminalAgent && Boolean(prompt.trim()) && !writeBlocked
 
@@ -1074,10 +1084,16 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
               </Field>
             )}
             <div className="nw-prompt-head">
-              <label htmlFor={promptId}>
-                {t.rich('newWorkspace.prompt.label', { optional: <span className="nw-optional">{t('newWorkspace.prompt.optional')}</span> })}
-              </label>
-              {hasLinear && !terminalAgent && (
+              {asked ? (
+                <span id={`${promptId}-label`} className="nw-prompt-label">
+                  {t.rich('newWorkspace.prompt.label', { optional: <span className="nw-optional">{t('newWorkspace.prompt.optional')}</span> })}
+                </span>
+              ) : (
+                <label htmlFor={promptId} className="nw-prompt-label">
+                  {t.rich('newWorkspace.prompt.label', { optional: <span className="nw-optional">{t('newWorkspace.prompt.optional')}</span> })}
+                </label>
+              )}
+              {hasLinear && !terminalAgent && !asked && (
                 <LinearIssuesButton
                   repoId={repo.id}
                   onPick={(issue) => {
@@ -1087,6 +1103,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                   }}
                 />
               )}
+              {!asked && (
               <TemplatePicker
                 open={templatesOpen}
                 onOpenChange={setTemplatesOpen}
@@ -1106,7 +1123,16 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                   })
                 }}
               />
+              )}
             </div>
+            {asked ? (
+              <Card role="group" aria-labelledby={`${promptId}-label`} className="nw-write-message">
+                <span className="nw-write-request">{prompt}</span>
+                <Button size="sm" variant="ghost" icon={<Pencil size={13} />} onClick={editMessage}>
+                  {t('common.edit')}
+                </Button>
+              </Card>
+            ) : (
             <div
               className={`nw-composer ${dragging ? 'dragging' : ''} ${terminalAgent ? 'disabled' : ''}`}
               onClick={(e) => e.target === e.currentTarget && promptInput.current?.focus()}
@@ -1158,9 +1184,13 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                 </Button>}
               </div>
             </div>
+            )}
             {asked && (
-              <div className="nw-write-question">
-                <p className="nw-write-skip">{t('newWorkspace.write.skipHint')}</p>
+              <Card role="group" aria-labelledby={`${promptId}-asked`} className="nw-write-question">
+                <p id={`${promptId}-asked`} className="nw-write-head">
+                  <strong>{t('newWorkspace.write.questions', { count: asked.questions.length })}</strong> {t('newWorkspace.write.skipHint')}
+                </p>
+                <div ref={questionList} className="nw-write-list">
                 {asked.questions.map((q, i) => {
                   const ownInput = (
                     <TextInput
@@ -1200,15 +1230,19 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                     />
                   )
                 })}
+                </div>
+                {/* Pinned under the list, so they stay in reach however many questions there are. Skip writes the
+                    prompt from the message alone. */}
                 <div className="nw-write-actions">
                   <Button size="sm" disabled={writing} icon={writing ? <Spinner size={13} /> : undefined} onClick={() => void writeFullPrompt(writeAnswers)}>
                     {t('newWorkspace.write.continue')}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setAsked(null)}>
-                    {t('common.cancel')}
+                  <Button size="sm" variant="ghost" disabled={writing} onClick={() => void writeFullPrompt([])}>
+                    {t('newWorkspace.write.skip')}
                   </Button>
+                  <span className="nw-write-count">{t('newWorkspace.write.answered', { answered: writeAnswers.length, total: asked.questions.length })}</span>
                 </div>
-              </div>
+              </Card>
             )}
             {written && prompt === written.after && (
               <p className="nw-write-done">

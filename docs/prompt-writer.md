@@ -3,7 +3,9 @@
 In the New workspace dialog, **Write a full prompt** (at the end of the first message's tool row) turns a short message
 into a substantially better prompt for the model the workspace starts on. For the person it is a black box: they type a
 line and press the button; when their answers would change the prompt it first asks up to three quick questions under
-the message, each with options to pick or their own words, and any can be skipped; then the prompt replaces the message.
+the message, each with options to pick or their own words, and any can be skipped (while it asks, the message folds to
+one line with Edit and the questions take its place in a box that scrolls, with Write prompt and Skip questions, the
+prompt from the message alone, pinned under it); then the prompt replaces the message.
 They read and edit it before creating the workspace, and Undo puts their message back. It is offered only there, never in
 a chat's composer: a follow-up in a chat depends on a conversation the writer can't see. It is offered only when the
 workspace starts on Claude Code or Codex.
@@ -171,7 +173,7 @@ answer is the picks joined with "; ".
   agent until the person creates it.
 - **Stale answers are dropped.** The timeout doesn't cancel the request (Codex's process is ended after two minutes), so
   the dialog applies an answer only if it belongs to the newest call and the message is still exactly what was sent;
-  editing the message closes the questions.
+  Edit, which opens the message again, closes the questions.
 
 ## Why it is this way
 
