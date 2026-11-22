@@ -44,8 +44,10 @@ describe('Settings → Data → Langfuse', () => {
   it('sends earlier turns for the days chosen, and says why sending failed', async () => {
     fakeState.snapshot.integrations = { connections: [mine] }
     const on = { ...off, connectionId: 'c1', lastError: 'Langfuse refused this key pair.' }
-    fakeApi.langfuseExportStatus = vi.fn(async () => on)
-    fakeApi.sendEarlierToLangfuse = vi.fn(async () => ({ ...on, backfill: { days: 90, done: 0, total: 12 } }))
+    // Main's status, which says it is sending once asked to (the section reads it again as soon as sending starts).
+    let current: LangfuseExportStatus = on
+    fakeApi.langfuseExportStatus = vi.fn(async () => current)
+    fakeApi.sendEarlierToLangfuse = vi.fn(async () => (current = { ...on, backfill: { days: 90, done: 0, total: 12 } }))
     render(<LangfuseExportSection />)
     expect((await screen.findByRole('alert')).textContent).toBe('Langfuse refused this key pair.')
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'How far back' }), '90')
