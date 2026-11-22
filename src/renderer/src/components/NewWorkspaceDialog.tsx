@@ -6,7 +6,7 @@ import { pickerModels, type HiddenModels } from '../../../shared/modelVisibility
 import { fillIssuePlaceholders, intakeLine, type GithubLinkInfo } from '../../../shared/githubLink'
 import { findScmLink } from '../../../shared/scm'
 import { insertTemplate, templateAfterEdit } from '../../../shared/promptTemplates'
-import { PROMPT_WRITER_LIMITS, type PromptQuestion, type PromptTarget, type PromptWriterFailure } from '../../../shared/promptWriter'
+import { PROMPT_WRITER_LIMITS, promptTargetFor, type PromptQuestion, type PromptWriterFailure } from '../../../shared/promptWriter'
 import { templateById } from '../../../shared/repoTemplates'
 import { chooseStartLoadout } from '../../../shared/startModel'
 import type { Attachment, BranchInfo, Repo, WorktreeInfo } from '../../../shared/types'
@@ -506,7 +506,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
   // with the person's picks (an option's index or 'own') and own words, and the message as it was, for Undo. An answer
   // about words that have since changed is dropped.
   const [writing, setWriting] = useState(false)
-  const [asked, setAsked] = useState<{ request: string; target: PromptTarget; questions: PromptQuestion[] } | null>(null)
+  const [asked, setAsked] = useState<{ request: string; writer: Pick<Loadout, 'agent' | 'model' | 'instance'>; questions: PromptQuestion[] } | null>(null)
   const [picks, setPicks] = useState<Record<number, string[]>>({})
   const [ownWords, setOwnWords] = useState<Record<number, string>>({})
   const [written, setWritten] = useState<{ before: string; after: string } | null>(null)
@@ -673,19 +673,20 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     const paths = await attempt(() => api.pickFiles())
     if (paths?.length) addFiles(paths.slice(0, MAX_ADDED).map((path) => ({ path, name: path.split(/[\\/]/).pop() || path, kind: fileKind(path) })))
   }
-  // The prompt is written the way the agent the workspace will start with is best prompted.
-  const writeTarget: PromptTarget = catalogAgent((templateModel ?? loadout).agent)?.promptStyle ?? 'generic'
+  // The model the workspace will start on writes the prompt, for itself, on its account; offered for Claude Code and Codex only.
+  const startOn = templateModel ?? loadout
+  const writeOffered = Boolean(promptTargetFor(startOn.agent, startOn.model))
   const writeFullPrompt = async (answers?: { question: string; answer: string }[]) => {
     const request = answers && asked ? asked.request : prompt
-    const target = answers && asked ? asked.target : writeTarget
+    const writer = answers && asked ? asked.writer : { agent: startOn.agent, model: startOn.model, ...(startOn.instance ? { instance: startOn.instance } : {}) }
     const call = ++writeCall.current
     setWriting(true)
-    const result = await attempt(() => api.writePrompt({ request, target, ...(answers ? { answers } : {}) }))
+    const result = await attempt(() => api.writePrompt({ request, ...writer, ...(answers ? { answers } : {}) }))
     if (call !== writeCall.current) return
     setWriting(false)
     if (!result || promptNow.current !== request) return
     if (result.status === 'ask') {
-      setAsked({ request, target, questions: result.questions })
+      setAsked({ request, writer, questions: result.questions })
       setPicks({})
       setOwnWords({})
       return
@@ -722,7 +723,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
     requestAnimationFrame(() => promptInput.current?.focus())
   }
   const writeBlocked = settings.privacyMode ? t('newWorkspace.write.privacy') : prompt.length > PROMPT_WRITER_LIMITS.request ? t('newWorkspace.write.tooLong', { max: PROMPT_WRITER_LIMITS.request }) : undefined
-  const canWrite = !writing && !asked && !terminalAgent && Boolean(prompt.trim()) && !writeBlocked
+  const canWrite = writeOffered && !writing && !asked && !terminalAgent && Boolean(prompt.trim()) && !writeBlocked
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const pasted = [...e.clipboardData.files]
@@ -1170,7 +1171,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                   {t('newWorkspace.attach.button')}
                 </Button>
                 <span className="nw-composer-hint">{t('newWorkspace.attach.hint')}</span>
-                <Button
+                {writeOffered && <Button
                   size="sm"
                   variant="ghost"
                   className="nw-write"
@@ -1180,7 +1181,7 @@ export function NewWorkspaceDialog({ repoId: initialRepoId, initialPrompt, initi
                   onClick={() => void writeFullPrompt()}
                 >
                   {writing ? t('newWorkspace.write.writing') : t('newWorkspace.write.button')}
-                </Button>
+                </Button>}
               </div>
             </div>
             )}

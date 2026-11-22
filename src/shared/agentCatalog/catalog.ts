@@ -139,8 +139,8 @@ export interface CatalogAgent {
   }
   // Its own subagent files (.claude/agents) are read as personas for its steps.
   personaFiles?: boolean
-  // Write a full prompt (docs/prompt-writer.md) writes for it the way its maker's prompting guide says; without one, the
-  // common ground every agent takes.
+  // Write a full prompt (docs/prompt-writer.md): its model family, whose models' profiles and ladder a prompt for it uses.
+  // Without one, the New workspace dialog doesn't offer Write a full prompt for the agent.
   promptStyle?: PromptStyle
   // A caveat shown with the instructions Foreman teaches this agent (Settings → Repository → Foreman for agents): a message key.
   reportToolsNote?: PlainKey

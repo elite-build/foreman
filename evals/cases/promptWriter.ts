@@ -1,9 +1,21 @@
-import { parsePromptWriterAnswer, promptWriterMessage, PROMPT_WRITER_SYSTEM_PROMPT, type WritePromptInput, type WritePromptResult } from '../../src/shared/promptWriter'
+import { parsePromptWriterAnswer, promptTargetFor, promptWriterMessage, promptWriterSystemPrompt, type WritePromptInput, type WritePromptResult } from '../../src/shared/promptWriter'
 import type { EvalCase, RunOutput, Scenario, Verdict } from '../types'
 
 // Write a full prompt (docs/prompt-writer.md): the system prompt the New workspace dialog's writer runs on, asked as
 // the app asks it. Each case checks one part of the prompt's structure in code, from the failures the drafts of this
 // writer showed in a model-graded structural eval while it was being built (none of those drafts was committed).
+
+// The models the cases write for: Codex on its everyday model, Claude Code on Sonnet, and Codex on its smallest.
+const CODEX = { agent: 'codex', model: 'gpt-6.2-sol' }
+const CLAUDE = { agent: 'claude', model: 'claude-sonnet-5-5[1m]' }
+const LUNA = { agent: 'codex', model: 'gpt-6-luna' }
+
+const targetOf = (input: WritePromptInput) => promptTargetFor(input.agent, input.model)!
+/** The system prompt the app sends for this input's model. */
+const systemFor = (input: WritePromptInput) => promptWriterSystemPrompt(targetOf(input))
+/** The probe on the text under test, the control as the app asks it for its own model. */
+const asked = (probe: WritePromptInput, control: WritePromptInput) => (system: string, scenario: Scenario) =>
+  scenario === 'probe' ? { system, prompt: promptWriterMessage(probe, targetOf(probe), 'en') } : { system: systemFor(control), prompt: promptWriterMessage(control, targetOf(control), 'en') }
 
 const NEW = { none: 'The prompt writer is new; the drafts that showed this failure (v2 and v3 in docs/prompt-writer.md) were never committed.' }
 
@@ -18,21 +30,23 @@ export function readAnswer(output: RunOutput, input: WritePromptInput): { result
 const fail = (reason: string): Verdict => ({ pass: false, reason })
 // "unless", "if available": a hedge reads to the agent as permission to skip what the person asked.
 const HEDGE = /\bunless\b|\bif (?:available|possible|needed|feasible)\b|\bwhere possible\b/i
-const LABEL = /^(?:Goal|Context|Constraints|Done when):/m
 const line = (prompt: string, label: string) => prompt.split('\n').find((l) => l.startsWith(`${label}:`)) ?? ''
 const numbersIn = (s: string) => new Set(s.match(/\d+(?:\.\d+)?/g) ?? [])
 
 /** Every number in the prompt came from the person: a number nobody gave is an invented requirement. */
+// Model names carry versions ("gpt-6.2-sol", "opus" (Opus 5.5)) that are the writer's own, not requirements anyone invented.
+const MODEL_NAMES = /gpt-[\d.]+-[a-z]+|\((?:Haiku|Sonnet|Opus|Fable) [\d.]+\)/g
+
 function inventedNumbers(prompt: string, input: WritePromptInput): string[] {
   const given = numbersIn([input.request, ...(input.answers ?? []).map((a) => a.answer)].join(' '))
-  return [...numbersIn(prompt)].filter((n) => !given.has(n))
+  return [...numbersIn(prompt.replace(MODEL_NAMES, ''))].filter((n) => !given.has(n))
 }
 
 // prompt-writer-brief-structure
 
 const LOGOUT: WritePromptInput = {
   request: 'users get logged out randomly, fix it',
-  target: 'codex',
+  ...CODEX,
   answers: [
     { question: 'How long before they are logged out?', answer: 'About 30 minutes without activity' },
     { question: 'How long should a session last?', answer: '7 days' },
@@ -41,7 +55,7 @@ const LOGOUT: WritePromptInput = {
 }
 const THEME: WritePromptInput = {
   request: 'the theme resets after a restart',
-  target: 'claude',
+  ...CLAUDE,
   answers: [
     { question: 'Which setting resets?', answer: 'Dark mode goes back to light' },
     { question: 'Since when?', answer: 'Since the 1.2 update' }
@@ -74,19 +88,18 @@ export function codexBrief(output: RunOutput): Verdict {
   return invented.length ? fail(`numbers nobody gave: ${invented.join(', ')}`) : { pass: true, reason: 'request first; Goal, Context, Constraints and Done when each do their job' }
 }
 
-/** A Claude brief: the same parts in plain sentences, no labels. */
+/** A Claude brief: the person's facts, a Done when, no hedge and no number nobody gave. A code change uses labelled lines for its roles. */
 export function claudeBrief(output: RunOutput): Verdict {
   const read = readAnswer(output, THEME)
   if ('fail' in read) return read.fail
   if (read.result.status !== 'draft') return fail(`status ${read.result.status}, not a draft, after the person answered`)
   const p = read.result.prompt
   if (!p.startsWith(THEME.request)) return fail('the prompt doesn’t start with the request as typed')
-  if (LABEL.test(p)) return fail('labelled lines in a prompt for Claude Code')
   if (!/dark/i.test(p) || !/1\.2/.test(p)) return fail('the person’s facts (dark mode, the 1.2 update) are missing')
   if (!/done when/i.test(p)) return fail('no “Done when”')
   if (HEDGE.test(p)) return fail(`a hedge: “${p.match(HEDGE)![0]}”`)
   const invented = inventedNumbers(p, THEME)
-  return invented.length ? fail(`numbers nobody gave: ${invented.join(', ')}`) : { pass: true, reason: 'plain sentences carrying the facts and a Done when' }
+  return invented.length ? fail(`numbers nobody gave: ${invented.join(', ')}`) : { pass: true, reason: 'the facts and a Done when' }
 }
 
 export const promptWriterBriefStructure: EvalCase<string> = {
@@ -94,8 +107,8 @@ export const promptWriterBriefStructure: EvalCase<string> = {
   title: 'Write a full prompt: the Goal says the outcome with the person’s specifics, and each part does its job',
   source: 'docs/prompt-writer.md, Evals: v2 put the request in the Goal line, so the Goal only repeated it (graded 1 of 2), listed places to look in Context and hedged its constraints (“unless that is the actual cause”).',
   before: NEW,
-  after: PROMPT_WRITER_SYSTEM_PROMPT,
-  build: (system, scenario) => ({ system, prompt: promptWriterMessage(scenario === 'probe' ? LOGOUT : THEME, 'en') }),
+  after: systemFor(LOGOUT),
+  build: asked(LOGOUT, THEME),
   check: (output, scenario) => (scenario === 'probe' ? codexBrief(output) : claudeBrief(output))
 }
 
@@ -103,10 +116,10 @@ export const promptWriterBriefStructure: EvalCase<string> = {
 
 const EXPLAIN: WritePromptInput = {
   request: 'how does restoring a checkpoint work?',
-  target: 'generic',
+  ...LUNA,
   answers: [{ question: 'What are you trying to find out?', answer: 'Why a restore lost a file I had just created' }]
 }
-const EXPLAIN_CLAUDE: WritePromptInput = { request: 'explain how the export queue decides what runs next', target: 'claude' }
+const EXPLAIN_CLAUDE: WritePromptInput = { request: 'explain how the export queue decides what runs next', ...CLAUDE }
 const RUNS_THINGS = /report what changed|run the (?:relevant |project’s |project's )?tests|fix failures/i
 
 /** An explanation stays read only: no report of changes, no tests to run, and the person's purpose in it. */
@@ -128,46 +141,46 @@ export const promptWriterExplainReadOnly: EvalCase<string> = {
   title: 'Write a full prompt: a request to explain stays read only and carries what the person wants to find out',
   source: 'docs/prompt-writer.md, Evals: v3’s profile for other agents added “Report what changed, what you ran and what it showed” to an explanation (graded 0: evidence where none belongs) and padded its Goal with topics nobody raised.',
   before: NEW,
-  after: PROMPT_WRITER_SYSTEM_PROMPT,
-  build: (system, scenario) => ({ system, prompt: promptWriterMessage(scenario === 'probe' ? EXPLAIN : EXPLAIN_CLAUDE, 'en') }),
+  after: systemFor(EXPLAIN),
+  build: asked(EXPLAIN, EXPLAIN_CLAUDE),
   check: explainReadOnly
 }
 
-// prompt-writer-precise-unchanged
+// prompt-writer-precise-drafted
 
-const RENAME: WritePromptInput = { request: 'Rename the `oneShotDraft` method in src/main/core.ts to `draftOneShot` and update its callers.', target: 'claude' }
-const VAGUE: WritePromptInput = { request: 'make the sidebar better', target: 'claude' }
-const words = (s: string) => (s.match(/\S+/g) ?? []).length
+const RENAME: WritePromptInput = { request: 'Rename the `oneShotDraft` method in src/main/core.ts to `draftOneShot` and update its callers.', ...CLAUDE }
+const VAGUE: WritePromptInput = { request: 'make the sidebar better', ...CLAUDE }
 
-/** A request that already says what and where comes back unchanged, or with one short Done-when sentence. */
-export function preciseUnchanged(output: RunOutput, scenario: Scenario): Verdict {
+/**
+ * Write a full prompt is for a thorough prompt with its models chosen, so even a request that already says what and
+ * where is drafted: its words kept, its models named, a Done when. Nothing comes back unchanged for being precise.
+ */
+export function preciseDrafted(output: RunOutput, scenario: Scenario): Verdict {
   const input = scenario === 'probe' ? RENAME : VAGUE
   const read = readAnswer(output, input)
   if ('fail' in read) return read.fail
-  if (scenario === 'control') return read.result.status === 'unchanged' ? fail('a vague request came back unchanged') : { pass: true, reason: read.result.status }
-  if (read.result.status === 'unchanged') return { pass: true, reason: 'unchanged' }
+  if (read.result.status === 'unchanged') return fail(scenario === 'probe' ? 'a precise request came back unchanged' : 'a vague request came back unchanged')
+  if (scenario === 'control') return { pass: true, reason: read.result.status }
   if (read.result.status !== 'draft') return fail(`status ${read.result.status}`)
   const p = read.result.prompt
-  const rest = p.slice(p.indexOf(RENAME.request) + RENAME.request.length)
-  if (/rename/i.test(rest) && rest.includes('draftOneShot')) return fail('the request is repeated in other words')
-  const added = words(rest)
-  return added <= 30 ? { pass: true, reason: `${added} words added` } : fail(`${added} words added to a request that was already precise`)
+  if (!/model "/.test(p)) return fail('the draft names no model')
+  return /done when/i.test(p) ? { pass: true, reason: 'drafted with its models and a Done when' } : fail('the draft has no Done when')
 }
 
-export const promptWriterPreciseUnchanged: EvalCase<string> = {
-  id: 'prompt-writer-precise-unchanged',
-  title: 'Write a full prompt: a precise request comes back unchanged, and a vague one never does',
-  source: 'docs/prompt-writer.md, Evals: v2 and v3 turned an exact rename into 50 to 75 words that repeated the rename in other words.',
+export const promptWriterPreciseDrafted: EvalCase<string> = {
+  id: 'prompt-writer-precise-drafted',
+  title: 'Write a full prompt: a precise request is still drafted with its models, and a vague one never comes back unchanged',
+  source: 'docs/prompt-writer.md, Evals: v2 and v3 padded an exact rename with words that repeated it; since Write a full prompt became the thorough path, a precise request gets its roles and check rather than coming back unchanged.',
   before: NEW,
-  after: PROMPT_WRITER_SYSTEM_PROMPT,
-  build: (system, scenario) => ({ system, prompt: promptWriterMessage(scenario === 'probe' ? RENAME : VAGUE, 'en') }),
-  check: preciseUnchanged
+  after: systemFor(RENAME),
+  build: asked(RENAME, VAGUE),
+  check: preciseDrafted
 }
 
 // prompt-writer-asks-for-specifics
 
-const VAGUE_BUG: WritePromptInput = { request: 'users get logged out randomly, fix it', target: 'codex' }
-const VAGUE_BUG_CLAUDE: WritePromptInput = { request: 'the export button does nothing sometimes', target: 'claude' }
+const VAGUE_BUG: WritePromptInput = { request: 'users get logged out randomly, fix it', ...CODEX }
+const VAGUE_BUG_CLAUDE: WritePromptInput = { request: 'the export button does nothing sometimes', ...CLAUDE }
 const NOT_AN_ANSWER = /i[’']?ll (?:paste|type|share)|^other\b|yes,? i have/i
 const PRESUMED = /\b(?:web|mobile|ios|android|browsers?|desktop|devices?)\b/i
 
@@ -200,14 +213,14 @@ export const promptWriterAsksForSpecifics: EvalCase<string> = {
   title: 'Write a full prompt: a vague bug is asked about with concrete options, not categories',
   source: 'docs/prompt-writer.md, Evals: v2 asked “what do you notice?” with options like “After being idle for a while”, so “about 30 minutes” and “sessions last 7 days” never reached the prompt; early runs offered “Web only” and “I’ll paste it”.',
   before: NEW,
-  after: PROMPT_WRITER_SYSTEM_PROMPT,
-  build: (system, scenario) => ({ system, prompt: promptWriterMessage(scenario === 'probe' ? VAGUE_BUG : VAGUE_BUG_CLAUDE, 'en') }),
+  after: systemFor(VAGUE_BUG),
+  build: asked(VAGUE_BUG, VAGUE_BUG_CLAUDE),
   check: asksForSpecifics
 }
 
 // prompt-writer-several-constraints
 
-const CLEANUP: WritePromptInput = { request: 'clean up the settings code', target: 'codex' }
+const CLEANUP: WritePromptInput = { request: 'clean up the settings code', ...CODEX }
 const CLEANUP_ANSWERED: WritePromptInput = {
   ...CLEANUP,
   answers: [
@@ -241,7 +254,7 @@ export const promptWriterSeveralConstraints: EvalCase<string> = {
   title: 'Write a full prompt: what must not change takes several picks, and every pick reaches the prompt',
   source: 'docs/prompt-writer.md, Evals: with one pick per question, a cleanup’s “what must stay the same?” carried one of the person’s three constraints (identical behaviour, no new dependencies, small).',
   before: NEW,
-  after: PROMPT_WRITER_SYSTEM_PROMPT,
-  build: (system, scenario) => ({ system, prompt: promptWriterMessage(scenario === 'probe' ? CLEANUP : CLEANUP_ANSWERED, 'en') }),
+  after: systemFor(CLEANUP),
+  build: asked(CLEANUP, CLEANUP_ANSWERED),
   check: severalConstraints
 }

@@ -83,17 +83,6 @@
         "runs": 3
       }
     },
-    "prompt-writer-precise-unchanged": {
-      "before": null,
-      "after": {
-        "passed": 3,
-        "runs": 3
-      },
-      "control": {
-        "passed": 3,
-        "runs": 3
-      }
-    },
     "prompt-writer-several-constraints": {
       "before": null,
       "after": {
