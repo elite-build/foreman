@@ -241,6 +241,10 @@ export interface OneShotOptions {
   systemPrompt?: string
   // In place of the driver's small one-shot model.
   model?: string
+  // The thinking effort, where the model takes one; otherwise the model's default.
+  effort?: EffortLevel
+  // A JSON Schema the answer must match, where the agent can hold it to one (Codex's `--output-schema`).
+  schema?: Record<string, unknown>
 }
 
 export interface ModelList {
@@ -287,6 +291,11 @@ export interface AgentDriver {
   createTurn(request: TurnRequest, callbacks: TurnCallbacks): AgentTurn
   /** Single answer with no tools, e.g. for chat titles. Optional. */
   oneShot?(prompt: string, options: OneShotOptions): Promise<string>
+  /**
+   * Single answer on the model asked for, for Write a full prompt (docs/prompt-writer.md) on an agent without `oneShot`.
+   * Unlike `oneShot` it doesn't make the agent one that writes chat titles (capabilities.ts driverFeatures). Optional.
+   */
+  answerOnce?(prompt: string, options: OneShotOptions): Promise<string>
   status(env: Record<string, string>, executablePath?: string): Promise<AgentStatus>
   /**
    * The account's usage windows now, read with the account's own environment and binary (Usage → Limits, and when its status

@@ -8,7 +8,7 @@ import { chatTitleTopicLabel, titleShape, topicLabel } from '../evals/cases/chat
 import { personaQaEnding } from '../evals/cases/personaQaEnding'
 import { acceptedRound, asksWhoMayPause, planRoundOpenSteps, roundProblems, roundRemarks, type MapItem, type RoundInput } from '../evals/cases/planRoundOpenSteps'
 import { createdPr, prTextInjection } from '../evals/cases/prTextInjection'
-import { asksForSpecifics, claudeBrief, codexBrief, explainReadOnly, preciseUnchanged, severalConstraints } from '../evals/cases/promptWriter'
+import { asksForSpecifics, claudeBrief, codexBrief, explainReadOnly, preciseDrafted, severalConstraints } from '../evals/cases/promptWriter'
 import { promptWriterAnswer } from '../src/shared/promptWriter'
 import { toolFlowStatusOwnRun } from '../evals/cases/toolFlowStatusOwnRun'
 import { readsTurn2, toolReadChatHistory } from '../evals/cases/toolReadChatHistory'
@@ -473,7 +473,10 @@ describe('the prompt writer’s checks, on canned outputs', () => {
     expect(codexBrief(out('Goal: fix it')).reason).toMatch(/app's check/)
     const claude = 'the theme resets after a restart\n\nDark mode should stay on across restarts; it goes back to light since the 1.2 update. Fix the cause. Done when a test restarts with dark mode on and it stays on; show the commands and output.'
     expect(claudeBrief(draft(claude)).pass).toBe(true)
-    expect(claudeBrief(draft(claude.replace('Fix the cause.', 'Goal: fix it.\nContext: x'))).reason).toMatch(/labelled lines/)
+    expect(claudeBrief(draft(claude.replace('Fix the cause.', 'Fix the cause unless it is intended.'))).reason).toMatch(/hedge/)
+    // A code change's roles are labelled lines, and its model names carry versions nobody has to have given.
+    expect(claudeBrief(draft(`${claude}\nRoles:\n- Build: a subagent with model "sonnet" (Sonnet 5.5) fixes it.`)).pass).toBe(true)
+    expect(codexBrief(draft(`${good}\nThe climb goes gpt-6-luna → gpt-6.1-terra → gpt-6.2-sol.`)).pass).toBe(true)
   })
 
   it('prompt-writer-explain-read-only: no report of changes, no tests, the purpose carried', () => {
@@ -485,13 +488,12 @@ describe('the prompt writer’s checks, on canned outputs', () => {
     expect(explainReadOnly(ask([{ question: 'What for?', options: ['a', 'b'] }]), 'control').pass).toBe(true)
   })
 
-  it('prompt-writer-precise-unchanged: unchanged or one short sentence; a vague request never unchanged', () => {
+  it('prompt-writer-precise-drafted: a precise request is drafted with its models and a Done when; nothing comes back unchanged', () => {
     const rename = 'Rename the `oneShotDraft` method in src/main/core.ts to `draftOneShot` and update its callers.'
-    expect(preciseUnchanged(unchanged, 'probe').pass).toBe(true)
-    expect(preciseUnchanged(draft(`${rename}\n\nDone when the type check passes.`), 'probe').pass).toBe(true)
-    expect(preciseUnchanged(draft(`${rename}\n\nRename oneShotDraft to draftOneShot everywhere.`), 'probe').reason).toMatch(/repeated/)
-    expect(preciseUnchanged(draft(`${rename}\n\n${'word '.repeat(40)}`), 'probe').pass).toBe(false)
-    expect(preciseUnchanged(unchanged, 'control').pass).toBe(false)
+    expect(preciseDrafted(draft(`${rename}\n\nRoles:\n- Build: a subagent with model "haiku" (Haiku 5.5) renames it.\nDone when the type check passes.`), 'probe').pass).toBe(true)
+    expect(preciseDrafted(unchanged, 'probe').reason).toMatch(/precise request came back unchanged/)
+    expect(preciseDrafted(draft(`${rename}\n\nDone when the type check passes.`), 'probe').reason).toMatch(/names no model/)
+    expect(preciseDrafted(unchanged, 'control').pass).toBe(false)
   })
 
   it('prompt-writer-asks-for-specifics: concrete options, no product facts, no non-answers', () => {
