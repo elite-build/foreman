@@ -93,8 +93,23 @@ export interface LangfuseConnectionInfo {
 }
 
 /**
+ * Whether a host is this computer or one on the local network: loopback, a private, link-local or Tailscale (100.64/10)
+ * address, a `.local` name, or a name without dots (a computer on the network by its name).
+ */
+export function onOwnNetwork(hostname: string): boolean {
+  const h = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (h === 'localhost' || h.endsWith('.local')) return true
+  if (h.includes(':')) return h === '::1' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h)
+  if (!v4) return !h.includes('.')
+  const [a, b] = [Number(v4[1]), Number(v4[2])]
+  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)
+}
+
+/**
  * A Langfuse host as typed ("us.cloud.langfuse.com/", "https://langfuse.acme.dev/api/public") made into its
- * origin and path, or an error. HTTPS, except on this computer: the keys travel in every request.
+ * origin and path, or an error. HTTPS, except on this computer or the local network (a Langfuse run at home, without a
+ * certificate): the keys travel in every request, so plain http never goes out to the internet.
  */
 export function normalizeLangfuseHost(raw: string | undefined): { host: string } | { error: string } {
   let text = (raw ?? '').trim() || LANGFUSE_CLOUD_HOST
@@ -105,8 +120,7 @@ export function normalizeLangfuseHost(raw: string | undefined): { host: string }
   } catch {
     return { error: 'Enter the Langfuse address, like https://cloud.langfuse.com.' }
   }
-  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) return { error: 'The Langfuse address must use https:// (http:// only for this computer).' }
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && onOwnNetwork(url.hostname))) return { error: 'The Langfuse address must use https:// (http:// only on this computer or your own network).' }
   if (url.username || url.password || url.search || url.hash) return { error: 'Enter only the Langfuse address, without a login, query or #.' }
   const pathname = url.pathname.replace(/\/+$/, '').replace(/\/api\/public$/, '')
   return { host: `${url.origin}${pathname}` }
