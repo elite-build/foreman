@@ -28,6 +28,8 @@ export function LangfuseExportSection() {
 
   if (!status) return null
   const on = status.connectionId !== null
+  // Langfuse didn't answer, or refused the keys, at the last check or send: said in words, until one succeeds.
+  const problem = status.reach && status.reach.state !== 'ok' ? status.reach.state : null
   const choose = async (connectionId: string) => {
     const next = await attempt(() => api.setLangfuseExport({ connectionId: connectionId || null, content: connectionId ? status.content : false }))
     if (next) {
@@ -96,10 +98,18 @@ export function LangfuseExportSection() {
           </Row>
         )}
       </Section>
-      {on && status.lastError && (
+      {on && problem ? (
         <Callout tone="error" role="alert" className="set-after-card">
-          {status.lastError}
+          {t(problem === 'refused' ? 'langfuse.refused' : 'langfuse.unreachable', { host: status.reach!.host })}{' '}
+          {t('langfuse.lastChecked', { date: formatDateTime(status.reach!.at, t.locale) })}
         </Callout>
+      ) : (
+        on &&
+        status.lastError && (
+          <Callout tone="error" role="alert" className="set-after-card">
+            {status.lastError}
+          </Callout>
+        )
       )}
     </>
   )

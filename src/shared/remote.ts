@@ -160,7 +160,7 @@ const WINDOW_EVENTS: ReadonlySet<MainEvent['type']> = new Set<MainEvent['type']>
   'browser-open', 'browser-state', 'browser-shortcut',
   'show-workspace', 'show-setting', 'report-problem', 'tour', 'launch-folders', 'quit-requested', 'open-link', 'navigate',
   'stt-partial', 'stt-error', 'stt-model', 'window-visibility',
-  'computers', 'computer-notify', 'computer-left'
+  'computers', 'computer-notify', 'computer-left', 'langfuse-unreachable'
 ])
 
 /** The events a computer sends to the one controlling it. */

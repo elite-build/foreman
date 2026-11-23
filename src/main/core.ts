@@ -1173,6 +1173,7 @@ export class Core {
       connection: (id) => this.integrations.connection(id),
       secret: (id) => this.integrations.secret(id),
       markProblem: (id, problem) => this.integrations.markProblem(id, problem),
+      notify: (problem) => this.host.broadcast({ type: 'langfuse-unreachable', ...problem }),
       device: () => {
         const self = this.devices.self()
         return { id: self.deviceId, name: self.name }

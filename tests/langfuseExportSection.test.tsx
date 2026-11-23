@@ -41,6 +41,21 @@ describe('Settings → Data → Langfuse', () => {
     expect(await screen.findByRole('button', { name: 'Send' })).toBeTruthy()
   })
 
+  it('says in words that Langfuse isn’t answering, and when it was last checked, instead of main’s error', async () => {
+    fakeState.snapshot.integrations = { connections: [mine] }
+    fakeApi.langfuseExportStatus = vi.fn(async () => ({
+      ...off,
+      connectionId: 'c1',
+      lastError: 'Couldn’t reach Langfuse at http://localhost:3000: fetch failed',
+      reach: { state: 'unreachable', host: 'http://localhost:3000', at: '2026-11-23T09:00:00.000Z' }
+    }))
+    render(<LangfuseExportSection />)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/^Langfuse at http:\/\/localhost:3000 isn’t answering, so nothing reaches it\./)
+    expect(alert.textContent).toMatch(/Last checked /)
+    expect(alert.textContent).not.toMatch(/fetch failed/)
+  })
+
   it('sends earlier turns for the days chosen, and says why sending failed', async () => {
     fakeState.snapshot.integrations = { connections: [mine] }
     const on = { ...off, connectionId: 'c1', lastError: 'Langfuse refused this key pair.' }

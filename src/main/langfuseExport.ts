@@ -9,15 +9,17 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AgentCapabilities } from '../shared/agentCapabilities'
 import type { DiagnosticEvent } from '../shared/diagnostics'
-import type { LangfuseExportChoice, LangfuseExportConfig, LangfuseExportStatus } from '../shared/langfuseExport'
+import type { LangfuseExportChoice, LangfuseExportConfig, LangfuseExportStatus, LangfuseReach } from '../shared/langfuseExport'
 import type { Connection } from '../shared/integrations'
 import type { ChatItem, Repo, Session, Workspace } from '../shared/types'
 import type { ForemanDb } from './db'
-import { LangfuseError, type Fetch } from './langfuse'
+import { LangfuseError, langfuseProject, type Fetch } from './langfuse'
 import { claudeTurnParts, eventKey, eventSpan, exportedEvent, itemTools, otlpRequest, turnSpans, type OtlpSpan, type SenderFacts, type TurnFacts } from './langfuseTrace'
 
 // A turn's trace waits this long after it ends, so the transcript mirror has written its last entries.
 const TURN_DELAY_MS = 5_000
+// After Foreman starts, Langfuse is asked once whether it answers, so a project that is down or refuses the keys is said.
+const CHECK_DELAY_MS = 15_000
 // Events wait to be sent together.
 const EVENT_DELAY_MS = 30_000
 // Everything not yet sent is looked for again this often (a send that failed, a turn missed while offline).
@@ -37,6 +39,8 @@ export interface LangfuseExportDeps {
   connection: (id: string) => Connection | undefined
   secret: (id: string) => string | undefined
   markProblem: (id: string, problem: string) => void
+  // Tells the window Langfuse didn't answer (or refused the keys) when Foreman started.
+  notify?: (problem: { host: string; refused: boolean }) => void
   device: () => { id: string; name: string }
   // The event log's recent events (the ring, kept whether or not Keep diagnostics is on) and its files' folder.
   recentEvents: () => DiagnosticEvent[]
@@ -58,6 +62,8 @@ export class LangfuseExport {
   private lastSentAt?: string
   private lastError?: string
   private backfill?: { days: number; done: number; total: number }
+  private reach?: LangfuseReach
+  private checking: Promise<void> | null = null
   private running: Promise<void> | null = null
   private queued: Job | null = null
   private turnTimer?: ReturnType<typeof setTimeout>
@@ -110,7 +116,8 @@ export class LangfuseExport {
       ...(this.lastError ? { lastError: this.lastError } : {}),
       sentTurns: this.sentTurns,
       sentEvents: this.sentEvents,
-      ...(this.backfill ? { backfill: { ...this.backfill } } : {})
+      ...(this.backfill ? { backfill: { ...this.backfill } } : {}),
+      ...(this.reach && config ? { reach: { ...this.reach } } : {})
     }
   }
 
@@ -119,6 +126,7 @@ export class LangfuseExport {
     if (!choice.connectionId) {
       delete this.deps.store.state.langfuseExport
       this.lastError = undefined
+      this.reach = undefined
     } else {
       const connection = this.deps.connection(choice.connectionId)
       if (!connection || connection.service !== 'langfuse') throw new Error('Choose a Langfuse connection.')
@@ -130,7 +138,11 @@ export class LangfuseExport {
     }
     this.deps.store.save()
     this.deps.changed()
-    if (this.config()) this.schedule({ since: this.config()!.enabledAt, fromLog: false })
+    if (this.config()) {
+      // A project chosen now is checked at once; the section says the answer, no toast.
+      this.checking = this.check(false).finally(() => (this.checking = null))
+      this.schedule({ since: this.config()!.enabledAt, fromLog: false })
+    }
     return this.status()
   }
 
@@ -149,6 +161,37 @@ export class LangfuseExport {
     this.sweepTimer.unref?.()
     const first = setTimeout(() => this.sweep(), 30_000)
     first.unref?.()
+    const check = setTimeout(() => void this.check(true), CHECK_DELAY_MS)
+    check.unref?.()
+  }
+
+  /**
+   * Asks Langfuse who the connection's keys belong to, which needs both an answer and keys it accepts. `announce`: tell
+   * the window when it fails (at startup); either way the section shows it until a check or a send succeeds.
+   */
+  async check(announce: boolean): Promise<void> {
+    const dest = this.destination()
+    if ('off' in dest) return
+    let state: LangfuseReach['state'] = 'ok'
+    try {
+      await langfuseProject({ host: dest.host, publicKey: dest.publicKey, secretKey: dest.secretKey }, this.deps.fetch)
+    } catch (err) {
+      const refused = err instanceof LangfuseError && err.auth
+      state = refused ? 'refused' : 'unreachable'
+      this.lastError = err instanceof Error ? err.message : String(err)
+      if (refused) this.deps.markProblem(dest.connection.id, this.lastError)
+    }
+    // Turned off or moved to another project while it was asking: that answer no longer applies.
+    const now = this.destination()
+    if ('off' in now || now.target !== dest.target) return
+    this.reached(state, dest.host)
+    if (state !== 'ok' && announce) this.deps.notify?.({ host: dest.host, refused: state === 'refused' })
+  }
+
+  private reached(state: LangfuseReach['state'], host: string): void {
+    if (state === 'ok' && this.reach?.state !== 'ok') this.lastError = undefined
+    this.reach = { state, host, at: new Date(this.now()).toISOString() }
+    this.deps.changed()
   }
 
   stop(): void {
@@ -199,9 +242,12 @@ export class LangfuseExport {
       })
   }
 
-  /** Waits until no job is running or waiting (tests, quitting). */
+  /** Waits until no job or check is running or waiting (tests, quitting). */
   async idle(): Promise<void> {
-    while (this.running) await this.running
+    while (this.running || this.checking) {
+      await this.checking
+      await this.running
+    }
   }
 
   private sender(): SenderFacts {
@@ -395,17 +441,20 @@ export class LangfuseExport {
         signal: AbortSignal.timeout(60_000)
       })
     } catch (err) {
+      this.reached('unreachable', dest.host)
       throw new LangfuseError(`Couldn’t reach Langfuse at ${dest.host}: ${err instanceof Error ? err.message : String(err)}`)
     }
     if (res.status === 401 || res.status === 403) {
       const message = 'Langfuse refused this key pair. The keys may have been deleted, mistyped or made for another host.'
       this.deps.markProblem(dest.connection.id, message)
+      this.reached('refused', dest.host)
       throw new LangfuseError(message, true)
     }
     if (res.status === 404) throw new LangfuseError(`${dest.host} doesn’t take OpenTelemetry traces. A self-hosted Langfuse needs version 3.22 or later.`)
     if (res.status === 429) throw new LangfuseError(`Langfuse is limiting requests${res.headers.get('retry-after') ? ` for ${res.headers.get('retry-after')} seconds` : ''}. Foreman tries again later.`)
     const body = (await res.json().catch(() => null)) as { partialSuccess?: { rejectedSpans?: number | string; errorMessage?: string }; message?: string } | null
     if (!res.ok) throw new LangfuseError(`Langfuse answered ${res.status}${body?.message ? `: ${body.message}` : ''}`)
+    this.reached('ok', dest.host)
     // Spans Langfuse turned down are said, not sent again: the same spans would be turned down again.
     const rejected = Number(body?.partialSuccess?.rejectedSpans ?? 0)
     if (rejected > 0) this.lastError = `Langfuse turned down ${rejected} of ${spans.length} spans${body?.partialSuccess?.errorMessage ? `: ${body.partialSuccess.errorMessage}` : ''}`

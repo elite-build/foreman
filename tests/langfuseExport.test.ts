@@ -165,8 +165,17 @@ async function setup(options: { machine?: string } = {}) {
   put({ kind: 'result', id: 'r1', turnId: 't1', ok: true, costUsd: 1.5, agentSession: 'cs1' }, '2026-11-20T10:00:59.000Z')
   put({ kind: 'turn-end', id: 'te1', turnId: 't1', outcome: 'completed', durationMs: 60_000 }, '2026-11-20T10:01:00.000Z')
   db.mirrorAppend({ projectKey: 'p', sessionId: 'cs1' }, [assistantEntry('msg_1', '2026-11-20T10:00:20.000Z', { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 500 }, [{ type: 'text', text: 'private answer' }])])
-  const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response('{}', { status: 200 }))
+  // How Langfuse answers: its project lookup (the startup check) and its OTLP endpoint (sends), each up, down or refusing.
+  const net = { projects: 'ok' as Answer, otel: 'ok' as Answer }
+  const fetch = vi.fn(async (url: string | URL | Request, _init?: RequestInit) => {
+    const otel = String(url).includes('/otel/')
+    const answer = otel ? net.otel : net.projects
+    if (answer === 'down') throw new TypeError('fetch failed')
+    if (answer === 'refused') return new Response('{}', { status: 401 })
+    return new Response(otel ? '{}' : JSON.stringify({ data: [{ id: 'p1', name: 'Foreman' }] }), { status: 200 })
+  })
   const markProblem = vi.fn()
+  const notify = vi.fn()
   const service = new LangfuseExport({
     store: { state, save: vi.fn() },
     db: () => db,
@@ -174,6 +183,7 @@ async function setup(options: { machine?: string } = {}) {
     connection: (id) => [langfuse, github].find((c) => c.id === id),
     secret: () => 'sk-lf-1',
     markProblem,
+    notify,
     device: () => ({ id: 'dev-1', name: 'desk' }),
     recentEvents: () => [],
     logsDir: path.join(dir, 'logs'),
@@ -185,10 +195,13 @@ async function setup(options: { machine?: string } = {}) {
     now: () => NOW,
     changed: vi.fn()
   })
-  return { service, state, fetch, markProblem, db }
+  // The trace sends only, leaving out the project lookups.
+  const sends = () => fetch.mock.calls.filter((c) => String(c[0]).includes('/otel/'))
+  return { service, state, fetch, sends, net, markProblem, notify, db }
 }
 
-const sentSpans = (fetch: ReturnType<typeof vi.fn>, call = 0) => (JSON.parse(String((fetch.mock.calls[call][1] as RequestInit).body)) as OtlpRequest).resourceSpans[0].scopeSpans[0].spans
+type Answer = 'ok' | 'down' | 'refused'
+const sentSpans = (call: unknown[]) => (JSON.parse(String((call[1] as RequestInit).body)) as OtlpRequest).resourceSpans[0].scopeSpans[0].spans
 
 describe('LangfuseExport', () => {
   it('is off until a Langfuse connection is chosen, and refuses any other kind', async () => {
@@ -205,21 +218,21 @@ describe('LangfuseExport', () => {
   })
 
   it('sends turns that ended before it was turned on only when asked, once each, to the OTLP endpoint', async () => {
-    const { service, fetch } = await setup()
+    const { service, sends } = await setup()
     service.configure({ connectionId: 'c1', content: false })
     await service.idle()
-    expect(fetch).not.toHaveBeenCalled()
+    expect(sends()).toHaveLength(0)
 
     service.sendEarlier(7)
     await service.idle()
-    expect(fetch).toHaveBeenCalledTimes(1)
-    const [url, init] = fetch.mock.calls[0]
+    expect(sends()).toHaveLength(1)
+    const [url, init] = sends()[0]
     expect(url).toBe('https://cloud.langfuse.com/api/public/otel/v1/traces')
     const headers = init!.headers as Record<string, string>
     expect(headers.Authorization).toBe(`Basic ${Buffer.from('pk-lf-1:sk-lf-1').toString('base64')}`)
     expect(headers['x-langfuse-ingestion-version']).toBe('4')
 
-    const spans = sentSpans(fetch)
+    const spans = sentSpans(sends()[0])
     const generation = spans.find((s) => attr(s, 'langfuse.observation.type') === 'generation')!
     expect(JSON.parse(String(attr(generation, 'langfuse.observation.usage_details')))).toEqual({ input: 10, output: 20, cache_read_input_tokens: 500 })
     // The turn's own cost: $1.50 so far less the $1.00 before it.
@@ -229,22 +242,71 @@ describe('LangfuseExport', () => {
 
     service.sendEarlier(7)
     await service.idle()
-    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(sends()).toHaveLength(1)
   })
 
   it('marks the connection when Langfuse refuses the keys, and sends again once it takes them', async () => {
-    const { service, fetch, markProblem } = await setup()
+    const { service, sends, net, markProblem } = await setup()
     service.configure({ connectionId: 'c1', content: true })
-    fetch.mockResolvedValueOnce(new Response('{}', { status: 401 }))
+    await service.idle()
+    net.otel = 'refused'
     service.sendEarlier(7)
     await service.idle()
     expect(markProblem).toHaveBeenCalledWith('c1', expect.stringMatching(/refused/))
-    expect(service.status().lastError).toMatch(/refused/)
+    expect(service.status()).toMatchObject({ lastError: expect.stringMatching(/refused/), reach: { state: 'refused' } })
 
+    net.otel = 'ok'
     service.sendEarlier(7)
     await service.idle()
-    expect(fetch).toHaveBeenCalledTimes(2)
-    expect(String((fetch.mock.calls[1][1] as RequestInit).body)).toContain('private question')
+    expect(sends()).toHaveLength(2)
+    expect(String((sends()[1][1] as RequestInit).body)).toContain('private question')
     expect(service.status().lastError).toBeUndefined()
+    expect(service.status().reach?.state).toBe('ok')
+  })
+})
+
+describe('LangfuseExport: the check when Foreman starts', () => {
+  const on = { connectionId: 'c1', content: false, machine: 'desk', enabledAt: '2026-11-21T00:00:00.000Z' }
+
+  it('asks nothing while sending is off', async () => {
+    const { service, fetch, notify } = await setup()
+    await service.check(true)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('tells the window when Langfuse doesn’t answer, and says so until a send gets through', async () => {
+    const { service, state, net, notify, markProblem } = await setup()
+    state.langfuseExport = on
+    net.projects = 'down'
+    await service.check(true)
+    expect(notify).toHaveBeenCalledWith({ host: 'https://cloud.langfuse.com', refused: false })
+    expect(markProblem).not.toHaveBeenCalled()
+    expect(service.status().reach).toEqual({ state: 'unreachable', host: 'https://cloud.langfuse.com', at: new Date(NOW).toISOString() })
+
+    // Back up: the earlier turns go, and the message goes with them.
+    service.sendEarlier(7)
+    await service.idle()
+    expect(service.status()).toMatchObject({ sentTurns: 1, reach: { state: 'ok' } })
+    expect(service.status().lastError).toBeUndefined()
+  })
+
+  it('says refused keys apart from no answer, and marks the connection', async () => {
+    const { service, state, net, notify, markProblem } = await setup()
+    state.langfuseExport = on
+    net.projects = 'refused'
+    await service.check(true)
+    expect(notify).toHaveBeenCalledWith({ host: 'https://cloud.langfuse.com', refused: true })
+    expect(markProblem).toHaveBeenCalledWith('c1', expect.stringMatching(/refused/))
+    expect(service.status().reach?.state).toBe('refused')
+  })
+
+  it('checks a project as soon as it is chosen, without a toast', async () => {
+    const { service, net, notify } = await setup()
+    net.projects = 'down'
+    service.configure({ connectionId: 'c1', content: false })
+    await service.idle()
+    expect(service.status().reach?.state).toBe('unreachable')
+    expect(notify).not.toHaveBeenCalled()
   })
 })
