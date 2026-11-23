@@ -2,6 +2,16 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made.
 
+## 1.2.12 (2026-11-23)
+
+### Added
+
+- **Settings → Data & usage → Langfuse** sends each turn's model calls, tokens, cost and tool calls, and Foreman's stalls and errors, to your own Langfuse project. It's off until you choose a project, and **Send earlier turns** sends the last 7, 30 or 90 days. Foreman says when that project isn't answering, or refuses its keys, when it starts, and the **Langfuse** settings show it until it answers again. ([#259](https://github.com/elite-build/foreman/pull/259), [#260](https://github.com/elite-build/foreman/pull/260))
+
+### Changed
+
+- A self-hosted Langfuse on this computer or your own network can use a plain `http://` address, such as `http://192.168.1.20:3000`. ([#260](https://github.com/elite-build/foreman/pull/260))
+
 ## 1.2.11 (2026-11-22)
 
 ### Added
