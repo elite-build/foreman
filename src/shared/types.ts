@@ -2437,6 +2437,8 @@ export type MainEvent =
   // The window came back to this computer by itself: the other one ended control, turned it off, was unpaired, or the
   // link was down when the window loaded.
   | { type: 'computer-left'; name: string; reason: 'denied' | 'off' | 'timeout' | 'unreachable' | 'mismatch' | 'unpaired' }
+  // Sending to Langfuse is on, and Langfuse didn't answer (or refused the keys) when Foreman started (docs/telemetry.md, "Langfuse").
+  | { type: 'langfuse-unreachable'; host: string; refused: boolean }
 
 // `cloud` patches the repository's cloud settings (null puts them back to the defaults); the build is Foreman's own.
 export type RepoPatch = Partial<Pick<Repo, 'name' | 'defaultBranch' | 'remote' | 'setupHintDismissed'>> & { icon?: RepoIcon | null; cloud?: Partial<Omit<RepoCloud, 'build'>> | null }

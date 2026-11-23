@@ -241,7 +241,7 @@ const EVENT_REACH = {
   'browser-open': 'window', 'browser-state': 'window', 'browser-shortcut': 'window', 'show-workspace': 'window', 'show-setting': 'window',
   'report-problem': 'window', tour: 'window', 'launch-folders': 'window', 'quit-requested': 'window', 'open-link': 'window',
   navigate: 'window', 'stt-partial': 'window', 'stt-error': 'window', 'stt-model': 'window', 'window-visibility': 'window',
-  computers: 'window', 'computer-notify': 'window', 'computer-left': 'window'
+  computers: 'window', 'computer-notify': 'window', 'computer-left': 'window', 'langfuse-unreachable': 'window'
 } as const satisfies Record<MainEvent['type'], Reach>
 
 /** For tests: where each event type goes. */

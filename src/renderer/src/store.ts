@@ -837,6 +837,14 @@ function handleEvent(event: MainEvent): void {
     case 'computer-left':
       showToast(tNow()(`computers.left.${event.reason}`, { name: event.name }), event.reason === 'denied' || event.reason === 'off' ? 'info' : 'error', { report: false })
       return
+    case 'langfuse-unreachable': {
+      const t = tNow()
+      showToast(t(event.refused ? 'langfuse.refused' : 'langfuse.unreachable', { host: event.host }), 'error', {
+        report: false,
+        action: { label: t('langfuse.openSettings'), run: () => openSettingsPage({ section: 'data', part: 'langfuse' }) }
+      })
+      return
+    }
     case 'clone-progress':
       cloneListeners.get(event.cloneId)?.(event.line)
       return

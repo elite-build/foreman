@@ -40,6 +40,15 @@ export interface LangfuseExportStatus {
   sentEvents: number
   // Sending earlier turns now, from `days` ago.
   backfill?: { days: number; done: number; total: number }
+  // Whether Langfuse answered the last check or send: checked when Foreman starts, and by every send after that.
+  reach?: LangfuseReach
+}
+
+/** `unreachable`: no answer from the host. `refused`: it answered, and turned this connection's keys down. */
+export interface LangfuseReach {
+  state: 'ok' | 'unreachable' | 'refused'
+  host: string
+  at: string
 }
 
 export interface LangfuseExportChoice {

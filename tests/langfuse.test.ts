@@ -35,8 +35,16 @@ describe('Langfuse hosts', () => {
     expect(normalizeLangfuseHost('http://localhost:3000')).toEqual({ host: 'http://localhost:3000' })
   })
 
-  it('refuses plain http to another computer, and logins or queries in the address', () => {
-    expect(normalizeLangfuseHost('http://langfuse.acme.dev')).toHaveProperty('error')
+  it('takes plain http on this computer and the local network, where a Langfuse at home has no certificate', () => {
+    for (const host of ['http://127.0.0.1:3000', 'http://[::1]:3000', 'http://192.168.1.20:3000', 'http://10.0.0.5:3000', 'http://172.20.1.2:3000', 'http://100.101.102.103:3000', 'http://desktop-yatin:3000', 'http://desktop-yatin.local:3000', 'http://[fd12::1]:3000']) {
+      expect(normalizeLangfuseHost(host), host).toEqual({ host })
+    }
+  })
+
+  it('refuses plain http to the internet, and logins or queries in the address', () => {
+    for (const host of ['http://langfuse.acme.dev', 'http://8.8.8.8:3000', 'http://172.32.0.1:3000', 'http://100.128.0.1:3000', 'http://[2001:db8::1]:3000']) {
+      expect(normalizeLangfuseHost(host), host).toHaveProperty('error')
+    }
     expect(normalizeLangfuseHost('https://user:pw@langfuse.acme.dev')).toHaveProperty('error')
     expect(normalizeLangfuseHost('https://langfuse.acme.dev/?x=1')).toHaveProperty('error')
   })
