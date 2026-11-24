@@ -35,7 +35,7 @@ import { editorViewsFor, RAIL_WIDTH, shownEditorView } from './editorLayout'
 import { CHAT_MIN_WIDTH, SIDE_PANEL_MIN_WIDTH, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, sidebarShows } from './narrowLayout'
 import { workspaceSurfaces } from './archivedView'
 import './components/workspace.css'
-import { CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/AddRepository'
+import { AddToForemanDialog, CloneRepoDialog, MakeRepoDialog, QuickStartDialog } from './components/AddRepository'
 import { CreateOrganizationDialog } from './components/spaces/CreateOrganizationDialog'
 import { MemoryView } from './components/spaces/MemoryView'
 import { EmployeesView } from './components/employees/EmployeesView'
@@ -308,6 +308,7 @@ export function App() {
       {resolveBaseFor && <ResolveBaseDialog key={resolveBaseFor} workspaceId={resolveBaseFor} />}
       {alertDiff && <AlertDiffDialog key={alertDiff.alertId} {...alertDiff} />}
       {newWorkspaceRepo && <NewWorkspaceDialog key={newWorkspaceRepo} repoId={newWorkspaceRepo} initialPrompt={newWorkspacePrompt ?? undefined} initialTemplateId={newWorkspaceTemplate ?? undefined} />}
+      {addRepoDialog === 'add' && <AddToForemanDialog />}
       {addRepoDialog === 'clone' && <CloneRepoDialog />}
       {addRepoDialog === 'quick-start' && <QuickStartDialog />}
       {makeRepoDir && <MakeRepoDialog key={makeRepoDir} dir={makeRepoDir} />}

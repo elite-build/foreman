@@ -208,7 +208,16 @@
 .sidebar-new {
   flex: none;
   display: flex;
+  gap: 6px;
   padding: 0 8px 8px 12px;
+}
+/* The folder-plus (Add a repository to <space>) at the row's end, as tall as the split button. Layout only. */
+.sidebar-new .sidebar-add-repo {
+  flex: none;
+  width: 34px;
+  min-height: 32px;
+  padding: 0;
+  justify-content: center;
 }
 .sidebar-new .sidebar-new-split {
   flex: 1;

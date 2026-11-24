@@ -404,14 +404,15 @@ describe('a comparison’s group', () => {
 describe('New', () => {
   const options = () => screen.getAllByRole('option')
 
-  it('is the only add control: a split button under the top row, with both tour steps about adding on it', async () => {
+  it('is the add control under the top row, with the folder-plus beside it for the tour’s repository step', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)
     const main = screen.getByRole('button', { name: 'New workspace' })
     expect(main.closest('.sidebar-top')).toBeNull()
     expect(main.textContent).toContain('Ctrl+N')
     expect(main.getAttribute('data-tour')).toBe('new-workspace')
-    expect(main.closest('[data-tour="add-repo"]')).not.toBeNull()
+    expect(main.closest('[data-tour="add-repo"]')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add a repository to Personal' }).getAttribute('data-tour')).toBe('add-repo')
     expect(screen.queryByRole('button', { name: /add repository/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Import/ })).toBeNull()
     await user.click(main)
@@ -446,7 +447,7 @@ describe('New', () => {
     expect(spy('openAutomations')).toHaveBeenCalled()
     await pick(/github/i)
     expect(spy('openAddRepoDialog')).toHaveBeenCalledWith('clone')
-    await pick(/Quick start/)
+    await pick(/Start a new repository/)
     expect(spy('openAddRepoDialog')).toHaveBeenCalledWith('quick-start')
     await pick(/New organization…/)
     expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
@@ -465,10 +466,42 @@ describe('New', () => {
   it('lists recent folders only once something is typed, each opening the folder', async () => {
     const user = userEvent.setup()
     render(<NewList />)
-    expect(screen.queryByRole('option', { name: /older/ })).toBeNull()
+    expect(screen.queryByRole('option', { name: /~\/older/ })).toBeNull()
     await user.keyboard('older')
     await user.click(screen.getByRole('option', { name: /~\/older/ }))
     expect(spy('openRecentRepo')).toHaveBeenCalledWith('/home/me/older')
+  })
+
+  it('in Work, the folder-plus beside New workspace opens the ways in for the space shown, then Add to Foreman', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+    await user.click(screen.getByRole('button', { name: 'Add a repository to Personal' }))
+    const menu = await screen.findByRole('menu', { name: 'Add a repository to Personal' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open a folder' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'Clone from GitHub' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'Start a new repository' })).toBeTruthy()
+    // Recent folders: the first three, tildified.
+    await user.click(within(menu).getByRole('menuitem', { name: '~/older' }))
+    expect(spy('openRecentRepo')).toHaveBeenCalledWith('/home/me/older')
+    await user.click(screen.getByRole('button', { name: 'Add a repository to Personal' }))
+    await user.click(within(await screen.findByRole('menu', { name: 'Add a repository to Personal' })).getByRole('menuitem', { name: /More ways…/ }))
+    expect(spy('openAddRepoDialog')).toHaveBeenCalledWith('add')
+  })
+
+  it('has no folder-plus in Team, where the space shown is an organization', () => {
+    const organizations = fakeState.snapshot.organizations
+    const space = fakeState.space
+    try {
+      fakeState.snapshot.organizations = [{ id: 'o1', name: 'Acme', memoryRepoId: 'mem', programManagerId: 'ada', createdAt: '2026-11-05T00:00:00Z' }]
+      fakeState.space = 'o1'
+      fakeState.sidebarMode = 'team'
+      render(<Sidebar />)
+      expect(screen.queryByRole('button', { name: /^Add a repository to/ })).toBeNull()
+    } finally {
+      fakeState.snapshot.organizations = organizations
+      fakeState.space = space
+      fakeState.sidebarMode = 'work'
+    }
   })
 })
 
