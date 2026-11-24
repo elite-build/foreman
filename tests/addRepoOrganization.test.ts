@@ -5,6 +5,8 @@ import { beforeAll, beforeEach, expect, it, vi } from 'vitest'
 let store: typeof import('../src/renderer/src/store')
 const calls: [string, unknown[]][] = []
 let addResult: { id: string } = { id: 'r-new' }
+// Dropped folders, by path: several added at once.
+const byPath: Record<string, { id: string }> = { '/code/a': { id: 'r-a' }, '/code/b': { id: 'r-b' }, '/code/old': { id: 'r-old' } }
 const snapshot = {
   platform: 'darwin',
   settings: { agentPrefs: {}, loadouts: [] },
@@ -24,12 +26,13 @@ beforeAll(async () => {
       calls.push([name, args])
       if (name === 'getSnapshot') return snapshot
       if (name === 'pendingApprovals') return []
-      if (name === 'addRepo') return addResult
+      if (name === 'addRepo') return byPath[args[0] as string] ?? addResult
       return undefined
     }
   })
   const onEvent = () => () => undefined
-  vi.stubGlobal('window', { foreman: { invoke, send: {}, onEvent }, addEventListener() {}, dispatchEvent() {} })
+  const send = new Proxy({} as Record<string, unknown>, { get: () => () => undefined })
+  vi.stubGlobal('window', { foreman: { invoke, send, onEvent }, addEventListener() {}, dispatchEvent() {} })
   vi.stubGlobal('localStorage', { getItem: () => null, setItem() {} })
   vi.stubGlobal('document', { hasFocus: () => true })
   store = await import('../src/renderer/src/store')
@@ -69,4 +72,19 @@ it('in Personal, a new repository stays in Personal', async () => {
   addResult = { id: 'r-personal' }
   await store.openRecentRepo('/code/personal')
   expect(moves()).toEqual([])
+})
+
+it('several folders dropped while an organization is shown all join it, except one already registered', async () => {
+  store.setSpace('o1', { home: false })
+  await store.addDroppedRepositories(['/code/a', '/code/b', '/code/old'])
+  expect(moves()).toEqual([
+    ['moveRepoToSpace', ['r-a', 'o1']],
+    ['moveRepoToSpace', ['r-b', 'o1']]
+  ])
+})
+
+it('one folder dropped while an organization is shown joins it once', async () => {
+  store.setSpace('o1', { home: false })
+  await store.addDroppedRepositories(['/code/a'])
+  expect(moves()).toEqual([['moveRepoToSpace', ['r-a', 'o1']]])
 })

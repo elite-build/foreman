@@ -23,7 +23,7 @@ import {
   useStore,
   type SidebarMode
 } from '../store'
-import { Button, MenuButton, MenuGroup, MenuItem, MenuSeparator, SplitButton } from '../ui'
+import { Button, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuSeparator, SplitButton } from '../ui'
 import { tildify } from './AddRepository'
 
 /** One thing the list can make. `run` does it; the list closes itself first. */
@@ -147,13 +147,13 @@ export function NewMenu({ rail }: { rail?: boolean }) {
         <MenuButton
           look="button"
           iconOnly
-          portal
           placement="bottom-end"
           label={addLabel}
           trigger={<FolderPlus size={16} aria-hidden />}
           triggerClassName="sidebar-add-repo"
           data-tour="add-repo"
         >
+          <MenuLabel>{addLabel}</MenuLabel>
           <MenuGroup label={addLabel}>
             <MenuItem icon={<FolderOpen size={14} />} onSelect={() => void addRepository()}>
               {t('addRepo.openProject')}
@@ -166,13 +166,16 @@ export function NewMenu({ rail }: { rail?: boolean }) {
             </MenuItem>
           </MenuGroup>
           {recent.length > 0 && (
-            <MenuGroup label={t('addRepo.recentFolders')}>
-              {recent.map((p) => (
-                <MenuItem key={p} icon={<Clock size={14} />} title={p} onSelect={() => void openRecentRepo(p)}>
-                  {tildify(p, snapshot.homeDir)}
-                </MenuItem>
-              ))}
-            </MenuGroup>
+            <>
+              <MenuLabel>{t('addRepo.recentFolders')}</MenuLabel>
+              <MenuGroup label={t('addRepo.recentFolders')}>
+                {recent.map((p) => (
+                  <MenuItem key={p} icon={<Clock size={14} />} title={p} onSelect={() => void openRecentRepo(p)}>
+                    {tildify(p, snapshot.homeDir)}
+                  </MenuItem>
+                ))}
+              </MenuGroup>
+            </>
           )}
           <MenuSeparator />
           <MenuItem icon={<Ellipsis size={14} />} description={t('addRepo.moreDetail')} onSelect={() => openAddRepoDialog('add')}>

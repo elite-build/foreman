@@ -1858,15 +1858,20 @@ function knownRepoIds(): Set<string> {
   return new Set((state.snapshot?.repos ?? []).map((r) => r.id))
 }
 
+/** A new repository (not in `known`) added while an organization is shown joins it; one already registered keeps its space. */
+async function joinShownSpace(repoId: string, known: Set<string>): Promise<void> {
+  const snapshot = state.snapshot
+  const organization = currentSpace(snapshot?.organizations, state.space)
+  const repo = snapshot?.repos.find((r) => r.id === repoId)
+  if (organization && !known.has(repoId) && (repo?.spaceId ?? null) !== organization) await attempt(() => api.moveRepoToSpace(repoId, organization))
+}
+
 /**
  * A repository that was just added: offer its first workspace. A new one added while an organization is shown joins it
  * (the Add menus say "Add a repository to <space>"); one that was already registered keeps its space.
  */
 function repoAdded(repoId: string, known: Set<string>): void {
-  const snapshot = state.snapshot
-  const organization = currentSpace(snapshot?.organizations, state.space)
-  const repo = snapshot?.repos.find((r) => r.id === repoId)
-  if (organization && !known.has(repoId) && (repo?.spaceId ?? null) !== organization) void attempt(() => api.moveRepoToSpace(repoId, organization))
+  void joinShownSpace(repoId, known)
   setState({ addRepoDialog: null, makeRepoDir: null })
   openSettingsPage(null)
   openNewWorkspace(repoId)
@@ -2007,8 +2012,11 @@ export async function addDroppedRepositories(paths: string[]): Promise<number> {
     if (repo) added.push(repo.id)
   }
   if (!added.length) return 0
+  // Join the organization shown first: showing the first one follows its space, which would otherwise still be Personal.
+  await Promise.all(added.map((id) => joinShownSpace(id, known)))
   showRepoHome(added[0])
-  if (added.length === 1) repoAdded(added[0], known)
+  // Already joined above, so it counts as known here.
+  if (added.length === 1) repoAdded(added[0], new Set([...known, added[0]]))
   return added.length
 }
 

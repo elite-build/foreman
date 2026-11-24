@@ -284,6 +284,7 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     const trigger = await waitFor(element('.sidebar-add-repo'))
     if (!trigger) return null
     trigger.click()
+    await waitFor(element('.ui-menu [role="menuitem"]'))
     return '.ui-menu'
   },
   // Settings › Quick: what Settings opens on.
