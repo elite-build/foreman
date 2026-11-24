@@ -4,6 +4,24 @@ An AI employee is a standing member of an organization: it has a name, a role, a
 
 This is the design. It started behind an Experimental switch and is now part of Foreman for everyone: until a person makes an organization, nothing about it shows except the **Personal ▾** switcher (section 3). The research behind it (four reference projects studied independently by two models, with two review rounds) and the mocks the decisions were made from are kept outside the repository; where they disagree with this document, this document wins.
 
+## Where to look
+
+This guide is long. Find the row for the task, read that section, then start in the code it names. Paths are under `src/`; `components/` is `src/renderer/src/components/`.
+
+| The task is about | Section | Code to start in |
+| --- | --- | --- |
+| The words: organization, employee, task, run | 2 | |
+| Organizations, Personal and which repositories a space holds | 3 | `main/organizations.ts`, `components/spaces/` |
+| The memory repository | 4 | `main/memory.ts` (its only writer), `main/memoryLink.ts` |
+| An employee: its definition, its instructions and creating one | 5 | `main/employees.ts`, `shared/employees.ts` |
+| Tasks, runs and one employee handing work to another | 6, 7 | `main/employeeWork.ts`, `shared/employeeBroker.ts` |
+| Schedules and events that start work | 8 | `main/employeeTriggers.ts`, `main/employeeEvents.ts` and their `shared/` namesakes |
+| What an employee may do, and what waits for a person | 9 | `main/employeeActions.ts`, `shared/employeeActions.ts`, `main/employeeTools.ts` |
+| Where it shows in the app | 10 | `components/employees/`, `components/spaces/` |
+| What is stored | 12 | |
+| Projects, plans and the program manager | 15 | `main/projects.ts`, `shared/projects.ts`, `shared/employeeTeams.ts` |
+| Job profiles and templates, work reports, the wiki | 16 | `shared/employeeTemplates.ts` |
+
 ## 1. What stays the same
 
 - **Personal is today's Foreman.** Every repository you have, and every one you add, starts in Personal. Nothing changes for anyone who never creates an organization beyond the Personal tile at the top of the sidebar's rail, with New organization… under it (section 3): no new sidebar mode, no new files.

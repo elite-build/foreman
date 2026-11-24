@@ -6,6 +6,19 @@ This page designs **flows**: a graph of steps the user (or, under the existing o
 
 Nothing here adds a server, a daemon or an account. Flows run while Foreman runs, on this computer, under the rules the schedule and auto-review services already follow. Foreman need not have a window open for that: it can run headless, and `foreman service install` starts it so at every login (docs/server.md, "As a service").
 
+## Where to look
+
+This guide is long. Find the row for the task, read that section, then start in the code it names. Paths are under `src/`; `components/` is `src/renderer/src/components/`.
+
+| The task is about | Section | Code to start in |
+| --- | --- | --- |
+| What is built and what is still a plan | Status, Phases | |
+| The loops Foreman had before flows: schedules, auto-fix, auto review, hand-offs | What exists already | `main/schedules.ts`, `main/autoFix.ts`, `main/autoReview.ts`, `main/handOffs.ts` |
+| A flow's parts: steps, edges, loops, personas, where its file lives | The model (one subsection each) | `shared/flows.ts`, `shared/flowToml.ts`, `shared/flowGraph.ts` |
+| The run, context, memory and data lenses | Four graphs over one flow | `shared/flowGraph.ts`, `shared/context.ts`, `shared/lineage.ts` |
+| Running a flow, its limits and its stop rules | Running a flow, Policy | `main/flows.ts`, `shared/flowLimits.ts` |
+| Drawing a flow | Showing a graph | `shared/flowLayout.ts`, `components/FlowDiagram.tsx`, `components/automations/` |
+
 ## Status
 
 Built so far, all behind **Settings → Experimental → Flows** (off by default):

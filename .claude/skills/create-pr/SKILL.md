@@ -31,7 +31,7 @@ Done when you can say in two sentences what the branch changes and why.
 
 Always: `npm run typecheck`, `npm test`, `npm run build`, `npm run check:repository`.
 
-Add the ones the diff calls for (AGENTS.md, "Development, checks and packaging", is the source of truth):
+Add the ones the diff calls for (AGENTS.md, "Development, checks and packaging", is the source of truth; `docs/map.md` describes each command):
 
 | The diff touches | Also run |
 | --- | --- |
