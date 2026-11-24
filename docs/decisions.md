@@ -34,6 +34,16 @@ A heading with the date and the decision as a statement, then four short paragra
 
 Don't delete or rewrite an entry that no longer holds. Add a new entry, and put `**Superseded** by <new entry's heading>.` as the old entry's first line.
 
+## 2026-11-24: Release notes are ordered by what the reader has to do, one bullet per effect, and releases stay small
+
+**Decision.** A release's sections go in this order: **Before you update**, **Security**, **Fixed**, **Added**, **Changed**, then **Development**, which stays in `CHANGELOG.md` and out of **What's new**. Each bullet is one effect. A change to how something worked says before, now and what to do. Foreman keeps releasing once or twice a day.
+
+**Why.** Sorted by type, a permissions fix sat under **Fixed** and one PR became one long bullet. Anything a user had to act on had no place to stand out.
+
+**Turned down.** Keep a Changelog's order by type: it doesn't show what to act on. Batching releases weekly so each says more: fixes would reach users days later.
+
+**Revisit when.** Releases carry so many notes that **What's new** needs a summary at the top.
+
 ## 2026-11-22: Foreman sends its own traces only to a Langfuse project the person at that computer picks
 
 **Decision.** Foreman can send each turn (model calls, tokens, cost, tool calls) and its stalls and errors to Langfuse over OpenTelemetry. It is off by default, ships no keys, and only the computer's own window can choose the destination (`window` scope); it lives outside Settings, so backup, export, import and a repository's `.foreman/settings.toml` never turn it on.

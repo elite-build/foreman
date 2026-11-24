@@ -51,11 +51,14 @@ git log --format=%s v<last>..origin/main
 gh pr view <number> --json number,title,body,url
 ```
 
-From each PR take the lines under `## Release note`, each starting `Added:`, `Changed:`, `Fixed:`, `Security:` or `Development:`.
+Read each PR's whole body, not just its note. Its lines under `## Release note` start with a section: `Before you update:`, `Security:`, `Fixed:`, `Added:`, `Changed:` or `Development:` (older PRs use only the last five). They are a starting point. The lead, **Why**, **What changed** and **Compatibility** say what the user actually sees.
 
 - Skip `None: …` notes and the previous `Release <version>` PR.
 - A commit without a PR number, or a PR without a Release note section: write a note from its title and body in the same voice, and list it in your report as written by you.
-- Edit them as one document, not a pile of lines: merge notes that describe the same change and cite every PR they came from, keep what the user notices, and keep UI names in **bold**. Don't add anything no PR says.
+- **Put each note in the section a reader needs it in**, whatever the PR chose. Anything the user has to act on goes in **Before you update**: a **Compatibility** section that asks something of the user, a habit that stops working, a setting that resets. A change to approvals, permissions, credentials or what leaves the computer goes in **Security**, even when the PR called it `Fixed`.
+- **One bullet per effect.** Split a note that packs several effects into one bullet for each, in their own sections, each citing the PR. Merge notes from several PRs that describe the same effect into one bullet citing every PR. A bullet is one or two short sentences. If it needs three, it's probably two effects.
+- **Changed behaviour says before, now and what to do.** Say what it did before and what it does now. Give an example when the rule alone is hard to picture, and say what to do when the user has to act. A security fix links its CVE or advisory when there is one and says who is affected.
+- Edit them as one document, not a pile of lines: keep what the user notices, keep UI names in **bold**, and don't add anything no PR says.
 
 If nothing is user-visible (only `None` notes), tell the user and ask whether to release anyway.
 
@@ -76,12 +79,12 @@ It sets the version in `package.json` and `package-lock.json` and nothing else. 
 ```md
 ## <version> (<YYYY-MM-DD, today>)
 
-### Added
+### Fixed
 
 - <note> ([#81](https://github.com/elite-build/foreman/pull/81))
 ```
 
-Sections go in this order, each only when it has a note: `Added`, `Changed`, `Fixed`, `Security`, `Development`. If the newest entry in `CHANGELOG.md` isn't `<last>`, earlier releases are missing from it: don't backfill them unasked, but mention the gap in your report.
+Sections go in this order, each only when it has a note: `Before you update`, `Security`, `Fixed`, `Added`, `Changed`, `Development`. Entries up to 1.2.12 use the earlier order (`Added`, `Changed`, `Fixed`, `Security`, `Development`); leave them as they are. If the newest entry in `CHANGELOG.md` isn't `<last>`, earlier releases are missing from it: don't backfill them unasked, but mention the gap in your report.
 
 Commit both with the repository's subject for it:
 
@@ -154,7 +157,7 @@ If it fails, read `gh run view <run-id> --log-failed`:
 
 ## 9. Edit the draft
 
-**Notes.** Replace the generated list of PR titles with the `CHANGELOG.md` entry from step 4, without its `## <version>` heading. Add these after it when they apply:
+**Notes.** Replace the generated list of PR titles with the `CHANGELOG.md` entry from step 4, without its `## <version>` heading and without its `### Development` section: installed copies show these notes in **What's new**, and those lines are for contributors, who read `CHANGELOG.md`. If `Development` was the entry's only section, the notes are `Nothing changes for users in this release; see CHANGELOG.md for what changed for contributors.` Add these after it when they apply:
 
 - `## Known validation findings`: each check that failed in step 5 that the user chose to release with, in a sentence.
 - `**Full changelog**: https://github.com/elite-build/foreman/compare/v<last>...v<version>`
@@ -174,7 +177,7 @@ gh release view v<version> --json name,tagName,isDraft,isPrerelease,body,assets
 gh release view v<version> --json body --jq .body | head -c 3 | od -c
 ```
 
-Check that the name is `Foreman <version>`; it's still a draft; it's a prerelease exactly when the version has a suffix; the body starts with your first heading, not a BOM, holds no generated "What's Changed" list or placeholder, and its notes match `CHANGELOG.md`; and every asset is still attached.
+Check that the name is `Foreman <version>`; it's still a draft; it's a prerelease exactly when the version has a suffix; the body starts with your first heading, not a BOM, holds no generated "What's Changed" list or placeholder, and its notes match the `CHANGELOG.md` entry without its `Development` section; and every asset is still attached.
 
 ## 10. Publish
 
