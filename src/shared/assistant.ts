@@ -65,7 +65,7 @@ export function assistantGate(input: GateInput): AssistantGate {
   return { state: 'unsupported', agent, ...(alternative ? { alternative } : {}) }
 }
 
-/** The agent's display name: "Claude Code", "Codex", "Gemini CLI". */
+/** The agent's display name: "Claude Code", "Codex", "Antigravity". */
 export function agentName(agent: string): string {
   return catalogAgent(agent)?.name ?? agent
 }

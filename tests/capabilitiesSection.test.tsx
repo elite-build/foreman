@@ -136,11 +136,11 @@ describe('the Capabilities section', () => {
   })
 
   it('folds in what an ACP agent declared: Plan mode is Works once it listed a plan session mode', () => {
-    section('gemini', 'Gemini CLI')
+    section('antigravity', 'Antigravity')
     expect(linesOf('Planning')[0].textContent).toContain('Not offered')
     cleanup()
-    fakeState.snapshot.agentCapabilities = { ...staticCapabilitiesView(), declared: { gemini: { '': { planMode: true } } } }
-    section('gemini', 'Gemini CLI')
+    fakeState.snapshot.agentCapabilities = { ...staticCapabilitiesView(), declared: { antigravity: { '': { planMode: true } } } }
+    section('antigravity', 'Antigravity')
     expect(linesOf('Planning')[0].textContent).toBe('Plan modeWorks')
   })
 
@@ -158,7 +158,7 @@ describe('the Capabilities section', () => {
 
   it('takes children after the groups (what a Chat agent reported when it last ran)', () => {
     render(
-      <CapabilitiesSection agent="gemini" name="Gemini CLI">
+      <CapabilitiesSection agent="antigravity" name="Antigravity">
         <p>It said it can resume.</p>
       </CapabilitiesSection>
     )

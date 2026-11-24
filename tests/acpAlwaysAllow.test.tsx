@@ -48,7 +48,7 @@ function agent(asks: Ask[], sessionId = 's-1') {
   return { app: Object.assign(app, { attach: () => undefined }) as unknown as ReturnType<typeof acpFake>, answered }
 }
 
-async function run(kind: 'gemini', asks: Ask[], person: Person, over: Partial<TurnRequest> = {}) {
+async function run(kind: 'qwen', asks: Ask[], person: Person, over: Partial<TurnRequest> = {}) {
   const fake = agent(asks)
   const driver = createAcpDriver({ kind, label: kind, command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(fake.app) })
   const { cb, played } = callbacks(person)
@@ -60,17 +60,17 @@ describe('a Chat agent: Foreman remembers an always-allow for the session', () =
   const always: Person = { approve: () => ({ allow: true, alternate: true }) }
 
   it('has the session-always fallback in its record', () => {
-    expect(staticCapabilities('gemini')!.approvals.alwaysAllow).toEqual({ level: 'fallback', fallback: 'session-always' })
+    expect(staticCapabilities('qwen')!.approvals.alwaysAllow).toEqual({ level: 'fallback', fallback: 'session-always' })
   })
 
   it('offers it for a command with the command as its scope, and answers the agent once', async () => {
-    const r = await run('gemini', ['npm   test'], always)
+    const r = await run('qwen', ['npm   test'], always)
     expect(r.played.approvals[0]).toMatchObject({ alternate: 'always-allow', alwaysScope: 'npm test' })
     expect(r.answered).toEqual(['once'])
   })
 
   it('lets the same request through afterwards, in this session, and asks about anything else', async () => {
-    const r = await run('gemini', ['npm test', 'npm  test', 'npm test --watch', { kind: 'read', path: 'npm test' }], always)
+    const r = await run('qwen', ['npm test', 'npm  test', 'npm test --watch', { kind: 'read', path: 'npm test' }], always)
     // The first was asked (and remembered); the same command spelled differently was not; a different command and another kind of tool were.
     expect(r.played.approvals).toHaveLength(3)
     expect(r.played.approvals.map((a) => a.toolName)).toEqual(['Bash', 'Bash', 'Read'])
@@ -79,7 +79,7 @@ describe('a Chat agent: Foreman remembers an always-allow for the session', () =
 
   it('remembers across the session’s turns, and forgets with the session', async () => {
     const fake = agent(['npm test'], 's-9')
-    const driver = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(fake.app) })
+    const driver = createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(fake.app) })
     const base = await request({ approvals: 'ask' })
     const first = callbacks(always)
     await driver.createTurn({ ...base, turnId: 't1', resume: 's-9' }, first.cb).run()
@@ -90,7 +90,7 @@ describe('a Chat agent: Foreman remembers an always-allow for the session', () =
     expect(second.played.approvals).toHaveLength(0)
     // A new conversation (another session) starts with nothing remembered.
     const other = agent(['npm test'], 's-10')
-    const driver2 = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(other.app) })
+    const driver2 = createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(other.app) })
     const third = callbacks(always)
     await driver2.createTurn({ ...base, turnId: 't3' }, third.cb).run()
     expect(third.played.approvals).toHaveLength(1)
@@ -100,7 +100,7 @@ describe('a Chat agent: Foreman remembers an always-allow for the session', () =
     const capped = { capped: { ceiling: 'never-ask' as const } }
     const protectedRead = { kind: 'read' as const, path: '.claude/settings.json' }
     const ordinary = { kind: 'read' as const, path: 'README.md' }
-    const r = await run('gemini', [protectedRead, protectedRead, ordinary, ordinary], always, capped)
+    const r = await run('qwen', [protectedRead, protectedRead, ordinary, ordinary], always, capped)
     expect(r.played.approvals.map((a) => [String(a.input.file_path).split(/[\\/]/).pop(), a.alternate])).toEqual([
       ['settings.json', undefined],
       ['settings.json', undefined],
@@ -111,7 +111,7 @@ describe('a Chat agent: Foreman remembers an always-allow for the session', () =
   })
 
   it('a terminal command is remembered the same way', async () => {
-    const driver = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(acpFake('terminal-direct')) })
+    const driver = createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(acpFake('terminal-direct')) })
     const { cb, played } = callbacks(always)
     await driver.createTurn(await request({ approvals: 'ask' }), cb).run()
     expect(played.approvals[0]).toMatchObject({ toolName: 'Bash', alternate: 'always-allow' })
@@ -144,7 +144,7 @@ describe('the approval card', () => {
   })
 
   it('names what Always allow will let through, where Foreman remembers it for the session', () => {
-    fakeState.snapshot.sessions = [{ id: 's1', workspaceId: 'w1', agent: 'gemini' } as never]
+    fakeState.snapshot.sessions = [{ id: 's1', workspaceId: 'w1', agent: 'qwen' } as never]
     render(<ToolApprovalPanel request={{ kind: 'tool', id: 'a1', sessionId: 's1', toolName: 'Bash', input: { command: 'npm test' }, alternate: 'always-allow', alwaysScope: 'npm test' } as never} workspacePath="/w" />)
     const button = screen.getByRole('button', { name: /always allow npm test/i })
     expect(button.textContent).toContain('npm test')

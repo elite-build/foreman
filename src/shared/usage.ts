@@ -1,10 +1,11 @@
 // Usage per chat tab and per workspace, from the chat's items. Each turn counts
 // once per turnId: a forked tab starts with a copy of its parent's items, so the
 // workspace total must not count the shared turns twice.
-import { AGENTS, type AgentKind } from './agents'
+import type { AgentKind } from './agents'
 import { createT, type TFunction } from './i18n'
 import { turnAuthors } from './switchAgent'
 import type { ChatItem, TabUsage, WorkspaceUsage } from './types'
+import { historyAgentLabel } from './retiredAgents'
 
 const enT = createT('en')
 
@@ -57,7 +58,7 @@ export function workspaceUsage(tabs: { id: string; agent: AgentKind; items: Chat
     const usage = sum(turns.values())
     // O1: a tab that switched agents names the agents whose turns reported no cost at all.
     const unpriced = unpricedAgents(tab.items, tab.agent, turns)
-    out.tabs[tab.id] = { ...usage, costNote: unpriced.length ? t('usage.costNaFor', { agents: unpriced.map((a) => AGENTS[a]?.label ?? a).join(', ') }) : undefined }
+    out.tabs[tab.id] = { ...usage, costNote: unpriced.length ? t('usage.costNaFor', { agents: unpriced.map((a) => historyAgentLabel(a)).join(', ') }) : undefined }
     // A tab with turns but no reported cost (for some agent) makes the total partial.
     if (unpriced.length) out.total.partial = true
     for (const [turnId, figures] of turns) {

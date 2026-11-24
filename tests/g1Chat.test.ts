@@ -86,7 +86,7 @@ describe('G1 · /mcp-status for agents that report no MCP status', () => {
       { name: 'db', approved: false, command: 'npx db-mcp' }
     ]
     const { store, ws, sessions } = await rig(origins)
-    for (const agent of ['codex', 'gemini'] as const) {
+    for (const agent of ['codex', 'antigravity'] as const) {
       expect(AGENTS[agent].builtinCommands.some((c) => c.name === 'mcp-status')).toBe(true)
       const s = sessions.createSession(ws.id, { agent })
       const result = await sessions.mcpStatus(s.id)
@@ -106,17 +106,17 @@ describe('G1 · /mcp-status for agents that report no MCP status', () => {
 })
 
 describe('G1 · plan mode for an ACP agent that declared one', () => {
-  it('lets a Gemini tab turn Plan on once Gemini declared a plan mode, and passes it to the turn', async () => {
+  it('lets an Antigravity tab turn Plan on once Antigravity declared a plan mode, and passes it to the turn', async () => {
     const { store, ws, sessions } = await rig()
-    const s = sessions.createSession(ws.id, { agent: 'gemini', title: 'plan' })
+    const s = sessions.createSession(ws.id, { agent: 'antigravity', title: 'plan' })
     await expect(sessions.updateSession(s.id, { planMode: true })).rejects.toThrow(/not available/)
-    store.state.catalog.agents.gemini = { models: [], modes: [{ id: 'default', name: 'Default' }, { id: 'plan', name: 'Plan' }] }
+    store.state.catalog.agents.antigravity = { models: [], modes: [{ id: 'default', name: 'Default' }, { id: 'plan', name: 'Plan' }] }
     await sessions.updateSession(s.id, { planMode: true })
     expect(store.state.sessions.find((x) => x.id === s.id)?.planMode).toBe(true)
     const seen: boolean[] = []
     registerDriver({
-      kind: 'gemini',
-      status: async () => ({ agent: 'gemini', installed: true, ready: true }),
+      kind: 'antigravity',
+      status: async () => ({ agent: 'antigravity', installed: true, ready: true }),
       createTurn: (req, cb) => ({ run: async () => (seen.push(req.planMode), cb.finished({ ok: true })), stop: async () => {}, steer: () => false, setPlanMode: async () => {}, setModel: async () => {} })
     })
     const { turnId } = await sessions.deliver(s.id, 'plan it')
@@ -127,13 +127,13 @@ describe('G1 · plan mode for an ACP agent that declared one', () => {
 
 describe('G1 · catalog agents in model visibility and search', () => {
   it('keeps a Chat agent’s hidden models and searches its models', () => {
-    expect(parseHiddenModels({ gemini: ['gemini-3-pro'], aider: ['x'], nope: ['y'] })).toEqual({ gemini: ['gemini-3-pro'] })
-    setModelCatalog({ gemini: [{ id: 'gemini-3-pro', agent: 'gemini', label: 'Gemini 3 Pro', efforts: [], supportsFast: false, contextWindow: 1 }] })
+    expect(parseHiddenModels({ antigravity: ['gemini-3-pro'], aider: ['x'], nope: ['y'] })).toEqual({ antigravity: ['gemini-3-pro'] })
+    setModelCatalog({ antigravity: [{ id: 'gemini-3-pro', agent: 'antigravity', label: 'Gemini 3 Pro', efforts: [], supportsFast: false, contextWindow: 1 }] })
     try {
-      expect(allModels().some((m) => m.agent === 'gemini' && m.id === 'gemini-3-pro')).toBe(true)
-      const models = allModels().filter((m) => m.agent === 'gemini')
-      expect(pickerModels(models, { gemini: ['gemini-3-pro'] }).shown).toEqual([])
-      expect(pickerModels(models, { gemini: ['gemini-3-pro'] }, { agent: 'gemini', model: 'gemini-3-pro' }).shown).toHaveLength(1)
+      expect(allModels().some((m) => m.agent === 'antigravity' && m.id === 'gemini-3-pro')).toBe(true)
+      const models = allModels().filter((m) => m.agent === 'antigravity')
+      expect(pickerModels(models, { antigravity: ['gemini-3-pro'] }).shown).toEqual([])
+      expect(pickerModels(models, { antigravity: ['gemini-3-pro'] }, { agent: 'antigravity', model: 'gemini-3-pro' }).shown).toHaveLength(1)
     } finally {
       setModelCatalog({})
     }

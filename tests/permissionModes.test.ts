@@ -22,11 +22,11 @@ const cap = (ceiling: ApprovalPolicy): TurnCap => ({ ceiling, grantId: 'g', name
 describe('effectivePolicy without a cap', () => {
   it('is the stored mode wherever the record lists it', () => {
     for (const mode of POLICY_ORDER) expect(effectivePolicy(record('claude'), mode)).toEqual({ refused: false, policy: mode })
-    for (const mode of ['ask', 'ask-except-edits', 'never-ask'] as const) expect(effectivePolicy(record('gemini'), mode)).toEqual({ refused: false, policy: mode })
+    for (const mode of ['ask', 'ask-except-edits', 'never-ask'] as const) expect(effectivePolicy(record('qwen'), mode)).toEqual({ refused: false, policy: mode })
   })
 
   it('runs an agent with no Auto as Ask, and says who holds that', () => {
-    expect(effectivePolicy(record('gemini'), 'auto')).toEqual({ refused: false, policy: 'ask', changed: { stored: 'auto', by: 'foreman' } })
+    expect(effectivePolicy(record('qwen'), 'auto')).toEqual({ refused: false, policy: 'ask', changed: { stored: 'auto', by: 'foreman' } })
     expect(effectivePolicy(record('opencode'), 'auto')).toMatchObject({ policy: 'ask', changed: { by: 'foreman' } })
   })
 
@@ -58,7 +58,7 @@ describe('effectivePolicy under a cap', () => {
 
   it('refuses an agent that can’t hold the ceiling, and only then', () => {
     expect(effectivePolicy(record('cursor'), 'ask', cap('ask'))).toEqual({ refused: true })
-    expect(effectivePolicy(record('gemini'), 'never-ask', cap('auto'))).toEqual({ refused: true })
+    expect(effectivePolicy(record('qwen'), 'never-ask', cap('auto'))).toEqual({ refused: true })
     // A ceiling it can hold is no refusal and no change of mode.
     expect(effectivePolicy(record('cursor'), 'ask', cap('never-ask'))).toEqual({ refused: false, policy: 'ask' })
   })
@@ -67,7 +67,7 @@ describe('effectivePolicy under a cap', () => {
 describe('what the pickers offer', () => {
   it('is the record’s modes, most restrictive first', () => {
     expect(offeredModes(record('claude'))).toEqual(['ask', 'ask-except-edits', 'auto', 'never-ask'])
-    expect(offeredModes(record('gemini'))).toEqual(['ask', 'ask-except-edits', 'never-ask'])
+    expect(offeredModes(record('qwen'))).toEqual(['ask', 'ask-except-edits', 'never-ask'])
     expect(offeredModes(record('cursor'))).toEqual(['never-ask'])
     expect(offeredModes(undefined)).toEqual(['ask', 'ask-except-edits', 'auto', 'never-ask'])
   })
@@ -79,14 +79,14 @@ describe('what the pickers offer', () => {
     expect(permissionNote('cursor', base)).toBe('tools run without approval')
     expect(approvalPolicyFor('cursor', base)).toBe('ask')
     // An agent with no Auto runs it as Ask.
-    expect(permissionNote('gemini', { ...base, autoPermissionMode: true })).toBe('asks before running tools')
+    expect(permissionNote('qwen', { ...base, autoPermissionMode: true })).toBe('asks before running tools')
   })
 })
 
 type Notice = Extract<ChatItem, { kind: 'notice' }>
 
 describe('in a chat', () => {
-  async function on(agent: 'cursor' | 'gemini', settings: Record<string, unknown> = {}) {
+  async function on(agent: 'cursor' | 'qwen', settings: Record<string, unknown> = {}) {
     const requests: TurnRequest[] = []
     registerDriver({ ...fakeDriver(async (req, cb) => (requests.push(req), cb.sessionStarted('s'), cb.finished({ ok: true }))), kind: agent })
     const h = await setupSessions()
@@ -111,9 +111,9 @@ describe('in a chat', () => {
   })
 
   it('says it again when the stored mode changes what the agent runs as', async () => {
-    const { h, say, notices } = await on('gemini', { autoPermissionMode: true })
+    const { h, say, notices } = await on('qwen', { autoPermissionMode: true })
     await say('one')
-    expect((await notices()).map((n) => n.text)).toEqual(['Gemini CLI can’t run in “Auto”, so this chat runs as “Ask”. Enforced by: Foreman’s review.'])
+    expect((await notices()).map((n) => n.text)).toEqual(['Qwen Code can’t run in “Auto”, so this chat runs as “Ask”. Enforced by: Foreman’s review.'])
     await say('two')
     expect(await notices()).toHaveLength(1)
     // The person stops using Auto: the agent honours what is stored, and there is nothing to say.
@@ -126,7 +126,7 @@ describe('in a chat', () => {
   })
 
   it('says nothing for an agent that honours the stored mode', async () => {
-    const { requests, say, notices } = await on('gemini')
+    const { requests, say, notices } = await on('qwen')
     await say('one')
     expect(requests[0].approvals).toBe('ask')
     expect(await notices()).toEqual([])

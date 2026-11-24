@@ -3,6 +3,7 @@
 // is treated as a secret; values only leave the main process when the user
 // reveals or copies one.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { RETIRED_AGENTS } from '../shared/retiredAgents'
 import type { EnvScope } from '../shared/types'
 
 export interface Encryptor {
@@ -69,7 +70,33 @@ export class SecretStore {
     } catch {
       // Unreadable (e.g. copied from another machine); start empty.
       this.vault = emptyVault()
+      return
     }
+    try {
+      if (this.moveRetiredAgentKeys()) this.save()
+    } catch {
+      // Not written now: the move is made again on the next load, and the keys work from memory meanwhile.
+    }
+  }
+
+  /**
+   * A retired agent's own keys (shared/retiredAgents.ts) go to its successor where it has none under the same name (Gemini
+   * CLI's GEMINI_API_KEY is Antigravity's too); the retired agent's table goes. Returns whether anything changed.
+   */
+  private moveRetiredAgentKeys(): boolean {
+    const agents = this.vault.agents
+    if (!agents) return false
+    let changed = false
+    for (const [id, { successor }] of Object.entries(RETIRED_AGENTS)) {
+      const own = agents[id]
+      if (!own) continue
+      const table = (agents[successor] ??= {})
+      for (const [envVar, value] of Object.entries(own)) if (!table[envVar] && value) table[envVar] = value
+      if (!Object.keys(table).length) delete agents[successor]
+      delete agents[id]
+      changed = true
+    }
+    return changed
   }
 
   private save(): void {

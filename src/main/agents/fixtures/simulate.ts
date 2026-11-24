@@ -31,7 +31,7 @@ const CURSOR_PLANS: AgentRecorder['plans'] = {
 const acpSpec: AgentRecorder = {
   agent: 'acp',
   evidence: 'simulated',
-  driver: createAcpDriver({ kind: 'gemini', label: 'acp', command: () => ({ file: 'unused', args: [] }) }),
+  driver: createAcpDriver({ kind: 'qwen', label: 'acp', command: () => ({ file: 'unused', args: [] }) }),
   plans: ACP_PLANS,
   async prepare(_root, scenario: Scenario) {
     return {

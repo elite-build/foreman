@@ -35,7 +35,7 @@ const BY_ID = new Map(AGENT_CATALOG.map((a) => [a.id, a]))
 export const PERSONA_FILE_AGENT: FullAgentId = AGENT_CATALOG.find((a) => a.personaFiles)!.id as FullAgentId
 
 /** Words the settings search matches on the Agents pages: the Full agents' ids, and some of the catalog's. */
-export const AGENT_SEARCH_WORDS = { full: [...FULL_AGENT_IDS] as string[], catalog: ['gemini', 'qwen', 'kimi', 'droid', 'copilot', 'goose', 'aider', 'amp', 'crush', 'cline'] }
+export const AGENT_SEARCH_WORDS = { full: [...FULL_AGENT_IDS] as string[], catalog: ['antigravity', 'qwen', 'kimi', 'droid', 'copilot', 'goose', 'aider', 'amp', 'crush', 'cline'] }
 
 export function catalogAgent(id: string): CatalogAgent | undefined {
   return BY_ID.get(id)
@@ -243,7 +243,7 @@ export interface AcpMode {
 const PLAN_MODE = /^(plan|planning|plan[-_ ]mode)$/i
 
 /**
- * G1: the agent's plan mode, if it declared one: a mode whose id or name is "plan" (OpenCode's `plan` agent, Gemini's
+ * G1: the agent's plan mode, if it declared one: a mode whose id or name is "plan" (OpenCode's `plan` agent, Antigravity's
  * and Claude's ACP `plan`). Only what the agent itself offered; Foreman never guesses a mode from its description.
  */
 export function acpPlanMode(modes: AcpMode[] | undefined): AcpMode | undefined {
@@ -298,7 +298,7 @@ export interface AgentDetection {
   version?: string
   // Found, but its version check failed: the command and what it printed.
   error?: { command: string; output: string }
-  // G1: an agent whose ACP mode is a separate program (Pi's pi-acp, Antigravity's agy_acp_server): where it was found, if it was.
+  // G1: an agent whose ACP mode is a separate program (Pi's pi-acp): where it was found, if it was.
   acpProgram?: { name: string; path?: string; install?: string }
   checkedAt: string
 }
@@ -376,7 +376,7 @@ export type SignInState =
  * G1: agents whose sign-in Foreman looks for on disk (main/agents/signInProbes.ts), from where their docs say they
  * keep it. Found: "Credentials found", with the file; not found: Unknown, never "not signed in".
  */
-export const CREDENTIAL_PROBES = ['gemini', 'antigravity', 'qwen', 'copilot', 'amp', 'droid', 'kimi', 'goose', 'pi', 'omp', 'cline', 'kilocode', 'auggie', 'grok', 'vibe'] as const
+export const CREDENTIAL_PROBES = ['qwen', 'copilot', 'amp', 'droid', 'kimi', 'goose', 'pi', 'omp', 'cline', 'kilocode', 'auggie', 'grok', 'vibe'] as const
 
 /** Whether Foreman can ask about this agent's sign-in at all: its own status command, or a credentials probe. */
 export function canCheckSignIn(agent: CatalogAgent): boolean {

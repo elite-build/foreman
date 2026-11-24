@@ -41,14 +41,14 @@ const auth = (over: Partial<{ claudeAuth: 'cli' | 'apiKey'; codexAuth: 'cli' | '
 })
 
 describe('agent registry', () => {
-  it('lists the 33 agents once each, in the three levels the brief names', () => {
+  it('lists the 32 agents once each, in the three levels the brief names', () => {
     const ids = AGENT_CATALOG.map((a) => a.id)
     expect(new Set(ids).size).toBe(ids.length)
-    expect(ids).toHaveLength(33)
+    expect(ids).toHaveLength(32)
     expect(AGENT_CATALOG.filter((a) => a.level === 'full').map((a) => a.id)).toEqual([...FULL_AGENT_IDS])
     expect(AGENT_CATALOG.filter((a) => a.level === 'chat').map((a) => a.id)).toEqual([...CHAT_AGENT_IDS])
     expect(AGENT_CATALOG.filter((a) => a.level === 'terminal').map((a) => a.id)).toEqual([...TERMINAL_AGENT_IDS])
-    expect(CHAT_AGENT_IDS).toHaveLength(11)
+    expect(CHAT_AGENT_IDS).toHaveLength(10)
     expect(TERMINAL_AGENT_IDS).toHaveLength(18)
   })
 
@@ -80,14 +80,13 @@ describe('agent registry', () => {
   it('enables only the four Full agents by default', () => {
     expect(AGENT_CATALOG.filter((a) => a.defaultEnabled).map((a) => a.id)).toEqual([...FULL_AGENT_IDS])
     expect(enabledAgentIds(undefined)).toEqual([...FULL_AGENT_IDS])
-    expect(isAgentEnabled('gemini', { gemini: { enabled: true } })).toBe(true)
+    expect(isAgentEnabled('antigravity', { antigravity: { enabled: true } })).toBe(true)
     expect(isAgentEnabled('claude', { claude: { enabled: false } })).toBe(false)
   })
 
   it('keeps the ACP launch commands and distinguishes integration references from agent docs', () => {
     const flags = Object.fromEntries(AGENT_CATALOG.filter((a) => a.acp).map((a) => [a.id, [a.acp!.binaries?.[0] ?? a.binaries[0], ...a.acp!.args].join(' ')]))
     expect(flags).toMatchObject({
-      gemini: 'gemini --experimental-acp',
       qwen: 'qwen --acp',
       kimi: 'kimi acp',
       droid: 'droid exec --output-format acp-daemon',
@@ -96,13 +95,13 @@ describe('agent registry', () => {
       pi: 'pi-acp',
       commandcode: 'cmd acp --skip-onboarding --no-auto-update --trust',
       omp: 'omp acp',
-      antigravity: 'agy_acp_server',
+      antigravity: 'agy acp',
       goose: 'goose acp'
     })
     // These two commands were sourced from agent docs only.
-    expect(catalogAgent('gemini')!.acp!.source).toBe('docs')
+    expect(catalogAgent('antigravity')!.acp!.source).toBe('docs')
     expect(catalogAgent('goose')!.acp!.source).toBe('docs')
-    expect(AGENT_CATALOG.filter((a) => a.acp?.source === 'reference').length).toBe(9)
+    expect(AGENT_CATALOG.filter((a) => a.acp?.source === 'reference').length).toBe(8)
   })
 
   it('marks the six agents whose sign-in nobody has confirmed as Check docs, with no methods', () => {
@@ -130,13 +129,13 @@ describe('capability-based controls', () => {
     expect(controls('claude')).toEqual({ plan: true, steer: true, restore: true })
     expect(controls('codex')).toEqual({ plan: true, steer: true, restore: true })
     // A Chat agent restores the files and starts a fresh conversation (checkpoint-fresh-session); it can't steer mid-turn natively.
-    expect(controls('gemini')).toEqual({ plan: false, steer: false, restore: true })
+    expect(controls('antigravity')).toEqual({ plan: false, steer: false, restore: true })
     expect(controls('qwen').restore).toBe(true)
   })
 
   it('names what a Chat agent lacks in the picker’s hover note', () => {
-    const gemini = pickerGroups({ gemini: { enabled: true } }, { cursor: true, opencode: true }).find((g) => g.level === 'chat')!.agents[0]
-    expect(noteCapabilities(gemini)).toEqual(['plan', 'steer'])
+    const antigravity = pickerGroups({ antigravity: { enabled: true } }, { cursor: true, opencode: true }).find((g) => g.level === 'chat')!.agents[0]
+    expect(noteCapabilities(antigravity)).toEqual(['plan', 'steer'])
     // Full agents carry no note.
     const claude = pickerGroups(undefined, { cursor: true, opencode: true })[0].agents[0]
     expect(noteCapabilities(claude)).toEqual([])
@@ -145,39 +144,39 @@ describe('capability-based controls', () => {
 
 describe('the picker', () => {
   it('offers only enabled agents, grouped Full / Chat / Terminal', () => {
-    const prefs = { gemini: { enabled: true }, aider: { enabled: true }, cursor: { enabled: false } }
+    const prefs = { antigravity: { enabled: true }, aider: { enabled: true }, cursor: { enabled: false } }
     const groups = pickerGroups(prefs, { cursor: true, opencode: false })
     expect(groups.map((g) => [g.level, g.agents.map((a) => a.id)])).toEqual([
       ['full', ['claude', 'codex', 'opencode']],
-      ['chat', ['gemini']],
+      ['chat', ['antigravity']],
       ['terminal', ['aider']]
     ])
     // OpenCode is enabled but not installed: listed, not ready (picking it opens its settings).
     expect(groups[0].agents.find((a) => a.id === 'opencode')!.ready).toBe(false)
-    expect(enabledCount(prefs)).toEqual({ enabled: 5, total: 33 })
+    expect(enabledCount(prefs)).toEqual({ enabled: 5, total: 32 })
   })
 
   it('makes a chat agent available only while enabled; Terminal agents never take chats', () => {
     const off = pickerAgents(undefined, { cursor: false, opencode: false })
-    expect(off).toMatchObject({ claude: true, codex: true, cursor: false, opencode: false, gemini: false })
+    expect(off).toMatchObject({ claude: true, codex: true, cursor: false, opencode: false, antigravity: false })
     expect('aider' in off).toBe(false)
-    expect(pickerAgents({ gemini: { enabled: true } }, { cursor: true, opencode: true }).gemini).toBe(true)
+    expect(pickerAgents({ antigravity: { enabled: true } }, { cursor: true, opencode: true }).antigravity).toBe(true)
   })
 })
 
 describe('catalog page filters', () => {
   it('filters by level, enabled, installed and search text', () => {
-    const state = { enabled: (id: string) => ['claude', 'gemini'].includes(id), installed: (id: string) => ['claude', 'aider'].includes(id) }
-    expect(filterCatalog(AGENT_CATALOG, 'enabled', '', state).map((a) => a.id)).toEqual(['claude', 'gemini'])
+    const state = { enabled: (id: string) => ['claude', 'antigravity'].includes(id), installed: (id: string) => ['claude', 'aider'].includes(id) }
+    expect(filterCatalog(AGENT_CATALOG, 'enabled', '', state).map((a) => a.id)).toEqual(['claude', 'antigravity'])
     expect(filterCatalog(AGENT_CATALOG, 'installed', '', state).map((a) => a.id)).toEqual(['claude', 'aider'])
-    expect(filterCatalog(AGENT_CATALOG, 'chat', '', state)).toHaveLength(11)
+    expect(filterCatalog(AGENT_CATALOG, 'chat', '', state)).toHaveLength(10)
     expect(filterCatalog(AGENT_CATALOG, 'terminal', '', state)).toHaveLength(18)
     expect(filterCatalog(AGENT_CATALOG, 'all', 'qwen', state).map((a) => a.id)).toEqual(['qwen'])
   })
 })
 
 describe('detection', () => {
-  const gemini = catalogAgent('gemini')!
+  const qwen = catalogAgent('qwen')!
 
   function deps(files: string[], over: Partial<DetectDeps> = {}): DetectDeps & { ran: string[][] } {
     const ran: string[][] = []
@@ -187,7 +186,7 @@ describe('detection', () => {
       exists: (f) => files.includes(f),
       run: async (file, args) => {
         ran.push([file, ...args])
-        return 'gemini 0.21.0\n'
+        return 'qwen 0.21.0\n'
       },
       env: {},
       ran,
@@ -196,38 +195,38 @@ describe('detection', () => {
   }
 
   it('finds the binary on the injected PATH and reads its version', async () => {
-    const d = deps(['/usr/local/bin/gemini'])
-    const found = await detectAgent(gemini, d)
-    expect(found).toMatchObject({ id: 'gemini', installed: true, path: '/usr/local/bin/gemini', version: '0.21.0' })
-    expect(d.ran).toEqual([['/usr/local/bin/gemini', '--version']])
+    const d = deps(['/usr/local/bin/qwen'])
+    const found = await detectAgent(qwen, d)
+    expect(found).toMatchObject({ id: 'qwen', installed: true, path: '/usr/local/bin/qwen', version: '0.21.0' })
+    expect(d.ran).toEqual([['/usr/local/bin/qwen', '--version']])
   })
 
   it('says not installed when nothing is on PATH, without running anything', async () => {
     const d = deps([])
-    expect(await detectAgent(gemini, d)).toMatchObject({ id: 'gemini', installed: false })
+    expect(await detectAgent(qwen, d)).toMatchObject({ id: 'qwen', installed: false })
     expect(d.ran).toEqual([])
   })
 
   it('reports found-but-failing with the command and its output, not as missing', async () => {
-    const d = deps(['/usr/local/bin/gemini'], {
+    const d = deps(['/usr/local/bin/qwen'], {
       run: async () => {
         throw new Error('Error: Cannot find module "node:sqlite"')
       }
     })
-    const found = await detectAgent(gemini, d)
+    const found = await detectAgent(qwen, d)
     expect(found.installed).toBe(true)
-    expect(found.error).toEqual({ command: '/usr/local/bin/gemini --version', output: 'Error: Cannot find module "node:sqlite"' })
+    expect(found.error).toEqual({ command: '/usr/local/bin/qwen --version', output: 'Error: Cannot find module "node:sqlite"' })
   })
 
   it('uses a configured path instead of PATH, and only if it exists', async () => {
-    expect(await detectAgent(gemini, deps(['/custom/gemini']), '/custom/gemini')).toMatchObject({ installed: true, path: '/custom/gemini' })
-    expect(await detectAgent(gemini, deps(['/usr/local/bin/gemini']), '/missing/gemini')).toMatchObject({ installed: false })
+    expect(await detectAgent(qwen, deps(['/custom/qwen']), '/custom/qwen')).toMatchObject({ installed: true, path: '/custom/qwen' })
+    expect(await detectAgent(qwen, deps(['/usr/local/bin/qwen']), '/missing/qwen')).toMatchObject({ installed: false })
   })
 
   it('tries PATHEXT names on Windows, so an npm .cmd shim counts', () => {
-    const files = ['C:\\Users\\me\\AppData\\Roaming\\npm\\gemini.cmd']
-    const found = findBinary(['gemini'], { path: 'C:\\Windows;C:\\Users\\me\\AppData\\Roaming\\npm', platform: 'win32', pathExt: '.COM;.EXE;.BAT;.CMD', exists: (f) => files.includes(f) })
-    expect(found).toBe('C:\\Users\\me\\AppData\\Roaming\\npm\\gemini.cmd')
+    const files = ['C:\\Users\\me\\AppData\\Roaming\\npm\\qwen.cmd']
+    const found = findBinary(['qwen'], { path: 'C:\\Windows;C:\\Users\\me\\AppData\\Roaming\\npm', platform: 'win32', pathExt: '.COM;.EXE;.BAT;.CMD', exists: (f) => files.includes(f) })
+    expect(found).toBe('C:\\Users\\me\\AppData\\Roaming\\npm\\qwen.cmd')
   })
 
   it('starts .cmd shims through cmd.exe on Windows, and everything else directly', () => {
@@ -247,9 +246,9 @@ describe('sign-in states', () => {
   const agent = (id: string) => catalogAgent(id)!
 
   it('says only what something reported: key hints, ticked keys, a status answer, else unknown', () => {
-    expect(signInState(agent('gemini'), { mode: 'apiKey', keyHint: '3f2a', providerKeys: 0 })).toEqual({ kind: 'api-key', hint: '3f2a' })
-    expect(signInState(agent('gemini'), { mode: 'apiKey', providerKeys: 0 })).toEqual({ kind: 'no-key' })
-    expect(signInState(agent('gemini'), { mode: 'cli', providerKeys: 0 })).toEqual({ kind: 'unknown' })
+    expect(signInState(agent('antigravity'), { mode: 'apiKey', keyHint: '3f2a', providerKeys: 0 })).toEqual({ kind: 'api-key', hint: '3f2a' })
+    expect(signInState(agent('antigravity'), { mode: 'apiKey', providerKeys: 0 })).toEqual({ kind: 'no-key' })
+    expect(signInState(agent('antigravity'), { mode: 'cli', providerKeys: 0 })).toEqual({ kind: 'unknown' })
     expect(signInState(agent('kiro'), { mode: 'cli', providerKeys: 0, reported: { signedIn: false } })).toEqual({ kind: 'not-signed-in' })
     expect(signInState(agent('goose'), { mode: 'cli', providerKeys: 0 })).toEqual({ kind: 'unknown' })
     expect(signInState(agent('aider'), { mode: 'cli', providerKeys: 2 })).toEqual({ kind: 'provider-keys', count: 2 })
@@ -261,8 +260,8 @@ describe('sign-in states', () => {
 
   it('picks the sign-in mode per agent; Claude and Codex keep their own settings', () => {
     expect(agentAuthMode('claude', auth({ claudeAuth: 'apiKey' }))).toBe('apiKey')
-    expect(agentAuthMode('gemini', auth())).toBe('cli')
-    expect(agentAuthMode('gemini', auth({ agentPrefs: { gemini: { auth: 'apiKey' } } }))).toBe('apiKey')
+    expect(agentAuthMode('antigravity', auth())).toBe('cli')
+    expect(agentAuthMode('antigravity', auth({ agentPrefs: { antigravity: { auth: 'apiKey' } } }))).toBe('apiKey')
     expect(agentAuthMode('deepseek', auth())).toBe('apiKey')
     expect(agentAuthMode('kiro', auth({ agentPrefs: { kiro: { auth: 'apiKey' } } }))).toBe('cli')
     expect(usesOwnApiKey('kimchi', auth({ agentPrefs: { kimchi: { auth: 'apiKey' } } }))).toBe(false)
@@ -278,7 +277,7 @@ describe('sign-in states', () => {
   })
 
   it('drops unknown agents and fields from saved preferences', () => {
-    expect(parseAgentPrefs({ gemini: { enabled: true, auth: 'apiKey', path: ' /x ', junk: 1 }, nope: { enabled: true }, aider: 'yes' })).toEqual({ gemini: { enabled: true, auth: 'apiKey', path: '/x' } })
+    expect(parseAgentPrefs({ antigravity: { enabled: true, auth: 'apiKey', path: ' /x ', junk: 1 }, nope: { enabled: true }, aider: 'yes' })).toEqual({ antigravity: { enabled: true, auth: 'apiKey', path: '/x' } })
   })
 })
 
@@ -323,7 +322,7 @@ describe('what the settings pages and pickers read from the catalog instead of a
     expect(chosenModels('opencode', settings)).toEqual(['anthropic/claude-sonnet-5-5'])
     // An agent that lists every model has no chosen subset.
     expect(chosenModels('claude', settings)).toBeUndefined()
-    expect(chosenModels('gemini', settings)).toBeUndefined()
+    expect(chosenModels('qwen', settings)).toBeUndefined()
     expect(chosenModels('nobody', settings)).toBeUndefined()
   })
 

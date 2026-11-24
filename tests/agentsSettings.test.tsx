@@ -368,7 +368,7 @@ describe('more migrated pages', () => {
     const { CatalogAgentPage } = await import('../src/renderer/src/components/agents/CatalogAgentPage')
     const { OpencodePanel } = await import('../src/renderer/src/components/settings/OpencodePanel')
     const { RemoveRepoDialog } = await import('../src/renderer/src/components/settings/RepoMiscTab')
-    render(<CatalogAgentPage agent="gemini" tabs={null} />)
+    render(<CatalogAgentPage agent="antigravity" tabs={null} />)
     expect(screen.getAllByRole('switch').length).toBeGreaterThan(0)
     cleanup()
     render(<OpencodePanel />)
@@ -493,7 +493,7 @@ describe('Settings → Agents → an agent', () => {
 
   it('a Chat agent’s page shows its Capabilities where the struck-through chips were', async () => {
     const { AgentsPage } = await import('../src/renderer/src/components/settings/AgentsPage')
-    render(<AgentsPage agent="gemini" />)
+    render(<AgentsPage agent="antigravity" />)
     expect(screen.getByRole('heading', { name: 'Capabilities' })).toBeTruthy()
     expect(screen.getByText('Enforced by: Foreman')).toBeTruthy()
     expect(screen.queryByText('What Foreman can do with it')).toBeNull()

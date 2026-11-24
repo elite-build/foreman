@@ -6,7 +6,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync, writeFileSync, renameSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { DEFAULT_LOADOUTS, DEFAULT_MODEL } from '../shared/agents'
+import { AGENTS, DEFAULT_LOADOUTS, DEFAULT_MODEL } from '../shared/agents'
 import { DEFAULT_PROMPT_TEMPLATES } from '../shared/promptTemplates'
 import { dateInZone } from '../shared/schedule'
 import { defaultOnboarding, migrateOnboarding } from '../shared/onboarding'
@@ -35,6 +35,8 @@ import { parseEventWatch, type EventWatchState } from '../shared/employeeEvents'
 import { clampBudget, HAND_OFF_BUDGET } from '../shared/chatHandOff'
 import { parseAccountLimits, type AccountLimits } from '../shared/limits'
 import type { ChatItem, CloudUsage, DiffComment, ModelCatalogState, Occurrence, Repo, Schedule, Session, Settings, Workspace } from '../shared/types'
+import { moveRetiredSession, moveRetiredSettings, RETIRED_AGENTS, retiredAgentName, retiredSuccessor } from '../shared/retiredAgents'
+import { mainT } from './i18n'
 import { migrateRepoFields } from './repoSettings'
 import { ForemanDb } from './db'
 import { perf } from './perf'
@@ -490,6 +492,7 @@ export class Store {
     this.state.sessions = rows.sessions
     this.state.comments = rows.comments
     this.db.sweepOrphans()
+    const retired = this.moveRetiredAgents()
     // #1: a check run still marked running means Foreman didn't quit cleanly (Quit records them itself).
     const crashedChecks = this.state.workspaces.filter((w) => w.checks?.running || w.checks?.results.some((r) => r.status === 'running')).map((w) => w.id)
     const scheduleMigrationNeeded = this.state.schedules?.some((s) => !s.recurrence || !s.startDate) ?? false
@@ -505,7 +508,53 @@ export class Store {
       )
       this.flush()
     }
-    if (moved || scheduleMigrationNeeded) this.flush()
+    for (const { session, from } of retired.sessions) await this.noteRetiredMove(session, from)
+    if (moved || scheduleMigrationNeeded || retired.changed) this.flush()
+  }
+
+  /**
+   * Agents Foreman dropped (shared/retiredAgents.ts, Gemini CLI): their chats continue on the successor, with the chat so far as
+   * text; default and template models move there too; their cached models and declared facts go; an auto-fix approved for one
+   * of their tabs is let go, so it asks again. Runs on every load and finds nothing once the move is saved.
+   */
+  private moveRetiredAgents(): { sessions: { session: Session; from: string }[]; changed: boolean } {
+    const sessions: { session: Session; from: string }[] = []
+    let changed = moveRetiredSettings(this.state.settings)
+    for (const session of this.state.sessions) {
+      const from = session.agent as string
+      const before = JSON.stringify([session.parked, session.handOffPending, session.queue])
+      const hasHistory = retiredSuccessor(from) ? this.db.readItems(session.id).some((i) => i.kind === 'user') : false
+      if (moveRetiredSession(session, hasHistory)) sessions.push({ session, from })
+      else if (JSON.stringify([session.parked, session.handOffPending, session.queue]) !== before) changed = true
+    }
+    for (const id of Object.keys(RETIRED_AGENTS)) {
+      const cached = this.state.catalog?.agents as Record<string, unknown> | undefined
+      if (cached && id in cached) {
+        delete cached[id]
+        changed = true
+      }
+      const declared = this.state.declared as Record<string, unknown> | undefined
+      if (declared && id in declared) {
+        delete declared[id]
+        changed = true
+      }
+    }
+    for (const ws of this.state.workspaces) {
+      if (ws.autoFix && retiredSuccessor(ws.autoFix.consent?.agent)) {
+        delete ws.autoFix
+        changed = true
+      }
+    }
+    return { sessions, changed: changed || sessions.length > 0 }
+  }
+
+  /** The chat says it moved: "Gemini CLI is no longer supported, so this chat continues on Antigravity. …" */
+  private async noteRetiredMove(session: Session, from: string): Promise<void> {
+    const id = `retired:${from}`
+    if ((await this.readChat(session.id)).some((item) => item.id === id)) return
+    const t = mainT(this.state.settings)
+    const vars = { old: retiredAgentName(from) ?? from, agent: AGENTS[session.agent].label }
+    await this.appendChat(session.id, { kind: 'notice', id, level: 'info', text: t(session.seedHistory ? 'chat.notice.agentRetiredHistory' : 'chat.notice.agentRetired', vars) })
   }
 
   /** Append the closing item for a turn the app was quit during (the log is append-only). */

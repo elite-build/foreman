@@ -12,7 +12,6 @@ import { acpRecord } from './helpers'
 const chatRecord = (): AgentCapabilities => acpRecord({ restoreFiles: true, cost: false, keptRunning: false })
 
 export const CHAT_AGENT_RECORDS: Record<ChatAgentId, AgentCapabilities> = {
-  gemini: chatRecord(),
   qwen: chatRecord(),
   kimi: chatRecord(),
   droid: chatRecord(),
@@ -26,13 +25,6 @@ export const CHAT_AGENT_RECORDS: Record<ChatAgentId, AgentCapabilities> = {
 }
 
 export const ACP_CHAT_AGENTS: CatalogAgent[] = [
-  {
-    // The flag is from Gemini CLI's docs (newer builds also take --acp).
-    id: 'gemini', name: 'Gemini CLI', monogram: 'Ge', level: 'chat', binaries: ['gemini'], versionArgs: ['--version'],
-    acp: { args: ['--experimental-acp'], source: 'docs' },
-    auth: { login: { args: [], hint: 'agentCatalog.hint.google' }, apiKey: { envVar: 'GEMINI_API_KEY', alsoStrip: ['GOOGLE_API_KEY'], keyUrl: 'https://aistudio.google.com/apikey' }, confirmed: true },
-    capabilities: capsOf(CHAT_AGENT_RECORDS.gemini), docsUrl: 'https://geminicli.com/docs/get-started/installation/', scratch: ['.gemini/']
-  },
   {
     id: 'qwen', name: 'Qwen Code', monogram: 'Qw', level: 'chat', binaries: ['qwen'], versionArgs: ['--version'],
     acp: { args: ['--acp'], source: 'reference' },
@@ -92,13 +84,11 @@ export const ACP_CHAT_AGENTS: CatalogAgent[] = [
     capabilities: capsOf(CHAT_AGENT_RECORDS.omp), docsUrl: 'https://github.com/can1357/oh-my-pi', scratch: ['.omp/']
   },
   {
-    // ACP is the separate agy_acp_server program (the ACP registry's "antigravity-acp"), installed next to agy.
+    // ACP is agy's own `agy acp` (agy 1.5.0 and later; Google's ACP docs). It reuses agy's saved Google sign-in, and takes a
+    // Gemini API key only once Foreman selects that method (main/agents/acp/catalogDrivers.ts). Gemini CLI's successor.
     id: 'antigravity', name: 'Antigravity', monogram: 'Ag', level: 'chat', binaries: ['agy'], versionArgs: ['--version'],
-    acp: {
-      args: [], binaries: ['agy_acp_server', 'agy_acp_server.par'], winBinaries: ['agy_acp_server.exe', 'agy_acp_server'],
-      install: 'Install Google’s “antigravity-acp” server (from the ACP registry) next to agy', installHint: 'agentCatalog.install.antigravity', expect: { name: 'antigravity-acp', minVersion: '1.3.0' }, source: 'reference'
-    },
-    auth: { login: { args: [], hint: 'agentCatalog.hint.browser' }, confirmed: true },
+    acp: { args: ['acp'], expect: { name: 'Antigravity ACP Server', minVersion: '1.5.0' }, source: 'docs' },
+    auth: { login: { args: [], hint: 'agentCatalog.hint.browser' }, apiKey: { envVar: 'GEMINI_API_KEY', alsoStrip: ['GOOGLE_API_KEY'], keyUrl: 'https://aistudio.google.com/apikey' }, confirmed: true },
     capabilities: capsOf(CHAT_AGENT_RECORDS.antigravity), docsUrl: 'https://github.com/google-antigravity/antigravity-cli', scratch: ['.agents/']
   },
 ]

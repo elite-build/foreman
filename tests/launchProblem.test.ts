@@ -56,8 +56,8 @@ describe('launchProblem', () => {
   })
 
   it('says an ACP agent that answers with another protocol version speaks only that one', () => {
-    expect(launchProblem('gemini', { acpProtocol: 2 })).toEqual({ kind: 'protocol', text: 'Gemini CLI speaks only ACP v2, and Foreman speaks v1.' })
-    expect(launchProblem('gemini', { acpProtocol: 1 }).kind).toBe('other')
+    expect(launchProblem('antigravity', { acpProtocol: 2 })).toEqual({ kind: 'protocol', text: 'Antigravity speaks only ACP v2, and Foreman speaks v1.' })
+    expect(launchProblem('antigravity', { acpProtocol: 1 }).kind).toBe('other')
   })
 
   it('says a Codex that does not know a request is older than Foreman expects, with Update', () => {

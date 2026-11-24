@@ -100,8 +100,8 @@ describe('the answers as values', () => {
 
 describe('through the adapter', () => {
   it('shows the question card for an agent whose record offers it, and answers the agent with the chosen values', async () => {
-    expect(staticCapabilities('gemini')!.planning.questions.level).toBe('native')
-    const r = await replay(driverFor('gemini'), 'acp', 'question', { answer: (qs) => ({ kind: 'question', answers: Object.fromEntries(qs.map((q) => [q.question, q.options[1]?.label ?? 'x'])) }) })
+    expect(staticCapabilities('qwen')!.planning.questions.level).toBe('native')
+    const r = await replay(driverFor('qwen'), 'acp', 'question', { answer: (qs) => ({ kind: 'question', answers: Object.fromEntries(qs.map((q) => [q.question, q.options[1]?.label ?? 'x'])) }) })
     handle = r.handle
     await r.done
     expect(r.played.questions).toHaveLength(1)
@@ -123,7 +123,7 @@ describe('through the adapter', () => {
   })
 
   it('declines a form it can’t show, and a cancelled turn cancels the question', async () => {
-    const driver = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(acpFake('question')) })
+    const driver = createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcessAcp(acpFake('question')) })
     // The person never answers: stopping the turn cancels the card's wait, and the agent is told so.
     const { cb, played } = callbacks()
     cb.ask = (questions, signal) => {

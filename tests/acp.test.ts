@@ -188,7 +188,7 @@ function inProcess(app: acp.AgentApp): AcpConnector {
 }
 
 function driverFor(app: acp.AgentApp, extra: Partial<AcpAgentConfig> = {}) {
-  return createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app), ...extra })
+  return createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app), ...extra })
 }
 
 function request(overrides: Partial<TurnRequest> = {}): TurnRequest {
@@ -325,7 +325,7 @@ describe('ACP driver', () => {
     const { app, log } = fakeAgent()
     const rec = recorder(() => ({ allow: false }))
     // A Chat agent: Foreman remembers an always-allow for the session, and the card names it (tests/acpAlwaysAllow.test.tsx).
-    const generic = { kind: 'gemini', label: 'Gemini' } as const
+    const generic = { kind: 'qwen', label: 'Qwen' } as const
     await driverFor(app, generic).createTurn(request({ approvals: 'ask' }), rec.cb).run()
 
     expect(rec.calls.approvals).toEqual([
@@ -461,7 +461,7 @@ describe('ACP driver', () => {
     const { app } = fakeAgent({ failNew: acp.RequestError.authRequired(undefined, 'run opencode auth login') })
     const rec = recorder()
     await driverFor(app).createTurn(request(), rec.cb).run()
-    expect(rec.find('notice')).toMatchObject([{ level: 'error', action: 'open-settings', text: 'Gemini isn’t signed in, or its sign-in has expired.' }])
+    expect(rec.find('notice')).toMatchObject([{ level: 'error', action: 'open-settings', text: 'Qwen isn’t signed in, or its sign-in has expired.' }])
     expect(rec.calls.finished).toBe(1)
     expect(rec.calls.results).toMatchObject([{ ok: false, error: expect.stringContaining('Authentication required') }])
     expect(rec.calls.sessionStarted).toEqual([])
@@ -491,7 +491,7 @@ describe('ACP driver', () => {
 
   it('lists models from the session config options', async () => {
     const { app } = fakeAgent()
-    const config: AcpAgentConfig = { kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) }
+    const config: AcpAgentConfig = { kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) }
     expect(await listAcpModels(config, { cwd: workspace, env: {} })).toEqual([
       { id: 'anthropic/claude-sonnet', label: 'anthropic/Claude Sonnet' },
       { id: 'openai/gpt-5', label: 'openai/GPT-5' }
@@ -541,7 +541,7 @@ acp.agent({ name: 'script' })
   it('runs a turn against a spawned agent and ends the process afterwards', async () => {
     const script = await agentScript()
     const cwd = await tempDir('switchyard-acp-cwd-')
-    const driver = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: process.execPath, args: [script, 'ok'] }) })
+    const driver = createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: process.execPath, args: [script, 'ok'] }) })
     const rec = recorder()
     await driver.createTurn(request({ cwd, env: { ...process.env, FAKE_AGENT_NAME: 'the agent' } as Record<string, string> }), rec.cb).run()
     expect(rec.find('assistant').map((i) => i.text)).toEqual(['Hello from the agent'])
@@ -552,7 +552,7 @@ acp.agent({ name: 'script' })
 
   it('reports an agent that dies, with its stderr', async () => {
     const script = await agentScript()
-    const driver = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: process.execPath, args: [script, 'crash'] }) })
+    const driver = createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: process.execPath, args: [script, 'crash'] }) })
     const rec = recorder()
     await driver.createTurn(request({ cwd: await tempDir(), env: process.env as Record<string, string> }), rec.cb).run()
     expect(rec.find('notice')).toMatchObject([{ level: 'error', text: expect.stringMatching(/exited unexpectedly[\s\S]*fake agent starting/) }])
@@ -562,8 +562,8 @@ acp.agent({ name: 'script' })
 
   it('status runs --version', async () => {
     const env = process.env as Record<string, string>
-    const node = createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: process.execPath, args: [] }) })
-    expect(await node.status(env)).toEqual({ agent: 'gemini', installed: true, ready: true, version: process.versions.node })
+    const node = createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: process.execPath, args: [] }) })
+    expect(await node.status(env)).toEqual({ agent: 'qwen', installed: true, ready: true, version: process.versions.node })
   })
 })
 
@@ -572,9 +572,9 @@ describe('ACP launch problems (docs/agents.md, 4.1)', () => {
     const { app, log } = fakeAgent({ protocolVersion: 2 })
     const rec = recorder()
     await driverFor(app).createTurn(request(), rec.cb).run()
-    expect(rec.find('notice')).toMatchObject([{ level: 'error', text: 'Gemini speaks only ACP v2, and Foreman speaks v1.' }])
+    expect(rec.find('notice')).toMatchObject([{ level: 'error', text: 'Qwen speaks only ACP v2, and Foreman speaks v1.' }])
     expect(rec.find('notice')[0]).not.toHaveProperty('action', expect.anything())
-    expect(rec.calls.results).toEqual([{ ok: false, error: 'Gemini speaks only ACP v2, and Foreman speaks v1.' }])
+    expect(rec.calls.results).toEqual([{ ok: false, error: 'Qwen speaks only ACP v2, and Foreman speaks v1.' }])
     expect(log.methods).toEqual(['initialize'])
   })
 })

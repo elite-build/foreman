@@ -253,7 +253,7 @@ function inProcess(app: acp.AgentApp): AcpConnector {
   }
 }
 
-const acpDriver = (app: acp.AgentApp) => createAcpDriver({ kind: 'gemini', label: 'Gemini', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) })
+const acpDriver = (app: acp.AgentApp) => createAcpDriver({ kind: 'qwen', label: 'Qwen', command: () => ({ file: 'unused', args: [] }), connect: inProcess(app) })
 
 describe('ACP agents get approved repo servers', () => {
   it('session/new carries them as stdio servers with only their declared variables, and a continued session too', async () => {
@@ -385,19 +385,19 @@ describe('env scopes and consent hold for Codex and ACP agents', () => {
 
 describe('capability gating', () => {
   it('Claude, Codex, Cursor (G1, untested with a key), OpenCode and the Chat agents take repo servers; Terminal agents do not', () => {
-    for (const kind of ['claude', 'codex', 'cursor', 'opencode', 'gemini', 'qwen'] as const) expect(offers(staticCapabilities(kind)!.tools.mcp)).toBe(true)
+    for (const kind of ['claude', 'codex', 'cursor', 'opencode', 'antigravity', 'qwen'] as const) expect(offers(staticCapabilities(kind)!.tools.mcp)).toBe(true)
     expect(repoMcpSupport('cursor')).toEqual({ supported: true, via: 'cursor' })
     expect(repoMcpSupport('aider')).toEqual({ supported: false, reason: 'terminal' })
     expect(repoMcpSupport('codex')).toEqual({ supported: true, via: 'config' })
     expect(repoMcpSupport('opencode')).toEqual({ supported: true, via: 'server' })
-    expect(repoMcpSupport('gemini')).toEqual({ supported: true, via: 'acp' })
+    expect(repoMcpSupport('antigravity')).toEqual({ supported: true, via: 'acp' })
     // Every agent's record is the catalog's answer.
     for (const kind of Object.keys(AGENTS)) expect(offers(staticCapabilities(kind)!.tools.mcp)).toBe(repoMcpSupport(kind).supported)
   })
 
   it('lists who a server reaches: the Full agents, and Chat agents only when enabled', () => {
     expect(repoMcpReach({}).map((r) => [r.id, r.support.supported])).toEqual([['claude', true], ['codex', true], ['cursor', true], ['opencode', true]])
-    expect(repoMcpReach({ gemini: { enabled: true } }).map((r) => r.id)).toEqual(['claude', 'codex', 'cursor', 'opencode', 'gemini'])
+    expect(repoMcpReach({ antigravity: { enabled: true } }).map((r) => r.id)).toEqual(['claude', 'codex', 'cursor', 'opencode', 'antigravity'])
   })
 })
 

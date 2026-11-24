@@ -80,18 +80,18 @@ describe('the records', () => {
 
 describe('resolving what an agent declared', () => {
   it('turns an ACP agent’s plan mode on when it declared one, and leaves every other agent alone', () => {
-    const gemini = record('gemini')
-    expect(gemini.planning.planMode.level).toBe('none')
-    expect(resolveCapabilities(gemini, { planMode: true }).planning.planMode).toEqual(ability('native'))
-    expect(resolveCapabilities(gemini, { planMode: false }).planning.planMode.level).toBe('none')
+    const antigravity = record('antigravity')
+    expect(antigravity.planning.planMode.level).toBe('none')
+    expect(resolveCapabilities(antigravity, { planMode: true }).planning.planMode).toEqual(ability('native'))
+    expect(resolveCapabilities(antigravity, { planMode: false }).planning.planMode.level).toBe('none')
     // Cursor and Claude Code don't declare one (OpenCode's plan agent is in its record, declared or not).
     expect(resolveCapabilities(record('opencode'), { planMode: false }).planning.planMode.level).toBe('native')
     expect(resolveCapabilities(record('cursor'), { planMode: true }).planning.planMode.level).toBe('none')
     expect(resolveCapabilities(record('claude'), { planMode: false }).planning.planMode.level).toBe('native')
     // The base is not changed, and nothing declared hands back the same object.
-    expect(gemini.planning.planMode.level).toBe('none')
-    expect(resolveCapabilities(gemini)).toBe(gemini)
-    expect(resolveCapabilities(gemini, {})).toBe(gemini)
+    expect(antigravity.planning.planMode.level).toBe('none')
+    expect(resolveCapabilities(antigravity)).toBe(antigravity)
+    expect(resolveCapabilities(antigravity, {})).toBe(antigravity)
   })
 
   it('a declared plan mode turns Plan on only for the agents whose record says they declare one', () => {
@@ -120,15 +120,15 @@ describe('resolving what an agent declared', () => {
 
   it('lets an account’s own declaration win over what every account of the agent declared', () => {
     const view: AgentCapabilitiesView = {
-      agents: { gemini: record('gemini'), codex: { ...record('codex'), declares: ['version'] } },
+      agents: { antigravity: record('antigravity'), codex: { ...record('codex'), declares: ['version'] } },
       declared: {
-        gemini: { [EVERY_ACCOUNT]: { planMode: true }, work: { planMode: false } },
+        antigravity: { [EVERY_ACCOUNT]: { planMode: true }, work: { planMode: false } },
         codex: { [EVERY_ACCOUNT]: { version: '0.160.0' }, work: { version: '0.163.0' } }
       }
     }
-    expect(capabilitiesFor(view, 'gemini')?.planning.planMode.level).toBe('native')
-    expect(capabilitiesFor(view, 'gemini', 'home')?.planning.planMode.level).toBe('native')
-    expect(capabilitiesFor(view, 'gemini', 'work')?.planning.planMode.level).toBe('none')
+    expect(capabilitiesFor(view, 'antigravity')?.planning.planMode.level).toBe('native')
+    expect(capabilitiesFor(view, 'antigravity', 'home')?.planning.planMode.level).toBe('native')
+    expect(capabilitiesFor(view, 'antigravity', 'work')?.planning.planMode.level).toBe('none')
     expect(capabilitiesFor(view, 'codex')?.version).toBe('0.160.0')
     expect(capabilitiesFor(view, 'codex', 'work')?.version).toBe('0.163.0')
     expect(capabilitiesFor(view, 'aider')).toBeUndefined()
@@ -136,7 +136,7 @@ describe('resolving what an agent declared', () => {
 
   it('reads the static record where nothing was declared', () => {
     expect(capabilitiesFor(staticCapabilitiesView(), 'claude')).toBe(record('claude'))
-    expect(capabilitiesFor(staticCapabilitiesView(), 'gemini', 'work')).toBe(record('gemini'))
+    expect(capabilitiesFor(staticCapabilitiesView(), 'antigravity', 'work')).toBe(record('antigravity'))
   })
 })
 
@@ -218,7 +218,7 @@ describe('features derived from the driver', () => {
       expect(derived, id).toEqual(fromRecord)
     }
     expect(recordFor('claude')!.features.titles).toBe(true)
-    expect(recordFor('gemini')!.features.reportTools).toBe(false)
+    expect(recordFor('antigravity')!.features.reportTools).toBe(false)
     expect(recordFor('aider' as AgentKind)).toBeUndefined()
   })
 })
@@ -243,15 +243,15 @@ describe('the snapshot', () => {
     expect(Object.keys(before.agentCapabilities.agents).sort()).toEqual(SNAPSHOT_AGENTS)
     expect(before.agentCapabilities.declared).toEqual({})
     expect(capabilitiesFor(before.agentCapabilities, 'claude')?.features.titles).toBe(true)
-    expect(capabilitiesFor(before.agentCapabilities, 'gemini')?.planning.planMode.level).toBe('none')
+    expect(capabilitiesFor(before.agentCapabilities, 'antigravity')?.planning.planMode.level).toBe('none')
 
-    // Gemini declares a plan session mode; Codex and OpenCode declare none (their plan mode is in their record), so what they list changes nothing.
-    store.state.catalog.agents.gemini = { models: [], modes: [{ id: 'plan', name: 'Plan' }, { id: 'default', name: 'Default' }] }
+    // Antigravity declares a plan session mode; Codex and OpenCode declare none (their plan mode is in their record), so what they list changes nothing.
+    store.state.catalog.agents.antigravity = { models: [], modes: [{ id: 'plan', name: 'Plan' }, { id: 'default', name: 'Default' }] }
     store.state.catalog.agents.opencode = { models: [], modes: [{ id: 'build', name: 'Build' }, { id: 'plan', name: 'Plan' }] }
     store.state.catalog.agents.codex = { models: [], modes: [{ id: 'plan', name: 'Plan' }] }
     const after = core.snapshot().agentCapabilities
-    expect(Object.keys(after.declared).sort()).toEqual(['gemini'])
-    expect(capabilitiesFor(after, 'gemini')?.planning.planMode.level).toBe('native')
+    expect(Object.keys(after.declared).sort()).toEqual(['antigravity'])
+    expect(capabilitiesFor(after, 'antigravity')?.planning.planMode.level).toBe('native')
     expect(capabilitiesFor(after, 'opencode', 'any-account')?.planning.planMode.level).toBe('native')
     expect(capabilitiesFor(after, 'codex')?.planning.planMode.level).toBe('native')
     expect(capabilitiesFor(after, 'qwen')?.planning.planMode.level).toBe('none')

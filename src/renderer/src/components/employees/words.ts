@@ -36,6 +36,7 @@ import { clockTime, dayOf } from '../../../../shared/usageLimit'
 import type { RendererT } from '../../i18n'
 import type { StatusTone } from '../../ui'
 import { cadenceText } from '../ScheduleDialogs'
+import { historyAgentLabel } from '../../../../shared/retiredAgents'
 
 // A draft doesn't run (it isn't approved here), so it has the hollow ○ of a state that isn't active, never Working's ■;
 // its word says which.
@@ -120,7 +121,7 @@ export function actionNoun(p: EmployeeActionPayload, t: TFunction): string {
 export const MEMORY_SCOPE_LABEL: Record<string, PlainKey> = { 'org/docs': 'employees.access.memoryDocs', 'org/data': 'employees.access.memoryData' }
 
 /** "Claude Code" */
-export const agentLabel = (agent: string): string => catalogAgent(agent)?.name ?? agent
+export const agentLabel = (agent: string): string => catalogAgent(agent)?.name ?? historyAgentLabel(agent)
 
 /** "Claude Code · Claude Sonnet 5.5": the model as text, never a second icon beside the hat (§5.4). */
 export function modelText(agent: string | undefined, model: string | undefined, t: TFunction): string {

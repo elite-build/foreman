@@ -30,7 +30,7 @@ async function playWith(driver: AgentDriver, agent: string, scenario: string, ac
 }
 
 // The ACP chat agents share `acp`, and run through their own catalog driver (OpenCode is recorded: replay/opencode.test.ts).
-describe.each([['acp', driverFor('gemini')]] as const)('ACP fixtures: %s', (agent, driver) => {
+describe.each([['acp', driverFor('qwen')]] as const)('ACP fixtures: %s', (agent, driver) => {
   it('has its scenarios, marked simulated', () => {
     for (const scenario of ['plain', 'approval', 'question', 'terminal', 'interrupt', 'crash', 'resume']) expect(hasFixture(agent, scenario), scenario).toBe(true)
   })

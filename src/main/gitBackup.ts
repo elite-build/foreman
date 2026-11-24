@@ -11,6 +11,7 @@ import { GIT_BACKUP_FOLDER, GIT_BACKUP_VERSION } from '../shared/gitBackup'
 import { normalizeRemoteUrl } from '../shared/portable'
 import { parseHiddenModels } from '../shared/modelVisibility'
 import { parseAgentInstances } from '../shared/agentInstances'
+import { moveRetiredSettings } from '../shared/retiredAgents'
 import type { PromptTemplate, Repo, Settings } from '../shared/types'
 import { git, gitOut, hasRemote, isInsideWorkTree, repoEvidence, revParse, toplevel } from './git'
 import { credentialHelperEnv, gh, githubAccounts, githubEnvAsync, githubSlug } from './github'
@@ -145,7 +146,11 @@ export function parseGitBackup(raw: Record<string, unknown>): Payload {
   }
   if (new Set(repositories.map((r) => r.id)).size !== repositories.length || new Set(workspaces.map((w) => w.id)).size !== workspaces.length ||
       new Set(templates.map((t) => t.id)).size !== templates.length) throw new Error('The backup contains duplicate IDs.')
-  return { manifest: manifest as unknown as Payload['manifest'], settings: cleanSettings as unknown as Payload['settings'], templates, repositories, workspaces,
+  // An agent Foreman dropped (shared/retiredAgents.ts): the models and choices a backup saved for it come back on its successor.
+  const moved = { ...cleanSettings, promptTemplates: templates } as unknown as Settings
+  moveRetiredSettings(moved)
+  const { promptTemplates: movedTemplates, ...movedSettings } = moved
+  return { manifest: manifest as unknown as Payload['manifest'], settings: movedSettings as unknown as Payload['settings'], templates: movedTemplates, repositories, workspaces,
     variableNames: variableNames as unknown as Payload['variableNames'] }
 }
 
