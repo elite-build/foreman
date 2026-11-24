@@ -59,6 +59,13 @@ describe('saving a file from the editor', () => {
     expect(await readFile(file, 'utf8')).toBe('draft one\r\n')
   })
 
+  it('refuses, without writing, when the file became one it can’t read back (binary), even against an empty expected text', async () => {
+    const { core, file } = await setup()
+    await writeFile(file, Buffer.from([0, 1, 2, 3]))
+    await expect(core.api.writeFile('ws', 'notes.md', 'mine\n', '')).rejects.toThrow(/wasn’t saved/)
+    expect(await readFile(file)).toEqual(Buffer.from([0, 1, 2, 3]))
+  })
+
   it('writes without an expected text, as before, even when the file has changed', async () => {
     const { core, file } = await setup()
     await writeFile(file, 'agent line\n')

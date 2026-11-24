@@ -2510,7 +2510,7 @@ export const ja: Catalogue = {
   'files.changes.hide': '隠す',
   'files.comment.mark': '{line} 行目、コメント: {message}',
   'files.sel.saveFirst': '先に編集内容を保存してください。エージェントはディスク上のファイルを読みます。',
-  'files.conflict.body': 'エージェントはこのファイルを開いた後に変更しました。今保存すると、その変更が取り消されます。',
+  'files.conflict.body': 'このファイルを開いた後に、エージェントが変更しました。今保存すると、その変更が取り消されます。',
   'files.conflict.overlap': 'あなたの編集とエージェントの変更が同じ行に及んでいるため、統合できません。',
   'files.conflict.merge': '両方を統合',
   'files.conflict.theirs': 'エージェントの変更を使う',

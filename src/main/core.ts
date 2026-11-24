@@ -4306,7 +4306,11 @@ export class Core {
       if (expected !== undefined) {
         // The editor's text is what it opened or last saved: an agent's edit since then must not be overwritten.
         const current = await readWorkspaceFile(dir, path).then(
-          (file) => file.content,
+          (file) => {
+            // Its text can't be read back to compare (or to offer instead): refuse rather than overwrite it.
+            if (file.binary || file.tooLarge) throw new Error(`${path} changed on disk into a file too large or not text, so it wasn’t saved`)
+            return file.content
+          },
           (err: NodeJS.ErrnoException) => {
             if (err.code === 'ENOENT') return ''
             throw err

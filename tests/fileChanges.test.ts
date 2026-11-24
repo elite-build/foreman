@@ -149,7 +149,8 @@ describe('mergeEdits', () => {
   })
 
   it('keeps CRLF line endings and the final newline of the user text', () => {
-    expect(mergeEdits('a\r\nb\r\nc\r\n', 'a\r\nB\r\nc\r\n', 'a\r\nb\r\nC\r\n')).toBe('a\r\nB\r\nC\r\n')
+    // A line apart: edits on adjacent lines are a conflict ('returns null when the blocks only touch').
+    expect(mergeEdits('a\r\nb\r\nc\r\n', 'A\r\nb\r\nc\r\n', 'a\r\nb\r\nC\r\n')).toBe('A\r\nb\r\nC\r\n')
     expect(mergeEdits('a\nb\nc', 'a\nB\nc', 'a\nb\nc')).toBe('a\nB\nc')
   })
 })
