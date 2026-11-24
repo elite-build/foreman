@@ -4,6 +4,23 @@ How Foreman runs coding agents: one capability record per agent that every featu
 
 This document is the design and, once built, the reference. Section 12 is the per-agent reference. The design was reviewed against the code and the pinned protocols before building; section 15 lists what that review changed.
 
+## Where to look
+
+This guide is long. Find the row for the task, read that section, then start in the code it names. Paths are under `src/` unless they start with `tests/` or `scripts/`.
+
+| The task is about | Section | Code to start in |
+| --- | --- | --- |
+| The driver contract every adapter implements | 1 | `main/agents/types.ts`, `main/agents/registry.ts` |
+| What an agent can do, and asking that instead of branching on the agent | 2 | `shared/agentCapabilities.ts`, `shared/agentCatalog/`, `tests/agentBranches.test.ts` |
+| An adapter's behaviour: questions, terminals, compaction | 3 | `main/agents/<agent>/`, `main/idleCompact.ts` |
+| Versions, models and pinned protocols | 4 | `scripts/gen-agent-protocols.mjs`, `tests/agentProtocolPins.test.ts` |
+| Switching agent or account inside a chat, and the hand-off | 5 | `shared/chatHandOff.ts` |
+| Subagents | 6 | `shared/subagents.ts` |
+| Usage limits that pause and resume | 7 | `shared/limits.ts` |
+| Permissions, read-only and "always allow" | 8 | `main/sessions.ts` (search it, don't read it whole) |
+| Recorded fixtures, replay tests and evals | 9 | `main/agents/<agent>/fixtures/`, `tests/replay/`, `tests/sessionHarness.ts` |
+| One agent's facts (Claude, Codex, Cursor, OpenCode, ACP agents) | 12 | `shared/agentCatalog/`, checked by `tests/agentFolders.test.ts` |
+
 ## 1. What stays the same
 
 - **The driver contract stays the seam.** `AgentDriver`, `AgentTurn` and `TurnCallbacks` in `src/main/agents/types.ts` remain the only thing `SessionService` talks to. New abilities are new optional methods, the pattern `oneShot?` and `mcpProbe?` already use, never a branch on the agent's id in `sessions.ts`. **As built** (the first plan named `AgentTurn.fork`, `injectHistory` and `compact` and `AgentDriver.importTranscripts`, `mcpConfig` and `cloudCredentials`; none of those exists, see 3.1): on `AgentTurn` only `stopChild`; on `AgentDriver` `accepts` (what the adapter takes: in-process MCP and so on), `limits` (account limits without a turn), `cloudEnv` (what a sandbox needs to sign the agent in), `ownMcpToDisable` (the user's own same-service MCP servers to switch off), `updateCommand` and `signInCommand`, beside the older `oneShot`, `listModels`, `slashCommands` and `mcpProbe`. Fork, compaction, rollback and goals are request fields (`TurnRequest.resumeAt`, `rewind`) and commands (`/compact`, `/goal`) the adapter answers, because a Codex turn is one process that opens a thread and ends.

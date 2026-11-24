@@ -97,7 +97,7 @@ Foreman installs updates itself on Windows, and on macOS only when the app is si
 - [Guide](docs/guide.md): repository configuration, agent tools, integrations, backups, the command line, flows, phone access and agents on this computer
 - [Command line reference](docs/cli.md)
 - [Design system](docs/design-system.md), [accessibility](docs/accessibility.md) and [performance with many agents](docs/performance.md)
-- [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development conventions
+- [Contributing](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development conventions, and the [map](docs/map.md) of where things live, with every command and environment variable
 - [Code signing policy](CODE_SIGNING.md) and [security](SECURITY.md)
 
 ## License

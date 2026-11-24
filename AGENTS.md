@@ -1,15 +1,26 @@
 # Working on Foreman
 
-This is the repository-wide guide for coding agents. `CLAUDE.md` delegates here. Read the relevant source and tests before changing code; keep changes focused on the task. Preserve existing public APIs, persisted data and visual conventions unless the task explicitly requires changing them.
+This is the repository-wide guide for coding agents. `CLAUDE.md` delegates here. It is part of every call an agent makes, so it holds the rules and points to the rest: where things live, the environment variables and every command are in [docs/map.md](docs/map.md). Read the relevant source and tests before changing code; keep changes focused on the task. Preserve existing public APIs, persisted data and visual conventions unless the task explicitly requires changing them.
 
 ## Start here
 
 1. Check `git status --short` and any instructions in the area you will edit. Preserve unrelated work.
-2. Read [README.md](README.md) for setup and the relevant source, tests and guides under `docs/` for current behavior and validation gaps.
+2. Read [README.md](README.md) for setup and the relevant source, tests and guides under `docs/` for current behavior and validation gaps. [docs/map.md](docs/map.md) says which files own an area.
 3. Search with `rg` for the closest existing implementation, its callers and tests. Reuse business logic, hooks, utilities, API clients and services rather than adding parallel implementations.
 4. For any UI task, follow the design-system workflow below **before writing JSX or CSS**.
 5. Make the smallest coherent change, run the applicable checks, and report what changed, what was verified and any remaining limitations. Do not introduce speculative abstractions, unrelated refactors or dependencies to solve a local problem.
-6. Before reversing an established choice, check [docs/decisions.md](docs/decisions.md) for why it was made. When the user asks for a pull request, follow [.claude/skills/create-pr/SKILL.md](.claude/skills/create-pr/SKILL.md); when they ask for a release, follow [.claude/skills/create-release/SKILL.md](.claude/skills/create-release/SKILL.md); when they ask for a UI audit, design review or mocks of improvements, follow [.claude/skills/ui-review/SKILL.md](.claude/skills/ui-review/SKILL.md), whichever agent you are.
+6. Before reversing an established choice, check [docs/decisions.md](docs/decisions.md) for why it was made: `rg '^## 20' docs/decisions.md` lists the decisions, one line each, and only the entries that bear on the change need reading. When the user asks for a pull request, follow [.claude/skills/create-pr/SKILL.md](.claude/skills/create-pr/SKILL.md); when they ask for a release, follow [.claude/skills/create-release/SKILL.md](.claude/skills/create-release/SKILL.md); when they ask for a UI audit, design review or mocks of improvements, follow [.claude/skills/ui-review/SKILL.md](.claude/skills/ui-review/SKILL.md), whichever agent you are.
+
+## Reading, and long sessions
+
+Whatever an agent reads is sent again with every later call in the same chat, so a file read whole is paid for many times over. Read what the change needs.
+
+- **Search, then read a range.** Find the symbol with `rg`, then read the whole function with its callers and error paths, not the whole file. Send independent searches and reads in one message.
+- **Never read these whole:** the locale files in `src/shared/i18n/` (find the key in `en.ts`, then the same key in each locale, keeping interpolation parameters and plural forms), `src/main/core.ts`, `src/main/sessions.ts`, `src/main/employeeWork.ts`, `src/shared/types.ts`, `src/shared/workspacePeople.json`, `src/main/agents/codex/protocol/`, `docs/cli.md` and recorded agent fixtures.
+- **A long guide opens with "Where to look"** (`docs/ai-employees.md`, `docs/agents.md`, `docs/loops-and-graphs.md`; "Finding and choosing a component" in `docs/design-system.md`): read that, then the one section the task needs.
+- **Use a subagent for a search only when it is a separate investigation with a short answer** (the cause, the files, the lines). Its tokens are spent too.
+- **Start unrelated work in a fresh chat.** When a task is finished and the next one doesn't build on it, say so and offer a hand-off note of under 30 lines: the goal, what is done and the files changed, the next steps in order, what was tried and failed and why, the commands that verify it.
+- **After two failed attempts at the same fix, write down what each one showed before trying a third,** so the next attempt, or a fresh chat, starts from what is known.
 
 ## UI: the design system comes first
 
@@ -47,26 +58,19 @@ Use renderer `useT`, main `mainT`, and the shared date/number helpers with the a
 
 Foreman is a local Electron desktop app for running coding agents in parallel, each in an isolated Git worktree and branch. Major areas are chat and approvals, terminals and scripts, diffs/reviews and SCM operations, checkpoints, setup/check workflows, automations, integration settings, backups, paired devices, experimental remote sandbox workspaces and AI employees (organizations with a memory repository and employees that run as workspaces). There is no Foreman account or hosted application backend; model providers and optional integrations use the user's accounts.
 
-The repository is one npm package with `package-lock.json`, TypeScript in strict mode, React 19, Electron, electron-vite/Vite, plain CSS and Vitest. Node 22.12+ (22.x) or 24.x and Git are documented requirements. The main process uses Node APIs; the renderer is sandboxed. Terminal support is `node-pty` plus xterm.js. See `package.json` for exact dependency ranges; do not replace the package manager or add a framework for functionality already present.
+The repository is one npm package with `package-lock.json`, TypeScript in strict mode, React 19, Electron, electron-vite/Vite, plain CSS and Vitest. Node 22.12+ (22.x) or 24.x and Git are documented requirements. See `package.json` for exact dependency ranges; do not replace the package manager or add a framework for functionality already present.
 
-| Area | Entry points and responsibilities |
-| --- | --- |
-| Desktop lifecycle | `src/main/index.ts`: Electron windows, native integration, service startup, IPC handlers and event broadcasts. |
-| Application services | `src/main/core.ts`: composes services and implements the renderer-facing API. Electron capabilities are injected through `Host` so the core stays testable without importing Electron. |
-| Renderer bridge | `src/preload/index.ts`: exposes `window.foreman` with typed invoke, signals and event subscriptions. `src/shared/types.ts` defines `Api`, `Bridge`, `MainEvent`, `API_METHODS` and `SIGNAL_METHODS`. |
-| Renderer | `src/renderer/index.html` → `src/renderer/src/main.tsx` → `App.tsx`; `store.ts` owns snapshot/event state and `useStore` via React `useSyncExternalStore`. Feature views live in `components/`; no separate router or state library is needed for ordinary additions. |
-| UI system | `src/renderer/src/ui/`: controls, prop types, tokens, component CSS, keyboard helpers and galleries. `components/settings/controls.tsx` contains application-specific settings compositions and save helpers, not a competing primitive kit. |
-| Shared domain | `src/shared/`: contracts and reusable domain logic, settings schemas/registries, agent capabilities, CLI definitions and i18n. Keep reusable pure logic here rather than copying it into main and renderer. |
-| Agents and sessions | `src/main/sessions.ts`, `agents/types.ts`, `agents/registry.ts`: common driver contract and Claude, Codex, Cursor, OpenCode (its own server) and ACP adapters. `agentHost/` handles hosted turns; `cursorWorker.ts` is a separate build entry. Respect capability flags and existing approval/read-only policies. |
-| Workspaces and execution | `workspaces.ts`, `git.ts`, `checkpoints.ts`, `scripts.ts`, `pty.ts`, `platform.ts`, `shells.ts` in `src/main/`. Reuse platform quoting and process helpers; do not assume POSIX shells on Windows. |
-| Remote workspaces | `src/main/cloud/` and `runtime/`: sandbox providers (Vercel, Docker, E2B, Daytona), execution and file/Git routing. Use the existing workspace target/runtime helpers; a cloud workspace is not a local filesystem path. Background reads must not wake sleeping sandboxes. |
-| Command line | `bin/foreman.mjs` launches built `out/main/cli.js`; `src/cli/index.ts` dispatches `commands/`. `src/shared/cliCommands.ts` and `src/shared/cli/` define command metadata; `src/main/cli/` serves the local socket API. `cliServer.ts` is a compatibility re-export. |
-| Persistence | `src/main/store.ts`, `db.ts`, `legacyImport.ts`, `secrets.ts`; see data rules below. |
-| Integrations | `github.ts`, `gitlab.ts`, `scm.ts`, `integrations.ts`, `linear.ts`, `slack.ts`, `integrationBridge.ts`, `repoMcp.ts` in `src/main/`. Extend the existing service and credential selection paths. |
-| AI employees | `organizations.ts`, `memory.ts` (the only writer of an organization's memory repository), `employees.ts`, `employeeWork.ts` (tasks, runs and the broker), `employeeTools.ts`, `employeeActions.ts`, `employeeTriggers.ts`, `employeeEvents.ts` in `src/main/`, pure rules beside them in `src/shared/`, the views in `components/spaces/` and `components/employees/`. The design is `docs/ai-employees.md`. |
-| Phone and devices | `resources/mobile/` is a separate small web client. `src/main/mobile.ts` serves paired-phone access; device pairing, network and transfer services live alongside it. The desktop UI catalogue does not govern the phone stylesheet. |
-| Tests | `tests/*.test.ts` for domain/services and integration behaviour; `tests/*.test.tsx` and `tests/ui/` for renderer behaviour; `tests/helpers.ts` for temporary Git repos and other helpers; `tests/fixtures/` for fixtures, including guard examples. |
-| Tooling and references | `scripts/`, `.githooks/`, `.github/`, root build/test configs; `docs/` for guides and `build/icons/` for production icon sources. |
+[docs/map.md](docs/map.md) lists each area's entry points. The rules that go with them:
+
+- **Main.** `src/main/core.ts` composes the services and implements the renderer-facing API. Electron capabilities are injected through `Host`, so the core stays testable without importing Electron.
+- **Renderer.** `store.ts` owns snapshot and event state (`useStore`); no separate router or state library is needed for ordinary additions. The renderer is sandboxed.
+- **Shared.** Reusable pure logic goes in `src/shared/` rather than being copied into main and renderer.
+- **Agents.** Respect capability flags and the existing approval and read-only policies.
+- **Execution.** Reuse the platform quoting and process helpers (`platform.ts`, `shells.ts`); do not assume POSIX shells on Windows.
+- **Remote workspaces.** A cloud workspace is not a local filesystem path: use the existing workspace target/runtime helpers. Background reads must not wake sleeping sandboxes.
+- **AI employees.** `src/main/memory.ts` is the only writer of an organization's memory repository.
+- **Integrations.** Extend the existing service and credential selection paths.
+- **Phone.** `resources/mobile/` is a separate small web client; the desktop UI catalogue does not govern its stylesheet.
 
 For an API change, trace the shared contract → main implementation → preload exposure → renderer caller and events. Keep method allowlists and tests consistent; do not expose raw Node or Electron capabilities to the renderer. Keep side effects in services and domain decisions in reusable helpers. Follow the surrounding TypeScript style (type imports, single quotes, no semicolons) rather than reformatting unrelated files.
 
@@ -83,45 +87,28 @@ For an API change, trace the shared contract → main implementation → preload
 
 ## Configuration and environment
 
-There is no mandatory repository `.env` file for building or running the ordinary test suite. Provider credentials are needed to actually run agents; optional services require their own configuration.
+There is no mandatory repository `.env` file for building or running the ordinary test suite. Provider credentials are needed to actually run agents; optional services require their own configuration. Every variable Foreman reads or sets is in [docs/map.md](docs/map.md#configuration-and-environment).
 
-| Setting | Meaning |
-| --- | --- |
-| `FOREMAN_DATA_DIR` | Isolate development/test state from installed app data; `SWITCHYARD_DATA_DIR` is a legacy fallback. Use a disposable folder for manual tests. |
-| `FOREMAN_DEMO`, `FOREMAN_DEMO_RESET`, `FOREMAN_DEMO_DIR` | Set by `npm run dev demo [reset]` (`scripts/dev.mjs`); ignored by an installed build. `FOREMAN_DEMO_DIR` chooses the demo's folder, default `Foreman Demo` beside the app's data folder. A folder with files that isn't a demo's is refused, never deleted. |
-| `FOREMAN_PORT` | First port in a local workspace's reserved block of 10. Use the assigned block for development servers. Cloud workspaces expose sandbox URLs instead. |
-| `FOREMAN_WORKSPACE_ID`, `FOREMAN_WORKSPACE_NAME`, `FOREMAN_WORKSPACE_PATH`, `FOREMAN_ROOT_PATH`, `FOREMAN_DEFAULT_BRANCH` | Context supplied to workspace scripts, terminals and agents; see `WorkspaceService.env` in `src/main/workspaces.ts`. Environment-file and secret layering lives in `src/main/environment.ts`. |
-| `FOREMAN_IS_CLOUD` | Set to `1` for cloud workspaces; their path variables refer to the sandbox. |
-| `ELECTRON_RENDERER_URL` | Development renderer URL consumed by main; managed by electron-vite. Do not hard-code it for production. |
-| `FOREMAN_SCREENSHOTS*` | Fixture/screenshot controls managed by `scripts/screenshots.mjs` and `src/main/screenshots.ts`; prefer `npm run screens` over setting them manually. |
-| `FOREMAN_VERCEL_TOKEN`, `FOREMAN_VERCEL_TEAM_ID`, `FOREMAN_VERCEL_PROJECT_ID` | Opt-in live Vercel smoke test credentials. The test creates real sandboxes; ordinary tests skip it when these are absent. |
-
-Shared repository settings live in `.foreman/settings.toml`; `.switchyard/settings.toml` is the compatibility fallback for this app's earlier name. Workspace scripts receive `FOREMAN_*` and the earlier `SWITCHYARD_*` aliases only. Local overrides take precedence over shared settings, then supported user settings, then defaults. Follow `src/main/repoSettings.ts` and the shared settings schemas/registries rather than implementing another parser or precedence chain. Shared MCP configuration names environment variables, not their secret values.
+- Manual tests use a disposable `FOREMAN_DATA_DIR`, so they never touch the installed app's data.
+- Development servers use the workspace's reserved block of 10 ports, starting at `FOREMAN_PORT`.
+- Shared repository settings live in `.foreman/settings.toml` (`.switchyard/settings.toml` is the compatibility fallback for this app's earlier name). Local overrides take precedence over shared settings, then supported user settings, then defaults. Follow `src/main/repoSettings.ts` and the shared settings schemas/registries rather than implementing another parser or precedence chain.
+- Shared MCP configuration names environment variables, not their secret values.
 
 ## Development, checks and packaging
 
-Commands below come from `package.json`. On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`; changing machine execution policy is unnecessary.
+On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`; changing machine execution policy is unnecessary. The checks are at the end of this file; [docs/map.md](docs/map.md#commands) has every script with its options. The ones a change most often needs besides them:
 
-| Command | Purpose |
-| --- | --- |
-| `npm install` / `npm ci` | Install dependencies (clean reproducible installs use `ci`). Postinstall fixes Unix PTY helper permissions and configures hooks when appropriate. |
-| `npm run dev` | Run the Electron app with electron-vite development builds. |
-| `npm run dev demo` | The development app on demo data (`src/main/demo.ts`): the screenshot fixture in a folder kept between launches, with no network and no external services. Two organizations (`demoOrganization.ts`, `demoLumen.ts`). Agents answer from a script: each launch starts two flow runs you can watch (`src/main/demoRun.ts`), and AI employees' runs call their real tools while a director starts the channels and plays the person for some decisions (`src/main/demoEmployees.ts`). `npm run dev demo reset` seeds it again; bump `DEMO_VERSION` in `demo.ts` when the seed changes, so a kept demo says a reset shows the new one. |
-| `npm run typecheck` | Strict TypeScript check over source, tests and build/test configs. |
-| `npm test` | Full Vitest suite. A focused run is `npm test -- tests/<name>.test.ts`. |
-| `npm run test:changed` | Only the tests the branch's changes (since `origin/main`, plus uncommitted files) can affect: Vitest's import graph, plus the `check:ui` checks for a renderer or i18n change and any test naming a changed non-module file. For the loop while working; `npm test` is still the check before a pull request. `-- <base ref>` compares with another ref. |
-| `npm run check:ui` | Design-system guard, contrast, i18n, UI and content accessibility checks. Can run after `npm ci --ignore-scripts`, without downloading Electron or building native modules. |
-| `npm run build` | Build main, CLI, Cursor worker, sandbox host/attach, preload and renderer into `out/`. Preload output is CommonJS for Electron's sandbox. |
-| `npm start` | Preview the built Electron app. |
-| `npm run screens` | Capture real-app fixture screens; `npm run screens -- --compare <a> <b>` compares runs. Supports `--out`, `--only`, `--build`, `--no-build`. Requires Electron. |
-| `npm run pr:screens` | Before-and-after fixture screens for a UI pull request: `-- capture --only <screen,…>` takes them from the merge base and the working tree and compares them; `-- publish <png>…` pushes them to the `pr-screenshots` branch and prints image links. See `.claude/skills/create-pr/ui-changes.md`. |
-| `npm run docs:cli` | Regenerate `docs/cli.md` from command metadata; do not hand-edit generated command reference content. |
-| `npm run cloud:smoke` | Live Vercel integration test; requires the three variables above and a build first. Run only when live sandbox use is within the task's scope. |
-| `npm run dist:mac` / `npm run dist:win` | Build and package DMG/NSIS into `dist/`, with publishing disabled. |
-
-There is no configured lint/formatter script; do not invent `npm run lint`. `electron-builder` settings are in `package.json` (including a Linux AppImage target, but no Linux dist script). README targets macOS and Windows, and both are tested; `docs/windows.md` records Windows-specific notes and the checks still open there; configuration alone does not establish platform support. `.github/workflows/installers.yml` builds unsigned macOS (DMG) and Windows (NSIS) installers only when started manually, keeping them as 7-day run artifacts; packaging is not publication. Releases follow "Releases" in `docs/maintenance.md`: `npm run release -- prepare <bump>` on a branch, merge, `npm run release -- tag --push`, then the manual `.github/workflows/release.yml` creates a draft GitHub release. Do not tag, push tags, start either workflow or publish a release unless the user asks; there is no deployment workflow.
-
-`out/`, `dist/`, `node_modules/`, `release/` and logs are ignored artifacts. Do not edit built output. `build/` contains checked-in packaging assets, not just disposable output. Icon sources are in `build/icons/`; README documents `npx electron scripts/render-icons.mjs` on macOS to regenerate assets. `src/shared/workspacePeople.json` is maintained by `scripts/buildWorkspacePeople.py` (see `docs/workspace-names.md`).
+- `npm test -- tests/<name>.test.ts` runs one test file. `npm run test:changed` runs only the tests the branch's changes can affect: it is for the loop while working, and `npm test` is still the check before a pull request.
+- `npm run check:ui` runs the design-system guard and the contrast, i18n, UI and content accessibility checks.
+- `npm run dev` runs the app; `npm run dev demo` runs it on demo data, with no network and no external services.
+- `npm run pr:screens` takes before-and-after fixture screens for a UI pull request (`.claude/skills/create-pr/ui-changes.md`).
+- `npm run docs:cli` regenerates `docs/cli.md` from command metadata; do not hand-edit generated command reference content.
+- There is no configured lint/formatter script; do not invent `npm run lint`.
+- `npm run cloud:smoke` creates real Vercel sandboxes. Run it only when live sandbox use is within the task's scope.
+- Bump `DEMO_VERSION` in `src/main/demo.ts` when the demo's seed changes, so a kept demo says a reset shows the new one.
+- Do not tag, push tags, start the installers or release workflow or publish a release unless the user asks; there is no deployment workflow, and packaging is not publication. Releases follow "Releases" in `docs/maintenance.md`.
+- `out/`, `dist/`, `node_modules/`, `release/` and logs are ignored artifacts: do not edit built output. `build/` contains checked-in packaging assets, not just disposable output.
+- README targets macOS and Windows, and both are tested; `docs/windows.md` records the Windows checks still open. Configuration alone (such as the Linux AppImage target) does not establish platform support.
 
 ### Test expectations
 
@@ -131,13 +118,15 @@ Add regression coverage for changed behaviour, including error paths and cleanup
 
 ### CI and automation
 
-`.github/workflows/ci.yml` runs on a pull request into `main` once it is ready for review, never on a draft: marking a draft ready starts it, and each push to a ready PR runs it again. Its two jobs, **Types and design system** (`typecheck`, `check:ui` and the new-component check, on Linux) and **Tests and build** (`npm test` and `npm run build`, on Windows), are required by the **Require CI** ruleset on `main`, which nobody can bypass, so a PR that fails either can't be merged. Nothing runs after a merge. `nightly.yml` runs on `main` each night: the suite on macOS and on Node 22, `check:security`, `npm audit`, `check:repository` and `check:licenses`. Run the checks in this file locally before marking a PR ready, and open it as a draft while one fails. `installers.yml` and `release.yml` run only when someone starts them. There is no Dependabot configuration. Locally, `.githooks/pre-push` (`scripts/check-push.mjs`) refuses a push whose commit holds a design mock (`mocks/`, `mockups/`, `mock*.html`) or any other path `scripts/publication-paths.mjs` forbids: a branch may carry mocks while it's worked on, but take them out (`git rm -r --cached`) before raising its PR, so none reaches `main`. `main` is protected by a GitHub ruleset (PR with one approval; admins may bypass only when merging a PR); no CODEOWNERS or ruleset payloads are supplied. Do not merge or use that bypass unless the user asks. See `docs/maintenance.md` for the live-protection boundary.
+`.github/workflows/ci.yml` runs on a pull request into `main` once it is ready for review, never on a draft. Its two jobs, **Types and design system** (`typecheck`, `check:ui` and the new-component check) and **Tests and build** (`npm test` and `npm run build`), are required by a ruleset nobody can bypass, so a PR that fails either can't be merged. Run the checks in this file locally before marking a PR ready, and open it as a draft while one fails. `docs/maintenance.md` has the rest: the nightly run, the installer and release workflows, the rulesets and the live-protection boundary.
 
-`scripts/check-new-components.mjs` compares UI value exports with a base commit. A new export requires the `new-component` label, test and gallery coverage, and no simultaneous feature-renderer changes. Run it as `node scripts/check-new-components.mjs <base-ref>`; label validation only happens when `PR_LABELS` is supplied. With `--staged` it checks only the ordering rule, against the staged index, for the pre-commit hook.
+- `.githooks/pre-push` (`scripts/check-push.mjs`) refuses a push whose commit holds a design mock (`mocks/`, `mockups/`, `mock*.html`) or any other path `scripts/publication-paths.mjs` forbids: a branch may carry mocks while it's worked on, but take them out (`git rm -r --cached`) before raising its PR, so none reaches `main`.
+- `main` takes a PR with one approval; admins may bypass that only when merging a PR. Do not merge or use that bypass unless the user asks.
+- `scripts/check-new-components.mjs` compares UI value exports with a base commit. A new export requires the `new-component` label, test and gallery coverage, and no simultaneous feature-renderer changes. Run it as `node scripts/check-new-components.mjs <base-ref>`; label validation only happens when `PR_LABELS` is supplied. With `--staged` it checks only the ordering rule, against the staged index, for the pre-commit hook.
 
 ### Documentation authority
 
-Keep this file as the agent entry point and `docs/design-system.md` as the single UI catalogue. `CLAUDE.md` should continue to delegate here. Repository skills live in `.claude/skills/` (currently `create-pr`, `create-release` and `ui-review`); this file points to each, so agents other than Claude find them too. There are no nested agent instructions or Cursor rule files. [docs/decisions.md](docs/decisions.md) records direction choices that would otherwise be lost, with a deliberately high bar for adding one. Legacy class tables and design plans are historical context, not permission to bypass current UI rules. When source, docs and guards disagree, inspect the actual behaviour and report any unresolved conflict; do not invent commands or silently relax a requirement.
+Keep this file as the agent entry point, holding rules and pointers: a table of facts to look up belongs in `docs/map.md`, because everything here is sent with every call. Keep `docs/design-system.md` as the single UI catalogue. `CLAUDE.md` should continue to delegate here. Repository skills live in `.claude/skills/` (currently `create-pr`, `create-release` and `ui-review`); this file points to each, so agents other than Claude find them too. There are no nested agent instructions or Cursor rule files. [docs/decisions.md](docs/decisions.md) records direction choices that would otherwise be lost, with a deliberately high bar for adding one. Legacy class tables and design plans are historical context, not permission to bypass current UI rules. When source, docs and guards disagree, inspect the actual behaviour and report any unresolved conflict; do not invent commands or silently relax a requirement.
 
 ## Checks
 
