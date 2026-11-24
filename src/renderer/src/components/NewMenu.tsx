@@ -1,9 +1,10 @@
 // The sidebar's one way to add anything: a full-width split button under its top row. The main half makes what the mode
 // is about (Inbox and Work a workspace, Team an employee, Channels a project); the ▾ opens the list of everything there
-// is to make (NewList in Overlays.tsx, also Ctrl+Shift+N) in the middle of the window, the mode's own item first. When
-// the list is folded away (a narrow window) or hidden, one icon button on the rail opens the same list.
-import { Plus } from 'lucide-react'
-import { newWorkspaceTarget, snapshotInSpace, workspaceRepos } from '../../../shared/organizations'
+// is to make (NewList in Overlays.tsx, also Ctrl+Shift+N) in the middle of the window, the mode's own item first. Inbox
+// and Work also have a folder-plus at the row's end: a short menu of the ways to add a repository to the space shown.
+// When the list is folded away (a narrow window) or hidden, one icon button on the rail opens the same list.
+import { Clock, Ellipsis, FolderOpen, FolderPlus, Globe, Plus } from 'lucide-react'
+import { currentSpace, newWorkspaceTarget, snapshotInSpace, workspaceRepos } from '../../../shared/organizations'
 import { useT } from '../i18n'
 import { shortcutHint } from '../shortcuts'
 import { SIDEBAR_MODE_LABEL, shownMode, shownOrganization, sidebarModes } from '../sidebarModes'
@@ -22,7 +23,7 @@ import {
   useStore,
   type SidebarMode
 } from '../store'
-import { Button, SplitButton } from '../ui'
+import { Button, MenuButton, MenuGroup, MenuItem, MenuLabel, MenuSeparator, SplitButton } from '../ui'
 import { tildify } from './AddRepository'
 
 /** One thing the list can make. `run` does it; the list closes itself first. */
@@ -104,9 +105,15 @@ export function useNewRows(): { primary: NewRow; rows: NewRow[]; mode: SidebarMo
 /** `rail`: the folded rail's icon button, which opens the list. */
 export function NewMenu({ rail }: { rail?: boolean }) {
   const t = useT()
-  const platform = useStore((s) => s.snapshot!.platform)
-  const { primary } = useNewRows()
+  const snapshot = useStore((s) => s.snapshot!)
+  const platform = snapshot.platform
+  const space = useStore((s) => s.space)
+  const { primary, mode } = useNewRows()
   const more = t('newList.more')
+  // The space shown, by name: the folder-plus says which one a new repository joins.
+  const shownSpace = currentSpace(snapshot.organizations, space)
+  const addLabel = t('sidebar.addRepo.label', { space: snapshot.organizations?.find((o) => o.id === shownSpace)?.name ?? t('spaces.personal') })
+  const recent = (snapshot.recentRepos ?? []).slice(0, 3)
   const listKey = shortcutHint('new.list', platform)
   if (rail)
     return (
@@ -117,8 +124,8 @@ export function NewMenu({ rail }: { rail?: boolean }) {
       </span>
     )
   return (
-    // Both tour steps about adding (a repository, a workspace) point at the one button.
-    <div className="sidebar-new" data-tour="add-repo">
+    // The tour's add steps (a repository, a workspace) point at the split button and the folder-plus.
+    <div className="sidebar-new">
       <SplitButton
         variant="primary"
         className="sidebar-new-split"
@@ -136,6 +143,46 @@ export function NewMenu({ rail }: { rail?: boolean }) {
         onClick={primary.run}
         onArrowClick={() => openOverlay('new')}
       />
+      {(mode === 'inbox' || mode === 'work') && (
+        <MenuButton
+          look="button"
+          iconOnly
+          placement="bottom-end"
+          label={addLabel}
+          trigger={<FolderPlus size={16} aria-hidden />}
+          triggerClassName="sidebar-add-repo"
+          data-tour="add-repo"
+        >
+          <MenuLabel>{addLabel}</MenuLabel>
+          <MenuGroup label={addLabel}>
+            <MenuItem icon={<FolderOpen size={14} />} onSelect={() => void addRepository()}>
+              {t('addRepo.openProject')}
+            </MenuItem>
+            <MenuItem icon={<Globe size={14} />} onSelect={() => openAddRepoDialog('clone')}>
+              {t('addRepo.openGithub')}
+            </MenuItem>
+            <MenuItem icon={<FolderPlus size={14} />} onSelect={() => openAddRepoDialog('quick-start')}>
+              {t('addRepo.quickStart')}
+            </MenuItem>
+          </MenuGroup>
+          {recent.length > 0 && (
+            <>
+              <MenuLabel>{t('addRepo.recentFolders')}</MenuLabel>
+              <MenuGroup label={t('addRepo.recentFolders')}>
+                {recent.map((p) => (
+                  <MenuItem key={p} icon={<Clock size={14} />} title={p} onSelect={() => void openRecentRepo(p)}>
+                    {tildify(p, snapshot.homeDir)}
+                  </MenuItem>
+                ))}
+              </MenuGroup>
+            </>
+          )}
+          <MenuSeparator />
+          <MenuItem icon={<Ellipsis size={14} />} description={t('addRepo.moreDetail')} onSelect={() => openAddRepoDialog('add')}>
+            {t('addRepo.more')}
+          </MenuItem>
+        </MenuButton>
+      )}
     </div>
   )
 }

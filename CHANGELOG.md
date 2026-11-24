@@ -2,6 +2,38 @@
 
 Notable changes to Foreman, newest first. Versions follow [semver](https://semver.org/); see "Releases" in [docs/maintenance.md](docs/maintenance.md) for how a release is made. Each release's sections come in the order a reader needs them: **Before you update** (anything to do or know first), **Security**, **Fixed**, **Added**, **Changed**, and **Development** (for contributors only, left out of the release's notes in the app). Releases up to 1.2.12 list them as Added, Changed, Fixed, Security and Development.
 
+## 1.2.13 (2026-11-24)
+
+### Before you update
+
+- **Gemini CLI** is no longer offered, because Google stopped serving it for personal accounts. Chats that ran on it continue on **Antigravity**, with the chat so far, and its models and choices move there too. ([#262](https://github.com/elite-build/foreman/pull/262))
+- **Antigravity** needs `agy` 1.5.0 or later. With an older `agy`, Foreman shows a notice to update it. ([#262](https://github.com/elite-build/foreman/pull/262))
+- A flow, persona or employee in your repository that names Gemini CLI (`gemini`) is reported as an agent Foreman doesn't know. Edit it to name another agent, such as `antigravity`. ([#262](https://github.com/elite-build/foreman/pull/262))
+
+### Security
+
+- A **Gemini API key** saved for Gemini CLI moves to Antigravity, unless Antigravity already has one, and is used only when Antigravity signs in with an API key. An auto-fix you approved for a Gemini CLI chat asks again. ([#262](https://github.com/elite-build/foreman/pull/262))
+
+### Fixed
+
+- **Antigravity** no longer shows as needing another install: it runs through `agy acp`, which comes with `agy`, instead of a separate ACP server. ([#262](https://github.com/elite-build/foreman/pull/262))
+
+### Added
+
+- **Antigravity** can sign in with a **Gemini API key** as well as your Google account. ([#262](https://github.com/elite-build/foreman/pull/262))
+- A **folder button** beside **New workspace** opens **Open a folder**, **Clone from GitHub**, **Start a new repository** and your recent folders for the space you're in. ([#264](https://github.com/elite-build/foreman/pull/264))
+
+### Changed
+
+- The **+** under the spaces opens **Add to Foreman**, with a repository and the space it joins beside **New organization…**. Before, it opened New organization straight away; that is now one click further, in the same dialog. ([#264](https://github.com/elite-build/foreman/pull/264))
+- A repository you add while an organization is shown joins that organization. Before, opening a folder always added it to Personal; move one back from **Settings → Spaces**. ([#264](https://github.com/elite-build/foreman/pull/264))
+- **Open project**, **Open GitHub project** and **Quick start** are now **Open a folder**, **Clone from GitHub** and **Start a new repository**. ([#264](https://github.com/elite-build/foreman/pull/264))
+- **What's new** lists anything to do before updating first, then security, fixes, additions and changes, and leaves out notes meant only for contributors. ([#263](https://github.com/elite-build/foreman/pull/263))
+
+### Development
+
+- A pull request's release note has one line per effect, each starting with its section, and says what changed behaviour did before. ([#263](https://github.com/elite-build/foreman/pull/263))
+
 ## 1.2.12 (2026-11-23)
 
 ### Added

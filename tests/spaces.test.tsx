@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Spaces in the window (docs/ai-employees.md §3 and §10): the rail's space tiles always there (Personal until an
-// organization exists), New organization… under them and in the sidebar's New list, the New organization dialog (one
+// organization exists), + under them opening Add to Foreman (a repository, or an organization) and New organization… in the
+// sidebar's New list, the New organization dialog (one
 // name and the repositories to bring, the one in view ticked; its memory repository is never shown), and Settings →
 // Spaces, where the memory is linked to GitHub.
 import './domShims'
@@ -10,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../src/shared/organizations'
 import { SpaceTiles } from '../src/renderer/src/components/spaces/SpaceTiles'
 import { CreateOrganizationDialog } from '../src/renderer/src/components/spaces/CreateOrganizationDialog'
-import { CloneRepoDialog, QuickStartDialog } from '../src/renderer/src/components/AddRepository'
+import { AddToForemanDialog, CloneRepoDialog, QuickStartDialog } from '../src/renderer/src/components/AddRepository'
 import { NewList } from '../src/renderer/src/components/Overlays'
 import { SpacesPage } from '../src/renderer/src/components/settings/SpacesPage'
 import { fakeApi, fakeState, resetFake, storeModule } from './rendererStore'
@@ -64,8 +65,8 @@ describe('the rail’s spaces', () => {
     expect(personal.getAttribute('aria-pressed')).toBe('true')
     // Its name is under the tile as well, for the eye.
     expect(screen.getByRole('navigation', { name: 'Spaces' }).textContent).toContain('Personal')
-    await user.click(screen.getByRole('button', { name: 'New organization…' }))
-    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
+    await user.click(screen.getByRole('button', { name: 'Add a repository or organization' }))
+    expect(spy('openAddRepoDialog')).toHaveBeenCalledWith('add')
   })
 
   it('is a tile per space, the shown one pressed, and shows a space when clicked', async () => {
@@ -76,7 +77,7 @@ describe('the rail’s spaces', () => {
       ['Personal', 'true'],
       ['Foreman', 'false'],
       ['XYZ', 'false'],
-      ['New organization…', null]
+      ['Add a repository or organization', null]
     ])
     // An organization's tile shows its initial; the memory repository is never named.
     expect(screen.getByRole('button', { name: 'Foreman' }).textContent).toBe('F')
@@ -405,6 +406,37 @@ describe('the Spaces page: an organization’s memory', () => {
     expect(storeModule.showToast).toHaveBeenCalledWith('Memory pushed.')
     await user.click(within(card).getByRole('button', { name: 'Unlink' }))
     await waitFor(() => expect(fakeApi.unlinkOrganizationMemory).toHaveBeenCalledWith('o1'))
+  })
+})
+
+describe('Add to Foreman, the rail’s +', () => {
+  it('has a repository on the left (the space it joins, the three ways, recent folders) and an organization on the right', async () => {
+    const user = userEvent.setup()
+    setSnapshot([org('o1', 'Foreman', 'foreman-memory')])
+    fakeState.snapshot.recentRepos = ['C:\\old\\one', 'C:\\old\\two']
+    fakeState.snapshot.homeDir = 'C:\\old'
+    fakeState.space = null
+    render(<AddToForemanDialog />)
+    expect(screen.getByRole('dialog', { name: 'Add to Foreman' })).toBeTruthy()
+    expect(screen.getByRole('radiogroup', { name: 'Add to' })).toBeTruthy()
+    // Picking Foreman, then a way: the dialog closes, Foreman is shown, and the way runs.
+    await user.click(screen.getByRole('radio', { name: 'Foreman' }))
+    await user.click(screen.getByRole('button', { name: /Open a folder/ }))
+    expect(spy('openAddRepoDialog')).toHaveBeenLastCalledWith(null)
+    expect(spy('setSpace')).toHaveBeenCalledWith('o1', { home: false })
+    expect(spy('addRepository')).toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '~\\one' }))
+    expect(spy('openRecentRepo')).toHaveBeenLastCalledWith('C:\\old\\one')
+  })
+
+  it('makes an organization from its right column', async () => {
+    const user = userEvent.setup()
+    setSnapshot([])
+    render(<AddToForemanDialog />)
+    expect(screen.getByRole('button', { name: 'New organization…' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'New organization…' }))
+    expect(spy('openAddRepoDialog')).toHaveBeenCalledWith(null)
+    expect(spy('openCreateOrganization')).toHaveBeenCalledWith(true)
   })
 })
 

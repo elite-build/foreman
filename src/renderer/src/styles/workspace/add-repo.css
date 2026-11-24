@@ -105,3 +105,16 @@
 .intake-line ~ .nw-note {
   margin: 4px 0 0;
 }
+
+/* Add to Foreman (the rail's +): a repository on the left, an organization on the right; one column when narrow. Layout only. */
+.add-dialog { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px; }
+.add-dialog-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.add-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.add-dialog .add-dialog-way { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; }
+.add-dialog-way-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.add-dialog .add-dialog-recent { justify-content: flex-start; gap: 8px; }
+.add-dialog .add-dialog-org { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; }
+.add-dialog-org-title { display: flex; align-items: center; gap: 8px; }
+.add-dialog-org > .ui-btn { margin-top: auto; }
+.add-dialog-drop { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 760px) { .add-dialog { grid-template-columns: minmax(0, 1fr); } }

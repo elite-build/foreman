@@ -561,6 +561,8 @@ export const SCREENS = [
   'new-workspace-branch',
   'new-workspace-questions',
   'clone-repo',
+  'add-dialog',
+  'add-menu',
   // Settings › Quick (what Settings opens on) and the rail gear's popover of its first tiles.
   'settings-quick',
   'settings-quick-choose',
