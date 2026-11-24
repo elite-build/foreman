@@ -163,8 +163,8 @@ describe('the agent-branch guard: what it counts', () => {
 
   it('counts kind and id only in a file that deals in agents, and not for an everyday word', () => {
     expect(kinds("import type { AgentKind } from './agents'\nconst x = entry.id === 'claude'")).toEqual(['comparison'])
-    expect(kinds("import type { AgentKind } from './agents'\nconst x = a.kind === 'gemini'")).toEqual(['comparison'])
-    expect(kinds("const x = entry.id === 'gemini'")).toEqual([])
+    expect(kinds("import type { AgentKind } from './agents'\nconst x = a.kind === 'qwen'")).toEqual(['comparison'])
+    expect(kinds("const x = entry.id === 'qwen'")).toEqual([])
     // 'continue' is a terminal agent's id and a step kind.
     expect(kinds("import type { AgentKind } from './agents'\nconst x = step.kind === 'continue'")).toEqual([])
     expect(kinds("const x = agent === 'continue'")).toEqual(['comparison'])
