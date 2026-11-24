@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useId,
   useLayoutEffect,
@@ -18,12 +19,30 @@ import {
 import { joinClass, useNameCheck, useOwnRef } from './Field'
 import { Glyph } from './Glyph'
 
-export type CodeEditorTokenKind = 'keyword' | 'string' | 'number' | 'comment' | 'title' | 'property'
+export type CodeEditorTokenKind =
+  | 'keyword'
+  | 'string'
+  | 'number'
+  | 'comment'
+  | 'title'
+  | 'property'
+  | 'type'
+  | 'builtin'
+  | 'literal'
+  | 'regexp'
+  | 'tag'
+  | 'meta'
+  | 'variable'
 // A run of one line's text. A line's tokens, joined, must be the line exactly; otherwise it is drawn plain.
 export type CodeEditorToken = { text: string; kind?: CodeEditorTokenKind }
 // A problem on a line. `line` is 1-based. `from` and `to` are 1-based columns, `from` included and `to` not, and put a
 // squiggle under that range (`to` defaults to the end of the line); without `from` the line gets its gutter mark only.
-export type CodeEditorMark = { line: number; tone: 'error' | 'warn'; message: string; from?: number; to?: number }
+// `info` is a note (a review comment): its gutter square never squiggles, even with `from`, and an error or a warning on
+// the same line shows instead.
+export type CodeEditorMark = { line: number; tone: 'error' | 'warn' | 'info'; message: string; from?: number; to?: number }
+// A change to show in the gutter. `line` is 1-based: 'added' and 'modified' mark that line; 'removed' marks the row
+// where lines were removed just after `line`, and 0 means before the first line (drawn on line 1's top edge).
+export type CodeEditorChange = { line: number; kind: 'added' | 'modified' | 'removed' }
 
 // Marks come with `markLabel`: what a screen reader hears for each, in the user's language, with the line and the tone
 // in words ("Line 40, problem: …"). The gutter shapes and squiggles are hidden from assistive tech, so it is the only
@@ -38,6 +57,11 @@ export type CodeEditorProps = Omit<ComponentPropsWithRef<'textarea'>, 'value' | 
   // Lines to show as the current range (1-based, both included): the step selected elsewhere.
   highlight?: { from: number; to: number } | null
   tokenize?: (line: string) => CodeEditorToken[]
+  // The tokens of each line, index 0 = line 1, for a feature that tokenizes ahead of the draw. An entry wins over
+  // `tokenize` for its line; an undefined entry falls back to `tokenize`.
+  tokenLines?: readonly (readonly CodeEditorToken[] | undefined)[]
+  // Changed lines, drawn as a bar on the gutter's right edge. Decorative: say the changes in words nearby.
+  changes?: readonly CodeEditorChange[]
   // Scrolls this line into view whenever the number changes.
   revealLine?: number
   // The caret's 1-based line, reported on select, key up and click.
@@ -51,8 +75,14 @@ export type CodeEditorProps = Omit<ComponentPropsWithRef<'textarea'>, 'value' | 
 type Tone = CodeEditorMark['tone']
 type Segment = { text: string; kind?: CodeEditorTokenKind; squiggle?: Tone }
 type LineMarks = { tone: Tone; ranges: { from: number; to: number; tone: Tone }[] }
+// What a gutter row shows for a change: 'removed-above' is a 'removed' at line 0, drawn on line 1's top edge.
+type ChangeShown = CodeEditorChange['kind'] | 'removed-above'
 
 const NO_MARKS: CodeEditorMark[] = []
+// A line's shown tone: error over warning over note.
+const TONE_RANK: Record<Tone, number> = { info: 0, warn: 1, error: 2 }
+// A row with more than one change shows the strongest: a modified line over an added one, over a removed row, over one above.
+const CHANGE_RANK: Record<ChangeShown, number> = { 'removed-above': 0, removed: 1, added: 2, modified: 3 }
 
 // The textarea's own line breaks: its value API turns CRLF and CR into LF, so the drawn lines split the same way.
 const splitLines = (text: string) => text.split(/\r\n|\r|\n/)
@@ -66,16 +96,16 @@ function lineOf(text: string, offset: number): number {
 const caretOf = (area: HTMLTextAreaElement) => (area.selectionDirection === 'backward' ? area.selectionStart : area.selectionEnd)
 
 // One line cut into runs that share a token kind and a squiggle, so each run is one span. Error squiggles win over warnings.
-function segments(line: string, tokenize: CodeEditorProps['tokenize'], marks: LineMarks | undefined): Segment[] {
-  let tokens: CodeEditorToken[] = tokenize ? tokenize(line) : [{ text: line }]
-  if (tokens.map((t) => t.text).join('') !== line) tokens = [{ text: line }]
+function segments(line: string, tokens: readonly CodeEditorToken[] | undefined, marks: LineMarks | undefined): Segment[] {
+  let runs: readonly CodeEditorToken[] = tokens ?? [{ text: line }]
+  if (runs.map((t) => t.text).join('') !== line) runs = [{ text: line }]
   const tone: (Tone | undefined)[] = []
   for (const r of marks?.ranges ?? []) {
     for (let c = Math.max(0, r.from); c < Math.min(line.length, r.to); c++) if (tone[c] !== 'error') tone[c] = r.tone
   }
   const out: Segment[] = []
   let col = 0
-  for (const token of tokens) {
+  for (const token of runs) {
     let start = 0
     for (let i = 1; i <= token.text.length; i++) {
       if (i === token.text.length || tone[col + i] !== tone[col + start]) {
@@ -138,9 +168,47 @@ function columnX(line: HTMLElement, col: number): number | null {
   return null
 }
 
+// One gutter row. Memoised: a keystroke redraws only the rows whose number, mark, change or highlight edge moved.
+type GutterRowProps = { n: number; tone?: Tone; change?: ChangeShown; edge?: string }
+const GutterRow = memo(function GutterRow({ n, tone, change, edge }: GutterRowProps) {
+  return (
+    <div className="ui-code-editor__gutter-row" data-line={n} data-highlight={edge} data-mark={tone} data-change={change}>
+      <span className="ui-code-editor__mark">{tone && <Glyph name={tone} />}</span>
+      <span className="ui-code-editor__number">{n}</span>
+    </div>
+  )
+})
+
+// The segments compared by value (text, kind and squiggle), so a fresh array of equal tokens is not a change.
+const sameSegments = (a: Segment[], b: Segment[]) =>
+  a.length === b.length && a.every((s, i) => s.text === b[i]?.text && s.kind === b[i]?.kind && s.squiggle === b[i]?.squiggle)
+
+// One drawn line. Memoised on its number, highlight edge and segments: a keystroke redraws only the lines whose text,
+// tokens or squiggle ranges changed.
+type CodeLineProps = { n: number; segments: Segment[]; edge?: string }
+const CodeLine = memo(
+  function CodeLine({ n, segments, edge }: CodeLineProps) {
+    return (
+      <div className="ui-code-editor__line" data-line={n} data-highlight={edge}>
+        {segments.map((s, j) =>
+          s.kind || s.squiggle ? (
+            <span key={j} className="ui-code-editor__token" data-kind={s.kind} data-squiggle={s.squiggle}>
+              {s.text}
+            </span>
+          ) : (
+            s.text
+          )
+        )}
+      </div>
+    )
+  },
+  (a, b) => a.n === b.n && a.edge === b.edge && sameSegments(a.segments, b.segments)
+)
+
 // A code pane: a native textarea (typing, IME, undo, selection and screen readers stay the browser's) over an
-// aria-hidden copy of its text that draws a line-number gutter, token colours, a highlighted range and problem marks.
-// Lines never wrap: long ones scroll sideways. Both layers sit in one scroller sized to the text, so they move together.
+// aria-hidden copy of its text that draws a line-number gutter, token colours, a highlighted range, problem marks and
+// change bars. Lines never wrap: long ones scroll sideways. Both layers sit in one scroller sized to the text, so they
+// move together.
 export function CodeEditor({
   value,
   onChange,
@@ -149,6 +217,8 @@ export function CodeEditor({
   marks = NO_MARKS,
   markLabel,
   tokenize,
+  tokenLines,
+  changes,
   revealLine,
   onCaretLine,
   rows = 12,
@@ -179,13 +249,24 @@ export function CodeEditor({
     const map = new Map<number, LineMarks>()
     for (const m of marks) {
       const entry = map.get(m.line) ?? { tone: m.tone, ranges: [] }
-      if (m.tone === 'error') entry.tone = 'error'
-      if (m.from !== undefined) entry.ranges.push({ from: m.from - 1, to: m.to === undefined ? Infinity : m.to - 1, tone: m.tone })
+      if (TONE_RANK[m.tone] > TONE_RANK[entry.tone]) entry.tone = m.tone
+      if (m.from !== undefined && m.tone !== 'info') entry.ranges.push({ from: m.from - 1, to: m.to === undefined ? Infinity : m.to - 1, tone: m.tone })
       map.set(m.line, entry)
     }
     return map
   }, [marks])
   const ordered = useMemo(() => [...marks].sort((a, b) => a.line - b.line || (a.from ?? 0) - (b.from ?? 0)), [marks])
+  const shownChange = useMemo(() => {
+    const map = new Map<number, ChangeShown>()
+    for (const c of changes ?? []) {
+      const above = c.kind === 'removed' && c.line === 0
+      const row = above ? 1 : c.line
+      const kind: ChangeShown = above ? 'removed-above' : c.kind
+      const prev = map.get(row)
+      if (prev === undefined || CHANGE_RANK[kind] > CHANGE_RANK[prev]) map.set(row, kind)
+    }
+    return map
+  }, [changes])
   const band = highlight ? { from: Math.min(highlight.from, highlight.to), to: Math.max(highlight.from, highlight.to) } : null
   const bandEdge = (n: number): string | undefined => {
     if (!band || n < band.from || n > band.to) return undefined
@@ -261,31 +342,14 @@ export function CodeEditor({
       <div className="ui-code-editor__scroller" ref={scrollerRef}>
         <div className="ui-code-editor__sheet">
           <div className="ui-code-editor__gutter" ref={gutterRef} aria-hidden="true">
-            {lines.map((_, i) => {
-              const n = i + 1
-              const mark = byLine.get(n)
-              return (
-                <div key={n} className="ui-code-editor__gutter-row" data-line={n} data-highlight={bandEdge(n)} data-mark={mark?.tone}>
-                  <span className="ui-code-editor__mark">{mark && <Glyph name={mark.tone} />}</span>
-                  <span className="ui-code-editor__number">{n}</span>
-                </div>
-              )
-            })}
+            {lines.map((_, i) => (
+              <GutterRow key={i + 1} n={i + 1} tone={byLine.get(i + 1)?.tone} change={shownChange.get(i + 1)} edge={bandEdge(i + 1)} />
+            ))}
           </div>
           <div className="ui-code-editor__body">
             <div className="ui-code-editor__code" ref={codeRef} aria-hidden="true">
               {lines.map((text, i) => (
-                <div key={i} className="ui-code-editor__line" data-line={i + 1} data-highlight={bandEdge(i + 1)}>
-                  {segments(text, tokenize, byLine.get(i + 1)).map((s, j) =>
-                    s.kind || s.squiggle ? (
-                      <span key={j} className="ui-code-editor__token" data-kind={s.kind} data-squiggle={s.squiggle}>
-                        {s.text}
-                      </span>
-                    ) : (
-                      s.text
-                    )
-                  )}
-                </div>
+                <CodeLine key={i} n={i + 1} segments={segments(text, tokenLines?.[i] ?? tokenize?.(text), byLine.get(i + 1))} edge={bandEdge(i + 1)} />
               ))}
             </div>
             <textarea

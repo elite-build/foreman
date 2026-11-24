@@ -3189,7 +3189,9 @@ export interface Api {
   previewUrl(workspaceId: string, path: string): Promise<string>
   // G3 · #19: an image as it was at a commit (an id, the diff's branch point), for the diff's before side.
   readImageAt(workspaceId: string, path: string, commit: string): Promise<ImagePreview>
-  writeFile(workspaceId: string, path: string, content: string): Promise<void>
+  // With `expected` (the text the editor opened or last saved), nothing is written when the file on disk now differs from it,
+  // and the file as it is now comes back (`''` when it no longer exists); null means it was written. Without `expected` it writes as before.
+  writeFile(workspaceId: string, path: string, content: string, expected?: string): Promise<{ current: string } | null>
   searchFiles(workspaceId: string, query: string, options: { caseSensitive?: boolean; regex?: boolean; wholeWord?: boolean }): Promise<SearchMatch[]>
   // O5: `commits` for `picked` (any order) and `commit` (one id).
   getDiff(workspaceId: string, scope: DiffScope, commits?: string[]): Promise<WorkspaceDiff>

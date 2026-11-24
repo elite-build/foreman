@@ -221,7 +221,7 @@ function CommentBox({ onSave, onCancel }: { onSave: (body: string) => void; onCa
   )
 }
 
-function InlineComment({ comment }: { comment: DiffComment }) {
+export function InlineComment({ comment }: { comment: DiffComment }) {
   const t = useT()
   // #15: Explain / Change this / Ask went (or wait to go) to a tab, and say so.
   if (comment.selection && comment.selection.action !== 'comment') return <SelectionComment comment={comment} />

@@ -2773,6 +2773,22 @@ export const en = {
   // ---- File viewer ----
   // A dot beside the file name while editing.
   'files.viewer.unsaved': 'Unsaved changes',
+  'files.changes.count': { one: '{count} change on this branch', other: '{count} changes on this branch' },
+  'files.changes.prev': 'Previous change',
+  'files.changes.next': 'Next change',
+  'files.changes.added': 'Added on this branch',
+  'files.changes.modified': 'Changed on this branch',
+  'files.changes.removed': 'Lines removed here on this branch',
+  'files.changes.revert': 'Revert this change',
+  'files.changes.revertTitle': 'Put these lines back as they were where the branch started; save to keep it',
+  'files.changes.hide': 'Hide',
+  'files.comment.mark': 'Line {line}, comment: {message}',
+  'files.sel.saveFirst': 'Save your edits first: the agent reads the file as it is on disk.',
+  'files.conflict.body': 'The agent changed this file after you opened it. Saving now would undo its change.',
+  'files.conflict.overlap': 'Your edits and the agent’s touch the same lines, so they can’t be merged.',
+  'files.conflict.merge': 'Merge both',
+  'files.conflict.theirs': 'Use the agent’s',
+  'files.conflict.mine': 'Keep mine',
   'files.viewer.binary': 'Binary file.',
   'files.viewer.tooLarge': 'This file is too large to show here. Open it in your editor.',
   // A picture's size in pixels, "512 × 512".

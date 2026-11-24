@@ -21,7 +21,7 @@ vi.mock('../src/renderer/src/store', async () => {
   return new Proxy(base, { get: (target, name: string) => (name === 'bridge' ? bridge : target[name]), has: () => true })
 })
 
-import { DIFF_SAFETY_POLL_MS, DIFF_SETTLE_MS, useWorkspaceDiff } from '../src/renderer/src/components/WorkspaceView'
+import { DIFF_SAFETY_POLL_MS, DIFF_SETTLE_MS, useWorkspaceDiff } from '../src/renderer/src/components/workspaceDiff'
 import type { DiffScope, WorkspaceDiff } from '../src/shared/types'
 
 function Probe({ running, scope = 'all' }: { running: boolean; scope?: DiffScope }) {

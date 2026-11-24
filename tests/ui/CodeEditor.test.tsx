@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CodeEditor, type CodeEditorMark, type CodeEditorProps, type CodeEditorToken } from '../../src/renderer/src/ui/CodeEditor'
+import { CodeEditor, type CodeEditorMark, type CodeEditorProps, type CodeEditorToken, type CodeEditorTokenKind } from '../../src/renderer/src/ui/CodeEditor'
 import { Field } from '../../src/renderer/src/ui/Field'
 
 afterEach(() => {
@@ -320,5 +320,93 @@ describe('CodeEditor', () => {
     expect(frame(container).style.getPropertyValue('--ui-code-editor-rows')).toBe('20')
     expect(frame(container).hasAttribute('data-invalid')).toBe(true)
     expect(area().getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('draws a change on the gutter row of its line, and a removal above line 1 on line 1', () => {
+    const { container } = render(
+      <CodeEditor
+        aria-label="Flow"
+        value={TOML}
+        onChange={() => {}}
+        changes={[
+          { line: 0, kind: 'removed' },
+          { line: 2, kind: 'added' },
+          { line: 3, kind: 'modified' },
+          { line: 4, kind: 'removed' }
+        ]}
+      />
+    )
+    expect([1, 2, 3, 4, 5, 6].map((n) => gutterRow(container, n).getAttribute('data-change'))).toEqual(['removed-above', 'added', 'modified', 'removed', null, null])
+    // The bars are decorative: the numbers and the code are the same.
+    expect(gutterRow(container, 3).textContent).toBe('3')
+    expect(codeLine(container, 3).textContent).toBe('persona = "qa-engineer"')
+  })
+
+  it('shows the strongest change on a row that has several', () => {
+    const { container } = render(
+      <CodeEditor
+        aria-label="Flow"
+        value={TOML}
+        onChange={() => {}}
+        changes={[
+          { line: 2, kind: 'added' },
+          { line: 2, kind: 'modified' },
+          { line: 1, kind: 'removed' },
+          { line: 0, kind: 'removed' }
+        ]}
+      />
+    )
+    expect(gutterRow(container, 2).getAttribute('data-change')).toBe('modified')
+    expect(gutterRow(container, 1).getAttribute('data-change')).toBe('removed')
+  })
+
+  it('takes the tokens given per line over tokenize, and draws a line plain when they do not add up to it', () => {
+    const tokenize = (line: string): CodeEditorToken[] => [{ text: line, kind: 'comment' }]
+    const { container } = render(
+      <CodeEditor
+        aria-label="Flow"
+        value={'kind = "x"\nb = 2'}
+        tokenLines={[[{ text: 'kind', kind: 'property' }, { text: ' = "x"' }], undefined]}
+        tokenize={tokenize}
+        onChange={() => {}}
+      />
+    )
+    expect(codeLine(container, 1).querySelector('[data-kind="property"]')?.textContent).toBe('kind')
+    expect(codeLine(container, 1).querySelector('[data-kind="comment"]')).toBeNull()
+    // No entry for line 2: tokenize draws it.
+    expect(codeLine(container, 2).querySelector('[data-kind="comment"]')?.textContent).toBe('b = 2')
+    cleanup()
+    const broken = render(<CodeEditor aria-label="Flow" value={'kind = "x"'} tokenLines={[[{ text: 'turn', kind: 'keyword' }]]} onChange={() => {}} />)
+    expect(codeLine(broken.container, 1).textContent).toBe('kind = "x"')
+    expect(codeLine(broken.container, 1).querySelector('[data-kind]')).toBeNull()
+  })
+
+  it('colours each of the new token kinds by its own data-kind', () => {
+    const kinds: CodeEditorTokenKind[] = ['type', 'builtin', 'literal', 'regexp', 'tag', 'meta', 'variable']
+    const tokens = kinds.flatMap((kind, i) => (i ? [{ text: ' ' }, { text: kind, kind }] : [{ text: kind, kind }]))
+    const { container } = render(<CodeEditor aria-label="Flow" value={kinds.join(' ')} tokenLines={[tokens]} onChange={() => {}} />)
+    expect([...codeLine(container, 1).querySelectorAll('[data-kind]')].map((el) => el.getAttribute('data-kind'))).toEqual(kinds)
+    expect(codeLine(container, 1).textContent).toBe(kinds.join(' '))
+  })
+
+  it('marks a note with the info square and no squiggle, lists it with its label, and shows an error over it', () => {
+    const marks: CodeEditorMark[] = [
+      { line: 2, tone: 'info', message: 'Consider a clearer name.', from: 1, to: 5 },
+      { line: 4, tone: 'info', message: 'Noted.' },
+      { line: 4, tone: 'error', message: 'bad' }
+    ]
+    const { container } = render(
+      <CodeEditor aria-label="Flow" value={TOML} onChange={() => {}} marks={marks} markLabel={(m) => `Line ${m.line}, ${m.tone}: ${m.message}`} />
+    )
+    expect(gutterRow(container, 2).getAttribute('data-mark')).toBe('info')
+    expect(gutterRow(container, 2).querySelector('svg')!.getAttribute('data-glyph')).toBe('info')
+    expect(codeLine(container, 2).querySelector('[data-squiggle]')).toBeNull()
+    expect(gutterRow(container, 4).querySelector('svg')!.getAttribute('data-glyph')).toBe('error')
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Line 2, info: Consider a clearer name.',
+      'Line 4, info: Noted.',
+      'Line 4, error: bad'
+    ])
+    expect(description(area())).toContain('Line 2, info: Consider a clearer name.')
   })
 })

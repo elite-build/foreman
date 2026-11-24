@@ -72,6 +72,7 @@
   user-select: none;
 }
 .ui-code-editor__gutter-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -168,6 +169,27 @@
 .ui-code-editor__token[data-kind='property'] {
   color: var(--code-property);
 }
+.ui-code-editor__token[data-kind='type'] {
+  color: var(--code-type);
+}
+.ui-code-editor__token[data-kind='builtin'] {
+  color: var(--code-builtin);
+}
+.ui-code-editor__token[data-kind='literal'] {
+  color: var(--code-literal);
+}
+.ui-code-editor__token[data-kind='regexp'] {
+  color: var(--code-regexp);
+}
+.ui-code-editor__token[data-kind='tag'] {
+  color: var(--code-tag);
+}
+.ui-code-editor__token[data-kind='meta'] {
+  color: var(--code-meta);
+}
+.ui-code-editor__token[data-kind='variable'] {
+  color: var(--code-variable);
+}
 
 /* The highlighted range: neutral. The gutter gets the selected tint, a 3px edge and stronger numbers; the code gets a
    hairline above and below the range, not a tint, which would take the comment colour under 4.5:1. */
@@ -188,7 +210,42 @@
     inset 0 -1px 0 var(--selected-border);
 }
 
-/* Problems: the gutter shape (diamond, triangle) says which; the squiggle says where. */
+/* Changes: a 3px bar on the gutter's right edge, beside the code. Added is solid, modified is dashed (a blue bar would
+   not tell it from added without its pattern), and removed is a red wedge on the row's bottom edge pointing into the code;
+   a line removed above line 1 gets the wedge on its top edge. Decorative: the feature says the changes in words. */
+.ui-code-editor__gutter-row[data-change]::after,
+.ui-code-editor__gutter-row[data-change]::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+}
+.ui-code-editor__gutter-row[data-change]::after {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 3px;
+  background: var(--green);
+}
+.ui-code-editor__gutter-row[data-change='modified']::after {
+  background: repeating-linear-gradient(to bottom, var(--blue) 0 3px, transparent 3px 6px);
+}
+.ui-code-editor__gutter-row[data-change^='removed']::after {
+  content: none;
+}
+.ui-code-editor__gutter-row[data-change^='removed']::before {
+  right: 0;
+  bottom: -4px;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent var(--red);
+}
+.ui-code-editor__gutter-row[data-change='removed-above']::before {
+  bottom: auto;
+  top: -4px;
+}
+
+/* Problems: the gutter shape (diamond, triangle, and the square of a note) says which; the squiggle says where. A note
+   has no squiggle, and its square takes --mark-info from glyph.css. */
 .ui-code-editor__token[data-squiggle] {
   text-decoration-line: underline;
   text-decoration-style: wavy;
@@ -252,5 +309,18 @@
   }
   .ui-code-editor__gutter-row .ui-glyph {
     color: CanvasText;
+  }
+  .ui-code-editor__gutter-row[data-change]::after,
+  .ui-code-editor__gutter-row[data-change]::before {
+    forced-color-adjust: none;
+  }
+  .ui-code-editor__gutter-row[data-change='added']::after {
+    background: CanvasText;
+  }
+  .ui-code-editor__gutter-row[data-change='modified']::after {
+    background: repeating-linear-gradient(to bottom, CanvasText 0 3px, transparent 3px 6px);
+  }
+  .ui-code-editor__gutter-row[data-change^='removed']::before {
+    border-color: transparent transparent transparent CanvasText;
   }
 }

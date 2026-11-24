@@ -20,6 +20,7 @@ import {
   openOverlay,
   openPhoneSetup,
   openSettingsPage,
+  requestOpenFile,
   selectSession,
   selectWorkspace,
   setSidebarMode,
@@ -209,6 +210,36 @@ const SCREENS: Record<string, (f: Fixture) => Promise<string | null> | string | 
     if (!row) return null
     row.click()
     return '.file-diff'
+  },
+  // The file viewer on a file the agent changed: colours, the branch's change bars, and the caret's change below.
+  'file-view': async (f) => {
+    openWorkspace(f)
+    requestOpenFile(f.workspaceId, 'src/login.ts')
+    const editor = await waitFor(element('.file-code .ui-code-editor__gutter-row[data-change]'))
+    if (!editor) return null
+    return '.file-viewer'
+  },
+  // Next change: the caret on the agent's change, its old and new lines below with Revert.
+  'file-view-peek': async (f) => {
+    const shown = await SCREENS['file-view'](f)
+    if (!shown) return null
+    const next = await waitFor(() => [...document.querySelectorAll<HTMLElement>('.file-diff-head .ui-icon-btn, .file-diff-head button')].find((b) => b.getAttribute('aria-label') === 'Next change'))
+    if (!next) return null
+    next.click()
+    return (await waitFor(element('.file-peek'))) ? '.file-viewer' : null
+  },
+  // Lines selected in the viewer: the bar that sends them to a chat (Explain, Change this, Ask, Comment).
+  'file-view-select': async (f) => {
+    const shown = await SCREENS['file-view'](f)
+    if (!shown) return null
+    const area = await waitFor(element('.file-code textarea'))
+    if (!(area instanceof HTMLTextAreaElement)) return null
+    const start = area.value.indexOf('export async function')
+    area.focus()
+    area.setSelectionRange(start, area.value.indexOf('\n}', start) + 2)
+    document.dispatchEvent(new Event('selectionchange'))
+    area.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', bubbles: true }))
+    return (await waitFor(element('.file-strip .sel-bar'))) ? '.file-viewer' : null
   },
   'git-panel': (f) => {
     openWorkspace(f)

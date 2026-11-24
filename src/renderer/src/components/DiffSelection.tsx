@@ -172,7 +172,7 @@ export function quoteHead(t: RendererT, file: string, sel: DiffSelection): strin
   return `${base(file)} · ${range} · ${sel.side === 'new' ? t('diffSel.side.new') : t('diffSel.side.old')}`
 }
 
-function Quote({ head, rows, dim }: { head?: string; rows: { kind: string; no?: number; text: string }[]; dim?: boolean }) {
+export function Quote({ head, rows, dim }: { head?: string; rows: { kind: string; no?: number; text: string }[]; dim?: boolean }) {
   return (
     <div className={`comment-quote ${dim ? 'dim' : ''}`}>
       {head && (
